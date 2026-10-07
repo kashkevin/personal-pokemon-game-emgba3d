@@ -1,0 +1,172 @@
+{
+  "recorded_date": "2026-10-07",
+  "scope": "localhost two real modified ROM cores; ordinary save and closed-game canonical recovery",
+  "engine_commit": "37ca07e1c623dda5aea7ac7c68de588e48e52c94",
+  "mgba_commit": "26b7884bc25a5933960f3cdcd98bac1ae14d42e2",
+  "rom_sha256": "28605b780d9154f5ff95fe76724d232ca198383bae127341ab2882316395e4a9",
+  "ruleset_id": "baseline-rhh1.17.1-mailbox-v1",
+  "save_profile": "rhh-1.17.1-bb1093-presence-v1",
+  "gameplay_input": "ordinary emulated joypad",
+  "external_RAM_writes": "dedicated inbound mailbox only",
+  "savestates": false,
+  "runs": [
+    {
+      "run": 1,
+      "checks": [
+        {
+          "name": "separate-player-canonical-enrollment",
+          "revisions": [
+            1,
+            1
+          ],
+          "container_sha256": [
+            "8d611857e848f68ff3624d8540704d7e70ed4115326f82e304408587df9f3bf6",
+            "5688844e0799be76a91183ef37429a52449f2104e9efbde6d2ac7a381ca9f910"
+          ]
+        },
+        {
+          "name": "validated-mirrors-created-before-boot"
+        },
+        {
+          "name": "two-real-ROMs-continue-from-independent-checkpoints"
+        },
+        {
+          "name": "normal-save-A-revision2-B-revision1-unchanged",
+          "checkpoint": {
+            "revision": 2,
+            "request_id": "c9129d0a-f07d-4c30-9f29-054bb6d930cd",
+            "size": 131088,
+            "sha256": "e19b884e78d3548510b0c9fabd5fe7c1635101a7ed45c95ff6e092ac8436d389",
+            "build_id": "28605b780d9154f5ff95fe76724d232ca198383bae127341ab2882316395e4a9",
+            "ruleset_id": "baseline-rhh1.17.1-mailbox-v1",
+            "save_profile": "rhh-1.17.1-bb1093-presence-v1"
+          }
+        },
+        {
+          "name": "stale-local-revision-rejected-with-session-retained",
+          "connected": true
+        },
+        {
+          "name": "durable-host-restart-preserves-world-and-both-independent-saves"
+        },
+        {
+          "name": "damaged-local-mirror-recovered-from-canonical-checkpoint"
+        },
+        {
+          "name": "fresh-ROM-recovery-position-party-avatars-preserved"
+        }
+      ],
+      "initial_positions": [
+        [
+          6,
+          11
+        ],
+        [
+          5,
+          9
+        ]
+      ],
+      "recovered_positions": [
+        [
+          5,
+          11
+        ],
+        [
+          5,
+          9
+        ]
+      ],
+      "party_sha256": [
+        "ea2e12f4b6d07b3671cf63dea746d60fed5f19aef1f512cbe8cdd8ee478f87bd",
+        "e782bfe3ee232868110c3130b411330f3cc44261563ee6292b21b6c4f6c18089"
+      ],
+      "remote_avatar_counts": [
+        1,
+        1
+      ]
+    },
+    {
+      "run": 2,
+      "checks": [
+        {
+          "name": "separate-player-canonical-enrollment",
+          "revisions": [
+            1,
+            1
+          ],
+          "container_sha256": [
+            "8d611857e848f68ff3624d8540704d7e70ed4115326f82e304408587df9f3bf6",
+            "5688844e0799be76a91183ef37429a52449f2104e9efbde6d2ac7a381ca9f910"
+          ]
+        },
+        {
+          "name": "validated-mirrors-created-before-boot"
+        },
+        {
+          "name": "two-real-ROMs-continue-from-independent-checkpoints"
+        },
+        {
+          "name": "normal-save-A-revision2-B-revision1-unchanged",
+          "checkpoint": {
+            "revision": 2,
+            "request_id": "54f3c221-1589-4e27-8f07-ed6676a64c64",
+            "size": 131088,
+            "sha256": "5913db95135789f6ad2fabd1d45cb0e9d8ab7c0f7437ca00f9e0e4a29dd1181c",
+            "build_id": "28605b780d9154f5ff95fe76724d232ca198383bae127341ab2882316395e4a9",
+            "ruleset_id": "baseline-rhh1.17.1-mailbox-v1",
+            "save_profile": "rhh-1.17.1-bb1093-presence-v1"
+          }
+        },
+        {
+          "name": "stale-local-revision-rejected-with-session-retained",
+          "connected": true
+        },
+        {
+          "name": "durable-host-restart-preserves-world-and-both-independent-saves"
+        },
+        {
+          "name": "damaged-local-mirror-recovered-from-canonical-checkpoint"
+        },
+        {
+          "name": "fresh-ROM-recovery-position-party-avatars-preserved"
+        }
+      ],
+      "initial_positions": [
+        [
+          6,
+          11
+        ],
+        [
+          5,
+          9
+        ]
+      ],
+      "recovered_positions": [
+        [
+          5,
+          11
+        ],
+        [
+          5,
+          9
+        ]
+      ],
+      "party_sha256": [
+        "ea2e12f4b6d07b3671cf63dea746d60fed5f19aef1f512cbe8cdd8ee478f87bd",
+        "e782bfe3ee232868110c3130b411330f3cc44261563ee6292b21b6c4f6c18089"
+      ],
+      "remote_avatar_counts": [
+        1,
+        1
+      ]
+    }
+  ],
+  "not_verified": [
+    "live-ROM export/import",
+    "four actual ROM clients",
+    "Windows GUI",
+    "LAN/Internet transport",
+    "trade or economy ownership transactions",
+    "Local Soft Reset implementation"
+  ]
+}

@@ -1,25 +1,31 @@
-"""Four-player transient presence server for local/LAN development.
+"""Four-player local/LAN presence, with opt-in authenticated checkpoints.
 
-This prototype intentionally refuses public binds and public-source peers. It
-has no authentication, TLS, save persistence, or gameplay transaction support.
+Public binds and public-source peers remain disabled. Checkpoints are ordinary
+validated save containers; they are never imported into a running ROM here.
 """
 
 from __future__ import annotations
 
 import argparse
 import asyncio
+import base64
 from collections import deque
 from contextlib import suppress
 from dataclasses import dataclass, field
 import ipaddress
+import hashlib
 import math
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 from .protocol import (
-    MAX_COUNTER, MAX_FRAME_BYTES, MAX_PLAYERS, PROTOCOL_VERSION, ProtocolError,
+    CHECKPOINT_TYPES, MAX_COUNTER, MAX_FRAME_BYTES, MAX_PLAYERS, PROTOCOL_VERSION, ProtocolError,
     encode_message, read_message, validate_heartbeat, validate_hello,
-    validate_identity, validate_presence,
+    validate_identity, validate_presence, validate_checkpoint_common, validate_checkpoint_request,
 )
+from .storage import StorageError
+
+if TYPE_CHECKING:
+    from .storage import Checkpoint, CheckpointStore, WorldMetadata
 
 _LAN_NETWORKS = tuple(ipaddress.ip_network(network) for network in (
     "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "fc00::/7",
@@ -50,13 +56,14 @@ class ServerConfig:
     send_timeout: float = 1.0
     monitor_interval: float = 0.1
     reliable_limit: int = 8
+    checkpoint_upload_timeout: float = 30.0
 
     def __post_init__(self) -> None:
         validate_identity(self.build_id, "build_id")
         validate_identity(self.ruleset_id, "ruleset_id")
         for name in (
             "heartbeat_interval", "idle_timeout", "presence_timeout",
-            "handshake_timeout", "send_timeout", "monitor_interval",
+            "handshake_timeout", "send_timeout", "monitor_interval", "checkpoint_upload_timeout",
         ):
             value = getattr(self, name)
             if isinstance(value, bool) or not isinstance(value, (float, int)) or not math.isfinite(value) or value <= 0:
@@ -118,6 +125,22 @@ class OutboundQueue:
 
 
 @dataclass
+class CheckpointUpload:
+    upload_id: str
+    expected_revision: int
+    size: int
+    sha256: str
+    save_profile: str
+    last_activity: float
+    data: bytearray = field(default_factory=bytearray, repr=False)
+
+    def matches(self, message: dict[str, Any]) -> bool:
+        return all(getattr(self, name) == message[name] for name in (
+            "expected_revision", "size", "sha256", "save_profile",
+        ))
+
+
+@dataclass
 class PlayerSession:
     player_id: str
     display_name: str
@@ -133,20 +156,34 @@ class PlayerSession:
     closed: bool = False
     close_reason: str | None = None
     writer_task: asyncio.Task[None] | None = field(default=None, repr=False)
+    upload: CheckpointUpload | None = field(default=None, repr=False)
 
     def close(self, reason: str) -> None:
         if not self.closed:
             self.closed = True
             self.close_reason = reason
+            self.upload = None
             self.outbox.close()
             self.writer.close()
 
 
 class WorldServer:
-    """One event-loop-owned world; UUIDs identify independent transient clients."""
+    """Event-loop-owned presence; a supplied store adds durable player leases.
 
-    def __init__(self, config: ServerConfig) -> None:
+    The caller owns the store and provisions player credentials privately. There
+    is no unauthenticated network registration endpoint or public transport mode.
+    """
+
+    def __init__(self, config: ServerConfig, *, store: CheckpointStore | None = None) -> None:
         self.config = config
+        self.store = store
+        self._world_metadata: WorldMetadata | None = None
+        if store is not None:
+            from .flash import LAYOUT_ID
+            if store.build_id != config.build_id or store.ruleset_id != config.ruleset_id:
+                raise ValueError("checkpoint store must match the server build and ruleset")
+            if store.save_profile != LAYOUT_ID:
+                raise ValueError("checkpoint store save profile has no supported Flash parser")
         self.sessions: dict[str, PlayerSession] = {}
         self.world_seq = 0
         self._session_epoch = 0
@@ -173,7 +210,18 @@ class WorldServer:
             raise ValueError("port must be between 0 and 65535")
         self._allow_lan = allow_lan
         self._closing = False
-        self._server = await asyncio.start_server(self._accept, host, port, limit=MAX_FRAME_BYTES + 4)
+        # Bind first so a failed bind cannot fence a currently serving world.
+        listener = await asyncio.start_server(self._accept, host, port, limit=MAX_FRAME_BYTES + 4, start_serving=False)
+        try:
+            if self.store is not None:
+                self._world_metadata = self.store.begin_server_boot()
+            self._server = listener
+            await listener.start_serving()
+        except BaseException:
+            self._server = None
+            listener.close()
+            await listener.wait_closed()
+            raise
         self._monitor_task = asyncio.create_task(self._monitor(), name="world-heartbeat")
 
     async def serve_forever(self) -> None:
@@ -232,32 +280,48 @@ class WorldServer:
             hello = await asyncio.wait_for(read_message(reader), self.config.handshake_timeout)
             if hello is None:
                 return
-            hello = validate_hello(hello, self.config.build_id, self.config.ruleset_id)
+            hello = validate_hello(hello, self.config.build_id, self.config.ruleset_id, require_credential=self.store is not None)
+            if self.store is not None:
+                credential = bytes.fromhex(hello["credential"])
+                player = self.store.authenticate(hello["player_id"], credential)
             if hello["player_id"] in self.sessions:
                 await self._reject(writer, "player_already_connected", "this player identity already has a connection")
                 return
             if len(self.sessions) >= MAX_PLAYERS:
                 await self._reject(writer, "server_full", "the four-player server is full")
                 return
-            if self._session_epoch >= MAX_COUNTER:
-                await self._reject(writer, "epoch_exhausted", "restart this development server before admitting more sessions")
-                return
-            self._session_epoch += 1
+            if self.store is not None:
+                epoch = self.store.acquire_lease(player.player_id, credential)
+                display_name = player.display_name
+            else:
+                if self._session_epoch >= MAX_COUNTER:
+                    await self._reject(writer, "epoch_exhausted", "restart this development server before admitting more sessions")
+                    return
+                self._session_epoch += 1
+                epoch, display_name = self._session_epoch, hello["display_name"]
             now = asyncio.get_running_loop().time()
             session = PlayerSession(
-                hello["player_id"], hello["display_name"], self._session_epoch,
+                hello["player_id"], display_name, epoch,
                 writer, OutboundQueue(self.config.reliable_limit), now, now, now,
             )
             # Admission has no await between checking and claiming the lease.
             self.sessions[session.player_id] = session
-            self._control(session, {
+            welcome = {
                 "type": "welcome", "protocol": PROTOCOL_VERSION,
                 "build_id": self.config.build_id, "ruleset_id": self.config.ruleset_id,
                 "player_id": session.player_id, "session_epoch": session.session_epoch,
                 "max_players": MAX_PLAYERS,
                 "heartbeat_interval": self.config.heartbeat_interval,
                 "idle_timeout": self.config.idle_timeout,
-            })
+            }
+            if self.store is not None:
+                assert self._world_metadata is not None
+                welcome.update({
+                    "world_id": self._world_metadata.world_id,
+                    "server_epoch": self._world_metadata.server_epoch,
+                    "save_profile": self.store.save_profile, "checkpoint_enabled": True,
+                })
+            self._control(session, welcome)
             session.writer_task = asyncio.create_task(self._write(session), name=f"world-writer-{session.session_epoch}")
             self._broadcast_world()
             while not session.closed:
@@ -267,7 +331,7 @@ class WorldServer:
                 self._receive(session, message)
         except asyncio.TimeoutError:
             await self._reject(writer, "hello_timeout", "hello was not received in time")
-        except ProtocolError as error:
+        except (ProtocolError, StorageError) as error:
             await self._reject(writer, error.code, error.message)
         except (ConnectionError, OSError):
             pass
@@ -278,6 +342,10 @@ class WorldServer:
                     del self.sessions[session.player_id]
                     if not self._closing:
                         self._broadcast_world()
+                if self.store is not None:
+                    # An older server's cleanup cannot release a newer lease.
+                    with suppress(StorageError):
+                        self.store.release_lease(session.player_id, session.session_epoch)
                 if session.writer_task is not None:
                     session.writer_task.cancel()
                     with suppress(asyncio.CancelledError):
@@ -319,8 +387,167 @@ class WorldServer:
             else:
                 self._control(session, {**heartbeat, "type": "pong"})
             session.last_seen = now
+        elif isinstance(kind, str) and kind in CHECKPOINT_TYPES and self.store is not None:
+            # Invalid lease/correlation fields cannot safely receive an RPC reply.
+            validate_checkpoint_common(message, session.session_epoch)
+            try:
+                request = validate_checkpoint_request(message, session.session_epoch)
+                session.last_seen = now
+                self._checkpoint(session, request, now)
+            except (ProtocolError, StorageError) as error:
+                self._checkpoint_error(session, message, error.code, error.message)
         else:
             raise ProtocolError("invalid_type", "message type is unsupported")
+
+    @staticmethod
+    def _checkpoint_metadata(checkpoint: Checkpoint | None) -> dict[str, Any] | None:
+        if checkpoint is None:
+            return None
+        return {
+            "revision": checkpoint.revision, "request_id": checkpoint.request_id,
+            "size": len(checkpoint.payload), "sha256": checkpoint.sha256,
+            "build_id": checkpoint.build_id, "ruleset_id": checkpoint.ruleset_id,
+            "save_profile": checkpoint.save_profile,
+        }
+
+    def _checkpoint_reply(self, session: PlayerSession, request: dict[str, Any], **fields: Any) -> None:
+        self._control(session, {
+            "type": "checkpoint_result", "protocol": PROTOCOL_VERSION,
+            "session_epoch": session.session_epoch, "request_id": request["request_id"],
+            "operation": request["type"].removeprefix("checkpoint_"), **fields,
+        })
+
+    def _checkpoint_error(self, session: PlayerSession, request: dict[str, Any], code: str, message: str) -> None:
+        self._control(session, {
+            "type": "checkpoint_error", "protocol": PROTOCOL_VERSION,
+            "session_epoch": session.session_epoch, "request_id": request["request_id"],
+            "operation": request["type"].removeprefix("checkpoint_"),
+            "code": code, "message": message,
+        })
+
+    def _committed_retry(self, session: PlayerSession, request: dict[str, Any], upload_id: str) -> Checkpoint | None:
+        """Find the exact historic transaction, never a superficially equal head."""
+        assert self.store is not None
+        if request["expected_revision"] >= MAX_COUNTER:
+            return None
+        checkpoint = self.store.read_checkpoint(session.player_id, session.session_epoch, revision=request["expected_revision"] + 1)
+        if checkpoint is None or checkpoint.request_id != upload_id:
+            return None
+        if (checkpoint.sha256 != request["sha256"] or len(checkpoint.payload) != request["size"]
+                or checkpoint.save_profile != request["save_profile"]
+                or checkpoint.build_id != self.config.build_id or checkpoint.ruleset_id != self.config.ruleset_id):
+            raise ProtocolError("request_conflict", "the committed upload has a different fingerprint")
+        return checkpoint
+
+    def _checkpoint(self, session: PlayerSession, request: dict[str, Any], now: float) -> None:
+        """One bounded, stop-and-wait operation; commit is durable before ACK."""
+        assert self.store is not None
+        kind = request["type"]
+        if kind == "checkpoint_info":
+            checkpoint = self.store.read_checkpoint(session.player_id, session.session_epoch)
+            self._checkpoint_reply(session, request, checkpoint=self._checkpoint_metadata(checkpoint))
+            return
+        if kind == "checkpoint_read":
+            checkpoint = self.store.read_checkpoint(session.player_id, session.session_epoch)
+            if checkpoint is None or checkpoint.revision != request["expected_revision"]:
+                raise ProtocolError("revision_conflict", "checkpoint head changed; request its metadata again")
+            offset = request["offset"]
+            if offset >= len(checkpoint.payload):
+                raise ProtocolError("invalid_checkpoint_offset", "read offset must select bytes within the checkpoint")
+            data = checkpoint.payload[offset:offset + request["length"]]
+            self._checkpoint_reply(session, request, checkpoint=self._checkpoint_metadata(checkpoint),
+                                   offset=offset,
+                                   data_b64=base64.b64encode(data).decode("ascii"),
+                                   eof=offset + len(data) == len(checkpoint.payload))
+            return
+        if kind in ("checkpoint_begin", "checkpoint_commit"):
+            if request["save_profile"] != self.store.save_profile:
+                raise ProtocolError("save_profile_mismatch", "checkpoint save profile is incompatible")
+            if request["size"] > self.store.max_payload_bytes:
+                raise ProtocolError("invalid_checkpoint_size", "checkpoint exceeds this world's payload limit")
+        if kind == "checkpoint_begin":
+            upload_id = request["request_id"]
+            committed = self._committed_retry(session, request, upload_id)
+            if committed is not None:
+                self._checkpoint_reply(session, request, checkpoint=self._checkpoint_metadata(committed),
+                                       upload_id=upload_id, next_offset=request["size"])
+                return
+            checkpoint = self.store.read_checkpoint(session.player_id, session.session_epoch)
+            if request["expected_revision"] != (checkpoint.revision if checkpoint is not None else 0):
+                raise ProtocolError("revision_conflict", "checkpoint head changed; this upload cannot replace it")
+            if session.upload is not None:
+                if session.upload.upload_id != upload_id:
+                    raise ProtocolError("upload_active", "this player already has an active upload")
+                if not session.upload.matches(request):
+                    raise ProtocolError("request_conflict", "upload ID was reused with a different fingerprint")
+                session.upload.last_activity = now
+            else:
+                session.upload = CheckpointUpload(upload_id, request["expected_revision"], request["size"],
+                                                 request["sha256"], request["save_profile"], now)
+            self._checkpoint_reply(session, request, checkpoint=self._checkpoint_metadata(checkpoint),
+                                   upload_id=upload_id, next_offset=len(session.upload.data))
+            return
+        if kind == "checkpoint_abort":
+            if session.upload is not None and session.upload.upload_id != request["upload_id"]:
+                raise ProtocolError("upload_not_found", "that upload does not own this player's staging buffer")
+            session.upload = None
+            self._checkpoint_reply(session, request, checkpoint=None, upload_id=request["upload_id"])
+            return
+        upload = session.upload
+        if upload is None or upload.upload_id != request["upload_id"]:
+            if kind == "checkpoint_commit":
+                checkpoint = self._committed_retry(session, request, request["upload_id"])
+                if checkpoint is not None:
+                    # The store checks the fresh lease and all exact retry bindings.
+                    checkpoint = self.store.commit_checkpoint(
+                        session.player_id, session.session_epoch, checkpoint.request_id,
+                        request["expected_revision"], checkpoint.payload,
+                        self.config.build_id, self.config.ruleset_id, self.store.save_profile,
+                    )
+                    self._checkpoint_reply(session, request, checkpoint=self._checkpoint_metadata(checkpoint),
+                                           upload_id=request["upload_id"])
+                    return
+            raise ProtocolError("upload_not_found", "upload has expired, disconnected, or was never begun")
+        if kind == "checkpoint_chunk":
+            # No per-chunk metadata: even hostile one-byte chunks use bounded memory.
+            offset, data = request["offset"], request["data"]
+            end = offset + len(data)
+            if end > upload.size:
+                raise ProtocolError("invalid_checkpoint_offset", "chunk exceeds the declared checkpoint size")
+            if offset == len(upload.data):
+                upload.data.extend(data)
+            elif end <= len(upload.data) and upload.data[offset:end] == data:
+                pass  # Exact already-ACKed chunk retry.
+            else:
+                raise ProtocolError("checkpoint_offset_conflict", "chunks must be sequential or exact duplicates")
+            upload.last_activity = now
+            self._checkpoint_reply(session, request, checkpoint=None, upload_id=upload.upload_id, next_offset=len(upload.data))
+            return
+        if not upload.matches(request):
+            raise ProtocolError("request_conflict", "commit fingerprint differs from the begun upload")
+        if len(upload.data) != upload.size:
+            raise ProtocolError("upload_incomplete", "checkpoint upload is incomplete")
+        payload = bytes(upload.data)
+        if hashlib.sha256(payload).hexdigest() != upload.sha256:
+            session.upload = None
+            raise ProtocolError("checkpoint_hash_mismatch", "uploaded bytes do not match their declared SHA256")
+        from .flash import FlashError, inspect_flash
+        previous = self.store.read_checkpoint(session.player_id, session.session_epoch)
+        try:
+            trainer_id = inspect_flash(previous.payload).metadata.trainer_id if previous is not None else None
+            snapshot = inspect_flash(payload, expected_trainer_id=trainer_id)
+        except FlashError as error:
+            session.upload = None
+            raise ProtocolError("invalid_checkpoint", "Flash is invalid or belongs to a different trainer") from error
+        # No await separates validation, transaction commit, and clearing staging.
+        checkpoint = self.store.commit_checkpoint(
+            session.player_id, session.session_epoch, upload.upload_id,
+            upload.expected_revision, snapshot.container,
+            self.config.build_id, self.config.ruleset_id, upload.save_profile,
+        )
+        session.upload = None
+        self._checkpoint_reply(session, request, checkpoint=self._checkpoint_metadata(checkpoint),
+                               upload_id=upload.upload_id)
 
     def _broadcast_world(self) -> None:
         self.world_seq += 1
@@ -351,6 +578,8 @@ class WorldServer:
             for session in tuple(self.sessions.values()):
                 if session.closed:
                     continue
+                if session.upload is not None and now - session.upload.last_activity >= self.config.checkpoint_upload_timeout:
+                    session.upload = None
                 if now - session.last_seen >= self.config.idle_timeout:
                     session.close("heartbeat_timeout")
                     continue

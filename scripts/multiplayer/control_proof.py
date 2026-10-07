@@ -58,7 +58,7 @@ class Core:
 
     async def close(self):
         if self.process.returncode is None:
-            with suppress(ConnectionError, asyncio.TimeoutError):
+            with suppress(ConnectionError, asyncio.TimeoutError, RuntimeError):
                 await self.command("Q")
             try:
                 await asyncio.wait_for(self.process.wait(), 5)

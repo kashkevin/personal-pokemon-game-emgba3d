@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import binascii
 import json
 import math
 import re
@@ -14,6 +16,12 @@ PROTOCOL_VERSION = 1
 MAX_FRAME_BYTES = 16_384
 MAX_PLAYERS = 4
 MAX_COUNTER = 2_147_483_647
+MAX_CHECKPOINT_BYTES = 131_088
+CHECKPOINT_CHUNK_BYTES = 4096
+CHECKPOINT_TYPES = frozenset({
+    "checkpoint_info", "checkpoint_read", "checkpoint_begin",
+    "checkpoint_chunk", "checkpoint_commit", "checkpoint_abort",
+})
 ACTIVITIES = frozenset({"overworld", "menu", "battle", "transition", "unavailable"})
 MOVEMENT_MODES = frozenset({"walk", "run", "bike", "surf"})
 _IDENTITY = re.compile(r"[A-Za-z0-9_.:-]{1,128}\Z")
@@ -54,8 +62,8 @@ def _version(value: Any) -> None:
         raise ProtocolError("unsupported_protocol", "protocol version is incompatible")
 
 
-def validate_hello(message: dict[str, Any], build_id: str, ruleset_id: str) -> dict[str, Any]:
-    _fields(message, {"type", "protocol", "build_id", "ruleset_id", "player_id", "display_name"})
+def validate_hello(message: dict[str, Any], build_id: str, ruleset_id: str, *, require_credential: bool = False) -> dict[str, Any]:
+    _fields(message, {"type", "protocol", "build_id", "ruleset_id", "player_id", "display_name"}, {"credential"})
     if message["type"] != "hello":
         raise ProtocolError("hello_required", "the first message must be hello")
     _version(message["protocol"])
@@ -73,7 +81,80 @@ def validate_hello(message: dict[str, Any], build_id: str, ruleset_id: str) -> d
     name = message["display_name"]
     if not isinstance(name, str) or not 1 <= len(name) <= 24 or not name.strip() or not name.isprintable():
         raise ProtocolError("invalid_display_name", "display_name must contain 1 to 24 printable characters")
+    if require_credential and "credential" not in message:
+        raise ProtocolError("credentials_required", "this world requires a server-issued player credential")
+    if "credential" in message and (not isinstance(message["credential"], str) or re.fullmatch(r"[0-9a-f]{64}", message["credential"]) is None):
+        raise ProtocolError("credentials_invalid", "credential must be a 32-byte lower-case hex value")
     return dict(message)
+
+
+def validate_checkpoint_common(message: dict[str, Any], session_epoch: int) -> dict[str, Any]:
+    """Validate correlation/lease fields before a recoverable RPC body error."""
+    if not isinstance(message, dict) or not isinstance(message.get("type"), str) or message["type"] not in CHECKPOINT_TYPES:
+        raise ProtocolError("invalid_type", "unsupported checkpoint operation")
+    epoch = _integer(message.get("session_epoch"), "session_epoch", 1, MAX_COUNTER)
+    if epoch != session_epoch:
+        raise ProtocolError("session_epoch_mismatch", "checkpoint session epoch is incompatible")
+    _request_uuid(message.get("request_id"), "request_id")
+    return message
+
+
+def _request_uuid(value: Any, name: str) -> str:
+    try:
+        valid = isinstance(value, str) and str(uuid.UUID(value)) == value
+    except (ValueError, AttributeError):
+        valid = False
+    if not valid:
+        raise ProtocolError("invalid_request_id", f"{name} must be a canonical UUID")
+    return value
+
+
+def validate_checkpoint_request(message: dict[str, Any], session_epoch: int) -> dict[str, Any]:
+    """Validate a bounded checkpoint RPC; chunk returns local-only data bytes.
+
+    Request IDs correlate replies. The begin request ID is also the stable
+    upload ID used by the store's exactly-once-effect commit/retry logic.
+    """
+    validate_checkpoint_common(message, session_epoch)
+    kind = message["type"]
+    common = {"type", "request_id", "session_epoch"}
+    fingerprint = {"expected_revision", "size", "sha256", "save_profile"}
+    extras = {
+        "checkpoint_info": set(),
+        "checkpoint_read": {"expected_revision", "offset", "length"},
+        "checkpoint_begin": fingerprint,
+        "checkpoint_chunk": {"upload_id", "offset", "data_b64"},
+        "checkpoint_commit": fingerprint | {"upload_id"},
+        "checkpoint_abort": {"upload_id"},
+    }
+    _fields(message, common | extras[kind])
+    result = dict(message)
+    if "expected_revision" in message:
+        _integer(message["expected_revision"], "expected_revision", 1 if kind == "checkpoint_read" else 0, MAX_COUNTER)
+    if "upload_id" in message:
+        _request_uuid(message["upload_id"], "upload_id")
+    if "offset" in message:
+        _integer(message["offset"], "offset", 0, MAX_CHECKPOINT_BYTES)
+    if kind == "checkpoint_read":
+        _integer(message["length"], "length", 1, CHECKPOINT_CHUNK_BYTES)
+    if kind in ("checkpoint_begin", "checkpoint_commit"):
+        if type(message["size"]) is not int or message["size"] not in (131_072, MAX_CHECKPOINT_BYTES):
+            raise ProtocolError("invalid_checkpoint_size", "checkpoint must be Flash with an optional mGBA RTC footer")
+        if not isinstance(message["sha256"], str) or re.fullmatch(r"[0-9a-f]{64}", message["sha256"]) is None:
+            raise ProtocolError("invalid_checkpoint_hash", "checkpoint SHA256 is invalid")
+        validate_identity(message["save_profile"], "save_profile")
+    if kind == "checkpoint_chunk":
+        encoded = message["data_b64"]
+        if not isinstance(encoded, str) or not 1 <= len(encoded) <= 4 * ((CHECKPOINT_CHUNK_BYTES + 2) // 3):
+            raise ProtocolError("invalid_checkpoint_chunk", "checkpoint chunk exceeds its size limit")
+        try:
+            data = base64.b64decode(encoded, validate=True)
+        except (ValueError, binascii.Error) as error:
+            raise ProtocolError("invalid_checkpoint_chunk", "checkpoint chunk is not valid base64") from error
+        if not 1 <= len(data) <= CHECKPOINT_CHUNK_BYTES or base64.b64encode(data).decode("ascii") != encoded:
+            raise ProtocolError("invalid_checkpoint_chunk", "checkpoint chunk is not canonical bounded base64")
+        result["data"] = data
+    return result
 
 
 def validate_presence(message: dict[str, Any], session_epoch: int) -> dict[str, Any]:

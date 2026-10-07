@@ -18,6 +18,7 @@ from pathlib import Path
 import re
 from typing import Any
 import zlib
+from uuid import UUID, uuid4
 
 from .bridge_protocol import BridgeError, LatestPacket, read_packet
 from .mailbox import ABI_VERSION, CONNECTED, MAILBOX_SIZE, MailboxError, Peer, Pose, Snapshot
@@ -88,6 +89,7 @@ class CompanionConfig:
     handshake_timeout: float = 3.0
     remote_timeout: float = 20.0
     send_timeout: float = 1.0
+    server_credential: bytes | None = field(default=None, repr=False)
     build_id: str = field(init=False)
     ruleset_id: str = field(init=False, default=BASELINE_RULESET)
 
@@ -104,6 +106,8 @@ class CompanionConfig:
         }, build_id, self.ruleset_id)
         if not isinstance(self.token, bytes) or len(self.token) != 32:
             raise ValueError("IPC token must contain exactly 32 random bytes")
+        if self.server_credential is not None and (not isinstance(self.server_credential, bytes) or len(self.server_credential) != 32):
+            raise ValueError("server credential must contain exactly 32 random bytes")
         if not is_local_address(self.ipc_host):
             raise ValueError("binary IPC must bind a numeric loopback address")
         if not is_local_address(self.server_host, allow_lan=True):
@@ -135,10 +139,26 @@ def _fields(message: Any, names: set[str], kind: str) -> None:
 
 
 def validate_welcome(message: dict[str, Any], config: CompanionConfig) -> dict[str, Any]:
-    _fields(message, {
+    names = {
         "type", "protocol", "build_id", "ruleset_id", "player_id", "session_epoch",
         "max_players", "heartbeat_interval", "idle_timeout",
-    }, "welcome")
+    }
+    durable = {"world_id", "server_epoch", "save_profile", "checkpoint_enabled"}
+    if isinstance(message, dict) and set(message) == names | durable:
+        if config.server_credential is None or message["checkpoint_enabled"] is not True:
+            raise ProtocolError("identity_mismatch", "durable world requires a player credential")
+        try:
+            if str(UUID(message["world_id"])) != message["world_id"]:
+                raise ValueError()
+        except (ValueError, TypeError, AttributeError):
+            raise ProtocolError("invalid_server_message", "invalid world identity") from None
+        _integer(message["server_epoch"], 1, MAX_COUNTER, "server_epoch")
+        if not isinstance(message["save_profile"], str) or not 1 <= len(message["save_profile"]) <= 128:
+            raise ProtocolError("invalid_server_message", "invalid save profile")
+        names |= durable
+    elif config.server_credential is not None:
+        raise ProtocolError("identity_mismatch", "authenticated client requires a durable world")
+    _fields(message, names, "welcome")
     if message["build_id"] != config.build_id or message["ruleset_id"] != config.ruleset_id:
         raise ProtocolError("identity_mismatch", "server build/ruleset is incompatible")
     if message["player_id"] != config.player_id:
@@ -206,6 +226,10 @@ class Companion:
         self._snapshot_task: asyncio.Task[None] | None = None
         self._remote_writer: asyncio.StreamWriter | None = None
         self._remote_lock = asyncio.Lock()
+        self.world_id: str | None = None
+        self.server_epoch: int | None = None
+        self.save_profile: str | None = None
+        self._checkpoint_pending: dict[str, tuple[str, int, asyncio.Future]] = {}
         self._bridge: BridgeSession | None = None
         self._bridge_incarnation = 0
         self._ipc_writers: set[asyncio.StreamWriter] = set()
@@ -361,6 +385,11 @@ class Companion:
             self._roster_epoch = self._roster_epoch % _UINT32 + 1
         self.connected = False
         self.session_epoch = None
+        self.world_id = self.server_epoch = self.save_profile = None
+        for _, _, future in self._checkpoint_pending.values():
+            if not future.done():
+                future.set_exception(ConnectionError("checkpoint connection lost; query the canonical revision before retrying"))
+        self._checkpoint_pending.clear()
         self._players = []
         self._peer_history.clear()
         self._roster_signature = None
@@ -383,11 +412,14 @@ class Companion:
         try:
             reader, writer = await asyncio.wait_for(asyncio.open_connection(self.config.server_host, self.config.server_port, limit=16_388), self.config.handshake_timeout)
             self._remote_writer = writer
-            await self._send_remote(writer, {
+            hello = {
                 "type": "hello", "protocol": PROTOCOL_VERSION,
                 "build_id": self.config.build_id, "ruleset_id": self.config.ruleset_id,
                 "player_id": self.config.player_id, "display_name": self.config.display_name,
-            })
+            }
+            if self.config.server_credential is not None:
+                hello["credential"] = self.config.server_credential.hex()
+            await self._send_remote(writer, hello)
             welcome = await asyncio.wait_for(read_message(reader), self.config.handshake_timeout)
             if welcome is None:
                 raise ConnectionError("server closed before welcome")
@@ -395,6 +427,9 @@ class Companion:
                 raise ProtocolError("server_rejected", "server rejected this client")
             welcome = validate_welcome(welcome, self.config)
             self.session_epoch = welcome["session_epoch"]
+            self.world_id = welcome.get("world_id")
+            self.server_epoch = welcome.get("server_epoch")
+            self.save_profile = welcome.get("save_profile")
             self.connected = True
             self.last_error = None
             self._network_seq = self._network_map_epoch = 0
@@ -452,8 +487,52 @@ class Companion:
                 await self._send_remote(writer, {**heartbeat, "type": "pong"})
             elif message.get("type") == "world":
                 self._apply_world(message)
+            elif message.get("type") in {"checkpoint_result", "checkpoint_error"}:
+                self._receive_checkpoint(message)
             else:
                 raise ProtocolError("invalid_server_message", "unexpected server message type")
+
+    async def checkpoint_rpc(self, operation: str, *, request_id: str | None = None, timeout: float = 5.0, **fields: Any) -> dict[str, Any]:
+        """Use the existing reader so heartbeat/presence continue during transfers."""
+        from .protocol import validate_checkpoint_request
+        if set(fields) & {"type", "session_epoch"}:
+            raise ValueError("checkpoint envelope fields cannot be overridden")
+        if not self.connected or self.world_id is None or self._remote_writer is None:
+            raise ConnectionError("no authenticated checkpoint session")
+        request_id = request_id or str(uuid4())
+        if request_id in self._checkpoint_pending:
+            raise ValueError("checkpoint request is already pending")
+        if len(self._checkpoint_pending) >= 8:
+            raise ValueError("checkpoint request capacity is exhausted")
+        epoch = self.session_epoch
+        message = {"type": "checkpoint_" + operation, "session_epoch": epoch, "request_id": request_id, **fields}
+        validate_checkpoint_request(message, epoch)
+        future = asyncio.get_running_loop().create_future()
+        self._checkpoint_pending[request_id] = (operation, epoch, future)
+        try:
+            await self._send_remote(self._remote_writer, message)
+            return await asyncio.wait_for(future, timeout)
+        finally:
+            self._checkpoint_pending.pop(request_id, None)
+            if not future.done():
+                future.cancel()
+
+    def _receive_checkpoint(self, message: dict[str, Any]) -> None:
+        from .checkpoint_client import validate_checkpoint_reply, CheckpointError
+        validated = validate_checkpoint_reply(message, self.config, self.session_epoch, self.save_profile)
+        pending = self._checkpoint_pending.get(validated["request_id"])
+        # An RPC can time out while its reply remains queued. Never interpret
+        # this as a fresh operation or replace the canonical save automatically.
+        if pending is None:
+            return
+        operation, epoch, future = pending
+        if validated["operation"] != operation or validated["session_epoch"] != epoch:
+            raise ProtocolError("invalid_server_message", "checkpoint reply does not match its request")
+        if not future.done():
+            if validated["type"] == "checkpoint_error":
+                future.set_exception(CheckpointError(validated["code"], validated["message"]))
+            else:
+                future.set_result(validated)
 
     def _apply_world(self, message: dict[str, Any]) -> None:
         players = validate_world(message, self.config, self.session_epoch)

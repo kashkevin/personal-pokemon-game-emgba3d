@@ -14,9 +14,17 @@
 *.sqlite
 *.sqlite-wal
 *.sqlite-shm
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
 *.db
 *.db-wal
 *.db-shm
+*.owner.lock
+*.mirror.lock
+*.sav.checkpoint.json
+*.sav.*.stage
+.checkpoint-recoveries/
 
 # Companion/server environment
 .venv/

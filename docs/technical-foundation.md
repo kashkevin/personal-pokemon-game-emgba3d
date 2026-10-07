@@ -179,6 +179,8 @@ For wagers, the server records each player's explicitly agreed stake in escrow, 
 
 ## Individual saves and world persistence
 
+Implemented checkpoint status: the [Phase 3 foundation](phase3-checkpoints.md) now stores authenticated, revisioned ordinary saves in SQLite and verifies recovery before a fresh game boots. Two actual-ROM runs passed normal save, host restart, stale-save refusal, damaged-mirror recovery, and independent party/position checks. Safe live ROM export/import and shared ownership transactions remain ahead; the policies below retain their existing proposed status.
+
 Retain Emerald's normal checksummed save pipeline, but distinguish **canonical multiplayer checkpoints**, **local `.sav` mirrors**, and **emulator savestates**. A savestate is a debugging tool, not a multiplayer database. A local older save must never overwrite a newer server transaction.
 
 The server stores a versioned player snapshot and its revision, checksum, ROM commit, ruleset/config hash, and schema version. Its logical payload covers party, all PC storage, bag, money, flags/vars, trainer progress, location/warp information, statistics, and other persistent game state. Additional Pokémon ownership IDs and transaction records can remain outside the GBA save in a revision-bound server/companion sidecar. Stable identity requires ROM hooks for capture/creation, party/PC moves, release, evolution, trade, and import; slot positions or Trainer ID plus personality are insufficient. The ROM has to safely export/import a compatible snapshot; that is a Phase 3 feature, not an existing RHH capability.
