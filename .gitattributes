@@ -1,4 +1,9 @@
 *.md text eol=lf
+*.py text eol=lf
+*.lua text eol=lf
+*.c text eol=lf
+*.h text eol=lf
+*.sh text eol=lf
 .gitignore text eol=lf
 .gitattributes text eol=lf
 /docs/project-brief.txt -text whitespace=cr-at-eol

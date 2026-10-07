@@ -1,0 +1,64 @@
+"""Generate mailbox metadata from this exact ELF and ROM, never a fixed address."""
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+from pathlib import Path
+import re
+import subprocess
+import zlib
+
+RULESET = "baseline-rhh1.17.1-mailbox-v1"
+
+
+def generate(rom: Path, elf: Path, nm: str, engine_commit: str) -> dict:
+    if not re.fullmatch(r"[0-9a-f]{40}", engine_commit):
+        raise ValueError("engine_commit must be the exact Git commit")
+    symbols = subprocess.check_output([nm, "--print-size", "--defined-only", str(elf)], text=True)
+    matches = re.findall(r"^([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+[BDbd]\s+gMultiplayerMailbox$", symbols, re.M)
+    if len(matches) != 1:
+        raise ValueError("ELF must contain one allocated gMultiplayerMailbox symbol")
+    address, size = (int(value, 16) for value in matches[0])
+    if size != 128 or address % 4 or not 0x02000000 <= address <= 0x02040000 - size:
+        raise ValueError("Mailbox is not the expected 128-byte aligned EWRAM allocation")
+    sha, crc, rom_size = hashlib.sha256(), 0, 0
+    with rom.open("rb") as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            sha.update(block)
+            crc = zlib.crc32(block, crc)
+            rom_size += len(block)
+    if not 192 <= rom_size <= 32 * 1024 * 1024:
+        raise ValueError("ROM size is outside the GBA build bounds")
+    manifest = {
+        "abi_version": 1, "mailbox_size": size, "mailbox_address": address,
+        "rom_sha256": sha.hexdigest(), "rom_crc32": f"{crc:08x}",
+        "rom_size": rom_size, "elf_sha256": hashlib.sha256(elf.read_bytes()).hexdigest(),
+        "ruleset_id": RULESET, "engine_commit": engine_commit,
+    }
+    objects = re.findall(r"^([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+[BDbd]\s+gObjectEvents$", symbols, re.M)
+    if len(objects) == 1:
+        obj_address, obj_size = (int(value, 16) for value in objects[0])
+        # Read-only test metadata for the pinned engine's 0x24-byte objects.
+        if obj_size % 36 == 0 and 0x02000000 <= obj_address <= 0x02040000 - obj_size:
+            manifest.update(debug_object_events_address=obj_address,
+                            debug_object_events_size=obj_size, debug_object_event_size=36)
+    return manifest
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--rom", type=Path, required=True)
+    parser.add_argument("--elf", type=Path, required=True)
+    parser.add_argument("--engine-commit", required=True)
+    parser.add_argument("--nm", default="arm-none-eabi-nm")
+    parser.add_argument("--output", type=Path, required=True)
+    args = parser.parse_args()
+    manifest = generate(args.rom, args.elf, args.nm, args.engine_commit)
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    args.output.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    print(f"Verified mailbox manifest: {args.output}; ROM {manifest['rom_sha256']}")
+
+
+if __name__ == "__main__":
+    main()
