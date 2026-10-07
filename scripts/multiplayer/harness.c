@@ -3,6 +3,7 @@
  * supplied project bridge; no generic RAM-write command exists.
  * This is a development harness, not the Windows player runtime.
  */
+#include <mgba/flags.h>
 #include <mgba/core/core.h>
 #include <mgba/core/blip_buf.h>
 #include <mgba/core/log.h>

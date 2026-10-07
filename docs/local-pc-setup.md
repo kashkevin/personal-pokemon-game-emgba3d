@@ -1,6 +1,6 @@
 # Downloadable Windows game and PC hosting
 
-The delivery target is a downloadable Windows game for **four players total: the host and three friends**. The owner's PC hosts through home Wi-Fi and router port forwarding. The player package and launcher remain future work. The local/LAN presence server, companion, and bridge are implemented; actual visual multiplayer is still being tested. The unchanged engine compiles reproducibly and the upstream automated suite completed with its declared exceptions recorded. See [the baseline build record](baseline-build.md) and [Phase 2 status](phase2-presence.md).
+The delivery target is a downloadable Windows game for **four players total: the host and three friends**. The owner's PC hosts through home Wi-Fi and router port forwarding. The player package and launcher remain future work. Actual two-ROM multiplayer movement and local save/reload now pass on localhost through the server, companions, and bridge. Windows GUI/LAN and Internet hosting still need testing. The unchanged engine also builds reproducibly and passed ordinary gameplay/save checks. See [the baseline build record](baseline-build.md) and [Phase 2 evidence](phase2-presence.md).
 
 ## Player experience
 
@@ -43,4 +43,4 @@ These are the equivalent setup commands for another development machine; they ne
 
 The engine source is cloned at the pinned revision on WSL's Linux filesystem, `/home/kevin/src/pokemon/engine`, branch `codex/baseline`. No commercial ROM download was required for the source build.
 
-Complete the pending gameplay and save checks before accepting the baseline and implementing multiplayer. Packaging and opening the game service to other clients follow the networking proof.
+The baseline gameplay and independent save/reload checks passed and `BASELINE_BUILD` is preserved. Multiplayer ROM integration is now underway in a separate worktree. Packaging and opening the game service to friends follow the real networking proof.

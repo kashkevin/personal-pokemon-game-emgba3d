@@ -49,6 +49,23 @@ def generate(rom: Path, elf: Path, nm: str, engine_commit: str) -> dict:
         if sprite_size % 68 == 0 and 0x02000000 <= sprite_address <= 0x02040000 - sprite_size:
             manifest.update(debug_sprites_address=sprite_address,
                             debug_sprites_size=sprite_size, debug_sprite_size=68)
+    for name, key, expected_size in (
+        ("gParties", "debug_parties", 2400),
+        ("gPartiesCount", "debug_party_counts", 4),
+        ("gSaveBlock1Ptr", "debug_save_block1_ptr", 4),
+    ):
+        match = re.findall(r"^([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+[BDbd]\s+" + name + "$", symbols, re.M)
+        if len(match) != 1 or int(match[0][1], 16) != expected_size:
+            raise ValueError(f"Unexpected pinned-engine debug symbol {name}")
+        debug_address = int(match[0][0], 16)
+        lower, upper = (0x03000000, 0x03008000) if name == "gSaveBlock1Ptr" else (0x02000000, 0x02040000)
+        if not lower <= debug_address <= upper - expected_size:
+            raise ValueError(f"Debug symbol outside expected RAM region: {name}")
+        manifest[key + "_address"] = debug_address
+    # Verified pinned-engine SaveBlock1 offsets; these are read-only diagnostics.
+    manifest.update(debug_saved_objects_offset=0xA30,
+                    debug_saved_party_count_offset=0x234,
+                    debug_saved_party_offset=0x238, debug_party_size=600)
     return manifest
 
 

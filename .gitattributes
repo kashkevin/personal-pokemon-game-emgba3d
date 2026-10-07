@@ -4,6 +4,9 @@
 *.c text eol=lf
 *.h text eol=lf
 *.sh text eol=lf
+*.json text eol=lf
+# Unified diffs contain a leading space on empty context lines.
+*.patch text eol=lf whitespace=-blank-at-eol
 .gitignore text eol=lf
 .gitattributes text eol=lf
 /docs/project-brief.txt -text whitespace=cr-at-eol

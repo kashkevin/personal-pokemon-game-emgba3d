@@ -12,6 +12,7 @@ import argparse
 import asyncio
 from contextlib import suppress
 import json
+import hashlib
 from pathlib import Path
 import secrets
 import struct
@@ -80,9 +81,53 @@ def objects(data: bytes, sprites: bytes | None = None) -> list[dict]:
                 sprite = sprites[obj[35] * 68:(obj[35] + 1) * 68]
                 sx, sy, sx2, sy2 = struct.unpack_from("<hhhh", sprite, 32)
                 item.update(sprite_x=sx, sprite_y=sy, sprite_x2=sx2, sprite_y2=sy2,
-                            sprite_active=bool(sprite[62] & 1), animation=sprite[42])
+                            sprite_active=bool(sprite[62] & 1),
+                            sprite_invisible=bool(sprite[62] & 4), animation=sprite[42])
             result.append(item)
     return result
+
+
+def verify_expected(result: dict, expected: dict) -> None:
+    clients = result["clients"]
+    if "remotes" in expected:
+        actual = [sum(241 <= obj["local_id"] <= 243 for obj in c.get("objects", [])) for c in clients]
+        assert actual == expected["remotes"], f"Remote actor counts {actual} != {expected['remotes']}"
+    if "activity" in expected:
+        actual = [c.get("pose", {}).get("activity") for c in clients]
+        assert actual == expected["activity"], f"Game activities {actual} != {expected['activity']}"
+    if "same_map" in expected:
+        actual = [(c.get("pose", {}).get("map_group"), c.get("pose", {}).get("map_number")) for c in clients]
+        assert (actual[0] == actual[1]) == expected["same_map"], f"Map identities {actual}"
+    if expected.get("peer_positions_match"):
+        for i, client in enumerate(clients):
+            other = clients[1 - i]["pose"]
+            remote = [obj for obj in client.get("objects", []) if 241 <= obj["local_id"] <= 243]
+            assert len(remote) == 1, "Expected one actual remote object"
+            assert (remote[0]["x"], remote[0]["y"]) == (other["x"], other["y"]), "Remote coordinates did not settle"
+            assert (remote[0].get("sprite_active") and not remote[0]["invisible"]
+                    and not remote[0].get("sprite_invisible")), "Remote sprite is not visible"
+    if "coordinates" in expected:
+        actual = [[c["pose"]["x"], c["pose"]["y"]] for c in clients]
+        assert actual == expected["coordinates"], f"Local coordinates {actual}"
+    if "connected" in expected:
+        assert [c["server_connected"] for c in clients] == expected["connected"]
+    if expected.get("saved_remote_ids_empty"):
+        for client in clients:
+            assert not any(241 <= value <= 243 for value in client["saved_object_local_ids"])
+    if "party_sha256" in expected:
+        assert [c["party_sha256"] for c in clients] == expected["party_sha256"]
+    if expected.get("peer_pixels_match"):
+        for i, client in enumerate(clients):
+            local = client["pose"]
+            other = clients[1 - i]["pose"]
+            player = next(o for o in client["objects"] if o["local_id"] == 255)
+            remote = next(o for o in client["objects"] if 241 <= o["local_id"] <= 243)
+            # Same walking graphics, settled steps: shared camera offsets cancel.
+            for axis in ("x", "y"):
+                expected_delta = (other[axis] - local[axis]) * 16
+                actual_delta = (remote["sprite_" + axis] + remote["sprite_" + axis + "2"]
+                                - player["sprite_" + axis] - player["sprite_" + axis + "2"])
+                assert actual_delta == expected_delta, f"Peer pixel {axis} delta {actual_delta} != {expected_delta}"
 
 
 async def run(args):
@@ -99,6 +144,8 @@ async def run(args):
     configs, ipc_ports = [], []
     transcript = root / "actions.jsonl"
     await server.start(port=0)
+    server_port = server.address[1]
+    server_running = True
     try:
         for name, save in (("a", save_a), ("b", save_b)):
             profile = root / f"identity-{name}.json"
@@ -129,6 +176,17 @@ async def run(args):
             action = json.loads(line)
             if action.get("quit"):
                 break
+            if action.get("stop_server"):
+                if not server_running:
+                    raise ValueError("Server is already stopped")
+                await server.close()
+                server_running = False
+            if action.get("start_server"):
+                if server_running:
+                    raise ValueError("Server is already running")
+                candidate = WorldServer(ServerConfig(manifest["rom_sha256"], manifest["ruleset_id"]))
+                await candidate.start(port=server_port)
+                server, server_running = candidate, True
             frames, repeat = action.get("frames", 6), action.get("repeat", 1)
             per_core_frames = [action.get("frames_a", frames), action.get("frames_b", frames)]
             if any(type(f) is not int or not 0 <= f <= 60 for f in per_core_frames) or type(repeat) is not int or not 1 <= repeat <= 1000:
@@ -171,6 +229,18 @@ async def run(args):
                     if "debug_sprites_address" in manifest:
                         sprites = await core.read(manifest["debug_sprites_address"], manifest["debug_sprites_size"])
                     item["objects"] = objects(raw, sprites)
+                if "debug_parties_address" in manifest:
+                    party = await core.read(manifest["debug_parties_address"], manifest["debug_party_size"])
+                    item["party_sha256"] = hashlib.sha256(party).hexdigest()
+                    item["party_hex"] = party.hex()
+                    item["party_count"] = (await core.read(manifest["debug_party_counts_address"], 1))[0]
+                    save_block = int.from_bytes(await core.read(manifest["debug_save_block1_ptr_address"], 4), "little")
+                    if 0x02000000 <= save_block <= 0x02040000 - 0x3CD0:
+                        saved = await core.read(save_block + manifest["debug_saved_objects_offset"], 16 * 36)
+                        item["saved_object_local_ids"] = [saved[j * 36 + 8] for j in range(16)]
+                        item["saved_party_count"] = (await core.read(save_block + manifest["debug_saved_party_count_offset"], 1))[0]
+                        saved_party = await core.read(save_block + manifest["debug_saved_party_offset"], manifest["debug_party_size"])
+                        item["saved_party_sha256"] = hashlib.sha256(saved_party).hexdigest()
                 result["clients"].append(item)
             label = action.get("label")
             if label:
@@ -180,7 +250,16 @@ async def run(args):
                     await core.command(f"P {root / (label + '-' + name + '.png')}")
             with transcript.open("a", encoding="utf-8") as out:
                 out.write(json.dumps(result) + "\n")
-            print(json.dumps(result), flush=True)
+            print(json.dumps({"label": label, "clients": [
+                {"pose": c.get("pose"), "server_connected": c["server_connected"],
+                 "session_epoch": c["session_epoch"],
+                 "party_count": c.get("party_count"), "party_sha256": c.get("party_sha256"),
+                 "saved_object_local_ids": c.get("saved_object_local_ids"),
+                 "remotes": [o for o in c.get("objects", []) if 241 <= o["local_id"] <= 243]}
+                for c in result["clients"]]}), flush=True)
+            if "expected" in action:
+                verify_expected(result, action["expected"])
+                print(json.dumps({"verified": True, "label": label}), flush=True)
     finally:
         await asyncio.gather(*(c.close() for c in cores), return_exceptions=True)
         await asyncio.gather(*(c.close() for c in companions), return_exceptions=True)

@@ -1,0 +1,348 @@
+{
+  "recorded_date": "2026-10-07",
+  "scope": "localhost two real ROM cores; ordinary local Flash saves",
+  "engine_commit": "37ca07e1c623dda5aea7ac7c68de588e48e52c94",
+  "engine_baseline": "bb1093a7c72d3961d9a37d8e02ad2abc2c866682",
+  "mgba_version": "0.10.5",
+  "mgba_commit": "26b7884bc25a5933960f3cdcd98bac1ae14d42e2",
+  "rom_sha256": "28605b780d9154f5ff95fe76724d232ca198383bae127341ab2882316395e4a9",
+  "elf_sha256": "2d1ae08176c584e4bfa66fef5b590f5a2b76b62773822f72fd2952fbdfdc2195",
+  "ruleset": "baseline-rhh1.17.1-mailbox-v1",
+  "mailbox_address": "0x02031218",
+  "mailbox_size": 128,
+  "memory_bytes": {
+    "ewram": 226660,
+    "iwram": 28376,
+    "rom": 26750756
+  },
+  "gameplay_input": "ordinary emulated joypad",
+  "external_ram_writes": "dedicated inbound mailbox only",
+  "savestates": false,
+  "final_local_flash": {
+    "a": {
+      "sha256": "8d611857e848f68ff3624d8540704d7e70ed4115326f82e304408587df9f3bf6",
+      "x": 6,
+      "y": 11,
+      "map_group": 0,
+      "map_number": 9,
+      "party_count": 2,
+      "party_sha256": "ea2e12f4b6d07b3671cf63dea746d60fed5f19aef1f512cbe8cdd8ee478f87bd"
+    },
+    "b": {
+      "sha256": "5688844e0799be76a91183ef37429a52449f2104e9efbde6d2ac7a381ca9f910",
+      "x": 5,
+      "y": 9,
+      "map_group": 0,
+      "map_number": 9,
+      "party_count": 0,
+      "party_sha256": "e782bfe3ee232868110c3130b411330f3cc44261563ee6292b21b6c4f6c18089"
+    }
+  },
+  "serialized_flash_checks": [
+    "valid SaveBlock1 first-sector checksum",
+    "saved local positions and full parties",
+    "no remote local IDs 241-243"
+  ],
+  "assertions": [
+    {
+      "run": "run-4",
+      "label": "02-fresh-saved-games",
+      "expected": {
+        "remotes": [
+          1,
+          1
+        ],
+        "activity": [
+          1,
+          1
+        ],
+        "coordinates": [
+          [
+            5,
+            11
+          ],
+          [
+            5,
+            9
+          ]
+        ],
+        "peer_positions_match": true,
+        "peer_pixels_match": true,
+        "saved_remote_ids_empty": true,
+        "party_sha256": [
+          "ea2e12f4b6d07b3671cf63dea746d60fed5f19aef1f512cbe8cdd8ee478f87bd",
+          "e782bfe3ee232868110c3130b411330f3cc44261563ee6292b21b6c4f6c18089"
+        ]
+      }
+    },
+    {
+      "run": "run-4",
+      "label": "03-simultaneous-movement",
+      "expected": {
+        "remotes": [
+          1,
+          1
+        ],
+        "coordinates": [
+          [
+            6,
+            11
+          ],
+          [
+            4,
+            9
+          ]
+        ],
+        "peer_positions_match": true,
+        "peer_pixels_match": true
+      }
+    },
+    {
+      "run": "run-4",
+      "label": "04-menu",
+      "expected": {
+        "remotes": [
+          0,
+          0
+        ],
+        "activity": [
+          0,
+          1
+        ]
+      }
+    },
+    {
+      "run": "run-4",
+      "label": "05-menu-return",
+      "expected": {
+        "remotes": [
+          1,
+          1
+        ],
+        "peer_positions_match": true,
+        "peer_pixels_match": true
+      }
+    },
+    {
+      "run": "run-4",
+      "label": "06-pause",
+      "expected": {
+        "remotes": [
+          0,
+          1
+        ]
+      }
+    },
+    {
+      "run": "run-4",
+      "label": "07-resume",
+      "expected": {
+        "remotes": [
+          1,
+          1
+        ],
+        "peer_positions_match": true,
+        "peer_pixels_match": true
+      }
+    },
+    {
+      "run": "run-4",
+      "label": "08-disconnect",
+      "expected": {
+        "remotes": [
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "run": "run-4",
+      "label": "09-rejoin",
+      "expected": {
+        "remotes": [
+          1,
+          1
+        ],
+        "peer_positions_match": true,
+        "peer_pixels_match": true
+      }
+    },
+    {
+      "run": "run-4",
+      "label": "10-server-stop",
+      "expected": {
+        "remotes": [
+          0,
+          0
+        ],
+        "connected": [
+          false,
+          false
+        ],
+        "activity": [
+          1,
+          1
+        ]
+      }
+    },
+    {
+      "run": "run-4",
+      "label": "11-server-restart",
+      "expected": {
+        "remotes": [
+          1,
+          1
+        ],
+        "connected": [
+          true,
+          true
+        ],
+        "peer_positions_match": true,
+        "peer_pixels_match": true
+      }
+    },
+    {
+      "run": "run-4",
+      "label": "12-map-inside",
+      "expected": {
+        "remotes": [
+          0,
+          0
+        ],
+        "same_map": false
+      }
+    },
+    {
+      "run": "run-4",
+      "label": "13-map-return",
+      "expected": {
+        "remotes": [
+          1,
+          1
+        ],
+        "same_map": true,
+        "peer_positions_match": true,
+        "peer_pixels_match": true
+      }
+    },
+    {
+      "run": "run-4",
+      "label": "15-ordinary-save-complete",
+      "expected": {
+        "remotes": [
+          1,
+          1
+        ],
+        "activity": [
+          1,
+          1
+        ],
+        "peer_positions_match": true,
+        "peer_pixels_match": true,
+        "saved_remote_ids_empty": true,
+        "party_sha256": [
+          "ea2e12f4b6d07b3671cf63dea746d60fed5f19aef1f512cbe8cdd8ee478f87bd",
+          "e782bfe3ee232868110c3130b411330f3cc44261563ee6292b21b6c4f6c18089"
+        ]
+      }
+    },
+    {
+      "run": "run-5",
+      "label": "02-reloaded",
+      "expected": {
+        "remotes": [
+          1,
+          1
+        ],
+        "activity": [
+          1,
+          1
+        ],
+        "coordinates": [
+          [
+            6,
+            11
+          ],
+          [
+            5,
+            9
+          ]
+        ],
+        "peer_positions_match": true,
+        "peer_pixels_match": true,
+        "saved_remote_ids_empty": true,
+        "party_sha256": [
+          "ea2e12f4b6d07b3671cf63dea746d60fed5f19aef1f512cbe8cdd8ee478f87bd",
+          "e782bfe3ee232868110c3130b411330f3cc44261563ee6292b21b6c4f6c18089"
+        ]
+      }
+    },
+    {
+      "run": "run-5",
+      "label": "05-independent-battle",
+      "expected": {
+        "remotes": [
+          0,
+          0
+        ],
+        "activity": [
+          0,
+          1
+        ],
+        "coordinates": [
+          [
+            5,
+            15
+          ],
+          [
+            6,
+            9
+          ]
+        ]
+      }
+    },
+    {
+      "run": "run-5",
+      "label": "10-battle-return-check",
+      "expected": {
+        "activity": [
+          1,
+          1
+        ],
+        "connected": [
+          true,
+          true
+        ],
+        "party_sha256": [
+          "ea2e12f4b6d07b3671cf63dea746d60fed5f19aef1f512cbe8cdd8ee478f87bd",
+          "e782bfe3ee232868110c3130b411330f3cc44261563ee6292b21b6c4f6c18089"
+        ]
+      }
+    },
+    {
+      "run": "run-5",
+      "label": "11-reunited-after-battle",
+      "expected": {
+        "activity": [
+          1,
+          1
+        ],
+        "same_map": true,
+        "remotes": [
+          1,
+          1
+        ],
+        "peer_positions_match": true,
+        "peer_pixels_match": true
+      }
+    }
+  ],
+  "archive_directory": "C:\\Users\\kashh\\AppData\\Local\\PokemonPrivate\\artifacts\\multiplayer",
+  "limitations": [
+    "Windows GUI/LAN and Internet hosting untested",
+    "Four actual ROM clients untested",
+    "No server-canonical persistent characters yet",
+    "Default engine generation profile; final Gen6 content not implemented",
+    "Controlled frame batches do not measure Windows frame pacing or Internet latency"
+  ]
+}

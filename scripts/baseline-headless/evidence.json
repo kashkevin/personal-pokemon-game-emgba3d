@@ -1,0 +1,69 @@
+{
+  "recorded_date": "2026-10-07",
+  "engine_commit": "bb1093a7c72d3961d9a37d8e02ad2abc2c866682",
+  "emulator_commit": "26b7884bc25a5933960f3cdcd98bac1ae14d42e2",
+  "emulator_version": "0.10.5",
+  "rom_sha256": "b89a23a7758519d0768b87ad947a5cb3d8587f1f7bd547f983171b8520bae12a",
+  "original_desktop_save_sha256_before_and_after": "b5a41c3758763bbec72769fab4a2533bf2db0b6312d93d25a695f9e4b9e02260",
+  "input_method": "ordinary emulated joypad input through libmGBA",
+  "used_ram_writes": false,
+  "used_savestates": false,
+  "checks": {
+    "ordinary_boot_and_new_game": "passed",
+    "map_transitions": "passed",
+    "starter_and_introductory_battle": "passed",
+    "ordinary_wild_battle": "passed",
+    "capture": "passed",
+    "party_and_bag": "passed",
+    "normal_potion_use": "passed",
+    "pc_deposit_and_withdraw": "passed",
+    "ordinary_flash_save_and_fresh_continue": "passed",
+    "independent_client_saves": "passed"
+  },
+  "clients": {
+    "a": {
+      "name": "Aaa",
+      "trainer_id_hex": "1cf9ff0f",
+      "map_group": 0,
+      "map_number": 9,
+      "map_name": "Littleroot Town",
+      "x": 4,
+      "y": 11,
+      "save_counter": 2,
+      "flash_sha256": "1cb2b498bc2ee5f2bca31b66e3cec8333c2486786ace0930aee28e0b33b05d29",
+      "party": [
+        { "species": "Torchic", "gender": "male", "level": 7, "hp": 4, "max_hp": 24, "personality_hex": "68ee39ee" },
+        { "species": "Wurmple", "gender": "female", "level": 3, "hp": 15, "max_hp": 15, "personality_hex": "4462083f" }
+      ],
+      "inventory_sample": { "Poke Ball": 4 },
+      "party_before_saving_image": "26-a-party-before-save.png",
+      "fresh_continue_image": "29-final-continue.png",
+      "fresh_overworld_image": "30-final-overworld.png",
+      "fresh_party_image": "31-final-party.png",
+      "fresh_inventory_image": "33-final-pokeballs.png"
+    },
+    "b": {
+      "name": "Aaaa",
+      "trainer_id_hex": "c23617b7",
+      "map_group": 0,
+      "map_number": 9,
+      "map_name": "Littleroot Town",
+      "x": 5,
+      "y": 9,
+      "save_counter": 1,
+      "flash_sha256": "5688844e0799be76a91183ef37429a52449f2104e9efbde6d2ac7a381ca9f910",
+      "party": [],
+      "fresh_continue_image": "14-b-continue.png",
+      "fresh_overworld_image": "15-b-reloaded.png"
+    }
+  },
+  "proof_directory_wsl": "/home/kevin/src/pokemon/baseline-proof",
+  "archive_directory_windows": "C:\\Users\\kashh\\AppData\\Local\\PokemonPrivate\\artifacts\\baseline\\headless-proof",
+  "multiplayer_working_save_a": "/home/kevin/src/pokemon/multiplayer-proof/client-a.sav",
+  "multiplayer_working_save_b": "/home/kevin/src/pokemon/multiplayer-proof/client-b.sav",
+  "limitations": [
+    "Upstream default generation profile; custom Gen 6 rules are not tested.",
+    "Separate single-player cores; multiplayer is not established by this evidence.",
+    "The storage test used the initial level 2 Wurmple. The final saved level 3 Wurmple was caught in the corrected save run."
+  ]
+}

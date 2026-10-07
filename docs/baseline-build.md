@@ -1,6 +1,6 @@
 # Unmodified Emerald baseline build
 
-Recorded October 7, 2026. Phase 1 is in progress. Two clean builds have reproduced exactly; the unfiltered upstream automated suite completed with exit code 0 and its declared exceptions recorded below. Gameplay and independent save/reload checks remain pending. **Do not create `BASELINE_BUILD` yet.**
+Recorded October 7, 2026. **Phase 1 is accepted.** Two clean builds reproduced exactly; the unfiltered upstream automated suite completed with exit code 0 and its declared exceptions recorded below. Actual mGBA-core gameplay, capture, PC storage, ordinary Flash saving/reload, and independent A/B saves passed. The annotated engine tag `BASELINE_BUILD` points to the unchanged source commit `bb1093a7c72d3961d9a37d8e02ad2abc2c866682`.
 
 ## Source and environment
 
@@ -75,4 +75,15 @@ Artifacts and logs are outside OneDrive and Git, at `C:\Users\kashh\AppData\Loca
 
 `playtest\client-a` and `playtest\client-b` contain identical baseline ROMs and `Open-Client-a.cmd` / `Open-Client-b.cmd`. These are local test shortcuts, not the proposed downloadable multiplayer launcher. Each passes an explicit, different `savegamePath` and `savestatePath` to mGBA. No player saves have been overwritten.
 
-Complete [the gameplay and save checklist](baseline-playtest.md) in the actual GUI before accepting the milestone. A successful compile does not establish gameplay, save isolation, or multiplayer readiness.
+The [gameplay and save checklist](baseline-playtest.md) passed using a project-owned headless frontend for the real, pinned mGBA 0.10.5 core. Emulated joypad input advanced ordinary gameplay; emulator framebuffer PNGs and read-only memory samples recorded results. No emulated RAM writes, cheats, or savestate restores were used for this baseline proof. The GUI shortcuts above remain separate manual test profiles.
+
+Client A's final fresh Continue restored trainer `Aaa` at Littleroot `(4,11)`, Torchic level 7 and Wurmple level 3, and four Poké Balls. The two party records matched byte-for-byte before and after the fresh process reload. Client B's fresh Continue restored `Aaaa` at Littleroot `(5,9)`, with its independent early-game state and empty party. Different names, trainer IDs, locations, party state, and Flash hashes establish isolation.
+
+| Verified copied Flash | SHA-256 |
+| --- | --- |
+| A | `1cb2b498bc2ee5f2bca31b66e3cec8333c2486786ace0930aee28e0b33b05d29` |
+| B | `5688844e0799be76a91183ef37429a52449f2104e9efbde6d2ac7a381ca9f910` |
+
+The gameplay/PC checks first caught a canceled overwrite confirmation. That run's later progress was not treated as persisted. The confirmation was corrected through normal input, and only the subsequent changed Flash, fresh Continue, restored party, and inventory were accepted. The owner's original Windows save was read/copied for initial inspection and remained unchanged. Private evidence and verified save copies are archived under `artifacts\baseline\headless-proof`, outside Git.
+
+This accepts the unchanged baseline, not multiplayer, the final Gen 6 profile, or a distributable player package.

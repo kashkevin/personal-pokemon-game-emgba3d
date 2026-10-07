@@ -1,0 +1,597 @@
+diff --git a/include/multiplayer.h b/include/multiplayer.h
+new file mode 100644
+index 0000000000..ba6b49369f
+--- /dev/null
++++ b/include/multiplayer.h
+@@ -0,0 +1,65 @@
++#ifndef GUARD_MULTIPLAYER_H
++#define GUARD_MULTIPLAYER_H
++
++// Phase 2 presence only. This volatile mailbox is not part of any save block.
++#define MULTIPLAYER_MAGIC 0x31504D45u // EMP1, little endian
++#define MULTIPLAYER_ABI_VERSION 1
++#define MULTIPLAYER_MAILBOX_BYTES 128
++#define MULTIPLAYER_MAX_PEERS 3
++#define MULTIPLAYER_LOCAL_ID_BASE 241
++#define MULTIPLAYER_CONNECTED (1u << 0)
++#define MULTIPLAYER_ACTIVITY_UNAVAILABLE 0
++#define MULTIPLAYER_ACTIVITY_OVERWORLD 1
++
++struct MultiplayerPose
++{
++    u32 mapEpoch;
++    u32 frame;
++    s16 x; // Map tile coordinates without MAP_OFFSET.
++    s16 y;
++    u8 mapGroup;
++    u8 mapNum;
++    u8 direction;
++    u8 elevation;
++    u8 gender;
++    u8 movementMode; // PLAYER_AVATAR_STATE_NORMAL through UNDERWATER (0..4).
++    u8 activity;
++    u8 reserved;
++};
++
++struct MultiplayerPeer
++{
++    u32 playerId; // Session identifier; zero means absent.
++    struct MultiplayerPose pose;
++};
++
++struct MultiplayerMailbox
++{
++    u32 magic;
++    u16 abiVersion;
++    u16 byteSize;
++    u32 frame;
++    u32 localGeneration;
++    struct MultiplayerPose local;
++    // Only the bridge writes the following fields, odd generation first and
++    // the corresponding even generation last. ROM accepts a stable even copy.
++    u32 inboundGeneration;
++    u32 connectionFlags;
++    u32 heartbeat;
++    u32 rosterEpoch;
++    u8 selfSlot;
++    u8 peerCount;
++    u16 reserved;
++    struct MultiplayerPeer peers[MULTIPLAYER_MAX_PEERS];
++};
++
++extern volatile struct MultiplayerMailbox gMultiplayerMailbox;
++
++void Multiplayer_Init(void);
++void Multiplayer_Tick(void);
++void Multiplayer_LeaveField(void);
++void Multiplayer_BeginMapTransition(void);
++void Multiplayer_PrepareSave(void);
++bool32 Multiplayer_IsRemoteObject(const struct ObjectEvent *objectEvent);
++
++#endif
+diff --git a/src/event_object_movement.c b/src/event_object_movement.c
+index 29286bdf21..5b93c7a3cf 100644
+--- a/src/event_object_movement.c
++++ b/src/event_object_movement.c
+@@ -25,6 +25,7 @@
+ #include "item.h"
+ #include "mauville_old_man.h"
+ #include "metatile_behavior.h"
++#include "multiplayer.h"
+ #include "overworld.h"
+ #include "palette.h"
+ #include "party_menu.h"
+@@ -1449,7 +1450,8 @@ u8 GetObjectEventIdByXY(s16 x, s16 y)
+     u8 i;
+     for (i = 0; i < OBJECT_EVENTS_COUNT; i++)
+     {
+-        if (gObjectEvents[i].active && gObjectEvents[i].currentCoords.x == x && gObjectEvents[i].currentCoords.y == y)
++        if (gObjectEvents[i].active && !Multiplayer_IsRemoteObject(&gObjectEvents[i])
++         && gObjectEvents[i].currentCoords.x == x && gObjectEvents[i].currentCoords.y == y)
+             break;
+     }
+ 
+@@ -3464,7 +3466,7 @@ u8 GetObjectEventIdByPosition(u16 x, u16 y, u8 elevation)
+ 
+     for (i = 0; i < OBJECT_EVENTS_COUNT; i++)
+     {
+-        if (gObjectEvents[i].active)
++        if (gObjectEvents[i].active && !Multiplayer_IsRemoteObject(&gObjectEvents[i]))
+         {
+             if (gObjectEvents[i].currentCoords.x == x
+              && gObjectEvents[i].currentCoords.y == y
+@@ -6524,7 +6526,7 @@ u32 GetObjectObjectCollidesWith(struct ObjectEvent *objectEvent, s16 x, s16 y, b
+     u8 i;
+     struct ObjectEvent *curObject;
+ 
+-    if (objectEvent->localId == OBJ_EVENT_ID_FOLLOWER)
++    if (Multiplayer_IsRemoteObject(objectEvent) || objectEvent->localId == OBJ_EVENT_ID_FOLLOWER)
+         return OBJECT_EVENTS_COUNT; // follower cannot collide with other objects, but they can collide with it
+ 
+     if (addCoords)
+@@ -6536,7 +6538,8 @@ u32 GetObjectObjectCollidesWith(struct ObjectEvent *objectEvent, s16 x, s16 y, b
+     for (i = 0; i < OBJECT_EVENTS_COUNT; i++)
+     {
+         curObject = &gObjectEvents[i];
+-        if (curObject->active && (curObject->movementType != MOVEMENT_TYPE_FOLLOW_PLAYER || objectEvent != &gObjectEvents[gPlayerAvatar.objectEventId]) && curObject != objectEvent
++        if (curObject->active && !Multiplayer_IsRemoteObject(curObject)
++         && (curObject->movementType != MOVEMENT_TYPE_FOLLOW_PLAYER || objectEvent != &gObjectEvents[gPlayerAvatar.objectEventId]) && curObject != objectEvent
+          && !FollowerNPC_IsCollisionExempt(curObject, objectEvent)
+          )
+         {
+diff --git a/src/load_save.c b/src/load_save.c
+index 12c0d90225..38167a6712 100644
+--- a/src/load_save.c
++++ b/src/load_save.c
+@@ -1,4 +1,5 @@
+ #include "global.h"
++#include "multiplayer.h"
+ #include "malloc.h"
+ #include "berry_powder.h"
+ #include "fake_rtc.h"
+@@ -201,6 +202,7 @@ void SaveObjectEvents(void)
+     int i;
+     u16 graphicsId;
+ 
++    Multiplayer_PrepareSave();
+     for (i = 0; i < OBJECT_EVENTS_COUNT; i++)
+     {
+         gSaveBlock1Ptr->objectEvents[i] = gObjectEvents[i];
+diff --git a/src/main.c b/src/main.c
+index 7ec4e57ba7..83be5dce34 100644
+--- a/src/main.c
++++ b/src/main.c
+@@ -22,6 +22,7 @@
+ #include "text.h"
+ #include "intro.h"
+ #include "main.h"
++#include "multiplayer.h"
+ #include "trainer_hill.h"
+ #include "test_runner.h"
+ #include "constants/rgb.h"
+@@ -112,6 +113,7 @@ void AgbMain(void)
+     ResetBgs();
+     SetDefaultFontsPointer();
+     InitHeap(gHeap, HEAP_SIZE);
++    Multiplayer_Init();
+ 
+     gSoftResetDisabled = FALSE;
+ 
+@@ -136,6 +138,7 @@ void AgbMainLoop(void)
+     for (;;)
+     {
+         ReadKeys();
++        Multiplayer_Tick();
+ 
+         if (gSoftResetDisabled == FALSE
+          && JOY_HELD_RAW(A_BUTTON)
+@@ -201,6 +204,8 @@ static void CallCallbacks(void)
+ 
+ void SetMainCallback2(MainCallback callback)
+ {
++    if (gMain.callback2 == CB2_Overworld && callback != CB2_Overworld)
++        Multiplayer_LeaveField();
+     gMain.callback2 = callback;
+     gMain.state = 0;
+ }
+diff --git a/src/multiplayer.c b/src/multiplayer.c
+new file mode 100644
+index 0000000000..ea31ad4432
+--- /dev/null
++++ b/src/multiplayer.c
+@@ -0,0 +1,395 @@
++#include "global.h"
++#include <stddef.h>
++#include "multiplayer.h"
++#include "event_object_movement.h"
++#include "field_player_avatar.h"
++#include "fieldmap.h"
++#include "main.h"
++#include "overworld.h"
++#include "palette.h"
++#include "script.h"
++#include "sprite.h"
++#include "constants/event_objects.h"
++
++#define HEARTBEAT_TIMEOUT_FRAMES 180
++#define MAX_ANIMATED_CATCHUP_TILES 4
++
++_Static_assert(sizeof(struct MultiplayerPose) == 20, "Multiplayer pose ABI");
++_Static_assert(sizeof(struct MultiplayerPeer) == 24, "Multiplayer peer ABI");
++_Static_assert(sizeof(struct MultiplayerMailbox) == MULTIPLAYER_MAILBOX_BYTES, "Multiplayer mailbox ABI");
++_Static_assert(offsetof(struct MultiplayerMailbox, frame) == 8, "Multiplayer frame offset");
++_Static_assert(offsetof(struct MultiplayerMailbox, localGeneration) == 12, "Multiplayer local generation offset");
++_Static_assert(offsetof(struct MultiplayerMailbox, local) == 16, "Multiplayer local offset");
++_Static_assert(offsetof(struct MultiplayerMailbox, inboundGeneration) == 36, "Multiplayer inbound offset");
++_Static_assert(offsetof(struct MultiplayerMailbox, connectionFlags) == 40, "Multiplayer connection offset");
++_Static_assert(offsetof(struct MultiplayerMailbox, heartbeat) == 44, "Multiplayer heartbeat offset");
++_Static_assert(offsetof(struct MultiplayerMailbox, rosterEpoch) == 48, "Multiplayer roster offset");
++_Static_assert(offsetof(struct MultiplayerMailbox, selfSlot) == 52, "Multiplayer slot offset");
++_Static_assert(offsetof(struct MultiplayerMailbox, peerCount) == 53, "Multiplayer count offset");
++_Static_assert(offsetof(struct MultiplayerMailbox, peers) == 56, "Multiplayer peers offset");
++_Static_assert(offsetof(struct MultiplayerPose, x) == 8, "Multiplayer x offset");
++_Static_assert(offsetof(struct MultiplayerPose, mapGroup) == 12, "Multiplayer map offset");
++_Static_assert(offsetof(struct MultiplayerPose, activity) == 18, "Multiplayer activity offset");
++_Static_assert(MULTIPLAYER_LOCAL_ID_BASE > OBJECT_EVENT_TEMPLATES_COUNT, "Remote IDs outside map templates");
++_Static_assert(MULTIPLAYER_LOCAL_ID_BASE + MULTIPLAYER_MAX_PEERS <= LOCALID_OW_ENCOUNTER_END - OWE_SPAWNS_MAX + 1, "Remote IDs outside generated encounters");
++
++EWRAM_DATA volatile struct MultiplayerMailbox gMultiplayerMailbox = {0};
++
++struct RemoteState
++{
++    struct MultiplayerPeer peer;
++    u8 objectEventId;
++};
++
++static EWRAM_DATA struct RemoteState sRemotes[MULTIPLAYER_MAX_PEERS] = {0};
++static EWRAM_DATA u32 sFrame = 0;
++static EWRAM_DATA u32 sMapEpoch = 0;
++static EWRAM_DATA u32 sSeenInboundGeneration = 0;
++static EWRAM_DATA u32 sHeartbeat = 0;
++static EWRAM_DATA u32 sRosterEpoch = 0;
++static EWRAM_DATA u32 sLastHeartbeatFrame = 0;
++static EWRAM_DATA u32 sSuppressThroughFrame = 0;
++static EWRAM_DATA bool8 sConnected = FALSE;
++
++bool32 Multiplayer_IsRemoteObject(const struct ObjectEvent *objectEvent)
++{
++    u32 i;
++    for (i = 0; i < MULTIPLAYER_MAX_PEERS; i++)
++    {
++        u32 id = sRemotes[i].objectEventId;
++        if (id < OBJECT_EVENTS_COUNT && objectEvent == &gObjectEvents[id]
++         && objectEvent->active && objectEvent->localId == MULTIPLAYER_LOCAL_ID_BASE + i)
++            return TRUE;
++    }
++    return FALSE;
++}
++
++static void RemoveRemote(u32 i)
++{
++    u32 id = sRemotes[i].objectEventId;
++    if (id < OBJECT_EVENTS_COUNT)
++    {
++        struct ObjectEvent *objectEvent = &gObjectEvents[id];
++        // A map reset or ordinary off-screen removal may already have recycled
++        // the slot. Never touch its replacement, or an unrelated sprite.
++        if (objectEvent->localId == MULTIPLAYER_LOCAL_ID_BASE + i)
++        {
++            u32 spriteId = objectEvent->spriteId;
++            if (objectEvent->active && spriteId < MAX_SPRITES
++             && gSprites[spriteId].inUse && gSprites[spriteId].data[0] == id)
++                RemoveObjectEvent(objectEvent);
++            ClearObjectEvent(objectEvent);
++        }
++    }
++    sRemotes[i].objectEventId = OBJECT_EVENTS_COUNT;
++}
++
++void Multiplayer_LeaveField(void)
++{
++    u32 i;
++    for (i = 0; i < MULTIPLAYER_MAX_PEERS; i++)
++        RemoveRemote(i);
++}
++
++void Multiplayer_BeginMapTransition(void)
++{
++    Multiplayer_LeaveField();
++    sMapEpoch++;
++    if (sMapEpoch == 0)
++        sMapEpoch = 1;
++    sSuppressThroughFrame = sFrame + 1;
++}
++
++void Multiplayer_PrepareSave(void)
++{
++    // SaveObjectEvents copies all live object slots. Remove ephemeral objects
++    // first and prevent the following tick from immediately recreating them.
++    Multiplayer_LeaveField();
++    sSuppressThroughFrame = sFrame + 1;
++}
++
++void Multiplayer_Init(void)
++{
++    u32 i;
++    memset((void *)&gMultiplayerMailbox, 0, sizeof(gMultiplayerMailbox));
++    memset(sRemotes, 0, sizeof(sRemotes));
++    for (i = 0; i < MULTIPLAYER_MAX_PEERS; i++)
++        sRemotes[i].objectEventId = OBJECT_EVENTS_COUNT;
++    sFrame = 0;
++    sMapEpoch = 1;
++    sSeenInboundGeneration = 0;
++    sHeartbeat = 0;
++    sRosterEpoch = 0;
++    sLastHeartbeatFrame = 0;
++    sSuppressThroughFrame = 0;
++    sConnected = FALSE;
++    gMultiplayerMailbox.abiVersion = MULTIPLAYER_ABI_VERSION;
++    gMultiplayerMailbox.byteSize = sizeof(gMultiplayerMailbox);
++    gMultiplayerMailbox.local.mapEpoch = sMapEpoch;
++    gMultiplayerMailbox.local.direction = DIR_SOUTH;
++    gMultiplayerMailbox.magic = MULTIPLAYER_MAGIC;
++}
++
++static bool32 FieldReady(void)
++{
++    u32 id = gPlayerAvatar.objectEventId;
++    return gMain.callback2 == CB2_Overworld && gMain.callback1 == CB1_Overworld
++        && gSaveBlock1Ptr != NULL && gMapHeader.mapLayout != NULL
++        && id < OBJECT_EVENTS_COUNT && gObjectEvents[id].active && gObjectEvents[id].isPlayer
++        && gObjectEvents[id].spriteId < MAX_SPRITES && gSprites[gObjectEvents[id].spriteId].inUse
++        && !gPaletteFade.active && !ArePlayerFieldControlsLocked()
++        && (s32)(sFrame - sSuppressThroughFrame) > 0;
++}
++
++static u8 MovementMode(void)
++{
++    if (gPlayerAvatar.flags & PLAYER_AVATAR_FLAG_UNDERWATER)
++        return PLAYER_AVATAR_STATE_UNDERWATER;
++    if (gPlayerAvatar.flags & PLAYER_AVATAR_FLAG_SURFING)
++        return PLAYER_AVATAR_STATE_SURFING;
++    if (gPlayerAvatar.flags & PLAYER_AVATAR_FLAG_ACRO_BIKE)
++        return PLAYER_AVATAR_STATE_ACRO_BIKE;
++    if (gPlayerAvatar.flags & PLAYER_AVATAR_FLAG_MACH_BIKE)
++        return PLAYER_AVATAR_STATE_MACH_BIKE;
++    return PLAYER_AVATAR_STATE_NORMAL;
++}
++
++static void PublishLocalPose(bool32 ready)
++{
++    // Keep a canonical, valid pose even while unavailable. Consumers use the
++    // activity flag, rather than interpreting menus as a move to map 0,0.
++    struct MultiplayerPose pose = gMultiplayerMailbox.local;
++    u32 generation = (gMultiplayerMailbox.localGeneration + 1) | 1;
++    if (gSaveBlock1Ptr != NULL)
++    {
++        u8 mapGroup = gSaveBlock1Ptr->location.mapGroup;
++        u8 mapNum = gSaveBlock1Ptr->location.mapNum;
++        if (pose.mapGroup != mapGroup || pose.mapNum != mapNum)
++        {
++            sMapEpoch++;
++            if (sMapEpoch == 0)
++                sMapEpoch = 1;
++        }
++        pose.mapGroup = mapGroup;
++        pose.mapNum = mapNum;
++    }
++    pose.mapEpoch = sMapEpoch;
++    pose.frame = sFrame;
++    pose.activity = MULTIPLAYER_ACTIVITY_UNAVAILABLE;
++    if (ready)
++    {
++        const struct ObjectEvent *player = &gObjectEvents[gPlayerAvatar.objectEventId];
++        pose.x = player->currentCoords.x - MAP_OFFSET;
++        pose.y = player->currentCoords.y - MAP_OFFSET;
++        pose.mapGroup = gSaveBlock1Ptr->location.mapGroup;
++        pose.mapNum = gSaveBlock1Ptr->location.mapNum;
++        pose.direction = player->facingDirection;
++        pose.elevation = player->currentElevation;
++        pose.gender = gPlayerAvatar.gender;
++        pose.movementMode = MovementMode();
++        pose.activity = MULTIPLAYER_ACTIVITY_OVERWORLD;
++    }
++    gMultiplayerMailbox.localGeneration = generation;
++    gMultiplayerMailbox.local = pose;
++    gMultiplayerMailbox.localGeneration = generation + 1;
++}
++
++static bool32 ValidPose(const struct MultiplayerPose *pose)
++{
++    if (pose->reserved != 0 || pose->activity > MULTIPLAYER_ACTIVITY_OVERWORLD)
++        return FALSE;
++    return pose->x >= 0 && pose->y >= 0
++        && pose->direction >= DIR_SOUTH && pose->direction <= DIR_EAST
++        && pose->elevation <= 15 && pose->gender <= FEMALE
++        && pose->movementMode <= PLAYER_AVATAR_STATE_UNDERWATER;
++}
++
++static void ReadInbound(void)
++{
++    struct MultiplayerPeer peers[MULTIPLAYER_MAX_PEERS];
++    u32 generation = gMultiplayerMailbox.inboundGeneration;
++    u32 flags, heartbeat, rosterEpoch;
++    u32 i, j;
++    u8 count, selfSlot;
++    u16 reserved;
++    if ((generation & 1) || generation == sSeenInboundGeneration)
++        return;
++    flags = gMultiplayerMailbox.connectionFlags;
++    heartbeat = gMultiplayerMailbox.heartbeat;
++    rosterEpoch = gMultiplayerMailbox.rosterEpoch;
++    selfSlot = gMultiplayerMailbox.selfSlot;
++    count = gMultiplayerMailbox.peerCount;
++    reserved = gMultiplayerMailbox.reserved;
++    for (i = 0; i < MULTIPLAYER_MAX_PEERS; i++)
++        peers[i] = gMultiplayerMailbox.peers[i];
++    if (generation != gMultiplayerMailbox.inboundGeneration)
++        return;
++    sSeenInboundGeneration = generation;
++    if (flags & ~MULTIPLAYER_CONNECTED || count > MULTIPLAYER_MAX_PEERS || selfSlot > 3 || reserved != 0)
++        return;
++    if (!(flags & MULTIPLAYER_CONNECTED))
++    {
++        sConnected = FALSE;
++        Multiplayer_LeaveField();
++        for (i = 0; i < MULTIPLAYER_MAX_PEERS; i++)
++            sRemotes[i].peer.playerId = 0;
++        return;
++    }
++    for (i = 0; i < count; i++)
++    {
++        if (peers[i].playerId == 0 || !ValidPose(&peers[i].pose))
++            return;
++        for (j = 0; j < i; j++)
++            if (peers[i].playerId == peers[j].playerId)
++                return;
++    }
++    if (!sConnected || heartbeat != sHeartbeat)
++        sLastHeartbeatFrame = sFrame;
++    if (!sConnected || rosterEpoch != sRosterEpoch)
++    {
++        Multiplayer_LeaveField();
++        for (i = 0; i < MULTIPLAYER_MAX_PEERS; i++)
++            sRemotes[i].peer.playerId = 0;
++    }
++    sConnected = TRUE;
++    sHeartbeat = heartbeat;
++    sRosterEpoch = rosterEpoch;
++    for (i = 0; i < MULTIPLAYER_MAX_PEERS; i++)
++    {
++        if (i >= count)
++        {
++            RemoveRemote(i);
++            sRemotes[i].peer.playerId = 0;
++            continue;
++        }
++        if (sRemotes[i].peer.playerId == peers[i].playerId
++         && (s32)(peers[i].pose.frame - sRemotes[i].peer.pose.frame) < 0)
++            continue;
++        if (sRemotes[i].peer.playerId != peers[i].playerId
++         || sRemotes[i].peer.pose.mapEpoch != peers[i].pose.mapEpoch)
++            RemoveRemote(i);
++        sRemotes[i].peer = peers[i];
++    }
++}
++
++static bool32 PeerVisible(const struct MultiplayerPose *pose)
++{
++    s32 x = pose->x + MAP_OFFSET;
++    s32 y = pose->y + MAP_OFFSET;
++    return pose->activity == MULTIPLAYER_ACTIVITY_OVERWORLD
++        && pose->mapGroup == gSaveBlock1Ptr->location.mapGroup
++        && pose->mapNum == gSaveBlock1Ptr->location.mapNum
++        && pose->x < gMapHeader.mapLayout->width && pose->y < gMapHeader.mapLayout->height
++        && x >= gSaveBlock1Ptr->pos.x - 2 && x <= gSaveBlock1Ptr->pos.x + 17
++        && y >= gSaveBlock1Ptr->pos.y && y <= gSaveBlock1Ptr->pos.y + 16;
++}
++
++static bool32 CanAllocateObject(u16 graphicsId)
++{
++    u32 i;
++    u16 paletteTag = GetObjectEventGraphicsInfo(graphicsId)->paletteTag;
++    if (GetFirstInactiveObjectEventId() == OBJECT_EVENTS_COUNT)
++        return FALSE;
++    // The upstream palette allocator can evict generated wild objects. Never
++    // request a new palette without a free slot in this presence adapter.
++    if (IndexOfSpritePaletteTag(paletteTag) == 0xFF && IndexOfSpritePaletteTag(TAG_NONE) == 0xFF)
++        return FALSE;
++    for (i = 0; i < MAX_SPRITES; i++)
++        if (!gSprites[i].inUse)
++            return TRUE;
++    return FALSE;
++}
++
++static void UpdateRemote(u32 i)
++{
++    const struct MultiplayerPose *pose = &sRemotes[i].peer.pose;
++    struct ObjectEvent *objectEvent;
++    u32 id = sRemotes[i].objectEventId;
++    u16 graphicsId;
++    s16 x, y, dx, dy;
++    enum Direction direction;
++    if (sRemotes[i].peer.playerId == 0 || !PeerVisible(pose))
++    {
++        RemoveRemote(i);
++        return;
++    }
++    graphicsId = GetPlayerAvatarGraphicsIdByStateIdAndGender(pose->movementMode, pose->gender);
++    if (id >= OBJECT_EVENTS_COUNT || !Multiplayer_IsRemoteObject(&gObjectEvents[id]))
++    {
++        struct ObjectEventTemplate template = {0};
++        sRemotes[i].objectEventId = OBJECT_EVENTS_COUNT;
++        if (!CanAllocateObject(graphicsId) || GetObjectEventIdByLocalId(MULTIPLAYER_LOCAL_ID_BASE + i) < OBJECT_EVENTS_COUNT)
++            return;
++        template.localId = MULTIPLAYER_LOCAL_ID_BASE + i;
++        template.graphicsId = graphicsId;
++        template.kind = OBJ_KIND_NORMAL;
++        template.x = pose->x;
++        template.y = pose->y;
++        template.elevation = pose->elevation;
++        template.movementType = MOVEMENT_TYPE_NONE;
++        id = SpawnSpecialObjectEvent(&template);
++        if (id >= OBJECT_EVENTS_COUNT)
++            return;
++        sRemotes[i].objectEventId = id;
++        gObjectEvents[id].hideReflection = TRUE;
++        // Special-object spawn normally runs during camera refresh. Network
++        // spawn may run mid-step; this API also accounts for partial camera
++        // pixels, keeping the actor anchored to its actual map tile.
++        MoveObjectEventToMapCoords(&gObjectEvents[id], pose->x + MAP_OFFSET, pose->y + MAP_OFFSET);
++        ObjectEventTurn(&gObjectEvents[id], pose->direction);
++    }
++    objectEvent = &gObjectEvents[id];
++    x = pose->x + MAP_OFFSET;
++    y = pose->y + MAP_OFFSET;
++    if (objectEvent->graphicsId != graphicsId)
++    {
++        u16 paletteTag = GetObjectEventGraphicsInfo(graphicsId)->paletteTag;
++        if (IndexOfSpritePaletteTag(paletteTag) == 0xFF && IndexOfSpritePaletteTag(TAG_NONE) == 0xFF)
++            return;
++        ObjectEventClearHeldMovementIfActive(objectEvent);
++        ObjectEventSetGraphicsId(objectEvent, graphicsId);
++        MoveObjectEventToMapCoords(objectEvent, x, y);
++    }
++    if (ObjectEventClearHeldMovementIfFinished(objectEvent) == TRUE)
++        MoveObjectEventToMapCoords(objectEvent, objectEvent->currentCoords.x, objectEvent->currentCoords.y);
++    if (ObjectEventIsHeldMovementActive(objectEvent))
++        return;
++    dx = x - objectEvent->currentCoords.x;
++    dy = y - objectEvent->currentCoords.y;
++    objectEvent->currentElevation = pose->elevation;
++    objectEvent->previousElevation = pose->elevation;
++    if (abs(dx) + abs(dy) > MAX_ANIMATED_CATCHUP_TILES)
++    {
++        MoveObjectEventToMapCoords(objectEvent, x, y);
++        ObjectEventTurn(objectEvent, pose->direction);
++    }
++    else if (dx != 0 || dy != 0)
++    {
++        direction = dx > 0 ? DIR_EAST : dx < 0 ? DIR_WEST : dy > 0 ? DIR_SOUTH : DIR_NORTH;
++        ObjectEventSetHeldMovement(objectEvent, abs(dx) + abs(dy) > 1
++            ? GetWalkFastMovementAction(direction) : GetWalkNormalMovementAction(direction));
++    }
++    else if (objectEvent->facingDirection != pose->direction)
++    {
++        ObjectEventSetHeldMovement(objectEvent, GetFaceDirectionMovementAction(pose->direction));
++    }
++}
++
++void Multiplayer_Tick(void)
++{
++    u32 i;
++    bool32 ready;
++    gMultiplayerMailbox.frame = ++sFrame;
++    ready = FieldReady();
++    PublishLocalPose(ready);
++    ReadInbound();
++    if (sConnected && sFrame - sLastHeartbeatFrame >= HEARTBEAT_TIMEOUT_FRAMES)
++        sConnected = FALSE;
++    if (!ready || !sConnected)
++    {
++        Multiplayer_LeaveField();
++        return;
++    }
++    for (i = 0; i < MULTIPLAYER_MAX_PEERS; i++)
++        UpdateRemote(i);
++}
+diff --git a/src/overworld.c b/src/overworld.c
+index 4d01b45eff..a9735834c0 100644
+--- a/src/overworld.c
++++ b/src/overworld.c
+@@ -37,6 +37,7 @@
+ #include "link_rfu.h"
+ #include "load_save.h"
+ #include "main.h"
++#include "multiplayer.h"
+ #include "malloc.h"
+ #include "m4a.h"
+ #include "map_name_popup.h"
+@@ -618,6 +619,7 @@ const struct MapLayout *GetMapLayout(u16 mapLayoutId)
+ 
+ void ApplyCurrentWarp(void)
+ {
++    Multiplayer_BeginMapTransition();
+     gLastUsedWarp = gSaveBlock1Ptr->location;
+     gSaveBlock1Ptr->location = sWarpDestination;
+     sFixedDiveWarp = sDummyWarpData;
