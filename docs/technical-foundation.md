@@ -1,6 +1,8 @@
 # Pokémon Emerald private multiplayer technical foundation
 
-Research date: October 7, 2026. Initial clients: Windows PCs, as confirmed by the project owner. Status: proposed architecture for agreement before Phase 1.
+Research date: October 7, 2026. Initial clients: Windows PCs, as confirmed by the project owner. This report records the Phase 0 recommendations and proposed architecture.
+
+Phase 1 subsequently started; current build evidence and remaining verification are in [the baseline build record](baseline-build.md). This report preserves the research and proposed gameplay/network architecture.
 
 Start directly from **RHH pokeemerald-expansion 1.17.1**, which builds on pret's Emerald decompilation. Use an emulator-assisted connection to a small persistent server, while each client continues running its own Emerald game. This best combines mature Pokémon engine work with independent multiplayer play. The complete vision is plausible as a sustained custom engineering project; the selected components do not already implement the finished game.
 

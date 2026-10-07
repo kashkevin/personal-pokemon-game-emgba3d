@@ -1,6 +1,6 @@
 # Downloadable Windows game and PC hosting
 
-The delivery target is a downloadable Windows game for **four players total: the host and three friends**. The owner's PC hosts through home Wi-Fi and router port forwarding. The package, launcher, and multiplayer server have not been built yet; development still starts with the unchanged Emerald baseline.
+The delivery target is a downloadable Windows game for **four players total: the host and three friends**. The owner's PC hosts through home Wi-Fi and router port forwarding. The package, launcher, and multiplayer server have not been built yet. Phase 1 has started: the unchanged engine compiles reproducibly, the upstream automated suite completed with its declared exceptions recorded, and gameplay/save verification is pending. See [the baseline build record](baseline-build.md).
 
 ## Player experience
 
@@ -30,17 +30,17 @@ Tailscale is an optional fallback if direct hosting is unavailable. It is not re
 
 ## Development downloads
 
-For the owner/development PC, use [mGBA official downloads](https://mgba.io/downloads.html): **Windows 64-bit installer**, stable **0.10.5**. This is for baseline development and playtesting; friends will receive the integrated runtime in the later game package. Links and current versions were checked October 7, 2026. No registered mGBA installation was found in the Windows uninstall registry; portable installations were not ruled out.
+For the owner/development PC, [mGBA official downloads](https://mgba.io/downloads.html) provides stable **0.10.5**. The installed copy was verified October 7, 2026, at `C:\Program Files\mGBA\mGBA.exe`, file version `0.10.5.0`. It is the Windows 32-bit build, which is usable for the baseline on this PC; a replacement download is unnecessary. Friends will receive the integrated runtime in the later game package.
 
-Ubuntu 24.04 under WSL2, Git, build-essential, and Python are already installed. The remaining baseline packages are installed through Ubuntu rather than separate Windows downloads:
+Ubuntu 24.04 under WSL2, Git, build-essential, and Python were already installed. The missing baseline packages have now been installed through Ubuntu, using the official upstream dependency list:
 
 ```bash
 sudo apt update
 sudo apt install binutils-arm-none-eabi gcc-arm-none-eabi libnewlib-arm-none-eabi libpng-dev
 ```
 
-Run these in the Ubuntu terminal. Enter any Ubuntu password locally. These commands have not been executed for this project. [Official pinned build dependencies](https://github.com/rh-hideout/pokeemerald-expansion/blob/expansion/1.17.1/docs/install/windows/WSL.md)
+These are the equivalent setup commands for another development machine; they need not be repeated here. Installation also brought in newlib development files and the matching libpng runtime dependency. [Official pinned build dependencies](https://github.com/rh-hideout/pokeemerald-expansion/blob/expansion/1.17.1/docs/install/windows/WSL.md)
 
-The engine source will be cloned with Git at the pinned revision. No commercial ROM download is required for the source build.
+The engine source is cloned at the pinned revision on WSL's Linux filesystem, `/home/kevin/src/pokemon/engine`, branch `codex/baseline`. No commercial ROM download was required for the source build.
 
-Compile and verify the untouched baseline before implementing multiplayer, packaging the client, or opening the game service to other clients.
+Complete the pending gameplay and save checks before accepting the baseline and implementing multiplayer. Packaging and opening the game service to other clients follow the networking proof.
