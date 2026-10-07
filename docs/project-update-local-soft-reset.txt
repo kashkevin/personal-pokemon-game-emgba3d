@@ -1,0 +1,195 @@
+# PROJECT UPDATE — LOCAL SOFT RESET ONLY
+
+Make ONLY the following change to the existing Pokémon Emerald Multiplayer project specification.
+
+Do NOT change, remove, rebalance, reinterpret, or redesign any other previously established feature or rule.
+
+All previous project decisions remain exactly as currently specified.
+
+---
+
+# MULTIPLAYER-SAFE LOCAL SOFT RESET
+
+Add a custom Local Soft Reset system specifically so players can shiny hunt static/personal Pokémon encounters without resetting or interrupting the multiplayer server.
+
+In normal Pokémon games, a player may repeatedly soft reset before a static Pokémon encounter to hunt for a shiny.
+
+Because our game is a persistent multiplayer experience, one player's soft reset must NOT restart the server, disconnect the other players, reset shared world state, or otherwise interrupt anyone else's gameplay.
+
+Instead, implement a PLAYER-LOCAL encounter reset.
+
+Example:
+
+Player 1 is shiny hunting a personal/static Rayquaza.
+
+Player 2 may simultaneously be fighting a Gym.
+
+Player 3 may be catching wild Pokémon.
+
+Player 4 may be trading.
+
+Player 1 performs a Local Soft Reset.
+
+ONLY Player 1's eligible static encounter is reset/reloaded.
+
+Players 2, 3 and 4 continue playing completely normally.
+
+---
+
+# STATIC/PERSONAL ENCOUNTERS
+
+For eligible personal/static Pokémon encounters, Local Soft Reset should:
+
+- Reset only that player's encounter.
+- Return/reload the player immediately before the encounter when practical.
+- Generate a new legitimate encounter/shiny roll.
+- Preserve the player's multiplayer connection.
+- Preserve the multiplayer server.
+- Preserve other players' positions and gameplay.
+- Preserve shared world state.
+- Preserve other players' battles.
+- Preserve other players' trades.
+- Preserve other players' progression.
+- Never cause another player's encounter to reroll.
+
+The purpose is to reproduce the normal Pokémon soft-reset shiny-hunting experience without actually rebooting the entire multiplayer game.
+
+---
+
+# OPTIONAL CLASSIC INPUT
+
+Where practical, allow the traditional-style soft-reset button combination to trigger this system while connected to multiplayer.
+
+However, instead of rebooting the game/server, intercept the input and perform the Local Soft Reset.
+
+A confirmation may be shown to prevent accidental resets.
+
+Example:
+
+LOCAL SOFT RESET
+
+Reset this encounter?
+
+YES
+NO
+
+---
+
+# ENCOUNTER COUNTER
+
+Track the number of attempts for eligible static shiny hunts.
+
+Example:
+
+RAYQUAZA
+
+Attempts: 427
+
+If the player resets and encounters Rayquaza again:
+
+Attempts: 428
+
+This counter is informational and should NOT modify the actual shiny probability.
+
+When the player eventually encounters a shiny, the game may record which attempt produced it.
+
+Example:
+
+SHINY RAYQUAZA
+Encounter #1,373
+
+This information may eventually be displayed in player statistics/Trainer Card information.
+
+---
+
+# WORLD EVENTS ARE EXCLUDED
+
+IMPORTANT:
+
+Local Soft Reset must NOT reroll World Events.
+
+World Event properties should be determined by the event system.
+
+If the server generates:
+
+MEGA MEWTWO X
+
+then repeatedly resetting the encounter must NOT allow a player to turn that event into a Shiny Mega Mewtwo X.
+
+If the event itself was generated as:
+
+SHINY MEGA MEWTWO X
+
+then the event remains shiny according to the existing World Event rules.
+
+Therefore:
+
+Personal/static encounters:
+Local Soft Reset allowed where appropriate.
+
+Normal wild encounters:
+Use normal encounter/shiny-hunting mechanics.
+
+World Events:
+NO Local Soft Reset rerolling of species, Mega status, shiny status, event rarity, rewards, or other event-generated properties.
+
+---
+
+# MULTIPLAYER SAFETY
+
+The Local Soft Reset system must never intentionally:
+
+- Restart the multiplayer server.
+- Restart another player's game.
+- Reset another player's encounter.
+- Reset shared events.
+- Roll back another player's progression.
+- Cancel another player's battle.
+- Cancel another player's trade.
+- Change another player's Pokémon.
+- Change another player's inventory.
+- Change another player's money.
+- Disconnect everyone.
+
+Treat this as a local encounter-state operation rather than a true server reset.
+
+---
+
+# IMPORTANT SCOPE RULE
+
+THIS IS THE ONLY PROJECT CHANGE REQUESTED BY THIS UPDATE.
+
+Do NOT use this amendment as permission to change any other established project rule.
+
+Do not change:
+
+- Gen 1–6 roster
+- Gen 6 mechanics
+- Mega Evolution
+- Later-introduced official Megas
+- Wild encounter rules
+- Legendary/Mythical rules
+- World Event rules except for preventing Local Soft Reset rerolls
+- Multiplayer structure
+- Free-form teams
+- Twin Gym Leaders
+- Trading
+- PvP
+- 1v1
+- 2v2
+- planned 1v1v1v1
+- Championship Mode
+- Currency wagering
+- Individual rewards
+- Mega Stone economy
+- Followers
+- Starter selection
+- Multiple-region plans
+- Save architecture
+- Existing development priorities
+
+Simply add Multiplayer-Safe Local Soft Reset / Shiny Hunting to the existing specification and development backlog.
+
+Do not prioritize this above the foundational multiplayer architecture.
+
+Implement it at the appropriate development phase once the multiplayer session, encounter, RNG, and save systems are sufficiently established.

@@ -41,6 +41,18 @@ Early encounters primarily use low-level basic forms. Rare families such as Bago
 
 Every player receives independent encounter rolls, even in the same patch of grass. Shinies remain possible and must display correctly in battle and as followers. Do not silently choose a new shiny rate.
 
+## Multiplayer safe Local Soft Reset
+
+Eligible personal/static encounters support a player-local encounter reset for shiny hunting. Reset only that player's eligible encounter, return/reload the player immediately before it when practical, and generate a new legitimate encounter/shiny roll. Preserve that player's multiplayer connection, the server, shared world state, and every other player's position, encounter, battle, trade, progression, Pokémon, inventory, and money. This is an encounter-state operation, not a server or game reboot.
+
+Where practical, intercept the traditional soft-reset button combination while connected and invoke Local Soft Reset instead of rebooting. An optional confirmation can show “Reset this encounter?” with Yes/No choices.
+
+Track attempts for eligible static hunts. Starting the next encounter increments the informational counter without changing shiny probability. The game may record the attempt that produced a shiny and later display it in statistics or Trainer Card information.
+
+World Events are excluded. Local Soft Reset cannot reroll an event's species, Mega status, shiny status, rarity, rewards, or any other event-generated property. An event retains the properties assigned by the event system, including its original shiny status. Normal wild encounters keep their existing encounter and shiny-hunting mechanics.
+
+The [Local Soft Reset amendment](project-update-local-soft-reset.txt) is preserved verbatim. It adds only this system; all other rules and development priorities remain unchanged. Keep it in the [development backlog](local-soft-reset.md) until the multiplayer session, encounter, individual RNG, and save systems are sufficiently established.
+
 ## Trading and battles
 
 Trading and PvP should be available essentially from the beginning. Ordinary direct trades should not require Emerald's traditional Link Room. Both players select an offer and explicitly confirm; changes invalidate confirmation. Safe atomic ownership changes and crash/rejoin recovery are required before trading is considered complete.

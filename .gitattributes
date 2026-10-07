@@ -11,3 +11,4 @@
 .gitattributes text eol=lf
 /docs/project-brief.txt -text whitespace=cr-at-eol
 /docs/project-update-gen6.txt -text whitespace=cr-at-eol
+/docs/project-update-local-soft-reset.txt -text whitespace=cr-at-eol
