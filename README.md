@@ -6,6 +6,8 @@ Current milestone: **Phase 0 research completed; architecture proposed for agree
 
 Read [the technical foundation](docs/technical-foundation.md) for the recommended stack, evidence, multiplayer and save architecture, constraints, and Phase 1 acceptance criteria. [The original project brief](docs/project-brief.txt) preserves the requested gameplay and phase order.
 
+The requested hosting target is the owner's Windows PC over home Wi-Fi. [Local PC setup](docs/local-pc-setup.md) lists the official downloads and remaining Ubuntu build packages.
+
 The proposed starting point is RHH `pokeemerald-expansion` at `expansion/1.17.1`, commit `bb1093a7c72d3961d9a37d8e02ad2abc2c866682`, compiled in Ubuntu 24.04 under WSL2 and tested in Windows mGBA 0.10.5. A ROM mailbox, mGBA Lua bridge, local companion, and small persistent server are proposed for networking. This combination still requires a multiplayer proof of concept.
 
 Development must preserve small commits, repeatable tests, and known-good checkpoints. `RESEARCH_FOUNDATION_V1` records documentation only. `BASELINE_BUILD` may be created only after the unmodified source compiles reproducibly and passes gameplay and save checks.
