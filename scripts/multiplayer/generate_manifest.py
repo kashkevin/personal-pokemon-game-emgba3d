@@ -43,6 +43,12 @@ def generate(rom: Path, elf: Path, nm: str, engine_commit: str) -> dict:
         if obj_size % 36 == 0 and 0x02000000 <= obj_address <= 0x02040000 - obj_size:
             manifest.update(debug_object_events_address=obj_address,
                             debug_object_events_size=obj_size, debug_object_event_size=36)
+    sprites = re.findall(r"^([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+[BDbd]\s+gSprites$", symbols, re.M)
+    if len(sprites) == 1:
+        sprite_address, sprite_size = (int(value, 16) for value in sprites[0])
+        if sprite_size % 68 == 0 and 0x02000000 <= sprite_address <= 0x02040000 - sprite_size:
+            manifest.update(debug_sprites_address=sprite_address,
+                            debug_sprites_size=sprite_size, debug_sprite_size=68)
     return manifest
 
 

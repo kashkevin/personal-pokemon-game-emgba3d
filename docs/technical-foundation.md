@@ -145,7 +145,7 @@ Send a step/turn when it starts, plus periodic absolute corrections at an initia
 
 Followers later add species/form, shiny appearance, and follower selection to presence state. Derive a trailing path from the trainer's movement history, with corrections at warps and interrupted movement. Do not broadcast a complete Pokémon object every frame. Four trainers with four followers require an explicit object, sprite, tile, and palette budget, tested in ordinary Hoenn scenes.
 
-Whether remote trainers block movement is a gameplay decision to confirm before the proof of concept. Nonblocking avatars are the simplest proposed starting behavior, but that rule is not approved or implemented.
+The controlled movement prototype uses temporary nonblocking, noninteracting remote avatars so rendering and map synchronization can be tested independently. This is a development assumption for Phase 2, not a final gameplay collision rule. Confirm production collision behavior before implementing player interactions.
 
 ### State ownership and synchronization
 

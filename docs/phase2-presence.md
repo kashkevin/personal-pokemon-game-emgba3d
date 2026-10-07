@@ -20,6 +20,8 @@ The 128-byte mailbox has separate odd/even generations for ROM publication and e
 
 This first ABI supports overworld/unavailable activity. Bike variants share a transport representation; underwater mode is unavailable. Full appearance and travel-mode fidelity still need gameplay testing and later extension.
 
+Remote avatars in the controlled rendering prototype are nonblocking and noninteracting. This temporary development assumption does not finalize player collision or interaction behavior for the game.
+
 ## Development verification
 
 October 7, 2026: **44 Python tests pass on Windows Python 3.14**. They include real TCP server/companion sessions, four-player capacity, fragmented/oversized messages, build/ruleset mismatch, duplicate identity, stale map/session data, pause, reconnect, malformed world snapshots, slow consumers, and closing listeners with active clients. The last check caught and fixed a shutdown deadlock under Python 3.14.

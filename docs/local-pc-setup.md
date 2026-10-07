@@ -1,6 +1,6 @@
 # Downloadable Windows game and PC hosting
 
-The delivery target is a downloadable Windows game for **four players total: the host and three friends**. The owner's PC hosts through home Wi-Fi and router port forwarding. The package, launcher, and multiplayer server have not been built yet. Phase 1 has started: the unchanged engine compiles reproducibly, the upstream automated suite completed with its declared exceptions recorded, and gameplay/save verification is pending. See [the baseline build record](baseline-build.md).
+The delivery target is a downloadable Windows game for **four players total: the host and three friends**. The owner's PC hosts through home Wi-Fi and router port forwarding. The player package and launcher remain future work. The local/LAN presence server, companion, and bridge are implemented; actual visual multiplayer is still being tested. The unchanged engine compiles reproducibly and the upstream automated suite completed with its declared exceptions recorded. See [the baseline build record](baseline-build.md) and [Phase 2 status](phase2-presence.md).
 
 ## Player experience
 

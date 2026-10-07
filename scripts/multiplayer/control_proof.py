@@ -49,6 +49,9 @@ class Core:
         return text
 
     async def read(self, address: int, size: int) -> bytes:
+        if size > 4096:
+            return b"".join([await self.read(address + start, min(4096, size - start))
+                             for start in range(0, size, 4096)])
         result = await self.command(f"R {address:x} {size}")
         return bytes.fromhex(result.split()[2])
 
@@ -64,15 +67,21 @@ class Core:
         await self.logs
 
 
-def objects(data: bytes) -> list[dict]:
+def objects(data: bytes, sprites: bytes | None = None) -> list[dict]:
     result = []
     for index in range(len(data) // 36):
         obj = data[index * 36:(index + 1) * 36]
         if obj[0] & 1:
             x, y = struct.unpack_from("<hh", obj, 16)
-            result.append({"index": index, "local_id": obj[8], "map_number": obj[9],
+            item = {"index": index, "local_id": obj[8], "map_number": obj[9],
                            "map_group": obj[10], "x": x - 7, "y": y - 7,
-                           "sprite_id": obj[35], "invisible": bool(obj[1] & 32)})
+                           "sprite_id": obj[35], "invisible": bool(obj[1] & 32)}
+            if sprites is not None and obj[35] * 68 + 68 <= len(sprites):
+                sprite = sprites[obj[35] * 68:(obj[35] + 1) * 68]
+                sx, sy, sx2, sy2 = struct.unpack_from("<hhhh", sprite, 32)
+                item.update(sprite_x=sx, sprite_y=sy, sprite_x2=sx2, sprite_y2=sy2,
+                            sprite_active=bool(sprite[62] & 1), animation=sprite[42])
+            result.append(item)
     return result
 
 
@@ -158,7 +167,10 @@ async def run(args):
                 item["session_epoch"] = companions[i].session_epoch
                 if "debug_object_events_address" in manifest:
                     raw = await core.read(manifest["debug_object_events_address"], manifest["debug_object_events_size"])
-                    item["objects"] = objects(raw)
+                    sprites = None
+                    if "debug_sprites_address" in manifest:
+                        sprites = await core.read(manifest["debug_sprites_address"], manifest["debug_sprites_size"])
+                    item["objects"] = objects(raw, sprites)
                 result["clients"].append(item)
             label = action.get("label")
             if label:
