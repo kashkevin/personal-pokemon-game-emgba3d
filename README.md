@@ -6,7 +6,7 @@ Current milestone: **Phase 0 research completed; architecture proposed for agree
 
 Read [the technical foundation](docs/technical-foundation.md) for the recommended stack, evidence, multiplayer and save architecture, constraints, and Phase 1 acceptance criteria. [The original project brief](docs/project-brief.txt) preserves the requested gameplay and phase order.
 
-The requested hosting target is the owner's Windows PC over home Wi-Fi. [Local PC setup](docs/local-pc-setup.md) lists the official downloads and remaining Ubuntu build packages.
+The requested delivery is a downloadable Windows game with **Host Game / Join Game**, for four players total including the host. The owner's PC hosts over home Wi-Fi, with direct Internet connections through port forwarding. Friends should need no compiler, Python installation, VPN, or manual emulator script setup. [Local PC setup](docs/local-pc-setup.md) records the packaging target, hosting setup, and development downloads. The game package and server have not been implemented yet.
 
 The proposed starting point is RHH `pokeemerald-expansion` at `expansion/1.17.1`, commit `bb1093a7c72d3961d9a37d8e02ad2abc2c866682`, compiled in Ubuntu 24.04 under WSL2 and tested in Windows mGBA 0.10.5. A ROM mailbox, mGBA Lua bridge, local companion, and small persistent server are proposed for networking. This combination still requires a multiplayer proof of concept.
 
