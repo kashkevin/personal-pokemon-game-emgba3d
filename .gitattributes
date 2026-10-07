@@ -1,0 +1,4 @@
+*.md text eol=lf
+.gitignore text eol=lf
+.gitattributes text eol=lf
+/docs/project-brief.txt -text whitespace=cr-at-eol

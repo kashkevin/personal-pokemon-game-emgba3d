@@ -1,0 +1,25 @@
+# Generated games and emulator state
+*.gba
+*.elf
+*.o
+*.sav
+*.sa1
+*.ss?
+*.state
+
+# Local build outputs and private player/world data
+/artifacts/
+/runtime/
+/backups/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.db
+*.db-wal
+*.db-shm
+
+# Companion/server environment
+.venv/
+__pycache__/
+*.pyc
+.env

@@ -1,0 +1,1481 @@
+# PROJECT: POKÉMON EMERALD PRIVATE MULTIPLAYER
+
+I want to build a heavily modified version of Pokémon Emerald for PRIVATE PERSONAL PLAY with up to 4 friends.
+
+This is not intended for commercial release or public ROM distribution.
+
+Pokémon Emerald should be our technical foundation, but we are not trying to preserve vanilla Emerald mechanics. We are essentially using Emerald's GBA-style game/engine as the foundation for a custom multiplayer Pokémon experience.
+
+This is a long-term engineering project.
+
+DO NOT attempt to implement everything at once.
+
+Work incrementally, test systems before building systems that depend on them, maintain version control/checkpoints, and preserve known-good builds before major changes.
+
+If copyrighted commercial game files/assets are required, do not download or distribute ROMs for me. Tell me what legally obtained/dumped files I need to provide.
+
+---
+
+# CORE GAME
+
+Base:
+Pokémon Emerald
+
+Initial region:
+Hoenn
+
+Players:
+1–4
+
+Pokémon roster:
+Generations 1–5
+
+Target species count:
+649 Pokémon
+
+Primary mechanics baseline:
+Generation 5
+
+Emerald provides the visual/technical foundation while the gameplay mechanics should generally behave according to Gen 5 unless specifically overridden below.
+
+Mega Evolution is intentionally added despite being a later-generation mechanic.
+
+Do NOT automatically add Fairy typing or other post-Gen-5 battle changes unless we explicitly decide to change the rules later.
+
+---
+
+# MULTIPLAYER PHILOSOPHY
+
+Multiplayer is the core of the game, not an endgame feature.
+
+Once players have selected their starter and entered the world, multiplayer functionality should be available.
+
+Players should NOT be forced into one global multiplayer mode such as "Co-op," "FFA," or "2v2."
+
+Instead, every player exists independently inside the shared world and decides how they want to interact.
+
+Four players might simultaneously be:
+
+Player 1 — Solo
+
+Player 2 — Solo
+
+Player 3 + Player 4 — Teamed
+
+Later those relationships can change without restarting the world.
+
+Players can explore together or completely separately.
+
+---
+
+# FREE-FORM TEAMS
+
+Players can invite another player to form a team.
+
+Normal team maximum:
+2 players.
+
+Players can leave teams.
+
+Players can change teammates.
+
+Being connected to the same server does NOT automatically make players teammates.
+
+Potential interaction menu:
+
+- Invite to Team
+- Leave Team
+- Trade
+- Challenge
+- Double Battle Challenge
+- View Trainer Card
+
+---
+
+# PLAYER INDEPENDENCE
+
+Each player owns their own:
+
+- Pokémon
+- Party
+- PC storage
+- Inventory
+- Money
+- Badges/progression where technically appropriate
+- Rewards
+- Statistics
+
+Teaming up does NOT create a shared inventory or shared wallet.
+
+If two teammates complete something together, EACH PLAYER receives their appropriate individual reward.
+
+Do not take one reward and divide it between teammates.
+
+---
+
+# STARTERS
+
+Every player can independently choose ANY traditional starter from Generations 1–5.
+
+GEN 1:
+Bulbasaur
+Charmander
+Squirtle
+
+GEN 2:
+Chikorita
+Cyndaquil
+Totodile
+
+GEN 3:
+Treecko
+Torchic
+Mudkip
+
+GEN 4:
+Turtwig
+Chimchar
+Piplup
+
+GEN 5:
+Snivy
+Tepig
+Oshawott
+
+Duplicates are allowed.
+
+If four players all choose Charmander, that is allowed.
+
+Starter selection should eventually receive a custom interface rather than Emerald's original three-choice presentation.
+
+---
+
+# WILD POKÉMON
+
+Wild encounters should be randomized.
+
+The encounter system may select Pokémon from ANY eligible Gen 1–5 evolutionary family.
+
+Normal wild encounters EXCLUDE:
+
+- Legendary Pokémon
+- Mythical Pokémon
+
+Those use the World Event system described later.
+
+---
+
+# ENCOUNTER PROGRESSION
+
+Random does NOT mean completely unrestricted.
+
+Early-game encounters should primarily consist of low-level BASIC/FIRST-STAGE Pokémon.
+
+Examples of valid early encounters:
+
+Lv. 3 Riolu
+Lv. 4 Charmander
+Lv. 2 Bagon
+Lv. 4 Gastly
+Lv. 3 Axew
+Lv. 3 Dratini
+Lv. 4 Shinx
+
+Examples that should NOT normally occur early:
+
+Lv. 4 Dragonite
+Lv. 3 Salamence
+Lv. 5 Haxorus
+
+Players may get lucky and find a powerful species FAMILY early, but they should need to raise that Pokémon.
+
+Evolution stages and encounter levels expand with progression.
+
+---
+
+# ENCOUNTER RARITY
+
+Pokémon should have rarity weighting.
+
+Possible categories:
+
+Common
+Uncommon
+Rare
+Very Rare
+
+Not every eligible Pokémon should have equal probability.
+
+Finding something such as Beldum, Larvitar, Gible, Bagon, Axew, etc. should feel considerably more exciting than finding a common Pokémon.
+
+Starters CAN appear in the normal random encounter pool.
+
+---
+
+# INDEPENDENT ENCOUNTERS
+
+Each player rolls their own wild encounters.
+
+Two players walking through the exact same patch of grass can encounter completely different Pokémon.
+
+Example:
+
+Player 1:
+Lv. 4 Gible
+
+Player 2:
+Lv. 3 Totodile
+
+This is intentional.
+
+---
+
+# SHINY POKÉMON
+
+Normal shiny Pokémon remain possible.
+
+Shiny Pokémon should display properly in battle.
+
+Shiny follower Pokémon should also appear shiny.
+
+---
+
+# FOLLOWER POKÉMON
+
+Players should eventually be able to have a Pokémon physically follow them in the overworld.
+
+Other multiplayer clients should see that follower.
+
+Target functionality includes:
+
+- Choose which party Pokémon follows
+- Follower visible to other players
+- Shiny follower appearance
+- Interact with follower
+- Friendship/reaction messages
+- Potential location-specific reactions
+- Potential occasional item discovery
+
+This feature is inspired by later Pokémon games but implemented in our Emerald-style world.
+
+---
+
+# TRADING
+
+Trading should be available essentially from the beginning of the game.
+
+It should NOT require beating the Elite Four or reaching the endgame.
+
+Eventually the ideal interaction is:
+
+Interact with Player
+→ Trade
+→ Both players select Pokémon
+→ Both confirm
+→ Trade occurs
+
+The traditional Emerald Link Room should not be required for ordinary multiplayer trading.
+
+---
+
+# PLAYER BATTLES
+
+PvP should also be available essentially from the beginning.
+
+Players should be able to challenge each other directly.
+
+Target battle formats include:
+
+1v1
+
+2v2:
+Player + Player
+VS
+Player + Player
+
+And eventually:
+
+1v1v1v1
+
+Four independently hostile trainers participate in the same battle.
+
+IMPORTANT:
+1v1v1v1 is recognized as a major custom battle-engine feature.
+
+Do NOT assume Emerald's existing battle engine can simply do this.
+
+Research/design it separately and implement it only after the fundamental multiplayer and conventional battle formats are stable.
+
+---
+
+# OPTIONAL BATTLE WAGERS
+
+Players can optionally wager IN-GAME CURRENCY on PvP battles.
+
+Example:
+
+Player A wagers ₽5,000.
+Player B wagers ₽5,000.
+
+Winner receives the agreed prize/pot according to the finalized wager rules.
+
+Wagers are OPTIONAL.
+
+Both sides must explicitly confirm the wager before the battle begins.
+
+Nobody should accidentally lose currency because another player initiated a wager.
+
+Team battle wagers should respect each player's independent money.
+
+Do not introduce real-money wagering.
+
+This system exclusively uses fictional/in-game currency earned inside the game.
+
+---
+
+# CHAMPIONSHIP MODE
+
+Create a four-player Championship/Tournament mode.
+
+Structure:
+
+SEMIFINAL 1:
+Player 1 vs Player 2
+
+SEMIFINAL 2:
+Player 3 vs Player 4
+
+FINAL:
+Winner of Semifinal 1
+vs
+Winner of Semifinal 2
+
+Winner becomes the Championship winner.
+
+Championship Mode should NOT require completing the main campaign.
+
+Players should eventually be able to organize one relatively early.
+
+Potential future statistics:
+
+- Championships entered
+- Championships won
+- PvP wins
+- PvP losses
+- Win streak
+- 1v1 record
+- 2v2 record
+
+Optional in-game currency buy-ins/wagers may eventually be supported.
+
+---
+
+# GYMS AND TWIN GYM LEADERS
+
+Normal Pokémon Gym battles would become too easy if two humans simply attacked one AI Gym Leader.
+
+Therefore every Gym Leader should have a custom Twin/Partner.
+
+If a player challenges alone:
+
+Player
+VS
+Gym Leader
+
+If two teammates challenge together:
+
+Player + Player
+VS
+Gym Leader + Twin/Partner
+
+The Twin is NOT simply a duplicate trainer.
+
+Gym Leader pairs should eventually have coordinated Double Battle strategies.
+
+Examples:
+
+Rain + Swift Swim
+
+Sun + Fire offense
+
+Sandstorm combinations
+
+Status + offensive partner
+
+Screens/support + sweeper
+
+etc.
+
+The goal is for cooperative Gym battles to feel like purpose-built multiplayer boss encounters.
+
+Later Gym Leaders/Twins may have Mega Evolution access.
+
+---
+
+# GENERATION 5 MECHANICS
+
+Gen 5 should generally be our baseline ruleset.
+
+Examples include:
+
+- Gen 5 Pokémon stats
+- Gen 5 typing
+- Gen 5 move behavior
+- Gen 5 abilities
+- Gen 5 damage/battle rules
+- Physical/Special split
+- Gen 5-style Pokémon mechanics
+
+Do NOT automatically introduce every mechanic from later generations.
+
+Later-generation features should be intentional additions.
+
+The major intentional exception currently is:
+
+MEGA EVOLUTION.
+
+---
+
+# MEGA EVOLUTION
+
+Mega Evolution should exist.
+
+General rule:
+
+ONE Mega Evolution per TRAINER per battle.
+
+Therefore in a 2v2:
+
+Player 1 can Mega one Pokémon.
+
+Player 2 can Mega one Pokémon.
+
+Opponent Player 1 can Mega one Pokémon.
+
+Opponent Player 2 can Mega one Pokémon.
+
+Similarly, sufficiently advanced Gym Leader + Twin encounters may allow each AI trainer their own Mega.
+
+---
+
+# MEGA ACCESS
+
+Players should NOT begin the game with immediate Mega Evolution access.
+
+A Mega Bracelet/Key Stone should unlock through progression.
+
+However, Mega Evolution should not necessarily be restricted to the postgame.
+
+The exact unlock point can be balanced later.
+
+---
+
+# MEGA STONES
+
+Mega Stones can be PURCHASED.
+
+They should intentionally be FAIRLY EXPENSIVE.
+
+The goal is NOT:
+
+"I reached the Mega shop, so I bought every Mega Stone."
+
+The goal is:
+
+"I finally have enough money for a Mega Stone. Which Pokémon do I want to invest in?"
+
+Players should need to choose carefully.
+
+As players become wealthier later in the game, they can gradually collect additional stones.
+
+Mega Stones can also be earned through appropriate events/rewards.
+
+---
+
+# WORLD EVENTS
+
+The shared multiplayer world should eventually generate random timed events.
+
+All connected players receive notifications.
+
+Players must physically travel to the event location.
+
+Do NOT automatically teleport everyone to the event.
+
+Possible event categories include:
+
+- Rare Pokémon
+- Mega Pokémon
+- Legendary Pokémon
+- Mythical Pokémon
+- Shiny Pokémon
+- Shiny Mega Pokémon
+- Shiny Legendary/Mythical Pokémon
+- Extremely rare Shiny Mega Legendary Pokémon where the species supports Mega Evolution
+
+Example:
+
+WORLD EVENT
+
+A powerful Pokémon has appeared near Mt. Chimney.
+
+GROUDON
+
+15:00 REMAINING
+
+Or:
+
+WORLD EVENT
+
+An extremely rare Pokémon has appeared.
+
+SHINY MEGA RAYQUAZA
+
+15:00 REMAINING
+
+The exact event probabilities should be designed later.
+
+Extremely valuable events should genuinely be extremely rare.
+
+---
+
+# EVENT MEGA STONES
+
+When appropriate, successfully obtaining an event Mega Pokémon should also provide its corresponding Mega Stone.
+
+Example:
+
+Mega Lucario event
+→ appropriate successful reward
+→ Lucarionite obtained
+
+Therefore players have two major paths for Mega Stones:
+
+1. Save money and purchase them.
+2. Obtain appropriate stones through rare events/rewards.
+
+---
+
+# LEGENDARIES AND MYTHICALS
+
+Legendary/Mythical Pokémon should NOT appear in ordinary randomized grass encounters.
+
+They are primarily obtained through special events/content.
+
+Their event levels should scale appropriately with player/world progression.
+
+Do not spawn a completely unreasonable Lv. 70 boss for players immediately after receiving their starters unless it is intentionally designed as an inaccessible/high-risk event.
+
+---
+
+# REWARDS
+
+Rewards remain PLAYER-SPECIFIC.
+
+If Player A and Player B are teammates and complete an activity:
+
+Player A receives Player A's reward.
+
+Player B receives Player B's reward.
+
+Do NOT automatically split a single reward between them.
+
+This applies broadly to:
+
+- Money
+- Items
+- Gym rewards
+- Event participation rewards
+- Quest rewards
+- Championship rewards
+
+Unique Pokémon/event capture rules will require separate design because we need to decide whether a particular world spawn can be captured by one player, each participating player, or according to another rule.
+
+Do not make that decision silently.
+
+---
+
+# MULTIPLE REGIONS
+
+Long-term goal:
+
+Multiple Pokémon regions inside ONE game.
+
+We are NOT attempting to combine separate ROM binaries.
+
+Emerald remains the technical foundation and additional regions would eventually be implemented as content within the expanded project.
+
+Potential future progression:
+
+Hoenn
+→ Kanto
+→ Johto
+→ Sinnoh
+→ Unova
+
+This is an extremely long-term goal.
+
+DO NOT begin building additional regions until Hoenn and the core multiplayer systems are stable.
+
+---
+
+# REGION SCALING
+
+Additional regions must account for existing player progression.
+
+A player who completed Hoenn should not arrive in another region and destroy Lv. 10 trainers with Lv. 60 Pokémon.
+
+Trainer teams, wild encounters and Gym difficulty should scale appropriately.
+
+Exact level curves can be designed later.
+
+---
+
+# MULTIPLAYER SAVES
+
+Players need persistent individual state.
+
+Target:
+
+Player joins multiplayer world.
+Player's Pokémon/inventory/money/progression loads.
+Player plays.
+Player disconnects.
+Player later reconnects.
+Player's state remains intact.
+
+The shared world must also maintain whatever persistent shared state we ultimately determine is necessary.
+
+Protecting saves from corruption is extremely important.
+
+---
+
+# TECHNICAL DEVELOPMENT PRINCIPLES
+
+Do NOT vibe-code giant interconnected systems blindly.
+
+Use:
+
+- Version control
+- Small commits
+- Known-good checkpoints
+- Documentation
+- Repeatable builds
+- Automated tests where practical
+- Focused playtesting
+- Backups before risky architecture changes
+
+Never destroy a known-working system just to try a speculative replacement without preserving the working version.
+
+When a bug occurs, diagnose it before stacking unrelated fixes.
+
+---
+
+# DEVELOPMENT PRIORITY
+
+The hardest foundational question is MULTIPLAYER.
+
+Therefore do not spend weeks creating content before proving that our multiplayer architecture works.
+
+PHASE 0 — RESEARCH
+
+Determine the most appropriate current Emerald decomp/source project and expansion framework.
+
+Evaluate what existing community projects/libraries can responsibly accelerate:
+
+- Gen 1–5 Pokémon support
+- Gen 5 mechanics
+- Expanded battle engine
+- Followers
+- Networking/multiplayer
+
+Do not reinvent mature functionality unnecessarily.
+
+Verify licensing and compatibility before incorporating third-party code.
+
+---
+
+# PHASE 1 — CLEAN BASELINE
+
+Set up the development environment.
+
+Successfully compile the selected Emerald source project WITHOUT our custom gameplay modifications.
+
+Launch the resulting build in an appropriate emulator.
+
+Verify basic gameplay.
+
+Create a known-good version-control checkpoint.
+
+Document:
+
+- Dependencies
+- Toolchain
+- Build commands
+- Emulator/testing setup
+- Project structure
+
+Do not proceed until the baseline build is reproducible.
+
+---
+
+# PHASE 2 — MULTIPLAYER PROOF OF CONCEPT
+
+This is the first major engineering milestone.
+
+Start with TWO players.
+
+Use a small controlled test map if necessary.
+
+Goal:
+
+Two clients connect.
+
+Client A sees Player A.
+
+Client A sees Player B.
+
+Client B sees Player A.
+
+Client B sees Player B.
+
+Movement synchronizes accurately.
+
+Players can move independently.
+
+Entering/leaving maps doesn't immediately break synchronization.
+
+Disconnect/reconnect behaves predictably.
+
+Separate player state is maintained.
+
+Do NOT worry about:
+
+Megas
+World events
+Additional regions
+1v1v1v1
+Fancy UI
+Gym Twins
+649 polished followers
+
+until this basic networking milestone is proven.
+
+---
+
+# PHASE 3 — MULTIPLAYER STATE
+
+After movement synchronization works:
+
+- Individual player saves
+- Party synchronization where required
+- Player appearance
+- Map transitions
+- Connection/disconnection
+- Rejoining
+- Basic multiplayer interaction menu
+- Protection against obvious desync/save corruption
+
+---
+
+# PHASE 4 — CORE MULTIPLAYER GAMEPLAY
+
+Then implement/test:
+
+- Trading
+- 1v1 PvP
+- Teams
+- 2-player co-op interactions
+- 2v2 battles
+- Individual rewards
+- Early-access multiplayer functionality
+- Wagers using in-game currency
+- Championship Mode
+
+---
+
+# PHASE 5 — POKÉMON EXPANSION
+
+Once the multiplayer architecture is credible:
+
+- Gen 1–5 roster
+- Gen 5 mechanics
+- 15 starters
+- Random encounter engine
+- Rarity system
+- Evolution-stage progression
+- Legendary/Mythical exclusions
+- Shinies
+
+If an established compatible expansion framework safely handles much of this, evaluate using it instead of recreating everything manually.
+
+---
+
+# PHASE 6 — CO-OP CAMPAIGN
+
+Implement:
+
+- Twin Gym Leaders
+- Cooperative Gym battles
+- Difficulty balancing
+- AI double-battle strategies
+- Player-specific rewards
+- Campaign synchronization rules
+
+---
+
+# PHASE 7 — FOLLOWERS
+
+Implement and synchronize:
+
+- Player follower Pokémon
+- Multiplayer visibility
+- Shiny appearance
+- Interaction/reactions
+
+---
+
+# PHASE 8 — MEGA EVOLUTION
+
+Implement:
+
+- Mega battle mechanics
+- One Mega per trainer
+- Mega Bracelet/Key Stone progression
+- Expensive Mega Stone shop
+- Mega Stone inventory
+- Mega-capable AI trainers
+- Multiplayer Mega synchronization
+
+---
+
+# PHASE 9 — WORLD EVENTS
+
+Implement:
+
+- Event scheduler
+- Server-wide notifications
+- Event locations
+- Timers
+- Rare Pokémon events
+- Mega events
+- Legendary/Mythical events
+- Shiny event rolls
+- Appropriate Mega Stone rewards
+- Player-specific rewards
+- Event persistence/despawn behavior
+
+---
+
+# PHASE 10 — ADVANCED BATTLE SYSTEMS
+
+Only after ordinary multiplayer battles are stable:
+
+Research and prototype the custom:
+
+1v1v1v1 battle format.
+
+This may require major battle-engine architecture changes.
+
+Treat it as its own engineering project.
+
+Do not destabilize conventional battles to force it into the engine.
+
+---
+
+# PHASE 11 — HOENN POLISH
+
+Before adding another region:
+
+Complete and stabilize Hoenn.
+
+This includes:
+
+- Multiplayer campaign
+- Gyms
+- Twin Gym Leaders
+- Trainer balancing
+- Random encounters
+- Followers
+- Megas
+- World events
+- Trading
+- PvP
+- Championship Mode
+- Saves/rejoining
+- Multiplayer UI
+- Performance
+- Major bug fixing
+
+Hoenn should feel like a finished multiplayer game before adding another region.
+
+---
+
+# PHASE 12 — ADDITIONAL REGIONS
+
+Only after Hoenn is stable should we design the first additional region.
+
+Do not attempt Kanto + Johto + Sinnoh + Unova simultaneously.
+
+Add ONE region at a time.
+
+---
+
+# FIRST TASK
+
+Do NOT begin modifying gameplay immediately.
+
+Start by researching and recommending the exact technical foundation for this project.
+
+I want you to determine:
+
+1. Which current Pokémon Emerald decomp/source project should be our foundation.
+
+2. Which compatible expansion framework/project would best support:
+   - Gen 1–5 Pokémon
+   - Gen 5 mechanics
+   - Expanded species/data limits
+   - Mega Evolution
+   - Additional moves/abilities/items
+   - Follower Pokémon
+   - Future custom battle formats
+   - Additional maps/regions
+   - The amount of engine modification our multiplayer system will require
+
+3. What development environment/toolchain should be used.
+
+4. Which emulator(s) are best for development and multiplayer testing.
+
+5. Whether we should use an existing networking/link implementation, modify an existing multiplayer system, or build a separate networking layer.
+
+6. How multiplayer should technically function.
+
+Evaluate options such as:
+   - Traditional GBA link emulation
+   - Emulator-assisted networking
+   - Host/client networking
+   - Dedicated external server
+   - Custom network protocol
+   - Hybrid approaches
+
+Do NOT automatically choose traditional GBA link-cable emulation just because Emerald originally supported it.
+
+Our requirements are significantly beyond normal GBA multiplayer.
+
+We need up to four players who may:
+   - Be on different maps
+   - Explore independently
+   - Have independent encounters
+   - Battle independently
+   - Trade
+   - Form/leave teams
+   - Participate in shared events
+   - Save independently
+   - Disconnect/reconnect
+   - Potentially remain connected for an entire play session
+
+Choose architecture based on OUR game rather than vanilla Emerald's original multiplayer limitations.
+
+7. Determine how player state should be represented and synchronized.
+
+Consider:
+   - Position
+   - Map
+   - Direction
+   - Movement/animation
+   - Party
+   - Follower Pokémon
+   - Team membership
+   - Battle status
+   - Trading
+   - Money
+   - Inventory
+   - Badges/progression
+   - Event participation
+   - Connection state
+
+Not every piece of data needs to be continuously synchronized.
+
+Design synchronization intelligently.
+
+8. Determine what should be:
+   - Client-authoritative
+   - Host-authoritative
+   - Server-authoritative
+   - Locally stored
+   - Shared globally
+
+We want to avoid unnecessary complexity while also preventing obvious desynchronization and duplication exploits.
+
+This is a private friends-only game, so we do NOT need commercial MMO-grade anti-cheat.
+
+Reliability and simplicity matter more than building an enormous security system.
+
+9. Determine how saves should work.
+
+Each player should maintain their own Pokémon, inventory, money and progression.
+
+Determine how to safely handle:
+   - Saving
+   - Disconnecting
+   - Reconnecting
+   - Host leaving
+   - Client crashing
+   - Server crashing
+   - Trades interrupted midway
+   - Battles interrupted midway
+   - World events interrupted midway
+
+Avoid designs where one connection failure can easily corrupt everyone's save.
+
+10. Determine whether our eventual 1v1v1v1 battle format is technically achievable within the selected battle engine.
+
+Do NOT implement it yet.
+
+I only want an architectural assessment at this stage.
+
+Explain what major changes it would probably require.
+
+11. Determine realistic constraints imposed by the GBA/Emerald architecture.
+
+Specifically investigate:
+   - ROM space
+   - RAM
+   - Save size
+   - Sprite/object limits
+   - Map limits
+   - Pokémon/species limits
+   - Battle engine assumptions
+   - Four-player synchronization
+   - Follower synchronization
+   - Additional regions
+   - Networking
+   - Performance
+
+If one of our desired features creates a serious technical problem, tell me early.
+
+Do NOT quietly remove the feature.
+
+Instead explain:
+   - What the limitation is
+   - Why it exists
+   - Whether it can be overcome
+   - Possible alternatives
+   - Your recommended solution
+
+---
+
+# IMPORTANT DESIGN RULE: PRESERVE THE VISION
+
+Do not simplify the project into ordinary Pokémon Emerald multiplayer without telling me.
+
+The target is intentionally ambitious.
+
+We want:
+
+Pokémon Emerald's visual style and world foundation
+
++
+
+Gen 1–5 Pokémon
+
++
+
+Gen 5 mechanics
+
++
+
+Mega Evolution
+
++
+
+Random Pokémon encounters
+
++
+
+Pokémon followers
+
++
+
+1–4 player persistent multiplayer
+
++
+
+Free-form teams
+
++
+
+Trading
+
++
+
+1v1
+
++
+
+2v2
+
++
+
+eventual 1v1v1v1
+
++
+
+Twin Gym Leaders
+
++
+
+Championship tournaments
+
++
+
+in-game currency wagers
+
++
+
+Legendary/Mega/Shiny world events
+
++
+
+eventual multiple regions.
+
+If something cannot reasonably be implemented in the original architecture, investigate alternative technical approaches before recommending that we remove it.
+
+At the same time, do not pretend something is easy when it is not.
+
+I want realistic engineering decisions.
+
+---
+
+# IMPORTANT DESIGN RULE: DO NOT OVERBUILD
+
+We are NOT making a public MMO.
+
+This is primarily for approximately four friends.
+
+Therefore avoid unnecessarily complicated infrastructure designed for thousands of concurrent players.
+
+If a simple host/client architecture reliably handles four friends, prefer that over building MMO infrastructure.
+
+However, if a small dedicated server dramatically improves reliability, persistence or synchronization, explain why and recommend it.
+
+---
+
+# IMPORTANT DESIGN RULE: DON'T FAKE FEATURES
+
+Do not mark something complete because a UI exists.
+
+For example:
+
+Multiplayer is not complete because a second sprite appears.
+
+Trading is not complete because a Trade button exists.
+
+World events are not complete because a notification appears.
+
+Followers are not complete because one hardcoded Pokémon sprite follows the player.
+
+A system should be tested through its actual gameplay lifecycle before being considered complete.
+
+---
+
+# TESTING PHILOSOPHY
+
+Every major feature needs a repeatable test.
+
+For multiplayer systems, test with multiple actual clients whenever practical.
+
+Examples:
+
+MOVEMENT TEST:
+- Client A moves.
+- Client B observes A.
+- Client B moves.
+- Client A observes B.
+- Both change maps.
+- Both return.
+- Positions remain correct.
+
+DISCONNECT TEST:
+- Player disconnects unexpectedly.
+- Other client remains functional.
+- Player reconnects.
+- Correct state restores.
+
+TRADE TEST:
+- Both players choose Pokémon.
+- Both confirm.
+- Trade completes exactly once.
+- Both saves reflect the trade.
+- Disconnect during confirmation does not duplicate or delete Pokémon.
+
+WAGER TEST:
+- Both players agree on amount.
+- Funds are validated.
+- Battle occurs.
+- Correct winner receives correct result.
+- Currency cannot be duplicated by disconnecting.
+
+EVENT TEST:
+- Event spawns.
+- All connected players receive notification.
+- Event appears at correct location.
+- Timer works.
+- Players can participate.
+- Rewards are correctly assigned.
+- Event despawns/finishes cleanly.
+
+SAVE TEST:
+- Play.
+- Save.
+- Close.
+- Relaunch.
+- Reconnect.
+- Pokémon, inventory, money and progression remain correct.
+
+---
+
+# VERSION CONTROL / CHECKPOINT RULE
+
+Before every major risky system change:
+
+CREATE A KNOWN-GOOD CHECKPOINT.
+
+Examples:
+
+BASELINE_BUILD
+
+MULTIPLAYER_MOVEMENT_V1
+
+MULTIPLAYER_SAVE_V1
+
+TRADING_V1
+
+BATTLE_1V1_V1
+
+TEAMS_V1
+
+BATTLE_2V2_V1
+
+GEN5_EXPANSION_V1
+
+FOLLOWERS_V1
+
+MEGAS_V1
+
+WORLD_EVENTS_V1
+
+HOENN_COMPLETE_V1
+
+Names can differ, but the principle is mandatory.
+
+If an experiment fails badly, return to the known-good implementation rather than continuing to stack patches on broken architecture.
+
+---
+
+# DOCUMENTATION
+
+Maintain project documentation as development progresses.
+
+At minimum document:
+
+- Build/setup instructions
+- Project architecture
+- Multiplayer architecture
+- Network protocol/messages
+- Save architecture
+- Important source locations
+- Added systems
+- Known limitations
+- Known bugs
+- Testing procedures
+- Current milestones
+- Future milestones
+
+I should be able to return to this project later and understand how it works without relying entirely on conversation history.
+
+---
+
+# DO NOT SILENTLY CHANGE GAME RULES
+
+If implementation forces us to reconsider a design decision, ASK ME before changing the intended gameplay.
+
+Examples:
+
+Do not silently:
+- Remove 1v1v1v1
+- Remove followers
+- Change Gen 5 mechanics
+- Add Fairy typing
+- Remove Megas
+- Restrict trading to endgame
+- Make teams permanent
+- Make rewards shared
+- Remove random encounters
+- Allow normal wild Legendaries
+- Change Mega Stone economy
+- Make multiplayer progression globally shared
+
+Technical implementation decisions can be made autonomously when they do not materially change the gameplay vision.
+
+Gameplay/design changes should be brought to me first.
+
+---
+
+# INITIAL SUCCESS CRITERIA
+
+The first truly meaningful playable milestone is NOT the complete game.
+
+It is:
+
+Two players launch our modified Emerald build.
+
+Both connect successfully.
+
+Both choose/load their own character.
+
+Both exist in the same Littleroot Town/test environment.
+
+Player A can see Player B.
+
+Player B can see Player A.
+
+Both can move independently.
+
+Movement and direction synchronize.
+
+Both can leave/re-enter an area without immediately breaking synchronization.
+
+Both maintain separate player state.
+
+One player can disconnect.
+
+The other player remains functional.
+
+The disconnected player can reconnect.
+
+The player's state restores correctly.
+
+Both players can save and later return.
+
+Once this is reliable, preserve it as a major checkpoint.
+
+---
+
+# SECOND PLAYABLE MILESTONE
+
+After networking and persistence are proven:
+
+Two players should be able to:
+
+- Choose different Gen 1–5 starters
+- Enter the same shared world
+- Explore together or separately
+- Receive independent random wild encounters
+- Catch Pokémon independently
+- See each other
+- Save independently
+- Trade Pokémon
+- Challenge each other to 1v1
+- Form a team
+- Leave the team
+- Reconnect without losing progress
+
+At this stage, the project should finally begin to feel like a multiplayer Pokémon game.
+
+---
+
+# THIRD PLAYABLE MILESTONE
+
+Expand to four players.
+
+Verify:
+
+- Four simultaneous clients
+- Independent exploration
+- Separate encounters
+- Separate parties/inventories/money
+- Player interaction
+- Trading
+- 1v1
+- Team creation
+- Team leaving
+- Two simultaneous teams
+- 2v2 battles
+- Individual rewards
+- Stable saving/rejoining
+
+Only after this is stable should we aggressively expand the content systems.
+
+---
+
+# FINAL LONG-TERM VISION
+
+The finished project should feel less like:
+
+"Pokémon Emerald with an online mode"
+
+and more like:
+
+"A private multiplayer Pokémon adventure built using Emerald as its foundation."
+
+Four friends should be able to enter the same Pokémon world and decide for themselves what they want to do.
+
+One player might be challenging a Gym.
+
+Another might be searching for a rare Pokémon.
+
+Two others might be teamed together.
+
+Those two might later separate.
+
+Players might meet and trade.
+
+Two players might wager money on a battle.
+
+Four players might organize a Championship.
+
+Everyone might suddenly receive:
+
+LEGENDARY EVENT:
+A rare Pokémon has appeared.
+
+And all four abandon what they are doing and race toward the location.
+
+Someone might find an extremely rare shiny.
+
+Someone might finally save enough money for the Mega Stone they've wanted.
+
+Two teammates might walk into a Gym and discover that instead of being allowed to overpower one Gym Leader, the Gym Leader's Twin steps forward and turns the encounter into a purpose-built Double Battle.
+
+Eventually players may travel beyond Hoenn into additional regions while retaining their Pokémon and multiplayer identities.
+
+That is the experience we are trying to build.
+
+---
+
+# BEGIN NOW
+
+Start ONLY with the technical research/foundation phase.
+
+Do not start coding major gameplay features yet.
+
+Your first response/work product should give me:
+
+1. Your recommended Emerald source/decomp foundation.
+2. Your recommended expansion framework.
+3. Your recommended development toolchain.
+4. Your recommended emulator/testing environment.
+5. Your recommended multiplayer/network architecture.
+6. How the four-player shared world should technically work.
+7. How individual saves and shared world state should work.
+8. Major technical risks you already see.
+9. Whether the complete vision appears technically achievable and which features will require the most custom engineering.
+10. A concrete Phase 1 implementation plan.
+11. Anything you need me to install, download, configure or legally provide before development can begin.
+
+Do not give me generic ROM-hacking advice.
+
+Research the current tools/projects available and make specific recommendations for THIS project.
+
+Once we agree on the architecture, proceed incrementally and preserve working checkpoints throughout development.
