@@ -12,7 +12,7 @@ Recorded October 7, 2026. Phase 1 is in progress. Two clean builds have reproduc
 - Host GCC: `13.3.0-6ubuntu2~24.04.1`; make 4.3; Git `1:2.43.0-1ubuntu7.3`; Python `3.12.3-0ubuntu2.1`; build-essential `12.10ubuntu1`.
 - Desktop mGBA: `0.10.5.0`, Windows x86, installed at `C:\Program Files\mGBA\mGBA.exe`. Binary SHA-256: `feb3695aea18a57841a5058729fb1a679ad12a5a4e00f0de00ff1c0ba1a6798c`.
 
-The upstream default generation profile is retained for this baseline. Gen 5 rules, roster restrictions, networking, and custom content have not been applied. See [the dependency ledger](dependency-ledger.md) for provenance and distribution review status.
+The upstream default generation profile is retained for this baseline. The now-requested Gen 6 profile, roster restrictions, networking, and custom content have not been applied. The Gen 6 specification update does not alter or discard this unmodified build. See [the dependency ledger](dependency-ledger.md) for provenance and distribution review status.
 
 ## Reproducibility
 

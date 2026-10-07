@@ -1,0 +1,450 @@
+# PROJECT UPDATE — GENERATION 6 + GEN 6 MECHANICS
+
+Update the existing Pokémon Emerald Multiplayer project specification with the following decisions.
+
+These rules OVERRIDE the previous Gen 1–5 roster and Gen 5 mechanics requirements.
+
+Do not restart the project or discard the existing architecture/design. Incorporate these changes into the existing plan.
+
+---
+
+# POKÉMON ROSTER EXPANSION
+
+Change the target Pokémon roster from:
+
+Generations 1–5
+
+to:
+
+GENERATIONS 1–6.
+
+The target standard species roster should therefore include Pokémon introduced from:
+
+Gen 1 — Kanto
+Gen 2 — Johto
+Gen 3 — Hoenn
+Gen 4 — Sinnoh
+Gen 5 — Unova
+Gen 6 — Kalos
+
+This means the normal species target extends through the Generation 6 Pokédex.
+
+Pokémon from Gen 6 should participate in the same systems as earlier Pokémon, including:
+
+- Wild encounters
+- Rarity weighting
+- Shinies
+- Trading
+- PvP
+- Followers
+- Abilities
+- Moves
+- Evolution
+- Mega Evolution where applicable
+
+Legendary and Mythical Pokémon remain excluded from normal randomized wild encounters and instead belong primarily to special/world-event content.
+
+---
+
+# GENERATION 6 STARTERS
+
+Expand the starter selection.
+
+Players may now choose ANY traditional starter from Generations 1–6.
+
+Add:
+
+Chespin
+Fennekin
+Froakie
+
+Therefore the starter selection now contains 18 choices.
+
+Duplicate starters remain allowed.
+
+Four players may select the same starter if they want.
+
+---
+
+# MECHANICS BASELINE CHANGE
+
+The game's mechanical baseline is now:
+
+GENERATION 6.
+
+This replaces the previous Generation 5 mechanics requirement.
+
+Where practical, Pokémon battles and Pokémon data should follow main-series Generation 6 behavior.
+
+This includes appropriate Gen 6:
+
+- Pokémon stats
+- Typings
+- Abilities
+- Moves
+- Move behavior
+- Damage mechanics
+- Battle mechanics
+- Held items
+- Evolution methods
+- Type interactions
+- Status behavior
+- Other relevant battle rules
+
+Do not mix generations accidentally.
+
+When there is a mechanical difference between Emerald, Gen 5 and Gen 6, our intended baseline is now GEN 6 unless another project-specific rule explicitly overrides it.
+
+---
+
+# FAIRY TYPE
+
+Fairy type is now INCLUDED.
+
+Implement the Generation 6 Fairy-type system.
+
+Pokémon whose typings changed with the introduction of Fairy should use their appropriate Gen 6 typing.
+
+Examples include Pokémon such as:
+
+Clefairy
+Clefable
+Jigglypuff
+Wigglytuff
+Gardevoir
+Mawile
+Marill
+Azumarill
+
+and other Pokémon affected by the Gen 6 Fairy-type introduction.
+
+Implement the appropriate Fairy-type effectiveness chart and Gen 6 battle interactions.
+
+Fairy moves should also be supported.
+
+---
+
+# MEGA EVOLUTION
+
+Mega Evolution remains a major mechanic.
+
+Because Gen 6 is now our mechanical baseline, Mega Evolution should feel like a native part of the battle system rather than an unrelated later mechanic.
+
+Our existing project rules remain:
+
+- One Mega Evolution per TRAINER per battle.
+- Each player in a multiplayer battle has their own Mega allowance.
+- Mega Evolution requires the appropriate progression unlock/Key Stone system.
+- Mega Stones can be purchased.
+- Mega Stones should be fairly expensive.
+- Players should have to think carefully about which Mega Stone they purchase early/mid-game.
+- Additional Mega Stones become easier to collect as the player becomes wealthier.
+- Mega Stones may also be obtained through events and special rewards.
+- Mega Pokémon can appear in special world events.
+- Mega event Pokémon can potentially be shiny.
+- Appropriate successful Mega events may reward the corresponding Mega Stone.
+
+---
+
+# IMPORTANT — INCLUDE LATER-INTRODUCED MEGA EVOLUTIONS
+
+The Pokémon species roster is Gen 1–6.
+
+HOWEVER:
+
+The available Mega Evolution roster is NOT restricted to Mega Evolutions that existed during Generation 6.
+
+If an eligible Gen 1–6 Pokémon received an OFFICIAL Mega Evolution in a later Pokémon game, include that Mega Evolution in our project as well.
+
+In other words:
+
+BASE POKÉMON ROSTER:
+Gen 1–6.
+
+MEGA FORM ROSTER:
+All officially released Mega Evolutions applicable to eligible Pokémon in our roster, including Mega Evolutions introduced AFTER the original Gen 6 games.
+
+Do not limit the Mega list to Pokémon X/Y or Omega Ruby/Alpha Sapphire.
+
+Research the current official Mega Evolution roster when implementing this system.
+
+This should include officially released later Mega forms from newer games/content where their base Pokémon exists within our supported roster.
+
+If a later official Mega Evolution belongs to a Pokémon introduced AFTER Gen 6, do NOT automatically add that base Pokémon to the normal roster solely because it has a Mega.
+
+Bring that case to me before expanding the normal species roster beyond Gen 6.
+
+---
+
+# LATER MEGA MECHANICS
+
+Our battle mechanics remain fundamentally Gen 6.
+
+For Mega Evolutions introduced after Gen 6, adapt them to our Gen 6-style battle engine.
+
+Use their official:
+
+- Appearance/form
+- Typing
+- Base stats
+- Ability
+- Appropriate Mega Stone/form requirement
+
+where practical.
+
+If a later Mega depends on a mechanic that does not translate cleanly into Gen 6 battle rules, document the conflict and propose the closest faithful implementation before changing its behavior.
+
+Do not silently introduce an entire later-generation battle ruleset just because a newer Mega came from that generation.
+
+---
+
+# WORLD EVENT UPDATE
+
+World Events may now pull from the expanded Gen 1–6 roster.
+
+Normal event possibilities remain:
+
+- Rare Pokémon
+- Mega Pokémon
+- Legendary Pokémon
+- Mythical Pokémon
+- Shiny Pokémon
+- Shiny Mega Pokémon
+- Shiny Legendary Pokémon
+- Shiny Mythical Pokémon
+- Extremely rare Shiny Mega Legendary Pokémon where applicable
+
+The underlying Pokémon roster is now Gen 1–6.
+
+Mega events may use any supported official Mega Evolution, including later-introduced Mega forms that meet our roster rules.
+
+---
+
+# RANDOM WILD ENCOUNTER UPDATE
+
+Normal randomized wild encounters now pull from eligible:
+
+GEN 1–6 Pokémon.
+
+Existing rules remain unchanged:
+
+- No normal wild Legendary Pokémon.
+- No normal wild Mythical Pokémon.
+- Low-level/basic forms dominate early progression.
+- Strong evolutionary families can appear early, but generally as their low-level base forms.
+- Evolution stages progressively unlock.
+- Pokémon use rarity weighting.
+- Each player receives independent encounter rolls.
+- Shinies remain possible.
+- Starters can appear in the random wild pool.
+
+Examples of possible early rare encounters now include Pokémon such as:
+
+Gible
+Bagon
+Larvitar
+Axew
+Deino
+Riolu
+Froakie
+Fletchling
+Honedge
+Goomy
+
+provided their rarity and level are appropriately balanced.
+
+---
+
+# FOLLOWER UPDATE
+
+Follower support should eventually cover the entire Gen 1–6 roster.
+
+That includes shiny variants where applicable.
+
+Mega forms should also display correctly in any situation where a Mega-Evolved Pokémon is legitimately represented in the overworld.
+
+Do not prioritize creating hundreds of follower assets before multiplayer networking is proven.
+
+---
+
+# ADDITIONAL REGION UPDATE
+
+Our long-term potential region list now includes:
+
+Hoenn
+Kanto
+Johto
+Sinnoh
+Unova
+Kalos
+
+Hoenn remains the FIRST region and the only region that should be built/polished initially.
+
+Do NOT start building Kalos simply because Gen 6 Pokémon have been added.
+
+Pokémon generation support and physical region implementation are separate systems.
+
+---
+
+# CHAMPIONSHIP / PVP
+
+All existing multiplayer battle rules remain:
+
+- 1v1
+- 2v2
+- Eventual custom 1v1v1v1
+- Championship Mode
+- Optional in-game currency wagers
+- Battles available from the beginning
+- Trading available from the beginning
+- Free-form teams
+- Individual rewards
+- Individual money
+- Individual inventories
+- Individual Pokémon
+- One Mega Evolution per trainer
+
+These battles now use the Gen 6 mechanical baseline.
+
+---
+
+# UPDATED PROJECT IDENTITY
+
+The project should now be understood as:
+
+Pokémon Emerald visual/technical foundation
+
++
+
+Gen 1–6 Pokémon
+
++
+
+Generation 6 battle/Pokémon mechanics
+
++
+
+Fairy typing
+
++
+
+All appropriate official Mega Evolutions, including later-introduced Mega forms
+
++
+
+18 selectable Gen 1–6 starters
+
++
+
+Random Gen 1–6 wild Pokémon
+
++
+
+1–4 player shared multiplayer world
+
++
+
+Free-form teams
+
++
+
+Trading
+
++
+
+1v1
+
++
+
+2v2
+
++
+
+eventual 1v1v1v1
+
++
+
+Championship Mode
+
++
+
+optional in-game currency wagers
+
++
+
+Pokémon followers
+
++
+
+Twin Gym Leaders
+
++
+
+expensive purchasable Mega Stones
+
++
+
+Mega/Legendary/Mythical/Shiny world events
+
++
+
+individual player rewards/progression
+
++
+
+eventual multiple regions.
+
+---
+
+# TECHNICAL RESEARCH UPDATE
+
+Because the roster and mechanical baseline have changed, update the technical-foundation research accordingly.
+
+When selecting an Emerald expansion framework, strongly prioritize one capable of supporting:
+
+- At least the complete Gen 1–6 roster
+- Gen 6 battle mechanics
+- Fairy typing
+- Mega Evolution
+- Expanded moves
+- Expanded abilities
+- Expanded items
+- Large numbers of species/forms
+- Additional Mega forms
+- Follower Pokémon
+- Multiplayer modifications
+- Large future map expansion
+
+Do NOT continue using a framework solely because it was appropriate for our previous Gen 1–5/Gen 5 requirement if another foundation is substantially better for the new specification.
+
+However, do not throw away existing completed work without first evaluating migration cost.
+
+---
+
+# DO NOT CHANGE THESE RULES
+
+This update does NOT change:
+
+- Emerald as our intended foundation.
+- Hoenn as the first region.
+- 1–4 player target.
+- Free-form teams.
+- Maximum normal team size of 2.
+- Individual player rewards.
+- Independent encounters.
+- Trading from the beginning.
+- PvP from the beginning.
+- Championship Mode.
+- Currency wagering.
+- Twin Gym Leaders.
+- Pokémon followers.
+- Expensive purchasable Mega Stones.
+- World events.
+- Persistent saves/rejoining.
+- Future multiple regions.
+- Incremental development/checkpoint philosophy.
+- Multiplayer proof-of-concept as the first major technical milestone.
+
+Continue treating reliable multiplayer as the highest-risk foundational feature.
+
+Update the project's master specification and technical recommendations to reflect these changes before proceeding with implementation.

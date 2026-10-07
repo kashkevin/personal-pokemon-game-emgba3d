@@ -1,10 +1,10 @@
 # Pokémon Emerald private multiplayer
 
-This project targets a private adventure for one to four friends using Emerald as its foundation, with independent exploration and saves, Gen 1–5 Pokémon, Gen 5 mechanics, and intentional Mega Evolution support.
+This project targets a private adventure for one to four players total using Emerald as its foundation, with independent exploration and saves, Gen 1–6 Pokémon, Gen 6 mechanics including Fairy, 18 starters, and all eligible officially released Mega Evolutions, including later additions.
 
 Current milestone: **Phase 1 baseline verification.** The pinned, unmodified engine has compiled twice from clean builds with identical ROM, ELF, and map hashes. The upstream automated suite completed with exit code 0 and its declared exceptions recorded; mGBA gameplay and save-isolation checks are pending. No multiplayer implementation or accepted playable checkpoint exists yet.
 
-Read [the technical foundation](docs/technical-foundation.md) for the recommended stack, evidence, multiplayer and save architecture, constraints, and Phase 1 acceptance criteria. [The original project brief](docs/project-brief.txt) preserves the requested gameplay and phase order.
+Read [the current master specification](docs/master-spec.md) for the accepted gameplay and phase order, and [the technical foundation](docs/technical-foundation.md) for the stack, multiplayer/save architecture, constraints, and baseline acceptance criteria. [The original brief](docs/project-brief.txt) and [Generation 6 update](docs/project-update-gen6.txt) are preserved verbatim; the update takes precedence where they differ.
 
 The requested delivery is a downloadable Windows game with **Host Game / Join Game**, for four players total including the host. The owner's PC hosts over home Wi-Fi, with direct Internet connections through port forwarding. Friends should need no compiler, Python installation, VPN, or manual emulator script setup. [Local PC setup](docs/local-pc-setup.md) records the packaging target, hosting setup, and development downloads. The game package and server have not been implemented yet.
 
