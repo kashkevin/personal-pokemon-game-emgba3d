@@ -103,6 +103,13 @@ class ServerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(own["session_epoch"], client.epoch)
         self.assertIsNone(own["presence"])
 
+    async def test_server_shutdown_closes_active_clients_without_waiting_for_them(self):
+        client, _ = await self.connect()
+        await client.world()
+        await asyncio.wait_for(self.server.close(), 1)
+        self.assertIsNone(await client.next())
+        self.assertFalse(self.server.sessions)
+
     async def test_four_independent_players_two_maps_and_fifth_rejected(self):
         for index in range(4):
             client, welcome = await self.connect(display_name=f"Player {index}")

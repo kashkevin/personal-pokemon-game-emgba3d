@@ -183,9 +183,9 @@ class WorldServer:
 
     async def close(self) -> None:
         self._closing = True
+        listening_server = self._server
         if self._server is not None:
             self._server.close()
-            await self._server.wait_closed()
             self._server = None
         if self._monitor_task is not None:
             self._monitor_task.cancel()
@@ -200,6 +200,10 @@ class WorldServer:
             for task in remaining:
                 task.cancel()
             await asyncio.gather(*pending, return_exceptions=True)
+        # Python 3.13+ waits for accepted transports as well as the listener.
+        # Closing them above must precede this await to avoid shutdown deadlock.
+        if listening_server is not None:
+            await listening_server.wait_closed()
 
     async def _reject(self, writer: asyncio.StreamWriter, code: str, message: str) -> None:
         try:

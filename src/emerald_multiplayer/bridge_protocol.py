@@ -1,0 +1,63 @@
+"""Binary loopback bridge framing, separate from the JSON world protocol."""
+
+from __future__ import annotations
+
+import asyncio
+import struct
+
+MAX_BRIDGE_FRAME_BYTES = 256
+
+
+class BridgeError(ValueError):
+    pass
+
+
+def encode_packet(payload: bytes) -> bytes:
+    if not isinstance(payload, bytes) or not 1 <= len(payload) <= MAX_BRIDGE_FRAME_BYTES:
+        raise BridgeError("bridge frame length is outside its bounds")
+    return struct.pack("!I", len(payload)) + payload
+
+
+async def read_packet(reader: asyncio.StreamReader) -> bytes | None:
+    try:
+        header = await reader.readexactly(4)
+    except asyncio.IncompleteReadError as error:
+        if not error.partial:
+            return None
+        raise BridgeError("truncated bridge header") from error
+    size = struct.unpack("!I", header)[0]
+    if not 1 <= size <= MAX_BRIDGE_FRAME_BYTES:
+        raise BridgeError("bridge frame length is outside its bounds")
+    try:
+        return await reader.readexactly(size)
+    except asyncio.IncompleteReadError as error:
+        raise BridgeError("truncated bridge payload") from error
+
+
+class LatestPacket:
+    """One replaceable downstream snapshot; slow readers cannot grow a queue."""
+
+    def __init__(self) -> None:
+        self.pending: bytes | None = None
+        self.closed = False
+        self.ready = asyncio.Event()
+
+    def put(self, payload: bytes) -> None:
+        frame = encode_packet(payload)
+        if not self.closed:
+            self.pending = frame
+            self.ready.set()
+
+    async def get(self) -> bytes | None:
+        while not self.closed:
+            if self.pending is not None:
+                frame, self.pending = self.pending, None
+                return frame
+            self.ready.clear()
+            await self.ready.wait()
+        return None
+
+    def close(self) -> None:
+        self.closed = True
+        self.pending = None
+        self.ready.set()
