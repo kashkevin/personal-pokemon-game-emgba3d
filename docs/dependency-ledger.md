@@ -33,9 +33,12 @@ GNU Arm compiler/binutils, GNU make, newlib development files, Git, Python, and 
 
 Primary references: [pinned upstream CI packages](https://github.com/rh-hideout/pokeemerald-expansion/blob/bb1093a7c72d3961d9a37d8e02ad2abc2c866682/.github/workflows/build.yml), [GNU GCC](https://gcc.gnu.org/), [GNU binutils](https://www.gnu.org/software/binutils/), [newlib](https://sourceware.org/newlib/).
 
+The project-owned baseline and multiplayer headless frontends use the public core API of mGBA 0.10.5 at `26b7884bc25a5933960f3cdcd98bac1ae14d42e2`. The core's covered source is unchanged. These are private development builds, not bundled player binaries. The multiplayer frontend uses a separate scripting-enabled core build with Ubuntu Lua 5.4.6 (`5.4.6-3build2`) and its development headers. Lua carries [MIT permission terms](https://www.lua.org/license.html). CMake and the native C compiler are development dependencies. Record the actual linked core dependencies and corresponding notices before packaging this runtime.
+
 ## Incorporation and distribution status
 
 - No additional third-party networking implementation or art has been imported beyond the unmodified upstream engine tree.
 - Wired-Ariel, TheHunterManX, Celio, Quetzal, and native Emerald ports remain research references, not incorporated dependencies.
-- The proposed launcher, companion/server, packaging tool, and mGBA frontend patch are not implemented or shipped yet.
+- The project-owned Python companion/server, Lua mailbox bridge, and headless test frontends are implemented for private development. They have not been shipped. No third-party networking source was copied into them.
+- The Windows launcher/player package and any automatic script-loading desktop frontend modification remain future work.
 - Before sending a package to friends, record every included binary, modified source component, and asset's revision, notices, applicable terms, and unresolved permission. Distribution review is pending; emulator licensing does not license Pokémon content.

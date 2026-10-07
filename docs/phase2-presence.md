@@ -24,6 +24,8 @@ This first ABI supports overworld/unavailable activity. Bike variants share a tr
 
 October 7, 2026: **44 Python tests pass on Windows Python 3.14**. They include real TCP server/companion sessions, four-player capacity, fragmented/oversized messages, build/ruleset mismatch, duplicate identity, stale map/session data, pause, reconnect, malformed world snapshots, slow consumers, and closing listeners with active clients. The last check caught and fixed a shutdown deadlock under Python 3.14.
 
+The same 44 tests also pass under Ubuntu WSL Python 3.12, which runs the real-core integration tools.
+
 ```powershell
 $env:PYTHONPATH = Join-Path (Get-Location) 'src'
 python -m unittest discover -s tests

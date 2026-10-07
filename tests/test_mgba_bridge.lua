@@ -87,4 +87,10 @@ assert(env.closed and env.memory[address+40]==0, "Duplicate peer tokens accepted
 
 env=fresh(); dofile(bridge); env.memory[address]=0xDEADBEEF; env.step(1)
 assert(#env.writes==0 and not env.connected and #env.errors==1)
+
+env=fresh(); dofile(bridge); env.ready(); env.step(1)
+emu.checksum=function() return "bad!" end
+env.callback.start(); env.step(10)
+assert(#env.writes==0 and env.closed and #env.errors==1,
+    "Switching ROMs must invalidate write permission before cleanup")
 print("PASS: bridge identity, ABI boundary, partial IPC, atomic snapshot, malformed frames")
