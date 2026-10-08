@@ -217,12 +217,17 @@ class WorldServer:
         self.trade_desk = None
         if type(development_trades) is not bool:
             raise ValueError("development_trades must be a boolean")
+        from .trade_desk import TradeDesk
+        from .trade_storage import TradeCheckpointStore
+        # Existing committed outcomes must remain recoverable even when this
+        # host does not permit new trade proposals. Only the authenticated
+        # pending/status/ACK routes may use this private recovery desk.
+        self._trade_recovery_desk = (TradeDesk(store, self._connected_lease)
+            if isinstance(store, TradeCheckpointStore) else None)
         if development_trades:
-            from .trade_desk import TradeDesk
-            from .trade_storage import TradeCheckpointStore
-            if not isinstance(store, TradeCheckpointStore):
+            if self._trade_recovery_desk is None:
                 raise ValueError("development trades require an explicit schema-3 world")
-            self.trade_desk = TradeDesk(store, self._connected_lease)
+            self.trade_desk = self._trade_recovery_desk
         # Teams are session-local development state, separate from trades and
         # ordinary save profiles. Authentication still requires an owned world.
         self.team_desk = None
@@ -586,10 +591,13 @@ class WorldServer:
             **({"code": error.code, "message": error.message} if error is not None else fields)))
 
     def _trade(self, session, request):
-        if self.trade_desk is None:
-            raise ProtocolError("trade_disabled", "this development world has not enabled the trade proof")
-        desk, actor = self.trade_desk, (session.player_id, session.session_epoch)
         kind = request["type"].removeprefix("trade_")
+        desk = self.trade_desk
+        if desk is None:
+            if kind not in {"pending", "status", "ack"} or self._trade_recovery_desk is None:
+                raise ProtocolError("trade_disabled", "this development world has not enabled new trade operations")
+            desk = self._trade_recovery_desk
+        actor = (session.player_id, session.session_epoch)
         if kind not in {"status", "pending"}:
             players = [session.player_id]
             if kind == "open":

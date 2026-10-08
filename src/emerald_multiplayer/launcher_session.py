@@ -40,7 +40,7 @@ _MESSAGES = {
     "invalid_invitation": "The friend invitation could not be verified.",
     "enrollment_required": "This character needs the separate first-enrollment workflow.",
     "pending_battle": "An unresolved battle requires explicit recovery before launch.",
-    "trade_recovery_unavailable": "This development host must enable trade recovery before launch.",
+    "trade_recovery_unavailable": "This host does not provide authenticated trade recovery.",
     "mirror_active": "Another game or controller owns this character's save.",
     "connection_timeout": "The host did not authenticate this session before the timeout.",
     "connection_lost": "The authenticated host connection is unavailable.",
@@ -256,8 +256,6 @@ class LauncherSession:
         self._assert_session()
         if head is None:
             raise LauncherSessionError("enrollment_required")
-        if self._server is not None and not self._development_trades:
-            raise LauncherSessionError("trade_recovery_unavailable")
         # Observational capability check; cold recovery still resolves exact
         # journals and authoritative fates before it can authorize a core.
         await self._companion.trade_rpc("pending")

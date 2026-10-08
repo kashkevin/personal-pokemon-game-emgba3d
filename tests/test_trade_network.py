@@ -341,8 +341,16 @@ class TradeNetworkTests(unittest.IsolatedAsyncioTestCase):
     async def test_schema3_default_keeps_trade_disabled_without_disrupting_checkpoints(self):
         await self.restart(enable_trades=False)
         self.assertIsNone(self.server.trade_desk)
-        await self.assert_trade_error("trade_disabled", 0, "open", transaction_id=self.transaction,
-            peer=self.players[1].player_id)
+        for operation, fields in (
+            ("open", dict(peer=self.players[1].player_id)),
+            ("offer", dict(generation=str(uuid4()), revision=1, sha256=self.heads[0].sha256,
+                          serial=self.grants[0].start)),
+            ("confirm", dict(generation=str(uuid4()), fingerprint="a"*64)),
+            ("cancel", dict(generation=str(uuid4()))),
+        ):
+            await self.assert_trade_error("trade_disabled", 0, operation, transaction_id=self.transaction, **fields)
+        self.assertEqual((await self.rpc(0, "pending"))["recoveries"], [])
+        self.assertEqual((await self.rpc(0, "status", transaction_id=self.transaction))["trade"]["state"], "aborted")
         for index in range(3):
             self.assertEqual((await CheckpointClient(self.companions[index]).info())["revision"], 1)
             self.assertTrue(self.companions[index].connected)
@@ -358,6 +366,8 @@ class TradeGateTests(unittest.TestCase):
             try:
                 self.assertIsNone(WorldServer(config, store=legacy).trade_desk)
                 self.assertIsNone(WorldServer(config, store=trade).trade_desk)
+                self.assertIsNone(WorldServer(config, store=legacy)._trade_recovery_desk)
+                self.assertIsNotNone(WorldServer(config, store=trade)._trade_recovery_desk)
                 with self.assertRaisesRegex(ValueError, "schema-3"):
                     WorldServer(config, store=legacy, development_trades=True)
                 with self.assertRaisesRegex(ValueError, "boolean"):

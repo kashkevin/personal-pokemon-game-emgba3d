@@ -11,12 +11,17 @@ from unittest.mock import patch
 from uuid import uuid4
 
 from emerald_multiplayer.checkpoint_mirror import MirrorError, MirrorLease
-from emerald_multiplayer.companion import Companion
+from emerald_multiplayer.checkpoint_client import CheckpointClient, CheckpointError
+from emerald_multiplayer.companion import Companion, TradeError
 from emerald_multiplayer.host_world import HostWorld
 from emerald_multiplayer.launcher_session import (
     GameInstallation, LauncherSession, LauncherSessionError, SessionState,
 )
 from emerald_multiplayer.ownership import OWNERSHIP_PROFILE
+from emerald_multiplayer.flash import inspect_flash
+from emerald_multiplayer.ownership import inspect_ownership
+from emerald_multiplayer.trade_flash import build_party_swap
+from emerald_multiplayer.trade_storage import TradeSide
 from process_fixture import direct_python
 from test_host_world import make_trade_files
 from test_ownership_storage import owned_flash, source_flash
@@ -69,7 +74,7 @@ class LauncherSessionTests(unittest.IsolatedAsyncioTestCase):
 
     def session(self, **options):
         values = dict(world_directory=self.host.directory, bind_address="127.0.0.1",
-                      host_route="127.0.0.1", development_trades=True)
+                      host_route="127.0.0.1", development_trades=False)
         values.update(options)
         return LauncherSession(self.installation, self.private, **values)
 
@@ -98,6 +103,32 @@ class LauncherSessionTests(unittest.IsolatedAsyncioTestCase):
         self.calls.append((args, kwargs))
         self.spawned.set()
         return child
+
+    def committed_trade(self):
+        """Durable pre-restart fixture; no public trade creation is enabled."""
+        with self.host.open_store() as store:
+            store.begin_server_boot()
+            accounts = self.host.accounts[:2]
+            leases = [store.acquire_lease(a.player_id, a.credential) for a in accounts]
+            heads = [store.read_checkpoint(a.player_id, lease) for a, lease in zip(accounts, leases)]
+            serials = [inspect_ownership(inspect_flash(h.payload, save_profile=OWNERSHIP_PROFILE)).records[0].serial
+                       for h in heads]
+            post = build_party_swap(heads[0].payload, serials[0], heads[1].payload, serials[1])
+            sides = [TradeSide(a.player_id, lease, h.revision, serial, payload)
+                     for a, lease, h, serial, payload in zip(accounts, leases, heads, serials, post)]
+            result = store.commit_trade(str(uuid4()), *sides, self.host.build_id,
+                                        self.host.ruleset_id, OWNERSHIP_PROFILE)
+            for checkpoint in (result.checkpoint_a, result.checkpoint_b):
+                self.payloads[checkpoint.player_id] = checkpoint.payload
+            store.integrity_check()
+            return result
+
+    async def finish_game(self, session):
+        self.spawned.clear()
+        task = asyncio.create_task(session.play())
+        await asyncio.wait_for(self.spawned.wait(), 10)
+        self.children[-1].terminate()
+        return await asyncio.wait_for(task, 10)
 
     async def test_host_local_route_keeps_advertised_identity_and_readiness_is_observational(self):
         original = (self.host.directory / "host.json").read_bytes()
@@ -131,17 +162,108 @@ class LauncherSessionTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(len(host._server.sessions), 2)
             friend._companion.config.server_tls.verify_peer(friend._companion._remote_writer)
 
-    async def test_disabled_trade_gate_is_visible_before_attempting_runtime(self):
+    async def test_new_trades_disabled_still_allow_ready_host_and_friend_to_launch(self):
         host, friend = self.session(development_trades=False), self.friend()
         async with host.open(), friend.open():
             for session in (host, friend):
-                self.assertEqual(session.status.code, "trade_recovery_unavailable")
+                self.assertEqual(session.status.state, SessionState.READY)
                 with patch("emerald_multiplayer.player_runtime.asyncio.create_subprocess_exec", self.spawn):
-                    with self.assertRaises(LauncherSessionError) as caught:
-                        await session.play()
-                self.assertEqual(caught.exception.code, "trade_recovery_unavailable")
+                    self.spawned.clear()
+                    task = asyncio.create_task(session.play())
+                    await asyncio.wait_for(self.spawned.wait(), 10)
+                    self.children[-1].terminate()
+                    await asyncio.wait_for(task, 10)
+                self.assertTrue((session.profile_directory / "character.sav").exists())
+            self.assertIsNone(host._server.trade_desk)
+        self.assertEqual(len(self.children), 2)
+
+    async def test_committed_trade_recovers_each_current_save_over_tls_with_new_trades_disabled(self):
+        outcome = self.committed_trade()
+        host, friend = self.session(), self.friend()
+        async with host.open(), friend.open():
+            self.assertIsNone(host._server.trade_desk)
+            for session in (host, friend):
+                c = session._companion
+                pending = (await c.trade_rpc("pending"))["recoveries"]
+                self.assertEqual(len(pending), 1)
+                self.assertEqual(pending[0]["transaction_id"], outcome.transaction_id)
+                self.assertEqual(session.status.revision, 2)
                 self.assertFalse((session.profile_directory / "character.sav").exists())
-        self.assertFalse(self.children)
+                with self.assertRaises(CheckpointError) as caught:
+                    await CheckpointClient(c).upload(self.payloads[c.config.player_id], 2)
+                self.assertEqual(caught.exception.code, "trade_recovery_required")
+                with patch("emerald_multiplayer.player_runtime.asyncio.create_subprocess_exec", self.spawn):
+                    await self.finish_game(session)
+                self.assertEqual((await c.trade_rpc("pending"))["recoveries"], [])
+                evidence, = session.profile_directory.glob("closed-recoveries/*/completed.json")
+                record = json.loads(evidence.read_bytes())["record"]
+                self.assertEqual(record["trade_ack"]["state"], "acknowledged")
+                self.assertEqual(record["trade_fate"]["outcome_fingerprint"], outcome.outcome_fingerprint)
+                self.assertEqual((session.profile_directory / "character.sav").read_bytes(), self.payloads[c.config.player_id])
+            self.assertEqual(host._store._connection.execute("SELECT count(*) FROM trade_transactions").fetchone()[0], 1)
+            host._store.integrity_check()
+
+    async def test_recovery_ack_requires_exact_own_result_and_readiness_does_not_clear_it(self):
+        outcome = self.committed_trade()
+        host, stranger = self.session(), self.friend(2)
+        async with host.open(), stranger.open():
+            c = host._companion
+            result = (await c.trade_rpc("status", transaction_id=outcome.transaction_id))["trade"]
+            with self.assertRaises(TradeError) as caught:
+                await c.trade_rpc("ack", transaction_id=outcome.transaction_id, revision=result["revision"], sha256="0"*64)
+            self.assertEqual(caught.exception.code, "trade_ack_mismatch")
+            for operation, fields in (("status", {}), ("ack", dict(revision=result["revision"], sha256=result["sha256"]))):
+                with self.assertRaises(TradeError) as caught:
+                    await stranger._companion.trade_rpc(operation, transaction_id=outcome.transaction_id, **fields)
+                self.assertEqual(caught.exception.code, "trade_not_participant")
+            self.assertEqual((await stranger._companion.trade_rpc("pending"))["recoveries"], [])
+            await host.readiness()
+            self.assertEqual(len((await c.trade_rpc("pending"))["recoveries"]), 1)
+            with MirrorLease(host.profile_directory / "character.sav"):
+                with self.assertRaises(LauncherSessionError) as caught:
+                    await host.play()
+            self.assertEqual(caught.exception.code, "mirror_active")
+            self.assertEqual(len((await c.trade_rpc("pending"))["recoveries"]), 1)
+            host._store.integrity_check()
+
+    async def test_lost_recovery_ack_prevents_spawn_then_fresh_default_host_resumes(self):
+        self.committed_trade()
+        host = self.session()
+        with patch("emerald_multiplayer.player_runtime.asyncio.create_subprocess_exec", self.spawn):
+            async with host.open():
+                original = host._server._trade_reply
+                dropped = []
+                def drop_ack(session, request, **fields):
+                    if request["type"] == "trade_ack" and fields.get("trade", {}).get("state") == "acknowledged":
+                        dropped.append(True)
+                        session.close("test_lost_recovery_ack")
+                        return
+                    return original(session, request, **fields)
+                with patch.object(host._server, "_trade_reply", side_effect=drop_ack):
+                    with self.assertRaises(LauncherSessionError):
+                        await host.play()
+                self.assertEqual(dropped, [True])
+                self.assertFalse(self.children)
+                self.assertTrue(list(host.profile_directory.glob("closed-recoveries/*/applied.json")))
+            resumed = self.session()
+            async with resumed.open():
+                self.assertIsNone(resumed._server.trade_desk)
+                self.assertEqual(resumed.status.revision, 2)
+                await self.finish_game(resumed)
+                self.assertEqual((await resumed._companion.trade_rpc("pending"))["recoveries"], [])
+                resumed._store.integrity_check()
+
+    async def test_unresolved_local_trade_intent_still_refuses_default_host_launch(self):
+        session = self.session()
+        async with session.open():
+            pending = session.profile_directory / "pending-trade.json"
+            raw = b"corrupt unresolved trade fixture"
+            pending.write_bytes(raw)
+            with self.assertRaises(LauncherSessionError):
+                await session.play()
+            self.assertEqual(pending.read_bytes(), raw)
+            self.assertFalse((session.profile_directory / "character.sav").exists())
+            self.assertFalse(self.children)
 
     async def test_missing_canonical_enrollment_never_creates_a_character(self):
         host, friend = self.session(), self.friend(2)

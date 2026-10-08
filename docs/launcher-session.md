@@ -25,7 +25,7 @@ host = LauncherSession(
     installation, private_app_directory,
     world_directory=existing_world_directory,
     bind_address="192.168.1.20", host_route="192.168.1.20",
-    development_trades=True,  # Explicit existing development/recovery gate.
+    development_trades=False,  # Default: recovery works; new trades stay disabled.
 )
 # Alternatively:
 friend = LauncherSession(
@@ -50,7 +50,11 @@ The context remains open while the game runs. If the caller starts `play()` in a
 
 ## Development gates and status
 
-`development_trades` defaults to false. Current `ColdStartRecovery` always queries pending trade recovery for a trade-capable game; the existing server currently makes this operation available through the development trade gate. Without explicit opt-in, a host reports `trade_recovery_unavailable` before entering the runtime. A friend checks that capability with an observational `trade_pending` request. This does not qualify trade evolution, mail, offer menus or native effects. A future player package needs recovery availability separated from permission to create trades; no new public recovery endpoint is introduced here.
+`development_trades` defaults to false. Authenticated schema-3 hosts provide the existing `trade_pending`, `trade_status` and exact committed `trade_ack` operations independently of that gate. `trade_open`, `trade_offer`, `trade_confirm` and `trade_cancel` remain disabled until explicit opt-in. The private recovery desk shares the active proposal desk when trading is enabled; when disabled after a host restart, it reports the existing durable committed fate or the authoritative absence of a volatile proposal. It cannot create, edit, confirm or cancel a proposal through a recovery route.
+
+Host and friend readiness check recovery with an observational `trade_pending` request. They can resume an enrolled character on a default host. Pending results still block ordinary persistent mutation until closed recovery installs and verifies that player's current canonical bytes, records its evidence, and sends the exact result acknowledgment. Foreign results, stale leases, wrong revision/hash acknowledgments and active battle reservations retain their existing refusals. A malformed local journal or uncertain response still prevents a game launch. Readiness alone neither acknowledges nor clears recovery.
+
+An older host or unsupported store without that capability reports `trade_recovery_unavailable`; it is never treated as an empty recovery list. No new RPC, unauthenticated registration, schema migration, native trade effect or offline/battle settlement policy is introduced. This does not qualify trade evolution, mail, offer menus or the final trading interface.
 
 `SessionStatus` contains only state, bounded code, connection availability, revision and process exit code. `LauncherSessionError` uses an allowlist of fixed messages; raw exceptions, credentials, IPC tokens and journal contents do not reach it. An optional synchronous `on_status` callback receives lifecycle changes; callback exceptions are counted and cannot cancel the lifecycle. A UI should also poll `session.status` for current connection state, because network observations do not create controller actions.
 
@@ -58,10 +62,14 @@ Connection loss during a running game changes its observable status while the ru
 
 ## Verification boundary
 
-`tests/test_launcher_session.py` exercises genuine encrypted Flash fixtures, SQLite ownership heads, generated pinned TLS, actual `WorldServer`/`Companion` sockets, real subprocesses and OS save locks. Only the native executable is replaced by a controlled Python child. The tests cover distinct Host/Join identities, advertised/local route separation, missing enrollment, disabled recovery capability, malformed pending battle preservation, installation changes, duplicate launches, canceled process creation, cleanup ordering, existing save locks, authenticated reconnect, running disconnect observation and status secrecy.
+`tests/test_launcher_session.py` exercises genuine encrypted Flash fixtures, SQLite ownership heads, generated pinned TLS, actual `WorldServer`/`Companion` sockets, real subprocesses and OS save locks. Only the native executable is replaced by a controlled Python child. The tests cover distinct Host/Join identities, advertised/local route separation, missing enrollment, default-host startup with new trades disabled, malformed pending battle preservation, installation changes, duplicate launches, canceled process creation, cleanup ordering, existing save locks, authenticated reconnect, running disconnect observation and status secrecy. Recovery extensions cover each participant's committed canonical save, foreign/mismatched acknowledgments, retained unresolved local intent, and a lost ACK followed by fresh default-host startup.
 
 On October 8, 2026, all **63 tests in the affected launcher/runtime/cold-start/host/invitation group passed on both Windows and WSL**, without skips. This includes 16 new launcher tests. Windows completed in 35.058 seconds; WSL completed in 38.371 seconds. An independent read-only review found no lifecycle, identity or status-secrecy blocker. Its terminal-status observation was corrected: readiness after a finished launch preserves FINISHED, and readiness after closure refuses the operation without replacing CLOSED. Both paths are covered by the final tests.
 
 The private `artifacts/windows-runtime` logs are `launcher-session-windows-2.log`, SHA-256 `172dec8866c0ebb96b1cd6035cf4db58310fcdb20629faf9a5135679617a42f3`, and `launcher-session-wsl-2.log`, SHA-256 `8464645fb8b4535adf294c1d8935f4f6ef532b390d00e174ea630fc3a1e1b399`. The WSL archive copy was hash-verified against its original. These are functional development timings, not game-performance measurements.
+
+The subsequent default-host recovery change passed **91 affected launcher/trade-network/battle-arbitration/cold-start/runtime/host/invitation tests on both Windows and WSL**, without skips, on October 8, 2026. The launcher module now has 20 tests. Windows completed in 80.972 seconds; WSL completed in 180.543 seconds while a native build ran separately. An independent read-only review found no authentication, ownership, mutation-gate or launch-before-recovery blocker.
+
+Its private logs are `launcher-recovery-windows-1.log`, SHA-256 `93c224fecb0fb43cf26c1ccdeb000483ee8d1889b99cb4af989ee4a2d20f7cfe`, and `launcher-recovery-wsl-1.log`, SHA-256 `3c329de8e202ecbdf04ffdceb4e607d5e4fe19dfeeeb2fff168b024fd51d226a`, under the same archive directory. The copied WSL log matches its original hash. These runs check the default-host recovery change and its adjacent lifecycle gates; they do not constitute another full-suite run or a native-game performance measurement.
 
 This is lifecycle verification, not native gameplay or GUI acceptance. New-character bootstrap/enrollment, own-dump import/patch application, the graphical Host/Join screens, packaged Python/dependency notices, Windows keyboard/audio/gamepad qualification, final save/disconnect policies, and clean-machine/LAN/Internet tests remain required.
