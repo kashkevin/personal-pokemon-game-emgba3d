@@ -1,0 +1,39 @@
+# Private Host/Join provisioning foundation
+
+`HostWorld` provisions a private schema-3 world and separate account capabilities. `Invitation` imports a friend's exact host/game identity into `CompanionConfig`. These functions create and validate local files. They do not boot a server, open a listener, enroll a game save, launch a core, send invitations, or configure a router/firewall. A finished Host/Join interface, clean-machine installation and separate-PC acceptance remain pending.
+
+## API and private files
+
+`HostWorld.create(directory, rom_path, manifest_path, player_names=..., endpoint=..., port=..., validity_days=365)` verifies the actual ownership/trade ROM and creates a new directory. Provide one to four names: slot 0 is the host and slots 1–3 are separate friends. Each receives a different UUID and randomly generated 32-byte credential. The fixed files are `world.sqlite3`, `host-certificate.pem`, `host-key.pem` and private `host.json`; the descriptor contains all account credentials. It is never an invitation.
+
+Creation refuses an existing directory. A partial failure preserves that new directory and adds `creation-failed.json`, which prevents reopening it as ready. No existing world is deleted, moved, overwritten or migrated. `HostWorld.open(directory, rom_path, manifest_path)` checks certificate/key compatibility, certificate validity, profile roles/credentials, world identity, the exact schema-3 database and integrity. It does not boot the store, acquire player leases, rotate credentials or regenerate the certificate. `open_store()` returns an unbooted store whose lifetime and boot belong to the caller. `server_tls` returns the existing pinned host TLS paths.
+
+`export_invitation(slot, new_path)` permits only the provisioned friend slots. The bounded version-1 JSON has exactly one player's account, a numeric unicast endpoint/port, world UUID, game build/rules/save profile, public trusted certificate and DER SHA-256 pin. It contains no local file paths or other player's credential. Duplicate JSON keys, unknown fields/versions, malformed types, wildcard/DNS endpoints, wrong certificate/world pins and expired certificates are refused. Existing invitation files are never replaced. The credential is deliberately absent from object representations and error messages.
+
+`Invitation.load(path)` or `Invitation.loads(bytes)` parses an invitation. `companion_config(rom_path, manifest_path, token=..., private_directory=..., ipc_port=0)` re-verifies the exact installed game, stores the public PEM in a dedicated private trust file, and returns a TLS-enabled config with the invited player credential and `expected_world_id`. A changed existing trust file is refused rather than replaced. The caller supplies the fresh loopback IPC token; no token or external certificate path comes from the invitation. `host_companion_config(...)` supplies the separate host account without serializing it as a friend invitation.
+
+Invitations are secret account capabilities. Their first transfer must use a channel the friends trust; a certificate pin obtained from an untrusted invitation does not establish an independent host identity. Keep host profiles, keys, invitations, saves and databases in private user storage outside the source/build bundle. POSIX directories/files use modes 0700/0600; Windows uses the user's private AppData ACL inheritance. This primitive does not modify system trust or harden arbitrary shared directories.
+
+## Certificate and reuse audit
+
+The certificate uses a fresh RSA-3072 key and SHA-256 signature with a world UUID common name, self-signature, SKI/AKI, strict key usage, server-auth EKU, and the advertised numeric IP SAN. It is a dedicated self-signed trust anchor with path length zero; the client also requires the exact leaf DER pin before sending its player credential. The existing stdlib TLS transport is reused. Validity defaults to 365 days with five minutes of initial clock tolerance. An expired identity fails closed. Renewal must be an explicit future host maintenance operation preserving the world/accounts and distributing a new trusted pin; opening a world never silently renews it.
+
+The maintained `cryptography` certificate builder avoids implementing ASN.1/signature generation. The [official X.509 tutorial](https://cryptography.io/en/stable/x509/tutorial/) and [installation documentation](https://cryptography.io/en/stable/installation/) were checked on October 8, 2026. [cryptography 50.0.2](https://pypi.org/project/cryptography/50.0.2/) is dual Apache-2.0/BSD-3-Clause; its official wheels provide the crypto backend. The downloaded cffi 2.1.1 wheel notice states MIT-0, and pycparser 3.0 retains BSD-3-Clause terms. Original wheel notices are retained privately. Packaging must audit and retain the full OpenSSL/Rust/transitive notices from its actual final dependency bundle; this development install does not qualify a distribution.
+
+Only private virtual environments were installed, using official PyPI binary wheels. Their SHA-256 hashes were independently compared to the official release API before use. `requirements-host-provisioning.txt` pins all three packages and qualified platform hashes; install with `--only-binary=:all: --require-hashes`. Existing global Windows/WSL Python packages were left unchanged.
+
+| Wheel | SHA-256 |
+| --- | --- |
+| `cryptography-50.0.2-cp311-abi3-win_amd64.whl` | `7afa5a6602a9f29af1f3a2965f831bae7c9d5d597b7cbb716d41ab3b7d89879c` |
+| `cryptography-50.0.2-cp311-abi3-manylinux_2_34_x86_64.whl` | `9dab55f57c74c3cad24c323bacbbd04be4705ba6eb0d92e920b1fc4837ed5079` |
+| `cffi-2.1.1-cp314-cp314-win_amd64.whl` | `3222ba5d678f80a030e6afbcc33dc1ae5cb45facabb61cee2c7016b8432fde48` |
+| `cffi-2.1.1-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.whl` | `c1453022f490d2459a11819d83ad1d586e9ff65a12ac3e705ffebd46d3685dcf` |
+| `pycparser-3.0-py3-none-any.whl` | `b727414169a36b7d524c1c3e31839a521725078d7b2ff038656844266160a992` |
+
+## Verification boundary
+
+Focused tests exercise four distinct accounts, role/credential/key/world tampering, read-only reopen hashes/epochs, missing and older-schema refusal, preserved failed creation, strict portable invitation parsing and immutable imported trust. A real SSL MemoryBIO handshake proves the generated certificate works with the existing strict client/server contexts and exact DER pin without opening a listener. They establish provisioning/transport inputs, not new-character enrollment, gameplay, friend delivery, Internet reachability, renewal UX or a completed Windows package.
+
+The additional loopback integration test imports the actual friend files and authenticates all four provisioned `Companion` instances against a real `WorldServer` with the generated pinned TLS identity. It verifies distinct accounts/world/profile, no canonical save enrollment and disabled-by-default trades, then closes all sockets and the database. These twelve tests pass without skips on Windows Python 3.14 and WSL Python 3.12.
+
+The qualified Windows interpreter is `C:\Users\kashh\AppData\Local\Packages\OpenAI.Codex_2p2nqsd0c76g0\LocalCache\Local\PokemonPrivate\host-provisioning-dev\venv\Scripts\python.exe`; the WSL interpreter is `/home/kevin/src/pokemon/host-provisioning-dev/venv/bin/python`. Use these isolated interpreters for `-m unittest -v test_host_world test_invitations`, with the repository `src` and `tests` directories on `PYTHONPATH`. Full-suite discovery must likewise use an environment with the pinned dependency installed; tests never silently skip missing cryptography. Official wheel/hash evidence, notices and focused logs remain under the corresponding private `host-provisioning-dev` directory.

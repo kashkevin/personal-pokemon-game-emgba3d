@@ -55,6 +55,18 @@ Recorded October 8, 2026. The Windows development frontend uses the same pinned 
 
 The actual Windows graphical smoke on frozen trade build `b2cdd46` used copied private ROM/save files, ordinary scripted Start/A inputs through native Continue, the real Lua socket bridge and local companion/server. It rendered the saved overworld, loaded the two-mon party, exchanged ROM presence and closed normally with original hashes unchanged. A separate, explicitly pinned proof bundle additionally exercised `PlayerRuntime.open()` with a cloned consistent schema3 world/profile: current head4 was verified/restored while closed; the exclusive save lease remained blocked through native Continue and owned-party Box CRC verification, then became available only after normal close. The cloned head/integrity and every original input hash remained unchanged. Keyboard pulse timing, audible playback, gamepad behavior, final launcher packaging and multi-machine acceptance are separate gates. These private binaries have not been sent to friends; game-content distribution review remains pending.
 
+## Private host certificate provisioning
+
+Recorded October 8, 2026. New `host_world.py` and `invitations.py` reuse the project's stdlib TLS/store transport and use maintained `cryptography` for X.509/key generation. Official documentation and license were reviewed before installation. Only isolated private Windows/WSL development virtual environments were installed; global Python and system certificate trust remain unchanged.
+
+| Component | Exact development version | Terms / primary source |
+| --- | --- | --- |
+| cryptography | 50.0.2, official Windows x64 / manylinux x64 binary wheels | Apache-2.0 or BSD-3-Clause; original dual-license notices retained. [Release](https://pypi.org/project/cryptography/50.0.2/), [X.509 tutorial](https://cryptography.io/en/stable/x509/tutorial/), [official installation](https://cryptography.io/en/stable/installation/), [license](https://github.com/pyca/cryptography/blob/main/LICENSE). |
+| cffi | 2.1.1, platform-specific official wheels | The downloaded wheel's original notice states MIT No Attribution (MIT-0), with separately marked components retaining their own terms. [Release](https://pypi.org/project/cffi/2.1.1/). |
+| pycparser | 3.0, official universal Python wheel | BSD-3-Clause; original notice retained. [Release](https://pypi.org/project/pycparser/3.0/). |
+
+All platform wheel SHA-256 values were compared to the official PyPI release API. The exact hashes and development install/API record are in [host-provisioning.md](host-provisioning.md) and `requirements-host-provisioning.txt`. Packaging still requires a complete notice audit of the actual final OpenSSL/Rust/transitive dependency bundle; these development installs and private certificate tests do not qualify distribution or Internet acceptance.
+
 ## Incorporation and distribution status
 
 The [customization and reuse audit](customization-and-reuse.md) additionally inspected current RHH upstream, Perfect Emerald's style/color system, Emerald Rogue's outfit/remote-profile system, and CFRU's customization code. These are research references with recorded revisions and integration limits; no source or assets from those candidates were imported. The new project-wide research rule requires component-level licensing, dependency, maintenance/issue, performance and save/network compatibility checks before integration.
