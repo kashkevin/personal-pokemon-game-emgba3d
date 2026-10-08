@@ -1,0 +1,767 @@
+diff --git a/include/multiplayer_menu.h b/include/multiplayer_menu.h
+new file mode 100644
+index 0000000000..cb71d7811e
+--- /dev/null
++++ b/include/multiplayer_menu.h
+@@ -0,0 +1,53 @@
++#ifndef GUARD_MULTIPLAYER_MENU_H
++#define GUARD_MULTIPLAYER_MENU_H
++
++#define MP_MENU_MAGIC 0x31554D45u
++#define MP_MENU_ABI 1
++#define MP_MENU_OPEN 1
++#define MP_MENU_CHOOSE 2
++#define MP_MENU_CLOSE 3
++
++struct MultiplayerMenuRequest {
++    u32 sequence, screen;
++    u16 action;
++    u8 kind, reserved[5];
++};
++struct MultiplayerMenuRow {
++    u16 action;
++    u8 label[26]; // NUL-padded printable ASCII, never native control codes.
++};
++struct MultiplayerMenuScreen {
++    u32 ackRequest, screen;
++    u8 flags, count;
++    u16 backAction;
++    u8 title[24], status[32];
++    struct MultiplayerMenuRow rows[6];
++    u8 reserved[4];
++};
++struct MultiplayerMenuMailbox {
++    u32 magic;
++    u16 abiVersion, byteSize;
++    u32 frame, localGeneration;
++    struct MultiplayerMenuRequest request;
++    u32 inboundGeneration;
++    struct MultiplayerMenuScreen screen;
++    u8 reserved[236];
++};
++extern const u32 gMultiplayerMenuAbiVersion;
++extern volatile struct MultiplayerMenuMailbox gMultiplayerMenuMailbox;
++
++void MultiplayerMenu_Init(void);
++void MultiplayerMenu_Tick(void);
++bool32 MultiplayerMenu_IsActive(void);
++bool32 MultiplayerMenu_Open(void); // Caller has closed the ordinary Start menu.
++bool32 MultiplayerMenu_ValidateScreen(const struct MultiplayerMenuScreen *screen);
++
++#if TESTING
++bool32 MultiplayerMenu_TestBegin(void);
++void MultiplayerMenu_TestInput(u16 keys);
++void MultiplayerMenu_TestReadScreen(void);
++void MultiplayerMenu_TestClose(void);
++u32 MultiplayerMenu_TestScreen(void);
++u8 MultiplayerMenu_TestGlyph(u8 ascii);
++#endif
++#endif
+diff --git a/src/main.c b/src/main.c
+index ad8bbb2f87..595e64d0e9 100644
+--- a/src/main.c
++++ b/src/main.c
+@@ -24,6 +24,7 @@
+ #include "main.h"
+ #include "multiplayer_battle.h"
+ #include "multiplayer.h"
++#include "multiplayer_menu.h"
+ #include "multiplayer_save.h"
+ #include "multiplayer_local_reset.h"
+ #include "trainer_hill.h"
+@@ -119,6 +120,7 @@ void AgbMain(void)
+     Multiplayer_Init();
+     MultiplayerSave_Init();
+     MultiplayerBattle_Init();
++    MultiplayerMenu_Init();
+ 
+     gSoftResetDisabled = FALSE;
+ 
+@@ -143,6 +145,7 @@ void AgbMainLoop(void)
+     for (;;)
+     {
+         ReadKeys();
++        MultiplayerMenu_Tick();
+         MultiplayerSave_Tick();
+         MultiplayerBattle_Tick();
+         Multiplayer_Tick();
+@@ -162,7 +165,7 @@ void AgbMainLoop(void)
+             DoSoftReset();
+         }
+ 
+-        if (MultiplayerSave_SkipCallbacks() || MultiplayerBattle_SkipCallbacks())
++        if (MultiplayerSave_SkipCallbacks() || MultiplayerBattle_SkipCallbacks() || MultiplayerMenu_IsActive())
+         {
+             // The dedicated mailbox owns the transaction while ordinary field
+             // callbacks stay paused. Audio and bridge frame publication continue.
+@@ -188,7 +191,7 @@ void AgbMainLoop(void)
+             }
+         }
+ 
+-        if (!MultiplayerSave_PauseClocks() && !MultiplayerBattle_PauseClocks())
++        if (!MultiplayerSave_PauseClocks() && !MultiplayerBattle_PauseClocks() && !MultiplayerMenu_IsActive())
+             PlayTimeCounter_Update();
+         MapMusicMain();
+         WaitForVBlank();
+@@ -403,7 +406,7 @@ static void VBlankIntr(void)
+     m4aSoundMain();
+     TryReceiveLinkBattleData();
+ 
+-    if (!MultiplayerSave_PauseClocks() && !MultiplayerBattle_PauseClocks() && !gTestRunnerEnabled && (!gMain.inBattle || !(gBattleTypeFlags & (BATTLE_TYPE_LINK | BATTLE_TYPE_FRONTIER | BATTLE_TYPE_RECORDED))))
++    if (!MultiplayerSave_PauseClocks() && !MultiplayerBattle_PauseClocks() && !MultiplayerMenu_IsActive() && !gTestRunnerEnabled && (!gMain.inBattle || !(gBattleTypeFlags & (BATTLE_TYPE_LINK | BATTLE_TYPE_FRONTIER | BATTLE_TYPE_RECORDED))))
+         AdvanceRandom();
+ 
+     UpdateWirelessStatusIndicatorSprite();
+diff --git a/src/multiplayer.c b/src/multiplayer.c
+index 71db9f3cac..f28cfd778b 100644
+--- a/src/multiplayer.c
++++ b/src/multiplayer.c
+@@ -3,6 +3,7 @@
+ #include "multiplayer.h"
+ #include "multiplayer_save.h"
+ #include "multiplayer_battle.h"
++#include "multiplayer_menu.h"
+ #include "event_object_movement.h"
+ #include "field_player_avatar.h"
+ #include "fieldmap.h"
+@@ -135,7 +136,7 @@ void Multiplayer_Init(void)
+ static bool32 FieldReady(void)
+ {
+     u32 id = gPlayerAvatar.objectEventId;
+-    return !MultiplayerSave_IsHeld() && !MultiplayerBattle_IsActive() && gMain.callback2 == CB2_Overworld && gMain.callback1 == CB1_Overworld
++    return !MultiplayerMenu_IsActive() && !MultiplayerSave_IsHeld() && !MultiplayerBattle_IsActive() && gMain.callback2 == CB2_Overworld && gMain.callback1 == CB1_Overworld
+         && gSaveBlock1Ptr != NULL && gMapHeader.mapLayout != NULL
+         && id < OBJECT_EVENTS_COUNT && gObjectEvents[id].active && gObjectEvents[id].isPlayer
+         && gObjectEvents[id].spriteId < MAX_SPRITES && gSprites[gObjectEvents[id].spriteId].inUse
+diff --git a/src/multiplayer_menu.c b/src/multiplayer_menu.c
+new file mode 100644
+index 0000000000..ed506ce770
+--- /dev/null
++++ b/src/multiplayer_menu.c
+@@ -0,0 +1,279 @@
++#include "global.h"
++#include <stddef.h>
++#include "multiplayer_menu.h"
++#include "multiplayer.h"
++#include "multiplayer_save.h"
++#include "multiplayer_battle.h"
++#include "multiplayer_ownership.h"
++#include "main.h"
++#include "menu.h"
++#include "bg.h"
++#include "window.h"
++#include "text.h"
++#include "text_window.h"
++#include "script.h"
++#include "event_object_lock.h"
++#include "event_object_movement.h"
++#include "field_player_avatar.h"
++#include "sound.h"
++#include "constants/songs.h"
++
++_Static_assert(sizeof(struct MultiplayerMenuRequest) == 16, "Menu request ABI");
++_Static_assert(sizeof(struct MultiplayerMenuScreen) == 240, "Menu screen ABI");
++_Static_assert(sizeof(struct MultiplayerMenuMailbox) == 512, "Menu mailbox ABI");
++_Static_assert(offsetof(struct MultiplayerMenuMailbox, request) == 16, "Menu request offset");
++_Static_assert(offsetof(struct MultiplayerMenuMailbox, inboundGeneration) == 32, "Menu inbound generation offset");
++_Static_assert(offsetof(struct MultiplayerMenuMailbox, screen) == 36, "Menu screen offset");
++_Static_assert(offsetof(struct MultiplayerMenuScreen, rows) == 68, "Menu row offset");
++
++const u32 gMultiplayerMenuAbiVersion = MP_MENU_ABI;
++EWRAM_DATA volatile struct MultiplayerMenuMailbox gMultiplayerMenuMailbox = {0};
++static EWRAM_DATA struct MultiplayerMenuScreen sMultiplayerMenuScreen;
++static EWRAM_DATA u32 sSequence, sSeenGeneration, sSession, sIncarnation;
++static EWRAM_DATA u8 sWindow, sMultiplayerMenuCursor;
++static EWRAM_DATA bool8 sMultiplayerMenuActive, sMultiplayerMenuWaiting;
++static const struct WindowTemplate sWindowTemplate = {
++    .bg = 0, .tilemapLeft = 1, .tilemapTop = 1, .width = 28, .height = 18,
++    .paletteNum = 15, .baseBlock = 8,
++};
++static const u8 sText_Title[] = _("Players");
++static const u8 sText_Waiting[] = _("Waiting for server...");
++static const u8 sText_Back[] = _("B: Back");
++static const u8 sText_Close[] = _("B: Close");
++static const u8 sText_Cursor[] = _(">");
++
++static bool32 Zero(const u8 *bytes, u32 size)
++{
++    while (size--) if (*bytes++) return FALSE;
++    return TRUE;
++}
++
++static bool32 ValidText(const u8 *text, u32 size)
++{
++    for (u32 i = 0; i < size; i++)
++    {
++        if (text[i] == 0) return Zero(text + i, size - i);
++        if (text[i] < 32 || text[i] > 126) return FALSE;
++    }
++    return FALSE;
++}
++
++bool32 MultiplayerMenu_ValidateScreen(const struct MultiplayerMenuScreen *screen)
++{
++    if (!screen->ackRequest || !screen->screen || screen->flags > 1 || screen->count > 6
++     || (screen->backAction != 0 && screen->backAction != 7)
++     || !ValidText(screen->title, sizeof(screen->title)) || !ValidText(screen->status, sizeof(screen->status))
++     || !Zero(screen->reserved, sizeof(screen->reserved))) return FALSE;
++    for (u32 row = 0; row < 6; row++)
++    {
++        if (row >= screen->count)
++        {
++            if (!Zero((const void *)&screen->rows[row], sizeof(screen->rows[row]))) return FALSE;
++        }
++        else if ((screen->rows[row].action != 0 && screen->rows[row].action != row + 1)
++              || !ValidText(screen->rows[row].label, sizeof(screen->rows[row].label))) return FALSE;
++    }
++    return TRUE;
++}
++
++static u8 Glyph(u8 c)
++{
++    if (c >= 'A' && c <= 'Z') return CHAR_A + c - 'A';
++    if (c >= 'a' && c <= 'z') return CHAR_a + c - 'a';
++    if (c >= '0' && c <= '9') return CHAR_0 + c - '0';
++    switch (c)
++    {
++    case ' ': return CHAR_SPACE; case '!': return CHAR_EXCL_MARK;
++    case '?': return CHAR_QUESTION_MARK; case '.': return CHAR_PERIOD;
++    case '-': return CHAR_HYPHEN; case ',': return CHAR_COMMA;
++    case '/': return CHAR_SLASH; case ':': return CHAR_COLON;
++    case ';': return CHAR_SEMICOLON; case '+': return CHAR_PLUS;
++    case '&': return CHAR_AMPERSAND; case '=': return CHAR_EQUALS;
++    case '%': return CHAR_PERCENT; case '(': return CHAR_LEFT_PAREN;
++    case ')': return CHAR_RIGHT_PAREN; case '<': return CHAR_LESS_THAN;
++    case '>': return CHAR_GREATER_THAN; case '\'': return CHAR_SGL_QUOTE_RIGHT;
++    case '"': return CHAR_DBL_QUOTE_RIGHT; case '*': return CHAR_MULT_SIGN;
++    default: return CHAR_QUESTION_MARK;
++    }
++}
++
++static void PrintAscii(const u8 *ascii, u32 capacity, u32 x, u32 y, bool32 disabled)
++{
++    u8 text[34], colors[3] = {TEXT_COLOR_WHITE, TEXT_COLOR_DARK_GRAY, TEXT_COLOR_LIGHT_GRAY};
++    u32 length = 0;
++    while (length + 1 < sizeof(text) && length < capacity && ascii[length])
++    {
++        text[length] = Glyph(ascii[length]); length++;
++    }
++    text[length] = EOS;
++    if (disabled) colors[1] = TEXT_COLOR_LIGHT_GRAY;
++    // The small font fits all bounded row labels. Long status text is split
++    // by measured glyph width without accepting native control characters.
++    if (y == 16 && GetStringWidth(FONT_SMALL, text, 0) > 208)
++    {
++        u32 split = length;
++        while (split && GetStringWidth(FONT_SMALL, text, 0) > 208) text[--split] = EOS;
++        AddTextPrinterParameterized4(sWindow, FONT_SMALL, x, y, 0, 0, colors, TEXT_SKIP_DRAW, text);
++        for (u32 i = split; i < length; i++) text[i - split] = Glyph(ascii[i]);
++        text[length - split] = EOS; y += 12;
++    }
++    AddTextPrinterParameterized4(sWindow, FONT_SMALL, x, y, 0, 0, colors, TEXT_SKIP_DRAW, text);
++}
++
++static void Render(void)
++{
++    if (sWindow == WINDOW_NONE) return;
++    // Drawing the standard frame clears its pixel buffer. Do it before text.
++    DrawStdWindowFrame(sWindow, FALSE);
++    if (!sMultiplayerMenuScreen.screen)
++        AddTextPrinterParameterized(sWindow, FONT_NORMAL, sText_Title, 8, 0, TEXT_SKIP_DRAW, NULL);
++    else
++        PrintAscii(sMultiplayerMenuScreen.title, sizeof(sMultiplayerMenuScreen.title), 8, 0, FALSE);
++    if (sMultiplayerMenuWaiting)
++        AddTextPrinterParameterized(sWindow, FONT_SMALL, sText_Waiting, 8, 16, TEXT_SKIP_DRAW, NULL);
++    else
++        PrintAscii(sMultiplayerMenuScreen.status, sizeof(sMultiplayerMenuScreen.status), 8, 16, FALSE);
++    for (u32 row = 0; row < sMultiplayerMenuScreen.count; row++)
++    {
++        PrintAscii(sMultiplayerMenuScreen.rows[row].label, sizeof(sMultiplayerMenuScreen.rows[row].label), 16, 44 + row * 14, !sMultiplayerMenuScreen.rows[row].action);
++        if (!sMultiplayerMenuWaiting && row == sMultiplayerMenuCursor)
++            AddTextPrinterParameterized(sWindow, FONT_SMALL, sText_Cursor, 4, 44 + row * 14, TEXT_SKIP_DRAW, NULL);
++    }
++    AddTextPrinterParameterized(sWindow, FONT_SMALL, sMultiplayerMenuScreen.backAction ? sText_Back : sText_Close, 8, 130, TEXT_SKIP_DRAW, NULL);
++    CopyWindowToVram(sWindow, COPYWIN_FULL);
++}
++
++static void Publish(u8 kind, u16 action, u32 screen)
++{
++    struct MultiplayerMenuRequest request = {0};
++    u32 generation = (gMultiplayerMenuMailbox.localGeneration + 1) | 1;
++    request.sequence = ++sSequence; request.kind = kind; request.action = action; request.screen = screen;
++    gMultiplayerMenuMailbox.localGeneration = generation;
++    gMultiplayerMenuMailbox.request = request;
++    gMultiplayerMenuMailbox.localGeneration = generation + 1;
++}
++
++static void Close(void)
++{
++    u32 screen = sMultiplayerMenuScreen.screen;
++    if (!sMultiplayerMenuActive) return;
++    if (sWindow != WINDOW_NONE)
++    {
++        ClearStdWindowAndFrameToTransparent(sWindow, TRUE);
++        RemoveWindow(sWindow); sWindow = WINDOW_NONE;
++        ScriptUnfreezeObjectEvents(); UnlockPlayerFieldControls();
++    }
++    sMultiplayerMenuActive = sMultiplayerMenuWaiting = FALSE;
++    memset(&sMultiplayerMenuScreen, 0, sizeof(sMultiplayerMenuScreen));
++    // Publish only after window/field ownership has been released. Reserve the
++    // final sequence for CLOSE; a ROM incarnation never wraps its requests.
++    Publish(MP_MENU_CLOSE, 0, screen);
++}
++
++static bool32 Begin(void)
++{
++    if (sMultiplayerMenuActive || sSequence >= 0xFFFFFFFEu) return FALSE;
++    memset(&sMultiplayerMenuScreen, 0, sizeof(sMultiplayerMenuScreen)); sMultiplayerMenuCursor = 0;
++    sSeenGeneration = gMultiplayerMenuMailbox.inboundGeneration;
++    sMultiplayerMenuActive = sMultiplayerMenuWaiting = TRUE;
++    Publish(MP_MENU_OPEN, 0, 0);
++    return TRUE;
++}
++
++void MultiplayerMenu_Init(void)
++{
++    memset((void *)&gMultiplayerMenuMailbox, 0, sizeof(gMultiplayerMenuMailbox));
++    memset(&sMultiplayerMenuScreen, 0, sizeof(sMultiplayerMenuScreen));
++    sSequence = sSeenGeneration = sSession = sIncarnation = 0;
++    sWindow = WINDOW_NONE; sMultiplayerMenuCursor = 0; sMultiplayerMenuActive = sMultiplayerMenuWaiting = FALSE;
++    gMultiplayerMenuMailbox.abiVersion = *(const volatile u32 *)&gMultiplayerMenuAbiVersion;
++    gMultiplayerMenuMailbox.byteSize = sizeof(gMultiplayerMenuMailbox);
++    gMultiplayerMenuMailbox.magic = MP_MENU_MAGIC;
++}
++
++bool32 MultiplayerMenu_IsActive(void) { return sMultiplayerMenuActive; }
++
++bool32 MultiplayerMenu_Open(void)
++{
++    if (sMultiplayerMenuActive || sSequence >= 0xFFFFFFFEu || !Multiplayer_IsConnected()
++     || !MultiplayerSave_FieldReady() || !MultiplayerOwnership_IsEnrolled()
++     || !MultiplayerSave_GetIdleBinding(&sSession, &sIncarnation)) return FALSE;
++    sWindow = AddWindow(&sWindowTemplate);
++    if (sWindow == WINDOW_NONE) return FALSE;
++    FreezeObjectEvents(); PlayerFreeze(); StopPlayerAvatar(); LockPlayerFieldControls();
++    Begin(); Multiplayer_LeaveField(); Render();
++    return TRUE;
++}
++
++static void ReadScreen(void)
++{
++    struct MultiplayerMenuScreen screen;
++    u32 generation = gMultiplayerMenuMailbox.inboundGeneration;
++    if (!sMultiplayerMenuActive || (generation & 1) || generation == sSeenGeneration) return;
++    screen = gMultiplayerMenuMailbox.screen;
++    if (generation != gMultiplayerMenuMailbox.inboundGeneration) return;
++    sSeenGeneration = generation;
++    if (!MultiplayerMenu_ValidateScreen(&screen) || screen.ackRequest != sSequence
++     || screen.screen < sMultiplayerMenuScreen.screen) return;
++    // A host-requested close may retain the last screen revision after an RPC
++    // error. Ordinary duplicate revisions never re-enable old selections.
++    if (screen.flags) { Close(); return; }
++    if (screen.screen == sMultiplayerMenuScreen.screen) return;
++    sMultiplayerMenuScreen = screen; sMultiplayerMenuWaiting = FALSE;
++    if (sMultiplayerMenuCursor >= sMultiplayerMenuScreen.count) sMultiplayerMenuCursor = 0;
++    Render();
++}
++
++static void Input(u16 keys)
++{
++    if (!sMultiplayerMenuActive) return;
++    if (keys & B_BUTTON)
++    {
++        if (!sMultiplayerMenuWaiting && sMultiplayerMenuScreen.backAction && sSequence < 0xFFFFFFFEu)
++        { Publish(MP_MENU_CHOOSE, 7, sMultiplayerMenuScreen.screen); sMultiplayerMenuWaiting = TRUE; Render(); }
++        else Close();
++    }
++    else if (!sMultiplayerMenuWaiting)
++    {
++        if (keys & A_BUTTON)
++        {
++            if (sMultiplayerMenuCursor < sMultiplayerMenuScreen.count && sMultiplayerMenuScreen.rows[sMultiplayerMenuCursor].action)
++            {
++                if (sSequence >= 0xFFFFFFFEu) { Close(); return; }
++                Publish(MP_MENU_CHOOSE, sMultiplayerMenuScreen.rows[sMultiplayerMenuCursor].action, sMultiplayerMenuScreen.screen); sMultiplayerMenuWaiting = TRUE; Render();
++            }
++        }
++        else if (sMultiplayerMenuScreen.count && (keys & (DPAD_UP | DPAD_DOWN)))
++        {
++            sMultiplayerMenuCursor = (sMultiplayerMenuCursor + ((keys & DPAD_UP) ? sMultiplayerMenuScreen.count - 1 : 1)) % sMultiplayerMenuScreen.count;
++            PlaySE(SE_SELECT); Render();
++        }
++    }
++}
++
++void MultiplayerMenu_Tick(void)
++{
++    u32 session, incarnation;
++    gMultiplayerMenuMailbox.frame++;
++    if (!sMultiplayerMenuActive) return;
++    if (!Multiplayer_IsConnected() || MultiplayerSave_IsHeld() || MultiplayerBattle_IsActive()
++     || !MultiplayerSave_GetIdleBinding(&session, &incarnation)
++     || session != sSession || incarnation != sIncarnation)
++        Close();
++    else
++    {
++        ReadScreen(); Input(gMain.newKeys);
++    }
++    // The closing B press must not also reach the resumed field callback.
++    gMain.newKeys = gMain.newKeysRaw = gMain.newAndRepeatedKeys = 0;
++    DoScheduledBgTilemapCopiesToVram();
++}
++
++#if TESTING
++bool32 MultiplayerMenu_TestBegin(void) { return Begin(); }
++void MultiplayerMenu_TestInput(u16 keys) { Input(keys); }
++void MultiplayerMenu_TestReadScreen(void) { ReadScreen(); }
++void MultiplayerMenu_TestClose(void) { Close(); }
++u32 MultiplayerMenu_TestScreen(void) { return sMultiplayerMenuScreen.screen; }
++u8 MultiplayerMenu_TestGlyph(u8 ascii) { return Glyph(ascii); }
++#endif
+diff --git a/src/multiplayer_save.c b/src/multiplayer_save.c
+index f92e4cc5e1..15b9a315bd 100644
+--- a/src/multiplayer_save.c
++++ b/src/multiplayer_save.c
+@@ -2,6 +2,7 @@
+ #include "multiplayer_save.h"
+ #include "multiplayer.h"
+ #include "multiplayer_battle.h"
++#include "multiplayer_menu.h"
+ #include "multiplayer_ownership.h"
+ #include "multiplayer_local_reset.h"
+ #include "event_data.h"
+@@ -192,7 +193,7 @@ bool32 MultiplayerSave_PauseClocks(void)
+ static bool32 FieldReady(void)
+ {
+     u32 id = gPlayerAvatar.objectEventId;
+-    return !MultiplayerBattle_IsActive() && gMain.callback1 == CB1_Overworld && gMain.callback2 == CB2_Overworld
++    return !MultiplayerMenu_IsActive() && !MultiplayerBattle_IsActive() && gMain.callback1 == CB1_Overworld && gMain.callback2 == CB2_Overworld
+         && gSaveBlock1Ptr != NULL && gSaveBlock2Ptr != NULL && gMapHeader.mapLayout != NULL
+         && id < OBJECT_EVENTS_COUNT && gObjectEvents[id].active && gObjectEvents[id].isPlayer
+         && gObjectEvents[id].spriteId < MAX_SPRITES && gSprites[gObjectEvents[id].spriteId].inUse
+diff --git a/src/start_menu.c b/src/start_menu.c
+index 648fa837c2..00b3ebefe4 100644
+--- a/src/start_menu.c
++++ b/src/start_menu.c
+@@ -23,6 +23,7 @@
+ #include "link.h"
+ #include "load_save.h"
+ #include "main.h"
++#include "multiplayer_menu.h"
+ #include "menu.h"
+ #include "new_game.h"
+ #include "option_menu.h"
+@@ -69,6 +70,10 @@ enum
+     MENU_ACTION_PYRAMID_BAG,
+     MENU_ACTION_DEBUG,
+     MENU_ACTION_DEXNAV,
++    MENU_ACTION_PLAYER_OPTIONS,
++    MENU_ACTION_TRAINER_CARD,
++    MENU_ACTION_PLAYERS,
++    MENU_ACTION_PLAYER_BACK,
+ };
+ 
+ // Save status
+@@ -90,6 +95,8 @@ EWRAM_DATA static u8 sStartMenuCursorPos = 0;
+ EWRAM_DATA static u8 sNumStartMenuActions = 0;
+ EWRAM_DATA static u8 sCurrentStartMenuActions[9] = {0};
+ EWRAM_DATA static s8 sInitStartMenuData[2] = {0};
++EWRAM_DATA static bool8 sPlayerSubmenu = FALSE;
++EWRAM_DATA static u8 sPlayerReturnCursor = 0;
+ 
+ EWRAM_DATA static u8 (*sSaveDialogCallback)(void) = NULL;
+ EWRAM_DATA static u8 sSaveDialogTimer = 0;
+@@ -111,6 +118,9 @@ static bool8 StartMenuBattlePyramidRetireCallback(void);
+ static bool8 StartMenuBattlePyramidBagCallback(void);
+ static bool8 StartMenuDebugCallback(void);
+ static bool8 StartMenuDexNavCallback(void);
++static bool8 StartMenuPlayerOptionsCallback(void);
++static bool8 StartMenuPlayersCallback(void);
++static bool8 StartMenuPlayerBackCallback(void);
+ 
+ // Menu callbacks
+ static bool8 SaveStartCallback(void);
+@@ -188,6 +198,9 @@ static const struct WindowTemplate sWindowTemplate_PyramidPeak = {
+ };
+ 
+ static const u8 sText_MenuDebug[] = _("DEBUG");
++static const u8 sText_TrainerCard[] = _("CARD");
++static const u8 sText_Players[] = _("PLAYERS");
++static const u8 sText_PlayerBack[] = _("BACK");
+ 
+ static const struct MenuAction sStartMenuItems[] =
+ {
+@@ -206,6 +219,10 @@ static const struct MenuAction sStartMenuItems[] =
+     [MENU_ACTION_PYRAMID_BAG]     = {gText_MenuBag,     {.u8_void = StartMenuBattlePyramidBagCallback}},
+     [MENU_ACTION_DEBUG]           = {sText_MenuDebug,   {.u8_void = StartMenuDebugCallback}},
+     [MENU_ACTION_DEXNAV]          = {gText_MenuDexNav,  {.u8_void = StartMenuDexNavCallback}},
++    [MENU_ACTION_PLAYER_OPTIONS]  = {gText_MenuPlayer, {.u8_void = StartMenuPlayerOptionsCallback}},
++    [MENU_ACTION_TRAINER_CARD]    = {sText_TrainerCard, {.u8_void = StartMenuPlayerNameCallback}},
++    [MENU_ACTION_PLAYERS]         = {sText_Players, {.u8_void = StartMenuPlayersCallback}},
++    [MENU_ACTION_PLAYER_BACK]     = {sText_PlayerBack, {.u8_void = StartMenuPlayerBackCallback}},
+ };
+ 
+ static const struct BgTemplate sBgTemplates_LinkBattleSave[] =
+@@ -284,6 +301,14 @@ static void BuildStartMenuActions(void)
+ {
+     sNumStartMenuActions = 0;
+ 
++    if (sPlayerSubmenu)
++    {
++        AddStartMenuAction(MENU_ACTION_TRAINER_CARD);
++        AddStartMenuAction(MENU_ACTION_PLAYERS);
++        AddStartMenuAction(MENU_ACTION_PLAYER_BACK);
++        return;
++    }
++
+     if (IsOverworldLinkActive() == TRUE)
+     {
+         BuildLinkModeStartMenu();
+@@ -338,7 +363,7 @@ static void BuildNormalStartMenu(void)
+     if (FlagGet(FLAG_SYS_POKENAV_GET) == TRUE)
+         AddStartMenuAction(MENU_ACTION_POKENAV);
+ 
+-    AddStartMenuAction(MENU_ACTION_PLAYER);
++    AddStartMenuAction(MENU_ACTION_PLAYER_OPTIONS);
+     AddStartMenuAction(MENU_ACTION_SAVE);
+     AddStartMenuAction(MENU_ACTION_OPTION);
+     AddStartMenuAction(MENU_ACTION_EXIT);
+@@ -354,7 +379,7 @@ static void BuildDebugStartMenu(void)
+     AddStartMenuAction(MENU_ACTION_BAG);
+     if (FlagGet(FLAG_SYS_POKENAV_GET) == TRUE)
+         AddStartMenuAction(MENU_ACTION_POKENAV);
+-    AddStartMenuAction(MENU_ACTION_PLAYER);
++    AddStartMenuAction(MENU_ACTION_PLAYER_OPTIONS);
+     AddStartMenuAction(MENU_ACTION_SAVE);
+     AddStartMenuAction(MENU_ACTION_OPTION);
+ }
+@@ -486,7 +511,7 @@ static bool32 PrintStartMenuActions(s8 *pIndex, u32 count)
+ 
+     do
+     {
+-        if (sStartMenuItems[sCurrentStartMenuActions[index]].func.u8_void == StartMenuPlayerNameCallback)
++        if (sCurrentStartMenuActions[index] == MENU_ACTION_PLAYER || sCurrentStartMenuActions[index] == MENU_ACTION_PLAYER_OPTIONS)
+         {
+             PrintPlayerNameOnWindow(GetStartMenuWindowId(), sStartMenuItems[sCurrentStartMenuActions[index]].text, 8, (index << 4) + 9);
+         }
+@@ -614,6 +639,7 @@ void Task_ShowStartMenu(u8 taskId)
+ 
+ void ShowStartMenu(void)
+ {
++    sPlayerSubmenu = FALSE;
+     if (!IsOverworldLinkActive())
+     {
+         FreezeObjectEvents();
+@@ -658,7 +684,9 @@ static bool8 HandleStartMenuInput(void)
+             && gMenuCallback != StartMenuSafariZoneRetireCallback
+             && gMenuCallback != StartMenuBattlePyramidRetireCallback)
+         {
+-           FadeScreen(FADE_TO_BLACK, 0);
++           if (gMenuCallback != StartMenuPlayerOptionsCallback && gMenuCallback != StartMenuPlayersCallback
++            && gMenuCallback != StartMenuPlayerBackCallback)
++               FadeScreen(FADE_TO_BLACK, 0);
+         }
+ 
+         return FALSE;
+@@ -666,6 +694,8 @@ static bool8 HandleStartMenuInput(void)
+ 
+     if (JOY_NEW(START_BUTTON | B_BUTTON))
+     {
++        if (sPlayerSubmenu && JOY_NEW(B_BUTTON))
++            return StartMenuPlayerBackCallback();
+         RemoveExtraStartMenuWindows();
+         HideStartMenu();
+         return TRUE;
+@@ -739,6 +769,11 @@ static bool8 StartMenuPlayerNameCallback(void)
+ {
+     if (!gPaletteFade.active)
+     {
++        if (sPlayerSubmenu)
++        {
++            sPlayerSubmenu = FALSE;
++            sStartMenuCursorPos = sPlayerReturnCursor;
++        }
+         PlayRainStoppingSoundEffect();
+         RemoveExtraStartMenuWindows();
+         CleanupOverworldWindowsAndTilemaps();
+@@ -756,6 +791,33 @@ static bool8 StartMenuPlayerNameCallback(void)
+     return FALSE;
+ }
+ 
++static bool8 StartMenuPlayerOptionsCallback(void)
++{
++    sPlayerReturnCursor = sStartMenuCursorPos;
++    sPlayerSubmenu = TRUE; sStartMenuCursorPos = 0;
++    HideStartMenuDebug(); InitStartMenu();
++    gMenuCallback = HandleStartMenuInput;
++    return FALSE;
++}
++
++static bool8 StartMenuPlayerBackCallback(void)
++{
++    sPlayerSubmenu = FALSE; sStartMenuCursorPos = sPlayerReturnCursor;
++    HideStartMenuDebug(); InitStartMenu();
++    gMenuCallback = HandleStartMenuInput;
++    return FALSE;
++}
++
++static bool8 StartMenuPlayersCallback(void)
++{
++    sPlayerSubmenu = FALSE; sStartMenuCursorPos = sPlayerReturnCursor;
++    RemoveExtraStartMenuWindows(); HideStartMenu();
++    // No native tick runs between releasing the Start menu and claiming this
++    // overlay. Open refuses unbound/offline/unsafe state without sending input.
++    MultiplayerMenu_Open();
++    return TRUE;
++}
++
+ static bool8 StartMenuSaveCallback(void)
+ {
+     if (CurrentBattlePyramidLocation() != PYRAMID_LOCATION_NONE)
+diff --git a/test/multiplayer_menu.c b/test/multiplayer_menu.c
+new file mode 100644
+index 0000000000..136c1cb0f5
+--- /dev/null
++++ b/test/multiplayer_menu.c
+@@ -0,0 +1,141 @@
++#include "global.h"
++#include "multiplayer_menu.h"
++#include "multiplayer_save.h"
++#include "main.h"
++#include "test/test.h"
++#include "constants/characters.h"
++
++static struct MultiplayerMenuScreen Screen(u32 ack, u32 revision)
++{
++    struct MultiplayerMenuScreen screen = {0};
++    screen.ackRequest = ack; screen.screen = revision; screen.count = 2;
++    memcpy(screen.title, "Players", 8); memcpy(screen.status, "Choose an action", 17);
++    screen.rows[0].action = 1; memcpy(screen.rows[0].label, "Team", 5);
++    screen.rows[1].action = 2; memcpy(screen.rows[1].label, "Challenge", 10);
++    return screen;
++}
++
++static void Deliver(const struct MultiplayerMenuScreen *screen, u32 generation)
++{
++    gMultiplayerMenuMailbox.inboundGeneration = generation | 1;
++    gMultiplayerMenuMailbox.screen = *screen;
++    gMultiplayerMenuMailbox.inboundGeneration = generation;
++    MultiplayerMenu_TestReadScreen();
++}
++
++TEST("Multiplayer menu: strict screen parser rejects malformed actions, native text controls and hidden unused bytes")
++{
++    struct MultiplayerMenuScreen screen = Screen(1, 2), valid = screen;
++    EXPECT(MultiplayerMenu_ValidateScreen(&screen));
++    screen.backAction = 7; EXPECT(MultiplayerMenu_ValidateScreen(&screen));
++    screen.backAction = 3; EXPECT(!MultiplayerMenu_ValidateScreen(&screen)); screen = valid;
++    screen.rows[1].action = 1; EXPECT(!MultiplayerMenu_ValidateScreen(&screen)); screen = valid;
++    screen.rows[1].action = 0; EXPECT(MultiplayerMenu_ValidateScreen(&screen)); screen = valid;
++    screen.rows[2].label[0] = 'X'; EXPECT(!MultiplayerMenu_ValidateScreen(&screen)); screen = valid;
++    screen.title[23] = 'X'; EXPECT(!MultiplayerMenu_ValidateScreen(&screen)); screen = valid;
++    memset(screen.status, 'A', sizeof(screen.status)); EXPECT(!MultiplayerMenu_ValidateScreen(&screen)); screen = valid;
++    screen.rows[0].label[1] = 0xFC; EXPECT(!MultiplayerMenu_ValidateScreen(&screen)); screen = valid;
++    screen.rows[0].label[1] = 31; EXPECT(!MultiplayerMenu_ValidateScreen(&screen)); screen = valid;
++    screen.reserved[3] = 1; EXPECT(!MultiplayerMenu_ValidateScreen(&screen)); screen = valid;
++    screen.count = 7; EXPECT(!MultiplayerMenu_ValidateScreen(&screen)); screen = valid;
++    screen.flags = 2; EXPECT(!MultiplayerMenu_ValidateScreen(&screen)); screen = valid;
++    screen.ackRequest = 0; EXPECT(!MultiplayerMenu_ValidateScreen(&screen)); screen = valid;
++    screen.screen = 0; EXPECT(!MultiplayerMenu_ValidateScreen(&screen));
++}
++
++TEST("Multiplayer menu: only complete current responses enable choices and old screen actions cannot be replayed")
++{
++    struct MultiplayerMenuScreen screen = Screen(1, 10);
++    MultiplayerMenu_Init(); EXPECT(MultiplayerMenu_TestBegin());
++    EXPECT_EQ(gMultiplayerMenuMailbox.request.sequence, 1);
++    EXPECT_EQ(gMultiplayerMenuMailbox.request.kind, MP_MENU_OPEN);
++    EXPECT_EQ(gMultiplayerMenuMailbox.request.screen, 0);
++    MultiplayerMenu_TestInput(A_BUTTON); EXPECT_EQ(gMultiplayerMenuMailbox.request.sequence, 1);
++    Deliver(&screen, 1); EXPECT_EQ(MultiplayerMenu_TestScreen(), 0);
++    screen.ackRequest = 2; Deliver(&screen, 2); EXPECT_EQ(MultiplayerMenu_TestScreen(), 0);
++    screen.ackRequest = 1; Deliver(&screen, 4); EXPECT_EQ(MultiplayerMenu_TestScreen(), 10);
++    MultiplayerMenu_TestInput(A_BUTTON);
++    EXPECT_EQ(gMultiplayerMenuMailbox.request.sequence, 2);
++    EXPECT_EQ(gMultiplayerMenuMailbox.request.kind, MP_MENU_CHOOSE);
++    EXPECT_EQ(gMultiplayerMenuMailbox.request.action, 1);
++    EXPECT_EQ(gMultiplayerMenuMailbox.request.screen, 10);
++    MultiplayerMenu_TestInput(A_BUTTON); EXPECT_EQ(gMultiplayerMenuMailbox.request.sequence, 2);
++    screen.screen = 11; Deliver(&screen, 6); EXPECT_EQ(MultiplayerMenu_TestScreen(), 10);
++    screen.ackRequest = 2; screen.screen = 10; Deliver(&screen, 8);
++    MultiplayerMenu_TestInput(A_BUTTON); EXPECT_EQ(gMultiplayerMenuMailbox.request.sequence, 2);
++    screen.screen = 11; Deliver(&screen, 10); EXPECT_EQ(MultiplayerMenu_TestScreen(), 11);
++    MultiplayerMenu_TestInput(DPAD_DOWN); MultiplayerMenu_TestInput(A_BUTTON);
++    EXPECT_EQ(gMultiplayerMenuMailbox.request.sequence, 3);
++    EXPECT_EQ(gMultiplayerMenuMailbox.request.action, 2);
++    EXPECT_EQ(gMultiplayerMenuMailbox.request.screen, 11);
++    EXPECT_EQ(gMultiplayerMenuMailbox.localGeneration & 1, 0);
++    MultiplayerMenu_TestClose(); MultiplayerMenu_Init();
++}
++
++TEST("Multiplayer menu: disabled rows cannot consent and B distinguishes subpage back from local close")
++{
++    struct MultiplayerMenuScreen screen = Screen(1, 1);
++    MultiplayerMenu_Init(); EXPECT(MultiplayerMenu_TestBegin());
++    screen.rows[0].action = 0; screen.backAction = 7;
++    Deliver(&screen, 2); MultiplayerMenu_TestInput(A_BUTTON);
++    EXPECT_EQ(gMultiplayerMenuMailbox.request.sequence, 1);
++    MultiplayerMenu_TestInput(B_BUTTON);
++    EXPECT_EQ(gMultiplayerMenuMailbox.request.sequence, 2);
++    EXPECT_EQ(gMultiplayerMenuMailbox.request.action, 7);
++    EXPECT(MultiplayerMenu_IsActive());
++    // B remains available when a server response is missing; it never emits a
++    // second choice or invents authoritative cancellation of the first one.
++    MultiplayerMenu_TestInput(B_BUTTON);
++    EXPECT(!MultiplayerMenu_IsActive());
++    EXPECT_EQ(gMultiplayerMenuMailbox.request.sequence, 3);
++    EXPECT_EQ(gMultiplayerMenuMailbox.request.kind, MP_MENU_CLOSE);
++    EXPECT_EQ(gMultiplayerMenuMailbox.request.action, 0);
++    MultiplayerMenu_Init();
++}
++
++TEST("Multiplayer menu: host close acknowledges after local release and reopen retains monotonic requests")
++{
++    struct MultiplayerMenuScreen screen = Screen(1, 42);
++    MultiplayerMenu_Init(); EXPECT(MultiplayerMenu_TestBegin());
++    Deliver(&screen, 2); screen.flags = 1; Deliver(&screen, 4);
++    EXPECT(!MultiplayerMenu_IsActive()); EXPECT_EQ(MultiplayerMenu_TestScreen(), 0);
++    EXPECT_EQ(gMultiplayerMenuMailbox.request.kind, MP_MENU_CLOSE);
++    EXPECT_EQ(gMultiplayerMenuMailbox.request.sequence, 2);
++    EXPECT_EQ(gMultiplayerMenuMailbox.request.screen, 42);
++    EXPECT(MultiplayerMenu_TestBegin());
++    EXPECT_EQ(gMultiplayerMenuMailbox.request.kind, MP_MENU_OPEN);
++    EXPECT_EQ(gMultiplayerMenuMailbox.request.sequence, 3);
++    screen.flags = 0; Deliver(&screen, 6); EXPECT_EQ(MultiplayerMenu_TestScreen(), 0);
++    screen.ackRequest = 3; screen.screen = 1; Deliver(&screen, 8);
++    EXPECT_EQ(MultiplayerMenu_TestScreen(), 1);
++    MultiplayerMenu_TestInput(B_BUTTON);
++    EXPECT(!MultiplayerMenu_IsActive()); EXPECT_EQ(gMultiplayerMenuMailbox.request.sequence, 4);
++    MultiplayerMenu_Init();
++}
++
++TEST("Multiplayer menu: disconnected tick releases the menu with a newer close request and consumes closing input")
++{
++    u16 oldNew = gMain.newKeys, oldRaw = gMain.newKeysRaw, oldRepeated = gMain.newAndRepeatedKeys;
++    MultiplayerMenu_Init(); EXPECT(MultiplayerMenu_TestBegin());
++    // Fixture has no production connection/save binding, so the same runtime
++    // guard used on bridge loss must close before accepting any screen/input.
++    gMain.newKeys = gMain.newKeysRaw = gMain.newAndRepeatedKeys = A_BUTTON;
++    MultiplayerMenu_Tick();
++    EXPECT(!MultiplayerMenu_IsActive());
++    EXPECT_EQ(gMultiplayerMenuMailbox.request.kind, MP_MENU_CLOSE);
++    EXPECT_EQ(gMultiplayerMenuMailbox.request.sequence, 2);
++    EXPECT_EQ(gMain.newKeys, 0); EXPECT_EQ(gMain.newKeysRaw, 0); EXPECT_EQ(gMain.newAndRepeatedKeys, 0);
++    EXPECT(!MultiplayerMenu_Open());
++    gMain.newKeys = oldNew; gMain.newKeysRaw = oldRaw; gMain.newAndRepeatedKeys = oldRepeated;
++    MultiplayerMenu_Init();
++}
++
++TEST("Multiplayer menu: printable ASCII translation cannot produce a native string control byte")
++{
++    for (u32 c = 32; c <= 126; c++) EXPECT(MultiplayerMenu_TestGlyph(c) < CHAR_DYNAMIC);
++    EXPECT_EQ(MultiplayerMenu_TestGlyph('A'), CHAR_A);
++    EXPECT_EQ(MultiplayerMenu_TestGlyph('z'), CHAR_z);
++    EXPECT_EQ(MultiplayerMenu_TestGlyph('7'), CHAR_7);
++    EXPECT_EQ(MultiplayerMenu_TestGlyph(':'), CHAR_COLON);
++    EXPECT_EQ(MultiplayerMenu_TestGlyph('~'), CHAR_QUESTION_MARK);
++}
