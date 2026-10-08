@@ -1,6 +1,6 @@
 # Personal encounter reset foundation
 
-This design implements the [owner's Local Soft Reset amendment](project-update-local-soft-reset.txt) through an explicit native personal-encounter boundary. It does not reboot a core, restore an emulator savestate, import an older checkpoint, or change another character. The first implementation slice is deliberately a **first-action-only development capability**. Two-core and four-core exploration proofs passed; later turns, production encounter coverage, durable attempts across crashes, Windows chord routing and the simultaneous trade/battle/reset matrix remain required work.
+This design implements the [owner's Local Soft Reset amendment](project-update-local-soft-reset.txt) through an explicit native personal-encounter boundary. It does not reboot a core, restore an emulator savestate, import an older checkpoint, or change another character. The first implementation slice is deliberately a **first-action-only development capability**. Two-core and four-core exploration proofs passed, including the guarded Select action on the combined native source; later turns, production encounter coverage, durable attempts across crashes, Windows input qualification and the simultaneous trade/battle/reset matrix remain required work.
 
 ## Reuse audit, October 8, 2026
 
@@ -48,7 +48,7 @@ The existing `ComputePlayerShinyOdds` combines Charm, lure, chain-fishing and De
 
 ## Input and actual proof
 
-The current Windows SDL adapter suppresses Start from the full A+B+Select+Start combination and blocks frontend resets. Native main currently invokes BIOS reset for that raw chord. A qualified native handler can consume it once per release and refuse it outside an eligible connected encounter, but the Windows adapter must later route the request deliberately. A headless joypad proof does not establish Windows chord acceptance. An explicit in-game action is a valid first input path; confirmation must consume its button presses before normal action selection.
+The current Windows SDL adapter suppresses Start from the full A+B+Select+Start combination and blocks frontend resets. The development native handler consumes the raw chord once per release for a bound game and refuses unsafe reset requests without rebooting. The Windows adapter must later route the request deliberately. A headless joypad proof does not establish Windows chord acceptance. The combined development source also advertises an eligible Select action at the first action menu; its separate actual-core proof is recorded below. Confirmation consumes its button presses before normal action selection.
 
 The first actual proof uses fresh private copies, ordinary NPC interaction and joypad input, official core framebuffer/Flash diagnostics and the production bridge. No RAM/save injection, teleport, savestate or story-flag editing is allowed. It must demonstrate repeated visible encounters and fresh native PID/IV rolls, exact counter increments, No/B cancellation, ordinary Save and fresh Continue, persistent capture followed by a durable ownership checkpoint, and refusal to reset after capture/action or during another ownership lifecycle. Same core PID, connection, player lease and incarnation remain intact through successful local resets.
 
@@ -60,7 +60,7 @@ World Events are not yet implemented, so the first slice can prove source-based 
 
 Frozen engine `071af0af967578fd1c457fdd5da27e0de44e395b` provides a default-off Littleroot Boy test interaction that generates a personal level-3 Wurmple. This reachable probe is compiled only with `LOCAL_RESET_DEVELOPMENT=1`; the ordinary build retains the original script. The source-only delta from the save-window/CRC foundation is [phase6-local-soft-reset.patch](../engine-patches/phase6-local-soft-reset.patch), SHA-256 `316ae5fed9002a6198ce968e3c32f7b74b02b63e33975be3b6e1b1482b1888dd`. This frozen qualification predates the subsequent singles/Multi integration.
 
-The engine's annotated `LOCAL_RESET_DEV_POC` tag pins this source and its bounded development acceptance. It does not qualify production static encounters or Windows input. A subsequent [combined battle/reset build](native-full-multi.md#combined-battle-and-reset-build) passes 66 focused tests and an actual singles regression with the reset development encounter disabled; combined reset gameplay still requires separate proof.
+The engine's annotated `LOCAL_RESET_DEV_POC` tag pins this source and its bounded development acceptance. It does not qualify production static encounters or Windows input. The earlier [combined battle/reset build](native-full-multi.md#combined-battle-and-reset-build) passed 66 focused tests and an actual singles regression with the reset development encounter disabled. The later combined Select/reset qualification is recorded separately below.
 
 `local-reset-run-7` passed 19 checks in two actual cores. `local-reset-four-run-1` then passed 21 checks with four distinct original trainers. Ordinary NPC/joypad interaction verified the visible reset prompt, No preserving the enemy and counter, Yes returning through native cleanup, and a second entry producing a different native PID/IV roll while incrementing the attempt counter from 1 to 2. Choosing a normal action permanently refused reset for that encounter. An ordinary ball capture obtained the second Wurmple, assigned ownership serial 3 and locked the encounter against another reset. No runtime memory or save injection was used.
 
@@ -77,6 +77,30 @@ Ordinary Save persisted counter 2 and the captured flag. Canonical checkpoint, l
 | Focused engine test log | `cebbd6d3ab890992a6fd27bd96eb1c35a97541694ec272980090f5f72050e988` |
 | Full engine test log | `43ce56ca4e0afea7f7e47d4bcbab571f6ea4df197d71d426e96866a35ec62bf0` |
 
-Private physical Windows archives under `artifacts/local-reset` contain 114 hash-verified two-core files, 217 four-core files, five frozen build files and the verified engine test logs. All **44 focused engine tests passed** on the final source. Its complete engine regression has **5,458 passing tests and zero unexpected failures**, retaining 18 known failures, 421 TODOs and nine expected failures across 5,906 cases. This source remains separate from the qualified singles source and the developing Multi source.
+Private physical Windows archives under `artifacts/local-reset` contain 114 hash-verified two-core files, 217 four-core files, five frozen build files and the verified engine test logs. All **44 focused engine tests passed** on this frozen source. Its complete engine regression has **5,458 passing tests and zero unexpected failures**, retaining 18 known failures, 421 TODOs and nine expected failures across 5,906 cases. These counts apply to the earlier `071af0a` source, not the subsequent combined source.
 
 The proof advances one frame at a time with a paced driver; it is functional acceptance, not a measured Windows performance result. Earlier failed development runs remain preserved and exposed script-result handling, encrypted inventory comparisons, the native solo master flag, confirmation-page placement and the proof's postcapture message timing; their corrections are included in the frozen source.
+
+## Combined source and guarded Select action
+
+Engine `afd92ce3a12204873e2f06a77a7bf1717d04f53b` integrates the native Multi source, Local Soft Reset, the phazing regression and the guarded Select input. The normal build compiles with the encounter disabled by default. The actual reset proof uses a separately frozen `LOCAL_RESET_DEVELOPMENT=1` build. The source-only delta from native Multi `9009bcb45bd252fb93f934fcf41540dc2b0f3390` is [phase6-native-multi-local-reset.patch](../engine-patches/phase6-native-multi-local-reset.patch), SHA-256 `bc29f8408dc5a83508edae716359624f0c9935b8652edd8263f44d1c954d4432`; its reverse-apply check passed on the combined source.
+
+An eligible personal encounter advertises Select at its first action menu. A fresh Select press opens the existing guarded Yes/No confirmation only for the local player controller, with no held A, B or Start. This takes priority over the existing debug action only while the encounter is eligible; ineligible Select input keeps its existing handling. It does not reinterpret a held Select or the Windows-filtered reset chord. Confirmation rechecks the connection and protected native state. All **70 focused multiplayer engine tests passed**, including these input boundaries. The full engine regression for this exact source is still pending; the older full-suite counts above do not qualify it.
+
+`local-reset-select-four-run-1` passed **21 checks** in four actual cores. Ordinary NPC interaction and joypad Select opened the visible prompt; No preserved the first enemy/counter, and a second Select followed by Yes returned through native cleanup. Re-entry produced the second native roll and counter 2. An ordinary capture assigned the caught Wurmple serial 3. Native Save, canonical checkpoint, live recovery, a further checkpoint and fresh Continue preserved the capture and counter. Three other players continued with independent scenes and canonical revision-1 heads. Original source hashes remained unchanged, SQLite integrity passed, and all eight initial/fresh core processes closed.
+
+The replay uses Select for its first two reset prompts. Its post-action negative check still uses the traditional four-button chord; it must not be described as actual-core proof of post-action Select refusal. The focused native tests cover ineligible Select behavior. The run uses ordinary input and read-only diagnostics, without save injection, arbitrary memory writes or savestates.
+
+| Combined development artifact | SHA-256 |
+| --- | --- |
+| ROM | `3c4dc8e4d76540935139b17cbe24eb5a8074db8a1cf0e94abc319970426591dc` |
+| ELF | `2935fb293b668c3f601f2c1f1136133e034efdb0e4794789f1c5fc91b82bb21a` |
+| Frozen build manifest | `3d28900ef0735e93711c7bacb6afa761b8696b96067b912a6b8981b9489d9bdb` |
+| Proof's normalized manifest | `95b206d6ae7732dc0d734930d131dd10c0daae322ee8ae1c9cc7fd1b27d81014` |
+| Complete private evidence | `09cc180d0b758f9aef6b27753b2ad9eede72f7f0a5d37f0b37f317cf2d8efdcf` |
+| Frozen proof controller | `2cb86435eac5ad2dc37cafd5971c782456e8706bcc678ef03367b65eb8882372` |
+| Focused engine test log | `bd8a32b3278044e0932721589ff9ccba1368b528d4908ed96003e2cf4aab94a8` |
+
+The private `artifacts/local-reset/local-reset-select-four-run-1` archive contains **220 individually hash-verified files**. Separate `native-select-reset-dev0-build-afd92ce` and `native-select-reset-dev1-build-afd92ce` archives preserve four normal-build files and six development-build files. The proof reserializes its manifest, so its file hash differs from the frozen build manifest while pinning the same ROM/source.
+
+This qualifies the exercised reset path on the combined development ROM. Full-six native Multi on this exact ROM is still under test and is not accepted by this reset record. The Windows runtime has not been qualified with this source, either Select or the traditional chord; the latter remains filtered by its current adapter. Production encounter coverage, durable attempt recovery, later-turn resets, the simultaneous trade/battle/reset matrix and friend-ready delivery remain outstanding.
