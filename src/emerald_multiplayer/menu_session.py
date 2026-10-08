@@ -22,6 +22,7 @@ class MenuSession:
         self._dialog_queue = None
         self._admission_display = None
         self._admission_selection = None
+        self._admission_identity = None
         self._battle_latched = False
         self._battle_preparing = False
         self._battle_admission_failed = False
@@ -71,6 +72,7 @@ class MenuSession:
             self._battle_latched = self._battle_preparing = True
             try:
                 descriptor = self.menu.claim_battle_admission(request.screen, request.action)
+                self._admission_identity = (descriptor["battle_id"], descriptor["generation"])
                 self.companion._native_menu_capture_battle(descriptor, self)
                 self._admission_selection = (descriptor, None)
             except Exception as error:
@@ -172,6 +174,21 @@ class MenuSession:
                 self._battle_latched = False
                 self._admission_display = None
             self._battle_preparing = False
+
+    def finish_battle_admission(self, battle_id, generation):
+        """Forget UI ownership only after the launcher verifies terminal HANDOFF.
+
+        This changes no native state and grants no save or battle authority.
+        Headless/public-RPC battles never acquired this menu's Enter latch.
+        """
+        if self._admission_identity is None and not self._battle_latched:
+            return
+        if (self._admission_identity != (battle_id, generation)
+                or self.companion._bridge is not self.bridge
+                or self._closed or self._battle_preparing and asyncio.current_task() is not self._task):
+            raise ConnectionError("completed battle does not own this native menu latch")
+        self._battle_latched = self._battle_admission_failed = False
+        self._admission_display = self._admission_selection = self._queued_open = None
 
     async def close_for_handoff(self, request, screen, *, timeout=5):
         """Wait for the native window to relinquish its field ownership.

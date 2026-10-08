@@ -190,7 +190,7 @@ class MenuSessionTests(unittest.IsolatedAsyncioTestCase):
         def claim(revision, action):
             self.assertEqual((revision, action), (1, 1))
             self.events.append("claim")
-            return {"id": "original"}
+            return {"battle_id": "original", "generation": 1}
         self.session.menu.claim_battle_admission = claim
         async def default_prepare(value, owner):
             self.assertIs(owner, self.session)
@@ -199,7 +199,7 @@ class MenuSessionTests(unittest.IsolatedAsyncioTestCase):
             self.events.append("prepare")
             self.feed(3, 1, 0, 3)
         async def default_handoff(kind, value, owner):
-            self.assertEqual((kind, value), ("battle", {"id": "original"}))
+            self.assertEqual((kind, value), ("battle", {"battle_id": "original", "generation": 1}))
             self.assertTrue(owner._battle_preparing)
             self.events.append("handoff")
         def abandon(owner):
@@ -208,7 +208,7 @@ class MenuSessionTests(unittest.IsolatedAsyncioTestCase):
         self.companion._native_menu_prepare_battle = prepare or default_prepare
         def capture(value, owner):
             self.assertTrue(owner._battle_preparing)
-            self.assertEqual(value, {"id": "original"})
+            self.assertEqual(value, {"battle_id": "original", "generation": 1})
         self.companion._native_menu_capture_battle = capture
         self.companion._native_menu_handoff = handoff or default_handoff
         self.companion._native_menu_abandon_battle_preparation = abandon
@@ -251,6 +251,40 @@ class MenuSessionTests(unittest.IsolatedAsyncioTestCase):
         await self.session._task
         self.assertEqual(self.events, ["abandon"])
         self.assertTrue(self.session._battle_admission_failed)
+        self.assertFalse(self.bridge.outbox.controls)
+
+    async def test_completed_exact_recovery_releases_only_the_original_menu_latch(self):
+        async def prepare(*args):
+            self.feed(3, 1, 0, 3)
+            raise ConnectionError("held after uncertain receipt")
+        await self.admission_menu(prepare)
+        self.feed(2, 1, 1, 2)
+        await self.session._task
+        with self.assertRaises(ConnectionError): self.session.finish_battle_admission("other", 1)
+        with self.assertRaises(ConnectionError): self.session.finish_battle_admission("original", 2)
+        self.assertTrue(self.session._battle_latched)
+        self.session.finish_battle_admission("original", 1)
+        self.assertFalse(self.session._battle_latched)
+        self.assertFalse(self.session._battle_admission_failed)
+        self.assertFalse(self.bridge.outbox.controls)
+        self.feed(4)
+        await self.session._task
+        frame = await asyncio.wait_for(self.bridge.outbox.get(), 1)
+        self.assertEqual(unpack_screen(frame[5:], allow_battle_admission=True)[0], 4)
+
+    async def test_headless_battle_completion_does_not_require_menu_ownership(self):
+        self.session.finish_battle_admission("headless", 1)
+        self.assertFalse(self.session._battle_latched)
+
+    async def test_synchronous_capture_failure_never_emits_ordinary_close(self):
+        await self.admission_menu()
+        def capture(*args): raise OSError("durable publication failed")
+        self.companion._native_menu_capture_battle = capture
+        self.feed(2, 1, 1, 2)
+        self.assertEqual(self.events, ["claim"])
+        await self.session._task
+        self.assertEqual(self.events, ["claim", "abandon"])
+        self.assertTrue(self.session._battle_latched)
         self.assertFalse(self.bridge.outbox.controls)
 
     async def test_admission_changed_bridge_cannot_start_and_still_abandons_safely(self):
