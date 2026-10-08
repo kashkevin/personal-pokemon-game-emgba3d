@@ -79,7 +79,7 @@ The WSL build is frozen in `/home/kevin/src/pokemon/multiplayer-proof/native-mul
 
 ## Remaining acceptance
 
-The opening VS display still uses the legacy three-Pokémon summary per trainer even though startup transports all six. Its presentation must be adapted before claiming an accurate twelve-per-side preview. The completed full-six run covers reserve switches through slot six for trainers 0, 1 and 2; trainer 3's reserve switches, broader moves/status/items and dedicated phazing gameplay scenarios remain untested by that run.
+This historical build's opening VS display used the legacy three-Pokémon summary per trainer even though startup transported all six. The later [six-slot preview](native-multi-preview.md) implements and separately verifies the corrected presentation. The completed full-six run here covers reserve switches through slot six for trainers 0, 1 and 2; trainer 3's reserve switches, broader moves/status/items and dedicated phazing gameplay scenarios remain untested by this run.
 
 The server-owned BattleDesk reservations protect all four characters against concurrent checkpoint/trade mutations during this live session. They do not supply durable interruption settlement. Host restart, disconnect policy and recovery, result/statistic settlement, the player interaction menu, Windows input/runtime integration and separate-PC Wi-Fi/Internet testing remain outstanding. The unresolved battle journal is a separate admission foundation and was not a complete durable coordinator in this proof.
 
