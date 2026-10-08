@@ -8,18 +8,20 @@ from __future__ import annotations
 import argparse
 import asyncio
 from contextlib import suppress
-from dataclasses import asdict
+from dataclasses import asdict, replace
 import hashlib
 import json
 from pathlib import Path
 import secrets
 import sys
 from uuid import uuid4
+from unittest.mock import patch
 
 from configure_bridge import configure
 from live_checkpoint_proof import LockedCore, Pump
 from emerald_multiplayer.checkpoint_client import CheckpointClient
-from emerald_multiplayer.checkpoint_mirror import MirrorLease
+from emerald_multiplayer.checkpoint_mirror import MirrorError, MirrorLease
+from emerald_multiplayer.cold_start import ColdStartRecovery
 from emerald_multiplayer.companion import Companion, CompanionConfig
 from emerald_multiplayer.flash import inspect_flash
 from emerald_multiplayer.live_checkpoint import LiveCheckpointCoordinator
@@ -208,6 +210,7 @@ async def run_paired(args):
     for path, payload in zip(saves, source_bytes):
         path.write_bytes(payload)
     evidence = dict(scope="two real cores development strict party swap; native trade effects and player-facing trading remain untested",
+        scenario=args.scenario,
         engine_commit=manifest["engine_commit"], build_id=manifest["rom_sha256"],
         ruleset_id=manifest["ruleset_id"], save_profile=OWNERSHIP_PROFILE,
         sources=[dict(path=str(p), sha256=hashlib.sha256(b).hexdigest(), trainer_id=s.metadata.trainer_id)
@@ -233,6 +236,7 @@ async def run_paired(args):
         heartbeat_interval=.2, idle_timeout=12), store=store, development_trades=True)
     await server.start(port=0)
     cores, companions, leases, live, trades = [], [], [], [], []
+    cold_contexts = []
     revisions = [0, 0]
     canonical = [None, None]
     pump = None
@@ -241,10 +245,13 @@ async def run_paired(args):
     generation = 0
     transaction_id = str(uuid4())
 
-    async def launch(i):
-        lease = MirrorLease(saves[i])
-        lease.__enter__()
-        leases.append(lease)
+    async def launch(i, *, held_lease=None):
+        if held_lease is None:
+            lease = MirrorLease(saves[i])
+            lease.__enter__()
+            leases.append(lease)
+        elif not held_lease._held or held_lease.save_path != saves[i]:
+            raise ValueError("cold-start launch requires this save's still-held lifetime lease")
         script = root / f"bridge-{i}-{generation}.lua"
         script.write_text(configure(manifest, companions[i].config.token.hex(),
             companions[i].ipc_address[1], bridge_source))
@@ -346,22 +353,28 @@ async def run_paired(args):
     def start_keeper(i):
         stop = asyncio.Event()
         async def keep():
-            while not stop.is_set():
-                try:
-                    await asyncio.wait_for(stop.wait(), .15)
-                    break
-                except asyncio.TimeoutError:
-                    pass
-                await trades[i].keepalive()
+            with patch.object(companions[i], "save_rpc", observe_rebind(i, companions[i].save_rpc)):
+                while not stop.is_set():
+                    try:
+                        await asyncio.wait_for(stop.wait(), .15)
+                        break
+                    except asyncio.TimeoutError:
+                        pass
+                    await trades[i].keepalive()
         task = asyncio.create_task(keep(), name=f"held-player-{i}-watchdog")
         keepers.append(task)
         keeper_stops[task] = stop
         return task
 
     async def stop_keeper(task):
-        keeper_stops.pop(task).set()
-        await task
-        keepers.remove(task)
+        stop = keeper_stops.pop(task, None)
+        if stop is not None:
+            stop.set()
+        try:
+            await task
+        finally:
+            if task in keepers:
+                keepers.remove(task)
 
     async def stop_pump():
         nonlocal pump
@@ -384,6 +397,168 @@ async def run_paired(args):
         for lease in reversed(leases):
             lease.__exit__(None, None, None)
         leases.clear()
+        while cold_contexts:
+            await cold_contexts.pop().__aexit__(None, None, None)
+
+    def assert_game_held(before, after):
+        assert after["frame"] > before["frame"]
+        # Presence timestamps remain live while native game callbacks freeze.
+        assert {k:v for k,v in after["pose"].items() if k != "frame"} == {
+            k:v for k,v in before["pose"].items() if k != "frame"}
+        assert after["party_read_only_hex"] == before["party_read_only_hex"]
+        assert after["native_play_time_hex"] == before["native_play_time_hex"]
+
+    async def wait_new_epochs(previous, changed):
+        deadline = asyncio.get_running_loop().time() + 12
+        while asyncio.get_running_loop().time() < deadline:
+            if all(c.connected and c.session_epoch is not None and (
+                    c.session_epoch > previous[i] if i in changed else c.session_epoch == previous[i])
+                    for i, c in enumerate(companions)):
+                return
+            await asyncio.sleep(.02)
+        raise AssertionError([(c.connected, c.session_epoch, c.last_error) for c in companions])
+
+    rebinds = []
+
+    def observe_rebind(i, original):
+        async def observe(control, **kwargs):
+            response = await original(control, **kwargs)
+            if control.opcode == Opcode.REBIND_TRADE:
+                assert response.status == Status.OK and control.sequence == 1
+                row = dict(client=i, core_pid=cores[i].process.pid, session_epoch=control.session_epoch,
+                    incarnation=control.incarnation, revision=control.revision, sequence=control.sequence,
+                    response_data_hex=response.data.hex())
+                rebinds.append(row)
+                record("actual-native-trade-rebind-after-authenticated-reconnect", **row)
+            return response
+        return observe
+
+    async def resume_with_rebind_evidence(i):
+        with patch.object(companions[i], "save_rpc", observe_rebind(i, companions[i].save_rpc)):
+            return await trades[i].resume()
+
+    async def restart_held_world():
+        nonlocal store, server
+        config, address = server.config, server.address
+        world, epoch = store.metadata.world_id, store.metadata.server_epoch
+        previous = [c.session_epoch for c in companions]
+        inc = [c.save_incarnation for c in companions]
+        ipc = [c.ipc_address for c in companions]
+        pids = [c.process.pid for c in cores]
+        before = await snapshot("fault-before-host-stop")
+        await server.close()
+        deadline = asyncio.get_running_loop().time() + 5
+        while any(c.connected for c in companions):
+            assert asyncio.get_running_loop().time() < deadline
+            await asyncio.sleep(.02)
+        store.close()
+        # Advancing beyond the native watchdog proves expiry never authorizes
+        # gameplay or an abort while authoritative fate is unavailable.
+        await pump.advance(900)
+        offline = await snapshot("fault-host-offline-both-held")
+        for i in range(2):
+            assert_game_held(before["clients"][i], offline["clients"][i])
+            assert cores[i].process.returncode is None
+        record("host-offline-beyond-native-watchdog-does-not-resume-either-game")
+        store = TradeCheckpointStore(root / "world.sqlite3", manifest["rom_sha256"], manifest["ruleset_id"])
+        server = WorldServer(config, store=store, development_trades=True)
+        await server.start(*address)
+        await wait_new_epochs(previous, {0, 1})
+        assert store.metadata.world_id == world and store.metadata.server_epoch > epoch
+        assert [c.save_incarnation for c in companions] == inc
+        assert [c.ipc_address for c in companions] == ipc and [c.process.pid for c in cores] == pids
+        holds = [await query_hold(i) for i in range(2)]
+        for i, hold in enumerate(holds):
+            assert hold.active and hold.expired and hold.session_epoch == previous[i]
+            assert hold.incarnation == inc[i] and hold.transaction_id == transaction_id
+        record("durable-host-restart-fences-leases-with-same-running-ROM-and-IPC", previous_server_epoch=epoch,
+            server_epoch=store.metadata.server_epoch, previous_leases=previous,
+            current_leases=[c.session_epoch for c in companions], core_pids=pids, holds=[asdict(h) for h in holds])
+
+    async def cold_recover_committed(posts, initial_ids):
+        nonlocal generation, pump
+        old_pids = [c.process.pid for c in cores]
+        old_configs = [c.config for c in companions]
+        previous_epochs = [c.session_epoch for c in companions]
+        journal_hashes = [hashlib.sha256(t.trade_path.read_bytes()).hexdigest() for t in trades]
+        assert all(not list(t.directory.glob("*.applied.flash")) for t in trades)
+        assert all(len(store.pending_trade_recovery(p.player_id, companions[i].session_epoch)) == 1
+            for i, p in enumerate(identities))
+        await snapshot("fault-committed-before-old-core-stop")
+        await stop_pump()
+        await close_cores()
+        stale_bytes = [s.read_bytes() for s in saves]
+        for i, payload in enumerate(stale_bytes):
+            stale = inspect_ownership(inspect_flash(payload, save_profile=OWNERSHIP_PROFILE))
+            assert {r.serial for r in stale.records} == initial_ids[i]
+            assert payload[:FLASH_SIZE] != posts[i][0].payload[:FLASH_SIZE]
+        record("old-core-processes-stop-before-any-apply-or-ack-with-stale-native-saves", old_core_pids=old_pids,
+            stale_save_sha256=[hashlib.sha256(b).hexdigest() for b in stale_bytes], journal_sha256=journal_hashes)
+        for companion in companions:
+            await companion.close()
+        companions.clear()
+        live.clear()
+        trades.clear()
+        generation += 1
+        for i, config in enumerate(old_configs):
+            replacement = Companion(replace(config, token=secrets.token_bytes(32), ipc_port=0))
+            assert replacement.config.token != config.token
+            await replacement.start()
+            companions.append(replacement)
+            live.append(LiveCheckpointCoordinator(replacement, root / f"private-{i}"))
+            trades.append(LiveTradeCoordinator(replacement, root / f"private-{i}"))
+        deadline = asyncio.get_running_loop().time() + 12
+        while not all(c.connected for c in companions):
+            assert asyncio.get_running_loop().time() < deadline
+            await asyncio.sleep(.02)
+        assert all(c._bridge is None for c in companions)
+        assert all(c.session_epoch > previous_epochs[i] for i, c in enumerate(companions))
+        assert [hashlib.sha256(t.trade_path.read_bytes()).hexdigest() for t in trades] == journal_hashes
+        record("replacement-companions-authenticate-with-fresh-IPC-tokens-while-games-remain-closed",
+            previous_leases=previous_epochs, current_leases=[c.session_epoch for c in companions],
+            ipc_addresses=[c.ipc_address for c in companions])
+        outcomes = []
+        for i in range(2):
+            context = ColdStartRecovery(companions[i], root / f"private-{i}", saves[i]).open()
+            async def forbidden_mailbox(*args, **kwargs):
+                raise AssertionError("closed startup must never send a live ROM mailbox command")
+            with patch.object(companions[i], "save_rpc", forbidden_mailbox):
+                verified = await context.__aenter__()
+            cold_contexts.append(context)
+            assert verified.lease._held
+            # This is the last file read before this player's new core starts.
+            installed = saves[i].read_bytes()
+            assert installed == posts[i][0].payload
+            assert hashlib.sha256(installed).hexdigest() == verified.mirror.sha256
+            assert verified.mirror.revision == 3 and verified.mirror.request_id == transaction_id
+            assert not trades[i].trade_path.exists()
+            assert not store.pending_trade_recovery(identities[i].player_id, companions[i].session_epoch)
+            assert json.loads(verified.evidence_path.read_text())["record"]["trade_ack"]["state"] == "acknowledged"
+            record("closed-start-gate-installs-exact-current-trade-and-acks-before-core-launch", client=i,
+                mirror=asdict(verified.mirror), evidence_path=str(verified.evidence_path))
+            await launch(i, held_lease=verified.lease)
+            outcomes.append(dict(state="closed-canonical-restored", checkpoint=posts[i][0].metadata))
+        await boot_continue()
+        await ready()
+        fresh = await snapshot("fault-cold-Continue-current-parties")
+        for i, (_, parsed, _) in enumerate(posts):
+            assert cores[i].process.pid not in old_pids
+            assert fresh["clients"][i]["pose"]["activity"] == 1
+            await verify_party(i, parsed)
+            probe = MirrorLease(saves[i])
+            try:
+                probe.__enter__()
+            except MirrorError as error:
+                assert error.code == "mirror_active"
+            else:
+                probe.__exit__(None, None, None)
+                raise AssertionError("the active fresh core lost its startup lifetime save lease")
+        record("new-actual-cores-Continue-loads-current-transferred-identities-under-held-save-leases",
+            old_core_pids=old_pids, new_core_pids=[c.process.pid for c in cores],
+            inventories=[[asdict(r) for r in p[2].records] for p in posts])
+        pump = Pump(cores, companions)
+        pump.start()
+        return outcomes
 
     try:
         for i in range(2):
@@ -416,7 +591,7 @@ async def run_paired(args):
         proposal_generation = opened[0]["generation"]
         record("two-authenticated-actors-open-same-proposal", transaction_id=transaction_id, generation=proposal_generation)
         prepared = []
-        for i in range(2):
+        for i in (range(1) if args.scenario == "disconnect-abort" else range(2)):
             metadata = await trades[i].prepare(transaction_id, proposal_generation, expected_revision=1)
             cp, parsed, owned = await download(i)
             assert metadata == cp.metadata and revisions[i] == 2
@@ -428,61 +603,126 @@ async def run_paired(args):
             if i == 0:
                 keeper = start_keeper(0)
         await stop_keeper(keeper)
-        frozen_before = await snapshot("02-both-held-before-consent")
+        frozen_before = await snapshot("02-held-before-consent")
         await pump.press(0, 16, 24, 120)
-        await pump.press(1, 32, 24, 120)
+        await pump.press(1, 16 if args.scenario == "disconnect-abort" else 32, 24, 120)
         frozen_after = await snapshot("03-held-joypad-cannot-advance-game")
-        for i in range(2):
+        for i in (range(1) if args.scenario == "disconnect-abort" else range(2)):
             before, after = frozen_before["clients"][i], frozen_after["clients"][i]
-            assert after["frame"] > before["frame"]
-            # The presence timestamp remains live for networking while game
-            # callbacks, movement, party and the native play clock are held.
-            assert {k:v for k,v in after["pose"].items() if k != "frame"} == {
-                k:v for k,v in before["pose"].items() if k != "frame"}
-            assert after["party_read_only_hex"] == before["party_read_only_hex"]
-            assert after["native_play_time_hex"] == before["native_play_time_hex"]
+            assert_game_held(before, after)
             assert (await query_hold(i)).active
-        record("native-hold-freezes-both-games-while-emulator-frames-advance")
+        record("native-hold-freezes-prepared-games-while-emulator-frames-advance")
         one_offer = await trades[0].offer(offered[0].serial)
         assert len(one_offer["offers"]) == 1 and one_offer["fingerprint"] is None
-        full_offer = await trades[1].offer(offered[1].serial)
-        assert len(full_offer["offers"]) == 2 and full_offer["confirmations"] == []
-        assert {r["serial"] for r in full_offer["offers"]} == {r.serial for r in offered}
-        record("each-actor-offers-only-its-owned-party-instance", view=full_offer)
-        first_consent = await trades[0].confirm(full_offer["fingerprint"])
-        assert first_consent["state"] == "offering" and first_consent["confirmations"] == [identities[0].player_id]
-        assert [await CheckpointClient(c).info() for c in companions] == [p.metadata for p in prepared]
-        record("first-consent-does-not-commit-either-player", view=first_consent)
-        second_consent = await trades[1].confirm(full_offer["fingerprint"])
-        assert second_consent["state"] == "committed"
-        posts = [await download(i) for i in range(2)]
-        assert revisions == [3, 3]
-        assert all(cp.metadata["request_id"] == transaction_id for cp, _, _ in posts)
-        validate_party_swap(prepared[0].payload, offered[0].serial, prepared[1].payload,
-            offered[1].serial, posts[0][0].payload, posts[1][0].payload)
-        expected_ids = [(initial_ids[i] - {offered[i].serial}) | {offered[1-i].serial} for i in range(2)]
-        for i, (cp, parsed, owned) in enumerate(posts):
-            assert {r.serial for r in owned.records} == expected_ids[i]
-            received = next(r for r in owned.records if r.serial == offered[1-i].serial)
-            prior = offered[1-i]
-            assert (received.personality, received.ot_id, received.species, received.content_sha256) == (
-                prior.personality, prior.ot_id, prior.species, prior.content_sha256)
-            assert len(store.pending_trade_recovery(identities[i].player_id, companions[i].session_epoch)) == 1
-        record("second-distinct-consent-atomically-commits-exact-paired-post-images", transaction_id=transaction_id,
-            metadata=[p[0].metadata for p in posts], inventories=[[asdict(r) for r in p[2].records] for p in posts])
-        keeper = start_keeper(1)
-        applied_a = await trades[0].resume()
-        await stop_keeper(keeper)
-        applied_b = await trades[1].resume()
-        assert all(r["state"] == "applied" for r in (applied_a, applied_b))
+        if args.scenario == "disconnect-abort":
+            moving_before, moving_after = frozen_before["clients"][1], frozen_after["clients"][1]
+            assert moving_after["pose"]["activity"] == 1
+            assert (moving_before["pose"]["x"], moving_before["pose"]["y"]) != (
+                moving_after["pose"]["x"], moving_after["pose"]["y"])
+            assert moving_before["native_play_time_hex"] != moving_after["native_play_time_hex"]
+            record("other-player-keeps-walking-and-native-clock-advances-during-one-trade-hold")
+            previous = [c.session_epoch for c in companions]
+            ipc = [c.ipc_address for c in companions]
+            inc = [c.save_incarnation for c in companions]
+            pids = [c.process.pid for c in cores]
+            heads = [await CheckpointClient(c).info() for c in companions]
+            server.sessions[identities[0].player_id].close("proof_uncommitted_disconnect")
+            await wait_new_epochs(previous, {0})
+            assert [c.ipc_address for c in companions] == ipc and [c.save_incarnation for c in companions] == inc
+            assert [c.process.pid for c in cores] == pids
+            absence = (await companions[0].trade_rpc("status", transaction_id=transaction_id))["trade"]
+            assert absence["state"] == "aborted"
+            assert [await CheckpointClient(c).info() for c in companions] == heads
+            assert store.read_trade(identities[0].player_id, companions[0].session_epoch, transaction_id) is None
+            record("disconnect-invalidates-uncommitted-proposal-with-authoritative-absence", previous_leases=previous,
+                current_leases=[c.session_epoch for c in companions], core_pids=pids, heads=heads)
+            applied_a = await resume_with_rebind_evidence(0)
+            assert applied_a["state"] == "aborted"
+            assert not trades[1].trade_path.exists()
+            assert len(rebinds) == 1 and rebinds[0]["client"] == 0
+            posts = [await download(i) for i in range(2)]
+            assert revisions == [2, 1]
+            assert [p[0].metadata for p in posts] == heads
+            expected_ids = initial_ids
+            target_revisions = [3, 2]
+            for i, (_, _, owned) in enumerate(posts):
+                assert owned.records == enrolled[i][2].records
+                assert not store.pending_trade_recovery(identities[i].player_id, companions[i].session_epoch)
+            applied_b = dict(state="not-prepared", checkpoint=heads[1])
+            record("same-running-ROM-authoritative-abort-preserves-exact-preparation-and-both-inventories", outcome=applied_a)
+        else:
+            full_offer = await trades[1].offer(offered[1].serial)
+            assert len(full_offer["offers"]) == 2 and full_offer["confirmations"] == []
+            assert {r["serial"] for r in full_offer["offers"]} == {r.serial for r in offered}
+            record("each-actor-offers-only-its-owned-party-instance", view=full_offer)
+            first_consent = await trades[0].confirm(full_offer["fingerprint"])
+            assert first_consent["state"] == "offering" and first_consent["confirmations"] == [identities[0].player_id]
+            assert [await CheckpointClient(c).info() for c in companions] == [p.metadata for p in prepared]
+            record("first-consent-does-not-commit-either-player", view=first_consent)
+            if args.scenario == "restart-lost-confirm":
+                dropped = []
+                original_reply = server._trade_reply
+                def drop_committed_reply(session, request, **fields):
+                    if (request["type"] == "trade_confirm" and session.player_id == identities[1].player_id
+                            and fields.get("trade", {}).get("state") == "committed"):
+                        assert not dropped
+                        dropped.append(dict(request_id=request["request_id"], trade=fields["trade"]))
+                        return
+                    return original_reply(session, request, **fields)
+                watchdogs = [start_keeper(i) for i in range(2)]
+                with patch.object(server, "_trade_reply", drop_committed_reply):
+                    try:
+                        await trades[1].confirm(full_offer["fingerprint"])
+                    except asyncio.TimeoutError:
+                        pass
+                    else:
+                        raise AssertionError("the intentionally dropped confirm reply did not time out")
+                for task in watchdogs:
+                    await stop_keeper(task)
+                assert len(dropped) == 1
+                assert all(t.trade_path.exists() for t in trades)
+                pending = [json.loads(t.trade_path.read_text())["intent"] for t in trades]
+                assert all(p["phase"] == "prepared" and p["fate"] is None for p in pending)
+                record("lost-second-confirm-reply-retains-both-pending-intents-and-native-holds", dropped=dropped[0])
+                await restart_held_world()
+            else:
+                second_consent = await trades[1].confirm(full_offer["fingerprint"])
+                assert second_consent["state"] == "committed"
+            posts = [await download(i) for i in range(2)]
+            assert revisions == [3, 3]
+            assert all(cp.metadata["request_id"] == transaction_id for cp, _, _ in posts)
+            validate_party_swap(prepared[0].payload, offered[0].serial, prepared[1].payload,
+                offered[1].serial, posts[0][0].payload, posts[1][0].payload)
+            expected_ids = [(initial_ids[i] - {offered[i].serial}) | {offered[1-i].serial} for i in range(2)]
+            target_revisions = [4, 4]
+            for i, (cp, parsed, owned) in enumerate(posts):
+                assert {r.serial for r in owned.records} == expected_ids[i]
+                received = next(r for r in owned.records if r.serial == offered[1-i].serial)
+                prior = offered[1-i]
+                assert (received.personality, received.ot_id, received.species, received.content_sha256) == (
+                    prior.personality, prior.ot_id, prior.species, prior.content_sha256)
+                assert len(store.pending_trade_recovery(identities[i].player_id, companions[i].session_epoch)) == 1
+            record("second-distinct-consent-atomically-commits-exact-paired-post-images", transaction_id=transaction_id,
+                metadata=[p[0].metadata for p in posts], inventories=[[asdict(r) for r in p[2].records] for p in posts])
+            if args.scenario == "cold-process":
+                applied_a, applied_b = await cold_recover_committed(posts, initial_ids)
+            else:
+                keeper = start_keeper(1)
+                applied_a = await resume_with_rebind_evidence(0)
+                await stop_keeper(keeper)
+                applied_b = await resume_with_rebind_evidence(1)
+                assert all(r["state"] == "applied" for r in (applied_a, applied_b))
+                if args.scenario == "restart-lost-confirm":
+                    assert len(rebinds) == 2 and {r["client"] for r in rebinds} == {0, 1}
         for i, (_, parsed, _) in enumerate(posts):
-            hold = await query_hold(i)
-            assert not hold.active and hold.phase == State.BOUND and hold.revision == 3
+            if args.scenario != "cold-process":
+                hold = await query_hold(i)
+                assert not hold.active and hold.phase == State.BOUND and hold.revision == posts[i][0].metadata["revision"]
             assert not trades[i].trade_path.exists()
             assert not store.pending_trade_recovery(identities[i].player_id, companions[i].session_epoch)
             await verify_party(i, parsed)
-        record("both-native-imports-readbacks-durable-acks-and-releases-complete", outcomes=[applied_a, applied_b])
-        await snapshot("04-both-imported-and-released")
+        record("both-characters-resolved-against-authoritative-trade-fate", outcomes=[applied_a, applied_b])
+        await snapshot("04-authoritative-resolution-complete")
         print(json.dumps(dict(ready=True, phase="paired", output=str(root), core_pids=[c.process.pid for c in cores])), flush=True)
         while line := await asyncio.to_thread(sys.stdin.readline):
             command = json.loads(line)
@@ -523,7 +763,7 @@ async def run_paired(args):
         else:
             raise RuntimeError("proof input ended before explicit finish")
         before_close = await snapshot("final-before-close")
-        assert revisions == [4, 4], revisions
+        assert revisions == target_revisions, revisions
         assert {c["client"] for c in evidence["checks"] if c["verified"] == "actual-party-ui-and-readonly-native-inventory"} == {0, 1}
         assert all(c["pose"]["activity"] == 1 for c in before_close["clients"])
         await stop_pump()
@@ -534,7 +774,7 @@ async def run_paired(args):
             cp_parsed = inspect_flash(canonical[i].payload, save_profile=OWNERSHIP_PROFILE)
             assert parsed.flash == cp_parsed.flash and parsed.state_sha256 == cp_parsed.state_sha256
             assert {r.serial for r in inspect_ownership(parsed).records} == expected_ids[i]
-        record("closed-native-Flash-matches-each-canonical-revision-4", sha256=[hashlib.sha256(b).hexdigest() for b in closed_bytes],
+        record("closed-native-Flash-matches-each-current-canonical-head", revisions=revisions, sha256=[hashlib.sha256(b).hexdigest() for b in closed_bytes],
             flash_sha256=[p.sha256 for p in closed], state_sha256=[p.state_sha256 for p in closed])
         generation += 1
         for i in range(2):
@@ -549,7 +789,7 @@ async def run_paired(args):
             assert tuple(actual["pose"][f] for f in ("map_group", "map_number", "x", "y")) == (
                 parsed.metadata.map_group, parsed.metadata.map_number, parsed.metadata.x, parsed.metadata.y)
             await verify_party(i, parsed)
-        record("two-fresh-Continue-processes-restore-transferred-instance-identities-and-positions")
+        record("two-fresh-Continue-processes-restore-verified-instance-identities-and-positions")
         await close_cores()
         assert [p.read_bytes() for p in saves] == closed_bytes
         assert [p.read_bytes() for p in source_paths] == source_bytes
@@ -565,21 +805,29 @@ async def run_paired(args):
         hashes = {str(p.relative_to(root)): hashlib.sha256(p.read_bytes()).hexdigest()
             for p in sorted(root.rglob("*")) if p.is_file() and not p.name.endswith(("-shm", "-wal"))}
         acceptance = dict(scope=evidence["scope"], passed=True, engine_commit=manifest["engine_commit"],
+            scenario=args.scenario,
             rom_sha256=manifest["rom_sha256"], evidence_sha256=hashes["evidence.json"],
             check_count=len(evidence["checks"]), command_count=len(evidence["commands"]),
             snapshot_count=len(evidence["snapshots"]), transaction_id=transaction_id, artifact_sha256=hashes)
         (root / "acceptance.json").write_text(json.dumps(acceptance, indent=2) + "\n")
         print(json.dumps(dict(passed=True, output=str(root), evidence_sha256=hashes["evidence.json"], checks=len(evidence["checks"]))), flush=True)
     finally:
-        for task in tuple(keepers):
-            await stop_keeper(task)
-        await stop_pump()
-        await close_cores()
-        for companion in companions:
-            await companion.close()
-        await server.close()
-        store.close()
-        persist()
+        try:
+            for task in tuple(keepers):
+                with suppress(Exception):
+                    await stop_keeper(task)
+        finally:
+            try:
+                await stop_pump()
+            finally:
+                try:
+                    await close_cores()
+                finally:
+                    for companion in companions:
+                        await companion.close()
+                    await server.close()
+                    store.close()
+                    persist()
 
 
 def main():
@@ -587,6 +835,7 @@ def main():
     for name in ("rom", "manifest", "harness", "save-b", "output"):
         parser.add_argument("--" + name, type=Path, required=True)
     parser.add_argument("--phase", choices=("prepare", "paired"), default="prepare")
+    parser.add_argument("--scenario", choices=("successful", "restart-lost-confirm", "disconnect-abort", "cold-process"), default="successful")
     parser.add_argument("--save-a", type=Path)
     parser.add_argument("--bridge", type=Path, default=Path(__file__).parents[2] / "bridge/mgba.lua")
     args = parser.parse_args()
