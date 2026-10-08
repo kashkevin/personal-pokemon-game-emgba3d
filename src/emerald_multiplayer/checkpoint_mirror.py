@@ -199,7 +199,19 @@ def _inspect_unlocked(path: Path) -> MirrorInfo:
 def inspect_mirror(save_path: str | Path) -> MirrorInfo:
     """Inspect a closed save, failing on active use or interrupted replacement."""
     with MirrorLease(save_path) as lease:
-        return _inspect_unlocked(lease.save_path)
+        return inspect_mirror_held(lease)
+
+
+def _held_path(lease: MirrorLease) -> Path:
+    if (not isinstance(lease, MirrorLease) or not lease._held
+            or lease._lock._file is None or lease._lock._file.closed):
+        raise MirrorError("mirror_not_held", "this operation requires an acquired save lease")
+    return lease.save_path
+
+
+def inspect_mirror_held(lease: MirrorLease) -> MirrorInfo:
+    """Inspect through the caller's uninterrupted closed/core-lifetime lease."""
+    return _inspect_unlocked(_held_path(lease))
 
 
 def _fsync_directory(path: Path) -> None:
@@ -252,47 +264,56 @@ def restore_checkpoint(save_path: str | Path, checkpoint, world_id: str) -> Mirr
     without merging it into server state. DownloadedCheckpoint and storage's
     Checkpoint records are both accepted; credentials never enter the sidecar.
     """
-    info, payload = _checkpoint_info(checkpoint, world_id)
     with MirrorLease(save_path) as lease:
-        path = lease.save_path
-        try:
-            # A readable sidecar still binds identity and revision when the
-            # local payload is damaged or absent. Recovery cannot bypass it.
-            previous = _read_sidecar(sidecar_path(path))
-        except MirrorError as error:
-            if error.code in ("mirror_io_error", "save_profile_mismatch"):
-                raise
-            previous = None
-        if previous is not None:
-            fields = ("world_id", "player_id", "build_id", "ruleset_id", "save_profile")
-            if any(getattr(previous, key) != getattr(info, key) for key in fields):
-                raise MirrorError("identity_mismatch", "verified mirror belongs to another world, player, or build")
-            if info.revision < previous.revision or (info.revision == previous.revision and info != previous):
-                raise MirrorError("revision_conflict", "canonical restore would replace a verified newer or conflicting revision")
-            if info == previous:
-                try:
-                    _inspect_unlocked(path)
-                except MirrorError as error:
-                    if error.code == "mirror_io_error":
-                        raise
-                else:
-                    return info
-        staged_save = staged_sidecar = None
-        try:
-            _archive_existing(path)
-            sidecar = sidecar_path(path)
-            staged_save = _stage(path, payload)
-            metadata = (json.dumps(asdict(info), sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8")
-            staged_sidecar = _stage(sidecar, metadata)
-            os.replace(staged_save, path)
-            _fsync_directory(path.parent)
-            os.replace(staged_sidecar, sidecar)
-            _fsync_directory(path.parent)
-        except OSError as error:
-            raise MirrorError("mirror_io_error", "offline checkpoint replacement was interrupted; inspect preserved recovery files") from error
-        finally:
-            for staging in (staged_save, staged_sidecar):
-                if staging is not None:
-                    with suppress(FileNotFoundError):
-                        staging.unlink()
-        return info
+        return restore_checkpoint_held(lease, checkpoint, world_id)
+
+
+def restore_checkpoint_held(lease: MirrorLease, checkpoint, world_id: str) -> MirrorInfo:
+    """Restore while retaining an already acquired lease for the future core.
+
+    The caller must keep the game closed until this returns and its own network
+    reconciliation completes. The lease is never released or reacquired here.
+    """
+    path = _held_path(lease)
+    info, payload = _checkpoint_info(checkpoint, world_id)
+    try:
+        # A readable sidecar still binds identity and revision when the
+        # local payload is damaged or absent. Recovery cannot bypass it.
+        previous = _read_sidecar(sidecar_path(path))
+    except MirrorError as error:
+        if error.code in ("mirror_io_error", "save_profile_mismatch"):
+            raise
+        previous = None
+    if previous is not None:
+        fields = ("world_id", "player_id", "build_id", "ruleset_id", "save_profile")
+        if any(getattr(previous, key) != getattr(info, key) for key in fields):
+            raise MirrorError("identity_mismatch", "verified mirror belongs to another world, player, or build")
+        if info.revision < previous.revision or (info.revision == previous.revision and info != previous):
+            raise MirrorError("revision_conflict", "canonical restore would replace a verified newer or conflicting revision")
+        if info == previous:
+            try:
+                _inspect_unlocked(path)
+            except MirrorError as error:
+                if error.code == "mirror_io_error":
+                    raise
+            else:
+                return info
+    staged_save = staged_sidecar = None
+    try:
+        _archive_existing(path)
+        sidecar = sidecar_path(path)
+        staged_save = _stage(path, payload)
+        metadata = (json.dumps(asdict(info), sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8")
+        staged_sidecar = _stage(sidecar, metadata)
+        os.replace(staged_save, path)
+        _fsync_directory(path.parent)
+        os.replace(staged_sidecar, sidecar)
+        _fsync_directory(path.parent)
+    except OSError as error:
+        raise MirrorError("mirror_io_error", "offline checkpoint replacement was interrupted; inspect preserved recovery files") from error
+    finally:
+        for staging in (staged_save, staged_sidecar):
+            if staging is not None:
+                with suppress(FileNotFoundError):
+                    staging.unlink()
+    return info
