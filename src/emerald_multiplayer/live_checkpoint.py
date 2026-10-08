@@ -93,6 +93,14 @@ class LiveCheckpointCoordinator:
         if self._session() != expected:
             raise ConnectionError("world lease or game incarnation changed during the live checkpoint")
 
+    def _assert_no_trade(self):
+        paths = [self.directory / "pending-trade.json"]
+        shared = getattr(self.companion, "_live_trade_pending_path", None)
+        if shared is not None:
+            paths.append(Path(shared))
+        if any(path.exists() for path in paths):
+            raise LiveSaveError("pending_trade", "resolve the durable trade before an ordinary checkpoint or recovery")
+
     @asynccontextmanager
     async def _own(self):
         c = self.companion
@@ -278,6 +286,7 @@ class LiveCheckpointCoordinator:
         revision. Only first enrollment with no canonical save can omit it.
         """
         async with self._own():
+            self._assert_no_trade()
             session = self._session()
             if self.pending_path.exists():
                 raise LiveSaveError("pending_export", "resolve the previous checkpoint before creating another")
@@ -317,6 +326,7 @@ class LiveCheckpointCoordinator:
     async def resolve_pending(self) -> dict[str, Any] | None:
         """Retry exactly the stored bytes/base/UUID; never adopt a newer base."""
         async with self._own():
+            self._assert_no_trade()
             session = self._session()
             pending = self._load_pending(session)
             if pending is None:
@@ -332,6 +342,7 @@ class LiveCheckpointCoordinator:
     async def recover(self):
         """Apply the latest canonical checkpoint without replacing a live file."""
         async with self._own():
+            self._assert_no_trade()
             session = self._session()
             if self.pending_path.exists():
                 raise LiveSaveError("pending_export", "resolve the pending save before recovering a canonical checkpoint")
