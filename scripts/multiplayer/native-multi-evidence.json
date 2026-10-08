@@ -93,8 +93,7 @@
     "no complete durable interruption, result or statistic settlement",
     "broader move, status, item and phazing gameplay coverage pending",
     "no Windows or separate-PC Wi-Fi/Internet acceptance",
-    "functional faster-than-real-time headless frame pump",
-    "separate Multi/Local Reset source integration has no combined gameplay acceptance"
+    "functional faster-than-real-time headless frame pump"
   ],
   "full_engine_regression": {
     "engine_commit": "9009bcb45bd252fb93f934fcf41540dc2b0f3390",
@@ -112,5 +111,24 @@
     "focused_passed": 59,
     "log_sha256": "cb18a50f8e8913bc088ecd5e07ba98ce660110c23633fcb22b157ce234e02d61",
     "source_patch_sha256": "e0d9fd3fb6aed75e02aa7d7e5beaf0c0abaf389464dc6c341aa75ca6d57f4af0"
+  },
+  "combined_default_off_build": {
+    "engine_commit": "3925ad29b685ed35acae36494a15b0736876700e",
+    "local_reset_development": false,
+    "rom_sha256": "2ee0b342cf2dc73f3a37af1ea0fdc08aa0c6144626ea8197680de59cf36425f6",
+    "elf_sha256": "1fb08348277998d4992a866c20365a8b8f9cf65a8b5420a0ce774a253539037d",
+    "manifest_sha256": "c6bfb8ad1f32f4d6df00eda3d52347ee4b238ba4e360121d4e9df2200ee3c5ec",
+    "focused_passed": 66,
+    "focused_clean_log_sha256": "06ed95769f6e780d9474e04c2f934b1f4b26bd1aad0a4ea9dcc02ca665e4503a",
+    "normal_clean_log_sha256": "c9571342276223fc6ec919a160774a4031e7e6ddabbc68c7ccfc451f0e4881d4",
+    "actual_singles_run": "native-singles-combined-run-1",
+    "actual_singles_checks_passed": 5,
+    "actual_singles_routed_blocks": 362,
+    "actual_singles_evidence_sha256": "711204214d556855372d621b2a148251c6279bcfc83ca33cb4ef5e18969e0d91",
+    "archived_run_files_hash_verified": 60,
+    "original_sources_unchanged": true,
+    "all_cores_closed": true,
+    "combined_reset_gameplay_qualified": false,
+    "windows_input_qualified": false
   }
 }
