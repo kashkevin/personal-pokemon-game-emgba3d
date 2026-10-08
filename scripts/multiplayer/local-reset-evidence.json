@@ -56,7 +56,16 @@
     "normalized_proof_manifest_sha256": "95b206d6ae7732dc0d734930d131dd10c0daae322ee8ae1c9cc7fd1b27d81014",
     "native_focused_tests_passed": 70,
     "native_focused_log_sha256": "bd8a32b3278044e0932721589ff9ccba1368b528d4908ed96003e2cf4aab94a8",
-    "native_full_regression_status": "pending",
+    "native_full_regression_status": "passed",
+    "native_full_regression": {
+      "passed": 5484,
+      "known_failing": 18,
+      "todo": 421,
+      "expected_failing": 9,
+      "total": 5932,
+      "unexpected_failures": 0,
+      "log_sha256": "cad47067ee3ce5e5c08d036ad7822198c4f1747cefa3e3de725f47b462c7477f"
+    },
     "run": "local-reset-select-four-run-1",
     "players": 4,
     "checks_passed": 21,
@@ -79,7 +88,8 @@
     "database_integrity_passed": true,
     "cores_closed": true,
     "total_cores": 8,
-    "exact_rom_full_six_multi_status": "pending separate proof",
+    "exact_rom_full_six_multi_status": "passed separate actual-core proof",
+    "exact_rom_full_six_multi_evidence_sha256": "69b0ddae513c5baec44361ed3b13073c2ddfe5dbd7ebf633cec3c29a2ef7db5f",
     "windows_input_qualified": false,
     "windows_traditional_chord_still_filtered": true
   },
@@ -90,6 +100,6 @@
     "Gen6 generation odds and personal Charm pending",
     "Windows Select qualification and traditional chord routing pending",
     "concurrent trade/battle/reset matrix pending",
-    "combined source full regression and exact-ROM full-six Multi proof pending"
+    "combined reset and full-six Multi scenarios passed separately; simultaneous interaction remains pending"
   ]
 }
