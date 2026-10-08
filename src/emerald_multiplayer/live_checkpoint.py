@@ -69,6 +69,17 @@ def _json_bytes(value: Any) -> bytes:
     return (json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False) + "\n").encode()
 
 
+def register_export_path(companion, path: Path) -> Path:
+    """Retain a known export owner across coordinator/private-directory changes."""
+    from .battle_journal import path_present
+    path = Path(path)
+    previous = getattr(companion, "_live_export_pending_path", None)
+    if previous is not None and Path(previous) != path and path_present(previous):
+        raise LiveSaveError("pending_export", "another private directory owns this character's export recovery")
+    companion._live_export_pending_path = path
+    return path
+
+
 class LiveCheckpointCoordinator:
     """One explicit lifecycle per companion; durable bytes precede server RPCs.
 
@@ -82,7 +93,7 @@ class LiveCheckpointCoordinator:
         self.client = CheckpointClient(companion)
         self.directory = Path(directory).resolve()
         self.directory.mkdir(mode=0o700, parents=True, exist_ok=True)
-        self.pending_path = self.directory / "pending-export.json"
+        self.pending_path = register_export_path(companion, self.directory / "pending-export.json")
 
     def _session(self) -> tuple[str, int, int]:
         c = self.companion
@@ -94,7 +105,13 @@ class LiveCheckpointCoordinator:
         if self._session() != expected:
             raise ConnectionError("world lease or game incarnation changed during the live checkpoint")
 
+    def _assert_no_battle(self):
+        from .battle_journal import pending_battle
+        if pending_battle(self.companion, self.directory):
+            raise LiveSaveError("pending_battle", "resolve the durable battle before an ordinary checkpoint or recovery")
+
     def _assert_no_trade(self):
+        self._assert_no_battle()
         paths = [self.directory / "pending-trade.json"]
         shared = getattr(self.companion, "_live_trade_pending_path", None)
         if shared is not None:
@@ -106,6 +123,10 @@ class LiveCheckpointCoordinator:
     async def _own(self):
         c = self.companion
         async with c.live_checkpoint_lock:
+            register_export_path(c, self.pending_path)
+            # Trade coordinators inherit this gate too: they must not create
+            # another durable intent before their first guarded ROM/RPC call.
+            self._assert_no_battle()
             c._live_save_owner = asyncio.current_task()
             try:
                 yield

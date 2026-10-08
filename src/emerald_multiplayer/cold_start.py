@@ -14,12 +14,13 @@ import hashlib
 from pathlib import Path
 from uuid import UUID, uuid4
 
+from .battle_journal import pending_battle, register_battle_path
 from .checkpoint_client import CheckpointClient, validate_metadata
 from .checkpoint_mirror import (
     MirrorInfo, MirrorLease, inspect_mirror_held, restore_checkpoint_held,
 )
 from .flash import LAYOUT_ID, inspect_flash
-from .live_checkpoint import LiveCheckpointCoordinator, _atomic, _json_bytes, _sync_directory
+from .live_checkpoint import LiveCheckpointCoordinator, _atomic, _json_bytes, _sync_directory, register_export_path
 from .live_trade import LiveTradeCoordinator, _LIMIT as TRADE_JOURNAL_LIMIT
 from .ownership import OWNERSHIP_PROFILE, inspect_ownership
 from .protocol import MAX_COUNTER
@@ -71,6 +72,14 @@ class ColdStartRecovery:
         self.directory.mkdir(parents=True, mode=0o700, exist_ok=True)
         self.export_path = self.directory / "pending-export.json"
         self.trade_path = self.directory / "pending-trade.json"
+        try:
+            register_export_path(companion, self.export_path)
+        except ValueError as error:
+            raise ColdStartError("pending_export", "another private directory owns this character's export recovery") from error
+        try:
+            register_battle_path(companion, self.directory / "pending-battle.json")
+        except ValueError as error:
+            raise ColdStartError("pending_battle", "another private directory owns pending battle recovery") from error
         previous = getattr(companion, "_live_trade_pending_path", None)
         if previous is not None and Path(previous) != self.trade_path and Path(previous).exists():
             raise ColdStartError("pending_trade", "another private directory owns this character's trade recovery")
@@ -95,6 +104,8 @@ class ColdStartRecovery:
                 c.config.player_id, c.config.build_id, c.config.ruleset_id)
 
     def _closed(self, session):
+        if pending_battle(self.companion, self.directory):
+            raise ColdStartError("pending_battle", "pending battle requires explicit recovery; cold startup cannot settle it")
         if self._session() != session:
             raise ConnectionError("authenticated startup session changed; retain recovery intent")
         if getattr(self.companion, "_bridge", None) is not None:

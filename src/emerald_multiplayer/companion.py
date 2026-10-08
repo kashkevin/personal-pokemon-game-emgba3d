@@ -534,8 +534,14 @@ class Companion:
             raise ConnectionError("the running game has no verified live-save bridge")
         return self._bridge.incarnation
 
-    def _guard_pending_trade_mutation(self) -> None:
+    def _guard_pending_trade_mutation(self, *, allow_battle_owner=False) -> None:
         """A durable unresolved trade owns mutations between coordinator calls."""
+        from .battle_journal import pending_battle
+        battle_owner = getattr(self, "_live_battle_owner", None)
+        if (battle_owner is not None or pending_battle(self)) and not (allow_battle_owner
+                and battle_owner is asyncio.current_task()
+                and self._live_save_owner is asyncio.current_task()):
+            raise ValueError("pending battle recovery owns this character's mutations")
         pending = getattr(self, "_live_trade_pending_path", None)
         if (pending is not None and Path(pending).exists()
                 and self._live_save_owner is not asyncio.current_task()):
@@ -624,7 +630,11 @@ class Companion:
             raise ValueError("battle channel requires explicit development opt-in and a matching ABI control")
         control.validate_command(player_id=self.config.player_id)
         if control.opcode != Opcode.QUERY:
-            self._guard_pending_trade_mutation()
+            self._guard_pending_trade_mutation(allow_battle_owner=True)
+            from .battle_journal import pending_battle
+            if ((getattr(self, "_live_battle_owner", None) is not None or pending_battle(self))
+                    and control != getattr(self, "_live_battle_admission_control", None)):
+                raise ValueError("pending battle admission permits only its exact persisted BIND")
             if self._live_save_owner is not None and self._live_save_owner is not asyncio.current_task():
                 raise ValueError("a live-save lifecycle owns this character's mutations")
         bridge = self._bridge
