@@ -53,6 +53,17 @@ _TEXT = {
     "runtime_size": "The installed runtime could not be verified.",
     "trade_recovery_unavailable": "The host does not support the character recovery required by this build.",
     "session_failed": "The game could not open. Private character and recovery files have been retained.",
+    "importing": "Checking your own game dump and installing this release…",
+    "imported": "Game installed. Choose Host Game or Join Game.",
+    "import_unavailable": "Game import is unavailable: this development package has no release patch.",
+    "wait_for_import": "Finishing the game import before closing…",
+    "import_file": "The selected game dump or installed patch could not be read.",
+    "import_size": "The selected file is not a supported game dump.",
+    "source_mismatch": "This game dump does not match this release. Your original file was not changed.",
+    "patch_mismatch": "The game patch is missing or changed. Reinstall the matching package.",
+    "patch_invalid": "The game patch could not be verified. No game was installed.",
+    "target_mismatch": "The patched game does not match this release. No game was installed.",
+    "import_destination": "The private game could not be installed. Existing files were retained.",
 }
 
 
@@ -119,8 +130,10 @@ class UiEvent:
 class SessionWorker:
     """One session at a time; close requests never abandon live cleanup."""
 
-    def __init__(self, installation, private_root, *, factory=LauncherSession):
+    def __init__(self, installation, private_root, *, factory=LauncherSession, importer=None):
         self.installation, self.private_root, self.factory = installation, private_root, factory
+        self.importer = importer
+        self.importing = False
         self.events = queue.SimpleQueue()
         self._lock = threading.Lock()
         self._thread = self._loop = self._task = None
@@ -142,6 +155,29 @@ class SessionWorker:
                                             name="emerald-launcher-session", daemon=False)
             self._thread.start()
         return True
+
+    def start_import(self, source):
+        with self._lock:
+            if self.busy or self.importer is None:
+                return False
+            self.importing = True
+            self._state = SessionState.RUNNING
+            self._thread = threading.Thread(target=self._run_import, args=(source,),
+                                            name="emerald-game-import", daemon=False)
+            self._thread.start()
+        return True
+
+    def _run_import(self, source):
+        code = "imported"
+        try:
+            self.importer.install(source)
+        except Exception as error:
+            candidate = getattr(error, "code", None)
+            code = candidate if candidate in _TEXT else "import_destination"
+        finally:
+            with self._lock:
+                self.importing = False
+            self.events.put(UiEvent("complete", code))
 
     def cancel_startup(self):
         with self._lock:
@@ -220,8 +256,8 @@ class LauncherWindow:
         self.selection = {"host": None, "join": None}
         self.controls = []
         root.title("Emerald Together")
-        root.minsize(640, 560)
-        root.geometry("700x610")
+        root.minsize(640, 640)
+        root.geometry("700x690")
         root.protocol("WM_DELETE_WINDOW", self.close)
         root.report_callback_exception = lambda *_: self.message.set(status_text("session_failed"))
         body = ttk.Frame(root, padding=24)
@@ -229,6 +265,14 @@ class LauncherWindow:
         ttk.Label(body, text="Emerald Together", font=("Segoe UI", 25, "bold")).pack(anchor="w")
         ttk.Label(body, text="Your world. Up to four players.", font=("Segoe UI", 11)).pack(anchor="w", pady=(2, 6))
         ttk.Label(body, text=version + " · Existing characters", foreground="#52635c").pack(anchor="w", pady=(0, 18))
+        self.import_button = ttk.Button(body, text="Import my game…", command=self.import_game)
+        self.import_button.pack(anchor="w", pady=(0, 6))
+        if getattr(worker, "importer", None) is None:
+            self.import_button.configure(state="disabled")
+            ttk.Label(body, text=status_text("import_unavailable"), wraplength=640).pack(anchor="w", pady=(0, 12))
+        else:
+            ttk.Label(body, text="Select your own game dump once to install this release.",
+                      wraplength=640).pack(anchor="w", pady=(0, 12))
         tabs = ttk.Notebook(body)
         tabs.pack(fill="both", expand=True)
         self.tabs = tabs
@@ -277,6 +321,18 @@ class LauncherWindow:
     def _enable(self, enabled):
         for control in self.controls:
             control.configure(state="normal" if enabled else "disabled")
+        self.import_button.configure(state="normal" if enabled and getattr(self.worker, "importer", None) else "disabled")
+
+    def import_game(self):
+        from tkinter import filedialog
+        if self.worker is None or self.worker.busy or self.worker.importer is None:
+            return
+        source = filedialog.askopenfilename(parent=self.root, title="Choose your own game dump",
+                                           filetypes=[("Game Boy Advance dump", "*.gba")])
+        if source and self.worker.start_import(Path(source)):
+            self._enable(False)
+            self.cancel.configure(state="disabled")
+            self.message.set(status_text("importing"))
 
     def browse(self, mode):
         from tkinter import filedialog
@@ -319,7 +375,8 @@ class LauncherWindow:
         self._enable(False)
         cancelled = self.worker.cancel_startup()
         self.cancel.configure(state="disabled")
-        self.message.set(status_text("closing" if cancelled else "wait_for_game"))
+        code = "closing" if cancelled else "wait_for_game"
+        self.message.set(status_text("wait_for_import" if getattr(self.worker, "importing", False) else code))
 
     def _destroy(self):
         self.root.after_cancel(self._poll_id)
@@ -346,7 +403,7 @@ class LauncherWindow:
         self._poll_id = self.root.after(80, self.poll)
 
 
-def main(release=None, application_directory=None):
+def main(release=None, application_directory=None, import_release=None):
     """Packaged entry supplies compiled release pins; source launch is a preview."""
     import tkinter as tk
     root = tk.Tk()
@@ -355,7 +412,13 @@ def main(release=None, application_directory=None):
     if release is not None:
         try:
             private = private_directory()
-            worker = SessionWorker(release.installation(application_directory, private), private)
+            importer = None
+            if import_release is not None:
+                from .game_import import GameImporter
+                if import_release.target_sha256 != release.rom_sha256:
+                    raise ValueError("release mismatch")
+                importer = GameImporter(import_release, Path(application_directory) / "game.bps", private)
+            worker = SessionWorker(release.installation(application_directory, private), private, importer=importer)
         except Exception:
             private_error = True
     window = LauncherWindow(root, worker, version=release.version if release else "Development preview")

@@ -20,6 +20,25 @@ Research references are not incorporated dependencies. The pinned engine and SDL
 
 ## Verification and remaining acceptance
 
-Nine focused tests pass on Windows Python 3.14.4 with real Tk widgets and no display skips. They cover host/join option isolation, one-worker admission, cancellation waiting for cleanup, ordinary game closure, enrollment gating, sanitized error/status messages, passive connection observation, compiled release pins and disabled preview controls. Session behavior uses controlled lifecycle doubles; this is not native gameplay acceptance.
+Twenty focused tests pass on Windows Python 3.14.4 with real Tk widgets and no display skips: eleven GUI/worker cases and nine BPS/import cases. They cover host/join option isolation, one-worker admission, cancellation waiting for cleanup, ordinary game closure, enrollment gating, sanitized error/status messages, passive connection observation, compiled release pins and disabled preview controls. Session behavior uses controlled lifecycle doubles; this is not native gameplay acceptance.
 
-Executable packaging, import fixtures, visible UI review, first-time character setup, actual keyboard/audio/gamepad checks, clean-machine qualification and LAN/Internet friend acceptance are separate checks. The initial package must identify the exact qualified Windows trade build rather than advertise later native Multi/Local Reset ROMs that have not been requalified with this Windows runtime.
+`game_import.py` supports all four BPS commands, signed relative offsets and overlapping target copies. It rejects corrupt CRCs, out-of-bounds reads/writes, truncated/trailing commands, excessive integers, metadata and action counts. ROM/output size is capped at 32 MiB and patch size at 64 MiB. Metadata is inert. `GameImporter` separately checks package-supplied SHA-256 pins for original dump, patch and reconstructed output. It writes a complete private temporary file, flushes it, publishes it without overwriting an existing file, and removes its own temporary file. The original dump is never modified. Fixtures use synthetic bytes, including a 2 MiB overlap run; no real base dump or release patch was available for full-game import acceptance.
+
+## Actual standalone package preview
+
+`scripts/windows-runtime/build_launcher.py` builds a Windows `onedir` package using the exact wheel hashes in `requirements-launcher-build.txt` plus the existing host provisioning pins. It requires explicit trusted ROM/manifest/runtime hashes, verifies all inputs and freezes Python sources before PyInstaller analysis. Only verified runtime manifest entries are copied. Python, Tk and dependency notices accompany the existing native runtime source/relink material. A new private output directory outside the repository is mandatory. No ROM, save, world database, certificate or invitation enters the package. Every resulting file is hashed.
+
+Optional import requires all four developer inputs: `--base`, `--base-sha256`, `--patch` and `--patch-sha256`. The builder must reconstruct the pinned output before enabling the own-dump chooser. Without them it builds a development package with import visibly disabled and an explicit missing-patch notice. No fabricated patch or inferred base hash is substituted. Documented setup/source records and private baseline/runtime build artifacts contain compiled expansion builds, not an owner-supplied original dump.
+
+The first actual package is under private `artifacts/windows-runtime/launcher-package-1/dist/EmeraldTogether`, labelled **Private trade preview**. It has 1,078 files and these real pins:
+
+| Input | SHA-256 |
+| --- | --- |
+| Qualified trade ROM, not included | `ee71194973092c9ccc395dd7ffeb203447e8854a13404c470b26e8f6235df7c8` |
+| Game manifest | `07ffdfd786c453952fde577a41884676498886803db64a390bff7ecbaf77f363` |
+| Runtime manifest | `98d6273bd87b277a69d46b1e8195204c3285d148571355a8899df66d83677c2f` |
+| Standalone executable | `d1234359925a8a0e35aa891861ae5579102161659297ef01c95dc591bea96662` |
+
+The executable launched with its bundled Python/Tk on the development PC. The Windows computer-use skill verified visible Host/Join layouts, missing-selection guidance and the disabled import/no-patch notice; ordinary window close exited the process. Tk's accessibility tree exposes generic panes here, so screen-reader qualification is still outstanding. This does not establish clean-machine installation, gameplay from the executable, keyboard/audio/gamepad quality or separate-PC networking.
+
+First-time character setup, full-game import with a real release patch, actual keyboard/audio/gamepad checks, clean-machine qualification and LAN/Internet friend acceptance remain separate checks. The initial package identifies the exact qualified Windows trade build rather than advertising later native Multi/Local Reset ROMs that have not been requalified with this Windows runtime.

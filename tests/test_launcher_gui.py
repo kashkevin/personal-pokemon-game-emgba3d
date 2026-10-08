@@ -5,6 +5,7 @@ import queue
 import threading
 import time
 import unittest
+from unittest.mock import patch
 
 from emerald_multiplayer.launcher_gui import (
     LauncherRelease, LauncherWindow, LaunchRequest, SessionWorker, UiEvent, status_text,
@@ -175,6 +176,31 @@ class GuiWorkerTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "address_invalid"):
             LaunchRequest("host", Path("host.json"), "0.0.0.0").options()
 
+    def test_import_is_single_worker_and_finishes_before_completion(self):
+        entered, finish = threading.Event(), threading.Event()
+        class Importer:
+            def install(self, source):
+                self.source = source
+                entered.set()
+                finish.wait(2)
+        importer = Importer()
+        self.worker.importer = importer
+        self.addCleanup(finish.set)
+        self.assertTrue(self.worker.start_import(Path("own-dump.gba")))
+        self.assertTrue(entered.wait(2))
+        self.assertTrue(self.worker.importing)
+        self.assertFalse(self.worker.cancel_startup())
+        self.assertFalse(self.worker.start(LaunchRequest("join", Path("invitation.json"))))
+        self.assertFalse(self.worker.start_import(Path("another.gba")))
+        finish.set()
+        self.assertEqual(self.finish_events()[-1].code, "imported")
+        self.assertFalse(self.worker.importing)
+        self.assertEqual(importer.source, Path("own-dump.gba"))
+
+    def test_import_without_release_is_unavailable(self):
+        self.assertFalse(self.worker.start_import(Path("own-dump.gba")))
+        self.assertFalse(self.worker.busy)
+
 
 class WidgetTests(unittest.TestCase):
     def setUp(self):
@@ -184,7 +210,12 @@ class WidgetTests(unittest.TestCase):
         except tk.TclError as error:
             self.skipTest("Tk display unavailable: " + str(error))
         self.root.withdraw()
-        self.addCleanup(self.root.destroy)
+        def destroy_if_open():
+            try:
+                self.root.destroy()
+            except tk.TclError:
+                pass  # The tested close path may already have destroyed it.
+        self.addCleanup(destroy_if_open)
 
     def test_preview_disables_play_without_release(self):
         window = LauncherWindow(self.root)
@@ -207,6 +238,10 @@ class WidgetTests(unittest.TestCase):
         worker.events.put(UiEvent("status", "running", "running"))
         window.poll()
         self.assertIn("Close the game window", window.message.get())
+        worker.events.put(UiEvent("complete", "game_closed"))
+        with patch.object(self.root, "destroy", wraps=self.root.destroy) as destroy:
+            window.poll()
+            destroy.assert_called_once()
 
     def test_missing_selection_does_not_start_session(self):
         class Worker:
