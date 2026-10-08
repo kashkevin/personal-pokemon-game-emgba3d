@@ -39,9 +39,13 @@ async def wait_for_child(session, task, children):
 
 
 def checked_log(game, expected):
+    # The Windows native runtime buffers redirected output. Inspect only after
+    # a normal child exit has flushed it; an empty live log is not party evidence.
     samples = re.findall(r"WINDOWS_LIVE party_count=(\d+) box_crc=([0-9a-f]{8})",
                          game.log_path.read_text(errors="replace"))
-    if not samples or samples[-1] != (str(expected["count"]), expected["box_crc"]):
+    if not samples:
+        raise RuntimeError("native party diagnostics are missing after normal exit")
+    if samples[-1] != (str(expected["count"]), expected["box_crc"]):
         raise RuntimeError("native party differs from canonical character")
 
 
@@ -145,19 +149,21 @@ async def run(args):
                         head = sessions[0]._store.read_checkpoint(host.accounts[slot].player_id,
                                                                   session._companion.session_epoch)
                         assert head.revision == 2 and party(head) == expected_parties[slot]
-                        checked_log(game, expected_parties[slot])
                         if phase == "fresh-Continue":
                             assert game.startup.mirror.sha256 == head.sha256
                             assert saved_heads[slot] == (head.revision, head.sha256, head.payload)
                         else:
                             saved_heads[slot] = (head.revision, head.sha256, head.payload)
                         details["players"].append(dict(slot=slot, revision=2, sha256=head.sha256,
-                            capabilities=caps, party_matches=True, tls=True,
+                            capabilities=caps, canonical_party_matches=True, tls=True,
                             startup_evidence=str(game.startup.evidence_path)))
                     output_event(phase=phase, ready_for_normal_close=True)
                     exits = await asyncio.wait_for(asyncio.gather(*tasks), 180)
                     assert exits == [0, 0]
                     details["normal_exit_codes"] = exits
+                    for slot, game in enumerate(games):
+                        checked_log(game, expected_parties[slot])
+                        details["players"][slot]["native_party_matches"] = True
                 finally:
                     for task in tasks:
                         if not task.done():
