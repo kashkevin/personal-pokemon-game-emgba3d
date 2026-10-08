@@ -179,6 +179,32 @@ class LauncherBattleRecoveryTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(self.session.can_save)
         self.old_emergency.retire_after_battle_recovery.assert_awaited_once()
 
+    async def test_original_menu_latch_retires_only_after_verified_native_handoff(self):
+        events=[]
+        async def handoff(*args):
+            self.assertTrue(self.session._save_failed)
+            events.append('handoff')
+        def finish(battle_id,generation):
+            self.assertEqual((battle_id,generation),(self.intent.battle_id,self.intent.generation))
+            self.assertEqual(events,['handoff'])
+            self.assertEqual(self.session._binding,self.original_binding)
+            self.assertEqual(self.session._battle_recovery_intent,self.intent)
+            events.append('menu')
+        self.c._bridge.menu_session=SimpleNamespace(finish_battle_admission=Mock(side_effect=finish))
+        await self.recover(self.finish,handoff=handoff)
+        self.assertEqual(events,['handoff','menu'])
+        self.assertIsNone(self.session._battle_recovery_intent)
+        self.assertTrue(self.session.can_save)
+
+    async def test_menu_retirement_refusal_keeps_original_terminal_intent_and_successor(self):
+        self.c._bridge.menu_session=SimpleNamespace(finish_battle_admission=Mock(side_effect=ValueError('foreign UI battle')))
+        with self.assertRaises(LauncherSessionError):await self.recover(self.finish)
+        self.assertEqual(self.session._battle_recovery_intent,self.intent)
+        self.assertEqual(self.session._binding,self.original_binding)
+        self.assertIsNotNone(self.session._battle_handoff_successor)
+        self.assertFalse(self.session.can_save)
+        self.assertTrue(self.session._retain_interrupted_core())
+
     async def test_no_emergency_capability_cannot_release_terminal_native_hold(self):
         self.c.config.emergency_save_abi_version=0
         self.assertFalse(self.session.can_recover_battle)

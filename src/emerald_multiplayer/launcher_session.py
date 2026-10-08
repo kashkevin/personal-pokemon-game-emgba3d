@@ -663,6 +663,9 @@ class LauncherSession:
         await complete_battle_handoff(c, self._profile_directory, result, intent, bridge, successor)
         if not same_released_core():
             raise LauncherSessionError("battle_recovery_held")
+        menu_session = getattr(bridge, "menu_session", None)
+        if menu_session is not None:
+            menu_session.finish_battle_admission(intent.battle_id, intent.generation)
         self._binding = binding
         self._save_incarnation = intent.incarnation
         self._battle_retained = None
