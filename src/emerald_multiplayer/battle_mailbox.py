@@ -409,8 +409,9 @@ def parse_response_packet(payload):
     return BattleControl.unpack(payload[1:]).validate_response()
 
 
-def capability_packet():
-    return b"W" + struct.pack("<HHHH", BATTLE_ABI_VERSION, BATTLE_MAILBOX_SIZE, BATTLE_SLOT_SIZE, BATTLE_DATA_SIZE)
+def capability_packet(abi_version=BATTLE_ABI_VERSION):
+    _integer(abi_version, 1, 2, "battle capability version")
+    return b"W" + struct.pack("<HHHH", abi_version, BATTLE_MAILBOX_SIZE, BATTLE_SLOT_SIZE, BATTLE_DATA_SIZE)
 
 
 def validate_capability_packet(payload):

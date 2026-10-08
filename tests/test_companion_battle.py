@@ -27,13 +27,15 @@ class CompanionBattleTests(unittest.IsolatedAsyncioTestCase):
         self.rom, self.manifest = make_files(self.root)
         rom = bytearray(self.rom.read_bytes())
         rom[192:204] = b"\x01\0\0\0" * 3
+        abi_version = getattr(self, "abi_version", 1)
+        rom[200:204] = abi_version.to_bytes(4, "little")
         self.rom.write_bytes(rom)
         value = json.loads(self.manifest.read_text())
         value.update(rom_sha256=hashlib.sha256(rom).hexdigest(), rom_crc32=f"{zlib.crc32(rom):08x}",
                      save_abi_version=1, save_mailbox_size=512, save_mailbox_address=0x02021000,
                      ownership_abi_version=1, save_profile="rhh-1.17.1-bb1093-ownership-v1",
                      trade_abi_version=1, trade_abi_address=0x080000C4,
-                     battle_abi_version=1, battle_abi_address=0x080000C8,
+                     battle_abi_version=abi_version, battle_abi_address=0x080000C8,
                      battle_mailbox_address=0x02022000, battle_mailbox_size=512)
         self.manifest.write_text(json.dumps(value))
         build = verify_rom_manifest(self.rom, self.manifest)[0]
@@ -48,7 +50,7 @@ class CompanionBattleTests(unittest.IsolatedAsyncioTestCase):
         await self.c.start()
         await wait_until(lambda: self.c.connected, 5)
         self.bridge = await BinaryBridge.connect(self.c)
-        self.bridge.writer.write(encode_packet(capability_packet()))
+        self.bridge.writer.write(encode_packet(capability_packet(abi_version)))
         await self.bridge.writer.drain()
         await wait_until(lambda: self.c._bridge is not None and self.c._bridge.battle_capable)
         self.tasks = []

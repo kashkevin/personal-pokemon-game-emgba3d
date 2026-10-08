@@ -1,4 +1,4 @@
-"""Optional diagnostic battle capability; addresses come from the exact ELF."""
+"""Optional development battle capability; addresses come from the exact ELF."""
 from pathlib import Path
 
 BATTLE_FIELDS = frozenset({"battle_abi_version", "battle_abi_address",
@@ -10,7 +10,9 @@ def validate_battle_manifest(manifest, rom_path=None):
         return False
     if not BATTLE_FIELDS.issubset(manifest):
         raise ValueError("battle capability fields are incomplete")
-    for name, expected in (("battle_abi_version", 1), ("battle_mailbox_size", 512),
+    if type(manifest["battle_abi_version"]) is not int or manifest["battle_abi_version"] not in (1, 2):
+        raise ValueError("unsupported development battle ABI")
+    for name, expected in (("battle_mailbox_size", 512),
                            ("ownership_abi_version", 1), ("trade_abi_version", 1),
                            ("save_abi_version", 1), ("save_mailbox_size", 512),
                            ("abi_version", 1), ("mailbox_size", 128)):
@@ -33,6 +35,6 @@ def validate_battle_manifest(manifest, rom_path=None):
     if rom_path is not None:
         with Path(rom_path).open("rb") as source:
             source.seek(marker - 0x08000000)
-            if source.read(4) != b"\x01\x00\x00\x00":
+            if source.read(4) != manifest["battle_abi_version"].to_bytes(4, "little"):
                 raise ValueError("battle capability marker disagrees with the verified ROM")
     return True

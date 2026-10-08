@@ -52,11 +52,11 @@ if battleEnabled then
         and battleAddr >= 0x02000000 and battleAddr + 512 <= 0x02040000
         and not (battleAddr < addr + 128 and addr < battleAddr + 512)
         and not (battleAddr < saveAddr + 512 and saveAddr < battleAddr + 512)
-        and cfg.battle_size == 512 and cfg.battle_abi == 1
+        and cfg.battle_size == 512 and (cfg.battle_abi == 1 or cfg.battle_abi == 2)
         and type(cfg.battle_abi_address) == "number" and cfg.battle_abi_address % 4 == 0
         and cfg.battle_abi_address >= 0x08000000
         and cfg.battle_abi_address + 4 <= 0x08000000 + cfg.rom_size
-        and emu:read32(cfg.battle_abi_address) == 1, "Invalid diagnostic battle capability")
+        and emu:read32(cfg.battle_abi_address) == cfg.battle_abi, "Invalid development battle capability")
 end
 local battlePending, battleGeneration, battleCapabilitySent = nil, nil, false
 local windowAddr = cfg.window_address
@@ -165,8 +165,8 @@ end
 
 local function battleHeaderReady()
     return battleEnabled and emu:read32(battleAddr) == 0x31424D45
-        and emu:read16(battleAddr + 4) == 1 and emu:read16(battleAddr + 6) == 512
-        and emu:read32(battleAddr + 12) <= 3
+        and emu:read16(battleAddr + 4) == cfg.battle_abi and emu:read16(battleAddr + 6) == 512
+        and emu:read32(battleAddr + 12) <= (cfg.battle_abi == 2 and 8 or 3)
         and emu:read32(battleAddr + 16) == 0 and emu:read32(battleAddr + 20) == 0
 end
 
@@ -175,29 +175,45 @@ local function battleControl(payload, command)
     local inc, epoch, id, seq, block, offset, size, opcode, status, phase, source, kind, reserved, length, crc, data
         = string.unpack("<I4I4c16I4I4I2I2BBBBBBI2I4c192", payload)
     if inc == 0 or epoch == 0 or epoch > 0x7FFFFFFF or id == string.rep("\0", 16)
-        or seq == 0 or size > 256 or offset > size or opcode < 1 or opcode > 9
-        or status > 10 or phase ~= 1 or source > 3 or kind > 1 or reserved ~= 0
+        or seq == 0 or size > 256 or offset > size or opcode < 1 or opcode > 13
+        or status > 10 or source > 3 or reserved ~= 0
         or length > 192 or data:sub(length + 1) ~= string.rep("\0", 192 - length)
         or crc32(data:sub(1, length)) ~= crc then return nil end
+    local native = cfg.battle_abi == 2 and phase == 2
+    if not native and (phase ~= 1 or opcode > 9 or kind > 1) then return nil end
+    if native and (source > 1 or opcode == 3 or opcode == 7 or opcode == 8 or kind == 1 or kind > 8) then return nil end
     local blockOp = opcode == 4 or opcode == 5 or opcode == 6
     if blockOp then
-        if kind ~= 1 or size ~= 40 or block == 0 then return nil end
-        if (opcode == 5 and offset ~= 40) or (opcode ~= 5 and offset ~= 0) then return nil end
+        if block == 0 then return nil end
+        if native then
+            local sizes = {[2]=28,[3]=32,[4]=200,[5]=200,[6]=200,[7]=16}
+            local controllerSizes = {[12]=true,[16]=true,[20]=true,[24]=true,[28]=true,
+                [36]=true,[56]=true,[64]=true,[92]=true,[156]=true}
+            if (kind == 8 and not controllerSizes[size]) or (kind ~= 8 and sizes[kind] ~= size) then return nil end
+            if (opcode == 5 and offset ~= size)
+                or (opcode ~= 5 and (offset >= size or offset % 128 ~= 0)) then return nil end
+        else
+            if kind ~= 1 or size ~= 40 then return nil end
+            if (opcode == 5 and offset ~= 40) or (opcode ~= 5 and offset ~= 0) then return nil end
+        end
     elseif block ~= 0 or offset ~= 0 or size ~= 0 or kind ~= 0 then return nil end
     if command then
-        local lengths = {116, 0, 4, 0, 8, 40, 4, 0, 0}
+        local lengths = native and {[1]=116,[2]=0,[4]=0,[5]=8,[6]=math.min(128,size-offset),
+            [9]=0,[10]=36,[11]=0,[12]=0,[13]=8} or {116, 0, 4, 0, 8, 40, 4, 0, 0}
         if status ~= 0 or length ~= lengths[opcode] then return nil end
         if opcode == 5 or opcode == 7 then
             local mask = string.unpack("<I4", data, opcode == 5 and 5 or 1)
             if mask == 0 or mask > 15 then return nil end
+            if native and mask ~= (3 ~ (1 << source)) then return nil end
         end
-        if opcode == 6 then
+        if opcode == 6 and not native then
             local magic, version, generation, slot, _, lease, incarnation = string.unpack("<I4I4c16I4I4I4I4", data)
             if magic ~= 0x44424D45 or version ~= 1 or generation == string.rep("\0", 16)
                 or slot ~= source or lease == 0 or lease > 0x7FFFFFFF or incarnation == 0 then return nil end
         end
     else
-        local lengths = {64, 64, 64, 40, 0, 0, 0, 0, 64}
+        local lengths = native and {[1]=64,[2]=64,[4]=math.min(128,size-offset),[5]=0,
+            [6]=0,[9]=64,[10]=64,[11]=64,[12]=0,[13]=0} or {64, 64, 64, 40, 0, 0, 0, 0, 64}
         if (status == 0 and length ~= lengths[opcode]) or (status ~= 0 and length ~= 0) then return nil end
     end
     -- Bytes 1-37 and 39-41 are the immutable response correlation fields;
@@ -493,7 +509,7 @@ local function onFrame()
         capabilitySent = true
     end
     if battleHeaderReady() and not battleCapabilitySent then
-        if not reliable("W" .. string.pack("<I2I2I2I2", 1, 512, 240, 192)) then return end
+        if not reliable("W" .. string.pack("<I2I2I2I2", cfg.battle_abi, 512, 240, 192)) then return end
         battleCapabilitySent = true
     end
     if windowEnabled and saveHeaderReady() and capabilitySent and not windowCapabilitySent then

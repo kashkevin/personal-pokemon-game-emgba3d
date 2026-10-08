@@ -76,7 +76,13 @@ def generate(rom: Path, elf: Path, nm: str, engine_commit: str) -> dict:
         from emerald_multiplayer.battle_manifest import validate_battle_manifest
         if len(battle) != 1 or len(channel) != 1 or not trade or int(battle[0][1], 16) != 4:
             raise ValueError("Battle capability requires one ROM marker, one channel and trade support")
-        manifest.update(battle_abi_version=1, battle_abi_address=int(battle[0][0], 16),
+        marker = int(battle[0][0], 16)
+        if marker % 4 or not 0x08000000 <= marker <= 0x08000000 + rom_size - 4:
+            raise ValueError("Battle ABI marker must be aligned and allocated in this ROM")
+        with rom.open("rb") as stream:
+            stream.seek(marker - 0x08000000)
+            version = int.from_bytes(stream.read(4), "little")
+        manifest.update(battle_abi_version=version, battle_abi_address=marker,
                         battle_mailbox_address=int(channel[0][0], 16), battle_mailbox_size=int(channel[0][1], 16))
         validate_battle_manifest(manifest, rom)
     window = re.findall(r"^([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+[Rr]\s+gMultiplayerSaveWindowAbiVersion$", symbols, re.M)

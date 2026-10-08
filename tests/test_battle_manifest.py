@@ -28,6 +28,23 @@ class BattleManifestTests(unittest.TestCase):
         self.assertIn("battle_address=33693696, battle_size=512", self.configure(generated))
         self.assertIn("battle_abi=1, battle_abi_address=134217928", self.configure(generated))
 
+    def test_native_version_is_derived_from_rom_marker_and_must_match_it(self):
+        with self.rom.open("r+b") as rom:
+            rom.seek(200)
+            rom.write(b"\x02\0\0\0")
+        generated = self.generate(self.base + self.battle)
+        self.assertEqual(generated["battle_abi_version"], 2)
+        self.assertTrue(validate_battle_manifest(generated, self.rom))
+        self.assertIn("battle_abi=2, battle_abi_address=134217928", self.configure(generated))
+        for version in (1, 3, True):
+            with self.assertRaises(ValueError):
+                validate_battle_manifest({**generated, "battle_abi_version": version}, self.rom)
+        with self.rom.open("r+b") as rom:
+            rom.seek(200)
+            rom.write(b"\x03\0\0\0")
+        with self.assertRaises(ValueError):
+            self.generate(self.base + self.battle)
+
     def test_missing_capability_fields_and_dependencies_refused(self):
         generated = self.generate(self.base + self.battle)
         for key in BATTLE_FIELDS | {"ownership_abi_version", "trade_abi_version", "save_abi_version", "save_profile", "mailbox_address"}:

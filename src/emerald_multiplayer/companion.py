@@ -149,6 +149,7 @@ class CompanionConfig:
     ownership_enabled: bool = field(init=False, default=False)
     trade_enabled: bool = field(init=False, default=False)
     battle_enabled: bool = field(init=False, default=False)
+    battle_abi_version: int = field(init=False, default=0)
     save_window_enabled: bool = field(init=False, default=False)
 
     def __post_init__(self) -> None:
@@ -160,12 +161,13 @@ class CompanionConfig:
         object.__setattr__(self, "save_enabled", "save_mailbox_address" in manifest)
         object.__setattr__(self, "ownership_enabled", manifest.get("ownership_abi_version") == 1)
         object.__setattr__(self, "trade_enabled", manifest.get("trade_abi_version") == 1)
-        object.__setattr__(self, "battle_enabled", manifest.get("battle_abi_version") == 1)
+        object.__setattr__(self, "battle_enabled", manifest.get("battle_abi_version") in (1, 2))
+        object.__setattr__(self, "battle_abi_version", manifest.get("battle_abi_version", 0))
         object.__setattr__(self, "save_window_enabled", manifest.get("save_window_abi_version") == 1)
         if type(self.development_battle_channel) is not bool:
             raise ValueError("development_battle_channel must be a boolean")
         if self.development_battle_channel and (not self.battle_enabled or self.server_credential is None):
-            raise ValueError("diagnostic channel requires its verified ROM and authenticated world")
+            raise ValueError("development battle channel requires its verified ROM and authenticated world")
         validate_hello({
             "type": "hello", "protocol": PROTOCOL_VERSION, "build_id": build_id,
             "ruleset_id": self.ruleset_id, "player_id": self.player_id,
@@ -453,7 +455,7 @@ class Companion:
                     continue
                 if packet[:1] == b"W":
                     from .battle_mailbox import capability_packet
-                    if not self.config.battle_enabled or packet != capability_packet():
+                    if not self.config.battle_enabled or packet != capability_packet(self.config.battle_abi_version):
                         raise BridgeError("battle capability disagrees with verified manifest")
                     bridge.battle_capable = True
                     continue
@@ -609,10 +611,17 @@ class Companion:
         return self._bridge.incarnation
 
     async def battle_rpc(self, control, *, timeout=5.0):
-        """Explicit development diagnostics, never a native battle controller."""
+        """Explicit development mailbox access, gated by the verified ROM ABI.
+
+        Native envelopes do not provide consent, canonical-roster validation or
+        world-server routing; those belong to the native battle coordinator.
+        """
         from .battle_mailbox import BattleControl, Opcode
-        if not self.config.development_battle_channel or not isinstance(control, BattleControl):
-            raise ValueError("diagnostic channel requires explicit development opt-in and a validated control")
+        from .native_battle import NativeControl
+        if (not self.config.development_battle_channel
+                or not isinstance(control, (BattleControl, NativeControl))
+                or (isinstance(control, NativeControl) and self.config.battle_abi_version != 2)):
+            raise ValueError("battle channel requires explicit development opt-in and a matching ABI control")
         control.validate_command(player_id=self.config.player_id)
         if control.opcode != Opcode.QUERY:
             self._guard_pending_trade_mutation()
@@ -638,8 +647,10 @@ class Companion:
 
     def _receive_battle_response(self, payload, bridge):
         from .battle_mailbox import BattleControl
+        from .native_battle import NativeControl
         try:
-            response = BattleControl.unpack(payload).validate_response()
+            codec = NativeControl if self.config.battle_abi_version == 2 and payload[38:39] == b"\x02" else BattleControl
+            response = codec.unpack(payload).validate_response()
             pending = self._battle_pending.get(response.sequence)
             if pending is None:
                 return
