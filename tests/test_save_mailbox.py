@@ -50,7 +50,7 @@ class SaveMailboxTests(unittest.TestCase):
                 SaveControl.unpack(changed)
         for changes in (dict(incarnation=True), dict(session_epoch=0), dict(sequence=0),
                         dict(request_id=str(uuid.UUID(int=0))), dict(data=bytes(193)),
-                        dict(opcode=True), dict(status=14), dict(total_size=131088)):
+                        dict(opcode=True), dict(status=15), dict(total_size=131088)):
             with self.subTest(field=next(iter(changes))), self.assertRaises(SaveMailboxError):
                 control(**changes)
 
