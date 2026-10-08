@@ -48,7 +48,7 @@ _TEXT = {
     "installation_changed": "Game files are missing or changed. Reinstall the matching game package.",
     "runtime_hash": "Runtime files are missing or changed. Reinstall the matching game package.",
     "runtime_manifest": "The installed runtime could not be verified.",
-    "runtime_path": "The installed runtime could not be verified.",
+    "runtime_path": "The game location could not be used. Choose a shorter installation or private-data path.",
     "runtime_unlisted": "The installed runtime contains unexpected files.",
     "runtime_size": "The installed runtime could not be verified.",
     "trade_recovery_unavailable": "The host does not support the character recovery required by this build.",

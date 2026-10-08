@@ -161,6 +161,17 @@ class DraftRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(self.runtime.directory.exists())
         self.assertEqual(self.calls, [])
 
+    async def test_oversized_native_path_refuses_before_draft_directory_or_intent(self):
+        private = self.root / ("a" * 100) / ("b" * 100) / ("c" * 100)
+        runtime = DraftRuntime(self.installation, private)
+        with patch("emerald_multiplayer.player_runtime._WINDOWS_NATIVE_PATHS", True), self.fixture():
+            with self.assertRaises(DraftRuntimeError) as caught:
+                async with runtime.open():
+                    self.fail("unsupported draft path authorized a child")
+        self.assertEqual(caught.exception.code, "runtime_path")
+        self.assertFalse(private.exists())
+        self.assertEqual(self.calls, [])
+
     async def test_changed_bundle_refused_before_private_draft_creation(self):
         (self.root / "bundle" / "game.exe").write_bytes(b"changed")
         with self.fixture():

@@ -18,13 +18,14 @@ from .companion import Companion
 from .enrollment_runtime import EnrollmentRuntime, approve_enrollment_source
 from .host_world import HostWorld
 from .launcher_session import GameInstallation
-from .player_runtime import _finish_even_if_cancelled
+from .player_runtime import _finish_even_if_cancelled, _preflight_launch
 from .server import ServerConfig, WorldServer, is_local_address
 
 
 _MESSAGES = {
     "invalid_configuration": "The character setup configuration is invalid.",
     "installation_changed": "The installed game could not be verified.",
+    "runtime_path": "The game or character location is unsupported; use a shorter installation or private-data location.",
     "world_invalid": "The private host world could not be verified.",
     "world_active": "Close the running host before setting up a character.",
     "invalid_profile": "Choose an existing character slot in this host world.",
@@ -59,7 +60,7 @@ class SetupStatus:
 
 def _error(error):
     code = getattr(error, "code", None)
-    if code in {"runtime_hash", "runtime_manifest", "runtime_path", "runtime_unlisted",
+    if code in {"runtime_hash", "runtime_manifest", "runtime_unlisted",
                 "runtime_size", "game_changed", "build_mismatch"}:
         code = "installation_changed"
     elif code in {"host_active", "store_in_use", "server_active"}:
@@ -166,7 +167,12 @@ async def host_enrollment(installation, private_root, *, world_directory, slot,
         if slot >= len(host.accounts):
             raise LauncherSetupError("invalid_profile")
         account = host.accounts[slot]
-        private = Path(private_root).resolve() / "players" / host.world_id / account.player_id
+        root = Path(private_root).resolve()
+        private = root / "players" / host.world_id / account.player_id
+        launch_root = root / "launches"
+        executable, _ = installation.bundle.verify()
+        _preflight_launch(executable, installation.rom_path, private / "character.sav", private,
+                          launch_root=launch_root)
         configure = host.host_companion_config if slot == 0 else host.invitation(slot).companion_config
         config = configure(installation.rom_path, installation.manifest_path,
             token=secrets.token_bytes(32), private_directory=private, ipc_port=0)
@@ -192,7 +198,7 @@ async def host_enrollment(installation, private_root, *, world_directory, slot,
         except TimeoutError:
             raise LauncherSetupError("connection_timeout") from None
         runtime = EnrollmentRuntime(companion, installation.bundle, private,
-                                    private / "character.sav", approval)
+                                    private / "character.sav", approval, launch_root=launch_root)
         async with runtime.open():
             publish("running", "continue_then_enroll")
             yield runtime

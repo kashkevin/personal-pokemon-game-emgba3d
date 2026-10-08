@@ -3,14 +3,14 @@ import asyncio
 from dataclasses import replace
 import hashlib
 import json
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 import sys
 import tempfile
 import unittest
 from unittest.mock import patch
 
 from emerald_multiplayer.checkpoint_mirror import MirrorError, MirrorLease
-from emerald_multiplayer.player_runtime import PlayerRuntime, PlayerRuntimeError, RuntimeBundle
+from emerald_multiplayer.player_runtime import PlayerRuntime, PlayerRuntimeError, RuntimeBundle, _check_native_paths
 from test_cold_start import ClosedCompanion
 from test_companion import make_files
 from process_fixture import direct_python
@@ -72,6 +72,24 @@ class BundleTests(unittest.TestCase):
         (self.root / "unexpected.DLL").write_bytes(b"not listed")
         with self.assertRaisesRegex(PlayerRuntimeError, "unlisted"):
             self.bundle.verify()
+
+    def test_native_windows_limit_counts_utf16_units_and_includes_nul_space(self):
+        prefix = "C:\\"
+        for tail in ("x" * 256, "\U0001f600" * 128):
+            # Both strings occupy 259 UTF-16 units including the drive prefix.
+            path = PureWindowsPath(prefix + tail)
+            with patch("emerald_multiplayer.player_runtime._WINDOWS_NATIVE_PATHS", True):
+                _check_native_paths(path)
+                with self.assertRaises(PlayerRuntimeError) as caught:
+                    _check_native_paths(str(path) + "x")
+            self.assertEqual(caught.exception.code, "runtime_path")
+            self.assertNotIn(str(path), str(caught.exception))
+        with patch("emerald_multiplayer.player_runtime._WINDOWS_NATIVE_PATHS", True):
+            for path in ("C:\\bad\0path", "C:\\bad\ud800path"):
+                with self.assertRaises(PlayerRuntimeError):
+                    _check_native_paths(path)
+        with patch("emerald_multiplayer.player_runtime._WINDOWS_NATIVE_PATHS", False):
+            _check_native_paths("/" + "x" * 400)
 
 
 class ProcessTests(unittest.IsolatedAsyncioTestCase):
@@ -226,3 +244,64 @@ class ProcessTests(unittest.IsolatedAsyncioTestCase):
                 async with self.runtime.open():
                     self.fail("uncertain recovery may not launch")
         self.assertEqual(self.arguments, [])
+
+    async def test_short_launch_root_preserves_deep_private_save_and_unique_child_directories(self):
+        # A valid character path can fit while /launches/UUID/bridge.lua does
+        # not. Build that case without creating oversized path components.
+        profile = self.root.resolve()
+        while len(str(profile)) < 215:
+            profile /= "profile-segment"
+        self.save = profile / "character.sav"
+        self.assertLessEqual(len(str(self.save).encode("utf-16-le")) // 2, 259)
+        self.assertGreater(len(str(profile / "launches" / ("0" * 36) / "bridge.lua")), 259)
+        runtime = PlayerRuntime(self.c, self.bundle, profile, self.save, launch_root=self.root / "launches")
+        with patch("emerald_multiplayer.player_runtime._WINDOWS_NATIVE_PATHS", True), \
+                patch("emerald_multiplayer.player_runtime.asyncio.create_subprocess_exec", self.spawn):
+            for _ in range(2):
+                async with runtime.open() as game:
+                    args, options = self.arguments[-1]
+                    self.assertEqual(options["cwd"].parent, (self.root / "launches").resolve())
+                    self.assertEqual(Path(args[2]).parent, options["cwd"])
+                    self.assertEqual(args[4], str(self.save))
+                    self.assertTrue(Path(args[5]).is_absolute())
+                    game.process.terminate()
+                    await game.wait()
+        self.assertNotEqual(self.arguments[0][1]["cwd"], self.arguments[1][1]["cwd"])
+        self.assertFalse((profile / "launches").exists())
+        self.assertEqual(self.save.read_bytes(), self.c.head().payload)
+        with MirrorLease(self.save):
+            pass
+
+    async def test_oversized_launch_or_save_path_refuses_before_closed_recovery(self):
+        long_root = self.root / ("a" * 100) / ("b" * 100) / ("c" * 100)
+        cases = ((self.save, long_root), (long_root / "character.sav", self.root / "launches"))
+        for save, launch_root in cases:
+            with self.subTest(save=save == self.save):
+                runtime = PlayerRuntime(self.c, self.bundle, self.root / "private", save, launch_root=launch_root)
+                with patch("emerald_multiplayer.player_runtime._WINDOWS_NATIVE_PATHS", True), \
+                        patch("emerald_multiplayer.player_runtime.ColdStartRecovery") as gate:
+                    with self.assertRaises(PlayerRuntimeError) as caught:
+                        async with runtime.open():
+                            self.fail("unsupported paths authorized a child")
+                    gate.assert_not_called()
+                self.assertEqual(caught.exception.code, "runtime_path")
+                self.assertFalse(save.exists())
+                self.assertFalse(runtime._active)
+        self.assertFalse((self.root / "private").exists())
+        self.assertFalse(long_root.exists())
+
+    async def test_actual_generated_script_path_is_rechecked_after_recovery(self):
+        async def change_launch_root(operation, response):
+            self.runtime.launch_root = self.root / ("a" * 100) / ("b" * 100) / ("c" * 100)
+        self.c.checkpoint_hook = change_launch_root
+        with patch("emerald_multiplayer.player_runtime._WINDOWS_NATIVE_PATHS", True), \
+                patch("emerald_multiplayer.player_runtime.asyncio.create_subprocess_exec", self.spawn):
+            with self.assertRaises(PlayerRuntimeError) as caught:
+                async with self.runtime.open():
+                    self.fail("unchecked generated script path reached spawn")
+        self.assertEqual(caught.exception.code, "runtime_path")
+        self.assertEqual(self.arguments, [])
+        self.assertFalse((self.root / "private" / "launches").exists())
+        self.assertFalse(self.runtime.launch_root.exists())
+        with MirrorLease(self.save):
+            pass

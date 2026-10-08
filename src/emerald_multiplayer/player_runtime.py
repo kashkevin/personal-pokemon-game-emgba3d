@@ -25,12 +25,41 @@ from .live_checkpoint import _atomic
 _HASH = re.compile(r"[0-9a-f]{64}")
 _NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,99}")
 _MAX_FILE = 128 * 1024 * 1024
+_WINDOWS_NATIVE_PATHS = os.name == "nt"
+_LAUNCH_ID_PLACEHOLDER = "00000000-0000-0000-0000-000000000000"
 
 
 class PlayerRuntimeError(ValueError):
     def __init__(self, code, message):
         self.code = code
         super().__init__(message)
+
+
+def _check_native_paths(*paths):
+    """Pinned Windows mGBA uses wchar_t[260]; count UTF-16 units plus NUL.
+
+    Python's long-path support does not make its native child support the same
+    paths. Callers resolve paths before this check; do not rewrite identities,
+    introduce extended-path prefixes, or silently relocate a character.
+    """
+    if not _WINDOWS_NATIVE_PATHS:
+        return
+    for path in paths:
+        value = str(path)
+        try:
+            supported = "\0" not in value and len(value.encode("utf-16-le")) // 2 <= 259
+        except UnicodeError:
+            supported = False
+        if not supported:
+            raise PlayerRuntimeError("runtime_path", "a native game path exceeds the supported Windows path format")
+
+
+def _preflight_launch(executable, rom_path, save_path, directory, *, launch_root=None):
+    """Read-only refusal before recovery/enrollment can mutate private state."""
+    root = Path(launch_root) if launch_root is not None else Path(directory) / "launches"
+    prospective = root.resolve() / _LAUNCH_ID_PLACEHOLDER
+    _check_native_paths(Path(executable).resolve(), Path(rom_path).resolve(),
+                        Path(save_path).resolve(), prospective, prospective / "bridge.lua")
 
 
 def _read(path, maximum):
@@ -136,7 +165,7 @@ async def _finish_even_if_cancelled(task):
 
 @asynccontextmanager
 async def _open_child(companion, bundle, directory, save_path, build, manifest,
-                      check_session, startup=None):
+                      check_session, startup=None, *, launch_root=None):
     """Private process owner. Caller must retain its admission gate/save lease.
 
     This helper grants no character admission and performs no save replacement.
@@ -148,9 +177,12 @@ async def _open_child(companion, bundle, directory, save_path, build, manifest,
     if final_build != build or final_manifest != manifest:
         raise PlayerRuntimeError("game_changed", "the game or mailbox manifest changed during startup recovery")
     check_session()
-    launch_directory = Path(directory) / "launches" / str(uuid4())
-    launch_directory.mkdir(mode=0o700, parents=True)
+    root = Path(launch_root) if launch_root is not None else Path(directory) / "launches"
+    launch_directory = (root.resolve() / str(uuid4())).resolve()
+    rom_path, save_path = Path(companion.config.rom_path).resolve(), Path(save_path).resolve()
     script = launch_directory / "bridge.lua"
+    _check_native_paths(executable, rom_path, save_path, launch_directory, script)
+    launch_directory.mkdir(mode=0o700, parents=True)
     _atomic(script, configure(manifest, companion.config.token.hex(), companion.ipc_address[1], bridge).encode())
     log_path = launch_directory / "runtime.log"
     options = dict(cwd=launch_directory, stdin=asyncio.subprocess.DEVNULL)
@@ -160,7 +192,7 @@ async def _open_child(companion, bundle, directory, save_path, build, manifest,
     with log_path.open("xb") as log:
         spawn = asyncio.create_task(asyncio.create_subprocess_exec(
             str(executable), "--multiplayer-script", str(script),
-            "--multiplayer-save", str(save_path), str(companion.config.rom_path),
+            "--multiplayer-save", str(save_path), str(rom_path),
             stdout=log, stderr=log, **options))
         try:
             process, cancelled = await _finish_even_if_cancelled(spawn)
@@ -185,10 +217,11 @@ class PlayerRuntime:
     This class does not select an offline-play policy or imply a final save.
     """
 
-    def __init__(self, companion, bundle, private_directory, save_path):
+    def __init__(self, companion, bundle, private_directory, save_path, *, launch_root=None):
         self.companion, self.bundle = companion, bundle
         self.directory = Path(private_directory).resolve()
         self.save_path = Path(save_path).resolve()
+        self.launch_root = Path(launch_root).resolve() if launch_root is not None else None
         self._active = False
 
     @asynccontextmanager
@@ -197,11 +230,13 @@ class PlayerRuntime:
             raise PlayerRuntimeError("game_active", "this launcher already owns a game process")
         self._active = True
         try:
-            self.bundle.verify()
+            executable, _ = self.bundle.verify()
             c = self.companion
             build, manifest = verify_rom_manifest(c.config.rom_path, c.config.manifest_path)
             if build != c.config.build_id:
                 raise PlayerRuntimeError("game_changed", "the game changed after companion authentication")
+            _preflight_launch(executable, c.config.rom_path, self.save_path, self.directory,
+                              launch_root=self.launch_root)
             gate = ColdStartRecovery(c, self.directory, self.save_path)
             async with gate.open() as startup:
                 session = gate._session()
@@ -211,7 +246,8 @@ class PlayerRuntime:
                 # Reconciliation can await the network. Recheck pins and the
                 # authenticated lease immediately before and after creation.
                 async with _open_child(c, self.bundle, self.directory, self.save_path,
-                                       build, manifest, check_session, startup) as game:
+                                       build, manifest, check_session, startup,
+                                       launch_root=self.launch_root) as game:
                     yield game
         finally:
             self._active = False

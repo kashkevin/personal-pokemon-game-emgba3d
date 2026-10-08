@@ -445,3 +445,20 @@ class EnrollmentRuntimeTests(unittest.IsolatedAsyncioTestCase):
             await self.runtime().recover()
         self.assertEqual(runtime.pending_path.read_bytes(), b"uncertain")
         self.assert_original()
+
+    async def test_oversized_native_paths_refuse_before_bootstrap_intent_or_private_copy(self):
+        launch_root = self.root / ("a" * 100) / ("b" * 100) / ("c" * 100)
+        runtime = EnrollmentRuntime(self.c, self.bundle, self.private, self.save, self.approval,
+                                    launch_root=launch_root)
+        with patch("emerald_multiplayer.player_runtime._WINDOWS_NATIVE_PATHS", True), \
+                patch("emerald_multiplayer.player_runtime.asyncio.create_subprocess_exec", self.spawn):
+            with self.assertRaises(PlayerRuntimeError) as caught:
+                async with runtime.open():
+                    self.fail("unsupported native path entered enrollment")
+        self.assertEqual(caught.exception.code, "runtime_path")
+        self.assertFalse(self.private.exists())
+        self.assertFalse(launch_root.exists())
+        self.assertEqual(self.calls, [])
+        self.assertEqual(self.native.commands, [])
+        self.assertIsNone(await CheckpointClient(self.c).info())
+        self.assert_original()

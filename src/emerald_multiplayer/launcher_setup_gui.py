@@ -22,6 +22,7 @@ MESSAGES = {
     "approval": "The host must explicitly approve this save for the selected character.",
     "invalid_configuration": "Check the player names, numeric address, port and selected character.",
     "installation_changed": "Install the matching game release before creating a world or enrolling a character.",
+    "runtime_path": "The game location could not be used. Choose a shorter installation or private-data path.",
     "enrollment_pending": "This character has an interrupted setup. Its private files were retained for recovery.",
     "source_invalid": "This source cannot be enrolled. Use an ordinary saved character with no assigned multiplayer ownership.",
     "invalid_source": "This source cannot be enrolled. Use an ordinary saved character with no assigned multiplayer ownership.",

@@ -31,7 +31,7 @@ _MESSAGES = {
     "installation_changed": "The installed game differs from its application pins.",
     "runtime_hash": "The bundled runtime differs from its application pin.",
     "runtime_manifest": "The bundled runtime manifest is invalid.",
-    "runtime_path": "A runtime component is outside its verified bundle.",
+    "runtime_path": "The game or character location is unsupported; use a shorter installation or private-data location.",
     "runtime_unlisted": "The bundle contains an unexpected runtime component.",
     "runtime_size": "A runtime component exceeds its size limit.",
     "world_invalid": "The private host world could not be verified.",
@@ -250,7 +250,8 @@ class LauncherSession:
             raise LauncherSessionError("connection_timeout") from None
         self._binding = self._signature()
         self._runtime = PlayerRuntime(self._companion, game.bundle, self._profile_directory,
-                                      self._profile_directory / "character.sav")
+                                      self._profile_directory / "character.sav",
+                                      launch_root=self.private_root / "launches")
         self._open = True
         await self.readiness()
 

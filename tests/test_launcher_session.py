@@ -94,6 +94,8 @@ class LauncherSessionTests(unittest.IsolatedAsyncioTestCase):
         save = Path(args[4])
         player_id = save.parent.name
         self.assertEqual(save.read_bytes(), self.payloads[player_id])
+        self.assertEqual(kwargs["cwd"].parent, (self.private / "launches").resolve())
+        self.assertEqual(Path(args[2]).parent, kwargs["cwd"])
         with self.assertRaises(MirrorError):
             with MirrorLease(save):
                 self.fail("native creation must retain the canonical save lease")

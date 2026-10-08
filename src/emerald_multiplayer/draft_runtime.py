@@ -19,7 +19,7 @@ from .flash import LAYOUT_ID, MAX_CONTAINER_SIZE, inspect_flash
 from .launcher_session import GameInstallation
 from .live_checkpoint import _atomic, _json_bytes
 from .ownership import extract_source_inventory
-from .player_runtime import RunningGame, _finish_even_if_cancelled, _stop
+from .player_runtime import RunningGame, PlayerRuntimeError, _check_native_paths, _finish_even_if_cancelled, _stop
 
 
 # The verified SDL adapter requires a script/save pair. An empty Lua chunk
@@ -29,6 +29,7 @@ DRAFT_SCRIPT = "-- Ordinary New Game source preparation; no bridge or callbacks.
 _MESSAGES = {
     "invalid_configuration": "The new-character configuration is invalid.",
     "installation_changed": "The installed game could not be verified.",
+    "runtime_path": "The game or character location is unsupported; use a shorter installation or private-data location.",
     "draft_used": "Start a fresh draft for another new character.",
     "draft_closed": "The new-character draft is not open.",
     "game_running": "Save through the game's menu and close the game first.",
@@ -79,18 +80,21 @@ class DraftRuntime:
         if self._entered:
             raise DraftRuntimeError("draft_used")
         self._entered = True
-        self._verify()
+        executable = self._verify()
         try:
+            rom_path = Path(self.installation.rom_path).resolve()
+            script = self.directory / "draft.lua"
+            _check_native_paths(executable, rom_path, self.save_path, self.directory, script)
             self.directory.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
             self.directory.mkdir(mode=0o700, exist_ok=False)
             with MirrorLease(self.save_path):
-                script = self.directory / "draft.lua"
                 _atomic(script, DRAFT_SCRIPT.encode("ascii"))
                 _atomic(self.directory / "draft-intent.json", _json_bytes(dict(
                     format="emerald-new-character-draft-v1",
                     build_id=self.installation.rom_sha256,
                     manifest_sha256=self.installation.manifest_sha256)))
                 executable = self._verify()
+                _check_native_paths(executable, rom_path, self.save_path, self.directory, script)
                 log_path = self.directory / "runtime.log"
                 options = dict(cwd=self.directory, stdin=asyncio.subprocess.DEVNULL)
                 if os.name == "nt":
@@ -98,7 +102,7 @@ class DraftRuntime:
                 with log_path.open("xb") as log:
                     spawn = asyncio.create_task(asyncio.create_subprocess_exec(
                         str(executable), "--multiplayer-script", str(script),
-                        "--multiplayer-save", str(self.save_path), str(Path(self.installation.rom_path).resolve()),
+                        "--multiplayer-save", str(self.save_path), str(rom_path),
                         stdout=log, stderr=log, **options))
                     try:
                         self._process, cancelled = await _finish_even_if_cancelled(spawn)
@@ -117,6 +121,8 @@ class DraftRuntime:
             raise
         except DraftRuntimeError:
             raise
+        except PlayerRuntimeError as error:
+            raise DraftRuntimeError("runtime_path" if error.code == "runtime_path" else "draft_failed") from None
         except Exception:
             raise DraftRuntimeError("draft_failed") from None
 

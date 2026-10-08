@@ -75,6 +75,8 @@ class LauncherSetupTests(unittest.IsolatedAsyncioTestCase):
     async def spawn(self, *args, **kwargs):
         self.private = Path(args[4]).parent
         self.assertEqual(Path(args[4]).read_bytes(), self.original)
+        self.assertEqual(kwargs["cwd"].parent, (self.root / "private" / "launches").resolve())
+        self.assertEqual(Path(args[2]).parent, kwargs["cwd"])
         with self.assertRaises(MirrorError):
             with MirrorLease(args[4]):
                 self.fail("bootstrap spawn lost its private save lease")
@@ -141,6 +143,23 @@ class LauncherSetupTests(unittest.IsolatedAsyncioTestCase):
         with self.host.open_store() as store:
             self.assertEqual(store.metadata.server_epoch, 0)
             self.assertEqual(store._connection.execute("SELECT count(*) FROM ownership_enrollments").fetchone()[0], 0)
+        self.assertEqual(self.children, [])
+
+    async def test_oversized_character_path_refuses_before_host_boot_and_source_approval(self):
+        private = self.root / ("a" * 100) / ("b" * 100)
+        with patch("emerald_multiplayer.player_runtime._WINDOWS_NATIVE_PATHS", True):
+            with self.assertRaises(LauncherSetupError) as caught:
+                async with host_enrollment(self.installation, private,
+                        world_directory=self.host.directory, slot=0, source_path=self.source,
+                        on_status=self.states.append):
+                    self.fail("unsupported save path reached source approval")
+        self.assertEqual(caught.exception.code, "runtime_path")
+        self.assertEqual(self.states[-1].code, "runtime_path")
+        self.assertFalse(private.exists())
+        with self.host.open_store() as store:
+            self.assertEqual(store.metadata.server_epoch, 0)
+            self.assertEqual(store._connection.execute("SELECT count(*) FROM ownership_enrollments").fetchone()[0], 0)
+        self.assertEqual(self.source.read_bytes(), self.original)
         self.assertEqual(self.children, [])
 
     async def test_live_tls_explicit_enrollment_closes_child_before_transport(self):

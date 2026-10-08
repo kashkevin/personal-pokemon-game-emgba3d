@@ -20,7 +20,7 @@ from .companion import verify_rom_manifest
 from .flash import LAYOUT_ID, MAX_CONTAINER_SIZE, inspect_flash
 from .live_checkpoint import LiveCheckpointCoordinator, _atomic, _json_bytes, _sync_directory
 from .ownership import OWNERSHIP_PROFILE, extract_source_inventory
-from .player_runtime import _finish_even_if_cancelled, _open_child, _stop
+from .player_runtime import _finish_even_if_cancelled, _open_child, _preflight_launch, _stop
 from .trade_storage import TradeCheckpointStore
 
 
@@ -76,10 +76,11 @@ class EnrollmentRuntime:
     rollback follows an uncertain export; recover() resolves closed evidence.
     """
 
-    def __init__(self, companion, bundle, private_directory, save_path, approval):
+    def __init__(self, companion, bundle, private_directory, save_path, approval, *, launch_root=None):
         self.companion, self.bundle, self.approval = companion, bundle, approval
         self.directory = Path(private_directory).resolve()
         self.save_path = Path(save_path).resolve()
+        self.launch_root = Path(launch_root).resolve() if launch_root is not None else None
         if self.save_path.parent != self.directory:
             raise EnrollmentRuntimeError("private_path", "the enrollment mirror must stay inside its private profile")
         if not isinstance(approval, EnrollmentApproval) or self.save_path == approval.source_path:
@@ -128,11 +129,13 @@ class EnrollmentRuntime:
         if self._entered:
             raise EnrollmentRuntimeError("session_used", "each enrollment runtime can be entered only once")
         self._entered = True
-        self.bundle.verify()
+        executable, _ = self.bundle.verify()
         c = self.companion
         build, manifest = verify_rom_manifest(c.config.rom_path, c.config.manifest_path)
         if build != c.config.build_id:
             raise EnrollmentRuntimeError("game_changed", "the installed game differs from the authenticated build")
+        _preflight_launch(executable, c.config.rom_path, self.save_path, self.directory,
+                          launch_root=self.launch_root)
         self.directory.mkdir(mode=0o700, parents=True, exist_ok=True)
         for name in ("_live_export_pending_path", "_live_trade_pending_path", "_live_battle_pending_path"):
             registered = getattr(c, name, None)
@@ -170,7 +173,8 @@ class EnrollmentRuntime:
                 gate._closed(session)
                 c._bridge_admission_blocked = False
                 async with _open_child(c, self.bundle, self.directory, self.save_path,
-                                       build, manifest, self._check_session) as game:
+                                       build, manifest, self._check_session,
+                                       launch_root=self.launch_root) as game:
                     self._game, self._active = game, True
                     try:
                         yield game
@@ -203,7 +207,12 @@ class EnrollmentRuntime:
             _, cancelled = await _finish_even_if_cancelled(stop)
             if cancelled:
                 raise asyncio.CancelledError()
-            self._check_session()
+            # The verified export and session were fenced immediately before
+            # our own stop. Bridge EOF deliberately revokes that connection.
+            # Complete only this exact local enrollment receipt; any next
+            # game must establish a fresh session and canonical recovery.
+            if self._game.process.returncode is None:
+                raise EnrollmentRuntimeError("game_active", "bootstrap child has not closed")
             self._complete(result.metadata)
             self.result = result
             return result
