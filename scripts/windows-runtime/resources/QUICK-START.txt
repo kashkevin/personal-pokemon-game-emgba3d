@@ -49,14 +49,25 @@ Separate-PC LAN and outside-network gameplay acceptance are still pending.
 
 Save and finish a session
 
+"Autosave every 5 minutes" is on by default. It waits for a safe field location
+outside menus and battles, then saves to the reachable host. You can untick it
+in the launcher; that choice is remembered for this character and world on
+this PC. Turning it off does not interrupt a save already in progress.
+
 During multiplayer play, return to a safe field location and press "Save now"
 in the launcher. Keep the game open until "Character saved to the host" appears.
-If the game is busy, leave its menu or battle and press Save now again.
+Save now also works when autosave is off. If the game is busy, leave its menu
+or battle and press Save now again. The game's ordinary Save menu does not
+confirm that progress reached the host.
 After a successful save, close the game through its title-bar Close button,
 then close the launcher. A recovery message means the private recovery files
 must be retained; reopen through Host Game or Join Game as the message directs.
-Automatic saving, emergency saving/disconnection after host loss, and waiting
-for every battle participant to reconnect are not implemented in this preview.
+Closing the game does not itself save progress to the host.
+
+If the host reports an unresolved multiplayer battle, the launcher blocks a
+fresh game session. Keep the recovery files. This guard preserves the waiting
+battle; resuming that battle is not implemented yet. Emergency saving and
+automatic disconnection after host loss are also not implemented in this preview.
 
 Default game controls
 

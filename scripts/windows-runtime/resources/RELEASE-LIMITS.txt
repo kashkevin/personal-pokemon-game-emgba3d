@@ -6,9 +6,12 @@ matching owner-supplied dump. Packages without a verified release patch keep
 Import my game disabled and cannot prepare a new friend's installation yet.
 
 The launcher includes Host Game / Join Game, local host world and character
-setup, separate friend invitations, explicit Save now, and an encrypted
-connection check. First character setup requires ordinary New Game, starter
-selection and native Save, followed by explicit host enrollment.
+setup, separate friend invitations, five-minute autosave, launcher Save now,
+and an encrypted connection check. Autosave is on by default; its toggle is
+remembered for this character and world on this PC. It waits for a safe field
+location. Save now works with autosave off. First character setup requires
+ordinary New Game, starter selection and native Save, followed by explicit
+host enrollment.
 
 The native Players menu and multiplayer services have separate acceptance
 records. A battle invitation or accepted team is not a completed battle.
@@ -16,16 +19,26 @@ Automatic native battle handoff, complete player-facing trading, and all
 campaign/customization requirements still need their remaining integration
 and playable acceptance.
 
-The accepted host-loss behavior is to save and disconnect each player.
-An interrupted multiplayer battle must wait for every participant to reconnect.
-Emergency saving/disconnection and waiting-battle resumption are not implemented
-in this preview. Automatic save timing has not been selected. Save now provides
-an explicit checkpoint to the reachable host and reports busy/recovery states.
+The host can retain durable reservations for interrupted multiplayer battles.
+When it reports an unresolved battle, the launcher blocks a fresh game session,
+including after a host restart. This preserves the waiting state and prevents
+ordinary play from bypassing recovery; it does not resume or clear the battle.
+
+The accepted host-loss behavior is to save and disconnect each player, and an
+interrupted multiplayer battle must wait for every participant to reconnect.
+Emergency saving/disconnection and battle resumption are not implemented in
+this preview. The separate native emergency-save prototype is not bundled.
+Automatic and manual checkpoints require a reachable host. Keep private
+recovery files when an operation is uncertain. Use the launcher's Save now and
+wait for its success message before closing; the game's own Save menu and
+window closure do not confirm a canonical host checkpoint.
 
 Windows runtime proofs use ordinary scripted GBA button inputs, real native
 checkpoints and fresh game processes. They do not establish physical keyboard,
 audio, gamepad, GUI-button-to-save, or the complete visible New Game-to-enrollment
-flow. Controller-level tests and actual button interactions are separate checks.
+flow. Five elapsed minutes of native Windows autosave, its pause/status behavior,
+and interrupted-save gameplay still need actual acceptance. Controller-level
+tests and actual button interactions are separate checks.
 The desktop automation helper's ordinary keys did not produce the SDL button
 events needed for gameplay. Hardware keyboard failure has not been established.
 

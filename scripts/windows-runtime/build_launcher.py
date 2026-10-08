@@ -135,7 +135,9 @@ def build(args):
     (resources / "README.txt").write_text(
         "Emerald Together - " + release.version + "\n\n"
         "Private development preview: Host Game / Join Game, local character setup,\n"
-        "and explicit Save now. Read QUICK-START.txt and RELEASE-LIMITS.txt first.\n"
+        "autosave every 5 minutes (on by default), and launcher Save now.\n"
+        "Your character's autosave toggle is remembered on this PC.\n"
+        "Read QUICK-START.txt and RELEASE-LIMITS.txt before playing.\n"
         + ("Use Import my game to select your own matching dump.\n" if import_release else
            "Game import is unavailable: this development package has no release patch.\n")
         + "It contains no game ROM, player save, invitation or world database.\n"
