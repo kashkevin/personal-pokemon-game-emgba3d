@@ -287,6 +287,29 @@ class MenuSessionTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(self.session._battle_latched)
         self.assertFalse(self.bridge.outbox.controls)
 
+    async def test_delayed_native_enter_keeps_displayed_claim_across_host_loss_poll(self):
+        await self.admission_menu()
+        calls = []
+        async def disconnected_refresh():
+            calls.append("refresh")
+            self.session.menu.screen = MenuScreen(2, "Players", "Connection lost", (), 0)
+            return self.session.menu.screen
+        self.session.menu.refresh = disconnected_refresh
+        self.companion.connected = False
+        await asyncio.sleep(2.1)  # Exercise the real independent status poll.
+        self.assertEqual(calls, [])
+        self.assertFalse(self.bridge.outbox.controls)
+        self.feed(2, 1, 1, 2)
+        await self.session._task
+        self.assertEqual(self.events, ["claim", "prepare", "handoff"])
+
+    async def test_native_close_retires_unselected_displayed_enter_claim(self):
+        await self.admission_menu()
+        self.feed(2, 1, 0, 3)
+        self.assertIsNone(self.session._admission_display)
+        self.assertFalse(self.session._battle_latched)
+        self.assertEqual(self.events, [])
+
     async def test_admission_changed_bridge_cannot_start_and_still_abandons_safely(self):
         async def prepare(*args):
             self.companion._bridge = object()

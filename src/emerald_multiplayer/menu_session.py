@@ -50,6 +50,8 @@ class MenuSession:
         if request.kind == 3:
             self.open = False
             self._queued_open = None
+            if not self._battle_latched:
+                self._admission_display = None
             if self._close_waiter is not None and not self._close_waiter.done():
                 self._close_waiter.set_result(request)
             return
@@ -77,6 +79,8 @@ class MenuSession:
                 self._admission_selection = (descriptor, None)
             except Exception as error:
                 self._admission_selection = (None, error)
+        else:
+            self._admission_display = None
         self._task = asyncio.create_task(self._handle(request), name="native-players-menu")
 
     def _send(self, request, screen, *, close=False):
@@ -247,7 +251,12 @@ class MenuSession:
     async def _poll(self):
         while not self._closed:
             await asyncio.sleep(2)
-            if self._battle_latched or not self.open or (self._task is not None and not self._task.done()):
+            # Until another native request acknowledges a choice/close, this
+            # exact marked screen may still be displayed or its Enter input
+            # may already be latched with its IPC event in transit. A status
+            # refresh must not discard that authenticated original descriptor.
+            if (self._battle_latched or self._admission_display is not None or not self.open
+                    or (self._task is not None and not self._task.done())):
                 continue
             request = self._last_request
             try:
