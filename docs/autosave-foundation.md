@@ -24,7 +24,7 @@ finally:
     await scheduler.stop()
 ```
 
-Lifecycle integration must stop/await the scheduler before terminating the core or releasing its file lease. Normal runtime exit still does not imply a final save. The example is scheduling scaffolding, not a complete shutdown controller: a launcher that owns game closure must coordinate it, and an already user-closed core causes terminal bridge loss. No general offline-play or final-save policy is selected here.
+Lifecycle integration must stop/await the scheduler before terminating the core or releasing its file lease. Normal runtime exit still does not imply a final save. The example is scheduling scaffolding, not a complete shutdown controller: a launcher that owns game closure must coordinate it, and an already user-closed core causes terminal bridge loss. This module does not implement the subsequently selected host-loss save-and-disconnect policy or interrupted-battle preservation; those require their dedicated recovery controllers.
 
 One companion can own one scheduler. One worker coalesces overdue timer ticks and explicit `request()` signals into one due operation. No export overlaps another; a slow export does not accumulate a backlog. The next interval starts after completion, and requests received during a save cannot cause an immediate catch-up burst. Shared live-checkpoint locks and lifecycle owners defer autosave rather than queueing an export behind another operation. Manual/trade/recovery flows that advance the character revision should stop autosave and create a new scheduler only after verifying their resulting revision.
 

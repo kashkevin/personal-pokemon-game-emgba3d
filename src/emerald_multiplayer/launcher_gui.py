@@ -36,6 +36,7 @@ _TEXT = {
     "private_storage": "Your private application folder could not be opened.",
     "enrollment_required": "This character needs first-time setup. Open Set up a world or character to enroll it.",
     "pending_battle": "An interrupted battle needs recovery before this character can open.",
+    "battle_recovery_unavailable": "The host could not check interrupted battles. Use the matching host version before opening this character.",
     "recovery_required": "Your character needs recovery before the game can open. Its private files have been retained.",
     "connection_timeout": "The host did not respond. Check that the host is running and the invitation is current.",
     "connection_lost": "Connection to the host was lost. Reconnection handling is not enabled in this build.",

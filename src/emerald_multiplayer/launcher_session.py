@@ -42,6 +42,7 @@ _MESSAGES = {
     "invalid_invitation": "The friend invitation could not be verified.",
     "enrollment_required": "This character needs the separate first-enrollment workflow.",
     "pending_battle": "An unresolved battle requires explicit recovery before launch.",
+    "battle_recovery_unavailable": "This host could not verify interrupted-battle admission.",
     "trade_recovery_unavailable": "This host does not provide authenticated trade recovery.",
     "mirror_active": "Another game or controller owns this character's save.",
     "connection_timeout": "The host did not authenticate this session before the timeout.",
@@ -284,6 +285,18 @@ class LauncherSession:
         # journals and authoritative fates before it can authorize a core.
         await self._companion.trade_rpc("pending")
         self._assert_session()
+        try:
+            waiting = await self._companion.battle_challenge_rpc("waiting")
+        except ConnectionError:
+            raise
+        except Exception:
+            raise LauncherSessionError("battle_recovery_unavailable") from None
+        self._assert_session()
+        if waiting["result"]:
+            # The host's durable reservation survives restart and cannot be
+            # bypassed by a missing/copied local battle journal. Observing it
+            # supplies no authority to clear or resume a native battle.
+            raise LauncherSessionError("pending_battle")
         return head["revision"]
 
     async def readiness(self):
