@@ -3,6 +3,7 @@
 *.elf
 *.o
 *.sav
+*.flash
 *.sa1
 *.ss?
 *.state
@@ -25,6 +26,10 @@
 *.sav.checkpoint.json
 *.sav.*.stage
 .checkpoint-recoveries/
+pending-export.json
+*.export.json
+*.recovery-intent.json
+*.live-apply.json
 
 # Companion/server environment
 .venv/
