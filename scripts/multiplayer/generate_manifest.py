@@ -94,6 +94,15 @@ def generate(rom: Path, elf: Path, nm: str, engine_commit: str) -> dict:
         manifest.update(save_window_abi_version=1, save_window_abi_address=int(window[0][0], 16),
                         save_window_address=int(buffer[0][0], 16), save_window_size=int(buffer[0][1], 16))
         validate_window_manifest(manifest, rom)
+    menu = re.findall(r"^([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+[Rr]\s+gMultiplayerMenuAbiVersion$", symbols, re.M)
+    menu_channel = re.findall(r"^([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+[BDbd]\s+gMultiplayerMenuMailbox$", symbols, re.M)
+    if menu or menu_channel:
+        from emerald_multiplayer.menu_mailbox import validate_menu_manifest
+        if len(menu) != 1 or len(menu_channel) != 1 or int(menu[0][1], 16) != 4:
+            raise ValueError("menu requires one marker and one allocated mailbox")
+        manifest.update(menu_abi_version=1, menu_abi_address=int(menu[0][0], 16),
+                        menu_mailbox_address=int(menu_channel[0][0], 16), menu_mailbox_size=int(menu_channel[0][1], 16))
+        validate_menu_manifest(manifest, rom)
     objects = re.findall(r"^([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+[BDbd]\s+gObjectEvents$", symbols, re.M)
     if len(objects) == 1:
         obj_address, obj_size = (int(value, 16) for value in objects[0])

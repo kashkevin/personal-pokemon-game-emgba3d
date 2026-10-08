@@ -74,6 +74,23 @@ if windowEnabled then
         and emu:read32(cfg.window_abi_address) == 1, "Invalid read-only save window")
 end
 local windowCapabilitySent = false
+local menuAddr = cfg.menu_address
+local menuEnabled = menuAddr ~= nil or cfg.menu_abi ~= nil or cfg.menu_abi_address ~= nil or cfg.menu_size ~= nil
+if menuEnabled then
+    assert(type(menuAddr) == "number" and menuAddr % 4 == 0
+        and menuAddr >= 0x02000000 and menuAddr + 512 <= 0x02040000
+        and not (menuAddr < addr + 128 and addr < menuAddr + 512)
+        and (saveAddr == nil or not (menuAddr < saveAddr + 512 and saveAddr < menuAddr + 512))
+        and (not battleEnabled or not (menuAddr < battleAddr + 512 and battleAddr < menuAddr + 512))
+        and (not windowEnabled or not (menuAddr < windowAddr + 4096 and windowAddr < menuAddr + 512))
+        and cfg.menu_size == 512 and cfg.menu_abi == 1
+        and type(cfg.menu_abi_address) == "number" and cfg.menu_abi_address % 4 == 0
+        and cfg.menu_abi_address >= 0x08000000
+        and cfg.menu_abi_address + 4 <= 0x08000000 + cfg.rom_size
+        and emu:read32(cfg.menu_abi_address) == 1, "Invalid Players menu capability")
+end
+local menuCapabilitySent, menuSequence = false, nil
+local observedMenu, previousMenuFrame = false, nil
 local observedBattle, previousBattleFrame, previousBattleState = false, nil, nil
 local tick, lastConnect, stopped = 0, -120, false
 local observedPresence, previousFrame = false, nil
@@ -83,6 +100,7 @@ local function forgetRuntime()
     observedPresence, previousFrame = false, nil
     observedSave, previousSaveFrame, previousSaveState = false, nil, nil
     observedBattle, previousBattleFrame, previousBattleState = false, nil, nil
+    observedMenu, previousMenuFrame = false, nil
 end
 
 local function headerReady()
@@ -92,6 +110,50 @@ end
 
 local function frame(payload)
     return string.pack(">I4", #payload) .. payload
+end
+
+local function menuHeaderReady()
+    return menuEnabled and emu:read32(menuAddr) == 0x31554D45
+        and emu:read16(menuAddr + 4) == 1 and emu:read16(menuAddr + 6) == 512
+end
+
+local function menuText(value)
+    local zero = value:find("\0", 1, true)
+    if not zero or value:sub(zero) ~= string.rep("\0", #value - zero + 1) then return false end
+    for i = 1, zero - 1 do
+        local c = value:byte(i)
+        if c < 32 or c > 126 then return false end
+    end
+    return true
+end
+
+local function validMenuScreen(payload)
+    if #payload ~= 240 then return false end
+    local ack, revision, flags, count, back = string.unpack("<I4I4BBI2", payload)
+    if ack == 0 or revision == 0 or flags > 1 or count > 6 or (back ~= 0 and back ~= 7)
+        or not menuText(payload:sub(13, 36)) or not menuText(payload:sub(37, 68))
+        or payload:sub(69 + count * 28) ~= string.rep("\0", 172 - count * 28) then return false end
+    for i = 0, count - 1 do
+        local action = string.unpack("<I2", payload, 69 + i * 28)
+        if (action ~= 0 and action ~= i + 1) or not menuText(payload:sub(71 + i * 28, 96 + i * 28)) then return false end
+    end
+    return true
+end
+
+local function commitMenu(payload)
+    if not verified or not menuHeaderReady() then return false end
+    -- Stale replies remain harmless even if the local user closed/reopened.
+    local ack = string.unpack("<I4", payload)
+    if ack ~= emu:read32(menuAddr + 16) then return true end
+    local current = emu:read32(menuAddr + 32)
+    local odd = ((current - current % 2) + 1) % 0x100000000
+    emu:write32(menuAddr + 32, odd)
+    for offset = 0, 236, 4 do
+        local word = string.unpack("<I4", payload, offset + 1)
+        emu:write32(menuAddr + 36 + offset, word)
+    end
+    emu:write32(menuAddr + 32, (odd + 1) % 0x100000000)
+    return true
 end
 
 local crcTable = {}
@@ -254,6 +316,7 @@ local function stop(reason, fatal)
     savePending, saveGeneration, capabilitySent = nil, nil, false
     windowCapabilitySent = false
     battlePending, battleGeneration, battleCapabilitySent = nil, nil, false
+    menuCapabilitySent, menuSequence = false, nil
     commit(string.rep("\0", 88))
     if reason then
         stopped = fatal or false
@@ -312,6 +375,23 @@ local function pollBattle()
     battleGeneration = generation
     if response.correlation ~= battlePending.correlation then return end
     if reliable("E" .. payload) then battlePending = nil end
+end
+
+local function pollMenu()
+    if not menuCapabilitySent or not menuHeaderReady() then return end
+    if #controls >= 4 then return end -- Initial capability announcements drain first.
+    local generation = emu:read32(menuAddr + 12)
+    if generation % 2 ~= 0 then return end
+    local payload = emu:readRange(menuAddr + 16, 16)
+    if generation ~= emu:read32(menuAddr + 12) or payload == string.rep("\0", 16) then return end
+    if #payload ~= 16 then stop("invalid menu read", true); return end
+    local seq, screen, action, kind, reserved = string.unpack("<I4I4I2Bc5", payload)
+    if seq == 0 or action > 7 or kind < 1 or kind > 3 or reserved ~= string.rep("\0", 5)
+        or (kind == 2 and (screen == 0 or action == 0)) or (kind ~= 2 and action ~= 0)
+        or (kind == 1 and screen ~= 0) then stop("invalid menu request", true); return end
+    if seq == menuSequence then return end
+    if menuSequence and seq < menuSequence then stop("menu request sequence regressed", true); return end
+    if reliable("J" .. payload) then menuSequence = seq end
 end
 
 local function validPose(bytes)
@@ -399,6 +479,19 @@ local function runtimeReady()
         end
         observedBattle, previousBattleFrame, previousBattleState = true, current, state
     end
+    if menuEnabled then
+        if not menuHeaderReady() then
+            if emu:read32(menuAddr) ~= 0 then stop("menu mailbox ABI mismatch", true)
+            elseif observedMenu then runtimeRestart("ROM menu mailbox reinitialized") end
+            return false
+        end
+        local current = emu:read32(menuAddr + 8)
+        if regressed(current, previousMenuFrame) then
+            runtimeRestart("ROM menu runtime restarted")
+            return false
+        end
+        observedMenu, previousMenuFrame = true, current
+    end
     return true
 end
 
@@ -461,6 +554,10 @@ local function receive()
                     stop("multiple outstanding battle commands", true); return
                 end
                 if commitBattle(command.payload) then battlePending = command end
+            elseif payload:sub(1, 1) == "M" then
+                if not menuCapabilitySent or not validMenuScreen(payload:sub(2)) or not commitMenu(payload:sub(2)) then
+                    stop("invalid menu screen", true); return
+                end
             else
                 stop("invalid bridge packet", true); return
             end
@@ -502,6 +599,7 @@ local function onFrame()
         savePending, saveGeneration, capabilitySent = nil, nil, false
         windowCapabilitySent = false
         battlePending, battleGeneration, battleCapabilitySent = nil, nil, false
+        menuCapabilitySent, menuSequence = false, nil
         console:log("Multiplayer bridge connected to local companion")
     end
     if not sock then return end
@@ -517,11 +615,17 @@ local function onFrame()
         if not reliable("X" .. string.pack("<I2I2", 1, 4096)) then return end
         windowCapabilitySent = true
     end
+    if menuHeaderReady() and not menuCapabilitySent then
+        if not reliable("I" .. string.pack("<I2I2I2I2", 1, 512, 240, 16)) then return end
+        menuCapabilitySent = true
+    end
     receive()
     if not sock then return end
     pollSave()
     if not sock then return end
     pollBattle()
+    if not sock then return end
+    pollMenu()
     if not sock then return end
     if tick % 6 == 0 then
         local generation = emu:read32(addr + 12)

@@ -53,7 +53,12 @@ def configure(manifest: dict, token: str, port: int, bridge: str) -> str:
     if validate_window_manifest(manifest):
         window_config = (f", window_abi=1, window_abi_address={manifest['save_window_abi_address']}"
                          f", window_address={manifest['save_window_address']}, window_size=4096")
+    from .menu_mailbox import validate_menu_manifest
+    menu_config = ""
+    if validate_menu_manifest(manifest):
+        menu_config = (f", menu_abi=1, menu_abi_address={manifest['menu_abi_address']}"
+                       f", menu_address={manifest['menu_mailbox_address']}, menu_size=512")
     return (
         f'EMERALD_BRIDGE = {{address={address}, rom_size={size}, rom_crc32="{crc}", '
-        f'port={port}, token="{token}"{save_config}{trade_config}{battle_config}{window_config}}}\n' + bridge
+        f'port={port}, token="{token}"{save_config}{trade_config}{battle_config}{window_config}{menu_config}}}\n' + bridge
     )

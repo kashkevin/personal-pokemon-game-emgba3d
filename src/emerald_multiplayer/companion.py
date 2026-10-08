@@ -124,6 +124,8 @@ def verify_rom_manifest(rom_path: Path, manifest_path: Path) -> tuple[str, dict[
                 raise ValueError("trade capability marker does not match the verified ROM")
     validate_battle_manifest(manifest, rom_path)
     validate_window_manifest(manifest, rom_path)
+    from .menu_mailbox import validate_menu_manifest
+    validate_menu_manifest(manifest, rom_path)
     return actual_hash, manifest
 
 
@@ -158,6 +160,7 @@ class CompanionConfig:
     battle_enabled: bool = field(init=False, default=False)
     battle_abi_version: int = field(init=False, default=0)
     save_window_enabled: bool = field(init=False, default=False)
+    menu_enabled: bool = field(init=False, default=False)
 
     def __post_init__(self) -> None:
         rom_path, manifest_path = Path(self.rom_path).resolve(), Path(self.manifest_path).resolve()
@@ -170,6 +173,7 @@ class CompanionConfig:
         object.__setattr__(self, "trade_enabled", manifest.get("trade_abi_version") == 1)
         object.__setattr__(self, "battle_enabled", manifest.get("battle_abi_version") in (1, 2, 3))
         object.__setattr__(self, "battle_abi_version", manifest.get("battle_abi_version", 0))
+        object.__setattr__(self, "menu_enabled", manifest.get("menu_abi_version") == 1)
         object.__setattr__(self, "save_window_enabled", manifest.get("save_window_abi_version") == 1)
         if type(self.development_battle_channel) is not bool:
             raise ValueError("development_battle_channel must be a boolean")
@@ -310,6 +314,7 @@ class BridgeSession:
     save_capable: bool = False
     window_capable: bool = False
     battle_capable: bool = False
+    menu_session: Any = None
 
 
 class Companion:
@@ -472,6 +477,22 @@ class Companion:
                         raise BridgeError("battle response arrived before its verified capability")
                     self._receive_battle_response(packet[1:], bridge)
                     continue
+                if packet[:1] == b"I":
+                    if not self.config.menu_enabled or packet != b"I" + struct.pack("<HHHH", 1, 512, 240, 16):
+                        raise BridgeError("menu capability disagrees with verified manifest")
+                    if bridge.menu_session is not None:
+                        raise BridgeError("menu capability was repeated")
+                    from .menu_session import MenuSession
+                    bridge.menu_session = MenuSession(self, bridge)
+                    continue
+                if packet[:1] == b"J":
+                    if bridge.menu_session is None:
+                        raise BridgeError("menu request arrived before its verified capability")
+                    try:
+                        bridge.menu_session.feed(packet[1:])
+                    except ValueError as error:
+                        raise BridgeError("invalid native menu request") from error
+                    continue
                 if len(packet) != 21 or packet[:1] != b"P":
                     raise BridgeError("expected one bounded local pose")
                 pose = Pose.unpack(packet[1:])
@@ -507,6 +528,8 @@ class Companion:
                     bridge.writer_task.cancel()
                     with suppress(asyncio.CancelledError):
                         await bridge.writer_task
+                if bridge.menu_session is not None:
+                    await bridge.menu_session.close()
             writer.close()
             try:
                 with suppress(ConnectionError, OSError, asyncio.TimeoutError):
