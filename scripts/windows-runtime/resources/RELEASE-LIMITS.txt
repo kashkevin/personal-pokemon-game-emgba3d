@@ -15,9 +15,9 @@ host enrollment.
 
 The native Players menu and multiplayer services have separate acceptance
 records. A battle invitation or accepted team is not a completed battle.
-Automatic native battle handoff, complete player-facing trading, and all
-campaign/customization requirements still need their remaining integration
-and playable acceptance.
+Native battle handoff and mutual trade confirmation have been implemented,
+but complete battles, trade effects and interruption recovery still need their
+remaining playable acceptance. Campaign and customization work remains.
 
 The host can retain durable reservations for interrupted multiplayer battles.
 When it reports an unresolved battle, the launcher blocks a fresh game session,
@@ -26,19 +26,23 @@ ordinary play from bypassing recovery; it does not resume or clear the battle.
 
 The accepted host-loss behavior is to save and disconnect each player, and an
 interrupted multiplayer battle must wait for every participant to reconnect.
-Emergency saving/disconnection and battle resumption are not implemented in
-this preview. The separate native emergency-save prototype is not bundled.
-Automatic and manual checkpoints require a reachable host. Keep private
-recovery files when an operation is uncertain. Use the launcher's Save now and
-wait for its success message before closing; the game's own Save menu and
-window closure do not confirm a canonical host checkpoint.
+This build includes emergency preservation for a safe field location or an
+ordinary save already in progress. The launcher keeps the exact local save
+until it can reconcile it with the host on rejoin. Unsafe scenes can remain
+held without a completed save; keep the game open when the launcher reports
+that recovery is needed. Interrupted multiplayer battle resumption remains
+unavailable in this build. Automatic and manual checkpoints normally require
+a reachable host. Keep private recovery files when an operation is uncertain.
+Use the launcher's Save now and wait for its success message before closing;
+the game's own Save menu and window closure do not confirm a host checkpoint.
 
-Windows runtime proofs use ordinary scripted GBA button inputs, real native
-checkpoints and fresh game processes. They do not establish physical keyboard,
-audio, gamepad, GUI-button-to-save, or the complete visible New Game-to-enrollment
-flow. Five elapsed minutes of native Windows autosave, its pause/status behavior,
-and interrupted-save gameplay still need actual acceptance. Controller-level
-tests and actual button interactions are separate checks.
+Windows runtime checks passed the full five-minute autosave interval, separate
+per-player toggles, manual saving and fresh Continue. A source-launched window
+also passed Host Game, the autosave checkbox, Save now and reopen. The standalone
+packaged buttons and complete visible New Game-to-enrollment flow still need
+their own checks. Headless game checks passed host loss in a safe field and
+partway through an ordinary save; Windows host-loss interaction, pause comfort,
+physical keyboard, audio and gamepads remain unverified.
 The desktop automation helper's ordinary keys did not produce the SDL button
 events needed for gameplay. Hardware keyboard failure has not been established.
 
