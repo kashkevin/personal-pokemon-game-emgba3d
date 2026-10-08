@@ -1,6 +1,6 @@
 # Durable personal reset delivery
 
-Native source `3dcfd103f17424c1a5b2278c178f8342078d9676` implements nine explicit authored hunts on the preserved `de4ef98a` pilot. These are source-qualified capabilities; ordinary-route gameplay and the combined Windows release remain separate acceptance gates. Build flag `LOCAL_RESET_STATIC=1` enables the catalogue. Its default is zero, and the independent Littleroot development encounter is unchanged.
+Native reset source `7b3dbbe7f2c80e4d2af0e0332c333320fcda4589`, incorporated in combined source `1a7a0cdb5dadd2820a3b6c25c4ecafce1facd6eb`, implements nine explicit authored hunts on the preserved `de4ef98a` pilot. The current correction and qualification are described below; ordinary-route gameplay and the combined Windows release remain separate acceptance gates. Build flag `LOCAL_RESET_STATIC=1` enables the catalogue. Its default is zero, and the independent Littleroot development encounter is unchanged.
 
 ## Player behavior and source boundaries
 
@@ -44,13 +44,27 @@ The emergency controller owns the existing checkpoint lock and retained bridge a
 
 The adapter reuses the pinned native generator, shiny modifier, battle cleanup and original scripts. The maintained source was checked at `7b95be15d84a053948791ce91e5dec0b168947a5`: [Sky Pillar](https://github.com/rh-hideout/pokeemerald-expansion/blob/7b95be15d84a053948791ce91e5dec0b168947a5/data/maps/SkyPillar_Top/scripts.inc), [Ancient Tomb](https://github.com/rh-hideout/pokeemerald-expansion/blob/7b95be15d84a053948791ce91e5dec0b168947a5/data/maps/AncientTomb/scripts.inc) and [Aqua Hideout](https://github.com/rh-hideout/pokeemerald-expansion/blob/7b95be15d84a053948791ce91e5dec0b168947a5/data/maps/AquaHideout_B1F/scripts.inc) retain the relevant caught-only resume and source-specific removal branches. The prior upstream/community audit remains in the [reset design](local-soft-reset-design.md). No third-party code or new dependency is incorporated.
 
-The default-off normal build and **103/103 native Multiplayer tests** pass on `3dcfd103`. The nine-source cases exercise exact object/prerequisite refusals, all nine neutral returns and all nine original caught branches, trainer/capture/action fences and an unsigned high counter. Admission/cancellation fixtures cover foreign identity, unknown host loss, no generation/count before ACK, exact once-only count, neutral cancellation and inability to reverse an accepted ACK. They are controlled native fixtures, not ordinary-route play.
+The historical default-off normal build and **103/103 native Multiplayer tests** passed on `3dcfd103`. The nine-source cases exercise exact object/prerequisite refusals, all nine neutral returns and all nine original caught branches, trainer/capture/action fences and an unsigned high counter. Admission/cancellation fixtures cover foreign identity, unknown host loss, no generation/count before ACK, exact once-only count, neutral cancellation and inability to reverse an accepted ACK. They are controlled native fixtures, not ordinary-route play. These checks missed the authored script's asynchronous yield boundary, so this historical build is not production admission evidence.
+
+Read-only review before enabled combined qualification found that `ScriptContext_Stop()` changes global scheduling status without yielding the current `special` bytecode loop. The admission specials had no implicit `waitstate`, so their callers could consume the initial false result immediately. Correction `7b3dbbe7f2` publishes a distinct pending result and conditionally executes `waitstate` in all nine authored scripts. Immediate refusals skip the wait and exit neutrally. The test-only direct-admission wrapper bypass is removed. Three new regression methods step the actual authored bytecode through pending, immediate refusal, exact denial and disconnected cancellation for all nine descriptors, plus stale/exact acknowledgment and native generation for all five Voltorb/Electrode sources. The generation cases stop at the original sound-effect yield; they do not simulate a completed production battle or ordinary progression.
+
+The corrected combined source `1a7a0cdb5d` passes the enabled normal build and **122/122 native Multiplayer tests**, including these three regressions and the composed trade-menu/emergency changes. `LOCAL_RESET_STATIC=1` was used for both targets. A bounded incremental recheck also passes with no warnings or errors in `normal-3.log` and `focused-3.log`; post-recheck ROM/ELF hashes exactly match the ELF-derived manifest. That manifest reports menu ABI2, emergency ABI2, reset ABI2, battle ABI3/execution ABI1 and save-window ABI1. It does not contain the later battle-resume capability. Fourteen files plus a re-read/hash-verified evidence record are preserved in private `artifacts/local-reset/combined-delivery-reset-static-1`. The pre-correction clock-skew normal log and interrupted focused-compilation log are explicitly historical. The clean source trees and both reusable/combined patch lineages are preserved.
+
+| Corrected combined enabled artifact | SHA-256 |
+| --- | --- |
+| Normal ROM | `4fcdae904ad4f0f49e805096c932c0a8f6ba7f753b1d038cd51c7854142d4fa2` |
+| Normal ELF | `4d331c224e54d3bf1b61497a978a9524861a1d5657775fa1726746f7832234df` |
+| Exact manifest | `aa680a0caf452a95d90b6802cf51da47ee917a97180d37560e6d74154e286325` |
+| Clean normal log | `e59115cd730c4259068a275b5fb8b328fcd09ba84e7d1a4f2b36c9c31d93679b` |
+| Clean 122-case log | `c5175d3c8be1314ebf5b1dc3a32db14d5b17a3429d5e06922907e21263d4deae` |
+| Evidence record | `c7ce03d52435f07087553a9b0b0fcdeb417e82289077348ea3601eafaea85369` |
+| [Source-only correction](../engine-patches/phase6-personal-reset-script-yield.patch), `3dcfd103` to `7b3dbbe7f2` | `b8bdf79102b97cd7d7316694b3473de6f4fa1069254b9bfbe8cce89036200676` |
 
 Initial catalogue test builds exposed invalid text initializer placement; corrected source passed all tests. A first passing log retained Windows/WSL clock-skew warnings, so completed incremental rechecks were run. Only warning-free `normal-3.log` and `focused-4.log` are qualification evidence. An earlier ABI2 build's unused marker was removed by linker garbage collection; the final source now uses the established volatile marker read, and its actual ELF-derived manifest validates successfully. Synthetic manifest tests alone did not establish that property.
 
 Thirteen files plus the evidence record are hash-verified in private `artifacts/local-reset/durable-reset-delivery-1`, including historical failures/warnings, clean logs, normal ROM/ELF, test ELFs, manifest and source patch. No ROM, save, database or player credential is committed.
 
-| Final default-off artifact | SHA-256 |
+| Historical default-off artifact (`3dcfd103`, before script-yield correction) | SHA-256 |
 | --- | --- |
 | Normal ROM | `39b3e1e343b07df6b1fdd3e92238cf204da33aaecf503c9f3bb4dae1b8c47918` |
 | Normal ELF | `3770de0285c0a54c344ee43b392eb2d8aff72909826101ae90dde4b2819b53f9` |
@@ -62,4 +76,4 @@ Thirteen files plus the evidence record are hash-verified in private `artifacts/
 
 All **28 reset Python methods** passed in the composed Windows focus: SQLite migration in both orders, fresh-world capability provisioning with preserved backup accounts, nine independent descriptor histories, exact retries, stale leases, corruption rejection, graceful restart and abrupt `os._exit` recovery, four authenticated TLS companions, real Lua and binary IPC, ABI2 receipts/cancellation authority and ELF-derived manifest validation. Character checkpoint bytes remain unchanged by admission. These tests use synthetic save/mailbox fixtures; they establish transport and persistence behavior, not production gameplay. The encompassing 173-method run retained nine errors in five separate friendship-Flash fixture methods and is not recorded as a full passing regression. Its private log is `root-delivery-windows-3.log`, SHA-256 `836e408b84d3c30bdb17c1429626b65a8407440b32bb3885ab9c9e68ef0f684c`.
 
-The separate enabled normal build, ordinary-route source interactions/capture/fresh Continue, Windows control/render checks and simultaneous four-player trade/battle/hunt remain required. No debug warp, story injection, downloaded save or savestate substitutes for those acceptance tests.
+Ordinary-route source interactions/capture/fresh Continue, composed pending-reset host-loss saving, Windows control/render checks and simultaneous four-player trade/battle/hunt remain required. The known starter-stage source characters have not reached these story-gated hunts. No debug warp, story injection, downloaded save or savestate substitutes for those acceptance tests.

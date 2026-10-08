@@ -1,0 +1,343 @@
+diff --git a/data/maps/AncientTomb/scripts.inc b/data/maps/AncientTomb/scripts.inc
+index 3f1e7c4963..400475fa73 100644
+--- a/data/maps/AncientTomb/scripts.inc
++++ b/data/maps/AncientTomb/scripts.inc
+@@ -62,7 +62,11 @@ AncientTomb_EventScript_Registeel::
+ 	delay 40
+ 	waitmoncry
+ #if MP_LOCAL_RESET_STATIC || TESTING
++AncientTomb_EventScript_RegisteelAdmission::
+ 	special MultiplayerStaticReset_BeginCurrent
++	goto_if_ne VAR_RESULT, MP_LOCAL_RESET_ADMISSION_PENDING, AncientTomb_EventScript_RegisteelAdmissionReady
++	waitstate
++AncientTomb_EventScript_RegisteelAdmissionReady::
+ 	goto_if_eq VAR_RESULT, FALSE, AncientTomb_EventScript_RegisteelResetReturn
+ #endif
+ 	setwildbattle SPECIES_REGISTEEL, 40
+diff --git a/data/maps/AquaHideout_B1F/scripts.inc b/data/maps/AquaHideout_B1F/scripts.inc
+index 259ad369d0..68a8f79167 100644
+--- a/data/maps/AquaHideout_B1F/scripts.inc
++++ b/data/maps/AquaHideout_B1F/scripts.inc
+@@ -30,7 +30,11 @@ AquaHideout_B1F_EventScript_Electrode1::
+ 	lock
+ 	faceplayer
+ #if MP_LOCAL_RESET_STATIC || TESTING
++AquaHideout_B1F_EventScript_Electrode1Admission::
+ 	special MultiplayerStaticReset_BeginCurrent
++	goto_if_ne VAR_RESULT, MP_LOCAL_RESET_ADMISSION_PENDING, AquaHideout_B1F_EventScript_Electrode1AdmissionReady
++	waitstate
++AquaHideout_B1F_EventScript_Electrode1AdmissionReady::
+ 	goto_if_eq VAR_RESULT, FALSE, AquaHideout_B1F_EventScript_Electrode1ResetReturn
+ #endif
+ 	setwildbattle SPECIES_ELECTRODE, 30
+@@ -69,7 +73,11 @@ AquaHideout_B1F_EventScript_Electrode2::
+ 	lock
+ 	faceplayer
+ #if MP_LOCAL_RESET_STATIC || TESTING
++AquaHideout_B1F_EventScript_Electrode2Admission::
+ 	special MultiplayerStaticReset_BeginCurrent
++	goto_if_ne VAR_RESULT, MP_LOCAL_RESET_ADMISSION_PENDING, AquaHideout_B1F_EventScript_Electrode2AdmissionReady
++	waitstate
++AquaHideout_B1F_EventScript_Electrode2AdmissionReady::
+ 	goto_if_eq VAR_RESULT, FALSE, AquaHideout_B1F_EventScript_Electrode2ResetReturn
+ #endif
+ 	setwildbattle SPECIES_ELECTRODE, 30
+diff --git a/data/maps/DesertRuins/scripts.inc b/data/maps/DesertRuins/scripts.inc
+index e06a5a5286..065b0caa28 100644
+--- a/data/maps/DesertRuins/scripts.inc
++++ b/data/maps/DesertRuins/scripts.inc
+@@ -62,7 +62,11 @@ DesertRuins_EventScript_Regirock::
+ 	delay 40
+ 	waitmoncry
+ #if MP_LOCAL_RESET_STATIC || TESTING
++DesertRuins_EventScript_RegirockAdmission::
+ 	special MultiplayerStaticReset_BeginCurrent
++	goto_if_ne VAR_RESULT, MP_LOCAL_RESET_ADMISSION_PENDING, DesertRuins_EventScript_RegirockAdmissionReady
++	waitstate
++DesertRuins_EventScript_RegirockAdmissionReady::
+ 	goto_if_eq VAR_RESULT, FALSE, DesertRuins_EventScript_RegirockResetReturn
+ #endif
+ 	setwildbattle SPECIES_REGIROCK, 40
+diff --git a/data/maps/IslandCave/scripts.inc b/data/maps/IslandCave/scripts.inc
+index 24e5f7fe1c..46af0c6d01 100644
+--- a/data/maps/IslandCave/scripts.inc
++++ b/data/maps/IslandCave/scripts.inc
+@@ -95,7 +95,11 @@ IslandCave_EventScript_Regice::
+ 	delay 40
+ 	waitmoncry
+ #if MP_LOCAL_RESET_STATIC || TESTING
++IslandCave_EventScript_RegiceAdmission::
+ 	special MultiplayerStaticReset_BeginCurrent
++	goto_if_ne VAR_RESULT, MP_LOCAL_RESET_ADMISSION_PENDING, IslandCave_EventScript_RegiceAdmissionReady
++	waitstate
++IslandCave_EventScript_RegiceAdmissionReady::
+ 	goto_if_eq VAR_RESULT, FALSE, IslandCave_EventScript_RegiceResetReturn
+ #endif
+ 	setwildbattle SPECIES_REGICE, 40
+diff --git a/data/maps/NewMauville_Inside/scripts.inc b/data/maps/NewMauville_Inside/scripts.inc
+index 784edd8e0a..9a7de87032 100644
+--- a/data/maps/NewMauville_Inside/scripts.inc
++++ b/data/maps/NewMauville_Inside/scripts.inc
+@@ -177,7 +177,11 @@ NewMauville_Inside_EventScript_Voltorb1::
+ 	lock
+ 	faceplayer
+ #if MP_LOCAL_RESET_STATIC || MP_LOCAL_RESET_NEW_MAUVILLE_PILOT || TESTING
++NewMauville_Inside_EventScript_Voltorb1Admission::
+ 	special MultiplayerStaticReset_BeginVoltorb1
++	goto_if_ne VAR_RESULT, MP_LOCAL_RESET_ADMISSION_PENDING, NewMauville_Inside_EventScript_Voltorb1AdmissionReady
++	waitstate
++NewMauville_Inside_EventScript_Voltorb1AdmissionReady::
+ 	goto_if_eq VAR_RESULT, FALSE, NewMauville_Inside_EventScript_Voltorb1ResetReturn
+ #endif
+ 	setwildbattle SPECIES_VOLTORB, 25
+@@ -218,7 +222,11 @@ NewMauville_Inside_EventScript_Voltorb2::
+ 	lock
+ 	faceplayer
+ #if MP_LOCAL_RESET_STATIC || TESTING
++NewMauville_Inside_EventScript_Voltorb2Admission::
+ 	special MultiplayerStaticReset_BeginCurrent
++	goto_if_ne VAR_RESULT, MP_LOCAL_RESET_ADMISSION_PENDING, NewMauville_Inside_EventScript_Voltorb2AdmissionReady
++	waitstate
++NewMauville_Inside_EventScript_Voltorb2AdmissionReady::
+ 	goto_if_eq VAR_RESULT, FALSE, NewMauville_Inside_EventScript_Voltorb2ResetReturn
+ #endif
+ 	setwildbattle SPECIES_VOLTORB, 25
+@@ -257,7 +265,11 @@ NewMauville_Inside_EventScript_Voltorb3::
+ 	lock
+ 	faceplayer
+ #if MP_LOCAL_RESET_STATIC || TESTING
++NewMauville_Inside_EventScript_Voltorb3Admission::
+ 	special MultiplayerStaticReset_BeginCurrent
++	goto_if_ne VAR_RESULT, MP_LOCAL_RESET_ADMISSION_PENDING, NewMauville_Inside_EventScript_Voltorb3AdmissionReady
++	waitstate
++NewMauville_Inside_EventScript_Voltorb3AdmissionReady::
+ 	goto_if_eq VAR_RESULT, FALSE, NewMauville_Inside_EventScript_Voltorb3ResetReturn
+ #endif
+ 	setwildbattle SPECIES_VOLTORB, 25
+diff --git a/data/maps/SkyPillar_Top/scripts.inc b/data/maps/SkyPillar_Top/scripts.inc
+index 2af0f1929e..0edae02c4e 100644
+--- a/data/maps/SkyPillar_Top/scripts.inc
++++ b/data/maps/SkyPillar_Top/scripts.inc
+@@ -47,7 +47,11 @@ SkyPillar_Top_EventScript_Rayquaza::
+ 	delay 40
+ 	waitmoncry
+ #if MP_LOCAL_RESET_STATIC || TESTING
++SkyPillar_Top_EventScript_RayquazaAdmission::
+ 	special MultiplayerStaticReset_BeginCurrent
++	goto_if_ne VAR_RESULT, MP_LOCAL_RESET_ADMISSION_PENDING, SkyPillar_Top_EventScript_RayquazaAdmissionReady
++	waitstate
++SkyPillar_Top_EventScript_RayquazaAdmissionReady::
+ 	goto_if_eq VAR_RESULT, FALSE, SkyPillar_Top_EventScript_RayquazaResetReturn
+ #endif
+ 	setwildbattle SPECIES_RAYQUAZA, 70
+diff --git a/include/config/multiplayer_local_reset.h b/include/config/multiplayer_local_reset.h
+index 85ef828c83..20c9d50700 100644
+--- a/include/config/multiplayer_local_reset.h
++++ b/include/config/multiplayer_local_reset.h
+@@ -12,5 +12,7 @@
+ #ifndef MP_LOCAL_RESET_STATIC
+ #define MP_LOCAL_RESET_STATIC 0
+ #endif
++// A published admission must yield the authored bytecode before inspecting TRUE/FALSE.
++#define MP_LOCAL_RESET_ADMISSION_PENDING 2
+ #define MP_LOCAL_RESET_ENABLED (MP_LOCAL_RESET_DEVELOPMENT || MP_LOCAL_RESET_STATIC || MP_LOCAL_RESET_NEW_MAUVILLE_PILOT || TESTING)
+ #endif
+diff --git a/src/multiplayer_reset_admission.c b/src/multiplayer_reset_admission.c
+index 7cb6b55a24..2bbefd1505 100644
+--- a/src/multiplayer_reset_admission.c
++++ b/src/multiplayer_reset_admission.c
+@@ -1,4 +1,5 @@
+ #include "global.h"
++#include "config/multiplayer_local_reset.h"
+ #include <stddef.h>
+ #include "multiplayer_reset_admission.h"
+ #include "multiplayer_static_reset.h"
+@@ -60,8 +61,11 @@ void MultiplayerResetAdmission_Begin(u32 encounter)
+     gMultiplayerResetMailbox.localGeneration++;
+     sWaiting = TRUE;
+     PublishReceipt(MP_RESET_WAITING, 0);
++    gSpecialVar_Result = MP_LOCAL_RESET_ADMISSION_PENDING;
+     // The authored interaction resumes only after this exact durable ACK. No
+     // timeout, disconnect, or malformed reply may silently generate a new roll.
++    // Stop alone does not yield the current special-command interpreter loop;
++    // the authored caller must execute waitstate for the pending result above.
+     ScriptContext_Stop();
+ }
+ 
+diff --git a/src/multiplayer_static_reset.c b/src/multiplayer_static_reset.c
+index ed8db107a4..a9fd8dea08 100644
+--- a/src/multiplayer_static_reset.c
++++ b/src/multiplayer_static_reset.c
+@@ -153,11 +153,7 @@ bool32 MultiplayerStaticReset_GuardMatches(u32 id)
+ 
+ static void Begin(u32 id)
+ {
+-#if TESTING
+-    gSpecialVar_Result = MultiplayerLocalReset_TryBegin(id);
+-#else
+     MultiplayerResetAdmission_Begin(id);
+-#endif
+ }
+ 
+ void MultiplayerStaticReset_BeginVoltorb1(void) { Begin(MP_STATIC_RESET_VOLTORB_1); }
+diff --git a/test/multiplayer_local_reset.c b/test/multiplayer_local_reset.c
+index 78485dfda3..fd4423b26a 100644
+--- a/test/multiplayer_local_reset.c
++++ b/test/multiplayer_local_reset.c
+@@ -1,4 +1,5 @@
+ #include "global.h"
++#include "config/multiplayer_local_reset.h"
+ #include "multiplayer_local_reset.h"
+ #include "multiplayer_static_reset.h"
+ #include "multiplayer_reset_admission.h"
+@@ -112,6 +113,7 @@ static void SetUp(struct ResetFixture *f)
+ 
+ static void TearDown(struct ResetFixture *f)
+ {
++    ScriptContext_Init(); UnlockPlayerFieldControls();
+     MultiplayerSave_Init(); Multiplayer_Init();
+     Free(gBattleStruct); gBattleStruct = f->battle;
+     gMain.callback1 = f->cb1; gMain.callback2 = f->cb2; gMain.inBattle = f->inBattle;
+@@ -352,7 +354,7 @@ static void SetUpPilot(struct ResetFixture *f)
+ 
+ static void BeginPilot(void)
+ {
+-    MultiplayerStaticReset_BeginVoltorb1(); EXPECT_EQ(gSpecialVar_Result, TRUE);
++    EXPECT(MultiplayerLocalReset_TryBegin(MP_STATIC_RESET_VOLTORB_1));
+     CreateScriptedWildMon(SPECIES_VOLTORB, 25, ITEM_NONE);
+     gMain.inBattle = TRUE;
+     EXPECT(MultiplayerLocalReset_TestOpenWindow());
+@@ -647,6 +649,26 @@ extern const u8 AncientTomb_EventScript_RegisteelPersonalReturn[];
+ extern const u8 DesertRuins_EventScript_RegirockPersonalReturn[];
+ extern const u8 IslandCave_EventScript_RegicePersonalReturn[];
+ extern const u8 SkyPillar_Top_EventScript_RayquazaPersonalReturn[];
++extern const u8 NewMauville_Inside_EventScript_Voltorb1Admission[];
++extern const u8 NewMauville_Inside_EventScript_Voltorb2Admission[];
++extern const u8 NewMauville_Inside_EventScript_Voltorb3Admission[];
++extern const u8 AquaHideout_B1F_EventScript_Electrode1Admission[];
++extern const u8 AquaHideout_B1F_EventScript_Electrode2Admission[];
++extern const u8 AncientTomb_EventScript_RegisteelAdmission[];
++extern const u8 DesertRuins_EventScript_RegirockAdmission[];
++extern const u8 IslandCave_EventScript_RegiceAdmission[];
++extern const u8 SkyPillar_Top_EventScript_RayquazaAdmission[];
++static const u8 *const sAdmissionScripts[] = {
++    NewMauville_Inside_EventScript_Voltorb1Admission,
++    NewMauville_Inside_EventScript_Voltorb2Admission,
++    NewMauville_Inside_EventScript_Voltorb3Admission,
++    AquaHideout_B1F_EventScript_Electrode1Admission,
++    AquaHideout_B1F_EventScript_Electrode2Admission,
++    AncientTomb_EventScript_RegisteelAdmission,
++    DesertRuins_EventScript_RegirockAdmission,
++    IslandCave_EventScript_RegiceAdmission,
++    SkyPillar_Top_EventScript_RayquazaAdmission,
++};
+ struct CatalogueFixture {
+     u16 id, species, hide, defeated, prerequisite;
+     u8 group, map, local, x, y, level;
+@@ -684,7 +706,7 @@ static void SetUpCatalogue(struct ResetFixture *f, const struct CatalogueFixture
+ 
+ static void BeginCatalogue(const struct CatalogueFixture *source)
+ {
+-    MultiplayerStaticReset_BeginCurrent(); EXPECT_EQ(gSpecialVar_Result, TRUE);
++    EXPECT(MultiplayerLocalReset_TryBegin(source->id));
+     EXPECT(MultiplayerLocalReset_PersonalGeneration());
+     CreateScriptedWildMon(source->species, source->level, ITEM_NONE);
+     gMain.inBattle = TRUE;
+@@ -779,3 +801,97 @@ TEST("Multiplayer static catalogue: host count appears unsigned and cannot cross
+     MultiplayerLocalReset_Finish();
+     TearDown(&f);
+ }
++
++TEST("Multiplayer authored admission: all nine scripts yield before generation then exit neutral on exact denial or cancellation")
++{
++    for (u32 i = 0; i < ARRAY_COUNT(sCatalogueFixtures); i++)
++    for (u32 status = 1; status <= 2; status++)
++    {
++        const struct CatalogueFixture *source = &sCatalogueFixtures[i];
++        struct ResetFixture f; SetUpCatalogue(&f, source);
++        memset(gParties[B_TRAINER_OPPONENT_A], 0, sizeof(gParties[B_TRAINER_OPPONENT_A]));
++        rng_value_t rng = gRngValue;
++        // Enter the actual authored bytecode immediately after its movement/cry
++        // prelude. Both its special and waitstate execute in the real interpreter.
++        ScriptContext_SetupScript(sAdmissionScripts[i]);
++        EXPECT(ScriptContext_RunScript());
++        EXPECT(MultiplayerResetAdmission_IsWaiting());
++        EXPECT_EQ(gSpecialVar_Result, MP_LOCAL_RESET_ADMISSION_PENDING);
++        EXPECT(!ScriptContext_IsEnabled());
++        EXPECT(!ScriptContext_RunScript());
++        EXPECT_EQ(MultiplayerStaticReset_GetCount(source->id), 0);
++        EXPECT_EQ(GetMonData(&gParties[B_TRAINER_OPPONENT_A][0], MON_DATA_SPECIES), SPECIES_NONE);
++        EXPECT(!memcmp(&rng, &gRngValue, sizeof(rng)));
++        struct MultiplayerResetReply reply = {.sequence=1, .session=1, .incarnation=1,
++            .encounter=source->id, .status=status};
++        if (status == 2) Connection(1, FALSE);
++        gMultiplayerResetMailbox.reply = reply;
++        gMultiplayerResetMailbox.inboundGeneration = 2;
++        MultiplayerResetAdmission_Tick();
++        EXPECT(!MultiplayerResetAdmission_IsWaiting());
++        EXPECT(ScriptContext_IsEnabled());
++        EXPECT_EQ(gMultiplayerResetMailbox.receipt.fieldReady, FALSE);
++        EXPECT(!ScriptContext_RunScript()); // Actual authored release/end, no fake cleanup.
++        MultiplayerResetAdmission_Tick();
++        EXPECT_EQ(gMultiplayerResetMailbox.receipt.fieldReady, TRUE);
++        EXPECT_EQ(gMultiplayerResetMailbox.receipt.state, status == 1 ? MP_RESET_DENIED : MP_RESET_CANCELLED);
++        EXPECT_EQ(MultiplayerStaticReset_GetCount(source->id), 0);
++        EXPECT_EQ(GetMonData(&gParties[B_TRAINER_OPPONENT_A][0], MON_DATA_SPECIES), SPECIES_NONE);
++        EXPECT(!memcmp(&rng, &gRngValue, sizeof(rng)));
++        EXPECT(!FlagGet(source->hide)); EXPECT(!FlagGet(source->defeated));
++        TearDown(&f);
++    }
++}
++
++TEST("Multiplayer authored admission: all nine immediate refusals exit without a wait or roll")
++{
++    for (u32 i = 0; i < ARRAY_COUNT(sCatalogueFixtures); i++)
++    {
++        const struct CatalogueFixture *source = &sCatalogueFixtures[i];
++        struct ResetFixture f; SetUpCatalogue(&f, source);
++        FlagSet(source->hide);
++        rng_value_t rng = gRngValue;
++        ScriptContext_SetupScript(sAdmissionScripts[i]);
++        EXPECT(!ScriptContext_RunScript());
++        EXPECT(!ScriptContext_IsEnabled());
++        EXPECT(!MultiplayerResetAdmission_IsWaiting());
++        EXPECT_EQ(gMultiplayerResetMailbox.request.sequence, 0);
++        EXPECT_EQ(MultiplayerStaticReset_GetCount(source->id), 0);
++        EXPECT(!memcmp(&rng, &gRngValue, sizeof(rng)));
++        EXPECT(FlagGet(source->hide)); EXPECT(!FlagGet(source->defeated));
++        TearDown(&f);
++    }
++}
++
++TEST("Multiplayer authored admission: Voltorb and Electrode generate only after the exact receipt resumes bytecode")
++{
++    for (u32 i = 0; i < 5; i++)
++    {
++        const struct CatalogueFixture *source = &sCatalogueFixtures[i];
++        struct ResetFixture f; SetUpCatalogue(&f, source);
++        memset(gParties[B_TRAINER_OPPONENT_A], 0, sizeof(gParties[B_TRAINER_OPPONENT_A]));
++        ScriptContext_SetupScript(sAdmissionScripts[i]);
++        EXPECT(ScriptContext_RunScript());
++        struct MultiplayerResetReply reply = {.sequence=1, .session=1, .incarnation=2,
++            .encounter=source->id, .attempt=3};
++        gMultiplayerResetMailbox.reply = reply;
++        gMultiplayerResetMailbox.inboundGeneration = 2;
++        MultiplayerResetAdmission_Tick();
++        EXPECT(!ScriptContext_RunScript());
++        EXPECT_EQ(MultiplayerStaticReset_GetCount(source->id), 0);
++        EXPECT_EQ(GetMonData(&gParties[B_TRAINER_OPPONENT_A][0], MON_DATA_SPECIES), SPECIES_NONE);
++        reply.incarnation = 1;
++        gMultiplayerResetMailbox.reply = reply;
++        gMultiplayerResetMailbox.inboundGeneration = 4;
++        MultiplayerResetAdmission_Tick();
++        EXPECT_EQ(MultiplayerStaticReset_GetCount(source->id), 3);
++        EXPECT_EQ(GetMonData(&gParties[B_TRAINER_OPPONENT_A][0], MON_DATA_SPECIES), SPECIES_NONE);
++        EXPECT(ScriptContext_RunScript()); // Resumes through setwildbattle to its native waitse.
++        EXPECT_EQ(GetMonData(&gParties[B_TRAINER_OPPONENT_A][0], MON_DATA_SPECIES), source->species);
++        EXPECT_EQ(GetMonData(&gParties[B_TRAINER_OPPONENT_A][0], MON_DATA_LEVEL), source->level);
++        gMain.inBattle = TRUE;
++        EXPECT(MultiplayerLocalReset_TestOpenWindow());
++        MultiplayerLocalReset_Finish();
++        TearDown(&f);
++    }
++}
