@@ -51,6 +51,10 @@ _TEXT = {
     "battle_running": "Multiplayer battle in progress.",
     "battle_finished": "Battle finished. Your party has been restored.",
     "battle_cancelled": "The challenge ended before the battle started. Your party is unchanged.",
+    "battle_recovering": "Recovering the waiting battle. Keep the game open; every original player must reconnect.",
+    "battle_recovery_held": "Battle recovery could not finish. Keep this game open, restore the host connection, then try Recover battle again.",
+    "battle_recovery_not_ready": "This waiting battle cannot recover yet. Keep its original game window open.",
+    "battle_recovered": "Battle finished after recovery. Your party is restored and saving is available again.",
     "trade_running": "Trading. Choose your Pokemon and confirm the offer in the game.",
     "trade_finished": "Trade completed and saved.",
     "trade_cancelled": "Trade cancelled. Your saved party is unchanged.",
@@ -105,7 +109,8 @@ def status_text(code):
 
 
 _RETAINS_GAME = frozenset({"host_loss_preserving", "host_loss_unsaved_held",
-    "host_loss_battle_waiting", "host_loss_trade_waiting", "host_loss_armed", "game_recovery_held"})
+    "host_loss_battle_waiting", "host_loss_trade_waiting", "host_loss_armed", "game_recovery_held",
+    "battle_recovering", "battle_recovery_held", "battle_recovery_not_ready"})
 
 
 @dataclass(frozen=True)
@@ -162,6 +167,7 @@ class UiEvent:
     code: str
     state: str = ""
     autosave_enabled: bool | None = None
+    battle_recovery_available: bool = False
 
 
 class SessionWorker:
@@ -182,6 +188,8 @@ class SessionWorker:
         self._save_pending = False
         self._settings_future = None
         self._settings_pending = False
+        self._battle_recovery_future = None
+        self._battle_recovery_pending = self._battle_recovery_available = False
 
     @property
     def busy(self):
@@ -268,7 +276,7 @@ class SessionWorker:
     def request_save(self):
         with self._lock:
             if (not self.busy or self._state is not SessionState.RUNNING or self._loop is None
-                    or self._active_session is None or self._save_pending):
+                    or self._active_session is None or self._save_pending or self._battle_recovery_pending):
                 return False
             self._save_pending = True
             self._loop.call_soon_threadsafe(self._begin_save)
@@ -292,11 +300,37 @@ class SessionWorker:
     def request_autosave(self, enabled):
         with self._lock:
             if (type(enabled) is not bool or not self.busy or self._state is not SessionState.RUNNING
-                    or self._loop is None or self._active_session is None or self._settings_pending):
+                    or self._loop is None or self._active_session is None or self._settings_pending
+                    or self._battle_recovery_pending):
                 return False
             self._settings_pending = True
             self._loop.call_soon_threadsafe(self._begin_settings, enabled)
             return True
+
+    def request_battle_recovery(self):
+        with self._lock:
+            if (not self.busy or self._state is not SessionState.RUNNING or self._loop is None
+                    or self._active_session is None or not self._battle_recovery_available
+                    or self._battle_recovery_pending or self._save_pending or self._settings_pending):
+                return False
+            self._battle_recovery_pending = True
+            self._loop.call_soon_threadsafe(self._begin_battle_recovery)
+            return True
+
+    def _begin_battle_recovery(self):
+        self._battle_recovery_future = asyncio.create_task(self._recover_battle(), name="launcher-battle-recovery-action")
+
+    async def _recover_battle(self):
+        try:
+            if self._active_session is not None:
+                await self._active_session.recover_battle()
+        except Exception:
+            # A failed operation never suggests closing the retained core or
+            # exposes private transport/store exception text in the window.
+            self.events.put(UiEvent("status", "battle_recovery_held", "running"))
+        finally:
+            with self._lock:
+                self._battle_recovery_pending = False
 
     def _begin_settings(self, enabled):
         self._settings_future = asyncio.create_task(self._set_autosave(enabled), name="launcher-autosave-setting")
@@ -318,9 +352,11 @@ class SessionWorker:
         with self._lock:
             self._state = status.state
             self._status_code = status.code
+            self._battle_recovery_available = getattr(status, "battle_recovery_available", False)
         if status.state != SessionState.CLOSED:
             code = status.code if status.code in _TEXT else "session_failed"
-            self.events.put(UiEvent("status", code, status.state.value, status.autosave_enabled))
+            self.events.put(UiEvent("status", code, status.state.value, status.autosave_enabled,
+                                   self._battle_recovery_available))
 
     async def _session(self, options):
         session = self.factory(self.installation, self.private_root, on_status=self._publish, **options)
@@ -335,7 +371,8 @@ class SessionWorker:
                 observed = None
                 while not play.done():
                     status = session.status
-                    signature = status.state, status.code, status.connected, status.autosave_enabled
+                    signature = (status.state, status.code, status.connected, status.autosave_enabled,
+                                 getattr(status, "battle_recovery_available", False))
                     if signature != observed:
                         self._publish(status)
                         observed = signature
@@ -351,6 +388,11 @@ class SessionWorker:
                 with self._lock:
                     self._active_session = None
                 canceled = False
+                if self._battle_recovery_future is not None:
+                    from .player_runtime import _finish_even_if_cancelled
+                    _, interrupted = await _finish_even_if_cancelled(
+                        asyncio.gather(self._battle_recovery_future, return_exceptions=True))
+                    canceled |= interrupted
                 if self._save_future is not None:
                     from .player_runtime import _finish_even_if_cancelled
                     _, interrupted = await _finish_even_if_cancelled(self._save_future)
@@ -387,6 +429,8 @@ class SessionWorker:
                 self._save_pending = False
                 self._settings_future = None
                 self._settings_pending = False
+                self._battle_recovery_future = None
+                self._battle_recovery_pending = self._battle_recovery_available = False
             # asyncio.run has drained its loop before completion becomes visible.
             self.events.put(UiEvent("complete", code))
 
@@ -474,6 +518,9 @@ class LauncherWindow:
         self.autosave_button = ttk.Checkbutton(actions, text="Autosave every 5 minutes",
             variable=self.autosave_value, command=self.toggle_autosave, state="disabled")
         self.autosave_button.pack(side="left", padx=(12, 0))
+        self.recover_battle_button = ttk.Button(body, text="Recover battle", command=self.recover_battle,
+                                              state="disabled")
+        self.recover_battle_button.pack(anchor="w", pady=(8, 0))
         self.cancel = ttk.Button(actions, text="Cancel startup", command=self.cancel_startup, state="disabled")
         self.cancel.pack(side="right")
         if worker is None:
@@ -552,6 +599,13 @@ class LauncherWindow:
             self.save_button.configure(state="disabled")
             self.message.set(status_text("saving"))
 
+    def recover_battle(self):
+        if not self.closing and self.worker is not None and self.worker.request_battle_recovery():
+            self.recover_battle_button.configure(state="disabled")
+            self.save_button.configure(state="disabled")
+            self.autosave_button.configure(state="disabled")
+            self.message.set(status_text("battle_recovering"))
+
     def toggle_autosave(self):
         if (self.closing or self.worker is None
                 or not self.worker.request_autosave(self.autosave_value.get())):
@@ -585,6 +639,7 @@ class LauncherWindow:
         self._enable(False)
         self.save_button.configure(state="disabled")
         self.autosave_button.configure(state="disabled")
+        self.recover_battle_button.configure(state="disabled")
         cancelled = self.worker.cancel_startup()
         self.cancel.configure(state="disabled")
         code = "closing" if cancelled else "wait_for_game"
@@ -613,20 +668,26 @@ class LauncherWindow:
                     self.cancel.configure(state="disabled")
                     self.save_button.configure(state="disabled")
                     self.autosave_button.configure(state="disabled")
+                    self.recover_battle_button.configure(state="disabled")
                     self.message.set(status_text(event.code))
                 elif self.closing and event.code in _RETAINS_GAME:
                     self.closing = False
+                    self.recover_battle_button.configure(state="normal" if event.battle_recovery_available else "disabled")
                     self.message.set(status_text("wait_for_recovery"))
                 elif not self.closing:
                     self.message.set(status_text(event.code))
                     if event.autosave_enabled is not None:
                         self._autosave_observed = event.autosave_enabled
                         self.autosave_value.set(event.autosave_enabled)
-                    self.autosave_button.configure(state="normal" if event.state == "running" else "disabled")
+                    self.autosave_button.configure(state="normal" if event.state == "running"
+                        and event.code != "battle_recovering" else "disabled")
+                    self.recover_battle_button.configure(state="normal" if event.state == "running"
+                        and event.battle_recovery_available else "disabled")
                     self.save_button.configure(state="normal" if event.state == "running"
                         and event.code in {"running", "saved", "save_not_ready", "autosave_on", "autosave_off",
                                            "autosave_deferred", "settings_unavailable", "settings_busy",
-                                           "trade_finished", "trade_cancelled", "battle_finished", "battle_cancelled"} else "disabled")
+                                           "trade_finished", "trade_cancelled", "battle_finished", "battle_cancelled",
+                                           "battle_recovered"} else "disabled")
                     if event.state in {"running", "finished"}:
                         self.cancel.configure(state="disabled")
         self._poll_id = self.root.after(80, self.poll)

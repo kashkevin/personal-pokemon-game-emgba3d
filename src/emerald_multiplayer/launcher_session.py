@@ -59,6 +59,8 @@ _MESSAGES = {
     "save_recovery_required": "This character's save needs recovery before another save can start.",
     "settings_unavailable": "This character's launcher settings could not be saved or read.",
     "settings_busy": "A settings change is already finishing.",
+    "battle_recovery_not_ready": "Keep the original game open until its interrupted battle can recover.",
+    "battle_recovery_held": "Battle recovery remains incomplete; retain the original game and its recovery records.",
 }
 
 
@@ -128,6 +130,7 @@ class SessionStatus:
     revision: int | None = None
     exit_code: int | None = None
     autosave_enabled: bool = True
+    battle_recovery_available: bool = False
 
 
 class LauncherSession:
@@ -188,6 +191,10 @@ class LauncherSession:
         self._manifest = {}
         self._interaction = None
         self._emergency = self._emergency_task = None
+        self._battle_recovery_task = None
+        self._battle_recovery_failed = False
+        self._battle_retained = None
+        self._battle_recovery_intent = None
 
     @property
     def profile_directory(self):
@@ -209,7 +216,12 @@ class LauncherSession:
     def status(self):
         current = self._signature()
         value = replace(self._status, connected=current is not None,
-                        autosave_enabled=self.autosave_enabled)
+                        autosave_enabled=self.autosave_enabled,
+                        battle_recovery_available=self.can_recover_battle)
+        if self._battle_recovery_task is not None:
+            return replace(value, state=SessionState.RUNNING, code="battle_recovering")
+        if self._battle_recovery_failed and self._game is not None and self._game.process.returncode is None:
+            return replace(value, state=SessionState.RUNNING, code="battle_recovery_held")
         emergency = self._emergency
         if emergency is not None and emergency.lost.is_set():
             return replace(value, code="host_loss_" + emergency.result.state)
@@ -277,7 +289,8 @@ class LauncherSession:
                 from .battle_controller import read_string_lengths
                 lengths = read_string_lengths(game.rom_path,
                     table_address=self._manifest["battle_string_table_address"])
-                self._server.enable_battle_execution(lengths, host.directory / "native-battle-execution")
+                self._server.enable_battle_execution(lengths, host.directory / "native-battle-execution",
+                    resume_enabled=self._manifest.get("battle_resume_abi_version") == 1)
             await self._server.start(self._bind_address, host.port, allow_lan=True,
                                      public=self._public, tls=host.server_tls)
         self._companion = Companion(config)
@@ -372,7 +385,13 @@ class LauncherSession:
                     # owned by PlayerRuntime. Closing a game is not a save.
                     self._game = None
                     self._autosave_wake.set()
+                    if self._battle_recovery_task is not None and not self._battle_recovery_task.done():
+                        self._battle_recovery_task.cancel()
                     interrupted = False
+                    if self._battle_recovery_task is not None:
+                        _, canceled = await _finish_even_if_cancelled(
+                            asyncio.gather(self._battle_recovery_task, return_exceptions=True))
+                        interrupted |= canceled
                     for pending in (self._emergency_task, self._autosave_task, self._save_task):
                         if pending is not None:
                             _, canceled = await _finish_even_if_cancelled(pending)
@@ -408,6 +427,8 @@ class LauncherSession:
     def _retain_interrupted_core(self):
         if self._game is None or self._game.process.returncode is not None:
             return False
+        if getattr(self, "_battle_recovery_task", None) is not None or getattr(self, "_battle_recovery_failed", False):
+            return True
         if self._emergency is not None and self._emergency.lost.is_set() and not self._emergency.result.can_close:
             return True
         try:
@@ -415,6 +436,142 @@ class LauncherSession:
                         pending_battle(self._companion, self._profile_directory))
         except (ValueError, OSError):
             return True
+
+    def _retained_battle(self):
+        """Read exact local identity; visibility never grants native authority."""
+        from .battle_journal import read_battle_intent, path_present
+        from .native_battle import NativeBinding
+        c = self._companion
+        if (not self._open or self._closing or self._game is None or self._game.process.returncode is not None
+                or self._runtime is None or self._interaction is not None or self._battle_recovery_task is not None
+                or self._settings_busy or self._save_task is not None and not self._save_task.done()
+                or self._autosave_dispatched or self._manifest.get("battle_resume_abi_version") != 1
+                or c is None or getattr(c.config, "battle_resume_abi_version", 0) != 1
+                or c._bridge is None or not getattr(c._bridge, "battle_capable", False)
+                or getattr(c, "_live_battle_owner", None) is not None
+                or getattr(c, "_live_save_owner", None) is not None):
+            raise LauncherSessionError("battle_recovery_not_ready")
+        if any(path_present(self._profile_directory / name) for name in
+               ("pending-export.json", "pending-trade.json", "pending-emergency.json")):
+            raise LauncherSessionError("battle_recovery_not_ready")
+        pending_path = self._profile_directory / "pending-battle.json"
+        if path_present(pending_path):
+            intent = read_battle_intent(pending_path)
+        else:
+            intent = self._battle_recovery_intent
+            if intent is None or not path_present(self._profile_directory / (intent.battle_id + ".battle-recovery-complete.json")):
+                raise LauncherSessionError("battle_recovery_not_ready")
+        if self._battle_recovery_intent is not None and self._battle_recovery_intent != intent:
+            raise LauncherSessionError("battle_recovery_not_ready")
+        expected = (intent.world_id, intent.server_epoch, intent.lease_epoch, intent.save_profile,
+                    intent.player_id, intent.build_id, intent.ruleset_id)
+        retained = self._battle_retained
+        if (not NativeBinding.unpack(intent.bind.data).resumable
+                or retained is None or retained[0] is not self._game or retained[1] is not self._runtime
+                or retained[2] is not c._bridge
+                or retained[3:] != (intent.battle_id, intent.generation, intent.canonical_revision,
+                                    intent.canonical_sha256, intent.incarnation, intent.runtime_id)
+                or self._binding != expected or intent.canonical_revision != self._revision
+                or (intent.player_id, intent.build_id, intent.ruleset_id) !=
+                   (c.config.player_id, c.config.build_id, c.config.ruleset_id)
+                or intent.runtime_id != getattr(c, "_live_battle_runtime_id", None)
+                or intent.incarnation != c._bridge.incarnation
+                or self._save_incarnation not in (None, intent.incarnation)):
+            raise LauncherSessionError("battle_recovery_not_ready")
+        return intent, self._game, c._bridge, self._runtime
+
+    @property
+    def can_recover_battle(self):
+        try:
+            self._retained_battle()
+            return True
+        except (ValueError, OSError, AttributeError, ConnectionError):
+            return False
+
+    async def recover_battle(self):
+        """Explicit same-core recovery; one call waits for the original roster."""
+        from .battle_session import BattleCompletion, RenewedBattleSession
+        from .battle_recovery_session import NativeBattleRecoverySession, verify_recovery_completion
+        from .battle_journal import read_battle_intent, path_present
+        intent, game, bridge, runtime = self._retained_battle()
+        c, emergency = self._companion, self._emergency
+        self._battle_recovery_intent = intent
+        self._battle_recovery_task = self._interaction = asyncio.current_task()
+        self._save_failed = True
+        self._autosave_wake.set()
+        self._publish(SessionState.RUNNING, "battle_recovering", revision=self._revision)
+        try:
+            await self._stop_autosave()
+            if self._autosave_task is not None:
+                await self._autosave_task
+            self.installation.verify()
+            pending_path = self._profile_directory / "pending-battle.json"
+            if (self._game is not game or game.process.returncode is not None or self._runtime is not runtime
+                    or c._bridge is not bridge or path_present(pending_path) and read_battle_intent(pending_path) != intent):
+                raise LauncherSessionError("battle_recovery_held")
+            result = await NativeBattleRecoverySession(c, self._profile_directory, original_intent=intent).run()
+            renewed = getattr(result, "renewed_session", None)
+            if (not isinstance(result, BattleCompletion) or not isinstance(renewed, RenewedBattleSession)
+                    or result.state != "closed"
+                    or (result.battle_id, result.generation, result.canonical_revision, result.canonical_sha256) !=
+                       (intent.battle_id, intent.generation, intent.canonical_revision, intent.canonical_sha256)
+                    or (renewed.world_id, renewed.player_id, renewed.build_id, renewed.ruleset_id, renewed.save_profile,
+                        renewed.incarnation, renewed.runtime_id) !=
+                       (intent.world_id, intent.player_id, intent.build_id, intent.ruleset_id, intent.save_profile,
+                        intent.incarnation, intent.runtime_id)
+                    or renewed.lease_epoch < intent.lease_epoch or renewed.server_epoch < intent.server_epoch
+                    or renewed.lease_epoch == intent.lease_epoch and renewed.server_epoch != intent.server_epoch):
+                raise LauncherSessionError("battle_recovery_held")
+            binding = (renewed.world_id, renewed.server_epoch, renewed.lease_epoch, renewed.save_profile,
+                       renewed.player_id, renewed.build_id, renewed.ruleset_id)
+            def same_released_core():
+                return (self._game is game and game.process.returncode is None and self._runtime is runtime
+                        and c._bridge is bridge and bridge.incarnation == intent.incarnation
+                        and getattr(c, "_live_battle_runtime_id", None) == intent.runtime_id
+                        and self._signature() == binding and c.save_incarnation == intent.incarnation
+                        and not pending_battle(c, self._profile_directory)
+                        and not any(path_present(self._profile_directory / name) for name in
+                                    ("pending-export.json", "pending-trade.json", "pending-emergency.json")))
+            if not same_released_core():
+                raise LauncherSessionError("battle_recovery_held")
+            verify_recovery_completion(c, self._profile_directory, result, intent, bridge)
+            if emergency is not None:
+                unarmed = (getattr(c, "_emergency_controller", None) is None and emergency.session is None
+                           and emergency.bridge is None and emergency.task is None
+                           and emergency.result.state == "unarmed" and not emergency.lost.is_set())
+                if not unarmed:
+                    await emergency.retire_after_battle_recovery(result, intent, bridge)
+                # The previous watcher must not arm or publish after replacement.
+                if self._emergency_task is not None and not self._emergency_task.done():
+                    self._emergency_task.cancel()
+                    await asyncio.gather(self._emergency_task, return_exceptions=True)
+            if not same_released_core():
+                raise LauncherSessionError("battle_recovery_held")
+            successor = None
+            if getattr(c.config, "emergency_save_abi_version", 0) == 2:
+                from .emergency_save import EmergencySaveController
+                successor = EmergencySaveController(c, self._profile_directory, on_status=self._emergency_status)
+            self._binding = binding
+            self._save_incarnation = intent.incarnation
+            self._battle_retained = None
+            self._battle_recovery_intent = None
+            self._save_failed = self._idle_save_disconnect = self._battle_recovery_failed = False
+            self._autosave_due = self._autosave_clock() + AUTOSAVE_INTERVAL
+            self._emergency, self._emergency_task = successor, None
+            if successor is not None:
+                self._emergency_task = asyncio.create_task(self._watch_emergency(), name="launcher-host-loss")
+            self._autosave_task = asyncio.create_task(self._schedule_autosave(), name="launcher-autosave")
+            self._publish(SessionState.RUNNING, "battle_recovered", revision=self._revision)
+            return result
+        except (Exception, asyncio.CancelledError) as error:
+            self._save_failed = self._battle_recovery_failed = True
+            self._publish(SessionState.RUNNING, "battle_recovery_held", revision=self._revision)
+            if isinstance(error, asyncio.CancelledError):
+                raise
+            raise LauncherSessionError("battle_recovery_held") from None
+        finally:
+            self._battle_recovery_task = self._interaction = None
+            self._autosave_wake.set()
 
     async def _wait_game(self, game):
         # Context cancellation must not kill an unresolved battle or an
@@ -633,12 +790,17 @@ class LauncherSession:
                 if accepted is None or accepted["revision"] != base:
                     raise LauncherSessionError("save_not_ready")
                 self._publish(SessionState.RUNNING, "battle_running", revision=base)
-                result = await NativeBattleSession(c, self._profile_directory).run(descriptor)
+                executor = NativeBattleSession(c, self._profile_directory)
+                self._battle_retained = (self._game, self._runtime, c._bridge, descriptor["battle_id"],
+                    descriptor["generation"], base, accepted["sha256"], incarnation,
+                    getattr(c, "_live_battle_runtime_id", None))
+                result = await executor.run(descriptor)
                 if (not isinstance(result, BattleCompletion) or result.state not in {"closed", "aborted"}
                         or (result.battle_id, result.generation, result.canonical_revision, result.canonical_sha256) !=
                         (descriptor["battle_id"], descriptor["generation"], base, accepted["sha256"])):
                     raise LauncherSessionError("recovery_required")
                 code = "battle_finished" if result.state == "closed" else "battle_cancelled"
+                self._battle_retained = None
             elif kind == "trade":
                 from .trade_menu import NativeTradeMenu
                 from .checkpoint_client import validate_metadata

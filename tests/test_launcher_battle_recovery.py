@@ -1,0 +1,370 @@
+"""Launcher authority adoption and explicit UI recovery; no native gameplay claim."""
+import asyncio
+from contextlib import asynccontextmanager
+from dataclasses import replace
+import hashlib
+from pathlib import Path
+import queue
+import tempfile
+import threading
+import time
+from types import SimpleNamespace
+import unittest
+from unittest.mock import AsyncMock, Mock, patch
+from uuid import uuid4
+
+from emerald_multiplayer.battle_journal import BattleIntent, FORMAT
+from emerald_multiplayer.battle_session import BattleCompletion, RenewedBattleSession
+from emerald_multiplayer.launcher_session import GameInstallation, LauncherSession, LauncherSessionError, SessionState, SessionStatus
+from emerald_multiplayer.launcher_gui import LauncherWindow, LaunchRequest, SessionWorker, UiEvent, status_text
+from emerald_multiplayer.live_checkpoint import _json_bytes
+from emerald_multiplayer.native_battle import NativeBinding, NativeControl, Opcode
+from emerald_multiplayer.ownership import OWNERSHIP_PROFILE
+from test_launcher_gui import ControlledSession
+
+
+class LauncherBattleRecoveryTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        installation = GameInstallation(self.root/'game.gba', self.root/'manifest.json', 'a'*64, 'b'*64, None)
+        self.session = s = LauncherSession(installation, self.root,
+            world_directory=self.root/'world', bind_address='127.0.0.1')
+        actor, peer = sorted((str(uuid4()), str(uuid4())))
+        bridge = SimpleNamespace(incarnation=20, battle_capable=True, save_capable=True)
+        self.c = c = SimpleNamespace(connected=True, world_id=str(uuid4()), server_epoch=3,
+            session_epoch=7, save_profile=OWNERSHIP_PROFILE, save_incarnation=20, _bridge=bridge,
+            config=SimpleNamespace(player_id=actor, build_id='a'*64, ruleset_id='rules',
+                battle_resume_abi_version=1, emergency_save_abi_version=2),
+            _live_battle_runtime_id=str(uuid4()), _live_battle_owner=None, _live_save_owner=None)
+        s._companion = c
+        s._binding = s._signature()
+        self.original_binding = s._binding
+        s._profile_directory = self.root/'profile'; s._profile_directory.mkdir()
+        s._runtime = object()
+        s._game = SimpleNamespace(process=SimpleNamespace(returncode=None))
+        s._open = s._save_failed = True
+        s._revision = 2; s._save_incarnation = 20
+        s._manifest = {'battle_resume_abi_version':1}
+        s._autosave_clock = lambda: 100
+        native = NativeBinding(str(uuid4()), (actor, peer), (7,8), (20,21), 0, resumable=True)
+        bind = NativeControl(20, 7, str(uuid4()), 1, Opcode.BIND, data=native.pack())
+        self.intent = BattleIntent(c.world_id, actor, c.config.build_id, c.config.ruleset_id,
+            OWNERSHIP_PROFILE, 3, 7, 20, c._live_battle_runtime_id, native.generation,
+            bind.battle_id, 2, 'c'*64, bind)
+        self.path = s._profile_directory/'pending-battle.json'
+        s._battle_retained = (s._game,s._runtime,bridge,self.intent.battle_id,self.intent.generation,
+                             2,'c'*64,20,self.intent.runtime_id)
+        self.write_intent(self.intent)
+        self.original_bytes = self.path.read_bytes()
+        lost = asyncio.Event(); lost.set()
+        self.old_emergency = SimpleNamespace(session=(c.world_id,7,20), bridge=bridge,
+            task=object(), result=SimpleNamespace(state='battle_waiting',can_close=False), lost=lost)
+        async def retire(*args):
+            self.assertIs(s._emergency, self.old_emergency)
+            self.assertEqual(s._binding, self.original_binding)
+            self.assertTrue(s._save_failed)
+            self.assertEqual(args[1:], (self.intent, bridge))
+            c._emergency_controller = None
+        self.old_emergency.retire_after_battle_recovery = AsyncMock(side_effect=retire)
+        c._emergency_controller = s._emergency = self.old_emergency
+        c.connected = False
+
+    def write_intent(self, intent):
+        value = intent.value()
+        self.path.write_bytes(_json_bytes(dict(format=FORMAT,intent=value,
+            sha256=hashlib.sha256(_json_bytes(value)).hexdigest())))
+
+    async def asyncTearDown(self):
+        for task in (self.session._autosave_task,self.session._emergency_task):
+            if task is not None:
+                task.cancel()
+                await asyncio.gather(task,return_exceptions=True)
+
+    def completion(self, *, lease=9, server=4):
+        i = self.intent
+        renewed = RenewedBattleSession(i.world_id,i.player_id,i.build_id,i.ruleset_id,i.save_profile,
+                                      server,lease,i.incarnation,i.runtime_id)
+        return BattleCompletion(i.battle_id,i.generation,i.canonical_revision,i.canonical_sha256,
+                                renewed_session=renewed)
+
+    async def finish(self, *, lease=9, server=4, remove=True):
+        self.c.connected=True;self.c.session_epoch=lease;self.c.server_epoch=server
+        if remove:self.path.unlink()
+        return self.completion(lease=lease,server=server)
+
+    async def recover(self, callback):
+        with (patch('emerald_multiplayer.launcher_session.GameInstallation.verify') as verify,
+              patch('emerald_multiplayer.battle_recovery_session.NativeBattleRecoverySession',create=True) as controller,
+              patch('emerald_multiplayer.battle_recovery_session.verify_recovery_completion',return_value={}),
+              patch('emerald_multiplayer.emergency_save.EmergencySaveController') as emergency,
+              patch.object(self.session,'_watch_emergency',new_callable=AsyncMock),
+              patch.object(self.session,'_schedule_autosave',new_callable=AsyncMock)):
+            controller.return_value.run = AsyncMock(side_effect=callback)
+            emergency.return_value = SimpleNamespace(lost=asyncio.Event(), result=SimpleNamespace(state='unarmed'))
+            value = await self.session.recover_battle()
+            verify.assert_called_once()
+            return value,controller,emergency
+
+    async def test_exact_terminal_receipt_adopts_renewed_session_then_new_emergency_and_save_policy(self):
+        s = self.session
+        self.assertTrue(s.can_recover_battle)
+        original_game, original_runtime, original_bridge = s._game,s._runtime,self.c._bridge
+        result,controller,emergency = await self.recover(self.finish)
+        controller.assert_called_once_with(self.c,s._profile_directory,original_intent=self.intent)
+        controller.return_value.run.assert_awaited_once_with()
+        self.old_emergency.retire_after_battle_recovery.assert_awaited_once()
+        emergency.assert_called_once()
+        self.assertEqual(s._binding,s._signature())
+        self.assertFalse(s._save_failed)
+        self.assertEqual(s._revision,2)
+        self.assertEqual(s._autosave_due,400)
+        self.assertTrue(s.can_save)
+        self.assertFalse(s.can_recover_battle)
+        self.assertEqual(s.status.code,'battle_recovered')
+        self.assertIs(s._game,original_game);self.assertIs(s._runtime,original_runtime)
+        self.assertIs(self.c._bridge,original_bridge)
+        self.assertEqual(result.canonical_sha256,'c'*64)
+
+    async def test_connected_peer_keeps_same_authenticated_lease_after_exact_release(self):
+        self.c.connected=True
+        self.old_emergency.lost.clear()
+        self.old_emergency.result.state='armed';self.old_emergency.task=None
+        async def release_on_existing_lease():
+            return await self.finish(lease=7,server=3)
+        await self.recover(release_on_existing_lease)
+        self.assertEqual(self.session._binding,self.original_binding)
+        self.assertTrue(self.session.can_save)
+        self.old_emergency.retire_after_battle_recovery.assert_awaited_once()
+
+    async def test_no_emergency_capability_drops_retired_controller_without_rearming_it(self):
+        self.c.config.emergency_save_abi_version=0
+        _,_,successor = await self.recover(self.finish)
+        self.old_emergency.retire_after_battle_recovery.assert_awaited_once()
+        successor.assert_not_called()
+        self.assertIsNone(self.session._emergency)
+        self.assertIsNone(self.session._emergency_task)
+        self.assertTrue(self.session.can_save)
+        self.assertEqual(self.session.status.code,'battle_recovered')
+
+    async def test_malformed_or_foreign_intent_and_missing_capability_never_offer_recovery(self):
+        s = self.session
+        for field,value in (('runtime_id',str(uuid4())),('canonical_revision',3),('lease_epoch',8)):
+            with self.subTest(field=field):
+                self.write_intent(replace(self.intent,**{field:value}))
+                self.assertFalse(s.can_recover_battle)
+        self.path.write_bytes(self.original_bytes)
+        for target,field,value in ((s._manifest,'battle_resume_abi_version',0),
+                                  (self.c.config,'battle_resume_abi_version',0),
+                                  (self.c._bridge,'incarnation',21),
+                                  (s._game.process,'returncode',0)):
+            old=target[field] if isinstance(target,dict) else getattr(target,field)
+            if isinstance(target,dict):target[field]=value
+            else:setattr(target,field,value)
+            self.assertFalse(s.can_recover_battle)
+            if isinstance(target,dict):target[field]=old
+            else:setattr(target,field,old)
+        self.path.write_text('malformed')
+        self.assertFalse(s.can_recover_battle)
+
+    async def test_duplicate_action_and_cancellation_retain_original_core_intent_and_binding(self):
+        entered=asyncio.Event()
+        async def wait():entered.set();await asyncio.Event().wait()
+        task=asyncio.create_task(self.recover(wait))
+        await entered.wait()
+        self.assertFalse(self.session.can_recover_battle)
+        with self.assertRaises(LauncherSessionError):await self.session.recover_battle()
+        self.assertFalse(self.session.can_save)
+        task.cancel()
+        with self.assertRaises(asyncio.CancelledError):await task
+        self.assertEqual(self.path.read_bytes(),self.original_bytes)
+        self.assertEqual(self.session._binding,self.original_binding)
+        self.assertTrue(self.session._retain_interrupted_core())
+        self.assertEqual(self.session.status.code,'battle_recovery_held')
+        self.assertTrue(self.session.can_recover_battle)
+
+    async def test_forged_terminal_descriptor_never_retires_controller_or_adopts_lease(self):
+        async def corrupt():
+            await self.finish(remove=False)
+            return replace(self.completion(),canonical_sha256='d'*64)
+        with self.assertRaises(LauncherSessionError):await self.recover(corrupt)
+        self.assertEqual(self.path.read_bytes(),self.original_bytes)
+        self.assertEqual(self.session._binding,self.original_binding)
+        self.assertTrue(self.session._save_failed)
+        self.old_emergency.retire_after_battle_recovery.assert_not_awaited()
+
+    async def test_exact_result_with_pending_intent_still_refuses(self):
+        async def pending():return await self.finish(remove=False)
+        with self.assertRaises(LauncherSessionError):await self.recover(pending)
+        self.assertEqual(self.path.read_bytes(),self.original_bytes)
+        self.assertEqual(self.session._binding,self.original_binding)
+        self.old_emergency.retire_after_battle_recovery.assert_not_awaited()
+
+    async def test_replacement_bridge_cannot_inherit_matching_numeric_incarnation(self):
+        original=self.c._bridge
+        self.c._bridge=SimpleNamespace(**vars(original))
+        self.assertFalse(self.session.can_recover_battle)
+        self.c._bridge=original
+        async def changed():
+            result=await self.finish()
+            self.c._bridge=SimpleNamespace(**vars(original))
+            return result
+        with self.assertRaises(LauncherSessionError):await self.recover(changed)
+        self.assertEqual(self.session._binding,self.original_binding)
+        self.old_emergency.retire_after_battle_recovery.assert_not_awaited()
+
+    async def test_unresolved_export_created_during_recovery_prevents_save_policy_adoption(self):
+        async def changed():
+            result=await self.finish()
+            (self.session._profile_directory/'pending-export.json').write_text('retained')
+            return result
+        with self.assertRaises(LauncherSessionError):await self.recover(changed)
+        self.assertTrue((self.session._profile_directory/'pending-export.json').exists())
+        self.assertEqual(self.session._binding,self.original_binding)
+        self.assertFalse(self.session.can_save)
+        self.old_emergency.retire_after_battle_recovery.assert_not_awaited()
+
+    async def test_retirement_failure_keeps_save_blocked_and_original_launcher_binding(self):
+        self.old_emergency.retire_after_battle_recovery.side_effect=ValueError('private path and token')
+        with self.assertRaises(LauncherSessionError) as error:await self.recover(self.finish)
+        self.assertNotIn('private path',str(error.exception))
+        self.assertEqual(self.session._binding,self.original_binding)
+        self.assertFalse(self.session.can_save)
+        self.assertTrue(self.session._retain_interrupted_core())
+
+    async def test_never_armed_unregistered_controller_is_replaced_without_retirement(self):
+        self.c._emergency_controller=None
+        self.old_emergency.session=self.old_emergency.bridge=self.old_emergency.task=None
+        self.old_emergency.result.state='unarmed';self.old_emergency.lost.clear()
+        await self.recover(self.finish)
+        self.old_emergency.retire_after_battle_recovery.assert_not_awaited()
+        self.assertTrue(self.session.can_save)
+
+    async def test_terminal_adoption_retry_keeps_original_intent_after_pending_unlink(self):
+        async def terminal():
+            result=await self.finish()
+            # The recovery service tests verify this receipt's native contents;
+            # this launcher fixture models its retained publication boundary.
+            (self.session._profile_directory/(self.intent.battle_id+'.battle-recovery-complete.json')).write_text('{}')
+            return result
+        retire=self.old_emergency.retire_after_battle_recovery.side_effect
+        self.old_emergency.retire_after_battle_recovery.side_effect=OSError('disk unavailable')
+        with self.assertRaises(LauncherSessionError):await self.recover(terminal)
+        self.assertFalse(self.path.exists())
+        self.assertEqual(self.session._battle_recovery_intent,self.intent)
+        self.assertTrue(self.session.can_recover_battle)
+        self.assertEqual(self.session._binding,self.original_binding)
+        self.old_emergency.retire_after_battle_recovery.side_effect=retire
+        async def receipt_only():return self.completion()
+        _,controller,_=await self.recover(receipt_only)
+        controller.assert_called_once_with(self.c,self.session._profile_directory,original_intent=self.intent)
+        self.assertTrue(self.session.can_save)
+        self.assertIsNone(self.session._battle_recovery_intent)
+
+    async def test_explicit_game_exit_drains_recovery_before_runtime_lease_context_exits(self):
+        s=self.session;self.c.connected=True
+        self.c.config.emergency_save_abi_version=0
+        s._emergency=None;s._save_failed=False
+        game=s._game
+        game.startup=SimpleNamespace(mirror=SimpleNamespace(revision=2))
+        entered=asyncio.Event();exit_game=asyncio.Event();drained=asyncio.Event();lease_exited=[]
+        async def game_wait():
+            entered.set();await exit_game.wait();game.process.returncode=0;return 0
+        game.wait=game_wait
+        @asynccontextmanager
+        async def runtime_open():
+            try:yield game
+            finally:
+                self.assertTrue(drained.is_set())
+                lease_exited.append(True)
+        s._runtime=SimpleNamespace(open=runtime_open)
+        async def recovery():
+            try:await asyncio.Event().wait()
+            finally:
+                await asyncio.sleep(0)
+                drained.set()
+                s._battle_recovery_task=None
+        with (patch.object(s,'_ready',new_callable=AsyncMock,return_value=2),
+              patch.object(s,'_schedule_autosave',new_callable=AsyncMock),
+              patch('emerald_multiplayer.launcher_session.GameInstallation.verify')):
+            play=asyncio.create_task(s.play())
+            await entered.wait()
+            pending=asyncio.create_task(recovery())
+            s._battle_recovery_task=pending
+            await asyncio.sleep(0)
+            exit_game.set()
+            self.assertEqual(await play,0)
+        self.assertTrue(pending.cancelled())
+        self.assertEqual(lease_exited,[True])
+        self.assertEqual(self.path.read_bytes(),self.original_bytes)
+
+
+class BattleRecoveryWorkerTests(unittest.TestCase):
+    def test_explicit_single_flight_action_keeps_worker_game_and_sanitizes_failure(self):
+        created=threading.Event();entered=threading.Event();release=threading.Event();instances=[]
+        class Session(ControlledSession):
+            async def recover_battle(self):
+                entered.set()
+                while not release.is_set():await asyncio.sleep(.005)
+                raise ValueError('secret session and file path')
+        def factory(*args,**kwargs):
+            s=Session(*args,**kwargs);instances.append(s);created.set();return s
+        worker=SessionWorker(object(),Path('private'),factory=factory)
+        try:
+            self.assertFalse(worker.request_battle_recovery())
+            worker.start(LaunchRequest('join',Path('invitation.json')))
+            self.assertTrue(created.wait(2));s=instances[0]
+            s.release_connect.set();self.assertTrue(s.played.wait(2))
+            s.status=SessionStatus(SessionState.RUNNING,'host_loss_battle_waiting',battle_recovery_available=True)
+            worker._publish(s.status)
+            self.assertTrue(worker.request_battle_recovery())
+            self.assertFalse(worker.request_battle_recovery())
+            self.assertFalse(worker.request_save())
+            self.assertFalse(worker.request_autosave(False))
+            self.assertTrue(entered.wait(2));release.set()
+            deadline=time.monotonic()+2
+            while worker._battle_recovery_pending and time.monotonic()<deadline:time.sleep(.01)
+            self.assertTrue(worker.busy);self.assertFalse(s.play_cancelled)
+            events=[]
+            while not worker.events.empty():events.append(worker.events.get_nowait())
+            self.assertTrue(any(e.code=='battle_recovery_held' for e in events))
+            self.assertNotIn('secret',repr(events))
+        finally:
+            release.set()
+            for s in instances:
+                s.release_connect.set();s.release_game.set();s.release_cleanup.set()
+            if worker._thread:worker._thread.join(4)
+        self.assertFalse(worker.busy)
+
+
+class BattleRecoveryWidgetTests(unittest.TestCase):
+    def test_recovery_button_requires_explicit_verified_availability_and_keeps_window_open(self):
+        import tkinter as tk
+        try:root=tk.Tk()
+        except tk.TclError as error:self.skipTest('Tk display unavailable: '+str(error))
+        root.withdraw()
+        self.addCleanup(root.destroy)
+        class Worker:
+            busy=holds_game=True
+            events=queue.SimpleQueue()
+            requested=0
+            def request_battle_recovery(self):self.requested+=1;return True
+            def cancel_startup(self):raise AssertionError('retained core must not be canceled')
+        worker=Worker();window=LauncherWindow(root,worker)
+        self.assertEqual(str(window.recover_battle_button.cget('state')),'disabled')
+        worker.events.put(UiEvent('status','host_loss_battle_waiting','running'))
+        window.poll()
+        self.assertEqual(str(window.recover_battle_button.cget('state')),'disabled')
+        worker.events.put(UiEvent('status','host_loss_battle_waiting','running',True,True))
+        window.poll()
+        self.assertEqual(str(window.recover_battle_button.cget('state')),'normal')
+        window.close()
+        self.assertFalse(window.closing)
+        window.recover_battle()
+        self.assertEqual(worker.requested,1)
+        self.assertEqual(str(window.recover_battle_button.cget('state')),'disabled')
+        self.assertEqual(str(window.save_button.cget('state')),'disabled')
+        self.assertEqual(window.message.get(),status_text('battle_recovering'))
+        self.assertTrue(root.winfo_exists())
+
