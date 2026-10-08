@@ -6,6 +6,8 @@ No save editing, arbitrary RAM writes, state loading, or synthetic Pokémon.
 JSON lines on stdin support keys, snapshot, replay, and finish actions. Replay
 reads an earlier preparation's recorded ordinary inputs, with optional inclusive
 from_label/to_label bounds. All replayed inputs are recorded independently.
+Repeated inputs may set until_field=true to stop after the game returns to
+ordinary field activity; the evidence records the actual repetition count.
 """
 from __future__ import annotations
 
@@ -118,8 +120,14 @@ async def run(args):
             party_read_only_hex=party.hex(),
             party_health=[dict(level=party[i*100+84], hp=int.from_bytes(party[i*100+86:i*100+88], "little"),
                 max_hp=int.from_bytes(party[i*100+88:i*100+90], "little")) for i in range(party_count)])
+        # Replaying a recorded route may repeat labels. Keep every framebuffer
+        # instead of replacing earlier evidence from the same preparation.
+        filename = label + ".png"
+        if (root / filename).exists():
+            filename = f"{label}-{len(evidence['snapshots']):04d}.png"
+        row["image"] = filename
         evidence["snapshots"].append(row)
-        await core.command(f"P {root / (label + '.png')}")
+        await core.command(f"P {root / filename}")
         persist()
         print(json.dumps({k: v for k, v in row.items() if k != "party_read_only_hex"}), flush=True)
         return row
@@ -133,9 +141,20 @@ async def run(args):
             repeat = command.get("repeat", 1)
             if type(repeat) is not int or not 1 <= repeat <= 100:
                 raise ValueError("bounded repeat count required")
+            until_field = command.get("until_field", False)
+            if type(until_field) is not bool:
+                raise ValueError("until_field must be a boolean")
+            executed = 0
             for _ in range(repeat):
                 await advance(command.get("keys", 0), command.get("frames", 18))
                 await advance(0, command.get("release", 60))
+                executed += 1
+                if until_field:
+                    pose, _ = inspect_mailbox(await core.read(manifest["mailbox_address"], 128))
+                    if pose.activity == 1:
+                        break
+            if until_field:
+                command["executed_repeats"] = executed
         await snapshot(command.get("label", f"step-{len(evidence['commands']):03d}"))
 
     try:
