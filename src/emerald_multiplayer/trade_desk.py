@@ -22,6 +22,9 @@ from .ownership_storage import _uuid
 from .protocol import MAX_COUNTER
 from .storage import Checkpoint, StorageError, _counter, _player_id
 from .trade_flash import TradeFlashError, build_party_swap
+from .trade_eligibility import (
+    TradeEligibilityError, validate_party_offer, validate_trade_pair,
+)
 from .trade_storage import TradeCheckpointStore, TradeResult, TradeSide
 
 
@@ -165,6 +168,12 @@ class TradeDesk:
         record = next((r for r in owned.records if r.serial == serial), None)
         if record is None or not record.location.startswith("party:"):
             raise StorageError("invalid_trade", "offered instance must be in this player's party")
+        # Refuse unsupported native effects before changing an offer or its
+        # confirmations. This capability remains a development exact exchange.
+        try:
+            validate_party_offer(checkpoint.payload, serial)
+        except TradeEligibilityError as error:
+            raise StorageError(error.code, str(error)) from error
         offered = _Offer(checkpoint, serial, record.species)
         if proposal.offers.get(player) != offered:
             if proposal.edit == MAX_COUNTER:
@@ -207,10 +216,16 @@ class TradeDesk:
             if head != proposal.offers[participant].checkpoint:
                 proposal.confirmed.clear()
                 raise StorageError("revision_conflict", "a participant's checkpoint changed after offering")
+        left, right = (proposal.offers[p] for p in proposal.players)
+        try:
+            validate_trade_pair(left.checkpoint.payload, left.serial,
+                                right.checkpoint.payload, right.serial)
+        except TradeEligibilityError as error:
+            proposal.confirmed.clear()
+            raise StorageError(error.code, str(error)) from error
         proposal.confirmed.add(player)
         if len(proposal.confirmed) < 2:
             return self._public(proposal)
-        left, right = (proposal.offers[p] for p in proposal.players)
         try:
             post = build_party_swap(left.checkpoint.payload, left.serial, right.checkpoint.payload, right.serial)
             sides = tuple(TradeSide(participant, current_lease, offered.checkpoint.revision,

@@ -11,6 +11,8 @@ from emerald_multiplayer.storage import StorageError
 from emerald_multiplayer.trade_desk import TradeDesk
 from emerald_multiplayer.trade_storage import TradeCheckpointStore
 from emerald_multiplayer.trade_flash import TradeFlashError
+from emerald_multiplayer.trade_eligibility import TradeEligibilityError
+from test_flash import _rewrite
 from test_ownership_storage import source_flash, owned_flash
 
 
@@ -81,6 +83,35 @@ class TradeDeskTests(unittest.TestCase):
         self.assertEqual(self.desk.status(*self.actor(0), self.transaction)['confirmations'], [])
         for index in (0, 1):
             self.assertEqual(self.store.read_checkpoint(*self.actor(index)), self.heads[index])
+        self.assertEqual(self.confirm(1, ready)['state'], 'offering')
+        self.assertEqual(self.confirm(0, ready)['state'], 'committed')
+
+    def test_unsupported_mail_offer_is_rejected_before_proposal_or_head_changes(self):
+        head = self.heads[0]
+        # Party-only byte85 is a native attached-mail index. This remains a
+        # valid ordinary checkpoint, but is outside the trade capability.
+        payload = _rewrite(head.payload, 0, 1, 0x238 + 85, b'\x00')
+        self.heads[0] = self.store.commit_checkpoint(*self.actor(0), str(uuid4()),
+            head.revision, payload, self.store.build_id, self.store.ruleset_id,
+            OWNERSHIP_PROFILE)
+        self.assert_code('mail_unsupported', self.offer, 0)
+        view = self.desk.status(*self.actor(0), self.transaction)
+        self.assertEqual(view['offers'], [])
+        self.assertEqual(view['confirmations'], [])
+        for index in (0, 1):
+            self.assertEqual(self.store.read_checkpoint(*self.actor(index)), self.heads[index])
+        self.assertIsNone(self.store.read_trade(*self.actor(0), self.transaction))
+
+    def test_final_eligibility_failure_clears_consent_before_paired_commit(self):
+        ready = self.ready()
+        self.confirm(0, ready)
+        with patch('emerald_multiplayer.trade_desk.validate_trade_pair',
+                side_effect=TradeEligibilityError('egg_unsupported', 'native egg support is pending')):
+            self.assert_code('egg_unsupported', self.confirm, 1, ready)
+        self.assertEqual(self.desk.status(*self.actor(0), self.transaction)['confirmations'], [])
+        for index in (0, 1):
+            self.assertEqual(self.store.read_checkpoint(*self.actor(index)), self.heads[index])
+        self.assertIsNone(self.store.read_trade(*self.actor(0), self.transaction))
         self.assertEqual(self.confirm(1, ready)['state'], 'offering')
         self.assertEqual(self.confirm(0, ready)['state'], 'committed')
 

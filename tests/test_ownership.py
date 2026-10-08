@@ -40,6 +40,7 @@ def make_owned_mon(serial: int, *, personality: int = 7, species: int = 265,
         value = struct.unpack_from("<I", secure, index * 4)[0]
         struct.pack_into("<I", mon, 32 + index * 4, value ^ personality ^ ot_id)
     mon[84] = 7
+    mon[85] = 0xFF  # Native MAIL_NONE, rather than an attached mail slot zero.
     struct.pack_into("<HH", mon, 86, 18, 20)
     return bytes(mon)
 
