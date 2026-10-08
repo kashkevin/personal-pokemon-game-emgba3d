@@ -63,6 +63,10 @@ Measured headless transfers took roughly 17 seconds for export and 35 seconds fo
 
 Run the Python suite with `PYTHONPATH=src` and `python -m unittest discover -s tests -q`. Coordinator fault tests use the real checkpoint client, SQLite store, and mailbox codecs with simulated ROM replies; they complement the actual ROM proof. They exercise unknown commit outcomes, lost final acknowledgments, stale heads, concurrent wrappers/writers, wrong bindings, cancellation, corrupt journals, and failed recovery receipts.
 
+The exact final engine source passed unfiltered `make -j4 -Otarget check` with exit code 0: 5,414 PASSED, 18 KNOWN_FAILING, 421 TO_DO, and 9 EXPECT_FAILING, total 5,862. These categories match the unchanged baseline exactly. The completed log is archived with the final build; interrupted runs against earlier code are not acceptance evidence.
+
+The final Python suite passed **176 tests with no skips** on Windows Python 3.14 and WSL Python 3.12. Both included read-only parsing of the immutable accepted A/B saves, whose hashes remain unchanged. Checkpoint integration tests now use realistic transfer and idle deadlines; dedicated timeout tests retain explicit short limits. A legacy 1.5-second companion startup check timed out during concurrent engine testing, passed in isolation, and passed unchanged in the final suite after that CPU load ended. `LIVE_CHECKPOINT_POC` identifies this verified slice in the engine and project repositories.
+
 Next Phase 3 work is stable Pokémon ownership and mutation hooks, followed by the planned trade/battle proofs. Autosave timing, visible pending-save behavior, server-loss/offline play, and interrupted battle policy still need decisions. Four actual clients, Windows GUI integration, LAN/Internet acceptance, transport encryption, and the downloadable Host/Join package remain unverified.
 
 The [Local Soft Reset feature](local-soft-reset.md) remains queued behind its encounter/RNG foundations. This change adds no encounter reset command, shiny-rate change, hunt counter, or event reroll path.

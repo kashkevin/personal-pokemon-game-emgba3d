@@ -199,5 +199,31 @@
       ],
       "private_database_backup_integrity": "ok"
     }
-  ]
+  ],
+  "checkpoint_tag": "LIVE_CHECKPOINT_POC",
+  "python_validation": {
+    "Windows_Python_3_14": {
+      "tests": 176,
+      "passed": true,
+      "skipped": 0
+    },
+    "WSL_Python_3_12": {
+      "tests": 176,
+      "passed": true,
+      "skipped": 0
+    },
+    "private_A_B_hashes_unchanged": true
+  },
+  "engine_validation": {
+    "command": "make -j4 -Otarget check",
+    "exit_code": 0,
+    "unfiltered": true,
+    "PASSED": 5414,
+    "KNOWN_FAILING": 18,
+    "TO_DO": 421,
+    "EXPECT_FAILING": 9,
+    "TOTAL": 5862,
+    "matches_baseline_categories": true,
+    "log_sha256": "80a570bb4baeab9c4fe343abfb552dc7ec36bf244f7604c624a6070df9938b2e"
+  }
 }
