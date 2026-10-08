@@ -60,14 +60,20 @@ Save now also works when autosave is off. If the game is busy, leave its menu
 or battle and press Save now again. The game's ordinary Save menu does not
 confirm that progress reached the host.
 After a successful save, close the game through its title-bar Close button,
-then close the launcher. A recovery message means the private recovery files
-must be retained; reopen through Host Game or Join Game as the message directs.
+then close the launcher. Keep private recovery files and follow the displayed
+recovery message. If it tells you to keep the game open, leave both windows open.
 Closing the game does not itself save progress to the host.
 
 If the host reports an unresolved multiplayer battle, the launcher blocks a
-fresh game session. Keep the recovery files. This guard preserves the waiting
-battle; resuming that battle is not implemented yet. Emergency saving and
-automatic disconnection after host loss are also not implemented in this preview.
+fresh game session. Keep the original game open and retain the recovery files.
+This build preserves the waiting battle but cannot resume it yet.
+
+If the host disconnects during normal exploration or an ordinary save, the
+launcher attempts to preserve that exact save locally for rejoining. Wait for
+its status before closing. A confirmed preserved save can be reconciled through
+Host Game or Join Game after the host returns. An unsafe or uncertain operation
+may keep the game held without a completed save; do not close it while the
+launcher asks you to keep it open.
 
 Default game controls
 
