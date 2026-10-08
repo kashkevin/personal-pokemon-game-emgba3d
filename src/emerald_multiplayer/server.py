@@ -1,6 +1,6 @@
-"""Four-player local/LAN presence, with opt-in authenticated checkpoints.
+"""Four-player presence, with opt-in authenticated checkpoints and pinned TLS.
 
-Public binds and public-source peers remain disabled. Checkpoints are ordinary
+Public transport requires explicit TLS and a durable authenticated world. Checkpoints are ordinary
 validated save containers; they are never imported into a running ROM here.
 """
 
@@ -23,6 +23,7 @@ from .protocol import (
     validate_identity, validate_presence, validate_checkpoint_common, validate_checkpoint_request,
 )
 from .storage import StorageError
+from .secure_transport import ServerTlsConfig, is_numeric_unicast_address
 from .trade_protocol import TRADE_TYPES, validate_trade_common, validate_trade_request
 from .team_protocol import TEAM_TYPES, validate_team_common, validate_team_request
 
@@ -222,6 +223,7 @@ class WorldServer:
         self._handlers: set[asyncio.Task[None]] = set()
         self._connections: set[asyncio.StreamWriter] = set()
         self._allow_lan = False
+        self._public_transport = False
         self._closing = False
 
     @property
@@ -252,17 +254,34 @@ class WorldServer:
             roster[session.player_id] = session.session_epoch
         return roster
 
-    async def start(self, host: str = "127.0.0.1", port: int = 8765, *, allow_lan: bool = False) -> None:
+    async def start(self, host: str = "127.0.0.1", port: int = 8765, *, allow_lan: bool = False,
+                    tls: ServerTlsConfig | None = None, public: bool = False) -> None:
         if self._server is not None:
             raise RuntimeError("server is already started")
-        if not is_local_address(host, allow_lan):
+        if type(allow_lan) is not bool or type(public) is not bool:
+            raise ValueError("transport opt-ins must be booleans")
+        if tls is not None and not isinstance(tls, ServerTlsConfig):
+            raise ValueError("TLS requires a ServerTlsConfig")
+        if public:
+            from .storage import CheckpointStore
+            if tls is None or not isinstance(self.store, CheckpointStore):
+                raise ValueError("public transport requires TLS and a durable authenticated store")
+            if not is_numeric_unicast_address(host):
+                raise ValueError("public transport requires a specific numeric unicast bind address")
+        elif not is_local_address(host, allow_lan):
             raise ValueError("bind a numeric loopback address, or an explicit LAN address with allow_lan; public/wildcard hosting is disabled")
         if type(port) is not int or not 0 <= port <= 65535:
             raise ValueError("port must be between 0 and 65535")
         self._allow_lan = allow_lan
+        self._public_transport = public
         self._closing = False
+        tls_options = {} if tls is None else {
+            "ssl": tls.build_context(), "ssl_handshake_timeout": tls.handshake_timeout,
+            "ssl_shutdown_timeout": tls.shutdown_timeout,
+        }
         # Bind first so a failed bind cannot fence a currently serving world.
-        listener = await asyncio.start_server(self._accept, host, port, limit=MAX_FRAME_BYTES + 4, start_serving=False)
+        listener = await asyncio.start_server(self._accept, host, port, limit=MAX_FRAME_BYTES + 4,
+                                             start_serving=False, **tls_options)
         try:
             if self.store is not None:
                 self._world_metadata = self.store.begin_server_boot()
@@ -321,7 +340,9 @@ class WorldServer:
             peer = writer.get_extra_info("peername")
             if self._closing:
                 return
-            if peer is None or not is_local_address(peer[0], self._allow_lan):
+            peer_allowed = (is_numeric_unicast_address(peer[0]) if self._public_transport
+                            else is_local_address(peer[0], self._allow_lan)) if peer else False
+            if not peer_allowed:
                 await self._reject(writer, "public_exposure_disabled", "this prototype permits local/LAN development only")
                 return
             # Bound pre-hello sockets as well as the admitted player count.

@@ -28,6 +28,7 @@ from .protocol import (
     read_message, validate_heartbeat, validate_hello, validate_presence,
 )
 from .server import is_local_address
+from .secure_transport import ClientTlsConfig, is_numeric_unicast_address
 
 BASELINE_RULESET = "baseline-rhh1.17.1-mailbox-v1"
 _UINT32 = 0xFFFFFFFF
@@ -134,6 +135,9 @@ class CompanionConfig:
     remote_timeout: float = 20.0
     send_timeout: float = 1.0
     server_credential: bytes | None = field(default=None, repr=False)
+    server_tls: ClientTlsConfig | None = None
+    public_server: bool = False
+    expected_world_id: str | None = None
     build_id: str = field(init=False)
     ruleset_id: str = field(init=False, default=BASELINE_RULESET)
     save_enabled: bool = field(init=False, default=False)
@@ -160,8 +164,24 @@ class CompanionConfig:
             raise ValueError("server credential must contain exactly 32 random bytes")
         if not is_local_address(self.ipc_host):
             raise ValueError("binary IPC must bind a numeric loopback address")
-        if not is_local_address(self.server_host, allow_lan=True):
+        if type(self.public_server) is not bool:
+            raise ValueError("public_server must be a boolean")
+        if self.server_tls is not None and not isinstance(self.server_tls, ClientTlsConfig):
+            raise ValueError("server_tls requires a ClientTlsConfig")
+        if self.public_server:
+            if self.server_tls is None or self.server_credential is None:
+                raise ValueError("public transport requires pinned TLS and a player credential")
+            if not is_numeric_unicast_address(self.server_host):
+                raise ValueError("public transport requires a specific numeric unicast destination")
+        elif not is_local_address(self.server_host, allow_lan=True):
             raise ValueError("this prototype connects only to numeric local/LAN server addresses")
+        if self.expected_world_id is not None:
+            try:
+                valid_world = str(UUID(self.expected_world_id)) == self.expected_world_id
+            except (ValueError, TypeError, AttributeError):
+                valid_world = False
+            if not valid_world or self.server_credential is None:
+                raise ValueError("expected_world_id requires a canonical world UUID and player credential")
         for name, low in (("ipc_port", 0), ("server_port", 1)):
             value = getattr(self, name)
             if type(value) is not int or not low <= value <= 65535:
@@ -213,6 +233,8 @@ def validate_welcome(message: dict[str, Any], config: CompanionConfig) -> dict[s
         raise ProtocolError("identity_mismatch", "server build/ruleset is incompatible")
     if message["player_id"] != config.player_id:
         raise ProtocolError("identity_mismatch", "server assigned another player identity")
+    if config.expected_world_id is not None and message.get("world_id") != config.expected_world_id:
+        raise ProtocolError("identity_mismatch", "server world differs from the expected durable world")
     if type(message["max_players"]) is not int or message["max_players"] != MAX_PLAYERS:
         raise ProtocolError("invalid_server_message", "server player limit is incompatible")
     _integer(message["session_epoch"], 1, MAX_COUNTER, "session_epoch")
@@ -269,6 +291,7 @@ class BridgeSession:
 class Companion:
     def __init__(self, config: CompanionConfig) -> None:
         self.config = config
+        self._server_tls_context = config.server_tls.build_context() if config.server_tls is not None else None
         self.connected = False
         self.session_epoch: int | None = None
         self.last_error: str | None = None
@@ -555,7 +578,19 @@ class Companion:
         writer: asyncio.StreamWriter | None = None
         tasks: list[asyncio.Task] = []
         try:
-            reader, writer = await asyncio.wait_for(asyncio.open_connection(self.config.server_host, self.config.server_port, limit=16_388), self.config.handshake_timeout)
+            tls = self.config.server_tls
+            tls_options = {} if tls is None else {
+                "ssl": self._server_tls_context, "server_hostname": self.config.server_host,
+                "ssl_handshake_timeout": tls.handshake_timeout,
+                "ssl_shutdown_timeout": tls.shutdown_timeout,
+            }
+            connect_timeout = min(self.config.handshake_timeout, tls.handshake_timeout) if tls else self.config.handshake_timeout
+            reader, writer = await asyncio.wait_for(asyncio.open_connection(
+                self.config.server_host, self.config.server_port, limit=16_388, **tls_options), connect_timeout)
+            if tls is not None:
+                # Verify after TLS chain validation and before constructing or
+                # sending hello, which may contain the player's credential.
+                tls.verify_peer(writer)
             self._remote_writer = writer
             hello = {
                 "type": "hello", "protocol": PROTOCOL_VERSION,
