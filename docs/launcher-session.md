@@ -82,7 +82,7 @@ After interruption, a fresh `EnrollmentRuntime(...).recover()` validates the exa
 
 Both live enrollment and closed recovery capture their authenticated session before waiting for the lifecycle lock and recheck it inside that lock. A reconnect while waiting cannot start a grant/export or canonical restore under a different session. These optional admission fences preserve existing callers' behavior and add no wire operation.
 
-Remote source submission/host approval and enrollment GUI integration are still missing. This backend accepts host-approved private files. A brand-new character still needs ordinary New Game preparation; the [four-player prepare harness](../scripts/multiplayer/four_player_proof.py) is a reference, not a production bootstrap API. Own-dump import/patch application, required 18-starter selection and character customization remain separate work. Neither this backend nor its tests qualify native Windows enrollment gameplay or choose offline/interrupted-battle policy.
+This backend accepts host-approved private files. The later [setup GUI](windows-launcher-gui.md) now provides explicit approval and enrollment over this controller, plus ordinary New Game preparation through `DraftRuntime`; remote source submission is still absent. The [four-player prepare harness](../scripts/multiplayer/four_player_proof.py) is a development reference. Real own-dump patch acceptance, required 18-starter selection and character customization remain separate work. Neither this backend nor its fixture tests qualify native Windows enrollment gameplay or choose offline/interrupted-battle policy.
 
 ### Reuse review for this composition
 
@@ -106,4 +106,4 @@ The first-enrollment backend and shared process refactor subsequently passed **1
 
 Private logs under `artifacts/windows-runtime` are `enrollment-runtime-windows-1.log`, SHA-256 `cf983b3a7c8acf1f4e4662f974e6f69dd0c72aedf4b6157b5044652e10bcd901`, and `enrollment-runtime-wsl-1.log`, SHA-256 `ded9a79dc50f1b0f9d3c81f3b71caff47a3a02da5a6e4ae8133a89371f96ed9d`. The copied WSL log matches its original. These are affected-group lifecycle results, not a full-suite rerun, native enrollment gameplay or performance acceptance.
 
-New-character creation and enrollment GUI/native qualification, own-dump import/patch application, the graphical Host/Join screens, packaged Python/dependency notices, Windows keyboard/audio/gamepad qualification, final save/disconnect policies, and clean-machine/LAN/Internet tests remain separate delivery gates.
+The later [Windows launcher record](windows-launcher-gui.md) covers implemented Host/Join/setup screens, bundled Python/dependency notices, BPS import, explicit Save now and native runtime qualification. Full new-character/enrollment gameplay, a real own-dump release patch, Windows keyboard/audio/gamepad checks, final save/disconnect policies, and clean-machine/LAN/Internet tests remain separate delivery gates.
