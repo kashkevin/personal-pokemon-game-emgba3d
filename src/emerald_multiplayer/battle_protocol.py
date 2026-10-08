@@ -10,7 +10,7 @@ import re
 from .protocol import MAX_COUNTER, PROTOCOL_VERSION, ProtocolError, _fields, _integer
 from .team_protocol import _uuid
 
-BATTLE_OPERATIONS = frozenset({"invite", "invite_multi", "accept", "cancel", "status", "pending", "history", "waiting", "execute"})
+BATTLE_OPERATIONS = frozenset({"invite", "invite_multi", "accept", "claim", "cancel", "status", "pending", "history", "waiting", "execute", "resume"})
 BATTLE_TYPES = frozenset("battle_" + op for op in BATTLE_OPERATIONS)
 STATES = frozenset({"invited", "accepted", "prepared", "starting", "running", "finishing",
                     "release_authorized", "closed", "aborting", "aborted", "recovery_required"})
@@ -37,16 +37,31 @@ def validate_battle_request(message, epoch):
         "invite": {"peer", "battle_id"},
         "invite_multi": {"teammate", "opponents", "battle_id"},
         "accept": {"battle_id", "generation", "fingerprint"},
+        "claim": {"battle_id", "generation", "incarnation", "runtime_id"},
         "cancel": {"battle_id", "generation"},
         "status": {"battle_id"}, "pending": set(), "history": set(), "waiting": set(),
         "execute": {"battle_id", "generation", "incarnation", "response_b64", "response_id"},
+        "resume": {"battle_id", "generation", "incarnation", "response_b64", "response_id", "response_stage"},
     }[operation]
+    if operation in ("execute", "resume") and "admission_sha256" in message:
+        extra = extra | {"admission_sha256"}
+    identity_fields = {"incarnation", "runtime_id"}
+    if operation == "claim" or (operation in ("invite", "invite_multi", "accept") and identity_fields.intersection(message)):
+        extra = extra | identity_fields
+        _integer(message.get("incarnation"), "incarnation", 1, 0xFFFFFFFF)
+        _uuid(message.get("runtime_id"), "runtime_id")
+    provisional_fields = {"runtime_id", "admission_b64", "admission_receipt_b64"}
+    if operation in ("execute", "resume") and provisional_fields.intersection(message):
+        extra = extra | provisional_fields
     _fields(message, {"type", "request_id", "session_epoch"} | extra)
-    for key in extra - {"opponents", "fingerprint", "incarnation", "response_b64", "response_id"}:
+    for key in extra - {"opponents", "fingerprint", "incarnation", "response_b64", "response_id", "response_stage", "admission_sha256", "admission_b64", "admission_receipt_b64"}:
         _uuid(message[key], key)
     if operation == "execute":
         from .battle_execution_protocol import validate_execution_request
         validate_execution_request(message)
+    elif operation == "resume":
+        from .battle_recovery_protocol import validate_recovery_request
+        validate_recovery_request(message)
     if "opponents" in extra:
         opponents = message["opponents"]
         if type(opponents) is not list or len(opponents) != 2:
@@ -138,7 +153,10 @@ def validate_battle_reply(message, actor, world_id, epoch, request=None):
     elif message["type"] == "battle_result":
         _fields(message, common | {"result"})
         result = message["result"]
-        if op == "execute":
+        if op == "resume":
+            from .battle_recovery_protocol import validate_recovery_view
+            validate_recovery_view(message["result"], request=request)
+        elif op == "execute":
             from .battle_execution_protocol import validate_execution_view
             validate_execution_view(result, request=request)
         elif op == "waiting":
@@ -171,7 +189,7 @@ def validate_battle_reply(message, actor, world_id, epoch, request=None):
         validate_battle_request(request, epoch)
         if message["request_id"] != request["request_id"] or op != request["type"].removeprefix("battle_"):
             raise ProtocolError("invalid_server_message", "battle reply does not match its request")
-        if message["type"] == "battle_result" and op not in ("pending", "history", "waiting", "execute"):
+        if message["type"] == "battle_result" and op not in ("pending", "history", "waiting", "execute", "resume"):
             result = message["result"]
             if result["battle_id"] != request["battle_id"]:
                 raise ProtocolError("identity_mismatch", "battle reply changed the target")

@@ -15,10 +15,13 @@ def request(op, **fields):
         invite=dict(peer=PEER, battle_id=BATTLE),
         invite_multi=dict(teammate=THIRD, opponents=[PEER, FOURTH], battle_id=BATTLE),
         accept=dict(battle_id=BATTLE, generation=GENERATION, fingerprint="a" * 64),
+        claim=dict(battle_id=BATTLE, generation=GENERATION, incarnation=1, runtime_id=REQUEST),
         cancel=dict(battle_id=BATTLE, generation=GENERATION),
         status=dict(battle_id=BATTLE), pending={}, history={}, waiting={},
         execute=dict(battle_id=BATTLE, generation=GENERATION, incarnation=1,
                      response_id=0, response_b64=None),
+        resume=dict(battle_id=BATTLE, generation=GENERATION, incarnation=1,
+                    response_id=0, response_b64=None, response_stage=None),
     )[op]
     return dict(type="battle_" + op, request_id=REQUEST, session_epoch=7, **(extra | fields))
 
@@ -36,6 +39,9 @@ def reply(op):
     if op == "execute":
         from emerald_multiplayer.battle_execution_protocol import execution_view
         result = execution_view(BATTLE, GENERATION, "waiting")
+    elif op == "resume":
+        from emerald_multiplayer.battle_recovery_protocol import recovery_view
+        result = recovery_view(BATTLE, GENERATION, "waiting")
     else:
         result = [] if op in ("history", "waiting") else ([view()] if op == "pending" else view(3 if op == "invite_multi" else 2))
     return dict(type="battle_result", protocol=1, session_epoch=7, request_id=REQUEST,

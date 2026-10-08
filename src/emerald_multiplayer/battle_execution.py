@@ -7,6 +7,7 @@ Uncertain execution remains reserved; ABI 3 interruption is not auto-resumable.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 from dataclasses import dataclass, field
 from pathlib import Path
 import struct
@@ -15,6 +16,7 @@ import zlib
 from .battle_controller import ControllerValidator
 from .battle_desk import BattleError
 from .battle_execution_protocol import decode_control, encode_control, execution_view
+from .battle_execution_journal import RouteJournal
 from .battle_mailbox import Status
 from .battle_roster import validate_auxiliary_startup
 from .live_checkpoint import _atomic, _json_bytes
@@ -49,6 +51,8 @@ class _Room:
     task: object = None
     error: str | None = None
     route: object = None
+    journal: object = None
+    admitted: dict = field(default_factory=dict)
 
 
 class BattleExecutionService:
@@ -59,7 +63,7 @@ class BattleExecutionService:
     native RAM or invent route acknowledgments from this audit record.
     """
 
-    def __init__(self, desk, string_lengths, directory, *, observer=None):
+    def __init__(self, desk, string_lengths, directory, *, observer=None, resume_enabled=False):
         if desk is None:
             raise ValueError("native execution requires an enabled BattleDesk")
         ControllerValidator(string_lengths)
@@ -67,10 +71,22 @@ class BattleExecutionService:
         if observer is not None and not callable(observer):
             raise ValueError("execution observer must be a trusted callable")
         self.observer = observer
+        if type(resume_enabled) is not bool:
+            raise ValueError("resume capability must be explicitly verified")
+        self.resume_enabled = resume_enabled
         self.directory = Path(directory).resolve()
         self.directory.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.rooms = {}
         self.native_sequences = {}
+        self.recovery = None
+        from .battle_admission_host import BattleAdmissionHost
+        self.admission = BattleAdmissionHost(self)
+
+    def reconnect(self, actor, lease, request):
+        if self.recovery is None:
+            from .battle_recovery import BattleRecoveryService
+            self.recovery = BattleRecoveryService(self)
+        return self.recovery.exchange(actor, lease, request)
 
     def _persist(self, room):
         b = room.battle
@@ -80,6 +96,7 @@ class BattleExecutionService:
             generation=b.generation, fingerprint=b.fingerprint, players=list(b.players),
             leases=list(b.leases), incarnations=dict(room.ready), state=room.state,
             error=room.error,
+            admitted=room.admitted,
             pending={p: [value[2], encode_control(value[0])] for p, value in room.pending.items()},
             acknowledged={p: [value[0], encode_control(value[1])] for p, value in room.acknowledged.items()})))
 
@@ -98,6 +115,7 @@ class BattleExecutionService:
             for key in completed[:-63]:
                 del self.rooms[key]
             room = _Room(battle, path)
+            battle.resumable = self.resume_enabled
             self.rooms[battle.battle_id] = room
         if room.battle is not battle:
             raise BattleError("battle_generation_mismatch", "execution belongs to a different battle")
@@ -113,9 +131,28 @@ class BattleExecutionService:
             if room.state != "waiting":
                 raise BattleError("battle_state", "this battle cannot register another core")
             self.desk.register(actor, lease, battle.battle_id, battle.generation, incarnation)
+            if battle.resumable:
+                original, held = self.admission.prove(actor, lease, request)
+                if original["leases"] != list(battle.leases):
+                    raise BattleError("battle_incarnation_changed", "execution changed the original consent leases")
+                self.native_sequences[actor] = (lease, incarnation, held.last_sequence)
             room.ready[actor] = incarnation
             self._persist(room)
+        admission = request.get("admission_sha256")
+        if admission is not None and room.admitted.get(actor) != admission:
+            pending = room.pending.get(actor)
+            if (not battle.resumable or room.state != "admitting" or pending is None
+                    or pending[0].opcode != Opcode.BIND or room.journal is None
+                    or hashlib.sha256(pending[0].pack()).hexdigest() != admission):
+                raise BattleError("invalid_admission", "persist the exact host-issued BIND before acknowledging admission")
+            room.journal.admit(actor, admission)
+            room.admitted[actor] = admission
+            if len(room.admitted) == len(battle.players):
+                room.state = "executing"
+            self._persist(room)
         if request["response_b64"] is not None:
+            if room.state == "admitting":
+                raise BattleError("battle_not_admitted", "no native BIND may execute before every durable intent acknowledgment")
             response = decode_control(request["response_b64"], response=True)
             # Repeated polling may acknowledge the previous command while the
             # next command is being issued. Only byte-identical replay is inert.
@@ -132,6 +169,8 @@ class BattleExecutionService:
                 except ValueError as error:
                     raise BattleError("invalid_receipt", "native response differs from the outstanding command") from error
                 previous = room.acknowledged.get(actor)
+                if room.journal is not None:
+                    room.journal.append("response", actor, request["response_id"], response)
                 room.acknowledged[actor] = acknowledged
                 del room.pending[actor]
                 try:
@@ -152,7 +191,7 @@ class BattleExecutionService:
             self._persist(room)
             room.task = asyncio.create_task(self._drive(room), name="native-battle-execution")
         pending = room.pending.get(actor)
-        pending = pending if room.state == "executing" else None
+        pending = pending if room.state in ("admitting", "executing") else None
         return execution_view(battle.battle_id, battle.generation, room.state,
                               None if pending is None else pending[0], 0 if pending is None else pending[2])
 
@@ -173,6 +212,37 @@ class BattleExecutionService:
         room.dispatch_ids[actor] = dispatch_id
         room.pending[actor] = (command, future, dispatch_id)
         # Publication precedes dispatch. Cancellation/timeout keeps the intent.
+        if b.resumable:
+            if room.journal is None:
+                row = self.desk.store._connection.execute(
+                    "SELECT * FROM battle_reservations WHERE battle_id=?", (b.battle_id,)).fetchone()
+                record = self.desk.reservations._read(row)
+                room.journal = RouteJournal(self.directory / (b.battle_id + ".events.jsonl"),
+                    dict(record=record, battle_id=b.battle_id, generation=b.generation, players=list(b.players),
+                        leases=list(b.leases), incarnations=[room.ready[p] for p in b.players], mode=b.mode,
+                        initial_sequences=list(room.route.sequences)), create=True)
+            room.journal.append("command", actor, dispatch_id, command)
+            if command.opcode == Opcode.BIND and len(room.admitted) != len(b.players):
+                room.state = "admitting"
+        self._persist(room)
+        try:
+            return await asyncio.wait_for(asyncio.shield(future), 20)
+        finally:
+            if not future.done():
+                future.cancel()
+
+    async def _dispatch(self, room, actor, command):
+        return command, await self._command(room, actor, command)
+
+    async def _resumed_command(self, room, actor, command):
+        pending = room.journal.pending.get(actor)
+        if pending is None:
+            return await self._command(room, actor, command)
+        dispatch_id, recorded = pending
+        if recorded != command or actor in room.pending:
+            raise BattleError("battle_order", "recovery cannot replace the exact uncertain route command")
+        future = asyncio.get_running_loop().create_future()
+        room.pending[actor] = (command, future, dispatch_id)
         self._persist(room)
         try:
             return await asyncio.wait_for(asyncio.shield(future), 20)
@@ -196,6 +266,8 @@ class BattleExecutionService:
             self._fail(room, "execution_interrupted")
 
     async def close(self):
+        if self.recovery is not None:
+            await self.recovery.close()
         tasks = [room.task for room in self.rooms.values() if room.task is not None and not room.task.done()]
         for task in tasks:
             task.cancel()
@@ -230,7 +302,7 @@ class _NativeRoute:
             source_slot=source, phase=self.b.mode, **fields)
         command.validate_command(binding=self.desk._binding(self.b, self.b.players[slot]),
                                  player_id=self.b.players[slot])
-        response = await self.service._command(self.room, self.b.players[slot], command)
+        command, response = await self.service._dispatch(self.room, self.b.players[slot], command)
         response.validate_response(command)
         if response.status != Status.OK:
             if busy and response.status == Status.BUSY:

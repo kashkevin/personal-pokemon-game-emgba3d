@@ -271,12 +271,22 @@ class BattleReservations:
         else:
             raise StorageError("battle_reservation_state", "unsupported terminal lifecycle")
         material = bytearray((SCOPE + ":" + kind).encode("ascii"))
+        lineage = battle.lease_lineage or (battle.leases,)
+        if battle.lease_lineage:
+            if (not battle.resumable or battle.leases not in lineage or battle.renewal_digest is None
+                    or any(len(epoch) != len(battle.players) for epoch in lineage)):
+                raise StorageError("battle_reservation_state", "renewed terminal evidence lacks its verified lineage")
+            _hash(battle.renewal_digest)
+            # The terminal fact hashes the actual historical native receipts.
+            # A later original-core reconnect can add a valid lease proof
+            # without changing a result already durably published here.
         for p, opcode in required:
             raw_request, raw_response = receipts[(p, opcode)]
             control, reply = NativeControl.unpack(raw_request), NativeControl.unpack(raw_response)
             slot = battle.players.index(p)
             if (control.battle_id != battle.battle_id or control.source_slot != slot or control.opcode != opcode
-                    or control.incarnation != battle.incarnations[p] or control.session_epoch != battle.leases[slot]):
+                    or control.incarnation != battle.incarnations[p]
+                    or control.session_epoch not in {epoch[slot] for epoch in lineage}):
                 raise StorageError("battle_reservation_state", "terminal evidence changed its participant binding")
             reply.validate_response(control)
             if reply.status:
@@ -290,6 +300,8 @@ class BattleReservations:
             if row is None:
                 raise StorageError("battle_reservation_invalid", "the durable battle reservation is missing")
             record = self._read(row)
+            if battle.lease_lineage and tuple(record["leases"]) != lineage[0]:
+                raise StorageError("battle_reservation_conflict", "renewal lineage changed the original reserved leases")
             if (record["view"]["generation"] != battle.generation or record["view"]["fingerprint"] != battle.fingerprint
                     or row["authorized_mask"] != sum(1 << battle.players.index(p) for p in battle.bind_intent)):
                 raise StorageError("battle_reservation_conflict", "terminal evidence changed the reserved lifecycle")

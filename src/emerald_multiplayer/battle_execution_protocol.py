@@ -5,12 +5,12 @@ It cannot request an opcode, alter a roster, seed a battle, or submit an outcome
 """
 import base64
 
-from .native_battle import NativeControl
+from .native_battle import NativeControl, Opcode
 from .protocol import ProtocolError, _fields, _integer
 from .team_protocol import _uuid
 
 SCOPE = "native-battle-execution-v1"
-STATES = frozenset(("waiting", "executing", "closed", "aborted", "recovery_required"))
+STATES = frozenset(("waiting", "admitting", "executing", "closed", "aborted", "recovery_required"))
 
 
 def encode_control(control):
@@ -37,6 +37,21 @@ def validate_execution_request(message):
         raise ProtocolError("invalid_field", "native response and dispatch ID must occur together")
     if message["response_b64"] is not None:
         decode_control(message["response_b64"], response=True)
+    admission = message.get("admission_sha256")
+    if admission is not None and (type(admission) is not str or len(admission) != 64
+            or any(char not in "0123456789abcdef" for char in admission)):
+        raise ProtocolError("invalid_field", "native admission requires the exact persisted BIND digest")
+    if "admission_b64" in message:
+        from .native_battle_resume import Admission
+        _uuid(message["runtime_id"], "runtime_id")
+        command = decode_control(message["admission_b64"])
+        receipt = decode_control(message["admission_receipt_b64"], response=True)
+        receipt.validate_response(command)
+        if (command.opcode != Opcode.ADMIT or receipt.status or command.sequence != 1
+                or command.battle_id != message["battle_id"] or command.incarnation != message["incarnation"]
+                or command.session_epoch > message["session_epoch"]
+                or Admission.unpack(command.data).runtime_id != message["runtime_id"]):
+            raise ProtocolError("invalid_admission", "provisional native proof differs from its original core")
 
 
 def execution_view(battle_id, generation, state, command=None, command_id=0):
@@ -56,7 +71,8 @@ def validate_execution_view(value, *, request=None):
         raise ProtocolError("invalid_server_message", "native dispatch ID and command must occur together")
     if value["command_b64"] is not None:
         command = decode_control(value["command_b64"])
-        if command.battle_id != value["battle_id"] or value["state"] != "executing":
+        if (command.battle_id != value["battle_id"] or value["state"] not in ("admitting", "executing")
+                or (value["state"] == "admitting" and command.opcode != 1)):
             raise ProtocolError("identity_mismatch", "native command differs from its execution lifecycle")
     if request is not None:
         if (value["battle_id"], value["generation"]) != (request["battle_id"], request["generation"]):

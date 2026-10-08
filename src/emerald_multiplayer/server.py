@@ -290,12 +290,13 @@ class WorldServer:
         session = self.sessions.get(player_id)
         return session.session_epoch if session is not None and not session.closed else None
 
-    def enable_battle_execution(self, string_lengths, directory):
+    def enable_battle_execution(self, string_lengths, directory, *, resume_enabled=False):
         """Application-only setup using the installed, hash-verified ROM table."""
         if self.battle_execution is not None or self._server is not None:
             raise ValueError("configure native execution once before starting the host")
         from .battle_execution import BattleExecutionService
-        self.battle_execution = BattleExecutionService(self.battle_desk, string_lengths, directory)
+        self.battle_execution = BattleExecutionService(self.battle_desk, string_lengths, directory,
+                                                       resume_enabled=resume_enabled)
 
     def _preflight_battle_bind(self, players, leases) -> None:
         assert self.store is not None
@@ -659,10 +660,11 @@ class WorldServer:
         # Public consent never authorizes BIND/START, supplies native receipts,
         # or claims a winner. Those remain trusted coordinator operations.
         operation = request["type"].removeprefix("battle_")
-        if operation == "execute":
+        if operation in ("execute", "resume"):
             if self.battle_execution is None:
                 raise ProtocolError("battle_execution_disabled", "this host has not enabled native battle execution")
-            result = self.battle_execution.exchange(session.player_id, session.session_epoch, request)
+            dispatch = self.battle_execution.reconnect if operation == "resume" else self.battle_execution.exchange
+            result = dispatch(session.player_id, session.session_epoch, request)
             self._battle_reply(session, request, result=result)
             return
         if operation == "waiting":
@@ -689,6 +691,10 @@ class WorldServer:
         if self.battle_desk is None:
             raise ProtocolError("battle_disabled", "this development world has not enabled battle challenges")
         desk, actor = self.battle_desk, (session.player_id, session.session_epoch)
+        capture_original = (self.battle_execution is not None and self.battle_execution.resume_enabled
+                            and operation in ("invite", "invite_multi", "accept"))
+        if capture_original:
+            self.battle_execution.admission.require_identity(request)
         if operation == "pending":
             result = [challenge_view(view) for view in desk.pending(*actor)]
         else:
@@ -701,8 +707,16 @@ class WorldServer:
                 view = desk.status(*actor, battle_id)
             elif operation == "accept":
                 view = desk.accept(*actor, battle_id, request["generation"], request["fingerprint"])
+            elif operation == "claim":
+                if self.battle_execution is None or not self.battle_execution.resume_enabled:
+                    raise ProtocolError("battle_resume_disabled", "provisional admission requires the verified resume capability")
+                view = self.battle_execution.admission.claim(*actor, request)
             else:
                 view = desk.cancel(*actor, battle_id, request["generation"])
+                if self.battle_execution is not None and self.battle_execution.resume_enabled:
+                    self.battle_execution.admission.canceled(battle_id)
+            if capture_original:
+                self.battle_execution.admission.capture(*actor, request)
             result = challenge_view(view)
         self._battle_reply(session, request, result=result)
 

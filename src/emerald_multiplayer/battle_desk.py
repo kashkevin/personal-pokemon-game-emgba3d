@@ -7,7 +7,7 @@ bytes. Actor/lease always come from authentication, never request body claims.
 from __future__ import annotations
 
 from collections import OrderedDict
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 import hashlib
 import json
 import math
@@ -44,6 +44,9 @@ class _Battle:
     fingerprint: str
     deadline: float
     mode: int = 2
+    resumable: bool = False
+    lease_lineage: tuple = ()
+    renewal_digest: str | None = None
     state: str = "invited"
     reason: str | None = None
     consent: set[str] = field(default_factory=set)
@@ -165,7 +168,7 @@ class BattleDesk:
                 except StorageError:
                     reason = "session_changed"
             if reason:
-                if battle.state in _POST_START:
+                if battle.state in _POST_START or (battle.resumable and battle.consent == set(battle.players)):
                     self._recover(battle, reason)
                 else:
                     self._abort(battle, reason)
@@ -337,7 +340,8 @@ class BattleDesk:
         if len(battle.incarnations) != len(battle.players):
             raise BattleError("battle_not_registered", "all native incarnations must be registered")
         return NativeBinding(battle.generation, battle.players, battle.leases,
-            tuple(battle.incarnations[p] for p in battle.players), battle.players.index(actor), mode=battle.mode)
+            tuple(battle.incarnations[p] for p in battle.players), battle.players.index(actor),
+            mode=battle.mode, resumable=battle.resumable)
 
     def authorize_bind(self, actor, lease, battle_id, generation):
         battle = self._get(actor, lease, battle_id, generation)
@@ -364,6 +368,16 @@ class BattleDesk:
             if not isinstance(request, NativeControl) or not isinstance(response, NativeControl) or request.opcode != opcode:
                 raise BattleMailboxError("receipt needs the exact native operation")
             binding = self._binding(battle, actor)
+            if request.session_epoch != binding.leases[binding.local_slot]:
+                # Only the private recovery coordinator populates this lineage,
+                # after every original core proves its exact reauthorization.
+                candidates = [leases for leases in battle.lease_lineage
+                              if leases[binding.local_slot] == request.session_epoch]
+                if opcode == Opcode.BIND:
+                    candidates = [leases for leases in candidates if NativeBinding.unpack(request.data).leases == leases]
+                if not candidates:
+                    raise BattleMailboxError("receipt lease has no verified original-core renewal lineage")
+                binding = replace(binding, leases=candidates[-1])
             request.validate_command(binding=binding, player_id=actor)
             if request.battle_id != battle.battle_id:
                 raise BattleMailboxError("receipt names another battle")
@@ -602,7 +616,18 @@ class BattleDesk:
         # Publish before clearing the final server barrier. If COMMIT or its
         # acknowledgment fails, the exact RELEASE receipt can retry without
         # granting a new result or marking this lifecycle closed prematurely.
-        if battle.released | {actor} == set(battle.players) and self.results is not None:
+        if battle.released | {actor} == set(battle.players):
+            self._publish_closed(battle, actor, request, response)
+        battle.released.add(actor)
+        self._record(battle, actor, request, response)
+        if battle.released == set(battle.players):
+            battle.state = "closed"
+            self._archive(battle)
+        return self._view(battle)
+
+    def _publish_closed(self, battle, actor, request, response):
+        """Shared durable publication after live or exact replay validation."""
+        if self.results is not None:
             view = self._view(battle)
             summary = {key: view[key] for key in ("battle_id", "generation", "sender", "players",
                 "fingerprint", "outcome", "checkpoints")}
@@ -615,14 +640,7 @@ class BattleDesk:
                     for raw in receipts[(player, opcode)]:
                         material.extend(raw)
             self.results._append_closed(summary, hashlib.sha256(material).hexdigest())
-        if battle.released | {actor} == set(battle.players):
-            self.reservations._finish(battle, "closed", actor, request, response)
-        battle.released.add(actor)
-        self._record(battle, actor, request, response)
-        if battle.released == set(battle.players):
-            battle.state = "closed"
-            self._archive(battle)
-        return self._view(battle)
+        self.reservations._finish(battle, "closed", actor, request, response)
 
     def cancel(self, actor, lease, battle_id, generation):
         battle = self._get(actor, lease, battle_id, generation)
@@ -630,6 +648,8 @@ class BattleDesk:
             return self._view(battle)
         if battle.state in _POST_START or battle.state == "closed":
             raise BattleError("battle_started", "cancel cannot resolve a possibly started native battle")
+        if battle.resumable and battle.consent == set(battle.players):
+            raise BattleError("battle_native_abort_required", "accepted original cores require verified native pre-start cleanup")
         self._abort(battle, "participant_canceled")
         return self._view(battle)
 
