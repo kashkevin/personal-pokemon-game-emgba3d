@@ -17,6 +17,7 @@ import hashlib
 import math
 from typing import Any, TYPE_CHECKING
 
+from .battle_desk import BattleDesk, BattleError
 from .protocol import (
     CHECKPOINT_TYPES, MAX_COUNTER, MAX_FRAME_BYTES, MAX_PLAYERS, PROTOCOL_VERSION, ProtocolError,
     encode_message, read_message, validate_heartbeat, validate_hello,
@@ -170,6 +171,22 @@ class PlayerSession:
             self.writer.close()
 
 
+class _ServerBattleDesk(BattleDesk):
+    """Trusted event-loop admission; no client battle/receipt endpoint."""
+
+    def __init__(self, server):
+        self.server = server
+        super().__init__(server.store, server._connected_lease)
+
+    def authorize_bind(self, actor, lease, battle_id, generation):
+        # _get authenticates and refreshes without dispatching any command.
+        # Preflight and the inherited intent reservation are synchronous, so
+        # no checkpoint/trade mutation can interleave between them.
+        battle = self._get(actor, lease, battle_id, generation)
+        self.server._preflight_battle_bind(battle.players, battle.leases)
+        return super().authorize_bind(actor, lease, battle_id, generation)
+
+
 class WorldServer:
     """Event-loop-owned presence; a supplied store adds durable player leases.
 
@@ -178,7 +195,8 @@ class WorldServer:
     """
 
     def __init__(self, config: ServerConfig, *, store: CheckpointStore | None = None,
-                 development_trades: bool = False, development_teams: bool = False) -> None:
+                 development_trades: bool = False, development_teams: bool = False,
+                 development_battles: bool = False) -> None:
         self.config = config
         self.store = store
         self._world_metadata: WorldMetadata | None = None
@@ -216,6 +234,14 @@ class WorldServer:
             if not isinstance(store, OwnershipCheckpointStore):
                 raise ValueError("development teams require an authenticated ownership world")
             self.team_desk = TeamDesk(self._team_roster)
+        self.battle_desk = None
+        if type(development_battles) is not bool:
+            raise ValueError("development_battles must be a boolean")
+        if development_battles:
+            from .ownership_storage import OwnershipCheckpointStore
+            if not isinstance(store, OwnershipCheckpointStore):
+                raise ValueError("development native battles require an authenticated ownership world")
+            self.battle_desk = _ServerBattleDesk(self)
         self.world_seq = 0
         self._session_epoch = 0
         self._server: asyncio.Server | None = None
@@ -236,6 +262,31 @@ class WorldServer:
     def _connected_lease(self, player_id: str) -> int | None:
         session = self.sessions.get(player_id)
         return session.session_epoch if session is not None and not session.closed else None
+
+    def _preflight_battle_bind(self, players, leases) -> None:
+        assert self.store is not None
+        for player, lease in zip(players, leases):
+            session = self.sessions.get(player)
+            if session is None or session.closed or session.session_epoch != lease:
+                raise BattleError("stale_lease", "both battle participants must retain their authenticated leases")
+            self.store.read_checkpoint(player, lease)
+            if session.upload is not None:
+                raise BattleError("checkpoint_busy", "finish or abort both participants' checkpoint uploads before native binding")
+        if self.trade_desk is not None:
+            self.trade_desk._prune()
+            if any(set(players).intersection(proposal.players) for proposal in self.trade_desk._proposals.values()):
+                raise BattleError("trade_busy", "resolve the participants' trade proposals before native binding")
+
+    def _assert_battle_available(self, *players) -> None:
+        if self.battle_desk is None:
+            return
+        self.battle_desk.refresh()
+        # The first authorized BIND reserves both participants, even when its
+        # ACK is lost or only one native hold may exist. Retain both through
+        # partial abort/release and recovery; only terminal archival frees them.
+        if any(battle.bind_intent and set(players).intersection(battle.players)
+               for battle in self.battle_desk._active.values()):
+            raise ProtocolError("battle_busy", "an unresolved native battle reserves this character's mutations")
 
     def _team_roster(self) -> dict[str, int]:
         """Bound current connected actors by their actual durable lease."""
@@ -539,6 +590,15 @@ class WorldServer:
             raise ProtocolError("trade_disabled", "this development world has not enabled the trade proof")
         desk, actor = self.trade_desk, (session.player_id, session.session_epoch)
         kind = request["type"].removeprefix("trade_")
+        if kind not in {"status", "pending"}:
+            players = [session.player_id]
+            if kind == "open":
+                players.append(request["peer"])
+            else:
+                proposal = desk._proposals.get(request["transaction_id"])
+                if proposal is not None:
+                    players.extend(proposal.players)
+            self._assert_battle_available(*players)
         if kind == "pending":
             self._trade_reply(session, request, recoveries=[dict(
                 transaction_id=r.transaction_id, sequence=r.sequence,
@@ -597,6 +657,8 @@ class WorldServer:
         """One bounded, stop-and-wait operation; commit is durable before ACK."""
         assert self.store is not None
         kind = request["type"]
+        if kind not in {"checkpoint_info", "checkpoint_read"}:
+            self._assert_battle_available(session.player_id)
         if kind == "ownership_grant":
             from dataclasses import asdict
             from .ownership_storage import OwnershipCheckpointStore
@@ -737,6 +799,8 @@ class WorldServer:
         while True:
             await asyncio.sleep(self.config.monitor_interval)
             now = asyncio.get_running_loop().time()
+            if self.battle_desk is not None:
+                self.battle_desk.refresh()
             changed = False
             for session in tuple(self.sessions.values()):
                 if session.closed:
