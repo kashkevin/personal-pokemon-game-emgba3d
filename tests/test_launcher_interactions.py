@@ -1,12 +1,20 @@
 import asyncio
+import hashlib
+import json
 from pathlib import Path
+import socket
+import struct
 import tempfile
+import zlib
 from types import SimpleNamespace
 import unittest
 from unittest.mock import AsyncMock, patch
 
 from emerald_multiplayer.launcher_session import GameInstallation, LauncherSession, LauncherSessionError
 from emerald_multiplayer.battle_session import BattleCompletion
+from emerald_multiplayer.host_world import HostWorld
+from test_host_world import make_trade_files
+from test_player_runtime import write_bundle
 
 
 class LauncherRetentionTests(unittest.IsolatedAsyncioTestCase):
@@ -139,3 +147,40 @@ class LauncherHandoffTests(unittest.IsolatedAsyncioTestCase):
                 await self.session._native_menu_handoff('battle',descriptor,self.menu)
         self.assertFalse(self.session.can_save)
         self.assertEqual(self.session._revision, 1)
+
+
+class LauncherBattleCapabilityTests(unittest.IsolatedAsyncioTestCase):
+    async def test_host_and_join_enable_native_channel_only_for_verified_execution_manifest(self):
+        for enabled in (False, True):
+            with self.subTest(execution=enabled), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                rom, manifest = make_trade_files(root)
+                raw = bytearray(4096)
+                struct.pack_into('<II', raw, 0, 1, 3)
+                rom.write_bytes(raw)
+                value = json.loads(manifest.read_text())
+                value.update(rom_sha256=hashlib.sha256(raw).hexdigest(), rom_size=len(raw),
+                    rom_crc32=f'{zlib.crc32(raw):08x}', battle_abi_version=3,
+                    battle_abi_address=0x08000004, battle_mailbox_address=0x02022000, battle_mailbox_size=512)
+                if enabled:
+                    value.update(battle_execution_abi_version=1,
+                        battle_string_table_address=0x08000400, battle_string_table_size=2884)
+                manifest.write_text(json.dumps(value))
+                bundle_dir = root/'bundle'; bundle_dir.mkdir()
+                installation = GameInstallation(rom, manifest, hashlib.sha256(raw).hexdigest(),
+                    hashlib.sha256(manifest.read_bytes()).hexdigest(), write_bundle(bundle_dir))
+                with socket.socket() as probe:
+                    probe.bind(('127.0.0.1', 0)); port = probe.getsockname()[1]
+                host = HostWorld.create(root/'world',rom,manifest,
+                    player_names=('Host','Friend'), endpoint='127.0.0.1',port=port)
+                invitation = root/'friend.json'; host.invitation(1).save(invitation)
+                sessions = (
+                    LauncherSession(installation,root/'private',world_directory=host.directory,bind_address='127.0.0.1'),
+                    LauncherSession(installation,root/'private',invitation_path=invitation),
+                )
+                async with sessions[0].open(), sessions[1].open():
+                    self.assertEqual(sessions[0]._server.battle_execution is not None, enabled)
+                    for session in sessions:
+                        self.assertTrue(session._companion.connected)
+                        self.assertIsNotNone(session._companion._remote_writer.get_extra_info('ssl_object'))
+                        self.assertEqual(session._companion.config.development_battle_channel, enabled)

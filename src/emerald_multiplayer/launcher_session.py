@@ -260,6 +260,8 @@ class LauncherSession:
         configure = host.host_companion_config if host is not None else identity.companion_config
         config = configure(game.rom_path, game.manifest_path, token=secrets.token_bytes(32),
                            private_directory=self._profile_directory, ipc_port=0)
+        if self._manifest.get("battle_execution_abi_version") == 1:
+            config = replace(config, development_battle_channel=True)
         if host is not None:
             # Advertised WAN address remains in invitations. The local host
             # route changes only the socket destination, preserving its TLS pin.

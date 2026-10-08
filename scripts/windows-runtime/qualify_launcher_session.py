@@ -1,5 +1,7 @@
 """Private actual Windows enrollment, TLS Host/Join, Save now and fresh Continue.
 
+With --autosave, additionally waits the real five-minute interval, keeps the
+friend's autosave off, then verifies manual saves and persisted preferences.
 Uses original unassigned saves and public setup/session controllers. The only
 test adapter replays ordinary joypad input and reads party diagnostics. Close
 both owned game windows normally when the phase prints ready_for_normal_close.
@@ -85,6 +87,7 @@ async def run(args):
                     scripted_ordinary_joypad=True, physical_input_qualified=False,
                     gui_buttons_qualified=False, separate_pc_qualified=False,
                     internet_qualified=False, transport="pinned TLS authenticated loopback")
+    evidence["real_five_minute_autosave"] = args.autosave
     children = []
     try:
         with socket.socket() as probe:
@@ -119,6 +122,7 @@ async def run(args):
         export_friend_invitation(installation, host.directory, 1, invitation)
 
         saved_heads = {}
+        final_revisions = (3, 2) if args.autosave else (2, 2)
         for phase in ("save-now", "fresh-Continue"):
             sessions = [LauncherSession(installation, private, world_directory=host.directory,
                         bind_address="127.0.0.1", host_route="127.0.0.1"),
@@ -127,11 +131,14 @@ async def run(args):
             details = dict(phase=phase, players=[])
             evidence["sessions"].append(details)
             async with AsyncExitStack() as stack:
-                for session in sessions:
+                for slot, session in enumerate(sessions):
                     await stack.enter_async_context(session.open())
                     assert session.status.state is SessionState.READY
-                    assert session.status.revision == (1 if phase == "save-now" else 2)
-                assert sessions[0]._server.battle_desk is None
+                    assert session.status.revision == (1 if phase == "save-now" else final_revisions[slot])
+                    if args.autosave and phase == "fresh-Continue":
+                        assert session.autosave_enabled == (slot == 0)
+                expected_battles = json.loads(inputs["manifest"].read_text()).get("battle_execution_abi_version") == 1
+                assert (sessions[0]._server.battle_desk is not None) == expected_battles
                 assert sessions[0]._server.trade_desk is None
                 try:
                     tasks = [asyncio.create_task(session.play()) for session in sessions]
@@ -143,18 +150,47 @@ async def run(args):
                         lease_is_owned(session.profile_directory / "character.sav")
                         assert session._companion._remote_writer.get_extra_info("ssl_object") is not None
                     if phase == "save-now":
+                        if args.autosave:
+                            assert all(s.autosave_enabled for s in sessions)
+                            await sessions[1].set_autosave_enabled(False)
+                            deadline = sessions[0]._autosave_due
+                            assert deadline is not None
+                            started = deadline - 300
+                            async with asyncio.timeout(380):
+                                report_at = 0
+                                while sessions[0]._revision == 1:
+                                    for task in tasks:
+                                        if task.done():
+                                            await task
+                                            raise RuntimeError("native game closed before its scheduled save")
+                                    now = asyncio.get_running_loop().time()
+                                    if now >= report_at:
+                                        output_event(phase="five-minute-autosave", remaining_seconds=max(0,round(deadline-now)))
+                                        report_at = now + 20
+                                    assert sessions[1]._revision == 1
+                                    await asyncio.sleep(.25)
+                            elapsed = asyncio.get_running_loop().time() - started
+                            assert elapsed >= 300 and sessions[0]._revision == 2
+                            assert sessions[1]._revision == 1 and not sessions[1].autosave_enabled
+                            details["autosave"] = dict(elapsed_seconds=elapsed, host_revision=2,
+                                friend_revision=1, friend_disabled=True, interval_seconds=300)
+                        async with asyncio.timeout(15):
+                            while not all(s.can_save for s in sessions):
+                                if any(s._save_failed for s in sessions):
+                                    raise RuntimeError("manual save remained blocked after verified autosave")
+                                await asyncio.sleep(.05)
                         assert all(await asyncio.gather(*(session.save() for session in sessions)))
                     for slot, (session, game, caps) in enumerate(zip(sessions, games, capabilities)):
-                        assert session.status.revision == 2
+                        assert session.status.revision == final_revisions[slot]
                         head = sessions[0]._store.read_checkpoint(host.accounts[slot].player_id,
                                                                   session._companion.session_epoch)
-                        assert head.revision == 2 and party(head) == expected_parties[slot]
+                        assert head.revision == final_revisions[slot] and party(head) == expected_parties[slot]
                         if phase == "fresh-Continue":
                             assert game.startup.mirror.sha256 == head.sha256
                             assert saved_heads[slot] == (head.revision, head.sha256, head.payload)
                         else:
                             saved_heads[slot] = (head.revision, head.sha256, head.payload)
-                        details["players"].append(dict(slot=slot, revision=2, sha256=head.sha256,
+                        details["players"].append(dict(slot=slot, revision=head.revision, sha256=head.sha256,
                             capabilities=caps, canonical_party_matches=True, tls=True,
                             startup_evidence=str(game.startup.evidence_path)))
                     output_event(phase=phase, ready_for_normal_close=True)
@@ -208,6 +244,7 @@ def main():
         parser.add_argument("--" + name, type=Path, required=True)
     for name in ("rom", "manifest", "bundle", "source-a", "source-b"):
         parser.add_argument("--" + name + "-sha256", required=True)
+    parser.add_argument("--autosave", action="store_true")
     asyncio.run(run(parser.parse_args()))
 
 
