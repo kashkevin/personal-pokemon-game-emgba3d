@@ -51,7 +51,7 @@ def _build(rom_path, manifest_path):
     if (manifest.get("trade_abi_version") != 1 or manifest.get("save_profile") != OWNERSHIP_PROFILE
             or manifest.get("ruleset_id") != BASELINE_RULESET):
         raise HostWorldError("build_mismatch", "host provisioning requires the verified ownership/trade game build")
-    return build, manifest["ruleset_id"]
+    return build, manifest["ruleset_id"], manifest
 
 
 def _new_certificate(world_id, endpoint, validity_days):
@@ -108,7 +108,7 @@ class HostWorld:
     @classmethod
     def create(cls, directory, rom_path, manifest_path, *, player_names, endpoint, port, validity_days=365):
         """Create a new private directory; failed partials stay marked in place."""
-        build, rules = _build(rom_path, manifest_path)
+        build, rules, manifest = _build(rom_path, manifest_path)
         _endpoint(endpoint, port)
         if (type(player_names) not in (tuple, list) or not 1 <= len(player_names) <= 4
                 or type(validity_days) is not int or not 1 <= validity_days <= 3650):
@@ -128,6 +128,12 @@ class HostWorld:
             accounts = tuple(HostAccount("host" if i == 0 else "friend", i, identity.player_id,
                                        identity.display_name, identity.credential)
                              for i, name in enumerate(player_names) for identity in (store.create_player(name),))
+            if manifest.get("battle_execution_abi_version") == 1:
+                from .battle_reservations import enable_battle_reservations
+                enable_battle_reservations(store, root / "before-battle-reservations.sqlite3")
+            if manifest.get("reset_abi_version") in (1, 2):
+                from .reset_attempts import enable_reset_attempts
+                enable_reset_attempts(store, root / "before-personal-attempts.sqlite3")
             descriptor = dict(format=HOST_FORMAT, world_id=world_id, build_id=build, ruleset_id=rules,
                               save_profile=OWNERSHIP_PROFILE, endpoint=endpoint, port=port, certificate_sha256=pin,
                               accounts=[dict(role=p.role, slot=p.slot, player_id=p.player_id,
@@ -156,7 +162,7 @@ class HostWorld:
 
     @classmethod
     def open(cls, directory, rom_path, manifest_path):
-        build, rules = _build(rom_path, manifest_path)
+        build, rules, _ = _build(rom_path, manifest_path)
         root = Path(directory).absolute()
         if root.is_symlink() or not root.is_dir() or (root / "creation-failed.json").exists():
             raise HostWorldError("world_invalid", "host directory is missing, linked, or has an incomplete creation")
