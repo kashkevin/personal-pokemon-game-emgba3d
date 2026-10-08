@@ -259,6 +259,15 @@ class GuiWorkerTests(unittest.TestCase):
         self.assertFalse(self.worker.start_import(Path("own-dump.gba")))
         self.assertFalse(self.worker.busy)
 
+    def test_recovery_status_retains_game_until_a_verified_preserved_result(self):
+        for code in ("host_loss_preserving", "host_loss_unsaved_held", "host_loss_battle_waiting",
+                     "host_loss_trade_waiting", "game_recovery_held"):
+            with self.subTest(code=code):
+                self.worker._publish(SessionStatus(SessionState.RUNNING, code))
+                self.assertTrue(self.worker.holds_game)
+        self.worker._publish(SessionStatus(SessionState.RUNNING, "host_loss_preserved"))
+        self.assertFalse(self.worker.holds_game)
+
     def test_connection_probe_returns_fixed_invitation_error(self):
         self.assertTrue(self.worker.start_probe(Path("missing-private-invitation.json")))
         self.assertEqual(self.finish_events()[-1].code, "invalid_invitation")
@@ -340,6 +349,32 @@ class WidgetTests(unittest.TestCase):
         window = LauncherWindow(self.root, Worker())
         window.start("host")
         self.assertEqual(window.message.get(), status_text("selection_required"))
+
+    def test_close_during_unpreserved_recovery_keeps_launcher_available(self):
+        class Worker:
+            busy = holds_game = True
+            events = queue.SimpleQueue()
+            def cancel_startup(self):
+                raise AssertionError("must retain the paused game owner")
+        window = LauncherWindow(self.root, Worker())
+        window.close()
+        self.assertFalse(window.closing)
+        self.assertEqual(window.message.get(), status_text("wait_for_recovery"))
+        self.assertTrue(self.root.winfo_exists())
+
+    def test_hold_reported_while_waiting_to_close_revokes_close_instruction(self):
+        class Worker:
+            busy = True
+            events = queue.SimpleQueue()
+            def cancel_startup(self): return False
+        worker = Worker()
+        window = LauncherWindow(self.root, worker)
+        window.close()
+        self.assertTrue(window.closing)
+        worker.events.put(UiEvent("status", "host_loss_battle_waiting", "running"))
+        window.poll()
+        self.assertFalse(window.closing)
+        self.assertEqual(window.message.get(), status_text("wait_for_recovery"))
 
 
 if __name__ == "__main__":

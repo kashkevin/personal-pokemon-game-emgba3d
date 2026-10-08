@@ -30,6 +30,8 @@ _TEXT = {
     "cancelled": "Startup cancelled. Private recovery data is retained.",
     "closing": "Closing the connection…",
     "wait_for_game": "Close the game window to finish. This launcher will then close.",
+    "wait_for_recovery": "Keep this game and launcher open until recovery finishes. Closing the game would lose its waiting state.",
+    "game_recovery_held": "This game needs recovery. Keep its paused game window open so the waiting state is retained.",
     "package_missing": "This launcher preview needs a verified game package before play.",
     "selection_required": "Choose your world or friend invitation first.",
     "address_invalid": "Enter this PC’s local IPv4 or IPv6 address, such as 192.168.1.20.",
@@ -102,6 +104,10 @@ def status_text(code):
     return _TEXT.get(code, _TEXT["session_failed"])
 
 
+_RETAINS_GAME = frozenset({"host_loss_preserving", "host_loss_unsaved_held",
+    "host_loss_battle_waiting", "host_loss_trade_waiting", "host_loss_armed", "game_recovery_held"})
+
+
 @dataclass(frozen=True)
 class LauncherRelease:
     version: str
@@ -171,6 +177,7 @@ class SessionWorker:
         self._thread = self._loop = self._task = None
         self._cancel_requested = False
         self._state = SessionState.NEW
+        self._status_code = "new"
         self._active_session = self._save_future = None
         self._save_pending = False
         self._settings_future = None
@@ -180,6 +187,11 @@ class SessionWorker:
     def busy(self):
         return self._thread is not None and self._thread.is_alive()
 
+    @property
+    def holds_game(self):
+        with self._lock:
+            return self._status_code in _RETAINS_GAME
+
     def start(self, request):
         options = request.options()
         with self._lock:
@@ -187,6 +199,7 @@ class SessionWorker:
                 return False
             self._cancel_requested = False
             self._state = SessionState.NEW
+            self._status_code = "new"
             self._thread = threading.Thread(target=self._run, args=(options,),
                                             name="emerald-launcher-session", daemon=False)
             self._thread.start()
@@ -304,6 +317,7 @@ class SessionWorker:
     def _publish(self, status):
         with self._lock:
             self._state = status.state
+            self._status_code = status.code
         if status.state != SessionState.CLOSED:
             code = status.code if status.code in _TEXT else "session_failed"
             self.events.put(UiEvent("status", code, status.state.value, status.autosave_enabled))
@@ -564,6 +578,9 @@ class LauncherWindow:
         if self.worker is None or not self.worker.busy:
             self._destroy()
             return
+        if getattr(self.worker, "holds_game", False):
+            self.message.set(status_text("wait_for_recovery"))
+            return
         self.closing = True
         self._enable(False)
         self.save_button.configure(state="disabled")
@@ -597,6 +614,9 @@ class LauncherWindow:
                     self.save_button.configure(state="disabled")
                     self.autosave_button.configure(state="disabled")
                     self.message.set(status_text(event.code))
+                elif self.closing and event.code in _RETAINS_GAME:
+                    self.closing = False
+                    self.message.set(status_text("wait_for_recovery"))
                 elif not self.closing:
                     self.message.set(status_text(event.code))
                     if event.autosave_enabled is not None:

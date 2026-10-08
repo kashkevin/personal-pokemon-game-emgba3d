@@ -75,7 +75,6 @@ class LauncherRetentionTests(unittest.IsolatedAsyncioTestCase):
         with patch("emerald_multiplayer.launcher_session.pending_battle", side_effect=ValueError("unreadable")):
             self.assertTrue(session._retain_interrupted_core())
 
-
 class LauncherHandoffTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
@@ -102,6 +101,14 @@ class LauncherHandoffTests(unittest.IsolatedAsyncioTestCase):
         with patch('emerald_multiplayer.trade_menu.NativeTradeMenu') as controller:
             controller.return_value.run = AsyncMock(side_effect=callback)
             await self.session._native_menu_handoff('trade', {'transaction_id':'transaction'}, self.menu)
+
+    async def test_failed_pending_battle_status_retains_core_instead_of_requesting_relaunch(self):
+        session = self.session
+        session._save_failed = True
+        with patch("emerald_multiplayer.launcher_session.pending_battle", return_value=True):
+            self.assertEqual(session.status.code, "game_recovery_held")
+        session._game.process.returncode = 0
+        self.assertEqual(session.status.code, "save_recovery_required")
 
     async def test_completed_trade_advances_only_receipt_revision_and_resumes_save_policy(self):
         async def complete(*args):

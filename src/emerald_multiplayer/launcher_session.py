@@ -216,7 +216,8 @@ class LauncherSession:
         if self._save_failed:
             # A missing connection is not evidence that an uncertain save
             # completed. Keep this warning through game and session closure.
-            return replace(value, code="save_recovery_required")
+            return replace(value, code="game_recovery_held" if self._retain_interrupted_core()
+                           else "save_recovery_required")
         if self._open and self._binding is not None and current != self._binding:
             # Observation only. No offline-play or post-disconnect action follows.
             code = "connection_lost" if current is None else "session_changed"
