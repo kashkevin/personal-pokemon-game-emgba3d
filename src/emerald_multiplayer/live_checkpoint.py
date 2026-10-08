@@ -222,12 +222,19 @@ class LiveCheckpointCoordinator:
         return intent, payload
 
     async def checkpoint(self, *, expected_revision: int | None = None) -> LiveExportResult:
+        """Save against the local revision verified by the launcher.
+
+        Reading the server's head cannot establish an older running game's
+        revision. Only first enrollment with no canonical save can omit it.
+        """
         async with self._own():
             session = self._session()
             if self.pending_path.exists():
                 raise LiveSaveError("pending_export", "resolve the previous checkpoint before creating another")
             head = await self.client.info()
             base = head["revision"] if head is not None else 0
+            if head is not None and expected_revision is None:
+                raise LiveSaveError("revision_required", "supply the local revision established by verified restore or enrollment")
             if expected_revision is not None and (type(expected_revision) is not int or expected_revision != base):
                 raise LiveSaveError("revision_conflict", "requested base differs from the canonical checkpoint")
             if base >= MAX_COUNTER:

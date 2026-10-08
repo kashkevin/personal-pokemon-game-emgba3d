@@ -46,7 +46,7 @@ def checkpoint_metadata(checkpoint):
 class FakeCompanion:
     """Strict mailbox endpoint plus bounded RPCs backed by the real store."""
 
-    def __init__(self, directory: Path):
+    def __init__(self, directory: Path, *, enroll=True):
         self.store = CheckpointStore(directory / "world.sqlite3", build_id="a" * 64,
                                      ruleset_id="rules-v1", save_profile=LAYOUT_ID)
         self.world_id = self.store.begin_server_boot().world_id
@@ -68,7 +68,8 @@ class FakeCompanion:
         self.bad_end_crc = self.bad_write_position = False
         self.control_hook = self.commit_hook = None
         self.pending_journal = None
-        self.advance_head(make_flash(with_rtc=True))
+        if enroll:
+            self.advance_head(make_flash(with_rtc=True))
 
     def close(self):
         self.store.close()
@@ -233,6 +234,35 @@ class LiveCheckpointTests(unittest.IsolatedAsyncioTestCase):
     def operations(self):
         return [command.opcode for command in self.companion.commands]
 
+    async def test_existing_character_requires_known_local_revision_before_rom_mutation(self):
+        original = self.companion.rom_flash
+        with self.assertRaises(LiveSaveError) as caught:
+            await self.coordinator.checkpoint()
+        self.assert_code(caught, "revision_required")
+        self.companion.advance_head(make_flash(counter=5))
+        with self.assertRaises(LiveSaveError) as caught:
+            await self.coordinator.checkpoint(expected_revision=1)
+        self.assert_code(caught, "revision_conflict")
+        self.assertEqual(self.companion.commands, [])
+        self.assertEqual(self.companion.rom_flash, original)
+        self.assertEqual(self.companion.head().revision, 2)
+        self.assertFalse(self.coordinator.pending_path.exists())
+        self.assertEqual([op for op, _ in self.companion.server_calls], ["info", "info"])
+
+    async def test_only_no_head_first_enrollment_can_omit_local_revision(self):
+        directory = self.directory / "unenrolled"
+        directory.mkdir()
+        companion = FakeCompanion(directory, enroll=False)
+        try:
+            coordinator = LiveCheckpointCoordinator(companion, directory / "live")
+            self.assertIsNone(companion.head())
+            result = await coordinator.checkpoint()
+            self.assertEqual(result.metadata["revision"], 1)
+            self.assertEqual(companion.upload_payloads[0][1], 0)
+            self.assertEqual(companion.head().payload, companion.rom_flash)
+        finally:
+            companion.close()
+
     async def test_lost_bind_ack_retries_exact_request_across_coordinator_wrappers(self):
         original_rpc = self.companion.save_rpc
         async def lose_ack(control, **kwargs):
@@ -276,7 +306,7 @@ class LiveCheckpointTests(unittest.IsolatedAsyncioTestCase):
         original = self.companion.rom_flash
         self.companion.lose_commit_ack = True
         with self.assertRaises(asyncio.TimeoutError):
-            await self.coordinator.checkpoint()
+            await self.coordinator.checkpoint(expected_revision=1)
         journal_bytes = self.coordinator.pending_path.read_bytes()
         intent = json.loads(journal_bytes)
         self.assertEqual(intent["expected_revision"], 1)
@@ -305,7 +335,7 @@ class LiveCheckpointTests(unittest.IsolatedAsyncioTestCase):
     async def test_uncertain_rom_end_ack_keeps_server_transaction_reconcilable(self):
         self.companion.lose_end_ack = True
         with self.assertRaises(asyncio.TimeoutError):
-            await self.coordinator.checkpoint()
+            await self.coordinator.checkpoint(expected_revision=1)
         self.assertEqual(self.companion.head().revision, 2)
         self.assertTrue(self.coordinator.pending_path.exists())
         self.assertEqual(self.operations()[-1], Opcode.CANCEL)
@@ -444,7 +474,7 @@ class LiveCheckpointTests(unittest.IsolatedAsyncioTestCase):
             reached.set()
             await resume.wait()
         self.companion.commit_hook = pause_ack
-        task = asyncio.create_task(self.coordinator.checkpoint())
+        task = asyncio.create_task(self.coordinator.checkpoint(expected_revision=1))
         await asyncio.wait_for(reached.wait(), 2)
         task.cancel()
         with self.assertRaises(asyncio.CancelledError):
@@ -474,7 +504,7 @@ class LiveCheckpointTests(unittest.IsolatedAsyncioTestCase):
                 await CheckpointClient(self.companion).upload(make_flash(), 1)
             self.assertEqual((await CheckpointClient(self.companion).info())["revision"], 1)
             other = LiveCheckpointCoordinator(self.companion, self.coordinator.directory)
-            queued = asyncio.create_task(other.checkpoint())
+            queued = asyncio.create_task(other.checkpoint(expected_revision=1))
             await asyncio.sleep(0)
             self.assertFalse(queued.done())
             self.assertNotIn(Opcode.BEGIN_EXPORT, self.operations())
@@ -498,7 +528,7 @@ class LiveCheckpointTests(unittest.IsolatedAsyncioTestCase):
         self.companion.bad_write_position = False
         self.companion.bad_end_crc = True
         with self.assertRaises(LiveSaveError) as caught:
-            await self.coordinator.checkpoint()
+            await self.coordinator.checkpoint(expected_revision=1)
         self.assert_code(caught, "final_crc")
         self.assertTrue(self.coordinator.pending_path.exists())
         self.assertEqual(self.companion.head().revision, 2)
@@ -544,7 +574,7 @@ class LiveCheckpointTests(unittest.IsolatedAsyncioTestCase):
             self.companion.connected = False
         self.companion.commit_hook = disconnect
         with self.assertRaises(ConnectionError):
-            await self.coordinator.checkpoint()
+            await self.coordinator.checkpoint(expected_revision=1)
         self.assertTrue(self.coordinator.pending_path.exists())
         self.assertEqual(self.companion.head().revision, 2)
         # No command may be sent after the captured session becomes invalid.
@@ -573,7 +603,7 @@ class LiveCheckpointTests(unittest.IsolatedAsyncioTestCase):
                 raise AssertionError("live coordinator replaced active save or mirror")
             return original_replace(source, target)
         with MirrorLease(save), patch.object(Path, "open", guarded_open), patch("os.replace", guarded_replace):
-            await self.coordinator.checkpoint()
+            await self.coordinator.checkpoint(expected_revision=1)
             await self.coordinator.recover()
         for path, state in before.items():
             self.assertEqual((path.read_bytes(), path.stat().st_mtime_ns), state)
@@ -587,7 +617,7 @@ class LiveCheckpointTests(unittest.IsolatedAsyncioTestCase):
         self.companion._live_binding = self.coordinator._session()
         self.companion._live_sequence = MAX_COUNTER
         with self.assertRaises(LiveSaveError) as caught:
-            await self.coordinator.checkpoint()
+            await self.coordinator.checkpoint(expected_revision=1)
         self.assert_code(caught, "counter_exhausted")
         self.assertEqual(self.companion.commands, [])
         self.assertFalse(self.coordinator.pending_path.exists())
