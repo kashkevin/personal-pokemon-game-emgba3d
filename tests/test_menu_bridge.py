@@ -82,3 +82,32 @@ loadBytes(0x02003008,string.pack("<I4",0));advance(1)
 assert(closes==1)
 assert(range(0x02003020,244)==string.rep("\\0",244))
 ''')
+
+    def test_resume_entry_marker_requires_verified_capability_and_exact_enabled_row(self):
+        base = self.fixture().replace("EMERALD_BRIDGE.menu_abi=1;", "EMERALD_BRIDGE.menu_abi=2;")
+        base = base.replace('loadBytes(0x080000c8,string.pack("<I4",1))',
+                            'loadBytes(0x080000c8,string.pack("<I4",2))')
+        base = base.replace("0x31554D45,1,512", "0x31554D45,2,512")
+        setup = '''
+EMERALD_BRIDGE.battle_abi=3;EMERALD_BRIDGE.battle_abi_address=0x080000cc
+EMERALD_BRIDGE.battle_address=0x02005000;EMERALD_BRIDGE.battle_size=512
+EMERALD_BRIDGE.battle_resume_abi=1;EMERALD_BRIDGE.battle_resume_abi_address=0x080000d0
+loadBytes(0x080000cc,string.pack("<I4I4",3,1))
+loadBytes(0x02005000,string.pack("<I4I2I2I4I4I4I4",0x31424D45,3,512,1,0,0,0)..string.rep("\\0",488))
+'''
+        enabled = base.replace("local cfg = assert", setup+"\nlocal cfg = assert", 1)
+        screen = MenuScreen(3, "Battle", "Ready", (MenuRow(1, "Enter battle"),), 0, 1)
+        valid = pack_screen(1, screen, allow_battle_admission=True)
+        self.run_lua(enabled+self.request()+self.command(valid)+f'''
+assert(not stopped and #console.errors==0)
+assert(range(0x02003024,240)==unhex("{valid.hex()}"))
+''')
+        changed = []
+        for offset, value in ((236, 2), (236, 7), (68, 0), (8, 1), (238, 1), (96, 1)):
+            payload = bytearray(valid); payload[offset] = value; changed.append(bytes(payload))
+        for script, payload in [(base, valid), (self.fixture(), valid), *[(enabled, p) for p in changed]]:
+            with self.subTest(payload=payload.hex(), enabled=script == enabled):
+                self.run_lua(script+self.request()+self.command(payload)+'''
+assert(stopped and closes==1 and #console.errors==1)
+assert(range(0x02003020,244)==string.rep("\\0",244))
+''')

@@ -67,6 +67,14 @@ if battleEnabled then
         and cfg.battle_abi_address + 4 <= 0x08000000 + cfg.rom_size
         and emu:read32(cfg.battle_abi_address) == cfg.battle_abi, "Invalid development battle capability")
 end
+local battleResumeEnabled = cfg.battle_resume_abi ~= nil or cfg.battle_resume_abi_address ~= nil
+if battleResumeEnabled then
+    assert(battleEnabled and cfg.battle_abi == 3 and cfg.battle_resume_abi == 1
+        and type(cfg.battle_resume_abi_address) == "number" and cfg.battle_resume_abi_address % 4 == 0
+        and cfg.battle_resume_abi_address >= 0x08000000
+        and cfg.battle_resume_abi_address + 4 <= 0x08000000 + cfg.rom_size
+        and emu:read32(cfg.battle_resume_abi_address) == 1, "Invalid native battle resume capability")
+end
 local battlePending, battleGeneration, battleCapabilitySent = nil, nil, false
 local windowAddr = cfg.window_address
 local windowEnabled = windowAddr ~= nil or cfg.window_abi ~= nil or cfg.window_abi_address ~= nil or cfg.window_size ~= nil
@@ -178,9 +186,13 @@ end
 local function validMenuScreen(payload)
     if #payload ~= 240 then return false end
     local ack, revision, flags, count, back = string.unpack("<I4I4BBI2", payload)
+    local admission = string.unpack("<I2", payload, 237)
     if ack == 0 or revision == 0 or flags > (cfg.menu_abi == 2 and 2 or 1) or count > 6 or (back ~= 0 and back ~= 7)
         or not menuText(payload:sub(13, 36)) or not menuText(payload:sub(37, 68))
-        or payload:sub(69 + count * 28) ~= string.rep("\0", 172 - count * 28) then return false end
+        or payload:sub(69 + count * 28, 236) ~= string.rep("\0", 168 - count * 28)
+        or payload:sub(239) ~= string.rep("\0", 2) then return false end
+    if admission ~= 0 and (not battleResumeEnabled or cfg.menu_abi ~= 2 or flags ~= 0
+        or admission > count or string.unpack("<I2", payload, 69 + (admission - 1) * 28) ~= admission) then return false end
     for i = 0, count - 1 do
         local action = string.unpack("<I2", payload, 69 + i * 28)
         if (action ~= 0 and action ~= i + 1) or not menuText(payload:sub(71 + i * 28, 96 + i * 28)) then return false end
@@ -235,7 +247,7 @@ local function saveControl(payload, command)
         or request == string.rep("\0", 16) or offset > 131072
         or (size ~= 0 and size ~= 131072) or revision > 0x7FFFFFFF
         or opcode < 1 or opcode > (emergencyEnabled and (cfg.emergency_save_abi == 2 and 22 or 21) or (windowEnabled and 18 or (tradeEnabled and 17 or 11)))
-        or (opcode == 18 and not windowEnabled) or status > 13 or length > 192
+        or (opcode == 18 and not windowEnabled) or status > (battleResumeEnabled and 14 or 13) or length > 192
         or data:sub(length + 1) ~= string.rep("\0", 192 - length)
         or crc32(data:sub(1, length)) ~= crc then return nil end
     if command then
@@ -281,7 +293,7 @@ end
 local function battleHeaderReady()
     return battleEnabled and emu:read32(battleAddr) == 0x31424D45
         and emu:read16(battleAddr + 4) == cfg.battle_abi and emu:read16(battleAddr + 6) == 512
-        and emu:read32(battleAddr + 12) <= (cfg.battle_abi >= 2 and 8 or 3)
+        and emu:read32(battleAddr + 12) <= (battleResumeEnabled and 10 or (cfg.battle_abi >= 2 and 8 or 3))
         and emu:read32(battleAddr + 16) == 0 and emu:read32(battleAddr + 20) == 0
 end
 
@@ -290,7 +302,7 @@ local function battleControl(payload, command)
     local inc, epoch, id, seq, block, offset, size, opcode, status, phase, source, kind, reserved, length, crc, data
         = string.unpack("<I4I4c16I4I4I2I2BBBBBBI2I4c192", payload)
     if inc == 0 or epoch == 0 or epoch > 0x7FFFFFFF or id == string.rep("\0", 16)
-        or seq == 0 or size > 256 or offset > size or opcode < 1 or opcode > 13
+        or seq == 0 or size > 256 or offset > size or opcode < 1 or opcode > (battleResumeEnabled and 21 or 13)
         or status > 10 or source > 3 or reserved ~= 0
         or length > 192 or data:sub(length + 1) ~= string.rep("\0", 192 - length)
         or crc32(data:sub(1, length)) ~= crc then return nil end
@@ -315,8 +327,9 @@ local function battleControl(payload, command)
     elseif block ~= 0 or offset ~= 0 or size ~= 0 or kind ~= 0 then return nil end
     if command then
         local lengths = native and {[1]=116,[2]=0,[4]=0,[5]=8,[6]=math.min(128,size-offset),
-            [9]=0,[10]=36,[11]=0,[12]=0,[13]=8} or {116, 0, 4, 0, 8, 40, 4, 0, 0}
+            [9]=0,[10]=36,[11]=0,[12]=0,[13]=8,[14]=0,[15]=0,[16]=140,[17]=20,[18]=0,[19]=48,[20]=28,[21]=28} or {116, 0, 4, 0, 8, 40, 4, 0, 0}
         if status ~= 0 or length ~= lengths[opcode] then return nil end
+        if native and opcode == 1 and (data:byte(116) > 1 or (data:byte(116) == 1 and not battleResumeEnabled)) then return nil end
         if opcode == 5 or opcode == 7 then
             local mask = string.unpack("<I4", data, opcode == 5 and 5 or 1)
             if mask == 0 or mask > 15 then return nil end
@@ -329,7 +342,7 @@ local function battleControl(payload, command)
         end
     else
         local lengths = native and {[1]=64,[2]=64,[4]=math.min(128,size-offset),[5]=0,
-            [6]=0,[9]=64,[10]=64,[11]=64,[12]=0,[13]=0} or {64, 64, 64, 40, 0, 0, 0, 0, 64}
+            [6]=0,[9]=64,[10]=64,[11]=64,[12]=0,[13]=0,[14]=64,[15]=88,[16]=88,[17]=88,[18]=88,[19]=64,[20]=28,[21]=28} or {64, 64, 64, 40, 0, 0, 0, 0, 64}
         if (status == 0 and length ~= lengths[opcode]) or (status ~= 0 and length ~= 0) then return nil end
     end
     -- Bytes 1-37 and 39-41 are the immutable response correlation fields;

@@ -104,6 +104,11 @@ def generate(rom: Path, elf: Path, nm: str, engine_commit: str) -> dict:
             manifest.update(battle_execution_abi_version=1,
                 battle_string_table_address=int(strings[0][0], 16),
                 battle_string_table_size=int(strings[0][1], 16))
+        resume = re.findall(r"^([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+[Rr]\s+gMultiplayerBattleResumeAbiVersion$", symbols, re.M)
+        if resume:
+            if len(resume) != 1 or int(resume[0][1], 16) != 4:
+                raise ValueError("native resume requires exactly one four-byte compiler-located marker")
+            manifest.update(battle_resume_abi_version=1, battle_resume_abi_address=int(resume[0][0], 16))
         validate_battle_manifest(manifest, rom)
     window = re.findall(r"^([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+[Rr]\s+gMultiplayerSaveWindowAbiVersion$", symbols, re.M)
     if window:

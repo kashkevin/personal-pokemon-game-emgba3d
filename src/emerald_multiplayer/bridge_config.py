@@ -49,6 +49,8 @@ def configure(manifest: dict, token: str, port: int, bridge: str) -> str:
     if validate_battle_manifest(manifest):
         battle_config = (f", battle_abi={manifest['battle_abi_version']}, battle_abi_address={manifest['battle_abi_address']}"
                          f", battle_address={manifest['battle_mailbox_address']}, battle_size=512")
+        if manifest.get("battle_resume_abi_version") == 1:
+            battle_config += f", battle_resume_abi=1, battle_resume_abi_address={manifest['battle_resume_abi_address']}"
     window_config = ""
     if validate_window_manifest(manifest):
         window_config = (f", window_abi=1, window_abi_address={manifest['save_window_abi_address']}"

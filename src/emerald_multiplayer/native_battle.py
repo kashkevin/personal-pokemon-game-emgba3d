@@ -47,6 +47,14 @@ class Opcode(IntEnum):
     START = 11
     ABORT_PRE_START = 12
     RELEASE = 13
+    ARM_RESUME = 14
+    SUSPEND = 15
+    REAUTHORIZE = 16
+    RESUME = 17
+    RESUME_QUERY = 18
+    ADMIT = 19
+    RETIRE = 20
+    HANDOFF = 21
 
 
 class Kind(IntEnum):
@@ -81,8 +89,11 @@ class NativeBinding:
     incarnations: tuple[int, ...]
     local_slot: int
     mode: int = PHASE
+    resumable: bool = False
 
     def __post_init__(self):
+        if type(self.resumable) is not bool:
+            raise BattleMailboxError("resumable binding requires an explicit boolean")
         self._diagnostic_shape()
         if len(self.players) != player_count_for_phase(self.mode):
             raise BattleMailboxError("native phase requires its exact trainer count")
@@ -93,15 +104,16 @@ class NativeBinding:
 
     def pack(self):
         raw = self._diagnostic_shape().pack()
-        return raw[:114] + bytes((self.mode, 0))
+        return raw[:114] + bytes((self.mode, int(self.resumable)))
 
     @classmethod
     def unpack(cls, data):
-        if type(data) is not bytes or len(data) != 116 or data[114] not in (PHASE, MULTI_PHASE):
+        if (type(data) is not bytes or len(data) != 116 or data[114] not in (PHASE, MULTI_PHASE)
+                or data[115] not in (0, 1)):
             raise BattleMailboxError("native binding requires exactly 116 phase2/3 bytes")
-        shape = BattleBinding.unpack(data[:114] + b"\x01" + data[115:])
+        shape = BattleBinding.unpack(data[:114] + b"\x01\0")
         return cls(shape.generation, shape.players, shape.leases,
-                   shape.incarnations, shape.local_slot, data[114])
+                   shape.incarnations, shape.local_slot, data[114], bool(data[115]))
 
     def validate_control(self, control, *, player_id=None):
         if not isinstance(control, NativeControl):
@@ -174,6 +186,12 @@ class NativeQuery:
     def restored(self): return bool(self.flags & 32)
     @property
     def recovery_required(self): return bool(self.flags & 64)
+    @property
+    def provisional(self): return bool(self.flags & 128)
+    @property
+    def terminal_waiting(self): return bool(self.flags & 256)
+    @property
+    def handoff_waiting(self): return bool(self.flags & 512)
 
     @classmethod
     def unpack(cls, data):
@@ -184,6 +202,16 @@ class NativeQuery:
             return cls(flags, None, count, local, mode, *words)
         seq, out_seq, kind, size, crc, cursor, received, remaining, revision, outcome = words
         expected_count = player_count_for_phase(mode)
+        if flags & (256 | 512):
+            if (flags not in (257, 513) or reserved or count != expected_count or local >= count
+                    or not any(generation) or not seq or any(words[1:])):
+                raise BattleMailboxError("terminal field handoff query contains unrelated native state")
+            return cls(flags, str(UUID(bytes=generation)), count, local, mode, *words)
+        if flags & 128:
+            if (flags != 129 or reserved or count != expected_count or local >= count
+                    or not any(generation) or seq == 0xFFFFFFFF or any(words[1:])):
+                raise BattleMailboxError("provisional admission query contains unrelated native state")
+            return cls(flags, str(UUID(bytes=generation)), count, local, mode, *words)
         if (reserved or flags & ~127 or count != expected_count or local >= count
                 or not any(generation) or not seq or received & ~((1 << count)-1) or remaining > 600
                 or revision > MAX_COUNTER or outcome not in (0, 1, 2, 3)
@@ -271,7 +299,9 @@ class NativeControl:
         lengths = {Opcode.BIND: 116, Opcode.QUERY: 0, Opcode.READ_OUT: 0,
             Opcode.ACK_OUT: 8, Opcode.RECEIVE: min(128, self.total_size-self.offset),
             Opcode.KEEP: 0, Opcode.PREPARE: 36, Opcode.START: 0,
-            Opcode.ABORT_PRE_START: 0, Opcode.RELEASE: 8}
+            Opcode.ABORT_PRE_START: 0, Opcode.RELEASE: 8, Opcode.ARM_RESUME: 0,
+            Opcode.SUSPEND: 0, Opcode.REAUTHORIZE: 140, Opcode.RESUME: 20,
+            Opcode.RESUME_QUERY: 0, Opcode.ADMIT: 48, Opcode.RETIRE: 28, Opcode.HANDOFF: 28}
         if len(self.data) != lengths[self.opcode]:
             raise BattleMailboxError("native command has the wrong exact payload length")
         if self.opcode == Opcode.BIND:
@@ -281,6 +311,23 @@ class NativeControl:
                 raise BattleMailboxError("binding command changes the approved roster")
         elif self.opcode == Opcode.PREPARE:
             Preparation.unpack(self.data)
+        elif self.opcode == Opcode.REAUTHORIZE:
+            from .native_battle_resume import ResumeAuthorization
+            renewal = ResumeAuthorization.unpack(self.data)
+            renewal.binding.validate_control(self, player_id=player_id)
+            if binding is not None and renewal.binding != binding:
+                raise BattleMailboxError("resume authorization changed the approved binding")
+        elif self.opcode == Opcode.RESUME:
+            from .native_battle_resume import validate_resume_token
+            validate_resume_token(self.data[:16], struct.unpack_from("<I", self.data, 16)[0])
+        elif self.opcode == Opcode.ADMIT:
+            from .native_battle_resume import Admission
+            admission = Admission.unpack(self.data)
+            if player_id is not None and admission.player_id != player_id:
+                raise BattleMailboxError("provisional admission changed the authenticated player")
+        elif self.opcode in (Opcode.RETIRE, Opcode.HANDOFF):
+            from .native_battle_resume import Retirement
+            Retirement.unpack(self.data)
         elif self.opcode == Opcode.RELEASE:
             if struct.unpack_from("<I", self.data, 4)[0] not in (1, 2, 3):
                 raise BattleMailboxError("release needs a normalized win/loss/draw outcome")
@@ -312,7 +359,35 @@ class NativeControl:
                 raise BattleMailboxError("native error response must be empty")
             return self
         self._validate_block()
-        if self.opcode in (Opcode.BIND, Opcode.QUERY, Opcode.KEEP, Opcode.PREPARE, Opcode.START):
+        if self.opcode in (Opcode.RETIRE, Opcode.HANDOFF):
+            from .native_battle_resume import Retirement
+            Retirement.unpack(self.data)
+            if request is not None and self.data != request.data:
+                raise BattleMailboxError("retirement receipt changed the exact terminal release")
+        elif self.opcode == Opcode.ADMIT:
+            query = NativeQuery.unpack(self.data)
+            if (not query.provisional or (query.local_slot, query.mode) != (self.source_slot, self.phase)
+                    or (request is not None and query.generation != str(UUID(bytes=request.data[:16])))):
+                raise BattleMailboxError("admission did not confirm the exact provisional native hold")
+        elif Opcode.SUSPEND <= self.opcode <= Opcode.RESUME_QUERY:
+            from .native_battle_resume import ResumeQuery
+            query = ResumeQuery.unpack(self.data)
+            if (query.query.local_slot, query.query.mode) != (self.source_slot, self.phase):
+                raise BattleMailboxError("resume response changed the local participant or mode")
+            if self.opcode in (Opcode.SUSPEND, Opcode.REAUTHORIZE) and not (query.suspended or query.released):
+                raise BattleMailboxError("resume preparation did not confirm a suspended core")
+            if self.opcode == Opcode.RESUME and (query.state not in (1, 2, 4, 5, 6, 7) or not query.armed):
+                raise BattleMailboxError("resume commit did not leave suspension")
+            if request is not None and self.opcode == Opcode.REAUTHORIZE:
+                from .native_battle_resume import ResumeAuthorization
+                renewal = ResumeAuthorization.unpack(request.data)
+                if (query.token, query.epoch, query.query.last_sequence, query.query.generation) != (
+                        renewal.token, renewal.epoch, renewal.last_sequence, renewal.binding.generation):
+                    raise BattleMailboxError("resume receipt changed its exact renewal")
+            if request is not None and self.opcode == Opcode.RESUME:
+                if (query.token, query.epoch) != (request.data[:16], struct.unpack_from("<I", request.data, 16)[0]):
+                    raise BattleMailboxError("resume receipt changed its quorum token")
+        elif self.opcode in (Opcode.BIND, Opcode.QUERY, Opcode.KEEP, Opcode.PREPARE, Opcode.START, Opcode.ARM_RESUME):
             query = NativeQuery.unpack(self.data)
             if query.player_count and (query.local_slot != self.source_slot or query.mode != self.phase):
                 raise BattleMailboxError("native query names the wrong local participant/phase")

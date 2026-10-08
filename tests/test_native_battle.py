@@ -51,11 +51,14 @@ class NativeEnvelopeTests(unittest.TestCase):
             NativeBinding(uid(99), tuple(uid(i+1) for i in range(4)), (1, 2, 3, 4), (1, 2, 3, 4), 0)
         with self.assertRaises(BattleMailboxError):
             NativeBinding(uid(99), (uid(1), uid(1)), (1, 2), (1, 2), 0)
-        for offset in (48, 88, 104, 114, 115):
+        for offset in (48, 88, 104, 114):
             raw = bytearray(binding().pack())
             raw[offset] ^= 1
             with self.assertRaises(BattleMailboxError):
                 NativeBinding.unpack(bytes(raw))
+        raw = bytearray(binding().pack()); raw[115] = 2
+        with self.assertRaises(BattleMailboxError):
+            NativeBinding.unpack(bytes(raw))
 
     def test_preparation_exact_counter_rng_and_reserved_fields(self):
         prep = Preparation(7, 0xFFFFFFFF, 0, 0, bytes(range(16)))
