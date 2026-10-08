@@ -50,3 +50,21 @@ The response retained the previous completed stream cursor 131072 while request 
 | Private harness | `e37e6d125079c141fbaa5f02b4b55f3c0918ba5d5d24c97ba857dd01804350a5` |
 
 Evidence confirms both disposable cores closed, original saves were unchanged and frozen Python sources were unchanged. Independent Windows copies reside under `%LOCALAPPDATA%\PokemonPrivate\artifacts\battles\resume-candidate-failed-evidence-1`, with every file verified against its unchanged WSL origin; the combined 134-file inventory is recorded in [the WSL regression archive](battle-resume-regression.md#complete-wsl-run-2). The failed run remains separate from subsequent reruns and establishes no complete battle, launcher, Windows or Internet acceptance.
+
+## Native entry run 2 — qualified admission boundary
+
+The corrected rerun **passed** using frozen application `d976ed684881c9a0168fa9e41014c4cf16d2ef6d`. The native `aef47e4` commit, ROM, ELF, manifest, bridge, controller and private harness hashes remain exactly those listed for run 1. The application milestone is preserved by annotated tag `NATIVE_BATTLE_ENTRY_HOLD_POC`; its peeled target was independently verified as the same full `d976ed6` commit.
+
+Two ordinarily continued native cores enrolled and armed their real emergency controllers. On host loss, the selected core returned BEGIN status 14 before provisional publication, while the other core preserved its complete local emergency candidate. The selected original then resisted each of Right, B and the ordinary reset combination for 120 held frames plus release intervals. Its party bytes/count, position, play clock, both RNGs, save counter and Flash stayed unchanged. Delivering the original delayed Enter IPC event invoked the production synchronous publisher and offline admission helper, produced the exact durable ADMIT receipt, and atomically closed the native menu. The same input/state checks passed under the new provisional hold on the identical emulator process, bridge, incarnation and runtime ID.
+
+The evidence records `passed`, `cores_closed`, `originals_unchanged` and `python_sources_unchanged` as true. Root inspection and a separate Windows archive independently agreed on the evidence hash. All **142 copied files, 39,443,181 bytes** in `%LOCALAPPDATA%\PokemonPrivate\artifacts\battles\native-battle-entry-qualification-2` matched their origin before and after copying. The archive contains this run's own private copies, source ZIP, runner and diagnostics; all remain outside Git.
+
+| Run 2 private evidence | SHA-256 |
+| --- | --- |
+| `native-battle-entry-run-2/evidence.json` | `c1c739dc404d087130b615736be6a4654a60d1ef4a9073dd500290f3b197ef80` |
+| `native-battle-entry-run-2.log` | `c7e4ce7717e01029167c05dc145bcbe5a073534b894ba612f289695f97fc2022` |
+| `run-native-battle-entry-2.sh` | `d34b19e18b9e83f28c4286e2bf242fa283d5ed45c93d23eb4734711149ac8bb9` |
+| `resume-candidate-source-d976ed6.zip` | `3950fd12ed0d547c37b5655201ef895384aa10705b608b102b62a8a9f88d9eba` |
+| `copy-inventory.json` | `288baed154e35b0992790e9b80b7219ddd2bdee8679abce2367ced521a9c4da2` |
+
+This qualifies only the two-core earliest Enter/host-loss/refusal/offline-ADMIT boundary and peer preservation. It uses explicit callbacks around production helpers and intentionally ends before execution readiness or a full BIND. It does not establish full battle resumption, four-player wait-all completion, terminal save handoff, launcher recovery, Windows execution, separate-PC connectivity or Internet acceptance. The four-core interruption controller remains separately unqualified.
