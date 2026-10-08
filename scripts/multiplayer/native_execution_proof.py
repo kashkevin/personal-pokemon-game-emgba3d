@@ -118,7 +118,18 @@ async def run(args):
     server = WorldServer(ServerConfig(manifest["rom_sha256"], manifest["ruleset_id"],
         heartbeat_interval=.2, idle_timeout=12), store=store, development_trades=True, development_battles=True)
     server.enable_battle_execution(read_string_lengths(rom, table_address=symbols["gBattleStringsTable"][0]), root/"execution-host")
-    server.battle_execution.observer = lambda block: evidence["blocks"].append(dict(block, frame=pump.frames))
+    execution_started = time.monotonic()
+    server.battle_execution.observer = lambda block: evidence["blocks"].append(
+        dict(block, frame=pump.frames, elapsed_seconds=round(time.monotonic()-execution_started, 6)))
+    original_command = server.battle_execution._command
+    async def timed_command(room, actor, command):
+        started = time.monotonic()
+        try:
+            return await original_command(room, actor, command)
+        finally:
+            evidence["commands"].append(dict(source=room.battle.players.index(actor),
+                opcode=int(command.opcode), seconds=round(time.monotonic()-started, 6)))
+    server.battle_execution._command = timed_command
     await server.start(port=0)
     saves = [root/f"client-{name}.sav" for name in "abcd"[:len(sources)]]
     companions, live, cores, all_cores, leases, rosters = [], [], [], [], [], []
@@ -263,7 +274,8 @@ async def run(args):
         held = [await native_state(i) for i in range(4)]
         sessions = [NativeBattleSession(c, root/f"private-{i}") for i, c in enumerate(companions)]
         execution_tasks = [asyncio.create_task(session.run(offer)) for session in sessions]
-        deadline, last_snapshot = time.monotonic()+args.timeout, time.monotonic()
+        execution_started = time.monotonic()
+        deadline, last_snapshot = execution_started+args.timeout, execution_started
         while time.monotonic() < deadline:
             room = server.battle_execution.rooms.get(battle_id)
             if room is not None and room.route is not None:
@@ -311,7 +323,8 @@ async def run(args):
         assert state["state"] == "closed"
         record("authenticated-four-player-execution-exact-party-and-flash-return",
             outcome=state["outcome"], completions=[asdict(value) for value in completions],
-            routed_blocks=len(evidence["blocks"]), selected_party_slots=selected_slots)
+            routed_blocks=len(evidence["blocks"]), selected_party_slots=selected_slots,
+            execution_seconds=round(time.monotonic()-execution_started, 6))
         await pump.advance(120)
         returned = await snapshot("04-independent-current-map-return")
         for before, after_row in zip(initial, returned):

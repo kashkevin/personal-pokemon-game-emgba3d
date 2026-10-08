@@ -21,6 +21,22 @@ from .live_checkpoint import _atomic, _json_bytes
 from .native_battle import Kind, NativeControl, NativeQuery, Opcode
 
 
+async def _independent(*commands):
+    """Settle every issued mailbox command before advancing or failing a batch."""
+    tasks = [asyncio.create_task(command) for command in commands]
+    try:
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        for result in results:
+            if isinstance(result, BaseException):
+                raise result
+        return results
+    finally:
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+
 @dataclass
 class _Room:
     battle: object
@@ -231,8 +247,9 @@ class _NativeRoute:
 
     async def queries(self):
         result = []
-        for slot in range(self.count):
-            q = NativeQuery.unpack((await self.rpc(slot, Opcode.QUERY)).data)
+        responses = await _independent(*(self.rpc(slot, Opcode.QUERY) for slot in range(self.count)))
+        for slot, response in enumerate(responses):
+            q = NativeQuery.unpack(response.data)
             if (not q.held or q.expired or q.recovery_required
                     or (q.generation, q.local_slot, q.mode) != (self.b.generation, slot, self.b.mode)
                     or q.last_sequence != self.sequences[slot]):
@@ -277,16 +294,22 @@ class _NativeRoute:
             if block is None:
                 continue
             data = block["data"]
+            deliveries = []
             for target in range(self.count):
                 offset = block["offsets"][target]
                 if target == source or offset == len(data):
                     continue
                 chunk = data[offset:offset + 128]
-                reply = await self.rpc(target, Opcode.RECEIVE, busy=True, source_slot=source,
+                deliveries.append((target, len(chunk), self.rpc(target, Opcode.RECEIVE, busy=True, source_slot=source,
                     block_sequence=block["sequence"], offset=offset, total_size=len(data),
-                    kind=block["kind"], data=chunk)
+                    kind=block["kind"], data=chunk)))
+            # Different cores have independent mailboxes. Each command is
+            # still durable before publication and each receipt before ACK;
+            # the complete batch barrier below is unchanged.
+            replies = await _independent(*(item[2] for item in deliveries))
+            for (target, length, _), reply in zip(deliveries, replies):
                 if reply.status == Status.OK:
-                    block["offsets"][target] += len(chunk)
+                    block["offsets"][target] += length
             if all(target == source or block["offsets"][target] == len(data) for target in range(self.count)):
                 await self.rpc(source, Opcode.ACK_OUT, block_sequence=block["sequence"], offset=len(data),
                     total_size=len(data), kind=block["kind"], data=struct.pack("<II", block["crc"],
@@ -297,24 +320,23 @@ class _NativeRoute:
         if not any(self.pending):
             if not self.started and self.next_kind == [3] * self.count:
                 self.desk.authorize_start(self.b.battle_id, self.b.generation)
-                for slot in range(self.count):
-                    await self.rpc(slot, Opcode.START)
+                await _independent(*(self.rpc(slot, Opcode.START) for slot in range(self.count)))
                 self.started = True
             if not self.running and self.next_kind == [8] * self.count:
                 self.desk.authorize_running(self.b.battle_id, self.b.generation)
                 self.running = True
         # Every step refreshes the held native deadline. No local gameplay
         # controller, diagnostic core API or injected native outcome is used.
-        for slot in range(self.count):
-            await self.rpc(slot, Opcode.KEEP)
+        await _independent(*(self.rpc(slot, Opcode.KEEP) for slot in range(self.count)))
         return queries
 
     async def run(self):
-        for slot in range(self.count):
+        async def prepare(slot):
             binding = self.call("authorize_bind", slot)
             await self.rpc(slot, Opcode.BIND, data=binding.pack())
             preparation = self.call("preparation", slot)
             await self.rpc(slot, Opcode.PREPARE, data=preparation.pack())
+        await _independent(*(prepare(slot) for slot in range(self.count)))
         while True:
             queries = await self.step()
             if self.running and all(q.restored for q in queries):

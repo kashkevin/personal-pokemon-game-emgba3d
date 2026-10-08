@@ -12,7 +12,7 @@ import unittest
 from uuid import UUID, uuid4
 import zlib
 
-from emerald_multiplayer.battle_execution import BattleExecutionService
+from emerald_multiplayer.battle_execution import BattleExecutionService, _independent
 from emerald_multiplayer.battle_execution_protocol import (
     decode_control, encode_control, execution_view, validate_execution_view)
 from emerald_multiplayer.battle_journal import BattleJournalError
@@ -89,6 +89,34 @@ class NativeFixture:
         if command.opcode in (Opcode.BIND, Opcode.PREPARE, Opcode.START, Opcode.KEEP):
             data = self.query()
         return replace(command, data=data)
+
+
+class IndependentDispatchTests(unittest.IsolatedAsyncioTestCase):
+    async def test_failure_waits_for_every_already_issued_receipt(self):
+        settled = []
+        async def refuse():
+            raise ValueError("refused")
+        async def receipt():
+            await asyncio.sleep(.01)
+            settled.append(True)
+        with self.assertRaisesRegex(ValueError, "refused"):
+            await _independent(refuse(), receipt())
+        self.assertEqual(settled, [True])
+
+    async def test_cancellation_drains_children_before_returning(self):
+        entered, stopped = asyncio.Event(), asyncio.Event()
+        async def held():
+            entered.set()
+            try:
+                await asyncio.Future()
+            finally:
+                stopped.set()
+        task = asyncio.create_task(_independent(held()))
+        await entered.wait()
+        task.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await task
+        self.assertTrue(stopped.is_set())
 
 
 class ExecutionProtocolTests(unittest.TestCase):
