@@ -1,0 +1,167 @@
+from __future__ import annotations
+
+import asyncio
+from contextlib import suppress
+from dataclasses import replace
+import json
+from pathlib import Path
+import secrets
+import tempfile
+import unittest
+import uuid
+
+from emerald_multiplayer.bridge_protocol import encode_packet, read_packet
+from emerald_multiplayer.companion import BASELINE_RULESET, Companion, CompanionConfig, verify_rom_manifest
+from emerald_multiplayer.flash import LAYOUT_ID
+from emerald_multiplayer.save_mailbox import (
+    FLASH_SIZE, Opcode, SaveControl, capability_packet, parse_command_packet, response_packet,
+)
+from emerald_multiplayer.server import ServerConfig, WorldServer
+from emerald_multiplayer.storage import CheckpointStore
+from test_companion import BinaryBridge, make_files, make_pose, wait_until
+
+
+class CompanionLiveTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.rom, self.manifest = make_files(self.temp.name)
+        value = json.loads(self.manifest.read_text())
+        value.update(save_abi_version=1, save_mailbox_size=512, save_mailbox_address=0x02021000)
+        self.manifest.write_text(json.dumps(value))
+        build = verify_rom_manifest(self.rom, self.manifest)[0]
+        self.store = CheckpointStore(Path(self.temp.name) / "world.sqlite3", build, BASELINE_RULESET, LAYOUT_ID)
+        self.owner = self.store.create_player("Authenticated player")
+        self.server = WorldServer(ServerConfig(build, BASELINE_RULESET, heartbeat_interval=0.03,
+                                               idle_timeout=0.3, monitor_interval=0.005), store=self.store)
+        await self.server.start(port=0)
+        self.companion = Companion(CompanionConfig(self.rom, self.manifest, self.owner.player_id,
+                                                   self.owner.display_name, secrets.token_bytes(32),
+                                                   server_port=self.server.address[1], ipc_port=0,
+                                                   server_credential=self.owner.credential,
+                                                   pose_interval=0.005, snapshot_interval=0.01,
+                                                   reconnect_delay=0.02))
+        await self.companion.start()
+        await wait_until(lambda: self.companion.connected)
+        self.bridge = await BinaryBridge.connect(self.companion)
+        self.bridge.writer.write(encode_packet(capability_packet()))
+        await self.bridge.writer.drain()
+        await wait_until(lambda: self.companion._bridge is not None and self.companion._bridge.save_capable)
+        self.pending_tasks = []
+
+    async def asyncTearDown(self):
+        for task in self.pending_tasks:
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(*self.pending_tasks, return_exceptions=True)
+        with suppress(ConnectionError, OSError):
+            await self.bridge.close()
+        await self.companion.close()
+        await self.server.close()
+        self.store.close()
+        self.temp.cleanup()
+
+    def control(self, **changes):
+        fields = dict(incarnation=self.companion.save_incarnation, session_epoch=self.companion.session_epoch,
+                      request_id=str(uuid.uuid4()), sequence=1, offset=0, total_size=FLASH_SIZE,
+                      revision=0, opcode=Opcode.BIND)
+        return SaveControl(**{**fields, **changes})
+
+    async def next_command(self):
+        async with asyncio.timeout(1):
+            while True:
+                packet = await read_packet(self.bridge.reader)
+                self.assertIsNotNone(packet)
+                if packet[:1] == b"C":
+                    return parse_command_packet(packet)
+                self.assertEqual(packet[:1], b"S")
+
+    async def respond(self, control):
+        self.bridge.writer.write(encode_packet(response_packet(control)))
+        await self.bridge.writer.drain()
+
+    def rpc_task(self, control, **kwargs):
+        task = asyncio.create_task(self.companion.save_rpc(control, **kwargs))
+        self.pending_tasks.append(task)
+        return task
+
+    async def test_authenticated_capability_control_response_and_continuing_pose_heartbeat(self):
+        self.assertEqual(self.companion.world_id, self.store.metadata.world_id)
+        self.assertEqual(self.companion.save_profile, LAYOUT_ID)
+        await self.bridge.pose(make_pose(frame=1, x=6))
+        control = self.control()
+        task = self.rpc_task(control)
+        self.assertEqual(await self.next_command(), control)
+        # Hold a mailbox response while the existing world reader answers pings.
+        await asyncio.sleep(0.08)
+        await self.bridge.pose(make_pose(frame=2, x=7))
+        await wait_until(lambda: self.server.sessions[self.owner.player_id].presence is not None
+                         and self.server.sessions[self.owner.player_id].presence["x"] == 7)
+        self.assertGreater(self.server.sessions[self.owner.player_id].ping_nonce, 0)
+        self.assertFalse(task.done())
+        await self.respond(control)
+        self.assertEqual(await task, control)
+        self.assertTrue(self.companion.connected)
+        self.assertEqual(self.companion.session_epoch, control.session_epoch)
+
+    async def test_mismatched_reply_disconnects_ipc_and_fails_pending_without_closing_world(self):
+        control = self.control()
+        task = self.rpc_task(control)
+        await self.next_command()
+        await self.respond(replace(control, request_id=str(uuid.uuid4())))
+        with self.assertRaises(ConnectionError):
+            await task
+        await wait_until(lambda: self.companion._bridge is None)
+        self.assertTrue(self.companion.connected)
+        self.assertIn(self.owner.player_id, self.server.sessions)
+
+    async def test_bridge_disconnect_fails_pending_and_late_timed_out_reply_is_ignored(self):
+        control = self.control()
+        task = self.rpc_task(control, timeout=0.025)
+        await self.next_command()
+        with self.assertRaises(asyncio.TimeoutError):
+            await task
+        await self.respond(control)
+        await asyncio.sleep(0.02)
+        self.assertIsNotNone(self.companion._bridge)
+        query = replace(control, opcode=Opcode.QUERY, sequence=2)
+        pending = self.rpc_task(query)
+        self.assertEqual(await self.next_command(), query)
+        await self.bridge.close()
+        with self.assertRaises(ConnectionError):
+            await pending
+        self.assertTrue(self.companion.connected)
+
+    async def test_invalid_command_shape_rejected_before_mailbox_enqueue(self):
+        bad = self.control(opcode=Opcode.READ, data=bytes(128))
+        with self.assertRaises(ValueError):
+            await self.companion.save_rpc(bad)
+        self.assertFalse(self.companion._save_pending)
+        self.assertTrue(self.companion.connected)
+
+    async def test_runtime_ipc_reconnect_reincarnates_without_changing_world_lease(self):
+        old_control = self.control()
+        world, epoch = self.companion.world_id, self.companion.session_epoch
+        task = self.rpc_task(old_control)
+        await self.next_command()
+        await self.bridge.close()
+        with self.assertRaises(ConnectionError):
+            await task
+        await wait_until(lambda: self.companion._bridge is None)
+        self.bridge = await BinaryBridge.connect(self.companion)
+        self.bridge.writer.write(encode_packet(capability_packet()))
+        await self.bridge.writer.drain()
+        await wait_until(lambda: self.companion._bridge is not None and self.companion._bridge.save_capable)
+        self.assertEqual((self.companion.world_id, self.companion.session_epoch), (world, epoch))
+        self.assertGreater(self.companion.save_incarnation, old_control.incarnation)
+        with self.assertRaises(ConnectionError):
+            await self.companion.save_rpc(old_control)
+        new_control = self.control()
+        pending = self.rpc_task(new_control)
+        self.assertEqual(await self.next_command(), new_control)
+        await self.respond(new_control)
+        self.assertEqual(await pending, new_control)
+        self.assertTrue(self.companion.connected)
+
+
+if __name__ == "__main__":
+    unittest.main()

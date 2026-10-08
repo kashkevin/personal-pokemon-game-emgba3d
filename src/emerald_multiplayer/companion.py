@@ -16,11 +16,12 @@ import json
 import math
 from pathlib import Path
 import re
+import struct
 from typing import Any
 import zlib
 from uuid import UUID, uuid4
 
-from .bridge_protocol import BridgeError, LatestPacket, read_packet
+from .bridge_protocol import BridgeError, BridgeOutbox, read_packet
 from .mailbox import ABI_VERSION, CONNECTED, MAILBOX_SIZE, MailboxError, Peer, Pose, Snapshot
 from .protocol import (
     MAX_COUNTER, MAX_PLAYERS, PROTOCOL_VERSION, ProtocolError, encode_message,
@@ -57,6 +58,18 @@ def verify_rom_manifest(rom_path: Path, manifest_path: Path) -> tuple[str, dict[
         address = manifest["mailbox_address"]
         if type(address) is not int or address % 4 or not 0x02000000 <= address <= 0x02040000 - MAILBOX_SIZE:
             raise ValueError("manifest mailbox must be aligned and contained in EWRAM")
+    save_fields = {"save_abi_version", "save_mailbox_size", "save_mailbox_address"}
+    if save_fields & set(manifest):
+        if not save_fields <= set(manifest) or "mailbox_address" not in manifest:
+            raise ValueError("manifest save mailbox fields are incomplete")
+        address = manifest["save_mailbox_address"]
+        presence = manifest["mailbox_address"]
+        if (type(manifest["save_abi_version"]) is not int or manifest["save_abi_version"] != 1
+                or type(manifest["save_mailbox_size"]) is not int or manifest["save_mailbox_size"] != 512
+                or type(address) is not int or address % 4
+                or not 0x02000000 <= address <= 0x02040000 - 512
+                or not (address + 512 <= presence or presence + MAILBOX_SIZE <= address)):
+            raise ValueError("manifest save mailbox is incompatible or overlaps presence")
     digest, crc = hashlib.sha256(), 0
     with rom_path.open("rb") as source:
         for chunk in iter(lambda: source.read(1024 * 1024), b""):
@@ -92,13 +105,15 @@ class CompanionConfig:
     server_credential: bytes | None = field(default=None, repr=False)
     build_id: str = field(init=False)
     ruleset_id: str = field(init=False, default=BASELINE_RULESET)
+    save_enabled: bool = field(init=False, default=False)
 
     def __post_init__(self) -> None:
         rom_path, manifest_path = Path(self.rom_path).resolve(), Path(self.manifest_path).resolve()
         object.__setattr__(self, "rom_path", rom_path)
         object.__setattr__(self, "manifest_path", manifest_path)
-        build_id, _ = verify_rom_manifest(rom_path, manifest_path)
+        build_id, manifest = verify_rom_manifest(rom_path, manifest_path)
         object.__setattr__(self, "build_id", build_id)
+        object.__setattr__(self, "save_enabled", "save_mailbox_address" in manifest)
         validate_hello({
             "type": "hello", "protocol": PROTOCOL_VERSION, "build_id": build_id,
             "ruleset_id": self.ruleset_id, "player_id": self.player_id,
@@ -210,9 +225,10 @@ def validate_world(message: dict[str, Any], config: CompanionConfig, session_epo
 @dataclass
 class BridgeSession:
     writer: asyncio.StreamWriter
-    outbox: LatestPacket
+    outbox: BridgeOutbox
     incarnation: int
     writer_task: asyncio.Task[None] | None = None
+    save_capable: bool = False
 
 
 class Companion:
@@ -230,6 +246,9 @@ class Companion:
         self.server_epoch: int | None = None
         self.save_profile: str | None = None
         self._checkpoint_pending: dict[str, tuple[str, int, asyncio.Future]] = {}
+        self._save_pending: dict[int, tuple[Any, asyncio.Future]] = {}
+        self.live_checkpoint_lock = asyncio.Lock()
+        self._live_save_owner: asyncio.Task | None = None
         self._bridge: BridgeSession | None = None
         self._bridge_incarnation = 0
         self._ipc_writers: set[asyncio.StreamWriter] = set()
@@ -319,7 +338,7 @@ class Companion:
             if self._bridge is not None:
                 return
             self._bridge_incarnation += 1
-            bridge = BridgeSession(writer, LatestPacket(), self._bridge_incarnation)
+            bridge = BridgeSession(writer, BridgeOutbox(), self._bridge_incarnation)
             self._bridge = bridge
             self._local_pose = None
             self._last_pose_time = 0.0
@@ -329,6 +348,16 @@ class Companion:
                 packet = await read_packet(reader)
                 if packet is None:
                     break
+                if packet[:1] == b"V":
+                    if not self.config.save_enabled or packet != b"V" + struct.pack("<HHHH", 1, 512, 240, 192):
+                        raise BridgeError("save capability disagrees with verified manifest")
+                    bridge.save_capable = True
+                    continue
+                if packet[:1] == b"R":
+                    if not bridge.save_capable:
+                        raise BridgeError("save response arrived before its verified capability")
+                    self._receive_save_response(packet[1:], bridge)
+                    continue
                 if len(packet) != 21 or packet[:1] != b"P":
                     raise BridgeError("expected one bounded local pose")
                 pose = Pose.unpack(packet[1:])
@@ -352,6 +381,7 @@ class Companion:
                 if self._bridge is bridge:
                     self._bridge = None
                     self._last_pose_time = 0.0
+                    self._fail_save_requests("local game bridge disconnected")
                 if bridge.writer_task is not None:
                     bridge.writer_task.cancel()
                     with suppress(asyncio.CancelledError):
@@ -375,12 +405,63 @@ class Companion:
         except (ConnectionError, OSError, asyncio.TimeoutError):
             bridge.writer.close()
 
+    def _fail_save_requests(self, message: str) -> None:
+        for _, future in self._save_pending.values():
+            if not future.done():
+                future.set_exception(ConnectionError(message))
+        self._save_pending.clear()
+
+    @property
+    def save_incarnation(self) -> int:
+        if self._bridge is None or not self._bridge.save_capable:
+            raise ConnectionError("the running game has no verified live-save bridge")
+        return self._bridge.incarnation
+
+    async def save_rpc(self, control: Any, *, timeout: float = 12.0):
+        """One reliable command to the ROM-owned save mailbox, never save RAM."""
+        from .save_mailbox import SaveControl
+        if not isinstance(control, SaveControl):
+            raise ValueError("save command must be a validated SaveControl")
+        control.validate_command()
+        bridge = self._bridge
+        if (not self.connected or bridge is None or not bridge.save_capable
+                or control.incarnation != bridge.incarnation or control.session_epoch != self.session_epoch):
+            raise ConnectionError("live-save command has no matching active session")
+        if self._save_pending:
+            raise ValueError("a live-save command is already pending")
+        future = asyncio.get_running_loop().create_future()
+        self._save_pending[control.sequence] = (control, future)
+        try:
+            bridge.outbox.put_control(b"C" + control.pack())
+            return await asyncio.wait_for(future, timeout)
+        finally:
+            self._save_pending.pop(control.sequence, None)
+            if not future.done():
+                future.cancel()
+
+    def _receive_save_response(self, payload: bytes, bridge: BridgeSession) -> None:
+        from .save_mailbox import SaveControl
+        try:
+            response = SaveControl.unpack(payload).validate_response()
+        except ValueError as error:
+            raise BridgeError("invalid live-save response") from error
+        pending = self._save_pending.get(response.sequence)
+        if pending is None:
+            return  # Timed-out response or ROM watchdog notification.
+        command, future = pending
+        fields = ("incarnation", "session_epoch", "request_id", "sequence", "total_size", "revision", "opcode")
+        if bridge is not self._bridge or any(getattr(response, key) != getattr(command, key) for key in fields):
+            raise BridgeError("live-save response does not match its request")
+        if not future.done():
+            future.set_result(response)
+
     async def _send_remote(self, writer: asyncio.StreamWriter, message: dict[str, Any]) -> None:
         async with self._remote_lock:
             writer.write(encode_message(message))
             await asyncio.wait_for(writer.drain(), self.config.send_timeout)
 
     def _disconnect_remote(self) -> None:
+        self._fail_save_requests("world session disconnected during live-save operation")
         if self.connected or self._players:
             self._roster_epoch = self._roster_epoch % _UINT32 + 1
         self.connected = False
@@ -495,6 +576,9 @@ class Companion:
     async def checkpoint_rpc(self, operation: str, *, request_id: str | None = None, timeout: float = 5.0, **fields: Any) -> dict[str, Any]:
         """Use the existing reader so heartbeat/presence continue during transfers."""
         from .protocol import validate_checkpoint_request
+        if (self._live_save_owner is not None and self._live_save_owner is not asyncio.current_task()
+                and operation in {"begin", "chunk", "commit", "abort"}):
+            raise ValueError("a live-save lifecycle owns this character's checkpoint writes")
         if set(fields) & {"type", "session_epoch"}:
             raise ValueError("checkpoint envelope fields cannot be overridden")
         if not self.connected or self.world_id is None or self._remote_writer is None:

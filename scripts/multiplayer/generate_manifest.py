@@ -36,6 +36,16 @@ def generate(rom: Path, elf: Path, nm: str, engine_commit: str) -> dict:
         "rom_size": rom_size, "elf_sha256": hashlib.sha256(elf.read_bytes()).hexdigest(),
         "ruleset_id": RULESET, "engine_commit": engine_commit,
     }
+    save = re.findall(r"^([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+[BDbd]\s+gMultiplayerSaveMailbox$", symbols, re.M)
+    if save:
+        if len(save) != 1:
+            raise ValueError("ELF must contain one allocated save mailbox")
+        save_address, save_size = (int(value, 16) for value in save[0])
+        if save_size != 512 or save_address % 4 or not 0x02000000 <= save_address <= 0x02040000 - save_size:
+            raise ValueError("Save mailbox is not the expected 512-byte EWRAM allocation")
+        if not (save_address + save_size <= address or address + size <= save_address):
+            raise ValueError("Save and presence mailboxes overlap")
+        manifest.update(save_abi_version=1, save_mailbox_size=save_size, save_mailbox_address=save_address)
     objects = re.findall(r"^([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+[BDbd]\s+gObjectEvents$", symbols, re.M)
     if len(objects) == 1:
         obj_address, obj_size = (int(value, 16) for value in objects[0])
@@ -63,6 +73,11 @@ def generate(rom: Path, elf: Path, nm: str, engine_commit: str) -> dict:
             raise ValueError(f"Debug symbol outside expected RAM region: {name}")
         manifest[key + "_address"] = debug_address
     # Verified pinned-engine SaveBlock1 offsets; these are read-only diagnostics.
+    save2 = re.findall(r"^([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+[BDbd]\s+gSaveBlock2Ptr$", symbols, re.M)
+    if save2:
+        if len(save2) != 1 or int(save2[0][1], 16) != 4 or not 0x03000000 <= int(save2[0][0], 16) <= 0x03007FFC:
+            raise ValueError("Unexpected pinned-engine SaveBlock2 pointer")
+        manifest.update(debug_save_block2_ptr_address=int(save2[0][0], 16), debug_play_time_offset=14, debug_play_time_size=5)
     manifest.update(debug_saved_objects_offset=0xA30,
                     debug_saved_party_count_offset=0x234,
                     debug_saved_party_offset=0x238, debug_party_size=600)

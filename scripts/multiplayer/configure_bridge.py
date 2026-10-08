@@ -21,9 +21,22 @@ def configure(manifest: dict, token: str, port: int, bridge: str) -> str:
     size = manifest["rom_size"]
     if type(size) is not int or not 192 <= size <= 32 * 1024 * 1024:
         raise ValueError("Invalid ROM size")
+    save_config = ""
+    save_fields = {"save_abi_version", "save_mailbox_size", "save_mailbox_address"}
+    if save_fields & set(manifest):
+        if not save_fields <= set(manifest):
+            raise ValueError("Incomplete save mailbox manifest")
+        save_address = manifest["save_mailbox_address"]
+        if (type(manifest["save_abi_version"]) is not int or manifest["save_abi_version"] != 1
+                or type(manifest["save_mailbox_size"]) is not int or manifest["save_mailbox_size"] != 512
+                or type(save_address) is not int or save_address % 4
+                or not 0x02000000 <= save_address <= 0x02040000 - 512
+                or not (save_address + 512 <= address or address + 128 <= save_address)):
+            raise ValueError("Invalid or overlapping save mailbox")
+        save_config = f", save_address={save_address}, save_size=512, save_abi=1"
     return (
         f'EMERALD_BRIDGE = {{address={address}, rom_size={size}, rom_crc32="{crc}", '
-        f'port={port}, token="{token}"}}\n' + bridge
+        f'port={port}, token="{token}"{save_config}}}\n' + bridge
     )
 
 
