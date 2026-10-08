@@ -3,7 +3,7 @@ import asyncio
 
 from .bridge_protocol import BridgeError
 from .menu_mailbox import MenuRequest, pack_screen
-from .player_menu import MenuScreen, PlayerMenu
+from .player_menu import MenuScreen, PlayerMenu, battle_admission_enabled
 
 
 class MenuSession:
@@ -20,6 +20,11 @@ class MenuSession:
         self._cleanup_task = None
         self._close_waiter = None
         self._dialog_queue = None
+        self._admission_display = None
+        self._admission_selection = None
+        self._battle_latched = False
+        self._battle_preparing = False
+        self._battle_admission_failed = False
 
     def feed(self, payload):
         request = MenuRequest.unpack(payload)
@@ -47,6 +52,8 @@ class MenuSession:
             if self._close_waiter is not None and not self._close_waiter.done():
                 self._close_waiter.set_result(request)
             return
+        if self._battle_latched:
+            raise ValueError("native battle admission still owns this menu")
         if request.kind == 1:
             self.open = True
         elif not self.open:
@@ -56,13 +63,29 @@ class MenuSession:
                 raise ValueError("native menu cannot issue overlapping choices")
             self._queued_open = request
             return
+        if (request.kind == 2 and self._admission_display is not None
+                and (request.screen, request.action) == self._admission_display):
+            # The native joypad handler has already latched. Consume the
+            # authenticated displayed descriptor synchronously, before a host
+            # disconnect can clear live authentication or another task polls.
+            self._battle_latched = self._battle_preparing = True
+            try:
+                descriptor = self.menu.claim_battle_admission(request.screen, request.action)
+                self.companion._native_menu_capture_battle(descriptor, self)
+                self._admission_selection = (descriptor, None)
+            except Exception as error:
+                self._admission_selection = (None, error)
         self._task = asyncio.create_task(self._handle(request), name="native-players-menu")
 
     def _send(self, request, screen, *, close=False):
-        if (not self._closed and self.open and request.sequence == self.sequence
+        if (not self._closed and not self._battle_latched and self.open and request.sequence == self.sequence
                 and self.companion._bridge is self.bridge):
             try:
-                self.bridge.outbox.put_control(b"M" + pack_screen(request.sequence, screen, close=close))
+                self.bridge.outbox.put_control(b"M" + pack_screen(request.sequence, screen, close=close,
+                    allow_battle_admission=battle_admission_enabled(self.companion)
+                        and getattr(self.bridge, "battle_capable", False)))
+                self._admission_display = ((screen.revision, screen.admission_action)
+                    if screen.admission_action and not close else None)
             except BridgeError:
                 self.open = False
                 self.bridge.writer.close()
@@ -71,7 +94,11 @@ class MenuSession:
         try:
             while request is not None:
                 try:
-                    if request.kind == 1:
+                    if self._battle_latched:
+                        await self.admit_for_handoff(request)
+                        request, self._queued_open = self._queued_open, None
+                        continue
+                    elif request.kind == 1:
                         screen = await self.menu.refresh()
                     else:
                         screen = await self.menu.choose(request.screen, request.action)
@@ -82,6 +109,9 @@ class MenuSession:
                         # Consumption precedes all awaits. Neither a delayed
                         # CLOSE nor a reconnect may repeat this user action.
                         self.menu.handoff = None
+                        if (handoff[0] == "battle" and
+                                getattr(getattr(self.companion, "config", None), "battle_resume_abi_version", 0) == 1):
+                            raise ValueError("resumable battle requires its displayed native admission latch")
                         await self.close_for_handoff(request, screen)
                         callback = getattr(self.companion, "_native_menu_handoff", None)
                         if callback is None:
@@ -96,8 +126,52 @@ class MenuSession:
         except Exception:
             # A failed UI cannot leave an unobserved task exception or close the
             # authoritative save/battle channel on an unrelated rendering bug.
-            self.open = False
-            self.bridge.writer.close()
+            if not self._battle_latched:
+                self.open = False
+                self.bridge.writer.close()
+
+    async def admit_for_handoff(self, request, *, timeout=5):
+        """ADMIT transfers the native Enter latch; ordinary CLOSE never does."""
+        waiter = None
+        succeeded = False
+        try:
+            selection, self._admission_selection = self._admission_selection, None
+            if (not self._battle_preparing or not self._battle_latched or self._battle_admission_failed
+                    or selection is None or self._closed or not self.open
+                    or request.sequence != self.sequence or self.companion._bridge is not self.bridge
+                    or not battle_admission_enabled(self.companion) or self._close_waiter is not None):
+                raise ConnectionError("native battle admission lost its original menu ownership")
+            descriptor, error = selection
+            if error is not None:
+                raise error
+            waiter = self._close_waiter = asyncio.get_running_loop().create_future()
+            await self.companion._native_menu_prepare_battle(descriptor, self)
+            # The exact ADMIT receipt and its durable intent precede this
+            # return. Its atomic native transfer may have emitted CLOSE while
+            # preparation was still awaiting its receipt or durable write.
+            closed = await asyncio.wait_for(asyncio.shield(waiter), timeout)
+            if (self._closed or self.open or self.companion._bridge is not self.bridge
+                    or closed.kind != 3 or closed.sequence <= request.sequence):
+                raise ConnectionError("native battle admission close acknowledgment changed")
+            await self.companion._native_menu_handoff("battle", descriptor, self)
+            succeeded = True
+        finally:
+            if waiter is not None:
+                self._close_waiter = None
+                if not waiter.done():
+                    waiter.cancel()
+                elif not waiter.cancelled():
+                    waiter.exception()  # Observe cleanup failure even if preparation failed first.
+            if not succeeded:
+                self._battle_admission_failed = True
+                self._queued_open = None
+                abandon = getattr(self.companion, "_native_menu_abandon_battle_preparation", None)
+                if callable(abandon):
+                    abandon(self)
+            else:
+                self._battle_latched = False
+                self._admission_display = None
+            self._battle_preparing = False
 
     async def close_for_handoff(self, request, screen, *, timeout=5):
         """Wait for the native window to relinquish its field ownership.
@@ -156,7 +230,7 @@ class MenuSession:
     async def _poll(self):
         while not self._closed:
             await asyncio.sleep(2)
-            if not self.open or (self._task is not None and not self._task.done()):
+            if self._battle_latched or not self.open or (self._task is not None and not self._task.done()):
                 continue
             request = self._last_request
             try:

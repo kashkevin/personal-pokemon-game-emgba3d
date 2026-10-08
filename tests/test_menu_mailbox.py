@@ -53,6 +53,25 @@ class MenuCodecTests(unittest.TestCase):
         raw = bytearray(pack_screen(8, screen)); raw[100] = 1
         with self.assertRaises(ValueError): unpack_screen(bytes(raw))
 
+    def test_admission_marker_needs_verified_capability_and_exact_enabled_row(self):
+        screen = replace(self.screen(), admission_action=6)
+        with self.assertRaises(ValueError): pack_screen(3, screen)
+        raw = pack_screen(3, screen, allow_battle_admission=True)
+        self.assertEqual(raw[236:], b"\x06\0\0\0")
+        with self.assertRaises(ValueError): unpack_screen(raw)
+        self.assertEqual(unpack_screen(raw, allow_battle_admission=True), (3, screen, False))
+        for changes in (dict(admission_action=True), dict(admission_action=7),
+                        dict(rows=(MenuRow(1, "Enter"),), admission_action=2),
+                        dict(rows=(MenuRow(0, "Disabled"),), admission_action=1)):
+            with self.subTest(changes=changes), self.assertRaises(ValueError):
+                pack_screen(3, replace(screen, **changes), allow_battle_admission=True)
+        for flag in ("close", "reopen_trade"):
+            with self.subTest(flag=flag), self.assertRaises(ValueError):
+                pack_screen(3, screen, allow_battle_admission=True, **{flag: True})
+        for offset in (238, 239):
+            bad = bytearray(raw); bad[offset] = 1
+            with self.assertRaises(ValueError): unpack_screen(bytes(bad), allow_battle_admission=True)
+
 
 class MenuManifestTests(unittest.TestCase):
     tearDown = fixtures.SaveManifestTests.tearDown

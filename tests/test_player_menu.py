@@ -1,4 +1,5 @@
 import unittest
+from types import SimpleNamespace
 
 from emerald_multiplayer.player_menu import PlayerMenu, PlayerMenuError
 import test_battle_challenge_network as fixtures
@@ -98,3 +99,48 @@ class PlayerMenuNetworkTests(unittest.IsolatedAsyncioTestCase):
         await menu.choose(screen.revision, 7)
         screen = await self.click(menu, "Trainer 1")
         self.assertNotIn("Challenge 1v1", [row.label for row in screen.rows])
+
+
+class PlayerMenuAdmissionTests(unittest.TestCase):
+    def setUp(self):
+        self.companion = SimpleNamespace(config=SimpleNamespace(menu_abi_version=2,
+            battle_resume_abi_version=1, emergency_save_abi_version=2), connected=True,
+            world_id="world", server_epoch=1, session_epoch=2)
+        for name in ("handoff", "capture_battle", "prepare_battle", "abandon_battle_preparation"):
+            setattr(self.companion, "_native_menu_" + name, lambda *args: None)
+        self.menu = PlayerMenu(self.companion)
+        self.menu._binding = ("world", 1, 2)
+        self.menu._page = ("battles", None)
+        self.battle = dict(battle_id="id", generation=1, fingerprint="accepted",
+            state="accepted", players=["a", "b"], consent=["a", "b"])
+        self.menu._battles = [self.battle]
+        self.actions = [("Cancel", "battle_cancel", ("id", 1)),
+                        ("Enter battle", "battle_enter", ("id", 1, "accepted"))]
+
+    def test_only_explicit_enter_row_is_marked_and_capability_changes_generation(self):
+        screen = self.menu._show("Battle", "Accepted", self.actions)
+        self.assertEqual(screen.admission_action, 2)
+        self.assertEqual(self.menu._show("Battle", "Accepted", self.actions), screen)
+        self.companion.config.battle_resume_abi_version = 0
+        changed = self.menu._show("Battle", "Accepted", self.actions)
+        self.assertGreater(changed.revision, screen.revision)
+        self.assertEqual(changed.admission_action, 0)
+
+    def test_exact_native_selection_preserves_original_descriptor_after_host_loss_once(self):
+        screen = self.menu._show("Battle", "Accepted", self.actions)
+        self.companion.connected = False
+        self.companion.world_id = self.companion.server_epoch = self.companion.session_epoch = None
+        captured = self.menu.claim_battle_admission(screen.revision, screen.admission_action)
+        self.assertEqual(captured, self.battle)
+        self.battle["players"].append("c")
+        self.assertEqual(captured["players"], ["a", "b"])
+        with self.assertRaises(PlayerMenuError):
+            self.menu.claim_battle_admission(screen.revision, screen.admission_action)
+
+    def test_unmarked_cancel_stale_revision_and_incomplete_consent_never_claim(self):
+        screen = self.menu._show("Battle", "Accepted", self.actions)
+        for revision, action in ((screen.revision, 1), (screen.revision + 1, 2), (screen.revision, True)):
+            with self.subTest(revision=revision, action=action), self.assertRaises(PlayerMenuError):
+                self.menu.claim_battle_admission(revision, action)
+        self.battle["consent"] = ["a"]
+        with self.assertRaises(PlayerMenuError): self.menu.claim_battle_admission(screen.revision, 2)

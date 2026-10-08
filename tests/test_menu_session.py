@@ -179,3 +179,127 @@ class MenuSessionTests(unittest.IsolatedAsyncioTestCase):
         self.feed(5, 3, 0, 3)
         await closing
         self.assertIsNone(self.session._dialog_queue)
+
+    async def admission_menu(self, prepare=None, handoff=None):
+        self.events = []
+        self.bridge.battle_capable = True
+        self.companion.config = SimpleNamespace(menu_abi_version=2,
+            battle_resume_abi_version=1, emergency_save_abi_version=2)
+        self.session.menu.screen = MenuScreen(1, "Battle", "All players accepted",
+            (MenuRow(1, "Enter battle"),), 0, 1)
+        def claim(revision, action):
+            self.assertEqual((revision, action), (1, 1))
+            self.events.append("claim")
+            return {"id": "original"}
+        self.session.menu.claim_battle_admission = claim
+        async def default_prepare(value, owner):
+            self.assertIs(owner, self.session)
+            self.assertTrue(owner._battle_preparing)
+            self.assertIsNotNone(owner._close_waiter)
+            self.events.append("prepare")
+            self.feed(3, 1, 0, 3)
+        async def default_handoff(kind, value, owner):
+            self.assertEqual((kind, value), ("battle", {"id": "original"}))
+            self.assertTrue(owner._battle_preparing)
+            self.events.append("handoff")
+        def abandon(owner):
+            self.assertTrue(owner._battle_preparing)
+            self.events.append("abandon")
+        self.companion._native_menu_prepare_battle = prepare or default_prepare
+        def capture(value, owner):
+            self.assertTrue(owner._battle_preparing)
+            self.assertEqual(value, {"id": "original"})
+        self.companion._native_menu_capture_battle = capture
+        self.companion._native_menu_handoff = handoff or default_handoff
+        self.companion._native_menu_abandon_battle_preparation = abandon
+        self.feed(1)
+        await self.session._task
+        frame = await asyncio.wait_for(self.bridge.outbox.get(), 1)
+        self.assertEqual(unpack_screen(frame[5:], allow_battle_admission=True)[1].admission_action, 1)
+
+    async def test_atomic_admission_consumes_before_await_and_accepts_close_during_prepare(self):
+        await self.admission_menu()
+        self.feed(2, 1, 1, 2)
+        self.assertEqual(self.events, ["claim"])
+        await self.session._task
+        self.assertEqual(self.events, ["claim", "prepare", "handoff"])
+        self.assertFalse(self.bridge.outbox.controls)  # No ordinary CLOSE or response.
+        self.assertFalse(self.session._battle_latched)
+        self.assertFalse(self.session._battle_preparing)
+        self.assertEqual(self.session.menu.calls, 0)
+
+    async def test_uncertain_atomic_admission_holds_and_does_not_close_or_reopen(self):
+        async def prepare(*args):
+            self.events.append("prepare")
+            raise ConnectionError("ADMIT receipt uncertain")
+        await self.admission_menu(prepare)
+        self.feed(2, 1, 1, 2)
+        await self.session._task
+        self.assertEqual(self.events, ["claim", "prepare", "abandon"])
+        self.assertTrue(self.session._battle_latched)
+        self.assertTrue(self.session._battle_admission_failed)
+        self.assertFalse(self.bridge.outbox.controls)
+        self.assertFalse(self.closed)
+        with self.assertRaises(ValueError): self.feed(3)
+        self.assertEqual(self.session.menu.calls, 0)
+
+    async def test_admission_failed_local_claim_preserves_native_latch(self):
+        await self.admission_menu()
+        def stale(*args): raise ValueError("displayed descriptor no longer available")
+        self.session.menu.claim_battle_admission = stale
+        self.feed(2, 1, 1, 2)
+        await self.session._task
+        self.assertEqual(self.events, ["abandon"])
+        self.assertTrue(self.session._battle_admission_failed)
+        self.assertFalse(self.bridge.outbox.controls)
+
+    async def test_admission_changed_bridge_cannot_start_and_still_abandons_safely(self):
+        async def prepare(*args):
+            self.companion._bridge = object()
+            self.feed(3, 1, 0, 3)
+        await self.admission_menu(prepare)
+        self.feed(2, 1, 1, 2)
+        await self.session._task
+        self.assertEqual(self.events, ["claim", "abandon"])
+        self.assertFalse(self.bridge.outbox.controls)
+
+    async def test_admission_timeout_never_runs_handoff_or_sends_close(self):
+        async def prepare(*args): pass
+        await self.admission_menu(prepare)
+        original = self.session.admit_for_handoff
+        async def bounded(request): await original(request, timeout=.01)
+        self.session.admit_for_handoff = bounded
+        self.feed(2, 1, 1, 2)
+        await self.session._task
+        self.assertEqual(self.events, ["claim", "abandon"])
+        self.assertIsNone(self.session._close_waiter)
+        self.assertFalse(self.bridge.outbox.controls)
+
+    async def test_admission_cancellation_releases_python_ownership_but_retains_core(self):
+        entered = asyncio.Event()
+        async def prepare(*args):
+            entered.set()
+            await asyncio.Event().wait()
+        await self.admission_menu(prepare)
+        self.feed(2, 1, 1, 2)
+        await entered.wait()
+        task = self.session._task
+        task.cancel()
+        with self.assertRaises(asyncio.CancelledError): await task
+        self.session._task = None
+        self.assertEqual(self.events, ["claim", "abandon"])
+        self.assertTrue(self.session._battle_latched)
+        self.assertFalse(self.bridge.outbox.controls)
+
+    async def test_resume_capability_never_uses_legacy_unmarked_battle_close(self):
+        await self.open()
+        self.companion.config = SimpleNamespace(battle_resume_abi_version=1)
+        called = []
+        async def handoff(*args): called.append(args)
+        self.companion._native_menu_handoff = handoff
+        self.session.menu.handoff = ("battle", {})
+        self.feed(2, 1, 1, 2)
+        self.session.menu.gate.set()
+        await self.session._task
+        self.assertTrue((await self.result())[2])
+        self.assertEqual(called, [])

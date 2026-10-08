@@ -32,6 +32,18 @@ class MenuScreen:
     status: str
     rows: tuple[MenuRow, ...]
     back: int = 7
+    admission_action: int = 0
+
+
+def battle_admission_enabled(companion):
+    config = getattr(companion, "config", None)
+    return (getattr(config, "menu_abi_version", 0) == 2
+        and getattr(config, "battle_resume_abi_version", 0) == 1
+        and getattr(config, "emergency_save_abi_version", 0) == 2
+        and callable(getattr(companion, "_native_menu_capture_battle", None))
+        and callable(getattr(companion, "_native_menu_prepare_battle", None))
+        and callable(getattr(companion, "_native_menu_abandon_battle_preparation", None))
+        and callable(getattr(companion, "_native_menu_handoff", None)))
 
 
 def _text(value, limit):
@@ -119,7 +131,9 @@ class PlayerMenu:
             raise PlayerMenuError("menu_capacity")
         title, status = _text(title, 23), _text(status, 31)
         normalized = tuple((_text(label, 25), op, tuple(args)) for label, op, args in actions)
-        signature = (self._binding, self._page, title, status, normalized)
+        admission = next((i + 1 for i, (_, op, _) in enumerate(normalized)
+            if op == "battle_enter" and battle_admission_enabled(self.companion)), 0)
+        signature = (self._binding, self._page, title, status, normalized, admission)
         if signature != self._signature:
             revision = self._screen.revision + 1
             if revision > 0xFFFFFFFF:
@@ -129,9 +143,32 @@ class PlayerMenu:
             if back:
                 self._actions[back] = ("home", ())
             self._screen = MenuScreen(revision, title, status,
-                tuple(MenuRow(i + 1 if op else 0, label) for i, (label, op, _) in enumerate(normalized)), back)
+                tuple(MenuRow(i + 1 if op else 0, label) for i, (label, op, _) in enumerate(normalized)), back, admission)
             self._signature = signature
         return self._screen
+
+    def claim_battle_admission(self, revision, action):
+        """Consume a displayed Enter selection without waiting on network state.
+
+        Only MenuSession's exact native marked-row gate calls this. Consent was
+        authenticated when displayed; a lost host cannot turn its native latch
+        into a fresh choice or discard the original accepted descriptor.
+        """
+        if (type(revision) is not int or type(action) is not int
+                or revision != self._screen.revision or not action
+                or action != self._screen.admission_action or self._binding is None
+                or action not in self._actions or self._actions[action][0] != "battle_enter"):
+            raise PlayerMenuError("stale_battle_admission")
+        _, args = self._actions[action]
+        battle = next((b for b in self._battles or () if
+            (b["battle_id"], b["generation"], b["fingerprint"]) == args), None)
+        if (battle is None or battle["state"] != "accepted"
+                or set(battle["consent"]) != set(battle["players"])):
+            raise PlayerMenuError("stale_battle")
+        self._actions.clear()
+        self._signature = None
+        self.handoff = None
+        return deepcopy(battle)
 
     def _name(self, player):
         return self._players.get(player, "Disconnected player")
@@ -192,7 +229,9 @@ class PlayerMenu:
                     actions.append(("Cancel challenge", "battle_cancel", params))
                     if battle["state"] == "accepted":
                         status = "Waiting for battle coordinator"
-                        if callable(getattr(self.companion, "_native_menu_handoff", None)):
+                        if (callable(getattr(self.companion, "_native_menu_handoff", None))
+                                and (getattr(self.companion.config, "battle_resume_abi_version", 0) != 1
+                                     or battle_admission_enabled(self.companion))):
                             status = "All players accepted"
                             actions.append(("Enter battle", "battle_enter", (*params, battle["fingerprint"])))
                 else:
