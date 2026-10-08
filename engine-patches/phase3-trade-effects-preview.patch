@@ -1,0 +1,384 @@
+diff --git a/include/multiplayer_trade_effects.h b/include/multiplayer_trade_effects.h
+new file mode 100644
+index 0000000000..6a90d14379
+--- /dev/null
++++ b/include/multiplayer_trade_effects.h
+@@ -0,0 +1,50 @@
++#ifndef GUARD_MULTIPLAYER_TRADE_EFFECTS_H
++#define GUARD_MULTIPLAYER_TRADE_EFFECTS_H
++
++#define MP_TRADE_EFFECT_PREVIEW_VERSION 1
++
++// This observation never authorizes an offer, mutation, export or commit.
++// The pinned profile and recipient handler history still require validation.
++enum MultiplayerTradeEffectFlags
++{
++    MP_TRADE_EFFECT_POLICY_REQUIRED = (1 << 0),
++    MP_TRADE_EFFECT_INVALID_RECORD = (1 << 1),
++    MP_TRADE_EFFECT_EGG = (1 << 2),
++    MP_TRADE_EFFECT_MAIL = (1 << 3),
++    MP_TRADE_EFFECT_SPECIES_REVIEW = (1 << 4),
++    MP_TRADE_EFFECT_NATIVE_FORBIDDEN = (1 << 5),
++    MP_TRADE_EFFECT_EVOLUTION = (1 << 6),
++    MP_TRADE_EFFECT_HANDLER_FRIENDSHIP = (1 << 7),
++    MP_TRADE_EFFECT_FRIENDSHIP_PROFILE = (1 << 8),
++    MP_TRADE_EFFECT_RETURN_FRUSTRATION = (1 << 9),
++};
++
++struct Pokemon;
++struct MultiplayerTradeEffectPreview
++{
++    u32 version;
++    u32 flags;
++    u32 receivedSerial;
++    u32 sentSerial;
++    u16 receivedSpecies;
++    u16 sentSpecies;
++    u16 evolutionTarget;
++    u16 heldItem;
++    u8 currentFriendship;
++    u8 observedBaseFriendship;
++    u8 friendshipGeneration;
++    u8 reserved;
++    u32 receivedPersonality;
++    u32 receivedOtId;
++};
++
++// CHECK_EVO operates only on copies. No link callback, RNG draw, item
++// consumption, friendship write, Pokédex update or native save occurs.
++// Call only inside initialized native game context; the existing evaluator
++// reads weather/item context. Inputs must be valid addressable party records.
++// Return FALSE for malformed/unassigned/duplicate records or aliased output.
++bool32 MultiplayerTradeEffects_Preview(const struct Pokemon *received,
++                                      const struct Pokemon *sent,
++                                      struct MultiplayerTradeEffectPreview *out);
++
++#endif // GUARD_MULTIPLAYER_TRADE_EFFECTS_H
+diff --git a/src/multiplayer_trade_effects.c b/src/multiplayer_trade_effects.c
+new file mode 100644
+index 0000000000..15681b0f6a
+--- /dev/null
++++ b/src/multiplayer_trade_effects.c
+@@ -0,0 +1,94 @@
++#include "global.h"
++#include "multiplayer_trade_effects.h"
++#include "pokemon.h"
++#include "mail.h"
++#include "constants/moves.h"
++
++STATIC_ASSERT(sizeof(struct MultiplayerTradeEffectPreview) == 36, TradeEffectPreviewSize);
++
++static bool32 OutputAliasesMon(const struct MultiplayerTradeEffectPreview *out,
++                              const struct Pokemon *mon)
++{
++    uintptr_t output = (uintptr_t)out;
++    uintptr_t input = (uintptr_t)mon;
++    return output < input + sizeof(*mon) && input < output + sizeof(*out);
++}
++
++static bool32 ReadMon(struct Pokemon *mon, u32 *serial, u16 *species)
++{
++    // GetMonData verifies encrypted content and can mark a bad record. Only
++    // the private copy may receive that flag; the offered input stays exact.
++    *species = GetMonData(mon, MON_DATA_SPECIES);
++    *serial = GetMonData(mon, MON_DATA_MULTIPLAYER_ID);
++    return *species != SPECIES_NONE && *species < NUM_SPECIES && *serial != 0
++        && !GetMonData(mon, MON_DATA_SANITY_IS_BAD_EGG)
++        && GetMonData(mon, MON_DATA_SANITY_HAS_SPECIES);
++}
++
++bool32 MultiplayerTradeEffects_Preview(const struct Pokemon *received,
++                                      const struct Pokemon *sent,
++                                      struct MultiplayerTradeEffectPreview *out)
++{
++    struct Pokemon incoming, outgoing;
++    struct MultiplayerTradeEffectPreview preview = {0};
++    u32 incomingEgg, outgoingEgg;
++    u32 i;
++
++    if (out == NULL || (received != NULL && OutputAliasesMon(out, received))
++     || (sent != NULL && OutputAliasesMon(out, sent)))
++        return FALSE;
++    preview.version = MP_TRADE_EFFECT_PREVIEW_VERSION;
++    preview.flags = MP_TRADE_EFFECT_POLICY_REQUIRED | MP_TRADE_EFFECT_INVALID_RECORD;
++    // Initialize output even on malformed content; never leave a stale plan.
++    *out = preview;
++    if (received == NULL || sent == NULL)
++        return FALSE;
++    incoming = *received;
++    outgoing = *sent;
++    if (!ReadMon(&incoming, &preview.receivedSerial, &preview.receivedSpecies)
++     || !ReadMon(&outgoing, &preview.sentSerial, &preview.sentSpecies)
++     || preview.receivedSerial == preview.sentSerial)
++        return FALSE;
++
++    preview.flags = MP_TRADE_EFFECT_POLICY_REQUIRED;
++    preview.heldItem = GetMonData(&incoming, MON_DATA_HELD_ITEM);
++    preview.currentFriendship = GetMonData(&incoming, MON_DATA_FRIENDSHIP);
++    preview.observedBaseFriendship = gSpeciesInfo[preview.receivedSpecies].friendship;
++    preview.friendshipGeneration = P_UPDATED_FRIENDSHIP;
++    preview.receivedPersonality = GetMonData(&incoming, MON_DATA_PERSONALITY);
++    preview.receivedOtId = GetMonData(&incoming, MON_DATA_OT_ID);
++    incomingEgg = GetMonData(&incoming, MON_DATA_IS_EGG)
++        || GetMonData(&incoming, MON_DATA_SANITY_IS_EGG);
++    outgoingEgg = GetMonData(&outgoing, MON_DATA_IS_EGG)
++        || GetMonData(&outgoing, MON_DATA_SANITY_IS_EGG);
++    if (incomingEgg || outgoingEgg)
++        preview.flags |= MP_TRADE_EFFECT_EGG;
++    if (GetMonData(&incoming, MON_DATA_MAIL) != MAIL_NONE
++     || GetMonData(&outgoing, MON_DATA_MAIL) != MAIL_NONE
++     || ItemIsMail(preview.heldItem)
++     || ItemIsMail(GetMonData(&outgoing, MON_DATA_HELD_ITEM)))
++        preview.flags |= MP_TRADE_EFFECT_MAIL;
++    if (preview.receivedSpecies > SPECIES_VOLCANION || preview.sentSpecies > SPECIES_VOLCANION)
++        preview.flags |= MP_TRADE_EFFECT_SPECIES_REVIEW;
++    if (gSpeciesInfo[preview.receivedSpecies].cannotBeTraded
++     || gSpeciesInfo[preview.sentSpecies].cannotBeTraded)
++        preview.flags |= MP_TRADE_EFFECT_NATIVE_FORBIDDEN;
++    if (!incomingEgg)
++    {
++        preview.flags |= MP_TRADE_EFFECT_HANDLER_FRIENDSHIP;
++        if (P_UPDATED_FRIENDSHIP != GEN_6)
++            preview.flags |= MP_TRADE_EFFECT_FRIENDSHIP_PROFILE;
++        for (i = 0; i < MAX_MON_MOVES; i++)
++        {
++            u32 move = GetMonData(&incoming, MON_DATA_MOVE1 + i);
++            if (move == MOVE_RETURN || move == MOVE_FRUSTRATION)
++                preview.flags |= MP_TRADE_EFFECT_RETURN_FRUSTRATION;
++        }
++        preview.evolutionTarget = GetEvolutionTargetSpecies(&incoming, EVO_MODE_TRADE,
++                                      ITEM_NONE, &outgoing, NULL, CHECK_EVO);
++        if (preview.evolutionTarget != SPECIES_NONE)
++            preview.flags |= MP_TRADE_EFFECT_EVOLUTION;
++    }
++    *out = preview;
++    return TRUE;
++}
+diff --git a/test/multiplayer_trade_effects.c b/test/multiplayer_trade_effects.c
+new file mode 100644
+index 0000000000..d280886287
+--- /dev/null
++++ b/test/multiplayer_trade_effects.c
+@@ -0,0 +1,222 @@
++#include "global.h"
++#include "multiplayer_trade_effects.h"
++#include "pokemon.h"
++#include "pokemon_storage_system.h"
++#include "random.h"
++#include "save.h"
++#include "constants/moves.h"
++#include "test/test.h"
++
++static void MakeOffer(struct Pokemon *mon, u16 species, u32 serial, u32 heldItem, u32 personality)
++{
++    u32 mail = MAIL_NONE;
++    CreateMon(mon, species, 30, personality, OTID_STRUCT_PLAYER_ID);
++    SetMonData(mon, MON_DATA_MULTIPLAYER_ID, &serial);
++    SetMonData(mon, MON_DATA_HELD_ITEM, &heldItem);
++    SetMonData(mon, MON_DATA_MAIL, &mail);
++}
++
++static u32 Digest(const void *data, u32 size)
++{
++    const u8 *bytes = data;
++    u32 value = 2166136261;
++    while (size--)
++        value = (value ^ *bytes++) * 16777619;
++    return value;
++}
++
++static void ExpectStablePreview(struct Pokemon *incoming, struct Pokemon *outgoing,
++                               struct MultiplayerTradeEffectPreview *out)
++{
++    struct Pokemon beforeIncoming = *incoming, beforeOutgoing = *outgoing;
++    rng_value_t rng = gRngValue, rng2 = gRng2Value;
++    u32 save1 = Digest(gSaveBlock1Ptr, sizeof(*gSaveBlock1Ptr));
++    u32 save2 = Digest(gSaveBlock2Ptr, sizeof(*gSaveBlock2Ptr));
++    u32 save3 = Digest(gSaveBlock3Ptr, sizeof(*gSaveBlock3Ptr));
++    u32 storage = Digest(gPokemonStoragePtr, sizeof(*gPokemonStoragePtr));
++    u32 counter = gSaveCounter;
++    EXPECT(MultiplayerTradeEffects_Preview(incoming, outgoing, out));
++    EXPECT_EQ(memcmp(incoming, &beforeIncoming, sizeof(*incoming)), 0);
++    EXPECT_EQ(memcmp(outgoing, &beforeOutgoing, sizeof(*outgoing)), 0);
++    EXPECT_EQ(memcmp(&gRngValue, &rng, sizeof(rng)), 0);
++    EXPECT_EQ(memcmp(&gRng2Value, &rng2, sizeof(rng2)), 0);
++    EXPECT_EQ(Digest(gSaveBlock1Ptr, sizeof(*gSaveBlock1Ptr)), save1);
++    EXPECT_EQ(Digest(gSaveBlock2Ptr, sizeof(*gSaveBlock2Ptr)), save2);
++    EXPECT_EQ(Digest(gSaveBlock3Ptr, sizeof(*gSaveBlock3Ptr)), save3);
++    EXPECT_EQ(Digest(gPokemonStoragePtr, sizeof(*gPokemonStoragePtr)), storage);
++    EXPECT_EQ(gSaveCounter, counter);
++    EXPECT_EQ(out->version, MP_TRADE_EFFECT_PREVIEW_VERSION);
++    EXPECT(out->flags & MP_TRADE_EFFECT_POLICY_REQUIRED);
++    EXPECT_EQ(out->reserved, 0);
++}
++
++TEST("Multiplayer trade effects: preview preserves all records saves and RNG across encrypted orders")
++{
++    struct Pokemon incoming, outgoing;
++    struct MultiplayerTradeEffectPreview preview, repeated;
++    u32 order;
++    for (order = 0; order < 24; order++)
++    {
++        MakeOffer(&incoming, SPECIES_TREECKO, 0xF1234, ITEM_ORAN_BERRY, order);
++        MakeOffer(&outgoing, SPECIES_TORCHIC, 0xE4321, ITEM_NONE, 23 - order);
++        ExpectStablePreview(&incoming, &outgoing, &preview);
++        EXPECT_EQ(preview.receivedSerial, 0xF1234);
++        EXPECT_EQ(preview.sentSerial, 0xE4321);
++        EXPECT_EQ(preview.receivedSpecies, SPECIES_TREECKO);
++        EXPECT_EQ(preview.sentSpecies, SPECIES_TORCHIC);
++        EXPECT_EQ(preview.evolutionTarget, SPECIES_NONE);
++        EXPECT_EQ(preview.heldItem, ITEM_ORAN_BERRY);
++        EXPECT_EQ(preview.receivedPersonality, order);
++        EXPECT_EQ(preview.receivedOtId, GetMonData(&incoming, MON_DATA_OT_ID));
++        EXPECT_EQ(preview.currentFriendship, GetMonData(&incoming, MON_DATA_FRIENDSHIP));
++        EXPECT_EQ(preview.observedBaseFriendship, gSpeciesInfo[SPECIES_TREECKO].friendship);
++        EXPECT_EQ(preview.friendshipGeneration, P_UPDATED_FRIENDSHIP);
++        EXPECT(preview.flags & MP_TRADE_EFFECT_HANDLER_FRIENDSHIP);
++        EXPECT_EQ(!!(preview.flags & MP_TRADE_EFFECT_FRIENDSHIP_PROFILE), P_UPDATED_FRIENDSHIP != GEN_6);
++        ExpectStablePreview(&incoming, &outgoing, &repeated);
++        EXPECT_EQ(memcmp(&preview, &repeated, sizeof(preview)), 0);
++    }
++}
++
++TEST("Multiplayer trade effects: native item evolution preview never consumes the item")
++{
++    struct Pokemon incoming, outgoing;
++    struct MultiplayerTradeEffectPreview preview;
++    u32 item = ITEM_KINGS_ROCK;
++    MakeOffer(&incoming, SPECIES_POLIWHIRL, 1, ITEM_NONE, 7);
++    MakeOffer(&outgoing, SPECIES_TREECKO, 2, ITEM_NONE, 9);
++    ExpectStablePreview(&incoming, &outgoing, &preview);
++    EXPECT_EQ(preview.evolutionTarget, SPECIES_NONE);
++    SetMonData(&incoming, MON_DATA_HELD_ITEM, &item);
++    ExpectStablePreview(&incoming, &outgoing, &preview);
++    EXPECT_EQ(preview.evolutionTarget, SPECIES_POLITOED);
++    EXPECT(preview.flags & MP_TRADE_EFFECT_EVOLUTION);
++    EXPECT_EQ(GetMonData(&incoming, MON_DATA_HELD_ITEM), ITEM_KINGS_ROCK);
++    EXPECT_EQ(GetMonData(&incoming, MON_DATA_SPECIES), SPECIES_POLIWHIRL);
++}
++
++TEST("Multiplayer trade effects: native Everstone and Kadabra exception stay distinct")
++{
++    struct Pokemon incoming, outgoing;
++    struct MultiplayerTradeEffectPreview preview;
++    MakeOffer(&outgoing, SPECIES_TREECKO, 2, ITEM_NONE, 9);
++    MakeOffer(&incoming, SPECIES_HAUNTER, 1, ITEM_EVERSTONE, 7);
++    ExpectStablePreview(&incoming, &outgoing, &preview);
++    EXPECT_EQ(preview.evolutionTarget, SPECIES_NONE);
++    MakeOffer(&incoming, SPECIES_KADABRA, 1, ITEM_EVERSTONE, 7);
++    ExpectStablePreview(&incoming, &outgoing, &preview);
++    EXPECT_EQ(preview.evolutionTarget, P_KADABRA_EVERSTONE >= GEN_4 ? SPECIES_ALAKAZAM : SPECIES_NONE);
++}
++
++TEST("Multiplayer trade effects: partner-specific evolution reads the offered counterpart and its Everstone")
++{
++    struct Pokemon incoming, outgoing;
++    struct MultiplayerTradeEffectPreview preview;
++    u32 item = ITEM_EVERSTONE;
++    MakeOffer(&incoming, SPECIES_KARRABLAST, 1, ITEM_NONE, 7);
++    MakeOffer(&outgoing, SPECIES_TREECKO, 2, ITEM_NONE, 9);
++    ExpectStablePreview(&incoming, &outgoing, &preview);
++    EXPECT_EQ(preview.evolutionTarget, SPECIES_NONE);
++    MakeOffer(&outgoing, SPECIES_SHELMET, 2, ITEM_NONE, 9);
++    ExpectStablePreview(&incoming, &outgoing, &preview);
++    EXPECT_EQ(preview.evolutionTarget, SPECIES_ESCAVALIER);
++    ExpectStablePreview(&outgoing, &incoming, &preview);
++    EXPECT_EQ(preview.evolutionTarget, SPECIES_ACCELGOR);
++    SetMonData(&outgoing, MON_DATA_HELD_ITEM, &item);
++    ExpectStablePreview(&incoming, &outgoing, &preview);
++    EXPECT_EQ(preview.evolutionTarget, SPECIES_NONE);
++}
++
++TEST("Multiplayer trade effects: eggs and both mail representations remain explicit unresolved effects")
++{
++    struct Pokemon incoming, outgoing;
++    struct MultiplayerTradeEffectPreview preview;
++    u32 value = TRUE;
++    MakeOffer(&incoming, SPECIES_HAUNTER, 1, ITEM_NONE, 7);
++    MakeOffer(&outgoing, SPECIES_TREECKO, 2, ITEM_NONE, 9);
++    SetMonData(&incoming, MON_DATA_IS_EGG, &value);
++    ExpectStablePreview(&incoming, &outgoing, &preview);
++    EXPECT(preview.flags & MP_TRADE_EFFECT_EGG);
++    EXPECT_EQ(preview.evolutionTarget, SPECIES_NONE);
++    EXPECT_EQ(preview.flags & MP_TRADE_EFFECT_HANDLER_FRIENDSHIP, 0);
++    MakeOffer(&incoming, SPECIES_HAUNTER, 1, ITEM_NONE, 7);
++    SetMonData(&incoming, MON_DATA_SANITY_IS_EGG, &value);
++    ExpectStablePreview(&incoming, &outgoing, &preview);
++    EXPECT(preview.flags & MP_TRADE_EFFECT_EGG);
++    EXPECT_EQ(preview.evolutionTarget, SPECIES_NONE);
++    MakeOffer(&incoming, SPECIES_HAUNTER, 1, ITEM_NONE, 7);
++    value = 0;
++    SetMonData(&outgoing, MON_DATA_MAIL, &value);
++    ExpectStablePreview(&incoming, &outgoing, &preview);
++    EXPECT(preview.flags & MP_TRADE_EFFECT_MAIL);
++    MakeOffer(&outgoing, SPECIES_TREECKO, 2, ITEM_ORANGE_MAIL, 9);
++    ExpectStablePreview(&incoming, &outgoing, &preview);
++    EXPECT(preview.flags & MP_TRADE_EFFECT_MAIL);
++}
++
++TEST("Multiplayer trade effects: Return Frustration and alternate forms remain explicit review flags")
++{
++    struct Pokemon incoming, outgoing;
++    struct MultiplayerTradeEffectPreview preview;
++    u32 move = MOVE_RETURN;
++    MakeOffer(&incoming, SPECIES_TREECKO, 1, ITEM_NONE, 7);
++    MakeOffer(&outgoing, SPECIES_TORCHIC, 2, ITEM_NONE, 9);
++    SetMonData(&incoming, MON_DATA_MOVE3, &move);
++    ExpectStablePreview(&incoming, &outgoing, &preview);
++    EXPECT(preview.flags & MP_TRADE_EFFECT_RETURN_FRUSTRATION);
++    move = MOVE_FRUSTRATION;
++    SetMonData(&incoming, MON_DATA_MOVE3, &move);
++    ExpectStablePreview(&incoming, &outgoing, &preview);
++    EXPECT(preview.flags & MP_TRADE_EFFECT_RETURN_FRUSTRATION);
++    MakeOffer(&incoming, SPECIES_PUMPKABOO_SMALL, 1, ITEM_NONE, 7);
++    ExpectStablePreview(&incoming, &outgoing, &preview);
++    EXPECT(preview.flags & MP_TRADE_EFFECT_SPECIES_REVIEW);
++    EXPECT_EQ(preview.evolutionTarget, SPECIES_GOURGEIST_SMALL);
++    MakeOffer(&incoming, SPECIES_KYUREM_WHITE, 1, ITEM_NONE, 7);
++    ExpectStablePreview(&incoming, &outgoing, &preview);
++    EXPECT(preview.flags & MP_TRADE_EFFECT_NATIVE_FORBIDDEN);
++}
++
++TEST("Multiplayer trade effects: malformed unassigned or duplicate identities never return a stale preview")
++{
++    struct Pokemon incoming, outgoing, original;
++    struct MultiplayerTradeEffectPreview preview;
++    u32 id = 0;
++    MakeOffer(&incoming, SPECIES_TREECKO, 1, ITEM_NONE, 7);
++    MakeOffer(&outgoing, SPECIES_TORCHIC, 2, ITEM_NONE, 9);
++    SetMonData(&incoming, MON_DATA_MULTIPLAYER_ID, &id);
++    original = incoming;
++    memset(&preview, 0xA5, sizeof(preview));
++    EXPECT(!MultiplayerTradeEffects_Preview(&incoming, &outgoing, &preview));
++    EXPECT_EQ(preview.version, MP_TRADE_EFFECT_PREVIEW_VERSION);
++    EXPECT_EQ(preview.flags, MP_TRADE_EFFECT_POLICY_REQUIRED | MP_TRADE_EFFECT_INVALID_RECORD);
++    EXPECT_EQ(preview.evolutionTarget, SPECIES_NONE);
++    EXPECT_EQ(preview.receivedSerial, 0);
++    EXPECT_EQ(memcmp(&incoming, &original, sizeof(incoming)), 0);
++    id = 2;
++    SetMonData(&incoming, MON_DATA_MULTIPLAYER_ID, &id);
++    EXPECT(!MultiplayerTradeEffects_Preview(&incoming, &outgoing, &preview));
++    MakeOffer(&incoming, SPECIES_TREECKO, 1, ITEM_NONE, 7);
++    ((u8 *)&incoming.box)[32] ^= 1;
++    original = incoming;
++    EXPECT(!MultiplayerTradeEffects_Preview(&incoming, &outgoing, &preview));
++    EXPECT_EQ(memcmp(&incoming, &original, sizeof(incoming)), 0);
++    EXPECT_EQ(preview.flags, MP_TRADE_EFFECT_POLICY_REQUIRED | MP_TRADE_EFFECT_INVALID_RECORD);
++}
++
++TEST("Multiplayer trade effects: null and aliased output cannot alter an offered record")
++{
++    struct Pokemon incoming, outgoing, original;
++    struct MultiplayerTradeEffectPreview preview;
++    MakeOffer(&incoming, SPECIES_TREECKO, 1, ITEM_NONE, 7);
++    MakeOffer(&outgoing, SPECIES_TORCHIC, 2, ITEM_NONE, 9);
++    original = incoming;
++    memset(&preview, 0xA5, sizeof(preview));
++    EXPECT(!MultiplayerTradeEffects_Preview(NULL, &outgoing, &preview));
++    EXPECT_EQ(preview.flags, MP_TRADE_EFFECT_POLICY_REQUIRED | MP_TRADE_EFFECT_INVALID_RECORD);
++    EXPECT(!MultiplayerTradeEffects_Preview(&incoming, NULL, &preview));
++    EXPECT(!MultiplayerTradeEffects_Preview(&incoming, &outgoing, NULL));
++    EXPECT(!MultiplayerTradeEffects_Preview(&incoming, &outgoing, (void *)&incoming));
++    EXPECT(!MultiplayerTradeEffects_Preview(&incoming, &outgoing, (void *)((u8 *)&incoming + 80)));
++    EXPECT_EQ(memcmp(&incoming, &original, sizeof(incoming)), 0);
++}
