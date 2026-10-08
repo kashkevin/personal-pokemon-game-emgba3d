@@ -348,6 +348,7 @@ class BattleRecoveryService:
     async def _settle_completed(self, room):
         """A replayed complete release quorum may finish its interrupted DB commit."""
         replay, b = room.replay, room.replay.room.battle
+        room.journal.verify_current()
         last = b.players[-1]
         request, response = [NativeControl.unpack(raw) for raw in b.receipts[last, Opcode.RELEASE]]
         b.state, b.released = "release_authorized", set(b.players)-{last}

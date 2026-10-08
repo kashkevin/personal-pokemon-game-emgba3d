@@ -3,11 +3,15 @@ import json
 import struct
 import tempfile
 from pathlib import Path
+from types import SimpleNamespace
 import unittest
+from unittest.mock import Mock, patch
 
+from emerald_multiplayer.battle_execution import _NativeRoute
 from emerald_multiplayer.battle_execution_journal import RouteJournal
 from emerald_multiplayer.battle_journal import BattleJournalError
 from emerald_multiplayer.battle_mailbox import BattleMailboxError
+from emerald_multiplayer.battle_recovery import BattleRecoveryService
 from emerald_multiplayer.native_battle import NativeBinding, NativeControl, NativeQuery, Opcode
 from emerald_multiplayer.native_battle_resume import Admission, Retirement, ResumeAuthorization, ResumeQuery
 from test_native_battle import binding, control, query
@@ -116,6 +120,7 @@ class RouteJournalTests(unittest.TestCase):
             self.path.write_bytes(broken)
             with self.assertRaises(BattleJournalError):
                 RouteJournal(self.path, self.header)
+
         self.path.write_bytes(original)
         with self.assertRaises(BattleJournalError):
             RouteJournal(self.path, dict(self.header, mode=3))
@@ -141,3 +146,76 @@ class RouteJournalTests(unittest.TestCase):
                     path.write_bytes(changed)
                 with self.assertRaises(BattleJournalError):
                     journal.append("response", self.actor, 1, replace(control(), data=query()))
+
+    def test_tail_witness_refuses_changed_last_record_when_metadata_is_identical(self):
+        journal = RouteJournal(self.path, self.header, create=True)
+        journal.append("command", self.actor, 1, control())
+        # Exercise both a live owner and a freshly reconstructed owner.
+        for owner in (journal, RouteJournal(self.path, self.header)):
+            raw = self.path.read_bytes()
+            changed = raw.replace(b'"command"', b'"commanz"')
+            self.assertEqual(len(changed), len(raw))
+            self.path.write_bytes(changed)
+            with patch.object(RouteJournal, "_identity", return_value=owner._stamp):
+                with self.assertRaisesRegex(BattleJournalError, "tail changed"):
+                    owner.append("response", self.actor, 1, replace(control(), data=query()))
+            self.assertEqual(self.path.read_bytes(), changed)
+            self.assertEqual(owner.pending, {self.actor: (1, control())})
+            self.path.write_bytes(raw)
+
+    def test_closure_and_cold_reload_reject_old_prefix_hidden_from_live_tail_checks(self):
+        journal = RouteJournal(self.path, self.header, create=True)
+        journal.append("command", self.actor, 1, control())
+        journal.verify_current()
+        recovered = RouteJournal(self.path, self.header)
+        recovered.verify_current()
+        raw = self.path.read_bytes()
+        changed = raw.replace(b'"header"', b'"headez"', 1)
+        self.assertEqual(len(changed), len(raw))
+        self.assertNotEqual(changed, raw)
+        self.assertTrue(changed.endswith(journal._tail))
+        identity, stamp = RouteJournal._identity, journal._stamp
+        # Preserve actual inode/size, but deterministically emulate a filesystem
+        # that gives this rewrite the same last-write/change timestamp tick.
+        with patch.object(RouteJournal, "_identity", side_effect=lambda info: identity(info)[:3]+stamp[3:]):
+            self.path.write_bytes(changed)
+            journal.append("response", self.actor, 1, replace(control(), data=query()))
+            with self.assertRaisesRegex(BattleJournalError, "committed bytes"):
+                journal.verify_current()
+            with self.assertRaises(BattleJournalError):
+                RouteJournal(self.path, self.header)
+
+class TerminalJournalIntegrityTests(unittest.IsolatedAsyncioTestCase):
+    async def test_old_prefix_corruption_blocks_live_and_replayed_terminal_publication(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path, bound = Path(directory)/"route.jsonl", binding()
+            header = dict(players=list(bound.players), leases=list(bound.leases),
+                incarnations=list(bound.incarnations), battle_id=control().battle_id, mode=2)
+            journal = RouteJournal(path, header, create=True)
+            journal.append("command", bound.players[0], 1, control())
+            journal.append("response", bound.players[0], 1, replace(control(), data=query()))
+            battle = SimpleNamespace(players=bound.players, leases=bound.leases, mode=2,
+                battle_id=control().battle_id, generation=bound.generation, released={bound.players[0]})
+            room = SimpleNamespace(battle=battle, journal=journal,
+                ready=dict(zip(bound.players, bound.incarnations)))
+            desk = SimpleNamespace(_binding=lambda b, actor: binding(bound.players.index(actor)),
+                released=Mock(), _publish_closed=Mock())
+            async def dispatch(room, actor, command):
+                return command, replace(command, data=b"")
+            service = SimpleNamespace(desk=desk, native_sequences={}, string_lengths=(None,)*721,
+                _dispatch=dispatch)
+            route = _NativeRoute(service, room)
+            raw = path.read_bytes()
+            changed = raw.replace(b'"header"', b'"headez"', 1)
+            self.assertEqual(len(changed), len(raw))
+            self.assertTrue(changed.endswith(journal._tail))
+            path.write_bytes(changed)
+            with patch.object(RouteJournal, "_identity", return_value=journal._stamp):
+                with self.assertRaisesRegex(BattleJournalError, "committed bytes"):
+                    await route.rpc(1, Opcode.RELEASE, data=struct.pack("<II", 0x12345678, 2))
+                recovery = BattleRecoveryService(service)
+                with self.assertRaisesRegex(BattleJournalError, "committed bytes"):
+                    await recovery._settle_completed(SimpleNamespace(
+                        journal=journal, replay=SimpleNamespace(room=room)))
+            desk.released.assert_not_called()
+            desk._publish_closed.assert_not_called()

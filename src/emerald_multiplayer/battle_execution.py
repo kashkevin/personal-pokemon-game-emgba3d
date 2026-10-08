@@ -314,6 +314,9 @@ class _NativeRoute:
         callback = {Opcode.BIND: "bound", Opcode.START: "started",
                     Opcode.KEEP: "keepalive", Opcode.RELEASE: "released"}.get(opcode)
         if callback:
+            if (opcode == Opcode.RELEASE and self.room.journal is not None
+                    and self.b.released | {self.b.players[slot]} == set(self.b.players)):
+                self.room.journal.verify_current()
             self.call(callback, slot, command, response)
         return response
 

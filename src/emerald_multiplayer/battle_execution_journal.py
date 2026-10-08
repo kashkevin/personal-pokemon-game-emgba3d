@@ -35,6 +35,8 @@ class RouteJournal:
         self.digest = ZERO_HASH
         self.size = 0
         self._stamp = None
+        self._tail = b""
+        self._content_digest = hashlib.sha256()
         self.pending = {}
         self.admitted = {}
         self.ids = {}
@@ -93,6 +95,8 @@ class RouteJournal:
             view = view[written:]
         os.fsync(fd)
         self._stamp = self._identity(os.fstat(fd))
+        self._tail = raw
+        self._content_digest.update(raw)
         self.events.append(value)
         self.digest, self.size = digest, self.size + len(raw)
 
@@ -125,6 +129,8 @@ class RouteJournal:
                         self._validate_event(value, apply=True)
                     self.events.append(value)
                     self.digest, self.size = digest, self.size + len(raw)
+                    self._tail = raw
+                    self._content_digest.update(raw)
                     if value.get("kind") == "renewal":
                         self.renewal_digest = digest
                     if len(self.events) > MAX_EVENTS or self.size > MAX_BYTES:
@@ -249,16 +255,53 @@ class RouteJournal:
     def admit(self, actor, control_sha256):
         self._append(dict(kind="admission", actor=actor, control_sha256=control_sha256))
 
+    def verify_current(self):
+        """Check every committed byte once before publishing terminal closure.
+
+        Per-append metadata and tail checks are bounded live-owner witnesses,
+        not a whole-history integrity check: filesystem times can be coarse.
+        The raw digest here matches the exact bytes validated at load/append.
+        Cold reconstruction independently validates every record and link.
+        """
+        flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
+        with os.fdopen(os.open(self.path, flags), "rb") as source:
+            info = os.fstat(source.fileno())
+            if not stat.S_ISREG(info.st_mode) or self._identity(info) != self._stamp:
+                raise BattleJournalError("battle_journal_changed", "native route evidence changed before closure")
+            digest = hashlib.sha256()
+            size = 0
+            while data := source.read(1024 * 1024):
+                size += len(data)
+                if size > self.size:
+                    raise BattleJournalError("battle_journal_changed", "native route evidence grew outside its owner")
+                digest.update(data)
+            if (size != self.size or digest.digest() != self._content_digest.digest()
+                    or self._identity(os.fstat(source.fileno())) != self._stamp
+                    or self._identity(self.path.lstat()) != self._stamp):
+                raise BattleJournalError("battle_journal_changed", "native route evidence differs from its committed bytes")
+
     def _append(self, value):
         self._validate_event(value, apply=False)
         info = self.path.lstat()
         if not stat.S_ISREG(info.st_mode) or self._identity(info) != self._stamp:
             raise BattleJournalError("battle_journal_changed", "native route evidence changed outside its owner")
-        flags = os.O_WRONLY | os.O_APPEND | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
+        flags = os.O_RDWR | os.O_APPEND | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
         fd = os.open(self.path, flags)
         try:
             if self._identity(os.fstat(fd)) != self._stamp:
                 raise BattleJournalError("battle_journal_changed", "native route evidence changed before append")
+            # WSL/ext4 can give two writes the same mtime/ctime tick. Compare
+            # the latest committed record as well, with at most MAX_LINE bytes
+            # of extra I/O per append; do not hash a growing history each time.
+            os.lseek(fd, self.size - len(self._tail), os.SEEK_SET)
+            tail = bytearray()
+            while len(tail) < len(self._tail):
+                data = os.read(fd, len(self._tail) - len(tail))
+                if not data:
+                    break
+                tail.extend(data)
+            if bytes(tail) != self._tail or self._identity(os.fstat(fd)) != self._stamp:
+                raise BattleJournalError("battle_journal_changed", "native route evidence tail changed before append")
             self._write_fd(fd, value)
         finally:
             os.close(fd)
