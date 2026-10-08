@@ -450,6 +450,9 @@ class LiveTradeCoordinator(LiveCheckpointCoordinator):
         # with a fresh generation. Preserve each consent generation's outcome.
         self._immutable(intent["transaction_id"] + "." + intent["generation"] + ".trade-complete.json",
             _json_bytes({"intent": intent, "outcome": outcome}))
+        emergency = getattr(self.companion, "_emergency_controller", None)
+        if emergency is not None:
+            emergency.trade_completed(self._session(), intent, outcome)
         self.trade_path.unlink()
         _sync_directory(self.directory)
         return {"transaction_id": intent["transaction_id"], "state": outcome, "checkpoint": intent["canonical"] or intent["prepared"]}

@@ -29,6 +29,12 @@ class MenuCodecTests(unittest.TestCase):
         for payload in (valid.pack()[:-1], valid.pack() + b"\0", valid.pack()[:-1] + b"\1"):
             with self.assertRaises(ValueError): MenuRequest.unpack(payload)
 
+    def test_trade_reopen_is_an_explicit_distinct_abi2_flag(self):
+        payload = pack_screen(3, self.screen(), reopen_trade=True)
+        with self.assertRaises(ValueError): unpack_screen(payload)
+        self.assertEqual(unpack_screen(payload, allow_trade_reopen=True), (3, self.screen(), 2))
+        with self.assertRaises(ValueError): pack_screen(3, self.screen(), close=True, reopen_trade=True)
+
     def test_text_control_codes_padding_and_oversized_rows_rejected(self):
         for changes in (dict(title="A" * 24), dict(title="Hi\xff"), dict(status="Hello\n"),
                         dict(rows=(MenuRow(1, "x\0x"),)), dict(rows=(MenuRow(2, "Wrong slot"),)),
@@ -77,3 +83,11 @@ class MenuManifestTests(unittest.TestCase):
                         dict(battle_mailbox_address=0x02021f00), dict(save_window_address=0x02021fff)):
             with self.subTest(changes=changes), self.assertRaises(ValueError):
                 validate_menu_manifest(manifest | changes, self.rom)
+
+    def test_trade_menu_version_is_read_from_the_exact_rom_marker(self):
+        with self.rom.open("r+b") as rom:
+            rom.seek(192); rom.write(b"\x02\0\0\0")
+        manifest = self.generate(self.menu_symbols)
+        self.assertEqual(manifest["menu_abi_version"], 2)
+        self.assertTrue(validate_menu_manifest(manifest, self.rom))
+        self.assertIn("menu_abi=2", self.configure(manifest))

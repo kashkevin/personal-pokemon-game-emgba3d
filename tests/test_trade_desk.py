@@ -46,6 +46,22 @@ class TradeDeskTests(unittest.TestCase):
         player=self.players[index].player_id
         return player,self.leases[player]
 
+    def test_discovery_is_private_and_does_not_extend_expiry(self):
+        self.assertEqual(self.desk.proposals(*self.actor(0)), [self.view])
+        self.assertEqual(self.desk.proposals(*self.actor(1)), [self.view])
+        self.assertEqual(self.desk.proposals(*self.actor(2)), [])
+        self.now = 11
+        self.assertEqual(self.desk.proposals(*self.actor(0)), [])
+        self.assertEqual(self.desk.proposals(*self.actor(1)), [])
+
+    def test_discovery_drops_old_lease_and_rejects_forged_lease(self):
+        player, lease = self.actor(1)
+        self.store.release_lease(player, lease)
+        self.leases[player] = self.store.acquire_lease(player, self.players[1].credential)
+        self.assertEqual(self.desk.proposals(*self.actor(0)), [])
+        with self.assertRaises(StorageError):
+            self.desk.proposals(player, lease)
+
     def offer(self,index,serial=None):
         return self.desk.offer(*self.actor(index),self.transaction,self.view['generation'],
             self.heads[index].revision,self.heads[index].sha256,serial or self.grants[index].start)

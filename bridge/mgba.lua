@@ -47,11 +47,11 @@ end
 local savePending, saveGeneration, capabilitySent = nil, nil, false
 local emergencyEnabled = cfg.emergency_save_abi ~= nil or cfg.emergency_save_abi_address ~= nil
 if emergencyEnabled then
-    assert(tradeEnabled and cfg.emergency_save_abi == 1
+    assert(tradeEnabled and (cfg.emergency_save_abi == 1 or cfg.emergency_save_abi == 2)
         and type(cfg.emergency_save_abi_address) == "number" and cfg.emergency_save_abi_address % 4 == 0
         and cfg.emergency_save_abi_address >= 0x08000000
         and cfg.emergency_save_abi_address + 4 <= 0x08000000 + cfg.rom_size
-        and emu:read32(cfg.emergency_save_abi_address) == 1, "Invalid emergency save capability marker")
+        and emu:read32(cfg.emergency_save_abi_address) == cfg.emergency_save_abi, "Invalid emergency save capability marker")
 end
 local emergencyCapabilitySent = false
 local battleAddr = cfg.battle_address
@@ -92,13 +92,29 @@ if menuEnabled then
         and (saveAddr == nil or not (menuAddr < saveAddr + 512 and saveAddr < menuAddr + 512))
         and (not battleEnabled or not (menuAddr < battleAddr + 512 and battleAddr < menuAddr + 512))
         and (not windowEnabled or not (menuAddr < windowAddr + 4096 and windowAddr < menuAddr + 512))
-        and cfg.menu_size == 512 and cfg.menu_abi == 1
+        and cfg.menu_size == 512 and (cfg.menu_abi == 1 or cfg.menu_abi == 2)
         and type(cfg.menu_abi_address) == "number" and cfg.menu_abi_address % 4 == 0
         and cfg.menu_abi_address >= 0x08000000
         and cfg.menu_abi_address + 4 <= 0x08000000 + cfg.rom_size
-        and emu:read32(cfg.menu_abi_address) == 1, "Invalid Players menu capability")
+        and emu:read32(cfg.menu_abi_address) == cfg.menu_abi, "Invalid Players menu capability")
 end
 local menuCapabilitySent, menuSequence = false, nil
+local resetAddr = cfg.reset_address
+local resetEnabled = resetAddr ~= nil or cfg.reset_abi ~= nil or cfg.reset_abi_address ~= nil or cfg.reset_size ~= nil
+if resetEnabled then
+    assert(type(resetAddr) == "number" and resetAddr % 4 == 0
+        and resetAddr >= 0x02000000 and resetAddr + 128 <= 0x02040000
+        and (cfg.reset_abi == 1 or cfg.reset_abi == 2) and cfg.reset_size == 128
+        and type(cfg.reset_abi_address) == "number" and cfg.reset_abi_address % 4 == 0
+        and cfg.reset_abi_address >= 0x08000000 and cfg.reset_abi_address + 4 <= 0x08000000 + cfg.rom_size
+        and emu:read32(cfg.reset_abi_address) == cfg.reset_abi, "Invalid personal encounter capability")
+    for _, region in ipairs({{addr,128},{saveAddr or 0,512},{battleAddr or 0,512},{menuAddr or 0,512},{windowAddr or 0,4096}}) do
+        assert(resetAddr + 128 <= region[1] or region[1] + region[2] <= resetAddr, "Overlapping personal encounter mailbox")
+    end
+end
+local resetCapabilitySent, resetSequence = false, nil
+local resetReceipt = nil
+local observedReset, previousResetFrame = false, nil
 local observedMenu, previousMenuFrame = false, nil
 local observedBattle, previousBattleFrame, previousBattleState = false, nil, nil
 local tick, lastConnect, stopped = 0, -120, false
@@ -110,6 +126,7 @@ local function forgetRuntime()
     observedSave, previousSaveFrame, previousSaveState = false, nil, nil
     observedBattle, previousBattleFrame, previousBattleState = false, nil, nil
     observedMenu, previousMenuFrame = false, nil
+    observedReset, previousResetFrame = false, nil
 end
 
 local function headerReady()
@@ -123,7 +140,29 @@ end
 
 local function menuHeaderReady()
     return menuEnabled and emu:read32(menuAddr) == 0x31554D45
-        and emu:read16(menuAddr + 4) == 1 and emu:read16(menuAddr + 6) == 512
+        and emu:read16(menuAddr + 4) == cfg.menu_abi and emu:read16(menuAddr + 6) == 512
+end
+
+local function resetHeaderReady()
+    return resetEnabled and emu:read32(resetAddr) == 0x31524D45
+        and emu:read16(resetAddr + 4) == cfg.reset_abi and emu:read16(resetAddr + 6) == 128
+end
+
+local function commitReset(payload)
+    if not verified or not resetHeaderReady() or #payload ~= 32 then return false end
+    local seq, session, incarnation, encounter, attempt, status = string.unpack("<I4I4I4I4I4I4", payload)
+    if seq == 0 or session == 0 or incarnation == 0 or encounter < 0x1001 or encounter > 0x1009 or status > (cfg.reset_abi == 2 and 2 or 1)
+        or payload:sub(25) ~= string.rep("\0", 8)
+        or (status ~= 0 and attempt ~= 0) or (status == 0 and attempt == 0) then return false end
+    if seq ~= emu:read32(resetAddr + 16) or session ~= emu:read32(resetAddr + 20)
+        or incarnation ~= emu:read32(resetAddr + 24) or encounter ~= emu:read32(resetAddr + 28) then return true end
+    if status == 0 and attempt <= emu:read32(resetAddr + 32) then return false end
+    local generation = emu:read32(resetAddr + 48)
+    local odd = (generation + (generation % 2 == 0 and 1 or 2)) % 0x100000000
+    emu:write32(resetAddr + 48, odd)
+    for offset = 0, 28, 4 do emu:write32(resetAddr + 52 + offset, (string.unpack("<I4", payload, offset + 1))) end
+    emu:write32(resetAddr + 48, (odd + 1) % 0x100000000)
+    return true
 end
 
 local function menuText(value)
@@ -139,7 +178,7 @@ end
 local function validMenuScreen(payload)
     if #payload ~= 240 then return false end
     local ack, revision, flags, count, back = string.unpack("<I4I4BBI2", payload)
-    if ack == 0 or revision == 0 or flags > 1 or count > 6 or (back ~= 0 and back ~= 7)
+    if ack == 0 or revision == 0 or flags > (cfg.menu_abi == 2 and 2 or 1) or count > 6 or (back ~= 0 and back ~= 7)
         or not menuText(payload:sub(13, 36)) or not menuText(payload:sub(37, 68))
         or payload:sub(69 + count * 28) ~= string.rep("\0", 172 - count * 28) then return false end
     for i = 0, count - 1 do
@@ -195,12 +234,12 @@ local function saveControl(payload, command)
     if inc == 0 or epoch == 0 or epoch > 0x7FFFFFFF or seq == 0
         or request == string.rep("\0", 16) or offset > 131072
         or (size ~= 0 and size ~= 131072) or revision > 0x7FFFFFFF
-        or opcode < 1 or opcode > (emergencyEnabled and 21 or (windowEnabled and 18 or (tradeEnabled and 17 or 11)))
+        or opcode < 1 or opcode > (emergencyEnabled and (cfg.emergency_save_abi == 2 and 22 or 21) or (windowEnabled and 18 or (tradeEnabled and 17 or 11)))
         or (opcode == 18 and not windowEnabled) or status > 13 or length > 192
         or data:sub(length + 1) ~= string.rep("\0", 192 - length)
         or crc32(data:sub(1, length)) ~= crc then return nil end
     if command then
-        local lengths = {0, 0, 0, 0, 16, 128, 0, 0, 0, 0, 60, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+        local lengths = {0, 0, 0, 0, 16, 128, 0, 0, 0, 0, 60, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
         if status ~= 0 or length ~= lengths[opcode] then return nil end
         if opcode >= 12 and opcode <= 17 and (size ~= 131072 or offset ~= 0) then return nil end
         if opcode == 18 and (size ~= 131072 or offset % 4096 ~= 0 or offset > 126976) then return nil end
@@ -217,7 +256,7 @@ local function saveControl(payload, command)
             if size ~= 131072 or rotation >= 14 then return nil end
         end
     else
-        local lengths = {0, 40, 128, 4, 8, 0, 0, 0, 48, 80, 80, 40, 48, 0, 4, 48, 48, 4, 40, 4, 48}
+        local lengths = {0, 40, 128, 4, 8, 0, 0, 0, 48, 80, 80, 40, 48, 0, 4, 48, 48, 4, 40, 4, 48, 40}
         if (status == 0 and length ~= lengths[opcode]) or (status ~= 0 and length ~= 0) then return nil end
         if status == 0 and opcode == 3 and (offset % 128 ~= 0 or offset > 130944) then return nil end
         if status == 0 and opcode == 18 and (size ~= 131072 or offset % 4096 ~= 0 or offset > 126976) then return nil end
@@ -332,6 +371,7 @@ local function stop(reason, fatal)
     emergencyCapabilitySent = false
     battlePending, battleGeneration, battleCapabilitySent = nil, nil, false
     menuCapabilitySent, menuSequence = false, nil
+    resetCapabilitySent, resetSequence, resetReceipt = false, nil, nil
     commit(string.rep("\0", 88))
     if reason then
         stopped = fatal or false
@@ -407,6 +447,33 @@ local function pollMenu()
     if seq == menuSequence then return end
     if menuSequence and seq < menuSequence then stop("menu request sequence regressed", true); return end
     if reliable("J" .. payload) then menuSequence = seq end
+end
+
+local function pollReset()
+    if not resetCapabilitySent or not resetHeaderReady() or #controls >= 4 then return end
+    local generation = emu:read32(resetAddr + 12)
+    if generation % 2 ~= 0 then return end
+    local payload = emu:readRange(resetAddr + 16, 32)
+    if generation ~= emu:read32(resetAddr + 12) or payload == string.rep("\0", 32) then return end
+    if #payload ~= 32 then stop("invalid personal encounter read", true); return end
+    local seq, session, incarnation, encounter = string.unpack("<I4I4I4I4", payload)
+    if seq == 0 or session == 0 or incarnation == 0 or encounter < 0x1001 or encounter > 0x1009
+        or payload:sub(21) ~= string.rep("\0", 12) then stop("invalid personal encounter request", true); return end
+    if seq ~= resetSequence then
+        if resetSequence and seq < resetSequence then stop("personal encounter sequence regressed", true); return end
+        if reliable("T" .. payload) then resetSequence = seq end
+    end
+    if cfg.reset_abi == 2 and #controls < 4 then
+        local receipt = emu:readRange(resetAddr + 84, 32)
+        if generation ~= emu:read32(resetAddr + 12) or receipt == string.rep("\0", 32) then return end
+        if #receipt ~= 32 then stop("invalid personal encounter receipt read", true); return end
+        local rseq, rsess, rinc, renc, count, state, ready, reserved = string.unpack("<I4I4I4I4I4I4I4I4", receipt)
+        if rseq ~= seq or rsess ~= session or rinc ~= incarnation or renc ~= encounter
+            or state < 1 or state > 4 or ready > 1 or reserved ~= 0
+            or (state == 2 and count == 0) or (state ~= 2 and count ~= 0)
+            or (ready ~= 0 and state ~= 3 and state ~= 4) then stop("invalid personal encounter receipt", true); return end
+        if receipt ~= resetReceipt and reliable("Y" .. receipt) then resetReceipt = receipt end
+    end
 end
 
 local function validPose(bytes)
@@ -507,6 +574,19 @@ local function runtimeReady()
         end
         observedMenu, previousMenuFrame = true, current
     end
+    if resetEnabled then
+        if not resetHeaderReady() then
+            if emu:read32(resetAddr) ~= 0 then stop("personal encounter mailbox ABI mismatch", true)
+            elseif observedReset then runtimeRestart("ROM personal encounter mailbox reinitialized") end
+            return false
+        end
+        local current = emu:read32(resetAddr + 8)
+        if regressed(current, previousResetFrame) then
+            runtimeRestart("ROM personal encounter runtime restarted")
+            return false
+        end
+        observedReset, previousResetFrame = true, current
+    end
     return true
 end
 
@@ -557,7 +637,7 @@ local function receive()
                 -- Recovery must observe/rebind an uncertain trade command.
                 -- The ROM fences UUID/incarnation/lease and preserves pending
                 -- Flash publication; these controls cannot release the hold.
-                local recovery = command.opcode == 1 or command.opcode == 16 or command.opcode == 17 or command.opcode == 21
+                local recovery = command.opcode == 1 or command.opcode == 16 or command.opcode == 17 or command.opcode == 21 or command.opcode == 22
                 if savePending and not recovery and command.payload ~= savePending.payload then
                     stop("multiple outstanding save commands", true); return
                 end
@@ -569,6 +649,10 @@ local function receive()
                     stop("multiple outstanding battle commands", true); return
                 end
                 if commitBattle(command.payload) then battlePending = command end
+            elseif payload:sub(1, 1) == "U" then
+                if not resetCapabilitySent or not commitReset(payload:sub(2)) then
+                    stop("invalid personal encounter acknowledgment", true); return
+                end
             elseif payload:sub(1, 1) == "M" then
                 if not menuCapabilitySent or not validMenuScreen(payload:sub(2)) or not commitMenu(payload:sub(2)) then
                     stop("invalid menu screen", true); return
@@ -616,6 +700,7 @@ local function onFrame()
         emergencyCapabilitySent = false
         battlePending, battleGeneration, battleCapabilitySent = nil, nil, false
         menuCapabilitySent, menuSequence = false, nil
+        resetCapabilitySent, resetSequence, resetReceipt = false, nil, nil
         console:log("Multiplayer bridge connected to local companion")
     end
     if not sock then return end
@@ -632,13 +717,13 @@ local function onFrame()
         windowCapabilitySent = true
     end
     if menuHeaderReady() and not menuCapabilitySent then
-        if not reliable("I" .. string.pack("<I2I2I2I2", 1, 512, 240, 16)) then return end
+        if not reliable("I" .. string.pack("<I2I2I2I2", cfg.menu_abi, 512, 240, 16)) then return end
         menuCapabilitySent = true
     end
     -- The existing four reliable slots remain bounded. Advertise the fifth
     -- optional capability only when earlier announcements have drained.
     if emergencyEnabled and saveHeaderReady() and capabilitySent and not emergencyCapabilitySent and #controls < 4 then
-        if not reliable("Z" .. string.pack("<I2I2I2I2", 1, 19, 21, 10)) then return end
+        if not reliable("Z" .. string.pack("<I2I2I2I2", cfg.emergency_save_abi, 19, cfg.emergency_save_abi == 2 and 22 or 21, 10)) then return end
         emergencyCapabilitySent = true
     end
     receive()
@@ -648,6 +733,12 @@ local function onFrame()
     pollBattle()
     if not sock then return end
     pollMenu()
+    if not sock then return end
+    if resetHeaderReady() and not resetCapabilitySent and #controls < 4 then
+        if not reliable("Q" .. string.pack("<I2I2I2I2", cfg.reset_abi, 128, 32, 32)) then return end
+        resetCapabilitySent = true
+    end
+    pollReset()
     if not sock then return end
     if tick % 6 == 0 then
         local generation = emu:read32(addr + 12)

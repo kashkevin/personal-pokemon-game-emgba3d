@@ -26,6 +26,7 @@ def request(operation, **changes):
         "cancel": {"transaction_id": TX, "generation": GENERATION},
         "status": {"transaction_id": TX},
         "pending": {},
+        "proposals": {},
         "ack": {"transaction_id": TX, "revision": 2, "sha256": SHA},
     }[operation]
     return {"type": "trade_" + operation, "request_id": REQUEST, "session_epoch": EPOCH, **body, **changes}
@@ -53,7 +54,9 @@ def metadata():
 def reply(op, **changes):
     value = {"type": "trade_result", "protocol": 1, "session_epoch": EPOCH,
              "request_id": REQUEST, "operation": op, "world_id": WORLD, "player_id": ACTOR}
-    if op == "pending":
+    if op == "proposals":
+        value["proposals"] = [offering()]
+    elif op == "pending":
         value["recoveries"] = [{"transaction_id": TX, "sequence": 3, "outcome_fingerprint": SHA, "checkpoint": metadata()}]
     elif op == "ack":
         value["trade"] = {"transaction_id": TX, "state": "acknowledged", "revision": 2, "sha256": SHA}
@@ -106,6 +109,17 @@ class TradeRequestTests(unittest.TestCase):
 class TradeReplyTests(unittest.TestCase):
     def validate(self, message):
         return validate_trade_reply(message, CONFIG, OWNERSHIP_PROFILE, WORLD, EPOCH)
+
+    def test_proposal_discovery_is_bounded_and_actor_scoped(self):
+        self.validate(reply("proposals"))
+        self.validate(reply("proposals", proposals=[]))
+        for proposals in ([offering(), offering()], [committed()], [{}]):
+            with self.assertRaises(ProtocolError):
+                self.validate(reply("proposals", proposals=proposals))
+        foreign = offering()
+        foreign["players"] = sorted([PEER, str(uuid4())])
+        with self.assertRaises(ProtocolError):
+            self.validate(reply("proposals", proposals=[foreign]))
 
     def test_valid_states_and_own_pending_metadata(self):
         for operation in ("open", "offer", "confirm", "cancel", "status", "pending", "ack"):

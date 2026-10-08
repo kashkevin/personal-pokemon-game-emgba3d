@@ -28,6 +28,7 @@ from .secure_transport import ServerTlsConfig, is_numeric_unicast_address
 from .trade_protocol import TRADE_TYPES, validate_trade_common, validate_trade_request
 from .team_protocol import TEAM_TYPES, validate_team_common, validate_team_request
 from .battle_protocol import BATTLE_TYPES, challenge_view, validate_battle_common, validate_battle_request
+from .reset_protocol import RESET_TYPES, validate_reset_common, validate_reset_request
 
 if TYPE_CHECKING:
     from .storage import Checkpoint, CheckpointStore, WorldMetadata
@@ -213,6 +214,8 @@ class WorldServer:
                 if not isinstance(store, OwnershipCheckpointStore):
                     raise ValueError("ownership profile requires an explicit ownership store")
         self.sessions: dict[str, PlayerSession] = {}
+        from .reset_attempts import ResetAttempts
+        self._reset_attempts = ResetAttempts(store) if store is not None and store.reset_attempts_enabled else None
         # Explicit opt-in for integration proofs. Native side effects and the
         # cold-start recovery gate must pass before this becomes player-facing.
         self.trade_desk = None
@@ -241,6 +244,7 @@ class WorldServer:
                 raise ValueError("development teams require an authenticated ownership world")
             self.team_desk = TeamDesk(self._team_roster)
         self.battle_desk = None
+        self.battle_execution = None
         self._battle_results = None
         from .battle_reservations import BattleReservations
         self._battle_reservations = (BattleReservations(store)
@@ -285,6 +289,13 @@ class WorldServer:
     def _connected_lease(self, player_id: str) -> int | None:
         session = self.sessions.get(player_id)
         return session.session_epoch if session is not None and not session.closed else None
+
+    def enable_battle_execution(self, string_lengths, directory):
+        """Application-only setup using the installed, hash-verified ROM table."""
+        if self.battle_execution is not None or self._server is not None:
+            raise ValueError("configure native execution once before starting the host")
+        from .battle_execution import BattleExecutionService
+        self.battle_execution = BattleExecutionService(self.battle_desk, string_lengths, directory)
 
     def _preflight_battle_bind(self, players, leases) -> None:
         assert self.store is not None
@@ -377,6 +388,8 @@ class WorldServer:
 
     async def close(self) -> None:
         self._closing = True
+        if self.battle_execution is not None:
+            await self.battle_execution.close()
         listening_server = self._server
         if self._server is not None:
             self._server.close()
@@ -538,6 +551,24 @@ class WorldServer:
             else:
                 self._control(session, {**heartbeat, "type": "pong"})
             session.last_seen = now
+        elif isinstance(kind, str) and kind in RESET_TYPES and self.store is not None:
+            validate_reset_common(message, session.session_epoch)
+            try:
+                request = validate_reset_request(message, session.session_epoch)
+                session.last_seen = now
+                if self._reset_attempts is None:
+                    raise ProtocolError("reset_disabled", "this world has not enabled durable personal encounters")
+                self._assert_battle_available(session.player_id)
+                if session.upload is not None:
+                    raise ProtocolError("checkpoint_busy", "finish the checkpoint before starting an encounter")
+                if self.trade_desk is not None:
+                    self.trade_desk._prune()
+                    if any(session.player_id in proposal.players for proposal in self.trade_desk._proposals.values()):
+                        raise ProtocolError("trade_busy", "resolve the trade proposal before starting an encounter")
+                result = self._reset_attempts.begin(session.player_id, session.session_epoch, request)
+                self._reset_reply(session, message, result=result)
+            except (ProtocolError, StorageError) as error:
+                self._reset_reply(session, message, error=error)
         elif isinstance(kind, str) and kind in TEAM_TYPES and self.store is not None:
             validate_team_common(message, session.session_epoch)
             try:
@@ -585,6 +616,12 @@ class WorldServer:
             "save_profile": checkpoint.save_profile,
         }
 
+    def _reset_reply(self, session, request, *, result=None, error=None):
+        self._control(session, dict(type="reset_error" if error is not None else "reset_result",
+            protocol=PROTOCOL_VERSION, session_epoch=session.session_epoch, request_id=request["request_id"],
+            world_id=self._world_metadata.world_id, player_id=session.player_id,
+            **({"code": error.code, "message": error.message} if error is not None else {"result": result})))
+
     def _team_reply(self, session, request, *, error=None, result=None):
         assert self._world_metadata is not None
         self._control(session, dict(
@@ -622,6 +659,12 @@ class WorldServer:
         # Public consent never authorizes BIND/START, supplies native receipts,
         # or claims a winner. Those remain trusted coordinator operations.
         operation = request["type"].removeprefix("battle_")
+        if operation == "execute":
+            if self.battle_execution is None:
+                raise ProtocolError("battle_execution_disabled", "this host has not enabled native battle execution")
+            result = self.battle_execution.exchange(session.player_id, session.session_epoch, request)
+            self._battle_reply(session, request, result=result)
+            return
         if operation == "waiting":
             from .ownership_storage import OwnershipCheckpointStore
             if not isinstance(self.store, OwnershipCheckpointStore):
@@ -680,7 +723,7 @@ class WorldServer:
                 raise ProtocolError("trade_disabled", "this development world has not enabled new trade operations")
             desk = self._trade_recovery_desk
         actor = (session.player_id, session.session_epoch)
-        if kind not in {"status", "pending"}:
+        if kind not in {"status", "pending", "proposals"}:
             players = [session.player_id]
             if kind == "open":
                 players.append(request["peer"])
@@ -689,6 +732,9 @@ class WorldServer:
                 if proposal is not None:
                     players.extend(proposal.players)
             self._assert_battle_available(*players)
+        if kind == "proposals":
+            self._trade_reply(session, request, proposals=desk.proposals(*actor))
+            return
         if kind == "pending":
             self._trade_reply(session, request, recoveries=[dict(
                 transaction_id=r.transaction_id, sequence=r.sequence,

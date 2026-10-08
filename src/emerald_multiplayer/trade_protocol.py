@@ -15,7 +15,7 @@ from .flash import MAX_SPECIES_ID
 from .ownership_protocol import MAX_SERIAL, OWNERSHIP_PROFILE
 from .protocol import MAX_COUNTER, PROTOCOL_VERSION, ProtocolError, _fields, _integer
 
-TRADE_OPERATIONS = frozenset({"open", "offer", "confirm", "cancel", "status", "pending", "ack"})
+TRADE_OPERATIONS = frozenset({"open", "offer", "confirm", "cancel", "status", "pending", "proposals", "ack"})
 TRADE_TYPES = frozenset("trade_" + operation for operation in TRADE_OPERATIONS)
 _HASH = re.compile(r"[0-9a-f]{64}\Z")
 _CODE = re.compile(r"[A-Za-z0-9_.:-]{1,128}\Z")
@@ -58,6 +58,7 @@ def validate_trade_request(message: Any, session_epoch: int) -> dict[str, Any]:
         "cancel": {"transaction_id", "generation"},
         "status": {"transaction_id"},
         "pending": set(),
+        "proposals": set(),
         "ack": {"transaction_id", "revision", "sha256"},
     }[operation]
     _fields(message, common | extras)
@@ -162,7 +163,14 @@ def validate_trade_reply(message: Any, config, profile: str, world_id: str, epoc
         if not isinstance(message["code"], str) or _CODE.fullmatch(message["code"]) is None or not isinstance(message["message"], str) or not 1 <= len(message["message"]) <= 512 or not message["message"].isprintable():
             raise ProtocolError("invalid_server_message", "invalid trade error text")
     elif message["type"] == "trade_result":
-        if operation == "pending":
+        if operation == "proposals":
+            _fields(message, common | {"proposals"})
+            proposals = message["proposals"]
+            if not isinstance(proposals, list) or len(proposals) > 1:
+                raise ProtocolError("invalid_server_message", "trade proposals exceed the per-player bound")
+            for proposal in proposals:
+                _trade(proposal, "offer", config.player_id)
+        elif operation == "pending":
             _fields(message, common | {"recoveries"})
             recoveries = message["recoveries"]
             if not isinstance(recoveries, list) or len(recoveries) > 1:

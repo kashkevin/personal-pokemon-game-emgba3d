@@ -40,6 +40,18 @@ _TEXT = {
     "recovery_required": "Your character needs recovery before the game can open. Its private files have been retained.",
     "connection_timeout": "The host did not respond. Check that the host is running and the invitation is current.",
     "connection_lost": "Connection to the host was lost. Reconnection handling is not enabled in this build.",
+    "host_loss_preserving": "Host connection lost. Preserving your game locally; keep the game open.",
+    "host_loss_preserved": "Host connection lost. Your local save is preserved. Close the game and rejoin when the host returns.",
+    "host_loss_unsaved_held": "Host connection lost. Saving could not be verified. Keep this paused game open for recovery.",
+    "host_loss_battle_waiting": "Battle interrupted. Keep the game open; the battle is waiting for all players.",
+    "host_loss_trade_waiting": "Trade interrupted. Keep the game open while its recorded result awaits recovery.",
+    "host_loss_armed": "Host connection lost. Preserving your game locally; keep the game open.",
+    "battle_running": "Multiplayer battle in progress.",
+    "battle_finished": "Battle finished. Your party has been restored.",
+    "battle_cancelled": "The challenge ended before the battle started. Your party is unchanged.",
+    "trade_running": "Trading. Choose your Pokemon and confirm the offer in the game.",
+    "trade_finished": "Trade completed and saved.",
+    "trade_cancelled": "Trade cancelled. Your saved party is unchanged.",
     "session_changed": "The host session changed. Close the game before reopening your character.",
     "mirror_active": "This character is already open in another game window.",
     "invalid_invitation": "This invitation could not be verified. Ask the host for a current invitation.",
@@ -593,7 +605,8 @@ class LauncherWindow:
                     self.autosave_button.configure(state="normal" if event.state == "running" else "disabled")
                     self.save_button.configure(state="normal" if event.state == "running"
                         and event.code in {"running", "saved", "save_not_ready", "autosave_on", "autosave_off",
-                                           "autosave_deferred", "settings_unavailable", "settings_busy"} else "disabled")
+                                           "autosave_deferred", "settings_unavailable", "settings_busy",
+                                           "trade_finished", "trade_cancelled", "battle_finished", "battle_cancelled"} else "disabled")
                     if event.state in {"running", "finished"}:
                         self.cancel.configure(state="disabled")
         self._poll_id = self.root.after(80, self.poll)

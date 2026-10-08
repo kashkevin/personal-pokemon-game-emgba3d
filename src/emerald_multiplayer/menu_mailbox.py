@@ -64,16 +64,17 @@ class MenuRequest:
         return result
 
 
-def pack_screen(request_sequence, screen, *, close=False):
+def pack_screen(request_sequence, screen, *, close=False, reopen_trade=False):
     _uint(request_sequence, 0xFFFFFFFF, 1)
-    if not isinstance(screen, MenuScreen) or type(close) is not bool:
+    if (not isinstance(screen, MenuScreen) or type(close) is not bool
+            or type(reopen_trade) is not bool or close and reopen_trade):
         raise ValueError("menu response needs a typed screen and close flag")
     _uint(screen.revision, 0xFFFFFFFF, 1)
     if type(screen.back) is not int or screen.back not in (0, 7):
         raise ValueError("menu back action must be absent or seven")
     if type(screen.rows) is not tuple or len(screen.rows) > 6:
         raise ValueError("menu screen permits at most six rows")
-    data = struct.pack("<IIBBH", request_sequence, screen.revision, int(close), len(screen.rows), screen.back)
+    data = struct.pack("<IIBBH", request_sequence, screen.revision, 2 if reopen_trade else int(close), len(screen.rows), screen.back)
     data += _string(screen.title, 24) + _string(screen.status, 32)
     used = set()
     for index, row in enumerate(screen.rows):
@@ -86,18 +87,18 @@ def pack_screen(request_sequence, screen, *, close=False):
     return data + bytes(SCREEN_SIZE - len(data))
 
 
-def unpack_screen(value):
+def unpack_screen(value, *, allow_trade_reopen=False):
     if type(value) is not bytes or len(value) != SCREEN_SIZE:
         raise ValueError("menu response must have exactly 240 bytes")
     ack, revision, flags, count, back = struct.unpack_from("<IIBBH", value)
-    if flags > 1 or count > 6 or any(value[68 + 28 * count:]):
+    if flags > (2 if allow_trade_reopen else 1) or count > 6 or any(value[68 + 28 * count:]):
         raise ValueError("menu response has invalid flags, count or padding")
     rows = tuple(MenuRow(struct.unpack_from("<H", value, 68 + i * 28)[0],
         _read_string(value[70 + i * 28:96 + i * 28])) for i in range(count))
     screen = MenuScreen(revision, _read_string(value[12:36]), _read_string(value[36:68]), rows, back)
-    if pack_screen(ack, screen, close=bool(flags)) != value:
+    if pack_screen(ack, screen, close=flags == 1, reopen_trade=flags == 2) != value:
         raise ValueError("menu response is not canonical")
-    return ack, screen, bool(flags)
+    return ack, screen, (flags if allow_trade_reopen else bool(flags))
 
 
 def validate_menu_manifest(manifest, rom_path=None):
@@ -105,7 +106,7 @@ def validate_menu_manifest(manifest, rom_path=None):
         return False
     if not FIELDS <= set(manifest):
         raise ValueError("menu manifest is incomplete")
-    if type(manifest["menu_abi_version"]) is not int or manifest["menu_abi_version"] != ABI or type(manifest["menu_mailbox_size"]) is not int or manifest["menu_mailbox_size"] != MAILBOX_SIZE:
+    if type(manifest["menu_abi_version"]) is not int or manifest["menu_abi_version"] not in (1, 2) or type(manifest["menu_mailbox_size"]) is not int or manifest["menu_mailbox_size"] != MAILBOX_SIZE:
         raise ValueError("unsupported menu mailbox")
     address, marker = manifest["menu_mailbox_address"], manifest["menu_abi_address"]
     if type(address) is not int or address % 4 or not 0x02000000 <= address <= 0x02040000 - MAILBOX_SIZE:
@@ -124,6 +125,6 @@ def validate_menu_manifest(manifest, rom_path=None):
     if rom_path is not None:
         with Path(rom_path).open("rb") as source:
             source.seek(marker - 0x08000000)
-            if source.read(4) != b"\x01\0\0\0":
+            if source.read(4) != struct.pack("<I", manifest["menu_abi_version"]):
                 raise ValueError("menu capability marker does not match the verified ROM")
     return True

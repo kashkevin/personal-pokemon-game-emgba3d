@@ -56,13 +56,18 @@ def configure(manifest: dict, token: str, port: int, bridge: str) -> str:
     from .menu_mailbox import validate_menu_manifest
     menu_config = ""
     if validate_menu_manifest(manifest):
-        menu_config = (f", menu_abi=1, menu_abi_address={manifest['menu_abi_address']}"
+        menu_config = (f", menu_abi={manifest['menu_abi_version']}, menu_abi_address={manifest['menu_abi_address']}"
                        f", menu_address={manifest['menu_mailbox_address']}, menu_size=512")
     from .emergency_protocol import validate_emergency_manifest
+    from .reset_mailbox import validate_reset_manifest
+    reset_config = ""
+    if validate_reset_manifest(manifest):
+        reset_config = (f", reset_abi={manifest['reset_abi_version']}, reset_abi_address={manifest['reset_abi_address']}"
+                        f", reset_address={manifest['reset_mailbox_address']}, reset_size=128")
     emergency_config = ""
     if validate_emergency_manifest(manifest):
-        emergency_config = f", emergency_save_abi=1, emergency_save_abi_address={manifest['emergency_save_abi_address']}"
+        emergency_config = f", emergency_save_abi={manifest['emergency_save_abi_version']}, emergency_save_abi_address={manifest['emergency_save_abi_address']}"
     return (
         f'EMERALD_BRIDGE = {{address={address}, rom_size={size}, rom_crc32="{crc}", '
-        f'port={port}, token="{token}"{save_config}{trade_config}{battle_config}{window_config}{menu_config}{emergency_config}}}\n' + bridge
+        f'port={port}, token="{token}"{save_config}{trade_config}{battle_config}{window_config}{menu_config}{emergency_config}{reset_config}}}\n' + bridge
     )

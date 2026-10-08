@@ -6,10 +6,11 @@ world lease; refreshing or reconnecting never implies consent.
 from __future__ import annotations
 
 import asyncio
+from copy import deepcopy
 from dataclasses import dataclass
 from uuid import uuid4
 
-from .companion import TeamError, BattleChallengeError
+from .companion import TeamError, BattleChallengeError, TradeError
 
 
 class PlayerMenuError(ValueError):
@@ -53,6 +54,8 @@ class PlayerMenu:
         self._actions = {}
         self._screen = MenuScreen(0, "Players", "Connecting", ())
         self._notice = ""
+        self.handoff = None
+        self._trades = None
 
     def _session(self):
         c = self.companion
@@ -92,6 +95,17 @@ class PlayerMenu:
                 raise PlayerMenuError("session_changed")
             if kind == "team": self._team = value
             else: self._battles = value
+        self._trades = None
+        if (callable(getattr(self.companion, "_native_menu_handoff", None))
+                and getattr(self.companion.config, "menu_abi_version", 1) == 2
+                and getattr(self.companion.config, "trade_enabled", False)):
+            try:
+                self._trades = (await self.companion.trade_rpc("proposals"))["proposals"]
+            except TradeError as error:
+                if error.code != "trade_disabled":
+                    raise
+            if self._session() != binding:
+                raise PlayerMenuError("session_changed")
         if self._page[0] in ("results", "result"):
             self._results = (await self.companion.battle_challenge_rpc("history"))["result"]
             if self._session() != binding:
@@ -129,11 +143,18 @@ class PlayerMenu:
         title, status = "Players", self._notice or f"Connected: {len(self._players)}/4"
         if page == "player" and target in self._players and target != actor:
             title = self._name(target)
+            if self._trades is not None and not self._trades:
+                actions.append(("Trade Pokemon", "trade_open", (target,)))
             if self._team is not None and self._team["team"] is None:
                 actions.append(("Invite to team", "team_invite", (target,)))
             if self._battles is not None and not self._battles:
                 actions.append(("Challenge 1v1", "battle_invite", (target,)))
             status = self._notice or "Choose an interaction"
+        elif page == "trade" and self._trades:
+            trade = self._trades[0]
+            title, status = "Trade Pokemon", "With " + self._name(next(p for p in trade["players"] if p != actor))
+            params = (trade["transaction_id"], trade["generation"])
+            actions.extend((("Choose your Pokemon", "trade_enter", params), ("Decline trade", "trade_cancel", params)))
         elif page == "team" and self._team is not None:
             title = "Your team"
             own = self._team["team"]
@@ -169,7 +190,11 @@ class PlayerMenu:
                     if actor not in battle["consent"] and actor != battle["sender"]:
                         actions.append(("Accept challenge", "battle_accept", (*params, battle["fingerprint"])))
                     actions.append(("Cancel challenge", "battle_cancel", params))
-                    if battle["state"] == "accepted": status = "Waiting for battle coordinator"
+                    if battle["state"] == "accepted":
+                        status = "Waiting for battle coordinator"
+                        if callable(getattr(self.companion, "_native_menu_handoff", None)):
+                            status = "All players accepted"
+                            actions.append(("Enter battle", "battle_enter", (*params, battle["fingerprint"])))
                 else:
                     status = {"aborting": "Canceling safely", "recovery_required": "Battle recovery required",
                               "running": "Battle in progress", "starting": "Starting battle"}.get(battle["state"], battle["state"])
@@ -211,7 +236,7 @@ class PlayerMenu:
                 # Completed history remains authenticated and readable when
                 # new native battle admission is disabled (normal launcher).
                 actions.append(("Recent battle results", "results", (0,)))
-            actions.append(("Refresh", "refresh", ()))
+            actions.append(("Pending trade", "trade", ()) if self._trades else ("Refresh", "refresh", ()))
         return self._show(title, status, actions)
 
     async def choose(self, revision, action):
@@ -229,8 +254,23 @@ class PlayerMenu:
             self._actions.clear()
             self._signature = None
             self._notice = ""
-            if op in ("home", "team", "battles", "player", "results", "result"):
+            if op in ("home", "team", "battles", "player", "results", "result", "trade"):
                 self._page = (op, args[0] if args else None)
+            elif op == "trade_open":
+                trade = (await self.companion.trade_rpc("open", peer=args[0], transaction_id=str(uuid4())))["trade"]
+                if trade["state"] != "offering" or self._session() != self._binding:
+                    raise PlayerMenuError("trade_changed")
+                self.handoff = ("trade", deepcopy(trade))
+                return self._show("Trade Pokemon", "Preparing your party", [])
+            elif op == "trade_enter":
+                trade = next((t for t in self._trades or () if (t["transaction_id"], t["generation"]) == args), None)
+                if trade is None:
+                    raise PlayerMenuError("trade_changed")
+                self.handoff = ("trade", deepcopy(trade))
+                return self._show("Trade Pokemon", "Preparing your party", [])
+            elif op == "trade_cancel":
+                await self.companion.trade_rpc("cancel", transaction_id=args[0], generation=args[1])
+                self._page = ("home", None)
             elif op == "team_invite":
                 await self.companion.team_rpc("invite", peer=args[0], invitation_id=str(uuid4()))
                 self._page = ("team", None)
@@ -248,4 +288,12 @@ class PlayerMenu:
                 fields = dict(battle_id=args[0], generation=args[1])
                 if op == "battle_accept": fields["fingerprint"] = args[2]
                 await self.companion.battle_challenge_rpc(op.removeprefix("battle_"), **fields)
+            elif op == "battle_enter":
+                battle = next((b for b in self._battles or () if
+                    (b["battle_id"], b["generation"], b["fingerprint"]) == args), None)
+                if (battle is None or battle["state"] != "accepted"
+                        or set(battle["consent"]) != set(battle["players"])):
+                    raise PlayerMenuError("stale_battle")
+                self.handoff = ("battle", deepcopy(battle))
+                return self._show("Battle", "Closing menu for battle", [])
             return await self._refresh()

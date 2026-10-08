@@ -75,7 +75,13 @@ def generate(rom: Path, elf: Path, nm: str, engine_commit: str) -> dict:
         from emerald_multiplayer.emergency_protocol import validate_emergency_manifest
         if len(emergency) != 1 or int(emergency[0][1], 16) != 4 or not trade:
             raise ValueError("emergency save requires one ROM marker and ownership/trade support")
-        manifest.update(emergency_save_abi_version=1, emergency_save_abi_address=int(emergency[0][0], 16))
+        marker = int(emergency[0][0], 16)
+        if not 0x08000000 <= marker <= 0x08000000 + rom_size - 4:
+            raise ValueError("emergency marker is outside the ROM")
+        with rom.open("rb") as stream:
+            stream.seek(marker - 0x08000000)
+            version = int.from_bytes(stream.read(4), "little")
+        manifest.update(emergency_save_abi_version=version, emergency_save_abi_address=marker)
         validate_emergency_manifest(manifest, rom)
     battle = re.findall(r"^([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+[Rr]\s+gMultiplayerBattleAbiVersion$", symbols, re.M)
     channel = re.findall(r"^([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+[BDbd]\s+gMultiplayerBattleMailbox$", symbols, re.M)
@@ -91,6 +97,13 @@ def generate(rom: Path, elf: Path, nm: str, engine_commit: str) -> dict:
             version = int.from_bytes(stream.read(4), "little")
         manifest.update(battle_abi_version=version, battle_abi_address=marker,
                         battle_mailbox_address=int(channel[0][0], 16), battle_mailbox_size=int(channel[0][1], 16))
+        strings = re.findall(r"^([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+[Rr]\s+gBattleStringsTable$", symbols, re.M)
+        if strings and version in (2, 3):
+            if len(strings) != 1:
+                raise ValueError("native execution needs exactly one compiler-located battle string table")
+            manifest.update(battle_execution_abi_version=1,
+                battle_string_table_address=int(strings[0][0], 16),
+                battle_string_table_size=int(strings[0][1], 16))
         validate_battle_manifest(manifest, rom)
     window = re.findall(r"^([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+[Rr]\s+gMultiplayerSaveWindowAbiVersion$", symbols, re.M)
     if window:
@@ -107,10 +120,27 @@ def generate(rom: Path, elf: Path, nm: str, engine_commit: str) -> dict:
         from emerald_multiplayer.menu_mailbox import validate_menu_manifest
         if len(menu) != 1 or len(menu_channel) != 1 or int(menu[0][1], 16) != 4:
             raise ValueError("menu requires one marker and one allocated mailbox")
-        manifest.update(menu_abi_version=1, menu_abi_address=int(menu[0][0], 16),
+        marker = int(menu[0][0], 16)
+        with rom.open("rb") as stream:
+            stream.seek(marker - 0x08000000)
+            version = int.from_bytes(stream.read(4), "little")
+        manifest.update(menu_abi_version=version, menu_abi_address=marker,
                         menu_mailbox_address=int(menu_channel[0][0], 16), menu_mailbox_size=int(menu_channel[0][1], 16))
         validate_menu_manifest(manifest, rom)
     objects = re.findall(r"^([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+[BDbd]\s+gObjectEvents$", symbols, re.M)
+    reset = re.findall(r"^([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+[Rr]\s+gMultiplayerResetAbiVersion$", symbols, re.M)
+    reset_channel = re.findall(r"^([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+[BDbd]\s+gMultiplayerResetMailbox$", symbols, re.M)
+    if reset or reset_channel:
+        from emerald_multiplayer.reset_mailbox import validate_reset_manifest
+        if len(reset) != 1 or len(reset_channel) != 1 or int(reset[0][1], 16) != 4 or not ownership:
+            raise ValueError("personal reset requires one marker, mailbox and ownership support")
+        reset_address = int(reset[0][0], 16)
+        with rom.open("rb") as source:
+            source.seek(reset_address - 0x08000000)
+            reset_version = int.from_bytes(source.read(4), "little")
+        manifest.update(reset_abi_version=reset_version, reset_abi_address=reset_address,
+            reset_mailbox_address=int(reset_channel[0][0], 16), reset_mailbox_size=int(reset_channel[0][1], 16))
+        validate_reset_manifest(manifest, rom)
     if len(objects) == 1:
         obj_address, obj_size = (int(value, 16) for value in objects[0])
         # Read-only test metadata for the pinned engine's 0x24-byte objects.

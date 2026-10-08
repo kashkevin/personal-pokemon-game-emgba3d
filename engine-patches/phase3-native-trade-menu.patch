@@ -1,0 +1,194 @@
+From a97ff5301b565d821a7817865048c430946c2e15 Mon Sep 17 00:00:00 2001
+From: Codex <codex@openai.com>
+Date: Thu, 8 Oct 2026 14:37:57 -0400
+Subject: [PATCH] Add gated in-game consent menus for frozen trades
+
+---
+ include/multiplayer_menu.h |  2 +-
+ include/multiplayer_save.h |  1 +
+ src/multiplayer_menu.c     | 36 +++++++++++++++++++++++++++---------
+ src/multiplayer_save.c     | 12 ++++++++++++
+ test/multiplayer_menu.c    | 22 +++++++++++++++++++++-
+ 5 files changed, 62 insertions(+), 11 deletions(-)
+
+diff --git a/include/multiplayer_menu.h b/include/multiplayer_menu.h
+index cb71d7811e..bcb79299d5 100644
+--- a/include/multiplayer_menu.h
++++ b/include/multiplayer_menu.h
+@@ -2,7 +2,7 @@
+ #define GUARD_MULTIPLAYER_MENU_H
+ 
+ #define MP_MENU_MAGIC 0x31554D45u
+-#define MP_MENU_ABI 1
++#define MP_MENU_ABI 2
+ #define MP_MENU_OPEN 1
+ #define MP_MENU_CHOOSE 2
+ #define MP_MENU_CLOSE 3
+diff --git a/include/multiplayer_save.h b/include/multiplayer_save.h
+index 18b2166a13..725c0075c8 100644
+--- a/include/multiplayer_save.h
++++ b/include/multiplayer_save.h
+@@ -62,6 +62,7 @@ bool32 MultiplayerSave_FieldReady(void);
+ bool32 MultiplayerSave_CheckBinding(u32 session, u32 incarnation);
+ bool32 MultiplayerSave_HasBinding(void);
+ bool32 MultiplayerSave_GetIdleBinding(u32 *session, u32 *incarnation);
++bool32 MultiplayerSave_GetTradeMenuBinding(u32 *session, u32 *incarnation);
+ 
+ #if TESTING
+ u32 MultiplayerSave_TestCrc32(u32 crc, const u8 *data, u32 size);
+diff --git a/src/multiplayer_menu.c b/src/multiplayer_menu.c
+index ed506ce770..c5883a5fe2 100644
+--- a/src/multiplayer_menu.c
++++ b/src/multiplayer_menu.c
+@@ -31,7 +31,7 @@ EWRAM_DATA volatile struct MultiplayerMenuMailbox gMultiplayerMenuMailbox = {0};
+ static EWRAM_DATA struct MultiplayerMenuScreen sMultiplayerMenuScreen;
+ static EWRAM_DATA u32 sSequence, sSeenGeneration, sSession, sIncarnation;
+ static EWRAM_DATA u8 sWindow, sMultiplayerMenuCursor;
+-static EWRAM_DATA bool8 sMultiplayerMenuActive, sMultiplayerMenuWaiting;
++static EWRAM_DATA bool8 sMultiplayerMenuActive, sMultiplayerMenuWaiting, sTradeMenu;
+ static const struct WindowTemplate sWindowTemplate = {
+     .bg = 0, .tilemapLeft = 1, .tilemapTop = 1, .width = 28, .height = 18,
+     .paletteNum = 15, .baseBlock = 8,
+@@ -60,7 +60,7 @@ static bool32 ValidText(const u8 *text, u32 size)
+ 
+ bool32 MultiplayerMenu_ValidateScreen(const struct MultiplayerMenuScreen *screen)
+ {
+-    if (!screen->ackRequest || !screen->screen || screen->flags > 1 || screen->count > 6
++    if (!screen->ackRequest || !screen->screen || screen->flags > 2 || screen->count > 6
+      || (screen->backAction != 0 && screen->backAction != 7)
+      || !ValidText(screen->title, sizeof(screen->title)) || !ValidText(screen->status, sizeof(screen->status))
+      || !Zero(screen->reserved, sizeof(screen->reserved))) return FALSE;
+@@ -163,7 +163,7 @@ static void Close(void)
+         RemoveWindow(sWindow); sWindow = WINDOW_NONE;
+         ScriptUnfreezeObjectEvents(); UnlockPlayerFieldControls();
+     }
+-    sMultiplayerMenuActive = sMultiplayerMenuWaiting = FALSE;
++    sMultiplayerMenuActive = sMultiplayerMenuWaiting = sTradeMenu = FALSE;
+     memset(&sMultiplayerMenuScreen, 0, sizeof(sMultiplayerMenuScreen));
+     // Publish only after window/field ownership has been released. Reserve the
+     // final sequence for CLOSE; a ROM incarnation never wraps its requests.
+@@ -185,7 +185,7 @@ void MultiplayerMenu_Init(void)
+     memset((void *)&gMultiplayerMenuMailbox, 0, sizeof(gMultiplayerMenuMailbox));
+     memset(&sMultiplayerMenuScreen, 0, sizeof(sMultiplayerMenuScreen));
+     sSequence = sSeenGeneration = sSession = sIncarnation = 0;
+-    sWindow = WINDOW_NONE; sMultiplayerMenuCursor = 0; sMultiplayerMenuActive = sMultiplayerMenuWaiting = FALSE;
++    sWindow = WINDOW_NONE; sMultiplayerMenuCursor = 0; sMultiplayerMenuActive = sMultiplayerMenuWaiting = sTradeMenu = FALSE;
+     gMultiplayerMenuMailbox.abiVersion = *(const volatile u32 *)&gMultiplayerMenuAbiVersion;
+     gMultiplayerMenuMailbox.byteSize = sizeof(gMultiplayerMenuMailbox);
+     gMultiplayerMenuMailbox.magic = MP_MENU_MAGIC;
+@@ -209,12 +209,29 @@ static void ReadScreen(void)
+ {
+     struct MultiplayerMenuScreen screen;
+     u32 generation = gMultiplayerMenuMailbox.inboundGeneration;
+-    if (!sMultiplayerMenuActive || (generation & 1) || generation == sSeenGeneration) return;
++    if ((generation & 1) || generation == sSeenGeneration) return;
+     screen = gMultiplayerMenuMailbox.screen;
+     if (generation != gMultiplayerMenuMailbox.inboundGeneration) return;
+     sSeenGeneration = generation;
+     if (!MultiplayerMenu_ValidateScreen(&screen) || screen.ackRequest != sSequence
+      || screen.screen < sMultiplayerMenuScreen.screen) return;
++    if (!sMultiplayerMenuActive)
++    {
++        // Reopen only following this exact native CLOSE, while the verified
++        // trade exporter still owns the frozen party. Other field/save/battle
++        // states cannot be made into a menu by an unsolicited screen packet.
++        if (screen.flags != 2 || sSequence >= 0xFFFFFFFEu || gMultiplayerMenuMailbox.request.kind != MP_MENU_CLOSE
++         || !Multiplayer_IsConnected() || MultiplayerBattle_IsActive()
++         || !MultiplayerSave_GetTradeMenuBinding(&sSession, &sIncarnation)) return;
++        sWindow = AddWindow(&sWindowTemplate);
++        if (sWindow == WINDOW_NONE) return;
++        FreezeObjectEvents(); PlayerFreeze(); StopPlayerAvatar(); LockPlayerFieldControls();
++        if (!Begin()) { RemoveWindow(sWindow); sWindow = WINDOW_NONE; return; }
++        sTradeMenu = TRUE;
++        Render();
++        return;
++    }
++    if (screen.flags == 2) return;
+     // A host-requested close may retain the last screen revision after an RPC
+     // error. Ordinary duplicate revisions never re-enable old selections.
+     if (screen.flags) { Close(); return; }
+@@ -231,7 +248,7 @@ static void Input(u16 keys)
+     {
+         if (!sMultiplayerMenuWaiting && sMultiplayerMenuScreen.backAction && sSequence < 0xFFFFFFFEu)
+         { Publish(MP_MENU_CHOOSE, 7, sMultiplayerMenuScreen.screen); sMultiplayerMenuWaiting = TRUE; Render(); }
+-        else Close();
++        else if (!sTradeMenu) Close();
+     }
+     else if (!sMultiplayerMenuWaiting)
+     {
+@@ -255,9 +272,10 @@ void MultiplayerMenu_Tick(void)
+ {
+     u32 session, incarnation;
+     gMultiplayerMenuMailbox.frame++;
+-    if (!sMultiplayerMenuActive) return;
+-    if (!Multiplayer_IsConnected() || MultiplayerSave_IsHeld() || MultiplayerBattle_IsActive()
+-     || !MultiplayerSave_GetIdleBinding(&session, &incarnation)
++    if (!sMultiplayerMenuActive) { ReadScreen(); return; }
++    if (!Multiplayer_IsConnected() || MultiplayerBattle_IsActive()
++     || (sTradeMenu ? !MultiplayerSave_GetTradeMenuBinding(&session, &incarnation)
++                   : (MultiplayerSave_IsHeld() || !MultiplayerSave_GetIdleBinding(&session, &incarnation)))
+      || session != sSession || incarnation != sIncarnation)
+         Close();
+     else
+diff --git a/src/multiplayer_save.c b/src/multiplayer_save.c
+index 15b9a315bd..967c332c06 100644
+--- a/src/multiplayer_save.c
++++ b/src/multiplayer_save.c
+@@ -216,6 +216,18 @@ bool32 MultiplayerSave_HasBinding(void)
+     return sState != MP_SAVE_UNBOUND && sSession && sIncarnation;
+ }
+ 
++bool32 MultiplayerSave_GetTradeMenuBinding(u32 *session, u32 *incarnation)
++{
++    // Only an exported, unchanged party can be presented for consent. The
++    // menu never reads a half-imported result or relaxes the save hold.
++    if (sState != MP_SAVE_TRADE_HELD || !sTradeActive || sTradeExpired
++     || sTradeImportStarted || !sSession || !sIncarnation)
++        return FALSE;
++    *session = sSession;
++    *incarnation = sIncarnation;
++    return TRUE;
++}
++
+ bool32 MultiplayerSave_GetIdleBinding(u32 *session, u32 *incarnation)
+ {
+     if (sState != MP_SAVE_BOUND || sTradeActive || !sSession || !sIncarnation)
+diff --git a/test/multiplayer_menu.c b/test/multiplayer_menu.c
+index 136c1cb0f5..47c51cc927 100644
+--- a/test/multiplayer_menu.c
++++ b/test/multiplayer_menu.c
+@@ -38,7 +38,8 @@ TEST("Multiplayer menu: strict screen parser rejects malformed actions, native t
+     screen.rows[0].label[1] = 31; EXPECT(!MultiplayerMenu_ValidateScreen(&screen)); screen = valid;
+     screen.reserved[3] = 1; EXPECT(!MultiplayerMenu_ValidateScreen(&screen)); screen = valid;
+     screen.count = 7; EXPECT(!MultiplayerMenu_ValidateScreen(&screen)); screen = valid;
+-    screen.flags = 2; EXPECT(!MultiplayerMenu_ValidateScreen(&screen)); screen = valid;
++    screen.flags = 2; EXPECT(MultiplayerMenu_ValidateScreen(&screen));
++    screen.flags = 3; EXPECT(!MultiplayerMenu_ValidateScreen(&screen)); screen = valid;
+     screen.ackRequest = 0; EXPECT(!MultiplayerMenu_ValidateScreen(&screen)); screen = valid;
+     screen.screen = 0; EXPECT(!MultiplayerMenu_ValidateScreen(&screen));
+ }
+@@ -139,3 +140,22 @@ TEST("Multiplayer menu: printable ASCII translation cannot produce a native stri
+     EXPECT_EQ(MultiplayerMenu_TestGlyph(':'), CHAR_COLON);
+     EXPECT_EQ(MultiplayerMenu_TestGlyph('~'), CHAR_QUESTION_MARK);
+ }
++
++TEST("Multiplayer menu: unsolicited trade reopen cannot own an idle or disconnected core")
++{
++    u32 session = 123, incarnation = 456;
++    struct MultiplayerMenuScreen screen = Screen(1, 1);
++    MultiplayerMenu_Init();
++    EXPECT(!MultiplayerSave_GetTradeMenuBinding(&session, &incarnation));
++    EXPECT_EQ(session, 123); EXPECT_EQ(incarnation, 456);
++    screen.flags = 2; Deliver(&screen, 2);
++    EXPECT(!MultiplayerMenu_IsActive());
++    EXPECT(MultiplayerMenu_TestBegin());
++    screen.ackRequest = 1; Deliver(&screen, 4);
++    EXPECT_EQ(MultiplayerMenu_TestScreen(), 0);
++    MultiplayerMenu_TestClose();
++    screen.ackRequest = 2; Deliver(&screen, 6);
++    EXPECT(!MultiplayerMenu_IsActive());
++    EXPECT_EQ(gMultiplayerMenuMailbox.request.sequence, 2);
++    MultiplayerMenu_Init();
++}
+-- 
+2.43.0

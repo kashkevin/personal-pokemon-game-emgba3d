@@ -153,6 +153,17 @@ class TradeDesk:
         self._proposals[transaction_id] = proposal
         return self._public(proposal)
 
+    def proposals(self, player: str, lease: int) -> list[dict]:
+        """Discover only this authenticated actor's live offer, without consent.
+
+        Reading does not extend proposal lifetime or reveal unrelated pairs.
+        A new lease prunes the old proposal before it can reach a new menu.
+        """
+        self._auth(player, lease)
+        self._prune()
+        return [self._public(proposal) for proposal in self._proposals.values()
+                if player in proposal.players]
+
     def offer(self, player: str, lease: int, transaction_id: str, generation: str,
               revision: int, sha256: str, serial: int) -> dict:
         _counter(revision, "revision", 1)

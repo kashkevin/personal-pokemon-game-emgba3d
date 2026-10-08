@@ -117,3 +117,65 @@ class MenuSessionTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(close)
         self.assertNotIn("credential", str(screen))
         self.assertEqual(self.session.menu.calls, 1)
+
+    async def test_handoff_waits_for_native_release_and_runs_once(self):
+        await self.open()
+        calls = []
+        async def handoff(kind, value, owner):
+            calls.append((kind, value, owner))
+        self.companion._native_menu_handoff = handoff
+        self.session.menu.handoff = ("battle", {"id": "captured"})
+        self.feed(2, 1, 1, 2)
+        self.session.menu.gate.set()
+        self.assertTrue((await self.result())[2])
+        self.assertEqual(calls, [])
+        self.feed(3, 1, 0, 3)
+        await self.session._task
+        self.assertEqual(calls, [("battle", {"id": "captured"}, self.session)])
+        self.assertIsNone(self.session.menu.handoff)
+
+    async def test_handoff_timeout_or_changed_bridge_cannot_dispatch(self):
+        await self.open()
+        request = self.session._last_request
+        with self.assertRaises(TimeoutError):
+            await self.session.close_for_handoff(request, self.session.menu.screen, timeout=.01)
+        await self.result()
+        self.assertIsNone(self.session._close_waiter)
+        task = asyncio.create_task(self.session.close_for_handoff(request, self.session.menu.screen))
+        await self.result()
+        self.companion._bridge = object()
+        self.feed(2, 0, 0, 3)
+        with self.assertRaises(ConnectionError):
+            await task
+
+    async def test_bridge_cleanup_breaks_unacknowledged_handoff(self):
+        await self.open()
+        self.session.menu.handoff = ("battle", {})
+        self.feed(2, 1, 1, 2)
+        self.session.menu.gate.set()
+        await self.result()
+        await asyncio.wait_for(self.session.close(), 1)
+        self.assertIsNone(self.session.menu.handoff)
+        self.assertTrue(self.session._task.done())
+
+    async def test_trade_reopen_requires_native_open_before_showing_consent(self):
+        await self.open()
+        self.feed(2, 1, 0, 3)
+        self.companion.config = SimpleNamespace(menu_abi_version=2)
+        screen = MenuScreen(3, "Trade", "Choose Pokemon", (MenuRow(1, "No.25 Lv5"),))
+        opening = asyncio.create_task(self.session.open_trade_dialog(screen))
+        frame = await asyncio.wait_for(self.bridge.outbox.get(), 1)
+        ack, _, flag = unpack_screen(frame[5:], allow_trade_reopen=True)
+        self.assertEqual((ack, flag), (2, 2))
+        self.assertFalse(opening.done())
+        self.feed(3)
+        await opening
+        self.assertEqual((await self.result())[:2], (3, screen))
+        self.feed(4, 3, 1, 2)
+        self.assertEqual((await self.session.dialog_choice()).action, 1)
+        closing = asyncio.create_task(self.session.close_dialog(screen))
+        self.assertTrue((await self.result())[2])
+        self.assertFalse(closing.done())
+        self.feed(5, 3, 0, 3)
+        await closing
+        self.assertIsNone(self.session._dialog_queue)

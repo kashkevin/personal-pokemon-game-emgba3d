@@ -126,6 +126,8 @@ def verify_rom_manifest(rom_path: Path, manifest_path: Path) -> tuple[str, dict[
     validate_window_manifest(manifest, rom_path)
     from .menu_mailbox import validate_menu_manifest
     validate_menu_manifest(manifest, rom_path)
+    from .reset_mailbox import validate_reset_manifest
+    validate_reset_manifest(manifest, rom_path)
     from .emergency_protocol import validate_emergency_manifest
     validate_emergency_manifest(manifest, rom_path)
     return actual_hash, manifest
@@ -162,8 +164,12 @@ class CompanionConfig:
     battle_enabled: bool = field(init=False, default=False)
     battle_abi_version: int = field(init=False, default=0)
     save_window_enabled: bool = field(init=False, default=False)
+    reset_enabled: bool = field(init=False, default=False)
+    reset_abi_version: int = field(init=False, default=0)
     menu_enabled: bool = field(init=False, default=False)
+    menu_abi_version: int = field(init=False, default=1)
     emergency_save_enabled: bool = field(init=False, default=False)
+    emergency_save_abi_version: int = field(init=False, default=0)
 
     def __post_init__(self) -> None:
         rom_path, manifest_path = Path(self.rom_path).resolve(), Path(self.manifest_path).resolve()
@@ -176,9 +182,13 @@ class CompanionConfig:
         object.__setattr__(self, "trade_enabled", manifest.get("trade_abi_version") == 1)
         object.__setattr__(self, "battle_enabled", manifest.get("battle_abi_version") in (1, 2, 3))
         object.__setattr__(self, "battle_abi_version", manifest.get("battle_abi_version", 0))
-        object.__setattr__(self, "menu_enabled", manifest.get("menu_abi_version") == 1)
+        object.__setattr__(self, "menu_enabled", manifest.get("menu_abi_version") in (1, 2))
+        object.__setattr__(self, "menu_abi_version", manifest.get("menu_abi_version", 1))
         object.__setattr__(self, "save_window_enabled", manifest.get("save_window_abi_version") == 1)
-        object.__setattr__(self, "emergency_save_enabled", manifest.get("emergency_save_abi_version") == 1)
+        object.__setattr__(self, "reset_enabled", manifest.get("reset_abi_version") in (1, 2))
+        object.__setattr__(self, "reset_abi_version", manifest.get("reset_abi_version", 0))
+        object.__setattr__(self, "emergency_save_enabled", manifest.get("emergency_save_abi_version") in (1, 2))
+        object.__setattr__(self, "emergency_save_abi_version", manifest.get("emergency_save_abi_version", 0))
         if type(self.development_battle_channel) is not bool:
             raise ValueError("development_battle_channel must be a boolean")
         if self.development_battle_channel and (not self.battle_enabled or self.server_credential is None):
@@ -320,6 +330,7 @@ class BridgeSession:
     emergency_save_capable: bool = False
     battle_capable: bool = False
     menu_session: Any = None
+    reset_session: Any = None
 
 
 class Companion:
@@ -341,6 +352,7 @@ class Companion:
         self._trade_pending: dict[str, tuple[dict, asyncio.Future]] = {}
         self._team_pending: dict[str, tuple[dict, asyncio.Future]] = {}
         self._challenge_pending: dict[str, tuple[dict, asyncio.Future]] = {}
+        self._reset_pending: dict[str, tuple[dict, asyncio.Future]] = {}
         self._save_pending: dict[int, tuple[Any, asyncio.Future]] = {}
         self._battle_pending: dict[int, tuple[Any, asyncio.Future]] = {}
         self.live_checkpoint_lock = asyncio.Lock()
@@ -351,6 +363,9 @@ class Companion:
         self._ipc_writers: set[asyncio.StreamWriter] = set()
         self._ipc_handlers: set[asyncio.Task] = set()
         self._closing = False
+        self._emergency_controller = None
+        self._emergency_authority = None
+        self._reconnect_blocked = False
         self._local_pose: Pose | None = None
         self._last_pose_time = 0.0
         self._network_seq = 0
@@ -458,7 +473,7 @@ class Companion:
                 if packet[:1] == b"Z":
                     from .emergency_protocol import capability_packet
                     if (not bridge.save_capable or not self.config.emergency_save_enabled
-                            or packet != capability_packet()):
+                            or packet != capability_packet(self.config.emergency_save_abi_version)):
                         raise BridgeError("emergency save capability disagrees with verified manifest")
                     bridge.emergency_save_capable = True
                     continue
@@ -489,8 +504,31 @@ class Companion:
                         raise BridgeError("battle response arrived before its verified capability")
                     self._receive_battle_response(packet[1:], bridge)
                     continue
+                if packet[:1] == b"Q":
+                    from .reset_mailbox import capability
+                    from .reset_session import ResetSession
+                    if not self.config.reset_enabled or packet != capability(self.config.reset_abi_version) or bridge.reset_session is not None:
+                        raise BridgeError("personal encounter capability differs from verified manifest")
+                    bridge.reset_session = ResetSession(self, bridge)
+                    continue
+                if packet[:1] == b"T":
+                    if bridge.reset_session is None:
+                        raise BridgeError("personal encounter request precedes its capability")
+                    try:
+                        bridge.reset_session.feed(packet[1:])
+                    except ValueError as error:
+                        raise BridgeError("invalid personal encounter request") from error
+                    continue
+                if packet[:1] == b"Y":
+                    if bridge.reset_session is None:
+                        raise BridgeError("personal encounter receipt precedes its capability")
+                    try:
+                        bridge.reset_session.observe(packet[1:])
+                    except ValueError as error:
+                        raise BridgeError("invalid personal encounter receipt") from error
+                    continue
                 if packet[:1] == b"I":
-                    if not self.config.menu_enabled or packet != b"I" + struct.pack("<HHHH", 1, 512, 240, 16):
+                    if not self.config.menu_enabled or packet != b"I" + struct.pack("<HHHH", self.config.menu_abi_version, 512, 240, 16):
                         raise BridgeError("menu capability disagrees with verified manifest")
                     if bridge.menu_session is not None:
                         raise BridgeError("menu capability was repeated")
@@ -542,6 +580,8 @@ class Companion:
                         await bridge.writer_task
                 if bridge.menu_session is not None:
                     await bridge.menu_session.close()
+                if bridge.reset_session is not None:
+                    await bridge.reset_session.close()
             writer.close()
             try:
                 with suppress(ConnectionError, OSError, asyncio.TimeoutError):
@@ -625,6 +665,39 @@ class Companion:
             raise ConnectionError("live-save command has no matching active session")
         if self._save_pending:
             raise ValueError("a live-save command is already pending")
+        return await self._dispatch_save_control(bridge, control, timeout)
+
+    async def emergency_save_rpc(self, authority, control, *, timeout=12.0):
+        """Retained same-core authority permits preservation only after loss.
+
+        The token is issued by EmergencySaveController after authenticated
+        pre-arming. It cannot grant reconnect, binding, import, END or CANCEL.
+        """
+        from .save_mailbox import Opcode, SaveControl
+        if (authority is None or authority is not self._emergency_authority
+                or self._live_save_owner is not asyncio.current_task()):
+            raise ValueError("emergency preservation requires its retained lifecycle owner")
+        if not isinstance(control, SaveControl):
+            raise ValueError("emergency command must be a validated SaveControl")
+        control.validate_command()
+        allowed = {Opcode.BEGIN_EMERGENCY_EXPORT, Opcode.PROMOTE_EMERGENCY_EXPORT,
+                   Opcode.PRESERVE_EMERGENCY, Opcode.QUERY_EMERGENCY, Opcode.READ, Opcode.READ_WINDOW}
+        if control.opcode not in allowed:
+            raise ValueError("emergency authority cannot release, rebind or mutate canonical state")
+        bridge = self._bridge
+        if (self.connected or not self._reconnect_blocked or bridge is None
+                or bridge is not authority.bridge or not bridge.emergency_save_capable
+                or not bridge.save_capable or self.config.emergency_save_abi_version != 2
+                or (control.incarnation, control.session_epoch) != (authority.session[2], authority.session[1])
+                or (control.request_id, control.revision) != (authority.operation_id, authority.base_revision + 1)):
+            raise ConnectionError("emergency authority no longer names the retained disconnected core")
+        if control.opcode == Opcode.READ_WINDOW and (not self.config.save_window_enabled or not bridge.window_capable):
+            raise ValueError("emergency Flash window requires its separately verified capability")
+        if self._save_pending:
+            raise ValueError("a live-save command is already pending")
+        return await self._dispatch_save_control(bridge, control, timeout)
+
+    async def _dispatch_save_control(self, bridge, control, timeout):
         future = asyncio.get_running_loop().create_future()
         self._save_pending[control.sequence] = (control, future)
         try:
@@ -679,8 +752,13 @@ class Companion:
         if control.opcode != Opcode.QUERY:
             self._guard_pending_trade_mutation(allow_battle_owner=True)
             from .battle_journal import pending_battle
+            from .battle_session import NativeBattleSession
+            executor = getattr(self, "_live_battle_executor", None)
+            execution_authority = (isinstance(executor, NativeBattleSession)
+                                   and executor._authorizes(control))
             if ((getattr(self, "_live_battle_owner", None) is not None or pending_battle(self))
-                    and control != getattr(self, "_live_battle_admission_control", None)):
+                    and control != getattr(self, "_live_battle_admission_control", None)
+                    and not execution_authority):
                 raise ValueError("pending battle admission permits only its exact persisted BIND")
             if self._live_save_owner is not None and self._live_save_owner is not asyncio.current_task():
                 raise ValueError("a live-save lifecycle owns this character's mutations")
@@ -727,6 +805,12 @@ class Companion:
             await asyncio.wait_for(writer.drain(), self.config.send_timeout)
 
     def _disconnect_remote(self) -> None:
+        controller = self._emergency_controller
+        if self.connected and controller is not None and self._bridge is not None and not self._closing:
+            # Synchronous notification fences reconnect before authentication
+            # fields are cleared. The controller owns/drains its async task.
+            self._reconnect_blocked = True
+            controller.connection_lost()
         self._fail_save_requests("world session disconnected during live-save operation")
         if self.connected or self._players:
             self._roster_epoch = self._roster_epoch % _UINT32 + 1
@@ -749,6 +833,10 @@ class Companion:
             if not future.done():
                 future.set_exception(ConnectionError("battle connection lost; query the challenge after reconnect"))
         self._challenge_pending.clear()
+        for _, future in self._reset_pending.values():
+            if not future.done():
+                future.set_exception(ConnectionError("personal encounter admission lost its host connection"))
+        self._reset_pending.clear()
         self._players = []
         self._peer_history.clear()
         self._roster_signature = None
@@ -756,6 +844,8 @@ class Companion:
 
     async def _remote_loop(self) -> None:
         while not self._closing:
+            if self._reconnect_blocked:
+                return
             try:
                 await self._remote_once()
             except (ProtocolError, ConnectionError, OSError, asyncio.TimeoutError) as error:
@@ -864,6 +954,8 @@ class Companion:
                 self._receive_team(message)
             elif message.get("type") in {"trade_result", "trade_error"}:
                 self._receive_trade(message)
+            elif message.get("type") in {"reset_result", "reset_error"}:
+                self._receive_reset(message)
             elif message.get("type") in {"battle_result", "battle_error"}:
                 self._receive_challenge(message)
             else:
@@ -912,6 +1004,43 @@ class Companion:
         if not future.done():
             if validated["type"] == "team_error":
                 future.set_exception(TeamError(validated["code"], validated["message"]))
+            else:
+                future.set_result(validated)
+
+    async def reset_rpc(self, *, request_id=None, timeout=5.0, **fields):
+        from .reset_protocol import validate_reset_request
+        from .ownership_protocol import OWNERSHIP_PROFILE
+        if type(timeout) not in (int, float) or not math.isfinite(timeout) or not 0 < timeout <= 60:
+            raise ValueError("personal encounter RPC timeout is invalid")
+        if (not self.connected or self.world_id is None or self._remote_writer is None
+                or self.config.server_credential is None or self.save_profile != OWNERSHIP_PROFILE):
+            raise ConnectionError("no authenticated personal encounter session")
+        if set(fields) & {"type", "session_epoch", "request_id"}:
+            raise ValueError("personal encounter envelope cannot be overridden")
+        request_id = str(uuid4()) if request_id is None else request_id
+        request = dict(type="reset_begin", session_epoch=self.session_epoch, request_id=request_id, **fields)
+        validate_reset_request(request, self.session_epoch)
+        if request_id in self._reset_pending or len(self._reset_pending) >= 4:
+            raise ValueError("personal encounter request is pending or capacity is exhausted")
+        future = asyncio.get_running_loop().create_future()
+        self._reset_pending[request_id] = (request, future)
+        try:
+            await self._send_remote(self._remote_writer, request)
+            return await asyncio.wait_for(future, timeout)
+        finally:
+            self._reset_pending.pop(request_id, None)
+            if not future.done(): future.cancel()
+
+    def _receive_reset(self, message):
+        from .reset_protocol import validate_reset_reply
+        validated = validate_reset_reply(message, self.config.player_id, self.world_id, self.session_epoch)
+        pending = self._reset_pending.get(validated["request_id"])
+        if pending is None: return
+        request, future = pending
+        validate_reset_reply(validated, self.config.player_id, self.world_id, self.session_epoch, request)
+        if not future.done():
+            if validated["type"] == "reset_error":
+                future.set_exception(ProtocolError(validated["code"], validated["message"]))
             else:
                 future.set_result(validated)
 
@@ -971,7 +1100,7 @@ class Companion:
             raise ConnectionError("no authenticated trade session")
         if set(fields) & {"type", "session_epoch"}:
             raise ValueError("trade envelope fields cannot be overridden")
-        if self._live_save_owner is not None and self._live_save_owner is not asyncio.current_task() and operation not in {"status", "pending"}:
+        if self._live_save_owner is not None and self._live_save_owner is not asyncio.current_task() and operation not in {"status", "pending", "proposals"}:
             raise ValueError("a live-save lifecycle owns this character's mutations")
         request_id = request_id or str(uuid4())
         if request_id in self._trade_pending or len(self._trade_pending) >= 8:

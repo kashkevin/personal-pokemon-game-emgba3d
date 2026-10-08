@@ -135,8 +135,8 @@ class LauncherSession:
 
     Call ``readiness()`` for an observational check. A reported revision never
     authorizes a write: PlayerRuntime performs closed recovery again. A running
-    game's connection status is observable, but this controller does not pause,
-    reboot, settle or merge it after connection loss.
+    game's emergency controller retains exact native recovery bytes on host
+    loss. Unresolved battles keep their native process and recovery journal.
     """
 
     def __init__(self, installation, private_directory, *, world_directory=None,
@@ -185,6 +185,9 @@ class LauncherSession:
         self._autosave_due = None
         self._autosave_wake = asyncio.Event()
         self._autosave_clock = lambda: asyncio.get_running_loop().time()
+        self._manifest = {}
+        self._interaction = None
+        self._emergency = self._emergency_task = None
 
     @property
     def profile_directory(self):
@@ -207,6 +210,9 @@ class LauncherSession:
         current = self._signature()
         value = replace(self._status, connected=current is not None,
                         autosave_enabled=self.autosave_enabled)
+        emergency = self._emergency
+        if emergency is not None and emergency.lost.is_set():
+            return replace(value, code="host_loss_" + emergency.result.state)
         if self._save_failed:
             # A missing connection is not evidence that an uncertain save
             # completed. Keep this warning through game and session closure.
@@ -241,6 +247,7 @@ class LauncherSession:
         self._publish(SessionState.VALIDATING, "installation")
         game = self.installation
         game.verify()
+        _, self._manifest = verify_rom_manifest(game.rom_path, game.manifest_path)
         if self._world_directory is not None:
             host = HostWorld.open(self._world_directory, game.rom_path, game.manifest_path)
             world_id, player_id = host.world_id, host.accounts[0].player_id
@@ -258,11 +265,22 @@ class LauncherSession:
             # route changes only the socket destination, preserving its TLS pin.
             config = replace(config, server_host=self._host_route)
             self._store = host.open_store()
+            battles = bool(self._manifest.get("battle_execution_abi_version") == 1
+                           and self._store.battle_reservations_enabled)
             self._server = WorldServer(ServerConfig(host.build_id, host.ruleset_id),
-                store=self._store, development_trades=self._development_trades)
+                store=self._store, development_trades=self._development_trades,
+                development_teams=battles, development_battles=battles)
+            if battles:
+                from .battle_controller import read_string_lengths
+                lengths = read_string_lengths(game.rom_path,
+                    table_address=self._manifest["battle_string_table_address"])
+                self._server.enable_battle_execution(lengths, host.directory / "native-battle-execution")
             await self._server.start(self._bind_address, host.port, allow_lan=True,
                                      public=self._public, tls=host.server_tls)
         self._companion = Companion(config)
+        if (self._manifest.get("battle_execution_abi_version") == 1
+                or self._manifest.get("menu_abi_version") == 2):
+            self._companion._native_menu_handoff = self._native_menu_handoff
         self._publish(SessionState.CONNECTING, "authentication")
         await self._companion.start()
         try:
@@ -338,25 +356,26 @@ class LauncherSession:
                 self._revision = game.startup.mirror.revision
                 self._publish(SessionState.RUNNING, "running", revision=self._revision)
                 self._autosave_task = asyncio.create_task(self._schedule_autosave(), name="launcher-autosave")
+                if getattr(self._companion.config, "emergency_save_abi_version", 0) == 2:
+                    from .emergency_save import EmergencySaveController
+                    self._emergency = EmergencySaveController(self._companion, self._profile_directory,
+                                                              on_status=self._emergency_status)
+                    self._emergency_task = asyncio.create_task(self._watch_emergency(), name="launcher-host-loss")
                 try:
-                    result = await game.wait()
+                    result = await self._wait_game(game)
                 finally:
                     # Stop accepting new requests before draining the one
                     # already dispatched, while the native file lease remains
                     # owned by PlayerRuntime. Closing a game is not a save.
                     self._game = None
                     self._autosave_wake.set()
-                    if self._autosave_task is not None:
-                        _, canceled = await _finish_even_if_cancelled(self._autosave_task)
-                        if canceled:
-                            # Drain manual saves too before propagating cancellation.
-                            if self._save_task is not None:
-                                await _finish_even_if_cancelled(self._save_task)
-                            raise asyncio.CancelledError()
-                    if self._save_task is not None:
-                        _, canceled = await _finish_even_if_cancelled(self._save_task)
-                        if canceled:
-                            raise asyncio.CancelledError()
+                    interrupted = False
+                    for pending in (self._emergency_task, self._autosave_task, self._save_task):
+                        if pending is not None:
+                            _, canceled = await _finish_even_if_cancelled(pending)
+                            interrupted |= canceled
+                    if interrupted:
+                        raise asyncio.CancelledError()
             if result == 0 and self._idle_save_disconnect and self._save_is_idle():
                 # IPC can close before process exit is observed. Only confirmed
                 # normal exit clears an idle-only loss; this does not save.
@@ -378,9 +397,44 @@ class LauncherSession:
     def can_save(self):
         return (self._game is not None and self._game.process.returncode is None
                 and self._open and not self._closing and not self._save_failed
+                and self._interaction is None
                 and self._signature() == self._binding
                 and (self._save_task is None or self._save_task.done())
                 and (self._autosave is None or self._autosave.status.state is not AutosaveState.SAVING))
+
+    def _retain_interrupted_core(self):
+        if self._game is None or self._game.process.returncode is not None:
+            return False
+        if self._emergency is not None and self._emergency.lost.is_set() and not self._emergency.result.can_close:
+            return True
+        try:
+            return bool(self._profile_directory is not None and
+                        pending_battle(self._companion, self._profile_directory))
+        except (ValueError, OSError):
+            return True
+
+    async def _wait_game(self, game):
+        # Context cancellation must not kill an unresolved battle or an
+        # emergency core whose bytes have not been durably preserved. Keep the
+        # runtime lease until the player explicitly closes that game window.
+        waiting = asyncio.create_task(game.wait(), name="launcher-owned-game")
+        interrupted = False
+        try:
+            while True:
+                try:
+                    result = await asyncio.shield(waiting)
+                    break
+                except asyncio.CancelledError:
+                    if not self._retain_interrupted_core():
+                        raise
+                    interrupted = True
+            if interrupted:
+                raise asyncio.CancelledError()
+            return result
+        finally:
+            if not waiting.done():
+                waiting.cancel()
+            await asyncio.gather(waiting, return_exceptions=True)
 
     async def set_autosave_enabled(self, enabled):
         """Persist this character's preference; disabling drains an active save."""
@@ -418,6 +472,7 @@ class LauncherSession:
     def _autosave_safe(self):
         return (self._game is not None and self._game.process.returncode is None
                 and self.autosave_enabled and not self._closing and not self._save_failed
+                and self._interaction is None
                 and (self._save_task is None or self._save_task.done())
                 and getattr(self._companion, "_live_battle_owner", None) is None
                 and not pending_battle(self._companion, self._profile_directory))
@@ -477,6 +532,7 @@ class LauncherSession:
                 self._autosave_wake.clear()
                 self._assert_session()
                 if (not self.autosave_enabled or self._save_failed
+                        or self._interaction is not None
                         or self._save_task is not None and not self._save_task.done()):
                     await self._stop_autosave()
                 else:
@@ -511,6 +567,104 @@ class LauncherSession:
                                 in {"connection_lost", "session_changed"})
         finally:
             await self._stop_autosave()
+
+    def _emergency_status(self, result):
+        self._autosave_wake.set()
+        if result.state != "armed":
+            self._publish(SessionState.RUNNING, "host_loss_" + result.state, revision=self._revision)
+
+    async def _watch_emergency(self):
+        from .live_checkpoint import LiveSaveError
+        controller, c = self._emergency, self._companion
+        while self._game is not None and not self._closing:
+            if controller.lost.is_set():
+                await controller.drain()
+                return
+            # Ordinary Continue must load a safe field before binding its
+            # ownership grant. Startup/title screens provide no save authority.
+            pose = getattr(c, "_local_pose", None)
+            if ((controller.session is None or controller.needs_arm) and self._interaction is None and not self._save_failed
+                    and c.connected and c._bridge is not None
+                    and getattr(c._bridge, "emergency_save_capable", False)
+                    and pose is not None and pose.network_fields(True)["activity"] == "overworld"
+                    and asyncio.get_running_loop().time() - c._last_pose_time <= c.config.pause_timeout
+                    and not c.live_checkpoint_lock.locked()):
+                try:
+                    await controller.arm(self._revision)
+                except LiveSaveError as error:
+                    if error.code not in {"rom_unsafe", "rom_busy", "save_not_ready"}:
+                        self._fail_save()
+                        return
+                except Exception:
+                    self._fail_save()
+                    return
+            try:
+                await asyncio.wait_for(controller.lost.wait(), .25)
+            except TimeoutError:
+                pass
+        if controller.task is not None:
+            await controller.drain()
+
+    async def _native_menu_handoff(self, kind, descriptor, menu_session):
+        """Exclusive live operation after an acknowledged native menu CLOSE."""
+        self._assert_session()
+        if (self._game is None or self._game.process.returncode is not None
+                or self._interaction is not None or self._save_failed
+                or self._save_task is not None and not self._save_task.done()
+                or self._companion._bridge is not menu_session.bridge):
+            raise LauncherSessionError("game_active")
+        self._interaction = asyncio.current_task()
+        self._autosave_wake.set()
+        try:
+            await self._stop_autosave()
+            self._assert_session()
+            if self._save_failed:
+                raise LauncherSessionError("save_recovery_required")
+            c, base = self._companion, self._revision
+            incarnation = c.save_incarnation
+            if kind == "battle":
+                from .battle_session import NativeBattleSession, BattleCompletion
+                if self._manifest.get("battle_execution_abi_version") != 1:
+                    raise LauncherSessionError("recovery_required")
+                accepted = next((cp for cp in descriptor["checkpoints"] if cp["player_id"] == c.config.player_id), None)
+                if accepted is None or accepted["revision"] != base:
+                    raise LauncherSessionError("save_not_ready")
+                self._publish(SessionState.RUNNING, "battle_running", revision=base)
+                result = await NativeBattleSession(c, self._profile_directory).run(descriptor)
+                if (not isinstance(result, BattleCompletion) or result.state not in {"closed", "aborted"}
+                        or (result.battle_id, result.generation, result.canonical_revision, result.canonical_sha256) !=
+                        (descriptor["battle_id"], descriptor["generation"], base, accepted["sha256"])):
+                    raise LauncherSessionError("recovery_required")
+                code = "battle_finished" if result.state == "closed" else "battle_cancelled"
+            elif kind == "trade":
+                from .trade_menu import NativeTradeMenu
+                from .checkpoint_client import validate_metadata
+                self._publish(SessionState.RUNNING, "trade_running", revision=base)
+                result = await NativeTradeMenu(c, self._profile_directory, menu_session).run(descriptor, base)
+                checkpoint = validate_metadata(result["checkpoint"], c.config, c.save_profile)
+                if (result["transaction_id"] != descriptor["transaction_id"] or checkpoint is None
+                        or result["state"] not in {"applied", "aborted"}
+                        or checkpoint["revision"] != base + (2 if result["state"] == "applied" else 1)
+                        or (self._profile_directory / "pending-trade.json").exists()):
+                    raise LauncherSessionError("recovery_required")
+                code = "trade_finished" if result["state"] == "applied" else "trade_cancelled"
+            else:
+                raise LauncherSessionError("invalid_configuration")
+            self._assert_session()
+            if c.save_incarnation != incarnation:
+                raise LauncherSessionError("recovery_required")
+            if kind == "trade":
+                self._revision = checkpoint["revision"]
+            self._autosave_due = self._autosave_clock() + AUTOSAVE_INTERVAL
+            self._publish(SessionState.RUNNING, code, revision=self._revision)
+        except (Exception, asyncio.CancelledError):
+            # A dispatched native operation must preserve every recovery
+            # journal. Querying the newest server head cannot certify it.
+            self._fail_save()
+            raise
+        finally:
+            self._interaction = None
+            self._autosave_wake.set()
 
     async def save(self):
         """One explicit canonical checkpoint; never an automatic retry/merge."""
