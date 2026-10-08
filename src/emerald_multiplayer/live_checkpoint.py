@@ -320,6 +320,8 @@ class LiveCheckpointCoordinator:
                     or assigned.next_serial != grant["start"] or assigned.end_exclusive != grant["end_exclusive"]
                     or assigned.remaining < assigned.missing):
                 raise LiveSaveError("ownership_grant", "the game did not accept the exact allocation")
+            status = assigned
+        return status
 
     async def _checkpoint(self, *, expected_revision: int | None, enroll: bool, expected_session=None) -> LiveExportResult:
         """Save against the local revision verified by the launcher.
@@ -354,12 +356,17 @@ class LiveCheckpointCoordinator:
                     error.safe_to_retry = True
                 raise
             operation_id, revision, finished = str(uuid4()), base + 1, False
+            emergency = getattr(self.companion, "_emergency_controller", None)
+            if emergency is not None:
+                emergency.checkpoint_started(session, operation_id, base)
             try:
                 try:
                     begin = await self._command(session, operation_id, revision, Opcode.BEGIN_EXPORT)
                 except LiveSaveError as error:
                     if error.code in {"rom_busy", "rom_unsafe"}:
                         error.safe_to_retry = True
+                        if emergency is not None:
+                            emergency.checkpoint_refused(session, operation_id)
                     raise
                 if len(begin.data) != 40:
                     raise LiveSaveError("export_metadata", "the game returned invalid frozen-save metadata")
@@ -376,6 +383,8 @@ class LiveCheckpointCoordinator:
                 await self._end(session, operation_id, revision, payload)
                 finished = True
                 self._finish_pending(intent, metadata, outcome="server-acknowledged-and-ROM-released")
+                if emergency is not None:
+                    emergency.checkpoint_completed(session, operation_id, metadata)
                 return LiveExportResult(operation_id, metadata, frozen.sha256, frozen.state_sha256, begin.data[8:].hex())
             finally:
                 if not finished:

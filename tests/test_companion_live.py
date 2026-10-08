@@ -239,7 +239,8 @@ class CompanionTradeGuardTests(unittest.IsolatedAsyncioTestCase):
                 await self.companion.trade_rpc(operation)
         sizes = {Opcode.BEGIN_IMPORT: bytes(16), Opcode.WRITE: bytes(128), Opcode.GRANT_OWNERSHIP: bytes(60)}
         readonly = {Opcode.QUERY, Opcode.QUERY_OWNERSHIP, Opcode.QUERY_TRADE}
-        emergency = {Opcode.BEGIN_EMERGENCY_EXPORT, Opcode.PRESERVE_EMERGENCY, Opcode.QUERY_EMERGENCY}
+        emergency = {Opcode.BEGIN_EMERGENCY_EXPORT, Opcode.PRESERVE_EMERGENCY, Opcode.QUERY_EMERGENCY,
+                     Opcode.PROMOTE_EMERGENCY_EXPORT}
         for opcode in set(Opcode)-readonly-emergency:
             command = self.control(opcode, revision=1 if opcode == Opcode.BEGIN_TRADE_EXPORT else 0,
                 data=sizes.get(opcode, b""))

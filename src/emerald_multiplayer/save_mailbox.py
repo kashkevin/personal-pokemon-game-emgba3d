@@ -55,6 +55,7 @@ class Opcode(IntEnum):
     BEGIN_EMERGENCY_EXPORT = 19
     PRESERVE_EMERGENCY = 20
     QUERY_EMERGENCY = 21
+    PROMOTE_EMERGENCY_EXPORT = 22
 
 
 class Status(IntEnum):
@@ -156,7 +157,7 @@ class SaveControl:
                    Opcode.ABORT_TRADE: 0, Opcode.RELEASE_TRADE: 0,
                    Opcode.REBIND_TRADE: 0, Opcode.QUERY_TRADE: 0, Opcode.READ_WINDOW: 0,
                    Opcode.BEGIN_EMERGENCY_EXPORT: 0, Opcode.PRESERVE_EMERGENCY: 0,
-                   Opcode.QUERY_EMERGENCY: 0}
+                   Opcode.QUERY_EMERGENCY: 0, Opcode.PROMOTE_EMERGENCY_EXPORT: 0}
         if self.status != Status.OK or self.length != lengths[self.opcode]:
             raise SaveMailboxError("save command status or data length is invalid")
         if self.opcode in (Opcode.READ, Opcode.WRITE) and (self.total_size != FLASH_SIZE
@@ -192,7 +193,7 @@ class SaveControl:
                    Opcode.ABORT_TRADE: 0, Opcode.RELEASE_TRADE: 4,
                    Opcode.REBIND_TRADE: 48, Opcode.QUERY_TRADE: 48, Opcode.READ_WINDOW: 4,
                    Opcode.BEGIN_EMERGENCY_EXPORT: 40, Opcode.PRESERVE_EMERGENCY: 4,
-                   Opcode.QUERY_EMERGENCY: 48}
+                   Opcode.QUERY_EMERGENCY: 48, Opcode.PROMOTE_EMERGENCY_EXPORT: 40}
         if self.length != (lengths[self.opcode] if self.status == Status.OK else 0):
             raise SaveMailboxError("save response data length is invalid")
         if self.status == Status.OK and self.opcode == Opcode.READ and (self.total_size != FLASH_SIZE

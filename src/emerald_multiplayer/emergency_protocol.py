@@ -15,7 +15,10 @@ def validate_emergency_manifest(manifest, rom_path=None):
         return False
     if not FIELDS.issubset(manifest):
         raise ValueError("emergency save capability is incomplete")
-    for key, expected in (("emergency_save_abi_version", 1), ("ownership_abi_version", 1),
+    version = manifest["emergency_save_abi_version"]
+    if type(version) is not int or version not in (1, 2):
+        raise ValueError("emergency save ABI version is unsupported")
+    for key, expected in (("ownership_abi_version", 1),
                           ("trade_abi_version", 1), ("save_abi_version", 1),
                           ("save_mailbox_size", 512), ("abi_version", 1), ("mailbox_size", 128)):
         if type(manifest.get(key)) is not int or manifest[key] != expected:
@@ -30,13 +33,15 @@ def validate_emergency_manifest(manifest, rom_path=None):
     if rom_path is not None:
         with Path(rom_path).open("rb") as source:
             source.seek(marker - 0x08000000)
-            if source.read(4) != b"\x01\x00\x00\x00":
+            if source.read(4) != struct.pack("<I", version):
                 raise ValueError("emergency save marker differs from the verified ROM")
     return True
 
 
-def capability_packet():
-    return b"Z" + struct.pack("<HHHH", 1, 19, 21, 10)
+def capability_packet(version=1):
+    if type(version) is not int or version not in (1, 2):
+        raise ValueError("unsupported emergency ABI")
+    return b"Z" + struct.pack("<HHHH", version, 19, 22 if version == 2 else 21, 10)
 
 
 @dataclass(frozen=True)

@@ -71,6 +71,7 @@ class ColdStartRecovery:
         self.client = CheckpointClient(companion)
         self.directory.mkdir(parents=True, mode=0o700, exist_ok=True)
         self.export_path = self.directory / "pending-export.json"
+        self.emergency_path = self.directory / "pending-emergency.json"
         self.trade_path = self.directory / "pending-trade.json"
         try:
             register_export_path(companion, self.export_path)
@@ -161,8 +162,9 @@ class ColdStartRecovery:
 
     async def _reconcile(self, lease, session):
         raw = [(self.export_path, self._read(self.export_path, 4096), 4096),
-               (self.trade_path, self._read(self.trade_path, TRADE_JOURNAL_LIMIT), TRADE_JOURNAL_LIMIT)]
-        if all(value is not None for _, value, _ in raw):
+               (self.trade_path, self._read(self.trade_path, TRADE_JOURNAL_LIMIT), TRADE_JOURNAL_LIMIT),
+               (self.emergency_path, self._read(self.emergency_path, 16384), 16384)]
+        if all(value is not None for _, value, _ in raw[:2]):
             raise ColdStartError("pending_conflict", "ordinary and trade recovery journals cannot both own this character")
         operation_id = str(uuid4())
         archive = self.directory / "closed-recoveries" / operation_id
@@ -173,6 +175,15 @@ class ColdStartRecovery:
                 _atomic(archive / path.name, data)
         ordinary = LiveCheckpointCoordinator(self.companion, self.directory)
         exported = ordinary._load_pending((session[0], session[1], None)) if raw[0][1] is not None else None
+        if raw[2][1] is not None:
+            from .emergency_save import load_closed_emergency
+            try:
+                emergency_export = load_closed_emergency(self.directory, session)
+            except (ValueError, TypeError, AttributeError, KeyError, OSError) as error:
+                raise ColdStartError("emergency_recovery_required", "retain the interrupted core and its emergency evidence") from error
+            if raw[1][1] is not None or exported is not None and exported != emergency_export:
+                raise ColdStartError("pending_conflict", "emergency preservation conflicts with another recovery intent")
+            exported = emergency_export
         trade = _ClosedTradeReader(self.companion, self.directory)
         intent = trade._load((session[0], session[1], None)) if raw[1][1] is not None else None
         self._unchanged(raw)

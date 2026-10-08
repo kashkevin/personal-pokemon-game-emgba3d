@@ -1,0 +1,125 @@
+diff --git a/include/multiplayer_save.h b/include/multiplayer_save.h
+index 06d0958b65..1a301dc17a 100644
+--- a/include/multiplayer_save.h
++++ b/include/multiplayer_save.h
+@@ -13,7 +13,7 @@ enum MultiplayerSaveOpcode {
+     MP_SAVE_BEGIN_TRADE_EXPORT, MP_SAVE_KEEP_TRADE, MP_SAVE_ABORT_TRADE,
+     MP_SAVE_RELEASE_TRADE, MP_SAVE_REBIND_TRADE, MP_SAVE_QUERY_TRADE,
+     MP_SAVE_READ_WINDOW,
+-    MP_SAVE_BEGIN_EMERGENCY_EXPORT, MP_SAVE_PRESERVE_EMERGENCY, MP_SAVE_QUERY_EMERGENCY,
++    MP_SAVE_BEGIN_EMERGENCY_EXPORT, MP_SAVE_PRESERVE_EMERGENCY, MP_SAVE_QUERY_EMERGENCY, MP_SAVE_PROMOTE_EMERGENCY_EXPORT,
+ };
+ enum MultiplayerSaveState {
+     MP_SAVE_UNBOUND, MP_SAVE_BOUND, MP_SAVE_EXPORTING, MP_SAVE_IMPORTING,
+diff --git a/src/multiplayer_save.c b/src/multiplayer_save.c
+index fec6c50e53..61215f01b9 100644
+--- a/src/multiplayer_save.c
++++ b/src/multiplayer_save.c
+@@ -44,7 +44,7 @@ const u32 gMultiplayerTradeAbiVersion = 1;
+ // Optional read-only 4096-byte export window in the existing sector buffer.
+ const u32 gMultiplayerSaveWindowAbiVersion = 1;
+ // Opt-in, immutable local preservation. This does not authorize a host commit.
+-const u32 gMultiplayerEmergencySaveAbiVersion = 1;
++const u32 gMultiplayerEmergencySaveAbiVersion = 2;
+ EWRAM_DATA volatile struct MultiplayerSaveMailbox gMultiplayerSaveMailbox = {0};
+ static EWRAM_DATA struct MultiplayerSaveControl sLastCommand = {0};
+ static EWRAM_DATA struct MultiplayerSaveControl sLastResponse = {0};
+@@ -577,6 +577,7 @@ static void Handle(const struct MultiplayerSaveControl *command)
+         return;
+     }
+     if (sEmergencyActive && command->opcode != MP_SAVE_BEGIN_EMERGENCY_EXPORT
++     && command->opcode != MP_SAVE_PROMOTE_EMERGENCY_EXPORT
+      && command->opcode != MP_SAVE_READ && command->opcode != MP_SAVE_READ_WINDOW
+      && command->opcode != MP_SAVE_PRESERVE_EMERGENCY)
+     {
+@@ -705,6 +706,27 @@ static void Handle(const struct MultiplayerSaveControl *command)
+         sDeadline = sFrame + 600;
+     switch (command->opcode)
+     {
++    case MP_SAVE_PROMOTE_EMERGENCY_EXPORT:
++        if (command->length || command->offset || !command->revision || command->revision > 0x7FFFFFFF)
++            { status = MP_SAVE_MALFORMED; break; }
++        if (sTradeActive || (sState != MP_SAVE_EXPORTING && sState != MP_SAVE_BOUND))
++            { status = MP_SAVE_BUSY; break; }
++        if (sState == MP_SAVE_BOUND)
++        {
++            // A lost END or an expired ordinary watchdog cannot authorize a
++            // second snapshot under the old immutable transaction identity.
++            Hold(MP_SAVE_EMERGENCY_UNSAVED, command);
++            sEmergencyActive = TRUE; sEmergencyValid = FALSE;
++            sEmergencyStatus = MP_SAVE_ORDER; status = MP_SAVE_ORDER;
++            break;
++        }
++        // UUID/revision/binding were checked above. Rewind only the reader;
++        // retain this exact frozen Flash, ownership retirements and RNG.
++        sEmergencyActive = TRUE; sEmergencyValid = TRUE;
++        sEmergencyStatus = MP_SAVE_OK; sOffset = 0; sCrc = 0;
++        PutU32(data, gSaveCounter); PutU32(data + 4, gLastWrittenSector);
++        memcpy(data + 8, &gRngValue, 16); memcpy(data + 24, &gRng2Value, 16);
++        PublishResponse(command, MP_SAVE_OK, data, 40, 0); return;
+     case MP_SAVE_BEGIN_EMERGENCY_EXPORT:
+         if (sState != MP_SAVE_BOUND || sTradeActive) { status = MP_SAVE_BUSY; break; }
+         if (command->length || command->offset || !command->revision || command->revision > 0x7FFFFFFF)
+diff --git a/test/multiplayer_emergency_save.c b/test/multiplayer_emergency_save.c
+index 292baa9ace..53d25ab1e5 100644
+--- a/test/multiplayer_emergency_save.c
++++ b/test/multiplayer_emergency_save.c
+@@ -376,3 +376,58 @@ TEST("Multiplayer emergency: ordinary export watchdog behavior remains unchanged
+     TearDown(&f);
+ }
+ 
++
++TEST("Multiplayer emergency: promotion preserves the ordinary snapshot and rewinds only its read cursor")
++{
++    struct EmergencyFixture f;
++    u32 crc, counter;
++    SetUp(&f);
++    EXPECT_EQ(Send(&f, MP_SAVE_BEGIN_EXPORT, 0), MP_SAVE_OK);
++    counter = gSaveCounter;
++    EXPECT_EQ(Send(&f, MP_SAVE_READ_WINDOW, 0), MP_SAVE_OK);
++    EXPECT_EQ(Send(&f, MP_SAVE_PROMOTE_EMERGENCY_EXPORT, 0), MP_SAVE_OK);
++    EXPECT_EQ(gSaveCounter, counter);
++    EXPECT_EQ(gMultiplayerSaveMailbox.response.offset, 0);
++    WaitPastDeadline();
++    CheckHeld(MP_SAVE_EXPORTING);
++    crc = ReadWindows(&f, 0, 0);
++    EXPECT_EQ(Send(&f, MP_SAVE_PRESERVE_EMERGENCY, 131072), MP_SAVE_OK);
++    EXPECT_EQ(Word(gMultiplayerSaveMailbox.response.data), crc);
++    CheckHeld(MP_SAVE_EMERGENCY_PRESERVED);
++    TearDown(&f);
++}
++
++TEST("Multiplayer emergency: expired ordinary export cannot create different bytes under the same UUID")
++{
++    struct EmergencyFixture f;
++    u32 counter;
++    SetUp(&f);
++    EXPECT_EQ(Send(&f, MP_SAVE_BEGIN_EXPORT, 0), MP_SAVE_OK);
++    counter = gSaveCounter;
++    WaitPastDeadline();
++    EXPECT_EQ(gMultiplayerSaveMailbox.state, MP_SAVE_BOUND);
++    EXPECT_EQ(Send(&f, MP_SAVE_PROMOTE_EMERGENCY_EXPORT, 0), MP_SAVE_ORDER);
++    EXPECT_EQ(gSaveCounter, counter);
++    CheckHeld(MP_SAVE_EMERGENCY_UNSAVED);
++    WaitPastDeadline();
++    CheckHeld(MP_SAVE_EMERGENCY_UNSAVED);
++    EXPECT_EQ(Send(&f, MP_SAVE_READ_WINDOW, 0), MP_SAVE_ORDER);
++    TearDown(&f);
++}
++
++TEST("Multiplayer emergency: promotion cannot steal a foreign ordinary or trade export")
++{
++    struct EmergencyFixture f;
++    SetUp(&f);
++    EXPECT_EQ(Send(&f, MP_SAVE_BEGIN_EXPORT, 0), MP_SAVE_OK);
++    f.command.requestId[0]++;
++    EXPECT_EQ(Send(&f, MP_SAVE_PROMOTE_EMERGENCY_EXPORT, 0), MP_SAVE_SESSION);
++    f.command.requestId[0]--;
++    EXPECT_EQ(Send(&f, MP_SAVE_CANCEL, 0), MP_SAVE_CANCELED);
++    FieldCallbacks();
++    EXPECT_EQ(Send(&f, MP_SAVE_BEGIN_TRADE_EXPORT, 0), MP_SAVE_OK);
++    EXPECT_EQ(Send(&f, MP_SAVE_PROMOTE_EMERGENCY_EXPORT, 0), MP_SAVE_BUSY);
++    EXPECT_EQ(Send(&f, MP_SAVE_QUERY_EMERGENCY, 0), MP_SAVE_OK);
++    EXPECT_EQ(Word(gMultiplayerSaveMailbox.response.data), 0);
++    TearDown(&f);
++}

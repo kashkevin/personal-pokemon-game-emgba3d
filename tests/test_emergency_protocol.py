@@ -100,6 +100,19 @@ class EmergencyManifestTests(unittest.TestCase):
         self.assertEqual(value["emergency_save_abi_address"], 0x080000C8)
         self.assertIn("emergency_save_abi=1", self.configure(value))
 
+    def test_promotion_abi_two_is_compiler_marked_and_capability_distinct(self):
+        symbols = self.symbols_with_emergency()
+        with self.rom.open("r+b") as source:
+            source.seek(200)
+            source.write(b"\x02\0\0\0")
+        value = self.generate(symbols)
+        self.verify(value)
+        self.assertEqual(value["emergency_save_abi_version"], 2)
+        self.assertIn("emergency_save_abi=2", self.configure(value))
+        self.assertEqual(capability_packet(2), b"Z" + struct.pack("<HHHH", 2, 19, 22, 10))
+        with self.assertRaises(ValueError):
+            self.verify({**value, "emergency_save_abi_version": 1})
+
     def test_incomplete_wrong_type_or_out_of_rom_marker_is_refused(self):
         value = self.generate(self.symbols_with_emergency())
         for key in ("emergency_save_abi_version", "emergency_save_abi_address", "trade_abi_version"):
@@ -108,7 +121,7 @@ class EmergencyManifestTests(unittest.TestCase):
             for operation in (self.verify, self.configure):
                 with self.subTest(key=key), self.assertRaises(ValueError):
                     operation(changed)
-        for changed in ({"emergency_save_abi_version": True}, {"emergency_save_abi_version": 2},
+        for changed in ({"emergency_save_abi_version": True}, {"emergency_save_abi_version": 3},
                         {"emergency_save_abi_address": True}, {"emergency_save_abi_address": 0x080000C9},
                         {"emergency_save_abi_address": 0x09000000}):
             for operation in (self.verify, self.configure):
@@ -130,6 +143,20 @@ class EmergencyLuaTests(unittest.TestCase):
     fixture = lua_fixture.LuaBridgeTests.fixture
     run_lua = lua_fixture.LuaBridgeTests.run_lua
     lua_path = staticmethod(lua_fixture.LuaBridgeTests.lua_path)
+
+    def test_promotion_requires_abi_two_and_can_replace_a_lost_ordinary_reply(self):
+        ordinary = control(opcode=Opcode.BEGIN_EXPORT, revision=2, sequence=2)
+        promote = replace(ordinary, opcode=Opcode.PROMOTE_EMERGENCY_EXPORT, sequence=3)
+        for version in (1, 2):
+            script = self.fixture(live=True, trade=True, emergency=True)
+            if version == 2:
+                script = script.replace("EMERALD_BRIDGE.emergency_save_abi=1;", "EMERALD_BRIDGE.emergency_save_abi=2;")
+                script = script.replace("loadBytes(0x080000c8,string.pack('<I4',1))", "loadBytes(0x080000c8,string.pack('<I4',2))")
+            script += f'advance(80);inbox=unhex("{encode_packet(command_packet(ordinary)).hex()}");advance(80)\n'
+            script += f'inbox=unhex("{encode_packet(command_packet(promote)).hex()}");advance(80)\n'
+            script += (f'assert(range(0x0200201c,240)==unhex("{promote.pack().hex()}"));assert(#console.errors==0)\n'
+                       if version == 2 else 'assert(#console.errors>0)\n')
+            self.run_lua(script)
 
     def test_capability_and_begin_require_the_explicit_rom_marker(self):
         begin = control(opcode=Opcode.BEGIN_EMERGENCY_EXPORT, revision=2)
