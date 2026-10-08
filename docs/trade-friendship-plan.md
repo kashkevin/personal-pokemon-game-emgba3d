@@ -1,0 +1,27 @@
+# Bounded Gen 6 trade friendship plan
+
+`trade_friendship.py` supplies a pure planner and exact encrypted-record transformer. It has no production caller, database migration, native command or trade eligibility grant. The existing `simple-owned-party-exchange-v1` capability and all its exclusions remain unchanged. Its internal plan identifier is `gen6-handler-friendship-plan-v1`; this identifier is not an advertised trade capability.
+
+## Reuse and source pins
+
+This slice extends the [native effects audit](native-trade-effects.md). Read-only upstream checks on October 8 returned RHH `7b95be15d84a053948791ce91e5dec0b168947a5` and PKHeX `66ef5983a5d349efa2dd615f2926a1b1ee97306e`. They do not replace the installed RHH `bb1093a7c72d3961d9a37d8e02ad2abc2c866682` base or accepted build pins.
+
+The refreshed RHH [trade implementation](https://github.com/rh-hideout/pokeemerald-expansion/blob/7b95be15d84a053948791ce91e5dec0b168947a5/src/trade.c#L2922) still assigns a fixed received friendship of 70 and couples the surrounding flow to native link/mail/Pokédex state. It does not provide the separate Gen 6 handler history or this project's paired authoritative transaction, so importing the whole newer trade flow would not resolve these requirements.
+
+PKHeX's pinned [G6PKM handler implementation](https://github.com/kwsch/PKHeX/blob/66ef5983a5d349efa2dd615f2926a1b1ee97306e/PKHeX.Core/PKM/Shared/G6PKM.cs#L84) is primary implementation evidence for switching the original/handling selector and copying opposite friendship for Return/Frustration only when that selector changes. Its [PK6 handler implementation](https://github.com/kwsch/PKHeX/blob/66ef5983a5d349efa2dd615f2926a1b1ee97306e/PKHeX.Core/PKM/PK6.cs#L394) matches original identity using name, gender, ID and origin game, while handling identity uses name and gender. A new handling trainer receives species-base friendship, with an additional geographic refresh condition. This is the project's community implementation evidence, not official game-code certification.
+
+No PKHeX code, .NET runtime or package is imported. The upstream GPL-3.0-or-later licensing and representation differences remain recorded in the earlier audit. The existing pinned ownership decoder, checksum validation and native party bounds are reused locally. The four encrypted substructures, their 24 permutations and UID locations remain those already qualified for the ownership save profile. Nothing is added to the incorporated-dependency ledger.
+
+## Representation and refusal boundaries
+
+`FriendshipHistory` retains the immutable owned serial, full original identity, both friendship values, handling identity and current selector. The exact offered native friendship byte updates the active retained value before computing the recipient's state. The output is a new immutable history record; the input is untouched. Unknown legacy history is refused, including a missing opposite value. A single GBA friendship byte cannot reconstruct that history.
+
+The caller must supply a verified Gen 6 species-base value and an explicit, separately qualified geographic-refresh decision. This slice deliberately does not assume that `P_UPDATED_FRIENDSHIP = GEN_LATEST` yields Gen 6 values, or silently map absent GBA geographic fields to a Gen 6 condition. Both adaptations remain production gates. New handler selection and a change between original and handling selectors are separate facts: a Bob-to-Carol trade stays on the handling selector and therefore does not copy the old value solely because Return is present.
+
+`transform_received_party_record` accepts one immutable 100-byte owned party record. It validates occupancy/checksum, serial and retained original identity, decrypts a copy, changes only growth friendship, recalculates the checksum and re-encrypts. Native move IDs are masked to 11 bits when identifying Return/Frustration; UID bits above those moves survive unchanged. Header/party data, other secure bytes, PID, OT, species and ownership remain exact. Eggs are refused because their corresponding byte stores hatch cycles.
+
+This helper grants no authority to trade a species, process mail, evolve a Pokémon, update the Pokédex or alter statistics. It is not a complete legal-Pokémon validator. Production integration still needs authenticated retained history by owned serial, checkpoint updates, exact paired post-image validation, atomic history publication/replay, explicit migration, a generated Gen 6 base table and native preparation/recovery qualification. Its inputs must eventually be derived from those trusted bindings rather than supplied by a client.
+
+## Verification boundary
+
+The nine focused tests passed as part of the **69-test Windows combined cohort in 20.950 seconds**, with no skips. They cover explicit handler/exception transition tables, full original identity versus name/gender handling identity, unknown history and adapter bounds, all 24 native encrypted permutations, Return/Frustration in UID-sharing move slots, preserved party/status/PP/EV/IV fields, and egg/corrupt/unassigned records. The private `combined-delivery-windows-2.log` SHA-256 is `4d61b965a4c840c6ffa8277b69701c88e604bdf527b106f01381c16676818e1c`. The first aggregate retained two reset-bridge failures and did not qualify the cohort; both were corrected before this rerun. No playable trade, native friendship side effect or performance qualification is claimed by this pure slice.
