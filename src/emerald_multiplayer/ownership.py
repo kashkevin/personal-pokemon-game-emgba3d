@@ -160,7 +160,11 @@ def _decode_box(box: bytes, location: str) -> tuple[int, int, int, int, str]:
         logical[offset:offset + word_size] = (value & ~mask).to_bytes(word_size, "little")
     if box[19] & 0x80 or box[31] & 0x80:
         raise OwnershipError(f"{location} has unknown reserved header bits")
-    if not species and (serial or any(box)):
+    # Native ZeroMonData clears Box80, then HP before maxHP. The HP setter
+    # can leave the previous maxHP in the 14-bit hpLost header field. Empty
+    # slots may retain only that residue; identity, checksum and all other
+    # header/secure bytes must still be zero. Preserve the uploaded bytes.
+    if not species and (serial or any(box[:30]) or box[31] & 0xC0 or any(box[32:])):
         raise OwnershipError(f"{location} is not a canonical empty Pokémon slot")
     # Identity assignment changes the checksum; exclude both it and UID bits.
     header = box[:28] + b"\0\0" + box[30:32]

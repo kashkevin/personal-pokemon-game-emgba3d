@@ -275,6 +275,50 @@ class OwnershipTests(unittest.TestCase):
         with self.assertRaisesRegex(FlashError, "empty"):
             inspect_ownership(replace(snapshot, storage=bytes(damaged)))
 
+    def test_native_empty_hp_lost_residue_is_preserved_in_both_banks(self):
+        baseline = make_ownership_flash()
+        expected = self.parse(baseline)
+        # Offsets in the actual sector payloads for empty party, PC, daycare
+        # and fusion Box80 slots. Native party compaction can leave hpLost.
+        slots = ((1, 0x238 + 2 * 100), (5, 4),
+                 (4, 0x3030 - 3 * 3968), (13, 0x83D0 - 8 * 3968))
+        for hp_lost in (10, 0x3FFF):
+            data = baseline
+            for bank in range(2):
+                for section, offset in slots:
+                    data = _rewrite(data, bank, section, offset + 30,
+                                    struct.pack("<H", hp_lost))
+            with self.subTest(hp_lost=hp_lost):
+                snapshot = inspect_flash(data, save_profile=OWNERSHIP_PROFILE)
+                self.assertEqual(snapshot.container, data)
+                self.assertEqual(inspect_ownership(snapshot).records, expected.records)
+                self.assertEqual(inspect_ownership(snapshot).manifest_sha256, expected.manifest_sha256)
+                self.assertNotEqual(snapshot.container_sha256,
+                                    inspect_flash(baseline, save_profile=OWNERSHIP_PROFILE).container_sha256)
+
+    def test_empty_hp_lost_allowance_rejects_other_bytes_and_identity(self):
+        data = make_ownership_flash()
+        start = 0x238 + 2 * 100
+        accepted = _rewrite(data, 0, 1, start + 30, b"\x0a\0")
+        for offset, value in ((8, 1), (18, 2), (19, 4), (19, 0x80),
+                              (27, 0x10), (28, 1), (31, 0x40), (31, 0x80), (32, 1)):
+            with self.subTest(offset=offset, value=value), self.assertRaises(FlashError):
+                self.parse(_rewrite(accepted, 0, 1, start + offset, bytes((value,))))
+        # Both have valid secure checksums: neither an empty UID nor an
+        # otherwise valid nonzero personality may hide in an unused slot.
+        for serial, personality in ((2, 0), (0, 7)):
+            empty = make_owned_mon(serial, personality=personality, ot_id=0, species=0)
+            with self.subTest(serial=serial, personality=personality), self.assertRaisesRegex(FlashError, "empty"):
+                self.parse(_rewrite(data, 0, 1, start, empty))
+
+    def test_hp_lost_on_occupied_mon_remains_part_of_content(self):
+        data = make_ownership_flash()
+        original = self.parse(data).records[0]
+        changed = self.parse(_rewrite(data, 0, 1, 0x238 + 30, b"\x0a\0")).records[0]
+        self.assertEqual((changed.serial, changed.personality, changed.ot_id),
+                         (original.serial, original.personality, original.ot_id))
+        self.assertNotEqual(changed.content_sha256, original.content_sha256)
+
     def test_source_inventory_rejects_wrong_profile_and_nonzero_legacy_bits(self):
         with self.assertRaises(OwnershipError):
             extract_source_inventory(inspect_flash(make_ownership_flash(), save_profile=OWNERSHIP_PROFILE))
