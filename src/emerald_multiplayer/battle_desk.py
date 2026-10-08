@@ -1,6 +1,6 @@
-"""Session-local consent and lifecycle barriers for development native battles.
+"""Consent and lifecycle barriers for development native battles.
 
-No RPC, controller routing, ROM commands, rewards, saves or release run here.
+No RPC, controller routing, ROM commands, rewards or character saves run here.
 The trusted coordinator supplies correlated native receipts and exact startup
 bytes. Actor/lease always come from authentication, never request body claims.
 """
@@ -66,18 +66,26 @@ class BattleDesk:
 
     START authorization is irreversible here even before its reply: either ROM
     may have entered native startup. Exact receipt retries cannot resample RNG,
-    consent, or results. A host restart discards this in-memory service; durable
-    battle journals and cold-start recovery are separate required work.
+    consent, or results. Optional completed-result history survives a restart;
+    active coordination, durable journals and cold-start recovery remain
+    separate required work.
     """
 
     def __init__(self, store: OwnershipCheckpointStore, lease_for, *,
-                 timeout: float = 180, clock=time.monotonic):
+                 timeout: float = 180, clock=time.monotonic, results=None):
         if not isinstance(store, OwnershipCheckpointStore):
             raise ValueError("native battles require the explicit ownership store")
         if (type(timeout) not in (int, float) or not math.isfinite(timeout)
                 or not 1 <= timeout <= 3600 or not callable(clock) or not callable(lease_for)):
             raise ValueError("battle timeout/callbacks are invalid")
         self.store, self.lease_for = store, lease_for
+        if results is not None:
+            from .battle_results import BattleResults
+            if (not isinstance(results, BattleResults) or results.identity != dict(
+                    format="durable-native-battle-results-v1", world_id=store.metadata.world_id,
+                    build_id=store.build_id, ruleset_id=store.ruleset_id)):
+                raise ValueError("battle history must match this exact world and release")
+        self.results = results
         self.timeout, self.clock = float(timeout), clock
         self._last_time = None
         self._active: dict[str, _Battle] = {}
@@ -242,6 +250,8 @@ class BattleDesk:
             if existing.sender != actor or existing.players != players or existing.mode != mode:
                 raise BattleError("request_conflict", "battle ID belongs to another challenge")
             return self._view(existing)
+        if self.results is not None and self.results.contains(battle_id):
+            raise BattleError("battle_result_conflict", "completed battle ID cannot start another challenge")
         if len(self._active) >= MAX_ACTIVE or any(set(players).intersection(b.players) for b in self._active.values()):
             raise BattleError("battle_busy", "a participant has an unresolved battle lifecycle")
         leases, roster = [], []
@@ -566,6 +576,22 @@ class BattleDesk:
         if request.data != struct.pack("<II", descriptor.party_crc32, outcome):
             self._recover(battle, "release_mismatch")
             raise BattleError("invalid_receipt", "release changes the verified original party/outcome")
+        # Publish before clearing the final server barrier. If COMMIT or its
+        # acknowledgment fails, the exact RELEASE receipt can retry without
+        # granting a new result or marking this lifecycle closed prematurely.
+        if battle.released | {actor} == set(battle.players) and self.results is not None:
+            view = self._view(battle)
+            summary = {key: view[key] for key in ("battle_id", "generation", "sender", "players",
+                "fingerprint", "outcome", "checkpoints")}
+            summary["mode"] = battle.mode
+            receipts = dict(battle.receipts)
+            receipts[(actor, Opcode.RELEASE)] = (request.pack(), response.pack())
+            material = bytearray(b"EM-CLOSED-NATIVE-BATTLE-1\0")
+            for player in battle.players:
+                for opcode in (Opcode.BIND, Opcode.PREPARE, Opcode.START, Opcode.QUERY, Opcode.RELEASE):
+                    for raw in receipts[(player, opcode)]:
+                        material.extend(raw)
+            self.results._append_closed(summary, hashlib.sha256(material).hexdigest())
         battle.released.add(actor)
         self._record(battle, actor, request, response)
         if battle.released == set(battle.players):

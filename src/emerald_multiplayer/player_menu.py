@@ -46,6 +46,7 @@ class PlayerMenu:
         self._lock = asyncio.Lock()
         self._page = ("home", None)
         self._team = self._battles = None
+        self._results = []
         self._players = {}
         self._binding = None
         self._signature = None
@@ -91,6 +92,12 @@ class PlayerMenu:
                 raise PlayerMenuError("session_changed")
             if kind == "team": self._team = value
             else: self._battles = value
+        if self._page[0] in ("results", "result"):
+            self._results = (await self.companion.battle_challenge_rpc("history"))["result"]
+            if self._session() != binding:
+                self._actions.clear()
+                self._signature = None
+                raise PlayerMenuError("session_changed")
         return self._render()
 
     def _show(self, title, status, actions):
@@ -168,6 +175,29 @@ class PlayerMenu:
                               "running": "Battle in progress", "starting": "Starting battle"}.get(battle["state"], battle["state"])
             else:
                 status = self._notice or "No pending challenges"
+                actions.append(("Recent battle results", "results", (0,)))
+        elif page == "results":
+            title, status = "Battle results", "Completed battles only"
+            offset = target or 0
+            for result in self._results[offset:offset + 5]:
+                slot = result["players"].index(actor)
+                won = result["outcome"] == 1 + slot % 2
+                outcome = "Draw" if result["outcome"] == 3 else ("Win" if won else "Loss")
+                mode = "1v1" if result["mode"] == 2 else "2v2"
+                actions.append((f"{mode} {outcome} #{result['sequence']}", "result", (result["battle_id"],)))
+            if offset + 5 < len(self._results):
+                actions.append(("Older results", "results", (offset + 5,)))
+            if not self._results:
+                status = "No completed battles yet"
+        elif page == "result":
+            result = next((r for r in self._results if r["battle_id"] == target), None)
+            title = "Battle result"
+            if result is None:
+                status = "No longer in recent results"
+            else:
+                status = "Draw" if result["outcome"] == 3 else f"Team {result['outcome']} won"
+                for slot, player in enumerate(result["players"]):
+                    actions.append((f"Team {1 + slot % 2}: {self._name(player)}", "", ()))
         else:
             self._page = ("home", None)
             for player in self._players:
@@ -195,7 +225,7 @@ class PlayerMenu:
             self._actions.clear()
             self._signature = None
             self._notice = ""
-            if op in ("home", "team", "battles", "player"):
+            if op in ("home", "team", "battles", "player", "results", "result"):
                 self._page = (op, args[0] if args else None)
             elif op == "team_invite":
                 await self.companion.team_rpc("invite", peer=args[0], invitation_id=str(uuid4()))

@@ -16,7 +16,7 @@ def request(op, **fields):
         invite_multi=dict(teammate=THIRD, opponents=[PEER, FOURTH], battle_id=BATTLE),
         accept=dict(battle_id=BATTLE, generation=GENERATION, fingerprint="a" * 64),
         cancel=dict(battle_id=BATTLE, generation=GENERATION),
-        status=dict(battle_id=BATTLE), pending={},
+        status=dict(battle_id=BATTLE), pending={}, history={},
     )[op]
     return dict(type="battle_" + op, request_id=REQUEST, session_epoch=7, **(extra | fields))
 
@@ -33,7 +33,7 @@ def view(mode=2):
 def reply(op):
     return dict(type="battle_result", protocol=1, session_epoch=7, request_id=REQUEST,
         operation=op, world_id=WORLD, player_id=ACTOR,
-        result=[view()] if op == "pending" else view(3 if op == "invite_multi" else 2))
+        result=[] if op == "history" else ([view()] if op == "pending" else view(3 if op == "invite_multi" else 2)))
 
 
 class BattleProtocolTests(unittest.TestCase):
@@ -116,3 +116,23 @@ class BattleProtocolTests(unittest.TestCase):
         for key, value in (("code", "bad code"), ("message", "x" * 513), ("message", "\x00")):
             bad = deepcopy(result); bad[key] = value
             with self.assertRaises(ProtocolError): self.check(bad)
+
+    def test_history_is_bounded_ordered_participant_only_and_read_only(self):
+        from emerald_multiplayer.battle_results import SCOPE as RESULT_SCOPE, HISTORY_LIMIT
+        result = reply("history")
+        for number in range(HISTORY_LIMIT, 0, -1):
+            item = view(3)
+            for key in ("state", "reason", "consent"): del item[key]
+            item.update(scope=RESULT_SCOPE, sequence=number, battle_id=str(uuid4()), outcome=1)
+            result["result"].append(item)
+        self.assertEqual(self.check(result, request("history")), result)
+        self.assertLess(len(encode_message(result)) - 4, MAX_FRAME_BYTES)
+        for change in (lambda r: r["result"].reverse(), lambda r: r["result"].append(r["result"][0]),
+                lambda r: r["result"][0].update(outcome=None),
+                lambda r: r["result"][0].update(sequence=True),
+                lambda r: r["result"][0].update(scope=SCOPE),
+                lambda r: r["result"][0].update(receipt="private")):
+            bad = deepcopy(result); change(bad)
+            with self.assertRaises(ProtocolError): self.check(bad)
+        with self.assertRaises(ProtocolError):
+            validate_battle_request(request("history", player_id=PEER), 7)

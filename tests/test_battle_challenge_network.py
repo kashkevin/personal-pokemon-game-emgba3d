@@ -1,5 +1,6 @@
 """Four authenticated TCP companions; no emulator execution is claimed."""
 import asyncio
+from dataclasses import replace
 from pathlib import Path
 import secrets
 import tempfile
@@ -82,6 +83,38 @@ class BattleChallengeNetworkTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(canceled["state"], "aborted")
         self.assertEqual(await self.rpc(0, "pending"), [])
         self.assertEqual(await self.rpc(0, "status", battle_id=view["battle_id"]), canceled)
+
+    async def seed_result(self):
+        # A simulated trusted coordinator result, not emulator acceptance.
+        view = await self.invite()
+        await self.rpc(0, "cancel", battle_id=view["battle_id"], generation=view["generation"])
+        summary = {key: view[key] for key in ("battle_id", "generation", "sender", "mode", "players",
+            "fingerprint", "checkpoints")}
+        summary["outcome"] = 1
+        return self.server._battle_results._append_closed(summary, "a" * 64)
+
+    async def test_history_is_authenticated_read_only_and_available_with_battles_disabled(self):
+        result = await self.seed_result()
+        self.assertEqual(await self.rpc(0, "history"), [result])
+        self.assertEqual(await self.rpc(1, "history"), [result])
+        self.assertEqual(await self.rpc(2, "history"), [])
+        self.server.battle_desk = None
+        self.assertEqual(await self.rpc(0, "history"), [result])
+        await self.error("battle_disabled", 0, "invite", peer=self.players[1].player_id, battle_id=str(uuid4()))
+        self.assertEqual(self.store.read_checkpoint(self.players[0].player_id,
+            self.companions[0].session_epoch), self.heads[0])
+
+    async def test_history_survives_server_and_companion_restart(self):
+        result = await self.seed_result()
+        for companion in self.companions: await companion.close()
+        await self.server.close()
+        self.server = WorldServer(self.server.config, store=self.store)
+        await self.server.start(port=0)
+        self.companions = [Companion(replace(c.config, server_port=self.server.address[1])) for c in self.companions]
+        for companion in self.companions:
+            await companion.start()
+        await wait_until(lambda: all(c.connected for c in self.companions))
+        self.assertEqual(await self.rpc(0, "history"), [result])
 
     async def test_four_human_consent_never_inherits_teammate_choice(self):
         view = await self.rpc(0, "invite_multi", teammate=self.players[2].player_id,

@@ -177,7 +177,7 @@ class _ServerBattleDesk(BattleDesk):
 
     def __init__(self, server):
         self.server = server
-        super().__init__(server.store, server._connected_lease)
+        super().__init__(server.store, server._connected_lease, results=server._battle_results)
 
     def authorize_bind(self, actor, lease, battle_id, generation):
         # _get authenticates and refreshes without dispatching any command.
@@ -241,8 +241,16 @@ class WorldServer:
                 raise ValueError("development teams require an authenticated ownership world")
             self.team_desk = TeamDesk(self._team_roster)
         self.battle_desk = None
+        self._battle_results = None
         if type(development_battles) is not bool:
             raise ValueError("development_battles must be a boolean")
+        from .ownership_storage import OwnershipCheckpointStore
+        if isinstance(store, OwnershipCheckpointStore):
+            archive_path = store.path.with_name(store.path.name + ".battle-results.sqlite3")
+            if development_battles or archive_path.exists():
+                from .battle_results import BattleResults
+                self._battle_results = BattleResults(archive_path, world_id=store.metadata.world_id,
+                    build_id=store.build_id, ruleset_id=store.ruleset_id)
         if development_battles:
             from .ownership_storage import OwnershipCheckpointStore
             if not isinstance(store, OwnershipCheckpointStore):
@@ -602,10 +610,20 @@ class WorldServer:
     def _battle_challenge(self, session, request):
         # Public consent never authorizes BIND/START, supplies native receipts,
         # or claims a winner. Those remain trusted coordinator operations.
+        operation = request["type"].removeprefix("battle_")
+        if operation == "history":
+            from .ownership_storage import OwnershipCheckpointStore
+            if not isinstance(self.store, OwnershipCheckpointStore):
+                raise ProtocolError("battle_disabled", "battle history requires an authenticated ownership world")
+            self.store.read_checkpoint(session.player_id, session.session_epoch)
+            if self._connected_lease(session.player_id) != session.session_epoch:
+                raise ProtocolError("stale_lease", "battle history requires the current authenticated player")
+            self._battle_reply(session, request, result=[] if self._battle_results is None
+                else self._battle_results.history(session.player_id))
+            return
         if self.battle_desk is None:
             raise ProtocolError("battle_disabled", "this development world has not enabled battle challenges")
         desk, actor = self.battle_desk, (session.player_id, session.session_epoch)
-        operation = request["type"].removeprefix("battle_")
         if operation == "pending":
             result = [challenge_view(view) for view in desk.pending(*actor)]
         else:

@@ -10,7 +10,7 @@ import re
 from .protocol import MAX_COUNTER, PROTOCOL_VERSION, ProtocolError, _fields, _integer
 from .team_protocol import _uuid
 
-BATTLE_OPERATIONS = frozenset({"invite", "invite_multi", "accept", "cancel", "status", "pending"})
+BATTLE_OPERATIONS = frozenset({"invite", "invite_multi", "accept", "cancel", "status", "pending", "history"})
 BATTLE_TYPES = frozenset("battle_" + op for op in BATTLE_OPERATIONS)
 STATES = frozenset({"invited", "accepted", "prepared", "starting", "running", "finishing",
                     "release_authorized", "closed", "aborting", "aborted", "recovery_required"})
@@ -38,7 +38,7 @@ def validate_battle_request(message, epoch):
         "invite_multi": {"teammate", "opponents", "battle_id"},
         "accept": {"battle_id", "generation", "fingerprint"},
         "cancel": {"battle_id", "generation"},
-        "status": {"battle_id"}, "pending": set(),
+        "status": {"battle_id"}, "pending": set(), "history": set(),
     }[operation]
     _fields(message, {"type", "request_id", "session_epoch"} | extra)
     for key in extra - {"opponents", "fingerprint"}:
@@ -134,7 +134,18 @@ def validate_battle_reply(message, actor, world_id, epoch, request=None):
     elif message["type"] == "battle_result":
         _fields(message, common | {"result"})
         result = message["result"]
-        if op == "pending":
+        if op == "history":
+            from .battle_results import HISTORY_LIMIT, validate_result
+            if type(result) is not list or len(result) > HISTORY_LIMIT:
+                raise ProtocolError("invalid_server_message", "invalid battle history size")
+            sequences, battles = [], set()
+            for view in result:
+                validate_result(view, actor)
+                sequences.append(view["sequence"])
+                battles.add(view["battle_id"])
+            if sequences != sorted(set(sequences), reverse=True) or len(battles) != len(result):
+                raise ProtocolError("invalid_server_message", "battle history order or identity changed")
+        elif op == "pending":
             if type(result) is not list or len(result) > 1:
                 raise ProtocolError("invalid_server_message", "too many active battles for one player")
             for view in result:
@@ -147,7 +158,7 @@ def validate_battle_reply(message, actor, world_id, epoch, request=None):
         validate_battle_request(request, epoch)
         if message["request_id"] != request["request_id"] or op != request["type"].removeprefix("battle_"):
             raise ProtocolError("invalid_server_message", "battle reply does not match its request")
-        if message["type"] == "battle_result" and op != "pending":
+        if message["type"] == "battle_result" and op not in ("pending", "history"):
             result = message["result"]
             if result["battle_id"] != request["battle_id"]:
                 raise ProtocolError("identity_mismatch", "battle reply changed the target")

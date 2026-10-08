@@ -64,3 +64,20 @@ class PlayerMenuNetworkTests(unittest.IsolatedAsyncioTestCase):
         menu = PlayerMenu(self.companions[0]); await menu.refresh()
         screen = await self.click(menu, "Trainer 1")
         self.assertEqual(screen.rows, ())
+
+    async def test_recent_results_show_own_side_and_read_only_roster(self):
+        # Simulated native receipts have their own Desk tests. This is the
+        # actual authenticated history transport plus immutable menu selection.
+        fixture = fixtures.BattleChallengeNetworkTests
+        self.rpc = fixture.rpc.__get__(self)
+        self.invite = fixture.invite.__get__(self)
+        result = await fixture.seed_result(self)
+        menu = PlayerMenu(self.companions[0]); await menu.refresh()
+        await self.click(menu, "Challenges")
+        screen = await self.click(menu, "Recent battle results")
+        label = "Win" if result["players"].index(self.players[0].player_id) == 0 else "Loss"
+        self.assertEqual(screen.rows[0].label, f"1v1 {label} #1")
+        screen = await self.click(menu, screen.rows[0].label)
+        self.assertEqual(screen.status, "Team 1 won")
+        self.assertEqual(len(screen.rows), 2)
+        self.assertTrue(all(row.action == 0 for row in screen.rows))
