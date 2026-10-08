@@ -4,12 +4,14 @@ This proves protocol/replay/lease fences, not real native battle acceptance.
 """
 import asyncio
 import hashlib
+import json
 from dataclasses import replace
 import struct
 import unittest
 from uuid import UUID, uuid4
 
 from emerald_multiplayer.battle_execution import BattleExecutionService
+from emerald_multiplayer.battle_execution_journal import RouteJournal
 from emerald_multiplayer.battle_execution_protocol import decode_control, encode_control
 from emerald_multiplayer.battle_protocol import validate_battle_reply
 from emerald_multiplayer.native_battle import NativeBinding, NativeControl, Opcode
@@ -300,6 +302,12 @@ class BattleRecoveryNetworkTests(unittest.IsolatedAsyncioTestCase):
         await self._recover(4)
 
     async def test_second_restart_preserves_mixed_provisional_and_full_original_intents(self):
+        await self._mixed_restart()
+
+    async def test_partial_first_bind_prefix_can_grow_after_a_full_intent_already_registered(self):
+        await self._mixed_restart(partial_prefix=True)
+
+    async def _mixed_restart(self, *, partial_prefix=False):
         await self._interrupt(Opcode.ADMIT)
         async def provisional(index):
             actor = self.actors[index]
@@ -312,6 +320,16 @@ class BattleRecoveryNetworkTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await provisional(1))["state"], "admitting")
         command = decode_control((await provisional(0))["admission"]["bind_b64"])
         self.recovery_admissions = {0: hashlib.sha256(command.pack()).hexdigest()}
+        if partial_prefix:
+            # A valid durable crash boundary after header and trainer0 BIND,
+            # before the host published trainer1's initial native command.
+            path = self.root/"execution"/(self.battle_id+".events.jsonl")
+            lines = path.read_bytes().splitlines(keepends=True)
+            self.assertEqual(len(lines), 3)
+            prefix = path.with_suffix(".prefix")
+            journal = RouteJournal(prefix, json.loads(lines[0])["value"]["value"], create=True)
+            journal.append("command", self.players[0].player_id, 1, command)
+            prefix.replace(path)
         await self._restart_host()  # Only trainer 0 durably converted locally.
         result = await self.actors[0].rpc("battle_resume", battle_id=self.battle_id,
             generation=self.generation, incarnation=100, response_id=0, response_b64=None,

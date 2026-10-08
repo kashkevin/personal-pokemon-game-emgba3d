@@ -97,6 +97,12 @@ class BattleRecoveryService:
             self.rooms[battle_id] = room
         if room.record != record:
             raise BattleError("battle_generation_mismatch", "durable reservation changed during recovery")
+        if room.task is None:
+            # Provisional bootstrap can extend a valid first-BIND crash prefix
+            # while already-converted trainers wait here. Reopen that strict
+            # journal before validating another intent ACK; never retain a
+            # second mutable owner after the recovery task has begun.
+            room.journal = self._load_journal(room)
         admission = request.get("admission_sha256")
         if actor not in room.journal.admitted:
             pending = room.journal.pending.get(actor)
