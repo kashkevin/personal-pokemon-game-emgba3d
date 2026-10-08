@@ -163,6 +163,7 @@ class CompanionConfig:
     trade_enabled: bool = field(init=False, default=False)
     battle_enabled: bool = field(init=False, default=False)
     battle_abi_version: int = field(init=False, default=0)
+    battle_resume_abi_version: int = field(init=False, default=0)
     save_window_enabled: bool = field(init=False, default=False)
     reset_enabled: bool = field(init=False, default=False)
     reset_abi_version: int = field(init=False, default=0)
@@ -182,6 +183,7 @@ class CompanionConfig:
         object.__setattr__(self, "trade_enabled", manifest.get("trade_abi_version") == 1)
         object.__setattr__(self, "battle_enabled", manifest.get("battle_abi_version") in (1, 2, 3))
         object.__setattr__(self, "battle_abi_version", manifest.get("battle_abi_version", 0))
+        object.__setattr__(self, "battle_resume_abi_version", manifest.get("battle_resume_abi_version", 0))
         object.__setattr__(self, "menu_enabled", manifest.get("menu_abi_version") in (1, 2))
         object.__setattr__(self, "menu_abi_version", manifest.get("menu_abi_version", 1))
         object.__setattr__(self, "save_window_enabled", manifest.get("save_window_abi_version") == 1)
@@ -366,6 +368,7 @@ class Companion:
         self._emergency_controller = None
         self._emergency_authority = None
         self._reconnect_blocked = False
+        self._battle_recovery_authority = None
         self._local_pose: Pose | None = None
         self._last_pose_time = 0.0
         self._network_seq = 0
@@ -746,6 +749,11 @@ class Companion:
         from .native_battle import NativeControl, supports_native_phase
         if (not self.config.development_battle_channel
                 or not isinstance(control, (BattleControl, NativeControl))
+                or (isinstance(control, NativeControl) and control.opcode > 13
+                    and self.config.battle_resume_abi_version != 1)
+                or (isinstance(control, NativeControl) and control.opcode == Opcode.BIND
+                    and len(control.data) == 116 and control.data[115]
+                    and self.config.battle_resume_abi_version != 1)
                 or (isinstance(control, NativeControl) and not supports_native_phase(self.config.battle_abi_version, control.phase))):
             raise ValueError("battle channel requires explicit development opt-in and a matching ABI control")
         control.validate_command(player_id=self.config.player_id)
@@ -753,9 +761,15 @@ class Companion:
             self._guard_pending_trade_mutation(allow_battle_owner=True)
             from .battle_journal import pending_battle
             from .battle_session import NativeBattleSession
+            from .battle_recovery_session import NativeBattleRecoverySession
+            from .battle_terminal import BattleHandoffAuthority
+            from .battle_admission_session import AdmissionHoldAuthority
             executor = getattr(self, "_live_battle_executor", None)
-            execution_authority = (isinstance(executor, NativeBattleSession)
+            execution_authority = (isinstance(executor, (NativeBattleSession, NativeBattleRecoverySession,
+                                                        BattleHandoffAuthority, AdmissionHoldAuthority))
                                    and executor._authorizes(control))
+            if isinstance(control, NativeControl) and control.opcode in (19, 20, 21) and not execution_authority:
+                raise ValueError("battle hold transitions require their exact persisted lifecycle authority")
             if ((getattr(self, "_live_battle_owner", None) is not None or pending_battle(self))
                     and control != getattr(self, "_live_battle_admission_control", None)
                     and not execution_authority):
@@ -763,8 +777,10 @@ class Companion:
             if self._live_save_owner is not None and self._live_save_owner is not asyncio.current_task():
                 raise ValueError("a live-save lifecycle owns this character's mutations")
         bridge = self._bridge
-        if (not self.connected or self.world_id is None or bridge is None or not bridge.battle_capable
-                or control.incarnation != bridge.incarnation or control.session_epoch != self.session_epoch):
+        original_admission = (isinstance(control, NativeControl) and control.opcode == 19
+            and execution_authority and isinstance(executor, AdmissionHoldAuthority))
+        if (not original_admission and (not self.connected or self.world_id is None or bridge is None or not bridge.battle_capable
+                or control.incarnation != bridge.incarnation or control.session_epoch != self.session_epoch)):
             raise ConnectionError("diagnostic command has no matching authenticated session")
         if self._battle_pending:
             raise ValueError("a diagnostic command is already pending")
@@ -805,6 +821,13 @@ class Companion:
             await asyncio.wait_for(writer.drain(), self.config.send_timeout)
 
     def _disconnect_remote(self) -> None:
+        from .battle_journal import pending_battle, path_present
+        try:
+            terminal = getattr(self, "_live_battle_terminal_pending_path", None)
+            if pending_battle(self) or (terminal is not None and path_present(terminal)):
+                self._reconnect_blocked = True
+        except ValueError:
+            self._reconnect_blocked = True
         controller = self._emergency_controller
         if self.connected and controller is not None and self._bridge is not None and not self._closing:
             # Synchronous notification fences reconnect before authentication
@@ -855,7 +878,41 @@ class Companion:
             if not self._closing:
                 await asyncio.sleep(self.config.reconnect_delay)
 
-    async def _remote_once(self) -> None:
+    async def reconnect_retained_battle(self, recovery):
+        """One explicit authenticated reconnect for the exact retained core.
+
+        Generic reconnect remains fenced. A current lifecycle owner, immutable
+        original intent and verified optional native marker are all required.
+        """
+        from .battle_recovery_session import NativeBattleRecoverySession
+        if not isinstance(recovery, NativeBattleRecoverySession) or not recovery._authorizes_reconnect():
+            raise ValueError("battle reconnect requires its exact retained lifecycle authority")
+        self._reconnect_blocked = True
+        self._battle_recovery_authority = recovery
+        if self.connected:
+            recovery._session()
+            return
+        previous = self._remote_task
+        if previous is not None and not previous.done():
+            await asyncio.wait_for(asyncio.shield(previous), self.config.send_timeout + self.config.reconnect_delay + 1)
+        if self._closing or not recovery._authorizes_reconnect():
+            raise ConnectionError("retained battle reconnect authority expired")
+        ready = asyncio.get_running_loop().create_future()
+        async def connect_once():
+            try:
+                await self._remote_once(battle_recovery=recovery, ready=ready)
+            except (ProtocolError, ConnectionError, OSError, asyncio.TimeoutError, ValueError) as error:
+                self.last_error = getattr(error, "code", type(error).__name__)
+                if not ready.done():
+                    ready.set_exception(error)
+            finally:
+                self._disconnect_remote()
+                if not ready.done():
+                    ready.set_exception(ConnectionError("host closed before retained battle authentication"))
+        self._remote_task = asyncio.create_task(connect_once(), name="companion-retained-battle-connection")
+        await ready
+
+    async def _remote_once(self, *, battle_recovery=None, ready=None) -> None:
         writer: asyncio.StreamWriter | None = None
         tasks: list[asyncio.Task] = []
         try:
@@ -887,6 +944,8 @@ class Companion:
             if welcome.get("type") == "error":
                 raise ProtocolError("server_rejected", "server rejected this client")
             welcome = validate_welcome(welcome, self.config)
+            if battle_recovery is not None:
+                battle_recovery._accept_welcome(welcome)
             self.session_epoch = welcome["session_epoch"]
             self.world_id = welcome.get("world_id")
             self.server_epoch = welcome.get("server_epoch")
@@ -897,6 +956,8 @@ class Companion:
             self._sent_pose_signature = self._sent_source_signature = None
             self._last_world_seq = 0
             self._publish_snapshot()
+            if ready is not None and not ready.done():
+                ready.set_result(None)
             tasks = [
                 asyncio.create_task(self._read_world(reader, writer), name="companion-world-reader"),
                 asyncio.create_task(self._send_presence(writer), name="companion-presence-sender"),
@@ -1058,6 +1119,17 @@ class Companion:
             raise ConnectionError("no authenticated ownership battle session")
         if set(fields) & {"type", "session_epoch"}:
             raise ValueError("battle envelope fields cannot be overridden")
+        consent_core = None
+        if operation in {"invite", "invite_multi", "accept"} and self.config.battle_resume_abi_version == 1:
+            if self.config.battle_abi_version != 3 or self._bridge is None or not self._bridge.battle_capable:
+                raise ValueError("resumable consent requires the current verified native core")
+            if getattr(self, "_live_battle_runtime_id", None) is None:
+                self._live_battle_runtime_id = str(uuid4())
+            original = dict(incarnation=self.battle_incarnation, runtime_id=self._live_battle_runtime_id)
+            if any(name in fields and fields[name] != value for name, value in original.items()):
+                raise ValueError("battle consent cannot substitute another native runtime")
+            fields = {**fields, **original}
+            consent_core = (self._bridge, self.battle_incarnation, self._live_battle_runtime_id)
         request_id = str(uuid4()) if request_id is None else request_id
         request = dict(type="battle_" + operation, session_epoch=self.session_epoch,
                        request_id=request_id, **fields)
@@ -1068,7 +1140,10 @@ class Companion:
         self._challenge_pending[request_id] = (request, future)
         try:
             await self._send_remote(self._remote_writer, request)
-            return await asyncio.wait_for(future, timeout)
+            result = await asyncio.wait_for(future, timeout)
+            if consent_core is not None and consent_core != (self._bridge, self.battle_incarnation, self._live_battle_runtime_id):
+                raise ConnectionError("battle consent lost its original native runtime")
+            return result
         finally:
             self._challenge_pending.pop(request_id, None)
             if not future.done():

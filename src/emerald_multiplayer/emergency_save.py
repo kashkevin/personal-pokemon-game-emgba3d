@@ -6,6 +6,7 @@ ordinary pending-export intent are durable locally, never that the host saved.
 from __future__ import annotations
 
 import asyncio
+import base64
 from dataclasses import dataclass
 import hashlib
 import json
@@ -17,7 +18,7 @@ import zlib
 from .battle_journal import pending_battle
 from .emergency_protocol import EmergencyHold
 from .flash import FLASH_SIZE, inspect_flash
-from .live_checkpoint import LiveCheckpointCoordinator, LiveSaveError, _atomic, _json_bytes
+from .live_checkpoint import LiveCheckpointCoordinator, LiveSaveError, _atomic, _json_bytes, _sync_directory
 from .ownership import OWNERSHIP_PROFILE, inspect_ownership
 from .protocol import MAX_COUNTER
 from .save_mailbox import Opcode, SaveControl, State, Status
@@ -39,6 +40,12 @@ class EmergencyResult:
     # Only a verified native receipt following durable local bytes permits
     # orderly child closure. Every uncertain/unsafe/battle result retains it.
     can_close: bool = False
+
+
+class _NativeRefusal(LiveSaveError):
+    def __init__(self, command, response):
+        super().__init__("rom_" + Status(response.status).name.lower(), "native emergency preservation refused")
+        self.command, self.response = command, response
 
 
 def _read_json(path, limit=16384):
@@ -241,6 +248,59 @@ class EmergencySaveController:
             raise asyncio.CancelledError()
         return result
 
+    async def retire_after_battle_recovery(self, completion, original_intent, retained_bridge):
+        """Hand off only an exactly settled retained battle to a NEW controller.
+
+        A lost controller's old session/task/grant fence is never renewed. The
+        caller must freshly BIND and arm the successor at the verified base.
+        """
+        from .battle_recovery_session import verify_recovery_completion
+        await self.drain()
+        c = self.companion
+        async with c.live_checkpoint_lock:
+            if self.result.state == "retired_after_battle":
+                record = verify_recovery_completion(c, self.directory, completion, original_intent, retained_bridge)
+                saved = _read_json(self.directory / (original_intent.battle_id + ".emergency-retirement.json"))
+                if (c._emergency_controller is not None or c._bridge is not self.bridge
+                        or retained_bridge is not self.bridge or c._live_save_owner is not None
+                        or getattr(c, "_live_battle_owner", None) is not None
+                        or getattr(c, "_live_binding", None) is not None
+                        or getattr(c, "_live_bind_pending", None) is not None
+                        or saved != {"schema": 1, "battle_id": original_intent.battle_id,
+                            "old_session": list(self.session), "renewed_session": completion.renewed_session.value(),
+                            "canonical_revision": self.base_revision, "canonical_sha256": completion.canonical_sha256,
+                            "terminal_receipt_sha256": hashlib.sha256(_json_bytes(record)).hexdigest()}):
+                    raise LiveSaveError("emergency_binding", "retired battle handoff no longer matches its terminal proof")
+                return self.result
+            waiting = (self.lost.is_set() and self.task is not None and self.task.done()
+                       and self.result.state == "battle_waiting")
+            online = (not self.lost.is_set() and self.task is None and self.result.state == "armed")
+            if (c._emergency_controller is not self or not (waiting or online)
+                    or c._bridge is not retained_bridge or self.bridge is not retained_bridge
+                    or self.session != (original_intent.world_id, original_intent.lease_epoch, original_intent.incarnation)
+                    or self.base_revision != original_intent.canonical_revision
+                    or self.active_export is not None or self.path.exists()
+                    or getattr(c, "_emergency_authority", None) is not None
+                    or getattr(c, "_live_save_owner", None) is not None
+                    or getattr(c, "_live_battle_owner", None) is not None
+                    or getattr(c, "_live_binding", None) != self.session):
+                raise LiveSaveError("emergency_binding", "battle completion cannot retire this retained save lifecycle")
+            record = verify_recovery_completion(c, self.directory, completion, original_intent, retained_bridge)
+            retirement = {"schema": 1, "battle_id": original_intent.battle_id,
+                "old_session": list(self.session), "renewed_session": completion.renewed_session.value(),
+                "canonical_revision": self.base_revision, "canonical_sha256": completion.canonical_sha256,
+                "terminal_receipt_sha256": hashlib.sha256(_json_bytes(record)).hexdigest()}
+            path = self.directory / (original_intent.battle_id + ".emergency-retirement.json")
+            if path.exists():
+                if _read_json(path) != retirement:
+                    raise LiveSaveError("emergency_binding", "battle save handoff receipt changed")
+            else:
+                _atomic(path, _json_bytes(retirement))
+            c._live_binding = None
+            c._live_bind_pending = None
+            c._emergency_controller = None
+            return self._publish("retired_after_battle")
+
     async def _command(self, authority, opcode, offset=0):
         c = self.companion
         c._live_sequence += 1
@@ -259,8 +319,41 @@ class EmergencySaveController:
                     raise
         result = response[0] if opcode == Opcode.READ_WINDOW else response
         if result.status != Status.OK:
-            raise LiveSaveError("rom_" + Status(result.status).name.lower(), "native emergency preservation refused")
+            result.validate_response()
+            if result != SaveControl(**{**command.__dict__, "status": result.status}):
+                raise LiveSaveError("emergency_receipt", "native refusal changed its exact command envelope")
+            raise _NativeRefusal(command, result)
         return response
+
+    def _defer_to_admission(self, authority, refusal, record):
+        """Only BEGIN's mutation-free native refusal may retire our own intent."""
+        c, command, response = self.companion, refusal.command, refusal.response
+        if (self.active_export is not None or command.opcode != Opcode.BEGIN_EMERGENCY_EXPORT
+                or response.status != Status.BATTLE_ADMISSION
+                or getattr(c.config, "battle_resume_abi_version", 0) != 1
+                or c._bridge is not self.bridge or authority is not c._emergency_authority
+                or authority.session != self.session or c.connected or not c._reconnect_blocked
+                or (command.incarnation, command.session_epoch, command.request_id, command.revision) !=
+                   (self.session[2], self.session[1], authority.operation_id, authority.base_revision + 1)):
+            raise refusal
+        if record is not None and (record["state"] != "holding" or _read_json(self.path) != record):
+            raise LiveSaveError("pending_conflict", "admission refusal cannot retire another emergency intent")
+        receipt = dict(format="emergency-battle-admission-refusal-v1", intent=record,
+            command_b64=base64.b64encode(command.pack()).decode("ascii"),
+            response_b64=base64.b64encode(response.pack()).decode("ascii"))
+        archive = self.directory / (authority.operation_id + ".emergency-admission-refusal.json")
+        if archive.exists() and _read_json(archive) != receipt:
+            raise LiveSaveError("pending_conflict", "native admission refusal archive changed")
+        _atomic(archive, _json_bytes(receipt))
+        if _read_json(archive) != receipt:
+            raise LiveSaveError("emergency_receipt", "native admission refusal was not durable")
+        if record is not None:
+            if _read_json(self.path) != record:
+                raise LiveSaveError("pending_conflict", "emergency intent changed before admission handoff")
+            self.path.unlink()
+            _sync_directory(self.directory)
+        c._emergency_authority = None
+        return self._publish("battle_waiting")
 
     def _record(self, record, state, **updates):
         record = {**record, "state": state, **updates}
@@ -277,6 +370,23 @@ class EmergencySaveController:
                 c._live_save_owner = asyncio.current_task()
                 try:
                     if pending_battle(c, self.directory):
+                        provisional = self.directory / "pending-battle-admission.json"
+                        if provisional.exists() and not (self.directory / "pending-battle.json").exists():
+                            from .battle_admission_intent import read_admission_intent
+                            from .battle_admission_session import hold_admission
+                            try:
+                                intent = read_admission_intent(provisional)
+                                await hold_admission(c, self.directory, intent, self.bridge)
+                            except Exception:
+                                # An uncertain pre-dispatch ADMIT is not proof
+                                # that gameplay is held. Preserve a permanent
+                                # native freeze if this original saver still
+                                # owns it; never certify a serializable battle.
+                                if (not c.connected and c._bridge is self.bridge
+                                        and getattr(c, "_live_binding", None) == self.session and c._reconnect_blocked):
+                                    authority = EmergencyAuthority(self.bridge, self.session, str(uuid4()), self.base_revision)
+                                    c._emergency_authority = authority
+                                raise
                         return self._publish("battle_waiting")
                     if (self.directory / "pending-trade.json").exists():
                         return self._publish("trade_waiting")
@@ -307,7 +417,12 @@ class EmergencySaveController:
                             # own safe-point check alone authorizes serialization.
                             pass
                     freeze_dispatched = True
-                    begin = await self._command(authority, opcode)
+                    try:
+                        begin = await self._command(authority, opcode)
+                    except _NativeRefusal as refusal:
+                        if refusal.response.status != Status.BATTLE_ADMISSION:
+                            raise
+                        return self._defer_to_admission(authority, refusal, record)
                     payload = bytearray()
                     window = c.config.save_window_enabled and self.bridge.window_capable
                     while len(payload) < FLASH_SIZE:
@@ -368,6 +483,9 @@ class EmergencySaveController:
                         try:
                             opcode = Opcode.PROMOTE_EMERGENCY_EXPORT if self.active_export else Opcode.BEGIN_EMERGENCY_EXPORT
                             await self._command(authority, opcode)
+                        except _NativeRefusal as refusal:
+                            if refusal.response.status == Status.BATTLE_ADMISSION:
+                                return self._defer_to_admission(authority, refusal, record)
                         except Exception:
                             pass
                     raise

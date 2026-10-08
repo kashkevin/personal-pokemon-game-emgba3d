@@ -63,6 +63,8 @@ class EmergencyCompanion(TradeCompanion):
         assert control.sequence > self.rom_sequence
         opcode = control.opcode
         data, offset, status, window = b"", control.offset, Status.OK, None
+        if opcode == Opcode.BEGIN_EMERGENCY_EXPORT and getattr(self, "admission_latched", False):
+            return replace(control, status=Status.BATTLE_ADMISSION)
         if opcode in (Opcode.BEGIN_EMERGENCY_EXPORT, Opcode.PROMOTE_EMERGENCY_EXPORT):
             if opcode == Opcode.PROMOTE_EMERGENCY_EXPORT:
                 assert self.phase == State.EXPORTING
@@ -404,6 +406,64 @@ class EmergencySaveTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.state, "battle_waiting")
         self.assertFalse(result.can_close)
         self.assertEqual(self.c.emergency_commands, [])
+
+    async def test_exact_native_enter_refusal_retires_only_unstarted_emergency_intent(self):
+        await self.arm()
+        self.c.config.battle_resume_abi_version = 1
+        self.c.admission_latched = True
+        original_sequence, original_flash = self.c.rom_sequence, self.c.rom_flash
+        result = await self.preserve()
+        self.assertEqual(result.state, "battle_waiting")
+        self.assertFalse(result.can_close)
+        self.assertFalse(self.c.emergency_active)
+        self.assertEqual((self.c.rom_sequence, self.c.rom_flash), (original_sequence, original_flash))
+        self.assertEqual([command.opcode for command in self.c.emergency_commands], [Opcode.BEGIN_EMERGENCY_EXPORT])
+        self.assertFalse(self.controller.path.exists())
+        self.assertFalse((self.private / "pending-export.json").exists())
+        self.assertIsNone(self.c._emergency_authority)
+        archives = list(self.private.glob("*.emergency-admission-refusal.json"))
+        self.assertEqual(len(archives), 1)
+        receipt = json.loads(archives[0].read_bytes())
+        self.assertEqual(receipt["intent"]["state"], "holding")
+        self.assertEqual(receipt["intent"]["operation_id"], self.c.emergency_commands[0].request_id)
+
+    async def test_enter_refusal_requires_verified_resume_capability_and_exact_envelope(self):
+        for capability, change in ((0, False), (1, True)):
+            with self.subTest(capability=capability, changed_envelope=change):
+                self.controller = EmergencySaveController(self.c, self.private)
+                await self.arm()
+                self.c.config.battle_resume_abi_version = capability
+                async def refuse(bridge, control, timeout):
+                    return replace(control, status=Status.BATTLE_ADMISSION,
+                                   revision=control.revision + int(change))
+                with patch.object(self.c, "_dispatch_save_control", refuse):
+                    result = await self.preserve()
+                self.assertEqual(result.state, "unsaved_held")
+                self.assertFalse(result.can_close)
+                self.assertTrue(self.controller.path.exists())
+                self.assertEqual(list(self.private.glob("*.emergency-admission-refusal.json")), [])
+                # Restore fixture authentication only; neither refusal is an
+                # authorized production cleanup or a replacement-core path.
+                self.controller.path.unlink()
+                self.c._emergency_controller = self.c._emergency_authority = None
+                self.c.connected = True
+                self.c.world_id, self.c.session_epoch, self.c.save_profile = self.controller.identity["world_id"], self.lease, OWNERSHIP_PROFILE
+
+    async def test_enter_refusal_archive_failure_keeps_uncertain_intent(self):
+        await self.arm()
+        self.c.config.battle_resume_abi_version = 1
+        self.c.admission_latched = True
+        def fail_archive(path, data):
+            if str(path).endswith(".emergency-admission-refusal.json"):
+                raise OSError("disk refused durable receipt")
+            return _atomic(path, data)
+        with patch("emerald_multiplayer.emergency_save._atomic", fail_archive):
+            result = await self.preserve()
+        self.assertEqual(result.state, "unsaved_held")
+        self.assertFalse(result.can_close)
+        self.assertEqual(json.loads(self.controller.path.read_bytes())["state"], "uncertain")
+        self.assertIsNotNone(self.c._emergency_authority)
+        self.assertFalse((self.private / "pending-export.json").exists())
 
     async def test_wrong_grant_range_never_grants_preservation_authority(self):
         grant = asdict(self.grant)

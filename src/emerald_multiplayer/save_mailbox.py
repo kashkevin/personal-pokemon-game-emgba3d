@@ -73,6 +73,7 @@ class Status(IntEnum):
     CANCELED = 11
     TIMEOUT = 12
     INTERNAL = 13
+    BATTLE_ADMISSION = 14
 
 
 class State(IntEnum):

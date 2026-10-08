@@ -52,17 +52,18 @@ def path_present(path) -> bool:
 
 
 def pending_battle(companion, directory=None) -> bool:
-    paths = [] if directory is None else [Path(directory) / FILENAME]
+    paths = [] if directory is None else [Path(directory) / FILENAME, Path(directory) / "pending-battle-admission.json"]
     registered = getattr(companion, "_live_battle_pending_path", None)
     if registered is not None:
-        paths.append(registered)
+        paths.extend((registered, Path(registered).with_name("pending-battle-admission.json")))
     return any(path_present(path) for path in paths)
 
 
 def register_battle_path(companion, path):
     path = Path(path)
     previous = getattr(companion, "_live_battle_pending_path", None)
-    if previous is not None and Path(previous) != path and path_present(previous):
+    if previous is not None and Path(previous) != path and (path_present(previous)
+            or path_present(Path(previous).with_name("pending-battle-admission.json"))):
         raise BattleJournalError("pending_battle", "another private directory owns pending battle recovery")
     companion._live_battle_pending_path = path
     return path
