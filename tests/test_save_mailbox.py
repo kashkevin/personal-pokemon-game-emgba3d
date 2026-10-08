@@ -10,7 +10,7 @@ from emerald_multiplayer.bridge_protocol import encode_packet
 from emerald_multiplayer.save_mailbox import (
     COMMAND_GEN_OFFSET, COMMAND_OFFSET, FLASH_SIZE, Opcode, RESPONSE_GEN_OFFSET,
     RESPONSE_OFFSET, SAVE_ABI_VERSION, SAVE_MAILBOX_MAGIC, SAVE_MAILBOX_SIZE,
-    SAVE_SLOT_SIZE, SaveControl, SaveMailboxError, State, Status,
+    SAVE_SLOT_SIZE, SaveControl, SaveMailboxError, State, Status, TradeHold,
     capability_packet, command_packet, inspect_save_mailbox, parse_command_packet,
     parse_response_packet, response_packet, validate_capability_packet,
 )
@@ -107,6 +107,45 @@ class SaveMailboxTests(unittest.TestCase):
         validate_capability_packet(capability_packet())
         with self.assertRaises(SaveMailboxError):
             validate_capability_packet(b"V" + bytes(8))
+
+    def test_trade_controls_preserve_slot_size_and_require_canonical_flash(self):
+        for opcode, length in ((Opcode.BEGIN_TRADE_EXPORT, 40), (Opcode.KEEP_TRADE, 48),
+                (Opcode.ABORT_TRADE, 0), (Opcode.RELEASE_TRADE, 4),
+                (Opcode.REBIND_TRADE, 48), (Opcode.QUERY_TRADE, 48)):
+            command = control(opcode=opcode, revision=2)
+            self.assertEqual(parse_command_packet(command_packet(command)), command)
+            response = replace(command, data=bytes(length))
+            self.assertEqual(parse_response_packet(response_packet(response)), response)
+            for bad in (replace(command, total_size=0), replace(command, offset=FLASH_SIZE), replace(command, data=b"x")):
+                with self.assertRaises(SaveMailboxError):
+                    command_packet(bad)
+            with self.assertRaises(SaveMailboxError):
+                response_packet(replace(response, data=bytes(length+1)))
+        with self.assertRaises(SaveMailboxError):
+            command_packet(control(opcode=Opcode.REBIND_TRADE, sequence=2))
+        for revision in (0, 0x7fffffff):
+            with self.assertRaises(SaveMailboxError):
+                command_packet(control(opcode=Opcode.BEGIN_TRADE_EXPORT, revision=revision))
+        header = struct.pack("<IHHIIII", SAVE_MAILBOX_MAGIC, 1, 512, 123, State.TRADE_HELD, 0, 0)
+        self.assertEqual(inspect_save_mailbox(header + bytes(488)).state, State.TRADE_HELD)
+
+    def test_trade_query_reports_actual_binding_without_treating_expiry_as_abort(self):
+        def reply(**changes):
+            values = dict(flags=7, phase=8, raw_id=uuid.UUID(int=1).bytes, epoch=7,
+                          incarnation=3, revision=4, offset=128, crc=123, remaining=0)
+            values.update(changes)
+            return control(opcode=Opcode.QUERY_TRADE, session_epoch=8, revision=0,
+                data=struct.pack("<II16sIIIIII", *values.values()))
+        held = TradeHold.parse(reply())
+        self.assertTrue(held.active and held.expired and held.import_started)
+        self.assertEqual((held.session_epoch, held.revision, held.phase), (7, 4, State.TRADE_HELD))
+        idle = TradeHold.parse(reply(flags=0, phase=1, raw_id=bytes(16), remaining=0))
+        self.assertIsNone(idle.transaction_id)
+        for changes in (dict(flags=8), dict(flags=2), dict(epoch=0), dict(incarnation=0),
+                        dict(revision=0), dict(raw_id=bytes(16)), dict(phase=1),
+                        dict(offset=3), dict(flags=0), dict(epoch=0xffffffff)):
+            with self.subTest(changes=changes), self.assertRaises(SaveMailboxError):
+                TradeHold.parse(reply(**changes))
 
 
 if __name__ == "__main__":

@@ -103,6 +103,13 @@ class CompanionLiveTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(self.companion.connected)
         self.assertEqual(self.companion.session_epoch, control.session_epoch)
 
+    async def test_legacy_build_cannot_issue_trade_hold_commands(self):
+        self.assertFalse(self.companion.config.trade_enabled)
+        with self.assertRaisesRegex(ValueError, "no trade hold capability"):
+            await self.companion.save_rpc(self.control(opcode=Opcode.BEGIN_TRADE_EXPORT, revision=1))
+        self.assertEqual(self.companion._save_pending, {})
+        self.assertTrue(self.companion.connected)
+
     async def test_mismatched_reply_disconnects_ipc_and_fails_pending_without_closing_world(self):
         control = self.control()
         task = self.rpc_task(control)

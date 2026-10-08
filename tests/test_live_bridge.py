@@ -101,7 +101,7 @@ class LuaBridgeTests(unittest.TestCase):
             result = subprocess.run(prefix + [self.lua_path(path)], capture_output=True, text=True, timeout=20)
         self.assertEqual(result.returncode, 0, result.stderr)
 
-    def fixture(self, *, live):
+    def fixture(self, *, live, trade=False):
         local = Pose(0, 1, 6, 11, 0, 9, 1, 0, 0, 0, 1)
         presence = struct.pack("<IHHII", MAILBOX_MAGIC, 1, 128, 1, 2) + local.pack() + bytes(92)
         save = struct.pack("<IHHIIII", 0x31534D45, 1, 512, 1, 1, 0, 0) + bytes(488)
@@ -156,7 +156,7 @@ end
 socket={ERRORS={AGAIN=99}}
 function socket.connect(host,port) assert(host=="127.0.0.1");connects=connects+1;return endpoint end
 EMERALD_BRIDGE={address=0x02001000,rom_size=1024,rom_crc32="aabbccdd",port=8870,token=string.rep("a",64)}
-''' + ("EMERALD_BRIDGE.save_address=0x02002000;EMERALD_BRIDGE.save_size=512;EMERALD_BRIDGE.save_abi=1\n" if live else "") + f'loadBytes(0x02001000,unhex("{presence.hex()}"))\nloadBytes(0x02002000,unhex("{save.hex()}"))\n' + Path(__file__).parents[1].joinpath("bridge/mgba.lua").read_text() + r'''
+''' + ("EMERALD_BRIDGE.save_address=0x02002000;EMERALD_BRIDGE.save_size=512;EMERALD_BRIDGE.save_abi=1\n" if live else "") + ("EMERALD_BRIDGE.trade_abi=1;EMERALD_BRIDGE.trade_abi_address=0x080000c4;loadBytes(0x080000c4,string.pack('<I4',1))\n" if trade else "") + f'loadBytes(0x02001000,unhex("{presence.hex()}"))\nloadBytes(0x02002000,unhex("{save.hex()}"))\n' + Path(__file__).parents[1].joinpath("bridge/mgba.lua").read_text() + r'''
 local function advance(count) for _=1,count do callbacks.list.frame() end end
 local function packet(payload) return string.pack(">I4",#payload)..payload end
 local function romFrames(presence,save)
@@ -187,6 +187,36 @@ local poses=0
 for _,p in ipairs(packets) do assert(p:sub(1,1)~="V" and p:sub(1,1)~="R");if p:sub(1,1)=="P" then poses=poses+1 end end
 assert(poses>0 and #console.errors==0)
 ''')
+
+    def test_trade_hold_queries_and_rebind_are_capability_gated(self):
+        for enabled in (False, True):
+            query = control(opcode=Opcode.QUERY_TRADE, sequence=2)
+            script = self.fixture(live=True, trade=enabled)
+            script += f'inbox=unhex("{encode_packet(command_packet(query)).hex()}");advance(80)\n'
+            if enabled:
+                script += f'assert(range(0x0200201c,240)==unhex("{query.pack().hex()}"))\n'
+                response = replace(query, data=struct.pack("<II16sIIIIII", 1, 8,
+                    bytes.fromhex(query.request_id.replace("-", "")), 7, 1, 3, 131072, 12, 60))
+                script += f'loadBytes(0x0200200c,string.pack("<I4",8));loadBytes(0x02002110,unhex("{response.pack().hex()}"));loadBytes(0x0200210c,string.pack("<I4",2));advance(160)\n'
+                script += f'local found=false;for _,p in ipairs(decoded()) do if p==unhex("{response_packet(response).hex()}") then found=true end end;assert(found and #console.errors==0)\n'
+                rebind = control(opcode=Opcode.REBIND_TRADE, session_epoch=8)
+                script += f'inbox=unhex("{encode_packet(command_packet(rebind)).hex()}");advance(80);assert(range(0x0200201c,240)==unhex("{rebind.pack().hex()}"))\n'
+            else:
+                script += 'assert(#console.errors==1 and range(0x0200201c,240)==string.rep("\\0",240))\n'
+            self.run_lua(script)
+
+    def test_trade_recovery_can_replace_an_unacknowledged_control_without_releasing_hold(self):
+        begin = control(opcode=Opcode.BEGIN_TRADE_EXPORT, revision=2, sequence=2)
+        query = replace(begin, opcode=Opcode.QUERY_TRADE, session_epoch=8, sequence=1, revision=0)
+        rebind = replace(query, opcode=Opcode.REBIND_TRADE, revision=2)
+        script = self.fixture(live=True, trade=True)
+        for command in (begin, query, rebind):
+            script += f'inbox=unhex("{encode_packet(command_packet(command)).hex()}");advance(80)\n'
+            script += f'assert(range(0x0200201c,240)==unhex("{command.pack().hex()}"));assert(#console.errors==0)\n'
+        # Delayed old-session ACK must not satisfy the new rebind waiter.
+        late = replace(begin, data=bytes(40))
+        script += f'loadBytes(0x02002110,unhex("{late.pack().hex()}"));loadBytes(0x0200210c,string.pack("<I4",2));advance(100);assert(savePending~=nil)\n'
+        self.run_lua(script)
 
     def test_live_commands_stale_response_crc_rejection_and_write_limits(self):
         bind = control()

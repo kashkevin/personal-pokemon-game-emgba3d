@@ -36,6 +36,14 @@ if saveAddr ~= nil then
         and not (saveAddr < addr + 128 and addr < saveAddr + 512),
         "Invalid separate save mailbox allocation")
 end
+local tradeEnabled = cfg.trade_abi ~= nil or cfg.trade_abi_address ~= nil
+if tradeEnabled then
+    assert(saveAddr ~= nil and cfg.trade_abi == 1
+        and type(cfg.trade_abi_address) == "number" and cfg.trade_abi_address % 4 == 0
+        and cfg.trade_abi_address >= 0x08000000
+        and cfg.trade_abi_address + 4 <= 0x08000000 + cfg.rom_size
+        and emu:read32(cfg.trade_abi_address) == 1, "Invalid trade capability marker")
+end
 local savePending, saveGeneration, capabilitySent = nil, nil, false
 local tick, lastConnect, stopped = 0, -120, false
 local observedPresence, previousFrame = false, nil
@@ -74,7 +82,7 @@ end
 local function saveHeaderReady()
     return saveAddr ~= nil and emu:read32(saveAddr) == 0x31534D45
         and emu:read16(saveAddr + 4) == 1 and emu:read16(saveAddr + 6) == 512
-        and emu:read32(saveAddr + 12) <= 7
+        and emu:read32(saveAddr + 12) <= (tradeEnabled and 8 or 7)
         and emu:read32(saveAddr + 16) == 0 and emu:read32(saveAddr + 20) == 0
 end
 
@@ -85,12 +93,15 @@ local function saveControl(payload, command)
     if inc == 0 or epoch == 0 or epoch > 0x7FFFFFFF or seq == 0
         or request == string.rep("\0", 16) or offset > 131072
         or (size ~= 0 and size ~= 131072) or revision > 0x7FFFFFFF
-        or opcode < 1 or opcode > 11 or status > 13 or length > 192
+        or opcode < 1 or opcode > (tradeEnabled and 17 or 11) or status > 13 or length > 192
         or data:sub(length + 1) ~= string.rep("\0", 192 - length)
         or crc32(data:sub(1, length)) ~= crc then return nil end
     if command then
-        local lengths = {0, 0, 0, 0, 16, 128, 0, 0, 0, 0, 60}
+        local lengths = {0, 0, 0, 0, 16, 128, 0, 0, 0, 0, 60, 0, 0, 0, 0, 0, 0}
         if status ~= 0 or length ~= lengths[opcode] then return nil end
+        if opcode >= 12 and (size ~= 131072 or offset ~= 0) then return nil end
+        if opcode == 12 and (revision == 0 or revision >= 0x7FFFFFFF) then return nil end
+        if opcode == 16 and seq ~= 1 then return nil end
         if (opcode == 3 or opcode == 6) and (size ~= 131072
             or offset % 128 ~= 0 or offset >= 131072) then return nil end
         if opcode == 5 then
@@ -98,7 +109,7 @@ local function saveControl(payload, command)
             if size ~= 131072 or rotation >= 14 then return nil end
         end
     else
-        local lengths = {0, 40, 128, 4, 8, 0, 0, 0, 48, 80, 80}
+        local lengths = {0, 40, 128, 4, 8, 0, 0, 0, 48, 80, 80, 40, 48, 0, 4, 48, 48}
         if (status == 0 and length ~= lengths[opcode]) or (status ~= 0 and length ~= 0) then return nil end
         if status == 0 and opcode == 3 and (offset % 128 ~= 0 or offset > 130944) then return nil end
     end
@@ -289,8 +300,11 @@ local function receive()
             elseif payload:sub(1, 1) == "C" then
                 local command = saveControl(payload:sub(2), true)
                 if not command or not saveHeaderReady() then stop("invalid save command", true); return end
-                -- A new BIND fences a pending operation after server reconnection.
-                if savePending and command.opcode ~= 1 and command.payload ~= savePending.payload then
+                -- Recovery must observe/rebind an uncertain trade command.
+                -- The ROM fences UUID/incarnation/lease and preserves pending
+                -- Flash publication; these controls cannot release the hold.
+                local recovery = command.opcode == 1 or command.opcode == 16 or command.opcode == 17
+                if savePending and not recovery and command.payload ~= savePending.payload then
                     stop("multiple outstanding save commands", true); return
                 end
                 if commitSave(command.payload) then savePending = command end

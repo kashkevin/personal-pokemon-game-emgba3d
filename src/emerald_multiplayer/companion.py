@@ -33,6 +33,12 @@ BASELINE_RULESET = "baseline-rhh1.17.1-mailbox-v1"
 _UINT32 = 0xFFFFFFFF
 
 
+class TradeError(ValueError):
+    def __init__(self, code: str, message: str):
+        super().__init__(message)
+        self.code = code
+
+
 def verify_rom_manifest(rom_path: Path, manifest_path: Path) -> tuple[str, dict[str, Any]]:
     """Hash the supplied game bytes; manifest identity alone is never trusted."""
     if manifest_path.stat().st_size > 65_536:
@@ -87,6 +93,18 @@ def verify_rom_manifest(rom_path: Path, manifest_path: Path) -> tuple[str, dict[
                 or type(manifest["ownership_abi_version"]) is not int or manifest["ownership_abi_version"] != 1
                 or manifest["save_profile"] != "rhh-1.17.1-bb1093-ownership-v1"):
             raise ValueError("manifest ownership capability is incompatible")
+    trade_fields = {"trade_abi_version", "trade_abi_address"}
+    if trade_fields & set(manifest):
+        marker = manifest.get("trade_abi_address")
+        if (not trade_fields <= set(manifest) or not ownership_fields <= set(manifest)
+                or type(manifest["trade_abi_version"]) is not int or manifest["trade_abi_version"] != 1
+                or type(marker) is not int or marker % 4
+                or not 0x08000000 <= marker <= 0x08000000 + size - 4):
+            raise ValueError("manifest trade capability is incompatible")
+        with rom_path.open("rb") as source:
+            source.seek(marker - 0x08000000)
+            if source.read(4) != b"\x01\x00\x00\x00":
+                raise ValueError("trade capability marker does not match the verified ROM")
     return actual_hash, manifest
 
 
@@ -113,6 +131,7 @@ class CompanionConfig:
     ruleset_id: str = field(init=False, default=BASELINE_RULESET)
     save_enabled: bool = field(init=False, default=False)
     ownership_enabled: bool = field(init=False, default=False)
+    trade_enabled: bool = field(init=False, default=False)
 
     def __post_init__(self) -> None:
         rom_path, manifest_path = Path(self.rom_path).resolve(), Path(self.manifest_path).resolve()
@@ -122,6 +141,7 @@ class CompanionConfig:
         object.__setattr__(self, "build_id", build_id)
         object.__setattr__(self, "save_enabled", "save_mailbox_address" in manifest)
         object.__setattr__(self, "ownership_enabled", manifest.get("ownership_abi_version") == 1)
+        object.__setattr__(self, "trade_enabled", manifest.get("trade_abi_version") == 1)
         validate_hello({
             "type": "hello", "protocol": PROTOCOL_VERSION, "build_id": build_id,
             "ruleset_id": self.ruleset_id, "player_id": self.player_id,
@@ -254,6 +274,7 @@ class Companion:
         self.server_epoch: int | None = None
         self.save_profile: str | None = None
         self._checkpoint_pending: dict[str, tuple[str, int, asyncio.Future]] = {}
+        self._trade_pending: dict[str, tuple[dict, asyncio.Future]] = {}
         self._save_pending: dict[int, tuple[Any, asyncio.Future]] = {}
         self.live_checkpoint_lock = asyncio.Lock()
         self._live_save_owner: asyncio.Task | None = None
@@ -390,6 +411,13 @@ class Companion:
                     self._bridge = None
                     self._last_pose_time = 0.0
                     self._fail_save_requests("local game bridge disconnected")
+                    if self.config.trade_enabled:
+                        # A new emulator incarnation must never inherit an old
+                        # two-party confirmation bound to this network lease.
+                        # Cold recovery still belongs to the launcher gate.
+                        self._disconnect_remote()
+                        if self._remote_writer is not None:
+                            self._remote_writer.close()
                 if bridge.writer_task is not None:
                     bridge.writer_task.cancel()
                     with suppress(asyncio.CancelledError):
@@ -427,10 +455,12 @@ class Companion:
 
     async def save_rpc(self, control: Any, *, timeout: float = 12.0):
         """One reliable command to the ROM-owned save mailbox, never save RAM."""
-        from .save_mailbox import SaveControl
+        from .save_mailbox import Opcode, SaveControl
         if not isinstance(control, SaveControl):
             raise ValueError("save command must be a validated SaveControl")
         control.validate_command()
+        if control.opcode >= Opcode.BEGIN_TRADE_EXPORT and not self.config.trade_enabled:
+            raise ValueError("the verified game build has no trade hold capability")
         bridge = self._bridge
         if (not self.connected or bridge is None or not bridge.save_capable
                 or control.incarnation != bridge.incarnation or control.session_epoch != self.session_epoch):
@@ -479,6 +509,10 @@ class Companion:
             if not future.done():
                 future.set_exception(ConnectionError("checkpoint connection lost; query the canonical revision before retrying"))
         self._checkpoint_pending.clear()
+        for _, future in self._trade_pending.values():
+            if not future.done():
+                future.set_exception(ConnectionError("trade connection lost; obtain authoritative fate before releasing the game"))
+        self._trade_pending.clear()
         self._players = []
         self._peer_history.clear()
         self._roster_signature = None
@@ -578,8 +612,56 @@ class Companion:
                 self._apply_world(message)
             elif message.get("type") in {"checkpoint_result", "checkpoint_error"}:
                 self._receive_checkpoint(message)
+            elif message.get("type") in {"trade_result", "trade_error"}:
+                self._receive_trade(message)
             else:
                 raise ProtocolError("invalid_server_message", "unexpected server message type")
+
+    async def trade_rpc(self, operation: str, *, request_id: str | None = None,
+                        timeout: float = 5.0, **fields: Any) -> dict[str, Any]:
+        """Explicit development trade controls over the authenticated reader."""
+        from .trade_protocol import TRADE_OPERATIONS, validate_trade_request
+        if not self.config.trade_enabled or operation not in TRADE_OPERATIONS:
+            raise ValueError("trade operation requires a verified trade-capable build")
+        if not self.connected or self.world_id is None or self._remote_writer is None:
+            raise ConnectionError("no authenticated trade session")
+        if set(fields) & {"type", "session_epoch"}:
+            raise ValueError("trade envelope fields cannot be overridden")
+        if self._live_save_owner is not None and self._live_save_owner is not asyncio.current_task() and operation not in {"status", "pending"}:
+            raise ValueError("a live-save lifecycle owns this character's mutations")
+        request_id = request_id or str(uuid4())
+        if request_id in self._trade_pending or len(self._trade_pending) >= 8:
+            raise ValueError("trade request is pending or capacity is exhausted")
+        request = dict(type="trade_" + operation, session_epoch=self.session_epoch,
+                       request_id=request_id, **fields)
+        validate_trade_request(request, self.session_epoch)
+        future = asyncio.get_running_loop().create_future()
+        self._trade_pending[request_id] = (request, future)
+        try:
+            await self._send_remote(self._remote_writer, request)
+            return await asyncio.wait_for(future, timeout)
+        finally:
+            self._trade_pending.pop(request_id, None)
+            if not future.done():
+                future.cancel()
+
+    def _receive_trade(self, message):
+        from .trade_protocol import validate_trade_reply
+        validated = validate_trade_reply(message, self.config, self.save_profile, self.world_id, self.session_epoch)
+        pending = self._trade_pending.get(validated["request_id"])
+        if pending is None:
+            return  # A timed-out RPC remains uncertain until an explicit status.
+        request, future = pending
+        if (validated["operation"] != request["type"].removeprefix("trade_")
+                or validated["session_epoch"] != request["session_epoch"]
+                or (validated["type"] == "trade_result" and "transaction_id" in request
+                    and validated["trade"]["transaction_id"] != request["transaction_id"])):
+            raise ProtocolError("invalid_server_message", "trade reply does not match its request")
+        if not future.done():
+            if validated["type"] == "trade_error":
+                future.set_exception(TradeError(validated["code"], validated["message"]))
+            else:
+                future.set_result(validated)
 
     async def checkpoint_rpc(self, operation: str, *, request_id: str | None = None, timeout: float = 5.0, **fields: Any) -> dict[str, Any]:
         """Use the existing reader so heartbeat/presence continue during transfers."""

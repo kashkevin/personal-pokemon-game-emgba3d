@@ -16,6 +16,8 @@ The owner's latest sequence prioritizes a usable private multiplayer build. This
 
 The sequence does not turn basic test builds into the completed game. Report actual supported features at each release. Hoenn remains first, with one to four total players including the host.
 
+The owner subsequently asked to handle all seven together. Run independent implementation, research, and tests in parallel without asking for approval after each milestone; retain the dependent safety and acceptance gates. The [trade foundation record](trade-foundation.md) distinguishes implemented storage/transport from remaining playable trade work.
+
 ## Added feature placement
 
 | Addition | Placement and boundaries |

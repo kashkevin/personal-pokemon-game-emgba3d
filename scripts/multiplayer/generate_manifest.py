@@ -58,6 +58,18 @@ def generate(rom: Path, elf: Path, nm: str, engine_commit: str) -> dict:
             if stream.read(4) != b"\x01\x00\x00\x00":
                 raise ValueError("Unsupported ownership ABI marker")
         manifest.update(ownership_abi_version=1, save_profile="rhh-1.17.1-bb1093-ownership-v1")
+    trade = re.findall(r"^([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+[Rr]\s+gMultiplayerTradeAbiVersion$", symbols, re.M)
+    if trade:
+        if len(trade) != 1 or not ownership:
+            raise ValueError("Trade ABI requires one marker and ownership support")
+        marker, marker_size = (int(value, 16) for value in trade[0])
+        if marker_size != 4 or marker % 4 or not 0x08000000 <= marker <= 0x08000000 + rom_size - 4:
+            raise ValueError("Trade ABI marker must be aligned and allocated in this ROM")
+        with rom.open("rb") as stream:
+            stream.seek(marker - 0x08000000)
+            if stream.read(4) != b"\x01\x00\x00\x00":
+                raise ValueError("Unsupported trade ABI marker")
+        manifest.update(trade_abi_version=1, trade_abi_address=marker)
     objects = re.findall(r"^([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+[BDbd]\s+gObjectEvents$", symbols, re.M)
     if len(objects) == 1:
         obj_address, obj_size = (int(value, 16) for value in objects[0])

@@ -1,0 +1,755 @@
+diff --git a/include/multiplayer_save.h b/include/multiplayer_save.h
+index 37c90a3ef5..0aa32c9f60 100644
+--- a/include/multiplayer_save.h
++++ b/include/multiplayer_save.h
+@@ -10,10 +10,13 @@ enum MultiplayerSaveOpcode {
+     MP_SAVE_BIND = 1, MP_SAVE_BEGIN_EXPORT, MP_SAVE_READ, MP_SAVE_END,
+     MP_SAVE_BEGIN_IMPORT, MP_SAVE_WRITE, MP_SAVE_COMMIT, MP_SAVE_CANCEL, MP_SAVE_QUERY,
+     MP_SAVE_QUERY_OWNERSHIP, MP_SAVE_GRANT_OWNERSHIP,
++    MP_SAVE_BEGIN_TRADE_EXPORT, MP_SAVE_KEEP_TRADE, MP_SAVE_ABORT_TRADE,
++    MP_SAVE_RELEASE_TRADE, MP_SAVE_REBIND_TRADE, MP_SAVE_QUERY_TRADE,
+ };
+ enum MultiplayerSaveState {
+     MP_SAVE_UNBOUND, MP_SAVE_BOUND, MP_SAVE_EXPORTING, MP_SAVE_IMPORTING,
+     MP_SAVE_FINALIZING, MP_SAVE_RELOADING, MP_SAVE_COMMITTED, MP_SAVE_ERROR,
++    MP_SAVE_TRADE_HELD,
+ };
+ enum MultiplayerSaveStatus {
+     MP_SAVE_OK, MP_SAVE_BUSY, MP_SAVE_UNSAFE, MP_SAVE_MALFORMED, MP_SAVE_SESSION,
+@@ -47,6 +50,7 @@ struct MultiplayerSaveMailbox {
+     struct MultiplayerSaveControl response;
+ };
+ extern volatile struct MultiplayerSaveMailbox gMultiplayerSaveMailbox;
++extern const u32 gMultiplayerTradeAbiVersion;
+ void MultiplayerSave_Init(void);
+ void MultiplayerSave_Tick(void);
+ bool32 MultiplayerSave_IsHeld(void);
+diff --git a/src/multiplayer_save.c b/src/multiplayer_save.c
+index b4bb7a2dee..6205e76cc3 100644
+--- a/src/multiplayer_save.c
++++ b/src/multiplayer_save.c
+@@ -37,6 +37,7 @@ _Static_assert(sizeof(struct DaycareMon) == 140, "Pinned daycare size");
+ _Static_assert(sizeof(struct PokemonStorage) == 34144, "Pinned storage");
+ _Static_assert(sizeof(rng_value_t) == 16, "Pinned SFC32");
+ 
++const u32 gMultiplayerTradeAbiVersion = 1;
+ EWRAM_DATA volatile struct MultiplayerSaveMailbox gMultiplayerSaveMailbox = {0};
+ static EWRAM_DATA struct MultiplayerSaveControl sLastCommand = {0};
+ static EWRAM_DATA struct MultiplayerSaveControl sLastResponse = {0};
+@@ -68,6 +69,10 @@ static EWRAM_DATA bool8 sPending = FALSE;
+ static EWRAM_DATA bool8 sSavedResetDisabled = FALSE;
+ static EWRAM_DATA bool8 sCommitted = FALSE;
+ static EWRAM_DATA u8 sReloadStatus = MP_SAVE_OK;
++static EWRAM_DATA bool8 sTradeActive = FALSE;
++static EWRAM_DATA bool8 sTradeExpired = FALSE;
++static EWRAM_DATA bool8 sTradeImportStarted = FALSE;
++static EWRAM_DATA u32 sTradePreparedRevision = 0;
+ static const u16 sSectionSizes[14] = {3884, 3968, 3968, 3968, 3664, 3968, 3968, 3968, 3968, 3968, 3968, 3968, 3968, 2400};
+ // Bounds from this pinned build's map_groups.json and layouts.json.
+ static const u8 sMapCounts[] = {57,5,5,6,7,8,9,7,7,14,8,17,10,23,13,15,15,2,2,2,3,1,1,1,108,61,89,2,1,13,1,1,3,1,5,123,60,62,4,6,8,10,6,8,20,10,8,2,10,4,2,2,1,1,1,2,2,3,2,3,2,1,1,6,5,5,8,8,5,5,1,1,1,2,1};
+@@ -181,11 +186,13 @@ static void Release(void)
+     gSoftResetDisabled = sSavedResetDisabled;
+     sState = MP_SAVE_BOUND;
+     sPending = FALSE;
++    sTradeActive = FALSE; sTradeExpired = FALSE; sTradeImportStarted = FALSE;
+ }
+ 
+ static void Hold(u32 state, const struct MultiplayerSaveControl *command)
+ {
+-    sSavedResetDisabled = gSoftResetDisabled;
++    if (!MultiplayerSave_IsHeld())
++        sSavedResetDisabled = gSoftResetDisabled;
+     gSoftResetDisabled = TRUE;
+     sState = state;
+     memcpy(sRequestId, command->requestId, 16);
+@@ -219,7 +226,14 @@ static bool32 CancelImport(void)
+         sPending = FALSE;
+         return FALSE;
+     }
+-    Release();
++    if (sTradeActive)
++    {
++        sState = MP_SAVE_TRADE_HELD;
++        sPending = FALSE;
++        sOffset = 0; sCrc = 0;
++    }
++    else
++        Release();
+     return TRUE;
+ }
+ 
+@@ -397,6 +411,12 @@ void MultiplayerSave_Init(void)
+     memset((void *)&gMultiplayerSaveMailbox, 0, sizeof(gMultiplayerSaveMailbox));
+     sState = MP_SAVE_UNBOUND; sFrame = 0; sSeenGeneration = 0;
+     sIncarnation = 0; sSession = 0; sLastSeq = 0; sPending = FALSE;
++    sTradeActive = FALSE; sTradeExpired = FALSE; sTradeImportStarted = FALSE;
++    sTradePreparedRevision = 0;
++    sRevision = 0; sOffset = 0; sCrc = 0; sDeadline = 0; sCommitted = FALSE;
++    memset(sRequestId, 0, sizeof(sRequestId));
++    // Read the capability through volatile storage so section GC retains it.
++    (void)*(const volatile u32 *)&gMultiplayerTradeAbiVersion;
+     MultiplayerOwnership_InvalidateGrant();
+     // Retain the linker-visible ownership marker despite --gc-sections.
+     gMultiplayerSaveMailbox.abiVersion = *(const volatile u32 *)&gMultiplayerOwnershipAbi;
+@@ -404,6 +424,25 @@ void MultiplayerSave_Init(void)
+     gMultiplayerSaveMailbox.magic = MULTIPLAYER_SAVE_MAGIC;
+ }
+ 
++static void QueryData(u8 *data)
++{
++    PutU32(data, sState); PutU32(data + 4, sOffset); PutU32(data + 8, sCrc); PutU32(data + 12, gSaveCounter);
++    memcpy(data + 16, &gRngValue, 16); memcpy(data + 32, &gRng2Value, 16);
++}
++
++static void QueryTradeData(u8 *data)
++{
++    u32 flags = sTradeActive | sTradeExpired << 1 | sTradeImportStarted << 2;
++    PutU32(data, flags); PutU32(data + 4, sState);
++    if (sTradeActive)
++        memcpy(data + 8, sRequestId, 16);
++    else
++        memset(data + 8, 0, 16);
++    PutU32(data + 24, sSession); PutU32(data + 28, sIncarnation); PutU32(data + 32, sRevision);
++    PutU32(data + 36, sOffset); PutU32(data + 40, sCrc);
++    PutU32(data + 44, sTradeActive && !sTradeExpired ? max(0, (s32)(sDeadline - sFrame)) : 0);
++}
++
+ static void Handle(const struct MultiplayerSaveControl *command)
+ {
+     u8 data[80];
+@@ -415,6 +454,24 @@ static void Handle(const struct MultiplayerSaveControl *command)
+     {
+         PublishResponse(command, MP_SAVE_MALFORMED, NULL, 0, sOffset); return;
+     }
++    if (command->opcode == MP_SAVE_QUERY_TRADE)
++    {
++        // Recovery can observe a lost revision-transition ACK using its newer
++        // authenticated lease. Observation never changes the binding or cache.
++        if (sState == MP_SAVE_UNBOUND || command->incarnation != sIncarnation || command->sessionEpoch < sSession
++         || (sTradeActive && memcmp(command->requestId, sRequestId, 16)))
++            status = MP_SAVE_SESSION;
++        else if (command->length || command->offset)
++            status = MP_SAVE_MALFORMED;
++        else if (sPending)
++            status = MP_SAVE_BUSY;
++        else
++        {
++            QueryTradeData(data);
++            PublishResponse(command, MP_SAVE_OK, data, 48, sOffset); return;
++        }
++        PublishResponse(command, status, NULL, 0, sOffset); return;
++    }
+     if (command->opcode == MP_SAVE_BIND)
+     {
+         // A game process retains its binding fence across bridge reconnects.
+@@ -446,6 +503,36 @@ static void Handle(const struct MultiplayerSaveControl *command)
+         }
+         PublishResponse(command, status, NULL, 0, 0); return;
+     }
++    if (command->opcode == MP_SAVE_REBIND_TRADE)
++    {
++        if (!sTradeActive || command->incarnation != sIncarnation || command->sessionEpoch < sSession
++         || memcmp(command->requestId, sRequestId, 16) || command->revision != sRevision)
++            status = MP_SAVE_SESSION;
++        else if (command->sessionEpoch == sSession)
++        {
++            if (sLastSeq == 1 && sLastCommand.opcode == MP_SAVE_REBIND_TRADE
++             && !memcmp(command, &sLastCommand, sizeof(*command)))
++            {
++                struct MultiplayerSaveControl cached = sCachedResponse;
++                PublishResponse(&cached, cached.status, cached.data, cached.length, cached.offset);
++                return;
++            }
++            status = MP_SAVE_ORDER;
++        }
++        else if (sPending)
++            status = MP_SAVE_BUSY;
++        else if (command->length || command->offset || command->commandSeq != 1)
++            status = MP_SAVE_MALFORMED;
++        else
++        {
++            sSession = command->sessionEpoch; sLastSeq = 1; sLastCommand = *command;
++            sTradeExpired = FALSE; sDeadline = sFrame + 600;
++            MultiplayerOwnership_InvalidateGrant();
++            QueryData(data);
++            PublishResponse(command, MP_SAVE_OK, data, 48, sOffset); return;
++        }
++        PublishResponse(command, status, NULL, 0, sOffset); return;
++    }
+     if (command->incarnation != sIncarnation || command->sessionEpoch != sSession || sState == MP_SAVE_UNBOUND)
+     {
+         PublishResponse(command, MP_SAVE_SESSION, NULL, 0, sOffset); return;
+@@ -463,19 +550,43 @@ static void Handle(const struct MultiplayerSaveControl *command)
+     {
+         PublishResponse(command, sPending ? MP_SAVE_BUSY : MP_SAVE_ORDER, NULL, 0, sOffset); return;
+     }
+-    if (MultiplayerSave_IsHeld() && (memcmp(command->requestId, sRequestId, 16) || command->revision != sRevision))
++    if (MultiplayerSave_IsHeld() && (memcmp(command->requestId, sRequestId, 16)
++     || (command->revision != sRevision && !(sTradeActive && !sTradeImportStarted
++       && command->opcode == MP_SAVE_BEGIN_IMPORT && sRevision != 0xFFFFFFFF && command->revision == sRevision + 1))))
+     {
+         PublishResponse(command, MP_SAVE_SESSION, NULL, 0, sOffset); return;
+     }
++    if (sTradeActive && sTradeExpired && command->opcode != MP_SAVE_KEEP_TRADE
++     && command->opcode != MP_SAVE_QUERY_TRADE && command->opcode != MP_SAVE_QUERY)
++    {
++        PublishResponse(command, MP_SAVE_TIMEOUT, NULL, 0, sOffset); return;
++    }
+     sLastSeq = command->commandSeq; sLastCommand = *command;
+-    sDeadline = sFrame + 600;
++    if (!sTradeActive || (command->opcode != MP_SAVE_QUERY && command->opcode != MP_SAVE_QUERY_TRADE))
++        sDeadline = sFrame + 600;
+     switch (command->opcode)
+     {
++    case MP_SAVE_BEGIN_TRADE_EXPORT:
++        if (!command->revision || command->revision >= 0x7FFFFFFF) { status = MP_SAVE_ORDER; break; }
++        if (sTradeActive && !sTradeImportStarted && (sState == MP_SAVE_EXPORTING || sState == MP_SAVE_TRADE_HELD))
++        {
++            if (command->length || command->offset) { status = MP_SAVE_MALFORMED; break; }
++            // Restart a lost read buffer from the same frozen Flash snapshot.
++            // Never save again, mint again, or change the prepared revision.
++            sState = MP_SAVE_EXPORTING; sOffset = 0; sCrc = 0;
++            PutU32(data, gSaveCounter); PutU32(data + 4, gLastWrittenSector);
++            memcpy(data + 8, &gRngValue, 16); memcpy(data + 24, &gRng2Value, 16);
++            PublishResponse(command, MP_SAVE_OK, data, 40, 0); return;
++        }
++        // A fresh trade uses the same native save admission as ordinary export.
++        __attribute__((fallthrough));
+     case MP_SAVE_BEGIN_EXPORT:
+         if (sState != MP_SAVE_BOUND) { status = MP_SAVE_BUSY; break; }
+         if (command->length || command->offset) { status = MP_SAVE_MALFORMED; break; }
+         if (!FieldReady() || !gFlashMemoryPresent || !MultiplayerOwnership_CanSaveParty()) { status = MP_SAVE_UNSAFE; break; }
+         Hold(MP_SAVE_EXPORTING, command);
++        sTradeActive = command->opcode == MP_SAVE_BEGIN_TRADE_EXPORT;
++        sTradePreparedRevision = command->revision;
+         status = MultiplayerOwnership_PrepareExport();
+         if (status != MP_SAVE_OK) { Release(); break; }
+         SaveMapView();
+@@ -500,15 +611,23 @@ static void Handle(const struct MultiplayerSaveControl *command)
+         }
+         return;
+     case MP_SAVE_BEGIN_IMPORT:
+-        if (sState != MP_SAVE_BOUND) { status = MP_SAVE_BUSY; break; }
++        if (sState != MP_SAVE_BOUND && !(sTradeActive && (sState == MP_SAVE_TRADE_HELD
++         || (sTradeImportStarted && (sState == MP_SAVE_IMPORTING || sState == MP_SAVE_COMMITTED))))) { status = MP_SAVE_BUSY; break; }
+         if (command->length != 16 || command->offset) { status = MP_SAVE_MALFORMED; break; }
+-        if (!FieldReady() || !gFlashMemoryPresent) { status = MP_SAVE_UNSAFE; break; }
++        if ((!sTradeActive && !FieldReady()) || !gFlashMemoryPresent) { status = MP_SAVE_UNSAFE; break; }
++        if (sTradeActive && (sTradePreparedRevision == 0xFFFFFFFF || command->revision != sTradePreparedRevision + 1))
++            { status = MP_SAVE_ORDER; break; }
++        if (sTradeActive && sTradeImportStarted && (ReadU32(command->data) != sExpectedCrc
++         || ReadU32(command->data + 4) != sSourceCounter || ReadU32(command->data + 8) != sSourceRotation
++         || ReadU32(command->data + 12) != sTrainerId)) { status = MP_SAVE_ORDER; break; }
+         if (!LocalBankValid()) { status = MP_SAVE_VALIDATION; break; }
+         sTrainerId = ReadU32(command->data + 12);
+         if (sTrainerId != ReadU32(gSaveBlock2Ptr->playerTrainerId)) { status = MP_SAVE_OWNERSHIP; break; }
+         sSourceRotation = ReadU32(command->data + 8);
+         if (sSourceRotation >= 14) { status = MP_SAVE_MALFORMED; break; }
+         Hold(MP_SAVE_IMPORTING, command);
++        if (sTradeActive)
++            sTradeImportStarted = TRUE;
+         sExpectedCrc = ReadU32(command->data); sSourceCounter = ReadU32(command->data + 4);
+         sTargetCounter = gSaveCounter + 1; sTargetRotation = (gLastWrittenSector + 1) % 14;
+         memset(sBankIds, 0, sizeof(sBankIds)); memset(sBankErased, 0, sizeof(sBankErased));
+@@ -536,11 +655,17 @@ static void Handle(const struct MultiplayerSaveControl *command)
+         if ((sState != MP_SAVE_EXPORTING && sState != MP_SAVE_COMMITTED) || command->length || sOffset != 131072) { status = MP_SAVE_ORDER; break; }
+         if (sState == MP_SAVE_COMMITTED)
+         {
++            if (sTradeActive) { status = MP_SAVE_ORDER; break; }
+             sPending = TRUE; StartReload(MP_SAVE_OK); return;
+         }
+-        PutU32(data, sCrc); MultiplayerOwnership_Acknowledge(TRUE); Release();
++        PutU32(data, sCrc); MultiplayerOwnership_Acknowledge(TRUE);
++        if (sTradeActive)
++            sState = MP_SAVE_TRADE_HELD;
++        else
++            Release();
+         PublishResponse(command, MP_SAVE_OK, data, 4, sOffset); return;
+     case MP_SAVE_CANCEL:
++        if (sTradeActive) { status = MP_SAVE_ORDER; break; }
+         if (command->length) { status = MP_SAVE_MALFORMED; break; }
+         if (sState == MP_SAVE_IMPORTING)
+         {
+@@ -580,9 +705,25 @@ static void Handle(const struct MultiplayerSaveControl *command)
+         break;
+     case MP_SAVE_QUERY:
+         if (command->length) { status = MP_SAVE_MALFORMED; break; }
+-        PutU32(data, sState); PutU32(data + 4, sOffset); PutU32(data + 8, sCrc); PutU32(data + 12, gSaveCounter);
+-        memcpy(data + 16, &gRngValue, 16); memcpy(data + 32, &gRng2Value, 16);
++        QueryData(data);
+         PublishResponse(command, MP_SAVE_OK, data, 48, sOffset); return;
++    case MP_SAVE_KEEP_TRADE:
++        if (!sTradeActive) { status = MP_SAVE_ORDER; break; }
++        if (command->length || command->offset) { status = MP_SAVE_MALFORMED; break; }
++        sTradeExpired = FALSE;
++        QueryData(data);
++        PublishResponse(command, MP_SAVE_OK, data, 48, sOffset); return;
++    case MP_SAVE_ABORT_TRADE:
++        if (!sTradeActive || sTradeImportStarted || (sState != MP_SAVE_EXPORTING && sState != MP_SAVE_TRADE_HELD))
++            { status = MP_SAVE_ORDER; break; }
++        if (command->length || command->offset) { status = MP_SAVE_MALFORMED; break; }
++        Release();
++        PublishResponse(command, MP_SAVE_OK, NULL, 0, sOffset); return;
++    case MP_SAVE_RELEASE_TRADE:
++        if (!sTradeActive || !sTradeImportStarted || sState != MP_SAVE_COMMITTED || sOffset != 131072)
++            { status = MP_SAVE_ORDER; break; }
++        if (command->length || command->offset) { status = MP_SAVE_MALFORMED; break; }
++        sPending = TRUE; StartReload(MP_SAVE_OK); return;
+     default:
+         status = MP_SAVE_MALFORMED;
+     }
+@@ -632,8 +773,8 @@ void MultiplayerSave_Tick(void)
+         if (FieldReady())
+         {
+             PutU32(data, sCrc);
+-            if (sReloadStatus == MP_SAVE_OK && sLastCommand.opcode == MP_SAVE_END)
+-                MultiplayerOwnership_Acknowledge(FALSE);
++            if (sReloadStatus == MP_SAVE_OK && (sLastCommand.opcode == MP_SAVE_END || sLastCommand.opcode == MP_SAVE_RELEASE_TRADE))
++                MultiplayerOwnership_Acknowledge(sLastCommand.opcode == MP_SAVE_RELEASE_TRADE);
+             Release();
+             PublishResponse(&sLastCommand, sReloadStatus, sReloadStatus == MP_SAVE_OK ? data : NULL,
+                             sReloadStatus == MP_SAVE_OK ? 4 : 0, sOffset);
+@@ -641,7 +782,13 @@ void MultiplayerSave_Tick(void)
+     }
+     else if (MultiplayerSave_IsHeld() && sState != MP_SAVE_ERROR && (s32)(sFrame - sDeadline) > 0)
+     {
+-        if (sState == MP_SAVE_COMMITTED)
++        if (sTradeActive)
++        {
++            // A lost coordinator cannot decide whether the paired store committed.
++            // Preserve the stream and cached ACK; only KEEP/REBIND restores commands.
++            sTradeExpired = TRUE;
++        }
++        else if (sState == MP_SAVE_COMMITTED)
+         {
+             sPending = TRUE; StartReload(MP_SAVE_TIMEOUT);
+         }
+diff --git a/test/multiplayer_trade.c b/test/multiplayer_trade.c
+new file mode 100644
+index 0000000000..3e4f2b5b5e
+--- /dev/null
++++ b/test/multiplayer_trade.c
+@@ -0,0 +1,401 @@
++#include "global.h"
++#include "multiplayer_save.h"
++#include "multiplayer_ownership.h"
++#include "pokemon.h"
++#include "pokemon_storage_system.h"
++#include "main.h"
++#include "overworld.h"
++#include "load_save.h"
++#include "save.h"
++#include "fieldmap.h"
++#include "script.h"
++#include "palette.h"
++#include "sprite.h"
++#include "random.h"
++#include "link.h"
++#include "link_rfu.h"
++#include "librfu.h"
++#include "trainer_hill.h"
++#include "event_data.h"
++#include "string_util.h"
++#include "agb_flash.h"
++#include "gba/flash_internal.h"
++#include "constants/maps.h"
++#include "constants/map_groups.h"
++#include "constants/layouts.h"
++#include "test/test.h"
++
++static const u8 sTrainerName[] = _("TEST");
++
++struct TradeFixture {
++    struct MultiplayerSaveControl command;
++    MainCallback cb1, cb2;
++    struct MapHeader header;
++    struct PlayerAvatar avatar;
++    struct ObjectEvent object;
++    struct RfuLinkStatus *rfu;
++    u32 generation, counter, rotation, crc;
++    u8 wireless, received;
++    bool8 spriteInUse, resetDisabled;
++};
++
++static u32 TestCrc(u32 crc, const u8 *data, u32 size)
++{
++    u32 i;
++    crc ^= 0xFFFFFFFF;
++    while (size--)
++    {
++        crc ^= *data++;
++        for (i = 0; i < 8; i++)
++            crc = (crc >> 1) ^ (0xEDB88320 & -(crc & 1));
++    }
++    return crc ^ 0xFFFFFFFF;
++}
++
++static u32 Word(const volatile u8 *data)
++{
++    return data[0] | data[1] << 8 | data[2] << 16 | (u32)data[3] << 24;
++}
++
++static void PutWord(u8 *data, u32 value)
++{
++    data[0] = value; data[1] = value >> 8; data[2] = value >> 16; data[3] = value >> 24;
++}
++
++static u8 Submit(struct TradeFixture *f)
++{
++    f->command.chunkCrc32 = TestCrc(0, f->command.data, f->command.length);
++    f->generation += 2;
++    gMultiplayerSaveMailbox.command = f->command;
++    gMultiplayerSaveMailbox.commandGeneration = f->generation;
++    MultiplayerSave_Tick();
++    return gMultiplayerSaveMailbox.response.status;
++}
++
++static u8 Send(struct TradeFixture *f, u8 opcode, u32 offset)
++{
++    f->command.commandSeq++;
++    f->command.opcode = opcode; f->command.offset = offset;
++    f->command.length = 0; memset(f->command.data, 0, 192);
++    return Submit(f);
++}
++
++static void FieldCallbacks(void)
++{
++    gMain.callback1 = CB1_Overworld; gMain.callback2 = CB2_Overworld;
++}
++
++static void SetUp(struct TradeFixture *f)
++{
++    u32 i;
++    memset(f, 0, sizeof(*f));
++    f->cb1 = gMain.callback1; f->cb2 = gMain.callback2;
++    f->header = gMapHeader; f->avatar = gPlayerAvatar; f->object = gObjectEvents[0];
++    f->rfu = gRfuLinkStatus; f->wireless = gWirelessCommType;
++    f->received = gReceivedRemoteLinkPlayers; f->spriteInUse = gSprites[0].inUse;
++    f->resetDisabled = gSoftResetDisabled;
++    ZeroPlayerPartyMons(); memset(gPokemonStoragePtr, 0, sizeof(*gPokemonStoragePtr));
++    memset(gSaveBlock1Ptr, 0, sizeof(*gSaveBlock1Ptr));
++    memset(gSaveBlock2Ptr, 0, sizeof(*gSaveBlock2Ptr));
++    memset(gSaveBlock3Ptr, 0, sizeof(*gSaveBlock3Ptr));
++    MultiplayerOwnership_Loaded();
++    gSaveBlock1Ptr->location.mapGroup = MAP_GROUP(MAP_OLDALE_TOWN);
++    gSaveBlock1Ptr->location.mapNum = MAP_NUM(MAP_OLDALE_TOWN);
++    gSaveBlock1Ptr->mapLayoutId = LAYOUT_OLDALE_TOWN;
++    StringCopy(gSaveBlock2Ptr->playerName, sTrainerName);
++    gSaveBlock2Ptr->playerTrainerId[0] = 42;
++    CreateMon(&gParties[B_TRAINER_PLAYER][0], SPECIES_TORCHIC, 7, 0, OTID_STRUCT_PLAYER_ID);
++    CalculateMonStats(&gParties[B_TRAINER_PLAYER][0]);
++    CalculatePlayerPartyCount();
++    FieldCallbacks(); gMain.inBattle = FALSE;
++    gMapHeader.mapLayout = (const void *)1; gMapHeader.mapLayoutId = LAYOUT_OLDALE_TOWN;
++    memset(&gPlayerAvatar, 0, sizeof(gPlayerAvatar));
++    memset(&gObjectEvents[0], 0, sizeof(gObjectEvents[0]));
++    gObjectEvents[0].active = TRUE; gObjectEvents[0].isPlayer = TRUE;
++    gSprites[0].inUse = TRUE; gPaletteFade.active = FALSE;
++    ScriptContext_Init(); UnlockPlayerFieldControls();
++    gTrainerHillVBlankCounter = NULL; FlagClear(FLAG_SYS_SAFARI_MODE);
++    gWirelessCommType = 1; gReceivedRemoteLinkPlayers = FALSE;
++    gRfu.callback = NULL; gRfu.playerExchangeActive = FALSE;
++    gRfu.isShuttingDown = FALSE; gRfu.linkLossRecoveryState = 0; gRfuLinkStatus = NULL;
++    gSoftResetDisabled = FALSE;
++    CheckForFlashMemory(); EXPECT(gFlashMemoryPresent);
++    for (i = 0; i < 32; i++)
++        EXPECT_EQ(EraseFlashSector(i), 0);
++    Save_ResetSaveCounters();
++    MultiplayerSave_Init();
++    f->command.incarnation = 11; f->command.sessionEpoch = 1;
++    f->command.requestId[0] = 1; f->command.totalSize = 131072;
++    EXPECT_EQ(Send(f, MP_SAVE_BIND, 0), MP_SAVE_OK);
++    f->command.commandSeq++; f->command.opcode = MP_SAVE_GRANT_OWNERSHIP;
++    f->command.length = 60; f->command.data[0] = 1;
++    f->command.data[16] = 2; f->command.data[32] = 3;
++    PutWord(f->command.data + 48, 1); PutWord(f->command.data + 52, 33);
++    PutWord(f->command.data + 56, 1);
++    EXPECT_EQ(Submit(f), MP_SAVE_OK);
++    memset(f->command.requestId, 0, 16); f->command.requestId[0] = 9;
++    f->command.revision = 7;
++}
++
++static void TearDown(struct TradeFixture *f)
++{
++    MultiplayerSave_Init();
++    gMain.callback1 = f->cb1; gMain.callback2 = f->cb2;
++    gMapHeader = f->header; gPlayerAvatar = f->avatar; gObjectEvents[0] = f->object;
++    gRfuLinkStatus = f->rfu; gWirelessCommType = f->wireless;
++    gReceivedRemoteLinkPlayers = f->received; gSprites[0].inUse = f->spriteInUse;
++    gSoftResetDisabled = f->resetDisabled;
++}
++
++static void BeginTrade(struct TradeFixture *f)
++{
++    EXPECT_EQ(Send(f, MP_SAVE_BEGIN_TRADE_EXPORT, 0), MP_SAVE_OK);
++    EXPECT_EQ(gMultiplayerSaveMailbox.response.length, 40);
++    f->counter = Word(gMultiplayerSaveMailbox.response.data);
++    f->rotation = Word(gMultiplayerSaveMailbox.response.data + 4);
++    EXPECT_EQ(gMultiplayerSaveMailbox.state, MP_SAVE_EXPORTING);
++    EXPECT(MultiplayerSave_IsHeld()); EXPECT(MultiplayerSave_PauseClocks());
++    EXPECT(gSoftResetDisabled);
++}
++
++static u32 ReadAll(struct TradeFixture *f, u32 start)
++{
++    u32 i, crc = 0;
++    for (i = start; i < 131072; i += 128)
++    {
++        u8 chunk[128];
++        EXPECT_EQ(Send(f, MP_SAVE_READ, i), MP_SAVE_OK);
++        EXPECT_EQ(gMultiplayerSaveMailbox.response.length, 128);
++        EXPECT_EQ(gMultiplayerSaveMailbox.response.offset, i);
++        memcpy(chunk, (const void *)gMultiplayerSaveMailbox.response.data, 128);
++        crc = TestCrc(crc, chunk, 128);
++    }
++    return crc;
++}
++
++static void PrepareTrade(struct TradeFixture *f)
++{
++    BeginTrade(f);
++    f->crc = ReadAll(f, 0);
++    EXPECT_EQ(Send(f, MP_SAVE_END, 0), MP_SAVE_OK);
++    EXPECT_EQ(Word(gMultiplayerSaveMailbox.response.data), f->crc);
++    EXPECT_EQ(gMultiplayerSaveMailbox.state, MP_SAVE_TRADE_HELD);
++    EXPECT(MultiplayerSave_PauseClocks()); EXPECT(gSoftResetDisabled);
++}
++
++static u8 BeginImport(struct TradeFixture *f)
++{
++    f->command.revision = 8; f->command.commandSeq++;
++    f->command.opcode = MP_SAVE_BEGIN_IMPORT; f->command.offset = 0;
++    f->command.length = 16; memset(f->command.data, 0, 192);
++    PutWord(f->command.data, f->crc); PutWord(f->command.data + 4, f->counter);
++    PutWord(f->command.data + 8, f->rotation); PutWord(f->command.data + 12, 42);
++    return Submit(f);
++}
++
++static u8 WriteSource(struct TradeFixture *f, u32 offset, bool32 corrupt)
++{
++    f->command.commandSeq++; f->command.opcode = MP_SAVE_WRITE;
++    f->command.offset = offset; f->command.length = 128;
++    memset(f->command.data, 0, 192);
++    // First export is counter 1. Its old bank is blank; the active source bank
++    // remains untouched throughout inactive-bank staging.
++    if (offset < 14 * 4096)
++        memset(f->command.data, 0xFF, 128);
++    else
++        ReadFlash(offset / 4096, offset & 4095, f->command.data, 128);
++    if (corrupt)
++        f->command.data[0] ^= 1;
++    return Submit(f);
++}
++
++TEST("Multiplayer trade: unsafe admission refuses before freezing or assigning")
++{
++    struct TradeFixture f;
++    SetUp(&f);
++    f.command.revision = 0;
++    EXPECT_EQ(Send(&f, MP_SAVE_BEGIN_TRADE_EXPORT, 0), MP_SAVE_ORDER);
++    f.command.revision = 0x7FFFFFFF;
++    EXPECT_EQ(Send(&f, MP_SAVE_BEGIN_TRADE_EXPORT, 0), MP_SAVE_ORDER);
++    EXPECT(!MultiplayerSave_IsHeld()); EXPECT(!gSoftResetDisabled);
++    f.command.revision = 7;
++    gMain.inBattle = TRUE;
++    EXPECT_EQ(Send(&f, MP_SAVE_BEGIN_TRADE_EXPORT, 0), MP_SAVE_UNSAFE);
++    EXPECT(!MultiplayerSave_IsHeld()); EXPECT(!gSoftResetDisabled);
++    EXPECT_EQ(GetMonData(&gParties[B_TRAINER_PLAYER][0], MON_DATA_MULTIPLAYER_ID), 0);
++    gMain.inBattle = FALSE;
++    TearDown(&f);
++}
++
++TEST("Multiplayer trade: expiration retains frozen stream and cached ACK until authoritative abort")
++{
++    struct TradeFixture f;
++    u32 i;
++    u8 chunk[128];
++    rng_value_t rng, rng2;
++    SetUp(&f); BeginTrade(&f);
++    rng = gRngValue; rng2 = gRng2Value;
++    EXPECT_EQ(Send(&f, MP_SAVE_READ, 0), MP_SAVE_OK);
++    memcpy(chunk, (const void *)gMultiplayerSaveMailbox.response.data, 128);
++    for (i = 0; i < 602; i++) MultiplayerSave_Tick();
++    EXPECT(MultiplayerSave_PauseClocks()); EXPECT(gSoftResetDisabled);
++    EXPECT_EQ(Submit(&f), MP_SAVE_OK); // exact lost-ACK replay, even after expiration
++    EXPECT_EQ(memcmp(chunk, (const void *)gMultiplayerSaveMailbox.response.data, 128), 0);
++    EXPECT_EQ(Send(&f, MP_SAVE_QUERY_TRADE, 0), MP_SAVE_OK);
++    EXPECT_EQ(Word(gMultiplayerSaveMailbox.response.data), 3);
++    EXPECT_EQ(Word(gMultiplayerSaveMailbox.response.data + 36), 128);
++    EXPECT_EQ(Send(&f, MP_SAVE_ABORT_TRADE, 0), MP_SAVE_TIMEOUT);
++    EXPECT_EQ(Send(&f, MP_SAVE_KEEP_TRADE, 0), MP_SAVE_OK);
++    EXPECT_EQ(Send(&f, MP_SAVE_CANCEL, 0), MP_SAVE_ORDER);
++    f.command.requestId[0] = 8;
++    EXPECT_EQ(Send(&f, MP_SAVE_ABORT_TRADE, 0), MP_SAVE_SESSION);
++    f.command.requestId[0] = 9;
++    EXPECT_EQ(Send(&f, MP_SAVE_ABORT_TRADE, 0), MP_SAVE_OK);
++    EXPECT(!MultiplayerSave_IsHeld()); EXPECT(!gSoftResetDisabled);
++    EXPECT_EQ(memcmp(&rng, &gRngValue, 16), 0); EXPECT_EQ(memcmp(&rng2, &gRng2Value, 16), 0);
++    TearDown(&f);
++}
++
++TEST("Multiplayer trade: export acknowledgment stays held and newer lease rebind preserves exact transaction")
++{
++    struct TradeFixture f;
++    struct MultiplayerSaveControl rebind;
++    u32 i;
++    SetUp(&f); PrepareTrade(&f);
++    // A read-only recovery probe may use a newly authenticated lease and an
++    // unknown revision, without fencing away the original binding or ACK.
++    f.command.sessionEpoch = 2; f.command.revision = 0;
++    EXPECT_EQ(Send(&f, MP_SAVE_QUERY_TRADE, 0), MP_SAVE_OK);
++    EXPECT_EQ(Word(gMultiplayerSaveMailbox.response.data + 24), 1);
++    EXPECT_EQ(Word(gMultiplayerSaveMailbox.response.data + 32), 7);
++    f.command.sessionEpoch = 1; f.command.revision = 7;
++    EXPECT_EQ(Send(&f, MP_SAVE_KEEP_TRADE, 0), MP_SAVE_OK);
++    f.command.sessionEpoch = 2; f.command.commandSeq = 1;
++    f.command.opcode = MP_SAVE_REBIND_TRADE;
++    EXPECT_EQ(Submit(&f), MP_SAVE_OK);
++    rebind = f.command;
++    EXPECT_EQ(gMultiplayerSaveMailbox.response.length, 48);
++    EXPECT_EQ(Word(gMultiplayerSaveMailbox.response.data), MP_SAVE_TRADE_HELD);
++    EXPECT_EQ(Word(gMultiplayerSaveMailbox.response.data + 4), 131072);
++    EXPECT_EQ(Submit(&f), MP_SAVE_OK);
++    f.command.incarnation++;
++    EXPECT_EQ(Submit(&f), MP_SAVE_SESSION); f.command = rebind;
++    f.command.sessionEpoch = 1;
++    EXPECT_EQ(Submit(&f), MP_SAVE_SESSION); f.command = rebind;
++    f.command.commandSeq = 2;
++    EXPECT_EQ(Submit(&f), MP_SAVE_ORDER);
++    EXPECT_EQ(Send(&f, MP_SAVE_QUERY_TRADE, 0), MP_SAVE_OK);
++    EXPECT_EQ(Word(gMultiplayerSaveMailbox.response.data), 1);
++    EXPECT_EQ(Word(gMultiplayerSaveMailbox.response.data + 24), 2);
++    EXPECT_EQ(Word(gMultiplayerSaveMailbox.response.data + 28), 11);
++    f.command.sessionEpoch = 3; f.command.revision = 0; f.command.commandSeq = 1;
++    memset(f.command.requestId, 0, 16); f.command.requestId[0] = 4;
++    f.command.opcode = MP_SAVE_BIND;
++    EXPECT_EQ(Submit(&f), MP_SAVE_BUSY);
++    f.command = rebind; f.command.commandSeq = 3;
++    for (i = 0; i < 602; i++) MultiplayerSave_Tick();
++    EXPECT_EQ(Send(&f, MP_SAVE_KEEP_TRADE, 0), MP_SAVE_OK);
++    EXPECT_EQ(Send(&f, MP_SAVE_ABORT_TRADE, 0), MP_SAVE_OK);
++    EXPECT(!MultiplayerSave_IsHeld()); EXPECT(!gSoftResetDisabled);
++    TearDown(&f);
++}
++
++TEST("Multiplayer trade: restarted export rereads the same frozen snapshot without saving or consuming RNG")
++{
++    struct TradeFixture f;
++    rng_value_t rng, rng2;
++    u32 crc;
++    u8 first[128];
++    SetUp(&f); BeginTrade(&f);
++    rng = gRngValue; rng2 = gRng2Value;
++    EXPECT_EQ(Send(&f, MP_SAVE_READ, 0), MP_SAVE_OK);
++    memcpy(first, (const void *)gMultiplayerSaveMailbox.response.data, 128);
++    EXPECT_EQ(Send(&f, MP_SAVE_BEGIN_TRADE_EXPORT, 0), MP_SAVE_OK);
++    EXPECT_EQ(Word(gMultiplayerSaveMailbox.response.data), f.counter);
++    EXPECT_EQ(gSaveCounter, f.counter);
++    EXPECT_EQ(Send(&f, MP_SAVE_READ, 0), MP_SAVE_OK);
++    EXPECT_EQ(memcmp(first, (const void *)gMultiplayerSaveMailbox.response.data, 128), 0);
++    EXPECT_EQ(Send(&f, MP_SAVE_BEGIN_TRADE_EXPORT, 0), MP_SAVE_OK);
++    crc = ReadAll(&f, 0);
++    EXPECT_EQ(Send(&f, MP_SAVE_END, 0), MP_SAVE_OK);
++    EXPECT_EQ(Word(gMultiplayerSaveMailbox.response.data), crc);
++    EXPECT_EQ(Send(&f, MP_SAVE_BEGIN_TRADE_EXPORT, 0), MP_SAVE_OK);
++    EXPECT_EQ(ReadAll(&f, 0), crc);
++    EXPECT_EQ(gSaveCounter, f.counter); EXPECT_EQ(gLastWrittenSector, f.rotation);
++    EXPECT_EQ(memcmp(&rng, &gRngValue, 16), 0); EXPECT_EQ(memcmp(&rng2, &gRng2Value, 16), 0);
++    EXPECT_EQ(Send(&f, MP_SAVE_END, 0), MP_SAVE_OK);
++    EXPECT_EQ(Send(&f, MP_SAVE_ABORT_TRADE, 0), MP_SAVE_OK);
++    TearDown(&f);
++}
++
++TEST("Multiplayer trade: staging failure stays held and exact postimage retry requires verified final release")
++{
++    struct TradeFixture f;
++    u32 i, postCrc, identity;
++    SetUp(&f); PrepareTrade(&f);
++    identity = GetMonData(&gParties[B_TRAINER_PLAYER][0], MON_DATA_MULTIPLAYER_ID);
++    EXPECT_EQ(f.counter, 1);
++    EXPECT_EQ(BeginImport(&f), MP_SAVE_OK);
++    EXPECT_EQ(Send(&f, MP_SAVE_ABORT_TRADE, 0), MP_SAVE_ORDER);
++    EXPECT_EQ(Send(&f, MP_SAVE_CANCEL, 0), MP_SAVE_ORDER);
++    for (i = 0; i < 15 * 4096; i += 128)
++    {
++        u8 status = WriteSource(&f, i, i == 14 * 4096);
++        EXPECT_EQ(status, i == 15 * 4096 - 128 ? MP_SAVE_VALIDATION : MP_SAVE_OK);
++    }
++    EXPECT_EQ(gMultiplayerSaveMailbox.state, MP_SAVE_TRADE_HELD);
++    EXPECT(MultiplayerSave_PauseClocks()); EXPECT(gSoftResetDisabled);
++    EXPECT_EQ(Send(&f, MP_SAVE_QUERY_TRADE, 0), MP_SAVE_OK);
++    EXPECT_EQ(Word(gMultiplayerSaveMailbox.response.data), 5);
++    EXPECT_EQ(Send(&f, MP_SAVE_ABORT_TRADE, 0), MP_SAVE_ORDER);
++    EXPECT_EQ(BeginImport(&f), MP_SAVE_OK);
++    for (i = 0; i < 131072; i += 128)
++    {
++        u8 status = WriteSource(&f, i, FALSE);
++        if (status != MP_SAVE_OK)
++            Test_MgbaPrintf("write offset %d status %d state %d", i, status, gMultiplayerSaveMailbox.state);
++        EXPECT_EQ(status, MP_SAVE_OK);
++    }
++    Send(&f, MP_SAVE_COMMIT, 0);
++    EXPECT_EQ(gMultiplayerSaveMailbox.state, MP_SAVE_FINALIZING);
++    for (i = 0; i < 14; i++) MultiplayerSave_Tick();
++    EXPECT_EQ(gMultiplayerSaveMailbox.response.status, MP_SAVE_OK);
++    EXPECT_EQ(gMultiplayerSaveMailbox.state, MP_SAVE_COMMITTED);
++    EXPECT(MultiplayerSave_PauseClocks()); EXPECT(gSoftResetDisabled);
++    EXPECT_EQ(GetMonData(&gParties[B_TRAINER_PLAYER][0], MON_DATA_MULTIPLAYER_ID), identity);
++    EXPECT_EQ(Send(&f, MP_SAVE_RELEASE_TRADE, 0), MP_SAVE_ORDER);
++    postCrc = ReadAll(&f, 0);
++    EXPECT_EQ(Send(&f, MP_SAVE_END, 0), MP_SAVE_ORDER);
++    EXPECT_EQ(Send(&f, MP_SAVE_CANCEL, 0), MP_SAVE_ORDER);
++    Send(&f, MP_SAVE_RELEASE_TRADE, 0);
++    EXPECT_EQ(gMultiplayerSaveMailbox.state, MP_SAVE_RELOADING);
++    EXPECT(gMain.callback2 == CB2_ContinueSavedGame);
++    EXPECT(MultiplayerSave_IsHeld()); EXPECT(gSoftResetDisabled);
++    // Callback execution itself is covered by actual-core proof; the mailbox
++    // must wait for normal field readiness before publishing its release ACK.
++    FieldCallbacks(); MultiplayerSave_Tick();
++    EXPECT_EQ(gMultiplayerSaveMailbox.response.status, MP_SAVE_OK);
++    EXPECT_EQ(Word(gMultiplayerSaveMailbox.response.data), postCrc);
++    EXPECT(!MultiplayerSave_IsHeld()); EXPECT(!gSoftResetDisabled);
++    EXPECT_EQ(Submit(&f), MP_SAVE_OK); // final-release lost ACK is idempotent
++    EXPECT(!MultiplayerSave_IsHeld());
++    TearDown(&f);
++}
++
++TEST("Multiplayer trade: ordinary checkpoint export and timeout retain their existing behavior")
++{
++    struct TradeFixture f;
++    u32 i;
++    SetUp(&f);
++    EXPECT_EQ(Send(&f, MP_SAVE_BEGIN_EXPORT, 0), MP_SAVE_OK);
++    ReadAll(&f, 0);
++    EXPECT_EQ(Send(&f, MP_SAVE_END, 0), MP_SAVE_OK);
++    EXPECT(!MultiplayerSave_IsHeld()); EXPECT(!gSoftResetDisabled);
++    // A regular export still times out to normal gameplay.
++    f.command.requestId[0] = 10; f.command.revision = 8;
++    EXPECT_EQ(Send(&f, MP_SAVE_BEGIN_EXPORT, 0), MP_SAVE_OK);
++    for (i = 0; i < 602; i++) MultiplayerSave_Tick();
++    EXPECT(!MultiplayerSave_IsHeld()); EXPECT(!gSoftResetDisabled);
++    EXPECT_EQ(gMultiplayerSaveMailbox.response.status, MP_SAVE_TIMEOUT);
++    TearDown(&f);
++}
+diff --git a/test/test_runner.c b/test/test_runner.c
+index bb2b0b0072..92ee5a5e54 100644
+--- a/test/test_runner.c
++++ b/test/test_runner.c
+@@ -4,6 +4,7 @@
+ #include "gpu_regs.h"
+ #include "load_save.h"
+ #include "main.h"
++#include "multiplayer_save.h"
+ #include "malloc.h"
+ #include "random.h"
+ #include "task.h"
+@@ -722,6 +723,9 @@ static NAKED void JumpToAgbMainLoop(void)
+ 
+ static void ReinitCallbacks(void)
+ {
++    // A failed held-mailbox assertion must not freeze the reporting callback.
++    MultiplayerSave_Init();
++    gSoftResetDisabled = FALSE;
+     gMain.callback1 = NULL;
+     SetMainCallback2(CB2_TestRunner);
+     gMain.vblankCallback = NULL;

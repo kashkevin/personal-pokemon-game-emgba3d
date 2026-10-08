@@ -101,6 +101,39 @@ class SaveManifestTests(unittest.TestCase):
             with self.subTest(symbols=extra), self.assertRaises(ValueError):
                 self.generate(extra)
 
+    def test_trade_capability_requires_owned_build_and_verifies_rom_constant(self):
+        owned = "02021000 00000200 B gMultiplayerSaveMailbox\n080000c0 00000004 R gMultiplayerOwnershipAbi\n"
+        trade = "080000c4 00000004 R gMultiplayerTradeAbiVersion\n"
+        with self.rom.open("r+b") as rom:
+            rom.seek(192)
+            rom.write(b"\x01\0\0\0" * 2)
+        with self.assertRaises(ValueError):
+            self.generate(trade)
+        generated = self.generate(owned + trade)
+        self.verify(generated)
+        self.assertEqual(generated["trade_abi_version"], 1)
+        self.assertEqual(generated["trade_abi_address"], 0x080000c4)
+        self.assertIn("trade_abi=1, trade_abi_address=", self.configure(generated))
+        for field in ("trade_abi_version", "trade_abi_address", "ownership_abi_version", "save_profile"):
+            broken = dict(generated)
+            del broken[field]
+            for check in (self.verify, self.configure):
+                with self.subTest(field=field, check=check.__name__), self.assertRaises(ValueError):
+                    check(broken)
+        for changes in ({"trade_abi_version": True}, {"trade_abi_version": 2},
+                {"trade_abi_address": True}, {"trade_abi_address": 0x080000c5},
+                {"trade_abi_address": 0x07fffffc}, {"trade_abi_address": 0x0a000000}):
+            for check in (self.verify, self.configure):
+                with self.subTest(changes=changes, check=check.__name__), self.assertRaises(ValueError):
+                    check({**generated, **changes})
+        # A matching SHA alone cannot invent a trade feature on a legacy ROM.
+        with self.assertRaises(ValueError):
+            self.verify({**generated, "trade_abi_address": 0x080000c8})
+        for symbol in (trade + trade, trade.replace("00000004", "00000008"),
+                       trade.replace("080000c4", "080000c5"), trade.replace("080000c4", "080000c8")):
+            with self.assertRaises(ValueError):
+                self.generate(owned + symbol)
+
     def test_all_optional_fields_required_in_both_validators(self):
         for missing in SAVE_FIELDS:
             value = {**self.manifest, **SAVE_FIELDS}

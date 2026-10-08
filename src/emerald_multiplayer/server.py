@@ -23,6 +23,7 @@ from .protocol import (
     validate_identity, validate_presence, validate_checkpoint_common, validate_checkpoint_request,
 )
 from .storage import StorageError
+from .trade_protocol import TRADE_TYPES, validate_trade_common, validate_trade_request
 
 if TYPE_CHECKING:
     from .storage import Checkpoint, CheckpointStore, WorldMetadata
@@ -174,7 +175,8 @@ class WorldServer:
     is no unauthenticated network registration endpoint or public transport mode.
     """
 
-    def __init__(self, config: ServerConfig, *, store: CheckpointStore | None = None) -> None:
+    def __init__(self, config: ServerConfig, *, store: CheckpointStore | None = None,
+                 development_trades: bool = False) -> None:
         self.config = config
         self.store = store
         self._world_metadata: WorldMetadata | None = None
@@ -190,6 +192,17 @@ class WorldServer:
                 if not isinstance(store, OwnershipCheckpointStore):
                     raise ValueError("ownership profile requires an explicit ownership store")
         self.sessions: dict[str, PlayerSession] = {}
+        # Explicit opt-in for integration proofs. Native side effects and the
+        # cold-start recovery gate must pass before this becomes player-facing.
+        self.trade_desk = None
+        if type(development_trades) is not bool:
+            raise ValueError("development_trades must be a boolean")
+        if development_trades:
+            from .trade_desk import TradeDesk
+            from .trade_storage import TradeCheckpointStore
+            if not isinstance(store, TradeCheckpointStore):
+                raise ValueError("development trades require an explicit schema-3 world")
+            self.trade_desk = TradeDesk(store, self._connected_lease)
         self.world_seq = 0
         self._session_epoch = 0
         self._server: asyncio.Server | None = None
@@ -205,6 +218,10 @@ class WorldServer:
             raise RuntimeError("server is not listening")
         address = self._server.sockets[0].getsockname()
         return address[0], address[1]
+
+    def _connected_lease(self, player_id: str) -> int | None:
+        session = self.sessions.get(player_id)
+        return session.session_epoch if session is not None and not session.closed else None
 
     async def start(self, host: str = "127.0.0.1", port: int = 8765, *, allow_lan: bool = False) -> None:
         if self._server is not None:
@@ -392,6 +409,14 @@ class WorldServer:
             else:
                 self._control(session, {**heartbeat, "type": "pong"})
             session.last_seen = now
+        elif isinstance(kind, str) and kind in TRADE_TYPES and self.store is not None:
+            validate_trade_common(message, session.session_epoch)
+            try:
+                request = validate_trade_request(message, session.session_epoch)
+                session.last_seen = now
+                self._trade(session, request)
+            except (ProtocolError, StorageError) as error:
+                self._trade_reply(session, message, error=error)
         elif isinstance(kind, str) and kind in CHECKPOINT_TYPES and self.store is not None:
             # Invalid lease/correlation fields cannot safely receive an RPC reply.
             validate_checkpoint_common(message, session.session_epoch)
@@ -414,6 +439,45 @@ class WorldServer:
             "build_id": checkpoint.build_id, "ruleset_id": checkpoint.ruleset_id,
             "save_profile": checkpoint.save_profile,
         }
+
+    def _trade_reply(self, session, request, *, error=None, **fields):
+        assert self._world_metadata is not None
+        self._control(session, dict(
+            type="trade_error" if error is not None else "trade_result",
+            protocol=PROTOCOL_VERSION, session_epoch=session.session_epoch,
+            request_id=request["request_id"], operation=request["type"].removeprefix("trade_"),
+            world_id=self._world_metadata.world_id, player_id=session.player_id,
+            **({"code": error.code, "message": error.message} if error is not None else fields)))
+
+    def _trade(self, session, request):
+        if self.trade_desk is None:
+            raise ProtocolError("trade_disabled", "this development world has not enabled the trade proof")
+        desk, actor = self.trade_desk, (session.player_id, session.session_epoch)
+        kind = request["type"].removeprefix("trade_")
+        if kind == "pending":
+            self._trade_reply(session, request, recoveries=[dict(
+                transaction_id=r.transaction_id, sequence=r.sequence,
+                outcome_fingerprint=r.outcome_fingerprint,
+                checkpoint=self._checkpoint_metadata(r.checkpoint))
+                for r in desk.store.pending_trade_recovery(*actor)])
+            return
+        txid = request["transaction_id"]
+        if kind == "ack":
+            desk.store.acknowledge_trade(*actor, txid, request["revision"], request["sha256"])
+            result = dict(transaction_id=txid, state="acknowledged",
+                          revision=request["revision"], sha256=request["sha256"])
+        elif kind == "open":
+            result = desk.open(*actor, request["peer"], txid)
+        elif kind == "offer":
+            result = desk.offer(*actor, txid, request["generation"], request["revision"],
+                                request["sha256"], request["serial"])
+        elif kind == "confirm":
+            result = desk.confirm(*actor, txid, request["generation"], request["fingerprint"])
+        elif kind == "cancel":
+            result = desk.cancel(*actor, txid, request["generation"])
+        else:
+            result = desk.status(*actor, txid)
+        self._trade_reply(session, request, trade=result)
 
     def _checkpoint_reply(self, session: PlayerSession, request: dict[str, Any], **fields: Any) -> None:
         self._control(session, {

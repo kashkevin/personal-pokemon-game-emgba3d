@@ -34,9 +34,22 @@ def configure(manifest: dict, token: str, port: int, bridge: str) -> str:
                 or not (save_address + 512 <= address or address + 128 <= save_address)):
             raise ValueError("Invalid or overlapping save mailbox")
         save_config = f", save_address={save_address}, save_size=512, save_abi=1"
+    trade_config = ""
+    trade_fields = {"trade_abi_version", "trade_abi_address"}
+    if trade_fields & set(manifest):
+        marker = manifest.get("trade_abi_address")
+        if (not trade_fields <= set(manifest) or not save_config
+                or type(manifest.get("ownership_abi_version")) is not int
+                or manifest["ownership_abi_version"] != 1
+                or manifest.get("save_profile") != "rhh-1.17.1-bb1093-ownership-v1"
+                or type(manifest["trade_abi_version"]) is not int or manifest["trade_abi_version"] != 1
+                or type(marker) is not int or marker % 4
+                or not 0x08000000 <= marker <= 0x08000000 + size - 4):
+            raise ValueError("Invalid or incomplete trade capability")
+        trade_config = f", trade_abi=1, trade_abi_address={marker}"
     return (
         f'EMERALD_BRIDGE = {{address={address}, rom_size={size}, rom_crc32="{crc}", '
-        f'port={port}, token="{token}"{save_config}}}\n' + bridge
+        f'port={port}, token="{token}"{save_config}{trade_config}}}\n' + bridge
     )
 
 

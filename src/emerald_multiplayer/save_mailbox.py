@@ -45,6 +45,12 @@ class Opcode(IntEnum):
     QUERY = 9
     QUERY_OWNERSHIP = 10
     GRANT_OWNERSHIP = 11
+    BEGIN_TRADE_EXPORT = 12
+    KEEP_TRADE = 13
+    ABORT_TRADE = 14
+    RELEASE_TRADE = 15
+    REBIND_TRADE = 16
+    QUERY_TRADE = 17
 
 
 class Status(IntEnum):
@@ -73,6 +79,7 @@ class State(IntEnum):
     RELOADING = 5
     COMMITTED = 6
     ERROR = 7
+    TRADE_HELD = 8
 
 
 def _integer(value: int, low: int, high: int, name: str) -> None:
@@ -138,7 +145,10 @@ class SaveControl:
         lengths = {Opcode.BIND: 0, Opcode.BEGIN_EXPORT: 0, Opcode.READ: 0,
                    Opcode.END: 0, Opcode.BEGIN_IMPORT: 16, Opcode.WRITE: 128,
                    Opcode.COMMIT: 0, Opcode.CANCEL: 0, Opcode.QUERY: 0,
-                   Opcode.QUERY_OWNERSHIP: 0, Opcode.GRANT_OWNERSHIP: 60}
+                   Opcode.QUERY_OWNERSHIP: 0, Opcode.GRANT_OWNERSHIP: 60,
+                   Opcode.BEGIN_TRADE_EXPORT: 0, Opcode.KEEP_TRADE: 0,
+                   Opcode.ABORT_TRADE: 0, Opcode.RELEASE_TRADE: 0,
+                   Opcode.REBIND_TRADE: 0, Opcode.QUERY_TRADE: 0}
         if self.status != Status.OK or self.length != lengths[self.opcode]:
             raise SaveMailboxError("save command status or data length is invalid")
         if self.opcode in (Opcode.READ, Opcode.WRITE) and (self.total_size != FLASH_SIZE
@@ -148,13 +158,22 @@ class SaveControl:
             _, _, rotation, _ = struct.unpack("<IIII", self.data)
             if rotation >= 14 or self.total_size != FLASH_SIZE:
                 raise SaveMailboxError("import source rotation or size is invalid")
+        if self.opcode >= Opcode.BEGIN_TRADE_EXPORT and (self.total_size != FLASH_SIZE or self.offset != 0):
+            raise SaveMailboxError("trade controls require canonical Flash size and zero request offset")
+        if self.opcode == Opcode.BEGIN_TRADE_EXPORT and not 1 <= self.revision < MAX_COUNTER:
+            raise SaveMailboxError("trade preparation must leave capacity for the paired revision")
+        if self.opcode == Opcode.REBIND_TRADE and self.sequence != 1:
+            raise SaveMailboxError("trade rebind must restart the command sequence")
         return self
 
     def validate_response(self) -> SaveControl:
         lengths = {Opcode.BIND: 0, Opcode.BEGIN_EXPORT: 40, Opcode.READ: 128,
                    Opcode.END: 4, Opcode.BEGIN_IMPORT: 8, Opcode.WRITE: 0,
                    Opcode.COMMIT: 0, Opcode.CANCEL: 0, Opcode.QUERY: 48,
-                   Opcode.QUERY_OWNERSHIP: 80, Opcode.GRANT_OWNERSHIP: 80}
+                   Opcode.QUERY_OWNERSHIP: 80, Opcode.GRANT_OWNERSHIP: 80,
+                   Opcode.BEGIN_TRADE_EXPORT: 40, Opcode.KEEP_TRADE: 48,
+                   Opcode.ABORT_TRADE: 0, Opcode.RELEASE_TRADE: 4,
+                   Opcode.REBIND_TRADE: 48, Opcode.QUERY_TRADE: 48}
         if self.length != (lengths[self.opcode] if self.status == Status.OK else 0):
             raise SaveMailboxError("save response data length is invalid")
         if self.status == Status.OK and self.opcode == Opcode.READ and (self.total_size != FLASH_SIZE
@@ -200,6 +219,43 @@ class SaveMailbox:
     response_generation: int
     command: SaveControl | None
     response: SaveControl | None
+
+
+@dataclass(frozen=True)
+class TradeHold:
+    """Read-only recovery observation; expiry never authorizes an abort."""
+    active: bool
+    expired: bool
+    import_started: bool
+    phase: State
+    transaction_id: str | None
+    session_epoch: int
+    incarnation: int
+    revision: int
+    next_offset: int
+    crc32: int
+    remaining_frames: int
+
+    @classmethod
+    def parse(cls, response: SaveControl) -> TradeHold:
+        response.validate_response()
+        if response.opcode != Opcode.QUERY_TRADE or response.status != Status.OK:
+            raise SaveMailboxError("expected a successful trade recovery query")
+        flags, phase, raw_id, epoch, incarnation, revision, offset, crc, remaining = struct.unpack(
+            "<II16sIIIIII", response.data)
+        if flags & ~7 or phase not in tuple(State) or epoch > MAX_COUNTER or revision > MAX_COUNTER:
+            raise SaveMailboxError("invalid trade recovery state")
+        if offset > FLASH_SIZE or offset % SAVE_CHUNK_SIZE:
+            raise SaveMailboxError("invalid trade recovery stream position")
+        transaction = uuid.UUID(bytes=raw_id)
+        if flags & 1:
+            if not transaction.int or not epoch or not incarnation or not revision or phase in (State.UNBOUND, State.BOUND):
+                raise SaveMailboxError("active trade recovery lacks its binding")
+        elif flags or transaction.int or remaining:
+            raise SaveMailboxError("inactive trade recovery contains active hold fields")
+        return cls(bool(flags & 1), bool(flags & 2), bool(flags & 4), State(phase),
+                   str(transaction) if flags & 1 else None, epoch, incarnation,
+                   revision, offset, crc, remaining)
 
 
 def inspect_save_mailbox(payload: bytes) -> SaveMailbox:
