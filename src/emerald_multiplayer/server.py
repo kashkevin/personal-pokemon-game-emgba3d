@@ -27,6 +27,7 @@ from .storage import StorageError
 from .secure_transport import ServerTlsConfig, is_numeric_unicast_address
 from .trade_protocol import TRADE_TYPES, validate_trade_common, validate_trade_request
 from .team_protocol import TEAM_TYPES, validate_team_common, validate_team_request
+from .battle_protocol import BATTLE_TYPES, challenge_view, validate_battle_common, validate_battle_request
 
 if TYPE_CHECKING:
     from .storage import Checkpoint, CheckpointStore, WorldMetadata
@@ -172,7 +173,7 @@ class PlayerSession:
 
 
 class _ServerBattleDesk(BattleDesk):
-    """Trusted event-loop admission; no client battle/receipt endpoint."""
+    """Trusted event-loop admission; public requests expose consent only."""
 
     def __init__(self, server):
         self.server = server
@@ -526,6 +527,14 @@ class WorldServer:
                 self._team(session, request)
             except (ProtocolError, StorageError) as error:
                 self._team_reply(session, message, error=error)
+        elif isinstance(kind, str) and kind in BATTLE_TYPES and self.store is not None:
+            validate_battle_common(message, session.session_epoch)
+            try:
+                request = validate_battle_request(message, session.session_epoch)
+                session.last_seen = now
+                self._battle_challenge(session, request)
+            except (ProtocolError, StorageError) as error:
+                self._battle_reply(session, message, error=error)
         elif isinstance(kind, str) and kind in TRADE_TYPES and self.store is not None:
             validate_trade_common(message, session.session_epoch)
             try:
@@ -580,6 +589,39 @@ class WorldServer:
         else:
             result = getattr(desk, operation)(*actor, request["invitation_id"], request["generation"])
         self._team_reply(session, request, result=result)
+
+    def _battle_reply(self, session, request, *, error=None, result=None):
+        assert self._world_metadata is not None
+        self._control(session, dict(
+            type="battle_error" if error is not None else "battle_result",
+            protocol=PROTOCOL_VERSION, session_epoch=session.session_epoch,
+            request_id=request["request_id"], operation=request["type"].removeprefix("battle_"),
+            world_id=self._world_metadata.world_id, player_id=session.player_id,
+            **({"code": error.code, "message": error.message} if error is not None else {"result": result})))
+
+    def _battle_challenge(self, session, request):
+        # Public consent never authorizes BIND/START, supplies native receipts,
+        # or claims a winner. Those remain trusted coordinator operations.
+        if self.battle_desk is None:
+            raise ProtocolError("battle_disabled", "this development world has not enabled battle challenges")
+        desk, actor = self.battle_desk, (session.player_id, session.session_epoch)
+        operation = request["type"].removeprefix("battle_")
+        if operation == "pending":
+            result = [challenge_view(view) for view in desk.pending(*actor)]
+        else:
+            battle_id = request["battle_id"]
+            if operation == "invite":
+                view = desk.invite(*actor, request["peer"], battle_id)
+            elif operation == "invite_multi":
+                view = desk.invite_multi(*actor, request["teammate"], tuple(request["opponents"]), battle_id)
+            elif operation == "status":
+                view = desk.status(*actor, battle_id)
+            elif operation == "accept":
+                view = desk.accept(*actor, battle_id, request["generation"], request["fingerprint"])
+            else:
+                view = desk.cancel(*actor, battle_id, request["generation"])
+            result = challenge_view(view)
+        self._battle_reply(session, request, result=result)
 
     def _trade_reply(self, session, request, *, error=None, **fields):
         assert self._world_metadata is not None

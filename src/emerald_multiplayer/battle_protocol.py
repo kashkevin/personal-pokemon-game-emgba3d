@@ -1,0 +1,165 @@
+"""Authenticated challenge consent, separate from trusted native execution.
+
+There are deliberately no BIND, receipt, START, outcome or release requests.
+Only the server's native coordinator can authorize those operations.
+"""
+from __future__ import annotations
+
+import re
+
+from .protocol import MAX_COUNTER, PROTOCOL_VERSION, ProtocolError, _fields, _integer
+from .team_protocol import _uuid
+
+BATTLE_OPERATIONS = frozenset({"invite", "invite_multi", "accept", "cancel", "status", "pending"})
+BATTLE_TYPES = frozenset("battle_" + op for op in BATTLE_OPERATIONS)
+STATES = frozenset({"invited", "accepted", "prepared", "starting", "running", "finishing",
+                    "release_authorized", "closed", "aborting", "aborted", "recovery_required"})
+SCOPE = "session-local-native-challenges-v1"
+_CODE = re.compile(r"[A-Za-z0-9_.:-]{1,128}\Z")
+_HASH = re.compile(r"[0-9a-f]{64}\Z")
+
+
+def validate_battle_common(message, epoch):
+    if (not isinstance(message, dict) or not isinstance(message.get("type"), str)
+            or message["type"] not in BATTLE_TYPES):
+        raise ProtocolError("invalid_type", "unsupported battle challenge operation")
+    _integer(message.get("session_epoch"), "session_epoch", 1, MAX_COUNTER)
+    if message["session_epoch"] != epoch:
+        raise ProtocolError("session_epoch_mismatch", "battle request belongs to another lease")
+    _uuid(message.get("request_id"), "request_id")
+    return message
+
+
+def validate_battle_request(message, epoch):
+    validate_battle_common(message, epoch)
+    operation = message["type"].removeprefix("battle_")
+    extra = {
+        "invite": {"peer", "battle_id"},
+        "invite_multi": {"teammate", "opponents", "battle_id"},
+        "accept": {"battle_id", "generation", "fingerprint"},
+        "cancel": {"battle_id", "generation"},
+        "status": {"battle_id"}, "pending": set(),
+    }[operation]
+    _fields(message, {"type", "request_id", "session_epoch"} | extra)
+    for key in extra - {"opponents", "fingerprint"}:
+        _uuid(message[key], key)
+    if "opponents" in extra:
+        opponents = message["opponents"]
+        if type(opponents) is not list or len(opponents) != 2:
+            raise ProtocolError("invalid_field", "Multi requires two opposing players")
+        for opponent in opponents:
+            _uuid(opponent, "opponent")
+        if len({message["teammate"], *opponents}) != 3:
+            raise ProtocolError("invalid_field", "Multi participants must be distinct")
+    if "fingerprint" in extra:
+        _digest(message["fingerprint"])
+    return dict(message)
+
+
+def _digest(value):
+    if not isinstance(value, str) or _HASH.fullmatch(value) is None:
+        raise ProtocolError("invalid_field", "battle fingerprint must be a SHA256 digest")
+
+
+def challenge_view(view):
+    """Expose consent and canonical counts; never native RNG or save bytes."""
+    mode = view.get("mode", 2)
+    return dict(scope=SCOPE, battle_id=view["battle_id"], generation=view["generation"],
+        sender=view["sender"], mode=mode, state=view["state"], reason=view["reason"],
+        players=list(view["players"]), fingerprint=view["fingerprint"],
+        consent=list(view["consent"]), outcome=view["outcome"],
+        checkpoints=[dict(cp) for cp in view["checkpoints"]])
+
+
+def _view(value, actor):
+    _fields(value, {"scope", "battle_id", "generation", "sender", "mode", "state",
+                    "reason", "players", "fingerprint", "consent", "outcome", "checkpoints"})
+    for key in ("battle_id", "generation", "sender"):
+        _uuid(value[key], key)
+    _digest(value["fingerprint"])
+    if value["scope"] != SCOPE or type(value["mode"]) is not int or value["mode"] not in (2, 3):
+        raise ProtocolError("invalid_server_message", "unsupported battle challenge format")
+    count = 2 if value["mode"] == 2 else 4
+    players = value["players"]
+    if type(players) is not list or len(players) != count:
+        raise ProtocolError("invalid_server_message", "incorrect battle participant count")
+    for player in players:
+        _uuid(player, "participant")
+    if len(set(players)) != count or actor not in players or value["sender"] not in players:
+        raise ProtocolError("identity_mismatch", "foreign or repeated battle participant")
+    if not isinstance(value["state"], str) or value["state"] not in STATES:
+        raise ProtocolError("invalid_server_message", "invalid battle state")
+    reason = value["reason"]
+    if reason is not None and (not isinstance(reason, str) or _CODE.fullmatch(reason) is None):
+        raise ProtocolError("invalid_server_message", "invalid battle status reason")
+    consent = value["consent"]
+    if type(consent) is not list or any(type(p) is not str for p in consent):
+        raise ProtocolError("invalid_server_message", "invalid battle consent")
+    if len(consent) != len(set(consent)) or not set(consent) <= set(players):
+        raise ProtocolError("identity_mismatch", "foreign or repeated battle consent")
+    outcome = value["outcome"]
+    if outcome is not None and (type(outcome) is not int or outcome not in (1, 2, 3)):
+        raise ProtocolError("invalid_server_message", "invalid battle outcome")
+    checkpoints = value["checkpoints"]
+    if type(checkpoints) is not list or len(checkpoints) != count:
+        raise ProtocolError("invalid_server_message", "incorrect canonical battle roster")
+    for slot, cp in enumerate(checkpoints):
+        _fields(cp, {"player_id", "source_slot", "revision", "sha256", "party_count"})
+        if cp["player_id"] != players[slot] or type(cp["source_slot"]) is not int or cp["source_slot"] != slot:
+            raise ProtocolError("identity_mismatch", "canonical battle slots changed")
+        _integer(cp["revision"], "revision", 1, MAX_COUNTER)
+        _integer(cp["party_count"], "party_count", 1, 6)
+        _digest(cp["sha256"])
+
+
+def validate_battle_reply(message, actor, world_id, epoch, request=None):
+    common = {"type", "protocol", "session_epoch", "request_id", "operation", "world_id", "player_id"}
+    if (not isinstance(message, dict) or not common <= set(message)
+            or type(message["protocol"]) is not int or message["protocol"] != PROTOCOL_VERSION):
+        raise ProtocolError("invalid_server_message", "invalid battle reply envelope")
+    _integer(message["session_epoch"], "session_epoch", 1, MAX_COUNTER)
+    for key in ("request_id", "world_id", "player_id"):
+        _uuid(message[key], key)
+    if (message["session_epoch"], message["world_id"], message["player_id"]) != (epoch, world_id, actor):
+        raise ProtocolError("identity_mismatch", "battle reply belongs to another world, player or lease")
+    op = message["operation"]
+    if not isinstance(op, str) or op not in BATTLE_OPERATIONS:
+        raise ProtocolError("invalid_server_message", "unsupported battle reply operation")
+    if message["type"] == "battle_error":
+        _fields(message, common | {"code", "message"})
+        if (not isinstance(message["code"], str) or _CODE.fullmatch(message["code"]) is None
+                or not isinstance(message["message"], str) or not 1 <= len(message["message"]) <= 512
+                or not message["message"].isprintable()):
+            raise ProtocolError("invalid_server_message", "invalid battle error text")
+    elif message["type"] == "battle_result":
+        _fields(message, common | {"result"})
+        result = message["result"]
+        if op == "pending":
+            if type(result) is not list or len(result) > 1:
+                raise ProtocolError("invalid_server_message", "too many active battles for one player")
+            for view in result:
+                _view(view, actor)
+        else:
+            _view(result, actor)
+    else:
+        raise ProtocolError("invalid_server_message", "unexpected battle reply type")
+    if request is not None:
+        validate_battle_request(request, epoch)
+        if message["request_id"] != request["request_id"] or op != request["type"].removeprefix("battle_"):
+            raise ProtocolError("invalid_server_message", "battle reply does not match its request")
+        if message["type"] == "battle_result" and op != "pending":
+            result = message["result"]
+            if result["battle_id"] != request["battle_id"]:
+                raise ProtocolError("identity_mismatch", "battle reply changed the target")
+            for key in ("generation", "fingerprint"):
+                if key in request and result[key] != request[key]:
+                    raise ProtocolError("identity_mismatch", "battle reply changed the accepted challenge")
+            if op in ("invite", "invite_multi"):
+                expected = {actor, request["peer"]} if op == "invite" else {actor, request["teammate"], *request["opponents"]}
+                if result["sender"] != actor or set(result["players"]) != expected or result["mode"] != (2 if op == "invite" else 3):
+                    raise ProtocolError("identity_mismatch", "battle invitation changed its participants")
+                if op == "invite_multi":
+                    own = set(result["players"][::2])
+                    if own != {actor, request["teammate"]}:
+                        raise ProtocolError("identity_mismatch", "battle invitation changed the teams")
+    return message

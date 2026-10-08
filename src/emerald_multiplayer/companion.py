@@ -49,6 +49,13 @@ class TradeError(ValueError):
         self.code = code
 
 
+class BattleChallengeError(ValueError):
+    """Authoritative consent refusal; transport failure still has unknown fate."""
+    def __init__(self, code: str, message: str):
+        super().__init__(message)
+        self.code = code
+
+
 def verify_rom_manifest(rom_path: Path, manifest_path: Path) -> tuple[str, dict[str, Any]]:
     """Hash the supplied game bytes; manifest identity alone is never trusted."""
     if manifest_path.stat().st_size > 65_536:
@@ -323,6 +330,7 @@ class Companion:
         self._checkpoint_pending: dict[str, tuple[str, int, asyncio.Future]] = {}
         self._trade_pending: dict[str, tuple[dict, asyncio.Future]] = {}
         self._team_pending: dict[str, tuple[dict, asyncio.Future]] = {}
+        self._challenge_pending: dict[str, tuple[dict, asyncio.Future]] = {}
         self._save_pending: dict[int, tuple[Any, asyncio.Future]] = {}
         self._battle_pending: dict[int, tuple[Any, asyncio.Future]] = {}
         self.live_checkpoint_lock = asyncio.Lock()
@@ -698,6 +706,10 @@ class Companion:
             if not future.done():
                 future.set_exception(ConnectionError("team connection lost; query membership after reconnect"))
         self._team_pending.clear()
+        for _, future in self._challenge_pending.values():
+            if not future.done():
+                future.set_exception(ConnectionError("battle connection lost; query the challenge after reconnect"))
+        self._challenge_pending.clear()
         self._players = []
         self._peer_history.clear()
         self._roster_signature = None
@@ -813,6 +825,8 @@ class Companion:
                 self._receive_team(message)
             elif message.get("type") in {"trade_result", "trade_error"}:
                 self._receive_trade(message)
+            elif message.get("type") in {"battle_result", "battle_error"}:
+                self._receive_challenge(message)
             else:
                 raise ProtocolError("invalid_server_message", "unexpected server message type")
 
@@ -859,6 +873,50 @@ class Companion:
         if not future.done():
             if validated["type"] == "team_error":
                 future.set_exception(TeamError(validated["code"], validated["message"]))
+            else:
+                future.set_result(validated)
+
+    async def battle_challenge_rpc(self, operation: str, *, request_id: str | None = None,
+                                   timeout: float = 5.0, **fields: Any) -> dict[str, Any]:
+        """Authenticated consent only; native execution has a separate owner."""
+        from .ownership_protocol import OWNERSHIP_PROFILE
+        from .battle_protocol import BATTLE_OPERATIONS, validate_battle_request
+        if not isinstance(operation, str) or operation not in BATTLE_OPERATIONS:
+            raise ValueError("unsupported battle challenge operation")
+        if type(timeout) not in (int, float) or not 0 < timeout <= 60 or not math.isfinite(timeout):
+            raise ValueError("battle challenge timeout must be finite and between 0 and 60 seconds")
+        if (not self.connected or self.world_id is None or self._remote_writer is None
+                or self.config.server_credential is None or self.save_profile != OWNERSHIP_PROFILE):
+            raise ConnectionError("no authenticated ownership battle session")
+        if set(fields) & {"type", "session_epoch"}:
+            raise ValueError("battle envelope fields cannot be overridden")
+        request_id = str(uuid4()) if request_id is None else request_id
+        request = dict(type="battle_" + operation, session_epoch=self.session_epoch,
+                       request_id=request_id, **fields)
+        validate_battle_request(request, self.session_epoch)
+        if request_id in self._challenge_pending or len(self._challenge_pending) >= 8:
+            raise ValueError("battle challenge request is pending or capacity is exhausted")
+        future = asyncio.get_running_loop().create_future()
+        self._challenge_pending[request_id] = (request, future)
+        try:
+            await self._send_remote(self._remote_writer, request)
+            return await asyncio.wait_for(future, timeout)
+        finally:
+            self._challenge_pending.pop(request_id, None)
+            if not future.done():
+                future.cancel()
+
+    def _receive_challenge(self, message):
+        from .battle_protocol import validate_battle_reply
+        validated = validate_battle_reply(message, self.config.player_id, self.world_id, self.session_epoch)
+        pending = self._challenge_pending.get(validated["request_id"])
+        if pending is None:
+            return
+        request, future = pending
+        validate_battle_reply(validated, self.config.player_id, self.world_id, self.session_epoch, request)
+        if not future.done():
+            if validated["type"] == "battle_error":
+                future.set_exception(BattleChallengeError(validated["code"], validated["message"]))
             else:
                 future.set_result(validated)
 

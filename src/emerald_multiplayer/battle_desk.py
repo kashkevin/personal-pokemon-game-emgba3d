@@ -196,7 +196,7 @@ class BattleDesk:
     @staticmethod
     def _view(battle):
         view = dict(scope="session-local-native-singles-development" if battle.mode == 2 else "session-local-native-full-multi-development", battle_id=battle.battle_id,
-            generation=battle.generation, state=battle.state, reason=battle.reason,
+            generation=battle.generation, sender=battle.sender, state=battle.state, reason=battle.reason,
             players=list(battle.players), fingerprint=battle.fingerprint,
             consent=sorted(battle.consent), bound=sorted(battle.bound),
             prepared=sorted(battle.prepared), started=sorted(battle.started),
@@ -292,6 +292,12 @@ class BattleDesk:
 
     def status(self, actor, lease, battle_id):
         return self._view(self._get(actor, lease, battle_id, historical=True))
+
+    def pending(self, actor, lease):
+        """Only this authenticated player's active challenges, at most one."""
+        self._auth(actor, lease)
+        self.refresh()
+        return [self._view(battle) for battle in self._active.values() if actor in battle.players]
 
     def register(self, actor, lease, battle_id, generation, incarnation):
         battle = self._get(actor, lease, battle_id, generation)
