@@ -45,6 +45,15 @@ if tradeEnabled then
         and emu:read32(cfg.trade_abi_address) == 1, "Invalid trade capability marker")
 end
 local savePending, saveGeneration, capabilitySent = nil, nil, false
+local emergencyEnabled = cfg.emergency_save_abi ~= nil or cfg.emergency_save_abi_address ~= nil
+if emergencyEnabled then
+    assert(tradeEnabled and cfg.emergency_save_abi == 1
+        and type(cfg.emergency_save_abi_address) == "number" and cfg.emergency_save_abi_address % 4 == 0
+        and cfg.emergency_save_abi_address >= 0x08000000
+        and cfg.emergency_save_abi_address + 4 <= 0x08000000 + cfg.rom_size
+        and emu:read32(cfg.emergency_save_abi_address) == 1, "Invalid emergency save capability marker")
+end
+local emergencyCapabilitySent = false
 local battleAddr = cfg.battle_address
 local battleEnabled = battleAddr ~= nil or cfg.battle_abi ~= nil or cfg.battle_abi_address ~= nil or cfg.battle_size ~= nil
 if battleEnabled then
@@ -175,7 +184,7 @@ end
 local function saveHeaderReady()
     return saveAddr ~= nil and emu:read32(saveAddr) == 0x31534D45
         and emu:read16(saveAddr + 4) == 1 and emu:read16(saveAddr + 6) == 512
-        and emu:read32(saveAddr + 12) <= (tradeEnabled and 8 or 7)
+        and emu:read32(saveAddr + 12) <= (emergencyEnabled and 10 or (tradeEnabled and 8 or 7))
         and emu:read32(saveAddr + 16) == 0 and emu:read32(saveAddr + 20) == 0
 end
 
@@ -186,16 +195,21 @@ local function saveControl(payload, command)
     if inc == 0 or epoch == 0 or epoch > 0x7FFFFFFF or seq == 0
         or request == string.rep("\0", 16) or offset > 131072
         or (size ~= 0 and size ~= 131072) or revision > 0x7FFFFFFF
-        or opcode < 1 or opcode > (windowEnabled and 18 or (tradeEnabled and 17 or 11)) or status > 13 or length > 192
+        or opcode < 1 or opcode > (emergencyEnabled and 21 or (windowEnabled and 18 or (tradeEnabled and 17 or 11)))
+        or (opcode == 18 and not windowEnabled) or status > 13 or length > 192
         or data:sub(length + 1) ~= string.rep("\0", 192 - length)
         or crc32(data:sub(1, length)) ~= crc then return nil end
     if command then
-        local lengths = {0, 0, 0, 0, 16, 128, 0, 0, 0, 0, 60, 0, 0, 0, 0, 0, 0, 0}
+        local lengths = {0, 0, 0, 0, 16, 128, 0, 0, 0, 0, 60, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
         if status ~= 0 or length ~= lengths[opcode] then return nil end
         if opcode >= 12 and opcode <= 17 and (size ~= 131072 or offset ~= 0) then return nil end
         if opcode == 18 and (size ~= 131072 or offset % 4096 ~= 0 or offset > 126976) then return nil end
         if opcode == 12 and (revision == 0 or revision >= 0x7FFFFFFF) then return nil end
         if opcode == 16 and seq ~= 1 then return nil end
+        if opcode >= 19 then
+            if size ~= 131072 or offset ~= (opcode == 20 and 131072 or 0) then return nil end
+            if opcode ~= 21 and revision == 0 then return nil end
+        end
         if (opcode == 3 or opcode == 6) and (size ~= 131072
             or offset % 128 ~= 0 or offset >= 131072) then return nil end
         if opcode == 5 then
@@ -203,7 +217,7 @@ local function saveControl(payload, command)
             if size ~= 131072 or rotation >= 14 then return nil end
         end
     else
-        local lengths = {0, 40, 128, 4, 8, 0, 0, 0, 48, 80, 80, 40, 48, 0, 4, 48, 48, 4}
+        local lengths = {0, 40, 128, 4, 8, 0, 0, 0, 48, 80, 80, 40, 48, 0, 4, 48, 48, 4, 40, 4, 48}
         if (status == 0 and length ~= lengths[opcode]) or (status ~= 0 and length ~= 0) then return nil end
         if status == 0 and opcode == 3 and (offset % 128 ~= 0 or offset > 130944) then return nil end
         if status == 0 and opcode == 18 and (size ~= 131072 or offset % 4096 ~= 0 or offset > 126976) then return nil end
@@ -315,6 +329,7 @@ local function stop(reason, fatal)
     controls, controlBurst = {}, 0
     savePending, saveGeneration, capabilitySent = nil, nil, false
     windowCapabilitySent = false
+    emergencyCapabilitySent = false
     battlePending, battleGeneration, battleCapabilitySent = nil, nil, false
     menuCapabilitySent, menuSequence = false, nil
     commit(string.rep("\0", 88))
@@ -542,7 +557,7 @@ local function receive()
                 -- Recovery must observe/rebind an uncertain trade command.
                 -- The ROM fences UUID/incarnation/lease and preserves pending
                 -- Flash publication; these controls cannot release the hold.
-                local recovery = command.opcode == 1 or command.opcode == 16 or command.opcode == 17
+                local recovery = command.opcode == 1 or command.opcode == 16 or command.opcode == 17 or command.opcode == 21
                 if savePending and not recovery and command.payload ~= savePending.payload then
                     stop("multiple outstanding save commands", true); return
                 end
@@ -598,6 +613,7 @@ local function onFrame()
         controls, controlBurst = {}, 0
         savePending, saveGeneration, capabilitySent = nil, nil, false
         windowCapabilitySent = false
+        emergencyCapabilitySent = false
         battlePending, battleGeneration, battleCapabilitySent = nil, nil, false
         menuCapabilitySent, menuSequence = false, nil
         console:log("Multiplayer bridge connected to local companion")
@@ -618,6 +634,12 @@ local function onFrame()
     if menuHeaderReady() and not menuCapabilitySent then
         if not reliable("I" .. string.pack("<I2I2I2I2", 1, 512, 240, 16)) then return end
         menuCapabilitySent = true
+    end
+    -- The existing four reliable slots remain bounded. Advertise the fifth
+    -- optional capability only when earlier announcements have drained.
+    if emergencyEnabled and saveHeaderReady() and capabilitySent and not emergencyCapabilitySent and #controls < 4 then
+        if not reliable("Z" .. string.pack("<I2I2I2I2", 1, 19, 21, 10)) then return end
+        emergencyCapabilitySent = true
     end
     receive()
     if not sock then return end

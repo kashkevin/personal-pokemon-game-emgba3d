@@ -58,7 +58,11 @@ def configure(manifest: dict, token: str, port: int, bridge: str) -> str:
     if validate_menu_manifest(manifest):
         menu_config = (f", menu_abi=1, menu_abi_address={manifest['menu_abi_address']}"
                        f", menu_address={manifest['menu_mailbox_address']}, menu_size=512")
+    from .emergency_protocol import validate_emergency_manifest
+    emergency_config = ""
+    if validate_emergency_manifest(manifest):
+        emergency_config = f", emergency_save_abi=1, emergency_save_abi_address={manifest['emergency_save_abi_address']}"
     return (
         f'EMERALD_BRIDGE = {{address={address}, rom_size={size}, rom_crc32="{crc}", '
-        f'port={port}, token="{token}"{save_config}{trade_config}{battle_config}{window_config}{menu_config}}}\n' + bridge
+        f'port={port}, token="{token}"{save_config}{trade_config}{battle_config}{window_config}{menu_config}{emergency_config}}}\n' + bridge
     )

@@ -52,6 +52,9 @@ class Opcode(IntEnum):
     REBIND_TRADE = 16
     QUERY_TRADE = 17
     READ_WINDOW = 18
+    BEGIN_EMERGENCY_EXPORT = 19
+    PRESERVE_EMERGENCY = 20
+    QUERY_EMERGENCY = 21
 
 
 class Status(IntEnum):
@@ -81,6 +84,8 @@ class State(IntEnum):
     COMMITTED = 6
     ERROR = 7
     TRADE_HELD = 8
+    EMERGENCY_UNSAVED = 9
+    EMERGENCY_PRESERVED = 10
 
 
 def _integer(value: int, low: int, high: int, name: str) -> None:
@@ -149,7 +154,9 @@ class SaveControl:
                    Opcode.QUERY_OWNERSHIP: 0, Opcode.GRANT_OWNERSHIP: 60,
                    Opcode.BEGIN_TRADE_EXPORT: 0, Opcode.KEEP_TRADE: 0,
                    Opcode.ABORT_TRADE: 0, Opcode.RELEASE_TRADE: 0,
-                   Opcode.REBIND_TRADE: 0, Opcode.QUERY_TRADE: 0, Opcode.READ_WINDOW: 0}
+                   Opcode.REBIND_TRADE: 0, Opcode.QUERY_TRADE: 0, Opcode.READ_WINDOW: 0,
+                   Opcode.BEGIN_EMERGENCY_EXPORT: 0, Opcode.PRESERVE_EMERGENCY: 0,
+                   Opcode.QUERY_EMERGENCY: 0}
         if self.status != Status.OK or self.length != lengths[self.opcode]:
             raise SaveMailboxError("save command status or data length is invalid")
         if self.opcode in (Opcode.READ, Opcode.WRITE) and (self.total_size != FLASH_SIZE
@@ -168,6 +175,12 @@ class SaveControl:
         if self.opcode == Opcode.READ_WINDOW and (self.total_size != FLASH_SIZE or self.offset % 4096
                                                    or self.offset > FLASH_SIZE - 4096):
             raise SaveMailboxError("Flash window must be aligned and within canonical Flash")
+        if self.opcode >= Opcode.BEGIN_EMERGENCY_EXPORT:
+            expected_offset = FLASH_SIZE if self.opcode == Opcode.PRESERVE_EMERGENCY else 0
+            if self.total_size != FLASH_SIZE or self.offset != expected_offset:
+                raise SaveMailboxError("emergency control has an invalid size or offset")
+            if self.opcode != Opcode.QUERY_EMERGENCY and self.revision == 0:
+                raise SaveMailboxError("emergency export needs a positive target revision")
         return self
 
     def validate_response(self) -> SaveControl:
@@ -177,7 +190,9 @@ class SaveControl:
                    Opcode.QUERY_OWNERSHIP: 80, Opcode.GRANT_OWNERSHIP: 80,
                    Opcode.BEGIN_TRADE_EXPORT: 40, Opcode.KEEP_TRADE: 48,
                    Opcode.ABORT_TRADE: 0, Opcode.RELEASE_TRADE: 4,
-                   Opcode.REBIND_TRADE: 48, Opcode.QUERY_TRADE: 48, Opcode.READ_WINDOW: 4}
+                   Opcode.REBIND_TRADE: 48, Opcode.QUERY_TRADE: 48, Opcode.READ_WINDOW: 4,
+                   Opcode.BEGIN_EMERGENCY_EXPORT: 40, Opcode.PRESERVE_EMERGENCY: 4,
+                   Opcode.QUERY_EMERGENCY: 48}
         if self.length != (lengths[self.opcode] if self.status == Status.OK else 0):
             raise SaveMailboxError("save response data length is invalid")
         if self.status == Status.OK and self.opcode == Opcode.READ and (self.total_size != FLASH_SIZE
@@ -250,7 +265,7 @@ class TradeHold:
             raise SaveMailboxError("expected a successful trade recovery query")
         flags, phase, raw_id, epoch, incarnation, revision, offset, crc, remaining = struct.unpack(
             "<II16sIIIIII", response.data)
-        if flags & ~7 or phase not in tuple(State) or epoch > MAX_COUNTER or revision > MAX_COUNTER:
+        if flags & ~7 or phase not in range(State.TRADE_HELD + 1) or epoch > MAX_COUNTER or revision > MAX_COUNTER:
             raise SaveMailboxError("invalid trade recovery state")
         if offset > FLASH_SIZE or offset % SAVE_CHUNK_SIZE:
             raise SaveMailboxError("invalid trade recovery stream position")

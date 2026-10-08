@@ -70,6 +70,13 @@ def generate(rom: Path, elf: Path, nm: str, engine_commit: str) -> dict:
             if stream.read(4) != b"\x01\x00\x00\x00":
                 raise ValueError("Unsupported trade ABI marker")
         manifest.update(trade_abi_version=1, trade_abi_address=marker)
+    emergency = re.findall(r"^([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+[Rr]\s+gMultiplayerEmergencySaveAbiVersion$", symbols, re.M)
+    if emergency:
+        from emerald_multiplayer.emergency_protocol import validate_emergency_manifest
+        if len(emergency) != 1 or int(emergency[0][1], 16) != 4 or not trade:
+            raise ValueError("emergency save requires one ROM marker and ownership/trade support")
+        manifest.update(emergency_save_abi_version=1, emergency_save_abi_address=int(emergency[0][0], 16))
+        validate_emergency_manifest(manifest, rom)
     battle = re.findall(r"^([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+[Rr]\s+gMultiplayerBattleAbiVersion$", symbols, re.M)
     channel = re.findall(r"^([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+[BDbd]\s+gMultiplayerBattleMailbox$", symbols, re.M)
     if battle or channel:

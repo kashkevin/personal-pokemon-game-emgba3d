@@ -101,7 +101,7 @@ class LuaBridgeTests(unittest.TestCase):
             result = subprocess.run(prefix + [self.lua_path(path)], capture_output=True, text=True, timeout=20)
         self.assertEqual(result.returncode, 0, result.stderr)
 
-    def fixture(self, *, live, trade=False):
+    def fixture(self, *, live, trade=False, emergency=False):
         local = Pose(0, 1, 6, 11, 0, 9, 1, 0, 0, 0, 1)
         presence = struct.pack("<IHHII", MAILBOX_MAGIC, 1, 128, 1, 2) + local.pack() + bytes(92)
         save = struct.pack("<IHHIIII", 0x31534D45, 1, 512, 1, 1, 0, 0) + bytes(488)
@@ -156,7 +156,7 @@ end
 socket={ERRORS={AGAIN=99}}
 function socket.connect(host,port) assert(host=="127.0.0.1");connects=connects+1;return endpoint end
 EMERALD_BRIDGE={address=0x02001000,rom_size=1024,rom_crc32="aabbccdd",port=8870,token=string.rep("a",64)}
-''' + ("EMERALD_BRIDGE.save_address=0x02002000;EMERALD_BRIDGE.save_size=512;EMERALD_BRIDGE.save_abi=1\n" if live else "") + ("EMERALD_BRIDGE.trade_abi=1;EMERALD_BRIDGE.trade_abi_address=0x080000c4;loadBytes(0x080000c4,string.pack('<I4',1))\n" if trade else "") + f'loadBytes(0x02001000,unhex("{presence.hex()}"))\nloadBytes(0x02002000,unhex("{save.hex()}"))\n' + Path(__file__).parents[1].joinpath("bridge/mgba.lua").read_text() + r'''
+''' + ("EMERALD_BRIDGE.save_address=0x02002000;EMERALD_BRIDGE.save_size=512;EMERALD_BRIDGE.save_abi=1\n" if live else "") + ("EMERALD_BRIDGE.trade_abi=1;EMERALD_BRIDGE.trade_abi_address=0x080000c4;loadBytes(0x080000c4,string.pack('<I4',1))\n" if trade else "") + ("EMERALD_BRIDGE.emergency_save_abi=1;EMERALD_BRIDGE.emergency_save_abi_address=0x080000c8;loadBytes(0x080000c8,string.pack('<I4',1))\n" if emergency else "") + f'loadBytes(0x02001000,unhex("{presence.hex()}"))\nloadBytes(0x02002000,unhex("{save.hex()}"))\n' + Path(__file__).parents[1].joinpath("bridge/mgba.lua").read_text() + r'''
 local function advance(count) for _=1,count do callbacks.list.frame() end end
 local function packet(payload) return string.pack(">I4",#payload)..payload end
 local function romFrames(presence,save)

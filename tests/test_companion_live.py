@@ -108,6 +108,13 @@ class CompanionLiveTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(self.companion.connected)
         self.assertEqual(self.companion.session_epoch, control.session_epoch)
 
+    async def test_public_save_rpc_cannot_dispatch_emergency_lifecycle(self):
+        for opcode, offset in ((Opcode.BEGIN_EMERGENCY_EXPORT, 0),
+                              (Opcode.PRESERVE_EMERGENCY, FLASH_SIZE), (Opcode.QUERY_EMERGENCY, 0)):
+            with self.subTest(opcode=opcode), self.assertRaises(ValueError):
+                await self.companion.save_rpc(self.control(opcode=opcode, revision=2, offset=offset))
+            self.assertFalse(self.companion._save_pending)
+
     async def test_legacy_build_cannot_issue_trade_hold_commands(self):
         self.assertFalse(self.companion.config.trade_enabled)
         with self.assertRaisesRegex(ValueError, "no trade hold capability"):
@@ -232,10 +239,18 @@ class CompanionTradeGuardTests(unittest.IsolatedAsyncioTestCase):
                 await self.companion.trade_rpc(operation)
         sizes = {Opcode.BEGIN_IMPORT: bytes(16), Opcode.WRITE: bytes(128), Opcode.GRANT_OWNERSHIP: bytes(60)}
         readonly = {Opcode.QUERY, Opcode.QUERY_OWNERSHIP, Opcode.QUERY_TRADE}
-        for opcode in set(Opcode)-readonly:
+        emergency = {Opcode.BEGIN_EMERGENCY_EXPORT, Opcode.PRESERVE_EMERGENCY, Opcode.QUERY_EMERGENCY}
+        for opcode in set(Opcode)-readonly-emergency:
             command = self.control(opcode, revision=1 if opcode == Opcode.BEGIN_TRADE_EXPORT else 0,
                 data=sizes.get(opcode, b""))
             with self.subTest(opcode=opcode), self.assertRaisesRegex(ValueError, "pending trade recovery"):
+                await self.companion.save_rpc(command)
+        # These commands have no public lifecycle authority at all, including
+        # while a pending trade exists. Use valid envelopes to test that gate.
+        for opcode in emergency:
+            command = self.control(opcode, revision=1,
+                offset=FLASH_SIZE if opcode == Opcode.PRESERVE_EMERGENCY else 0)
+            with self.subTest(opcode=opcode), self.assertRaisesRegex(ValueError, "dedicated preservation controller"):
                 await self.companion.save_rpc(command)
         self.assertEqual(self.companion._save_pending, {})
         self.assertEqual(self.companion._checkpoint_pending, {})

@@ -126,6 +126,8 @@ def verify_rom_manifest(rom_path: Path, manifest_path: Path) -> tuple[str, dict[
     validate_window_manifest(manifest, rom_path)
     from .menu_mailbox import validate_menu_manifest
     validate_menu_manifest(manifest, rom_path)
+    from .emergency_protocol import validate_emergency_manifest
+    validate_emergency_manifest(manifest, rom_path)
     return actual_hash, manifest
 
 
@@ -161,6 +163,7 @@ class CompanionConfig:
     battle_abi_version: int = field(init=False, default=0)
     save_window_enabled: bool = field(init=False, default=False)
     menu_enabled: bool = field(init=False, default=False)
+    emergency_save_enabled: bool = field(init=False, default=False)
 
     def __post_init__(self) -> None:
         rom_path, manifest_path = Path(self.rom_path).resolve(), Path(self.manifest_path).resolve()
@@ -175,6 +178,7 @@ class CompanionConfig:
         object.__setattr__(self, "battle_abi_version", manifest.get("battle_abi_version", 0))
         object.__setattr__(self, "menu_enabled", manifest.get("menu_abi_version") == 1)
         object.__setattr__(self, "save_window_enabled", manifest.get("save_window_abi_version") == 1)
+        object.__setattr__(self, "emergency_save_enabled", manifest.get("emergency_save_abi_version") == 1)
         if type(self.development_battle_channel) is not bool:
             raise ValueError("development_battle_channel must be a boolean")
         if self.development_battle_channel and (not self.battle_enabled or self.server_credential is None):
@@ -313,6 +317,7 @@ class BridgeSession:
     writer_task: asyncio.Task[None] | None = None
     save_capable: bool = False
     window_capable: bool = False
+    emergency_save_capable: bool = False
     battle_capable: bool = False
     menu_session: Any = None
 
@@ -449,6 +454,13 @@ class Companion:
                     if not bridge.save_capable:
                         raise BridgeError("save response arrived before its verified capability")
                     self._receive_save_response(packet[1:], bridge)
+                    continue
+                if packet[:1] == b"Z":
+                    from .emergency_protocol import capability_packet
+                    if (not bridge.save_capable or not self.config.emergency_save_enabled
+                            or packet != capability_packet()):
+                        raise BridgeError("emergency save capability disagrees with verified manifest")
+                    bridge.emergency_save_capable = True
                     continue
                 if packet[:1] == b"X":
                     from .save_window import capability_packet
@@ -599,6 +611,10 @@ class Companion:
         if not isinstance(control, SaveControl):
             raise ValueError("save command must be a validated SaveControl")
         control.validate_command()
+        if control.opcode >= Opcode.BEGIN_EMERGENCY_EXPORT:
+            # Capability advertisement alone never grants destructive/offline
+            # lifecycle authority. A dedicated controller is required later.
+            raise ValueError("emergency operations require their dedicated preservation controller")
         if control.opcode not in {Opcode.QUERY, Opcode.QUERY_OWNERSHIP, Opcode.QUERY_TRADE}:
             self._guard_pending_trade_mutation()
         if Opcode.BEGIN_TRADE_EXPORT <= control.opcode <= Opcode.QUERY_TRADE and not self.config.trade_enabled:
