@@ -29,6 +29,7 @@ from .protocol import (
 )
 from .server import is_local_address
 from .secure_transport import ClientTlsConfig, is_numeric_unicast_address
+from .battle_manifest import validate_battle_manifest
 
 BASELINE_RULESET = "baseline-rhh1.17.1-mailbox-v1"
 _UINT32 = 0xFFFFFFFF
@@ -113,6 +114,7 @@ def verify_rom_manifest(rom_path: Path, manifest_path: Path) -> tuple[str, dict[
             source.seek(marker - 0x08000000)
             if source.read(4) != b"\x01\x00\x00\x00":
                 raise ValueError("trade capability marker does not match the verified ROM")
+    validate_battle_manifest(manifest, rom_path)
     return actual_hash, manifest
 
 
@@ -138,11 +140,13 @@ class CompanionConfig:
     server_tls: ClientTlsConfig | None = None
     public_server: bool = False
     expected_world_id: str | None = None
+    development_battle_channel: bool = False
     build_id: str = field(init=False)
     ruleset_id: str = field(init=False, default=BASELINE_RULESET)
     save_enabled: bool = field(init=False, default=False)
     ownership_enabled: bool = field(init=False, default=False)
     trade_enabled: bool = field(init=False, default=False)
+    battle_enabled: bool = field(init=False, default=False)
 
     def __post_init__(self) -> None:
         rom_path, manifest_path = Path(self.rom_path).resolve(), Path(self.manifest_path).resolve()
@@ -153,6 +157,11 @@ class CompanionConfig:
         object.__setattr__(self, "save_enabled", "save_mailbox_address" in manifest)
         object.__setattr__(self, "ownership_enabled", manifest.get("ownership_abi_version") == 1)
         object.__setattr__(self, "trade_enabled", manifest.get("trade_abi_version") == 1)
+        object.__setattr__(self, "battle_enabled", manifest.get("battle_abi_version") == 1)
+        if type(self.development_battle_channel) is not bool:
+            raise ValueError("development_battle_channel must be a boolean")
+        if self.development_battle_channel and (not self.battle_enabled or self.server_credential is None):
+            raise ValueError("diagnostic channel requires its verified ROM and authenticated world")
         validate_hello({
             "type": "hello", "protocol": PROTOCOL_VERSION, "build_id": build_id,
             "ruleset_id": self.ruleset_id, "player_id": self.player_id,
@@ -286,6 +295,7 @@ class BridgeSession:
     incarnation: int
     writer_task: asyncio.Task[None] | None = None
     save_capable: bool = False
+    battle_capable: bool = False
 
 
 class Companion:
@@ -307,6 +317,7 @@ class Companion:
         self._trade_pending: dict[str, tuple[dict, asyncio.Future]] = {}
         self._team_pending: dict[str, tuple[dict, asyncio.Future]] = {}
         self._save_pending: dict[int, tuple[Any, asyncio.Future]] = {}
+        self._battle_pending: dict[int, tuple[Any, asyncio.Future]] = {}
         self.live_checkpoint_lock = asyncio.Lock()
         self._live_save_owner: asyncio.Task | None = None
         self._bridge: BridgeSession | None = None
@@ -419,6 +430,17 @@ class Companion:
                         raise BridgeError("save response arrived before its verified capability")
                     self._receive_save_response(packet[1:], bridge)
                     continue
+                if packet[:1] == b"W":
+                    from .battle_mailbox import capability_packet
+                    if not self.config.battle_enabled or packet != capability_packet():
+                        raise BridgeError("battle capability disagrees with verified manifest")
+                    bridge.battle_capable = True
+                    continue
+                if packet[:1] == b"E":
+                    if not bridge.battle_capable:
+                        raise BridgeError("battle response arrived before its verified capability")
+                    self._receive_battle_response(packet[1:], bridge)
+                    continue
                 if len(packet) != 21 or packet[:1] != b"P":
                     raise BridgeError("expected one bounded local pose")
                 pose = Pose.unpack(packet[1:])
@@ -478,6 +500,10 @@ class Companion:
             if not future.done():
                 future.set_exception(ConnectionError(message))
         self._save_pending.clear()
+        for _, future in self._battle_pending.values():
+            if not future.done():
+                future.set_exception(ConnectionError(message))
+        self._battle_pending.clear()
 
     @property
     def save_incarnation(self) -> int:
@@ -531,6 +557,56 @@ class Companion:
         fields = ("incarnation", "session_epoch", "request_id", "sequence", "total_size", "revision", "opcode")
         if bridge is not self._bridge or any(getattr(response, key) != getattr(command, key) for key in fields):
             raise BridgeError("live-save response does not match its request")
+        if not future.done():
+            future.set_result(response)
+
+    @property
+    def battle_incarnation(self) -> int:
+        if self._bridge is None or not self._bridge.battle_capable:
+            raise ConnectionError("the running game has no verified diagnostic channel")
+        return self._bridge.incarnation
+
+    async def battle_rpc(self, control, *, timeout=5.0):
+        """Explicit development diagnostics, never a native battle controller."""
+        from .battle_mailbox import BattleControl, Opcode
+        if not self.config.development_battle_channel or not isinstance(control, BattleControl):
+            raise ValueError("diagnostic channel requires explicit development opt-in and a validated control")
+        control.validate_command(player_id=self.config.player_id)
+        if control.opcode != Opcode.QUERY:
+            self._guard_pending_trade_mutation()
+            if self._live_save_owner is not None and self._live_save_owner is not asyncio.current_task():
+                raise ValueError("a live-save lifecycle owns this character's mutations")
+        bridge = self._bridge
+        if (not self.connected or self.world_id is None or bridge is None or not bridge.battle_capable
+                or control.incarnation != bridge.incarnation or control.session_epoch != self.session_epoch):
+            raise ConnectionError("diagnostic command has no matching authenticated session")
+        if self._battle_pending:
+            raise ValueError("a diagnostic command is already pending")
+        if type(timeout) not in (float, int) or not math.isfinite(timeout) or not 0 < timeout <= 30:
+            raise ValueError("diagnostic timeout must be finite and at most 30 seconds")
+        future = asyncio.get_running_loop().create_future()
+        self._battle_pending[control.sequence] = (control, future)
+        try:
+            bridge.outbox.put_control(b"D" + control.pack())
+            return await asyncio.wait_for(future, timeout)
+        finally:
+            self._battle_pending.pop(control.sequence, None)
+            if not future.done():
+                future.cancel()
+
+    def _receive_battle_response(self, payload, bridge):
+        from .battle_mailbox import BattleControl
+        try:
+            response = BattleControl.unpack(payload).validate_response()
+            pending = self._battle_pending.get(response.sequence)
+            if pending is None:
+                return
+            command, future = pending
+            response.validate_response(command)
+        except ValueError as error:
+            raise BridgeError("invalid or uncorrelated diagnostic response") from error
+        if bridge is not self._bridge:
+            raise BridgeError("diagnostic response belongs to an old bridge")
         if not future.done():
             future.set_result(response)
 

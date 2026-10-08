@@ -45,6 +45,21 @@ if tradeEnabled then
         and emu:read32(cfg.trade_abi_address) == 1, "Invalid trade capability marker")
 end
 local savePending, saveGeneration, capabilitySent = nil, nil, false
+local battleAddr = cfg.battle_address
+local battleEnabled = battleAddr ~= nil or cfg.battle_abi ~= nil or cfg.battle_abi_address ~= nil or cfg.battle_size ~= nil
+if battleEnabled then
+    assert(tradeEnabled and type(battleAddr) == "number" and battleAddr % 4 == 0
+        and battleAddr >= 0x02000000 and battleAddr + 512 <= 0x02040000
+        and not (battleAddr < addr + 128 and addr < battleAddr + 512)
+        and not (battleAddr < saveAddr + 512 and saveAddr < battleAddr + 512)
+        and cfg.battle_size == 512 and cfg.battle_abi == 1
+        and type(cfg.battle_abi_address) == "number" and cfg.battle_abi_address % 4 == 0
+        and cfg.battle_abi_address >= 0x08000000
+        and cfg.battle_abi_address + 4 <= 0x08000000 + cfg.rom_size
+        and emu:read32(cfg.battle_abi_address) == 1, "Invalid diagnostic battle capability")
+end
+local battlePending, battleGeneration, battleCapabilitySent = nil, nil, false
+local observedBattle, previousBattleFrame, previousBattleState = false, nil, nil
 local tick, lastConnect, stopped = 0, -120, false
 local observedPresence, previousFrame = false, nil
 local observedSave, previousSaveFrame, previousSaveState = false, nil, nil
@@ -52,6 +67,7 @@ local observedSave, previousSaveFrame, previousSaveState = false, nil, nil
 local function forgetRuntime()
     observedPresence, previousFrame = false, nil
     observedSave, previousSaveFrame, previousSaveState = false, nil, nil
+    observedBattle, previousBattleFrame, previousBattleState = false, nil, nil
 end
 
 local function headerReady()
@@ -130,6 +146,61 @@ local function commitSave(payload)
     return true
 end
 
+local function battleHeaderReady()
+    return battleEnabled and emu:read32(battleAddr) == 0x31424D45
+        and emu:read16(battleAddr + 4) == 1 and emu:read16(battleAddr + 6) == 512
+        and emu:read32(battleAddr + 12) <= 3
+        and emu:read32(battleAddr + 16) == 0 and emu:read32(battleAddr + 20) == 0
+end
+
+local function battleControl(payload, command)
+    if #payload ~= 240 then return nil end
+    local inc, epoch, id, seq, block, offset, size, opcode, status, phase, source, kind, reserved, length, crc, data
+        = string.unpack("<I4I4c16I4I4I2I2BBBBBBI2I4c192", payload)
+    if inc == 0 or epoch == 0 or epoch > 0x7FFFFFFF or id == string.rep("\0", 16)
+        or seq == 0 or size > 256 or offset > size or opcode < 1 or opcode > 9
+        or status > 10 or phase ~= 1 or source > 3 or kind > 1 or reserved ~= 0
+        or length > 192 or data:sub(length + 1) ~= string.rep("\0", 192 - length)
+        or crc32(data:sub(1, length)) ~= crc then return nil end
+    local blockOp = opcode == 4 or opcode == 5 or opcode == 6
+    if blockOp then
+        if kind ~= 1 or size ~= 40 or block == 0 then return nil end
+        if (opcode == 5 and offset ~= 40) or (opcode ~= 5 and offset ~= 0) then return nil end
+    elseif block ~= 0 or offset ~= 0 or size ~= 0 or kind ~= 0 then return nil end
+    if command then
+        local lengths = {116, 0, 4, 0, 8, 40, 4, 0, 0}
+        if status ~= 0 or length ~= lengths[opcode] then return nil end
+        if opcode == 5 or opcode == 7 then
+            local mask = string.unpack("<I4", data, opcode == 5 and 5 or 1)
+            if mask == 0 or mask > 15 then return nil end
+        end
+        if opcode == 6 then
+            local magic, version, generation, slot, _, lease, incarnation = string.unpack("<I4I4c16I4I4I4I4", data)
+            if magic ~= 0x44424D45 or version ~= 1 or generation == string.rep("\0", 16)
+                or slot ~= source or lease == 0 or lease > 0x7FFFFFFF or incarnation == 0 then return nil end
+        end
+    else
+        local lengths = {64, 64, 64, 40, 0, 0, 0, 0, 64}
+        if (status == 0 and length ~= lengths[opcode]) or (status ~= 0 and length ~= 0) then return nil end
+    end
+    -- Bytes 1-37 and 39-41 are the immutable response correlation fields;
+    -- status, length, CRC and data may change. C validates roster/roles again.
+    return {payload=payload, opcode=opcode, correlation=payload:sub(1,37)..payload:sub(39,41)}
+end
+
+local function commitBattle(payload)
+    if not verified or not battleHeaderReady() then return false end
+    local current = emu:read32(battleAddr + 24)
+    local odd = ((current - current % 2) + 1) % 0x100000000
+    emu:write32(battleAddr + 24, odd)
+    for offset = 0, 236, 4 do
+        local word = string.unpack("<I4", payload, offset + 1)
+        emu:write32(battleAddr + 28 + offset, word)
+    end
+    emu:write32(battleAddr + 24, (odd + 1) % 0x100000000)
+    return true
+end
+
 local function commit(payload)
     if not verified or not headerReady() then return end
     local current = emu:read32(addr + 36)
@@ -147,6 +218,7 @@ local function stop(reason, fatal)
     rx, tx, latestPose = "", "", nil
     controls, controlBurst = {}, 0
     savePending, saveGeneration, capabilitySent = nil, nil, false
+    battlePending, battleGeneration, battleCapabilitySent = nil, nil, false
     commit(string.rep("\0", 88))
     if reason then
         stopped = fatal or false
@@ -181,6 +253,19 @@ local function pollSave()
         stop("invalid save response offset", true); return
     end
     if reliable("R" .. payload) then savePending = nil end
+end
+
+local function pollBattle()
+    if not battlePending or not battleHeaderReady() then return end
+    local generation = emu:read32(battleAddr + 268)
+    if generation % 2 ~= 0 or generation == battleGeneration then return end
+    local payload = emu:readRange(battleAddr + 272, 240)
+    if generation ~= emu:read32(battleAddr + 268) or payload == string.rep("\0", 240) then return end
+    local response = battleControl(payload, false)
+    if not response then stop("invalid battle response", true); return end
+    battleGeneration = generation
+    if response.correlation ~= battlePending.correlation then return end
+    if reliable("E" .. payload) then battlePending = nil end
 end
 
 local function validPose(bytes)
@@ -253,6 +338,21 @@ local function runtimeReady()
             end
         end
     end
+    if battleEnabled then
+        if not battleHeaderReady() then
+            if emu:read32(battleAddr) ~= 0 then stop("battle mailbox ABI mismatch", true)
+            elseif observedBattle then runtimeRestart("ROM battle mailbox reinitialized") end
+            return false
+        end
+        local current, state = emu:read32(battleAddr + 8), emu:read32(battleAddr + 12)
+        if regressed(current, previousBattleFrame)
+            or (observedBattle and previousBattleState ~= 0 and state == 0
+                and emu:readRange(battleAddr + 24, 488) == string.rep("\0", 488)) then
+            runtimeRestart("ROM battle runtime restarted")
+            return false
+        end
+        observedBattle, previousBattleFrame, previousBattleState = true, current, state
+    end
     return true
 end
 
@@ -308,6 +408,13 @@ local function receive()
                     stop("multiple outstanding save commands", true); return
                 end
                 if commitSave(command.payload) then savePending = command end
+            elseif payload:sub(1, 1) == "D" then
+                local command = battleControl(payload:sub(2), true)
+                if not command or not battleHeaderReady() then stop("invalid battle command", true); return end
+                if battlePending and command.opcode ~= 2 and command.payload ~= battlePending.payload then
+                    stop("multiple outstanding battle commands", true); return
+                end
+                if commitBattle(command.payload) then battlePending = command end
             else
                 stop("invalid bridge packet", true); return
             end
@@ -347,6 +454,7 @@ local function onFrame()
         sock, rx, tx = candidate, "", frame("H" .. token)
         controls, controlBurst = {}, 0
         savePending, saveGeneration, capabilitySent = nil, nil, false
+        battlePending, battleGeneration, battleCapabilitySent = nil, nil, false
         console:log("Multiplayer bridge connected to local companion")
     end
     if not sock then return end
@@ -354,9 +462,15 @@ local function onFrame()
         if not reliable("V" .. string.pack("<I2I2I2I2", 1, 512, 240, 192)) then return end
         capabilitySent = true
     end
+    if battleHeaderReady() and not battleCapabilitySent then
+        if not reliable("W" .. string.pack("<I2I2I2I2", 1, 512, 240, 192)) then return end
+        battleCapabilitySent = true
+    end
     receive()
     if not sock then return end
     pollSave()
+    if not sock then return end
+    pollBattle()
     if not sock then return end
     if tick % 6 == 0 then
         local generation = emu:read32(addr + 12)

@@ -1,6 +1,8 @@
 """Render a private loopback bridge for a verified ROM manifest."""
 import re
 
+from .battle_manifest import validate_battle_manifest
+
 
 def configure(manifest: dict, token: str, port: int, bridge: str) -> str:
     if not re.fullmatch(r"[0-9a-f]{64}", token) or not 1 <= port <= 65535:
@@ -42,7 +44,11 @@ def configure(manifest: dict, token: str, port: int, bridge: str) -> str:
                 or not 0x08000000 <= marker <= 0x08000000 + size - 4):
             raise ValueError("Invalid or incomplete trade capability")
         trade_config = f", trade_abi=1, trade_abi_address={marker}"
+    battle_config = ""
+    if validate_battle_manifest(manifest):
+        battle_config = (f", battle_abi=1, battle_abi_address={manifest['battle_abi_address']}"
+                         f", battle_address={manifest['battle_mailbox_address']}, battle_size=512")
     return (
         f'EMERALD_BRIDGE = {{address={address}, rom_size={size}, rom_crc32="{crc}", '
-        f'port={port}, token="{token}"{save_config}{trade_config}}}\n' + bridge
+        f'port={port}, token="{token}"{save_config}{trade_config}{battle_config}}}\n' + bridge
     )

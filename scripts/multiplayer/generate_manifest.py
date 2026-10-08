@@ -70,6 +70,15 @@ def generate(rom: Path, elf: Path, nm: str, engine_commit: str) -> dict:
             if stream.read(4) != b"\x01\x00\x00\x00":
                 raise ValueError("Unsupported trade ABI marker")
         manifest.update(trade_abi_version=1, trade_abi_address=marker)
+    battle = re.findall(r"^([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+[Rr]\s+gMultiplayerBattleAbiVersion$", symbols, re.M)
+    channel = re.findall(r"^([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+[BDbd]\s+gMultiplayerBattleMailbox$", symbols, re.M)
+    if battle or channel:
+        from emerald_multiplayer.battle_manifest import validate_battle_manifest
+        if len(battle) != 1 or len(channel) != 1 or not trade or int(battle[0][1], 16) != 4:
+            raise ValueError("Battle capability requires one ROM marker, one channel and trade support")
+        manifest.update(battle_abi_version=1, battle_abi_address=int(battle[0][0], 16),
+                        battle_mailbox_address=int(channel[0][0], 16), battle_mailbox_size=int(channel[0][1], 16))
+        validate_battle_manifest(manifest, rom)
     objects = re.findall(r"^([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+[BDbd]\s+gObjectEvents$", symbols, re.M)
     if len(objects) == 1:
         obj_address, obj_size = (int(value, 16) for value in objects[0])
