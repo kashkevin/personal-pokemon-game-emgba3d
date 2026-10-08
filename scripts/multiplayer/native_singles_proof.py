@@ -1,4 +1,4 @@
-"""Two actual cores attempting ABI2 native singles through bounded production IPC.
+"""Two actual cores attempting native singles through bounded production IPC.
 
 An explicit development coordinator routes authenticated participants' typed
 blocks and compares startup to canonical owned checkpoints. This is not the
@@ -44,8 +44,8 @@ async def run(args):
     if "/multiplayer-proof/" not in str(root)+"/" or root.exists():
         raise ValueError("choose a new private multiplayer-proof output directory")
     _, manifest = verify_rom_manifest(args.rom, args.manifest)
-    if manifest.get("battle_abi_version") != 2:
-        raise ValueError("native singles require the exact ABI2 development ROM")
+    if manifest.get("battle_abi_version") != args.native_abi:
+        raise ValueError("native singles require the explicitly selected development ABI")
     if hashlib.sha256(args.elf.read_bytes()).hexdigest() != manifest["elf_sha256"]:
         raise ValueError("ELF does not match the native build manifest")
     if (args.observer_c is None) != (args.observer_d is None):
@@ -530,6 +530,8 @@ def main():
         parser.add_argument("--"+name, type=Path, required=True)
     parser.add_argument("--bridge", type=Path, default=Path(__file__).parents[2]/"bridge/mgba.lua")
     parser.add_argument("--timeout", type=float, default=240)
+    parser.add_argument("--native-abi", type=int, choices=(2, 3), default=2,
+        help="Explicitly opt into the singles compatibility proof on an ABI3 build")
     parser.add_argument("--observer-c", type=Path)
     parser.add_argument("--observer-d", type=Path)
     asyncio.run(run(parser.parse_args()))
