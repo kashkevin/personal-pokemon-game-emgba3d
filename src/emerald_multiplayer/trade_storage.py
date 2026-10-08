@@ -169,6 +169,9 @@ class TradeCheckpointStore(OwnershipCheckpointStore):
         for serial, kind, reason, transaction in events:
             self._connection.execute("INSERT INTO ownership_events VALUES (?, ?, ?, ?, ?, ?)",
                 (checkpoint.player_id, checkpoint.revision, serial, kind, reason, transaction))
+        if self.friendship_observations_enabled:
+            from .trade_friendship_observations import FriendshipObservations
+            FriendshipObservations(self)._append(checkpoint)
 
     def _write_checkpoint_extras(self, checkpoint: Checkpoint, prepared) -> None:
         owned, prior, additions, missing, retired = prepared
@@ -338,6 +341,9 @@ class TradeCheckpointStore(OwnershipCheckpointStore):
             raise StorageError("storage_corrupt", message)
         try:
             self._audit_history(corrupt)
+            if self.friendship_observations_enabled:
+                from .trade_friendship_observations import FriendshipObservations
+                FriendshipObservations(self)._integrity()
         except StorageError as error:
             if error.code == "storage_corrupt":
                 raise

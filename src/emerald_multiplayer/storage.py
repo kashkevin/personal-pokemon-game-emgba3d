@@ -216,13 +216,18 @@ class CheckpointStore:
                     from .reset_attempts import EXTENSION_VERSION as RESET_VERSION, ATTEMPT_SCHEMA
                     version = self._connection.execute("PRAGMA user_version").fetchone()[0]
                     extension = version - self._base_schema_version
-                    if extension in (EXTENSION_VERSION, RESET_VERSION, EXTENSION_VERSION + RESET_VERSION):
-                        self._schema = dict(self._base_schema)
-                        if extension in (EXTENSION_VERSION, EXTENSION_VERSION + RESET_VERSION):
-                            self._schema.update(RESERVATION_SCHEMA)
-                        if extension in (RESET_VERSION, EXTENSION_VERSION + RESET_VERSION):
-                            self._schema.update(ATTEMPT_SCHEMA)
-                        self._schema_version = version
+                    capabilities = [(EXTENSION_VERSION, RESERVATION_SCHEMA), (RESET_VERSION, ATTEMPT_SCHEMA)]
+                    if self._base_schema_version == 3:
+                        from .trade_friendship_observations import EXTENSION_VERSION as FRIENDSHIP_VERSION, OBSERVATION_SCHEMA
+                        capabilities.append((FRIENDSHIP_VERSION, OBSERVATION_SCHEMA))
+                    for mask in range(1, 1 << len(capabilities)):
+                        selected = [item for index, item in enumerate(capabilities) if mask & (1 << index)]
+                        if extension == sum(item[0] for item in selected):
+                            self._schema = dict(self._base_schema)
+                            for _, schema in selected:
+                                self._schema.update(schema)
+                            self._schema_version = version
+                            break
                 self._validate_schema()
                 self._validate_metadata()
             self._connection.execute("PRAGMA journal_mode = WAL")
@@ -276,6 +281,10 @@ class CheckpointStore:
     @property
     def reset_attempts_enabled(self) -> bool:
         return "personal_reset_attempts" in self._schema
+
+    @property
+    def friendship_observations_enabled(self) -> bool:
+        return "pokemon_friendship_observations" in self._schema
 
     def _assert_no_battle_reservation(self, *players) -> None:
         """Called inside the owning store transaction, including direct APIs."""
