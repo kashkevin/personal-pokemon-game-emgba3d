@@ -46,6 +46,10 @@ def checkpoint_metadata(checkpoint):
 class FakeCompanion:
     """Strict mailbox endpoint plus bounded RPCs backed by the real store."""
 
+    # A guard test invokes Companion.checkpoint_rpc unbound on this fixture;
+    # retain its production pending-trade check as well as the lifecycle guard.
+    _guard_pending_trade_mutation = Companion._guard_pending_trade_mutation
+
     def __init__(self, directory: Path, *, enroll=True):
         self.store = CheckpointStore(directory / "world.sqlite3", build_id="a" * 64,
                                      ruleset_id="rules-v1", save_profile=LAYOUT_ID)

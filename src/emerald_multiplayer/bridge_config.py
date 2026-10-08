@@ -46,4 +46,3 @@ def configure(manifest: dict, token: str, port: int, bridge: str) -> str:
         f'EMERALD_BRIDGE = {{address={address}, rom_size={size}, rom_crc32="{crc}", '
         f'port={port}, token="{token}"{save_config}{trade_config}}}\n' + bridge
     )
-
