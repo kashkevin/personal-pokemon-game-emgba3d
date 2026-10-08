@@ -10,7 +10,7 @@ def validate_battle_manifest(manifest, rom_path=None):
         return False
     if not BATTLE_FIELDS.issubset(manifest):
         raise ValueError("battle capability fields are incomplete")
-    if type(manifest["battle_abi_version"]) is not int or manifest["battle_abi_version"] not in (1, 2):
+    if type(manifest["battle_abi_version"]) is not int or manifest["battle_abi_version"] not in (1, 2, 3):
         raise ValueError("unsupported development battle ABI")
     for name, expected in (("battle_mailbox_size", 512),
                            ("ownership_abi_version", 1), ("trade_abi_version", 1),

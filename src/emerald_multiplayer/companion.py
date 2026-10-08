@@ -161,7 +161,7 @@ class CompanionConfig:
         object.__setattr__(self, "save_enabled", "save_mailbox_address" in manifest)
         object.__setattr__(self, "ownership_enabled", manifest.get("ownership_abi_version") == 1)
         object.__setattr__(self, "trade_enabled", manifest.get("trade_abi_version") == 1)
-        object.__setattr__(self, "battle_enabled", manifest.get("battle_abi_version") in (1, 2))
+        object.__setattr__(self, "battle_enabled", manifest.get("battle_abi_version") in (1, 2, 3))
         object.__setattr__(self, "battle_abi_version", manifest.get("battle_abi_version", 0))
         object.__setattr__(self, "save_window_enabled", manifest.get("save_window_abi_version") == 1)
         if type(self.development_battle_channel) is not bool:
@@ -623,10 +623,10 @@ class Companion:
         world-server routing; those belong to the native battle coordinator.
         """
         from .battle_mailbox import BattleControl, Opcode
-        from .native_battle import NativeControl
+        from .native_battle import NativeControl, supports_native_phase
         if (not self.config.development_battle_channel
                 or not isinstance(control, (BattleControl, NativeControl))
-                or (isinstance(control, NativeControl) and self.config.battle_abi_version != 2)):
+                or (isinstance(control, NativeControl) and not supports_native_phase(self.config.battle_abi_version, control.phase))):
             raise ValueError("battle channel requires explicit development opt-in and a matching ABI control")
         control.validate_command(player_id=self.config.player_id)
         if control.opcode != Opcode.QUERY:
@@ -657,9 +657,10 @@ class Companion:
 
     def _receive_battle_response(self, payload, bridge):
         from .battle_mailbox import BattleControl
-        from .native_battle import NativeControl
+        from .native_battle import NativeControl, supports_native_phase
         try:
-            codec = NativeControl if self.config.battle_abi_version == 2 and payload[38:39] == b"\x02" else BattleControl
+            phase = payload[38] if len(payload) > 38 else 0
+            codec = NativeControl if supports_native_phase(self.config.battle_abi_version, phase) else BattleControl
             response = codec.unpack(payload).validate_response()
             pending = self._battle_pending.get(response.sequence)
             if pending is None:

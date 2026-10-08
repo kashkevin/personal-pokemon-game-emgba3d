@@ -1,4 +1,4 @@
-"""Read-only canonical trainer/party material for the ABI2 development battle.
+"""Read-only canonical trainer/party material for development native battles.
 
 The ROM transports its exact protected original six-slot party at startup.
 Temporary native form changes and battle mutations must never be substituted
@@ -11,7 +11,7 @@ import zlib
 
 from .battle_mailbox import BattleMailboxError, _integer, _uuid
 from .flash import SAVED_PARTY_OFFSET, inspect_flash
-from .native_battle import Kind, Preparation
+from .native_battle import Kind, Preparation, PHASE, player_count_for_phase
 from .ownership import OWNERSHIP_PROFILE, inspect_ownership
 from .protocol import MAX_COUNTER
 from .storage import Checkpoint
@@ -56,15 +56,16 @@ class CanonicalBattler:
     party_crc32: int
     party: bytes = field(repr=False)
     trainer_descriptor: bytes = field(repr=False)
+    mode: int = PHASE
 
     @classmethod
-    def from_checkpoint(cls, checkpoint, *, world_id, build_id, ruleset_id, source_slot):
+    def from_checkpoint(cls, checkpoint, *, world_id, build_id, ruleset_id, source_slot, mode=PHASE):
         """Validate immutable canonical bytes; current lease/head checks are separate."""
         if not isinstance(checkpoint, Checkpoint):
             raise BattleMailboxError("battle roster needs an acknowledged checkpoint")
         _uuid(world_id, "world")
         _uuid(checkpoint.player_id, "player")
-        _integer(source_slot, 0, 1, "native source slot")
+        _integer(source_slot, 0, player_count_for_phase(mode)-1, "native source slot")
         _integer(checkpoint.revision, 1, MAX_COUNTER, "canonical revision")
         if (checkpoint.build_id != build_id or checkpoint.ruleset_id != ruleset_id
                 or checkpoint.save_profile != OWNERSHIP_PROFILE
@@ -87,10 +88,10 @@ class CanonicalBattler:
         struct.pack_into("<HHI", trainer, 0, 0x4003, 0, metadata.trainer_id)
         trainer[8:16] = snapshot.save_block2[:8]
         trainer[19] = metadata.gender
-        struct.pack_into("<IHH", trainer, 20, 0x2211, source_slot, 2)
+        struct.pack_into("<IHH", trainer, 20, 0x2211 if mode == PHASE else 0x2255, source_slot, 2)
         return cls(world_id, checkpoint.player_id, checkpoint.revision, checkpoint.sha256,
             source_slot, metadata.counter, metadata.trainer_id, metadata.party_count,
-            zlib.crc32(party), party, bytes(trainer))
+            zlib.crc32(party), party, bytes(trainer), mode)
 
     def preparation(self, rng):
         return Preparation(self.revision, self.native_counter, self.trainer_id,

@@ -22,11 +22,11 @@ class NativeLuaTests(unittest.TestCase):
 
     def fixture(self, abi=2):
         raw = lua_fixture.BattleBridgeTests.fixture(self)
-        if abi == 2:
-            raw = raw.replace("EMERALD_BRIDGE.battle_abi=1;", "EMERALD_BRIDGE.battle_abi=2;")
+        if abi in (2, 3):
+            raw = raw.replace("EMERALD_BRIDGE.battle_abi=1;", f"EMERALD_BRIDGE.battle_abi={abi};")
             raw = raw.replace('loadBytes(0x080000c8,string.pack("<I4",1))',
-                              'loadBytes(0x080000c8,string.pack("<I4",2))')
-            raw = raw.replace("0x31424D45,1,512,1,0,0,0", "0x31424D45,2,512,1,0,0,0")
+                              f'loadBytes(0x080000c8,string.pack("<I4",{abi}))')
+            raw = raw.replace("0x31424D45,1,512,1,0,0,0", f"0x31424D45,{abi},512,1,0,0,0")
         return raw
 
     def test_native_query_and_capability_keep_diagnostic_available(self):

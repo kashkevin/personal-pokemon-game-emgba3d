@@ -410,7 +410,7 @@ def parse_response_packet(payload):
 
 
 def capability_packet(abi_version=BATTLE_ABI_VERSION):
-    _integer(abi_version, 1, 2, "battle capability version")
+    _integer(abi_version, 1, 3, "battle capability version")
     return b"W" + struct.pack("<HHHH", abi_version, BATTLE_MAILBOX_SIZE, BATTLE_SLOT_SIZE, BATTLE_DATA_SIZE)
 
 

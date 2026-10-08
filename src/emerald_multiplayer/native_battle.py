@@ -1,4 +1,4 @@
-"""ABI2 singles mailbox envelopes, separate from the accepted ABI1 diagnostic.
+"""ABI2 singles and ABI3 full-party Multi envelopes; ABI1 stays separate.
 
 These codecs validate bounded transport envelopes. Complete startup blocks still
 need canonical-save comparison, and controller blocks need the stateful native
@@ -20,8 +20,20 @@ from .protocol import MAX_COUNTER
 
 ABI_VERSION = 2
 PHASE = 2
+MULTI_ABI_VERSION = 3
+MULTI_PHASE = 3
 _U32 = 0xFFFFFFFF
 _PREPARE = struct.Struct("<IIII16sI")
+
+
+def player_count_for_phase(phase):
+    _integer(phase, PHASE, MULTI_PHASE, "native phase")
+    return 2 if phase == PHASE else 4
+
+
+def supports_native_phase(abi, phase):
+    return (type(abi) is int and type(phase) is int
+            and ((abi == 2 and phase == 2) or (abi == 3 and phase in (2, 3))))
 
 
 class Opcode(IntEnum):
@@ -68,11 +80,12 @@ class NativeBinding:
     leases: tuple[int, ...]
     incarnations: tuple[int, ...]
     local_slot: int
+    mode: int = PHASE
 
     def __post_init__(self):
         self._diagnostic_shape()
-        if len(self.players) != 2:
-            raise BattleMailboxError("native singles require exactly two trainers")
+        if len(self.players) != player_count_for_phase(self.mode):
+            raise BattleMailboxError("native phase requires its exact trainer count")
 
     def _diagnostic_shape(self):
         return BattleBinding(self.generation, self.players, self.leases,
@@ -80,20 +93,20 @@ class NativeBinding:
 
     def pack(self):
         raw = self._diagnostic_shape().pack()
-        return raw[:114] + bytes((PHASE, 0))
+        return raw[:114] + bytes((self.mode, 0))
 
     @classmethod
     def unpack(cls, data):
-        if type(data) is not bytes or len(data) != 116 or data[114] != PHASE:
-            raise BattleMailboxError("native binding requires exactly 116 phase2 bytes")
+        if type(data) is not bytes or len(data) != 116 or data[114] not in (PHASE, MULTI_PHASE):
+            raise BattleMailboxError("native binding requires exactly 116 phase2/3 bytes")
         shape = BattleBinding.unpack(data[:114] + b"\x01" + data[115:])
         return cls(shape.generation, shape.players, shape.leases,
-                   shape.incarnations, shape.local_slot)
+                   shape.incarnations, shape.local_slot, data[114])
 
     def validate_control(self, control, *, player_id=None):
         if not isinstance(control, NativeControl):
             raise BattleMailboxError("native binding needs a native control")
-        if (control.source_slot != self.local_slot
+        if (control.phase != self.mode or control.source_slot != self.local_slot
                 or control.session_epoch != self.leases[self.local_slot]
                 or control.incarnation != self.incarnations[self.local_slot]
                 or (player_id is not None and player_id != self.players[self.local_slot])):
@@ -170,8 +183,9 @@ class NativeQuery:
         if not any(data):
             return cls(flags, None, count, local, mode, *words)
         seq, out_seq, kind, size, crc, cursor, received, remaining, revision, outcome = words
-        if (reserved or flags & ~127 or count != 2 or local >= 2 or mode != PHASE
-                or not any(generation) or not seq or received & ~3 or remaining > 600
+        expected_count = player_count_for_phase(mode)
+        if (reserved or flags & ~127 or count != expected_count or local >= count
+                or not any(generation) or not seq or received & ~((1 << count)-1) or remaining > 600
                 or revision > MAX_COUNTER or outcome not in (0, 1, 2, 3)
                 or (flags & 2 and (not flags & 1 or remaining))
                 or (not flags & 1 and (remaining or flags & ~1 or received or size))
@@ -214,8 +228,7 @@ class NativeControl:
         _integer(self.block_sequence, 0, _U32, "block sequence")
         _integer(self.total_size, 0, 256, "block size")
         _integer(self.offset, 0, self.total_size, "block offset")
-        _integer(self.source_slot, 0, 1, "source slot")
-        _integer(self.phase, PHASE, PHASE, "native phase")
+        _integer(self.source_slot, 0, player_count_for_phase(self.phase)-1, "source slot")
         for value, enum, name in ((self.opcode, Opcode, "native opcode"),
                                  (self.kind, Kind, "native kind"), (self.status, Status, "status")):
             _enum(value, enum, name)
@@ -272,16 +285,17 @@ class NativeControl:
             if struct.unpack_from("<I", self.data, 4)[0] not in (1, 2, 3):
                 raise BattleMailboxError("release needs a normalized win/loss/draw outcome")
         elif self.opcode == Opcode.ACK_OUT:
-            if struct.unpack_from("<I", self.data, 4)[0] != (3 ^ (1 << self.source_slot)):
-                raise BattleMailboxError("native acknowledgement must name exactly the peer")
+            mask = (1 << player_count_for_phase(self.phase))-1
+            if struct.unpack_from("<I", self.data, 4)[0] != (mask ^ (1 << self.source_slot)):
+                raise BattleMailboxError("native acknowledgement must name exactly all peers")
         if binding is not None:
             if not isinstance(binding, NativeBinding):
-                raise BattleMailboxError("native control needs an immutable singles binding")
+                raise BattleMailboxError("native control needs an immutable native binding")
             local = binding.local_slot
-            if (self.incarnation != binding.incarnations[local]
+            if (self.phase != binding.mode or self.incarnation != binding.incarnations[local]
                     or self.session_epoch != binding.leases[local]
                     or (player_id is not None and player_id != binding.players[local])
-                    or self.source_slot != (1-local if self.opcode == Opcode.RECEIVE else local)):
+                    or (self.source_slot == local if self.opcode == Opcode.RECEIVE else self.source_slot != local)):
                 raise BattleMailboxError("native command disagrees with the authenticated local binding")
         return self
 
@@ -300,8 +314,8 @@ class NativeControl:
         self._validate_block()
         if self.opcode in (Opcode.BIND, Opcode.QUERY, Opcode.KEEP, Opcode.PREPARE, Opcode.START):
             query = NativeQuery.unpack(self.data)
-            if query.player_count and query.local_slot != self.source_slot:
-                raise BattleMailboxError("native query names the wrong local participant")
+            if query.player_count and (query.local_slot != self.source_slot or query.mode != self.phase):
+                raise BattleMailboxError("native query names the wrong local participant/phase")
             if self.opcode != Opcode.QUERY and (not query.held or query.expired
                     or query.recovery_required or query.last_sequence != self.sequence):
                 raise BattleMailboxError("native mutator did not confirm its active hold/sequence")

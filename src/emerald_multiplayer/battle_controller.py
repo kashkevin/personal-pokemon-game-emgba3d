@@ -1,4 +1,4 @@
-"""Stateful ABI2 singles controller admission for the pinned ARM layout.
+"""Stateful singles/full-party Multi admission for the pinned ARM layout.
 
 This mirrors multiplayer_battle_controller.c. It permits no raw-memory, DMA,
 debug, capture, bag or XP dispatch. Values are compiler/source-derived from the
@@ -11,6 +11,7 @@ from pathlib import Path
 import struct
 
 from .battle_mailbox import BattleMailboxError, _integer
+from .native_battle import PHASE, MULTI_PHASE, player_count_for_phase
 
 MASTER_LENGTHS = {
     0: 4, 4: 4, 5: 4, 6: 2, 7: 4, 8: 4, 9: 4, 10: 4,
@@ -77,15 +78,18 @@ def _animation_valid(p):
 
 
 class ControllerValidator:
-    def __init__(self, string_lengths):
+    def __init__(self, string_lengths, *, mode=PHASE):
         if (type(string_lengths) is not tuple or len(string_lengths) != _STRINGS
                 or any(value is not None and (type(value) is not int or not 0 <= value <= _STRING_BUFFER)
                        for value in string_lengths)):
             raise BattleMailboxError("controller validation needs the pinned ROM string lengths")
         self._string_lengths = string_lengths
-        self._pending = [None, None]
-        self._done = [0, 0]
-        self._replied = [False, False]
+        self._count = player_count_for_phase(mode)
+        self._mode = mode
+        self._mask = (1 << self._count)-1
+        self._pending = [None]*self._count
+        self._done = [0]*self._count
+        self._replied = [False]*self._count
 
     @property
     def pending(self):
@@ -118,7 +122,7 @@ class ControllerValidator:
                 output += 64
             elif token in (4, 7, 11):
                 size = 3
-                if index+size >= 18 or p[index+1] >= 2 or p[index+2] >= 6:
+                if index+size >= 18 or p[index+1] >= self._count or p[index+2] >= 6:
                     return False
                 output += 32
             elif token in (3, 5, 8):
@@ -140,13 +144,13 @@ class ControllerValidator:
             and (string_id < 7 or self._string_lengths[string_id] is not None)
             and _half(m) < _MOVES and _half(m, 2) < _MOVES
             and _half(m, 4) < _ITEMS and _half(m, 6) < _ABILITIES
-            and m[8] < 2 and m[9] < 6 and m[11] < 2 and m[12] < _TYPES
+            and m[8] < self._count and m[9] < 6 and m[11] < self._count and m[12] < _TYPES
             and all(_half(m, 14+i*2) < _ABILITIES for i in range(4))
             and all(self._text_valid(m[22+i*18:40+i*18]) for i in range(3)))
 
     def _move_choice_valid(self, p):
         m = p[4:44]
-        return (p[1] == 0 and p[2] <= 1 and p[3] == 0 and _half(m, 16) < _SPECIES
+        return (p[1] == int(self._mode == MULTI_PHASE) and p[2] <= 1 and p[3] == 0 and _half(m, 16) < _SPECIES
             and m[24] >> 2 <= 6
             and all(_half(m, i*2) < _MOVES and m[8+i] <= m[12+i]
                     and _half(m, 30+i*2) < _MOVES and not m[25+i] & ~15 for i in range(4))
@@ -184,7 +188,7 @@ class ControllerValidator:
             return (p[1] <= 3 or p[1] == 255) and (_half(p, 2) < _ITEMS if p[1] == 1 else _half(p, 2) == 0)
         if command == 19: return self._move_choice_valid(p)
         if command == 21:
-            return p[1] <= 4 and p[2] <= 6 and (p[3] | p[7] << 8) < _ABILITIES and p[8] < 2 and _order_valid(p[4:7])
+            return p[1] <= 4 and p[2] <= 6 and (p[3] | p[7] << 8) < _ABILITIES and p[8] < self._count and _order_valid(p[4:7])
         if command == 25: return not _word(p, 1) & ~8191
         if command == 26: return p[1] <= 1
         if command in (38, 39): return _half(p, 1) <= 609 and (p[3] == 0 if command == 38 else p[3] <= 1)
@@ -199,12 +203,12 @@ class ControllerValidator:
 
     def validate(self, data, source):
         """Check a whole block without advancing pending requests/completions."""
-        _integer(source, 0, 1, "authenticated controller source")
+        _integer(source, 0, self._count-1, "authenticated controller source")
         if type(data) is not bytes or not 12 <= len(data) <= 156:
             raise BattleMailboxError("native controller block has an invalid byte length")
         role, battler, attacker, target, padded, absent, effect = struct.unpack_from("<BBBBHBB", data)
-        if battler >= 2 or attacker >= 2 or target >= 2 or effect >= 2 or absent & ~3 or padded+8 != len(data):
-            raise BattleMailboxError("native controller header exceeds singles bounds")
+        if any(v >= self._count for v in (battler, attacker, target, effect)) or absent & ~self._mask or padded+8 != len(data):
+            raise BattleMailboxError("native controller header exceeds its bound trainer count")
         p, pending = data[8:], self._pending[battler]
         valid = False
         if role == 2:
@@ -230,7 +234,8 @@ class ControllerValidator:
                     if pending == 17:
                         valid = (p[1] <= 3 or p[1] in (13, 14)) and not choice
                     elif pending == 19:
-                        valid = p[1] == 10 and (choice == 0xFFFF or (not choice & ~0x1FF and choice & 0x7F < 4))
+                        choice_mask = 0x1FF if self._mode == PHASE else 0x3FF
+                        valid = p[1] == 10 and (choice == 0xFFFF or (not choice & ~choice_mask and choice & 0x7F < 4))
         if not valid:
             raise BattleMailboxError("native controller violates its source, payload or pending-request role")
         return self
@@ -245,6 +250,6 @@ class ControllerValidator:
             self._replied[battler] = True
         else:
             self._done[battler] |= 1 << source
-            if self._done[battler] == 3:
+            if self._done[battler] == self._mask:
                 self._pending[battler] = None
         return self

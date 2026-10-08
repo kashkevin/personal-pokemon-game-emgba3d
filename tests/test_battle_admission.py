@@ -39,14 +39,17 @@ class CompanionBattleAdmissionTests(unittest.IsolatedAsyncioTestCase):
         checkpoint = self.store.commit_checkpoint(actor,self.c.session_epoch,str(uuid4()),0,
             owned_flash(grant,(("party:0",grant.start),),personalities=(7,)),
             self.store.build_id,self.store.ruleset_id,OWNERSHIP_PROFILE)
-        peer = str(uuid4());players = tuple(sorted((actor,peer)));local = players.index(actor)
+        mode = getattr(self, "native_phase", 2)
+        count = 4 if mode == 3 else 2
+        players = tuple(sorted((actor, *(str(uuid4()) for _ in range(count-1)))))
+        local = players.index(actor)
         leases = tuple(self.c.session_epoch if p == actor else self.c.session_epoch+1 for p in players)
         incs = tuple(self.c.battle_incarnation if p == actor else self.c.battle_incarnation+1 for p in players)
-        self.binding = NativeBinding(str(uuid4()),players,leases,incs,local)
+        self.binding = NativeBinding(str(uuid4()),players,leases,incs,local,mode=mode)
         self.canonical = CanonicalBattler.from_checkpoint(checkpoint,world_id=self.c.world_id,
-            build_id=self.c.config.build_id,ruleset_id=self.c.config.ruleset_id,source_slot=local)
+            build_id=self.c.config.build_id,ruleset_id=self.c.config.ruleset_id,source_slot=local,mode=mode)
         self.bind = NativeControl(self.c.battle_incarnation,self.c.session_epoch,str(uuid4()),1,
-            NativeOpcode.BIND,source_slot=local,data=self.binding.pack())
+            NativeOpcode.BIND,source_slot=local,data=self.binding.pack(),phase=mode)
 
     async def echo(self,command,data):
         prefix = b"D" if isinstance(command,NativeControl) else b"C"
@@ -152,7 +155,7 @@ class CompanionBattleAdmissionTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_exact_fsynced_bind_only_is_permitted_in_its_owned_context(self):
         data = struct.pack("<I16sBBBB10I",1,UUID(self.binding.generation).bytes,
-            2,self.binding.local_slot,2,0,1,0,0,0,0,0,0,600,0,0)
+            len(self.binding.players),self.binding.local_slot,self.binding.mode,0,1,0,0,0,0,0,0,600,0,0)
         async with self.journal.bind_intent(self.binding,self.bind,self.canonical) as intent:
             self.assertEqual(read_battle_intent(self.journal.path),intent)
             await self.roundtrip(intent.bind,data)

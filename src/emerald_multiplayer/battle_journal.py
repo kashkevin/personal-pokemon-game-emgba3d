@@ -20,7 +20,7 @@ from uuid import UUID, uuid4
 
 from .battle_roster import CanonicalBattler
 from .checkpoint_client import CheckpointClient, validate_metadata
-from .native_battle import NativeBinding, NativeControl, Opcode
+from .native_battle import NativeBinding, NativeControl, Opcode, supports_native_phase
 from .ownership import OWNERSHIP_PROFILE
 from .protocol import MAX_COUNTER
 
@@ -177,7 +177,7 @@ def read_battle_intent(path) -> BattleIntent:
 
 
 class BattleJournal:
-    """Only development ABI2 may persist a BIND intent; no settlement API.
+    """Only matching development ABI2/3 may persist BIND; no settlement API.
 
     Call ``async with journal.bind_intent(binding, command, canonical) as intent``
     before dispatching ``intent.bind``. The lock and exact battle owner remain
@@ -197,7 +197,7 @@ class BattleJournal:
         c = self.companion
         try:
             if (c.connected is not True or c.config.development_battle_channel is not True
-                    or type(c.config.battle_abi_version) is not int or c.config.battle_abi_version != 2
+                    or type(c.config.battle_abi_version) is not int or c.config.battle_abi_version not in (2, 3)
                     or c.config.ownership_enabled is not True
                     or type(c.config.server_credential) is not bytes or len(c.config.server_credential) != 32
                     or c.save_profile != OWNERSHIP_PROFILE):
@@ -206,14 +206,14 @@ class BattleJournal:
             _identifier(c.config.build_id); _identifier(c.config.ruleset_id)
             _counter(c.server_epoch); _counter(c.session_epoch); _counter(c.battle_incarnation, 0xFFFFFFFF)
         except (ValueError, TypeError, AttributeError, ConnectionError) as error:
-            raise BattleJournalError("battle_admission_required", "intent needs an authenticated development ABI2 game") from error
+            raise BattleJournalError("battle_admission_required", "intent needs an authenticated development ABI2/3 game") from error
         return (c.world_id, c.config.player_id, c.config.build_id, c.config.ruleset_id, c.save_profile,
                 c.server_epoch, c.session_epoch, c.battle_incarnation, c._live_battle_runtime_id)
 
     def _current(self, intent):
         fields = (intent.world_id, intent.player_id, intent.build_id, intent.ruleset_id, intent.save_profile,
                   intent.server_epoch, intent.lease_epoch, intent.incarnation, intent.runtime_id)
-        if self._session() != fields:
+        if self._session() != fields or not supports_native_phase(self.companion.config.battle_abi_version, intent.bind.phase):
             raise BattleJournalError("battle_recovery_required", "pending battle belongs to a prior authenticated runtime; retain intent")
 
     def load(self):
@@ -229,7 +229,9 @@ class BattleJournal:
                 raise ValueError()
             command.validate_command(binding=binding, player_id=session[1])
             if (command.opcode != Opcode.BIND or canonical.world_id != session[0] or canonical.player_id != session[1]
-                    or canonical.source_slot != binding.local_slot or command.session_epoch != session[6]
+                    or canonical.source_slot != binding.local_slot or canonical.mode != binding.mode
+                    or not supports_native_phase(self.companion.config.battle_abi_version, command.phase)
+                    or command.session_epoch != session[6]
                     or command.incarnation != session[7]):
                 raise ValueError()
             value = dict(schema=1, **dict(zip(("world_id", "player_id", "build_id", "ruleset_id", "save_profile",

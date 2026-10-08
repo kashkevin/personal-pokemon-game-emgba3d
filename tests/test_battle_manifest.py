@@ -42,6 +42,15 @@ class BattleManifestTests(unittest.TestCase):
         with self.rom.open("r+b") as rom:
             rom.seek(200)
             rom.write(b"\x03\0\0\0")
+        multi = self.generate(self.base + self.battle)
+        self.assertEqual(multi["battle_abi_version"], 3)
+        self.assertTrue(validate_battle_manifest(multi, self.rom))
+        self.assertIn("battle_abi=3, battle_abi_address=134217928", self.configure(multi))
+        with self.assertRaises(ValueError):
+            validate_battle_manifest({**multi, "battle_abi_version": 2}, self.rom)
+        with self.rom.open("r+b") as rom:
+            rom.seek(200)
+            rom.write(b"\x04\0\0\0")
         with self.assertRaises(ValueError):
             self.generate(self.base + self.battle)
 
