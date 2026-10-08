@@ -138,9 +138,10 @@ class CheckpointServerTests(unittest.IsolatedAsyncioTestCase):
         self.store = CheckpointStore(self.path, self.build, BASELINE_RULESET, LAYOUT_ID)
         self.owner = self.store.create_player("Player A")
         self.other = self.store.create_player("Player B")
+        # Full transfers use the production upload lifetime; only the expiry
+        # test below shortens it. WSL scheduling can exceed 0.3s between chunks.
         self.config = ServerConfig(self.build, BASELINE_RULESET, heartbeat_interval=0.15,
-                                   idle_timeout=3.0, monitor_interval=0.005,
-                                   checkpoint_upload_timeout=0.3)
+                                   idle_timeout=3.0, monitor_interval=0.005)
         self.server = WorldServer(self.config, store=self.store)
         await self.server.start(port=0)
         self.clients, self.companions, self.bridges = [], [], []
@@ -297,6 +298,7 @@ class CheckpointServerTests(unittest.IsolatedAsyncioTestCase):
         self.assert_error(await client.rpc("read", expected_revision=1, offset=0, length=4096), "revision_conflict")
 
     async def test_partial_disconnect_and_timeout_discard_without_saving(self):
+        self.server.config = replace(self.config, checkpoint_upload_timeout=0.3)
         client, _ = await self.connect()
         payload = make_flash()
         upload_id = str(uuid.uuid4())
@@ -311,7 +313,7 @@ class CheckpointServerTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone((await rejoined.rpc("info"))["checkpoint"])
         self.assert_error(await rejoined.rpc("commit", upload_id=upload_id, **fingerprint(payload)), "upload_not_found")
         self.assert_result(await rejoined.rpc("begin", request_id=upload_id, **fingerprint(payload)))
-        self.server.sessions[self.owner.player_id].upload.last_activity -= 1
+        self.server.sessions[self.owner.player_id].upload.last_activity -= self.server.config.checkpoint_upload_timeout + 1
         await wait_until(lambda: self.server.sessions[self.owner.player_id].upload is None)
         self.assert_error(await rejoined.rpc("commit", upload_id=upload_id, **fingerprint(payload)), "upload_not_found")
 
@@ -429,7 +431,9 @@ class CheckpointServerTests(unittest.IsolatedAsyncioTestCase):
 
         first, bridge_a = await add(self.owner)
         second, bridge_b = await add(self.other)
-        self.server.config = replace(self.config, heartbeat_interval=0.02, idle_timeout=0.25)
+        # Keep pings frequent without treating ordinary WSL scheduling gaps as
+        # failed leases. Dedicated timeout tests configure their own short limits.
+        self.server.config = replace(self.config, heartbeat_interval=0.02)
         stop = asyncio.Event()
 
         async def move_second():
@@ -450,7 +454,7 @@ class CheckpointServerTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(recovered.metadata, metadata)
             self.assertIsNone(await CheckpointClient(second).download())
             # Run beyond idle timeout; automatic heartbeat replies must keep both leases.
-            await asyncio.sleep(0.3)
+            await asyncio.sleep(self.server.config.idle_timeout + 0.05)
             self.assertEqual((first.session_epoch, second.session_epoch), (epoch_a, epoch_b))
             self.assertTrue(first.connected and second.connected)
             self.assertGreater(self.server.sessions[self.other.player_id].presence["seq"], 10)
