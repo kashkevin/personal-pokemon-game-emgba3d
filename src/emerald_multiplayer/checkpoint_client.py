@@ -138,7 +138,12 @@ class CheckpointClient:
                 raise ConnectionError("checkpoint session changed before download completed")
             if len(payload) != metadata["size"] or hashlib.sha256(payload).hexdigest() != metadata["sha256"]:
                 raise ProtocolError("invalid_server_message", "downloaded checkpoint hash mismatch")
-            inspect_flash(payload)
+            snapshot = inspect_flash(payload, save_profile=self.companion.save_profile)
+            from .ownership import OWNERSHIP_PROFILE, inspect_ownership
+            if snapshot.save_profile == OWNERSHIP_PROFILE:
+                owner = inspect_ownership(snapshot)
+                if (owner.world_id, owner.player_id) != (session[0], self.companion.config.player_id):
+                    raise ProtocolError("identity_mismatch", "ownership checkpoint belongs to another world or character")
             return DownloadedCheckpoint(session[0], self.companion.config.player_id, metadata, payload)
 
     async def upload(self, payload: bytes, expected_revision: int, *, transaction_id: str | None = None) -> dict[str, Any]:
@@ -148,7 +153,7 @@ class CheckpointClient:
         Caller must keep the game closed while obtaining this ordinary save.
         """
         from .flash import inspect_flash
-        inspect_flash(payload)
+        inspect_flash(payload, save_profile=self.companion.save_profile)
         async with self._transfer_lock:
             session = self._session()
             transaction_id = transaction_id or str(uuid4())

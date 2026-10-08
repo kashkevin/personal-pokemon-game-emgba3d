@@ -43,6 +43,8 @@ class Opcode(IntEnum):
     COMMIT = 7
     CANCEL = 8
     QUERY = 9
+    QUERY_OWNERSHIP = 10
+    GRANT_OWNERSHIP = 11
 
 
 class Status(IntEnum):
@@ -135,7 +137,8 @@ class SaveControl:
     def validate_command(self) -> SaveControl:
         lengths = {Opcode.BIND: 0, Opcode.BEGIN_EXPORT: 0, Opcode.READ: 0,
                    Opcode.END: 0, Opcode.BEGIN_IMPORT: 16, Opcode.WRITE: 128,
-                   Opcode.COMMIT: 0, Opcode.CANCEL: 0, Opcode.QUERY: 0}
+                   Opcode.COMMIT: 0, Opcode.CANCEL: 0, Opcode.QUERY: 0,
+                   Opcode.QUERY_OWNERSHIP: 0, Opcode.GRANT_OWNERSHIP: 60}
         if self.status != Status.OK or self.length != lengths[self.opcode]:
             raise SaveMailboxError("save command status or data length is invalid")
         if self.opcode in (Opcode.READ, Opcode.WRITE) and (self.total_size != FLASH_SIZE
@@ -150,7 +153,8 @@ class SaveControl:
     def validate_response(self) -> SaveControl:
         lengths = {Opcode.BIND: 0, Opcode.BEGIN_EXPORT: 40, Opcode.READ: 128,
                    Opcode.END: 4, Opcode.BEGIN_IMPORT: 8, Opcode.WRITE: 0,
-                   Opcode.COMMIT: 0, Opcode.CANCEL: 0, Opcode.QUERY: 48}
+                   Opcode.COMMIT: 0, Opcode.CANCEL: 0, Opcode.QUERY: 48,
+                   Opcode.QUERY_OWNERSHIP: 80, Opcode.GRANT_OWNERSHIP: 80}
         if self.length != (lengths[self.opcode] if self.status == Status.OK else 0):
             raise SaveMailboxError("save response data length is invalid")
         if self.status == Status.OK and self.opcode == Opcode.READ and (self.total_size != FLASH_SIZE

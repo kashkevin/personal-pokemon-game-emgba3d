@@ -68,6 +68,27 @@ class SaveManifestTests(unittest.TestCase):
         self.assertIn("save_size=512, save_abi=1", configured)
         self.assertTrue(configured.endswith("-- fixture bridge\n"))
 
+    def test_ownership_marker_requires_live_mailbox_and_matching_rom_constant(self):
+        marker = "080000c0 00000004 R gMultiplayerOwnershipAbi\n"
+        with self.assertRaises(ValueError):
+            self.generate(marker)
+        with self.rom.open("r+b") as rom:
+            rom.seek(192)
+            rom.write(b"\x01\0\0\0")
+        generated = self.generate("02021000 00000200 B gMultiplayerSaveMailbox\n" + marker)
+        self.assertEqual(generated["ownership_abi_version"], 1)
+        self.assertEqual(generated["save_profile"], "rhh-1.17.1-bb1093-ownership-v1")
+        self.verify(generated)
+        for field, bad in (("ownership_abi_version", True), ("ownership_abi_version", 2),
+                           ("save_profile", "legacy")):
+            with self.subTest(field=field, bad=bad), self.assertRaises(ValueError):
+                self.verify({**generated, field: bad})
+        for field in ("ownership_abi_version", "save_profile"):
+            changed = dict(generated)
+            del changed[field]
+            with self.assertRaises(ValueError):
+                self.verify(changed)
+
     def test_elf_rejects_wrong_size_duplicate_overlap_and_outside_allocation(self):
         for extra in (
             "02021000 000001fc B gMultiplayerSaveMailbox\n",

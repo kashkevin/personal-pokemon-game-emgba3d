@@ -98,7 +98,7 @@ class TransferTests(unittest.IsolatedAsyncioTestCase):
         with patch("emerald_multiplayer.flash.inspect_flash") as inspect:
             result = await self.client.download()
             self.assertEqual(result.payload, self.payload)
-            inspect.assert_called_once_with(self.payload)
+            inspect.assert_called_once_with(self.payload, save_profile=self.companion.save_profile)
             self.assertEqual(len([op for op, _ in self.companion.calls if op == "read"]), 33)
             self.companion.bad_hash = True
             with self.assertRaises(ProtocolError):

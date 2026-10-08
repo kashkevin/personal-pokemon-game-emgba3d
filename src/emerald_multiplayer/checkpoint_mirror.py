@@ -18,6 +18,7 @@ import tempfile
 import uuid
 
 from .flash import FlashError, LAYOUT_ID, MAX_CONTAINER_SIZE, inspect_flash
+from .ownership import OWNERSHIP_PROFILE
 from .protocol import MAX_COUNTER
 from .storage import _ExclusiveFileLock
 
@@ -101,7 +102,7 @@ def _validate_info(info: MirrorInfo) -> None:
             or type(info.size) is not int or info.size not in (131072, MAX_CONTAINER_SIZE)
             or not isinstance(info.sha256, str) or _SHA256.fullmatch(info.sha256) is None):
         raise MirrorError("invalid_metadata", "mirror schema, revision, size, or hash is invalid")
-    if info.save_profile != LAYOUT_ID:
+    if info.save_profile not in (LAYOUT_ID, OWNERSHIP_PROFILE):
         raise MirrorError("save_profile_mismatch", "mirror requires the pinned ordinary Flash profile")
 
 
@@ -129,7 +130,12 @@ def _checkpoint_info(checkpoint, world_id: str) -> tuple[MirrorInfo, bytes]:
             or hashlib.sha256(payload).hexdigest() != info.sha256):
         raise MirrorError("checkpoint_mismatch", "checkpoint bytes disagree with their canonical metadata")
     try:
-        inspect_flash(payload)
+        snapshot = inspect_flash(payload, save_profile=info.save_profile)
+        if info.save_profile == OWNERSHIP_PROFILE:
+            from .ownership import inspect_ownership
+            owner = inspect_ownership(snapshot)
+            if (owner.world_id, owner.player_id) != (info.world_id, info.player_id):
+                raise MirrorError("ownership_mismatch", "canonical Pokémon belong to another world or character")
     except FlashError as error:
         raise MirrorError("invalid_flash", "checkpoint failed ordinary Flash validation") from error
     return info, payload
@@ -179,7 +185,12 @@ def _inspect_unlocked(path: Path) -> MirrorInfo:
     if len(data) != info.size or hashlib.sha256(data).hexdigest() != info.sha256:
         raise MirrorError("mirror_mismatch", "local save and canonical sidecar disagree; preserve and recover")
     try:
-        inspect_flash(data)
+        snapshot = inspect_flash(data, save_profile=info.save_profile)
+        if info.save_profile == OWNERSHIP_PROFILE:
+            from .ownership import inspect_ownership
+            owner = inspect_ownership(snapshot)
+            if (owner.world_id, owner.player_id) != (info.world_id, info.player_id):
+                raise MirrorError("ownership_mismatch", "local mirror metadata belongs to another world or character")
     except FlashError as error:
         raise MirrorError("invalid_flash", "local mirror failed ordinary Flash validation") from error
     return info

@@ -257,6 +257,19 @@ assert(hello==1 and capabilities==1)
         script += 'assert(responses==1 and savePending==nil and connects==2 and closes==1 and not stopped)\n'
         self.run_lua(script)
 
+    def test_ownership_commands_use_only_allocated_mailbox_and_return_full_status(self):
+        for opcode, data in ((Opcode.QUERY_OWNERSHIP, b""), (Opcode.GRANT_OWNERSHIP, bytes(range(60)))):
+            request = control(opcode=opcode, data=data)
+            response = replace(request, data=bytes(range(80)))
+            script = self.fixture(live=True)
+            script += f'inbox=unhex("{encode_packet(command_packet(request)).hex()}");advance(60)\n'
+            script += f'assert(range(0x0200201c,240)==unhex("{request.pack().hex()}"))\n'
+            script += f'loadBytes(0x02002110,unhex("{response.pack().hex()}"));loadBytes(0x0200210c,string.pack("<I4",2));advance(140)\n'
+            script += f'local expected=unhex("{response_packet(response).hex()}");local count=0;for _,p in ipairs(decoded()) do if p==expected then count=count+1 end end\n'
+            script += 'assert(count==1 and savePending==nil and #console.errors==0)\n'
+            with self.subTest(opcode=opcode):
+                self.run_lua(script)
+
     def test_valid_frame_regression_reconnects_without_header_gap(self):
         self.run_lua(self.fixture(live=True) + r'''
 romFrames(500);advance(80);assert(connects==1 and closes==0)

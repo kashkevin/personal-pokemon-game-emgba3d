@@ -46,6 +46,18 @@ def generate(rom: Path, elf: Path, nm: str, engine_commit: str) -> dict:
         if not (save_address + save_size <= address or address + size <= save_address):
             raise ValueError("Save and presence mailboxes overlap")
         manifest.update(save_abi_version=1, save_mailbox_size=save_size, save_mailbox_address=save_address)
+    ownership = re.findall(r"^([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+[Rr]\s+gMultiplayerOwnershipAbi$", symbols, re.M)
+    if ownership:
+        if len(ownership) != 1 or not save:
+            raise ValueError("Ownership ABI requires one marker and the live save mailbox")
+        marker, marker_size = (int(value, 16) for value in ownership[0])
+        if marker_size != 4 or not 0x08000000 <= marker <= 0x08000000 + rom_size - 4:
+            raise ValueError("Ownership ABI marker must be allocated in this ROM")
+        with rom.open("rb") as stream:
+            stream.seek(marker - 0x08000000)
+            if stream.read(4) != b"\x01\x00\x00\x00":
+                raise ValueError("Unsupported ownership ABI marker")
+        manifest.update(ownership_abi_version=1, save_profile="rhh-1.17.1-bb1093-ownership-v1")
     objects = re.findall(r"^([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+[BDbd]\s+gObjectEvents$", symbols, re.M)
     if len(objects) == 1:
         obj_address, obj_size = (int(value, 16) for value in objects[0])

@@ -149,7 +149,7 @@ class LiveCheckpointCoordinator:
                 raise LiveSaveError("read_position", "the game returned an unexpected Flash chunk")
             payload.extend(response.data)
         result = bytes(payload)
-        inspect_flash(result)
+        inspect_flash(result, save_profile=self.companion.save_profile)
         return result
 
     async def _end(self, session, operation_id, revision, payload):
@@ -218,10 +218,60 @@ class LiveCheckpointCoordinator:
             payload = source.read(FLASH_SIZE + 1)
         if len(payload) != FLASH_SIZE or hashlib.sha256(payload).hexdigest() != intent["sha256"]:
             raise LiveSaveError("journal_hash", "pending checkpoint bytes failed integrity verification")
-        inspect_flash(payload)
+        inspect_flash(payload, save_profile=self.companion.save_profile)
         return intent, payload
 
     async def checkpoint(self, *, expected_revision: int | None = None) -> LiveExportResult:
+        return await self._checkpoint(expected_revision=expected_revision, enroll=False)
+
+    async def enroll(self) -> LiveExportResult:
+        """Explicit first enrollment after the host provisions the legacy source.
+
+        This neither rebinds an existing world nor adopts a server revision.
+        """
+        return await self._checkpoint(expected_revision=0, enroll=True)
+
+    async def _prepare_ownership(self, session, base, *, enroll):
+        from .ownership import OWNERSHIP_PROFILE
+        from .ownership_client import parse_status, grant_bytes
+        c = self.companion
+        if c.save_profile != OWNERSHIP_PROFILE:
+            if enroll:
+                raise LiveSaveError("ownership_unavailable", "explicit ownership enrollment requires the ownership save profile")
+            return
+        if not getattr(c.config, "ownership_enabled", False):
+            raise LiveSaveError("ownership_unavailable", "the verified ROM has no ownership capability")
+        if enroll and base:
+            raise LiveSaveError("already_enrolled", "an existing canonical character cannot be enrolled again")
+        status = parse_status((await self._command(session, str(uuid4()), base, Opcode.QUERY_OWNERSHIP)).data)
+        if status.enrolled and (status.world_id, status.player_id) != (session[0], c.config.player_id):
+            raise LiveSaveError("ownership_identity", "the game belongs to a different world or character")
+        if not status.enrolled and not enroll:
+            raise LiveSaveError("enrollment_required", "explicit legacy enrollment is required before the first ownership checkpoint")
+        if status.active_grant and (status.lease_epoch, status.incarnation) != (session[1], session[2]):
+            raise LiveSaveError("ownership_session", "the game reports an allocation from a different session")
+        # A fresh grant is required after every load, even with no new Pokémon.
+        if not status.active_grant or status.remaining < status.missing:
+            result = await c.checkpoint_rpc("ownership_grant", expected_revision=base,
+                                           incarnation=session[2], count=max(32, status.missing))
+            self._same_session(session)
+            grant = result["grant"]
+            if (grant["world_id"], grant["player_id"], grant["lease_epoch"], grant["incarnation"], grant["expected_revision"]) != (
+                    session[0], c.config.player_id, session[1], session[2], base):
+                raise LiveSaveError("ownership_grant", "allocation reply does not match this character and revision")
+            # A lost allocation acknowledgement burns unused IDs safely. Retain
+            # every acknowledged range before exposing it to the live game.
+            _atomic(self.directory / (grant["grant_id"] + ".grant.json"), _json_bytes(grant))
+            assigned = parse_status((await self._command(session, grant["grant_id"], base,
+                Opcode.GRANT_OWNERSHIP, data=grant_bytes(grant, enroll=not status.enrolled))).data)
+            if (not assigned.active_grant or assigned.grant_id != grant["grant_id"]
+                    or assigned.world_id != session[0] or assigned.player_id != c.config.player_id
+                    or (assigned.lease_epoch, assigned.incarnation) != (session[1], session[2])
+                    or assigned.next_serial != grant["start"] or assigned.end_exclusive != grant["end_exclusive"]
+                    or assigned.remaining < assigned.missing):
+                raise LiveSaveError("ownership_grant", "the game did not accept the exact allocation")
+
+    async def _checkpoint(self, *, expected_revision: int | None, enroll: bool) -> LiveExportResult:
         """Save against the local revision verified by the launcher.
 
         Reading the server's head cannot establish an older running game's
@@ -240,13 +290,14 @@ class LiveCheckpointCoordinator:
             if base >= MAX_COUNTER:
                 raise LiveSaveError("counter_exhausted", "checkpoint revisions are exhausted")
             await self._bind(session)
+            await self._prepare_ownership(session, base, enroll=enroll)
             operation_id, revision, finished = str(uuid4()), base + 1, False
             try:
                 begin = await self._command(session, operation_id, revision, Opcode.BEGIN_EXPORT)
                 if len(begin.data) != 40:
                     raise LiveSaveError("export_metadata", "the game returned invalid frozen-save metadata")
                 payload = await self._read_flash(session, operation_id, revision)
-                frozen = inspect_flash(payload)
+                frozen = inspect_flash(payload, save_profile=self.companion.save_profile)
                 counter, rotation = struct.unpack_from("<II", begin.data)
                 first_sector_id = struct.unpack_from("<H", payload, frozen.metadata.bank * 14 * 4096 + 4084)[0]
                 if counter != frozen.metadata.counter or rotation != (-first_sector_id) % 14:
@@ -296,7 +347,7 @@ class LiveCheckpointCoordinator:
                     or len(canonical.payload) != metadata["size"]
                     or hashlib.sha256(canonical.payload).hexdigest() != metadata["sha256"]):
                 raise LiveSaveError("checkpoint_hash", "downloaded checkpoint bytes do not match their canonical metadata")
-            parsed = inspect_flash(canonical.payload)
+            parsed = inspect_flash(canonical.payload, save_profile=self.companion.save_profile)
             payload = parsed.flash  # The emulator's native RTC footer remains in its open mapping.
             rotation = (-struct.unpack_from("<H", payload, parsed.metadata.bank * 14 * 4096 + 4084)[0]) % 14
             operation_id, revision, finished = str(uuid4()), canonical.metadata["revision"], False
@@ -317,7 +368,7 @@ class LiveCheckpointCoordinator:
                     raise LiveSaveError("revision_conflict", "canonical checkpoint changed before ROM import commit")
                 await self._command(session, operation_id, revision, Opcode.COMMIT, offset=FLASH_SIZE, timeout=20)
                 applied = await self._read_flash(session, operation_id, revision)
-                if inspect_flash(applied).state_sha256 != parsed.state_sha256:
+                if inspect_flash(applied, save_profile=self.companion.save_profile).state_sha256 != parsed.state_sha256:
                     raise LiveSaveError("applied_state", "imported Flash differs from the canonical player state")
                 await self._end(session, operation_id, revision, applied)
                 self._same_session(session)

@@ -30,6 +30,7 @@ pending-export.json
 *.export.json
 *.recovery-intent.json
 *.live-apply.json
+*.grant.json
 
 # Companion/server environment
 .venv/

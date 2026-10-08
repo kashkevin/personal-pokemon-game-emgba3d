@@ -85,11 +85,11 @@ local function saveControl(payload, command)
     if inc == 0 or epoch == 0 or epoch > 0x7FFFFFFF or seq == 0
         or request == string.rep("\0", 16) or offset > 131072
         or (size ~= 0 and size ~= 131072) or revision > 0x7FFFFFFF
-        or opcode < 1 or opcode > 9 or status > 13 or length > 192
+        or opcode < 1 or opcode > 11 or status > 13 or length > 192
         or data:sub(length + 1) ~= string.rep("\0", 192 - length)
         or crc32(data:sub(1, length)) ~= crc then return nil end
     if command then
-        local lengths = {0, 0, 0, 0, 16, 128, 0, 0, 0}
+        local lengths = {0, 0, 0, 0, 16, 128, 0, 0, 0, 0, 60}
         if status ~= 0 or length ~= lengths[opcode] then return nil end
         if (opcode == 3 or opcode == 6) and (size ~= 131072
             or offset % 128 ~= 0 or offset >= 131072) then return nil end
@@ -98,7 +98,7 @@ local function saveControl(payload, command)
             if size ~= 131072 or rotation >= 14 then return nil end
         end
     else
-        local lengths = {0, 40, 128, 4, 8, 0, 0, 0, 48}
+        local lengths = {0, 40, 128, 4, 8, 0, 0, 0, 48, 80, 80}
         if (status == 0 and length ~= lengths[opcode]) or (status ~= 0 and length ~= 0) then return nil end
         if status == 0 and opcode == 3 and (offset % 128 ~= 0 or offset > 130944) then return nil end
     end

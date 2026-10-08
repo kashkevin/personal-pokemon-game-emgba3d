@@ -81,6 +81,12 @@ def verify_rom_manifest(rom_path: Path, manifest_path: Path) -> tuple[str, dict[
     if "rom_crc32" in manifest:
         if manifest["rom_crc32"] != f"{crc & _UINT32:08x}":
             raise ValueError("ROM CRC32 does not match the generated manifest")
+    ownership_fields = {"ownership_abi_version", "save_profile"}
+    if ownership_fields & set(manifest):
+        if (not ownership_fields <= set(manifest) or "save_mailbox_address" not in manifest
+                or type(manifest["ownership_abi_version"]) is not int or manifest["ownership_abi_version"] != 1
+                or manifest["save_profile"] != "rhh-1.17.1-bb1093-ownership-v1"):
+            raise ValueError("manifest ownership capability is incompatible")
     return actual_hash, manifest
 
 
@@ -106,6 +112,7 @@ class CompanionConfig:
     build_id: str = field(init=False)
     ruleset_id: str = field(init=False, default=BASELINE_RULESET)
     save_enabled: bool = field(init=False, default=False)
+    ownership_enabled: bool = field(init=False, default=False)
 
     def __post_init__(self) -> None:
         rom_path, manifest_path = Path(self.rom_path).resolve(), Path(self.manifest_path).resolve()
@@ -114,6 +121,7 @@ class CompanionConfig:
         build_id, manifest = verify_rom_manifest(rom_path, manifest_path)
         object.__setattr__(self, "build_id", build_id)
         object.__setattr__(self, "save_enabled", "save_mailbox_address" in manifest)
+        object.__setattr__(self, "ownership_enabled", manifest.get("ownership_abi_version") == 1)
         validate_hello({
             "type": "hello", "protocol": PROTOCOL_VERSION, "build_id": build_id,
             "ruleset_id": self.ruleset_id, "player_id": self.player_id,
@@ -577,7 +585,7 @@ class Companion:
         """Use the existing reader so heartbeat/presence continue during transfers."""
         from .protocol import validate_checkpoint_request
         if (self._live_save_owner is not None and self._live_save_owner is not asyncio.current_task()
-                and operation in {"begin", "chunk", "commit", "abort"}):
+                and operation in {"begin", "chunk", "commit", "abort", "ownership_grant"}):
             raise ValueError("a live-save lifecycle owns this character's checkpoint writes")
         if set(fields) & {"type", "session_epoch"}:
             raise ValueError("checkpoint envelope fields cannot be overridden")
@@ -589,7 +597,8 @@ class Companion:
         if len(self._checkpoint_pending) >= 8:
             raise ValueError("checkpoint request capacity is exhausted")
         epoch = self.session_epoch
-        message = {"type": "checkpoint_" + operation, "session_epoch": epoch, "request_id": request_id, **fields}
+        message = {"type": operation if operation == "ownership_grant" else "checkpoint_" + operation,
+                   "session_epoch": epoch, "request_id": request_id, **fields}
         validate_checkpoint_request(message, epoch)
         future = asyncio.get_running_loop().create_future()
         self._checkpoint_pending[request_id] = (operation, epoch, future)
@@ -603,7 +612,11 @@ class Companion:
 
     def _receive_checkpoint(self, message: dict[str, Any]) -> None:
         from .checkpoint_client import validate_checkpoint_reply, CheckpointError
-        validated = validate_checkpoint_reply(message, self.config, self.session_epoch, self.save_profile)
+        if message.get("operation") == "ownership_grant":
+            from .ownership_protocol import validate_ownership_reply
+            validated = validate_ownership_reply(message, self.config, self.save_profile, self.world_id, self.session_epoch)
+        else:
+            validated = validate_checkpoint_reply(message, self.config, self.session_epoch, self.save_profile)
         pending = self._checkpoint_pending.get(validated["request_id"])
         # An RPC can time out while its reply remains queued. Never interpret
         # this as a fresh operation or replace the canonical save automatically.

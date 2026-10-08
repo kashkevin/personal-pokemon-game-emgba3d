@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING
 import uuid
 
 from .flash import FLASH_SIZE, FlashError, LAYOUT_ID, MAX_CONTAINER_SIZE, inspect_flash
+from .ownership import OWNERSHIP_PROFILE
 from .protocol import MAX_COUNTER
 from .storage import _ExclusiveFileLock
 
@@ -100,7 +101,7 @@ def _validate_receipt(value: LiveReceipt) -> None:
     for name in ("canonical_container_sha256", "canonical_flash_sha256",
                  "normalized_state_sha256", "actual_rom_flash_sha256"):
         _sha(getattr(value, name), name)
-    if value.save_profile != LAYOUT_ID:
+    if value.save_profile not in (LAYOUT_ID, OWNERSHIP_PROFILE):
         raise LiveReceiptError("save_profile_mismatch", "live receipt requires the pinned ordinary Flash profile")
     if (type(value.schema_version) is not int or value.schema_version != RECEIPT_SCHEMA_VERSION
             or type(value.trainer_id) is not int or not 0 <= value.trainer_id <= 0xFFFFFFFF
@@ -191,7 +192,7 @@ def _verified_apply(downloaded: DownloadedCheckpoint, applied_flash: bytes,
         _counter(session_epoch, "session_epoch")
         _counter(incarnation, "incarnation")
         _sha(metadata["sha256"], "canonical_container_sha256")
-        if metadata["save_profile"] != LAYOUT_ID:
+        if metadata["save_profile"] not in (LAYOUT_ID, OWNERSHIP_PROFILE):
             raise LiveReceiptError("save_profile_mismatch", "canonical checkpoint has an unsupported native save profile")
         if (type(metadata["size"]) is not int or metadata["size"] not in (FLASH_SIZE, MAX_CONTAINER_SIZE)
                 or not isinstance(payload, bytes) or len(payload) != metadata["size"]
@@ -200,19 +201,24 @@ def _verified_apply(downloaded: DownloadedCheckpoint, applied_flash: bytes,
     except (AttributeError, KeyError, TypeError) as error:
         raise LiveReceiptError("invalid_metadata", "canonical checkpoint fields are missing or invalid") from error
     try:
-        canonical = inspect_flash(payload)
+        canonical = inspect_flash(payload, save_profile=metadata["save_profile"])
     except FlashError as error:
         raise LiveReceiptError("invalid_checkpoint", "canonical container failed ordinary Flash validation") from error
     if not isinstance(applied_flash, bytes) or len(applied_flash) != FLASH_SIZE:
         raise LiveReceiptError("invalid_readback", "native readback must contain exactly 128 KiB Flash")
     try:
-        applied = inspect_flash(applied_flash)
+        applied = inspect_flash(applied_flash, save_profile=metadata["save_profile"])
     except FlashError as error:
         raise LiveReceiptError("invalid_readback", "native Flash readback failed strict validation") from error
     if applied.metadata.trainer_id != canonical.metadata.trainer_id:
         raise LiveReceiptError("trainer_mismatch", "native readback belongs to another trainer")
     if applied.state_sha256 != canonical.state_sha256:
         raise LiveReceiptError("state_mismatch", "native readback does not contain the canonical game state")
+    if canonical.save_profile == OWNERSHIP_PROFILE:
+        from .ownership import inspect_ownership
+        owner = inspect_ownership(canonical)
+        if (owner.world_id, owner.player_id) != (downloaded.world_id, downloaded.player_id):
+            raise LiveReceiptError("ownership_mismatch", "canonical Pokémon belong to another world or character")
     result = LiveReceipt(downloaded.world_id, downloaded.player_id, metadata["build_id"],
                          metadata["ruleset_id"], metadata["save_profile"], metadata["revision"],
                          metadata["request_id"], canonical.container_sha256, len(payload),
