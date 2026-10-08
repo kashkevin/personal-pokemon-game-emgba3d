@@ -248,6 +248,7 @@ class TradeCheckpointStore(OwnershipCheckpointStore):
         fingerprint = _fingerprint(sides, build_id, ruleset_id, save_profile)
         with self._transaction():
             players = [self._require_lease(s.player_id, s.lease_epoch) for s in sides]
+            self._assert_no_battle_reservation(*(s.player_id for s in sides))
             prior = self._connection.execute("SELECT * FROM trade_transactions WHERE transaction_id = ?", (transaction_id,)).fetchone()
             if prior is not None:
                 result = self._result(prior)
@@ -324,6 +325,7 @@ class TradeCheckpointStore(OwnershipCheckpointStore):
         with self._transaction():
             self._require_lease(player_id, lease_epoch)
             row = self._connection.execute("SELECT * FROM trade_recovery WHERE player_id = ? AND transaction_id = ?", (player_id, transaction_id)).fetchone()
+            self._assert_no_battle_reservation(player_id)
             if row is None:
                 raise StorageError("trade_not_participant", "this player has no result for that trade")
             if (row["revision"], row["sha256"]) != (revision, sha256):

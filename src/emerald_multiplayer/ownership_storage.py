@@ -129,6 +129,7 @@ class OwnershipCheckpointStore(CheckpointStore):
 
     _schema = _OWNERSHIP_SCHEMA
     _schema_version = OWNERSHIP_SCHEMA_VERSION
+    _supports_battle_reservations = True
 
     def __init__(self, path: str | Path, build_id: str, ruleset_id: str,
                  save_profile: str = OWNERSHIP_PROFILE, *, max_payload_bytes: int = MAX_CHECKPOINT_BYTES):
@@ -195,6 +196,7 @@ class OwnershipCheckpointStore(CheckpointStore):
             raise StorageError("invalid_field", "allocation count is outside roster bounds")
         with self._transaction():
             player = self._require_lease(player_id, lease_epoch)
+            self._assert_no_battle_reservation(player_id)
             self._enrollment(player_id)
             prior = self._connection.execute("SELECT * FROM ownership_grants WHERE player_id = ? AND request_id = ?", (player_id, request_id)).fetchone()
             if prior is not None:

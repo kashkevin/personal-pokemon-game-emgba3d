@@ -99,6 +99,8 @@ async def run(args):
     evidence["party_joypad"] = []
     validator = ControllerValidator(read_string_lengths(rom, table_address=symbols["gBattleStringsTable"][0]), mode=3)
     store = TradeCheckpointStore(root/"world.sqlite3", manifest["rom_sha256"], manifest["ruleset_id"])
+    from emerald_multiplayer.battle_reservations import enable_battle_reservations
+    enable_battle_reservations(store, root/"before-battle-reservations.sqlite3")
     identities = sorted([store.create_player("Native Multi "+name) for name in "ABCD"], key=lambda p: p.player_id)
     for identity, payload in zip(identities, originals):
         store.enroll_player(identity.player_id, payload)

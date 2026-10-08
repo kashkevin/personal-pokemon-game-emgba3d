@@ -16,12 +16,16 @@ from test_ownership_storage import source_flash, owned_flash
 from test_team_network import wait_until
 
 
+from emerald_multiplayer.battle_reservations import enable_battle_reservations
+
+
 class BattleChallengeNetworkTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.rom, self.manifest = make_files(self.temp.name)
         fixture = CompanionConfig(self.rom, self.manifest, str(uuid4()), "Fixture", secrets.token_bytes(32))
         self.store = TradeCheckpointStore(Path(self.temp.name) / "world.sqlite3", fixture.build_id, BASELINE_RULESET)
+        enable_battle_reservations(self.store, Path(self.temp.name)/"before-battles.sqlite3")
         self.store.begin_server_boot()
         self.players, self.heads = [], []
         for i in range(4):

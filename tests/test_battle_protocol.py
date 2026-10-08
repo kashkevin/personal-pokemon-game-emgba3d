@@ -16,7 +16,7 @@ def request(op, **fields):
         invite_multi=dict(teammate=THIRD, opponents=[PEER, FOURTH], battle_id=BATTLE),
         accept=dict(battle_id=BATTLE, generation=GENERATION, fingerprint="a" * 64),
         cancel=dict(battle_id=BATTLE, generation=GENERATION),
-        status=dict(battle_id=BATTLE), pending={}, history={},
+        status=dict(battle_id=BATTLE), pending={}, history={}, waiting={},
     )[op]
     return dict(type="battle_" + op, request_id=REQUEST, session_epoch=7, **(extra | fields))
 
@@ -33,7 +33,7 @@ def view(mode=2):
 def reply(op):
     return dict(type="battle_result", protocol=1, session_epoch=7, request_id=REQUEST,
         operation=op, world_id=WORLD, player_id=ACTOR,
-        result=[] if op == "history" else ([view()] if op == "pending" else view(3 if op == "invite_multi" else 2)))
+        result=[] if op in ("history", "waiting") else ([view()] if op == "pending" else view(3 if op == "invite_multi" else 2)))
 
 
 class BattleProtocolTests(unittest.TestCase):

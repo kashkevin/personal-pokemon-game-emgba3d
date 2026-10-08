@@ -94,6 +94,8 @@ async def run(args):
         raise ValueError("native proof symbols do not match the pinned ARM layout")
     validator = ControllerValidator(read_string_lengths(rom, table_address=symbols["gBattleStringsTable"][0]))
     store = TradeCheckpointStore(root/"world.sqlite3", manifest["rom_sha256"], manifest["ruleset_id"])
+    from emerald_multiplayer.battle_reservations import enable_battle_reservations
+    enable_battle_reservations(store, root/"before-battle-reservations.sqlite3")
     identities = sorted([store.create_player("Native Singles "+name) for name in "AB"], key=lambda p: p.player_id)
     if len(sources) == 4:
         identities.extend(store.create_player("Independent "+name) for name in "CD")

@@ -96,10 +96,14 @@ class Actor:
         await asyncio.gather(self.task,return_exceptions=True)
 
 
+from emerald_multiplayer.battle_reservations import enable_battle_reservations
+
+
 class BattleArbitrationTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.temp = tempfile.TemporaryDirectory();self.root = Path(self.temp.name)
         self.store = TradeCheckpointStore(self.root/"world.sqlite3",BUILD,RULES)
+        enable_battle_reservations(self.store, self.root/"before-battles.sqlite3")
         self.store.begin_server_boot()
         self.players,self.heads,self.grants = [],[],[]
         for index in range(4):
@@ -258,7 +262,10 @@ class BattleArbitrationTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(ValueError):WorldServer(self.server.config,store=legacy,development_battles=True)
         finally:legacy.close()
         owned = OwnershipCheckpointStore(self.root/"owned.sqlite3",BUILD,RULES)
-        try:self.assertIsNotNone(WorldServer(self.server.config,store=owned,development_battles=True).battle_desk)
+        try:
+            with self.assertRaises(StorageError):WorldServer(self.server.config,store=owned,development_battles=True)
+            enable_battle_reservations(owned, self.root/"owned-before-battles.sqlite3")
+            self.assertIsNotNone(WorldServer(self.server.config,store=owned,development_battles=True).battle_desk)
         finally:owned.close()
 
     async def test_first_uncertain_bind_reserves_both_without_native_ack(self):

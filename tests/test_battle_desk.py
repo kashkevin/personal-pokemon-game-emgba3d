@@ -8,6 +8,7 @@ import unittest
 from uuid import UUID, uuid4
 
 from emerald_multiplayer.battle_desk import BattleDesk, BattleError
+from emerald_multiplayer.battle_reservations import enable_battle_reservations
 from emerald_multiplayer.native_battle import Kind, NativeControl, Opcode
 from emerald_multiplayer.ownership import OWNERSHIP_PROFILE
 from emerald_multiplayer.storage import StorageError
@@ -21,6 +22,7 @@ class BattleDeskTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.store = TradeCheckpointStore(Path(self.temp.name)/"world.sqlite3", "test-build", "test-rules")
+        enable_battle_reservations(self.store, Path(self.temp.name)/"before-battles.sqlite3")
         self.store.begin_server_boot()
         self.players, self.heads = [], []
         self.leases = {}
@@ -174,14 +176,15 @@ class BattleDeskTests(unittest.TestCase):
         self.assertEqual(self.call("status",0)["state"],"starting")
         self.assertEqual(self.desk.authorize_running(self.battle_id,self.generation)["state"],"running")
 
-    def test_changed_checkpoint_clears_consent_and_bound_hold_remains_busy(self):
+    def test_reserved_peer_checkpoint_refuses_without_changing_consent_or_hold(self):
         self.register();self.bind(0)
         old = self.heads[1]
-        self.heads[1] = self.store.commit_checkpoint(*self.actor(1),str(uuid4()),old.revision,
+        self.assert_code("battle_busy",self.store.commit_checkpoint,*self.actor(1),str(uuid4()),old.revision,
             old.payload,self.store.build_id,self.store.ruleset_id,OWNERSHIP_PROFILE)
         result = self.call("status",0)
-        self.assertEqual(result["state"],"aborting");self.assertEqual(result["consent"],[])
-        self.assertEqual(result["abort_pending"],[self.players[0].player_id])
+        self.assertEqual(result["state"],"accepted")
+        self.assertEqual(set(result["consent"]),{p.player_id for p in self.players[:2]})
+        self.assertEqual(self.store.read_checkpoint(*self.actor(1)),old)
         self.assert_code("battle_busy",self.desk.invite,*self.actor(0),self.players[2].player_id,str(uuid4()))
 
     def test_unbound_cancel_has_terminal_retry_and_cannot_reuse_id_for_new_peer(self):
@@ -316,21 +319,24 @@ class BattleDeskTests(unittest.TestCase):
         self.assertEqual(self.call("status",0)["state"],"recovery_required")
         self.assertEqual(self.call("status",0)["released"],[])
 
-    def test_released_actor_can_checkpoint_without_stranding_peer_release_ack(self):
+    def test_released_actor_stays_reserved_until_every_release_ack(self):
         self.running();self.finish(0);self.finish(1);self.release(0)
         old = self.heads[0]
+        self.assert_code("battle_busy",self.store.commit_checkpoint,*self.actor(0),str(uuid4()),old.revision,
+            old.payload,self.store.build_id,self.store.ruleset_id,OWNERSHIP_PROFILE)
+        self.assertEqual(self.call("status",1)["state"],"release_authorized")
+        self.assertEqual(self.release(1)[0]["state"],"closed")
         current = self.store.commit_checkpoint(*self.actor(0),str(uuid4()),old.revision,
             old.payload,self.store.build_id,self.store.ruleset_id,OWNERSHIP_PROFILE)
         self.assertEqual(current.revision,2)
-        self.assertEqual(self.call("status",1)["state"],"release_authorized")
-        self.assertEqual(self.release(1)[0]["state"],"closed")
 
-    def test_still_held_actor_changed_head_retains_recovery_after_peer_release(self):
+    def test_still_held_actor_cannot_change_head_after_peer_release(self):
         self.running();self.finish(0);self.finish(1);self.release(0)
         old = self.heads[1]
-        self.store.commit_checkpoint(*self.actor(1),str(uuid4()),old.revision,
+        self.assert_code("battle_busy",self.store.commit_checkpoint,*self.actor(1),str(uuid4()),old.revision,
             old.payload,self.store.build_id,self.store.ruleset_id,OWNERSHIP_PROFILE)
-        self.assertEqual(self.call("status",0)["state"],"recovery_required")
+        self.assertEqual(self.call("status",0)["state"],"release_authorized")
+        self.assertEqual(self.store.read_checkpoint(*self.actor(1)),old)
 
     def test_result_needs_exact_unused_party_tail_and_count(self):
         self.running()

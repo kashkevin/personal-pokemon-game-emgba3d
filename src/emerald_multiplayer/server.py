@@ -242,6 +242,13 @@ class WorldServer:
             self.team_desk = TeamDesk(self._team_roster)
         self.battle_desk = None
         self._battle_results = None
+        from .battle_reservations import BattleReservations
+        self._battle_reservations = (BattleReservations(store)
+            if store is not None and store.battle_reservations_enabled else None)
+        if self._battle_reservations is not None:
+            # Refuse a corrupt persisted barrier before opening a listener,
+            # including hosts that have disabled new battle challenges.
+            store.integrity_check()
         if type(development_battles) is not bool:
             raise ValueError("development_battles must be a boolean")
         from .ownership_storage import OwnershipCheckpointStore
@@ -255,6 +262,8 @@ class WorldServer:
             from .ownership_storage import OwnershipCheckpointStore
             if not isinstance(store, OwnershipCheckpointStore):
                 raise ValueError("development native battles require an authenticated ownership world")
+            if self._battle_reservations is None:
+                raise StorageError("battle_migration_required", "enable backed-up durable reservations before native battles")
             self.battle_desk = _ServerBattleDesk(self)
         self.world_seq = 0
         self._session_epoch = 0
@@ -292,6 +301,8 @@ class WorldServer:
                 raise BattleError("trade_busy", "resolve the participants' trade proposals before native binding")
 
     def _assert_battle_available(self, *players) -> None:
+        if self._battle_reservations is not None:
+            self._battle_reservations.assert_available(*players)
         if self.battle_desk is None:
             return
         self.battle_desk.refresh()
@@ -611,6 +622,17 @@ class WorldServer:
         # Public consent never authorizes BIND/START, supplies native receipts,
         # or claims a winner. Those remain trusted coordinator operations.
         operation = request["type"].removeprefix("battle_")
+        if operation == "waiting":
+            from .ownership_storage import OwnershipCheckpointStore
+            if not isinstance(self.store, OwnershipCheckpointStore):
+                raise ProtocolError("battle_disabled", "battle waiting status requires an authenticated ownership world")
+            self.store.read_checkpoint(session.player_id, session.session_epoch)
+            if self._connected_lease(session.player_id) != session.session_epoch:
+                raise ProtocolError("stale_lease", "battle waiting status requires the current authenticated player")
+            result = [] if self._battle_reservations is None else self._battle_reservations.waiting(
+                session.player_id, session.session_epoch)
+            self._battle_reply(session, request, result=result)
+            return
         if operation == "history":
             from .ownership_storage import OwnershipCheckpointStore
             if not isinstance(self.store, OwnershipCheckpointStore):

@@ -172,6 +172,7 @@ class CheckpointStore:
 
     _schema = _SCHEMA
     _schema_version = SCHEMA_VERSION
+    _supports_battle_reservations = False
 
     def __init__(self, path: str | Path, build_id: str, ruleset_id: str,
                  save_profile: str, *, max_payload_bytes: int = MAX_CHECKPOINT_BYTES):
@@ -185,6 +186,8 @@ class CheckpointStore:
         self._boot_epoch: int | None = None
         self._owner_lock: _ExclusiveFileLock | None = None
         self._closed = False
+        self._base_schema = self._schema
+        self._base_schema_version = self._schema_version
         new = not self.path.exists() or self.path.stat().st_size == 0
         self.path.parent.mkdir(parents=True, exist_ok=True)
         try:
@@ -206,6 +209,14 @@ class CheckpointStore:
                         (str(uuid.uuid4()), self.build_id, self.ruleset_id,
                          self.save_profile, self.max_payload_bytes))
                     self._initialize_extra_schema()
+                # Recognize an explicitly migrated capability; opening a legacy
+                # world never creates these tables or changes its version.
+                if self._supports_battle_reservations:
+                    from .battle_reservations import EXTENSION_VERSION, RESERVATION_SCHEMA
+                    version = self._connection.execute("PRAGMA user_version").fetchone()[0]
+                    if version == self._base_schema_version + EXTENSION_VERSION:
+                        self._schema = {**self._base_schema, **RESERVATION_SCHEMA}
+                        self._schema_version = version
                 self._validate_schema()
                 self._validate_metadata()
             self._connection.execute("PRAGMA journal_mode = WAL")
@@ -251,6 +262,16 @@ class CheckpointStore:
 
     def _initialize_extra_schema(self) -> None:
         """Subclass initialization, only when creating an explicit new store."""
+
+    @property
+    def battle_reservations_enabled(self) -> bool:
+        return self._schema_version != self._base_schema_version
+
+    def _assert_no_battle_reservation(self, *players) -> None:
+        """Called inside the owning store transaction, including direct APIs."""
+        if self.battle_reservations_enabled:
+            from .battle_reservations import BattleReservations
+            BattleReservations(self)._assert_available(players)
 
     def _prepare_checkpoint(self, player: sqlite3.Row, revision: int, payload: bytes):
         """Validate subclass state under the checkpoint's write transaction."""
@@ -426,6 +447,7 @@ class CheckpointStore:
         sha = hashlib.sha256(payload).hexdigest()
         with self._transaction():
             player = self._require_lease(player_id, lease_epoch)
+            self._assert_no_battle_reservation(player_id)
             prior = self._connection.execute(
                 "SELECT * FROM checkpoints WHERE player_id = ? AND request_id = ?", (player_id, request_id)).fetchone()
             if prior is not None:
@@ -473,6 +495,9 @@ class CheckpointStore:
                 _identifier(row["request_id"], "request_id")
                 self._checkpoint(row)
             self._integrity_extra()
+            if self.battle_reservations_enabled:
+                from .battle_reservations import BattleReservations
+                BattleReservations(self)._integrity()
 
     def backup(self, path: str | Path) -> Path:
         """Create a consistent new SQLite backup; never overwrite a destination."""

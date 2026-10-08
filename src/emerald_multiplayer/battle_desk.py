@@ -66,9 +66,9 @@ class BattleDesk:
 
     START authorization is irreversible here even before its reply: either ROM
     may have entered native startup. Exact receipt retries cannot resample RNG,
-    consent, or results. Optional completed-result history survives a restart;
-    active coordination, durable journals and cold-start recovery remain
-    separate required work.
+    consent, or results. Admission reservations and optional completed-result
+    history survive a restart. Active coordination and same-battle native
+    resumption remain separate required work.
     """
 
     def __init__(self, store: OwnershipCheckpointStore, lease_for, *,
@@ -79,6 +79,8 @@ class BattleDesk:
                 or not 1 <= timeout <= 3600 or not callable(clock) or not callable(lease_for)):
             raise ValueError("battle timeout/callbacks are invalid")
         self.store, self.lease_for = store, lease_for
+        from .battle_reservations import BattleReservations
+        self.reservations = BattleReservations(store)
         if results is not None:
             from .battle_results import BattleResults
             if (not isinstance(results, BattleResults) or results.identity != dict(
@@ -252,6 +254,12 @@ class BattleDesk:
             return self._view(existing)
         if self.results is not None and self.results.contains(battle_id):
             raise BattleError("battle_result_conflict", "completed battle ID cannot start another challenge")
+        if self.reservations.contains(battle_id):
+            raise BattleError("battle_reservation_conflict", "battle ID already belongs to a durable native lifecycle")
+        try:
+            self.reservations.assert_available(*players)
+        except StorageError as error:
+            raise BattleError(error.code, error.message) from error
         if len(self._active) >= MAX_ACTIVE or any(set(players).intersection(b.players) for b in self._active.values()):
             raise BattleError("battle_busy", "a participant has an unresolved battle lifecycle")
         leases, roster = [], []
@@ -337,6 +345,7 @@ class BattleDesk:
             raise BattleError("battle_state", "all trainers must consent before native binding")
         self._heads(battle)
         binding = self._binding(battle, actor)
+        self.reservations._reserve(battle, actor)
         battle.bind_intent.add(actor)  # Before the coordinator sends any BIND.
         return binding
 
@@ -592,6 +601,8 @@ class BattleDesk:
                     for raw in receipts[(player, opcode)]:
                         material.extend(raw)
             self.results._append_closed(summary, hashlib.sha256(material).hexdigest())
+        if battle.released | {actor} == set(battle.players):
+            self.reservations._finish(battle, "closed", actor, request, response)
         battle.released.add(actor)
         self._record(battle, actor, request, response)
         if battle.released == set(battle.players):
@@ -625,6 +636,8 @@ class BattleDesk:
             return self._view(battle)
         if battle.state != "aborting" or actor not in battle.abort_pending:
             raise BattleError("battle_state", "no matching pre-start abort remains")
+        if battle.abort_pending == {actor}:
+            self.reservations._finish(battle, "aborted", actor, request, response)
         battle.abort_pending.remove(actor)
         battle.abort_acked.add(actor)
         self._record(battle, actor, request, response)
