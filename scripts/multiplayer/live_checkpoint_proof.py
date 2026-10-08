@@ -46,7 +46,7 @@ class LockedCore(Core):
 class Pump:
     def __init__(self, cores, companions):
         self.cores, self.companions = cores, companions
-        self.keys = [0, 0]
+        self.keys = [0] * len(cores)
         self.frames = 0
         self.visited_b = set()
         self.task = None

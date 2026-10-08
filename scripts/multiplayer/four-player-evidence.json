@@ -1,0 +1,52 @@
+{
+  "recorded_date": "2026-10-08",
+  "status": "verified four-core presence and persistence foundation",
+  "scope": "Four real libmGBA cores: independent native trainers, presence, saves, scenes, local wild battle, reconnect. No cross-player trading or network-battle acceptance.",
+  "engine_commit": "88c7ef798ab5f91a496099cc687252fa5c4b12a3",
+  "rom_sha256": "a19b6d525599620b86ca48098276fd3e136422fbd2ef6d8bfbf38d203caf284a",
+  "mgba_commit": "26b7884bc25a5933960f3cdcd98bac1ae14d42e2",
+  "external_RAM_writes": "allocated production presence and save mailboxes only",
+  "savestates": false,
+  "passed": true,
+  "recorded_checks": 30,
+  "check_counts": {
+    "explicit-enrollment": 4,
+    "fifth-client-refused-with-four-real-cores-still-connected": 1,
+    "actual-remote-actor-counts": 2,
+    "independent-game-activities": 6,
+    "actual-independent-joypad-movement": 2,
+    "independent-maps": 3,
+    "native-local-battle-with-other-cores-independent": 3,
+    "one-client-disconnect-rejoin-retains-all-heads-and-other-leases": 1,
+    "independent-checkpoint": 4,
+    "distinct-native-trainers-and-closed-saves": 1,
+    "fresh-Continue-restores-each-saved-map-and-position": 1,
+    "four-independent-original-core-pids-advanced": 1,
+    "fresh-Continue-and-original-source-bytes-preserved": 1
+  },
+  "commands": 21,
+  "snapshots": 24,
+  "additional_closed_game_checks": [
+    "All four strict native Flash images and normalized states equal their canonical revision2 payloads; validated 16-byte RTC footer preserved separately.",
+    "Exactly eight immutable checkpoints; four admitted players at revision2 and refused fifth at revision0; SQLite integrity_check=ok and consistent SQLite backup."
+  ],
+  "source_save_sha256": [
+    "8d611857e848f68ff3624d8540704d7e70ed4115326f82e304408587df9f3bf6",
+    "5688844e0799be76a91183ef37429a52449f2104e9efbde6d2ac7a381ca9f910",
+    "2e1f9f0b8a33698fb86bbcfe726237528a5e1931307187c9b9b7f3bdda6c151a",
+    "a719fe7d10b27145390b5019029be2515b30c13f70510fa549d9ec1c81e20754"
+  ],
+  "evidence_sha256": "664ebf1139bd7e7c60aa64e4874974d5c85355d5f30d662bd325ba5eecaa3f38",
+  "acceptance_sha256": "f0797963bc32ef2ebbb2b3f70c9ec79724d689f7180c213deabf373690cc1ce8",
+  "prepared_save_evidence_sha256": "29cbd1b6aab136950ae6f33b9f09ce8648b4c0787e084dff59ec6581edaef425",
+  "backup_sha256": "16b71f841df0b1482c59b3f6a00a17302876d36cb24337c1aa346d33fe4db603",
+  "archived_file_count": 149,
+  "all_archive_hashes_verified": true,
+  "all_cores_closed": true,
+  "limits": [
+    "Same-computer development harness only",
+    "No cross-player trade or network battle acceptance",
+    "Only client A has a party in this proof",
+    "Windows GUI, audio, Wi-Fi and Internet acceptance pending"
+  ]
+}
