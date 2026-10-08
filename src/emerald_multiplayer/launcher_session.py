@@ -196,6 +196,7 @@ class LauncherSession:
         self._battle_retained = None
         self._battle_recovery_intent = None
         self._battle_handoff_successor = None
+        self._battle_menu_preparation = None
 
     @property
     def profile_directory(self):
@@ -221,6 +222,8 @@ class LauncherSession:
                         battle_recovery_available=self.can_recover_battle)
         if self._battle_recovery_task is not None:
             return replace(value, state=SessionState.RUNNING, code="battle_recovering")
+        if self._terminal_successor_preserved():
+            return replace(value, code="host_loss_preserved", battle_recovery_available=False)
         if self._battle_recovery_failed and self._game is not None and self._game.process.returncode is None:
             return replace(value, state=SessionState.RUNNING, code="battle_recovery_held")
         emergency = self._emergency
@@ -298,6 +301,11 @@ class LauncherSession:
         if (self._manifest.get("battle_execution_abi_version") == 1
                 or self._manifest.get("menu_abi_version") == 2):
             self._companion._native_menu_handoff = self._native_menu_handoff
+        if (self._manifest.get("battle_resume_abi_version") == 1
+                and self._manifest.get("emergency_save_abi_version") == 2):
+            self._companion._native_menu_capture_battle = self._native_menu_capture_battle
+            self._companion._native_menu_prepare_battle = self._native_menu_prepare_battle
+            self._companion._native_menu_abandon_battle_preparation = self._native_menu_abandon_battle_preparation
         self._publish(SessionState.CONNECTING, "authentication")
         await self._companion.start()
         try:
@@ -428,7 +436,11 @@ class LauncherSession:
     def _retain_interrupted_core(self):
         if self._game is None or self._game.process.returncode is not None:
             return False
-        if getattr(self, "_battle_recovery_task", None) is not None or getattr(self, "_battle_recovery_failed", False):
+        if getattr(self, "_battle_recovery_task", None) is not None:
+            return True
+        if self._terminal_successor_preserved():
+            return False
+        if getattr(self, "_battle_recovery_failed", False):
             return True
         if self._emergency is not None and self._emergency.lost.is_set() and not self._emergency.result.can_close:
             return True
@@ -438,10 +450,43 @@ class LauncherSession:
         except (ValueError, OSError):
             return True
 
+    def _terminal_successor_preserved(self):
+        """A finished successor receipt can close a retired battle's original core."""
+        from .battle_journal import BattleIntent
+        from .emergency_save import EmergencySaveController, EmergencyResult
+        s = getattr(self, "_battle_handoff_successor", None)
+        if type(s) is not EmergencySaveController:
+            return False
+        try:
+            c, retained, intent = self._companion, self._battle_retained, self._battle_recovery_intent
+            if (s is not self._emergency or s is not getattr(c, "_emergency_controller", None)
+                    or s.companion is not c or type(intent) is not BattleIntent or retained is None
+                    or retained[0] is not self._game or retained[1] is not self._runtime
+                    or retained[2] is not c._bridge or s.bridge is not retained[2]
+                    or retained[3:] != (intent.battle_id, intent.generation, intent.canonical_revision,
+                                        intent.canonical_sha256, intent.incarnation, intent.runtime_id)
+                    or c._bridge.incarnation != intent.incarnation
+                    or getattr(c, "_live_battle_runtime_id", None) != intent.runtime_id
+                    or s.base_revision != intent.canonical_revision or self._revision != intent.canonical_revision
+                    or s.session[0] != intent.world_id or s.session[2] != intent.incarnation
+                    or s.session[1] < intent.lease_epoch or not s.lost.is_set()
+                    or s.identity != dict(world_id=intent.world_id, player_id=intent.player_id,
+                        build_id=intent.build_id, ruleset_id=intent.ruleset_id, save_profile=intent.save_profile)
+                    or type(s.result) is not EmergencyResult or s.result.state != "preserved" or not s.result.can_close
+                    or s.task is None or not s.task.done() or s.task.cancelled() or s.task.exception() is not None
+                    or s.task.result() != s.result or pending_battle(c, self._profile_directory)
+                    or getattr(c, "_live_save_owner", None) is not None
+                    or getattr(c, "_live_battle_owner", None) is not None):
+                return False
+            return True
+        except (ValueError, OSError, AttributeError, TypeError, IndexError):
+            return False
+
     def _retained_battle(self):
         """Read exact local identity; visibility never grants native authority."""
-        from .battle_journal import read_battle_intent, path_present
+        from .battle_journal import path_present
         from .native_battle import NativeBinding
+        from .battle_admission_intent import BattleAdmissionIntent
         c = self._companion
         if (not self._open or self._closing or self._game is None or self._game.process.returncode is not None
                 or self._runtime is None or self._interaction is not None or self._battle_recovery_task is not None
@@ -457,19 +502,11 @@ class LauncherSession:
         if any(path_present(self._profile_directory / name) for name in
                ("pending-export.json", "pending-trade.json", "pending-emergency.json")):
             raise LauncherSessionError("battle_recovery_not_ready")
-        pending_path = self._profile_directory / "pending-battle.json"
-        if path_present(pending_path):
-            intent = read_battle_intent(pending_path)
-        else:
-            intent = self._battle_recovery_intent
-            if intent is None or not path_present(self._profile_directory / (intent.battle_id + ".battle-recovery-complete.json")):
-                raise LauncherSessionError("battle_recovery_not_ready")
-        if self._battle_recovery_intent is not None and self._battle_recovery_intent != intent:
-            raise LauncherSessionError("battle_recovery_not_ready")
+        intent = self._read_retained_battle_intent()
         expected = (intent.world_id, intent.server_epoch, intent.lease_epoch, intent.save_profile,
                     intent.player_id, intent.build_id, intent.ruleset_id)
         retained = self._battle_retained
-        if (not NativeBinding.unpack(intent.bind.data).resumable
+        if (not isinstance(intent, BattleAdmissionIntent) and not NativeBinding.unpack(intent.bind.data).resumable
                 or retained is None or retained[0] is not self._game or retained[1] is not self._runtime
                 or retained[2] is not c._bridge
                 or retained[3:] != (intent.battle_id, intent.generation, intent.canonical_revision,
@@ -483,6 +520,27 @@ class LauncherSession:
             raise LauncherSessionError("battle_recovery_not_ready")
         return intent, self._game, c._bridge, self._runtime
 
+    def _read_retained_battle_intent(self):
+        """A partial admission keeps its original identity until verified conversion."""
+        from .battle_admission_intent import BattleAdmissionIntent, FILENAME, read_admission_intent
+        from .battle_admission_session import verify_admission_conversion
+        from .battle_journal import read_battle_intent, path_present
+        directory, previous = self._profile_directory, self._battle_recovery_intent
+        provisional, full = directory / FILENAME, directory / "pending-battle.json"
+        if path_present(provisional):
+            intent = read_admission_intent(provisional)
+        elif path_present(full):
+            intent = read_battle_intent(full)
+        else:
+            intent = previous
+            if intent is None or not path_present(directory / (intent.battle_id + ".battle-recovery-complete.json")):
+                raise LauncherSessionError("battle_recovery_not_ready")
+        if previous is not None and previous != intent:
+            if not isinstance(previous, BattleAdmissionIntent) or isinstance(intent, BattleAdmissionIntent):
+                raise LauncherSessionError("battle_recovery_not_ready")
+            verify_admission_conversion(directory, previous, intent)
+        return intent
+
     @property
     def can_recover_battle(self):
         try:
@@ -494,7 +552,8 @@ class LauncherSession:
     async def recover_battle(self):
         """Explicit same-core recovery; one call waits for the original roster."""
         from .battle_recovery_session import NativeBattleRecoverySession
-        from .battle_journal import read_battle_intent, path_present
+        from .battle_admission_intent import BattleAdmissionIntent
+        from .battle_admission_session import verify_admission_conversion
         intent, game, bridge, runtime = self._retained_battle()
         c = self._companion
         self._battle_recovery_intent = intent
@@ -507,11 +566,14 @@ class LauncherSession:
             if self._autosave_task is not None:
                 await self._autosave_task
             self.installation.verify()
-            pending_path = self._profile_directory / "pending-battle.json"
             if (self._game is not game or game.process.returncode is not None or self._runtime is not runtime
-                    or c._bridge is not bridge or path_present(pending_path) and read_battle_intent(pending_path) != intent):
+                    or c._bridge is not bridge or self._read_retained_battle_intent() != intent):
                 raise LauncherSessionError("battle_recovery_held")
-            result = await NativeBattleRecoverySession(c, self._profile_directory, original_intent=intent).run()
+            executor = NativeBattleRecoverySession(c, self._profile_directory, original_intent=intent)
+            result = await executor.run()
+            if isinstance(intent, BattleAdmissionIntent):
+                intent = verify_admission_conversion(self._profile_directory, intent, executor.intent)
+                self._battle_recovery_intent = intent
             await self._adopt_battle_completion(result, intent, game, bridge, runtime)
             self._publish(SessionState.RUNNING, "battle_recovered", revision=self._revision)
             return result
@@ -803,11 +865,109 @@ class LauncherSession:
         if controller.task is not None:
             await controller.drain()
 
+    def _native_menu_capture_battle(self, descriptor, menu_session):
+        """Publish the exact native Enter event before creating any async work."""
+        from .battle_admission_intent import BattleAdmissionIntent
+        from .battle_admission_session import publish_battle_admission
+        from .battle_session import RenewedBattleSession
+        c = self._companion
+        if (not self._open or self._closing or self._binding is None or c is None
+                or self._manifest.get("battle_resume_abi_version") != 1
+                or self._manifest.get("emergency_save_abi_version") != 2
+                or self._manifest.get("battle_execution_abi_version") != 1
+                or getattr(c.config, "battle_resume_abi_version", 0) != 1
+                or getattr(c.config, "emergency_save_abi_version", 0) != 2
+                or self._game is None or self._game.process.returncode is not None
+                or self._runtime is None or self._interaction is not None
+                or self._save_failed and not self._idle_save_disconnect
+                or self._save_task is not None and not self._save_task.done()
+                or c._bridge is not menu_session.bridge
+                or not getattr(menu_session, "_battle_preparing", False)):
+            raise LauncherSessionError("game_active")
+        accepted = next((cp for cp in descriptor["checkpoints"] if cp["player_id"] == c.config.player_id), None)
+        if accepted is None or accepted["revision"] != self._revision:
+            raise LauncherSessionError("save_not_ready")
+        self._battle_retained = retained = (self._game, self._runtime, c._bridge,
+            descriptor["battle_id"], descriptor["generation"], self._revision,
+            accepted["sha256"], c.save_incarnation, getattr(c, "_live_battle_runtime_id", None))
+        self._interaction = menu_session
+        self._battle_menu_preparation = (None, menu_session, None)
+        self._autosave_wake.set()
+        try:
+            original = RenewedBattleSession(self._binding[0], self._binding[4], self._binding[5],
+                self._binding[6], self._binding[3], self._binding[1], self._binding[2], retained[7], retained[8])
+            intent = publish_battle_admission(c, self._profile_directory, descriptor, original, retained[2])
+            if (not isinstance(intent, BattleAdmissionIntent) or intent.challenge != descriptor
+                    or self._game is not retained[0] or self._runtime is not retained[1]
+                    or c._bridge is not retained[2]
+                    or retained[3:] != (intent.battle_id, intent.generation, intent.canonical_revision,
+                                        intent.canonical_sha256, intent.incarnation, intent.runtime_id)):
+                raise LauncherSessionError("battle_recovery_held")
+            self._battle_recovery_intent = intent
+            self._battle_menu_preparation = (None, menu_session, intent)
+            return intent
+        except (Exception, asyncio.CancelledError):
+            self._native_menu_abandon_battle_preparation(menu_session)
+            raise
+
+    async def _native_menu_prepare_battle(self, descriptor, menu_session):
+        """Consume only this menu's synchronously published Enter event."""
+        from .battle_admission_session import prepare_battle_admission
+        prepared, c = self._battle_menu_preparation, self._companion
+        if (prepared is None or prepared[0] is not None or prepared[1] is not menu_session
+                or prepared[2] is None or prepared[2].challenge != descriptor
+                or self._interaction is not menu_session or c._bridge is not menu_session.bridge
+                or not getattr(menu_session, "_battle_preparing", False)):
+            raise LauncherSessionError("game_active")
+        owner = asyncio.current_task()
+        self._interaction = owner
+        self._battle_menu_preparation = (owner, menu_session, prepared[2])
+        try:
+            await self._stop_autosave()
+            retained = self._battle_retained
+            if (self._game is not retained[0] or self._game.process.returncode is not None
+                    or self._runtime is not retained[1] or c._bridge is not retained[2]
+                    or self._revision != retained[5]):
+                raise LauncherSessionError("battle_recovery_held")
+            intent = await prepare_battle_admission(c, self._profile_directory, descriptor)
+            if intent != prepared[2]:
+                raise LauncherSessionError("battle_recovery_held")
+            return intent
+        except (Exception, asyncio.CancelledError):
+            self._native_menu_abandon_battle_preparation(menu_session)
+            raise
+
+    def _native_menu_abandon_battle_preparation(self, menu_session):
+        """An uncertain menu transfer releases Python ownership, never its live core."""
+        prepared = self._battle_menu_preparation
+        if prepared is None:
+            # The native latch may already exist when Python preflight refuses
+            # admission. Retain it even when no durable intent was published.
+            if (getattr(menu_session, "_battle_preparing", False) and self._companion is not None
+                    and self._companion._bridge is menu_session.bridge and self._game is not None):
+                self._battle_recovery_failed = True
+                self._fail_save()
+            return
+        if (prepared[1] is not menu_session or prepared[0] is not None and prepared[0] is not asyncio.current_task()):
+            return
+        self._battle_menu_preparation = None
+        if self._interaction is prepared[0] or prepared[0] is None and self._interaction is menu_session:
+            self._interaction = None
+        self._battle_recovery_failed = True
+        self._fail_save()
+        self._autosave_wake.set()
+
     async def _native_menu_handoff(self, kind, descriptor, menu_session):
         """Exclusive live operation after an acknowledged native menu CLOSE."""
         self._assert_session()
+        prepared = self._battle_menu_preparation
+        prepared_battle = (prepared is not None and kind == "battle"
+            and prepared[0] is asyncio.current_task() and prepared[1] is menu_session
+            and prepared[2] is not None and prepared[2].challenge == descriptor
+            and self._interaction is prepared[0])
         if (self._game is None or self._game.process.returncode is not None
-                or self._interaction is not None or self._save_failed
+                or self._interaction is not None and not prepared_battle or self._save_failed
+                or kind == "battle" and self._manifest.get("battle_resume_abi_version") == 1 and not prepared_battle
                 or self._save_task is not None and not self._save_task.done()
                 or self._companion._bridge is not menu_session.bridge):
             raise LauncherSessionError("game_active")
@@ -829,9 +989,16 @@ class LauncherSession:
                     raise LauncherSessionError("save_not_ready")
                 self._publish(SessionState.RUNNING, "battle_running", revision=base)
                 executor = NativeBattleSession(c, self._profile_directory)
-                self._battle_retained = (self._game, self._runtime, c._bridge, descriptor["battle_id"],
-                    descriptor["generation"], base, accepted["sha256"], incarnation,
-                    getattr(c, "_live_battle_runtime_id", None))
+                retained = (self._game, self._runtime, c._bridge, descriptor["battle_id"],
+                            descriptor["generation"], base, accepted["sha256"], incarnation,
+                            getattr(c, "_live_battle_runtime_id", None))
+                if prepared_battle:
+                    original = self._battle_retained
+                    if (original is None or any(original[index] is not retained[index] for index in range(3))
+                            or original[3:] != retained[3:]):
+                        raise LauncherSessionError("battle_recovery_held")
+                else:
+                    self._battle_retained = retained
                 result = await executor.run(descriptor)
                 if (not isinstance(result, BattleCompletion) or result.state not in {"closed", "aborted"}
                         or (result.battle_id, result.generation, result.canonical_revision, result.canonical_sha256) !=
@@ -839,6 +1006,9 @@ class LauncherSession:
                     raise LauncherSessionError("recovery_required")
                 code = "battle_finished" if result.state == "closed" else "battle_cancelled"
                 if result.state == "closed" and self._manifest.get("battle_resume_abi_version") == 1:
+                    if prepared_battle:
+                        from .battle_admission_session import verify_admission_conversion
+                        verify_admission_conversion(self._profile_directory, prepared[2], executor.intent)
                     retained = self._battle_retained
                     self._battle_recovery_intent = executor.intent
                     await self._adopt_battle_completion(result, executor.intent, retained[0], retained[2], retained[1])
@@ -871,6 +1041,8 @@ class LauncherSession:
             self._fail_save()
             raise
         finally:
+            if prepared_battle:
+                self._battle_menu_preparation = None
             self._interaction = None
             self._autosave_wake.set()
 
