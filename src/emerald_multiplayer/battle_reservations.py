@@ -67,6 +67,7 @@ def enable_battle_reservations(store, backup_path):
             lock.acquire()
         except OSError as error:
             raise StorageError("host_active", "close the existing host before migration") from error
+    old_schema, old_version = store._schema, store._schema_version
     try:
         store.integrity_check()
         if store._connection.execute("SELECT 1 FROM players WHERE lease_epoch IS NOT NULL").fetchone():
@@ -84,8 +85,8 @@ def enable_battle_reservations(store, backup_path):
                     raise StorageError("lease_active", "a character became active during migration")
                 for sql in RESERVATION_SCHEMA.values():
                     store._connection.execute(sql)
-                store._schema = {**store._base_schema, **RESERVATION_SCHEMA}
-                store._schema_version = store._base_schema_version + EXTENSION_VERSION
+                store._schema = {**old_schema, **RESERVATION_SCHEMA}
+                store._schema_version = old_version + EXTENSION_VERSION
                 store._connection.execute(f"PRAGMA user_version = {store._schema_version}")
                 store._validate_schema()
                 BattleReservations(store)._integrity()
@@ -93,8 +94,8 @@ def enable_battle_reservations(store, backup_path):
             # A failed transaction must not leave a legacy instance pretending
             # it has the capability. An uncertain successful COMMIT keeps it.
             version = store._connection.execute("PRAGMA user_version").fetchone()[0]
-            if version == store._base_schema_version:
-                store._schema, store._schema_version = store._base_schema, version
+            if version == old_version:
+                store._schema, store._schema_version = old_schema, version
         store.integrity_check()
         return True
     finally:

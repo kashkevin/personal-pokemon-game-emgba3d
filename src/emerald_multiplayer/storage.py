@@ -213,9 +213,15 @@ class CheckpointStore:
                 # world never creates these tables or changes its version.
                 if self._supports_battle_reservations:
                     from .battle_reservations import EXTENSION_VERSION, RESERVATION_SCHEMA
+                    from .reset_attempts import EXTENSION_VERSION as RESET_VERSION, ATTEMPT_SCHEMA
                     version = self._connection.execute("PRAGMA user_version").fetchone()[0]
-                    if version == self._base_schema_version + EXTENSION_VERSION:
-                        self._schema = {**self._base_schema, **RESERVATION_SCHEMA}
+                    extension = version - self._base_schema_version
+                    if extension in (EXTENSION_VERSION, RESET_VERSION, EXTENSION_VERSION + RESET_VERSION):
+                        self._schema = dict(self._base_schema)
+                        if extension in (EXTENSION_VERSION, EXTENSION_VERSION + RESET_VERSION):
+                            self._schema.update(RESERVATION_SCHEMA)
+                        if extension in (RESET_VERSION, EXTENSION_VERSION + RESET_VERSION):
+                            self._schema.update(ATTEMPT_SCHEMA)
                         self._schema_version = version
                 self._validate_schema()
                 self._validate_metadata()
@@ -265,7 +271,11 @@ class CheckpointStore:
 
     @property
     def battle_reservations_enabled(self) -> bool:
-        return self._schema_version != self._base_schema_version
+        return "battle_reservations" in self._schema
+
+    @property
+    def reset_attempts_enabled(self) -> bool:
+        return "personal_reset_attempts" in self._schema
 
     def _assert_no_battle_reservation(self, *players) -> None:
         """Called inside the owning store transaction, including direct APIs."""
@@ -498,6 +508,9 @@ class CheckpointStore:
             if self.battle_reservations_enabled:
                 from .battle_reservations import BattleReservations
                 BattleReservations(self)._integrity()
+            if self.reset_attempts_enabled:
+                from .reset_attempts import ResetAttempts
+                ResetAttempts(self)._integrity()
 
     def backup(self, path: str | Path) -> Path:
         """Create a consistent new SQLite backup; never overwrite a destination."""
