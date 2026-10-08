@@ -31,9 +31,13 @@ class ControlledSession:
         self.save_started = threading.Event()
         self.release_save = threading.Event()
         self.save_count = 0
+        self.autosave_enabled = True
+        self.settings_started = threading.Event()
+        self.release_settings = threading.Event()
+        self.settings_calls = []
 
     def publish(self, state, code):
-        self.status = SessionStatus(state, code, connected=True)
+        self.status = SessionStatus(state, code, connected=True, autosave_enabled=self.autosave_enabled)
         self.on_status(self.status)
 
     @asynccontextmanager
@@ -74,6 +78,14 @@ class ControlledSession:
             await asyncio.sleep(.005)
         self.publish(SessionState.RUNNING, "saved")
 
+    async def set_autosave_enabled(self, enabled):
+        self.settings_calls.append(enabled)
+        self.settings_started.set()
+        while not self.release_settings.is_set():
+            await asyncio.sleep(.005)
+        self.autosave_enabled = enabled
+        self.publish(SessionState.RUNNING, "autosave_on" if enabled else "autosave_off")
+
 
 class GuiWorkerTests(unittest.TestCase):
     def setUp(self):
@@ -93,6 +105,7 @@ class GuiWorkerTests(unittest.TestCase):
             session.release_game.set()
             session.release_cleanup.set()
             session.release_save.set()
+            session.release_settings.set()
         self.worker.cancel_startup()
         if self.worker._thread:
             self.worker._thread.join(5)
@@ -149,6 +162,23 @@ class GuiWorkerTests(unittest.TestCase):
         session.release_save.set()
         self.assertEqual(self.finish_events()[-1].code, "game_closed")
         self.assertEqual(session.save_count, 1)
+
+    def test_autosave_setting_is_single_flight_and_drained_before_completion(self):
+        self.assertFalse(self.worker.request_autosave(False))
+        session = self.launch()
+        session.release_connect.set()
+        self.assertTrue(session.played.wait(2))
+        self.assertTrue(self.worker.request_autosave(False))
+        self.assertFalse(self.worker.request_autosave(True))
+        self.assertTrue(session.settings_started.wait(2))
+        session.release_game.set()
+        time.sleep(.04)
+        self.assertFalse(session.closed.is_set())
+        session.release_settings.set()
+        events = self.finish_events()
+        self.assertEqual(session.settings_calls, [False])
+        self.assertTrue(any(e.code == "autosave_off" and e.autosave_enabled is False for e in events))
+        self.assertEqual(events[-1].code, "game_closed")
 
     def test_repeated_cancel_waits_for_context_cleanup(self):
         session = self.launch()
@@ -255,6 +285,31 @@ class WidgetTests(unittest.TestCase):
         self.root.update_idletasks()
         self.assertTrue(all(str(widget.cget("state")) == "disabled" for widget in window.controls))
         self.assertIn("verified game package", window.message.get())
+        self.assertEqual(str(window.autosave_button.cget("state")), "disabled")
+
+    def test_toggle_reflects_profile_and_keeps_manual_save_available_when_off(self):
+        class Worker:
+            busy = True
+            events = queue.SimpleQueue()
+            requests = []
+            def request_autosave(self, enabled):
+                self.requests.append(enabled)
+                return True
+        worker = Worker()
+        window = LauncherWindow(self.root, worker)
+        worker.events.put(UiEvent("status", "running", "running", False))
+        window.poll()
+        self.assertFalse(window.autosave_value.get())
+        self.assertEqual(str(window.save_button.cget("state")), "normal")
+        window.autosave_value.set(True)
+        window.toggle_autosave()
+        self.assertEqual(worker.requests, [True])
+        self.assertEqual(str(window.autosave_button.cget("state")), "disabled")
+        worker.events.put(UiEvent("status", "autosave_off", "running", False))
+        window.poll()
+        self.assertFalse(window.autosave_value.get())
+        self.assertEqual(str(window.save_button.cget("state")), "normal")
+        self.assertIn("Save now", window.message.get())
 
     def test_close_during_play_waits_and_finishes_only_after_worker_completion(self):
         class Worker:

@@ -58,6 +58,11 @@ _TEXT = {
     "save_not_ready": "Return to a safe place outside menus and battles, then press Save now again.",
     "save_busy": "A character save is already running.",
     "save_recovery_required": "This save needs recovery. Close the game and reopen through Host Game or Join Game.",
+    "autosave_on": "Autosave is on: every 5 minutes, when you reach a safe place.",
+    "autosave_off": "Autosave is off. Use Save now before closing the game.",
+    "autosave_deferred": "Autosave is waiting for a safe place outside menus and battles.",
+    "settings_unavailable": "Your character's autosave setting could not be saved or read.",
+    "settings_busy": "Finishing the previous settings change…",
     "importing": "Checking your own game dump and installing this release…",
     "imported": "Game installed. Choose Host Game or Join Game.",
     "import_unavailable": "Game import is unavailable: this development package has no release patch.",
@@ -137,6 +142,7 @@ class UiEvent:
     kind: str
     code: str
     state: str = ""
+    autosave_enabled: bool | None = None
 
 
 class SessionWorker:
@@ -154,6 +160,8 @@ class SessionWorker:
         self._state = SessionState.NEW
         self._active_session = self._save_future = None
         self._save_pending = False
+        self._settings_future = None
+        self._settings_pending = False
 
     @property
     def busy(self):
@@ -255,12 +263,37 @@ class SessionWorker:
             with self._lock:
                 self._save_pending = False
 
+    def request_autosave(self, enabled):
+        with self._lock:
+            if (type(enabled) is not bool or not self.busy or self._state is not SessionState.RUNNING
+                    or self._loop is None or self._active_session is None or self._settings_pending):
+                return False
+            self._settings_pending = True
+            self._loop.call_soon_threadsafe(self._begin_settings, enabled)
+            return True
+
+    def _begin_settings(self, enabled):
+        self._settings_future = asyncio.create_task(self._set_autosave(enabled), name="launcher-autosave-setting")
+
+    async def _set_autosave(self, enabled):
+        try:
+            if self._active_session is not None:
+                await self._active_session.set_autosave_enabled(enabled)
+        except Exception as error:
+            code = getattr(error, "code", "settings_unavailable")
+            current = self._active_session
+            self.events.put(UiEvent("status", code if code in _TEXT else "settings_unavailable", "running",
+                                   getattr(current, "autosave_enabled", None)))
+        finally:
+            with self._lock:
+                self._settings_pending = False
+
     def _publish(self, status):
         with self._lock:
             self._state = status.state
         if status.state != SessionState.CLOSED:
             code = status.code if status.code in _TEXT else "session_failed"
-            self.events.put(UiEvent("status", code, status.state.value))
+            self.events.put(UiEvent("status", code, status.state.value, status.autosave_enabled))
 
     async def _session(self, options):
         session = self.factory(self.installation, self.private_root, on_status=self._publish, **options)
@@ -275,7 +308,7 @@ class SessionWorker:
                 observed = None
                 while not play.done():
                     status = session.status
-                    signature = status.state, status.code, status.connected
+                    signature = status.state, status.code, status.connected, status.autosave_enabled
                     if signature != observed:
                         self._publish(status)
                         observed = signature
@@ -290,11 +323,17 @@ class SessionWorker:
                 await asyncio.gather(play, return_exceptions=True)
                 with self._lock:
                     self._active_session = None
+                canceled = False
                 if self._save_future is not None:
                     from .player_runtime import _finish_even_if_cancelled
-                    _, canceled = await _finish_even_if_cancelled(self._save_future)
-                    if canceled:
-                        raise asyncio.CancelledError()
+                    _, interrupted = await _finish_even_if_cancelled(self._save_future)
+                    canceled |= interrupted
+                if self._settings_future is not None:
+                    from .player_runtime import _finish_even_if_cancelled
+                    _, interrupted = await _finish_even_if_cancelled(self._settings_future)
+                    canceled |= interrupted
+                if canceled:
+                    raise asyncio.CancelledError()
 
     async def _execute(self, options):
         with self._lock:
@@ -319,6 +358,8 @@ class SessionWorker:
                 self._loop = self._task = None
                 self._active_session = self._save_future = None
                 self._save_pending = False
+                self._settings_future = None
+                self._settings_pending = False
             # asyncio.run has drained its loop before completion becomes visible.
             self.events.put(UiEvent("complete", code))
 
@@ -401,6 +442,11 @@ class LauncherWindow:
         actions.pack(fill="x", pady=(10, 0))
         self.save_button = ttk.Button(actions, text="Save now", command=self.save_now, state="disabled")
         self.save_button.pack(side="left")
+        self.autosave_value = tk.BooleanVar(value=True)
+        self._autosave_observed = True
+        self.autosave_button = ttk.Checkbutton(actions, text="Autosave every 5 minutes",
+            variable=self.autosave_value, command=self.toggle_autosave, state="disabled")
+        self.autosave_button.pack(side="left", padx=(12, 0))
         self.cancel = ttk.Button(actions, text="Cancel startup", command=self.cancel_startup, state="disabled")
         self.cancel.pack(side="right")
         if worker is None:
@@ -479,6 +525,13 @@ class LauncherWindow:
             self.save_button.configure(state="disabled")
             self.message.set(status_text("saving"))
 
+    def toggle_autosave(self):
+        if (self.closing or self.worker is None
+                or not self.worker.request_autosave(self.autosave_value.get())):
+            self.autosave_value.set(self._autosave_observed)
+        else:
+            self.autosave_button.configure(state="disabled")
+
     def check_connection(self):
         if self.worker is None or self.worker.busy:
             return
@@ -501,6 +554,7 @@ class LauncherWindow:
         self.closing = True
         self._enable(False)
         self.save_button.configure(state="disabled")
+        self.autosave_button.configure(state="disabled")
         cancelled = self.worker.cancel_startup()
         self.cancel.configure(state="disabled")
         code = "closing" if cancelled else "wait_for_game"
@@ -528,11 +582,17 @@ class LauncherWindow:
                     self._enable(True)
                     self.cancel.configure(state="disabled")
                     self.save_button.configure(state="disabled")
+                    self.autosave_button.configure(state="disabled")
                     self.message.set(status_text(event.code))
                 elif not self.closing:
                     self.message.set(status_text(event.code))
+                    if event.autosave_enabled is not None:
+                        self._autosave_observed = event.autosave_enabled
+                        self.autosave_value.set(event.autosave_enabled)
+                    self.autosave_button.configure(state="normal" if event.state == "running" else "disabled")
                     self.save_button.configure(state="normal" if event.state == "running"
-                        and event.code in {"running", "saved", "save_not_ready"} else "disabled")
+                        and event.code in {"running", "saved", "save_not_ready", "autosave_on", "autosave_off",
+                                           "autosave_deferred", "settings_unavailable", "settings_busy"} else "disabled")
                     if event.state in {"running", "finished"}:
                         self.cancel.configure(state="disabled")
         self._poll_id = self.root.after(80, self.poll)

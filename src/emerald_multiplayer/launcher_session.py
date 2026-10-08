@@ -1,6 +1,6 @@
 """Development Host/Join orchestration for already enrolled characters.
 
-No UI, enrollment, patching, offline policy, autosave or battle settlement lives
+No UI, enrollment, patching, offline policy or battle settlement lives
 here. The application supplies trusted installation pins and private storage.
 The existing runtime remains the only owner of native startup and save leases.
 """
@@ -18,10 +18,12 @@ import re
 import secrets
 
 from .battle_journal import pending_battle
+from .autosave import AutosaveScheduler, AutosaveState
 from .checkpoint_client import CheckpointClient
 from .companion import Companion, verify_rom_manifest
 from .host_world import HostWorld
 from .invitations import Invitation
+from .launcher_settings import AUTOSAVE_INTERVAL, LauncherSettings
 from .player_runtime import PlayerRuntime, RuntimeBundle, _finish_even_if_cancelled
 from .server import ServerConfig, WorldServer, is_local_address
 
@@ -54,6 +56,8 @@ _MESSAGES = {
     "save_not_ready": "Return to a safe place outside menus and battles, then request Save again.",
     "save_busy": "A character save is already running.",
     "save_recovery_required": "This character's save needs recovery before another save can start.",
+    "settings_unavailable": "This character's launcher settings could not be saved or read.",
+    "settings_busy": "A settings change is already finishing.",
 }
 
 
@@ -122,6 +126,7 @@ class SessionStatus:
     connected: bool = False
     revision: int | None = None
     exit_code: int | None = None
+    autosave_enabled: bool = True
 
 
 class LauncherSession:
@@ -172,11 +177,21 @@ class LauncherSession:
         self._game = self._save_task = None
         self._revision = self._save_incarnation = None
         self._save_failed = False
+        self._settings = LauncherSettings()
+        self._settings_busy = False
+        self._autosave = self._autosave_task = None
+        self._autosave_due = None
+        self._autosave_wake = asyncio.Event()
+        self._autosave_clock = lambda: asyncio.get_running_loop().time()
 
     @property
     def profile_directory(self):
         """Private world/player directory, available after identity validation."""
         return self._profile_directory
+
+    @property
+    def autosave_enabled(self):
+        return self._settings.autosave_enabled
 
     def _signature(self):
         c = self._companion
@@ -188,7 +203,8 @@ class LauncherSession:
     @property
     def status(self):
         current = self._signature()
-        value = replace(self._status, connected=current is not None)
+        value = replace(self._status, connected=current is not None,
+                        autosave_enabled=self.autosave_enabled)
         if self._open and self._binding is not None and current != self._binding:
             # Observation only. No offline-play or post-disconnect action follows.
             code = "connection_lost" if current is None else "session_changed"
@@ -227,6 +243,7 @@ class LauncherSession:
             identity = Invitation.load(self._invitation_path)
             world_id, player_id = identity.world_id, identity.player_id
         self._profile_directory = self.private_root / "players" / world_id / player_id
+        self._settings = LauncherSettings.load(self._profile_directory)
         configure = host.host_companion_config if host is not None else identity.companion_config
         config = configure(game.rom_path, game.manifest_path, token=secrets.token_bytes(32),
                            private_directory=self._profile_directory, ipc_port=0)
@@ -302,6 +319,7 @@ class LauncherSession:
                 self._game = game
                 self._revision = game.startup.mirror.revision
                 self._publish(SessionState.RUNNING, "running", revision=self._revision)
+                self._autosave_task = asyncio.create_task(self._schedule_autosave(), name="launcher-autosave")
                 try:
                     result = await game.wait()
                 finally:
@@ -309,6 +327,14 @@ class LauncherSession:
                     # already dispatched, while the native file lease remains
                     # owned by PlayerRuntime. Closing a game is not a save.
                     self._game = None
+                    self._autosave_wake.set()
+                    if self._autosave_task is not None:
+                        _, canceled = await _finish_even_if_cancelled(self._autosave_task)
+                        if canceled:
+                            # Drain manual saves too before propagating cancellation.
+                            if self._save_task is not None:
+                                await _finish_even_if_cancelled(self._save_task)
+                            raise asyncio.CancelledError()
                     if self._save_task is not None:
                         _, canceled = await _finish_even_if_cancelled(self._save_task)
                         if canceled:
@@ -331,12 +357,125 @@ class LauncherSession:
         return (self._game is not None and self._game.process.returncode is None
                 and self._open and not self._closing and not self._save_failed
                 and self._signature() == self._binding
-                and (self._save_task is None or self._save_task.done()))
+                and (self._save_task is None or self._save_task.done())
+                and (self._autosave is None or self._autosave.status.state is not AutosaveState.SAVING))
+
+    async def set_autosave_enabled(self, enabled):
+        """Persist this character's preference; disabling drains an active save."""
+        if not self._open or self._closing or self._profile_directory is None:
+            raise LauncherSessionError("session_closed")
+        if type(enabled) is not bool:
+            raise LauncherSessionError("invalid_configuration")
+        if self._settings_busy:
+            raise LauncherSessionError("settings_busy")
+        self._settings_busy = True
+        try:
+            await self._set_autosave_enabled(enabled)
+        finally:
+            self._settings_busy = False
+
+    async def _set_autosave_enabled(self, enabled):
+        settings = LauncherSettings(enabled)
+        try:
+            settings.save(self._profile_directory)
+        except Exception as error:
+            raise _safe_error(error) from None
+        changed = enabled != self.autosave_enabled
+        self._settings = settings
+        if changed and enabled:
+            self._autosave_due = self._autosave_clock() + AUTOSAVE_INTERVAL
+        self._autosave_wake.set()
+        if not enabled:
+            await self._stop_autosave()
+        if self._game is not None and not self._save_failed:
+            code = "saving" if self._save_task is not None and not self._save_task.done() else (
+                "autosave_on" if enabled else "autosave_off")
+            self._publish(SessionState.RUNNING, code,
+                          revision=self._revision)
+
+    def _autosave_safe(self):
+        return (self._game is not None and self._game.process.returncode is None
+                and self.autosave_enabled and not self._closing and not self._save_failed
+                and (self._save_task is None or self._save_task.done())
+                and getattr(self._companion, "_live_battle_owner", None) is None
+                and not pending_battle(self._companion, self._profile_directory))
+
+    def _autosave_status(self, status):
+        if status.state is AutosaveState.RECOVERY_REQUIRED:
+            self._save_failed = True
+            self._publish(SessionState.RUNNING, "save_recovery_required", revision=self._revision)
+        elif status.state is AutosaveState.SAVING:
+            self._publish(SessionState.RUNNING, "saving", revision=self._revision)
+        elif status.state is AutosaveState.DEFERRED:
+            self._publish(SessionState.RUNNING, "autosave_deferred", revision=self._revision)
+        elif status.state is AutosaveState.WAITING and status.expected_revision != self._revision:
+            # AutosaveScheduler has verified the typed exact completed result.
+            if status.expected_revision != self._revision + 1:
+                self._save_failed = True
+                self._publish(SessionState.RUNNING, "save_recovery_required", revision=self._revision)
+            else:
+                self._revision = status.expected_revision
+                self._autosave_due = self._autosave_clock() + AUTOSAVE_INTERVAL
+                self._publish(SessionState.RUNNING, "saved", revision=self._revision)
+        self._autosave_wake.set()
+
+    async def _stop_autosave(self):
+        scheduler = self._autosave
+        if scheduler is not None:
+            try:
+                await scheduler.stop()
+            finally:
+                if self._autosave is scheduler:
+                    self._autosave = None
+
+    async def _schedule_autosave(self):
+        from .live_checkpoint import LiveCheckpointCoordinator
+        try:
+            while self._game is not None and not self._closing:
+                self._autosave_wake.clear()
+                self._assert_session()
+                if (not self.autosave_enabled or self._save_failed
+                        or self._save_task is not None and not self._save_task.done()):
+                    await self._stop_autosave()
+                else:
+                    c = self._companion
+                    if self._autosave is None and c._bridge is not None and c._bridge.save_capable:
+                        incarnation = c.save_incarnation
+                        if self._save_incarnation is not None and incarnation != self._save_incarnation:
+                            raise LauncherSessionError("save_recovery_required")
+                        self._save_incarnation = incarnation
+                        if self._autosave_due is None:
+                            self._autosave_due = self._autosave_clock() + AUTOSAVE_INTERVAL
+                        self._autosave = AutosaveScheduler(
+                            LiveCheckpointCoordinator(c, self._profile_directory),
+                            expected_revision=self._revision, interval=AUTOSAVE_INTERVAL,
+                            safe_point=self._autosave_safe, on_status=self._autosave_status,
+                            clock=self._autosave_clock)
+                        await self._autosave.start()
+                    if (self._autosave is not None and self._autosave_due is not None
+                            and self._autosave_clock() >= self._autosave_due):
+                        # Preserve an already due save across safe manual refusals.
+                        # The scheduler still coalesces and applies its own interval gate.
+                        self._autosave.request()
+                if self._save_failed:
+                    break
+                try:
+                    await asyncio.wait_for(self._autosave_wake.wait(), .25)
+                except TimeoutError:
+                    pass
+        except Exception:
+            if self._game is not None:
+                self._save_failed = True
+                self._publish(SessionState.RUNNING, "save_recovery_required", revision=self._revision)
+        finally:
+            await self._stop_autosave()
 
     async def save(self):
         """One explicit canonical checkpoint; never an automatic retry/merge."""
         self._assert_session()
         if self._save_task is not None and not self._save_task.done():
+            raise LauncherSessionError("save_busy")
+        if self._autosave is not None and self._autosave.status.state is AutosaveState.SAVING:
             raise LauncherSessionError("save_busy")
         if self._save_failed:
             raise LauncherSessionError("save_recovery_required")
@@ -360,11 +499,20 @@ class LauncherSession:
             return False
         self._save_incarnation = incarnation
         expected = c.world_id, c.session_epoch, incarnation
-        self._save_task = asyncio.create_task(self._save_now(expected), name="launcher-explicit-checkpoint")
+        self._save_task = asyncio.create_task(self._manual_save(expected), name="launcher-explicit-checkpoint")
         result, canceled = await _finish_even_if_cancelled(self._save_task)
         if canceled:
             raise asyncio.CancelledError()
         return result
+
+    async def _manual_save(self, expected):
+        try:
+            await self._stop_autosave()
+            if self._save_failed:
+                return False
+            return await self._save_now(expected)
+        finally:
+            self._autosave_wake.set()
 
     async def _save_now(self, expected):
         from .checkpoint_client import validate_metadata
@@ -392,6 +540,7 @@ class LauncherSession:
                     or c.save_incarnation != expected[2]):
                 raise ValueError("checkpoint completion changed")
             self._revision = metadata["revision"]
+            self._autosave_due = self._autosave_clock() + AUTOSAVE_INTERVAL
             self._publish(SessionState.RUNNING, "saved", revision=self._revision)
             return True
         except Exception as error:
