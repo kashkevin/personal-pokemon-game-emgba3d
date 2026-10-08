@@ -18,7 +18,7 @@ The normal build uses **233,428 bytes of EWRAM** and **28,376 bytes of IWRAM**, 
 
 ## Qualification
 
-All **79 focused multiplayer C tests passed**, including six new menu cases covering canonical text/padding, action bounds, stable generations, request/screen ordering, blocked duplicate input, disabled rows, Back/Close distinctions, host close, reopen, disconnect and safe character translation. Normal build and focused logs contain no warnings. A complete regression on this exact source is tracked separately and is not inferred from these focused results.
+All **79 focused multiplayer C tests passed**, including six new menu cases covering canonical text/padding, action bounds, stable generations, request/screen ordering, blocked duplicate input, disabled rows, Back/Close distinctions, host close, reopen, disconnect and safe character translation. Normal build and focused logs contain no warnings. The complete native regression on this exact clean source then finished with exit code 0: **5,493 passed**, 18 known failing, 421 TODO and nine expected failing cases, 5,941 total, with no unexpected failures. Its complete private log was copied to the physical Windows artifact archive and hash-verified. These fixtures supplement the actual-core evidence below.
 
 `native-players-menu-run-2` passed **nine checks** across four actual headless cores with legitimately prepared six-Pokémon parties. Its **159 ordinary joypad operations** and **13 sets of four screenshots** exercise:
 
@@ -39,6 +39,7 @@ The first run is preserved as **failed**, not playable acceptance. Its renderer 
 | ELF | `51674d14225522a14d6379fe509927d15e2704e00d31ab4b775db2e766f1c993` |
 | Build manifest | `1d1d89070b503acdda9238cb66bafe365d10f813fc96d967379aebefe63d49c7` |
 | Focused C log | `239e77896d249d5f63e1126a2cce30c0ca01552f03881d93b21ca84a0ed6b7a7` |
+| Complete C regression log | `f7c0442d6a33442a1a41b456d9ebb5f4e80a110aa87272f664dcaee9e98ed118` |
 | Complete private run-2 evidence | `e2312df5019f021c9f11f3aa8b348d35098b7db1d5a88779388fcfa7a7f2955b` |
 | Frozen run-2 controller | `0fc28eebf1583c3086e1afcd761ddf1af68f3cfaf69f8515651e20e44c4c0950` |
 | Frozen production bridge source | `2ca0ebaf228f5636b93fd130346606e4d86748770d94bc85f998e8ac903bf8de` |
