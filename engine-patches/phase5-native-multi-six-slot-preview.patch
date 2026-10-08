@@ -1,0 +1,261 @@
+diff --git a/include/battle_bg.h b/include/battle_bg.h
+index fe9110aedb..6f46c54af5 100644
+--- a/include/battle_bg.h
++++ b/include/battle_bg.h
+@@ -19,8 +19,13 @@ void LoadBattleMenuWindowGfx(void);
+ void DrawMainBattleBackground(void);
+ void LoadBattleTextboxAndBackground(void);
+ void InitLinkBattleVsScreen(u8 taskId);
++void BufferNativeMultiBattleVsScreenHealth(u8 taskId);
+ void DrawBattleEntryBackground(void);
+ bool8 LoadChosenBattleElement(u8 caseId);
+ void DrawTerrainTypeBattleBackground(void);
+ 
++#if TESTING
++u32 BattleBg_TestParticipantPokeballTiles(u8 taskId, u8 multiplayerId, u16 *tiles);
++#endif
++
+ #endif // GUARD_BATTLE_BG_H
+diff --git a/src/battle_bg.c b/src/battle_bg.c
+index 49d91ce412..75b375121d 100644
+--- a/src/battle_bg.c
++++ b/src/battle_bg.c
+@@ -13,6 +13,7 @@
+ #include "graphics.h"
+ #include "link.h"
+ #include "main.h"
++#include "multiplayer_battle.h"
+ #include "menu.h"
+ #include "overworld.h"
+ #include "palette.h"
+@@ -1003,14 +1004,34 @@ void LoadBattleTextboxAndBackground(void)
+         DrawMainBattleBackground();
+ }
+ 
+-static void DrawLinkBattleParticipantPokeballs(u8 taskId, u8 multiplayerId, u8 bgId, u8 destX, u8 destY)
++// The VS animation owns data[0..5]; native Multi retains one complete six-slot
++// summary per fixed trainer in the remaining task storage. No link ABI change.
++#define NATIVE_MULTI_VS_STATUS_DATA 6
++_Static_assert(NATIVE_MULTI_VS_STATUS_DATA + MAX_LINK_PLAYERS <= NUM_TASK_DATA, "Native Multi VS task summaries must fit");
++
++void BufferNativeMultiBattleVsScreenHealth(u8 taskId)
++{
++    if (!MultiplayerBattle_IsFullMulti())
++        return;
++    for (u32 source = 0; source < MAX_LINK_PLAYERS; source++)
++        gTasks[taskId].data[NATIVE_MULTI_VS_STATUS_DATA + source] = gBlockRecvBuffer[source][1] & 0xFFF;
++}
++
++static u32 BuildLinkBattleParticipantPokeballTiles(u8 taskId, u8 multiplayerId, u16 *tiles)
+ {
+     s32 i;
+     u16 pokeballStatuses = 0;
+-    u16 tiles[6];
++    u32 count = PARTY_SIZE;
+ 
+-    if (gBattleTypeFlags & BATTLE_TYPE_MULTI)
++    if (MultiplayerBattle_IsFullMulti() && gTasks[taskId].data[5] == 0)
+     {
++        if (multiplayerId >= MAX_LINK_PLAYERS)
++            return 0;
++        pokeballStatuses = gTasks[taskId].data[NATIVE_MULTI_VS_STATUS_DATA + multiplayerId];
++    }
++    else if (gBattleTypeFlags & BATTLE_TYPE_MULTI)
++    {
++        count = 3;
+         if (gTasks[taskId].data[5] != 0)
+         {
+             switch (multiplayerId)
+@@ -1047,12 +1068,6 @@ static void DrawLinkBattleParticipantPokeballs(u8 taskId, u8 multiplayerId, u8 b
+                 break;
+             }
+         }
+-
+-        for (i = 0; i < 3; i++)
+-            tiles[i] = ((pokeballStatuses & (3 << (i * 2))) >> (i * 2)) + 0x6001;
+-
+-        CopyToBgTilemapBufferRect_ChangePalette(bgId, tiles, destX, destY, 3, 1, 0x11);
+-        CopyBgTilemapBufferToVram(bgId);
+     }
+     else
+     {
+@@ -1060,14 +1075,29 @@ static void DrawLinkBattleParticipantPokeballs(u8 taskId, u8 multiplayerId, u8 b
+             pokeballStatuses = gTasks[taskId].data[3];
+         else
+             pokeballStatuses = gTasks[taskId].data[4];
++    }
+ 
+-        for (i = 0; i < 6; i++)
+-            tiles[i] = ((pokeballStatuses & (3 << (i * 2))) >> (i * 2)) + 0x6001;
++    for (i = 0; i < count; i++)
++        tiles[i] = ((pokeballStatuses & (3 << (i * 2))) >> (i * 2)) + 0x6001;
++    return count;
++}
+ 
+-        CopyToBgTilemapBufferRect_ChangePalette(bgId, tiles, destX, destY, 6, 1, 0x11);
+-        CopyBgTilemapBufferToVram(bgId);
+-    }
++static void DrawLinkBattleParticipantPokeballs(u8 taskId, u8 multiplayerId, u8 bgId, u8 destX, u8 destY)
++{
++    u16 tiles[PARTY_SIZE];
++    u32 count = BuildLinkBattleParticipantPokeballTiles(taskId, multiplayerId, tiles);
++    if (count == 0)
++        return;
++    CopyToBgTilemapBufferRect_ChangePalette(bgId, tiles, destX, destY, count, 1, 0x11);
++    CopyBgTilemapBufferToVram(bgId);
++}
++
++#if TESTING
++u32 BattleBg_TestParticipantPokeballTiles(u8 taskId, u8 multiplayerId, u16 *tiles)
++{
++    return BuildLinkBattleParticipantPokeballTiles(taskId, multiplayerId, tiles);
+ }
++#endif
+ 
+ static void DrawLinkBattleVsScreenOutcomeText(void)
+ {
+diff --git a/src/battle_main.c b/src/battle_main.c
+index dcd8b9d2bf..1db576f0a6 100644
+--- a/src/battle_main.c
++++ b/src/battle_main.c
+@@ -1570,8 +1570,7 @@ static void CB2_HandleStartFullMultiBattle(void)
+             SetAllPlayersBerryData();
+             task = CreateTask(InitLinkBattleVsScreen, 0);
+             gTasks[task].data[1] = 0x10E; gTasks[task].data[2] = 0x5A;
+-            for (u32 source = 0; source < 4; source++)
+-                gTasks[task].data[(source & 1) ? 4 : 3] |= (gBlockRecvBuffer[source][1] & 0x3F) << ((source & BIT_FLANK) ? 6 : 0);
++            BufferNativeMultiBattleVsScreenHealth(task);
+             ResetBlockReceivedFlags();
+             ZeroEnemyPartyMons();
+             memset(gParties[B_TRAINER_PARTNER], 0, sizeof(gParties[B_TRAINER_PARTNER]));
+diff --git a/test/multiplayer_battle.c b/test/multiplayer_battle.c
+index fa1259fdae..ca0da9108c 100644
+--- a/test/multiplayer_battle.c
++++ b/test/multiplayer_battle.c
+@@ -4,6 +4,7 @@
+ #include "multiplayer_save.h"
+ #include "multiplayer_ownership.h"
+ #include "battle.h"
++#include "battle_bg.h"
+ #include "battle_controllers.h"
+ #include "battle_util.h"
+ #include "battle_util2.h"
+@@ -20,6 +21,7 @@
+ #include "script.h"
+ #include "palette.h"
+ #include "sprite.h"
++#include "task.h"
+ #include "link.h"
+ #include "link_rfu.h"
+ #include "librfu.h"
+@@ -320,6 +322,110 @@ static void StartFullMulti(struct ChannelFixture *f)
+     EXPECT_EQ(gBattleTypeFlags & (BATTLE_TYPE_MULTI | BATTLE_TYPE_DOUBLE), BATTLE_TYPE_MULTI | BATTLE_TYPE_DOUBLE);
+ }
+ 
++TEST("Multiplayer full Multi: VS preview retains six independent health icons from every owner's startup header on all four devices")
++{
++    static const u16 flags[4] = {0xE49, 0xB6C, 0xD92, 0x6E5};
++    static const u8 status[4][PARTY_SIZE] = {
++        {1, 2, 0, 1, 2, 3}, {0, 3, 2, 1, 3, 2},
++        {2, 0, 1, 2, 1, 3}, {1, 1, 2, 3, 2, 1},
++    };
++    struct ChannelFixture f;
++    struct LinkBattlerHeader header = {0};
++    u16 tiles[PARTY_SIZE + 1];
++    for (u32 local = 0; local < 4; local++)
++    {
++        FullMultiBinding(&f, local);
++        StartFullMulti(&f);
++        header.versionSignatureHi = 3; header.battleEnigmaBerry.name[0] = EOS;
++        header.vsScreenHealthFlagsLo = flags[local];
++        header.vsScreenHealthFlagsHi = flags[local] >> 8;
++        EXPECT(MultiplayerBattle_SendBlock(&header, sizeof(header)));
++        AckNativeOutput(&f, FALSE);
++        for (u32 source = 0; source < 4; source++)
++        {
++            if (source == local) continue;
++            header.vsScreenHealthFlagsLo = flags[source];
++            header.vsScreenHealthFlagsHi = flags[source] >> 8;
++            ReceiveFullBlock(&f, source, MP_BATTLE_KIND_START_HEADER, 2, &header, sizeof(header));
++        }
++        EXPECT_EQ(GetBlockReceivedStatus(), 15);
++        u8 task = CreateTask(TaskDummy, 0);
++        EXPECT(task < NUM_TASKS);
++        gTasks[task].data[1] = 0x10E; gTasks[task].data[2] = 0x5A;
++        // Poison the old half-party summaries: none may supply a native icon.
++        gTasks[task].data[3] = gTasks[task].data[4] = 0xFFF;
++        BufferNativeMultiBattleVsScreenHealth(task);
++        ResetBlockReceivedFlags();
++        // Later party blocks replace the receive buffers during this animation.
++        memset(gBlockRecvBuffer, 0, sizeof(gBlockRecvBuffer));
++        for (u32 source = 0; source < 4; source++)
++        {
++            for (u32 slot = 0; slot < ARRAY_COUNT(tiles); slot++) tiles[slot] = 0xAAAA;
++            EXPECT_EQ(BattleBg_TestParticipantPokeballTiles(task, source, tiles), PARTY_SIZE);
++            for (u32 slot = 0; slot < PARTY_SIZE; slot++)
++                EXPECT_EQ(tiles[slot], 0x6001 + status[source][slot]);
++            EXPECT_EQ(tiles[PARTY_SIZE], 0xAAAA);
++        }
++        EXPECT_EQ(BattleBg_TestParticipantPokeballTiles(task, 4, tiles), 0);
++        EXPECT_EQ(gTasks[task].data[1], 0x10E); EXPECT_EQ(gTasks[task].data[2], 0x5A);
++        EXPECT_EQ(gTasks[task].data[3], 0xFFF); EXPECT_EQ(gTasks[task].data[4], 0xFFF);
++        DestroyTask(task);
++        TearDown(&f);
++    }
++}
++
++TEST("Multiplayer VS preview: legacy Multi still shows three icons per trainer with its existing end-screen opponent order")
++{
++    static const u8 opening[4][3] = {{1, 2, 0}, {0, 3, 2}, {1, 2, 3}, {1, 3, 2}};
++    static const u8 ending[4][3] = {{1, 2, 0}, {1, 3, 2}, {1, 2, 3}, {0, 3, 2}};
++    struct ChannelFixture f; SetUp(&f, 4, 0);
++    u8 task = CreateTask(TaskDummy, 0);
++    u16 tiles[PARTY_SIZE];
++    gBattleTypeFlags = BATTLE_TYPE_LINK | BATTLE_TYPE_MULTI;
++    gTasks[task].data[3] = 0xE49; gTasks[task].data[4] = 0xB6C;
++    for (u32 slot = 6; slot < 10; slot++) gTasks[task].data[slot] = 0xFFF;
++    BufferNativeMultiBattleVsScreenHealth(task);
++    for (u32 slot = 6; slot < 10; slot++) EXPECT_EQ(gTasks[task].data[slot], 0xFFF);
++    for (u32 end = 0; end < 2; end++)
++    {
++        gTasks[task].data[5] = end;
++        for (u32 source = 0; source < 4; source++)
++        {
++            for (u32 slot = 0; slot < PARTY_SIZE; slot++) tiles[slot] = 0xAAAA;
++            EXPECT_EQ(BattleBg_TestParticipantPokeballTiles(task, source, tiles), 3);
++            for (u32 slot = 0; slot < 3; slot++)
++                EXPECT_EQ(tiles[slot], 0x6001 + (end ? ending[source][slot] : opening[source][slot]));
++            for (u32 slot = 3; slot < PARTY_SIZE; slot++) EXPECT_EQ(tiles[slot], 0xAAAA);
++        }
++    }
++    DestroyTask(task); TearDown(&f);
++}
++
++TEST("Multiplayer VS preview: native singles retain six self and opponent icons without using full Multi task data")
++{
++    static const u8 status[2][PARTY_SIZE] = {{1, 2, 0, 1, 2, 3}, {0, 3, 2, 1, 3, 2}};
++    struct ChannelFixture f; NativeBinding(&f);
++    u8 task = CreateTask(TaskDummy, 0), previousId = gBattleScripting.multiplayerId;
++    u16 tiles[PARTY_SIZE];
++    gBattleTypeFlags = BATTLE_TYPE_LINK;
++    gTasks[task].data[3] = 0xE49; gTasks[task].data[4] = 0xB6C;
++    for (u32 slot = 6; slot < 10; slot++) gTasks[task].data[slot] = 0xFFF;
++    BufferNativeMultiBattleVsScreenHealth(task);
++    for (u32 slot = 6; slot < 10; slot++) EXPECT_EQ(gTasks[task].data[slot], 0xFFF);
++    for (u32 local = 0; local < 2; local++)
++    {
++        gBattleScripting.multiplayerId = local;
++        for (u32 source = 0; source < 2; source++)
++        {
++            EXPECT_EQ(BattleBg_TestParticipantPokeballTiles(task, source, tiles), PARTY_SIZE);
++            for (u32 slot = 0; slot < PARTY_SIZE; slot++)
++                EXPECT_EQ(tiles[slot], 0x6001 + status[source != local][slot]);
++        }
++    }
++    gBattleScripting.multiplayerId = previousId;
++    DestroyTask(task); TearDown(&f);
++}
++
+ TEST("Multiplayer full Multi: four fixed owners retain six separate party slots through startup")
+ {
+     struct ChannelFixture f;
