@@ -3,21 +3,26 @@ from __future__ import annotations
 import asyncio
 from contextlib import suppress
 from dataclasses import replace
+import hashlib
 import json
 from pathlib import Path
 import secrets
 import tempfile
 import unittest
 import uuid
+import zlib
 
 from emerald_multiplayer.bridge_protocol import encode_packet, read_packet
-from emerald_multiplayer.companion import BASELINE_RULESET, Companion, CompanionConfig, verify_rom_manifest
+from emerald_multiplayer.companion import BASELINE_RULESET, Companion, CompanionConfig, TradeError, verify_rom_manifest
+from emerald_multiplayer.checkpoint_client import CheckpointError
+from emerald_multiplayer.ownership import OWNERSHIP_PROFILE
 from emerald_multiplayer.flash import LAYOUT_ID
 from emerald_multiplayer.save_mailbox import (
     FLASH_SIZE, Opcode, SaveControl, capability_packet, parse_command_packet, response_packet,
 )
 from emerald_multiplayer.server import ServerConfig, WorldServer
 from emerald_multiplayer.storage import CheckpointStore
+from emerald_multiplayer.trade_storage import TradeCheckpointStore
 from test_companion import BinaryBridge, make_files, make_pose, wait_until
 
 
@@ -168,6 +173,106 @@ class CompanionLiveTests(unittest.IsolatedAsyncioTestCase):
         await self.respond(new_control)
         self.assertEqual(await pending, new_control)
         self.assertTrue(self.companion.connected)
+
+
+class CompanionTradeGuardTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        rom, manifest = make_files(self.temp.name)
+        data = b"\x01\0\0\0" + rom.read_bytes()[4:]
+        rom.write_bytes(data)
+        value = json.loads(manifest.read_text())
+        value.update(rom_sha256=hashlib.sha256(data).hexdigest(), rom_crc32=f"{zlib.crc32(data):08x}",
+            save_abi_version=1, save_mailbox_size=512, save_mailbox_address=0x02021000,
+            ownership_abi_version=1, save_profile=OWNERSHIP_PROFILE,
+            trade_abi_version=1, trade_abi_address=0x08000000)
+        manifest.write_text(json.dumps(value))
+        self.store = TradeCheckpointStore(Path(self.temp.name)/"guard.sqlite3", value["rom_sha256"], BASELINE_RULESET)
+        owner = self.store.create_player("Guard actor")
+        self.server = WorldServer(ServerConfig(value["rom_sha256"], BASELINE_RULESET,
+            heartbeat_interval=0.05, idle_timeout=10), store=self.store, development_trades=True)
+        await self.server.start(port=0)
+        self.companion = Companion(CompanionConfig(rom, manifest, owner.player_id, owner.display_name,
+            secrets.token_bytes(32), server_port=self.server.address[1], ipc_port=0,
+            server_credential=owner.credential, reconnect_delay=0.05))
+        await self.companion.start()
+        await wait_until(lambda: self.companion.connected)
+        self.bridge = await BinaryBridge.connect(self.companion)
+        self.bridge.writer.write(encode_packet(capability_packet())); await self.bridge.writer.drain()
+        await wait_until(lambda: self.companion._bridge is not None and self.companion._bridge.save_capable)
+        self.pending = Path(self.temp.name)/"pending-trade.json"
+        self.pending.write_text("{}")  # Existence fences; coordinator validates contents.
+        self.companion._live_trade_pending_path = self.pending
+
+    async def asyncTearDown(self):
+        await self.bridge.close(); await self.companion.close(); await self.server.close()
+        self.store.close(); self.temp.cleanup()
+
+    def control(self, opcode=Opcode.BIND, **changes):
+        values = dict(incarnation=self.companion.save_incarnation, session_epoch=self.companion.session_epoch,
+            request_id=str(uuid.uuid4()), sequence=1, offset=0, total_size=FLASH_SIZE, revision=0, opcode=opcode)
+        return SaveControl(**{**values, **changes})
+
+    async def echo(self, command, data=b""):
+        while True:
+            packet = await read_packet(self.bridge.reader)
+            if packet[:1] == b"C":
+                self.assertEqual(parse_command_packet(packet), command)
+                self.bridge.writer.write(encode_packet(response_packet(replace(command, data=data))))
+                await self.bridge.writer.drain()
+                return
+            self.assertEqual(packet[:1], b"S")
+
+    async def test_journal_fences_raw_checkpoint_trade_and_all_mutating_mailbox_calls(self):
+        for operation in ("begin", "chunk", "commit", "abort", "ownership_grant"):
+            with self.subTest(operation=operation), self.assertRaisesRegex(ValueError, "pending trade recovery"):
+                await self.companion.checkpoint_rpc(operation)
+        for operation in ("open", "offer", "confirm", "cancel", "ack"):
+            with self.subTest(operation=operation), self.assertRaisesRegex(ValueError, "pending trade recovery"):
+                await self.companion.trade_rpc(operation)
+        sizes = {Opcode.BEGIN_IMPORT: bytes(16), Opcode.WRITE: bytes(128), Opcode.GRANT_OWNERSHIP: bytes(60)}
+        readonly = {Opcode.QUERY, Opcode.QUERY_OWNERSHIP, Opcode.QUERY_TRADE}
+        for opcode in set(Opcode)-readonly:
+            command = self.control(opcode, revision=1 if opcode == Opcode.BEGIN_TRADE_EXPORT else 0,
+                data=sizes.get(opcode, b""))
+            with self.subTest(opcode=opcode), self.assertRaisesRegex(ValueError, "pending trade recovery"):
+                await self.companion.save_rpc(command)
+        self.assertEqual(self.companion._save_pending, {})
+        self.assertEqual(self.companion._checkpoint_pending, {})
+        self.assertEqual(self.companion._trade_pending, {})
+        self.assertTrue(self.companion.connected)
+
+    async def test_readonly_rpc_and_mailbox_work_and_exact_current_owner_can_mutate(self):
+        self.assertIsNone((await self.companion.checkpoint_rpc("info"))["checkpoint"])
+        self.assertEqual((await self.companion.trade_rpc("pending"))["recoveries"], [])
+        self.assertEqual((await self.companion.trade_rpc("status", transaction_id=str(uuid.uuid4())))["trade"]["state"], "aborted")
+        query = self.control(Opcode.QUERY)
+        echo = asyncio.create_task(self.echo(query, bytes(48)))
+        try:
+            self.assertEqual((await self.companion.save_rpc(query)).data, bytes(48))
+            await echo
+        finally:
+            if not echo.done():
+                echo.cancel(); await asyncio.gather(echo, return_exceptions=True)
+        self.companion._live_save_owner = asyncio.current_task()
+        try:
+            with self.assertRaises(CheckpointError) as caught:
+                await self.companion.checkpoint_rpc("ownership_grant", expected_revision=0,
+                    incarnation=self.companion.save_incarnation, count=32)
+            self.assertEqual(caught.exception.code, "enrollment_required")
+            with self.assertRaises(TradeError) as caught:
+                await self.companion.trade_rpc("open", transaction_id=str(uuid.uuid4()), peer=str(uuid.uuid4()))
+            self.assertIn(caught.exception.code, {"player_offline", "checkpoint_required"})
+            bind = self.control()
+            echo = asyncio.create_task(self.echo(bind))
+            try:
+                self.assertEqual(await self.companion.save_rpc(bind), bind)
+                await echo
+            finally:
+                if not echo.done():
+                    echo.cancel(); await asyncio.gather(echo, return_exceptions=True)
+        finally:
+            self.companion._live_save_owner = None
 
 
 if __name__ == "__main__":

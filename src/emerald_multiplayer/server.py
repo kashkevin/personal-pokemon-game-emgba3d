@@ -24,6 +24,7 @@ from .protocol import (
 )
 from .storage import StorageError
 from .trade_protocol import TRADE_TYPES, validate_trade_common, validate_trade_request
+from .team_protocol import TEAM_TYPES, validate_team_common, validate_team_request
 
 if TYPE_CHECKING:
     from .storage import Checkpoint, CheckpointStore, WorldMetadata
@@ -176,7 +177,7 @@ class WorldServer:
     """
 
     def __init__(self, config: ServerConfig, *, store: CheckpointStore | None = None,
-                 development_trades: bool = False) -> None:
+                 development_trades: bool = False, development_teams: bool = False) -> None:
         self.config = config
         self.store = store
         self._world_metadata: WorldMetadata | None = None
@@ -203,6 +204,17 @@ class WorldServer:
             if not isinstance(store, TradeCheckpointStore):
                 raise ValueError("development trades require an explicit schema-3 world")
             self.trade_desk = TradeDesk(store, self._connected_lease)
+        # Teams are session-local development state, separate from trades and
+        # ordinary save profiles. Authentication still requires an owned world.
+        self.team_desk = None
+        if type(development_teams) is not bool:
+            raise ValueError("development_teams must be a boolean")
+        if development_teams:
+            from .ownership_storage import OwnershipCheckpointStore
+            from .team_desk import TeamDesk
+            if not isinstance(store, OwnershipCheckpointStore):
+                raise ValueError("development teams require an authenticated ownership world")
+            self.team_desk = TeamDesk(self._team_roster)
         self.world_seq = 0
         self._session_epoch = 0
         self._server: asyncio.Server | None = None
@@ -222,6 +234,23 @@ class WorldServer:
     def _connected_lease(self, player_id: str) -> int | None:
         session = self.sessions.get(player_id)
         return session.session_epoch if session is not None and not session.closed else None
+
+    def _team_roster(self) -> dict[str, int]:
+        """Bound current connected actors by their actual durable lease."""
+        assert self.store is not None
+        roster = {}
+        for session in self.sessions.values():
+            if session.closed:
+                continue
+            try:
+                # A read verifies the lease even when there is no checkpoint.
+                self.store.read_checkpoint(session.player_id, session.session_epoch)
+            except StorageError as error:
+                if error.code == "stale_lease":
+                    continue
+                raise
+            roster[session.player_id] = session.session_epoch
+        return roster
 
     async def start(self, host: str = "127.0.0.1", port: int = 8765, *, allow_lan: bool = False) -> None:
         if self._server is not None:
@@ -362,6 +391,9 @@ class WorldServer:
                 session.close("disconnected")
                 if self.sessions.get(session.player_id) is session:
                     del self.sessions[session.player_id]
+                    if self.team_desk is not None:
+                        with suppress(StorageError):
+                            self.team_desk.refresh()
                     if not self._closing:
                         self._broadcast_world()
                 if self.store is not None:
@@ -409,6 +441,14 @@ class WorldServer:
             else:
                 self._control(session, {**heartbeat, "type": "pong"})
             session.last_seen = now
+        elif isinstance(kind, str) and kind in TEAM_TYPES and self.store is not None:
+            validate_team_common(message, session.session_epoch)
+            try:
+                request = validate_team_request(message, session.session_epoch)
+                session.last_seen = now
+                self._team(session, request)
+            except (ProtocolError, StorageError) as error:
+                self._team_reply(session, message, error=error)
         elif isinstance(kind, str) and kind in TRADE_TYPES and self.store is not None:
             validate_trade_common(message, session.session_epoch)
             try:
@@ -439,6 +479,30 @@ class WorldServer:
             "build_id": checkpoint.build_id, "ruleset_id": checkpoint.ruleset_id,
             "save_profile": checkpoint.save_profile,
         }
+
+    def _team_reply(self, session, request, *, error=None, result=None):
+        assert self._world_metadata is not None
+        self._control(session, dict(
+            type="team_error" if error is not None else "team_result",
+            protocol=PROTOCOL_VERSION, session_epoch=session.session_epoch,
+            request_id=request["request_id"], operation=request["type"].removeprefix("team_"),
+            world_id=self._world_metadata.world_id, player_id=session.player_id,
+            **({"code": error.code, "message": error.message} if error is not None else {"result": result})))
+
+    def _team(self, session, request):
+        if self.team_desk is None:
+            raise ProtocolError("team_disabled", "this development world has not enabled teams")
+        desk, actor = self.team_desk, (session.player_id, session.session_epoch)
+        operation = request["type"].removeprefix("team_")
+        if operation == "invite":
+            result = desk.invite(*actor, request["peer"], request["invitation_id"])
+        elif operation == "leave":
+            result = desk.leave(*actor, request["team_id"], request["generation"])
+        elif operation == "status":
+            result = desk.status(*actor)
+        else:
+            result = getattr(desk, operation)(*actor, request["invitation_id"], request["generation"])
+        self._team_reply(session, request, result=result)
 
     def _trade_reply(self, session, request, *, error=None, **fields):
         assert self._world_metadata is not None

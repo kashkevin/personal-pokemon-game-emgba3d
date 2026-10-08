@@ -33,6 +33,13 @@ BASELINE_RULESET = "baseline-rhh1.17.1-mailbox-v1"
 _UINT32 = 0xFFFFFFFF
 
 
+class TeamError(ValueError):
+    """A server refusal; connection loss/timeout instead leaves RPC fate unknown."""
+    def __init__(self, code: str, message: str):
+        super().__init__(message)
+        self.code = code
+
+
 class TradeError(ValueError):
     def __init__(self, code: str, message: str):
         super().__init__(message)
@@ -275,6 +282,7 @@ class Companion:
         self.save_profile: str | None = None
         self._checkpoint_pending: dict[str, tuple[str, int, asyncio.Future]] = {}
         self._trade_pending: dict[str, tuple[dict, asyncio.Future]] = {}
+        self._team_pending: dict[str, tuple[dict, asyncio.Future]] = {}
         self._save_pending: dict[int, tuple[Any, asyncio.Future]] = {}
         self.live_checkpoint_lock = asyncio.Lock()
         self._live_save_owner: asyncio.Task | None = None
@@ -453,12 +461,21 @@ class Companion:
             raise ConnectionError("the running game has no verified live-save bridge")
         return self._bridge.incarnation
 
+    def _guard_pending_trade_mutation(self) -> None:
+        """A durable unresolved trade owns mutations between coordinator calls."""
+        pending = getattr(self, "_live_trade_pending_path", None)
+        if (pending is not None and Path(pending).exists()
+                and self._live_save_owner is not asyncio.current_task()):
+            raise ValueError("pending trade recovery owns this character's mutations")
+
     async def save_rpc(self, control: Any, *, timeout: float = 12.0):
         """One reliable command to the ROM-owned save mailbox, never save RAM."""
         from .save_mailbox import Opcode, SaveControl
         if not isinstance(control, SaveControl):
             raise ValueError("save command must be a validated SaveControl")
         control.validate_command()
+        if control.opcode not in {Opcode.QUERY, Opcode.QUERY_OWNERSHIP, Opcode.QUERY_TRADE}:
+            self._guard_pending_trade_mutation()
         if control.opcode >= Opcode.BEGIN_TRADE_EXPORT and not self.config.trade_enabled:
             raise ValueError("the verified game build has no trade hold capability")
         bridge = self._bridge
@@ -513,6 +530,10 @@ class Companion:
             if not future.done():
                 future.set_exception(ConnectionError("trade connection lost; obtain authoritative fate before releasing the game"))
         self._trade_pending.clear()
+        for _, future in self._team_pending.values():
+            if not future.done():
+                future.set_exception(ConnectionError("team connection lost; query membership after reconnect"))
+        self._team_pending.clear()
         self._players = []
         self._peer_history.clear()
         self._roster_signature = None
@@ -612,15 +633,65 @@ class Companion:
                 self._apply_world(message)
             elif message.get("type") in {"checkpoint_result", "checkpoint_error"}:
                 self._receive_checkpoint(message)
+            elif message.get("type") in {"team_result", "team_error"}:
+                self._receive_team(message)
             elif message.get("type") in {"trade_result", "trade_error"}:
                 self._receive_trade(message)
             else:
                 raise ProtocolError("invalid_server_message", "unexpected server message type")
 
+    async def team_rpc(self, operation: str, *, request_id: str | None = None,
+                       timeout: float = 5.0, **fields: Any) -> dict[str, Any]:
+        """Explicit session-local development teams; no game ABI is required."""
+        from .ownership_protocol import OWNERSHIP_PROFILE
+        from .team_protocol import TEAM_OPERATIONS, validate_team_request
+        if not isinstance(operation, str) or operation not in TEAM_OPERATIONS:
+            raise ValueError("unsupported team operation")
+        if (type(timeout) not in (int, float) or not 0 < timeout <= 60
+                or not math.isfinite(timeout)):
+            raise ValueError("team RPC timeout must be finite and between 0 and 60 seconds")
+        if (not self.connected or self.world_id is None or self._remote_writer is None
+                or self.config.server_credential is None or self.save_profile != OWNERSHIP_PROFILE):
+            raise ConnectionError("no authenticated ownership team session")
+        if set(fields) & {"type", "session_epoch"}:
+            raise ValueError("team envelope fields cannot be overridden")
+        if request_id is None:
+            request_id = str(uuid4())
+        request = dict(type="team_" + operation, session_epoch=self.session_epoch,
+                       request_id=request_id, **fields)
+        validate_team_request(request, self.session_epoch)
+        if request_id in self._team_pending or len(self._team_pending) >= 8:
+            raise ValueError("team request is pending or capacity is exhausted")
+        future = asyncio.get_running_loop().create_future()
+        self._team_pending[request_id] = (request, future)
+        try:
+            await self._send_remote(self._remote_writer, request)
+            return await asyncio.wait_for(future, timeout)
+        finally:
+            self._team_pending.pop(request_id, None)
+            if not future.done():
+                future.cancel()
+
+    def _receive_team(self, message):
+        from .team_protocol import validate_team_reply
+        validated = validate_team_reply(message, self.config.player_id, self.world_id, self.session_epoch)
+        pending = self._team_pending.get(validated["request_id"])
+        if pending is None:
+            return  # Lost/late replies require an explicit status reconciliation.
+        request, future = pending
+        validate_team_reply(validated, self.config.player_id, self.world_id, self.session_epoch, request)
+        if not future.done():
+            if validated["type"] == "team_error":
+                future.set_exception(TeamError(validated["code"], validated["message"]))
+            else:
+                future.set_result(validated)
+
     async def trade_rpc(self, operation: str, *, request_id: str | None = None,
                         timeout: float = 5.0, **fields: Any) -> dict[str, Any]:
         """Explicit development trade controls over the authenticated reader."""
         from .trade_protocol import TRADE_OPERATIONS, validate_trade_request
+        if operation in {"open", "offer", "confirm", "cancel", "ack"}:
+            self._guard_pending_trade_mutation()
         if not self.config.trade_enabled or operation not in TRADE_OPERATIONS:
             raise ValueError("trade operation requires a verified trade-capable build")
         if not self.connected or self.world_id is None or self._remote_writer is None:
@@ -666,6 +737,8 @@ class Companion:
     async def checkpoint_rpc(self, operation: str, *, request_id: str | None = None, timeout: float = 5.0, **fields: Any) -> dict[str, Any]:
         """Use the existing reader so heartbeat/presence continue during transfers."""
         from .protocol import validate_checkpoint_request
+        if operation in {"begin", "chunk", "commit", "abort", "ownership_grant"}:
+            self._guard_pending_trade_mutation()
         if (self._live_save_owner is not None and self._live_save_owner is not asyncio.current_task()
                 and operation in {"begin", "chunk", "commit", "abort", "ownership_grant"}):
             raise ValueError("a live-save lifecycle owns this character's checkpoint writes")
