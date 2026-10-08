@@ -27,8 +27,9 @@ from .save_mailbox import Opcode, SaveControl, Status, SAVE_CHUNK_SIZE
 
 
 class LiveSaveError(ValueError):
-    def __init__(self, code: str, message: str):
+    def __init__(self, code: str, message: str, *, safe_to_retry: bool = False):
         self.code = code
+        self.safe_to_retry = safe_to_retry
         super().__init__(message)
 
 
@@ -229,8 +230,9 @@ class LiveCheckpointCoordinator:
         inspect_flash(payload, save_profile=self.companion.save_profile)
         return intent, payload
 
-    async def checkpoint(self, *, expected_revision: int | None = None) -> LiveExportResult:
-        return await self._checkpoint(expected_revision=expected_revision, enroll=False)
+    async def checkpoint(self, *, expected_revision: int | None = None, expected_session=None) -> LiveExportResult:
+        return await self._checkpoint(expected_revision=expected_revision, enroll=False,
+                                      expected_session=expected_session)
 
     async def enroll(self) -> LiveExportResult:
         """Explicit first enrollment after the host provisions the legacy source.
@@ -279,7 +281,7 @@ class LiveCheckpointCoordinator:
                     or assigned.remaining < assigned.missing):
                 raise LiveSaveError("ownership_grant", "the game did not accept the exact allocation")
 
-    async def _checkpoint(self, *, expected_revision: int | None, enroll: bool) -> LiveExportResult:
+    async def _checkpoint(self, *, expected_revision: int | None, enroll: bool, expected_session=None) -> LiveExportResult:
         """Save against the local revision verified by the launcher.
 
         Reading the server's head cannot establish an older running game's
@@ -288,6 +290,10 @@ class LiveCheckpointCoordinator:
         async with self._own():
             self._assert_no_trade()
             session = self._session()
+            # An autosave may have waited behind another lifecycle. Fence its
+            # original authenticated game before even requesting the head.
+            if expected_session is not None and session != expected_session:
+                raise ConnectionError("live checkpoint session changed before lock acquisition")
             if self.pending_path.exists():
                 raise LiveSaveError("pending_export", "resolve the previous checkpoint before creating another")
             head = await self.client.info()
@@ -298,11 +304,23 @@ class LiveCheckpointCoordinator:
                 raise LiveSaveError("revision_conflict", "requested base differs from the canonical checkpoint")
             if base >= MAX_COUNTER:
                 raise LiveSaveError("counter_exhausted", "checkpoint revisions are exhausted")
-            await self._bind(session)
-            await self._prepare_ownership(session, base, enroll=enroll)
+            try:
+                await self._bind(session)
+                await self._prepare_ownership(session, base, enroll=enroll)
+            except LiveSaveError as error:
+                # Only definite admission refusals may be retried by a timer.
+                # No export was started by this lifecycle at this point.
+                if error.code in {"rom_busy", "rom_unsafe"}:
+                    error.safe_to_retry = True
+                raise
             operation_id, revision, finished = str(uuid4()), base + 1, False
             try:
-                begin = await self._command(session, operation_id, revision, Opcode.BEGIN_EXPORT)
+                try:
+                    begin = await self._command(session, operation_id, revision, Opcode.BEGIN_EXPORT)
+                except LiveSaveError as error:
+                    if error.code in {"rom_busy", "rom_unsafe"}:
+                        error.safe_to_retry = True
+                    raise
                 if len(begin.data) != 40:
                     raise LiveSaveError("export_metadata", "the game returned invalid frozen-save metadata")
                 payload = await self._read_flash(session, operation_id, revision)
