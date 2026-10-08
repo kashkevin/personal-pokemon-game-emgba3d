@@ -180,10 +180,15 @@ class WorldServer:
         self._world_metadata: WorldMetadata | None = None
         if store is not None:
             from .flash import LAYOUT_ID
+            from .ownership_protocol import OWNERSHIP_PROFILE
             if store.build_id != config.build_id or store.ruleset_id != config.ruleset_id:
                 raise ValueError("checkpoint store must match the server build and ruleset")
-            if store.save_profile != LAYOUT_ID:
+            if store.save_profile not in (LAYOUT_ID, OWNERSHIP_PROFILE):
                 raise ValueError("checkpoint store save profile has no supported Flash parser")
+            if store.save_profile == OWNERSHIP_PROFILE:
+                from .ownership_storage import OwnershipCheckpointStore
+                if not isinstance(store, OwnershipCheckpointStore):
+                    raise ValueError("ownership profile requires an explicit ownership store")
         self.sessions: dict[str, PlayerSession] = {}
         self.world_seq = 0
         self._session_epoch = 0
@@ -443,6 +448,15 @@ class WorldServer:
         """One bounded, stop-and-wait operation; commit is durable before ACK."""
         assert self.store is not None
         kind = request["type"]
+        if kind == "ownership_grant":
+            from dataclasses import asdict
+            from .ownership_storage import OwnershipCheckpointStore
+            if not isinstance(self.store, OwnershipCheckpointStore):
+                raise ProtocolError("ownership_disabled", "this world has no ownership allocation profile")
+            grant = self.store.reserve_instances(session.player_id, session.session_epoch, request["request_id"],
+                request["expected_revision"], request["incarnation"], request["count"])
+            self._checkpoint_reply(session, request, checkpoint=None, grant=asdict(grant))
+            return
         if kind == "checkpoint_info":
             checkpoint = self.store.read_checkpoint(session.player_id, session.session_epoch)
             self._checkpoint_reply(session, request, checkpoint=self._checkpoint_metadata(checkpoint))
@@ -534,8 +548,8 @@ class WorldServer:
         from .flash import FlashError, inspect_flash
         previous = self.store.read_checkpoint(session.player_id, session.session_epoch)
         try:
-            trainer_id = inspect_flash(previous.payload).metadata.trainer_id if previous is not None else None
-            snapshot = inspect_flash(payload, expected_trainer_id=trainer_id)
+            trainer_id = inspect_flash(previous.payload, save_profile=self.store.save_profile).metadata.trainer_id if previous is not None else None
+            snapshot = inspect_flash(payload, expected_trainer_id=trainer_id, save_profile=self.store.save_profile)
         except FlashError as error:
             session.upload = None
             raise ProtocolError("invalid_checkpoint", "Flash is invalid or belongs to a different trainer") from error

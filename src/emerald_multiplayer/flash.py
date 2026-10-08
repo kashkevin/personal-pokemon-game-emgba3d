@@ -17,6 +17,7 @@ import hashlib
 import struct
 
 LAYOUT_ID = "rhh-1.17.1-bb1093-presence-v1"
+OWNERSHIP_LAYOUT_ID = "rhh-1.17.1-bb1093-ownership-v1"
 FLASH_SIZE = 131072
 RTC_FOOTER_SIZE = 16
 MAX_CONTAINER_SIZE = FLASH_SIZE + RTC_FOOTER_SIZE
@@ -29,6 +30,7 @@ SPECIAL_SECTOR_SENTINEL = 0xB39D
 SAVE_BLOCK_1_SIZE = 15568
 SAVE_BLOCK_2_SIZE = 3884
 SAVE_BLOCK_3_SIZE = 4
+OWNERSHIP_SAVE_BLOCK_3_SIZE = 600
 STORAGE_SIZE = 34144
 PARTY_SIZE = 6
 POKEMON_SIZE = 100
@@ -129,6 +131,7 @@ class FlashSnapshot:
     sha256: str
     container_sha256: str
     state_sha256: str
+    save_profile: str = LAYOUT_ID
 
 
 @dataclass(frozen=True)
@@ -137,6 +140,7 @@ class _Bank:
     counter: int
     rotation: int
     sections: tuple[bytes, ...]
+    save_block3_size: int = SAVE_BLOCK_3_SIZE
 
 
 def _checksum(data: bytes) -> int:
@@ -169,7 +173,7 @@ def _inspect_rtc(footer: bytes) -> None:
         raise FlashError("RTC footer timestamp is outside signed time bounds")
 
 
-def _inspect_bank(flash: bytes, bank_index: int) -> _Bank | None:
+def _inspect_bank(flash: bytes, bank_index: int, save_profile: str = LAYOUT_ID) -> _Bank | None:
     physical = tuple(flash[(bank_index * 14 + i) * SECTOR_SIZE:
                            (bank_index * 14 + i + 1) * SECTOR_SIZE] for i in range(14))
     if all(sector == _ERASED_SECTOR for sector in physical):
@@ -190,7 +194,8 @@ def _inspect_bank(flash: bytes, bank_index: int) -> _Bank | None:
             raise FlashError("save bank section checksum mismatch")
         if any(sector[size:SECTOR_DATA_SIZE]):
             raise FlashError("save section padding does not match the pinned layout")
-        chunk_used = max(0, min(SAVE_BLOCK_3_SIZE - section_id * 116, 116))
+        block3_limit = OWNERSHIP_SAVE_BLOCK_3_SIZE if save_profile == OWNERSHIP_LAYOUT_ID else SAVE_BLOCK_3_SIZE
+        chunk_used = max(0, min(block3_limit - section_id * 116, 116))
         if any(sector[SECTOR_DATA_SIZE + chunk_used:4084]):
             raise FlashError("SaveBlock3 padding does not match the pinned layout")
         sections[section_id] = sector
@@ -201,7 +206,14 @@ def _inspect_bank(flash: bytes, bank_index: int) -> _Bank | None:
     counter = next(iter(counters))
     if counter % 2 != bank_index:
         raise FlashError("save counter parity does not match its bank")
-    return _Bank(bank_index, counter, next(iter(rotations)), tuple(sections))  # type: ignore[arg-type]
+    size = SAVE_BLOCK_3_SIZE
+    if save_profile == OWNERSHIP_LAYOUT_ID:
+        block3 = b"".join(sector[3968:4084] for sector in sections)[:OWNERSHIP_SAVE_BLOCK_3_SIZE]  # type: ignore[index]
+        if any(block3[SAVE_BLOCK_3_SIZE:]):
+            from .ownership import _parse_metadata
+            _parse_metadata(block3)
+            size = OWNERSHIP_SAVE_BLOCK_3_SIZE
+    return _Bank(bank_index, counter, next(iter(rotations)), tuple(sections), size)  # type: ignore[arg-type]
 
 
 def _inspect_special_sectors(flash: bytes) -> None:
@@ -258,7 +270,7 @@ def _extract_bank(bank: _Bank) -> tuple[bytes, bytes, bytes, bytes, FlashMetadat
     block2 = data[0]
     block1 = b"".join(data[1:5])
     storage = b"".join(data[5:14])
-    block3 = bank.sections[0][3968:3968 + SAVE_BLOCK_3_SIZE]
+    block3 = b"".join(sector[3968:4084] for sector in bank.sections)[:bank.save_block3_size]
     name_field = block2[:8]
     if 0xFF not in name_field or name_field[0] == 0xFF:
         raise FlashError("trainer name is missing or unterminated")
@@ -305,13 +317,16 @@ def _extract_bank(bank: _Bank) -> tuple[bytes, bytes, bytes, bytes, FlashMetadat
     return block1, block2, block3, storage, metadata
 
 
-def inspect_flash(data: bytes, *, expected_trainer_id: int | None = None) -> FlashSnapshot:
+def inspect_flash(data: bytes, *, expected_trainer_id: int | None = None,
+                  save_profile: str = LAYOUT_ID) -> FlashSnapshot:
     """Validate and preserve a complete ordinary checkpoint without changing it.
 
     Both non-erased banks must be complete and coherent. This intentionally
     rejects a newer interrupted save instead of returning the game's older
     recovery bank. The server can then request a new completed in-game save.
     """
+    if save_profile not in (LAYOUT_ID, OWNERSHIP_LAYOUT_ID):
+        raise FlashError("save profile is unknown; explicit migration is required")
     if not isinstance(data, bytes) or len(data) not in (FLASH_SIZE, MAX_CONTAINER_SIZE):
         raise FlashError("checkpoint must contain exactly 128 KiB Flash, with at most its known 16-byte RTC footer")
     if expected_trainer_id is not None and (type(expected_trainer_id) is not int or not 0 <= expected_trainer_id <= _UINT32):
@@ -319,7 +334,7 @@ def inspect_flash(data: bytes, *, expected_trainer_id: int | None = None) -> Fla
     flash, footer = data[:FLASH_SIZE], data[FLASH_SIZE:]
     if footer:
         _inspect_rtc(footer)
-    banks = tuple(bank for index in range(2) if (bank := _inspect_bank(flash, index)) is not None)
+    banks = tuple(bank for index in range(2) if (bank := _inspect_bank(flash, index, save_profile)) is not None)
     if not banks:
         raise FlashError("checkpoint has no complete ordinary save bank")
     _inspect_special_sectors(flash)
@@ -342,10 +357,20 @@ def inspect_flash(data: bytes, *, expected_trainer_id: int | None = None) -> Fla
     block1, block2, block3, storage, metadata = decoded[latest_index]
     if expected_trainer_id is not None and metadata.trainer_id != expected_trainer_id:
         raise FlashError("checkpoint trainer identity does not match its enrolled owner")
-    state = bytearray(b"EMP-SAVE-STATE\0" + LAYOUT_ID.encode("ascii"))
+    if save_profile == OWNERSHIP_LAYOUT_ID:
+        from .ownership import _inspect_components, _inspect_inventory
+        selected = _inspect_components(block3, block1, storage)
+        for index, parts in enumerate(decoded):
+            if index != latest_index and len(parts[2]) == OWNERSHIP_SAVE_BLOCK_3_SIZE:
+                previous = _inspect_components(parts[2], parts[0], parts[3], allow_unassigned_inventory=True)
+                if (previous.world_id, previous.player_id) != (selected.world_id, selected.player_id):
+                    raise FlashError("ownership save banks belong to different world or player identities")
+            elif index != latest_index:
+                _inspect_inventory(parts[0], parts[3], require_ids=False)
+    state = bytearray(b"EMP-SAVE-STATE\0" + save_profile.encode("ascii"))
     for payload in (block2, block1, block3, storage, flash[28 * SECTOR_SIZE:]):
         state.extend(struct.pack("<I", len(payload)))
         state.extend(payload)
     return FlashSnapshot(data, flash, footer, block1, block2, block3, storage, metadata,
                          hashlib.sha256(flash).hexdigest(), hashlib.sha256(data).hexdigest(),
-                         hashlib.sha256(state).hexdigest())
+                         hashlib.sha256(state).hexdigest(), save_profile)

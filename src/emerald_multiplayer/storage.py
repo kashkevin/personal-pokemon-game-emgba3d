@@ -170,6 +170,9 @@ class CheckpointStore:
     restart. A stale lease never gains authority through an idempotent request.
     """
 
+    _schema = _SCHEMA
+    _schema_version = SCHEMA_VERSION
+
     def __init__(self, path: str | Path, build_id: str, ruleset_id: str,
                  save_profile: str, *, max_payload_bytes: int = MAX_CHECKPOINT_BYTES):
         self.path = Path(path).resolve()
@@ -194,14 +197,15 @@ class CheckpointStore:
                     existing = self._connection.execute("SELECT name FROM sqlite_master").fetchall()
                     if existing:
                         raise StorageError("schema_incompatible", "new store unexpectedly has a schema")
-                    for sql in _SCHEMA.values():
+                    for sql in self._schema.values():
                         self._connection.execute(sql)
                     self._connection.execute(f"PRAGMA application_id = {APPLICATION_ID}")
-                    self._connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+                    self._connection.execute(f"PRAGMA user_version = {self._schema_version}")
                     self._connection.execute(
                         "INSERT INTO world_metadata VALUES (1, ?, ?, ?, ?, ?, 0, 0)",
                         (str(uuid.uuid4()), self.build_id, self.ruleset_id,
                          self.save_profile, self.max_payload_bytes))
+                    self._initialize_extra_schema()
                 self._validate_schema()
                 self._validate_metadata()
             self._connection.execute("PRAGMA journal_mode = WAL")
@@ -238,12 +242,25 @@ class CheckpointStore:
         application = self._connection.execute("PRAGMA application_id").fetchone()[0]
         rows = self._connection.execute(
             "SELECT name, type, sql FROM sqlite_master WHERE name NOT GLOB 'sqlite_*'").fetchall()
-        if (version != SCHEMA_VERSION or application != APPLICATION_ID
-                or len(rows) != len(_SCHEMA)
-                or any(row["type"] != "table" or row["name"] not in _SCHEMA
-                       or _sql_identity(row["sql"]) != _sql_identity(_SCHEMA[row["name"]])
+        if (version != self._schema_version or application != APPLICATION_ID
+                or len(rows) != len(self._schema)
+                or any(row["type"] != "table" or row["name"] not in self._schema
+                       or _sql_identity(row["sql"]) != _sql_identity(self._schema[row["name"]])
                        for row in rows)):
             raise StorageError("schema_incompatible", "checkpoint schema is unknown; migration is required")
+
+    def _initialize_extra_schema(self) -> None:
+        """Subclass initialization, only when creating an explicit new store."""
+
+    def _prepare_checkpoint(self, player: sqlite3.Row, revision: int, payload: bytes):
+        """Validate subclass state under the checkpoint's write transaction."""
+        return None
+
+    def _write_checkpoint_extras(self, checkpoint: Checkpoint, prepared) -> None:
+        """Write subclass state atomically with the checkpoint and head."""
+
+    def _integrity_extra(self) -> None:
+        """Audit subclass state within the same integrity read transaction."""
 
     def _validate_metadata(self) -> sqlite3.Row:
         rows = self._connection.execute("SELECT * FROM world_metadata").fetchall()
@@ -423,12 +440,14 @@ class CheckpointStore:
                 if expected_revision == MAX_COUNTER:
                     raise StorageError("counter_exhausted", "checkpoint revisions exhausted; explicit maintenance is required")
                 revision = expected_revision + 1
+                prepared = self._prepare_checkpoint(player, revision, payload)
                 self._connection.execute(
                     "INSERT INTO checkpoints VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (player_id, revision, request_id, expected_revision, payload, sha,
                      build_id, ruleset_id, save_profile))
                 self._connection.execute("UPDATE players SET latest_revision = ? WHERE player_id = ?", (revision, player_id))
                 result = Checkpoint(player_id, revision, request_id, payload, sha, build_id, ruleset_id, save_profile)
+                self._write_checkpoint_extras(result, prepared)
         return result
 
     def integrity_check(self) -> None:
@@ -453,6 +472,7 @@ class CheckpointStore:
             for row in self._connection.execute("SELECT * FROM checkpoints"):
                 _identifier(row["request_id"], "request_id")
                 self._checkpoint(row)
+            self._integrity_extra()
 
     def backup(self, path: str | Path) -> Path:
         """Create a consistent new SQLite backup; never overwrite a destination."""

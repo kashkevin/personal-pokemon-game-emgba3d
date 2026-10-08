@@ -21,6 +21,7 @@ CHECKPOINT_CHUNK_BYTES = 4096
 CHECKPOINT_TYPES = frozenset({
     "checkpoint_info", "checkpoint_read", "checkpoint_begin",
     "checkpoint_chunk", "checkpoint_commit", "checkpoint_abort",
+    "ownership_grant",
 })
 ACTIVITIES = frozenset({"overworld", "menu", "battle", "transition", "unavailable"})
 MOVEMENT_MODES = frozenset({"walk", "run", "bike", "surf"})
@@ -126,6 +127,7 @@ def validate_checkpoint_request(message: dict[str, Any], session_epoch: int) -> 
         "checkpoint_chunk": {"upload_id", "offset", "data_b64"},
         "checkpoint_commit": fingerprint | {"upload_id"},
         "checkpoint_abort": {"upload_id"},
+        "ownership_grant": {"expected_revision", "incarnation", "count"},
     }
     _fields(message, common | extras[kind])
     result = dict(message)
@@ -137,6 +139,9 @@ def validate_checkpoint_request(message: dict[str, Any], session_epoch: int) -> 
         _integer(message["offset"], "offset", 0, MAX_CHECKPOINT_BYTES)
     if kind == "checkpoint_read":
         _integer(message["length"], "length", 1, CHECKPOINT_CHUNK_BYTES)
+    if kind == "ownership_grant":
+        _integer(message["incarnation"], "incarnation", 1, 0xFFFFFFFF)
+        _integer(message["count"], "count", 1, 432)
     if kind in ("checkpoint_begin", "checkpoint_commit"):
         if type(message["size"]) is not int or message["size"] not in (131_072, MAX_CHECKPOINT_BYTES):
             raise ProtocolError("invalid_checkpoint_size", "checkpoint must be Flash with an optional mGBA RTC footer")
