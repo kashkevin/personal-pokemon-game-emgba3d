@@ -195,6 +195,49 @@ class EmergencySaveTests(unittest.IsolatedAsyncioTestCase):
             async with ColdStartRecovery(fresh, self.private, self.save).open():
                 self.fail("unsafe core must remain retained")
 
+    async def test_neutral_reset_drain_precedes_freeze_under_the_same_authority(self):
+        await self.arm()
+        self.c.unsafe = True
+        called = []
+        async def drain(session):
+            self.assertEqual(session, self.controller.session)
+            self.assertIs(self.c._live_save_owner, asyncio.current_task())
+            self.assertTrue(self.c.live_checkpoint_lock.locked())
+            self.assertFalse(self.c.connected)
+            self.assertTrue(self.c._reconnect_blocked)
+            self.assertEqual(self.c.emergency_commands, [])
+            self.assertEqual(json.loads(self.controller.path.read_text())["state"], "holding")
+            called.append(session)
+            self.c.unsafe = False
+            return True
+        self.c._bridge.reset_session = SimpleNamespace(drain_before_emergency=drain)
+        self.assertTrue((await self.preserve()).can_close)
+        self.assertEqual(called, [self.controller.session])
+        self.assertEqual(self.c.emergency_commands[0].opcode, Opcode.BEGIN_EMERGENCY_EXPORT)
+
+    async def test_reset_cancel_refusal_still_freezes_unsafe_core(self):
+        await self.arm()
+        self.c.unsafe = True
+        async def drain(session):
+            return False
+        self.c._bridge.reset_session = SimpleNamespace(drain_before_emergency=drain)
+        result = await self.preserve()
+        self.assertEqual(result.state, "unsaved_held")
+        self.assertFalse(result.can_close)
+        self.assertTrue(self.c.emergency_active)
+        self.assertEqual([c.opcode for c in self.c.emergency_commands], [Opcode.BEGIN_EMERGENCY_EXPORT])
+
+    async def test_unknown_reset_cancel_receipt_still_freezes_unsafe_core(self):
+        await self.arm()
+        self.c.unsafe = True
+        async def drain(session):
+            raise asyncio.TimeoutError()
+        self.c._bridge.reset_session = SimpleNamespace(drain_before_emergency=drain)
+        result = await self.preserve()
+        self.assertEqual(result.state, "unsaved_held")
+        self.assertTrue(self.c.emergency_active)
+        self.assertFalse(self.c.preserved)
+
     async def test_disk_failure_never_sends_preservation_receipt(self):
         await self.arm()
         original = _atomic
@@ -207,6 +250,17 @@ class EmergencySaveTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(result.can_close)
         self.assertNotIn(Opcode.PRESERVE_EMERGENCY, [c.opcode for c in self.c.emergency_commands])
 
+    async def test_initial_intent_disk_failure_still_stops_offline_play(self):
+        await self.arm()
+        with patch("emerald_multiplayer.emergency_save._atomic", side_effect=OSError("disk unavailable")):
+            result = await self.preserve()
+        self.assertEqual(result.state, "unsaved_held")
+        self.assertFalse(result.can_close)
+        self.assertTrue(self.c.assert_owner)
+        self.assertTrue(self.c.emergency_active)
+        self.assertFalse(self.c.preserved)
+        self.assertEqual([c.opcode for c in self.c.emergency_commands], [Opcode.BEGIN_EMERGENCY_EXPORT])
+
     async def test_inflight_export_promotes_same_uuid_and_never_rewrites_an_existing_intent(self):
         await self.arm()
         operation = str(uuid4())
@@ -217,11 +271,17 @@ class EmergencySaveTests(unittest.IsolatedAsyncioTestCase):
         intent = live._intent(self.controller.session, operation, 1, self.c.rom_flash)
         live._save_pending(intent, self.c.rom_flash)
         before = live.pending_path.read_bytes()
+        drains = []
+        async def drain(session):
+            drains.append(session)
+            return False
+        self.c._bridge.reset_session = SimpleNamespace(drain_before_emergency=drain)
         result = await self.preserve()
         self.assertEqual(result.operation_id, operation)
         self.assertTrue(result.can_close)
         self.assertEqual(self.c.emergency_commands[0].opcode, Opcode.PROMOTE_EMERGENCY_EXPORT)
         self.assertEqual(live.pending_path.read_bytes(), before)
+        self.assertEqual(drains, [])
 
     async def test_conflicting_previous_intent_retains_both_without_preserve_receipt(self):
         await self.arm()

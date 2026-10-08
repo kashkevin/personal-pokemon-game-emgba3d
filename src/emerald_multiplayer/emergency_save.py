@@ -270,6 +270,8 @@ class EmergencySaveController:
     async def _preserve(self):
         c, live = self.companion, self.coordinator
         record = None
+        authority = None
+        freeze_dispatched = False
         try:
             async with c.live_checkpoint_lock:
                 c._live_save_owner = asyncio.current_task()
@@ -291,6 +293,20 @@ class EmergencySaveController:
                                            "incarnation": self.session[2]}, "holding")
                     self._publish("preserving", operation)
                     opcode = Opcode.PROMOTE_EMERGENCY_EXPORT if self.active_export else Opcode.BEGIN_EMERGENCY_EXPORT
+                    reset = getattr(self.bridge, "reset_session", None)
+                    if reset is not None and not self.active_export:
+                        try:
+                            # A pre-generation NPC request can return neutrally
+                            # before the permanent native emergency hold. Keep
+                            # this task's lifecycle authority during that drain.
+                            async with asyncio.timeout(3.0):
+                                await reset.drain_before_emergency(self.session)
+                        except Exception:
+                            # Refusal/unknown receipt never permits offline
+                            # play: BEGIN still freezes an unsafe script. Its
+                            # own safe-point check alone authorizes serialization.
+                            pass
+                    freeze_dispatched = True
                     begin = await self._command(authority, opcode)
                     payload = bytearray()
                     window = c.config.save_window_enabled and self.bridge.window_capable
@@ -343,6 +359,18 @@ class EmergencySaveController:
                         raise LiveSaveError("emergency_hold", "native core did not retain the complete preserved stream")
                     self._record(record, "preserved", crc32=hold.crc32)
                     return self._publish("preserved", operation, intent["sha256"], True)
+                except Exception:
+                    if authority is not None and not freeze_dispatched:
+                        # Even an initial journal/disk failure must stop offline
+                        # play. Exact binding was checked before granting this
+                        # authority; no receipt or closure follows this fallback.
+                        freeze_dispatched = True
+                        try:
+                            opcode = Opcode.PROMOTE_EMERGENCY_EXPORT if self.active_export else Opcode.BEGIN_EMERGENCY_EXPORT
+                            await self._command(authority, opcode)
+                        except Exception:
+                            pass
+                    raise
                 finally:
                     c._live_save_owner = None
         except Exception:
