@@ -1,6 +1,6 @@
 # Personal encounter reset foundation
 
-This design implements the [owner's Local Soft Reset amendment](project-update-local-soft-reset.txt) through an explicit native personal-encounter boundary. It does not reboot a core, restore an emulator savestate, import an older checkpoint, or change another character. The first implementation slice is deliberately a **first-action-only development capability**. Two-core and four-core exploration proofs passed, including the guarded Select action on the combined native source; later turns, production encounter coverage, durable attempts across crashes, Windows input qualification and the simultaneous trade/battle/reset matrix remain required work.
+This design implements the [owner's Local Soft Reset amendment](project-update-local-soft-reset.txt) through an explicit native personal-encounter boundary. It does not reboot a core, restore an emulator savestate, import an older checkpoint, or change another character. The original **first-action-only development capability** passed two-core and four-core exploration proofs, including guarded Select. The [current production-source delivery](local-reset-durable-admission.md) adds nine authored sources, durable host attempt admission, visible counts and neutral pre-generation host-loss cancellation. Its source/fixture checks do not replace the still-required ordinary-route production, composed host-loss, Windows input and simultaneous trade/battle/reset acceptance.
 
 ## Reuse audit, October 8, 2026
 
