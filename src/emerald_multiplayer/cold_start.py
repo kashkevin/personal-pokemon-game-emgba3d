@@ -260,6 +260,11 @@ class ColdStartRecovery:
             if getattr(c, "_cold_start_active", False):
                 raise ColdStartError("startup_active", "this companion already owns a startup/core-lifetime save lease")
             c._cold_start_active = True
+            # Also reject a bridge whose hello was already waiting when this
+            # gate closed. The launcher alone opens admission after verified
+            # reconciliation; no await separates reopening from yielding.
+            previous_admission = getattr(c, "_bridge_admission_blocked", False)
+            c._bridge_admission_blocked = True
             try:
                 async with c.live_checkpoint_lock:
                     session = self._session()
@@ -271,6 +276,8 @@ class ColdStartRecovery:
                         c._live_save_owner = None
                 # No await separates the last closed check from permission to launch.
                 self._closed(session)
+                c._bridge_admission_blocked = previous_admission
                 yield verified
             finally:
+                c._bridge_admission_blocked = previous_admission
                 c._cold_start_active = False

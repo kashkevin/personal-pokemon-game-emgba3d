@@ -275,5 +275,34 @@ class CompanionTradeGuardTests(unittest.IsolatedAsyncioTestCase):
             self.companion._live_save_owner = None
 
 
+    async def test_startup_gate_rejects_new_and_already_waiting_bridge_hellos(self):
+        await self.bridge.close()
+        await wait_until(lambda: self.companion._bridge is None)
+        await wait_until(lambda: self.companion.connected)
+        lease = self.companion.session_epoch
+        incarnation = self.companion._bridge_incarnation
+        reader, writer = await asyncio.open_connection(*self.companion.ipc_address)
+        await wait_until(lambda: writer is not None and bool(self.companion._ipc_writers))
+        # This socket was admitted to the hello reader before recovery began.
+        self.companion._bridge_admission_blocked = True
+        writer.write(encode_packet(b"H" + self.companion.config.token))
+        await writer.drain()
+        self.assertIsNone(await asyncio.wait_for(read_packet(reader), 2))
+        writer.close()
+        await writer.wait_closed()
+        reader2, writer2 = await asyncio.open_connection(*self.companion.ipc_address)
+        self.assertIsNone(await asyncio.wait_for(read_packet(reader2), 2))
+        writer2.close()
+        await writer2.wait_closed()
+        self.assertIsNone(self.companion._bridge)
+        self.assertEqual(self.companion._bridge_incarnation, incarnation)
+        self.assertTrue(self.companion.connected)
+        self.assertEqual(self.companion.session_epoch, lease)
+        self.companion._bridge_admission_blocked = False
+        self.bridge = await BinaryBridge.connect(self.companion)
+        await wait_until(lambda: self.companion._bridge is not None)
+        self.assertEqual(self.companion._bridge_incarnation, incarnation + 1)
+
+
 if __name__ == "__main__":
     unittest.main()

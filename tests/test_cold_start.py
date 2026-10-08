@@ -126,12 +126,14 @@ class ColdStartTests(unittest.IsolatedAsyncioTestCase):
         self.save.write_bytes(b"local progress is preserved")
         sidecar_path(self.save).write_bytes(b"invalid sidecar")
         async def inspect_lock(operation, response):
+            self.assertTrue(self.c._bridge_admission_blocked)
             with self.assertRaises(MirrorError) as caught:
                 with MirrorLease(self.save):
                     self.fail("lock gap during network reconciliation")
             self.assertEqual(caught.exception.code, "mirror_active")
         self.c.checkpoint_hook = inspect_lock
         async with self.gate.open() as result:
+            self.assertFalse(self.c._bridge_admission_blocked)
             self.assertEqual(inspect_mirror_held(result.lease), result.mirror)
             self.assertEqual(self.save.read_bytes(), self.c.head().payload)
             self.assertEqual(len(self.save.read_bytes()), 131088)

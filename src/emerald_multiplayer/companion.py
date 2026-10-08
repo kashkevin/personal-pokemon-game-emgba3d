@@ -287,6 +287,7 @@ class Companion:
         self.live_checkpoint_lock = asyncio.Lock()
         self._live_save_owner: asyncio.Task | None = None
         self._bridge: BridgeSession | None = None
+        self._bridge_admission_blocked = False
         self._bridge_incarnation = 0
         self._ipc_writers: set[asyncio.StreamWriter] = set()
         self._ipc_handlers: set[asyncio.Task] = set()
@@ -367,12 +368,12 @@ class Companion:
         bridge: BridgeSession | None = None
         try:
             peer = writer.get_extra_info("peername")
-            if self._closing or peer is None or not is_local_address(peer[0]) or len(self._ipc_writers) > 4:
+            if self._closing or self._bridge_admission_blocked or peer is None or not is_local_address(peer[0]) or len(self._ipc_writers) > 4:
                 return
             packet = await asyncio.wait_for(read_packet(reader), self.config.handshake_timeout)
             if packet is None or len(packet) != 33 or packet[:1] != b"H" or not hmac.compare_digest(packet[1:], self.config.token):
                 return
-            if self._bridge is not None:
+            if self._bridge is not None or self._bridge_admission_blocked:
                 return
             self._bridge_incarnation += 1
             bridge = BridgeSession(writer, BridgeOutbox(), self._bridge_incarnation)
