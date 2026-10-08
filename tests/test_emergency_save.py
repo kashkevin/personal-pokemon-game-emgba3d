@@ -1,5 +1,6 @@
 """Real ownership store/Flash recovery with a strict native mailbox fixture."""
 import asyncio
+import base64
 from dataclasses import asdict, replace
 import hashlib
 import json
@@ -14,7 +15,7 @@ import zlib
 
 from emerald_multiplayer.cold_start import ColdStartError, ColdStartRecovery
 from emerald_multiplayer.companion import Companion
-from emerald_multiplayer.emergency_save import EmergencySaveController, load_closed_emergency
+from emerald_multiplayer.emergency_save import EmergencyAuthority, EmergencySaveController, load_closed_emergency
 from emerald_multiplayer.flash import FLASH_SIZE, inspect_flash
 from emerald_multiplayer.live_checkpoint import LiveCheckpointCoordinator, _atomic, _json_bytes
 from emerald_multiplayer.ownership import OWNERSHIP_PROFILE
@@ -64,7 +65,9 @@ class EmergencyCompanion(TradeCompanion):
         opcode = control.opcode
         data, offset, status, window = b"", control.offset, Status.OK, None
         if opcode == Opcode.BEGIN_EMERGENCY_EXPORT and getattr(self, "admission_latched", False):
-            return replace(control, status=Status.BATTLE_ADMISSION)
+            # Native PublishResponse preserves the previous completed stream's
+            # cursor even though this mutation-free BEGIN request has offset0.
+            return replace(control, status=Status.BATTLE_ADMISSION, offset=FLASH_SIZE)
         if opcode in (Opcode.BEGIN_EMERGENCY_EXPORT, Opcode.PROMOTE_EMERGENCY_EXPORT):
             if opcode == Opcode.PROMOTE_EMERGENCY_EXPORT:
                 assert self.phase == State.EXPORTING
@@ -426,16 +429,40 @@ class EmergencySaveTests(unittest.IsolatedAsyncioTestCase):
         receipt = json.loads(archives[0].read_bytes())
         self.assertEqual(receipt["intent"]["state"], "holding")
         self.assertEqual(receipt["intent"]["operation_id"], self.c.emergency_commands[0].request_id)
+        self.assertEqual(SaveControl.unpack(base64.b64decode(receipt["response_b64"])).offset, FLASH_SIZE)
+
+    async def test_actual_native_enter_refusal_envelope_keeps_completed_stream_cursor(self):
+        # Actual two-core entry run1, native aef47e4: these exact independently
+        # recorded hashes identify command39 and the native cursor131072 reply.
+        # The operation UUID is generated proof metadata, not a player identity.
+        command = SaveControl(1, 2, "7383a30d-cb30-4fc5-81fd-da4e7aaf167a", 39,
+            0, FLASH_SIZE, 2, Opcode.BEGIN_EMERGENCY_EXPORT)
+        response = replace(command, status=Status.BATTLE_ADMISSION, offset=FLASH_SIZE)
+        self.assertEqual(hashlib.sha256(command.pack()).hexdigest(),
+            "10796ef9a287b3929900798d9c64a83d67572caa0b132edf1ac9968546b59786")
+        self.assertEqual(hashlib.sha256(response.pack()).hexdigest(),
+            "0a4af4bc65f2b75d107e3425e359bbad3b2250d058ccef342fa7e10c9d6b11b6")
+        authority = EmergencyAuthority(self.c._bridge, (str(uuid4()), 2, 1), command.request_id, 1)
+        self.c._live_sequence = 38
+        async def native(saved_authority, outgoing):
+            self.assertIs(saved_authority, authority)
+            self.assertEqual(outgoing.pack(), command.pack())
+            return SaveControl.unpack(response.pack()).validate_response()
+        with patch.object(self.c, "emergency_save_rpc", native):
+            with self.assertRaises(ValueError) as caught:
+                await self.controller._command(authority, Opcode.BEGIN_EMERGENCY_EXPORT)
+        self.assertEqual(caught.exception.code, "rom_battle_admission")
+        self.assertEqual(caught.exception.response.pack(), response.pack())
 
     async def test_enter_refusal_requires_verified_resume_capability_and_exact_envelope(self):
-        for capability, change in ((0, False), (1, True)):
+        for capability, change in ((0, None), (1, "revision"), (1, "incarnation"), (1, "data")):
             with self.subTest(capability=capability, changed_envelope=change):
                 self.controller = EmergencySaveController(self.c, self.private)
                 await self.arm()
                 self.c.config.battle_resume_abi_version = capability
                 async def refuse(bridge, control, timeout):
-                    return replace(control, status=Status.BATTLE_ADMISSION,
-                                   revision=control.revision + int(change))
+                    changed = {} if change is None else {change: b"x" if change == "data" else getattr(control, change) + 1}
+                    return replace(control, status=Status.BATTLE_ADMISSION, offset=FLASH_SIZE, **changed)
                 with patch.object(self.c, "_dispatch_save_control", refuse):
                     result = await self.preserve()
                 self.assertEqual(result.state, "unsaved_held")

@@ -320,7 +320,12 @@ class EmergencySaveController:
         result = response[0] if opcode == Opcode.READ_WINDOW else response
         if result.status != Status.OK:
             result.validate_response()
-            if result != SaveControl(**{**command.__dict__, "status": result.status}):
+            # Native errors report their retained stream cursor, including a
+            # completed earlier export's FLASH_SIZE cursor while BOUND. Match
+            # the same immutable identity fields as Companion's transport;
+            # retain the bounded cursor and exact response bytes for the audit.
+            fields = ("incarnation", "session_epoch", "request_id", "sequence", "total_size", "revision", "opcode")
+            if any(getattr(result, key) != getattr(command, key) for key in fields):
                 raise LiveSaveError("emergency_receipt", "native refusal changed its exact command envelope")
             raise _NativeRefusal(command, result)
         return response
