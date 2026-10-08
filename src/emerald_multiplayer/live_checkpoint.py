@@ -274,12 +274,12 @@ class LiveCheckpointCoordinator:
         return await self._checkpoint(expected_revision=expected_revision, enroll=False,
                                       expected_session=expected_session)
 
-    async def enroll(self) -> LiveExportResult:
+    async def enroll(self, *, expected_session=None) -> LiveExportResult:
         """Explicit first enrollment after the host provisions the legacy source.
 
         This neither rebinds an existing world nor adopts a server revision.
         """
-        return await self._checkpoint(expected_revision=0, enroll=True)
+        return await self._checkpoint(expected_revision=0, enroll=True, expected_session=expected_session)
 
     async def _prepare_ownership(self, session, base, *, enroll):
         from .ownership import OWNERSHIP_PROFILE

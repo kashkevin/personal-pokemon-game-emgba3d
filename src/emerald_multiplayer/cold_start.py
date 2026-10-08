@@ -264,7 +264,7 @@ class ColdStartRecovery:
         return ClosedStartResult(mirror, lease, archive / "completed.json")
 
     @asynccontextmanager
-    async def open(self):
+    async def open(self, *, expected_session=None):
         """Yield only a verified current mirror; hold its lock until core closes."""
         with MirrorLease(self.save_path) as lease:
             c = self.companion
@@ -279,6 +279,8 @@ class ColdStartRecovery:
             try:
                 async with c.live_checkpoint_lock:
                     session = self._session()
+                    if expected_session is not None and session != expected_session:
+                        raise ColdStartError("session_changed", "authenticated startup session changed before recovery admission")
                     self._closed(session)
                     c._live_save_owner = asyncio.current_task()
                     try:

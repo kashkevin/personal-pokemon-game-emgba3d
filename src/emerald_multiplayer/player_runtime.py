@@ -134,6 +134,48 @@ async def _finish_even_if_cancelled(task):
     return result, cancelled
 
 
+@asynccontextmanager
+async def _open_child(companion, bundle, directory, save_path, build, manifest,
+                      check_session, startup=None):
+    """Private process owner. Caller must retain its admission gate/save lease.
+
+    This helper grants no character admission and performs no save replacement.
+    Both normal recovery and explicit first enrollment must establish their own
+    distinct preconditions before using it.
+    """
+    executable, bridge = bundle.verify()
+    final_build, final_manifest = verify_rom_manifest(companion.config.rom_path, companion.config.manifest_path)
+    if final_build != build or final_manifest != manifest:
+        raise PlayerRuntimeError("game_changed", "the game or mailbox manifest changed during startup recovery")
+    check_session()
+    launch_directory = Path(directory) / "launches" / str(uuid4())
+    launch_directory.mkdir(mode=0o700, parents=True)
+    script = launch_directory / "bridge.lua"
+    _atomic(script, configure(manifest, companion.config.token.hex(), companion.ipc_address[1], bridge).encode())
+    log_path = launch_directory / "runtime.log"
+    options = dict(cwd=launch_directory, stdin=asyncio.subprocess.DEVNULL)
+    if os.name == "nt":
+        options["creationflags"] = subprocess.CREATE_NO_WINDOW
+    process = None
+    with log_path.open("xb") as log:
+        spawn = asyncio.create_task(asyncio.create_subprocess_exec(
+            str(executable), "--multiplayer-script", str(script),
+            "--multiplayer-save", str(save_path), str(companion.config.rom_path),
+            stdout=log, stderr=log, **options))
+        try:
+            process, cancelled = await _finish_even_if_cancelled(spawn)
+            if cancelled:
+                raise asyncio.CancelledError()
+            check_session()
+            yield RunningGame(process, startup, log_path)
+        finally:
+            if process is not None:
+                cleanup = asyncio.create_task(_stop(process))
+                _, cancelled = await _finish_even_if_cancelled(cleanup)
+                if cancelled:
+                    raise asyncio.CancelledError()
+
+
 class PlayerRuntime:
     """Keep one owned game process inside one continuous verified save lease.
 
@@ -154,9 +196,8 @@ class PlayerRuntime:
         if self._active:
             raise PlayerRuntimeError("game_active", "this launcher already owns a game process")
         self._active = True
-        process = None
         try:
-            executable, bridge = self.bundle.verify()
+            self.bundle.verify()
             c = self.companion
             build, manifest = verify_rom_manifest(c.config.rom_path, c.config.manifest_path)
             if build != c.config.build_id:
@@ -164,39 +205,13 @@ class PlayerRuntime:
             gate = ColdStartRecovery(c, self.directory, self.save_path)
             async with gate.open() as startup:
                 session = gate._session()
-                # Reconciliation can await the network for a long time. Repeat
-                # both pins after it, before authorizing a new native process.
-                executable, bridge = self.bundle.verify()
-                final_build, final_manifest = verify_rom_manifest(c.config.rom_path, c.config.manifest_path)
-                if final_build != build or final_manifest != manifest:
-                    raise PlayerRuntimeError("game_changed", "the game or mailbox manifest changed during startup recovery")
-                launch_directory = self.directory / "launches" / str(uuid4())
-                launch_directory.mkdir(mode=0o700, parents=True)
-                script = launch_directory / "bridge.lua"
-                _atomic(script, configure(manifest, c.config.token.hex(), c.ipc_address[1], bridge).encode())
-                log_path = launch_directory / "runtime.log"
-                # No shell, no caller-controlled extra arguments, private cwd.
-                # SDL provides the visible game window, not a console window.
-                options = dict(cwd=launch_directory, stdin=asyncio.subprocess.DEVNULL)
-                if os.name == "nt":
-                    options["creationflags"] = subprocess.CREATE_NO_WINDOW
-                with log_path.open("xb") as log:
-                    spawn = asyncio.create_task(asyncio.create_subprocess_exec(
-                        str(executable), "--multiplayer-script", str(script),
-                        "--multiplayer-save", str(self.save_path), str(c.config.rom_path),
-                        stdout=log, stderr=log, **options))
-                    try:
-                        process, cancelled = await _finish_even_if_cancelled(spawn)
-                        if cancelled:
-                            raise asyncio.CancelledError()
-                        if gate._session() != session:
-                            raise ConnectionError("authenticated startup session changed during game creation")
-                        yield RunningGame(process, startup, log_path)
-                    finally:
-                        if process is not None:
-                            cleanup = asyncio.create_task(_stop(process))
-                            _, cancelled = await _finish_even_if_cancelled(cleanup)
-                            if cancelled:
-                                raise asyncio.CancelledError()
+                def check_session():
+                    if gate._session() != session:
+                        raise ConnectionError("authenticated startup session changed during game creation")
+                # Reconciliation can await the network. Recheck pins and the
+                # authenticated lease immediately before and after creation.
+                async with _open_child(c, self.bundle, self.directory, self.save_path,
+                                       build, manifest, check_session, startup) as game:
+                    yield game
         finally:
             self._active = False
