@@ -91,3 +91,27 @@ class BattleManifestTests(unittest.TestCase):
 
     def test_absent_capability_remains_optional(self):
         self.assertFalse(validate_battle_manifest(self.generate(self.base), self.rom))
+
+    def test_execution_uses_only_exact_compiler_string_table_and_complete_optional_metadata(self):
+        with self.rom.open("r+b") as rom:
+            rom.seek(200); rom.write(b"\x03\0\0\0")
+            rom.seek(0x300); rom.write(bytes(721 * 4))
+        symbol = "08000300 00000b44 R gBattleStringsTable\n"
+        generated = self.generate(self.base + self.battle + symbol)
+        self.assertEqual(generated["battle_string_table_address"], 0x08000300)
+        self.assertEqual(generated["battle_execution_abi_version"], 1)
+        self.assertTrue(validate_battle_manifest(generated, self.rom))
+        for changes in ({"battle_string_table_size": 4}, {"battle_string_table_address": True},
+                        {"battle_string_table_address": 0x09000000}, {"battle_execution_abi_version": True}):
+            with self.subTest(changes=changes), self.assertRaises(ValueError):
+                validate_battle_manifest({**generated, **changes}, self.rom)
+        for key in ("battle_execution_abi_version", "battle_string_table_address", "battle_string_table_size"):
+            broken = dict(generated); del broken[key]
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                validate_battle_manifest(broken, self.rom)
+        with self.assertRaises(ValueError):
+            self.generate(self.base + self.battle + symbol + symbol)
+        with self.rom.open("r+b") as rom:
+            rom.seek(0x300); rom.write(b"\xff\xff\xff\xff")
+        with self.assertRaises(ValueError):
+            validate_battle_manifest(generated, self.rom)

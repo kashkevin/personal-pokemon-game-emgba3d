@@ -101,10 +101,25 @@ int main(int argc, char** argv) {
             if (file) file->close(file);
             free(flash);
             printf("FLASH %s %zu %s\n", ok ? "OK" : "FAILED", size, path);
+        } else if (strcmp(line, "G\n") == 0) {
+            /* Read-only CPU diagnostics identify native stalls without
+             * altering registers, RAM, savedata or execution state. */
+            printf("REGISTERS");
+            for (unsigned r = 0; r < 16; ++r) {
+                char name[8];
+                int32_t value = 0;
+                snprintf(name, sizeof(name), "r%u", r);
+                if (!core->readRegister(core, name, &value)) {
+                    printf(" ERROR");
+                    break;
+                }
+                printf(" %08x", (unsigned) value);
+            }
+            fputc('\n', stdout);
         } else if (line[0] == 'Q') {
             break;
         } else {
-            puts("ERROR commands: F keymask_hex frames; P png_path; R address_hex bytes; D new_private_flash_path; Q");
+            puts("ERROR commands: F keymask_hex frames; P png_path; R address_hex bytes; D new_private_flash_path; G; Q");
         }
     }
     mScriptContextTriggerCallback(&script, "shutdown");

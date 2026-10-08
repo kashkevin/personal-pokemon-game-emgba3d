@@ -17,6 +17,8 @@ def request(op, **fields):
         accept=dict(battle_id=BATTLE, generation=GENERATION, fingerprint="a" * 64),
         cancel=dict(battle_id=BATTLE, generation=GENERATION),
         status=dict(battle_id=BATTLE), pending={}, history={}, waiting={},
+        execute=dict(battle_id=BATTLE, generation=GENERATION, incarnation=1,
+                     response_id=0, response_b64=None),
     )[op]
     return dict(type="battle_" + op, request_id=REQUEST, session_epoch=7, **(extra | fields))
 
@@ -31,9 +33,14 @@ def view(mode=2):
 
 
 def reply(op):
+    if op == "execute":
+        from emerald_multiplayer.battle_execution_protocol import execution_view
+        result = execution_view(BATTLE, GENERATION, "waiting")
+    else:
+        result = [] if op in ("history", "waiting") else ([view()] if op == "pending" else view(3 if op == "invite_multi" else 2))
     return dict(type="battle_result", protocol=1, session_epoch=7, request_id=REQUEST,
         operation=op, world_id=WORLD, player_id=ACTOR,
-        result=[] if op in ("history", "waiting") else ([view()] if op == "pending" else view(3 if op == "invite_multi" else 2)))
+        result=result)
 
 
 class BattleProtocolTests(unittest.TestCase):

@@ -572,6 +572,20 @@ class BattleDesk:
         self._record(battle, actor, request, response)
         return self._view(battle)
 
+    def finish_native(self, actor, lease, battle_id, generation, request, response):
+        """Accept the pinned native restoration invariant through its mailbox.
+
+        ABI 2/3 sets restored only after checking the original party count and
+        PREPARE CRC twice and restoring both personal RNG states. The trusted
+        executor must already have verified all three exact startup party blocks;
+        this entry grants no public outcome or party-byte submission authority.
+        """
+        battle = self._get(actor, lease, battle_id, generation)
+        descriptor = battle.roster[battle.players.index(actor)]
+        return self.finish(actor, lease, battle_id, generation, request, response,
+            outcome=NativeQuery.unpack(response.data).outcome,
+            party=descriptor.party, party_count=descriptor.party_count)
+
     def released(self, actor, lease, battle_id, generation, request, response):
         battle = self._get(actor, lease, battle_id, generation)
         self._allow(battle, actor, request, response, ("release_authorized",))

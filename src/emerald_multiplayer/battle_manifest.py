@@ -3,9 +3,13 @@ from pathlib import Path
 
 BATTLE_FIELDS = frozenset({"battle_abi_version", "battle_abi_address",
                            "battle_mailbox_address", "battle_mailbox_size"})
+EXECUTION_FIELDS = frozenset({"battle_execution_abi_version", "battle_string_table_address",
+                              "battle_string_table_size"})
 
 
 def validate_battle_manifest(manifest, rom_path=None):
+    if EXECUTION_FIELDS.intersection(manifest) and not BATTLE_FIELDS.issubset(manifest):
+        raise ValueError("native execution metadata requires the battle capability")
     if not BATTLE_FIELDS.intersection(manifest):
         return False
     if not BATTLE_FIELDS.issubset(manifest):
@@ -37,4 +41,19 @@ def validate_battle_manifest(manifest, rom_path=None):
             source.seek(marker - 0x08000000)
             if source.read(4) != manifest["battle_abi_version"].to_bytes(4, "little"):
                 raise ValueError("battle capability marker disagrees with the verified ROM")
+    if EXECUTION_FIELDS.intersection(manifest):
+        if (not EXECUTION_FIELDS.issubset(manifest)
+                or type(manifest["battle_execution_abi_version"]) is not int
+                or manifest["battle_execution_abi_version"] != 1
+                or manifest["battle_abi_version"] not in (2, 3)
+                or type(manifest["battle_string_table_size"]) is not int
+                or manifest["battle_string_table_size"] != 721 * 4):
+            raise ValueError("native execution metadata is incomplete or incompatible")
+        address = manifest["battle_string_table_address"]
+        if (type(address) is not int or address % 4
+                or not 0x08000000 <= address <= 0x08000000 + size - 721 * 4):
+            raise ValueError("native execution string table lies outside its exact ROM")
+        if rom_path is not None:
+            from .battle_controller import read_string_lengths
+            read_string_lengths(rom_path, table_address=address)
     return True

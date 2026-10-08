@@ -175,5 +175,44 @@ class CompanionBattleAdmissionTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(self.c._live_save_owner);self.assertIsNone(self.c._live_battle_owner)
         self.assertTrue(self.c.connected)
 
+    async def test_execution_owner_needs_exact_unanswered_durable_command_for_real_ipc(self):
+        from emerald_multiplayer.battle_session import NativeBattleSession
+        session = NativeBattleSession(self.c, self.directory)
+        command = replace(self.bind, opcode=NativeOpcode.PREPARE, sequence=2,
+            data=self.canonical.preparation(b"r" * 16).pack())
+        data = struct.pack("<I16sBBBB10I", 9, UUID(self.binding.generation).bytes,
+            len(self.binding.players), self.binding.local_slot, self.binding.mode, 0,
+            2, 0, 0, 0, 0, 0, 0, 600, self.canonical.revision, 0)
+        async with self.journal.bind_intent(self.binding, self.bind, self.canonical) as intent:
+            session.intent, session._command, session._dispatch_id = intent, command, 2
+            session._active = True
+            self.c._live_battle_executor = session
+            try:
+                with self.assertRaisesRegex(ValueError, "exact persisted BIND"):
+                    await self.c.battle_rpc(command)
+                self.assertFalse(self.c._battle_pending)
+                session._persist()
+                original = session.path.read_bytes()
+                session.path.write_bytes(b"{}")
+                with self.assertRaisesRegex(ValueError, "exact persisted BIND"):
+                    await self.c.battle_rpc(command)
+                session.path.write_bytes(original)
+                changed = replace(command, sequence=3)
+                with self.assertRaisesRegex(ValueError, "exact persisted BIND"):
+                    await self.c.battle_rpc(changed)
+                async def outsider():
+                    with self.assertRaisesRegex(ValueError, "pending battle"):
+                        await self.c.battle_rpc(command)
+                await asyncio.create_task(outsider())
+                await self.roundtrip(command, data)
+                session._response = replace(command, data=data)
+                session._persist()
+                with self.assertRaisesRegex(ValueError, "exact persisted BIND"):
+                    await self.c.battle_rpc(command)
+                self.assertEqual(read_battle_intent(self.journal.path), intent)
+            finally:
+                session._active = False
+                self.c._live_battle_executor = None
+
 
 if __name__ == "__main__":unittest.main()
