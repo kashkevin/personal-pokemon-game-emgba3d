@@ -35,3 +35,23 @@ Native admission-abort cleanup is not implemented in this candidate. An uncertai
 Required acceptance remains a coherent combined-binary actual proof of pre-BIND, mid-battle and uncertain-release loss using all original cores, plus the native Players-menu entry boundary and Windows regression. Existing four-core full-party and two-core singles execution evidence covers the earlier non-resume executor and is not reused as proof of this extension.
 
 The Windows focus passed **53/53 methods in 90.023 seconds**, with no skips and verified BelowNormal priority: seven recovery network cases, seven native codec/journal cases, eleven public protocol cases, six real-Lua menu bridge cases and twenty-two menu-session cases. The recovery cases use real authenticated TCP/SQLite with explicitly synthetic native responses. They cover original-core quorum replay, uncertain RELEASE, undispatched BIND, provisional bootstrap, mixed provisional/full-intent second restart, original consent/entry authentication and terminal retirement with a finished peer offline. Private log `battle-recovery-host-menu-focus-6.log` has SHA-256 `cbcaba4df5fda395f08493c4f87693310f112d3a0b5fe696d78bdde9d2b8b809`.
+
+A further review found that provisional bootstrap could append missing first BINDs after an already-converted client opened the recovery journal. Commit `a13f6e6` reloads that strict journal before another admission acknowledgment while the recovery task has not yet started. Both mixed-restart network cases passed in **16.455 seconds**, including a valid durable prefix containing only one trainer's BIND. Log `battle-recovery-mixed-prefix-focus-8.log` has SHA-256 `78a60fd0ffeb92a59977a36378a8367a6d63a84b2dcc71fb4ec2bcbf65a651b4`.
+
+## Combined native source qualification
+
+The isolated combined candidate `aef47e4b28fd6d0e84376961e0cc6632996bb0be` starts from the unchanged qualified combined source `1a7a0cdb5dadd2820a3b6c25c4ecafce1facd6eb`. Its composition preserves the trade-menu reopen path, emergency ABI2 and authored local-reset ABI2. The [reviewable delta](../engine-patches/phase5-native-retained-recovery.patch) is 57,370 bytes with SHA-256 `94ee6c7c62beb1c97f4d222a9f4a3c6aec1f329f994fdf2ec8c56a19de48b078`; a read-only application check passed against the unchanged base.
+
+Normal and **129/129 focused native tests passed without warnings** using `DINFO=1 DEV=0 LOCAL_RESET_STATIC=1`, `nice -n 19` and `make -j1`. The fresh worktree regenerated headers and initially produced a clock-skew warning; that output is retained separately, and qualification uses the later warning-free incremental normal and focused runs. Native tests include suspension/repeated-loss fencing, provisional hold consumption, terminal retirement/handoff, the Enter latch and exact emergency-BEGIN refusal without party/ownership/RNG/save-counter mutation. They use the native test runner and do not establish ordinary-menu or four-human playable recovery.
+
+Private bundle `combined-resume-native-aef47` retains these exact files:
+
+| File | SHA-256 |
+| --- | --- |
+| `pokeemerald.gba` | `47b815b5625fc3db04e00fc976da981f282895328d20f4f650de17ed223e9f3e` |
+| `pokeemerald.elf` | `b11751bd7cf3b3ac7757995197e781cd2a21d8cb370cd1db0d152f8577fda694` |
+| `manifest.json` | `00e193485caac413cdad384fe96d285fd69af71844a735869b1f2fcaf54a256d` |
+| `combined-resume-normal-4.log` | `9add31430c6923faf695905b10770262615c7a719a5006e9c5d9e4446e08495c` |
+| `combined-resume-focused-4.log` | `8267dfd2b863dcdd2ac58c33d5ee875ea4d938578317bcf483ce2abf0171977a` |
+
+The manifest came from the frozen `a13f6e6` compiler-symbol generator and verifies the exact ROM/ELF capability markers. Link usage is 233,764 bytes of EWRAM, 28,376 bytes of IWRAM and 26,791,424 bytes of ROM before padding. Original qualified sources, binaries and private saves remain untouched. This candidate remains excluded from the stable Windows preview pending actual combined-core acceptance.

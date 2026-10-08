@@ -12,6 +12,8 @@ Recorded October 7, 2026, for Phase 1. This records provenance and observed term
 
 The desktop emulator and the upstream test emulator are different builds. A source commit is not a binary checksum; installed/build artifact hashes belong in the build manifest.
 
+The optional retained-battle recovery candidate is a project-owned delta on combined native source `1a7a0cdb5dadd2820a3b6c25c4ecafce1facd6eb`. Its isolated source commit is `aef47e4b28fd6d0e84376961e0cc6632996bb0be`; the reviewable [source patch](../engine-patches/phase5-native-retained-recovery.patch) has SHA-256 `94ee6c7c62beb1c97f4d222a9f4a3c6aec1f329f994fdf2ec8c56a19de48b078`. It adapts existing project mailboxes, native field holds and ownership checks without importing another networking engine, library, art or save layout. Existing upstream terms remain unchanged. The [recovery audit](native-battle-recovery.md) records its qualification limits; it is excluded from the qualified non-resume preview.
+
 ## Bundled upstream test tools
 
 The pinned local `tools/mgba/README.md` identifies the bundled test binaries' source commits:
