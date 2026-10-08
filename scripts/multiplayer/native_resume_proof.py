@@ -46,6 +46,25 @@ from emerald_multiplayer.server import ServerConfig, WorldServer
 from emerald_multiplayer.trade_storage import TradeCheckpointStore
 
 
+async def drain_interrupted_operations(tasks, *, timeout=30):
+    """End prior explicit recovery calls before selecting the next reconnect set.
+
+    Recovery deliberately keeps trying after transport loss. Cancel only those
+    Python operations, never the original cores or their durable intent. A
+    drain timeout refuses the next stage instead of overlapping lifecycle owners.
+    """
+    operations = tuple(dict.fromkeys(tasks))
+    for task in operations:
+        if not task.done():
+            task.cancel()
+    if not operations:
+        return
+    finished, pending = await asyncio.wait(operations, timeout=timeout)
+    await asyncio.gather(*finished, return_exceptions=True)
+    if pending:
+        raise TimeoutError("previous explicit battle operations did not drain before the next recovery stage")
+
+
 async def run(args):
     root = args.output.resolve()
     if "/multiplayer-proof/" not in str(root)+"/" or root.exists():
@@ -373,8 +392,8 @@ async def run(args):
         party_input[:] = [None]*4
         await server.close()
         fault_disconnected.set()
+        await drain_interrupted_operations(execution_tasks)
         async with asyncio.timeout(30):
-            await asyncio.gather(*execution_tasks, return_exceptions=True)
             while any(c.connected for c in companions):
                 await asyncio.sleep(.02)
             for controller in emergency:
