@@ -89,9 +89,14 @@ async def run(args):
         if len(parts) == 4:
             symbols[parts[3]] = (int(parts[0], 16), int(parts[1], 16))
     required = {"gBattleStringsTable": 721*4, "gRngValue": 16, "gRng2Value": 16,
-                "gSaveCounter": 4, "gPartiesCount": 4, "gBattleTypeFlags": 4}
+                "gSaveCounter": 4, "gPartiesCount": 4, "gBattleTypeFlags": 4,
+                "gTasks": 16*40, "gPartyMenu": 20}
     if process.returncode or any(name not in symbols or symbols[name][1] != size for name, size in required.items()):
         raise ValueError("native proof symbols do not match the pinned ARM layout")
+    party_tasks = ("Task_HandleChooseMonInput", "Task_HandleSelectionMenuInput", "Task_PrintAndWaitForText")
+    if any(name not in symbols or not 0x08000000 <= symbols[name][0] < 0x0A000000 for name in party_tasks):
+        raise ValueError("party input diagnostics require the matching native menu symbols")
+    evidence["party_joypad"] = []
     validator = ControllerValidator(read_string_lengths(rom, table_address=symbols["gBattleStringsTable"][0]), mode=3)
     store = TradeCheckpointStore(root/"world.sqlite3", manifest["rom_sha256"], manifest["ruleset_id"])
     identities = sorted([store.create_player("Native Multi "+name) for name in "ABCD"], key=lambda p: p.player_id)
@@ -155,22 +160,46 @@ async def run(args):
         return rows
 
     async def drive_party_menu(i):
-        # An independent joypad task avoids missing a short Down press when
-        # routing/snapshot work spans several native frames. Retry ordinary
-        # menu inputs only while this owner still has a CHOOSEPOKEMON request.
+        # Read-only task/cursor diagnostics let normal joypad presses wait for
+        # the actual menu. Blind Down/A bursts can land in a text printer or
+        # SEND OUT submenu and repeatedly reselect the same fainted Pokemon.
+        # The pinned ARM PartyMenu has slotId at byte 9; Task is 40 bytes with
+        # its active flag at byte 4. Neither structure is ever written here.
+        # A pending six-frame pump batch may already hold the previous keys;
+        # twelve frames guarantees at least one batch samples this press.
+        async def press(key, frames=12, release=18):
+            evidence["party_joypad"].append(dict(owner=i, key=key, frames=frames,
+                release=release, frame=pump.frames))
+            pump.keys[i] = key
+            await pump.advance(frames)
+            pump.keys[i] = 0
+            await pump.advance(release)
+
+        async def menu_state():
+            tasks = await cores[i].read(*symbols["gTasks"])
+            active = {int.from_bytes(tasks[o:o+4], "little") & ~1
+                for o in range(0, len(tasks), 40) if tasks[o+4]}
+            cursor = (await cores[i].read(symbols["gPartyMenu"][0]+9, 1))[0]
+            return active, cursor
+
         pump.keys[i] = 0
-        await pump.advance(240)
+        deadline = time.monotonic()+120
         while validator.pending[i] == 21:
-            for key, duration in ((2, 18), (0, 12), (0x80, 18), (0, 12)):
-                pump.keys[i] = key
-                await pump.advance(duration)
-            for _ in range(20):
-                if validator.pending[i] != 21:
-                    break
-                pump.keys[i] = 1
-                await pump.advance(6)
-                pump.keys[i] = 0
-                await pump.advance(6)
+            if time.monotonic() >= deadline:
+                raise AssertionError(("ordinary party menu did not accept a usable Pokemon", i))
+            active, cursor = await menu_state()
+            if symbols["Task_PrintAndWaitForText"][0] & ~1 in active:
+                await press(2, release=30)
+            elif symbols["Task_HandleSelectionMenuInput"][0] & ~1 in active:
+                await press(1)  # Native menu's initial SEND OUT action.
+            elif symbols["Task_HandleChooseMonInput"][0] & ~1 in active:
+                await press(0x80)
+                current, moved = await menu_state()
+                if (symbols["Task_HandleChooseMonInput"][0] & ~1 in current
+                        and moved != cursor and 0 <= moved < 6):
+                    await press(1)
+            else:
+                await pump.advance(12)
         pump.keys[i] = 0
 
     async def native_state(i):
