@@ -28,7 +28,7 @@ The current save profile is `rhh-1.17.1-bb1093-presence-v1`. This remains the ba
 
 ## Work remaining
 
-The subsequent [live ROM handshake](phase3-live-checkpoints.md) now freezes ordinary field mutations, streams coherent state, applies a canonical revision, and acknowledges completion. Its special-sector and fatal-Flash-error limits remain explicit. Per-Pokémon ownership identities and transaction hooks remain necessary before trade, shared rewards, or economy changes. Do not infer a trade guarantee from ordinary save storage alone.
+The subsequent [live ROM handshake](phase3-live-checkpoints.md) now freezes ordinary field mutations, streams coherent state, applies a canonical revision, and acknowledges completion. Its special-sector and fatal-Flash-error limits remain explicit. The [ownership foundation](phase3-ownership.md) adds persistent Pokémon identities and explicit retirement, while cross-player transactions remain necessary before trade, shared rewards, or economy changes. Do not infer a trade guarantee from ordinary save storage alone.
 
 Autosave frequency, server-loss/local-play behavior, interrupted battle policy, and remote-avatar collision remain unresolved. This slice chooses none of those policies. Windows GUI integration, four actual ROM clients, LAN/Internet acceptance, transport encryption, and the downloadable Host/Join package still need implementation and testing.
 

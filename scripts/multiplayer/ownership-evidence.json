@@ -1,0 +1,223 @@
+{
+  "recorded_date": "2026-10-07",
+  "status": "verified ownership foundation",
+  "scope": "persistent instance identity and explicit ownership checkpoints; two actual libmGBA cores on localhost",
+  "engine_commit": "88c7ef798ab5f91a496099cc687252fa5c4b12a3",
+  "rom_sha256": "a19b6d525599620b86ca48098276fd3e136422fbd2ef6d8bfbf38d203caf284a",
+  "elf_sha256": "ac5dc3561a96e07a2a273adcc28c69206b4166919a57c433bbc4484a2a049ea4",
+  "map_sha256": "5ec25570f68a02fdcd6bc85d7889ecaa97cb0c7726f658a120a63c503f525bc6",
+  "patch_sha256": "9b9559508f139ed1996b8d33752ef4df3f586c4d839b68b7b292f642acfa0958",
+  "ruleset_id": "baseline-rhh1.17.1-mailbox-v1",
+  "save_profile": "rhh-1.17.1-bb1093-ownership-v1",
+  "ownership_abi_version": 1,
+  "mgba_commit": "26b7884bc25a5933960f3cdcd98bac1ae14d42e2",
+  "external_RAM_writes": "allocated presence inbound and save command mailboxes only",
+  "savestates": false,
+  "source_save_sha256": [
+    "8d611857e848f68ff3624d8540704d7e70ed4115326f82e304408587df9f3bf6",
+    "5688844e0799be76a91183ef37429a52449f2104e9efbde6d2ac7a381ca9f910"
+  ],
+  "python_suites": [
+    {
+      "platform": "Windows",
+      "python": "3.14.4",
+      "tests": 230,
+      "skips": 0,
+      "seconds": 40.159,
+      "result": "OK",
+      "log_sha256": "98bc3a794c095be4b6b9cc0e991e3cc0f4a8af280f02d02017104484e2941c8e"
+    },
+    {
+      "platform": "WSL Ubuntu",
+      "python": "3.12.3",
+      "tests": 230,
+      "skips": 0,
+      "seconds": 76.532,
+      "result": "OK",
+      "log_sha256": "d3d25c5089bc2e0165f94e6d72186d2e18747a7cfdd290a606a14e95aaf1e97d"
+    }
+  ],
+  "actual_core_runs": [
+    {
+      "name": "ownership-run-8",
+      "role": "final-build ordinary-gameplay acceptance",
+      "passed": true,
+      "exit_code": 0,
+      "engine_commit": "88c7ef798ab5f91a496099cc687252fa5c4b12a3",
+      "project_runtime_commit": "517a5d0",
+      "rom_sha256": "a19b6d525599620b86ca48098276fd3e136422fbd2ef6d8bfbf38d203caf284a",
+      "evidence_sha256": "5ccf3f0c49a8522cab7b9406eafdee67e326d3e18ecbaec1524f5583aaed5f3e",
+      "check_count": 22,
+      "checks": [
+        "legacy-enrollment-requires-explicit-action",
+        "explicit-legacy-enrollment",
+        "explicit-legacy-enrollment",
+        "ownership-checkpoint",
+        "ordinary-gameplay-ownership-lifecycle",
+        "ownership-checkpoint",
+        "ordinary-gameplay-ownership-lifecycle",
+        "unsafe-scene-checkpoint-refused",
+        "unsafe-scene-checkpoint-refused",
+        "ownership-checkpoint",
+        "ordinary-gameplay-ownership-lifecycle",
+        "ownership-checkpoint",
+        "ordinary-gameplay-ownership-lifecycle",
+        "ownership-checkpoint",
+        "ordinary-gameplay-ownership-lifecycle",
+        "live-recovery-invalidates-mint-authority-without-restarting-either-player",
+        "ownership-checkpoint",
+        "post-recovery-checkpoint-uses-new-permanently-burned-range",
+        "other-player-moves-through-ownership-operations",
+        "ownership-checkpoint",
+        "fresh-Continue-preserves-identities-and-refreshes-authority",
+        "source-saves-unchanged-and-database-integrity-valid"
+      ],
+      "command_count": 186,
+      "snapshot_count": 188,
+      "lifecycle": [
+        {
+          "step": "deposit",
+          "revision": 2,
+          "serial": 2,
+          "location": "box:0:0"
+        },
+        {
+          "step": "move-box-slot",
+          "revision": 3,
+          "serial": 2,
+          "location": "box:0:1"
+        },
+        {
+          "step": "withdraw",
+          "revision": 4,
+          "serial": 2,
+          "location": "party:1"
+        },
+        {
+          "step": "new-capture-after-ordinary-save",
+          "revision": 5,
+          "serial": 3,
+          "location": "party:2"
+        },
+        {
+          "step": "release",
+          "revision": 6,
+          "serial": 2,
+          "location": null
+        }
+      ],
+      "final_revisions": [
+        8,
+        1
+      ],
+      "retained_serials": [
+        1,
+        3
+      ],
+      "retired_serials": [
+        2
+      ],
+      "retirement_reason": 1,
+      "capture_previous_bank_counter": 9,
+      "capture_previous_bank_serial": 0,
+      "renewed_ranges": [
+        {
+          "revision": 7,
+          "start": 65,
+          "end_exclusive": 97
+        },
+        {
+          "revision": 8,
+          "start": 97,
+          "end_exclusive": 129
+        }
+      ],
+      "original_saves_unchanged": true,
+      "other_player_moved": true,
+      "live_recovery_preserved_cores_and_leases": true,
+      "fresh_continue_verified": true,
+      "proof_cores_closed": true,
+      "verified_database_backup": true,
+      "backup_sha256": "ae570a12cb7c035b1378ab72b85fd6a8e2b1465dc1b91bf4a5576c65b5fcb602",
+      "archive": "ownership/lifecycle-8",
+      "archive_files_hash_verified": 420
+    },
+    {
+      "name": "ownership-final-basic-2",
+      "passed": true,
+      "recorded_engine_commit": "81b3f65cba4517633f244a0d7d531b739c7263fb",
+      "source_note": "The earlier ca43 revision changed only a SaveBlock3 test assertion; its normal ROM and ELF matched the frozen 81b3 build. Final acceptance uses the separate 88c7 build.",
+      "evidence_sha256": "50e61655a6033bfd30ae8e8ecc9c2ba9ccb59b5d28640388b423bf66e0c81836",
+      "check_count": 10,
+      "checks": [
+        "legacy-enrollment-requires-explicit-action",
+        "explicit-legacy-enrollment",
+        "explicit-legacy-enrollment",
+        "live-recovery-invalidates-mint-authority-without-restarting-either-player",
+        "ownership-checkpoint",
+        "post-recovery-checkpoint-uses-new-permanently-burned-range",
+        "other-player-moves-through-ownership-operations",
+        "ownership-checkpoint",
+        "fresh-Continue-preserves-identities-and-refreshes-authority",
+        "source-saves-unchanged-and-database-integrity-valid"
+      ],
+      "final_revisions": [
+        3,
+        1
+      ],
+      "retained_serials": [
+        1,
+        2
+      ],
+      "original_saves_unchanged": true,
+      "verified_database_backup": true,
+      "role": "earlier-build basic recovery proof",
+      "rom_sha256": "d793cf4b59e95c891ba804a34822a749840fc32b0bfadde19895bf56502136e0"
+    }
+  ],
+  "limits": [
+    "No cross-player trade transaction yet",
+    "No four-ROM, LAN, Internet, or downloadable Windows package acceptance",
+    "Daycare, fusion, and evolution are source/fixture coverage rather than ordinary-gameplay proof",
+    "Trusted ROM enforces grant invalidation; not protection against a modified client inventing unused IDs",
+    "Automatic saving, offline policy, and Local Soft Reset remain later work"
+  ],
+  "earlier_engine_suite": {
+    "PASSED": 5427,
+    "KNOWN_FAILING": 18,
+    "TO_DO": 421,
+    "EXPECT_FAILING": 9,
+    "TOTAL": 5875,
+    "exit_code": 0,
+    "log_sha256": "fecb8916ea13bd2940c59b28810f169efce8d0e979e1ec67541a5a254961bf77",
+    "engine_commit": "ca43cf9ccf2d91270e8454980ddf6318863b9219"
+  },
+  "engine_suite": {
+    "engine_commit": "88c7ef798ab5f91a496099cc687252fa5c4b12a3",
+    "PASSED": 5429,
+    "KNOWN_FAILING": 18,
+    "TO_DO": 421,
+    "EXPECT_FAILING": 9,
+    "TOTAL": 5877,
+    "exit_code": 0,
+    "log_sha256": "07e09f2e4f72a146fa1cb6fbe4e9602811245f75c3681cca493f6faa52289665"
+  },
+  "exploratory_regression": {
+    "run": "ownership-run-6",
+    "passed_lifecycle": false,
+    "evidence_sha256": "62bc60916c28be5fb4f4513d4273e39eb3dfd477a80d9e9f97b5718a64997a20",
+    "finding": "Entering a Pokemon Center starts passive wireless scanning; wireless selector 1 did not mean an active link. The old checkpoint guard refused permanently after Center entry. Read-only diagnostics isolated the predicate.",
+    "fix_engine_commit": "88c7ef798ab5f91a496099cc687252fa5c4b12a3",
+    "focused_engine_tests": 15
+  },
+  "native_empty_slot_regression": {
+    "run": "ownership-run-7",
+    "passed_lifecycle": false,
+    "evidence_sha256": "1d6ede86356963b68d56640c6bac1a1292f424ed4bcd8c7d937f7ad7fc732628",
+    "finding": "Ordinary party compaction leaves native hpLost=10 in otherwise-zero empty Box data. Narrow parser allowance preserves original Flash bytes and all occupied-ID validation.",
+    "project_fix_commit": "517a5d0",
+    "regression_tests_added": 3,
+    "actual_closed_save_revalidated_without_changes": true
+  },
+  "milestone_tag": "OWNERSHIP_FOUNDATION_POC"
+}
