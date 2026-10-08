@@ -79,6 +79,15 @@ def generate(rom: Path, elf: Path, nm: str, engine_commit: str) -> dict:
         manifest.update(battle_abi_version=1, battle_abi_address=int(battle[0][0], 16),
                         battle_mailbox_address=int(channel[0][0], 16), battle_mailbox_size=int(channel[0][1], 16))
         validate_battle_manifest(manifest, rom)
+    window = re.findall(r"^([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+[Rr]\s+gMultiplayerSaveWindowAbiVersion$", symbols, re.M)
+    if window:
+        from emerald_multiplayer.save_window import validate_window_manifest
+        buffer = re.findall(r"^([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+[BDbd]\s+gSaveDataBuffer$", symbols, re.M)
+        if len(window) != 1 or len(buffer) != 1 or int(window[0][1], 16) != 4 or not trade:
+            raise ValueError("save window requires one marker and the pinned native sector buffer")
+        manifest.update(save_window_abi_version=1, save_window_abi_address=int(window[0][0], 16),
+                        save_window_address=int(buffer[0][0], 16), save_window_size=int(buffer[0][1], 16))
+        validate_window_manifest(manifest, rom)
     objects = re.findall(r"^([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+[BDbd]\s+gObjectEvents$", symbols, re.M)
     if len(objects) == 1:
         obj_address, obj_size = (int(value, 16) for value in objects[0])

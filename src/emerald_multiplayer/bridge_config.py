@@ -2,6 +2,7 @@
 import re
 
 from .battle_manifest import validate_battle_manifest
+from .save_window import validate_window_manifest
 
 
 def configure(manifest: dict, token: str, port: int, bridge: str) -> str:
@@ -48,7 +49,11 @@ def configure(manifest: dict, token: str, port: int, bridge: str) -> str:
     if validate_battle_manifest(manifest):
         battle_config = (f", battle_abi=1, battle_abi_address={manifest['battle_abi_address']}"
                          f", battle_address={manifest['battle_mailbox_address']}, battle_size=512")
+    window_config = ""
+    if validate_window_manifest(manifest):
+        window_config = (f", window_abi=1, window_abi_address={manifest['save_window_abi_address']}"
+                         f", window_address={manifest['save_window_address']}, window_size=4096")
     return (
         f'EMERALD_BRIDGE = {{address={address}, rom_size={size}, rom_crc32="{crc}", '
-        f'port={port}, token="{token}"{save_config}{trade_config}{battle_config}}}\n' + bridge
+        f'port={port}, token="{token}"{save_config}{trade_config}{battle_config}{window_config}}}\n' + bridge
     )

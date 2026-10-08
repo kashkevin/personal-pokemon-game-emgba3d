@@ -17,13 +17,15 @@ class BridgeBackpressure(BridgeError):
     """Reliable bridge capacity is exhausted; cancel/close the connection."""
 
 
-def encode_packet(payload: bytes) -> bytes:
-    if not isinstance(payload, bytes) or not 1 <= len(payload) <= MAX_BRIDGE_FRAME_BYTES:
+def encode_packet(payload: bytes, *, maximum=MAX_BRIDGE_FRAME_BYTES) -> bytes:
+    if maximum not in (256, 4337) or not isinstance(payload, bytes) or not 1 <= len(payload) <= maximum:
         raise BridgeError("bridge frame length is outside its bounds")
     return struct.pack("!I", len(payload)) + payload
 
 
-async def read_packet(reader: asyncio.StreamReader) -> bytes | None:
+async def read_packet(reader: asyncio.StreamReader, *, maximum=MAX_BRIDGE_FRAME_BYTES) -> bytes | None:
+    if maximum not in (256, 4337):
+        raise BridgeError("unsupported bridge frame bound")
     try:
         header = await reader.readexactly(4)
     except asyncio.IncompleteReadError as error:
@@ -31,7 +33,7 @@ async def read_packet(reader: asyncio.StreamReader) -> bytes | None:
             return None
         raise BridgeError("truncated bridge header") from error
     size = struct.unpack("!I", header)[0]
-    if not 1 <= size <= MAX_BRIDGE_FRAME_BYTES:
+    if not 1 <= size <= maximum:
         raise BridgeError("bridge frame length is outside its bounds")
     try:
         return await reader.readexactly(size)

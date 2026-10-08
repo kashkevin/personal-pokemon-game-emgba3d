@@ -1,0 +1,189 @@
+diff --git a/include/multiplayer_save.h b/include/multiplayer_save.h
+index d62869c4d9..2522d8695e 100644
+--- a/include/multiplayer_save.h
++++ b/include/multiplayer_save.h
+@@ -12,6 +12,7 @@ enum MultiplayerSaveOpcode {
+     MP_SAVE_QUERY_OWNERSHIP, MP_SAVE_GRANT_OWNERSHIP,
+     MP_SAVE_BEGIN_TRADE_EXPORT, MP_SAVE_KEEP_TRADE, MP_SAVE_ABORT_TRADE,
+     MP_SAVE_RELEASE_TRADE, MP_SAVE_REBIND_TRADE, MP_SAVE_QUERY_TRADE,
++    MP_SAVE_READ_WINDOW,
+ };
+ enum MultiplayerSaveState {
+     MP_SAVE_UNBOUND, MP_SAVE_BOUND, MP_SAVE_EXPORTING, MP_SAVE_IMPORTING,
+@@ -51,6 +52,7 @@ struct MultiplayerSaveMailbox {
+ };
+ extern volatile struct MultiplayerSaveMailbox gMultiplayerSaveMailbox;
+ extern const u32 gMultiplayerTradeAbiVersion;
++extern const u32 gMultiplayerSaveWindowAbiVersion;
+ void MultiplayerSave_Init(void);
+ void MultiplayerSave_Tick(void);
+ bool32 MultiplayerSave_IsHeld(void);
+diff --git a/src/multiplayer_save.c b/src/multiplayer_save.c
+index 39b6615136..117550ad70 100644
+--- a/src/multiplayer_save.c
++++ b/src/multiplayer_save.c
+@@ -39,6 +39,8 @@ _Static_assert(sizeof(struct PokemonStorage) == 34144, "Pinned storage");
+ _Static_assert(sizeof(rng_value_t) == 16, "Pinned SFC32");
+ 
+ const u32 gMultiplayerTradeAbiVersion = 1;
++// Optional read-only 4096-byte export window in the existing sector buffer.
++const u32 gMultiplayerSaveWindowAbiVersion = 1;
+ EWRAM_DATA volatile struct MultiplayerSaveMailbox gMultiplayerSaveMailbox = {0};
+ static EWRAM_DATA struct MultiplayerSaveControl sLastCommand = {0};
+ static EWRAM_DATA struct MultiplayerSaveControl sLastResponse = {0};
+@@ -428,6 +430,7 @@ void MultiplayerSave_Init(void)
+     memset(sRequestId, 0, sizeof(sRequestId));
+     // Read the capability through volatile storage so section GC retains it.
+     (void)*(const volatile u32 *)&gMultiplayerTradeAbiVersion;
++    (void)*(const volatile u32 *)&gMultiplayerSaveWindowAbiVersion;
+     MultiplayerOwnership_InvalidateGrant();
+     // Retain the linker-visible ownership marker despite --gc-sections.
+     gMultiplayerSaveMailbox.abiVersion = *(const volatile u32 *)&gMultiplayerOwnershipAbi;
+@@ -559,6 +562,13 @@ static void Handle(const struct MultiplayerSaveControl *command)
+     }
+     if (command->commandSeq == sLastSeq && !memcmp(command, &sLastCommand, sizeof(*command)))
+     {
++        // The sector buffer is only immutable while this export is held.
++        // A watchdog/cancel may have released it since a lost reply.
++        if (command->opcode == MP_SAVE_READ_WINDOW
++         && sState != MP_SAVE_EXPORTING && sState != MP_SAVE_COMMITTED)
++        {
++            PublishResponse(command, MP_SAVE_ORDER, NULL, 0, sOffset); return;
++        }
+         if (!sPending)
+         {
+             struct MultiplayerSaveControl cached = sCachedResponse;
+@@ -630,6 +640,15 @@ static void Handle(const struct MultiplayerSaveControl *command)
+             PublishResponse(command, MP_SAVE_OK, chunk, 128, command->offset);
+         }
+         return;
++    case MP_SAVE_READ_WINDOW:
++        if (sState != MP_SAVE_EXPORTING && sState != MP_SAVE_COMMITTED) { status = MP_SAVE_ORDER; break; }
++        if (command->length || command->offset != sOffset || sOffset >= 131072 || (sOffset & 4095))
++            { status = MP_SAVE_ORDER; break; }
++        ReadFlashBytes(sOffset, (u8 *)&gSaveDataBuffer, 4096);
++        PutU32(data, Crc32(0, (u8 *)&gSaveDataBuffer, 4096));
++        sCrc = Crc32(sCrc, (u8 *)&gSaveDataBuffer, 4096); sOffset += 4096;
++        PublishResponse(command, MP_SAVE_OK, data, 4, command->offset);
++        return;
+     case MP_SAVE_BEGIN_IMPORT:
+         if (sState != MP_SAVE_BOUND && !(sTradeActive && (sState == MP_SAVE_TRADE_HELD
+          || (sTradeImportStarted && (sState == MP_SAVE_IMPORTING || sState == MP_SAVE_COMMITTED))))) { status = MP_SAVE_BUSY; break; }
+diff --git a/test/multiplayer_trade.c b/test/multiplayer_trade.c
+index 3e4f2b5b5e..3dd807ebb5 100644
+--- a/test/multiplayer_trade.c
++++ b/test/multiplayer_trade.c
+@@ -183,6 +183,79 @@ static void PrepareTrade(struct TradeFixture *f)
+     EXPECT(MultiplayerSave_PauseClocks()); EXPECT(gSoftResetDisabled);
+ }
+ 
++TEST("Multiplayer save window: exact sectors and stream CRC match ordinary Flash")
++{
++    struct TradeFixture f;
++    u8 expected[128];
++    u32 offset, part, sectorCrc, crc = 0;
++    SetUp(&f);
++    EXPECT_EQ(Send(&f, MP_SAVE_BEGIN_EXPORT, 0), MP_SAVE_OK);
++    for (offset = 0; offset < 131072; offset += 4096)
++    {
++        EXPECT_EQ(Send(&f, MP_SAVE_READ_WINDOW, offset), MP_SAVE_OK);
++        EXPECT_EQ(gMultiplayerSaveMailbox.response.offset, offset);
++        EXPECT_EQ(gMultiplayerSaveMailbox.response.length, 4);
++        sectorCrc = 0;
++        for (part = 0; part < 4096; part += sizeof(expected))
++        {
++            ReadFlash(offset / 4096, part, expected, sizeof(expected));
++            EXPECT_EQ(memcmp(expected, (u8 *)&gSaveDataBuffer + part, sizeof(expected)), 0);
++            sectorCrc = TestCrc(sectorCrc, expected, sizeof(expected));
++            crc = TestCrc(crc, expected, sizeof(expected));
++        }
++        EXPECT_EQ(Word(gMultiplayerSaveMailbox.response.data), sectorCrc);
++    }
++    EXPECT_EQ(Send(&f, MP_SAVE_END, 0), MP_SAVE_OK);
++    EXPECT_EQ(Word(gMultiplayerSaveMailbox.response.data), crc);
++    EXPECT(!MultiplayerSave_IsHeld());
++    TearDown(&f);
++}
++
++TEST("Multiplayer save window: replay does not advance and skipped or mixed offsets refuse")
++{
++    struct TradeFixture f;
++    struct MultiplayerSaveControl original;
++    u32 crc;
++    SetUp(&f); BeginTrade(&f);
++    EXPECT_EQ(Send(&f, MP_SAVE_READ_WINDOW, 0), MP_SAVE_OK);
++    original = f.command; crc = Word(gMultiplayerSaveMailbox.response.data);
++    EXPECT_EQ(Submit(&f), MP_SAVE_OK);
++    EXPECT_EQ(Word(gMultiplayerSaveMailbox.response.data), crc);
++    EXPECT_EQ(TestCrc(0, (u8 *)&gSaveDataBuffer, 4096), crc);
++    EXPECT_EQ(Send(&f, MP_SAVE_READ_WINDOW, 8192), MP_SAVE_ORDER);
++    f.command = original;
++    EXPECT_EQ(Submit(&f), MP_SAVE_ORDER);
++    f.command.commandSeq += 2;
++    EXPECT_EQ(Send(&f, MP_SAVE_READ, 4096), MP_SAVE_OK);
++    EXPECT_EQ(Send(&f, MP_SAVE_READ_WINDOW, 4224), MP_SAVE_ORDER);
++    EXPECT_EQ(Send(&f, MP_SAVE_ABORT_TRADE, 0), MP_SAVE_OK);
++    TearDown(&f);
++}
++
++TEST("Multiplayer save window: bound and completed trade hold never expose sector buffer")
++{
++    struct TradeFixture f;
++    SetUp(&f);
++    EXPECT_EQ(Send(&f, MP_SAVE_READ_WINDOW, 0), MP_SAVE_ORDER);
++    PrepareTrade(&f);
++    EXPECT_EQ(Send(&f, MP_SAVE_READ_WINDOW, 0), MP_SAVE_ORDER);
++    EXPECT_EQ(Send(&f, MP_SAVE_ABORT_TRADE, 0), MP_SAVE_OK);
++    TearDown(&f);
++}
++
++TEST("Multiplayer save window: expired ordinary snapshot cannot replay released buffer")
++{
++    struct TradeFixture f;
++    u32 i;
++    SetUp(&f);
++    EXPECT_EQ(Send(&f, MP_SAVE_BEGIN_EXPORT, 0), MP_SAVE_OK);
++    EXPECT_EQ(Send(&f, MP_SAVE_READ_WINDOW, 0), MP_SAVE_OK);
++    for (i = 0; i < 602; i++) MultiplayerSave_Tick();
++    EXPECT(!MultiplayerSave_IsHeld());
++    EXPECT_EQ(Submit(&f), MP_SAVE_ORDER);
++    TearDown(&f);
++}
++
+ static u8 BeginImport(struct TradeFixture *f)
+ {
+     f->command.revision = 8; f->command.commandSeq++;
+@@ -399,3 +472,33 @@ TEST("Multiplayer trade: ordinary checkpoint export and timeout retain their exi
+     EXPECT_EQ(gMultiplayerSaveMailbox.response.status, MP_SAVE_TIMEOUT);
+     TearDown(&f);
+ }
++
++TEST("Multiplayer save window: staging refuses and committed import readback releases exact CRC")
++{
++    struct TradeFixture f;
++    u32 i, crc = 0, identity;
++    SetUp(&f); PrepareTrade(&f);
++    identity = GetMonData(&gParties[B_TRAINER_PLAYER][0], MON_DATA_MULTIPLAYER_ID);
++    EXPECT_EQ(BeginImport(&f), MP_SAVE_OK);
++    EXPECT_EQ(Send(&f, MP_SAVE_READ_WINDOW, 0), MP_SAVE_ORDER);
++    for (i = 0; i < 131072; i += 128)
++        EXPECT_EQ(WriteSource(&f, i, FALSE), MP_SAVE_OK);
++    Send(&f, MP_SAVE_COMMIT, 0);
++    for (i = 0; i < 14; i++) MultiplayerSave_Tick();
++    EXPECT_EQ(gMultiplayerSaveMailbox.response.status, MP_SAVE_OK);
++    EXPECT_EQ(gMultiplayerSaveMailbox.state, MP_SAVE_COMMITTED);
++    for (i = 0; i < 131072; i += 4096)
++    {
++        EXPECT_EQ(Send(&f, MP_SAVE_READ_WINDOW, i), MP_SAVE_OK);
++        EXPECT_EQ(Word(gMultiplayerSaveMailbox.response.data), TestCrc(0, (u8 *)&gSaveDataBuffer, 4096));
++        crc = TestCrc(crc, (u8 *)&gSaveDataBuffer, 4096);
++    }
++    Send(&f, MP_SAVE_RELEASE_TRADE, 0);
++    EXPECT_EQ(gMultiplayerSaveMailbox.state, MP_SAVE_RELOADING);
++    FieldCallbacks(); MultiplayerSave_Tick();
++    EXPECT_EQ(gMultiplayerSaveMailbox.response.status, MP_SAVE_OK);
++    EXPECT_EQ(Word(gMultiplayerSaveMailbox.response.data), crc);
++    EXPECT_EQ(GetMonData(&gParties[B_TRAINER_PLAYER][0], MON_DATA_MULTIPLAYER_ID), identity);
++    EXPECT(!MultiplayerSave_IsHeld());
++    TearDown(&f);
++}

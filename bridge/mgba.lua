@@ -59,6 +59,21 @@ if battleEnabled then
         and emu:read32(cfg.battle_abi_address) == 1, "Invalid diagnostic battle capability")
 end
 local battlePending, battleGeneration, battleCapabilitySent = nil, nil, false
+local windowAddr = cfg.window_address
+local windowEnabled = windowAddr ~= nil or cfg.window_abi ~= nil or cfg.window_abi_address ~= nil or cfg.window_size ~= nil
+if windowEnabled then
+    assert(tradeEnabled and type(windowAddr) == "number" and windowAddr % 4 == 0
+        and windowAddr >= 0x02000000 and windowAddr + 4096 <= 0x02040000
+        and not (windowAddr < addr + 128 and addr < windowAddr + 4096)
+        and not (windowAddr < saveAddr + 512 and saveAddr < windowAddr + 4096)
+        and (not battleEnabled or not (windowAddr < battleAddr + 512 and battleAddr < windowAddr + 4096))
+        and cfg.window_size == 4096 and cfg.window_abi == 1
+        and type(cfg.window_abi_address) == "number" and cfg.window_abi_address % 4 == 0
+        and cfg.window_abi_address >= 0x08000000
+        and cfg.window_abi_address + 4 <= 0x08000000 + cfg.rom_size
+        and emu:read32(cfg.window_abi_address) == 1, "Invalid read-only save window")
+end
+local windowCapabilitySent = false
 local observedBattle, previousBattleFrame, previousBattleState = false, nil, nil
 local tick, lastConnect, stopped = 0, -120, false
 local observedPresence, previousFrame = false, nil
@@ -109,13 +124,14 @@ local function saveControl(payload, command)
     if inc == 0 or epoch == 0 or epoch > 0x7FFFFFFF or seq == 0
         or request == string.rep("\0", 16) or offset > 131072
         or (size ~= 0 and size ~= 131072) or revision > 0x7FFFFFFF
-        or opcode < 1 or opcode > (tradeEnabled and 17 or 11) or status > 13 or length > 192
+        or opcode < 1 or opcode > (windowEnabled and 18 or (tradeEnabled and 17 or 11)) or status > 13 or length > 192
         or data:sub(length + 1) ~= string.rep("\0", 192 - length)
         or crc32(data:sub(1, length)) ~= crc then return nil end
     if command then
-        local lengths = {0, 0, 0, 0, 16, 128, 0, 0, 0, 0, 60, 0, 0, 0, 0, 0, 0}
+        local lengths = {0, 0, 0, 0, 16, 128, 0, 0, 0, 0, 60, 0, 0, 0, 0, 0, 0, 0}
         if status ~= 0 or length ~= lengths[opcode] then return nil end
-        if opcode >= 12 and (size ~= 131072 or offset ~= 0) then return nil end
+        if opcode >= 12 and opcode <= 17 and (size ~= 131072 or offset ~= 0) then return nil end
+        if opcode == 18 and (size ~= 131072 or offset % 4096 ~= 0 or offset > 126976) then return nil end
         if opcode == 12 and (revision == 0 or revision >= 0x7FFFFFFF) then return nil end
         if opcode == 16 and seq ~= 1 then return nil end
         if (opcode == 3 or opcode == 6) and (size ~= 131072
@@ -125,9 +141,10 @@ local function saveControl(payload, command)
             if size ~= 131072 or rotation >= 14 then return nil end
         end
     else
-        local lengths = {0, 40, 128, 4, 8, 0, 0, 0, 48, 80, 80, 40, 48, 0, 4, 48, 48}
+        local lengths = {0, 40, 128, 4, 8, 0, 0, 0, 48, 80, 80, 40, 48, 0, 4, 48, 48, 4}
         if (status == 0 and length ~= lengths[opcode]) or (status ~= 0 and length ~= 0) then return nil end
         if status == 0 and opcode == 3 and (offset % 128 ~= 0 or offset > 130944) then return nil end
+        if status == 0 and opcode == 18 and (size ~= 131072 or offset % 4096 ~= 0 or offset > 126976) then return nil end
     end
     return {incarnation=inc, epoch=epoch, request=request, sequence=seq,
         opcode=opcode, revision=revision, offset=offset, size=size, status=status, payload=payload}
@@ -218,6 +235,7 @@ local function stop(reason, fatal)
     rx, tx, latestPose = "", "", nil
     controls, controlBurst = {}, 0
     savePending, saveGeneration, capabilitySent = nil, nil, false
+    windowCapabilitySent = false
     battlePending, battleGeneration, battleCapabilitySent = nil, nil, false
     commit(string.rep("\0", 88))
     if reason then
@@ -249,10 +267,21 @@ local function pollSave()
         or response.opcode ~= savePending.opcode or response.revision ~= savePending.revision
         or response.size ~= savePending.size then return end
     if response.status == 0 and ((response.opcode == 3 and response.offset ~= savePending.offset)
+        or (response.opcode == 18 and response.offset ~= savePending.offset)
         or (response.opcode == 6 and response.offset ~= savePending.offset + 128)) then
         stop("invalid save response offset", true); return
     end
-    if reliable("R" .. payload) then savePending = nil end
+    if response.opcode == 18 and response.status == 0 then
+        local state = emu:read32(saveAddr + 12)
+        if state ~= 2 and state ~= 6 then stop("save window no longer held", true); return end
+        local bytes = emu:readRange(windowAddr, 4096)
+        local expected = string.unpack("<I4", payload, 49)
+        if #bytes ~= 4096 or crc32(bytes) ~= expected
+            or generation ~= emu:read32(saveAddr + 268) or state ~= emu:read32(saveAddr + 12) then
+            stop("save window changed before readback", true); return
+        end
+        if reliable("F" .. payload .. bytes) then savePending = nil end
+    elseif reliable("R" .. payload) then savePending = nil end
 end
 
 local function pollBattle()
@@ -454,6 +483,7 @@ local function onFrame()
         sock, rx, tx = candidate, "", frame("H" .. token)
         controls, controlBurst = {}, 0
         savePending, saveGeneration, capabilitySent = nil, nil, false
+        windowCapabilitySent = false
         battlePending, battleGeneration, battleCapabilitySent = nil, nil, false
         console:log("Multiplayer bridge connected to local companion")
     end
@@ -465,6 +495,10 @@ local function onFrame()
     if battleHeaderReady() and not battleCapabilitySent then
         if not reliable("W" .. string.pack("<I2I2I2I2", 1, 512, 240, 192)) then return end
         battleCapabilitySent = true
+    end
+    if windowEnabled and saveHeaderReady() and capabilitySent and not windowCapabilitySent then
+        if not reliable("X" .. string.pack("<I2I2", 1, 4096)) then return end
+        windowCapabilitySent = true
     end
     receive()
     if not sock then return end

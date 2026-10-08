@@ -152,7 +152,26 @@ class LiveCheckpointCoordinator:
 
     async def _read_flash(self, session, operation_id, revision) -> bytes:
         payload = bytearray()
+        c = self.companion
+        window = (getattr(c.config, "save_window_enabled", False)
+                  and getattr(getattr(c, "_bridge", None), "window_capable", False))
         while len(payload) < FLASH_SIZE:
+            if window:
+                self._same_session(session)
+                if getattr(c, "_live_binding", None) != session:
+                    raise ConnectionError("ROM save binding changed")
+                c._live_sequence += 1
+                if c._live_sequence > MAX_COUNTER:
+                    raise LiveSaveError("counter_exhausted", "reconnect before issuing another save command")
+                command = SaveControl(session[2], session[1], operation_id, c._live_sequence,
+                                      len(payload), FLASH_SIZE, revision, Opcode.READ_WINDOW)
+                response, chunk = await c.save_window_rpc(command)
+                self._same_session(session)
+                self._ok(response)
+                if response.offset != len(payload) or len(chunk) != 4096 or struct.unpack("<I", response.data)[0] != zlib.crc32(chunk):
+                    raise LiveSaveError("read_position", "the game returned an unexpected Flash window")
+                payload.extend(chunk)
+                continue
             response = await self._command(session, operation_id, revision, Opcode.READ, offset=len(payload))
             if response.offset != len(payload) or len(response.data) != SAVE_CHUNK_SIZE:
                 raise LiveSaveError("read_position", "the game returned an unexpected Flash chunk")

@@ -30,6 +30,7 @@ from .protocol import (
 from .server import is_local_address
 from .secure_transport import ClientTlsConfig, is_numeric_unicast_address
 from .battle_manifest import validate_battle_manifest
+from .save_window import validate_window_manifest, WINDOW_FRAME_SIZE
 
 BASELINE_RULESET = "baseline-rhh1.17.1-mailbox-v1"
 _UINT32 = 0xFFFFFFFF
@@ -115,6 +116,7 @@ def verify_rom_manifest(rom_path: Path, manifest_path: Path) -> tuple[str, dict[
             if source.read(4) != b"\x01\x00\x00\x00":
                 raise ValueError("trade capability marker does not match the verified ROM")
     validate_battle_manifest(manifest, rom_path)
+    validate_window_manifest(manifest, rom_path)
     return actual_hash, manifest
 
 
@@ -147,6 +149,7 @@ class CompanionConfig:
     ownership_enabled: bool = field(init=False, default=False)
     trade_enabled: bool = field(init=False, default=False)
     battle_enabled: bool = field(init=False, default=False)
+    save_window_enabled: bool = field(init=False, default=False)
 
     def __post_init__(self) -> None:
         rom_path, manifest_path = Path(self.rom_path).resolve(), Path(self.manifest_path).resolve()
@@ -158,6 +161,7 @@ class CompanionConfig:
         object.__setattr__(self, "ownership_enabled", manifest.get("ownership_abi_version") == 1)
         object.__setattr__(self, "trade_enabled", manifest.get("trade_abi_version") == 1)
         object.__setattr__(self, "battle_enabled", manifest.get("battle_abi_version") == 1)
+        object.__setattr__(self, "save_window_enabled", manifest.get("save_window_abi_version") == 1)
         if type(self.development_battle_channel) is not bool:
             raise ValueError("development_battle_channel must be a boolean")
         if self.development_battle_channel and (not self.battle_enabled or self.server_credential is None):
@@ -295,6 +299,7 @@ class BridgeSession:
     incarnation: int
     writer_task: asyncio.Task[None] | None = None
     save_capable: bool = False
+    window_capable: bool = False
     battle_capable: bool = False
 
 
@@ -417,7 +422,7 @@ class Companion:
             bridge.writer_task = asyncio.create_task(self._write_bridge(bridge), name="companion-bridge-writer")
             self._publish_snapshot()
             while not writer.is_closing():
-                packet = await read_packet(reader)
+                packet = await read_packet(reader, maximum=WINDOW_FRAME_SIZE if self.config.save_window_enabled else 256)
                 if packet is None:
                     break
                 if packet[:1] == b"V":
@@ -429,6 +434,22 @@ class Companion:
                     if not bridge.save_capable:
                         raise BridgeError("save response arrived before its verified capability")
                     self._receive_save_response(packet[1:], bridge)
+                    continue
+                if packet[:1] == b"X":
+                    from .save_window import capability_packet
+                    if not bridge.save_capable or not self.config.save_window_enabled or packet != capability_packet():
+                        raise BridgeError("save window disagrees with verified manifest")
+                    bridge.window_capable = True
+                    continue
+                if packet[:1] == b"F":
+                    from .save_window import parse_window_packet
+                    if not bridge.window_capable:
+                        raise BridgeError("save window arrived before its verified capability")
+                    try:
+                        response, window = parse_window_packet(packet)
+                    except ValueError as error:
+                        raise BridgeError("invalid Flash window") from error
+                    self._receive_save_response(response.pack(), bridge, window=window)
                     continue
                 if packet[:1] == b"W":
                     from .battle_mailbox import capability_packet
@@ -520,13 +541,28 @@ class Companion:
 
     async def save_rpc(self, control: Any, *, timeout: float = 12.0):
         """One reliable command to the ROM-owned save mailbox, never save RAM."""
+        from .save_mailbox import Opcode
+        if getattr(control, "opcode", None) == Opcode.READ_WINDOW:
+            self._guard_pending_trade_mutation()
+            raise ValueError("use save_window_rpc for the separately verified read-only window")
+        return await self._save_rpc(control, timeout=timeout)
+
+    async def save_window_rpc(self, control, *, timeout=12.0):
+        from .save_mailbox import Opcode
+        self._guard_pending_trade_mutation()
+        if (getattr(control, "opcode", None) != Opcode.READ_WINDOW or not self.config.save_window_enabled
+                or self._bridge is None or not self._bridge.window_capable):
+            raise ValueError("read window requires its verified capability and opcode")
+        return await self._save_rpc(control, timeout=timeout)
+
+    async def _save_rpc(self, control, *, timeout):
         from .save_mailbox import Opcode, SaveControl
         if not isinstance(control, SaveControl):
             raise ValueError("save command must be a validated SaveControl")
         control.validate_command()
         if control.opcode not in {Opcode.QUERY, Opcode.QUERY_OWNERSHIP, Opcode.QUERY_TRADE}:
             self._guard_pending_trade_mutation()
-        if control.opcode >= Opcode.BEGIN_TRADE_EXPORT and not self.config.trade_enabled:
+        if Opcode.BEGIN_TRADE_EXPORT <= control.opcode <= Opcode.QUERY_TRADE and not self.config.trade_enabled:
             raise ValueError("the verified game build has no trade hold capability")
         bridge = self._bridge
         if (not self.connected or bridge is None or not bridge.save_capable
@@ -544,8 +580,8 @@ class Companion:
             if not future.done():
                 future.cancel()
 
-    def _receive_save_response(self, payload: bytes, bridge: BridgeSession) -> None:
-        from .save_mailbox import SaveControl
+    def _receive_save_response(self, payload: bytes, bridge: BridgeSession, *, window=None) -> None:
+        from .save_mailbox import SaveControl, Opcode, Status
         try:
             response = SaveControl.unpack(payload).validate_response()
         except ValueError as error:
@@ -557,8 +593,14 @@ class Companion:
         fields = ("incarnation", "session_epoch", "request_id", "sequence", "total_size", "revision", "opcode")
         if bridge is not self._bridge or any(getattr(response, key) != getattr(command, key) for key in fields):
             raise BridgeError("live-save response does not match its request")
+        if response.opcode == Opcode.READ_WINDOW:
+            if ((response.status == Status.OK and (window is None or response.offset != command.offset))
+                    or (response.status != Status.OK and window is not None)):
+                raise BridgeError("read window response lacks its matching bounded bytes")
+        elif window is not None:
+            raise BridgeError("unexpected Flash window for another save command")
         if not future.done():
-            future.set_result(response)
+            future.set_result((response, window or b"") if response.opcode == Opcode.READ_WINDOW else response)
 
     @property
     def battle_incarnation(self) -> int:

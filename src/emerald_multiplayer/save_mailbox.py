@@ -51,6 +51,7 @@ class Opcode(IntEnum):
     RELEASE_TRADE = 15
     REBIND_TRADE = 16
     QUERY_TRADE = 17
+    READ_WINDOW = 18
 
 
 class Status(IntEnum):
@@ -148,7 +149,7 @@ class SaveControl:
                    Opcode.QUERY_OWNERSHIP: 0, Opcode.GRANT_OWNERSHIP: 60,
                    Opcode.BEGIN_TRADE_EXPORT: 0, Opcode.KEEP_TRADE: 0,
                    Opcode.ABORT_TRADE: 0, Opcode.RELEASE_TRADE: 0,
-                   Opcode.REBIND_TRADE: 0, Opcode.QUERY_TRADE: 0}
+                   Opcode.REBIND_TRADE: 0, Opcode.QUERY_TRADE: 0, Opcode.READ_WINDOW: 0}
         if self.status != Status.OK or self.length != lengths[self.opcode]:
             raise SaveMailboxError("save command status or data length is invalid")
         if self.opcode in (Opcode.READ, Opcode.WRITE) and (self.total_size != FLASH_SIZE
@@ -158,12 +159,15 @@ class SaveControl:
             _, _, rotation, _ = struct.unpack("<IIII", self.data)
             if rotation >= 14 or self.total_size != FLASH_SIZE:
                 raise SaveMailboxError("import source rotation or size is invalid")
-        if self.opcode >= Opcode.BEGIN_TRADE_EXPORT and (self.total_size != FLASH_SIZE or self.offset != 0):
+        if Opcode.BEGIN_TRADE_EXPORT <= self.opcode <= Opcode.QUERY_TRADE and (self.total_size != FLASH_SIZE or self.offset != 0):
             raise SaveMailboxError("trade controls require canonical Flash size and zero request offset")
         if self.opcode == Opcode.BEGIN_TRADE_EXPORT and not 1 <= self.revision < MAX_COUNTER:
             raise SaveMailboxError("trade preparation must leave capacity for the paired revision")
         if self.opcode == Opcode.REBIND_TRADE and self.sequence != 1:
             raise SaveMailboxError("trade rebind must restart the command sequence")
+        if self.opcode == Opcode.READ_WINDOW and (self.total_size != FLASH_SIZE or self.offset % 4096
+                                                   or self.offset > FLASH_SIZE - 4096):
+            raise SaveMailboxError("Flash window must be aligned and within canonical Flash")
         return self
 
     def validate_response(self) -> SaveControl:
@@ -173,12 +177,15 @@ class SaveControl:
                    Opcode.QUERY_OWNERSHIP: 80, Opcode.GRANT_OWNERSHIP: 80,
                    Opcode.BEGIN_TRADE_EXPORT: 40, Opcode.KEEP_TRADE: 48,
                    Opcode.ABORT_TRADE: 0, Opcode.RELEASE_TRADE: 4,
-                   Opcode.REBIND_TRADE: 48, Opcode.QUERY_TRADE: 48}
+                   Opcode.REBIND_TRADE: 48, Opcode.QUERY_TRADE: 48, Opcode.READ_WINDOW: 4}
         if self.length != (lengths[self.opcode] if self.status == Status.OK else 0):
             raise SaveMailboxError("save response data length is invalid")
         if self.status == Status.OK and self.opcode == Opcode.READ and (self.total_size != FLASH_SIZE
                 or self.offset % SAVE_CHUNK_SIZE or self.offset > FLASH_SIZE - SAVE_CHUNK_SIZE):
             raise SaveMailboxError("read response does not contain one aligned Flash chunk")
+        if self.status == Status.OK and self.opcode == Opcode.READ_WINDOW and (self.total_size != FLASH_SIZE
+                or self.offset % 4096 or self.offset > FLASH_SIZE - 4096):
+            raise SaveMailboxError("read window response is outside canonical Flash")
         return self
 
 
