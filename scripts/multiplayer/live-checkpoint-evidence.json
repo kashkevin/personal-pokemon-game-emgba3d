@@ -1,0 +1,203 @@
+{
+  "recorded_date": "2026-10-07",
+  "scope": "two actual libmGBA ROM cores on localhost; explicit live checkpoint/recovery",
+  "engine_commit": "d18dd9320cc0fefab50855e55415260e82d69c65",
+  "rom_sha256": "6aa83dbf923d8fda52dc6d81c92e6b6a6ed6678acb758423437baa4793b9944a",
+  "elf_sha256": "4826baa4168a983675a187fba57faaf45a6c3281fe94606073afd3760525672f",
+  "mgba_commit": "26b7884bc25a5933960f3cdcd98bac1ae14d42e2",
+  "ruleset_id": "baseline-rhh1.17.1-mailbox-v1",
+  "save_profile": "rhh-1.17.1-bb1093-presence-v1",
+  "external_RAM_writes": "declared presence inbound and dedicated save command mailboxes only",
+  "save_transfer_bytes": 131072,
+  "savestates": false,
+  "native_RTC_footer": "excluded from live canonical payload; frontend retains normal ownership",
+  "patch_sha256": "11b2bfb2f7050b2045175202c9c7b6d1e43430ade039384a30786b84aa7e3fff",
+  "runs": [
+    {
+      "run": 2,
+      "checks": [
+        {
+          "name": "two-real-live-mailbox-clients"
+        },
+        {
+          "name": "unsafe-menu-refused-without-Flash-or-server-change"
+        },
+        {
+          "name": "lost-BIND-ACK-exact-retry-and-stale-rebinding-fenced"
+        },
+        {
+          "name": "export-freezes-own-RNG-playtime-and-gameplay-other-player-moves",
+          "other_positions": [
+            [
+              4,
+              9
+            ],
+            [
+              5,
+              9
+            ]
+          ]
+        },
+        {
+          "name": "live-export-server-commit-with-other-player-running",
+          "seconds": 16.557
+        },
+        {
+          "name": "partial-import-cancel-and-exact-duplicate-preserve-current-player"
+        },
+        {
+          "name": "ROM-idle-watchdog-discards-staging-and-resumes-only-own-game"
+        },
+        {
+          "name": "wrong-trainer-and-whole-stream-CRC-rejected-before-publication"
+        },
+        {
+          "name": "canonical-recovery-without-core-restart-or-lease-change",
+          "seconds": 34.752
+        },
+        {
+          "name": "normal-mGBA-writeback-preserves-applied-Flash-and-native-RTC-footer"
+        },
+        {
+          "name": "fresh-Continue-confirms-durable-live-recovery"
+        },
+        {
+          "name": "native-game-soft-reboot-rebinds-live-save-without-dropping-other-player",
+          "previous_incarnation": 2,
+          "current_incarnation": 3,
+          "revisions": [
+            3,
+            1
+          ]
+        }
+      ],
+      "live_recovered_positions": [
+        [
+          5,
+          11
+        ],
+        [
+          4,
+          9
+        ]
+      ],
+      "fresh_Continue_positions": [
+        [
+          5,
+          11
+        ],
+        [
+          5,
+          9
+        ]
+      ],
+      "party_sha256": [
+        "ea2e12f4b6d07b3671cf63dea746d60fed5f19aef1f512cbe8cdd8ee478f87bd",
+        "e782bfe3ee232868110c3130b411330f3cc44261563ee6292b21b6c4f6c18089"
+      ],
+      "canonical_flash_sha256": "db91ada3b480fdd9b10d810d1c04833525254849ebafebfb2897f6f614167bc6",
+      "actual_rom_flash_sha256": "b75aba394a869664ccd2166056269fd9bc20f79d782ecffb1e76228ad380fe4a",
+      "normalized_state_sha256": "95565d6da640939ce99b37a49bd32a022653cfc3176a461ef1d0a9c63f9f80eb",
+      "live_recovery_same_processes": true,
+      "live_recovery_same_world_leases": true,
+      "final_revisions": [
+        3,
+        1
+      ],
+      "private_database_backup_integrity": "ok"
+    },
+    {
+      "run": 3,
+      "checks": [
+        {
+          "name": "two-real-live-mailbox-clients"
+        },
+        {
+          "name": "unsafe-menu-refused-without-Flash-or-server-change"
+        },
+        {
+          "name": "lost-BIND-ACK-exact-retry-and-stale-rebinding-fenced"
+        },
+        {
+          "name": "export-freezes-own-RNG-playtime-and-gameplay-other-player-moves",
+          "other_positions": [
+            [
+              4,
+              9
+            ],
+            [
+              5,
+              9
+            ]
+          ]
+        },
+        {
+          "name": "live-export-server-commit-with-other-player-running",
+          "seconds": 17.057
+        },
+        {
+          "name": "partial-import-cancel-and-exact-duplicate-preserve-current-player"
+        },
+        {
+          "name": "ROM-idle-watchdog-discards-staging-and-resumes-only-own-game"
+        },
+        {
+          "name": "wrong-trainer-and-whole-stream-CRC-rejected-before-publication"
+        },
+        {
+          "name": "canonical-recovery-without-core-restart-or-lease-change",
+          "seconds": 34.274
+        },
+        {
+          "name": "normal-mGBA-writeback-preserves-applied-Flash-and-native-RTC-footer"
+        },
+        {
+          "name": "fresh-Continue-confirms-durable-live-recovery"
+        },
+        {
+          "name": "native-game-soft-reboot-rebinds-live-save-without-dropping-other-player",
+          "previous_incarnation": 2,
+          "current_incarnation": 3,
+          "revisions": [
+            3,
+            1
+          ]
+        }
+      ],
+      "live_recovered_positions": [
+        [
+          5,
+          11
+        ],
+        [
+          4,
+          9
+        ]
+      ],
+      "fresh_Continue_positions": [
+        [
+          5,
+          11
+        ],
+        [
+          5,
+          9
+        ]
+      ],
+      "party_sha256": [
+        "ea2e12f4b6d07b3671cf63dea746d60fed5f19aef1f512cbe8cdd8ee478f87bd",
+        "e782bfe3ee232868110c3130b411330f3cc44261563ee6292b21b6c4f6c18089"
+      ],
+      "canonical_flash_sha256": "700adcbb01ab00b36a99da193691eb7a18421067d03288b9d0e08ab9809d29bd",
+      "actual_rom_flash_sha256": "3104e2fe8a3b9a97f283f7c098eb1d6e72ef24ba4894e7c26d8eb268730d1713",
+      "normalized_state_sha256": "00448177384d2a72de13dcfb66fab612483634e97e96d3b7a38ea7a545a982cb",
+      "live_recovery_same_processes": true,
+      "live_recovery_same_world_leases": true,
+      "final_revisions": [
+        3,
+        1
+      ],
+      "private_database_backup_integrity": "ok"
+    }
+  ]
+}

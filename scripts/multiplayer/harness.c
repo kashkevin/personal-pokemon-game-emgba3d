@@ -90,10 +90,21 @@ int main(int argc, char** argv) {
             printf("READ %08x ", address);
             for (unsigned i = 0; i < length; ++i) printf("%02x", core->busRead8(core, address + i));
             fputc('\n', stdout);
+        } else if (sscanf(line, "D %899s", path) == 1 && strstr(path, "/multiplayer-proof/")) {
+            /* Read-only verification through the official core API. A new
+             * diagnostic file is required; an active save is never replaced. */
+            void* flash = NULL;
+            size_t size = core->savedataClone(core, &flash);
+            struct VFile* file = size == 131072 && flash
+                ? VFileOpen(path, O_WRONLY | O_CREAT | O_EXCL) : NULL;
+            bool ok = file && file->write(file, flash, size) == (ssize_t) size;
+            if (file) file->close(file);
+            free(flash);
+            printf("FLASH %s %zu %s\n", ok ? "OK" : "FAILED", size, path);
         } else if (line[0] == 'Q') {
             break;
         } else {
-            puts("ERROR commands: F keymask_hex frames; P png_path; R address_hex bytes; Q");
+            puts("ERROR commands: F keymask_hex frames; P png_path; R address_hex bytes; D new_private_flash_path; Q");
         }
     }
     mScriptContextTriggerCallback(&script, "shutdown");

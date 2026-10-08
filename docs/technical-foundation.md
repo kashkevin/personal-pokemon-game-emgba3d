@@ -179,7 +179,7 @@ For wagers, the server records each player's explicitly agreed stake in escrow, 
 
 ## Individual saves and world persistence
 
-Implemented checkpoint status: the [Phase 3 foundation](phase3-checkpoints.md) now stores authenticated, revisioned ordinary saves in SQLite and verifies recovery before a fresh game boots. Two actual-ROM runs passed normal save, host restart, stale-save refusal, damaged-mirror recovery, and independent party/position checks. Safe live ROM export/import and shared ownership transactions remain ahead; the policies below retain their existing proposed status.
+Implemented checkpoint status: the [Phase 3 foundation](phase3-checkpoints.md) stores authenticated, revisioned ordinary saves in SQLite and verifies closed-game recovery. The subsequent [live ROM slice](phase3-live-checkpoints.md) passed two complete actual-ROM export/import and fresh-Continue proofs while the other player kept moving. Shared ownership identities and transactions remain ahead; the policies below retain their existing proposed status.
 
 Retain Emerald's normal checksummed save pipeline, but distinguish **canonical multiplayer checkpoints**, **local `.sav` mirrors**, and **emulator savestates**. A savestate is a debugging tool, not a multiplayer database. A local older save must never overwrite a newer server transaction.
 

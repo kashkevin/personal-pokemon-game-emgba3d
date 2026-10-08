@@ -4,6 +4,8 @@ This adapter belongs to the independent-player movement proof. It adds a bounded
 
 The adapter's localhost two-client checkpoint is verified at engine commit `37ca07e1c623dda5aea7ac7c68de588e48e52c94`. The actual mGBA/Lua/server results and their Windows/LAN/four-client limits are recorded in [the Phase 2 report](phase2-presence.md).
 
+Phase 3 retains this presence ABI and adds a separate [live-save mailbox](phase3-live-checkpoints.md). Its bridge detects ordinary ROM reinitialization and obtains a new IPC incarnation before sending further commands. This document continues to describe the original presence allocation and its source checkpoint.
+
 ## Source and ownership
 
 The source baseline is RHH commit `bb1093a7c72d3961d9a37d8e02ad2abc2c866682`, preserved at the `BASELINE_BUILD` tag. Presence work is isolated in `/home/kevin/src/pokemon/engine-multiplayer`, branch `codex/multiplayer-poc`. The normal baseline checkout and archived baseline ROM remain separate.

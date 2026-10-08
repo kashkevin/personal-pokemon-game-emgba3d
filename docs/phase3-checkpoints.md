@@ -2,6 +2,8 @@
 
 This slice implements authenticated, revisioned server checkpoints and recovery of ordinary game saves while the emulator is closed. It advances the existing Phase 3 plan. It does not complete the live ROM export/import path or change the accepted save architecture and gameplay policies.
 
+This is the preserved `DURABLE_CHECKPOINT_POC` record. The subsequent [live checkpoint slice](phase3-live-checkpoints.md) now verifies explicit ROM export/import with running cores; the closed-game tools and their boundaries below remain supported.
+
 ## Implemented boundaries
 
 - Each provisioned player has a server-issued UUID and a private 32-byte credential. The server stores the credential hash. One active lease owns that player's checkpoint operations.
@@ -26,7 +28,7 @@ The current save profile is `rhh-1.17.1-bb1093-presence-v1`. This remains the ba
 
 ## Work remaining
 
-The live ROM save/export/import handshake must freeze the appropriate player mutations, stream a coherent state, apply a canonical revision safely, and acknowledge completion. Per-Pokémon ownership identities and transaction hooks remain necessary before trade, shared rewards, or economy changes. Do not infer a trade guarantee from ordinary save storage alone.
+The subsequent [live ROM handshake](phase3-live-checkpoints.md) now freezes ordinary field mutations, streams coherent state, applies a canonical revision, and acknowledges completion. Its special-sector and fatal-Flash-error limits remain explicit. Per-Pokémon ownership identities and transaction hooks remain necessary before trade, shared rewards, or economy changes. Do not infer a trade guarantee from ordinary save storage alone.
 
 Autosave frequency, server-loss/local-play behavior, interrupted battle policy, and remote-avatar collision remain unresolved. This slice chooses none of those policies. Windows GUI integration, four actual ROM clients, LAN/Internet acceptance, transport encryption, and the downloadable Host/Join package still need implementation and testing.
 

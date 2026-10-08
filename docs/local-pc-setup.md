@@ -1,6 +1,6 @@
 # Downloadable Windows game and PC hosting
 
-The delivery target is a downloadable Windows game for **four players total: the host and three friends**. The owner's PC hosts through home Wi-Fi and router port forwarding. The player package and launcher remain future work. Actual two-ROM multiplayer movement and local save/reload now pass on localhost through the server, companions, and bridge. Windows GUI/LAN and Internet hosting still need testing. The unchanged engine also builds reproducibly and passed ordinary gameplay/save checks. See [the baseline build record](baseline-build.md) and [Phase 2 evidence](phase2-presence.md).
+The delivery target is a downloadable Windows game for **four players total: the host and three friends**. The owner's PC hosts through home Wi-Fi and router port forwarding. The player package and launcher remain future work. Actual two-ROM movement, durable server checkpoints, and live save/recovery now pass on localhost through the server, companions, and bridge. Windows GUI/LAN and Internet hosting still need testing. The unchanged engine also builds reproducibly and passed ordinary gameplay/save checks. See [the baseline build record](baseline-build.md), [Phase 2 evidence](phase2-presence.md), and [live checkpoint limits](phase3-live-checkpoints.md).
 
 ## Player experience
 
