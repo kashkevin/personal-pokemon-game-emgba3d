@@ -1,0 +1,636 @@
+diff --git a/data/maps/NewMauville_Inside/scripts.inc b/data/maps/NewMauville_Inside/scripts.inc
+index 244eea436f..3e69efa020 100644
+--- a/data/maps/NewMauville_Inside/scripts.inc
++++ b/data/maps/NewMauville_Inside/scripts.inc
+@@ -176,6 +176,9 @@ NewMauville_Inside_EventScript_GeneratorOff::
+ NewMauville_Inside_EventScript_Voltorb1::
+ 	lock
+ 	faceplayer
++#if MP_LOCAL_RESET_NEW_MAUVILLE_PILOT || TESTING
++	special MultiplayerStaticReset_BeginVoltorb1
++#endif
+ 	setwildbattle SPECIES_VOLTORB, 25
+ 	waitse
+ 	playmoncry SPECIES_VOLTORB, CRY_MODE_ENCOUNTER
+@@ -183,7 +186,12 @@ NewMauville_Inside_EventScript_Voltorb1::
+ 	waitmoncry
+ 	setflag FLAG_SYS_CTRL_OBJ_DELETE
+ 	dowildbattle
++NewMauville_Inside_EventScript_Voltorb1Return::
+ 	clearflag FLAG_SYS_CTRL_OBJ_DELETE
++#if MP_LOCAL_RESET_NEW_MAUVILLE_PILOT || TESTING
++	special MultiplayerLocalReset_ConsumeResult
++	goto_if_eq VAR_RESULT, TRUE, NewMauville_Inside_EventScript_Voltorb1ResetReturn
++#endif
+ 	specialvar VAR_RESULT, GetBattleOutcome
+ 	goto_if_eq VAR_RESULT, B_OUTCOME_WON, NewMauville_Inside_EventScript_DefeatedVoltorb1
+ 	goto_if_eq VAR_RESULT, B_OUTCOME_RAN, NewMauville_Inside_EventScript_DefeatedVoltorb1
+@@ -192,6 +200,14 @@ NewMauville_Inside_EventScript_Voltorb1::
+ 	release
+ 	end
+ 
++#if MP_LOCAL_RESET_NEW_MAUVILLE_PILOT || TESTING
++NewMauville_Inside_EventScript_Voltorb1ResetReturn::
++	@ Dedicated accepted-reset result: no defeat/catch/hide/generator writes.
++	@ The ordinary map resume callback has already reapplied barrier state.
++	release
++	end
++#endif
++
+ NewMauville_Inside_EventScript_DefeatedVoltorb1::
+ 	setflag FLAG_DEFEATED_VOLTORB_1_NEW_MAUVILLE
+ 	goto Common_EventScript_RemoveStaticPokemon
+diff --git a/data/specials.inc b/data/specials.inc
+index 3b61309b19..08096e28b3 100644
+--- a/data/specials.inc
++++ b/data/specials.inc
+@@ -641,3 +641,4 @@ gSpecials::
+ 	def_special MultiplayerLocalReset_BeginDevelopmentHunt
+ 	def_special MultiplayerLocalReset_ConsumeResult
+ 	def_special MultiplayerLocalReset_Finish
++	def_special MultiplayerStaticReset_BeginVoltorb1
+diff --git a/include/config/multiplayer_local_reset.h b/include/config/multiplayer_local_reset.h
+index f5ae095a93..3591ea0910 100644
+--- a/include/config/multiplayer_local_reset.h
++++ b/include/config/multiplayer_local_reset.h
+@@ -4,4 +4,9 @@
+ #ifndef MP_LOCAL_RESET_DEVELOPMENT
+ #define MP_LOCAL_RESET_DEVELOPMENT 0
+ #endif
++// One production-script pilot, still off pending ordinary-route acceptance.
++#ifndef MP_LOCAL_RESET_NEW_MAUVILLE_PILOT
++#define MP_LOCAL_RESET_NEW_MAUVILLE_PILOT 0
++#endif
++#define MP_LOCAL_RESET_ENABLED (MP_LOCAL_RESET_DEVELOPMENT || MP_LOCAL_RESET_NEW_MAUVILLE_PILOT || TESTING)
+ #endif
+diff --git a/include/constants/vars.h b/include/constants/vars.h
+index 7992ae09a4..9c84bfccda 100644
+--- a/include/constants/vars.h
++++ b/include/constants/vars.h
+@@ -270,9 +270,9 @@
+ #define VAR_UNUSED_0x40F8                                0x40F8 // Unused Var
+ #define VAR_UNUSED_0x40F9                                0x40F9 // Unused Var
+ #define VAR_UNUSED_0x40FA                                0x40FA // Unused Var
+-#define VAR_UNUSED_0x40FB                                0x40FB // Unused Var
+-#define VAR_UNUSED_0x40FC                                0x40FC // Unused Var
+-#define VAR_UNUSED_0x40FD                                0x40FD // Unused Var
++#define VAR_MP_VOLTORB_1_RESET_VERSION                   0x40FB // Hoenn pilot: zero or MP_STATIC_RESET_VERSION_1
++#define VAR_MP_VOLTORB_1_RESET_COUNT_LO                  0x40FC
++#define VAR_MP_VOLTORB_1_RESET_COUNT_HI                  0x40FD
+ #define VAR_UNUSED_0x40FE                                0x40FE // Unused Var
+ #define VAR_UNUSED_0x40FF                                0x40FF // Unused Var
+ 
+diff --git a/include/multiplayer_static_reset.h b/include/multiplayer_static_reset.h
+new file mode 100644
+index 0000000000..15b764610e
+--- /dev/null
++++ b/include/multiplayer_static_reset.h
+@@ -0,0 +1,15 @@
++#ifndef GUARD_MULTIPLAYER_STATIC_RESET_H
++#define GUARD_MULTIPLAYER_STATIC_RESET_H
++
++#define MP_STATIC_RESET_VOLTORB_1 0x1001
++#define MP_STATIC_RESET_VERSION_1 0x5601
++
++// Internal adapter for exactly one authored personal encounter. No generic
++// wild/event enrollment; the common reset core owns the connection/action gates.
++bool32 MultiplayerStaticReset_EntryReady(u32 encounterId);
++bool32 MultiplayerStaticReset_AdvanceAttempt(u32 encounterId);
++bool32 MultiplayerStaticReset_GuardMatches(u32 encounterId);
++u32 MultiplayerStaticReset_Count(void);
++void MultiplayerStaticReset_BeginVoltorb1(void);
++
++#endif
+diff --git a/src/battle_setup.c b/src/battle_setup.c
+index bd3357d73e..367ec42997 100644
+--- a/src/battle_setup.c
++++ b/src/battle_setup.c
+@@ -727,6 +727,9 @@ static void CB2_EndScriptedWildBattle(void)
+         SetMainCallback2(CB2_ReturnToFieldContinueScriptPlayMapMusic);
+         return;
+     }
++    // Nonreset exits (including whiteout) must not leave an armed encounter
++    // behind for a later unrelated battle. Accepted results survive to script.
++    MultiplayerLocalReset_Finish();
+     CpuFill16(0, (void *)(BG_PLTT), BG_PLTT_SIZE);
+     ResetOamRange(0, 128);
+ 
+diff --git a/src/multiplayer_local_reset.c b/src/multiplayer_local_reset.c
+index 7a77027bef..1cd14e9d2a 100644
+--- a/src/multiplayer_local_reset.c
++++ b/src/multiplayer_local_reset.c
+@@ -1,6 +1,7 @@
+ #include "global.h"
+ #include "config/battle.h"
+ #include "multiplayer_local_reset.h"
++#include "multiplayer_static_reset.h"
+ #include "multiplayer_save.h"
+ #include "multiplayer_ownership.h"
+ #include "multiplayer.h"
+@@ -32,10 +33,11 @@ struct LocalResetGuard {
+ };
+ static EWRAM_DATA struct LocalResetGuard sLocalResetGuard;
+ static EWRAM_DATA u32 sLocalResetSession, sLocalResetIncarnation, sLocalResetRosterEpoch;
++static EWRAM_DATA u32 sLocalResetEncounterId;
+ static EWRAM_DATA bool8 sLocalResetActive, sLocalResetWindow, sLocalResetRequested, sLocalResetConfirming, sLocalResetAccepted, sLocalResetClosed, sLocalResetChordHeld;
+ static EWRAM_DATA u8 sLocalResetCursor;
+ static const u8 sLocalResetPrompt[] = _("Reset this encounter?");
+-#if MP_LOCAL_RESET_DEVELOPMENT || TESTING
++#if MP_LOCAL_RESET_ENABLED
+ static const u8 sLocalResetActionPrompt[] = _("Choose an action\nSELECT: Reset");
+ #endif
+ 
+@@ -57,7 +59,7 @@ static bool32 BindingReady(void)
+         && !MultiplayerBattle_IsActive();
+ }
+ 
+-#if MP_LOCAL_RESET_DEVELOPMENT || TESTING
++#if MP_LOCAL_RESET_ENABLED
+ static void CopyPocket(struct ItemSlot *target, const struct ItemSlot *source, u32 count)
+ {
+     u16 key = gSaveBlock2Ptr->encryptionKey;
+@@ -103,13 +105,16 @@ static bool32 GuardMatches(void)
+         && Hash(gPokemonStoragePtr, sizeof(*gPokemonStoragePtr)) == sLocalResetGuard.storageHash
+         && Hash(&gSaveBlock1Ptr->daycare, sizeof(gSaveBlock1Ptr->daycare)) == sLocalResetGuard.daycareHash
+         && Hash(&gSaveBlock3Ptr->ownership, sizeof(gSaveBlock3Ptr->ownership)) == sLocalResetGuard.ownershipHash
+-        && VarGet(MP_LOCAL_RESET_CAPTURED) == 0;
++        && (sLocalResetEncounterId == MP_LOCAL_RESET_DEVELOPMENT_ID
++            ? VarGet(MP_LOCAL_RESET_CAPTURED) == 0
++            : MultiplayerStaticReset_GuardMatches(sLocalResetEncounterId));
+ }
+ 
+ void MultiplayerLocalReset_Init(void)
+ {
+     sLocalResetActive = sLocalResetWindow = sLocalResetRequested = sLocalResetConfirming = sLocalResetAccepted = sLocalResetClosed = FALSE;
+     sLocalResetSession = sLocalResetIncarnation = sLocalResetRosterEpoch = 0; sLocalResetChordHeld = FALSE;
++    sLocalResetEncounterId = 0;
+ }
+ 
+ u32 MultiplayerLocalReset_Count(void)
+@@ -117,7 +122,18 @@ u32 MultiplayerLocalReset_Count(void)
+     return VarGet(MP_LOCAL_RESET_COUNTER_LO) | (u32)VarGet(MP_LOCAL_RESET_COUNTER_HI) << 16;
+ }
+ 
++#if MP_LOCAL_RESET_ENABLED
++static bool32 SourceReady(u32 encounterId)
++{
+ #if MP_LOCAL_RESET_DEVELOPMENT || TESTING
++    if (encounterId == MP_LOCAL_RESET_DEVELOPMENT_ID)
++        return gSaveBlock1Ptr->location.mapGroup == MAP_GROUP(MAP_LITTLEROOT_TOWN)
++            && gSaveBlock1Ptr->location.mapNum == MAP_NUM(MAP_LITTLEROOT_TOWN)
++            && gSpecialVar_LastTalked == 3 && VarGet(MP_LOCAL_RESET_CAPTURED) == 0;
++#endif
++    return MultiplayerStaticReset_EntryReady(encounterId);
++}
++
+ static bool32 HasUsableParty(void)
+ {
+     u32 slot;
+@@ -134,29 +150,35 @@ static bool32 HasUsableParty(void)
+ 
+ bool32 MultiplayerLocalReset_TryBegin(u32 encounterId)
+ {
+-#if MP_LOCAL_RESET_DEVELOPMENT || TESTING
++#if MP_LOCAL_RESET_ENABLED
+     u32 count;
+-    if (encounterId != MP_LOCAL_RESET_DEVELOPMENT_ID || sLocalResetActive || gMain.inBattle
++    if (sLocalResetActive || gMain.inBattle
+      || !gSaveBlock1Ptr || !gSaveBlock2Ptr || !gSaveBlock3Ptr || !gPokemonStoragePtr
+-     || gSaveBlock1Ptr->location.mapGroup != MAP_GROUP(MAP_LITTLEROOT_TOWN)
+-     || gSaveBlock1Ptr->location.mapNum != MAP_NUM(MAP_LITTLEROOT_TOWN)
+-     || gSpecialVar_LastTalked != 3 || !Multiplayer_IsConnected()
++     || !SourceReady(encounterId) || !Multiplayer_IsConnected()
+      || !MultiplayerSave_GetIdleBinding(&sLocalResetSession, &sLocalResetIncarnation)
+      || MultiplayerBattle_IsActive() || !MultiplayerOwnership_IsEnrolled()
+-     || !HasUsableParty() || VarGet(MP_LOCAL_RESET_CAPTURED))
+-        return FALSE;
+-    if (VarGet(MP_LOCAL_RESET_COUNTER_MAGIC) != 0
+-     && VarGet(MP_LOCAL_RESET_COUNTER_MAGIC) != MP_LOCAL_RESET_MAGIC)
++     || !HasUsableParty())
+         return FALSE;
+-    if (!VarGet(MP_LOCAL_RESET_COUNTER_MAGIC)
+-     && (VarGet(MP_LOCAL_RESET_COUNTER_LO) || VarGet(MP_LOCAL_RESET_COUNTER_HI)))
+-        return FALSE;
+-    count = MultiplayerLocalReset_Count();
+-    if (count == 0xFFFFFFFFu) return FALSE;
+-    count++;
+-    VarSet(MP_LOCAL_RESET_COUNTER_MAGIC, MP_LOCAL_RESET_MAGIC);
+-    VarSet(MP_LOCAL_RESET_COUNTER_LO, count);
+-    VarSet(MP_LOCAL_RESET_COUNTER_HI, count >> 16);
++    if (encounterId != MP_LOCAL_RESET_DEVELOPMENT_ID)
++    {
++        if (!MultiplayerStaticReset_AdvanceAttempt(encounterId)) return FALSE;
++    }
++    else
++    {
++        if (VarGet(MP_LOCAL_RESET_COUNTER_MAGIC) != 0
++         && VarGet(MP_LOCAL_RESET_COUNTER_MAGIC) != MP_LOCAL_RESET_MAGIC)
++            return FALSE;
++        if (!VarGet(MP_LOCAL_RESET_COUNTER_MAGIC)
++         && (VarGet(MP_LOCAL_RESET_COUNTER_LO) || VarGet(MP_LOCAL_RESET_COUNTER_HI)))
++            return FALSE;
++        count = MultiplayerLocalReset_Count();
++        if (count == 0xFFFFFFFFu) return FALSE;
++        count++;
++        VarSet(MP_LOCAL_RESET_COUNTER_MAGIC, MP_LOCAL_RESET_MAGIC);
++        VarSet(MP_LOCAL_RESET_COUNTER_LO, count);
++        VarSet(MP_LOCAL_RESET_COUNTER_HI, count >> 16);
++    }
++    sLocalResetEncounterId = encounterId;
+     memcpy(sLocalResetGuard.party, gParties[B_TRAINER_PLAYER], sizeof(sLocalResetGuard.party));
+     CopyPocket(sLocalResetGuard.bag.items, gSaveBlock1Ptr->bag.items, BAG_ITEMS_COUNT);
+     CopyPocket(sLocalResetGuard.bag.keyItems, gSaveBlock1Ptr->bag.keyItems, BAG_KEYITEMS_COUNT);
+@@ -191,7 +213,7 @@ static bool32 OpenWindow(void)
+     return TRUE;
+ }
+ 
+-#if MP_LOCAL_RESET_DEVELOPMENT || TESTING
++#if MP_LOCAL_RESET_ENABLED
+ static bool32 Request(void)
+ {
+     if (!sLocalResetWindow || !gMain.inBattle || !gBattleStruct || gBattleResults.battleTurnCounter
+@@ -203,7 +225,7 @@ static bool32 Request(void)
+ 
+ const u8 *MultiplayerLocalReset_GetActionPrompt(enum BattlerId battler)
+ {
+-#if MP_LOCAL_RESET_DEVELOPMENT || TESTING
++#if MP_LOCAL_RESET_ENABLED
+     // A menu render is also the beginning of the first-action window. Do not
+     // advertise the shortcut after any action, on other controllers, or while
+     // the native confirmation already owns input.
+@@ -216,7 +238,7 @@ const u8 *MultiplayerLocalReset_GetActionPrompt(enum BattlerId battler)
+ 
+ static bool32 RequestFromSelect(enum BattlerId battler)
+ {
+-#if MP_LOCAL_RESET_DEVELOPMENT || TESTING
++#if MP_LOCAL_RESET_ENABLED
+     // Leave the full reset chord and ordinary A/B/Start input to their existing
+     // handlers. Only an eligible Select request takes priority over the debug
+     // menu; an ineligible request leaves its input untouched.
+@@ -249,7 +271,7 @@ static bool32 Confirm(bool32 yes)
+ 
+ bool32 MultiplayerLocalReset_HandleChord(void)
+ {
+-#if MP_LOCAL_RESET_DEVELOPMENT || TESTING
++#if MP_LOCAL_RESET_ENABLED
+     // Suppress a BIOS reboot for an enrolled game, including unsafe scenes.
+     u32 session, incarnation;
+     const u16 chord = A_BUTTON | B_BUTTON | START_BUTTON | SELECT_BUTTON;
+diff --git a/src/multiplayer_static_reset.c b/src/multiplayer_static_reset.c
+new file mode 100644
+index 0000000000..04521105f4
+--- /dev/null
++++ b/src/multiplayer_static_reset.c
+@@ -0,0 +1,102 @@
++#include "global.h"
++#include "multiplayer_static_reset.h"
++#include "multiplayer_local_reset.h"
++#include "multiplayer.h"
++#include "event_data.h"
++#include "event_object_movement.h"
++#include "fieldmap.h"
++#include "pokemon.h"
++#include "constants/flags.h"
++#include "constants/maps.h"
++#include "constants/map_groups.h"
++#include "constants/vars.h"
++
++static EWRAM_DATA u32 sAttempt;
++static EWRAM_DATA u16 sGeneratorState, sBlueState, sGreenState;
++
++u32 MultiplayerStaticReset_Count(void)
++{
++    return VarGet(VAR_MP_VOLTORB_1_RESET_COUNT_LO)
++        | (u32)VarGet(VAR_MP_VOLTORB_1_RESET_COUNT_HI) << 16;
++}
++
++bool32 MultiplayerStaticReset_EntryReady(u32 encounterId)
++{
++#if MP_LOCAL_RESET_NEW_MAUVILLE_PILOT || TESTING
++    u8 objectId;
++    u16 state;
++    if (encounterId != MP_STATIC_RESET_VOLTORB_1 || !gSaveBlock1Ptr
++     || gSaveBlock1Ptr->location.mapGroup != MAP_GROUP(MAP_NEW_MAUVILLE_INSIDE)
++     || gSaveBlock1Ptr->location.mapNum != MAP_NUM(MAP_NEW_MAUVILLE_INSIDE)
++     || gSpecialVar_LastTalked != 6
++     || FlagGet(FLAG_HIDE_NEW_MAUVILLE_VOLTORB_1)
++     || FlagGet(FLAG_DEFEATED_VOLTORB_1_NEW_MAUVILLE))
++        return FALSE;
++    state = VarGet(VAR_NEW_MAUVILLE_STATE);
++    // Door was opened normally; both running/stopped generator remain valid.
++    if ((state != 1 && state != 2)
++     || TryGetObjectEventIdByLocalIdAndMap(6, MAP_NUM(MAP_NEW_MAUVILLE_INSIDE), MAP_GROUP(MAP_NEW_MAUVILLE_INSIDE), &objectId))
++        return FALSE;
++    return !gObjectEvents[objectId].isPlayer
++        && !Multiplayer_IsRemoteObject(&gObjectEvents[objectId])
++        && gObjectEvents[objectId].currentCoords.x == 25 + MAP_OFFSET
++        && gObjectEvents[objectId].currentCoords.y == 18 + MAP_OFFSET;
++#else
++    return FALSE;
++#endif
++}
++
++bool32 MultiplayerStaticReset_AdvanceAttempt(u32 encounterId)
++{
++    u32 count;
++    u16 version;
++    if (!MultiplayerStaticReset_EntryReady(encounterId)) return FALSE;
++    version = VarGet(VAR_MP_VOLTORB_1_RESET_VERSION);
++    count = MultiplayerStaticReset_Count();
++    // Old zero-filled saves initialize lazily. Unknown/nonzero older data is
++    // preserved and refuses the pilot; never silently clear or reinterpret it.
++    if ((version != 0 && version != MP_STATIC_RESET_VERSION_1)
++     || (!version && count) || count == 0xFFFFFFFFu)
++        return FALSE;
++    sAttempt = count + 1;
++    VarSet(VAR_MP_VOLTORB_1_RESET_VERSION, MP_STATIC_RESET_VERSION_1);
++    VarSet(VAR_MP_VOLTORB_1_RESET_COUNT_LO, sAttempt);
++    VarSet(VAR_MP_VOLTORB_1_RESET_COUNT_HI, sAttempt >> 16);
++    sGeneratorState = VarGet(VAR_NEW_MAUVILLE_STATE);
++    sBlueState = VarGet(VAR_TEMP_1);
++    sGreenState = VarGet(VAR_TEMP_2);
++    return TRUE;
++}
++
++bool32 MultiplayerStaticReset_GuardMatches(u32 encounterId)
++{
++    struct Pokemon enemy;
++    u32 slot;
++    if (!MultiplayerStaticReset_EntryReady(encounterId)
++     || VarGet(VAR_MP_VOLTORB_1_RESET_VERSION) != MP_STATIC_RESET_VERSION_1
++     || MultiplayerStaticReset_Count() != sAttempt
++     || VarGet(VAR_NEW_MAUVILLE_STATE) != sGeneratorState
++     || VarGet(VAR_TEMP_1) != sBlueState || VarGet(VAR_TEMP_2) != sGreenState)
++        return FALSE;
++    // The authored script still uses its original setwildbattle generator.
++    // Check its actual output before offering any reset; clone reads because
++    // native checksum failure handling is allowed to mark a record as bad egg.
++    enemy = gParties[B_TRAINER_OPPONENT_A][0];
++    if (GetMonData(&enemy, MON_DATA_SPECIES) != SPECIES_VOLTORB
++     || !GetMonData(&enemy, MON_DATA_SANITY_HAS_SPECIES)
++     || GetMonData(&enemy, MON_DATA_SANITY_IS_BAD_EGG)
++     || GetMonData(&enemy, MON_DATA_IS_EGG) || enemy.box.isEgg
++     || GetMonData(&enemy, MON_DATA_LEVEL) != 25)
++        return FALSE;
++    for (slot = 1; slot < PARTY_SIZE; slot++)
++    {
++        enemy = gParties[B_TRAINER_OPPONENT_A][slot];
++        if (GetMonData(&enemy, MON_DATA_SPECIES)) return FALSE;
++    }
++    return TRUE;
++}
++
++void MultiplayerStaticReset_BeginVoltorb1(void)
++{
++    gSpecialVar_Result = MultiplayerLocalReset_TryBegin(MP_STATIC_RESET_VOLTORB_1);
++}
+diff --git a/test/multiplayer_local_reset.c b/test/multiplayer_local_reset.c
+index 5ca314d8af..437a71dd0a 100644
+--- a/test/multiplayer_local_reset.c
++++ b/test/multiplayer_local_reset.c
+@@ -1,5 +1,6 @@
+ #include "global.h"
+ #include "multiplayer_local_reset.h"
++#include "multiplayer_static_reset.h"
+ #include "multiplayer_save.h"
+ #include "multiplayer_ownership.h"
+ #include "multiplayer.h"
+@@ -17,6 +18,9 @@
+ #include "item.h"
+ #include "load_save.h"
+ #include "text.h"
++#include "random.h"
++#include "script_pokemon_util.h"
++#include "constants/event_objects.h"
+ #include "constants/maps.h"
+ #include "constants/map_groups.h"
+ #include "constants/vars.h"
+@@ -28,8 +32,9 @@ struct ResetFixture {
+     MainCallback cb1, cb2;
+     struct MapHeader header;
+     struct PlayerAvatar avatar;
+-    struct ObjectEvent object;
++    struct ObjectEvent object, pilotObject;
+     bool8 inBattle, spriteInUse;
++    u8 selectedObject;
+     u8 battlerPositions[MAX_BATTLERS_COUNT];
+     u32 generation;
+ };
+@@ -61,6 +66,9 @@ static void SetUp(struct ResetFixture *f)
+     memset(f, 0, sizeof(*f));
+     f->cb1 = gMain.callback1; f->cb2 = gMain.callback2; f->inBattle = gMain.inBattle;
+     f->header = gMapHeader; f->avatar = gPlayerAvatar; f->object = gObjectEvents[0];
++    f->pilotObject = gObjectEvents[1];
++    f->selectedObject = gSelectedObjectEvent;
++    gSelectedObjectEvent = 0;
+     f->spriteInUse = gSprites[0].inUse; f->battle = gBattleStruct;
+     memcpy(f->battlerPositions, gBattlerPositions, sizeof(f->battlerPositions));
+     gBattlerPositions[0] = B_POSITION_PLAYER_LEFT;
+@@ -83,6 +91,7 @@ static void SetUp(struct ResetFixture *f)
+     memset(&gPlayerAvatar, 0, sizeof(gPlayerAvatar));
+     memset(&gObjectEvents[0], 0, sizeof(gObjectEvents[0]));
+     gObjectEvents[0].active = TRUE; gObjectEvents[0].isPlayer = TRUE;
++    gObjectEvents[0].localId = LOCALID_PLAYER;
+     gSprites[0].inUse = TRUE; gPaletteFade.active = FALSE;
+     ScriptContext_Init(); UnlockPlayerFieldControls();
+     Multiplayer_Init(); Connection(1, TRUE); EXPECT(Multiplayer_IsConnected());
+@@ -105,6 +114,8 @@ static void TearDown(struct ResetFixture *f)
+     Free(gBattleStruct); gBattleStruct = f->battle;
+     gMain.callback1 = f->cb1; gMain.callback2 = f->cb2; gMain.inBattle = f->inBattle;
+     gMapHeader = f->header; gPlayerAvatar = f->avatar; gObjectEvents[0] = f->object;
++    gObjectEvents[1] = f->pilotObject;
++    gSelectedObjectEvent = f->selectedObject;
+     gSprites[0].inUse = f->spriteInUse;
+     memcpy(gBattlerPositions, f->battlerPositions, sizeof(f->battlerPositions));
+     gMain.heldKeysRaw = gMain.newKeys = 0;
+@@ -318,3 +329,190 @@ TEST("Multiplayer local reset: Select confirmation rechecks connection and prote
+     EXPECT(!MultiplayerLocalReset_WasAccepted());
+     TearDown(&f);
+ }
++
++static void SetUpPilot(struct ResetFixture *f)
++{
++    SetUp(f);
++    gSaveBlock1Ptr->location.mapGroup = MAP_GROUP(MAP_NEW_MAUVILLE_INSIDE);
++    gSaveBlock1Ptr->location.mapNum = MAP_NUM(MAP_NEW_MAUVILLE_INSIDE);
++    gSpecialVar_LastTalked = 6;
++    memset(&gObjectEvents[1], 0, sizeof(gObjectEvents[1]));
++    gObjectEvents[1].active = TRUE;
++    gObjectEvents[1].localId = 6;
++    gObjectEvents[1].mapGroup = MAP_GROUP(MAP_NEW_MAUVILLE_INSIDE);
++    gObjectEvents[1].mapNum = MAP_NUM(MAP_NEW_MAUVILLE_INSIDE);
++    gObjectEvents[1].currentCoords.x = 25 + MAP_OFFSET;
++    gObjectEvents[1].currentCoords.y = 18 + MAP_OFFSET;
++    VarSet(VAR_NEW_MAUVILLE_STATE, 1);
++    VarSet(VAR_TEMP_1, 1);
++    VarSet(VAR_TEMP_2, 0);
++}
++
++static void BeginPilot(void)
++{
++    MultiplayerStaticReset_BeginVoltorb1(); EXPECT_EQ(gSpecialVar_Result, TRUE);
++    CreateScriptedWildMon(SPECIES_VOLTORB, 25, ITEM_NONE);
++    gMain.inBattle = TRUE;
++    EXPECT(MultiplayerLocalReset_TestOpenWindow());
++}
++
++TEST("Multiplayer static reset: exact New Mauville object and native availability are required")
++{
++    struct ResetFixture f; SetUpPilot(&f);
++    EXPECT(!MultiplayerLocalReset_TryBegin(MP_STATIC_RESET_VOLTORB_1 + 1));
++    gSaveBlock1Ptr->location.mapNum++;
++    EXPECT(!MultiplayerLocalReset_TryBegin(MP_STATIC_RESET_VOLTORB_1));
++    gSaveBlock1Ptr->location.mapNum--;
++    gSpecialVar_LastTalked = 7; EXPECT(!MultiplayerLocalReset_TryBegin(MP_STATIC_RESET_VOLTORB_1));
++    gSpecialVar_LastTalked = 6;
++    gObjectEvents[1].currentCoords.x++; EXPECT(!MultiplayerLocalReset_TryBegin(MP_STATIC_RESET_VOLTORB_1));
++    gObjectEvents[1].currentCoords.x--;
++    gObjectEvents[1].active = FALSE; EXPECT(!MultiplayerLocalReset_TryBegin(MP_STATIC_RESET_VOLTORB_1));
++    gObjectEvents[1].active = TRUE;
++    FlagSet(FLAG_HIDE_NEW_MAUVILLE_VOLTORB_1); EXPECT(!MultiplayerLocalReset_TryBegin(MP_STATIC_RESET_VOLTORB_1));
++    FlagClear(FLAG_HIDE_NEW_MAUVILLE_VOLTORB_1);
++    FlagSet(FLAG_DEFEATED_VOLTORB_1_NEW_MAUVILLE); EXPECT(!MultiplayerLocalReset_TryBegin(MP_STATIC_RESET_VOLTORB_1));
++    FlagClear(FLAG_DEFEATED_VOLTORB_1_NEW_MAUVILLE);
++    VarSet(VAR_NEW_MAUVILLE_STATE, 0); EXPECT(!MultiplayerLocalReset_TryBegin(MP_STATIC_RESET_VOLTORB_1));
++    VarSet(VAR_NEW_MAUVILLE_STATE, 3); EXPECT(!MultiplayerLocalReset_TryBegin(MP_STATIC_RESET_VOLTORB_1));
++    EXPECT_EQ(MultiplayerStaticReset_Count(), 0);
++    VarSet(VAR_NEW_MAUVILLE_STATE, 2); BeginPilot();
++    EXPECT_EQ(MultiplayerStaticReset_Count(), 1);
++    TearDown(&f);
++}
++
++TEST("Multiplayer static reset: versioned attempts never reinterpret development or unknown save data")
++{
++    struct ResetFixture f; SetUpPilot(&f);
++    VarSet(MP_LOCAL_RESET_COUNTER_MAGIC, MP_LOCAL_RESET_MAGIC);
++    VarSet(MP_LOCAL_RESET_COUNTER_LO, 42); VarSet(MP_LOCAL_RESET_CAPTURED, 1);
++    VarSet(VAR_MP_VOLTORB_1_RESET_VERSION, 1);
++    EXPECT(!MultiplayerLocalReset_TryBegin(MP_STATIC_RESET_VOLTORB_1));
++    EXPECT_EQ(VarGet(VAR_MP_VOLTORB_1_RESET_VERSION), 1);
++    VarSet(VAR_MP_VOLTORB_1_RESET_VERSION, 0); VarSet(VAR_MP_VOLTORB_1_RESET_COUNT_HI, 1);
++    EXPECT(!MultiplayerLocalReset_TryBegin(MP_STATIC_RESET_VOLTORB_1));
++    EXPECT_EQ(MultiplayerStaticReset_Count(), 0x10000);
++    VarSet(VAR_MP_VOLTORB_1_RESET_VERSION, MP_STATIC_RESET_VERSION_1);
++    VarSet(VAR_MP_VOLTORB_1_RESET_COUNT_LO, 0xFFFF); VarSet(VAR_MP_VOLTORB_1_RESET_COUNT_HI, 0xFFFF);
++    EXPECT(!MultiplayerLocalReset_TryBegin(MP_STATIC_RESET_VOLTORB_1));
++    EXPECT_EQ(MultiplayerStaticReset_Count(), 0xFFFFFFFF);
++    VarSet(VAR_MP_VOLTORB_1_RESET_COUNT_LO, 0xFFFF); VarSet(VAR_MP_VOLTORB_1_RESET_COUNT_HI, 0);
++    BeginPilot(); EXPECT_EQ(MultiplayerStaticReset_Count(), 0x10000);
++    EXPECT_EQ(MultiplayerLocalReset_Count(), 42); EXPECT_EQ(VarGet(MP_LOCAL_RESET_CAPTURED), 1);
++    TearDown(&f);
++}
++
++TEST("Multiplayer static reset: actual species level egg and extra opponents must match authored generation")
++{
++    struct ResetFixture f; SetUpPilot(&f);
++    EXPECT(MultiplayerLocalReset_TryBegin(MP_STATIC_RESET_VOLTORB_1));
++    gMain.inBattle = TRUE;
++    CreateScriptedWildMon(SPECIES_ELECTRODE, 25, ITEM_NONE);
++    EXPECT(!MultiplayerLocalReset_TestOpenWindow());
++    CreateScriptedWildMon(SPECIES_VOLTORB, 24, ITEM_NONE);
++    EXPECT(!MultiplayerLocalReset_TestOpenWindow());
++    CreateScriptedWildMon(SPECIES_VOLTORB, 25, ITEM_NONE);
++    gParties[B_TRAINER_OPPONENT_A][0].box.isEgg = TRUE;
++    EXPECT(!MultiplayerLocalReset_TestOpenWindow());
++    gParties[B_TRAINER_OPPONENT_A][0].box.isEgg = FALSE;
++    CreateMon(&gParties[B_TRAINER_OPPONENT_A][1], SPECIES_VOLTORB, 25, 0, OTID_STRUCT_PLAYER_ID);
++    EXPECT(!MultiplayerLocalReset_TestOpenWindow());
++    CreateScriptedWildMon(SPECIES_VOLTORB, 25, ITEM_NONE);
++    EXPECT(MultiplayerLocalReset_TestOpenWindow());
++    gParties[B_TRAINER_OPPONENT_A][0].box.checksum++;
++    struct Pokemon malformed = gParties[B_TRAINER_OPPONENT_A][0];
++    EXPECT(!MultiplayerLocalReset_TestRequest());
++    EXPECT(!memcmp(&malformed, &gParties[B_TRAINER_OPPONENT_A][0], sizeof(malformed)));
++    TearDown(&f);
++}
++
++TEST("Multiplayer static reset: No keeps the roll and Yes does not rewind RNG or character data")
++{
++    struct ResetFixture f; SetUpPilot(&f); BeginPilot();
++    struct Pokemon roll = gParties[B_TRAINER_OPPONENT_A][0];
++    struct Pokemon party[PARTY_SIZE]; memcpy(party, gParties[B_TRAINER_PLAYER], sizeof(party));
++    rng_value_t rng = gRngValue, rng2 = gRng2Value;
++    EXPECT(MultiplayerLocalReset_TestRequest()); EXPECT(!MultiplayerLocalReset_TestConfirm(FALSE));
++    EXPECT(!memcmp(&roll, &gParties[B_TRAINER_OPPONENT_A][0], sizeof(roll)));
++    EXPECT_EQ(MultiplayerStaticReset_Count(), 1);
++    EXPECT(MultiplayerLocalReset_TestRequest()); EXPECT(MultiplayerLocalReset_TestConfirm(TRUE));
++    EXPECT(!memcmp(&rng, &gRngValue, sizeof(rng))); EXPECT(!memcmp(&rng2, &gRng2Value, sizeof(rng2)));
++    EXPECT(!memcmp(party, gParties[B_TRAINER_PLAYER], sizeof(party)));
++    EXPECT(!memcmp(&roll, &gParties[B_TRAINER_OPPONENT_A][0], sizeof(roll)));
++    MultiplayerLocalReset_ConsumeResult(); EXPECT_EQ(gSpecialVar_Result, TRUE);
++    gMain.inBattle = FALSE; BeginPilot(); EXPECT_EQ(MultiplayerStaticReset_Count(), 2);
++    EXPECT(memcmp(&roll, &gParties[B_TRAINER_OPPONENT_A][0], sizeof(roll)) != 0);
++    EXPECT_EQ(MultiplayerLocalReset_Count(), 0);
++    TearDown(&f);
++}
++
++TEST("Multiplayer static reset: changed generator barriers counter and capture state are refused without rollback")
++{
++    struct ResetFixture f; SetUpPilot(&f); BeginPilot();
++    VarSet(VAR_NEW_MAUVILLE_STATE, 2); EXPECT(!MultiplayerLocalReset_TestRequest());
++    EXPECT_EQ(VarGet(VAR_NEW_MAUVILLE_STATE), 2); VarSet(VAR_NEW_MAUVILLE_STATE, 1);
++    VarSet(VAR_TEMP_1, 0); EXPECT(!MultiplayerLocalReset_TestRequest()); VarSet(VAR_TEMP_1, 1);
++    VarSet(VAR_TEMP_2, 1); EXPECT(!MultiplayerLocalReset_TestRequest()); VarSet(VAR_TEMP_2, 0);
++    VarSet(VAR_MP_VOLTORB_1_RESET_COUNT_LO, 2); EXPECT(!MultiplayerLocalReset_TestRequest());
++    EXPECT_EQ(MultiplayerStaticReset_Count(), 2); VarSet(VAR_MP_VOLTORB_1_RESET_COUNT_LO, 1);
++    EXPECT(MultiplayerLocalReset_TestRequest());
++    FlagSet(FLAG_DEFEATED_VOLTORB_1_NEW_MAUVILLE);
++    EXPECT(!MultiplayerLocalReset_TestConfirm(TRUE));
++    EXPECT(FlagGet(FLAG_DEFEATED_VOLTORB_1_NEW_MAUVILLE));
++    EXPECT(!MultiplayerLocalReset_WasAccepted());
++    TearDown(&f);
++}
++
++TEST("Multiplayer static reset: common action ownership party and binding fences still apply")
++{
++    struct ResetFixture f; SetUpPilot(&f); BeginPilot();
++    gSaveBlock1Ptr->money++; EXPECT(!MultiplayerLocalReset_TestRequest()); gSaveBlock1Ptr->money--;
++    gSaveBlock3Ptr->ownership.next++; EXPECT(!MultiplayerLocalReset_TestRequest()); gSaveBlock3Ptr->ownership.next--;
++    MultiplayerLocalReset_CloseAction(); EXPECT(!MultiplayerLocalReset_TestRequest());
++    MultiplayerLocalReset_Finish(); gMain.inBattle = FALSE; BeginPilot();
++    MultiplayerLocalReset_CloseCapture(); EXPECT(!MultiplayerLocalReset_TestRequest());
++    MultiplayerLocalReset_Finish(); gMain.inBattle = FALSE; BeginPilot();
++    gBattleTypeFlags |= BATTLE_TYPE_TRAINER; EXPECT(!MultiplayerLocalReset_TestRequest());
++    gBattleTypeFlags = BATTLE_TYPE_IS_MASTER;
++    Connection(2, TRUE); EXPECT(!MultiplayerLocalReset_TestRequest());
++    EXPECT(!MultiplayerLocalReset_WasAccepted());
++    TearDown(&f);
++}
++
++extern const u8 NewMauville_Inside_EventScript_Voltorb1Return[];
++
++TEST("Multiplayer static reset: actual accepted return script preserves target and generator progression")
++{
++    struct ResetFixture f; SetUpPilot(&f); BeginPilot();
++    EXPECT(MultiplayerLocalReset_TestRequest()); EXPECT(MultiplayerLocalReset_TestConfirm(TRUE));
++    FlagSet(FLAG_SYS_CTRL_OBJ_DELETE);
++    gBattleOutcome = B_OUTCOME_PLAYER_TELEPORTED;
++    gMain.inBattle = FALSE;
++    RunScriptImmediately(NewMauville_Inside_EventScript_Voltorb1Return);
++    EXPECT(!FlagGet(FLAG_SYS_CTRL_OBJ_DELETE));
++    EXPECT(!FlagGet(FLAG_DEFEATED_VOLTORB_1_NEW_MAUVILLE));
++    EXPECT(!FlagGet(FLAG_HIDE_NEW_MAUVILLE_VOLTORB_1));
++    EXPECT(gObjectEvents[1].active);
++    EXPECT_EQ(VarGet(VAR_NEW_MAUVILLE_STATE), 1);
++    EXPECT_EQ(VarGet(VAR_TEMP_1), 1); EXPECT_EQ(VarGet(VAR_TEMP_2), 0);
++    EXPECT_EQ(MultiplayerStaticReset_Count(), 1);
++    EXPECT(!MultiplayerLocalReset_WasAccepted());
++    TearDown(&f);
++}
++
++TEST("Multiplayer static reset: ordinary caught return still records defeat and prevents rearming")
++{
++    struct ResetFixture f; SetUpPilot(&f); BeginPilot();
++    MultiplayerLocalReset_CloseCapture();
++    FlagSet(FLAG_SYS_CTRL_OBJ_DELETE);
++    gBattleOutcome = B_OUTCOME_CAUGHT;
++    gMain.inBattle = FALSE;
++    RunScriptImmediately(NewMauville_Inside_EventScript_Voltorb1Return);
++    EXPECT(!FlagGet(FLAG_SYS_CTRL_OBJ_DELETE));
++    EXPECT(FlagGet(FLAG_DEFEATED_VOLTORB_1_NEW_MAUVILLE));
++    EXPECT(!MultiplayerLocalReset_TryBegin(MP_STATIC_RESET_VOLTORB_1));
++    EXPECT_EQ(MultiplayerStaticReset_Count(), 1);
++    EXPECT_EQ(VarGet(VAR_NEW_MAUVILLE_STATE), 1);
++    EXPECT_EQ(VarGet(VAR_TEMP_1), 1); EXPECT_EQ(VarGet(VAR_TEMP_2), 0);
++    TearDown(&f);
++}
