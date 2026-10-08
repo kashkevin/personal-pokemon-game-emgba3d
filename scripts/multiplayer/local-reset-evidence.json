@@ -23,6 +23,17 @@
     }
   ],
   "native_focused_tests_passed": 44,
+  "native_focused_log_sha256": "cebbd6d3ab890992a6fd27bd96eb1c35a97541694ec272980090f5f72050e988",
+  "native_full_regression": {
+    "passed": 5458,
+    "known_failing": 18,
+    "todo": 421,
+    "expected_failing": 9,
+    "total": 5906,
+    "unexpected_failures": 0,
+    "log_sha256": "43ce56ca4e0afea7f7e47d4bcbab571f6ea4df197d71d426e96866a35ec62bf0"
+  },
+  "engine_tag": "LOCAL_RESET_DEV_POC",
   "visible_confirmation_and_cancellation": true,
   "new_native_pid_and_ivs_on_next_entry": true,
   "attempt_counter": 2,
