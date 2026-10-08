@@ -178,6 +178,7 @@ class LauncherSession:
         self._game = self._save_task = None
         self._revision = self._save_incarnation = None
         self._save_failed = False
+        self._idle_save_disconnect = self._autosave_dispatched = False
         self._settings = LauncherSettings()
         self._settings_busy = False
         self._autosave = self._autosave_task = None
@@ -206,6 +207,10 @@ class LauncherSession:
         current = self._signature()
         value = replace(self._status, connected=current is not None,
                         autosave_enabled=self.autosave_enabled)
+        if self._save_failed:
+            # A missing connection is not evidence that an uncertain save
+            # completed. Keep this warning through game and session closure.
+            return replace(value, code="save_recovery_required")
         if self._open and self._binding is not None and current != self._binding:
             # Observation only. No offline-play or post-disconnect action follows.
             code = "connection_lost" if current is None else "session_changed"
@@ -352,6 +357,10 @@ class LauncherSession:
                         _, canceled = await _finish_even_if_cancelled(self._save_task)
                         if canceled:
                             raise asyncio.CancelledError()
+            if result == 0 and self._idle_save_disconnect and self._save_is_idle():
+                # IPC can close before process exit is observed. Only confirmed
+                # normal exit clears an idle-only loss; this does not save.
+                self._save_failed = self._idle_save_disconnect = False
             self._publish(SessionState.FINISHED, "save_recovery_required" if self._save_failed else "game_closed", revision=self._revision,
                           exit_code=result)
             return result
@@ -413,20 +422,40 @@ class LauncherSession:
                 and getattr(self._companion, "_live_battle_owner", None) is None
                 and not pending_battle(self._companion, self._profile_directory))
 
+    def _save_is_idle(self):
+        try:
+            return (not self._autosave_dispatched
+                    and (self._save_task is None or self._save_task.done())
+                    and self._profile_directory is not None
+                    and not (self._profile_directory / "pending-export.json").exists())
+        except OSError:
+            return False
+
+    def _fail_save(self, *, idle_disconnect=False):
+        # An idle disconnect still forbids saving/restarting the scheduler in
+        # this live core. It may be ordinary IPC shutdown, but only a later
+        # zero process exit can establish that. Never downgrade an earlier
+        # dispatched, journaled, malformed or otherwise uncertain operation.
+        idle = idle_disconnect and self._save_is_idle()
+        self._idle_save_disconnect = idle and (not self._save_failed or self._idle_save_disconnect)
+        self._save_failed = True
+        self._publish(SessionState.RUNNING, "save_recovery_required", revision=self._revision)
+
     def _autosave_status(self, status):
         if status.state is AutosaveState.RECOVERY_REQUIRED:
-            self._save_failed = True
-            self._publish(SessionState.RUNNING, "save_recovery_required", revision=self._revision)
+            self._fail_save(idle_disconnect=status.code in {"connection_lost", "session_changed"})
         elif status.state is AutosaveState.SAVING:
+            self._autosave_dispatched = True
             self._publish(SessionState.RUNNING, "saving", revision=self._revision)
         elif status.state is AutosaveState.DEFERRED:
+            self._autosave_dispatched = False
             self._publish(SessionState.RUNNING, "autosave_deferred", revision=self._revision)
-        elif status.state is AutosaveState.WAITING and status.expected_revision != self._revision:
+        elif status.state is AutosaveState.WAITING:
             # AutosaveScheduler has verified the typed exact completed result.
-            if status.expected_revision != self._revision + 1:
-                self._save_failed = True
-                self._publish(SessionState.RUNNING, "save_recovery_required", revision=self._revision)
-            else:
+            if status.expected_revision not in {self._revision, self._revision + 1}:
+                self._fail_save()
+            elif status.expected_revision != self._revision:
+                self._autosave_dispatched = False
                 self._revision = status.expected_revision
                 self._autosave_due = self._autosave_clock() + AUTOSAVE_INTERVAL
                 self._publish(SessionState.RUNNING, "saved", revision=self._revision)
@@ -476,10 +505,10 @@ class LauncherSession:
                     await asyncio.wait_for(self._autosave_wake.wait(), .25)
                 except TimeoutError:
                     pass
-        except Exception:
+        except Exception as error:
             if self._game is not None:
-                self._save_failed = True
-                self._publish(SessionState.RUNNING, "save_recovery_required", revision=self._revision)
+                self._fail_save(idle_disconnect=getattr(error, "code", None)
+                                in {"connection_lost", "session_changed"})
         finally:
             await self._stop_autosave()
 
@@ -499,16 +528,15 @@ class LauncherSession:
             incarnation = c.save_incarnation
         except ConnectionError:
             if self._save_incarnation is not None:
-                self._save_failed = True
-            self._publish(SessionState.RUNNING, "save_recovery_required" if self._save_failed
-                          else "save_not_ready", revision=self._revision)
+                self._fail_save()
+            else:
+                self._publish(SessionState.RUNNING, "save_not_ready", revision=self._revision)
             return False
         if type(incarnation) is not int or incarnation < 1:
             self._publish(SessionState.RUNNING, "save_not_ready", revision=self._revision)
             return False
         if self._save_incarnation is not None and self._save_incarnation != incarnation:
-            self._save_failed = True
-            self._publish(SessionState.RUNNING, "save_recovery_required", revision=self._revision)
+            self._fail_save()
             return False
         self._save_incarnation = incarnation
         expected = c.world_id, c.session_epoch, incarnation
@@ -560,8 +588,7 @@ class LauncherSession:
             if isinstance(error, LiveSaveError) and error.safe_to_retry is True:
                 self._publish(SessionState.RUNNING, "save_not_ready", revision=self._revision)
             else:
-                self._save_failed = True
-                self._publish(SessionState.RUNNING, "save_recovery_required", revision=self._revision)
+                self._fail_save()
             return False
 
     async def _cleanup(self):
