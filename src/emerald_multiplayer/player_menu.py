@@ -207,6 +207,10 @@ class PlayerMenu:
                 actions.append(("Team invitation" if self._team["invitations"] else "Your team", "team", ()))
             if self._battles is not None:
                 actions.append(("Pending challenge" if self._battles else "Challenges", "battles", ()))
+            else:
+                # Completed history remains authenticated and readable when
+                # new native battle admission is disabled (normal launcher).
+                actions.append(("Recent battle results", "results", (0,)))
             actions.append(("Refresh", "refresh", ()))
         return self._show(title, status, actions)
 

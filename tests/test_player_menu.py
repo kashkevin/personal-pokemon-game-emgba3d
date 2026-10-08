@@ -81,3 +81,20 @@ class PlayerMenuNetworkTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(screen.status, "Team 1 won")
         self.assertEqual(len(screen.rows), 2)
         self.assertTrue(all(row.action == 0 for row in screen.rows))
+
+    async def test_history_stays_reachable_when_new_battles_are_disabled(self):
+        fixture = fixtures.BattleChallengeNetworkTests
+        self.rpc = fixture.rpc.__get__(self)
+        self.invite = fixture.invite.__get__(self)
+        await fixture.seed_result(self)
+        self.server.battle_desk = None
+        menu = PlayerMenu(self.companions[0])
+        screen = await menu.refresh()
+        self.assertEqual(len(screen.rows), 6)  # Three peers, team, history, refresh.
+        self.assertNotIn("Challenges", [row.label for row in screen.rows])
+        screen = await self.click(menu, "Recent battle results")
+        self.assertEqual(len(screen.rows), 1)
+        self.assertIn("#1", screen.rows[0].label)
+        await menu.choose(screen.revision, 7)
+        screen = await self.click(menu, "Trainer 1")
+        self.assertNotIn("Challenge 1v1", [row.label for row in screen.rows])
