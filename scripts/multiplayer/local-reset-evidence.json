@@ -1,0 +1,44 @@
+{
+  "format": "emerald-local-reset-evidence-v1",
+  "engine_commit": "071af0af967578fd1c457fdd5da27e0de44e395b",
+  "rom_sha256": "7eb26a799fa4adb5118a1cdfeeecaeff4b8e8a70196a9da39688d9c5fbf51128",
+  "elf_sha256": "172d0c6e5870e92cfe147585d304b5325125a1a556ee909672e89a35900b8685",
+  "source_patch_sha256": "316ae5fed9002a6198ce968e3c32f7b74b02b63e33975be3b6e1b1482b1888dd",
+  "runs": [
+    {
+      "run": "local-reset-run-7",
+      "players": 2,
+      "checks_passed": 19,
+      "evidence_sha256": "40f01b888b955474696dc57436f0ff4ea7bcc71e8511d1d0fc0df21a569f48a2",
+      "controller_sha256": "0b3fb769d7a22e492a65f008c5d7fea5471afe2b831a615048edb6d1d6d74331",
+      "archived_files_hash_verified": 114
+    },
+    {
+      "run": "local-reset-four-run-1",
+      "players": 4,
+      "checks_passed": 21,
+      "evidence_sha256": "8e962f0ba3f3127610bce4b2e1d5e4d459d4ae3e8a4e1bf8c6f80c09a80564d4",
+      "controller_sha256": "fd64afd6b0258f2aac0cb6e80cf96afb81f32fe722913715f1703c2a6dad6567",
+      "archived_files_hash_verified": 217
+    }
+  ],
+  "native_focused_tests_passed": 44,
+  "visible_confirmation_and_cancellation": true,
+  "new_native_pid_and_ivs_on_next_entry": true,
+  "attempt_counter": 2,
+  "reset_refused_after_action": true,
+  "ordinary_capture_and_uid_assignment": true,
+  "capture_and_counter_persist_after_save_recovery_and_continue": true,
+  "other_players_keep_independent_scenes_and_canonical_heads": true,
+  "original_sources_unchanged": true,
+  "cores_closed": true,
+  "limits": [
+    "default-off first-action-only development encounter",
+    "production static catalogue and late-turn reset pending",
+    "attempt counter is not crash-durable before saving",
+    "Gen6 generation odds and personal Charm pending",
+    "Windows chord routing pending",
+    "concurrent trade/battle/reset matrix pending",
+    "native singles/Multi source integration pending"
+  ]
+}
