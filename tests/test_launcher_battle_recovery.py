@@ -46,7 +46,7 @@ class LauncherBattleRecoveryTests(unittest.IsolatedAsyncioTestCase):
         s._game = SimpleNamespace(process=SimpleNamespace(returncode=None))
         s._open = s._save_failed = True
         s._revision = 2; s._save_incarnation = 20
-        s._manifest = {'battle_resume_abi_version':1}
+        s._manifest = {'battle_resume_abi_version':1, 'emergency_save_abi_version':2}
         s._autosave_clock = lambda: 100
         native = NativeBinding(str(uuid4()), (actor, peer), (7,8), (20,21), 0, resumable=True)
         bind = NativeControl(20, 7, str(uuid4()), 1, Opcode.BIND, data=native.pack())
@@ -94,15 +94,32 @@ class LauncherBattleRecoveryTests(unittest.IsolatedAsyncioTestCase):
         if remove:self.path.unlink()
         return self.completion(lease=lease,server=server)
 
-    async def recover(self, callback):
+    async def recover(self, callback, *, handoff=None, arm_hook=None):
         with (patch('emerald_multiplayer.launcher_session.GameInstallation.verify') as verify,
               patch('emerald_multiplayer.battle_recovery_session.NativeBattleRecoverySession',create=True) as controller,
               patch('emerald_multiplayer.battle_recovery_session.verify_recovery_completion',return_value={}),
+              patch('emerald_multiplayer.battle_terminal.complete_battle_handoff',new_callable=AsyncMock) as transfer,
               patch('emerald_multiplayer.emergency_save.EmergencySaveController') as emergency,
               patch.object(self.session,'_watch_emergency',new_callable=AsyncMock),
               patch.object(self.session,'_schedule_autosave',new_callable=AsyncMock)):
             controller.return_value.run = AsyncMock(side_effect=callback)
-            emergency.return_value = SimpleNamespace(lost=asyncio.Event(), result=SimpleNamespace(state='unarmed'))
+            successor = SimpleNamespace(lost=asyncio.Event(), result=SimpleNamespace(state='unarmed'), needs_arm=True)
+            async def arm(base):
+                self.assertEqual(base,self.intent.canonical_revision)
+                self.assertEqual(self.session._binding,self.original_binding)
+                self.assertTrue(self.session._save_failed)
+                successor.result.state='armed';successor.needs_arm=False
+                self.c._emergency_controller=successor
+            successor.arm=AsyncMock(side_effect=arm_hook or arm)
+            emergency.return_value = successor
+            async def exact_handoff(c,directory,result,intent,bridge,fresh):
+                self.assertIs(c,self.c);self.assertEqual(intent,self.intent)
+                self.assertIs(bridge,self.c._bridge);self.assertIs(fresh,self.session._emergency)
+                self.assertEqual(fresh.result.state,'armed')
+                self.assertIs(c._emergency_controller,fresh)
+                self.assertEqual(self.session._binding,self.original_binding)
+                self.assertTrue(self.session._save_failed)
+            transfer.side_effect=handoff or exact_handoff
             value = await self.session.recover_battle()
             verify.assert_called_once()
             return value,controller,emergency
@@ -116,6 +133,7 @@ class LauncherBattleRecoveryTests(unittest.IsolatedAsyncioTestCase):
         controller.return_value.run.assert_awaited_once_with()
         self.old_emergency.retire_after_battle_recovery.assert_awaited_once()
         emergency.assert_called_once()
+        emergency.return_value.arm.assert_awaited_once_with(2)
         self.assertEqual(s._binding,s._signature())
         self.assertFalse(s._save_failed)
         self.assertEqual(s._revision,2)
@@ -138,15 +156,14 @@ class LauncherBattleRecoveryTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(self.session.can_save)
         self.old_emergency.retire_after_battle_recovery.assert_awaited_once()
 
-    async def test_no_emergency_capability_drops_retired_controller_without_rearming_it(self):
+    async def test_no_emergency_capability_cannot_release_terminal_native_hold(self):
         self.c.config.emergency_save_abi_version=0
-        _,_,successor = await self.recover(self.finish)
-        self.old_emergency.retire_after_battle_recovery.assert_awaited_once()
-        successor.assert_not_called()
-        self.assertIsNone(self.session._emergency)
-        self.assertIsNone(self.session._emergency_task)
-        self.assertTrue(self.session.can_save)
-        self.assertEqual(self.session.status.code,'battle_recovered')
+        self.assertFalse(self.session.can_recover_battle)
+        with self.assertRaises(LauncherSessionError):
+            await self.recover(self.finish)
+        self.old_emergency.retire_after_battle_recovery.assert_not_awaited()
+        self.assertEqual(self.path.read_bytes(),self.original_bytes)
+        self.assertFalse(self.session.can_save)
 
     async def test_malformed_or_foreign_intent_and_missing_capability_never_offer_recovery(self):
         s = self.session
@@ -261,6 +278,77 @@ class LauncherBattleRecoveryTests(unittest.IsolatedAsyncioTestCase):
         controller.assert_called_once_with(self.c,self.session._profile_directory,original_intent=self.intent)
         self.assertTrue(self.session.can_save)
         self.assertIsNone(self.session._battle_recovery_intent)
+
+    async def test_handoff_failure_reuses_same_registered_successor_without_old_retirement(self):
+        async def terminal():
+            result=await self.finish()
+            (self.session._profile_directory/(self.intent.battle_id+'.battle-recovery-complete.json')).write_text('{}')
+            return result
+        async def uncertain(*args):raise OSError('receipt unavailable')
+        with self.assertRaises(LauncherSessionError):await self.recover(terminal,handoff=uncertain)
+        successor=self.session._battle_handoff_successor
+        self.assertIsNotNone(successor)
+        self.assertIs(self.c._emergency_controller,successor)
+        self.assertTrue(self.session.can_recover_battle)
+        self.assertFalse(self.session.can_save)
+        self.assertEqual(self.session._binding,self.original_binding)
+        async def receipt_only():return self.completion()
+        _,_,constructor=await self.recover(receipt_only)
+        constructor.assert_not_called()
+        successor.arm.assert_awaited_once_with(2)
+        self.old_emergency.retire_after_battle_recovery.assert_awaited_once()
+        self.assertIs(self.session._emergency,successor)
+        self.assertTrue(self.session.can_save)
+
+    async def test_failed_successor_arm_retains_same_object_for_exact_retry(self):
+        attempts=[]
+        async def arm(base):
+            attempts.append(base)
+            if len(attempts)==1:raise OSError('ownership receipt unavailable')
+            successor=self.session._battle_handoff_successor
+            successor.result.state='armed';successor.needs_arm=False
+            self.c._emergency_controller=successor
+        async def terminal():
+            result=await self.finish()
+            (self.session._profile_directory/(self.intent.battle_id+'.battle-recovery-complete.json')).write_text('{}')
+            return result
+        with self.assertRaises(LauncherSessionError):await self.recover(terminal,arm_hook=arm)
+        successor=self.session._battle_handoff_successor
+        self.assertEqual(self.session._binding,self.original_binding)
+        self.assertTrue(self.session.can_recover_battle)
+        async def receipt_only():return self.completion()
+        _,_,constructor=await self.recover(receipt_only)
+        constructor.assert_not_called()
+        self.assertIs(self.session._emergency,successor)
+        self.assertEqual(attempts,[2,2])
+        self.old_emergency.retire_after_battle_recovery.assert_awaited_once()
+
+    async def test_normal_resumable_completion_uses_same_terminal_adoption_before_field_return(self):
+        s=self.session;self.c.connected=True;s._save_failed=False
+        self.old_emergency.lost.clear();self.old_emergency.result.state='armed';self.old_emergency.task=None
+        s._manifest['battle_execution_abi_version']=1
+        descriptor=dict(battle_id=self.intent.battle_id,generation=self.intent.generation,
+            checkpoints=[dict(player_id=self.c.config.player_id,revision=2,sha256='c'*64)])
+        menu=SimpleNamespace(bridge=self.c._bridge)
+        events=[]
+        async def complete(challenge):
+            self.assertIs(challenge,descriptor)
+            events.append('terminal')
+            return await self.finish(lease=7,server=3)
+        async def adopt(result,intent,game,bridge,runtime):
+            self.assertEqual(intent,self.intent)
+            self.assertIs(game,s._game);self.assertIs(bridge,self.c._bridge);self.assertIs(runtime,s._runtime)
+            self.assertEqual(result.renewed_session.lease_epoch,7)
+            events.append('adopt')
+            s._battle_retained=None
+        with (patch('emerald_multiplayer.battle_session.NativeBattleSession') as executor,
+              patch.object(s,'_adopt_battle_completion',new_callable=AsyncMock,side_effect=adopt) as transfer):
+            executor.return_value.intent=self.intent
+            executor.return_value.run=AsyncMock(side_effect=complete)
+            await s._native_menu_handoff('battle',descriptor,menu)
+        self.assertEqual(events,['terminal','adopt'])
+        transfer.assert_awaited_once()
+        self.assertEqual(s.status.code,'battle_finished')
 
     async def test_explicit_game_exit_drains_recovery_before_runtime_lease_context_exits(self):
         s=self.session;self.c.connected=True
