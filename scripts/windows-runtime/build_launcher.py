@@ -120,20 +120,31 @@ def build(args):
         "from emerald_multiplayer.game_import import ImportRelease\n"
         f"release = {release!r}\nimport_release = {import_release!r}\n"
         "main(release, Path(sys._MEIPASS), import_release)\n", encoding="utf-8")
+    guide_hashes = {}
+    for name in ("QUICK-START.txt", "RELEASE-LIMITS.txt"):
+        source = Path(__file__).resolve().parent / "resources" / name
+        guide_hashes[name] = sha(source)
+        pinned_copy(source, resources / name, guide_hashes[name])
     provenance = dict(format="emerald-launcher-private-package-v1", version=release.version,
         python=sys.version, dependencies=versions, rom_sha256=release.rom_sha256,
         manifest_sha256=release.manifest_sha256, runtime_sha256=release.runtime_sha256,
         import_enabled=import_release is not None, source_sha256=source_hashes,
+        guide_sha256=guide_hashes,
         qualification="private executable only; clean-machine, gameplay and network acceptance remain separate")
     (resources / "package-provenance.json").write_text(json.dumps(provenance, indent=2) + "\n")
     (resources / "README.txt").write_text(
         "Emerald Together - " + release.version + "\n\n"
-        "This private development package opens existing worlds and enrolled characters.\n"
+        "Private development preview: Host Game / Join Game, local character setup,\n"
+        "and explicit Save now. Read QUICK-START.txt and RELEASE-LIMITS.txt first.\n"
         + ("Use Import my game to select your own matching dump.\n" if import_release else
            "Game import is unavailable: this development package has no release patch.\n")
         + "It contains no game ROM, player save, invitation or world database.\n"
         "Do not send your personal invitation to another player.\n"
-        "See package-provenance.json and notices for exact components and current limits.\n")
+        "See _internal/package-provenance.json and notices for exact components.\n\n"
+        "Release identity (SHA-256):\n"
+        f"Game: {release.rom_sha256}\n"
+        f"Game manifest: {release.manifest_sha256}\n"
+        f"Runtime manifest: {release.runtime_sha256}\n", encoding="utf-8")
     command = [sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean", "--noupx",
         "--onedir", "--windowed", "--name", "EmeraldTogether", "--paths", str(frozen_source.parent),
         "--distpath", str(output / "dist"), "--workpath", str(output / "work"),
@@ -141,6 +152,10 @@ def build(args):
     with (output / "build.log").open("w", encoding="utf-8") as log:
         subprocess.run(command, check=True, stdout=log, stderr=subprocess.STDOUT, cwd=output)
     package = output / "dist/EmeraldTogether"
+    # Put the readable entry instructions beside the executable as well as in
+    # the frozen resource tree; friends need not discover PyInstaller internals.
+    for name in ("README.txt", "QUICK-START.txt", "RELEASE-LIMITS.txt"):
+        pinned_copy(resources / name, package / name, sha(resources / name))
     files = {}
     for path in sorted(package.rglob("*")):
         if not path.is_file():

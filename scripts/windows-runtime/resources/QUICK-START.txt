@@ -1,0 +1,69 @@
+Emerald Together — private Windows preview
+
+Before starting
+
+Extract the complete ZIP and keep EmeraldTogether.exe beside its _internal
+folder. Open EmeraldTogether.exe. Python, a compiler and WSL are not needed
+on a friend's PC. See README.txt for this package's game-import availability.
+An import-disabled preview requires a separately prepared matching installation;
+it cannot install the game on a new PC yet.
+
+Create the host world
+
+1. Choose "Set up a world or character…", then "Create world".
+2. Enter the host name and up to three friends' names. Choose the numeric
+   address friends will reach and the game port before creating the world.
+   127.0.0.1 works only on this PC. For friends on your home network, use the
+   host PC's local network address. The default game port is 8765.
+3. Choose "Create private world". Keep the host world on the host PC.
+
+Prepare each character on the host PC
+
+1. In "Set up character", choose "Create a new character…", or select an
+   existing original character save that has no multiplayer ownership.
+2. For a new character, play ordinary New Game, choose a starter, use the
+   game's normal Save menu, then close the game using its title-bar Close.
+   The launcher selects the saved character after validating it.
+3. Choose the host world and the correct Host/Friend slot. Check the box
+   approving that exact character save, then "Approve and open character".
+4. Continue in the game to a safe field location outside menus and battles.
+   Return to setup and choose "I'm in the world — finish enrollment".
+5. Repeat for each friend. Choose each friend's slot and export that friend's
+   invitation. Give each person only their own invitation. This preview
+   performs initial character approval locally on the host PC.
+
+Host and join
+
+Host: close setup, choose the world on the Host Game tab, enter this PC's
+local address, and choose Host Game. Leave the host running while friends play.
+
+Friend: open the same release, choose Join Game, select your own invitation,
+then choose Join Game. "Check connection" checks the invited encrypted
+endpoint; it does not log you in or prove an Internet gameplay session.
+
+For Internet hosting, the invitation needs the host's public numeric address.
+The host still enters its local address on the Host Game tab, enables
+"Allow Internet connections", and forwards the chosen TCP port on the router
+to that PC. The current build does not configure the router or firewall.
+Separate-PC LAN and outside-network gameplay acceptance are still pending.
+
+Save and finish a session
+
+During multiplayer play, return to a safe field location and press "Save now"
+in the launcher. Keep the game open until "Character saved to the host" appears.
+If the game is busy, leave its menu or battle and press Save now again.
+After a successful save, close the game through its title-bar Close button,
+then close the launcher. A recovery message means the private recovery files
+must be retained; reopen through Host Game or Join Game as the message directs.
+Automatic saving and the final disconnect/offline policy remain unfinished.
+
+Default game controls
+
+Arrow keys: move       X: A / confirm        Z: B / back
+Enter: Start          Backspace: Select     A / S: L / R
+
+These are the runtime's configured defaults. Physical keyboard, audio and
+gamepad acceptance remain pending; automated native-button tests are separate.
+The launcher stores private worlds and character/recovery data in the Windows
+user's local application-data folder. See RELEASE-LIMITS.txt before sharing
+this development preview with friends.

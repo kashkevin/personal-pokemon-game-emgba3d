@@ -1,0 +1,37 @@
+Emerald Together — development preview limits
+
+This is a private development package for up to four players. It is not the
+completed game. README.txt states whether this exact package can import a
+matching owner-supplied dump. Packages without a verified release patch keep
+Import my game disabled and cannot prepare a new friend's installation yet.
+
+The launcher includes Host Game / Join Game, local host world and character
+setup, separate friend invitations, explicit Save now, and an encrypted
+connection check. First character setup requires ordinary New Game, starter
+selection and native Save, followed by explicit host enrollment.
+
+The native Players menu and multiplayer services have separate acceptance
+records. A battle invitation or accepted team is not a completed battle.
+Automatic native battle handoff, complete player-facing trading, and all
+campaign/customization requirements still need their remaining integration
+and playable acceptance.
+
+Automatic saving, final disconnect/offline behavior and interrupted-battle
+policy are unfinished. Save now is an explicit checkpoint to the host and
+reports busy/recovery states; it does not choose those pending policies.
+
+Windows runtime proofs use ordinary scripted GBA button inputs, real native
+checkpoints and fresh game processes. They do not establish physical keyboard,
+audio, gamepad, GUI-button-to-save, or complete first-time enrollment acceptance.
+The desktop automation helper's ordinary keys did not produce the SDL button
+events needed for gameplay. Hardware keyboard failure has not been established.
+
+Clean-machine installation, full-game BPS import, accessibility, four separate
+Windows PCs, Wi-Fi, port-forwarded Internet, latency/loss and reconnect behavior
+remain separate acceptance checks. A successful Check connection verifies the
+invited TLS endpoint only; it sends no player login and proves no remote path.
+
+The download contains no game ROM, player save, world database, host certificate
+or personal invitation. Keep each friend's invitation separate from the ZIP.
+Exact component pins and source hashes are in _internal/package-provenance.json;
+license notices and native source/relink material are under _internal.
