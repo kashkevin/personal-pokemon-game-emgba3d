@@ -66,11 +66,12 @@ class BattleDeskTests(unittest.TestCase):
     def control(self,index,opcode,seq,*,data=b""):
         descriptor = self.descriptor(index)
         return NativeControl(100+index,self.actor(index)[1],self.battle_id,seq,opcode,
-                             source_slot=descriptor.source_slot,data=data)
+                             source_slot=descriptor.source_slot,data=data,phase=descriptor.mode)
 
     def query(self,index,seq,flags=1,*,revision=0,outcome=0,generation=None):
         return struct.pack("<I16sBBBB10I",flags,UUID(generation or self.generation).bytes,
-            2,self.descriptor(index).source_slot,2,0,seq,0,0,0,0,0,0,600,revision,outcome)
+            len(self.view["players"]),self.descriptor(index).source_slot,self.descriptor(index).mode,
+            0,seq,0,0,0,0,0,0,600,revision,outcome)
 
     def bind(self,index):
         binding = self.call("authorize_bind",index)

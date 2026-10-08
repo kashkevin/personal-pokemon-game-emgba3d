@@ -132,18 +132,18 @@ class BattleArbitrationTests(unittest.IsolatedAsyncioTestCase):
         return getattr(self.desk,method)(*self.actor(index),self.battle_id,*generation,*args,**fields)
 
     def register(self):
-        self.call("accept",1,self.view["fingerprint"])
-        for index in (0,1):self.call("register",index,100+index)
+        for index in range(1,len(self.view["players"])):self.call("accept",index,self.view["fingerprint"])
+        for index in range(len(self.view["players"])):self.call("register",index,100+index)
 
     def descriptor(self,index):return self.call("descriptor",index)
 
     def control(self,index,opcode,sequence,data=b""):
         return NativeControl(100+index,self.actors[index].lease,self.battle_id,sequence,opcode,
-            source_slot=self.descriptor(index).source_slot,data=data)
+            source_slot=self.descriptor(index).source_slot,data=data,phase=self.descriptor(index).mode)
 
     def query(self,index,sequence,flags=1,revision=0,outcome=0):
-        return struct.pack("<I16sBBBB10I",flags,UUID(self.generation).bytes,2,self.descriptor(index).source_slot,
-            2,0,sequence,0,0,0,0,0,0,600,revision,outcome)
+        return struct.pack("<I16sBBBB10I",flags,UUID(self.generation).bytes,len(self.view["players"]),self.descriptor(index).source_slot,
+            self.descriptor(index).mode,0,sequence,0,0,0,0,0,0,600,revision,outcome)
 
     def bind(self,index,*,ack=True):
         binding = self.call("authorize_bind",index)
@@ -157,17 +157,63 @@ class BattleArbitrationTests(unittest.IsolatedAsyncioTestCase):
 
     def running(self):
         self.register()
-        for index in (0,1):
+        for index in range(len(self.view["players"])):
             self.bind(index)
             command = self.control(index,Opcode.PREPARE,2,self.call("preparation",index).pack())
             self.call("prepared",index,command,replace(command,data=self.query(index,2,9,1)),self.descriptor(index).trainer_descriptor)
         self.desk.authorize_start(self.battle_id,self.generation)
-        for index in (0,1):
+        for index in range(len(self.view["players"])):
             command = self.control(index,Opcode.START,3)
             self.call("started",index,command,replace(command,data=self.query(index,3,25,1)))
             for part in range(3):
                 self.call("verify_startup",index,Kind.PARTY_0+part,3+part,self.descriptor(index).party[part*200:part*200+200])
         self.desk.authorize_running(self.battle_id,self.generation)
+
+    def multi(self):
+        self.call("cancel",0)
+        self.battle_id=str(uuid4())
+        self.view=self.desk.invite_multi(*self.actor(0),self.players[2].player_id,
+            (self.players[1].player_id,self.players[3].player_id),self.battle_id)
+        self.generation=self.view["generation"]
+
+    async def test_multi_first_bind_reserves_all_four_and_partial_abort_cannot_free_them(self):
+        self.multi();self.register()
+        for index in range(4):self.bind(index,ack=False)
+        self.assertEqual(self.call("cancel",3)["state"],"aborting")
+        for index in range(3):
+            self.assertEqual(self.abort(index)["state"],"aborting")
+            for actor in range(4):
+                await self.error(actor,"checkpoint_begin",**self.fingerprint(actor))
+                self.assertEqual((await self.actors[actor].rpc("checkpoint_info"))["checkpoint"]["revision"],1)
+        self.assertEqual(self.abort(3)["state"],"aborted")
+        self.assertEqual((await self.upload(3))["revision"],2)
+
+    async def test_multi_all_four_remain_reserved_through_three_release_acks(self):
+        self.multi();self.running()
+        for index in range(4):
+            command=self.control(index,Opcode.QUERY,4);descriptor=self.descriptor(index)
+            self.call("finish",index,command,replace(command,data=self.query(index,3,57,1,1)),
+                outcome=1,party=descriptor.party,party_count=descriptor.party_count)
+        for index in range(4):
+            command=self.control(index,Opcode.RELEASE,4,struct.pack("<II",self.descriptor(index).party_crc32,1))
+            result=self.call("released",index,command,replace(command,data=b""))
+            if index<3:
+                self.assertEqual(result["state"],"release_authorized")
+                for actor in range(4):await self.error(actor,"checkpoint_begin",**self.fingerprint(actor))
+        self.assertEqual(result["state"],"closed")
+        for index in range(4):self.assertEqual((await self.upload(index))["revision"],2)
+
+    async def test_multi_fourth_upload_blocks_initial_binding_without_consuming_intent(self):
+        self.multi();self.register()
+        request_id=str(uuid4())
+        response=await self.actors[3].rpc("checkpoint_begin",request_id=request_id,**self.fingerprint(3))
+        self.assertEqual(response["type"],"checkpoint_result")
+        with self.assertRaises(BattleError) as caught:self.call("authorize_bind",0)
+        self.assertEqual(caught.exception.code,"checkpoint_busy")
+        self.assertFalse(self.desk._active[self.battle_id].bind_intent)
+        self.assertEqual((await self.actors[3].rpc("checkpoint_abort",upload_id=request_id))["type"],"checkpoint_result")
+        self.bind(0,ack=False)
+        for index in range(4):await self.error(index,"checkpoint_begin",**self.fingerprint(index))
 
     def fingerprint(self,index,base=1):
         payload = self.heads[index].payload

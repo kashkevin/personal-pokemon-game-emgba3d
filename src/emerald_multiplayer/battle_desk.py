@@ -1,4 +1,4 @@
-"""Session-local consent and lifecycle barriers for development native singles.
+"""Session-local consent and lifecycle barriers for development native battles.
 
 No RPC, controller routing, ROM commands, rewards, saves or release run here.
 The trusted coordinator supplies correlated native receipts and exact startup
@@ -29,7 +29,7 @@ _POST_START = frozenset(("starting", "running", "finishing", "release_authorized
 
 
 class BattleError(StorageError):
-    """A bounded native-singles operation failed without releasing a game."""
+    """A bounded native battle operation failed without releasing a game."""
 
 
 @dataclass
@@ -37,12 +37,13 @@ class _Battle:
     battle_id: str
     generation: str
     sender: str
-    players: tuple[str, str]
-    leases: tuple[int, int]
-    roster: tuple[CanonicalBattler, CanonicalBattler] = field(repr=False)
+    players: tuple[str, ...]
+    leases: tuple[int, ...]
+    roster: tuple[CanonicalBattler, ...] = field(repr=False)
     rng: bytes = field(repr=False)
     fingerprint: str
     deadline: float
+    mode: int = 2
     state: str = "invited"
     reason: str | None = None
     consent: set[str] = field(default_factory=set)
@@ -61,7 +62,7 @@ class _Battle:
 
 
 class BattleDesk:
-    """At most two independent singles lifecycles; unresolved holds stay busy.
+    """Two singles rooms or one four-trainer room; unresolved holds stay busy.
 
     START authorization is irreversible here even before its reply: either ROM
     may have entered native startup. Exact receipt retries cannot resample RNG,
@@ -72,7 +73,7 @@ class BattleDesk:
     def __init__(self, store: OwnershipCheckpointStore, lease_for, *,
                  timeout: float = 180, clock=time.monotonic):
         if not isinstance(store, OwnershipCheckpointStore):
-            raise ValueError("native singles require the explicit ownership store")
+            raise ValueError("native battles require the explicit ownership store")
         if (type(timeout) not in (int, float) or not math.isfinite(timeout)
                 or not 1 <= timeout <= 3600 or not callable(clock) or not callable(lease_for)):
             raise ValueError("battle timeout/callbacks are invalid")
@@ -194,7 +195,7 @@ class BattleDesk:
 
     @staticmethod
     def _view(battle):
-        return dict(scope="session-local-native-singles-development", battle_id=battle.battle_id,
+        view = dict(scope="session-local-native-singles-development" if battle.mode == 2 else "session-local-native-full-multi-development", battle_id=battle.battle_id,
             generation=battle.generation, state=battle.state, reason=battle.reason,
             players=list(battle.players), fingerprint=battle.fingerprint,
             consent=sorted(battle.consent), bound=sorted(battle.bound),
@@ -202,20 +203,43 @@ class BattleDesk:
             startup_verified=sorted(p for p in battle.players if len(battle.parts.get(p, ())) == 3),
             finished=sorted(battle.finished), released=sorted(battle.released),
             abort_pending=sorted(battle.abort_pending),
-            outcome=next(iter(battle.finished.values())) if len(battle.finished) == 2 else None,
+            outcome=next(iter(battle.finished.values())) if len(battle.finished) == len(battle.players) else None,
             checkpoints=[dict(player_id=r.player_id, source_slot=r.source_slot,
                 revision=r.revision, sha256=r.checkpoint_sha256, party_count=r.party_count)
                 for r in battle.roster])
+        if battle.mode == 3:
+            view.update(mode=3, teams=[list(battle.players[::2]), list(battle.players[1::2])])
+        return view
 
     def invite(self, actor, lease, peer, battle_id):
         self._id(peer, "peer"); self._id(battle_id, "battle ID")
-        self._auth(actor, lease); self.refresh()
-        players = tuple(sorted((actor, peer)))
         if actor == peer:
             raise BattleError("invalid_battle", "singles require two different trainers")
+        self._auth(actor, lease)
+        return self._invite(actor, lease, tuple(sorted((actor, peer))), battle_id, mode=2)
+
+    def invite_multi(self, actor, lease, teammate, opponents, battle_id):
+        """Propose two explicit duos; no teammate's consent is inherited.
+
+        This is a battle roster, not a persistent TeamDesk membership change.
+        Every other trainer must accept its exact fingerprint independently.
+        """
+        self._auth(actor, lease)
+        self._id(teammate, "teammate"); self._id(battle_id, "battle ID")
+        if type(opponents) is not tuple or len(opponents) != 2:
+            raise BattleError("invalid_battle", "Multi requires exactly two opposing trainers")
+        for player in opponents:
+            self._id(player, "opponent")
+        if len({actor, teammate, *opponents}) != 4:
+            raise BattleError("invalid_battle", "Multi requires four distinct trainers")
+        own, other = sorted((actor, teammate)), sorted(opponents)
+        return self._invite(actor, lease, (own[0], other[0], own[1], other[1]), battle_id, mode=3)
+
+    def _invite(self, actor, lease, players, battle_id, *, mode):
+        self._auth(actor, lease); self.refresh()
         existing = self._active.get(battle_id) or self._history.get(battle_id)
         if existing is not None:
-            if existing.sender != actor or existing.players != players:
+            if existing.sender != actor or existing.players != players or existing.mode != mode:
                 raise BattleError("request_conflict", "battle ID belongs to another challenge")
             return self._view(existing)
         if len(self._active) >= MAX_ACTIVE or any(set(players).intersection(b.players) for b in self._active.values()):
@@ -224,7 +248,7 @@ class BattleDesk:
         for slot, player in enumerate(players):
             current_lease = self.lease_for(player)
             if current_lease is None:
-                raise BattleError("player_offline", "both trainers must be connected")
+                raise BattleError("player_offline", "all trainers must be connected")
             checkpoint = self._auth(player, current_lease)
             pending = getattr(self.store, "pending_trade_recovery", None)
             if pending is not None and pending(player, current_lease):
@@ -232,19 +256,20 @@ class BattleDesk:
             try:
                 descriptor = CanonicalBattler.from_checkpoint(checkpoint,
                     world_id=self.store.metadata.world_id, build_id=self.store.build_id,
-                    ruleset_id=self.store.ruleset_id, source_slot=slot)
+                    ruleset_id=self.store.ruleset_id, source_slot=slot, mode=mode)
             except ValueError as error:
-                raise BattleError("checkpoint_required", "both trainers need a valid owned canonical party") from error
+                raise BattleError("checkpoint_required", "all trainers need a valid owned canonical party") from error
             leases.append(current_lease); roster.append(descriptor)
         generation, rng = str(uuid4()), secrets.token_bytes(16)
         if not any(rng):
             raise BattleError("rng_unavailable", "could not issue a nonzero native battle RNG state")
         material = [self.store.metadata.world_id, battle_id, generation,
             [[p, l, r.revision, r.checkpoint_sha256] for p, l, r in zip(players, leases, roster)], rng.hex()]
-        fingerprint = hashlib.sha256(b"EM-NATIVE-SINGLES-CONSENT-1\0" +
+        domain = b"EM-NATIVE-SINGLES-CONSENT-1\0" if mode == 2 else b"EM-NATIVE-FULL-MULTI-CONSENT-1\0"
+        fingerprint = hashlib.sha256(domain +
             json.dumps(material, separators=(",", ":")).encode("ascii")).hexdigest()
         battle = _Battle(battle_id, generation, actor, players, tuple(leases),
-            tuple(roster), rng, fingerprint, self._now()+self.timeout, consent={actor})
+            tuple(roster), rng, fingerprint, self._now()+self.timeout, mode=mode, consent={actor})
         self._active[battle_id] = battle
         return self._view(battle)
 
@@ -260,7 +285,7 @@ class BattleDesk:
         if actor in battle.consent:
             return self._view(battle)
         battle.consent.add(actor)
-        if battle.state == "invited":
+        if battle.state == "invited" and battle.consent == set(battle.players):
             battle.state = "accepted"
         battle.deadline = self._now()+self.timeout
         return self._view(battle)
@@ -275,7 +300,7 @@ class BattleDesk:
         except BattleMailboxError as error:
             raise BattleError("invalid_field", str(error)) from error
         if battle.state not in ("accepted", "prepared"):
-            raise BattleError("battle_state", "both trainers must consent before registration")
+            raise BattleError("battle_state", "all trainers must consent before registration")
         self._heads(battle)
         if actor in battle.incarnations and battle.incarnations[actor] != incarnation:
             self._abort(battle, "incarnation_changed")
@@ -285,15 +310,15 @@ class BattleDesk:
 
     @staticmethod
     def _binding(battle, actor):
-        if len(battle.incarnations) != 2:
-            raise BattleError("battle_not_registered", "both native incarnations must be registered")
+        if len(battle.incarnations) != len(battle.players):
+            raise BattleError("battle_not_registered", "all native incarnations must be registered")
         return NativeBinding(battle.generation, battle.players, battle.leases,
-            tuple(battle.incarnations[p] for p in battle.players), battle.players.index(actor))
+            tuple(battle.incarnations[p] for p in battle.players), battle.players.index(actor), mode=battle.mode)
 
     def authorize_bind(self, actor, lease, battle_id, generation):
         battle = self._get(actor, lease, battle_id, generation)
         if battle.state not in ("accepted", "prepared") or battle.consent != set(battle.players):
-            raise BattleError("battle_state", "both trainers must consent before native binding")
+            raise BattleError("battle_state", "all trainers must consent before native binding")
         self._heads(battle)
         binding = self._binding(battle, actor)
         battle.bind_intent.add(actor)  # Before the coordinator sends any BIND.
@@ -401,7 +426,7 @@ class BattleDesk:
         return self._view(battle)
 
     def authorize_start(self, battle_id, generation):
-        """Trusted coordinator entry, before dispatching either START command."""
+        """Trusted coordinator entry, before dispatching any START command."""
         self._id(battle_id, "battle ID"); self._id(generation, "generation")
         self.refresh()
         battle = self._active.get(battle_id)
@@ -412,7 +437,7 @@ class BattleDesk:
             return self._view(battle)
         if (battle.state != "prepared" or battle.consent != set(battle.players)
                 or battle.prepared != set(battle.players) or battle.bound != set(battle.players)):
-            raise BattleError("battle_not_ready", "both trainers must consent, bind and prepare")
+            raise BattleError("battle_not_ready", "all trainers must consent, bind and prepare")
         self._heads(battle)
         battle.state, battle.deadline = "starting", self._now()+self.timeout
         return self._view(battle)
@@ -471,7 +496,7 @@ class BattleDesk:
         if (battle.state not in ("starting", "running")
                 or battle.started != set(battle.players)
                 or any(len(battle.parts.get(p, ())) != 3 for p in battle.players)):
-            raise BattleError("battle_not_ready", "both native starts and exact canonical parties must be verified")
+            raise BattleError("battle_not_ready", "all native starts and exact canonical parties must be verified")
         self._heads(battle)
         battle.state = "running"
         return self._view(battle)
@@ -512,13 +537,13 @@ class BattleDesk:
                 raise BattleError("request_conflict", "result retry changed its outcome")
             return self._view(battle)
         if battle.state not in ("running", "finishing"):
-            raise BattleError("battle_state", "results require both canonical startup parties")
+            raise BattleError("battle_state", "results require all canonical startup parties")
         if battle.finished and next(iter(battle.finished.values())) != outcome:
             self._recover(battle, "outcome_disagreement")
             raise BattleError("battle_result_mismatch", "trainers disagree on the fixed-side outcome")
         self._heads(battle)
         battle.finished[actor] = outcome
-        battle.state = "release_authorized" if len(battle.finished) == 2 else "finishing"
+        battle.state = "release_authorized" if len(battle.finished) == len(battle.players) else "finishing"
         self._record(battle, actor, request, response)
         return self._view(battle)
 
@@ -529,7 +554,7 @@ class BattleDesk:
         if duplicate:
             return self._view(battle)
         if battle.state != "release_authorized":
-            raise BattleError("battle_state", "both restored outcomes must authorize release")
+            raise BattleError("battle_state", "all restored outcomes must authorize release")
         descriptor = battle.roster[battle.players.index(actor)]
         outcome = next(iter(battle.finished.values()))
         if request.data != struct.pack("<II", descriptor.party_crc32, outcome):
