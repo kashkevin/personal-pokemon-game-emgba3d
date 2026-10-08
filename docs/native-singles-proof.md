@@ -1,4 +1,4 @@
-# Two actual native singles clients
+# Native singles with independent exploration clients
 
 On October 8, 2026, `native-singles-run-4` passed the first complete two-core native 1v1 proof on engine `7efa2448ea19d8aca9946d6572931e97428f0c94`. This is development acceptance for that exercised battle and its save/return path. It does not qualify all moves, six-against-six gameplay, four-human Multi, the player interface or Internet play.
 
@@ -30,4 +30,14 @@ All **60 private run files** were archived under the physical Windows private ar
 
 Earlier runs remain preserved. Run 1 exposed the native first-turn `B_ACTION_NONE` sentinel and an ignored stale item argument. Run 2 exposed an unused effect-battler loop sentinel in an empty-string controller. The narrow fixes canonicalize unused fields while retaining strict checks for fields that handlers consume. Run 3 completed the battle and both checkpoints but the proof attempted cold startup before the companion reauthenticated; the startup gate correctly refused. Run 4 fixes that test wait without changing the engine. All failed runs closed their cores and retained the original source saves.
 
-The frozen source passes 51 focused engine tests; its broader engine regression is recorded separately in the [prototype source record](native-singles-prototype.md). Remaining acceptance includes uninvolved real clients, broader moves/status/items/party sizes, full-six four-human Multi and team consent, durable battle settlement/interruption recovery, native Windows gameplay, and separate-PC network conditions. The unresolved-only local battle journal is a separate admission guard and was not used as a complete coordinator in this proof.
+## Four-core independence repeat
+
+`native-singles-observers-3` passed six checks using the same frozen engine and battle rosters, with two additional independent trainers. While both battling cores remained RUNNING, C and D walked to different coordinates, D opened its ordinary menu, and C committed checkpoint revision 2. All four authenticated leases/incarnations remained unchanged. Neither observer acquired a battle hold, and both observers' canonical owned inventories remained unchanged.
+
+The same ordinary-input battle completed after 362 routed blocks. Both participants restored their original party and personal RNG, acknowledged release, and saved normally. D closed its menu with B. Final canonical revisions were A2/B2/C3/D2; four fresh cores then loaded normal Continue with each canonical party, map and coordinates. All eight initial/fresh processes closed, database integrity passed, and all four immutable source saves retained their original hashes.
+
+The complete private evidence hash is `54e903492efc26900eb7574dc7c2df6b5531e287a7e73f3912415ecce78228a2`; the exact controller hash is `d0b80e382abfd862249e80c0f4d83b99196fb1aa4d7f64b5d2b8b7bf4c0c8c31`. All 128 run files were copied to `artifacts/battles/native-singles-observers-3` under the physical Windows private directory and individually hash-verified. [Sanitized four-core metadata](../scripts/multiplayer/native-singles-observers-evidence.json) records this additional proof separately.
+
+The two prior observer attempts are also preserved. One missed a short ordinary Down pulse in the proof's batched frame pump and timed out at the native switch menu. The other completed the battle but missed D's B pulse; the checkpoint guard correctly refused to save inside that menu. The accepted driver holds discrete menu keys across a possible in-flight frame batch. No engine change, injected choice or weakened checkpoint gate was needed.
+
+The frozen source passes 51 focused engine tests and the unfiltered suite passes 5,465 tests with zero unexpected failures, retaining 18 known failures, 421 TODOs and nine expected failures. Full pins are in the [prototype source record](native-singles-prototype.md). Remaining acceptance includes broader moves/status/items/party sizes, full-six four-human Multi and team consent, durable battle settlement/interruption recovery, native Windows gameplay, and separate-PC network conditions. The unresolved-only local battle journal is a separate admission guard and was not used as a complete coordinator in these proofs.

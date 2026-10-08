@@ -1,0 +1,33 @@
+{
+  "format": "emerald-native-singles-observers-evidence-v1",
+  "run": "native-singles-observers-3",
+  "engine_commit": "7efa2448ea19d8aca9946d6572931e97428f0c94",
+  "rom_sha256": "195299be89b79bd2d3dbe178860c16895054c520fceb650a0a69ea28c071cdf4",
+  "evidence_sha256": "54e903492efc26900eb7574dc7c2df6b5531e287a7e73f3912415ecce78228a2",
+  "controller_sha256": "d0b80e382abfd862249e80c0f4d83b99196fb1aa4d7f64b5d2b8b7bf4c0c8c31",
+  "actual_participant_cores": 2,
+  "actual_independent_observer_cores": 2,
+  "fresh_continue_cores": 4,
+  "occupied_battle_party_counts": [2, 1],
+  "canonical_revisions_after": [2, 2, 3, 2],
+  "routed_blocks": 362,
+  "checks_passed": 6,
+  "observers_moved_during_battle": true,
+  "observer_menu_during_battle": true,
+  "observer_checkpoint_during_battle": true,
+  "all_leases_and_incarnations_preserved": true,
+  "exact_original_battle_party_and_personal_rng_restored": true,
+  "both_explicit_releases_acknowledged": true,
+  "all_fresh_canonical_continues_passed": true,
+  "original_sources_unchanged": true,
+  "cores_closed": true,
+  "archived_files_hash_verified": 128,
+  "passed": true,
+  "limits": [
+    "explicit development router and session-local BattleDesk",
+    "no complete durable battle coordinator or player menu",
+    "no six-versus-six or four-human Multi acceptance",
+    "no Windows or separate-PC Internet acceptance",
+    "functional faster-than-real-time headless frame pump"
+  ]
+}
