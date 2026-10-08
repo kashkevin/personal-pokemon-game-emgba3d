@@ -176,6 +176,14 @@ async def run(args):
     except BaseException as error:
         evidence["error_type"] = type(error).__name__
         evidence["error_code"] = getattr(error, "code", None)
+        # Private diagnostic evidence preserves chained errors hidden by the
+        # intentionally bounded player-facing setup status. Never print it.
+        evidence["error_context"] = []
+        current = error
+        while current is not None and len(evidence["error_context"]) < 8:
+            evidence["error_context"].append(dict(type=type(current).__name__,
+                code=getattr(current, "code", None), message=str(current)))
+            current = current.__context__
         raise
     finally:
         evidence["all_children_closed"] = all(child.returncode is not None for child in children)
