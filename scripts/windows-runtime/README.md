@@ -34,6 +34,22 @@ SDL2 DLL, Winpthreads DLL, Lua bridge template and retained material have
 individual hashes. Recollect after a bridge/source/dependency change; a proof
 bundle with appended input callbacks must have a separate pin.
 
+The source archive is a packaging derivative of the exact upstream commit.
+`sanitize_source.py` checks its pinned original archive hash and the explicit
+`source-fixtures.json` inventory, then excludes only 193 unused cinema test
+fixtures: 154 GB ROMs, three GBA ROMs, five empty save files, and 31 video logs
+whose headers declare an initial saved state. Production test/cinema/performance
+targets must be disabled. Every retained member's bytes and metadata are checked;
+production sources, original notices, and binary relink inputs remain intact.
+`source-packaging.json` records original/derivative hashes and each omitted
+fixture's path, size, hash, and reason. This does not rebuild the executable.
+
+To reproduce the source-only transformation, run `python sanitize_source.py
+--source /path/to/original/mGBA-source.tar.gz --output /new/source.tar.gz
+--provenance /new/source-packaging.json` on one line. Outputs must not exist.
+A different upstream revision or archive hash requires a separate review and
+explicit inventory update; unknown files are never automatically deleted.
+
 For source rebuilding, retain this project's `scripts/windows-runtime/` and
 `native/windows-runtime/` layout with the covered-source patch/archive. The
 relink archive contains the static core/Lua/epoxy libraries, SDL/Winpthreads

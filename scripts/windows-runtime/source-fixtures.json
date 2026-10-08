@@ -1,0 +1,1165 @@
+{
+  "format": "emerald-mgba-source-filter-v1",
+  "removed": [
+    {
+      "path": "cinema/gb/blargg/cgb_sound/01-registers/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "8415d6c69f7954e9365a586bac235f5ce39270ece32c09cb8ebbbff043b9852c",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/blargg/cgb_sound/02-len ctr/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "a1ccf47375a2bede3077ac85a4903cb037dd8a4c7c85fc5d0c176af52915271f",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/blargg/cgb_sound/03-trigger/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "70173be396d14ac955c47aededcee90ba994206cc403273d0bb49ba163ae23ef",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/blargg/cgb_sound/04-sweep/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "abfd1f6fa9e6701e46135ac9f5bb5b10a46cde22d0fc34922636aa09a5647483",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/blargg/cgb_sound/05-sweep details/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "f51a80c5538fe4b3afbc5c9af0e689a67869b1e2bbb73d4c60a8874826d056cb",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/blargg/cgb_sound/06-overflow on trigger/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "5701414d13ba55d25b59d13076e2e9cb59a9da6890595b41464f957605e317c0",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/blargg/cgb_sound/07-len sweep period sync/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "47d57ba87c3a93050ee340cf49b9d276e62e9573542b92b1de5fa2f17e3716c1",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/blargg/cgb_sound/08-len ctr during power/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "be7948c70946e0b81c178b8778ef1907231e734650062f8fa8cdb1ceb5ac8c65",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/blargg/cgb_sound/09-wave read while on/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "9b101c68b2de1930df74c19aaf22cce74d37dd5aade93855c805ecb2e1e83fd3",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/blargg/cgb_sound/10-wave trigger while on/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "cbea1771a5384f4d8f8a249056224a750ad5ee4671297836e4ba87e689af2a23",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/blargg/cgb_sound/11-regs after power/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "d347dd195a78c2d0f665b94da493a857218f032b014654b84ddb01f7b8e9befc",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/blargg/cgb_sound/12-wave/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "7bbd2e78e159de4297f567fec7851f9b90c3076d18d1043af5f30e14bd66cd0a",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/blargg/cpu_instrs/01-special/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "fe61349cbaee10cc384b50f356e541c90d1bc380185716706b5d8c465a03cf89",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/blargg/cpu_instrs/02-interrupts/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "fb90b0d2b9501910c49709abda1d8e70f757dc12020ebf8409a7779bbfd12229",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/blargg/cpu_instrs/03-op sp,hl/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "ca553e606d9b9c86fbd318f1b916c6f0b9df0cf1774825d4361a3fdff2e5a136",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/blargg/cpu_instrs/04-op r,imm/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "7686aa7a39ef3d2520ec1037371b5f94dc283fbbfd0f5051d1f64d987bdd6671",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/blargg/cpu_instrs/05-op rp/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "d504adfa0a4c4793436a154f14492f044d38b3c6db9efc44138f3c9ad138b775",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/blargg/cpu_instrs/06-ld r,r/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "17ada54b0b9c1a33cd5429fce5b765e42392189ca36da96312222ffe309e7ed1",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/blargg/cpu_instrs/07-jr,jp,call,ret,rst/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "ab31d3daaaa3a98bdbd9395b64f48c1bdaa889aba5b19dd5aaff4ec2a7d228a3",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/blargg/cpu_instrs/08-misc instrs/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "974a71fe4c67f70f5cc6e98d4dc8c096057ff8a028b7bfa9f7a4330038cf8b7e",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/blargg/cpu_instrs/09-op r,r/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "b28e1be5cd95f22bd1ecacdd33c6f03e607d68870e31a47b15a0229033d5ba2a",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/blargg/cpu_instrs/10-bit ops/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "7f5b8e488c6988b5aaba8c2a74529b7c180c55a58449d5ee89d606a07c53514a",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/blargg/cpu_instrs/11-op a,(hl)/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "0ec0cf9fda3f00becaefa476df6fb526c434abd9d4a4beac237c2c2692dac5d3",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/blargg/dmg_sound/01-registers/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "33c7955ddb88581064cb2d3e1a9a33d9e731c70819cc92639b9e0d49cf6698b7",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/blargg/dmg_sound/02-len ctr/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "91b7d680c56bbb1d4df564dd734db9e2ca14f61b4d42030368dc7dcf74a52a9c",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/blargg/dmg_sound/03-trigger/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "30e5d5d3f4811c1b295a6f2e2e3e458398735f309c899ee42dbae3f02e6e0191",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/blargg/dmg_sound/04-sweep/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "299d658c1c1cd5290e5f270b9785373d5e6512f0cf7c35c107184fe16f1b7597",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/blargg/dmg_sound/05-sweep details/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "4d803683cffd2a1e908e265e13fd44d6982a0d5d5f0ad3c7f15f4c0b6017bf3c",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/blargg/dmg_sound/06-overflow on trigger/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "859c978d29c82cbc665a26ad07ba2a7ff2fa78b13b7cfebcd7d60512fc11019c",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/blargg/dmg_sound/07-len sweep period sync/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "0ba498e537ebfd1e08709f143b43fa6ed9ce8ce2ad0351560c5c1cc0880b1550",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/blargg/dmg_sound/08-len ctr during power/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "3bc6aa0763cc8bd780d1af8171bc6da122bcda7e4dc035732005ef51870884c9",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/blargg/dmg_sound/09-wave read while on/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "03ab8ae8f55ba0ebfc057261134e4fb873000d37522f955e332a2c365973de41",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/blargg/dmg_sound/10-wave trigger while on/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "619d01a5c9d1ceb4ce704a74823c28cdcdd303929fa0e1a4b2b420e6743320d5",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/blargg/dmg_sound/11-regs after power/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "2e35978f44951a531fa07f29bf0ca91cb5d63996a7a9503a38aa4b138bcc42e7",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/blargg/dmg_sound/12-wave write while on/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "c8f0a6f8fc6b59b44d235075d770cf837d9997c10674cbf6147d35a63fc69fc3",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/blargg/halt_bug/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "ddebfb81f992132954a5580e16cfb97346a4e061c762634d7701328e23fea7c6",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/blargg/instr_timing/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "f4c863073bf87f6e78fdb726eefd07e7379d933943210158a64e0554e8d56421",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/blargg/interrupt_time/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "1a8f8f3bc609a92a5838214c00906c81e7cc77b3b9a63be5a1ec6d513f234929",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/blargg/mem_timing/01-read_timing/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "d9c6e86b7008fdaec2d4345c59192af4cea98b812e9b7b07239d16ad6770b576",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/blargg/mem_timing/02-write_timing/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "9188e5d9cf9dfc9e25f7b7c5d67e5c8e36e1b25e5ef4be0089dad1ddb526706a",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/blargg/mem_timing/03-modify_timing/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "818256ab477bb8fbb0709d28e3ec932a55c0ecd044292e760838efbb2b7fc09b",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/acceptance/add_sp_e_timing/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "2dff0d2a543f5e2acb8b52aea4ed98775479d1a322d2e6de9b612ed2249f0921",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/acceptance/bits/mem_oam/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "7d1c87bb9dd10b173ef965e7cd7d745d79444f230bebee453d3ba16c530f66b5",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/acceptance/bits/reg_f/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "c7b8f792670cffa52385536e06a45b4b55fcbb7a4109f171c56b9fc66c74f9e5",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/acceptance/bits/unused_hwio-GS/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "655539092ade9b32a119cd5dce23e6da14a9614a2e340124141cc36b54f1e334",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/acceptance/boot_div-S/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "b3d5cf252244672fe400750ab93163e4a0186da3535cbcbb102bdf33eb178a96",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/acceptance/boot_div-dmg0/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "4e2029e0836f1176aa7dc457ed7384be55b33d0be439fd04afab0f565379df50",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/acceptance/boot_div-dmgABCmgb/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "ec9a72807f1d57947130093859abbd4d2fcae81ea42179fde70a3c1d5e10d514",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/acceptance/boot_div2-S/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "d7f9b5edfc05937ce3f9929146ac9d97ecca8eba4f1cf35ea98166118dc4a156",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/acceptance/boot_hwio-S/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "098f510a7f19a302dfbac03e89b8f5a29ffb48a42e86d6b4832c606a44ec8f4e",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/acceptance/boot_hwio-dmg0/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "22418a342a63a82941ab7f6006a669663f89386e9667ad62fbe6d54a972e22ec",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/acceptance/boot_hwio-dmgABCmgb/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "6f1ec3e4106438c8588653287e1e81824591f0e4b2cf5946d8b67c983e67895a",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/acceptance/boot_regs-dmg0/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "df0a2125d01cce6469b7842a11f00240d3f0cbf8fd3daa725bdf28fd21367328",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/acceptance/boot_regs-dmgABC/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "39bcdaa3787c3a36bc1b36c04be7b2f8cd91f2e0361732e0d4f5523f0e1ee112",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/acceptance/boot_regs-mgb/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "2529f6b35579566c4dcb07976f2c85aa9553257cf6e14d4994a2a9ae9e2ebe80",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/acceptance/boot_regs-sgb/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "741b3c52d32ced88afd3a143f1321cf408837ccb9b39999bfb3dc4224a978200",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/acceptance/boot_regs-sgb2/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "55d55796452c3386afe53f24117e5d2cdfd4ca1bef6325fc9e3b3e5fa2ec7e43",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/acceptance/call_cc_timing/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "fdc87a9276a5b2430f05ad071134df8501a808d3463cf2e5a1f0891daffa27e3",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/acceptance/call_cc_timing2/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "ba0c8616b5665b791c376b50ff22e70070897249992e7f205f27eb96281af28f",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/acceptance/call_timing/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "da9dba03706ad3bbb8b0a5e7c3073f344f4bae65999a71be09b6e6de424bb31e",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/acceptance/call_timing2/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "8831e3c3e5f03d57fdb724475982e87fc8f7adeaf4bf733daf01075d67d659c8",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/acceptance/di_timing-GS/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "6a2276088cc1b76bd9d019b5a904b7f043fe0623b71edccb84e33aacc6513726",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/acceptance/div_timing/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "ea7e923b22033afba4ae6d7bed3427a6f686ddab39f7e25dc3252bf801a75eea",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/acceptance/ei_sequence/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "c77cb107cdb01068e008672dea03d14f20bd1b0777769b94ee64e7952f90120f",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/acceptance/ei_timing/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "0299388a8f7b1efde7c26a6b974c67745f7dc35d0aea92ef5a7eb330d664d28a",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/acceptance/halt_ime0_ei/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "2f196358165a3006fda3365e7b69e7010a326bfb05f5c3f60421d6498285c395",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/acceptance/halt_ime0_nointr_timing/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "1f00b92d9f255c89f8271f52d1242a3a56c2c62fa1d1e5e82346227407d1f3f9",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/acceptance/halt_ime1_timing/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "9e294418966e32554e0f9c69e814ebd4f3be45b2fe2ffa119c360bb96a89f75f",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/acceptance/halt_ime1_timing2-GS/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "a2502cbc708e92e97b3dd6c491c32f6226b04996ceac56fc969d5e6d2f796c44",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/acceptance/if_ie_registers/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "7151fda0601da929fe131460bfb9d374b579975b40fe22bc950868dd29298933",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/acceptance/instr/daa/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "db5b5d6438a687857e169af1936b6ee24ba5154d2483ea9ed7c97c6a1907b41f",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/acceptance/interrupts/ie_push/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "2e309951cd29e54bb98d409507dce34fc6f68ee512b2bb83f267179534e0a1c3",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/acceptance/intr_timing/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "5fd312a86bf7fef48327e92e8d707c18b098c1e495464d0a8a00a070d1ab03e1",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/acceptance/jp_cc_timing/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "b6d858af2e02bb58c7db8cd074fa7561c6e390ec293682c1881f4d1437fffb23",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/acceptance/jp_timing/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "bb911defee9a66ea573387078259e07b4b5e11c36ee35a199523dbad3991307d",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/acceptance/ld_hl_sp_e_timing/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "732b8f456c79494b2c5284c51c2760512b759ee279c627ff12880266b487e51e",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/acceptance/oam_dma/basic/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "a476b5c0482ec9e35e79e112f2cd3f1608d662e101b276b5e39b008287cce18b",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/acceptance/oam_dma/reg_read/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "7da25be338ede337b217d978118f06062efb8d8a247ca47a7251b48282dcbdfa",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/acceptance/oam_dma/sources-GS/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "ee1f05a623767383a34d86f566cc44a79c4d74c34be70528daad7f141aa10d45",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/acceptance/oam_dma_restart/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "0136fc9351cbbd6213e108b72e7b20f1795cda385f5a663fbfa79927e5dcbabb",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/acceptance/oam_dma_start/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "314db12ff865ce2c6e6b0a854b26584b3de0940f5d173ecab61f5a0f1dadb59e",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/acceptance/oam_dma_timing/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "d65a1b5bf9be5393da3de103ad2cb8a4fec39066d12d2f95c661644cacf4fafe",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/acceptance/pop_timing/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "540f4e4b28a587a7f608a205431d22f847a45e0747149fd5c9a893bef212f91b",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/acceptance/ppu/hblank_ly_scx_timing-GS/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "5dc408f856f59b12ce63e4433355bfb48c2b2eba5a0db78644212f4081d8958a",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/acceptance/ppu/intr_1_2_timing-GS/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "5a9afb64c8cd972a3b4fa63122e09d24f14cc8d6ad98d85acbf38fea876b54d5",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/acceptance/ppu/intr_2_0_timing/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "dcd7d144be6879368777412993d94c303fcb21fe1e052485f88e658ba8bc02fb",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/acceptance/ppu/intr_2_mode0_timing/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "6314f9b6eeef467d88f0039a3705d44f998c2887aceb3f649cb8f6e35740703f",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/acceptance/ppu/intr_2_mode0_timing_sprites/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "f8a1b92942389ed4afecaadc32a3620931f829c2ba503f96022357fd59881028",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/acceptance/ppu/intr_2_mode3_timing/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "17ccc6ca0036ffaa75ed47bc20a59ea8f68dd1e383c1719827055483f14ae0b8",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/acceptance/ppu/intr_2_oam_ok_timing/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "d1138307a25d8eff8566e670ee39330f7a863cac792d47de269f3f0c34c85167",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/acceptance/ppu/lcdon_timing-GS/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "dc3644c90c1d598b64a86d00abbf219794f96dc79a188e50c9fbe53e18df1ee4",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/acceptance/ppu/lcdon_write_timing-GS/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "a4aafb523d4beb8e6a1f37a76b29b54a38355bc1b683be1a36c0ad24ddbd3eb7",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/acceptance/ppu/stat_irq_blocking/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "4e061537ea80148b99bf70fdb9a22b44aec921cbbe4477b6249b2bccee97e0ec",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/acceptance/ppu/stat_lyc_onoff/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "32af6a9df7fe833c6115e25f0008a8b826035d9177fe73057fd9026df944a6ef",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/acceptance/ppu/vblank_stat_intr-GS/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "db7ee2865689f53290e3a1a653d72d1fa8f2226766bad9005f3ad6ff17ce8342",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/acceptance/push_timing/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "cc45809dc5e74f4bc7753abd56a5e197ad4f60facc480a9585246ffe427a4e8b",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/acceptance/rapid_di_ei/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "8c8812205b668c9b4c83484f68421778f6cabc833218569e5cef76e17b0af75c",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/acceptance/ret_cc_timing/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "fb64e4b9de5386acd40506a82e5ea89d5f17144316795b93fb510a2f9e7bee7c",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/acceptance/ret_timing/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "b4665f6a585b4d9bd7a3e6ec14ddc2afd9b5408465d19ed19c4604232f4096d3",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/acceptance/reti_intr_timing/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "c6fa77664a418da7d0608c375018faadcc62df6478314a89022ac6465b595645",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/acceptance/reti_timing/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "0d89016e5db4265998bdd1466d4099412a2478265f0a0ce81793b5bf1e62c938",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/acceptance/rst_timing/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "bd6e12c286f8bcdd76a02e6e76521563fdf4e74b037d77034bd27f44b0b7d4d0",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/acceptance/serial/boot_sclk_align-dmgABCmgb/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "6ec152a8a08d5421a6b481a739f6a20480017e05b901c6bfeaf57deddb61dc45",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/acceptance/timer/div_write/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "0c57baaf83d88aab0f5dd9980abafb81c708a7a5221c684324c01fec145d080c",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/acceptance/timer/rapid_toggle/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "59b0a60d7d7278282ad33f41c79aafb5ee550782e0ca9357ae68cd43ac33e4da",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/acceptance/timer/tim00/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "4c9d9d70c636ec25ee9f22ec2770de9ed69bc054457cb67ea5fac9e5f2b07503",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/acceptance/timer/tim00_div_trigger/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "06b3aba3d1bfef00912f9bc2376a9858460c369089cf17bcfff19230baa5453a",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/acceptance/timer/tim01/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "074014170ba914f3636282a8a21bd69b286aff336242c4e026070299e29c88c3",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/acceptance/timer/tim01_div_trigger/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "7a54287c13d61f872745bff9f357c743f5620472726423d6cabeed74ea3ccaed",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/acceptance/timer/tim10/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "3b3ec10b73c1a15bd19fdf4dec54034cf8a4f002ad9386212f8a08af8a42f2ef",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/acceptance/timer/tim10_div_trigger/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "aca572e1045099b5a85f95e8890cf5157d0033cd89d451cebdaf787b4e351816",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/acceptance/timer/tim11/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "3831ce0ef748d0b40cb4aee1e3217a70ad7e07245e83c530971a6d833534882f",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/acceptance/timer/tim11_div_trigger/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "da9f9899fc372215485bee52a8d12525cf7291fed2b47e99e9b30c1a60893e1c",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/acceptance/timer/tima_reload/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "014982175633eda8a6e742e6cb46228d524f7b6d3ba448cf9e1fd3d82c808d50",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/acceptance/timer/tima_write_reloading/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "6926443024e672651e02a7596680a346d51993b533ba78a3824190199caf8ee8",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/acceptance/timer/tma_write_reloading/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "54d350d594b9545f4a27d3c326879c8938e75cda9d5b1716bebe7554a4c6a4c9",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/emulator-only/mbc1/bits_bank1/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "1c56f52170f7c1e3719e1a2a631def4ff5b259b37a16cb97d135e92e6e2637c0",
+      "size": 65536
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/emulator-only/mbc1/bits_bank2/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "a3afb560678baba5ff1ce3fdd2c61a8cd238cfb5f5e498a31eee4160af3645c3",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/emulator-only/mbc1/bits_mode/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "5d36d817c1a956f9aa8fdc6257881de89d8b6abbb617c707c6a4ffbd8c417f32",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/emulator-only/mbc1/bits_ramg/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "ea777dadc7045811e0e88232b121216c54d1402be20b80ceba6b2cb5cd865622",
+      "size": 65536
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/emulator-only/mbc1/multicart_rom_8Mb/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "6050a29df05d39d9f303f4223cf8128e3eb59246ac96a9c671374b51f6241174",
+      "size": 1048576
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/emulator-only/mbc1/ram_256kb/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "02e523264de9d218ebc632290d7c84f7ff660e246e6c754353c9da834bd4693c",
+      "size": 65536
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/emulator-only/mbc1/ram_64kb/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "3afc730e90b68be3728a5a4fc0e7642075cd35d7367cfed11ce8a4916df46e84",
+      "size": 65536
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/emulator-only/mbc1/rom_16Mb/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "9a664e6a48ae1d49232cdd87de91b2f26f8410b1a6661a03cac0b5987cd87844",
+      "size": 2097152
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/emulator-only/mbc1/rom_1Mb/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "d0472027ba2788718aabd5e1a6080bc620c082796dc9c0264d620baca585e155",
+      "size": 131072
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/emulator-only/mbc1/rom_2Mb/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "9037359df31ec5df7186f599c1f874f4543ef9453f75138af0b52b8bf3dade20",
+      "size": 262144
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/emulator-only/mbc1/rom_4Mb/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "d90f05a7347ee68d8bc28b6e61935a30a59856778fefd58c53c6f89181d0b667",
+      "size": 524288
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/emulator-only/mbc1/rom_512Kb/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "3e76cd970a9d1a5b904ea0a87410801ba72a4abd312af7db16942a6d4695bfa4",
+      "size": 65536
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/emulator-only/mbc1/rom_8Mb/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "5a9f966587c8611cc7e6f32008323b9fbe833ce21415aea4320368ce623c1237",
+      "size": 1048576
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/emulator-only/mbc2/bits_ramg/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "8c93ecff69765b00b1a8a8b179ced4a7cc358cc3000764a33c603e0236259f68",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/emulator-only/mbc2/bits_romb/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "36f57b37bfec131866a22192d34a061bef3e0aeef211b566425ffcb1a89efd1e",
+      "size": 65536
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/emulator-only/mbc2/bits_unused/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "807ca2feb6df47b67207c531addbe9a6461e61c976bd3fb93645690db3df3c17",
+      "size": 262144
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/emulator-only/mbc2/ram/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "dfeda458eb071604361ba910e5fc853075b8d995f2036fd0c388956736366347",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/emulator-only/mbc2/rom_1Mb/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "4c410bea1c51ac9ee4b6703ccfe1841de5380e7e91ee16778683d1632bc647e5",
+      "size": 131072
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/emulator-only/mbc2/rom_2Mb/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "18bbff553536b154e3d2e39b3d50b56c7d37d3ea052b36d77fb8fc6f8cb21030",
+      "size": 262144
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/emulator-only/mbc2/rom_512kb/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "9cf901a73c14b4712d55c9f5e5ddd427635e402037a8f475b4927407a38ca70a",
+      "size": 65536
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/emulator-only/mbc5/rom_16Mb/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "e8a8985d5fe0678736801bda1212b1f8315c2576a222986c126c925adda1639e",
+      "size": 2097152
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/emulator-only/mbc5/rom_1Mb/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "5953ad08d4f373d86594a03d7e464832b490d4101e262e25830de2945f3e532b",
+      "size": 131072
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/emulator-only/mbc5/rom_2Mb/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "7fa4b09f39a81df011e5a811573a5b15ec18ef090e845ad924e8fbaed4d92e00",
+      "size": 262144
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/emulator-only/mbc5/rom_32Mb/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "ecae4cef9c140c66be661ee5acda31d6041a1f909ad4875ea8a1c8ce66507ca3",
+      "size": 4194304
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/emulator-only/mbc5/rom_4Mb/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "7ac643d2619847c5bc302f32ad516cd6a8af501d11197b2d40b40d00c8c3c8c2",
+      "size": 524288
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/emulator-only/mbc5/rom_512kb/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "024304ba4f060a63aec4f24bd622be08fe69f25a2e669a06710afe86eeede774",
+      "size": 65536
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/emulator-only/mbc5/rom_64Mb/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "0f7cf67e33e68777e95d5dd4ea4b3f8a74ad761e9d0825e87a48ccf1afeb1f0f",
+      "size": 8388608
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/emulator-only/mbc5/rom_8Mb/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "cba4b8b3a18f3a40c4b094119a88bb12ecb7c3bfc60d95f6c8db3d1eaa1f14cc",
+      "size": 1048576
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/madness/mgb_oam_dma_halt_sprites/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "4040ef40e3170cf6da1237b82752ae4601bd9438817e8f65b37068e3f6635775",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/manual-only/sprite_priority/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "789024c8e81e252a289edf6c80bd0bc9cccfa54bc23f7dfe388dfe88f990f94e",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/misc/bits/unused_hwio-C/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "0e172cb6d8c21ab2c641b6513be395320e8d9334f6e0fa6354b9c06249bad189",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/misc/boot_div-A/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "97e17dbd13777c2ad88818a916097dff8fa565fb46e323a6c2ad5c53c6cc5704",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/misc/boot_div-cgb0/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "22e9091cc1756d42e1b0dfba83f84dc02f9ce515abd763bb93d2f0284f774313",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/misc/boot_div-cgbABCDE/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "bc7bf65fdf9a09899e1f6d63f463ebb585777069903c48408e0ce8ed9d73bb6c",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/misc/boot_hwio-C/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "62840a75f224d4470442e1875c899a133b2f4d8ebd294339fc0f2df3fc8b28d4",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/misc/boot_hwio-C/test.sav",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/misc/boot_regs-A/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "43adb0323742280c7351fd560c1ef1f1b9fd9ca1cfa8e8e9b3a297832f402fa5",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/misc/boot_regs-cgb/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "82938fa70b85a3197c4aea906000347770f0ee3773c84072b49d962e6d479062",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/mooneye-gb/misc/ppu/vblank_stat_intr-C/test.gb",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "15945f71e903e308884e5b619f17e37285070426bdccc80f37db4146d2081e9f",
+      "size": 32768
+    },
+    {
+      "path": "cinema/gb/window/007wne-hud/test.mvl",
+      "reason": "unused cinema initial-state video fixture",
+      "sha256": "4ebea4a157487dc7a0eabdac154165ff98e1fafa93c546b1964e65e84c1bf82c",
+      "size": 14295
+    },
+    {
+      "path": "cinema/gb/window/ccmmr-hud/test.mvl",
+      "reason": "unused cinema initial-state video fixture",
+      "sha256": "80ed34d0b26c50d5233453c975dfced092f5f01bbd7ef1d383b413c345040e68",
+      "size": 23971
+    },
+    {
+      "path": "cinema/gb/window/dk94-split/test.mvl",
+      "reason": "unused cinema initial-state video fixture",
+      "sha256": "62566ad721b865babe6ca84bbb9e5816ad43eddb7c849583b114f8e21adb6483",
+      "size": 16050
+    },
+    {
+      "path": "cinema/gb/window/dk94-split/test.sav",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0
+    },
+    {
+      "path": "cinema/gb/window/gsc-battle/test.mvl",
+      "reason": "unused cinema initial-state video fixture",
+      "sha256": "be9defda6f982a8bb9b230ed802f4355b7cfd237cb02e1ff28366127ebea9a49",
+      "size": 12853
+    },
+    {
+      "path": "cinema/gb/window/gsc-battle/test.sav",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0
+    },
+    {
+      "path": "cinema/gb/window/kdt-battle/test.mvl",
+      "reason": "unused cinema initial-state video fixture",
+      "sha256": "d7eaf8ef64e1dee07532735d7ac4183325c662590644bec6dd37c38961ef3576",
+      "size": 7086
+    },
+    {
+      "path": "cinema/gb/window/rfs-hud/test.mvl",
+      "reason": "unused cinema initial-state video fixture",
+      "sha256": "67f5c0dbebfbe3f6ebb125e0187eea8d39bd81ee325d12f55b61c638bf3cb4a2",
+      "size": 93492
+    },
+    {
+      "path": "cinema/gb/window/wmm-hud/test.mvl",
+      "reason": "unused cinema initial-state video fixture",
+      "sha256": "df76ca76ff33115573badb88f702a89a0c257565861dcf0bc6af046921bcda57",
+      "size": 48277
+    },
+    {
+      "path": "cinema/gb/window/zin-head/test.mvl",
+      "reason": "unused cinema initial-state video fixture",
+      "sha256": "a0d81341acd9e2eb209de89c3cacd7c752e7dc8db3381bba3a74717a252581bc",
+      "size": 9144
+    },
+    {
+      "path": "cinema/gb/window/zoos-intro/test.mvl",
+      "reason": "unused cinema initial-state video fixture",
+      "sha256": "0e07b0360d89c028066c5187c34607b23862b967f0e172e56f8847039ab46b31",
+      "size": 12321
+    },
+    {
+      "path": "cinema/gb/window/zoos-intro/test.sav",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0
+    },
+    {
+      "path": "cinema/gba/bg/ff6-midframe-update/test.mvl",
+      "reason": "unused cinema initial-state video fixture",
+      "sha256": "b97ca8d4c67d08124705ed51591fdd37abcffa100c6de5d1d1b530c4a40a8ba2",
+      "size": 83740
+    },
+    {
+      "path": "cinema/gba/bg/lady-sia/test.mvl",
+      "reason": "unused cinema initial-state video fixture",
+      "sha256": "c5db649eeee05327ec3f2dfb98882ed55738e9b3f9d1d6a1d2ffdfe547675d48",
+      "size": 64811
+    },
+    {
+      "path": "cinema/gba/blend/backdrop-blend/test.mvl",
+      "reason": "unused cinema initial-state video fixture",
+      "sha256": "0d01956214ba7bd2f1174f3088eef7746f3596206b4e8b81aef27097ec15f088",
+      "size": 62511
+    },
+    {
+      "path": "cinema/gba/blend/bof-obj-backdrop-blend/test.mvl",
+      "reason": "unused cinema initial-state video fixture",
+      "sha256": "64d6db2cae9b818b77ff08f4d1199f976e1d2aa6ee272f7443c1e14ec5c3caee",
+      "size": 59338
+    },
+    {
+      "path": "cinema/gba/blend/disabled-bg-semitrans-blend/test.gba",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "c7fa47410acebc8846af4ab36a1ca6e35d7a77a9046ba5edfccd0c120cf3406f",
+      "size": 5288
+    },
+    {
+      "path": "cinema/gba/blend/gs-obj-modes/test.mvl",
+      "reason": "unused cinema initial-state video fixture",
+      "sha256": "23a13ae3d20b8d38ca9d19eab7c7c0bd6c6a513917b89408d7a47565a4e936ef",
+      "size": 148110
+    },
+    {
+      "path": "cinema/gba/blend/kam-knockout/test.mvl",
+      "reason": "unused cinema initial-state video fixture",
+      "sha256": "3af004f41e89041220a424913ef7bd8a4ebd2c7994bf90338c41c6f4bfcd2462",
+      "size": 61452
+    },
+    {
+      "path": "cinema/gba/blend/mzm-layering/test.mvl",
+      "reason": "unused cinema initial-state video fixture",
+      "sha256": "ca4b97081dd147d95fba1f9282450ff650313da1de5406697f565acd0fa62afc",
+      "size": 87409
+    },
+    {
+      "path": "cinema/gba/blend/mzm-layering/test.sav",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0
+    },
+    {
+      "path": "cinema/gba/blend/obj-semitrans-brighten/test.mvl",
+      "reason": "unused cinema initial-state video fixture",
+      "sha256": "738177c80ca38db719e6137497653a03645e977d8522034b77eef7e3b3340876",
+      "size": 6601
+    },
+    {
+      "path": "cinema/gba/blend/obj-semitrans-overwrite/test.mvl",
+      "reason": "unused cinema initial-state video fixture",
+      "sha256": "313833ee2727d433f543303fbe331bd3569910ef02b2dbd75d76eb2ca8b212a1",
+      "size": 18169
+    },
+    {
+      "path": "cinema/gba/blend/sma-knockout/test.mvl",
+      "reason": "unused cinema initial-state video fixture",
+      "sha256": "ce5654e06e2bad00167faa2d0399af140e522558d49f326f382276254a7c8056",
+      "size": 29818
+    },
+    {
+      "path": "cinema/gba/blend/sma2-semitrans/test.mvl",
+      "reason": "unused cinema initial-state video fixture",
+      "sha256": "371a05d8437bd6e0b8b40c8ac8df6fcd6a53664c0e87b59c5f3c45b4fd5c828b",
+      "size": 22109
+    },
+    {
+      "path": "cinema/gba/irq/keyirq/test.gba",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "3f9f3f52439bd6cfb952ecca7d1554ce56ef3520c2b798895ee56c34c309200a",
+      "size": 69160
+    },
+    {
+      "path": "cinema/gba/obj/2d-wrap/test.gba",
+      "reason": "unused cinema ROM/save fixture",
+      "sha256": "e6b82e57a15f7878e116761e7c2a31ead6885f972a118adaf97acf39102309dd",
+      "size": 4096
+    },
+    {
+      "path": "cinema/gba/obj/cycle-limit-ad/test.mvl",
+      "reason": "unused cinema initial-state video fixture",
+      "sha256": "af7f9943b25eee25c36348935ba6a5382ac18fd0ab6cdbab3443db981e1b3cc1",
+      "size": 142297
+    },
+    {
+      "path": "cinema/gba/obj/cycle-limit-nmj/test.mvl",
+      "reason": "unused cinema initial-state video fixture",
+      "sha256": "8e15eae4b2645b3ddabad379d785a39b4055d0527a2d95f7f6d54fe25e1c7d7f",
+      "size": 127170
+    },
+    {
+      "path": "cinema/gba/obj/fzc-obj-priority/test.mvl",
+      "reason": "unused cinema initial-state video fixture",
+      "sha256": "9ce086689d8f5416e9d94401ba186a74047ce2293bf852e10b4d320851fd0a51",
+      "size": 32368
+    },
+    {
+      "path": "cinema/gba/obj/mosaic-height/test.mvl",
+      "reason": "unused cinema initial-state video fixture",
+      "sha256": "78d3e7bea31e622b5db0b19f67653bf566fabfa8654cc6ff8aaee212d2b11c44",
+      "size": 45041
+    },
+    {
+      "path": "cinema/gba/obj/sma2-mosaic-clamp/test.mvl",
+      "reason": "unused cinema initial-state video fixture",
+      "sha256": "bd935bf0e616a4800f35a768c8c70caa203fdf8cc195509d89947ab087f9f8fd",
+      "size": 37919
+    },
+    {
+      "path": "cinema/gba/obj/unaligned-256-linear/test.mvl",
+      "reason": "unused cinema initial-state video fixture",
+      "sha256": "2ef59b67be25163662b0bf3a50ed5c20f845659ac089a6453d412a3270484527",
+      "size": 96840
+    },
+    {
+      "path": "cinema/gba/obj/unaligned-256/test.mvl",
+      "reason": "unused cinema initial-state video fixture",
+      "sha256": "674314ec57b4439ceb9b8fd4f1b75151bd08716c3b5329f241a5a1bf3850d5ea",
+      "size": 35105
+    },
+    {
+      "path": "cinema/gba/window/gs-clock-wipe/test.mvl",
+      "reason": "unused cinema initial-state video fixture",
+      "sha256": "a7633e17096671cbb1e10e0e8f00791029d67734d67d93650d7125c892046525",
+      "size": 126469
+    },
+    {
+      "path": "cinema/gba/window/sthg-objwin-blend/test.mvl",
+      "reason": "unused cinema initial-state video fixture",
+      "sha256": "49db0f9ad2d45761e11c6019ac7b92cf850f0b38cef22ab8a1ec45081555f6ae",
+      "size": 35364
+    },
+    {
+      "path": "cinema/gba/window/tgr-objwin-order/test.mvl",
+      "reason": "unused cinema initial-state video fixture",
+      "sha256": "094dbbd8915a54d5f50d8a75ea000856059075ec3b4be9b5413464b1fa06c919",
+      "size": 332019
+    },
+    {
+      "path": "cinema/gba/window/zmc-window-mosaic/test.mvl",
+      "reason": "unused cinema initial-state video fixture",
+      "sha256": "eccd00abc25a49bdcc8307aa59da0fbe99cbbcacd53dba2f85bcfefdecac1b65",
+      "size": 120669
+    }
+  ],
+  "source_sha256": "24e11bd15b49dcbd74513e8fd6acdcead005616c0e3f52b8e93413fb8f42725e",
+  "upstream_commit": "26b7884bc25a5933960f3cdcd98bac1ae14d42e2"
+}

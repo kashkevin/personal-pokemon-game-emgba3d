@@ -13,9 +13,11 @@ import re
 import shutil
 import subprocess
 import tarfile
+import tempfile
 
 from fetch_dependencies import SOURCES
 from prepare_frontend import PIN
+from sanitize_source import sanitize
 
 
 def command(*args):
@@ -49,7 +51,8 @@ def collect(source, dependencies, output):
     build = source / "build-windows"
     cache = (build / "CMakeCache.txt").read_text()
     for setting in ("BUILD_LTO:BOOL=OFF", "BUILD_STATIC:BOOL=ON", "BUILD_SHARED:BOOL=OFF",
-                    "ENABLE_SCRIPTING:BOOL=ON", "USE_LUA:BOOL=ON"):
+                    "ENABLE_SCRIPTING:BOOL=ON", "USE_LUA:BOOL=ON",
+                    "BUILD_TEST:BOOL=OFF", "BUILD_CINEMA:BOOL=OFF", "BUILD_PERF:BOOL=OFF"):
         if setting not in cache.splitlines():
             raise ValueError("unexpected runtime build settings")
     sdl = dependencies / "sdl-devel/SDL2-2.32.10/x86_64-w64-mingw32"
@@ -86,7 +89,10 @@ def collect(source, dependencies, output):
                                                    "src/platform/sdl/main.c", "src/platform/sdl/sdl-events.c"))
     for name in ("sdl-multiplayer.c", "sdl-multiplayer.h"):
         shutil.copyfile(project / "native/windows-runtime" / name, output / name)
-    command("git", "-C", str(source), "archive", "--format=tar.gz", "-o", str(output / "mGBA-source.tar.gz"), "HEAD")
+    with tempfile.TemporaryDirectory(prefix="emerald-mgba-source-") as temporary:
+        original_archive = Path(temporary) / "upstream.tar.gz"
+        command("git", "-C", str(source), "archive", "--format=tar.gz", "-o", str(original_archive), "HEAD")
+        sanitize(original_archive, output / "mGBA-source.tar.gz", output / "source-packaging.json")
     for archive in archives:
         shutil.copyfile(dependencies / archive["name"], output / archive["name"])
     # Keep the work using LGPL blip_buf relinkable. These are private build
@@ -111,7 +117,7 @@ def collect(source, dependencies, output):
         "-lm -lkernel32 -luser32 -lwinspool -lshell32 -lole32 -loleaut32 -luuid -lcomdlg32 -ladvapi32\n"
         "Keep the original SDL2.dll and libwinpthread-1.dll beside the relinked executable.\n")
     for name in ("build_runtime.sh", "mingw64.cmake", "mingw64-meson.ini", "prepare_frontend.py",
-                 "fetch_dependencies.py", "README.md"):
+                 "fetch_dependencies.py", "README.md", "sanitize_source.py", "source-fixtures.json"):
         shutil.copyfile(Path(__file__).with_name(name), output / name)
     provenance = dict(mgba_commit=PIN, core_source_unchanged=True, dll_imports=imports,
                       dependency_sources=archives, compiler=command("x86_64-w64-mingw32-gcc", "--version").decode(),
