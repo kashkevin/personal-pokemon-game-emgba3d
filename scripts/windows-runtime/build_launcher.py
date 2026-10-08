@@ -21,6 +21,7 @@ sys.path.insert(0, str(PROJECT / "src"))
 
 from emerald_multiplayer.game_import import ImportRelease, MAX_PATCH, MAX_ROM, apply_bps
 from emerald_multiplayer.launcher_gui import LauncherRelease
+from package_audit import audit_files, audit_tree
 
 PYINSTALLER = "6.22.3"
 
@@ -78,6 +79,8 @@ def build(args):
     installation = GameInstallation(args.rom, args.manifest, release.rom_sha256,
                                     release.manifest_sha256, RuntimeBundle(args.runtime, release.runtime_sha256))
     installation.verify()
+    runtime_manifest = json.loads((args.runtime / "runtime.json").read_bytes())
+    audit_files(args.runtime / name for name in runtime_manifest["files"])
     import_release = None
     patch_options = (args.base, args.base_sha256, args.patch, args.patch_sha256)
     if any(value is not None for value in patch_options):
@@ -105,6 +108,7 @@ def build(args):
     # Verify the collected tree as well as its source. Arbitrary neighboring
     # files in a private runtime directory never enter the download.
     RuntimeBundle(resources / "runtime", release.runtime_sha256).verify()
+    audit_tree(resources / "runtime")
     if import_release:
         pinned_copy(args.patch, resources / "game.bps", import_release.patch_sha256)
     versions = collect_notices(resources)
@@ -159,16 +163,18 @@ def build(args):
     for name in ("README.txt", "QUICK-START.txt", "RELEASE-LIMITS.txt"):
         pinned_copy(resources / name, package / name, sha(resources / name))
     files = {}
+    package_audit = {"tree": audit_tree(package)}
     for path in sorted(package.rglob("*")):
         if not path.is_file():
             continue
-        if path.suffix.lower() in {".gba", ".sav", ".sqlite3", ".db", ".pem"}:
-            raise ValueError("private game/player data unexpectedly entered package")
         files[path.relative_to(package).as_posix()] = sha(path)
     (output / "package-hashes.json").write_text(json.dumps(files, sort_keys=True, indent=2) + "\n")
     archive = Path(shutil.make_archive(str(output / "EmeraldTogether"), "zip", root_dir=output / "dist"))
+    package_audit["archive"] = audit_files([archive])
+    (output / "package-audit.json").write_text(json.dumps(package_audit, sort_keys=True, indent=2) + "\n")
     print(json.dumps(dict(package=str(package), files=len(files), import_enabled=import_release is not None,
-                         executable_sha256=files["EmeraldTogether.exe"], archive_sha256=sha(archive))))
+                         executable_sha256=files["EmeraldTogether.exe"], archive_sha256=sha(archive),
+                         package_audit=package_audit)))
 
 
 def main():
