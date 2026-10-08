@@ -19,6 +19,7 @@ from emerald_multiplayer.checkpoint_mirror import (
 from emerald_multiplayer.flash import LAYOUT_ID, inspect_flash
 from emerald_multiplayer.storage import Checkpoint
 from test_flash import make_flash
+from process_fixture import direct_python
 
 
 BUILD = "test-build-sha256"
@@ -174,16 +175,16 @@ class CheckpointMirrorTests(unittest.TestCase):
     def test_crashed_core_releases_process_lifetime_lease(self):
         self.restore()
         child_code = """
-import sys
+import os, sys
 from emerald_multiplayer.checkpoint_mirror import MirrorLease
 with MirrorLease(sys.argv[1]):
-    print('running', flush=True)
+    print(f'running:{os.getpid()}', flush=True)
     sys.stdin.readline()
 """
-        child = subprocess.Popen([sys.executable, "-u", "-c", child_code, str(self.save)],
+        child = subprocess.Popen([direct_python(), "-u", "-c", child_code, str(self.save)],
                                  stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         try:
-            self.assertEqual(child.stdout.readline().strip(), "running")
+            self.assertEqual(child.stdout.readline().strip(), f"running:{child.pid}")
             self.assert_code("mirror_active", self.restore)
             child.kill()
             child.wait(timeout=5)

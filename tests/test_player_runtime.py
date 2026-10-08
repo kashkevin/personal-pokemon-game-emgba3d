@@ -13,6 +13,7 @@ from emerald_multiplayer.checkpoint_mirror import MirrorError, MirrorLease
 from emerald_multiplayer.player_runtime import PlayerRuntime, PlayerRuntimeError, RuntimeBundle
 from test_cold_start import ClosedCompanion
 from test_companion import make_files
+from process_fixture import direct_python
 
 
 def write_bundle(root, *, mutate=None):
@@ -113,7 +114,7 @@ class ProcessTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(MirrorError):
             with MirrorLease(self.save):
                 self.fail("save lease was released before spawn")
-        child = await self.real_spawn(sys.executable, "-c", "import time; time.sleep(60)", **kwargs)
+        child = await self.real_spawn(direct_python(), "-c", "import time; time.sleep(60)", **kwargs)
         self.children.append(child)
         return child
 

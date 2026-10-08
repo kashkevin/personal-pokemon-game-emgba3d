@@ -8,6 +8,7 @@ import sys
 import tempfile
 import unittest
 import uuid
+from process_fixture import direct_python
 
 from emerald_multiplayer.protocol import MAX_COUNTER
 from emerald_multiplayer.storage import (
@@ -118,18 +119,18 @@ class StorageTests(unittest.TestCase):
     def test_process_lifetime_host_lock_survives_then_releases_on_crash(self):
         self.store.close()
         child_code = """
-import sys
+import os, sys
 from emerald_multiplayer.storage import CheckpointStore
 store = CheckpointStore(sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4])
 store.begin_server_boot()
-print('hosting', flush=True)
+print(f'hosting:{os.getpid()}', flush=True)
 sys.stdin.readline()
 """
-        child = subprocess.Popen([sys.executable, "-u", "-c", child_code,
+        child = subprocess.Popen([direct_python(), "-u", "-c", child_code,
                                   str(self.path), BUILD, RULESET, PROFILE],
                                  stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         try:
-            self.assertEqual(child.stdout.readline().strip(), "hosting")
+            self.assertEqual(child.stdout.readline().strip(), f"hosting:{child.pid}")
             self.store = CheckpointStore(self.path, BUILD, RULESET, PROFILE)
             old = self.store.metadata
             self.assert_code("host_active", self.store.begin_server_boot)
@@ -252,7 +253,7 @@ sys.stdin.readline()
         first = self.commit()
         self.store.close()
         child_code = """
-import hashlib, sqlite3, sys
+import hashlib, os, sqlite3, sys
 db = sqlite3.connect(sys.argv[1], isolation_level=None)
 db.execute('PRAGMA synchronous=FULL')
 db.execute('BEGIN IMMEDIATE')
@@ -261,14 +262,14 @@ db.execute('INSERT INTO checkpoints VALUES (?,2,?,1,?,?,?,?,?)',
            (sys.argv[2], 'interrupted', data, hashlib.sha256(data).hexdigest(),
             sys.argv[3], sys.argv[4], sys.argv[5]))
 db.execute('UPDATE players SET latest_revision=2 WHERE player_id=?', (sys.argv[2],))
-print('staged', flush=True)
+print(f'staged:{os.getpid()}', flush=True)
 sys.stdin.readline()
 """
-        child = subprocess.Popen([sys.executable, "-u", "-c", child_code, str(self.path),
+        child = subprocess.Popen([direct_python(), "-u", "-c", child_code, str(self.path),
                                   self.owner.player_id, BUILD, RULESET, PROFILE],
                                  stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         try:
-            self.assertEqual(child.stdout.readline().strip(), "staged")
+            self.assertEqual(child.stdout.readline().strip(), f"staged:{child.pid}")
             child.kill()
             child.wait(timeout=5)
         finally:
