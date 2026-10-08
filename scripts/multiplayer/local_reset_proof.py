@@ -16,6 +16,7 @@ from pathlib import Path
 import secrets
 import struct
 import sys
+import traceback
 from uuid import uuid4
 
 from control_proof import objects
@@ -116,6 +117,8 @@ async def run(args):
     sources = [args.save_a, args.save_b]+([args.save_c,args.save_d] if args.save_c else [])
     player_count=len(sources)
     (root/"controller.py").write_bytes(Path(__file__).read_bytes())
+    bridge_source = args.bridge.read_bytes()
+    (root/"bridge-source.lua").write_bytes(bridge_source)
     original = [p.read_bytes() for p in sources]
     source_hashes = [hashlib.sha256(data).hexdigest() for data in original]
     store = OwnershipCheckpointStore(root / "world.sqlite3", manifest["rom_sha256"], manifest["ruleset_id"])
@@ -127,10 +130,14 @@ async def run(args):
         scope="first-action-only gated development personal encounter; no production statics, shiny profile, four-player matrix or Windows input acceptance",
         development=True, elf_sha256=manifest["elf_sha256"], read_only_diagnostics=diagnostics,
         save_profile=OWNERSHIP_PROFILE, source_sha256=source_hashes,
-        enrollment=[asdict(item) for item in enrollments], checks=[], snapshots=[], commands=[])
+        enrollment=[asdict(item) for item in enrollments], checks=[], snapshots=[], commands=[],
+        controller_sha256=hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+        bridge_sha256=hashlib.sha256(bridge_source).hexdigest(),
+        harness_sha256=hashlib.sha256(args.harness.read_bytes()).hexdigest(),
+        passed=False, cores_closed=False, original_sources_unchanged=False)
     server = WorldServer(ServerConfig(manifest["rom_sha256"], manifest["ruleset_id"], heartbeat_interval=.2, idle_timeout=8), store=store)
     await server.start(port=0)
-    cores, companions, leases, coordinators = [], [], [], []
+    cores, all_cores, companions, leases, coordinators = [], [], [], [], []
     pump = None
     saves = [root/f"client-{label.lower()}.sav" for label in "ABCD"[:player_count]]
     revisions = [0]*player_count
@@ -160,11 +167,12 @@ async def run(args):
         leases.append(lease)
         companion = companions[i]
         script = root / f"bridge-{i}.lua"
-        script.write_text(configure(manifest, companion.config.token.hex(), companion.ipc_address[1], args.bridge.read_text()))
+        script.write_text(configure(manifest, companion.config.token.hex(), companion.ipc_address[1], bridge_source.decode()))
         process = await asyncio.create_subprocess_exec(str(args.harness), str(rom), str(saves[i]), str(script),
             stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
         core = LockedCore(process, root / f"core-{i}-{len(evidence['snapshots'])}.log")
         cores.append(core)
+        all_cores.append(core)
         if not (await asyncio.wait_for(process.stdout.readline(), 20)).startswith(b"READY"):
             raise RuntimeError(f"core failed: {core.log}")
 
@@ -524,15 +532,24 @@ async def run(args):
         record("source-saves-unchanged-and-database-integrity-valid")
         evidence["passed"] = True
         persist()
+    except BaseException:
+        evidence["error"] = traceback.format_exc()
+        raise
     finally:
         if pump is not None:
             await pump.close()
-        await asyncio.gather(*(c.close() for c in cores), return_exceptions=True)
+        await asyncio.gather(*(c.close() for c in all_cores), return_exceptions=True)
         for lease in leases:
             lease.__exit__(None, None, None)
         await asyncio.gather(*(c.close() for c in companions), return_exceptions=True)
         await server.close()
         store.close()
+        evidence["cores_closed"] = all(c.process.returncode is not None for c in all_cores)
+        evidence["total_cores"] = len(all_cores)
+        evidence["original_sources_unchanged"] = [hashlib.sha256(p.read_bytes()).hexdigest() for p in sources] == source_hashes
+        if not evidence["cores_closed"] or not evidence["original_sources_unchanged"]:
+            evidence["passed"] = False
+        persist()
 
 
 def main():
