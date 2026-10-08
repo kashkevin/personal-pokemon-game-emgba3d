@@ -1,4 +1,4 @@
-"""Four actual cores using the authenticated native battle execution service.
+"""Two or four actual cores using the authenticated battle execution service.
 
 The production host executor routes authenticated participants' typed blocks
 and the production client journals own every mailbox mutation. This is not the
@@ -37,14 +37,15 @@ from emerald_multiplayer.trade_storage import TradeCheckpointStore
 
 class ExecutionPump(DiagnosticPump):
     async def _run(self):
-        # Approximate the ordinary 60fps desktop runtime. Durable host/client
-        # journals may need more wall time than the older in-memory proof.
+        # Give network tasks a scheduling opportunity between each native frame,
+        # as the desktop runtime does. Six fast frames followed by a 100ms wait
+        # average 60fps but artificially delay mailbox replies by whole batches.
         while True:
             started = time.monotonic()
-            await asyncio.gather(*(core.command(f"F {key:x} 6")
+            await asyncio.gather(*(core.command(f"F {key:x} 1")
                 for core, key in zip(self.cores, self.keys)))
-            self.frames += 6
-            await asyncio.sleep(max(.001, .1 - (time.monotonic() - started)))
+            self.frames += 1
+            await asyncio.sleep(max(.001, 1/60 - (time.monotonic() - started)))
 
 
 async def run(args):
@@ -53,14 +54,22 @@ async def run(args):
         raise ValueError("choose a new private multiplayer-proof output directory")
     _, manifest = verify_rom_manifest(args.rom, args.manifest)
     if manifest.get("battle_abi_version") != 3:
-        raise ValueError("native full Multi requires the exact ABI3 development ROM")
+        raise ValueError("this execution proof requires the exact ABI3 development ROM")
     if hashlib.sha256(args.elf.read_bytes()).hexdigest() != manifest["elf_sha256"]:
         raise ValueError("ELF does not match the native build manifest")
-    sources = [args.save_a, args.save_b, args.save_c, args.save_d]
+    mode = 2 if getattr(args, "mode", "multi") == "singles" else 3
+    count = 2 if mode == 2 else 4
+    sources = [args.save_a, args.save_b]
+    if mode == 3:
+        if args.save_c is None or args.save_d is None:
+            raise ValueError("Multi requires four independent ordinary source saves")
+        sources.extend((args.save_c, args.save_d))
+    elif args.save_c is not None or args.save_d is not None:
+        raise ValueError("singles uses exactly two source saves; no observer coverage is implied")
     originals = [path.read_bytes() for path in sources]
     source_meta = [inspect_flash(payload).metadata for payload in originals]
     if len({m.trainer_id for m in source_meta}) != len(sources) or not all(m.party_count for m in source_meta):
-        raise ValueError("four independent trainers with ordinarily obtained Pokémon are required")
+        raise ValueError("independent trainers with ordinarily obtained Pokémon are required")
     if args.require_full_parties and any(m.party_count != 6 for m in source_meta):
         raise ValueError("the full-six acceptance run requires six ordinary Pokémon per trainer")
     original_hashes = [hashlib.sha256(data).hexdigest() for data in originals]
@@ -71,13 +80,16 @@ async def run(args):
     (root/"controller.py").write_bytes(Path(__file__).read_bytes())
     bridge_source = args.bridge.read_text()
     (root/"bridge-source.lua").write_text(bridge_source)
-    evidence = dict(scope="four actual native full-party Multi cores using authenticated consent/execution RPC, host-owned routing and persistent client command journals; no native menu, interrupted-battle recovery, Windows or Internet claim",
+    kind = "two actual native singles cores" if mode == 2 else "four actual native full-party Multi cores"
+    evidence = dict(scope=kind+" using authenticated consent/execution RPC, host-owned routing and persistent client command journals; no native menu, interrupted-battle recovery, Windows or Internet claim",
+        mode=mode,
         engine_commit=manifest["engine_commit"], rom_sha256=manifest["rom_sha256"],
         elf_sha256=manifest["elf_sha256"], controller_sha256=hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
         bridge_sha256=hashlib.sha256(bridge_source.encode()).hexdigest(),
         harness_sha256=hashlib.sha256(args.harness.read_bytes()).hexdigest(),
         party_counts=[m.party_count for m in source_meta],
         require_full_parties=args.require_full_parties,
+        pacing=dict(frames_per_batch=1, target_frames_per_second=60),
         sources=[dict(path=str(p), sha256=h, trainer_id=m.trainer_id)
                  for p, h, m in zip(sources, original_hashes, source_meta)],
         checks=[], snapshots=[], commands=[], blocks=[], passed=False, cores_closed=False)
@@ -106,11 +118,12 @@ async def run(args):
     if any(name not in symbols or not 0x08000000 <= symbols[name][0] < 0x0A000000 for name in party_tasks):
         raise ValueError("party input diagnostics require the matching native menu symbols")
     evidence["party_joypad"] = []
-    validator = ControllerValidator(read_string_lengths(rom, table_address=symbols["gBattleStringsTable"][0]), mode=3)
+    validator = ControllerValidator(read_string_lengths(rom, table_address=symbols["gBattleStringsTable"][0]), mode=mode)
     store = TradeCheckpointStore(root/"world.sqlite3", manifest["rom_sha256"], manifest["ruleset_id"])
     from emerald_multiplayer.battle_reservations import enable_battle_reservations
     enable_battle_reservations(store, root/"before-battle-reservations.sqlite3")
-    identities = sorted([store.create_player("Native Multi "+name) for name in "ABCD"], key=lambda p: p.player_id)
+    label = "Native Singles " if mode == 2 else "Native Multi "
+    identities = sorted([store.create_player(label+name) for name in "ABCD"[:count]], key=lambda p: p.player_id)
     for identity, payload in zip(identities, originals):
         store.enroll_player(identity.player_id, payload)
     (root/"profiles.json").write_text(json.dumps([dict(player_id=i.player_id,
@@ -137,7 +150,7 @@ async def run(args):
     battle_id, generation, rng = str(uuid4()), None, None
     desk = None
     cold_contexts, execution_tasks = [], []
-    party_input = [None]*4
+    party_input = [None]*count
     revisions = [0]*len(sources)
 
     async def boot():
@@ -185,8 +198,8 @@ async def run(args):
         # SEND OUT submenu and repeatedly reselect the same fainted Pokemon.
         # The pinned ARM PartyMenu has slotId at byte 9; Task is 40 bytes with
         # its active flag at byte 4. Neither structure is ever written here.
-        # A pending six-frame pump batch may already hold the previous keys;
-        # twelve frames guarantees at least one batch samples this press.
+        # Keep a normal press/release interval so the native input handler
+        # observes an edge even while the text/menu task is changing.
         async def press(key, frames=12, release=18):
             evidence["party_joypad"].append(dict(owner=i, key=key, frames=frames,
                 release=release, frame=pump.frames))
@@ -255,23 +268,29 @@ async def run(args):
             revisions[i] = 1
             cp = store.read_checkpoint(identities[i].player_id, companions[i].session_epoch)
             rosters.append(CanonicalBattler.from_checkpoint(cp, world_id=store.metadata.world_id,
-                    build_id=store.build_id, ruleset_id=store.ruleset_id, source_slot=i, mode=3))
+                    build_id=store.build_id, ruleset_id=store.ruleset_id, source_slot=i, mode=mode))
             inventories.append(inspect_ownership(inspect_flash(cp.payload, save_profile=OWNERSHIP_PROFILE)))
             flash_path = root/f"before-battle-{i}.flash"
             await cores[i].command(f"D {flash_path}")
             original_flash.append(flash_path.read_bytes())
-        record("four-ordinary-Continue-and-canonical-owned-parties", counts=[r.party_count for r in rosters])
+        number = "two" if mode == 2 else "four"
+        record(number+"-ordinary-Continue-and-canonical-owned-parties", counts=[r.party_count for r in rosters])
         desk = server.battle_desk
-        offer = (await companions[0].battle_challenge_rpc("invite_multi",
-            teammate=identities[2].player_id,
-            opponents=[identities[1].player_id, identities[3].player_id], battle_id=battle_id))["result"]
+        if mode == 2:
+            offer = (await companions[0].battle_challenge_rpc("invite",
+                peer=identities[1].player_id, battle_id=battle_id))["result"]
+        else:
+            offer = (await companions[0].battle_challenge_rpc("invite_multi",
+                teammate=identities[2].player_id,
+                opponents=[identities[1].player_id, identities[3].player_id], battle_id=battle_id))["result"]
         assert offer["players"] == [identity.player_id for identity in identities]
+        assert offer["mode"] == mode
         generation = offer["generation"]
-        for i in range(1, 4):
+        for i in range(1, count):
             await companions[i].battle_challenge_rpc("accept", battle_id=battle_id,
                 generation=generation, fingerprint=offer["fingerprint"])
         offer = (await companions[0].battle_challenge_rpc("status", battle_id=battle_id))["result"]
-        held = [await native_state(i) for i in range(4)]
+        held = [await native_state(i) for i in range(count)]
         sessions = [NativeBattleSession(c, root/f"private-{i}") for i, c in enumerate(companions)]
         execution_tasks = [asyncio.create_task(session.run(offer)) for session in sessions]
         execution_started = time.monotonic()
@@ -299,14 +318,14 @@ async def run(args):
                 last_snapshot = time.monotonic()
             await asyncio.sleep(.01)
         else:
-            raise AssertionError("authenticated full Multi execution did not close before timeout")
+            raise AssertionError("authenticated native execution did not close before timeout")
         completions = await asyncio.gather(*execution_tasks)
         pump.keys[:] = [0]*len(sources)
-        after = [await native_state(i) for i in range(4)]
+        after = [await native_state(i) for i in range(count)]
         for before_state, after_state in zip(held, after):
             for key in ("party_sha256", "party_count", "counter"):
                 assert before_state[key] == after_state[key], (key, before_state, after_state)
-        for i in range(4):
+        for i in range(count):
             flash_path = root/f"after-battle-release-{i}.flash"
             await cores[i].command(f"D {flash_path}")
             assert flash_path.read_bytes() == original_flash[i]
@@ -321,7 +340,7 @@ async def run(args):
             assert any(choice["slot"] == 5 for choice in selected_slots), "no actual sixth-slot switch observed"
         state = desk.status(identities[0].player_id, companions[0].session_epoch, battle_id)
         assert state["state"] == "closed"
-        record("authenticated-four-player-execution-exact-party-and-flash-return",
+        record("authenticated-"+number+"-player-execution-exact-party-and-flash-return",
             outcome=state["outcome"], completions=[asdict(value) for value in completions],
             routed_blocks=len(evidence["blocks"]), selected_party_slots=selected_slots,
             execution_seconds=round(time.monotonic()-execution_started, 6))
@@ -337,7 +356,7 @@ async def run(args):
             revisions[i] += 1
             cp = store.read_checkpoint(identities[i].player_id, companions[i].session_epoch)
             assert inspect_ownership(inspect_flash(cp.payload, save_profile=OWNERSHIP_PROFILE)).records == inventories[i].records
-        record("all-four-current-maps-and-ordinary-native-checkpoints-preserve-owned-inventories")
+        record("all-"+number+"-current-maps-and-ordinary-native-checkpoints-preserve-owned-inventories")
         await pump.close()
         pump = None
         for core in cores: await core.close()
@@ -429,8 +448,11 @@ async def run(args):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    for name in ("rom", "elf", "manifest", "harness", "save-a", "save-b", "save-c", "save-d", "output"):
+    for name in ("rom", "elf", "manifest", "harness", "save-a", "save-b", "output"):
         parser.add_argument("--"+name, type=Path, required=True)
+    for name in ("save-c", "save-d"):
+        parser.add_argument("--"+name, type=Path)
+    parser.add_argument("--mode", choices=("singles", "multi"), default="multi")
     parser.add_argument("--bridge", type=Path, default=Path(__file__).parents[2]/"bridge/mgba.lua")
     parser.add_argument("--timeout", type=float, default=600)
     parser.add_argument("--require-full-parties", action="store_true",
