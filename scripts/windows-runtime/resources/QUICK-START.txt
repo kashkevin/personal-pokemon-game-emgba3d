@@ -55,7 +55,8 @@ If the game is busy, leave its menu or battle and press Save now again.
 After a successful save, close the game through its title-bar Close button,
 then close the launcher. A recovery message means the private recovery files
 must be retained; reopen through Host Game or Join Game as the message directs.
-Automatic saving and the final disconnect/offline policy remain unfinished.
+Automatic saving, emergency saving/disconnection after host loss, and waiting
+for every battle participant to reconnect are not implemented in this preview.
 
 Default game controls
 

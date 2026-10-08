@@ -16,13 +16,16 @@ Automatic native battle handoff, complete player-facing trading, and all
 campaign/customization requirements still need their remaining integration
 and playable acceptance.
 
-Automatic saving, final disconnect/offline behavior and interrupted-battle
-policy are unfinished. Save now is an explicit checkpoint to the host and
-reports busy/recovery states; it does not choose those pending policies.
+The accepted host-loss behavior is to save and disconnect each player.
+An interrupted multiplayer battle must wait for every participant to reconnect.
+Emergency saving/disconnection and waiting-battle resumption are not implemented
+in this preview. Automatic save timing has not been selected. Save now provides
+an explicit checkpoint to the reachable host and reports busy/recovery states.
 
 Windows runtime proofs use ordinary scripted GBA button inputs, real native
 checkpoints and fresh game processes. They do not establish physical keyboard,
-audio, gamepad, GUI-button-to-save, or complete first-time enrollment acceptance.
+audio, gamepad, GUI-button-to-save, or the complete visible New Game-to-enrollment
+flow. Controller-level tests and actual button interactions are separate checks.
 The desktop automation helper's ordinary keys did not produce the SDL button
 events needed for gameplay. Hardware keyboard failure has not been established.
 
