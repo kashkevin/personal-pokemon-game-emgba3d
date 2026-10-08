@@ -32,6 +32,8 @@ Gen 1–6 roster restrictions, complete Gen 6 mechanics, 18 starters, eligible o
 
 ## Decisions intentionally pending
 
+The owner has selected host-loss saving/disconnection and waiting for every participant to reconnect after an interrupted battle; see [the save/recovery requirements](master-spec.md#saves-and-recovery). Those decisions replace the earlier undecided policies. Their emergency-save and durable battle-resume implementation is not yet complete. Automatic save timing remains pending.
+
 No numerical friendship thresholds, Lucky odds or IV floor, Lucky eligibility/cooldowns, casino coin price, or final Charm odds are selected by this planning update. Secondary Lucky benefits, repeated Lucky conversion, the treatment of both sides of a Lucky trade, and IV changes that affect Hidden Power's type also require design/balance work. No existing gameplay rule may be changed for compatibility without first explaining the concrete conflict and obtaining the owner's decision.
 
 Read the [reuse and customization audit](customization-and-reuse.md) before implementing the new features. Preserve the existing source/build pins and save profiles until a tested migration is ready.

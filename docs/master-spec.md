@@ -127,7 +127,9 @@ Keep event IDs, timers, participation, claims, and despawn/recovery behavior con
 
 Each player can disconnect and later rejoin with Pokémon, party/storage, inventory, money, and progression intact. Persist the shared world state needed by the eventual systems. Protect saves from partial writes, stale snapshots, duplicate ownership, and duplicated payouts.
 
-Use versioned character/world schemas and build/ruleset compatibility checks. Preserve backups and test migrations on copies. Never discard an earlier character merely because the roster/configuration changes. Do not merge conflicting offline/online characters automatically. Autosave intervals, server-loss local-play behavior, and interrupted battle policies must be finalized before those systems ship.
+Use versioned character/world schemas and build/ruleset compatibility checks. Preserve backups and test migrations on copies. Never discard an earlier character merely because the roster/configuration changes. Do not merge conflicting offline/online characters automatically. Autosave intervals still require a decision before shipping.
+
+The owner's October 8 decisions are: when the host connection is lost, all players immediately save and disconnect; an interrupted multiplayer battle waits until every participant reconnects. Detect host loss on each affected client, stop further ordinary play, and preserve progress rather than continuing an offline branch. When the host is unreachable, the client must retain its local recovery save for exact verification on rejoin; it cannot claim an upload succeeded. An in-progress battle retains its paused match and recovery state, with no automatic winner, penalty or cancellation. Normal saving must not overwrite a canonical character with a temporary battle party or bypass an unsettled trade. Durable preservation, authenticated reconnection and battle resumption need implementation and actual interruption tests before this policy is considered delivered.
 
 ## Regions
 
