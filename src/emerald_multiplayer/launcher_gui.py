@@ -53,6 +53,11 @@ _TEXT = {
     "runtime_size": "The installed runtime could not be verified.",
     "trade_recovery_unavailable": "The host does not support the character recovery required by this build.",
     "session_failed": "The game could not open. Private character and recovery files have been retained.",
+    "saving": "Saving your character to the host… Keep the game open until this finishes.",
+    "saved": "Character saved to the host. You can keep playing or close the game.",
+    "save_not_ready": "Return to a safe place outside menus and battles, then press Save now again.",
+    "save_busy": "A character save is already running.",
+    "save_recovery_required": "This save needs recovery. Close the game and reopen through Host Game or Join Game.",
     "importing": "Checking your own game dump and installing this release…",
     "imported": "Game installed. Choose Host Game or Join Game.",
     "import_unavailable": "Game import is unavailable: this development package has no release patch.",
@@ -147,6 +152,8 @@ class SessionWorker:
         self._thread = self._loop = self._task = None
         self._cancel_requested = False
         self._state = SessionState.NEW
+        self._active_session = self._save_future = None
+        self._save_pending = False
 
     @property
     def busy(self):
@@ -224,6 +231,30 @@ class SessionWorker:
                     self._loop.call_soon_threadsafe(self._task.cancel)
             return True
 
+    def request_save(self):
+        with self._lock:
+            if (not self.busy or self._state is not SessionState.RUNNING or self._loop is None
+                    or self._active_session is None or self._save_pending):
+                return False
+            self._save_pending = True
+            self._loop.call_soon_threadsafe(self._begin_save)
+            return True
+
+    def _begin_save(self):
+        self._save_future = asyncio.create_task(self._save(), name="launcher-save-action")
+
+    async def _save(self):
+        try:
+            if self._active_session is None:
+                return
+            await self._active_session.save()
+        except Exception as error:
+            code = getattr(error, "code", "save_recovery_required")
+            self.events.put(UiEvent("status", code if code in _TEXT else "save_recovery_required", "running"))
+        finally:
+            with self._lock:
+                self._save_pending = False
+
     def _publish(self, status):
         with self._lock:
             self._state = status.state
@@ -237,6 +268,8 @@ class SessionWorker:
             current = session.status
             if current.state != SessionState.READY:
                 return current.code if current.code in _TEXT else "session_failed"
+            with self._lock:
+                self._active_session = session
             play = asyncio.create_task(session.play())
             try:
                 observed = None
@@ -248,11 +281,20 @@ class SessionWorker:
                         observed = signature
                     await asyncio.wait({play}, timeout=.2)
                 exit_code = await play
+                if session.status.code == "save_recovery_required":
+                    return "save_recovery_required"
                 return "game_closed" if exit_code == 0 else "session_failed"
             finally:
                 if not play.done():
                     play.cancel()
                 await asyncio.gather(play, return_exceptions=True)
+                with self._lock:
+                    self._active_session = None
+                if self._save_future is not None:
+                    from .player_runtime import _finish_even_if_cancelled
+                    _, canceled = await _finish_even_if_cancelled(self._save_future)
+                    if canceled:
+                        raise asyncio.CancelledError()
 
     async def _execute(self, options):
         with self._lock:
@@ -275,6 +317,8 @@ class SessionWorker:
         finally:
             with self._lock:
                 self._loop = self._task = None
+                self._active_session = self._save_future = None
+                self._save_pending = False
             # asyncio.run has drained its loop before completion becomes visible.
             self.events.put(UiEvent("complete", code))
 
@@ -353,8 +397,12 @@ class LauncherWindow:
         ttk.Separator(body).pack(fill="x", pady=(18, 12))
         self.status_label = ttk.Label(body, textvariable=self.message, wraplength=640)
         self.status_label.pack(fill="x", anchor="w")
-        self.cancel = ttk.Button(body, text="Cancel startup", command=self.cancel_startup, state="disabled")
-        self.cancel.pack(anchor="e", pady=(10, 0))
+        actions = ttk.Frame(body)
+        actions.pack(fill="x", pady=(10, 0))
+        self.save_button = ttk.Button(actions, text="Save now", command=self.save_now, state="disabled")
+        self.save_button.pack(side="left")
+        self.cancel = ttk.Button(actions, text="Cancel startup", command=self.cancel_startup, state="disabled")
+        self.cancel.pack(side="right")
         if worker is None:
             self._enable(False)
         self._poll_id = root.after(80, self.poll)
@@ -426,6 +474,11 @@ class LauncherWindow:
             self.cancel.configure(state="disabled")
             self.message.set(status_text("closing"))
 
+    def save_now(self):
+        if not self.closing and self.worker is not None and self.worker.request_save():
+            self.save_button.configure(state="disabled")
+            self.message.set(status_text("saving"))
+
     def check_connection(self):
         if self.worker is None or self.worker.busy:
             return
@@ -447,6 +500,7 @@ class LauncherWindow:
             return
         self.closing = True
         self._enable(False)
+        self.save_button.configure(state="disabled")
         cancelled = self.worker.cancel_startup()
         self.cancel.configure(state="disabled")
         code = "closing" if cancelled else "wait_for_game"
@@ -473,9 +527,12 @@ class LauncherWindow:
                         return
                     self._enable(True)
                     self.cancel.configure(state="disabled")
+                    self.save_button.configure(state="disabled")
                     self.message.set(status_text(event.code))
                 elif not self.closing:
                     self.message.set(status_text(event.code))
+                    self.save_button.configure(state="normal" if event.state == "running"
+                        and event.code in {"running", "saved", "save_not_ready"} else "disabled")
                     if event.state in {"running", "finished"}:
                         self.cancel.configure(state="disabled")
         self._poll_id = self.root.after(80, self.poll)

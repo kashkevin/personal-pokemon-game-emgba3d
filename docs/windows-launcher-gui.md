@@ -6,6 +6,16 @@ The session worker owns one asyncio loop on a background thread. Tk widgets are 
 
 Application entry points supply `LauncherRelease` pins; arbitrary installation files and invitations cannot select them. Per-user game files live under `%LOCALAPPDATA%/PokemonPrivate/launcher/games/<ROM SHA-256>/game.gba`. No current-directory storage fallback exists. Running the module without a compiled release displays a disabled development preview.
 
+## Explicit Save now
+
+The main window exposes **Save now** while its owned game is running. This uses the existing `LiveCheckpointCoordinator` and native safe-point export, canonical host commit and verified release. It never writes the live save file. The first expected revision comes from verified cold startup; later revisions advance only after a complete matching export receipt. A missing bridge or definite native safe-point rejection permits another explicit click. An uncertain result, changed bridge/session or invalid receipt requires recovery and disables further saves in that session. There is no automatic retry or adoption of a newer server head.
+
+Only one save may run. Game closure and repeated caller cancellation drain an already dispatched operation while the runtime still owns the character's file lease; transports and storage close afterward. Closing the game does not implicitly save. Automatic intervals, offline continuation and interrupted-battle settlement remain pending decisions. Later in-session trades or battles that advance a checkpoint must pass their verified local completion receipt into the launcher's revision tracking before this controller can continue saving; querying a new head alone is insufficient.
+
+Six Windows save-controller cases pass, alongside the existing twenty session and thirteen GUI/worker cases. They exercise real TLS, SQLite, owned startup, a real stand-in child process and file leases; only the native exporter completion is simulated. The first run caught an inaccurate fixture that copied a closed save's RTC trailer size into native export metadata. Correcting the fixture to native Flash size made all six pass without weakening production validation. Actual Windows native export and packaged button acceptance remain separate evidence.
+
+The same 26 save/session cases pass on WSL with zero skips in 85.398 seconds. The private Windows original/recheck and WSL logs are retained; the WSL log was copied and hash-verified into the physical Windows private archive.
+
 ## Explicit setup flow
 
 `launcher_setup_gui.py` composes the [public setup controller](launcher-setup.md). A new world accepts one host and at most three friend names, a numeric invitation endpoint and a port. Each friend invitation is exported independently to a new file; the private host descriptor is never exported as a friend invitation. World creation does not enroll any character.

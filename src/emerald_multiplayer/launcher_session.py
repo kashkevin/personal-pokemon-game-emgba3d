@@ -51,6 +51,9 @@ _MESSAGES = {
     "session_closed": "Open the launcher session before requesting a game operation.",
     "recovery_required": "Character recovery must complete before this game can launch.",
     "session_failed": "The launcher session could not complete; private recovery data is retained.",
+    "save_not_ready": "Return to a safe place outside menus and battles, then request Save again.",
+    "save_busy": "A character save is already running.",
+    "save_recovery_required": "This character's save needs recovery before another save can start.",
 }
 
 
@@ -166,6 +169,9 @@ class LauncherSession:
         self._profile_directory = None
         self._entered = self._open = self._closing = self._played = False
         self._play_task = None
+        self._game = self._save_task = None
+        self._revision = self._save_incarnation = None
+        self._save_failed = False
 
     @property
     def profile_directory(self):
@@ -292,9 +298,21 @@ class LauncherSession:
             self._publish(SessionState.RECOVERING, "canonical_recovery", revision=revision)
             async with self._runtime.open() as game:
                 self._played = True
-                self._publish(SessionState.RUNNING, "running", revision=game.startup.mirror.revision)
-                result = await game.wait()
-            self._publish(SessionState.FINISHED, "game_closed", revision=game.startup.mirror.revision,
+                self._game = game
+                self._revision = game.startup.mirror.revision
+                self._publish(SessionState.RUNNING, "running", revision=self._revision)
+                try:
+                    result = await game.wait()
+                finally:
+                    # Stop accepting new requests before draining the one
+                    # already dispatched, while the native file lease remains
+                    # owned by PlayerRuntime. Closing a game is not a save.
+                    self._game = None
+                    if self._save_task is not None:
+                        _, canceled = await _finish_even_if_cancelled(self._save_task)
+                        if canceled:
+                            raise asyncio.CancelledError()
+            self._publish(SessionState.FINISHED, "save_recovery_required" if self._save_failed else "game_closed", revision=self._revision,
                           exit_code=result)
             return result
         except asyncio.CancelledError:
@@ -306,6 +324,82 @@ class LauncherSession:
             raise safe from None
         finally:
             self._play_task = None
+
+    @property
+    def can_save(self):
+        return (self._game is not None and self._game.process.returncode is None
+                and self._open and not self._closing and not self._save_failed
+                and self._signature() == self._binding
+                and (self._save_task is None or self._save_task.done()))
+
+    async def save(self):
+        """One explicit canonical checkpoint; never an automatic retry/merge."""
+        self._assert_session()
+        if self._save_task is not None and not self._save_task.done():
+            raise LauncherSessionError("save_busy")
+        if self._save_failed:
+            raise LauncherSessionError("save_recovery_required")
+        if not self.can_save:
+            raise LauncherSessionError("save_not_ready")
+        c = self._companion
+        try:
+            incarnation = c.save_incarnation
+        except ConnectionError:
+            if self._save_incarnation is not None:
+                self._save_failed = True
+            self._publish(SessionState.RUNNING, "save_recovery_required" if self._save_failed
+                          else "save_not_ready", revision=self._revision)
+            return False
+        if type(incarnation) is not int or incarnation < 1:
+            self._publish(SessionState.RUNNING, "save_not_ready", revision=self._revision)
+            return False
+        if self._save_incarnation is not None and self._save_incarnation != incarnation:
+            self._save_failed = True
+            self._publish(SessionState.RUNNING, "save_recovery_required", revision=self._revision)
+            return False
+        self._save_incarnation = incarnation
+        expected = c.world_id, c.session_epoch, incarnation
+        self._save_task = asyncio.create_task(self._save_now(expected), name="launcher-explicit-checkpoint")
+        result, canceled = await _finish_even_if_cancelled(self._save_task)
+        if canceled:
+            raise asyncio.CancelledError()
+        return result
+
+    async def _save_now(self, expected):
+        from .checkpoint_client import validate_metadata
+        from .flash import FLASH_SIZE
+        from .live_checkpoint import LiveCheckpointCoordinator, LiveSaveError, LiveExportResult
+        self._publish(SessionState.RUNNING, "saving", revision=self._revision)
+        try:
+            self._assert_session()
+            c = self._companion
+            # Do not wait behind another transaction and later save a scene
+            # that was not the one selected. An explicit later click may retry.
+            if (c.live_checkpoint_lock.locked() or getattr(c, "_live_save_owner", None) is not None
+                    or getattr(c, "_live_battle_owner", None) is not None):
+                self._publish(SessionState.RUNNING, "save_not_ready", revision=self._revision)
+                return False
+            coordinator = LiveCheckpointCoordinator(c, self._profile_directory)
+            result = await coordinator.checkpoint(expected_revision=self._revision, expected_session=expected)
+            self._assert_session()
+            if not isinstance(result, LiveExportResult):
+                raise ValueError("unverified checkpoint result")
+            metadata = validate_metadata(result.metadata, c.config, c.save_profile)
+            if (metadata is None or metadata["revision"] != self._revision + 1
+                    or metadata["request_id"] != result.operation_id or metadata["size"] != FLASH_SIZE
+                    or metadata["sha256"] != result.flash_sha256 or coordinator.pending_path.exists()
+                    or c.save_incarnation != expected[2]):
+                raise ValueError("checkpoint completion changed")
+            self._revision = metadata["revision"]
+            self._publish(SessionState.RUNNING, "saved", revision=self._revision)
+            return True
+        except Exception as error:
+            if isinstance(error, LiveSaveError) and error.safe_to_retry is True:
+                self._publish(SessionState.RUNNING, "save_not_ready", revision=self._revision)
+            else:
+                self._save_failed = True
+                self._publish(SessionState.RUNNING, "save_recovery_required", revision=self._revision)
+            return False
 
     async def _cleanup(self):
         # A caller may have started play in a child task and left the context.

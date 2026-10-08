@@ -28,6 +28,9 @@ class ControlledSession:
         self.blocked = False
         self.error = None
         self.play_cancelled = False
+        self.save_started = threading.Event()
+        self.release_save = threading.Event()
+        self.save_count = 0
 
     def publish(self, state, code):
         self.status = SessionStatus(state, code, connected=True)
@@ -63,6 +66,14 @@ class ControlledSession:
             self.play_cancelled = True
             raise
 
+    async def save(self):
+        self.save_count += 1
+        self.save_started.set()
+        self.publish(SessionState.RUNNING, "saving")
+        while not self.release_save.is_set():
+            await asyncio.sleep(.005)
+        self.publish(SessionState.RUNNING, "saved")
+
 
 class GuiWorkerTests(unittest.TestCase):
     def setUp(self):
@@ -81,6 +92,7 @@ class GuiWorkerTests(unittest.TestCase):
             session.release_connect.set()
             session.release_game.set()
             session.release_cleanup.set()
+            session.release_save.set()
         self.worker.cancel_startup()
         if self.worker._thread:
             self.worker._thread.join(5)
@@ -121,6 +133,22 @@ class GuiWorkerTests(unittest.TestCase):
         session.release_connect.set()
         self.assertEqual(self.finish_events()[-1].code, "enrollment_required")
         self.assertFalse(session.played.is_set())
+
+    def test_explicit_save_is_single_flight_and_drained_before_session_cleanup(self):
+        self.assertFalse(self.worker.request_save())
+        session = self.launch()
+        self.assertFalse(self.worker.request_save())
+        session.release_connect.set()
+        self.assertTrue(session.played.wait(2))
+        self.assertTrue(self.worker.request_save())
+        self.assertFalse(self.worker.request_save())
+        self.assertTrue(session.save_started.wait(2))
+        session.release_game.set()
+        time.sleep(.05)
+        self.assertFalse(session.closed.is_set())
+        session.release_save.set()
+        self.assertEqual(self.finish_events()[-1].code, "game_closed")
+        self.assertEqual(session.save_count, 1)
 
     def test_repeated_cancel_waits_for_context_cleanup(self):
         session = self.launch()
