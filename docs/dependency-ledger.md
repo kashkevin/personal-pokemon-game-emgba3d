@@ -37,6 +37,8 @@ The project-owned baseline and multiplayer headless frontends use the public cor
 
 ## Incorporation and distribution status
 
+The [customization and reuse audit](customization-and-reuse.md) additionally inspected current RHH upstream, Perfect Emerald's style/color system, Emerald Rogue's outfit/remote-profile system, and CFRU's customization code. These are research references with recorded revisions and integration limits; no source or assets from those candidates were imported. The new project-wide research rule requires component-level licensing, dependency, maintenance/issue, performance and save/network compatibility checks before integration.
+
 - No additional third-party networking implementation or art has been imported beyond the unmodified upstream engine tree.
 - Wired-Ariel, TheHunterManX, Celio, Quetzal, and native Emerald ports remain research references, not incorporated dependencies.
 - The project-owned Python companion/server, Lua mailbox bridge, and headless test frontends are implemented for private development. They have not been shipped. No third-party networking source was copied into them.

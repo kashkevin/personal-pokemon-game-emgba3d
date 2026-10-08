@@ -1,0 +1,1275 @@
+# PROJECT UPDATE — CHARACTER CUSTOMIZATION + REUSE EXISTING SYSTEMS
+
+Add the following features/rules to the existing Pokémon Emerald Multiplayer project.
+
+This is an ADDITION to the current project specification.
+
+Do NOT remove, replace, rebalance, or redesign any previously established gameplay systems unless compatibility genuinely requires a change and you explain it to me first.
+
+---
+
+# CUSTOMIZABLE PLAYER CHARACTERS
+
+Players should NOT be restricted to using the standard Pokémon Emerald Brendan/May appearance.
+
+Add a customizable multiplayer Trainer appearance system.
+
+Each player should be able to create their own Trainer appearance.
+
+The player's customized appearance must be saved as part of that player's persistent profile and synchronized so other connected players see the correct appearance.
+
+---
+
+# TARGET CUSTOMIZATION
+
+Research what is realistically achievable within our Emerald/pokeemerald-expansion architecture.
+
+Target customization options include:
+
+- Base character/body appearance
+- Skin tone
+- Hair style
+- Hair color
+- Hat/headwear
+- Shirt/top
+- Jacket where appropriate
+- Pants/shorts/skirt
+- Outfit colors
+- Shoes
+- Backpack
+- Accessories
+
+Do NOT assume every option must be implemented immediately.
+
+First determine the most technically efficient architecture.
+
+---
+
+# PREFERRED CHARACTER SYSTEM
+
+Investigate whether a LAYERED SPRITE system is practical.
+
+Instead of manually creating thousands of complete Trainer sprite combinations, investigate composing the player's overworld appearance from reusable components such as:
+
+BASE BODY
++
+HAIR
++
+TOP
++
+BOTTOM
++
+HAT
++
+ACCESSORY
+
+If this is practical within the engine's sprite/palette/performance limitations, prefer it.
+
+However, do NOT force a layered system if Emerald's rendering architecture makes another approach substantially more reliable.
+
+Research first and explain the tradeoffs.
+
+---
+
+# REQUIRED ANIMATIONS
+
+Whatever customization architecture is selected must account for the animations/directions required by gameplay.
+
+At minimum investigate support for:
+
+- Walking north
+- Walking south
+- Walking east
+- Walking west
+- Running
+- Standing/idle
+- Biking where applicable
+- Surfing where applicable
+- Fishing where applicable
+- Other player animation states required by Emerald
+
+Do not create a character creator that only works while standing still.
+
+---
+
+# MULTIPLAYER SYNCHRONIZATION
+
+Character customization must work correctly in multiplayer.
+
+If Player 1 creates:
+
+Black hair
+Red top
+Black pants
+White hat
+
+then Players 2, 3 and 4 should see that appearance.
+
+Do NOT simply display the customized appearance locally while remote clients see Brendan/May.
+
+The multiplayer state should transmit/store an efficient representation of the player's appearance.
+
+For example, this might eventually resemble:
+
+HairStyle ID
+HairColor ID
+SkinTone ID
+Top ID
+TopColor ID
+Bottom ID
+Hat ID
+Accessory ID
+
+The exact implementation should be determined based on the final rendering architecture.
+
+Avoid transmitting entire sprite images over the network when small appearance IDs can reproduce the same result locally.
+
+---
+
+# CHARACTER CREATION
+
+Players should eventually create/customize their Trainer near the beginning of the game.
+
+Character creation should occur before or around the point where the player enters the multiplayer world.
+
+Do NOT make character customization an endgame feature.
+
+Players should be able to look unique from the beginning.
+
+---
+
+# LATER APPEARANCE CHANGES
+
+Players should eventually be able to change their appearance after initial creation.
+
+Potential implementation:
+
+Clothing store
+Wardrobe
+Mirror
+Character customization menu
+
+The exact in-world implementation can be designed later.
+
+Changing appearance should update the player's saved profile and synchronize to other connected players.
+
+---
+
+# COSMETIC UNLOCKS
+
+Character customization may eventually become another progression/reward system.
+
+Potential cosmetic rewards could come from:
+
+- Gym victories
+- Championships
+- PvP achievements
+- World events
+- Exploration
+- Region-specific stores
+- Quests
+- Special challenges
+
+These rewards should be COSMETIC.
+
+Do not give clothing combat stat advantages.
+
+---
+
+# TRAINER CARD
+
+Eventually display the player's customized Trainer on their Trainer Card where practical.
+
+Potential Trainer Card information includes:
+
+- Customized Trainer
+- Trainer name
+- Badges
+- Championship wins
+- PvP record
+- 1v1 record
+- 2v2 record
+- Other multiplayer statistics added later
+
+Do not prioritize advanced Trainer Card features above foundational multiplayer.
+
+---
+
+# IMPORTANT — RESEARCH EXISTING IMPLEMENTATIONS FIRST
+
+Add the following rule to the ENTIRE development project:
+
+BEFORE BUILDING A MAJOR SYSTEM FROM SCRATCH, RESEARCH WHETHER A MAINTAINED, COMPATIBLE EXISTING IMPLEMENTATION ALREADY EXISTS.
+
+This applies especially to the pokeemerald / pokeemerald-expansion ecosystem.
+
+We should NOT waste development time recreating mature systems that the ROM-hacking/decomp community has already implemented well.
+
+---
+
+# EXISTING CODE RESEARCH WORKFLOW
+
+Before implementing a major feature:
+
+1. Search the current pokeemerald and pokeemerald-expansion ecosystem.
+
+2. Search compatible maintained community repositories/projects.
+
+3. Check whether pokeemerald-expansion already contains the feature.
+
+4. Check official project documentation.
+
+5. Determine whether an existing implementation is:
+   - Maintained
+   - Compatible with our current base
+   - Compatible with our other planned systems
+   - Appropriately licensed
+   - Stable enough for our project
+
+6. If a good implementation exists, prefer integrating/adapting it rather than rebuilding the same system.
+
+7. Document where imported/adapted code originated and preserve required license/attribution information.
+
+8. If no appropriate implementation exists, then design our own.
+
+---
+
+# SYSTEMS THAT MUST BE RESEARCHED BEFORE REIMPLEMENTATION
+
+This rule particularly applies to:
+
+- Gen 1–6 Pokémon support
+- Gen 6 battle mechanics
+- Fairy type
+- Mega Evolution
+- Later official Mega forms
+- Pokémon followers
+- Follower sprite assets
+- Expanded Pokédex
+- Expanded moves
+- Expanded abilities
+- Expanded items
+- Modern evolution methods
+- Improved RNG
+- Shiny systems
+- Trainer sprites
+- Overworld sprites
+- Character customization systems
+- Expanded object-event limits
+- Expanded map systems
+- Battle engine expansions
+- Double Battles
+- Trading infrastructure
+- Multiplayer/link functionality
+- Save expansions
+- Additional regions/maps
+- UI/menu systems
+
+Do NOT assume we need to build any of these from zero.
+
+---
+
+# POKEEMERALD-EXPANSION
+
+Specifically evaluate the current maintained version of pokeemerald-expansion as a major candidate foundation/component source.
+
+Determine which of our planned features it already supports.
+
+Do NOT rely on assumptions or outdated documentation.
+
+Inspect the CURRENT project/repository/documentation.
+
+Determine what it provides for:
+
+- Gen 1–6+ Pokémon
+- Gen 6 mechanics
+- Mega Evolution
+- Later Mega forms
+- Fairy type
+- Expanded moves
+- Expanded abilities
+- Expanded items
+- Followers
+- Follower sprites
+- Trainer graphics
+- Overworld sprites
+- Expanded engine limits
+- RNG improvements
+- Battle engine functionality
+- Save expansion
+- Map expansion
+
+Create documentation showing:
+
+ALREADY PROVIDED
+
+AVAILABLE THROUGH COMPATIBLE EXISTING PROJECT
+
+REQUIRES MODIFICATION
+
+REQUIRES COMPLETELY CUSTOM IMPLEMENTATION
+
+This will prevent us from unnecessarily rebuilding features.
+
+---
+
+# DO NOT BLINDLY COPY CODE
+
+Existing code is NOT automatically safe to use.
+
+Before integrating another project:
+
+Check:
+
+- License
+- Version compatibility
+- Dependencies
+- Maintenance status
+- Known issues
+- Conflicts with our multiplayer architecture
+- Conflicts with our selected pokeemerald-expansion version
+- Performance impact
+- Save compatibility
+
+If integrating an existing implementation would cause more problems than implementing our own smaller solution, explain that before proceeding.
+
+---
+
+# MULTIPLAYER REMAINS CUSTOM/HIGH PRIORITY
+
+Do NOT allow this research rule to distract from the main engineering challenge.
+
+Our unusual multiplayer architecture remains the project's highest-risk component.
+
+Existing community systems may help with pieces of multiplayer, but do NOT assume traditional GBA Link functionality automatically satisfies our requirements.
+
+Our multiplayer target still includes:
+
+- 1–4 players
+- Shared persistent world
+- Players on different maps
+- Independent exploration
+- Independent encounters
+- Free-form teams
+- Trading from the beginning
+- PvP from the beginning
+- 1v1
+- 2v2
+- Planned custom 1v1v1v1
+- Championship Mode
+- Currency wagers
+- Individual inventories
+- Individual money
+- Individual rewards
+- Persistent saves
+- Disconnect/reconnect
+- Pokémon followers visible to other players
+- Customized Trainers visible to other players
+- World events
+- Multiplayer-safe Local Soft Reset
+
+If no existing project provides this architecture, expect this portion to require substantial custom engineering.
+
+---
+
+# DO NOT CHANGE EXISTING GAME RULES
+
+This amendment does NOT change any previously established gameplay rules.
+
+Keep:
+
+- Pokémon Emerald foundation
+- Hoenn first
+- Gen 1–6 Pokémon roster
+- Gen 6 mechanics
+- Fairy typing
+- All applicable official Mega Evolutions, including later-introduced Megas
+- 18 Gen 1–6 starter choices
+- Randomized wild encounters
+- No normal wild Legendary/Mythical Pokémon
+- Independent encounters
+- Pokémon rarity system
+- Shinies
+- Pokémon followers
+- Free-form teams
+- Maximum normal team size of 2
+- Individual rewards
+- Trading available from the beginning
+- PvP available from the beginning
+- 1v1
+- 2v2
+- Planned 1v1v1v1
+- Championship Mode
+- In-game currency wagers
+- Twin Gym Leaders
+- Mega Evolution
+- Expensive purchasable Mega Stones
+- World events
+- Shiny/Mega/Legendary event possibilities
+- Multiplayer-safe Local Soft Reset
+- Persistent multiplayer saves
+- Event rules
+- Future multiple regions
+
+Simply ADD:
+
+CUSTOMIZABLE MULTIPLAYER TRAINER CHARACTERS
+
+and
+
+RESEARCH/REUSE COMPATIBLE EXISTING SYSTEMS BEFORE BUILDING FROM SCRATCH.
+
+---
+
+# DEVELOPMENT PRIORITY
+
+Do NOT immediately stop foundational multiplayer work to build the full character creator.
+
+First research what existing character/overworld sprite systems are available and document the recommended approach.
+
+Character customization should be designed with multiplayer synchronization in mind from the beginning, but implemented at the appropriate point after the core multiplayer architecture is proven.
+
+For now:
+
+1. Add Character Customization to the project specification.
+2. Research existing compatible implementations.
+3. Determine whether layered sprites or complete generated sprite sheets are the better architecture.
+4. Document how customization will synchronize between players.
+5. Add implementation to the appropriate future development phase.
+6. Continue prioritizing the multiplayer proof-of-concept.
+
+Do not change anything else unless required for compatibility, and ask me before making any gameplay-design change.
+
+# PROJECT UPDATE — PLAYER FRIENDSHIP + LUCKY TRADING
+
+Add the following system to the existing Pokémon Emerald Multiplayer project.
+
+This is an ADDITION to the current project specification.
+
+Do NOT remove, replace, rebalance, or redesign any previously established gameplay systems.
+
+All previous project decisions remain in effect.
+
+---
+
+# PLAYER FRIENDSHIP SYSTEM
+
+Add persistent friendship progression between individual players.
+
+Every pair of players should have their OWN friendship relationship.
+
+Example:
+
+Player A ↔ Player B may be Best Friends.
+
+Player A ↔ Player C may only be Good Friends.
+
+Player B ↔ Player C may be Ultra Friends.
+
+Friendship is therefore PLAYER-PAIR SPECIFIC rather than server-wide.
+
+Friendship progression should persist between sessions.
+
+---
+
+# FRIENDSHIP LEVELS
+
+Use a progression structure inspired by Pokémon GO:
+
+NEW FRIENDS
+
+↓
+
+GOOD FRIENDS
+
+↓
+
+GREAT FRIENDS
+
+↓
+
+ULTRA FRIENDS
+
+↓
+
+BEST FRIENDS
+
+Exact progression requirements can be balanced later.
+
+Do NOT directly copy Pokémon GO's exact numerical requirements without first determining what feels appropriate for our game.
+
+Our game is designed primarily for a small private group of friends, so progression should feel meaningful without requiring excessive grinding.
+
+---
+
+# EARNING FRIENDSHIP
+
+Players should increase friendship primarily by actually playing together.
+
+Potential qualifying activities include:
+
+- Battling alongside each other
+- Completing Gyms together
+- Trading
+- Participating in World Events together
+- Fighting 2v2 battles together
+- Participating in Championships
+- Completing cooperative activities
+- Exploring/adventuring together
+- Other meaningful multiplayer interactions added later
+
+Do not make simple AFK time together the optimal way to increase friendship.
+
+If necessary, implement reasonable progression limits/cooldowns to prevent meaningless AFK farming.
+
+---
+
+# IMPORTANT — TRADING REMAINS AVAILABLE IMMEDIATELY
+
+Friendship must NOT gate normal trading.
+
+Our existing rule remains:
+
+PLAYERS CAN TRADE FROM THE BEGINNING OF THE GAME.
+
+A brand-new player relationship can immediately trade.
+
+Friendship simply adds additional long-term benefits.
+
+Do NOT require Good/Great/Ultra/Best Friends to unlock basic trading.
+
+---
+
+# NORMAL TRADING
+
+Normal trades should preserve the Pokémon.
+
+If Player A trades Player B a Pokémon with specific:
+
+- IVs
+- Nature
+- Ability
+- Moves
+- Shiny status
+- Level
+- EVs
+- Other persistent characteristics
+
+do NOT randomly destroy or reroll those characteristics during every normal trade.
+
+Traditional trading should remain trustworthy.
+
+If I intentionally trade a friend a Pokémon I trained carefully, they should receive that Pokémon rather than a randomly altered version.
+
+---
+
+# FRIENDSHIP TRADE BENEFITS
+
+Higher friendship should improve trading WITHOUT making ordinary trading obsolete.
+
+The main long-term benefit should be:
+
+HIGHER FRIENDSHIP = HIGHER CHANCE OF A LUCKY TRADE.
+
+Exact percentages should be balanced later.
+
+Conceptually:
+
+NEW FRIENDS
+Normal Lucky probability.
+
+GOOD FRIENDS
+Slightly improved Lucky probability.
+
+GREAT FRIENDS
+Improved Lucky probability.
+
+ULTRA FRIENDS
+High Lucky probability.
+
+BEST FRIENDS
+Highest normal Lucky probability and eligibility for the Lucky Friends system.
+
+Do not finalize exact percentages without balancing/testing.
+
+---
+
+# LUCKY TRADE
+
+Occasionally, an eligible trade becomes a:
+
+LUCKY TRADE.
+
+The resulting traded Pokémon receives a permanent:
+
+LUCKY
+
+status.
+
+This should be clearly visible in the Pokémon's summary/interface.
+
+Potential presentation:
+
+LUCKY POKÉMON
+
+Special summary background/border/icon.
+
+Exact visuals can be designed later.
+
+---
+
+# LUCKY POKÉMON IV BENEFIT
+
+Lucky Pokémon should have a BETTER MINIMUM IV FLOOR.
+
+The goal is:
+
+Lucky Pokémon have a substantially better chance of having strong stats.
+
+However:
+
+DO NOT allow Lucky Pokémon to exceed the normal legal IV maximum.
+
+A Lucky Pokémon should NEVER have impossible stats.
+
+Also:
+
+DO NOT make every Lucky Pokémon automatically perfect.
+
+A naturally obtained or carefully bred perfect Pokémon should remain valuable.
+
+Exact Lucky IV rules should be researched and balanced later.
+
+---
+
+# IMPORTANT — PRESERVE IMPORTANT POKÉMON CHARACTERISTICS
+
+Because our normal trading philosophy is different from Pokémon GO, do NOT blindly reroll every characteristic of a traded Pokémon.
+
+Design the Lucky conversion carefully.
+
+At minimum preserve:
+
+- Species
+- Shiny status
+- Mega eligibility
+- Level where appropriate
+- Moves where appropriate
+- Original Trainer/history information where appropriate
+- Special event identity
+- Other characteristics that should logically remain attached to the Pokémon
+
+Determine exactly how IV improvement should work without unintentionally making trained Pokémon worse.
+
+For example, a Lucky conversion should NEVER lower an existing IV.
+
+If a Pokémon already has excellent IVs, becoming Lucky should preserve or improve them rather than damage them.
+
+---
+
+# LUCKY POKÉMON BENEFITS
+
+In addition to improved IV potential, investigate reasonable secondary Lucky benefits.
+
+Potential benefits may include:
+
+- Reduced training costs
+- Reduced certain upgrade/resource costs
+- Special summary appearance
+- Lucky badge/icon
+- Trade history information
+- Easier friendship-based evolution requirements where appropriate
+
+Do NOT give Lucky Pokémon stats above normal Pokémon limits.
+
+Lucky should mean:
+
+Easier to obtain/train a strong Pokémon.
+
+NOT:
+
+A separate overpowered tier above normal Pokémon.
+
+---
+
+# ORIGINAL TRAINER / TRADE HISTORY
+
+Where technically practical, preserve useful multiplayer history.
+
+Potential information:
+
+Original Trainer
+Received From
+Trade Date
+Lucky Trade status
+
+Example:
+
+Original Trainer:
+KEVIN
+
+Received From:
+KEVIN
+
+Lucky Trade:
+YES
+
+This is particularly valuable because the game is designed around a small friend group.
+
+---
+
+# BEST FRIENDS
+
+BEST FRIENDS should represent the highest permanent friendship level.
+
+Best Friends should receive the highest normal friendship-related trade benefits.
+
+However:
+
+Best Friends should NOT automatically produce perfect Pokémon on every trade.
+
+Best Friends should improve the odds of valuable trades without eliminating:
+
+- Catching
+- Breeding
+- Training
+- Shiny hunting
+- IV hunting
+- Exploration
+
+---
+
+# LUCKY FRIENDS
+
+Once two players reach BEST FRIENDS, they become eligible for an additional temporary state:
+
+LUCKY FRIENDS.
+
+Lucky Friends should be RARE.
+
+When two Best Friends become Lucky Friends:
+
+Their NEXT eligible trade together is GUARANTEED to become a Lucky Trade.
+
+After that successful trade:
+
+LUCKY FRIENDS status resets.
+
+Their permanent relationship remains:
+
+BEST FRIENDS.
+
+They may eventually become Lucky Friends again.
+
+---
+
+# LUCKY FRIENDS TRIGGER
+
+The exact Lucky Friends trigger system should be balanced later.
+
+Potential triggers include meaningful interactions between Best Friends such as:
+
+- Completing a Gym together
+- Trading
+- Participating in an event together
+- Winning a 2v2 together
+- Completing cooperative activities
+
+Do NOT make players repeatedly spam an interaction hundreds of times to roll Lucky Friends.
+
+Use sensible eligibility/cooldown rules.
+
+---
+
+# MULTIPLAYER NOTIFICATION
+
+When players become Lucky Friends, both should receive a clear notification.
+
+Example:
+
+LUCKY FRIENDS!
+
+You and [PLAYER NAME] are now Lucky Friends.
+
+Your next eligible trade together will be guaranteed Lucky.
+
+The status should also be visible somewhere in the multiplayer/friends interface.
+
+---
+
+# FRIENDS INTERFACE
+
+Eventually add a simple Friends/Players interface displaying relevant information.
+
+Potential information:
+
+PLAYER NAME
+
+Friendship Level
+
+Friendship Progress
+
+Lucky Friends Status
+
+Current Team Status
+
+Online/Offline status where appropriate
+
+Do not prioritize fancy UI over foundational multiplayer.
+
+---
+
+# PLAYER-SPECIFIC FRIENDSHIP DATA
+
+Friendship must be stored safely.
+
+Example:
+
+Player A ↔ Player B:
+BEST FRIENDS
+
+Player A ↔ Player C:
+GREAT FRIENDS
+
+Player A ↔ Player D:
+GOOD FRIENDS
+
+The system must correctly restore these relationships after players disconnect/reconnect.
+
+Avoid architectures where one player can simply modify their local save and unilaterally change both players' friendship relationship.
+
+Determine whether friendship data should be server/shared-profile authoritative based on our final multiplayer architecture.
+
+---
+
+# FRIENDSHIP AND TEAMS ARE DIFFERENT
+
+Do NOT confuse:
+
+PLAYER FRIENDSHIP
+
+with
+
+CURRENT TEAM MEMBERSHIP.
+
+Two Best Friends do not automatically have to be teammates.
+
+Two brand-new players can immediately form a team.
+
+Players can:
+
+Be Best Friends but currently play solo.
+
+Be Best Friends but play on opposing teams.
+
+Be new friends but team together.
+
+Friendship is long-term relationship progression.
+
+Team membership is temporary gameplay configuration.
+
+---
+
+# FRIENDSHIP AND PVP
+
+PvP against friends should NOT reduce friendship.
+
+Our game encourages friendly competition.
+
+Players should be able to:
+
+Battle
+Wager
+Compete in Championships
+Play on opposing teams
+
+without damaging their permanent friendship progression.
+
+Potentially, meaningful PvP participation may even contribute slightly to friendship progression.
+
+---
+
+# FRIENDSHIP AND INDIVIDUAL REWARDS
+
+Our existing individual-reward rule remains unchanged.
+
+Being Best Friends does NOT create:
+
+Shared money
+Shared inventory
+Shared Pokémon
+Shared rewards
+
+Each player still maintains their own:
+
+Money
+Inventory
+Pokémon
+Rewards
+Progression
+
+---
+
+# RESEARCH EXISTING IMPLEMENTATIONS FIRST
+
+Follow our existing project-wide rule:
+
+Before implementing this system from scratch, research whether compatible existing pokeemerald/pokeemerald-expansion projects provide useful components for:
+
+- Friendship data
+- Multiplayer player records
+- Trade metadata
+- Lucky Pokémon
+- IV modification
+- Trade history
+- Friends menus
+- Persistent multiplayer relationship data
+
+Reuse maintained compatible systems where appropriate.
+
+Do not blindly copy Pokémon GO implementation details.
+
+Our system is inspired by the concept but should fit our traditional Pokémon-style multiplayer game.
+
+---
+
+# DEVELOPMENT PRIORITY
+
+Do NOT interrupt foundational multiplayer development to immediately build the complete friendship system.
+
+Add it to the project specification and backlog.
+
+The appropriate order is approximately:
+
+1. Prove multiplayer connectivity.
+2. Prove individual persistent saves.
+3. Implement player identities.
+4. Implement basic trading.
+5. Verify reliable/transaction-safe trades.
+6. Add persistent player friendship relationships.
+7. Add friendship progression.
+8. Add Lucky Trade system.
+9. Add Lucky Pokémon presentation/benefits.
+10. Add Best Friends.
+11. Add Lucky Friends.
+12. Polish Friends UI/statistics.
+
+Trading must work reliably BEFORE Lucky Trades are layered on top.
+
+---
+
+# DO NOT CHANGE EXISTING RULES
+
+This amendment ONLY ADDS:
+
+- Player Friendship Levels
+- Friendship progression
+- Friendship-based trade bonuses
+- Lucky Pokémon
+- Lucky Trades
+- Best Friends
+- Lucky Friends
+- Persistent player relationship data
+
+Do NOT use this amendment to change any other established project rules.
+
+In particular, preserve:
+
+- Pokémon Emerald foundation
+- Gen 1–6 Pokémon
+- Gen 6 mechanics
+- All applicable official Mega Evolutions
+- Custom Trainer appearances
+- Pokémon followers
+- Random wild encounters
+- Static Legendary rules
+- World Events
+- Multiplayer-safe Local Soft Reset
+- Free-form teams
+- Individual rewards
+- Trading from the beginning
+- PvP from the beginning
+- 1v1
+- 2v2
+- planned 1v1v1v1
+- Championship Mode
+- In-game currency wagers
+- Twin Gym Leaders
+- Mega Stone economy
+- Persistent multiplayer saves
+- Future multiple regions
+
+Add this system without changing anything else unless a genuine technical conflict is discovered.
+
+If a technical conflict requires a gameplay-design change, explain it to me and ask before changing the design.
+
+# PROJECT UPDATE — SHINY CHARM + CASINO REWARD
+
+Add the following feature to the existing Pokémon Emerald Multiplayer project.
+
+This is an ADDITION ONLY.
+
+Do NOT change any other established project rule or system.
+
+---
+
+# SHINY CHARM
+
+Add a SHINY CHARM as a permanent key-item style reward.
+
+Once obtained, the Shiny Charm increases that individual player's chances of encountering shiny Pokémon.
+
+The Shiny Charm belongs to the individual player.
+
+It is NOT shared between teammates.
+
+Example:
+
+Player 1 owns Shiny Charm:
+Increased shiny odds.
+
+Player 2 does not:
+Normal shiny odds.
+
+Being on the same team does not share the effect.
+
+---
+
+# GEN 6 BASELINE
+
+Our game uses Generation 6 mechanics as its baseline.
+
+Use the appropriate Gen 6-style shiny system as the starting reference when designing the Shiny Charm.
+
+Research the exact Gen 6 shiny odds and Shiny Charm behavior before implementation.
+
+Do not arbitrarily choose final odds without documenting them.
+
+The Shiny Charm should provide a meaningful improvement while keeping shiny Pokémon rare and exciting.
+
+---
+
+# OBTAINING THE SHINY CHARM
+
+Preferred design:
+
+The Shiny Charm should be available as a major reward from the in-game CASINO / GAME CORNER.
+
+Players earn fictional in-game casino coins through the casino's activities.
+
+Once they have accumulated enough coins, they can directly redeem them for:
+
+SHINY CHARM
+
+The Shiny Charm should be EXPENSIVE.
+
+It should feel like a significant progression achievement rather than something players purchase shortly after starting the game.
+
+However, it should NOT necessarily require completing the entire Pokédex or reaching the postgame.
+
+---
+
+# IMPORTANT — GUARANTEED PURCHASE
+
+Do NOT make obtaining the Shiny Charm itself random.
+
+Bad design:
+
+Spend 10,000 casino coins for a 1% chance at the Shiny Charm.
+
+Preferred design:
+
+Accumulate the required casino currency.
+
+↓
+
+Purchase Shiny Charm.
+
+↓
+
+Guaranteed reward.
+
+Players may use casino games to earn the required currency, but once the price is reached, obtaining the Charm is guaranteed.
+
+---
+
+# CASINO CURRENCY
+
+Casino currency should be a separate fictional IN-GAME currency.
+
+It must NOT involve:
+
+- Real money
+- Robux
+- Cryptocurrency
+- External purchases
+- Real-world wagering
+
+This is purely an internal Pokémon-game economy.
+
+The exact casino coin economy and Shiny Charm price should be balanced later.
+
+The Shiny Charm should require meaningful effort.
+
+---
+
+# CASINO ACTIVITIES
+
+Research what existing Emerald/pokeemerald systems can support before creating casino functionality from scratch.
+
+Potential activities may include traditional Pokémon-style Game Corner games or other skill/chance-based minigames.
+
+The exact casino content can be designed later.
+
+Do NOT interrupt foundational multiplayer development to build the casino immediately.
+
+---
+
+# SHINY CHARM EFFECT
+
+The Shiny Charm should affect eligible PERSONAL shiny rolls.
+
+Examples:
+
+Normal wild Pokémon encounters:
+YES.
+
+Eligible personal/static Legendary encounters:
+YES.
+
+Other personal/static shiny-hunt encounters:
+YES where appropriate.
+
+---
+
+# WORLD EVENTS EXCLUDED
+
+The Shiny Charm must NOT increase or reroll the shiny probability of SERVER WORLD EVENTS.
+
+World Event shiny status is determined by the World Event system.
+
+Example:
+
+The server generates:
+
+MEGA MEWTWO X
+
+A player owning the Shiny Charm does NOT get their own shiny version.
+
+If the server generates:
+
+SHINY MEGA MEWTWO X
+
+then the event is shiny according to the established event rules.
+
+Therefore:
+
+PERSONAL WILD ENCOUNTERS:
+Shiny Charm applies.
+
+PERSONAL/STATIC ENCOUNTERS:
+Shiny Charm applies where appropriate.
+
+WORLD EVENTS:
+Shiny Charm does NOT modify event shiny status.
+
+This preserves the rarity and excitement of Shiny Legendary/Mega World Event notifications.
+
+---
+
+# LOCAL SOFT RESET COMPATIBILITY
+
+The Shiny Charm should work with our existing Multiplayer-Safe Local Soft Reset system.
+
+Example:
+
+Player owns Shiny Charm.
+
+Player shiny hunts their personal/static Rayquaza.
+
+Player performs Local Soft Reset.
+
+Only that player's Rayquaza encounter rerolls.
+
+The player's Shiny Charm modifies their legitimate shiny probability.
+
+The server and other players remain unaffected.
+
+The encounter counter continues functioning.
+
+---
+
+# SHINY CHARM OWNERSHIP
+
+The Shiny Charm should be:
+
+- Permanent once legitimately obtained
+- Player-specific
+- Stored in the player's persistent save/profile
+- Not tradable
+- Not consumable
+- Not lost after losing a battle
+- Not shared through team membership
+
+---
+
+# CASINO MULTIPLAYER
+
+The casino may eventually support multiplayer-friendly activities, but this is NOT required for the initial Shiny Charm implementation.
+
+Do not allow another player's Shiny Charm ownership to affect someone else's shiny odds.
+
+---
+
+# RESEARCH EXISTING IMPLEMENTATIONS
+
+Follow our existing project rule:
+
+Before implementing the Shiny Charm or Game Corner systems from scratch, research current compatible pokeemerald/pokeemerald-expansion implementations.
+
+Determine what already exists for:
+
+- Shiny Charm
+- Shiny odds
+- Gen 6 shiny calculations
+- Game Corner
+- Casino coins
+- Casino minigames
+- Prize redemption
+- Key items
+
+Reuse maintained compatible implementations where appropriate.
+
+---
+
+# DEVELOPMENT PRIORITY
+
+Do NOT interrupt foundational multiplayer development.
+
+Add this to the project backlog.
+
+Implement it once:
+
+1. Base Pokémon encounter system works.
+2. Gen 6 shiny mechanics work.
+3. Individual player saves work.
+4. Multiplayer encounter independence works.
+5. Multiplayer-Safe Local Soft Reset works or its architecture is established.
+
+The Casino/Game Corner can be developed later as the intended acquisition path.
+
+---
+
+# DO NOT CHANGE ANYTHING ELSE
+
+This amendment ONLY adds:
+
+SHINY CHARM
+
++
+
+CASINO/GAME CORNER SHINY CHARM REWARD
+
+All previous project decisions remain unchanged.
+
+If implementation reveals a genuine technical conflict, explain the issue and ask before changing any existing gameplay rule.

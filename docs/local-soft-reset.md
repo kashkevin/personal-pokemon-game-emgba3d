@@ -1,10 +1,12 @@
 # Local Soft Reset development backlog
 
-Local Soft Reset lets a player repeat an eligible personal/static encounter for shiny hunting while the multiplayer session continues. The [user's amendment](project-update-local-soft-reset.txt) adds this mechanic only. It leaves every other accepted game rule, save architecture, and development priority unchanged.
+Local Soft Reset lets a player repeat an eligible personal/static encounter for shiny hunting while the multiplayer session continues. The [original amendment](project-update-local-soft-reset.txt) defines this mechanic; the owner's latest [delivery roadmap](development-roadmap.md) places its implementation after four-player testing. Other accepted game rules and save guarantees remain in force.
 
 ## Implementation timing
 
-Continue the existing foundation work first. Phase 3 supplies durable player identity, revisions, session leases, and recovery; the encounter and individual RNG systems must also be established before this feature is enabled. Implement eligible personal/static hunt support during the encounter work at the appropriate later phase. Phase 9 must verify that the event system never exposes a Local Soft Reset reroll path. Do not reorder the existing phases or delay the foundational multiplayer work for shiny hunting.
+Complete safe trading, battles/teams, and four-player proof first. The ownership milestone supplies durable identity, revisions, leases, and recovery. Then implement the minimal personal/static encounter boundary, individual RNG and Gen 6 shiny-roll behavior needed for Local Soft Reset, without waiting for every later roster/map/content feature. This dependency work is part of the reset milestone, not permission to bypass save/ownership safety. Phase 9 must additionally verify that the event system never exposes a Local Soft Reset reroll path.
+
+The [Shiny Charm amendment](project-update-customization-friendship-shiny-charm.txt) adds a later personal modifier: eligible fresh rolls use only the requesting player's legitimately owned Charm once implemented. The attempt counter never changes probability. Establish that hook now; the actual Charm feature follows its encounter/shiny dependencies, and its guaranteed Game Corner purchase path can be developed later. World Event properties remain outside both systems.
 
 ## Required behavior
 
@@ -24,4 +26,4 @@ Define the eligible encounter boundary, safe return point, and handling of an en
 4. Test confirmation cancellation, disconnect/rejoin, server restart, and interruption during an eligible reset. Preserve attempt counts and completed ownership changes without duplication.
 5. Verify that classic input invokes the local operation where supported and never intentionally restarts the server, another game, or a shared event.
 
-Current status: specified and queued. The movement prototype has no eligible static-hunt reset implementation yet.
+Current status: specified and prioritized after four-player testing. The ownership prototype has no eligible static-hunt reset implementation yet.

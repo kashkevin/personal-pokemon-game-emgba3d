@@ -1,0 +1,11 @@
+# Project working instructions
+
+Read `docs/master-spec.md` and `docs/development-roadmap.md` before choosing major work. The original briefs and amendments in `docs/project-*.txt` are preserved user requirements. Later direct user instructions take precedence. Keep the accepted ownership milestone and private source saves intact.
+
+Before building any major system from scratch, inspect the pinned engine and its current maintained upstream, official documentation, and compatible community projects. Record what is already provided, what can be reused, what needs adaptation, and what requires custom implementation. Prefer a maintained, compatible implementation when it reduces integration risk. Check exact revision, license and attribution, dependencies, maintenance, known issues, save compatibility, multiplayer conflicts, and measured performance before importing it. Record incorporated sources in `docs/dependency-ledger.md`; research references are not incorporated dependencies. See `docs/customization-and-reuse.md` for the initial audit.
+
+Keep foundational multiplayer first. The current order is safe trading; battles and teams; four actual clients; Local Soft Reset with its necessary encounter/RNG foundation; automatic saving and disconnect handling; Windows Host/Join packaging; Wi-Fi/Internet acceptance and polish. Character customization, player friendship/Lucky Trades, and the personal Shiny Charm/Game Corner reward are accepted additions scheduled around those foundations. Existing Gen 1–6, Gen 6 mechanics, starters, Mega, follower, event, and campaign requirements remain in scope.
+
+Do not remove or rebalance established gameplay rules while adding features. If a genuine compatibility conflict requires a gameplay-design change, explain the concrete conflict and obtain the user's decision before making that change. Routine implementation choices within accepted rules need no extra approval. Keep unapproved probabilities, friendship thresholds, IV floors, prices, and cooldowns explicitly pending.
+
+Preserve small commits, meaningful tests, known-good tags, and private backups. No commercial ROM downloads, player credentials, save files, databases, or private build artifacts belong in Git. Do not infer playable acceptance from compilation, fixtures, or screenshots alone; record actual-core tests and their limits separately.
