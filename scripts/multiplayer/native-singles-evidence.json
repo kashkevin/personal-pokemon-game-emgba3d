@@ -1,0 +1,30 @@
+{
+  "format": "emerald-native-singles-evidence-v1",
+  "run": "native-singles-run-4",
+  "engine_commit": "7efa2448ea19d8aca9946d6572931e97428f0c94",
+  "rom_sha256": "195299be89b79bd2d3dbe178860c16895054c520fceb650a0a69ea28c071cdf4",
+  "evidence_sha256": "9fb4ba9810462b890cc61c9e249554de65612703ae7fc13b25b99867759a5779",
+  "controller_sha256": "48b6cbae4ca5871f906c3148b7307ae3b78aababb5977985b2db0f0044752bb7",
+  "actual_participant_cores": 2,
+  "fresh_continue_cores": 2,
+  "occupied_party_counts": [2, 1],
+  "canonical_revision_before": 1,
+  "canonical_revision_after": 2,
+  "routed_blocks": 362,
+  "fixed_side_outcome": 2,
+  "ordinary_joypad_forced_switch": true,
+  "exact_original_party_and_personal_rng_restored": true,
+  "both_explicit_releases_acknowledged": true,
+  "fresh_canonical_continue_passed": true,
+  "original_sources_unchanged": true,
+  "cores_closed": true,
+  "archived_files_hash_verified": 60,
+  "passed": true,
+  "limits": [
+    "explicit development router and session-local BattleDesk",
+    "no complete durable battle coordinator or player menu",
+    "no six-versus-six or four-human Multi acceptance",
+    "no uninvolved-core, Windows or separate-PC Internet acceptance",
+    "functional faster-than-real-time headless frame pump"
+  ]
+}

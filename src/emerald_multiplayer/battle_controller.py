@@ -177,7 +177,11 @@ class ControllerValidator:
         if command == 6: return p[1] <= 1
         if command == 14: return _half(p, 1) < _MOVES and not any(p[14:16]) and _animation_valid(p[16:24])
         if command in (15, 16): return self._message_valid(p)
-        if command == 17: return p[1] <= 3 and _half(p, 2) < _ITEMS
+        if command == 17:
+            # FIRST_TURN_EVENTS_END uses B_ACTION_NONE before the trainer
+            # chooses. Only USE_ITEM consumes the item argument; native virtual
+            # packing canonicalizes that otherwise stale scratch field to zero.
+            return (p[1] <= 3 or p[1] == 255) and (_half(p, 2) < _ITEMS if p[1] == 1 else _half(p, 2) == 0)
         if command == 19: return self._move_choice_valid(p)
         if command == 21:
             return p[1] <= 4 and p[2] <= 6 and (p[3] | p[7] << 8) < _ABILITIES and p[8] < 2 and _order_valid(p[4:7])

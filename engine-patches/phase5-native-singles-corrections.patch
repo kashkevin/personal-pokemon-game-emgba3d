@@ -1,0 +1,344 @@
+diff --git a/src/multiplayer_battle.c b/src/multiplayer_battle.c
+index 2f25241a69..f0ce1d6758 100644
+--- a/src/multiplayer_battle.c
++++ b/src/multiplayer_battle.c
+@@ -9,6 +9,7 @@
+ #include "battle.h"
+ #include "battle_main.h"
+ #include "battle_controllers.h"
++#include "battle_message.h"
+ #include "battle_setup.h"
+ #include "overworld.h"
+ #include "load_save.h"
+@@ -405,6 +406,17 @@ u16 MultiplayerBattle_PackController(u8 *dest, u8 battler, u8 bufferId, u16 size
+     memset(dest, 0, padded + 8);
+     dest[0] = bufferId; dest[1] = battler; dest[2] = gBattlerAttacker; dest[3] = gBattlerTarget;
+     dest[4] = padded; dest[5] = padded >> 8; dest[6] = gAbsentBattlerFlags; dest[7] = gEffectBattler;
++    // Replies/DONE never consume these auxiliary globals. Native loops may
++    // leave a past-the-end effect index before an empty print or selection UI;
++    // these audited handlers do not consume it either. Meaningful print and
++    // animation metadata must still pass the strict incoming index bounds.
++    if (bufferId == B_COMM_TO_ENGINE || bufferId == B_COMM_CONTROLLER_IS_DONE)
++        dest[2] = dest[3] = dest[6] = dest[7] = 0;
++    else if (dest[7] >= 2 && (data[0] == CONTROLLER_CHOOSEACTION || data[0] == CONTROLLER_CHOOSEMOVE
++          || data[0] == CONTROLLER_CHOOSEPOKEMON || ((data[0] == CONTROLLER_PRINTSTRING
++          || data[0] == CONTROLLER_PRINTSTRINGPLAYERONLY) && size >= 4
++          && (data[2] | data[3] << 8) == STRINGID_EMPTYSTRING3)))
++        dest[7] = 0;
+     if (bufferId == B_COMM_CONTROLLER_IS_DONE)
+     {
+         if (size != 4 || *data != sBinding.localSlot)
+@@ -421,6 +433,10 @@ u16 MultiplayerBattle_PackController(u8 *dest, u8 battler, u8 bufferId, u16 size
+     }
+     // DATA and DONE are queued together. Request/reply ordering is validated
+     // later by SendBlock, after earlier queued replies have been accepted.
++    // Native action prompts carry NONE on a new turn and reuse bufferB's old
++    // reply bytes for the item argument, which is meaningful only for USE_ITEM.
++    if (bufferId == B_COMM_TO_CONTROLLER && data[0] == CONTROLLER_CHOOSEACTION && data[1] != B_ACTION_USE_ITEM)
++        dest[8 + 2] = dest[8 + 3] = 0;
+     if (bufferId == B_COMM_TO_CONTROLLER && data[0] == CONTROLLER_SETMONDATA && data[1] == REQUEST_MOVES_PP_BATTLE)
+         memset(dest + 8 + 16, 0, 3);
+     if (bufferId == B_COMM_TO_CONTROLLER && data[0] == CONTROLLER_CHOOSEMOVE)
+@@ -524,8 +540,11 @@ bool32 MultiplayerBattle_TryReturnNative(void)
+     {
+         MultiplayerBattle_FailNative(); return FALSE;
+     }
+-    sRestored = TRUE; sState = MP_BATTLE_RETURNING;
+-    sOutSize = sOutKind = 0;
++    sState = MP_BATTLE_RETURNING;
++    // Result-held queries have no block descriptor. There are no further native
++    // sends before release, so retire the complete descriptor together.
++    sOutSeq = sOutCrc = sReadOffset = sOutSize = sOutKind = 0;
++    sOutPending = FALSE;
+     gReceivedRemoteLinkPlayers = FALSE; gWirelessCommType = sSavedWireless; gLinkType = sSavedLinkType;
+     memset(gLinkPlayers, 0, sizeof(gLinkPlayers));
+     BattleMain_ReturnNetworkBattleToField();
+@@ -552,6 +571,7 @@ static void FinishNativeReturn(void)
+         }
+         gRngValue = sPersonalRng; gRng2Value = sPersonalRng2;
+         gBattleTypeFlags = sSavedBattleFlags; gMain.savedCallback = sSavedCallback;
++        sRestored = TRUE;
+         sState = MP_BATTLE_FIELD_READY_HELD;
+     }
+ }
+@@ -628,8 +648,9 @@ static void Handle(const struct MultiplayerBattleControl *c)
+         }
+         Respond(c, status, data, length, FALSE); return;
+     }
+-    // A byte-identical last control is the only replay. Rejected controls and
+-    // read-only QUERY do not destroy a lost successful acknowledgement.
++    // A byte-identical last control is the only replay. Native phase-2 rejected
++    // controls and read-only QUERY preserve a lost successful acknowledgement.
++    // Phase 1 retains its accepted diagnostic failure-sequence behavior.
+     if (c->commandSeq == sLastSeq && sLastSeq && !memcmp(c, &sLastCommand, sizeof(*c)))
+     {
+         Replay(); return;
+@@ -817,6 +838,8 @@ static void Handle(const struct MultiplayerBattleControl *c)
+     }
+     if (status == MP_BATTLE_OK && MultiplayerBattle_IsActive() && sState != MP_BATTLE_EXPIRED && sState != MP_BATTLE_RECOVERY_REQUIRED)
+         sDeadline = sFrame + MULTIPLAYER_BATTLE_DEADLINE;
++    if (c->phase == MP_BATTLE_PHASE_SINGLES && status != MP_BATTLE_OK)
++        cache = FALSE;
+     Respond(c, status, data, length, cache);
+ }
+ 
+diff --git a/src/multiplayer_battle_controller.c b/src/multiplayer_battle_controller.c
+index c61d482a35..9268f90a97 100644
+--- a/src/multiplayer_battle_controller.c
++++ b/src/multiplayer_battle_controller.c
+@@ -189,7 +189,9 @@ static bool32 MasterDataValid(const u8 *p)
+     case CONTROLLER_RETURNMONTOBALL: return p[1] <= 1;
+     case CONTROLLER_MOVEANIMATION: return Half(p + 1) < MOVES_COUNT_ALL && !p[14] && !p[15] && AnimValid(p + 16);
+     case CONTROLLER_PRINTSTRING: case CONTROLLER_PRINTSTRINGPLAYERONLY: return MessageValid(p);
+-    case CONTROLLER_CHOOSEACTION: return p[1] <= B_ACTION_RUN && Half(p + 2) < ITEMS_COUNT;
++    case CONTROLLER_CHOOSEACTION:
++        return (p[1] <= B_ACTION_RUN || p[1] == B_ACTION_NONE)
++            && (p[1] == B_ACTION_USE_ITEM ? Half(p + 2) < ITEMS_COUNT : !Half(p + 2));
+     case CONTROLLER_CHOOSEMOVE: return MoveChoiceValid(p);
+     case CONTROLLER_CHOOSEPOKEMON:
+         return p[1] <= 4 && p[2] <= PARTY_SIZE && (p[3] | p[7] << 8) < ABILITIES_COUNT
+diff --git a/test/multiplayer_battle.c b/test/multiplayer_battle.c
+index 6ee68ffba4..0c231610d2 100644
+--- a/test/multiplayer_battle.c
++++ b/test/multiplayer_battle.c
+@@ -1,8 +1,11 @@
+ #include "global.h"
+ #include "multiplayer_battle.h"
++#include "multiplayer_battle_schema.h"
+ #include "multiplayer_save.h"
+ #include "multiplayer_ownership.h"
+ #include "battle.h"
++#include "battle_controllers.h"
++#include "battle_message.h"
+ #include "pokemon.h"
+ #include "pokemon_storage_system.h"
+ #include "main.h"
+@@ -24,6 +27,7 @@
+ #include "constants/map_groups.h"
+ #include "constants/layouts.h"
+ #include "constants/characters.h"
++#include "constants/items.h"
+ #include "test/test.h"
+ 
+ struct ChannelFixture {
+@@ -33,6 +37,7 @@ struct ChannelFixture {
+     MainCallback savedCallback;
+     rng_value_t rng, rng2;
+     u32 battleFlags;
++    u32 controllerExecFlags;
+     u16 linkType;
+     struct LinkPlayer players[4];
+     struct MapHeader header;
+@@ -40,7 +45,9 @@ struct ChannelFixture {
+     struct ObjectEvent object;
+     struct RfuLinkStatus *rfu;
+     u32 generation;
++    u32 lastSuccessfulSequence;
+     u8 wireless, received;
++    u8 attacker, target, effect, absent, outcome;
+     bool8 spriteInUse, resetDisabled;
+ };
+ 
+@@ -73,12 +80,18 @@ static u8 Submit(struct ChannelFixture *f)
+     f->generation += 2; gMultiplayerBattleMailbox.commandGeneration = f->generation;
+     MultiplayerBattle_Tick();
+     EXPECT(!(gMultiplayerBattleMailbox.responseGeneration & 1));
++    if (gMultiplayerBattleMailbox.response.status == MP_BATTLE_OK && f->command.opcode != MP_BATTLE_QUERY)
++        f->lastSuccessfulSequence = f->command.commandSeq;
+     return gMultiplayerBattleMailbox.response.status;
+ }
+ 
+ static void Next(struct ChannelFixture *f, u8 opcode)
+ {
+-    f->command.commandSeq++; f->command.opcode = opcode;
++    if (f->command.phase == MP_BATTLE_PHASE_SINGLES)
++        f->command.commandSeq = f->lastSuccessfulSequence + 1;
++    else
++        f->command.commandSeq++;
++    f->command.opcode = opcode;
+     f->command.blockSeq = 0; f->command.offset = 0; f->command.totalSize = 0;
+     f->command.sourceSlot = f->binding.localSlot; f->command.kind = 0;
+     f->command.length = 0; memset(f->command.data, 0, 192);
+@@ -97,6 +110,9 @@ static void SetUp(struct ChannelFixture *f, u8 count, u8 local)
+     f->cb1 = gMain.callback1; f->cb2 = gMain.callback2;
+     f->savedCallback = gMain.savedCallback; f->rng = gRngValue; f->rng2 = gRng2Value;
+     f->battleFlags = gBattleTypeFlags; f->linkType = gLinkType;
++    f->controllerExecFlags = gBattleControllerExecFlags;
++    f->attacker = gBattlerAttacker; f->target = gBattlerTarget; f->effect = gEffectBattler;
++    f->absent = gAbsentBattlerFlags; f->outcome = gBattleOutcome;
+     memcpy(f->players, gLinkPlayers, sizeof(f->players));
+     f->header = gMapHeader; f->avatar = gPlayerAvatar; f->object = gObjectEvents[0];
+     f->rfu = gRfuLinkStatus; f->wireless = gWirelessCommType;
+@@ -156,6 +172,9 @@ static void TearDown(struct ChannelFixture *f)
+     gMain.callback1 = f->cb1; gMain.callback2 = f->cb2;
+     gMain.savedCallback = f->savedCallback; gRngValue = f->rng; gRng2Value = f->rng2;
+     gBattleTypeFlags = f->battleFlags; gLinkType = f->linkType; gMain.inBattle = FALSE;
++    gBattleControllerExecFlags = f->controllerExecFlags;
++    gBattlerAttacker = f->attacker; gBattlerTarget = f->target; gEffectBattler = f->effect;
++    gAbsentBattlerFlags = f->absent; gBattleOutcome = f->outcome;
+     memcpy(gLinkPlayers, f->players, sizeof(f->players));
+     gMapHeader = f->header; gPlayerAvatar = f->avatar; gObjectEvents[0] = f->object;
+     gRfuLinkStatus = f->rfu; gWirelessCommType = f->wireless;
+@@ -221,6 +240,26 @@ static void TrainerAndAck(struct ChannelFixture *f)
+     EXPECT_EQ(Submit(f), MP_BATTLE_OK);
+ }
+ 
++static void AcknowledgeNativeOutput(struct ChannelFixture *f)
++{
++    u32 sequence, size, crc, kind, offset;
++    EXPECT_EQ(Send(f, MP_BATTLE_QUERY), MP_BATTLE_OK);
++    sequence = Word(gMultiplayerBattleMailbox.response.data + 28);
++    kind = Word(gMultiplayerBattleMailbox.response.data + 32);
++    size = Word(gMultiplayerBattleMailbox.response.data + 36);
++    crc = Word(gMultiplayerBattleMailbox.response.data + 40);
++    for (offset = 0; offset < size; offset += 128)
++    {
++        Next(f, MP_BATTLE_READ_OUT); f->command.blockSeq = sequence;
++        f->command.kind = kind; f->command.totalSize = size; f->command.offset = offset;
++        EXPECT_EQ(Submit(f), MP_BATTLE_OK);
++    }
++    Next(f, MP_BATTLE_ACK_OUT); f->command.blockSeq = sequence;
++    f->command.kind = kind; f->command.totalSize = size; f->command.offset = size;
++    f->command.length = 8; PutWord(f->command.data, crc); PutWord(f->command.data + 4, 2);
++    EXPECT_EQ(Submit(f), MP_BATTLE_OK); ResetBlockReceivedFlag(0);
++}
++
+ TEST("Multiplayer native singles: canonical preparation mismatches refuse before party or RNG changes")
+ {
+     struct ChannelFixture f;
+@@ -269,6 +308,26 @@ TEST("Multiplayer native singles: prepare replay freezes originals and explicit
+     TearDown(&f);
+ }
+ 
++TEST("Multiplayer native singles: rejected next sequence preserves prior ACK and can be reused successfully")
++{
++    struct ChannelFixture f;
++    struct MultiplayerBattleControl prepared, response;
++    u32 nextSequence;
++    NativeBinding(&f); Preparation(&f); EXPECT_EQ(Submit(&f), MP_BATTLE_OK);
++    prepared = f.command; response = gMultiplayerBattleMailbox.response;
++    nextSequence = prepared.commandSeq + 1;
++    EXPECT_EQ(Send(&f, MP_BATTLE_START_SINGLES), MP_BATTLE_BUSY);
++    EXPECT_EQ(f.command.commandSeq, nextSequence);
++    f.command = prepared;
++    EXPECT_EQ(Submit(&f), MP_BATTLE_OK);
++    EXPECT(!memcmp((const void *)&gMultiplayerBattleMailbox.response, &response, sizeof(response)));
++    EXPECT_EQ(Send(&f, MP_BATTLE_KEEP), MP_BATTLE_OK);
++    EXPECT_EQ(f.command.commandSeq, nextSequence);
++    EXPECT_EQ(Word(gMultiplayerBattleMailbox.response.data + 24), nextSequence);
++    EXPECT_EQ(Send(&f, MP_BATTLE_ABORT_PRE_START), MP_BATTLE_OK);
++    TearDown(&f);
++}
++
+ TEST("Multiplayer native singles: startup requires descriptors then installs issued RNG exactly once")
+ {
+     struct ChannelFixture f;
+@@ -287,6 +346,108 @@ TEST("Multiplayer native singles: startup requires descriptors then installs iss
+     TearDown(&f);
+ }
+ 
++TEST("Multiplayer native singles: fresh action sentinel canonicalizes stale item without admitting invalid actions")
++{
++    struct ChannelFixture f;
++    u8 payload[4] = {CONTROLLER_CHOOSEACTION, B_ACTION_NONE, CONTROLLER_DATATRANSFER, 140};
++    u8 wire[256];
++    u16 size;
++    NativeBinding(&f); Preparation(&f); EXPECT_EQ(Submit(&f), MP_BATTLE_OK);
++    TrainerAndAck(&f); EXPECT_EQ(Send(&f, MP_BATTLE_START_SINGLES), MP_BATTLE_OK);
++    size = MultiplayerBattle_PackController(wire, 0, B_COMM_TO_CONTROLLER, sizeof(payload), payload);
++    EXPECT_EQ(size, 16); EXPECT_EQ(wire[9], B_ACTION_NONE);
++    EXPECT_EQ(wire[10], 0); EXPECT_EQ(wire[11], 0);
++    // This boundary check uses canonical metadata independently of battle UI.
++    wire[2] = wire[3] = wire[6] = wire[7] = 0;
++    EXPECT(MultiplayerBattle_ValidateController(wire, size, 0));
++    wire[9] = B_ACTION_RUN + 1;
++    EXPECT(!MultiplayerBattle_ValidateController(wire, size, 0));
++    wire[9] = B_ACTION_NONE; wire[10] = 1;
++    EXPECT(!MultiplayerBattle_ValidateController(wire, size, 0));
++    wire[9] = B_ACTION_USE_ITEM; wire[10] = ITEMS_COUNT & 0xFF; wire[11] = ITEMS_COUNT >> 8;
++    EXPECT(!MultiplayerBattle_ValidateController(wire, size, 0));
++    wire[10] = (ITEMS_COUNT - 1) & 0xFF; wire[11] = (ITEMS_COUNT - 1) >> 8;
++    EXPECT(MultiplayerBattle_ValidateController(wire, size, 0));
++    wire[9] = B_ACTION_NONE; wire[10] = wire[11] = 0;
++    MultiplayerBattle_NoteController(wire, 0);
++    wire[0] = B_COMM_TO_ENGINE; wire[8] = CONTROLLER_TWORETURNVALUES;
++    EXPECT(!MultiplayerBattle_ValidateController(wire, size, 0)); // NONE is never a chosen action reply.
++    TearDown(&f);
++}
++
++TEST("Multiplayer native singles: only unused effect metadata canonicalizes a native loop sentinel")
++{
++    struct ChannelFixture f;
++    u8 payload[80] = {CONTROLLER_PRINTSTRING};
++    u8 wire[256];
++    u16 size;
++    NativeBinding(&f); Preparation(&f); EXPECT_EQ(Submit(&f), MP_BATTLE_OK);
++    TrainerAndAck(&f); EXPECT_EQ(Send(&f, MP_BATTLE_START_SINGLES), MP_BATTLE_OK);
++    gBattlerAttacker = 1; gBattlerTarget = 0; gAbsentBattlerFlags = 0; gEffectBattler = 2;
++    payload[2] = STRINGID_EMPTYSTRING3 & 0xFF; payload[3] = STRINGID_EMPTYSTRING3 >> 8;
++    payload[4 + offsetof(struct BattleMsgData, textBuffs)] = EOS;
++    payload[4 + offsetof(struct BattleMsgData, textBuffs) + 18] = EOS;
++    payload[4 + offsetof(struct BattleMsgData, textBuffs) + 36] = EOS;
++    size = MultiplayerBattle_PackController(wire, 1, B_COMM_TO_CONTROLLER, sizeof(payload), payload);
++    EXPECT_EQ(wire[7], 0); EXPECT(MultiplayerBattle_ValidateController(wire, size, 0));
++    payload[2] = STRINGID_PKMNFLINCHED & 0xFF; payload[3] = STRINGID_PKMNFLINCHED >> 8;
++    size = MultiplayerBattle_PackController(wire, 1, B_COMM_TO_CONTROLLER, sizeof(payload), payload);
++    EXPECT_EQ(wire[7], 2); EXPECT(!MultiplayerBattle_ValidateController(wire, size, 0));
++    memset(payload, 0, sizeof(payload)); payload[0] = CONTROLLER_BATTLEANIMATION;
++    size = MultiplayerBattle_PackController(wire, 1, B_COMM_TO_CONTROLLER, 12, payload);
++    EXPECT_EQ(wire[7], 2); EXPECT(!MultiplayerBattle_ValidateController(wire, size, 0));
++    memset(payload, 0, sizeof(payload)); payload[0] = CONTROLLER_CHOOSEACTION;
++    size = MultiplayerBattle_PackController(wire, 0, B_COMM_TO_CONTROLLER, 4, payload);
++    EXPECT_EQ(wire[7], 0); EXPECT(MultiplayerBattle_ValidateController(wire, size, 0));
++    MultiplayerBattle_NoteController(wire, 0);
++    payload[0] = CONTROLLER_TWORETURNVALUES;
++    size = MultiplayerBattle_PackController(wire, 0, B_COMM_TO_ENGINE, 6, payload);
++    EXPECT_EQ(wire[2], 0); EXPECT_EQ(wire[3], 0); EXPECT_EQ(wire[6], 0); EXPECT_EQ(wire[7], 0);
++    EXPECT(MultiplayerBattle_ValidateController(wire, size, 0)); MultiplayerBattle_NoteController(wire, 0);
++    payload[0] = 0;
++    size = MultiplayerBattle_PackController(wire, 0, B_COMM_CONTROLLER_IS_DONE, 4, payload);
++    EXPECT_EQ(wire[2], 0); EXPECT_EQ(wire[3], 0); EXPECT_EQ(wire[6], 0); EXPECT_EQ(wire[7], 0);
++    EXPECT(MultiplayerBattle_ValidateController(wire, size, 0));
++    TearDown(&f);
++}
++
++TEST("Multiplayer native singles: return publishes restoration only after field readiness and clears the block descriptor")
++{
++    struct ChannelFixture f;
++    struct LinkBattlerHeader header = {0};
++    struct Pokemon original[6];
++    rng_value_t personal, issued;
++    u8 end[16] = {B_COMM_TO_CONTROLLER, 0, 0, 0, 8, 0, 0, 0, CONTROLLER_ENDLINKBATTLE, B_OUTCOME_WON};
++    u32 i;
++    NativeBinding(&f); memcpy(original, gParties[B_TRAINER_PLAYER], sizeof(original)); personal = gRngValue;
++    Preparation(&f); memcpy(&issued, f.command.data + 16, sizeof(issued)); EXPECT_EQ(Submit(&f), MP_BATTLE_OK);
++    TrainerAndAck(&f); EXPECT_EQ(Send(&f, MP_BATTLE_START_SINGLES), MP_BATTLE_OK);
++    MultiplayerBattle_InstallNativeRng();
++    header.versionSignatureHi = 3; header.battleEnigmaBerry.name[0] = EOS;
++    EXPECT(MultiplayerBattle_SendBlock(&header, sizeof(header))); AcknowledgeNativeOutput(&f);
++    for (i = 0; i < 3; i++)
++    {
++        EXPECT(MultiplayerBattle_SendPartyPair(i * 2)); AcknowledgeNativeOutput(&f);
++    }
++    EXPECT(MultiplayerBattle_SendBlock(&issued, sizeof(issued))); AcknowledgeNativeOutput(&f);
++    EXPECT(MultiplayerBattle_SendBlock(end, sizeof(end))); AcknowledgeNativeOutput(&f);
++    gBattleOutcome = B_OUTCOME_WON; gBattleControllerExecFlags = 0;
++    gParties[B_TRAINER_PLAYER][0].hp = 1;
++    EXPECT(MultiplayerBattle_TryReturnNative());
++    EXPECT_EQ(Send(&f, MP_BATTLE_QUERY), MP_BATTLE_OK);
++    EXPECT_EQ(gMultiplayerBattleMailbox.state, MP_BATTLE_RETURNING);
++    EXPECT(!(Word(gMultiplayerBattleMailbox.response.data) & 32));
++    EXPECT(!memcmp(&issued, &gRngValue, sizeof(issued)));
++    EXPECT(!memcmp(original, gParties[B_TRAINER_PLAYER], sizeof(original)));
++    for (i = 28; i <= 44; i += 4) EXPECT_EQ(Word(gMultiplayerBattleMailbox.response.data + i), 0);
++    gMain.callback1 = CB1_Overworld; gMain.callback2 = CB2_Overworld; gMain.inBattle = FALSE;
++    EXPECT_EQ(Send(&f, MP_BATTLE_QUERY), MP_BATTLE_OK);
++    EXPECT_EQ(gMultiplayerBattleMailbox.state, MP_BATTLE_FIELD_READY_HELD);
++    EXPECT(Word(gMultiplayerBattleMailbox.response.data) & 32);
++    EXPECT(!memcmp(&personal, &gRngValue, sizeof(personal)));
++    TearDown(&f);
++}
++
+ TEST("Multiplayer native singles: running expiry remains recovery-held and cannot close or rebind")
+ {
+     struct ChannelFixture f;

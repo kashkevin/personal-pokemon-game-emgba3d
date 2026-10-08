@@ -97,6 +97,19 @@ class NativeControllerTests(unittest.TestCase):
             with self.subTest(field=field), self.assertRaises(BattleMailboxError):
                 validator().accept(wire(bytes((2, field, 0, 0, 0))), 0)
 
+    def test_first_turn_action_sentinel_and_ignored_item_are_canonical(self):
+        v = validator().accept(wire(bytes((17, 255, 0, 0))), 0)
+        # NONE belongs to the request; the owner must provide a real action.
+        with self.assertRaises(BattleMailboxError):
+            v.accept(wire(bytes((32, 255, 0, 0, 0, 0)), role=1), 0)
+        v.accept(wire(bytes((32, 0, 0, 0, 0, 0)), role=1), 0)
+        v.accept(done(0), 0).accept(done(1), 1)
+        validator().accept(wire(bytes((17, 1, 105, 3))), 0)  # Last item ID873.
+        for p in (bytes((17, 255, 28, 140)), bytes((17, 0, 1, 0)),
+                  bytes((17, 1, 106, 3)), bytes((17, 254, 0, 0))):
+            with self.subTest(payload=p), self.assertRaises(BattleMailboxError):
+                validator().accept(wire(p), 0)
+
     def test_header_padding_masks_and_exact_size_are_checked_before_state(self):
         p = wire(bytes((4, 0, 0, 0)))
         broken = (p[:-1], p+b"\0", p[:-1]+b"\1",
