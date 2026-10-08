@@ -67,6 +67,24 @@ Recorded October 8, 2026. New `host_world.py` and `invitations.py` reuse the pro
 
 All platform wheel SHA-256 values were compared to the official PyPI release API. The exact hashes and development install/API record are in [host-provisioning.md](host-provisioning.md) and `requirements-host-provisioning.txt`. Packaging still requires a complete notice audit of the actual final OpenSSL/Rust/transitive dependency bundle; these development installs and private certificate tests do not qualify distribution or Internet acceptance.
 
+## Private Windows launcher packaging
+
+Recorded October 8, 2026. The first actual `onedir` preview bundles the existing Python application and verified SDL runtime with a stdlib Tk Host/Join window. The [GUI audit and evidence](windows-launcher-gui.md) records its real release pins and limits. Python/Tk are runtime dependencies; PyInstaller and its analysis dependencies are private build tools. No Qt/PySide or external patcher implementation was incorporated. The BPS reader follows byuu's public-domain format specification; Flips and RomPatcher.js remain research references.
+
+| Component | Exact version | Observed terms and role |
+| --- | --- | --- |
+| CPython | Windows x64 3.14.4 | PSF license plus the original distribution's component notices; installed `LICENSE.txt` is copied to the package. [Python license](https://docs.python.org/3/license.html). |
+| Tcl/Tk | Official Python-bundled 8.6.15 runtime | Permissive Tcl/Tk terms with retained attribution; Python's notices and the installed Tk `license.terms` are retained. [Tcl/Tk terms](https://www.tcl-lang.org/software/tcltk/license.html). |
+| PyInstaller | 6.22.3 Windows x64 wheel | GPL-2.0-or-later with application-bundling exception; certain runtime files are Apache-2.0. Original `COPYING.txt` retained; source unchanged. [Exact release](https://pypi.org/project/pyinstaller/6.22.3/), [license explanation](https://pyinstaller.org/en/stable/license.html). |
+| pyinstaller-hooks-contrib | 2026.8 | Standard analysis hooks GPL-2.0-or-later; runtime hooks Apache-2.0. Original combined notice retained. [Exact release](https://pypi.org/project/pyinstaller-hooks-contrib/2026.8/). |
+| altgraph | 0.17.5 | MIT; build graph analysis, original notice retained. [Release](https://pypi.org/project/altgraph/0.17.5/). |
+| packaging | 26.3 | Apache-2.0 OR BSD-2-Clause; original dual notices retained. [Release](https://pypi.org/project/packaging/26.3/). |
+| pefile | 2024.8.26 | MIT; Windows PE build analysis, original notice retained. [Release](https://pypi.org/project/pefile/2024.8.26/). |
+| pywin32-ctypes | 0.2.3 | BSD-3-Clause; Windows build support, original notice retained. [Release](https://pypi.org/project/pywin32-ctypes/0.2.3/). |
+| setuptools | 84.0.0 | MIT for setuptools; vendored component licenses remain separate. Build environment only; its component notices were copied without asserting they are all MIT. [Release](https://pypi.org/project/setuptools/84.0.0/). |
+
+Every build-tool wheel is pinned by version and SHA-256 in [`requirements-launcher-build.txt`](../scripts/windows-runtime/requirements-launcher-build.txt), compared to official PyPI release metadata, and installed with `--only-binary=:all: --require-hashes` into a separate private Windows virtual environment. Existing cryptography/cffi/pycparser pins are reused. Native runtime source/relink materials and all selected notices accompany the package. Package hashes and Python-source hashes are retained privately. This does not complete the final transitive binary/asset distribution review or qualify gameplay, audio/input, clean-machine installation or Internet transport.
+
 ## Incorporation and distribution status
 
 The [customization and reuse audit](customization-and-reuse.md) additionally inspected current RHH upstream, Perfect Emerald's style/color system, Emerald Rogue's outfit/remote-profile system, and CFRU's customization code. These are research references with recorded revisions and integration limits; no source or assets from those candidates were imported. The new project-wide research rule requires component-level licensing, dependency, maintenance/issue, performance and save/network compatibility checks before integration.

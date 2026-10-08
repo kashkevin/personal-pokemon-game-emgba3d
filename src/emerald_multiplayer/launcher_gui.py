@@ -34,7 +34,7 @@ _TEXT = {
     "selection_required": "Choose your world or friend invitation first.",
     "address_invalid": "Enter this PC’s local IPv4 or IPv6 address, such as 192.168.1.20.",
     "private_storage": "Your private application folder could not be opened.",
-    "enrollment_required": "This character needs first-time setup. This window currently opens existing characters.",
+    "enrollment_required": "This character needs first-time setup. Open Set up a world or character to enroll it.",
     "pending_battle": "An interrupted battle needs recovery before this character can open.",
     "recovery_required": "Your character needs recovery before the game can open. Its private files have been retained.",
     "connection_timeout": "The host did not respond. Check that the host is running and the invitation is current.",
@@ -64,6 +64,13 @@ _TEXT = {
     "patch_invalid": "The game patch could not be verified. No game was installed.",
     "target_mismatch": "The patched game does not match this release. No game was installed.",
     "import_destination": "The private game could not be installed. Existing files were retained.",
+    "checking_connection": "Checking the invited host’s encrypted connection…",
+    "wait_for_connection": "Finishing the connection check before closing…",
+    "tls_reachable_loopback": "Host identity verified on this PC. This does not test another PC or the Internet.",
+    "tls_reachable_lan": "Host identity verified at the invited LAN address. Gameplay and a separate-PC test are still required.",
+    "tls_reachable_public": "Host identity verified at the invited public address. An outside-network gameplay test is still required.",
+    "host_identity_invalid": "The host’s certificate does not match this invitation or is no longer valid.",
+    "unreachable": "The invited host could not be reached. Check the host, address, port and network setup.",
 }
 
 
@@ -134,6 +141,7 @@ class SessionWorker:
         self.installation, self.private_root, self.factory = installation, private_root, factory
         self.importer = importer
         self.importing = False
+        self.checking_connection = False
         self.events = queue.SimpleQueue()
         self._lock = threading.Lock()
         self._thread = self._loop = self._task = None
@@ -177,6 +185,31 @@ class SessionWorker:
         finally:
             with self._lock:
                 self.importing = False
+            self.events.put(UiEvent("complete", code))
+
+    def start_probe(self, invitation):
+        with self._lock:
+            if self.busy:
+                return False
+            self.checking_connection = True
+            self._state = SessionState.RUNNING
+            self._thread = threading.Thread(target=self._run_probe, args=(invitation,),
+                                            name="emerald-connection-check", daemon=False)
+            self._thread.start()
+        return True
+
+    def _run_probe(self, invitation):
+        code = "unreachable"
+        try:
+            from .network_diagnostics import probe_invitation
+            result = asyncio.run(probe_invitation(invitation, self.private_root / "network-checks"))
+            candidate = result.code + "_" + result.route_scope if result.tls_verified else result.code
+            code = candidate if candidate in _TEXT else "unreachable"
+        except Exception:
+            pass
+        finally:
+            with self._lock:
+                self.checking_connection = False
             self.events.put(UiEvent("complete", code))
 
     def cancel_startup(self):
@@ -253,18 +286,20 @@ class LauncherWindow:
 
         self.root, self.worker = root, worker
         self.closing = False
+        self.setup_window = None
+        self.close_after_setup = False
         self.selection = {"host": None, "join": None}
         self.controls = []
         root.title("Emerald Together")
-        root.minsize(640, 640)
-        root.geometry("700x690")
+        root.minsize(640, 680)
+        root.geometry("700x730")
         root.protocol("WM_DELETE_WINDOW", self.close)
         root.report_callback_exception = lambda *_: self.message.set(status_text("session_failed"))
         body = ttk.Frame(root, padding=24)
         body.pack(fill="both", expand=True)
         ttk.Label(body, text="Emerald Together", font=("Segoe UI", 25, "bold")).pack(anchor="w")
         ttk.Label(body, text="Your world. Up to four players.", font=("Segoe UI", 11)).pack(anchor="w", pady=(2, 6))
-        ttk.Label(body, text=version + " · Existing characters", foreground="#52635c").pack(anchor="w", pady=(0, 18))
+        ttk.Label(body, text=version + " · Private multiplayer preview", foreground="#52635c").pack(anchor="w", pady=(0, 18))
         self.import_button = ttk.Button(body, text="Import my game…", command=self.import_game)
         self.import_button.pack(anchor="w", pady=(0, 6))
         if getattr(worker, "importer", None) is None:
@@ -273,6 +308,9 @@ class LauncherWindow:
         else:
             ttk.Label(body, text="Select your own game dump once to install this release.",
                       wraplength=640).pack(anchor="w", pady=(0, 12))
+        self.setup_button = ttk.Button(body, text="Set up a world or character…", command=self.open_setup)
+        self.setup_button.pack(anchor="w", pady=(0, 12))
+        self.controls.append(self.setup_button)
         tabs = ttk.Notebook(body)
         tabs.pack(fill="both", expand=True)
         self.tabs = tabs
@@ -305,6 +343,9 @@ class LauncherWindow:
             else:
                 ttk.Label(page, text="Your invitation supplies the host and your character.\nKeep it private; each friend has a separate invitation.",
                           wraplength=570).pack(anchor="w", pady=(0, 15))
+                probe = ttk.Button(page, text="Check connection", command=self.check_connection)
+                probe.pack(anchor="w", pady=(0, 4))
+                self.controls.append(probe)
             action = ttk.Button(page, text=title, command=lambda m=mode: self.start(m))
             action.pack(anchor="w", pady=(16, 0))
             self.controls.append(action)
@@ -344,6 +385,24 @@ class LauncherWindow:
             # File contents, complete paths and credentials never appear here.
             getattr(self, mode + "_label").set("World selected" if mode == "host" else "Invitation selected")
 
+    def open_setup(self):
+        if self.worker is None or self.worker.busy or self.setup_window is not None:
+            return
+        from .launcher_setup_gui import SetupWindow
+        selected = self.selection["host"]
+        def finished(world_directory):
+            self.setup_window = None
+            if world_directory is not None:
+                self.selection["host"] = world_directory / "host.json"
+                self.host_label.set("World selected")
+            if self.close_after_setup:
+                self._destroy()
+            else:
+                self._enable(True)
+        self._enable(False)
+        self.setup_window = SetupWindow(self.root, self.worker.installation, self.worker.private_root,
+            selected_world=selected.parent if selected else None, on_close=finished)
+
     def start(self, mode):
         if self.worker is None or self.worker.busy:
             return
@@ -367,7 +426,22 @@ class LauncherWindow:
             self.cancel.configure(state="disabled")
             self.message.set(status_text("closing"))
 
+    def check_connection(self):
+        if self.worker is None or self.worker.busy:
+            return
+        selected = self.selection["join"]
+        if selected is None:
+            self.message.set(status_text("selection_required"))
+        elif self.worker.start_probe(selected):
+            self._enable(False)
+            self.cancel.configure(state="disabled")
+            self.message.set(status_text("checking_connection"))
+
     def close(self):
+        if self.setup_window is not None:
+            self.close_after_setup = True
+            self.setup_window.close()
+            return
         if self.worker is None or not self.worker.busy:
             self._destroy()
             return
@@ -376,7 +450,11 @@ class LauncherWindow:
         cancelled = self.worker.cancel_startup()
         self.cancel.configure(state="disabled")
         code = "closing" if cancelled else "wait_for_game"
-        self.message.set(status_text("wait_for_import" if getattr(self.worker, "importing", False) else code))
+        if getattr(self.worker, "importing", False):
+            code = "wait_for_import"
+        elif getattr(self.worker, "checking_connection", False):
+            code = "wait_for_connection"
+        self.message.set(status_text(code))
 
     def _destroy(self):
         self.root.after_cancel(self._poll_id)

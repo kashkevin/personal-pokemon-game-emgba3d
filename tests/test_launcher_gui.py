@@ -201,6 +201,11 @@ class GuiWorkerTests(unittest.TestCase):
         self.assertFalse(self.worker.start_import(Path("own-dump.gba")))
         self.assertFalse(self.worker.busy)
 
+    def test_connection_probe_returns_fixed_invitation_error(self):
+        self.assertTrue(self.worker.start_probe(Path("missing-private-invitation.json")))
+        self.assertEqual(self.finish_events()[-1].code, "invalid_invitation")
+        self.assertFalse(self.worker.checking_connection)
+
 
 class WidgetTests(unittest.TestCase):
     def setUp(self):
