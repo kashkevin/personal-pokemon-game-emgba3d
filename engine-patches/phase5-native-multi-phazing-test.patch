@@ -1,0 +1,74 @@
+diff --git a/test/multiplayer_battle.c b/test/multiplayer_battle.c
+index 2d8b7c3d08..fa1259fdae 100644
+--- a/test/multiplayer_battle.c
++++ b/test/multiplayer_battle.c
+@@ -9,6 +9,7 @@
+ #include "battle_util2.h"
+ #include "battle_script_commands.h"
+ #include "battle_message.h"
++#include "battle_scripts.h"
+ #include "pokemon.h"
+ #include "pokemon_storage_system.h"
+ #include "main.h"
+@@ -381,6 +382,7 @@ TEST("Multiplayer full Multi: every device owns its controller, sixth lead and i
+         FullMultiBinding(&f, local);
+         StartFullMulti(&f);
+         if (local == 0) gBattleTypeFlags |= BATTLE_TYPE_IS_MASTER;
++        gMain.inBattle = TRUE; // The native callback sets this before controller initialization.
+         AllocateBattleResources();
+         for (enum BattleTrainer trainer = 0; trainer < MAX_BATTLE_TRAINERS; trainer++)
+         {
+@@ -470,6 +472,53 @@ TEST("Multiplayer native battles: temporary play cannot change recording flags o
+     gBattlescriptCurrInstr = savedScript;
+ }
+ 
++TEST("Multiplayer full Multi: forced switches can use sixth slot occupied only in a teammate's separate party")
++{
++    struct ChannelFixture f;
++    const u8 script[5] = {B_SCR_OP_FORCERANDOMSWITCH, 0, 0, 0, 0};
++    const u8 identity[3] = {0x01, 0x23, 0x45};
++    const u8 switched[3] = {0x51, 0x23, 0x40};
++    const u8 *savedScript = gBattlescriptCurrInstr;
++    FullMultiBinding(&f, 0);
++    StartFullMulti(&f);
++    gBattleTypeFlags |= BATTLE_TYPE_IS_MASTER;
++    gMain.inBattle = TRUE; // Exercise the actual battle path, not field party ordering.
++    AllocateBattleResources();
++    for (enum BattleTrainer trainer = 0; trainer < MAX_BATTLE_TRAINERS; trainer++)
++    {
++        if (trainer != B_TRAINER_PLAYER)
++            memcpy(gParties[trainer], gParties[B_TRAINER_PLAYER], sizeof(gParties[trainer]));
++        gPartiesCount[trainer] = PARTY_SIZE;
++        for (u32 slot = 1; slot < PARTY_SIZE - 1; slot++)
++        {
++            u32 hp = 0;
++            SetMonData(&gParties[trainer][slot], MON_DATA_HP, &hp);
++        }
++    }
++    InitBattleControllers();
++    for (u32 target = 0; target < 4; target++)
++    {
++        for (u32 battler = 0; battler < 4; battler++)
++            memcpy(gBattleStruct->battlerPartyOrders[battler], identity, sizeof(identity));
++        gBattlerTarget = target;
++        gBattlerAttacker = target ^ 1;
++        gBattlerPartyIndexes[target] = 0;
++        gBattlerPartyIndexes[target ^ 2] = 5;
++        gBattleScripting.switchCase = 0;
++        gBattlescriptCurrInstr = script;
++        gBattleScriptingCommandsTable[B_SCR_OP_FORCERANDOMSWITCH]();
++        EXPECT(gBattlescriptCurrInstr == BattleScript_RoarSuccessSwitch);
++        EXPECT_EQ(gBattleStruct->monToSwitchIntoId[target], 5);
++        EXPECT(!memcmp(gBattleStruct->battlerPartyOrders[target], switched, sizeof(switched)));
++        for (u32 other = 0; other < 4; other++)
++            if (other != target)
++                EXPECT(!memcmp(gBattleStruct->battlerPartyOrders[other], identity, sizeof(identity)));
++    }
++    FreeBattleResources();
++    TearDown(&f);
++    gBattlescriptCurrInstr = savedScript;
++}
++
+ TEST("Multiplayer full Multi: owner choices and four renderer completions cannot cross battlers")
+ {
+     struct ChannelFixture f;

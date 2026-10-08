@@ -12,9 +12,28 @@
   "harness_sha256": "1de09f7821591065b5074a1f86ffb89ce369006c4adc5cd487668bc915f98c81",
   "actual_participant_cores": 4,
   "fresh_continue_cores": 4,
-  "occupied_battle_party_counts": [2, 1, 1, 1],
-  "fixed_side_participant_slots": [[0, 2], [1, 3]],
-  "canonical_revisions_after": [2, 2, 2, 2],
+  "occupied_battle_party_counts": [
+    2,
+    1,
+    1,
+    1
+  ],
+  "fixed_side_participant_slots": [
+    [
+      0,
+      2
+    ],
+    [
+      1,
+      3
+    ]
+  ],
+  "canonical_revisions_after": [
+    2,
+    2,
+    2,
+    2
+  ],
   "routed_blocks": 1139,
   "snapshots": 21,
   "checks_passed": 5,
@@ -45,20 +64,25 @@
     "controller_sha256": "92308d42a30240e6c9731a59a6d38beff2d908589800840b11814e7497c9599d",
     "actual_participant_cores": 2,
     "fresh_continue_cores": 2,
-    "occupied_battle_party_counts": [2, 1],
+    "occupied_battle_party_counts": [
+      2,
+      1
+    ],
     "routed_blocks": 362,
     "checks_passed": 5,
     "fixed_side_outcome": 2,
     "exact_original_parties_and_personal_rng_restored": true,
     "flash_unchanged_during_battle": true,
-    "canonical_revisions_after": [2, 2],
+    "canonical_revisions_after": [
+      2,
+      2
+    ],
     "fresh_canonical_continues_passed": true,
     "original_sources_unchanged": true,
     "cores_closed": true,
     "archived_files_hash_verified": 60,
     "passed": true
   },
-  "full_engine_regression_status": "in_progress_at_record_creation",
   "passed": true,
   "limits": [
     "actual occupied parties were 2, 1, 1 and 1; six occupied Pokemon per trainer remains unproven in actual cores",
@@ -71,5 +95,22 @@
     "no Windows or separate-PC Wi-Fi/Internet acceptance",
     "functional faster-than-real-time headless frame pump",
     "separate Multi/Local Reset source integration has no combined gameplay acceptance"
-  ]
+  ],
+  "full_engine_regression": {
+    "engine_commit": "9009bcb45bd252fb93f934fcf41540dc2b0f3390",
+    "passed": 5472,
+    "known_failing": 18,
+    "todo": 421,
+    "expected_failing": 9,
+    "total": 5920,
+    "unexpected_failures": 0,
+    "log_sha256": "43380176392fee5b76f640cf93ef8f762032088f8d1045910d6418489ed9bb2b"
+  },
+  "phazing_followup": {
+    "test_only_engine_commit": "703d63001e3adb9c29dc76daad062ea9691423e9",
+    "production_source_unchanged": true,
+    "focused_passed": 59,
+    "log_sha256": "cb18a50f8e8913bc088ecd5e07ba98ce660110c23633fcb22b157ce234e02d61",
+    "source_patch_sha256": "e0d9fd3fb6aed75e02aa7d7e5beaf0c0abaf389464dc6c341aa75ca6d57f4af0"
+  }
 }
