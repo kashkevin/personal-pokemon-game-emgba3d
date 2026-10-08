@@ -36,6 +36,18 @@ index 6e29f721a3..b3f21cfcfa 100644
  }; /* max size 1624 bytes */
  
  extern struct SaveBlock3 *gSaveBlock3Ptr;
+diff --git a/include/link.h b/include/link.h
+index 4b8179d2af..d39b4de083 100644
+--- a/include/link.h
++++ b/include/link.h
+@@ -275,6 +275,7 @@ bool8 IsLinkMaster(void);
+ void CB2_LinkError(void);
+ bool8 GetSioMultiSI(void);
+ bool8 IsLinkConnectionEstablished(void);
++bool32 IsNativeLinkSessionActive(void);
+ bool8 HasLinkErrorOccurred(void);
+ void ResetSerial(void);
+ u32 LinkMain1(u8 *shouldAdvanceLinkState, u16 *sendCmd, u16 (*recvCmds)[CMD_LENGTH]);
 diff --git a/include/multiplayer_ownership.h b/include/multiplayer_ownership.h
 new file mode 100644
 index 0000000000..a0aa28e2c4
@@ -113,6 +125,33 @@ index 3f1b9f8ae9..894f59f44d 100644
              SetMonData(&gParties[B_TRAINER_PLAYER][gPartiesCount[B_TRAINER_PLAYER]], MON_DATA_SPECIES, &evolutions[i].targetSpecies);
              SetMonData(&gParties[B_TRAINER_PLAYER][gPartiesCount[B_TRAINER_PLAYER]], MON_DATA_NICKNAME, GetSpeciesName(evolutions[i].targetSpecies));
              SetMonData(&gParties[B_TRAINER_PLAYER][gPartiesCount[B_TRAINER_PLAYER]], MON_DATA_HELD_ITEM, &data);
+diff --git a/src/link.c b/src/link.c
+index 2f9105cc79..6a9b795e0d 100644
+--- a/src/link.c
++++ b/src/link.c
+@@ -1693,6 +1693,22 @@ bool8 IsLinkConnectionEstablished(void)
+     return EXTRACT_CONN_ESTABLISHED(gLinkStatus);
+ }
+ 
++bool32 IsNativeLinkSessionActive(void)
++{
++    if (sLinkOpen || gReceivedRemoteLinkPlayers || IsOverworldLinkActive()
++     || (gSaveBlock1Ptr != NULL && InUnionRoom()))
++        return TRUE;
++    if (!gWirelessCommType)
++        return FALSE;
++
++    // Pokemon Centers scan for nearby Union Room names without joining a
++    // gameplay session. The mode selector and passive listen task remain set.
++    return gRfu.callback != NULL || gRfu.playerExchangeActive || gRfu.isShuttingDown
++        || gRfu.linkLossRecoveryState == 1
++        || (gRfuLinkStatus != NULL && (gRfuLinkStatus->connCount
++            || gRfuLinkStatus->connSlotFlag || gRfuLinkStatus->linkLossSlotFlag));
++}
++
+ void SetSuppressLinkErrorMessage(bool8 flag)
+ {
+     gSuppressLinkErrorMessage = flag;
 diff --git a/src/multiplayer_ownership.c b/src/multiplayer_ownership.c
 new file mode 100644
 index 0000000000..f5900d98f6
@@ -456,7 +495,7 @@ index 0000000000..f5900d98f6
 +    return !memcmp(source->worldId, local->worldId, 16) && !memcmp(source->playerId, local->playerId, 16);
 +}
 diff --git a/src/multiplayer_save.c b/src/multiplayer_save.c
-index 13c9ce33f2..6f0f233a4f 100644
+index 13c9ce33f2..b4bb7a2dee 100644
 --- a/src/multiplayer_save.c
 +++ b/src/multiplayer_save.c
 @@ -1,6 +1,8 @@
@@ -487,9 +526,12 @@ index 13c9ce33f2..6f0f233a4f 100644
  static EWRAM_DATA bool8 sPending = FALSE;
  static EWRAM_DATA bool8 sSavedResetDisabled = FALSE;
  static EWRAM_DATA bool8 sCommitted = FALSE;
-@@ -147,7 +152,9 @@ static bool32 FieldReady(void)
+@@ -145,9 +150,11 @@ static bool32 FieldReady(void)
+         && gObjectEvents[id].spriteId < MAX_SPRITES && gSprites[gObjectEvents[id].spriteId].inUse
+         && !gPaletteFade.active && !ArePlayerFieldControlsLocked() && !ScriptContext_IsEnabled()
          && gPlayerAvatar.tileTransitionState == 0 && gPlayerAvatar.runningState == 0
-         && !gMain.inBattle && !gReceivedRemoteLinkPlayers && !gWirelessCommType
+-        && !gMain.inBattle && !gReceivedRemoteLinkPlayers && !gWirelessCommType
++        && !gMain.inBattle && !IsNativeLinkSessionActive()
          && gTrainerHillVBlankCounter == NULL && !GetCurrentTrainerHillMapId()
 -        && !InBattlePyramid() && !GetSafariZoneFlag();
 +        && !InBattlePyramid() && !GetSafariZoneFlag()
@@ -965,10 +1007,10 @@ index ece527d283..293346d9eb 100644
          return SPECIES_NONE;
 diff --git a/test/multiplayer_ownership.c b/test/multiplayer_ownership.c
 new file mode 100644
-index 0000000000..23d19f3bad
+index 0000000000..29ef0bebfe
 --- /dev/null
 +++ b/test/multiplayer_ownership.c
-@@ -0,0 +1,311 @@
+@@ -0,0 +1,465 @@
 +#include "global.h"
 +#include "multiplayer_ownership.h"
 +#include "multiplayer_save.h"
@@ -981,6 +1023,20 @@ index 0000000000..23d19f3bad
 +#include "gba/flash_internal.h"
 +#include "trade.h"
 +#include "hall_of_fame.h"
++#include "main.h"
++#include "task.h"
++#include "overworld.h"
++#include "script.h"
++#include "palette.h"
++#include "sprite.h"
++#include "link.h"
++#include "link_rfu.h"
++#include "librfu.h"
++#include "trainer_hill.h"
++#include "event_data.h"
++#include "constants/maps.h"
++#include "constants/map_groups.h"
++#include "constants/layouts.h"
 +#include "test/test.h"
 +
 +static void PutWord(u8 *data, u32 value)
@@ -1279,6 +1335,146 @@ index 0000000000..23d19f3bad
 +    MultiplayerOwnership_Acknowledge(TRUE);
 +    MultiplayerOwnership_Loaded();
 +    EXPECT(!MultiplayerOwnership_Retire(&gParties[B_TRAINER_PLAYER][0].box, MP_RETIRE_RELEASE));
++}
++
++static void DummyNativeLinkCallback(void) {}
++
++TEST("Multiplayer ownership: passive Center wireless scanning is not an active native session")
++{
++    struct RfuLinkStatus rfustatus = {0};
++    struct RfuLinkStatus *oldStatus = gRfuLinkStatus;
++    void (*oldRfuCallback)(void) = gRfu.callback;
++    void (*oldLinkCallback)(void) = gLinkCallback;
++    u32 oldLinkStatus = gLinkStatus;
++    u8 oldWireless = gWirelessCommType, oldReceived = gReceivedRemoteLinkPlayers;
++    u8 oldExchange = gRfu.playerExchangeActive, oldShutdown = gRfu.isShuttingDown;
++    u8 oldRecovery = gRfu.linkLossRecoveryState;
++    u8 oldMapGroup = gSaveBlock1Ptr->location.mapGroup, oldMapNum = gSaveBlock1Ptr->location.mapNum;
++    MainCallback oldCb1 = gMain.callback1, oldCb2 = gMain.callback2;
++    MainCallback oldVBlank = gMain.vblankCallback, oldHBlank = gMain.hblankCallback;
++    void (*oldFieldCallback)(void) = gFieldCallback;
++    struct SaveBlock1 *oldSaveBlock1 = gSaveBlock1Ptr;
++    bool32 results[16];
++    u32 i;
++
++    gSaveBlock1Ptr->location.mapGroup = MAP_GROUP(MAP_OLDALE_TOWN);
++    gSaveBlock1Ptr->location.mapNum = MAP_NUM(MAP_OLDALE_TOWN);
++    gReceivedRemoteLinkPlayers = FALSE; gWirelessCommType = 1;
++    gRfu.callback = NULL; gRfu.playerExchangeActive = FALSE;
++    gRfu.isShuttingDown = FALSE; gRfu.linkLossRecoveryState = 0;
++    gRfuLinkStatus = &rfustatus;
++    results[0] = IsNativeLinkSessionActive();
++    gRfu.callback = DummyNativeLinkCallback;
++    results[1] = IsNativeLinkSessionActive(); gRfu.callback = NULL;
++    gRfu.playerExchangeActive = TRUE;
++    results[2] = IsNativeLinkSessionActive(); gRfu.playerExchangeActive = FALSE;
++    rfustatus.connCount = 1;
++    results[3] = IsNativeLinkSessionActive(); rfustatus.connCount = 0;
++    rfustatus.connSlotFlag = 1;
++    results[4] = IsNativeLinkSessionActive(); rfustatus.connSlotFlag = 0;
++    rfustatus.linkLossSlotFlag = 1;
++    results[5] = IsNativeLinkSessionActive(); rfustatus.linkLossSlotFlag = 0;
++    gSaveBlock1Ptr->location.mapGroup = MAP_GROUP(MAP_UNION_ROOM);
++    gSaveBlock1Ptr->location.mapNum = MAP_NUM(MAP_UNION_ROOM);
++    results[6] = IsNativeLinkSessionActive();
++    gSaveBlock1Ptr->location.mapGroup = MAP_GROUP(MAP_OLDALE_TOWN);
++    gSaveBlock1Ptr->location.mapNum = MAP_NUM(MAP_OLDALE_TOWN);
++    gReceivedRemoteLinkPlayers = TRUE;
++    results[7] = IsNativeLinkSessionActive(); gReceivedRemoteLinkPlayers = FALSE;
++    gWirelessCommType = 0;
++    OpenLink();
++    results[8] = IsNativeLinkSessionActive();
++    gWirelessCommType = 1;
++    results[12] = IsNativeLinkSessionActive();
++    gWirelessCommType = 0;
++    CloseLink();
++    for (i = 0; i < 5; i++)
++        RunTasks();
++    gLinkStatus = LINK_STAT_CONN_ESTABLISHED;
++    gLinkCallback = DummyNativeLinkCallback;
++    results[9] = IsNativeLinkSessionActive();
++    gWirelessCommType = 1;
++    gRfu.linkLossRecoveryState = 1;
++    results[10] = IsNativeLinkSessionActive();
++    InitRFUAPI();
++    InitializeRfuLinkManager_EnterUnionRoom();
++    LinkRfu_Shutdown();
++    results[11] = IsNativeLinkSessionActive();
++    RestoreSerialTimer3IntrHandlers();
++    gRfu.isShuttingDown = TRUE;
++    results[13] = IsNativeLinkSessionActive(); gRfu.isShuttingDown = FALSE;
++    gSaveBlock1Ptr = NULL;
++    results[14] = IsNativeLinkSessionActive(); gSaveBlock1Ptr = oldSaveBlock1;
++    CB2_ReturnToFieldFromMultiplayer();
++    results[15] = IsNativeLinkSessionActive();
++    gMain.callback1 = oldCb1; gMain.callback2 = oldCb2;
++    gMain.vblankCallback = oldVBlank; gMain.hblankCallback = oldHBlank;
++    gFieldCallback = oldFieldCallback;
++
++    gRfuLinkStatus = oldStatus; gRfu.callback = oldRfuCallback;
++    gLinkCallback = oldLinkCallback; gLinkStatus = oldLinkStatus;
++    gWirelessCommType = oldWireless; gReceivedRemoteLinkPlayers = oldReceived;
++    gRfu.playerExchangeActive = oldExchange; gRfu.isShuttingDown = oldShutdown;
++    gRfu.linkLossRecoveryState = oldRecovery;
++    gSaveBlock1Ptr->location.mapGroup = oldMapGroup; gSaveBlock1Ptr->location.mapNum = oldMapNum;
++    EXPECT(!results[0]);
++    EXPECT(results[1]); EXPECT(results[2]); EXPECT(results[3]); EXPECT(results[4]);
++    EXPECT(results[5]); EXPECT(results[6]); EXPECT(results[7]); EXPECT(results[8]);
++    EXPECT(!results[9]); EXPECT(results[10]); EXPECT(!results[11]);
++    EXPECT(results[12]); EXPECT(results[13]); EXPECT(!results[14]); EXPECT(results[15]);
++}
++
++TEST("Multiplayer ownership: real mailbox admits idle wireless mode but refuses active sessions")
++{
++    MainCallback oldCb1 = gMain.callback1, oldCb2 = gMain.callback2;
++    struct MapHeader oldHeader = gMapHeader;
++    struct PlayerAvatar oldAvatar = gPlayerAvatar;
++    struct ObjectEvent oldObject = gObjectEvents[0];
++    bool8 oldSpriteInUse = gSprites[0].inUse;
++    struct RfuLinkStatus *oldStatus = gRfuLinkStatus;
++    void (*oldRfuCallback)(void) = gRfu.callback;
++    u8 oldWireless = gWirelessCommType, oldReceived = gReceivedRemoteLinkPlayers;
++    u8 statuses[3];
++    struct MultiplayerSaveControl command = {0};
++    ResetOwnership();
++    MultiplayerSave_Init();
++    gMain.callback1 = CB1_Overworld; gMain.callback2 = CB2_Overworld;
++    gMain.inBattle = FALSE;
++    gMapHeader.mapLayout = (const void *)1; gMapHeader.mapLayoutId = LAYOUT_OLDALE_TOWN;
++    memset(&gPlayerAvatar, 0, sizeof(gPlayerAvatar));
++    memset(&gObjectEvents[0], 0, sizeof(gObjectEvents[0]));
++    gObjectEvents[0].active = TRUE; gObjectEvents[0].isPlayer = TRUE;
++    gSprites[0].inUse = TRUE; gPaletteFade.active = FALSE;
++    ScriptContext_Init(); UnlockPlayerFieldControls();
++    gTrainerHillVBlankCounter = NULL;
++    FlagClear(FLAG_SYS_SAFARI_MODE);
++    gWirelessCommType = 1; gReceivedRemoteLinkPlayers = FALSE;
++    gRfu.callback = NULL; gRfu.playerExchangeActive = FALSE;
++    gRfu.isShuttingDown = FALSE; gRfu.linkLossRecoveryState = 0;
++    gRfuLinkStatus = NULL;
++    command.incarnation = 1; command.sessionEpoch = 1; command.requestId[0] = 1;
++    command.commandSeq = 1; command.totalSize = 131072; command.opcode = MP_SAVE_BIND;
++    gMultiplayerSaveMailbox.command = command; gMultiplayerSaveMailbox.commandGeneration = 2;
++    MultiplayerSave_Tick();
++    command.commandSeq = 2; command.opcode = MP_SAVE_QUERY_OWNERSHIP;
++    gMultiplayerSaveMailbox.command = command; gMultiplayerSaveMailbox.commandGeneration = 4;
++    MultiplayerSave_Tick(); statuses[0] = gMultiplayerSaveMailbox.response.status;
++    gReceivedRemoteLinkPlayers = TRUE; command.commandSeq = 3;
++    gMultiplayerSaveMailbox.command = command; gMultiplayerSaveMailbox.commandGeneration = 6;
++    MultiplayerSave_Tick(); statuses[1] = gMultiplayerSaveMailbox.response.status;
++    gReceivedRemoteLinkPlayers = FALSE; gRfu.callback = DummyNativeLinkCallback; command.commandSeq = 4;
++    gMultiplayerSaveMailbox.command = command; gMultiplayerSaveMailbox.commandGeneration = 8;
++    MultiplayerSave_Tick(); statuses[2] = gMultiplayerSaveMailbox.response.status;
++
++    gMain.callback1 = oldCb1; gMain.callback2 = oldCb2;
++    gMapHeader = oldHeader; gPlayerAvatar = oldAvatar; gObjectEvents[0] = oldObject;
++    gSprites[0].inUse = oldSpriteInUse; gWirelessCommType = oldWireless;
++    gReceivedRemoteLinkPlayers = oldReceived; gRfuLinkStatus = oldStatus; gRfu.callback = oldRfuCallback;
++    gRfu.playerExchangeActive = FALSE; gRfu.isShuttingDown = FALSE; gRfu.linkLossRecoveryState = 0;
++    MultiplayerSave_Init();
++    EXPECT_EQ(statuses[0], MP_SAVE_OK);
++    EXPECT_EQ(statuses[1], MP_SAVE_UNSAFE);
++    EXPECT_EQ(statuses[2], MP_SAVE_UNSAFE);
 +}
 diff --git a/test/save.c b/test/save.c
 index 4e3000a794..385a3a25e7 100644
