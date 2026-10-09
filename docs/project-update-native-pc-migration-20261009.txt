@@ -1,0 +1,465 @@
+MAJOR PROJECT DIRECTIVE — MIGRATE TO NATIVE PC + EMERALD 3DS GRAPHICS
+PROJECT: POKÉMON EMERALD MULTIPLAYER — WINDOWS EDITION
+We are officially changing the technical direction of our existing Pokémon Emerald Multiplayer project.
+This is a migration of our current game, NOT a new project and NOT a restart.
+Our new objective is to transform everything we have already built into a genuine standalone Windows PC game, while adopting the enhanced graphics and visual rendering style of Pokémon Emerald 3DS Dual Screen.
+We want to preserve all existing gameplay, systems, progress, and development work.
+Do not discard, recreate unnecessarily, or overwrite functioning systems.
+1. NEW PRIMARY TARGET
+Our finished game must be:
+A native Windows PC game that runs directly through a standalone `.exe`, without requiring a GBA emulator.
+We no longer want the final game to run underneath mGBA.
+Current architecture:
+
+* Pokémon Emerald ROM built from pokeemerald-expansion
+* Customized mGBA emulator
+* Windows launcher
+* Lua multiplayer bridge
+* Python companion
+* Python multiplayer host/server
+
+Target architecture:
+
+* Native Windows executable
+* Pokémon Emerald gameplay engine running directly on PC
+* Existing gameplay systems preserved
+* Existing Python multiplayer server preserved wherever compatible
+* Native networking bridge replacing the emulator-specific Lua bridge
+* Enhanced 3D-style overworld renderer
+* Single-screen PC interface
+* Keyboard/controller support
+* Persistent player saves
+
+The goal is to eliminate the emulator dependency without sacrificing our existing game.
+2. USE YOUR EXISTING NATIVE COMPILATION FINDINGS
+You previously reported the following results:
+
+* The Pokémon Emerald Voxel Project successfully builds and runs as a native Windows executable.
+* You launched the game and verified its 3D Diorama rendering in Littleroot Town.
+* You compiled our existing engine using the native PC compatibility layer.
+* 390 of 399 source files compiled successfully.
+* Nine files require additional work.
+* Known issues include the GBA sound engine, hardware-specific memory addresses, save-layout assumptions, and remaining compatibility issues.
+* Our Python multiplayer server can potentially remain in use.
+* Our emulator-specific Lua bridge can potentially be replaced by a native bridge.
+
+Continue directly from these findings. Do not repeat the entire research process.
+First verify the exact status of the existing work and identify the files and compatibility issues that remain.
+Resolve them systematically.
+Do not claim that compilation alone proves full runtime compatibility.
+After compilation, verify gameplay, memory handling, saves, networking, rendering, sound, and multiplayer behavior.
+3. PRESERVE EVERYTHING WE HAVE BUILT
+This is mandatory.
+Before beginning the migration:
+
+1. Identify the current working project.
+2. Record its exact Git commit and branch.
+3. Create a complete known-good checkpoint.
+4. Preserve the current ROM build.
+5. Preserve the customized mGBA emulator.
+6. Preserve the Lua multiplayer bridge.
+7. Preserve the Python companion and host.
+8. Preserve existing save data and formats.
+9. Preserve all game assets.
+10. Preserve all implemented gameplay features.
+
+Create a separate native-PC migration branch.
+Do not delete the original emulator-based implementation.
+It must remain available as a fallback until the native version has passed equivalent gameplay tests.
+Do not assume every feature listed in our design specification has already been implemented. Audit the code and classify features as implemented, partial, planned, or unverified.
+4. GRAPHICS FOUNDATION — POKÉMON EMERALD 3DS DUAL SCREEN
+We have selected our desired visual direction.
+Reference project:
+https://github.com/ZallaxDev/pokeemerald-3Ds-dualscreen
+Related native PC project:
+https://github.com/ZallaxDev/pokeemerald-voxel-project
+We want the enhanced GRAPHICS of the 3DS project, not its dual-screen interface or hardware requirements.
+Our game should visually resemble the enhanced Emerald overworld shown in that project.
+Reuse compatible code, rendering methods, graphics and asset-processing techniques wherever permitted.
+The native PC Voxel Project should be used as the primary technical shortcut where it already provides equivalent rendering capabilities.
+Do not spend hours investigating unrelated games.
+Focus on these two related projects and our existing pokeemerald-expansion codebase.
+5. EXACT GRAPHICS WE WANT
+Investigate and reproduce the selected project's visual features, including:
+
+* Dimensional buildings
+* 3D-style terrain
+* Raised cliffs and rocky environments
+* Trees with apparent volume
+* Improved environmental depth
+* Perspective camera
+* Environmental shadows
+* Player and NPC shadows
+* Detailed towns and routes
+* Improved map rendering
+* Enhanced grass and vegetation
+* Improved cave environments
+* More natural environmental proportions
+* Dimensional stairs and platforms
+* Enhanced water and terrain presentation
+
+The initial objective is to match the working reference project's visuals.
+Once achieved, we can improve them further.
+Do not replace the established Emerald art direction with an unrelated visual style.
+We want an enhanced Pokémon Emerald appearance, not a completely different-looking game.
+6. SINGLE-SCREEN WINDOWS INTERFACE
+Our game must NOT have two screens.
+We want ONE normal PC game window.
+The overworld should occupy the available gameplay viewport.
+All important interface functions must be accessible through a modern single-screen interface.
+Examples:
+
+* Pokémon party
+* Bag
+* Pokédex
+* Map
+* Save
+* Settings
+* Trainer Card
+* Multiplayer menu
+* Trading
+* Team invitations
+* Championship interface
+* Friends interface
+* Event notifications
+
+Menus should open as overlays or dedicated screens.
+Do not permanently reserve a large portion of the game window for a second-screen UI.
+Support keyboard controls and investigate controller support.
+Design the interface to work correctly at common PC resolutions, beginning with 1920×1080.
+Preserve readable pixel art and avoid blurry or distorted scaling.
+7. MATCH ALL EXISTING GAMEPLAY TO THE NEW GRAPHICS
+This requirement is extremely important.
+We are not simply adding a dimensional background while leaving everything else visually disconnected.
+Every existing and future gameplay system must be visually compatible with our new rendering style.
+This includes the following systems.
+Player characters
+
+* Customizable player sprites
+* Character clothing and accessories
+* Correct player positioning
+* Appropriate character shadows
+* Correct movement and animation
+* Correct depth ordering and occlusion
+* Multiplayer player visibility
+
+Pokémon followers
+
+* Pokémon physically follow players
+* Correct follower positioning
+* Appropriate shadows
+* Correct scaling and visual perspective
+* Correct terrain interaction
+* Shiny follower appearances
+* Multiplayer follower synchronization
+
+Rideable Pokémon
+
+* Ground-based riding
+* Correct player-on-Pokémon positioning
+* Mount and dismount animations
+* Correct mount shadows
+* Correct terrain alignment
+* Other players can see mounts
+* Riding does not automatically grant flying abilities
+
+Visible wild Pokémon
+
+* Wild Pokémon roam the overworld
+* Correct visual positioning
+* Appropriate scale
+* Correct terrain interaction
+* Environmental shadows
+* Shiny overworld appearance
+* Shared multiplayer spawns
+* Appropriate roaming animations
+* Correct encounter initiation
+
+NPCs and trainers
+
+* NPC sprites must fit the environment
+* Correct shadows
+* Correct depth ordering
+* Proper movement
+* Appropriate scale relative to buildings and terrain
+
+Battles
+
+* Update battle presentation to fit the new graphical direction.
+* Preserve Gen 6 battle mechanics.
+* Preserve Mega Evolution.
+* Preserve existing multiplayer battle logic.
+* Improve battle backgrounds and visual presentation where practical.
+* Ensure Pokémon sprites, shadows and animations fit the enhanced environment.
+
+Do not replace or rewrite the battle engine merely to improve visuals.
+World events
+
+* Legendary Pokémon must appear correctly.
+* Mega Pokémon must display correctly.
+* Shiny Pokémon must display correctly.
+* Event effects must work with the new renderer.
+* World-event notifications must fit the single-screen interface.
+
+Day/night and weather
+
+* Day/night lighting should affect the enhanced environments.
+* Nighttime should visibly change the atmosphere.
+* Weather should remain visually consistent with the renderer.
+* Preserve time-based Pokémon evolution and encounter requirements.
+
+8. USE THE EXTRA POWER OF PC HARDWARE
+Since the game will run natively on Windows, investigate using modern PC hardware capabilities.
+We are no longer targeting the original GBA hardware limits.
+Potential improvements include:
+
+* Higher rendering resolutions
+* More available RAM
+* Modern GPU rendering
+* Better lighting
+* Better shadows
+* More detailed terrain
+* More simultaneous overworld entities
+* More complex animations
+* Better environmental effects
+* Improved camera rendering
+* More flexible asset loading
+* Larger maps and regions
+* More advanced battle effects
+
+However, these improvements are not automatic.
+Identify which existing GBA constraints remain embedded in the game engine and remove or adapt them where appropriate.
+Do not simply increase memory limits without checking the code that depends on them.
+Prioritize stability and correctness.
+9. PRESERVE OUR MULTIPLAYER SYSTEM
+Our game is designed around up to four players.
+The native migration must preserve the existing multiplayer implementation wherever practical.
+Do not rebuild the Python host/server unnecessarily.
+Replace the emulator-specific Lua bridge with an appropriate native communication layer.
+Preserve the existing networking protocol where compatible.
+Verify:
+
+* Players connecting
+* Player synchronization
+* Movement
+* Map transitions
+* Independent exploration
+* Separate Pokémon parties
+* Separate inventories
+* Separate money
+* Separate rewards
+* Trading
+* PvP
+* Teams
+* Disconnect/reconnect
+* World Events
+* Persistent saves
+
+Do not claim multiplayer works simply because the server launches.
+Test the actual gameplay interactions with multiple native clients.
+10. PRESERVE OUR COMPLETE GAME DESIGN
+The migration must preserve the established game specification.
+Our target features include:
+Core Pokémon
+
+* Generations 1–6 Pokémon
+* Generation 6 mechanics
+* Fairy typing
+* All applicable official Mega Evolutions, including later-introduced forms
+* 18 selectable starters
+* Randomized wild Pokémon
+* Rarity-based encounters
+* Low-level/basic-stage early encounters
+* No normal wild Legendary/Mythical Pokémon
+* Shiny Pokémon
+* Shiny Charm
+* Time-based evolution mechanics
+
+Multiplayer
+
+* Up to four players
+* Independent exploration
+* Free-form teams
+* Maximum normal team size of two
+* Individual rewards
+* Trading from the beginning
+* PvP from the beginning
+* 1v1 battles
+* 2v2 battles
+* Planned 1v1v1v1 battles
+* Championship tournaments
+* Optional in-game currency wagers
+* Persistent saves
+* Player friendship levels
+* Lucky Trades
+* Lucky Pokémon
+* Lucky Friends
+
+World and exploration
+
+* Enhanced 3D-style Emerald overworld
+* Pokémon followers
+* Rideable Pokémon
+* Visible wild Pokémon
+* Shared wild spawns
+* Customizable player characters
+* Day/night cycle
+* Weather
+* Time-dependent Pokémon mechanics
+* Twin Gym Leaders
+* Multiple regions eventually
+
+Events and progression
+
+* Legendary events
+* Mythical events
+* Mega events
+* Shiny events
+* Rare Shiny Mega Legendary events
+* Expensive purchasable Mega Stones
+* Mega Stones obtainable through events
+* Personal/static Legendary encounters
+* Multiplayer-safe local soft resets
+* Individual event rewards
+* Shiny Charm obtainable through the in-game Game Corner
+* Multiplayer Pokémon League
+* Expanded endgame systems
+
+These features must remain in the master design.
+The migration does not authorize removing or changing them.
+11. MIGRATION STRATEGY
+Do not attempt to migrate everything in one enormous untested change.
+Use the following milestones.
+Milestone A — Native engine
+
+* Resolve remaining compilation issues.
+* Build the native Windows executable.
+* Launch successfully.
+* Verify basic Emerald gameplay.
+* Verify input and movement.
+* Verify stable memory access.
+* Verify sound.
+* Verify save loading/writing.
+* Create checkpoint.
+
+Milestone B — Existing gameplay integration
+
+* Integrate our existing pokeemerald-expansion gameplay changes.
+* Verify Gen 6 Pokémon and mechanics.
+* Verify Mega Evolution.
+* Verify battle functionality.
+* Verify existing implemented custom systems.
+* Fix platform-specific problems.
+* Create checkpoint.
+
+Milestone C — Native multiplayer
+
+* Replace the Lua/emulator bridge.
+* Connect the native client to our existing Python server.
+* Verify two clients.
+* Verify four clients when supported.
+* Verify movement synchronization.
+* Verify trading and battles.
+* Verify saving and reconnecting.
+* Create checkpoint.
+
+Milestone D — Enhanced graphics
+
+* Integrate the native Voxel/Diorama renderer.
+* Compare it with the original 3DS graphics.
+* Port missing visual features where feasible.
+* Verify dimensional terrain and buildings.
+* Verify shadows and camera.
+* Verify map transitions.
+* Create checkpoint.
+
+Milestone E — Single-screen UI
+
+* Remove dual-screen assumptions.
+* Adapt menus to one PC display.
+* Add appropriate keyboard/controller interactions.
+* Verify interface functionality.
+* Create checkpoint.
+
+Milestone F — Visual integration
+Update implemented gameplay visuals to work correctly with the new renderer.
+Include players, NPCs, followers, mounts, wild Pokémon, battles, event Pokémon and weather as those systems become available.
+Do not mark unfinished systems complete.
+Milestone G — Regression testing
+Compare the native version with our previous emulator-based build.
+Verify that previously working features still work.
+Check for:
+
+* Missing functionality
+* Broken saves
+* Multiplayer desynchronization
+* Incorrect Pokémon data
+* Battle logic regressions
+* Rendering defects
+* Memory corruption
+* Performance problems
+
+Do not retire the old version until native parity is demonstrated.
+12. DO NOT RESTART THE PROJECT
+This is the most important instruction.
+Do not create a brand-new Pokémon game and abandon our existing work.
+We already have valuable code and systems.
+Our objective is to:
+PORT → INTEGRATE → VERIFY → IMPROVE
+Not:
+DELETE → REBUILD → HOPE
+If a component must be rewritten because it depends on GBA-specific behavior, isolate that component and preserve its original logic and functionality.
+Do not rewrite unrelated systems.
+13. SOURCE CODE AND ASSET RULES
+Use existing compatible open-source implementations where permitted.
+Inspect the relevant licenses before incorporating code.
+Preserve required attribution and license notices.
+Do not assume all Pokémon assets are freely redistributable simply because a repository is publicly accessible.
+Do not download or distribute unauthorized commercial ROMs.
+Keep third-party code and asset provenance documented.
+14. REPORTING REQUIREMENTS
+At the end of each major milestone, report:
+
+1. What was completed.
+2. What was actually tested.
+3. Which features work.
+4. Which features remain broken.
+5. Any regressions.
+6. Any changes to the architecture.
+7. The Git checkpoint created.
+8. What comes next.
+
+Do not report a feature as working merely because it compiles.
+Distinguish clearly between:
+
+* Compiles
+* Launches
+* Visually renders
+* Works in gameplay
+* Works in multiplayer
+* Fully tested
+
+15. IMMEDIATE NEXT ACTION
+Do not restart broad research.
+Continue from your existing native compilation findings.
+Your immediate priority is:
+
+1. Preserve the current working ROM/emulator project.
+2. Create the native migration branch.
+3. Resolve the nine remaining compilation issues.
+4. Build and launch our actual modified Emerald engine natively on Windows.
+5. Verify basic gameplay and saves.
+6. Verify that the native engine can use the Voxel/Diorama renderer.
+7. Identify any missing visual features compared with the 3DS project.
+8. Begin replacing the emulator-specific multiplayer bridge.
+9. Test the existing Python server with the native client.
+10. Continue through the migration milestones without deleting previous working code.
+
+Do not spend another prolonged research session comparing unrelated projects.
+The visual target has been selected.
+The platform has been selected.
+The existing game must be preserved.
+FINAL OBJECTIVE:
+A standalone, single-screen Windows Pokémon Emerald Multiplayer game, using our existing gameplay systems and code, with the enhanced dimensional graphics of Pokémon Emerald 3DS Dual Screen and the flexibility of modern PC hardware.
+Everything we have built—and everything we add in the future—must be designed to work correctly with this new PC rendering architecture.
+Begin the migration incrementally, preserve checkpoints, and verify functionality at every stage.

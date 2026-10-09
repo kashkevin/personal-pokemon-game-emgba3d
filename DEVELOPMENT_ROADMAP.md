@@ -1,0 +1,444 @@
+# Development roadmap
+
+The main checklist, as of 2026-10-09. It merges the unfinished items from
+`docs/development-roadmap.md` and `PROJECT_STATUS_AND_HANDOFF.md` with the native PC
+migration (Milestones A-G) and the development toolkit, in dependency order.
+Requirements: `PROJECT_SPEC.md`. Status of each feature: `FEATURE_STATUS.md`.
+
+How to read it:
+
+- `[x]` means the cited source shows it done, within the scope that source states.
+  `[ ]` means not done.
+- IDs are for dependency notes. "Needs:" lists what must be done first.
+- Emulator-build results come from earlier frozen builds; Milestone G re-checks them
+  on the native build.
+- Independent work may run in parallel; dependency and acceptance gates still apply.
+  [road]
+- Source tags are the same as in `PROJECT_SPEC.md`, plus: [mig] = native migration
+  status of 2026-10-09 (`FEATURE_STATUS.md`, Native PC migration; matches engine commit
+  `822ea59f9`); [vwd] = `docs/visible-world-design.md`; [eng-platform] = engine
+  `src/platform/README.md`.
+
+Order: Milestone A (now) -> toolkit (alongside A) -> owner decisions and records ->
+B -> C -> D -> E -> F -> G -> gameplay steps 1-7 (AGENTS.md order) -> accepted
+additions -> Hoenn content backlog -> future regions.
+
+## Current priority: Native migration Milestone A (in progress)
+
+Milestone A is the native engine: the game runs as a standalone program with no
+emulator, ending in a Windows .exe. Work so far is on Linux. [dir] [base] [mig]
+
+- [x] A1 Emulator baseline preserved: tag `emulator-baseline-20261009` in both
+  repositories (app `7240c81`, engine `761c9c27f`), private checkpoint folder, ROM
+  hashes. [base]
+- [x] A2 Feature-status audit of the emulator baseline. [audit]
+- [x] A3 Branch `claude/native-pc` created in both repositories at the baseline
+  commits; the emulator branches stay untouched. [base]
+- [x] A4 Engine compiles and links natively for Linux i386 (`Makefile_pc`). [mig]
+- [x] A5 Launches on Linux under Xvfb. Needs: A4. [mig]
+- [x] A6 Renders the intro, title screen, main menu, Professor Birch intro and naming
+  screen. Needs: A5. [mig]
+- [x] A7 Audio produces non-silent samples. Needs: A5. [mig]
+- [ ] A8 Investigate and fix the intro logo that appeared corrupted. Needs: A6. [mig]
+- [ ] A9 Listen to the audio (so far only the samples were checked). Needs: A7. [mig]
+- [ ] A10 Overworld runs natively. Needs: A6. [mig]
+- [ ] A11 Movement. Needs: A10. [mig]
+- [ ] A12 Saves: save and reload natively, in the GBA 128 KiB Flash format. Needs: A10.
+  [mig] [base]
+- [ ] A13 Battles. Needs: A10. [mig]
+- [ ] A14 Build the Windows .exe and repeat the A5-A13 checks on Windows. Needs: A4.
+  [dir] [mig]
+- [ ] A15 Licensing of the imported native platform layer (from
+  ZallaxDev/pokeemerald-voxel-project): record it in `docs/dependency-ledger.md` (it is
+  not there yet), and replace or properly license the GPL/MPL-derived `bios.c` code
+  before the native game is given to anyone. [agents] [eng-platform]
+- [ ] A16 Keep the emulator build working as the fallback until Milestone G passes.
+  [dir] [base]
+
+Milestone A is stable when A8-A14 are done.
+
+## Development toolkit (being added alongside Milestone A)
+
+- [ ] K1 pytest. Supports: all Python work. [dir]
+- [ ] K2 Sanitizers and static analysis for the native build. Supports: A, B. [dir]
+- [ ] K3 Native C tests (the existing ones are in `tests/native/`). Supports: A, B.
+  [dir] [hand]
+- [ ] K4 Multiplayer harness with application-level network simulation. Supports: C,
+  G, step 7. [dir]
+- [ ] K5 Graphics benchmark scene. Supports: D, F. [dir]
+- [ ] K6 CI workflow files. Supports: all. [dir]
+
+## Owner decisions and records
+
+- [ ] O1 Personal vs shared wild spawns - Decision pending - owner to confirm. The
+  earlier owner decision is personal spawns (as built); the newest directive lists
+  shared, server-authoritative spawns. The audit asked for this before the migration.
+  Blocks 9.13 and the spawn part of F1. [audit] [dir]
+- [ ] O2 Save the 2026-10-09 native PC directive verbatim as a `docs/project-*.txt`
+  file, as was done for every earlier amendment. [agents] [spec]
+- [ ] O3 `docs/balance-defaults.md` is cited by four source files but does not exist:
+  create it or point those comments at `PROJECT_SPEC.md` section 7. [audit]
+- [ ] O4 Update `docs/master-spec.md`, `docs/visible-world-design.md` and
+  `PROJECT_STATUS_AND_HANDOFF.md`, which still describe the 2026-10-09 rules as
+  pending or design-only. [audit]
+
+Other open decisions sit next to the work they block: 1.6, 2.6, 2.8, 8.7, 9.8, 9.19,
+9.24, 9.25. Owner inputs (not decisions): 4.2, 7.1.
+
+## Milestone B - gameplay integration
+
+All of the project's gameplay code runs in the native build. [dir]
+
+- [ ] B1 Save layout parity: byte-identical save blocks (SaveBlock1 15568, SaveBlock2
+  3884, SaveBlock3 600 bytes), so the Python readers and the stored 128 KiB Flash
+  checkpoints keep working; otherwise migrate every reader and checkpoint. Needs: A12.
+  [base] [audit]
+- [ ] B2 Adapt or confirm the GBA-specific parts of the project engine code: EWRAM
+  mailboxes, Flash save path, RTC hook (host world clock while connected, local clock
+  otherwise), 16-object / 64-sprite / palette budgets. Needs: A10. [audit]
+- [ ] B3 Rework process and ROM handling for the native .exe: `player_runtime.py`,
+  `draft_runtime.py`, `enrollment_runtime.py`, `trade_native_replay.py`,
+  `game_import.py`, `game_patch.py` (today they launch mGBA or patch a GBA ROM).
+  Needs: A14. [audit]
+- [ ] B4 Replace the mGBA-specific Windows runtime: SDL hooks and reset-chord filter
+  (`native/windows-runtime/sdl-multiplayer.c/.h`) and the headless-mGBA trade replay
+  worker (`trade-replay-worker.c`). Needs: A14. [audit]
+- [ ] B5 Run the gameplay rows of `FEATURE_STATUS.md` that need no network natively,
+  and record the results in its Native PC status column. Needs: B1, B2, K3. [audit]
+
+## Milestone C - native multiplayer
+
+- [ ] C1 A native bridge replaces `bridge/mgba.lua` and preserves the protocol; the
+  Python host and companion stay. Needs: B2. [dir] [audit]
+- [ ] C2 Native in-process interface for the mailboxes (presence EMP1 128 B; save 512 B
+  plus the 4 KiB save window; battle and menu 512 B each; reset 128 B; trade effects;
+  world EMW1 256 B), keeping the struct layouts as contracts and replacing the
+  ELF-symbol manifest (`scripts/multiplayer/generate_manifest.py`). Needs: C1. [audit]
+- [ ] C3 Battle transport natively (today the GBA link layer: SendBlock /
+  GetBlockReceivedStatus). Needs: C2. [audit]
+- [ ] C4 Input and reset-chord routing through the native bridge (today in the Lua
+  bridge and the SDL adapter). Needs: C1, B4. [audit]
+- [ ] C5 Rebuild the proof and qualification harness for the native build (today
+  libmGBA `harness.c`, `scripts/multiplayer/*_proof.py`,
+  `scripts/windows-runtime/qualify_*.py`); it produced all current evidence. Needs: C1,
+  K4. [audit]
+- [ ] C6 Two, then four native clients: connect, see each other, move, change maps,
+  disconnect and reconnect, then trade and battle. Needs: C2-C5. [audit] [brief]
+
+## Milestone D - enhanced graphics
+
+The highest priority once the native engine (Milestone A) is stable. [dir]
+
+- [x] D1 Research: the voxel project's own Diorama build was run separately, outside
+  our engine. [mig]
+- [ ] D2 Before importing anything: license, attribution, exact revision, dependencies
+  and performance of the Diorama renderer (ZallaxDev/pokeemerald-voxel-project) and of
+  the ZallaxDev/pokeemerald-3Ds-dualscreen graphics; record them in
+  `docs/dependency-ledger.md`. [agents] [vis]
+- [ ] D3 Integrate the Diorama renderer as the technical base, kept separate from
+  authoritative gameplay state; graphics never override save, trade, battle, ownership
+  or recovery guarantees. Needs: A stable, D2. [dir] [spec]
+- [ ] D4 Adopt the enhanced dimensional overworld graphics of
+  ZallaxDev/pokeemerald-3Ds-dualscreen - graphics only, not its dual-screen interface.
+  Needs: D3. [dir]
+- [ ] D5 Keep previous working assets recoverable and the asset inventory current
+  (source, creator, license, coverage, states, changes, missing art). Needs: D4.
+  [vis] [spec]
+- [ ] D6 Measure with the graphics benchmark scene: four players, followers, mounts,
+  visible wild Pokémon, NPCs, weather and effects together. Needs: K5, D4.
+  [dir] [vis] [spec]
+
+## Milestone E - single-screen PC UI
+
+- [ ] E1 Single-screen PC interface starting at 1920x1080. Needs: A. [dir]
+- [ ] E2 Keyboard support. Needs: E1. [dir]
+- [ ] E3 Controller support. Needs: E1. [dir]
+- [ ] E4 Local Soft Reset classic chord and Select input on keyboard and controller.
+  Needs: E2, E3, C4. [lsr] [audit]
+
+Physical keyboard and gamepad input was never qualified on the emulator build either.
+[hand]
+
+## Milestone F - visual integration of all gameplay systems
+
+- [ ] F1 Every gameplay system shows correctly in the new renderer and UI: Trainers and
+  appearance, remote players, followers, mounts, visible wild Pokémon including
+  shinies, World Events and notices, NPCs, weather, day/night, the Players, trade,
+  battle and Championship menus, and battles. Needs: B5, C6, D4, E1. [dir] [vis]
+- [ ] F2 Crowded four-client scenes stay within the measured budget; stability comes
+  before extra effects. Needs: F1, D6. [vis] [spec]
+
+## Milestone G - regression parity with the emulator build
+
+- [ ] G1 Make the emulator reference current: rebuild the Windows emulator runtime
+  (6.3) and re-run the audit's Delta rows on the baseline. [base] [audit]
+- [ ] G2 The native build passes the same gameplay tests as the emulator build: every
+  "Implemented and tested" row and the 15 behaviours in `FEATURE_STATUS.md`. Needs: C6,
+  F1, G1, K4. [base] [audit] [dir]
+- [ ] G3 Only after G2 does the native build replace the emulator build; until then
+  the emulator build is the fallback. [dir] [base]
+
+## Gameplay roadmap
+
+The owner's order from `AGENTS.md`: safe trading; battles and teams; four actual
+clients; Local Soft Reset with its encounter/RNG foundation; automatic saving and
+disconnect handling; Windows Host/Join packaging; Wi-Fi/Internet acceptance and polish.
+Customization, friendship/Lucky Trades and the Shiny Charm/Game Corner are scheduled
+around those, and the Gen 1-6, Mega, follower, event and campaign content stays in
+scope. [agents] Checks can run on the emulator baseline (they become G's reference)
+and must then pass natively in G. [audit] [base]
+
+### 1. Safe trading
+
+- [x] 1.1 Exact-swap trading: offers, consent that any edit cancels, atomic paired
+  saves, retries and committed recovery; native offer/confirm, cancel, exchange, saves
+  and fresh Continue on actual cores (earlier builds). [hand]
+- [x] 1.2 Supported trade-effects flow (wqte4): two actual Windows clients, an eligible
+  non-evolving pair, candidate review, native replay, atomic paired save/history
+  commit, both Received notices, saves and fresh Continue. [hand]
+- [x] 1.3 Windows trade replay worker: actual-ROM Machoke to Machamp evolution,
+  paired-save and restart replay on disposable fixtures. [hand]
+- [ ] 1.4 Fix the evolution move-choice screen: `trade_effect_choice.py:53` still
+  rejects stored move ids above 621, so a trade that evolves a Pokémon already knowing a
+  later-generation move fails; the owner decided such moves trade as-is. [audit]
+- [ ] 1.5 Genuine evolution and move-learning trades in actual gameplay. Needs: 1.4.
+  [hand]
+- [ ] 1.6 Decision: original-world geography policy, needed before upgrading any
+  original world. [hand]
+- [ ] 1.7 Interrupted trade-effect cases (disconnect, host restart) in actual gameplay.
+  Needs: 1.5. [hand]
+- [ ] 1.8 Eggs, mail and unsupported forms (refused today, `trade_eligibility.py:107-111`)
+  need their own adapters. [hand] [audit]
+- [ ] 1.9 Re-run trading on the emulator baseline (Delta: Lucky/fence changes). [audit]
+
+### 2. Battles and teams
+
+- [x] 2.1 Players menu: team invite, accept, leave and change; four battle consents;
+  cancel before binding (four actual cores). [hand]
+- [x] 2.2 1v1 through Windows menus (wqb1, parties 2 vs 1); four-client 2v2 (wqm1,
+  parties 2/1/1/1); full-six 2v2 on four actual cores (run 5). [hand] [audit]
+- [x] 2.3 Neutral battle-entry cancellation before BIND: three actual-core cases and
+  the Windows launcher run wqc8. [hand]
+- [x] 2.4 Durable completed-battle history: exactly one immutable result after all
+  releases, with retry and host restart. [hand]
+- [ ] 2.5 Re-run battles on the emulator baseline (Delta: battle code 923dc64,
+  761c9c27f, cd951f7). [audit]
+- [ ] 2.6 Decision: wager pot, ties, interruptions and forfeits. [spec]
+- [ ] 2.7 Full-six 2v2 through Windows menus. Needs: 2.5. [audit] [hand]
+- [ ] 2.8 Decision: should teams persist across disconnect and restart (session-local
+  today)? [audit]
+- [ ] 2.9 Cleanup for an entry refused after BIND (bound/prepared cancellation). [hand]
+- [ ] 2.10 Battle speed: the recorded full-party headless battle took 45.6 minutes;
+  measure and improve. [hand]
+- [ ] 2.11 Championship: four actual clients play two semifinals and a final; an
+  uncertain issued match is recovered, never silently replaced. [audit] [hand]
+- [ ] 2.12 Wagers: 1v1 and 2v2 win, draw, cancel and interrupt, with money checked in
+  every save. Needs: 2.6. [audit]
+
+### 3. Four actual clients
+
+- [x] 3.1 Four actual cores: presence, ownership, capacity (a fifth player is refused)
+  and rejoin (older build). [hand] [audit]
+- [ ] 3.2 One combined four-client run on a single candidate: independent maps,
+  encounters and saves, two teams at once, trading, 1v1 and 2v2, join/leave/rejoin,
+  capacity and host restart. Needs: 1.9, 2.5. [road]
+- [ ] 3.3 Shared-world sync over EMW1 (followers, mounts, appearance, clock, World
+  Events) with four clients; never run. [audit]
+
+### 4. Local Soft Reset
+
+- [x] 4.1 Development reset encounter: 21 checks with four actual cores (fresh local
+  rolls, other players unaffected, capture, checkpoint, fresh Continue). [hand] [audit]
+- [ ] 4.2 Owner input: a legitimately progressed private save, needed to reach the
+  authored static encounters. [hand]
+- [ ] 4.3 Ticket access path for Ho-Oh, Lugia, Mew, Deoxys and Southern Island (today
+  only vanilla Mystery Gift / record-mixing scripts give the tickets). [audit]
+- [ ] 4.4 Production hunts: each of the 25 source families on progressed saves with
+  three peers active; Select and classic chord input; cancellation, capture and
+  interruption; durable attempt counts; Charm effect. Needs: 4.2 (and 4.3 for ticket
+  sources). [audit] [hand]
+
+### 5. Automatic saving and disconnect handling
+
+- [x] 5.1 Autosave every 5 minutes with a per-character off switch, manual saves and
+  fresh Continue on actual Windows (wqt2); visible toggle and Save now
+  (launcher-gui-proof-1). [audit]
+- [x] 5.2 Host-loss field preservation: safe field and interrupted export, held core,
+  authenticated rejoin, fresh Continue (actual cores). [audit] [hand]
+- [x] 5.3 Interrupted battle waits for all four: host loss before BIND, mid-battle and
+  after RELEASE, parties 2/1/1/1, checkpoints and fresh Continue (four actual cores).
+  [audit] [hand]
+- [ ] 5.4 Host loss during an authored static hunt, a trade or a multiplayer battle;
+  Windows host-loss UI; four simultaneous clients. [audit]
+- [ ] 5.5 Full-six interrupted battle to completion (runs 3 and 4 failed); an
+  interrupted Windows match; co-op and wager modes. Needs: 2.7. [audit] [hand]
+- [ ] 5.6 Recovery after process death or host power loss: unsupported today and needs
+  its own design. [hand] [audit]
+- [ ] 5.7 Save pause: each save pauses the game about 6.3 seconds. [audit] [hand]
+- [ ] 5.8 Autosave through the packaged launcher buttons. [audit] [road]
+- [ ] 5.9 Upgrade the original private worlds (backed-up friendship, effect and reset
+  feature upgrade; legacy handler-friendship history), tested on copies first. No
+  original world has been migrated yet. Needs: 1.6. [hand] [readme] [spec]
+
+### 6. Windows Host Game / Join Game packaging
+
+The delivery target is now the native .exe; the emulator package is the fallback until
+Milestone G. [dir] [base]
+
+- [x] 6.1 The owner's dump produced a reconstructing BPS patch. [hand]
+- [x] 6.2 Private candidate9: recursive audits, packaged-resource import and retry,
+  executable startup and normal closure, isolated GUI import. [hand]
+- [ ] 6.3 Rebuild the Windows emulator runtime: the built one predates two baseline
+  source changes (Lua bridge presence/world frame alternation; the replay worker
+  accepting the Lucky bit), so it cannot exercise the Oct 9 features yet. [base]
+- [ ] 6.4 One frozen package: clean-PC install, import, first character, Host/Join,
+  controls, autosave, error messages and updates. Needs: 6.3 for the emulator package,
+  or A14 and B3 for the native one. [road] [hand]
+- [ ] 6.5 Release content review: distribution terms for bundled code and game assets.
+  [hand] [spec]
+
+### 7. Wi-Fi/Internet acceptance and polish
+
+- [ ] 7.1 Owner input: separate Windows PCs, another network and participant, and real
+  input devices. [hand]
+- [ ] 7.2 Separate-PC LAN/Wi-Fi and port-forwarded Internet: firewall and port setup,
+  latency, loss and reconnect, matching builds, transport security, performance and
+  clear recovery. This is the delivery acceptance gate. Needs: 6.4, 7.1 (K4 for network
+  simulation beforehand). [road] [hand] [dir]
+
+### 8. Accepted additions
+
+**Trainer customization**
+
+- [ ] 8.1 Hair style, clothing shapes, hats and accessories, body, and creation at game
+  start (today: palette recolour of Brendan/May with a STYLE editor). [audit] [cfc]
+- [ ] 8.2 Fix the `appearance.py` describe() labels that disagree with the ROM tables.
+  [audit]
+- [ ] 8.3 Appearance sync on four clients. Needs: 3.3. [audit]
+
+**Friendship and Lucky trading**
+
+- [ ] 8.4 Friendship points from real trades, battles and events; daily caps;
+  persistence across host restart. [audit]
+- [ ] 8.5 Lucky trade in an actual trade: forced Lucky, no re-roll on retry or
+  restart, host and native candidates match; Lucky Pokémon summary, IV floor and marker
+  survive save, trade and evolution. Needs: 1.5. [audit]
+- [ ] 8.6 Lucky Friends: the flag survives cancel, retry and reconnect and is used
+  exactly once. [audit]
+- [ ] 8.7 Decision: secondary Lucky benefits, repeated Lucky conversion, both sides of
+  a Lucky trade (the code makes both received Pokémon Lucky), IV changes that alter
+  Hidden Power's type. [road] [audit]
+
+**Shiny Charm and Game Corner**
+
+- [ ] 8.8 Game Corner purchase (9,000 coins), persistence and effect: holder vs
+  non-holder; World Events unchanged. [audit]
+
+### 9. Hoenn content backlog
+
+**Gen 1-6 profile**
+
+- [x] 9.1 Gen 6 defaults candidate: selected settings, with an actual Windows 1v1 on
+  the Gen 6 ROM (wqg2); not the entire ruleset. [audit] [hand]
+- [ ] 9.2 Gen 6 open items: B_EXTRAPOLATED_MOVE_FLAGS, B_X_ITEMS_CROSSUSE,
+  B_THUNDERSTORM_TERRAIN, B_RUN_TRAINER_BATTLE, B_AFFECTION_MECHANICS, Gen 6 affection
+  vs friendship; mechanic matrix in actual battles. [audit]
+- [ ] 9.3 The 721 boundary on every acquisition path (TM, tutor and egg data,
+  evolutions into Gen 7+ species, gifts), with actual capture, evolve and trade runs.
+  [audit]
+- [ ] 9.4 Fairy matchups (vs Dragon, Steel, Fighting, Poison) in an actual battle.
+  [audit]
+- [ ] 9.5 18 starters: New Game, each pick, first battle, save, fresh Continue,
+  enrollment. [audit]
+- [ ] 9.6 Wild pool: per-map sampling (land, surf, fishing, Rock Smash), rarity
+  histogram, base stages early, no Legendaries (confirm the roaming Latios/Latias
+  exception). [audit]
+- [ ] 9.7 Shinies: in battle, in the overworld, as a follower, after a trade and after
+  fresh Continue. [audit]
+
+**Mega Evolution**
+
+- [ ] 9.8 Decision: later-Mega adaptations (Dragonize 20% vs 30%, Mega Sol, Eternal
+  Floette and Zygarde Complete prerequisites, Rayquaza via Dragon Ascent) and Mega
+  capture, form duration and reversion rules. [audit] [spec]
+- [ ] 9.9 Official per-form Mega ledger vs the current official list. [audit]
+- [ ] 9.10 Mega Ring from Flannery, Mega Stone purchase and holding, Mega Evolution in
+  battle, one per trainer in native 2v2. [audit]
+
+**Visible world** (amendment order: synchronized entities, visible wild Pokémon, spawn
+sync, followers, clock, time mechanics, mounts, then visuals and performance) [vis] [road]
+
+- [x] 9.11 Remote running animation: two actual cores, four directions, existing art
+  (Brendan, one map). [hand]
+- [ ] 9.12 Visible wild Pokémon: spawn, approach, battle, catch and run-return in
+  actual cores; object budget (16 objects) with four players. [audit]
+- [ ] 9.13 Shared spawn synchronization, only if O1 confirms shared spawns. The owner
+  first needs rules for shared-spawn RNG and the Charm, mixed progression, and
+  catch/defeat/run/disconnect/crash. Needs: O1. [spec] [vis]
+- [ ] 9.14 Traditional encounter adapters verified (Repels, fishing, Surf access,
+  scripted encounters, encounter-free areas), since random grass/surf encounters are
+  now off. [audit] [vwd]
+- [ ] 9.15 Followers: four-client sync, indoors and large Pokémon, shiny, transitions,
+  object and palette budget. Needs: 3.3. [audit]
+- [ ] 9.16 Day/night: same time and tint on four clients, pause at 0 players, host
+  restart. [audit]
+- [ ] 9.17 Audit every RTC consumer now on the 12x clock (berries, daily events, tides,
+  Shoal Cave, timed events). [audit] [vwd]
+- [ ] 9.18 Time mechanics: the 10 Gen 6 time-evolution branches on both sides of each
+  boundary under the world clock; the exact XY/ORAS hour boundaries are still unknown.
+  [audit]
+- [ ] 9.19 Riding: collisions, ledges, water edges, remote rendering, follower to mount
+  to follower; decision on the exact mount speed (pending). [audit] [spec]
+- [ ] 9.20 Weather maps (rain, ash, sandstorm) with four players, followers and
+  day/night tint. [audit]
+- [ ] 9.21 Major visual overhaul, environmental effects and performance work: now
+  delivered through Milestones D and F on the native build. Needs: D, F. [vis] [dir]
+
+**World Events**
+
+- [ ] 9.22 Spawn, notice, travel, claim and catch with 2-4 actual clients; Mega capture
+  result and stone; a two-player race. [audit]
+- [ ] 9.23 Lost result report: the claim is released 120 s after the claimant
+  disconnects, so a lost catch report could let a second player catch the same
+  Pokémon. Resolve and test. [audit]
+- [ ] 9.24 Decision: World Event timers during downtime or empty sessions (today they
+  keep counting while the host app runs with nobody online) and mixed-progression
+  scaling. [spec] [audit]
+
+**Campaign**
+
+- [ ] 9.25 Decision: co-op story eligibility, badge advancement and mixed progression.
+  [spec]
+- [ ] 9.26 Twin Gym Leaders: all eight Gyms with a team; first-win badge vs helper
+  prize. Needs: 9.25. [audit]
+
+**Later systems**
+
+- [ ] 9.27 Custom 1v1v1v1, researched and built as its own project once conventional
+  battles are stable. Needs: step 2. [brief] [spec]
+- [ ] 9.28 Multiplayer Pokémon League and expanded endgame systems: Planned in the
+  audit, with no requirements written yet. [audit]
+- [ ] 9.29 Hoenn polish: stable, polished Hoenn multiplayer with all accepted systems,
+  UI, performance and lifecycle tests. Needs: everything above. [brief] [spec]
+
+## Future regions (after Hoenn is stable)
+
+- [ ] R1 Design the first additional region only after 9.29, one region at a time
+  (Kanto, Johto, Sinnoh, Unova, Kalos), as content in the same game (never by combining
+  ROMs), with trainers, wild encounters and Gyms scaled for existing progression;
+  measure map, save and rendering budgets first. Needs: 9.29. [brief] [gen6] [spec]
+
+[brief]: docs/project-brief.txt
+[gen6]: docs/project-update-gen6.txt
+[lsr]: docs/project-update-local-soft-reset.txt
+[cfc]: docs/project-update-customization-friendship-shiny-charm.txt
+[vis]: docs/project-update-maximum-visuals-visible-wild-riding-time.txt
+[spec]: docs/master-spec.md
+[road]: docs/development-roadmap.md
+[hand]: PROJECT_STATUS_AND_HANDOFF.md
+[readme]: README.md
+[agents]: AGENTS.md
+[audit]: docs/native-migration/feature-status.md
+[base]: docs/native-migration/baseline.md
+[vwd]: docs/visible-world-design.md
+[mig]: FEATURE_STATUS.md#native-pc-migration

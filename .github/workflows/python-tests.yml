@@ -1,0 +1,25 @@
+# Python host/companion test suite.
+# NOTE: this repository is not hosted on GitHub yet, so this workflow has not run.
+name: python-tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  pytest:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Private virtual environment with pinned, hashed dependencies
+        run: |
+          sudo apt-get update && sudo apt-get install -y python3-tk xvfb
+          python -m venv .venv
+          .venv/bin/python -m pip install --require-hashes -r requirements-host-provisioning.txt
+          .venv/bin/python -m pip install pytest==9.1.1 pytest-timeout
+      - name: Test suite
+        run: xvfb-run -a .venv/bin/python -m pytest

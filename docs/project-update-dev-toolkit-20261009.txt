@@ -1,0 +1,514 @@
+PROJECT UPDATE — INSTALL COMPLETE DEVELOPMENT TOOLKIT, THEN RESUME ALL UNFINISHED WORK
+IMPORTANT: READ THIS BEFORE DOING ANYTHING
+We are continuing development of our existing Pokémon Emerald Multiplayer project.
+You are currently working on migrating our game into a native Windows standalone executable and integrating the enhanced graphics from Pokémon Emerald 3DS Dual Screen / the related PC Voxel Project.
+DO NOT restart that work.
+DO NOT abandon your current progress.
+DO NOT start a new Pokémon project.
+This prompt adds a permanent engineering toolkit and improved development workflow to our EXISTING project.
+After installing/configuring the necessary tools, continue all unfinished development work from exactly where you left off.
+Do not ask me to repeat the previous instructions or resend the entire project specification.
+Inspect the existing repository, current working files, Git history, project documentation, task lists and test results to recover the current development state.
+1. PRESERVE CURRENT WORK BEFORE INSTALLING ANYTHING
+Before changing the development environment:
+
+1. Identify the active project directory.
+2. Identify the current Git branch and commit.
+3. Inspect uncommitted changes.
+4. Identify what you were working on immediately before receiving this prompt.
+5. Identify unfinished tasks and partially completed implementations.
+6. Preserve all working files and uncommitted changes.
+7. Create a safe checkpoint or backup without overwriting existing work.
+8. Record the current state in the project documentation.
+
+Do not blindly reset, clean, stash, checkout, or overwrite files.
+If another agent or process is actively modifying the same files, avoid conflicting changes.
+If a backup or checkpoint already exists, verify it rather than unnecessarily duplicating everything.
+Our existing ROM/emulator implementation must remain available as a rollback until the native PC version has passed equivalent tests.
+2. INSTALL AND CONFIGURE DEVELOPMENT TOOLS
+I want you to obtain, install, configure, and use the appropriate tools that will make development faster, debugging easier, multiplayer smoother, and graphics more stable.
+Do not simply recommend tools. Set them up where you have permission and where they are compatible with our environment.
+First inspect what is already installed.
+Do not reinstall tools unnecessarily.
+Use official repositories, trusted releases, or established package managers.
+Verify tool versions and installation sources.
+Do not execute untrusted installation scripts without inspecting them.
+Do not install software that conflicts with our existing toolchain.
+If installation requires administrator access, credentials, a license, or my explicit approval, stop that specific installation and report what is required. Continue with independent work that is safe.
+3. REQUIRED TOOLKIT
+A. Git and Git Worktrees
+Ensure Git is properly configured.
+Use Git worktrees or isolated branches for major experiments.
+Separate development areas should be available for:
+
+* Stable native game
+* Graphics experiments
+* Multiplayer experiments
+* Pokémon mechanics integration
+* Performance investigations
+
+Do not create unnecessary worktrees if our current workflow already provides equivalent isolation.
+Never allow multiple agents to edit the same files simultaneously without coordination.
+Preserve the stable branch.
+B. pytest
+Repository:
+https://github.com/pytest-dev/pytest
+Install/configure pytest for our existing Python multiplayer host and companion code.
+Create automated tests for:
+
+* Player connections
+* Player disconnections
+* Reconnecting
+* Player identity
+* Multiplayer movement messages
+* Team creation
+* Team leaving
+* Trading transactions
+* Battle state synchronization
+* World Events
+* Individual rewards
+* Currency wagers
+* Save persistence
+* Failure recovery
+
+Use mocks and controlled test fixtures where appropriate.
+Do not require a full graphical game client for every Python unit test.
+C. Native C/C++ Testing
+Investigate an appropriate native test framework.
+Candidate:
+https://github.com/catchorg/Catch2
+IMPORTANT:
+Our Emerald engine is primarily written in C.
+Do not force a C++ test framework into the C engine if doing so introduces unnecessary complexity.
+Choose a framework compatible with our actual codebase.
+Use isolated tests for:
+
+* Pokémon mechanics
+* Battle calculations
+* Gen 6 rules
+* Mega Evolution
+* Encounter generation
+* Shiny calculations
+* Save serialization
+* Player state
+* Event logic
+* Network message parsing
+* Memory-sensitive functions
+
+Reuse existing pokeemerald-expansion testing infrastructure where appropriate.
+D. Clang / LLVM
+Repository:
+https://github.com/llvm/llvm-project
+Install or configure compatible Clang/LLVM tooling where practical.
+Use:
+
+* Static analysis
+* Compiler warnings
+* AddressSanitizer
+* UndefinedBehaviorSanitizer
+* Appropriate memory diagnostics
+
+Apply sanitizers to compatible native PC builds.
+Do not assume all GBA-specific code can be sanitized without adaptation.
+Investigate reported errors instead of suppressing warnings indiscriminately.
+E. RenderDoc
+Repository:
+https://github.com/baldurk/renderdoc
+Install/configure RenderDoc for our native Windows graphics renderer.
+Use it to investigate:
+
+* Incorrect terrain rendering
+* Missing geometry
+* Shadow defects
+* Excessive draw calls
+* Incorrect textures
+* Rendering passes
+* Framebuffer problems
+* OpenGL performance bottlenecks
+* Depth-buffer issues
+* Lighting inconsistencies
+
+Verify compatibility with the graphics API and current renderer.
+Do not spend hours configuring advanced graphics capture before we have a stable native rendering build.
+F. Google Benchmark
+Repository:
+https://github.com/google/benchmark
+Evaluate and configure Google Benchmark for compatible C++ components or standalone benchmark harnesses.
+Use it to measure expensive operations such as:
+
+* Terrain generation
+* Mesh generation
+* Rendering preparation
+* Entity update loops
+* Spawn selection
+* Data conversion
+* Network serialization
+* Other performance-critical algorithms
+
+Do not introduce unnecessary C++ dependencies into the main Emerald C engine solely for benchmarking.
+If a simpler native benchmark harness is more appropriate, use that instead.
+G. GitHub Actions
+Set up automated builds and tests where appropriate.
+Target:
+
+* Native Windows build verification
+* Python unit tests
+* Compatible native tests
+* Static analysis
+* Regression checks
+* Build artifact validation
+
+Do not expose credentials, tokens, ROM files, proprietary game assets, or private save data.
+If GitHub Actions cannot run because the project is not hosted in a compatible repository, create the workflow files and document the blocker.
+4. AUTOMATED MULTIPLAYER TESTING
+Build a repeatable multiplayer test harness.
+Our game supports up to four players.
+The test harness should eventually be able to launch or simulate multiple clients.
+Test scenarios should include:
+
+* Two clients connecting
+* Four clients connecting
+* Independent movement
+* Players entering different maps
+* Players returning to the same map
+* Team invitations
+* Team changes
+* Trading
+* 1v1 battles
+* 2v2 battles
+* Concurrent independent battles
+* World Events
+* Reconnecting
+* Server shutdown
+* Unexpected client crashes
+* Save restoration
+
+Do not mark a feature as tested if the actual implementation does not yet exist.
+Build test coverage incrementally as systems become available.
+5. NETWORK SIMULATION
+Add a controlled network testing capability.
+Simulate:
+
+* 50 ms latency
+* 100 ms latency
+* 200 ms latency
+* Packet loss
+* Packet duplication where relevant
+* Packet reordering where relevant
+* Temporary disconnections
+* Client reconnects
+* Interrupted transactions
+
+Use a deterministic test environment where possible.
+Do not disrupt my real network connection or modify system-wide networking settings unnecessarily.
+Prefer application-level simulation or isolated testing.
+The purpose is to discover synchronization problems before we manually test with four people.
+6. MULTIPLAYER ARCHITECTURE
+Preserve our existing Python multiplayer server unless testing demonstrates a genuine need to replace it.
+Do not automatically replace networking with ENet, GGPO, or another library.
+Research these only if our current implementation develops measurable problems.
+Potential reference:
+https://github.com/lsalzman/enet
+ENet may be useful if our current transport cannot meet latency/reliability requirements.
+However, do not migrate networking libraries without demonstrating the need and preserving protocol compatibility.
+GGPO-style rollback networking is not a default requirement for our game.
+Our turn-based Pokémon battle architecture generally favors authoritative battle state and reliable action validation.
+Recommended principles:
+
+* Smooth local player movement
+* Interpolated remote player movement
+* Server-authoritative shared wild spawns
+* Server-validated battles and rewards
+* Transaction-safe trading
+* Transaction-safe currency wagers
+* Server-generated World Events
+* Reliable player reconnection
+* Persistent player-specific saves
+
+Do not unnecessarily rebuild working multiplayer systems.
+7. AUTOMATED GRAPHICS PERFORMANCE TESTING
+Our new native Windows game uses enhanced Pokémon Emerald 3DS-style graphics.
+Create a repeatable graphics benchmark scene.
+Eventually test scenes containing:
+
+* Four customized players
+* Four follower Pokémon
+* Rideable Pokémon
+* Visible wild Pokémon
+* NPC trainers
+* Enhanced buildings
+* Dimensional terrain
+* Shadows
+* Weather
+* Day/night lighting
+* Environmental effects
+
+Start with features that are already implemented.
+Use placeholders or controlled test entities only when necessary and clearly label them as test fixtures.
+Measure:
+
+* Average FPS
+* Frame-time distribution
+* 1% low FPS
+* CPU frame time
+* GPU frame time where measurable
+* RAM usage
+* GPU memory usage where measurable
+* Draw calls
+* Entity counts
+* Network update cost
+
+Initial target:
+1920×1080
+60 FPS
+Approximately 16.7 ms average frame budget.
+These are performance goals, not guarantees.
+Record actual hardware specifications and measured results.
+Do not invent benchmark results.
+8. GRAPHICS ARCHITECTURE RULE
+Keep rendering separate from authoritative gameplay logic.
+Our renderer should determine HOW the game looks.
+It should not independently determine:
+
+* Pokémon ownership
+* Battle results
+* Player inventory
+* Trading results
+* Wager outcomes
+* Shared event state
+* Pokémon capture ownership
+* Save progression
+
+The gameplay engine/server remains responsible for authoritative game state.
+This separation should make graphics upgrades safer and easier.
+9. PERMANENT PROJECT DOCUMENTATION
+Create or update the following files in our existing project.
+Do not overwrite existing documentation without first merging relevant information.
+PROJECT_SPEC.md
+Contains our complete established gameplay requirements.
+This includes all previously agreed features and amendments.
+Do not invent completed features or silently remove planned features.
+ARCHITECTURE.md
+Documents:
+
+* Native PC engine
+* Emerald Expansion integration
+* 3DS/Voxel renderer
+* Python multiplayer server
+* Native networking bridge
+* Save architecture
+* Major system boundaries
+
+FEATURE_STATUS.md
+Track each feature as:
+
+* Implemented and tested
+* Implemented but unverified
+* Partially implemented
+* Planned
+* Blocked
+* Broken
+
+Include supporting evidence where possible.
+TEST_PLAN.md
+Document reproducible tests for major systems.
+KNOWN_ISSUES.md
+Document confirmed bugs, severity, reproduction steps, and status.
+CHECKPOINTS.md
+Document known-good versions and rollback points.
+AGENTS.md
+Create permanent development instructions for Claude and other compatible coding agents.
+Include:
+
+* Project architecture
+* Build commands
+* Test commands
+* Checkpoint requirements
+* Coding standards
+* Debugging rules
+* Documentation requirements
+* Feature preservation rules
+* Current development priorities
+* Source reuse requirements
+
+DEVELOPMENT_ROADMAP.md
+Track all unfinished work and dependencies.
+This should become the main development checklist.
+10. PERMANENT CODING RULES FOR CLAUDE
+Before implementing a major feature:
+
+1. Inspect the existing code.
+2. Check whether the feature is already partially implemented.
+3. Research compatible existing implementations when useful.
+4. Identify dependencies.
+5. Make a small implementation plan.
+6. Preserve a checkpoint.
+7. Modify the smallest practical area of code.
+8. Compile.
+9. Run appropriate automated tests.
+10. Run actual gameplay tests where practical.
+11. Investigate failures.
+12. Fix verified causes.
+13. Run regression tests.
+14. Document the outcome.
+15. Continue to the next unfinished task.
+
+Do not repeatedly rebuild the same system because you failed to inspect existing code.
+Do not stack speculative fixes.
+Do not delete old working implementations without preserving them.
+Do not mark features complete based only on compilation.
+11. CONTINUE THE EXISTING GRAPHICS WORK
+This is extremely important.
+You were already working on graphics/native PC migration before receiving this prompt.
+After configuring the essential tools, RETURN TO THAT EXACT TASK.
+Inspect your existing progress and continue.
+Do not restart graphics integration.
+Do not clone and rebuild everything unnecessarily.
+Our selected visual foundation remains:
+https://github.com/ZallaxDev/pokeemerald-3Ds-dualscreen
+Related native PC implementation:
+https://github.com/ZallaxDev/pokeemerald-voxel-project
+Our goal remains:
+
+* Native Windows executable
+* Single-screen interface
+* Enhanced dimensional Emerald overworld
+* Improved buildings and terrain
+* Shadows
+* Perspective
+* Environmental depth
+* Correct player and Pokémon rendering
+* No emulator requirement
+* No dual-screen requirement
+
+The current graphics task should remain the highest immediate development priority unless a blocking native-engine issue must be resolved first.
+Do not interrupt working graphics code just to install optional benchmarking tools.
+Install essential tools first, then install additional tools when they become relevant.
+12. COMPLETE THE NATIVE WINDOWS MIGRATION
+Continue the existing native PC conversion.
+You previously reported that 390 of 399 source files compiled successfully.
+Recover the exact current status.
+Resolve remaining compilation problems.
+Verify:
+
+* Native launch
+* Input
+* Movement
+* Sound
+* Maps
+* Battles
+* Pokémon data
+* Gen 6 mechanics
+* Mega Evolution
+* Saves
+* Native multiplayer bridge
+* Existing Python server compatibility
+
+Preserve the previous emulator version until the native implementation passes equivalent tests.
+13. CONTINUE ALL UNFINISHED PROJECT WORK
+After the native PC migration and graphics integration are stable, continue the remaining project roadmap.
+Do not stop permanently after completing the graphics.
+Review all existing project specifications and previously established amendments.
+Continue unfinished work in dependency order.
+This includes, where not yet completed:
+
+* Gen 1–6 Pokémon integration
+* Gen 6 battle mechanics
+* All applicable official Mega Evolutions
+* Starter selection
+* Random encounters
+* Visible overworld Pokémon
+* Shared spawn synchronization
+* Pokémon followers
+* Rideable Pokémon
+* Character customization
+* Day/night
+* Time-based evolution
+* Weather
+* Trading
+* Player friendship
+* Lucky Pokémon
+* Lucky Trades
+* Lucky Friends
+* Free-form teams
+* Individual rewards
+* 1v1 PvP
+* 2v2 PvP
+* Planned 1v1v1v1
+* Championship Mode
+* Currency wagers
+* Twin Gym Leaders
+* Legendary/Mythical events
+* Mega events
+* Shiny events
+* Shiny Charm
+* Game Corner rewards
+* Local soft resets
+* Persistent multiplayer saves
+* Expanded endgame systems
+* Future additional regions
+
+Do not implement these in arbitrary order.
+Respect technical dependencies.
+Do not start building additional regions before the core Hoenn game is stable.
+14. AUTOMATICALLY CONTINUE BETWEEN TASKS
+I want you to work autonomously through the existing development roadmap while the session and available tools permit.
+When you finish one task:
+
+1. Verify it works.
+2. Run regression tests.
+3. Save a checkpoint.
+4. Update documentation.
+5. Identify the next highest-priority unfinished task.
+6. Continue working.
+
+Do not stop after every small task merely to ask whether you should continue.
+You have permission to make ordinary technical implementation decisions that preserve the agreed design.
+However, ask before:
+
+* Removing an established gameplay feature
+* Changing major gameplay rules
+* Replacing the core architecture without evidence
+* Deleting significant existing work
+* Performing destructive operations
+* Introducing major recurring costs
+* Making changes requiring elevated permissions
+* Making significant irreversible changes
+
+If a task is blocked, document the blocker and continue another independent, safe task where possible.
+Do not claim to continue working after the session or tool execution has ended.
+15. MAINTAIN ACCURATE PROGRESS
+I want truthful engineering reports.
+Distinguish between:
+
+* Researched
+* Installed
+* Configured
+* Compiled
+* Launched
+* Tested
+* Working
+* Fully verified
+
+If a tool cannot be installed, explain why.
+If a feature is incomplete, mark it incomplete.
+If a test fails, record the failure.
+If a benchmark was not run, do not invent performance numbers.
+If the native PC game still requires the emulator, do not call it standalone.
+If the graphics do not yet match the selected 3DS reference, document the remaining differences.
+16. FINAL INSTRUCTION
+Our objective is to build the best possible private Pokémon Emerald multiplayer PC game while reusing our existing work.
+I want you to:
+FIRST: Preserve current progress.
+SECOND: Inspect and configure the necessary development tools.
+THIRD: Resume the graphics/native Windows migration from the exact point you left off.
+FOURTH: Complete and verify that migration.
+FIFTH: Continue implementing unfinished gameplay systems in the appropriate order.
+SIXTH: Continuously test, benchmark, document, and preserve checkpoints.
+Do not restart the project.
+Do not abandon current work.
+Do not spend hours on unrelated research.
+Do not install tools simply for the sake of having more tools.
+Do not ask me to repeat information already present in the project.
+Make the existing project better, faster, more stable, easier to develop, and easier to maintain.
+Begin by identifying the current project state and preserving the ongoing work, then proceed with the necessary toolkit setup and resume development.

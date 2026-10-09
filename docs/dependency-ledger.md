@@ -203,3 +203,28 @@ The [customization and reuse audit](customization-and-reuse.md) additionally ins
   native tests and isolated Windows trade replay provide bounded evidence;
   complete Gen6 content, runtime peaks and combined multiplayer acceptance
   remain separate gates.
+
+## Native PC build (branch `claude/native-pc`, recorded 2026-10-09)
+
+| Dependency | Exact source / role | Terms and status |
+| --- | --- | --- |
+| PC platform layer | ZallaxDev/pokeemerald-voxel-project `cfb429bd145e81dbeab822f30b91a4e4f009a7d2`, descended from Kurausukun/pokeemerald `pc_port` (`2eca86d50`, pret merged Aug 2025), gradenGnostic/pokeemerald-multiplatform and the KamiKitsune420 fork. Copied into engine `src/platform/` (SDL2 frontend, GBA PPU renderer, DMA, BIOS calls, C m4a sound engine) and adapted; per-file list in engine `src/platform/README.md`. | MIT for the port modifications ("Copyright (c) 2026 pokeemerald-multiplatform contributors"); does not cover pret/expansion code or game assets. Keep the notice with these files. |
+| `bios.c` within that layer | Header states it is "based on the VBA-M source code"; `ArcTan`, `ArcTan2`, `Sqrt` "taken from mGBA's source". | VBA-M is GPL-2.0-or-later; mGBA is MPL-2.0. **Open:** replace with an independent implementation from GBATEK before any distribution, or ship the corresponding source under those licences. |
+| SDL2 2.30.7 (Windows build) | Official `SDL2-devel-2.30.7-mingw.tar.gz` (i686), SHA-256 `147c3dc03c9be6b23e625fd877421098e93487f1f55e0e1d4e3ce571e79b91c4`; ships as `SDL2.dll` beside the game. Fetched by engine `tools/pc_port/fetch_sdl2_mingw.sh`. | zlib licence. |
+| SDL2 (Linux development build) | Ubuntu `libsdl2-dev:i386` 2.30.0 | zlib licence; development only. |
+| MinGW-w64 i686 cross compiler | Ubuntu `gcc-mingw-w64-i686` 13 (win32 threads) | Compiler licence terms; linked runtime pieces under the GCC Runtime Library Exception. |
+
+Project-owned native files (no third-party code): `agb_flash_pc.c`, `siirtc_pc.c`,
+`gba_support.c`, `fault_compat.c`, `null_trap.c`, `game_memory.c`, `stub.c` (rewritten),
+`tools/pc_port/*`.
+
+### Development tools (not shipped)
+
+| Tool | Version / source | Use |
+| --- | --- | --- |
+| pytest, pytest-timeout | 9.1.1 from PyPI, installed in the private venv | Python test runner (MIT) |
+| pyelftools | 0.33 from PyPI | DWARF layout comparison in `tools/pc_port/abi_layout.py` (Public Domain) |
+| Clang/LLVM 18 (clang, clang-tidy, scan-build) | Ubuntu 24.04 packages `clang-18`, `clang-tidy-18`, `clang-tools-18` | Static analysis (Apache-2.0 with LLVM exception) |
+| GCC UBSan/ASan runtimes (32-bit) | Ubuntu `lib32ubsan1`, `lib32asan8` 14.2 | Sanitizer builds of the native game |
+| cppcheck | Ubuntu 2.13.0 | Static analysis (GPL-3.0; tool only) |
+| python3-tk | Ubuntu package | Runs the launcher GUI tests |
