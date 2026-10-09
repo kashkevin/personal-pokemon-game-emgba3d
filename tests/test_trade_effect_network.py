@@ -10,6 +10,7 @@ from emerald_multiplayer.trade_protocol import PREPARATION_OPERATIONS, validate_
 import test_trade_effect_backend as effect_fixture
 from test_trade_effect_backend import NonEvolvingFixtureReplay, POLICY
 from test_trade_storage import BUILD, RULESET
+from emerald_multiplayer.protocol import PROTOCOL_VERSION
 
 
 class EffectNetworkTests(unittest.IsolatedAsyncioTestCase):
@@ -19,11 +20,14 @@ class EffectNetworkTests(unittest.IsolatedAsyncioTestCase):
         await self.fixture.backend.close()
         self.server = WorldServer(ServerConfig(BUILD, RULESET), store=self.fixture.store, development_trades=True,
             trade_effect_adapter=NonEvolvingFixtureReplay(), trade_effect_policy=POLICY)
+        # The fixture replay emulates only ordinary trades. Lucky Trades are a
+        # random host decision (friendship chance) with their own tests.
+        self.server.trade_effects.lucky_decider = lambda players: False
         await self.server.start(port=0)
         self.clients = []
         for player in self.fixture.fixture.players:
             reader, writer = await asyncio.open_connection(*self.server.address)
-            writer.write(encode_message(dict(type="hello", protocol=1, build_id=BUILD, ruleset_id=RULESET,
+            writer.write(encode_message(dict(type="hello", protocol=PROTOCOL_VERSION, build_id=BUILD, ruleset_id=RULESET,
                 player_id=player.player_id, display_name=player.display_name, credential=player.credential.hex())))
             await writer.drain()
             welcome = await read_message(reader)

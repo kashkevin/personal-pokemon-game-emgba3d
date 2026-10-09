@@ -86,6 +86,7 @@ class LauncherHandoffTests(unittest.IsolatedAsyncioTestCase):
         session._profile_directory = self.directory/'profile'
         session._companion = SimpleNamespace(connected=True, world_id='world', server_epoch=2,
             session_epoch=3, save_profile='profile', save_incarnation=8, _bridge=object(),
+            _live_trade_runtime_id='runtime',
             config=SimpleNamespace(player_id='player', build_id='a'*64, ruleset_id='rules'))
         session._binding = session._signature()
         session._open = True
@@ -93,14 +94,18 @@ class LauncherHandoffTests(unittest.IsolatedAsyncioTestCase):
         session._revision = 1
         session._autosave_clock = lambda: 100
         self.menu = SimpleNamespace(bridge=session._companion._bridge)
-        self.receipt = dict(transaction_id='transaction', state='applied', checkpoint=dict(
+        # A completed native trade reports its exact generation and the base
+        # revision it started from (applied = base + 2: frozen export, result).
+        self.receipt = dict(transaction_id='transaction', generation='generation', expected_revision=1,
+            state='applied', checkpoint=dict(
             revision=3, request_id='11111111-1111-4111-8111-111111111111', size=131072,
             sha256='c'*64, build_id='a'*64, ruleset_id='rules', save_profile='profile'))
 
     async def trade(self, callback):
         with patch('emerald_multiplayer.trade_menu.NativeTradeMenu') as controller:
             controller.return_value.run = AsyncMock(side_effect=callback)
-            await self.session._native_menu_handoff('trade', {'transaction_id':'transaction'}, self.menu)
+            await self.session._native_menu_handoff('trade', {'transaction_id':'transaction',
+                                                              'generation':'generation'}, self.menu)
 
     async def test_failed_pending_battle_status_retains_core_instead_of_requesting_relaunch(self):
         session = self.session

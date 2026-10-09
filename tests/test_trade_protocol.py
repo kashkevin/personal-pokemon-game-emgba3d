@@ -10,6 +10,7 @@ from uuid import uuid4
 from emerald_multiplayer.ownership_protocol import OWNERSHIP_PROFILE
 from emerald_multiplayer.protocol import MAX_COUNTER, MAX_FRAME_BYTES, ProtocolError, encode_message, read_message
 from emerald_multiplayer.trade_protocol import TRADE_TYPES, PREPARATION_OPERATIONS, validate_trade_common, validate_trade_request, validate_trade_reply
+from emerald_multiplayer.protocol import PROTOCOL_VERSION
 
 ACTOR, PEER = sorted((str(uuid4()), str(uuid4())))
 WORLD, TX, GENERATION, REQUEST = (str(uuid4()) for _ in range(4))
@@ -59,7 +60,7 @@ def metadata():
 
 
 def reply(op, **changes):
-    value = {"type": "trade_result", "protocol": 1, "session_epoch": EPOCH,
+    value = {"type": "trade_result", "protocol": PROTOCOL_VERSION, "session_epoch": EPOCH,
              "request_id": REQUEST, "operation": op, "world_id": WORLD, "player_id": ACTOR}
     if op in PREPARATION_OPERATIONS:
         value['preparation_version'] = 1
@@ -175,7 +176,7 @@ class TradeReplyTests(unittest.TestCase):
 
     def test_foreign_identity_protocol_profile_and_unknown_envelopes_reject(self):
         for changes in ({"world_id": str(uuid4())}, {"player_id": PEER}, {"protocol": True},
-                        {"protocol": 2}, {"request_id": "bad"}, {"operation": "trade_confirm"},
+                        {"protocol": PROTOCOL_VERSION + 1}, {"request_id": "bad"}, {"operation": "trade_confirm"},
                         {"type": "checkpoint_result"}, {"payload": "save"}, {"session_epoch": True}):
             with self.subTest(changes=changes), self.assertRaises(ProtocolError):
                 self.validate(reply("status", **changes))

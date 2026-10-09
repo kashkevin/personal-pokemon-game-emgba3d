@@ -22,6 +22,7 @@ from emerald_multiplayer.storage import CheckpointStore
 
 from test_companion import BinaryBridge, make_files, make_pose
 from test_flash import make_flash
+from emerald_multiplayer.protocol import PROTOCOL_VERSION
 
 
 async def wait_until(predicate, timeout=2.0):
@@ -46,7 +47,7 @@ class Client:
     async def connect(cls, address, owner, build, **changes):
         reader, writer = await asyncio.open_connection(*address)
         client = cls(reader, writer, owner)
-        hello = dict(type="hello", protocol=1, build_id=build, ruleset_id=BASELINE_RULESET,
+        hello = dict(type="hello", protocol=PROTOCOL_VERSION, build_id=build, ruleset_id=BASELINE_RULESET,
                      player_id=owner.player_id, display_name="Client-supplied name",
                      credential=owner.credential.hex())
         # None deliberately omits a field to exercise the actual hello gate.
@@ -117,7 +118,7 @@ class CheckpointProtocolTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, "session_epoch_mismatch")
 
     def test_hello_credential_optional_for_transient_required_for_durable(self):
-        hello = dict(type="hello", protocol=1, build_id="build", ruleset_id="rules",
+        hello = dict(type="hello", protocol=PROTOCOL_VERSION, build_id="build", ruleset_id="rules",
                      player_id=str(uuid.uuid4()), display_name="Player")
         validate_hello(hello, "build", "rules")
         with self.assertRaises(ProtocolError) as caught:
@@ -204,7 +205,8 @@ class CheckpointServerTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(welcome["checkpoint_enabled"])
         world = await first.next()
         self.assertEqual(world["players"][0]["display_name"], "Player A")
-        self.assertEqual(set(world["players"][0]), {"player_id", "display_name", "session_epoch", "presence"})
+        # Shared-world appearance (palette customization) is the only addition.
+        self.assertEqual(set(world["players"][0]), {"player_id", "display_name", "session_epoch", "presence", "appearance"})
         self.assertNotIn(self.owner.credential.hex().encode(), encode_message(world))
         duplicate, result = await self.connect()
         self.assertEqual(result["code"], "player_already_connected")
@@ -250,7 +252,12 @@ class CheckpointServerTests(unittest.IsolatedAsyncioTestCase):
         world = await first.next()
         while world["type"] != "world":
             world = await first.next()
-        self.assertEqual(set(world), {"type", "protocol", "world_seq", "players"})
+        # Shared-world fields (clock, World Event, notice, this player's own
+        # wallet adjustment and teammate) carry no snapshot or checkpoint data.
+        self.assertEqual(set(world), {"type", "protocol", "world_seq", "players",
+                                      "clock", "event", "notice", "wallet", "teammate"})
+        self.assertIsNone(world["wallet"])
+        self.assertIsNone(world["teammate"])
 
     async def test_chunk_retries_conflicts_abort_and_schema_errors_preserve_presence(self):
         client, _ = await self.connect()

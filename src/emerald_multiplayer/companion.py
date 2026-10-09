@@ -18,6 +18,7 @@ import math
 from pathlib import Path
 import re
 import struct
+import time
 from typing import Any
 import zlib
 from uuid import UUID, uuid4
@@ -519,7 +520,7 @@ class Companion:
             seconds = clock["seconds"]
             if clock["running"]:
                 from .balance import BALANCE
-                elapsed = asyncio.get_running_loop().time() - self._world_clock_time
+                elapsed = time.monotonic() - self._world_clock_time
                 seconds += int(max(0.0, min(elapsed, 5.0)) * BALANCE.clock_rate)
         event = WorldEventView()
         current = self._world_event
@@ -1380,6 +1381,9 @@ class Companion:
                       "effect_source", "cancel", "effect_prepared"}
         if "effects_version" in fields:
             raise ValueError("effect capability negotiation is owned by the companion")
+        if operation in {"open", "offer", "confirm", "prepare", "prepared", "effect_prepared", "cancel", "ack"}:
+            # Fence mutations before any negotiation probe reaches the host.
+            self._guard_pending_trade_mutation()
         native = native_effects_available(self)
         if operation in effect_ops and (native or operation in {"status", "cancel"}):
             binding = (self.world_id, self.server_epoch, self.session_epoch)
@@ -1550,7 +1554,7 @@ class Companion:
         self._players, self._peer_history = players, history
         self._last_world_seq = message["world_seq"]
         self._world_clock = message["clock"]
-        self._world_clock_time = asyncio.get_running_loop().time()
+        self._world_clock_time = time.monotonic()
         self._world_event = message["event"]
         self._world_wallet = message["wallet"]
         self._world_teammate = message["teammate"]

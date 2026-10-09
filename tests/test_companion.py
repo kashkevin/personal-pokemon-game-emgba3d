@@ -20,6 +20,11 @@ from emerald_multiplayer.companion import (
 from emerald_multiplayer.mailbox import Pose, Snapshot
 from emerald_multiplayer.protocol import ProtocolError, encode_message, read_message
 from emerald_multiplayer.server import ServerConfig, WorldServer
+from emerald_multiplayer.protocol import PROTOCOL_VERSION
+
+# Protocol-2 shared-world fields carried by every world message.
+WORLD_FIELDS = {"clock": {"seconds": 0, "running": False}, "event": None, "notice": None,
+                "wallet": None, "teammate": None}
 
 
 def make_files(directory):
@@ -117,19 +122,23 @@ class ConfigValidationTests(unittest.TestCase):
 
     def test_welcome_and_world_reject_mismatches_and_bad_rosters(self):
         welcome = {
-            "type": "welcome", "protocol": 1, "build_id": self.config.build_id,
+            "type": "welcome", "protocol": PROTOCOL_VERSION, "build_id": self.config.build_id,
             "ruleset_id": BASELINE_RULESET, "player_id": self.config.player_id,
             "session_epoch": 1, "max_players": 4,
             "heartbeat_interval": 5, "idle_timeout": 20,
         }
         self.assertEqual(validate_welcome(welcome, self.config), welcome)
-        for changes in ({"protocol": 2}, {"build_id": "other"}, {"session_epoch": True}, {"max_players": 5}):
+        for changes in ({"protocol": PROTOCOL_VERSION + 1}, {"build_id": "other"}, {"session_epoch": True}, {"max_players": 5}):
             with self.subTest(changes=changes), self.assertRaises(ProtocolError):
                 validate_welcome({**welcome, **changes}, self.config)
-        own = {"player_id": self.config.player_id, "display_name": "Player", "session_epoch": 1, "presence": None}
-        world = {"type": "world", "protocol": 1, "world_seq": 1, "players": [own]}
+        own = {"player_id": self.config.player_id, "display_name": "Player", "session_epoch": 1, "presence": None,
+               "appearance": None}
+        world = {"type": "world", "protocol": PROTOCOL_VERSION, "world_seq": 1, "players": [own], **WORLD_FIELDS}
         self.assertEqual(validate_world(world, self.config, 1), [own])
-        for changes in ({"players": [own, own]}, {"players": []}, {"world_seq": -1}, {"players": [{**own, "session_epoch": 2}]}, {"players": [{**own, "presence": {}}]}):
+        for changes in ({"players": [own, own]}, {"players": []}, {"world_seq": -1}, {"players": [{**own, "session_epoch": 2}]}, {"players": [{**own, "presence": {}}]},
+                        {"clock": None}, {"wallet": {"seq": 1, "delta": 0}}, {"wallet": {"seq": 0, "delta": 5}},
+                        {"teammate": "not-a-uuid"}, {"notice": {"id": 1, "text": "x" * 65, "to": None}},
+                        {"players": [{**own, "appearance": "zz"}]}, {"players": [{k: v for k, v in own.items() if k != "appearance"}]}):
             with self.subTest(changes=changes), self.assertRaises(ProtocolError):
                 validate_world({**world, **changes}, self.config, 1)
 
@@ -139,8 +148,9 @@ class ConfigValidationTests(unittest.TestCase):
         # A welcome alone must never expose a connected ROM roster.
         self.assertEqual(companion.snapshot.connection_flags, 0)
         presence = {"session_epoch": 1, "seq": 1, "map_epoch": 0, **make_pose().network_fields(True)}
-        own = {"player_id": self.config.player_id, "display_name": "Player", "session_epoch": 1, "presence": presence}
-        world = {"type": "world", "protocol": 1, "world_seq": 1, "players": [own]}
+        own = {"player_id": self.config.player_id, "display_name": "Player", "session_epoch": 1, "presence": presence,
+               "appearance": None}
+        world = {"type": "world", "protocol": PROTOCOL_VERSION, "world_seq": 1, "players": [own], **WORLD_FIELDS}
         companion._apply_world(world)
         self.assertEqual(companion.snapshot.connection_flags, 1)
         self.assertGreater(companion.snapshot.roster_epoch, 0)
@@ -330,13 +340,14 @@ class BadWorldIntegrationTests(unittest.IsolatedAsyncioTestCase):
                 try:
                     hello = await read_message(reader)
                     writer.write(encode_message({
-                        "type": "welcome", "protocol": 1, "build_id": hello["build_id"],
+                        "type": "welcome", "protocol": PROTOCOL_VERSION, "build_id": hello["build_id"],
                         "ruleset_id": BASELINE_RULESET, "player_id": hello["player_id"],
                         "session_epoch": 1, "max_players": 4, "heartbeat_interval": 5, "idle_timeout": 20,
                     }))
                     writer.write(encode_message({
-                        "type": "world", "protocol": 1, "world_seq": 1,
-                        "players": [{"player_id": hello["player_id"], "display_name": "Player", "session_epoch": 2, "presence": None}],
+                        "type": "world", "protocol": PROTOCOL_VERSION, "world_seq": 1,
+                        "players": [{"player_id": hello["player_id"], "display_name": "Player", "session_epoch": 2, "presence": None,
+                                     "appearance": None}], **WORLD_FIELDS,
                     }))
                     await writer.drain()
                     bad_sent.set()

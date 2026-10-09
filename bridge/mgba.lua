@@ -195,6 +195,7 @@ if worldEnabled then
     end
 end
 local latestWorld = nil
+local poseSentLast = false
 
 local function routeResetChord(enabled)
     -- Older runtimes have no opt-in function and retain their suppression.
@@ -865,12 +866,16 @@ local function flush()
         if #controls > 0 and (not latestPose or controlBurst < 2) then
             tx = table.remove(controls, 1)
             controlBurst = controlBurst + 1
-        elseif latestPose then
+        elseif latestPose and not (latestWorld and poseSentLast) then
             tx, latestPose = latestPose, nil
             controlBurst = 0
+            poseSentLast = true
         elseif latestWorld then
+            -- Alternate with poses so a congested link never starves the
+            -- shared-world record (actions such as wallet receipts ride on it).
             tx, latestWorld = latestWorld, nil
             controlBurst = 0
+            poseSentLast = false
         end
     end
     if #tx == 0 then return end
@@ -892,7 +897,7 @@ local function onFrame()
         local candidate, err = socket.connect("127.0.0.1", cfg.port)
         if not candidate then return end
         sock, rx, tx = candidate, "", frame("H" .. token)
-        latestWorld = nil
+        latestWorld, poseSentLast = nil, false
         controls, controlBurst = {}, 0
         savePending, saveGeneration, capabilitySent = nil, nil, false
         windowCapabilitySent = false

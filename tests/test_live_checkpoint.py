@@ -32,6 +32,7 @@ from emerald_multiplayer.protocol import MAX_COUNTER, ProtocolError
 from emerald_multiplayer.save_mailbox import Opcode, SaveControl, Status, SAVE_CHUNK_SIZE
 from emerald_multiplayer.storage import CheckpointStore
 from test_flash import make_flash, _rewrite
+from emerald_multiplayer.protocol import PROTOCOL_VERSION
 
 
 def checkpoint_metadata(checkpoint):
@@ -158,7 +159,7 @@ class FakeCompanion:
         if not self.connected:
             raise ConnectionError("disconnected")
         self.server_calls.append((operation, dict(fields, request_id=request_id)))
-        result = dict(type="checkpoint_result", protocol=1, session_epoch=self.session_epoch,
+        result = dict(type="checkpoint_result", protocol=PROTOCOL_VERSION, session_epoch=self.session_epoch,
                       request_id=request_id or str(uuid4()), operation=operation,
                       checkpoint=checkpoint_metadata(self.head()))
         if operation == "info":

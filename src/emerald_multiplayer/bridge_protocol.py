@@ -87,6 +87,7 @@ class BridgeOutbox:
         self.closed = False
         self.ready = asyncio.Event()
         self._control_burst = 0
+        self._presence_last = False
 
     def put(self, payload: bytes) -> None:
         frame = encode_packet(payload)
@@ -112,16 +113,21 @@ class BridgeOutbox:
 
     async def get(self) -> bytes | None:
         while not self.closed:
-            if self.controls and (self.pending is None or self._control_burst < 2):
+            snapshot_waiting = self.pending is not None or self.pending_world is not None
+            if self.controls and (not snapshot_waiting or self._control_burst < 2):
                 self._control_burst += 1
                 return self.controls.popleft()
-            if self.pending is not None:
+            # Presence and shared-world snapshots alternate when both wait, so
+            # a busy presence stream never starves world records (and v.v.).
+            if self.pending is not None and not (self.pending_world is not None and self._presence_last):
                 frame, self.pending = self.pending, None
                 self._control_burst = 0
+                self._presence_last = True
                 return frame
             if self.pending_world is not None:
                 frame, self.pending_world = self.pending_world, None
                 self._control_burst = 0
+                self._presence_last = False
                 return frame
             self.ready.clear()
             await self.ready.wait()

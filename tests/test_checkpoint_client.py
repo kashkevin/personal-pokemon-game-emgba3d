@@ -10,6 +10,7 @@ from emerald_multiplayer.checkpoint_client import (
     CheckpointClient, CheckpointError, validate_checkpoint_reply,
 )
 from emerald_multiplayer.protocol import ProtocolError
+from emerald_multiplayer.protocol import PROTOCOL_VERSION
 
 
 def metadata(payload, revision=1, transaction=None):
@@ -21,7 +22,7 @@ def metadata(payload, revision=1, transaction=None):
 class ReplyTests(unittest.TestCase):
     def setUp(self):
         self.config = SimpleNamespace(build_id="a" * 64, ruleset_id="rules")
-        self.reply = {"type": "checkpoint_result", "protocol": 1, "session_epoch": 5,
+        self.reply = {"type": "checkpoint_result", "protocol": PROTOCOL_VERSION, "session_epoch": 5,
                       "request_id": str(uuid4()), "operation": "info", "checkpoint": metadata(b"a" * 131072)}
 
     def test_exact_metadata_bindings_and_epoch(self):

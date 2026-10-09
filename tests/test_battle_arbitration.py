@@ -41,7 +41,7 @@ class Actor:
         self.pending, self.worlds, self.pongs = {}, [], 0
         self.lock = asyncio.Lock()
         self.reader, self.writer = await asyncio.open_connection(*address)
-        await self.send(dict(type="hello", protocol=1, build_id=BUILD, ruleset_id=RULES,
+        await self.send(dict(type="hello", protocol=PROTOCOL_VERSION, build_id=BUILD, ruleset_id=RULES,
             player_id=player.player_id, display_name=player.display_name, credential=player.credential.hex()))
         welcome = await asyncio.wait_for(read_message(self.reader),8)
         if welcome is None or welcome["type"] != "welcome":
@@ -77,6 +77,9 @@ class Actor:
         request_id = request_id or str(uuid4())
         future = asyncio.get_running_loop().create_future();self.pending[request_id] = future
         try:
+            if kind.startswith("trade_") and kind.removeprefix("trade_") in PREPARATION_OPERATIONS:
+                # Hosts require recipient preparation v1 before offers/consent.
+                fields.setdefault("preparation_version", PREPARATION_VERSION)
             await self.send(dict(type=kind,request_id=request_id,session_epoch=self.lease,**fields))
             result = await asyncio.wait_for(future,8)
             if result["session_epoch"] != self.lease or result["request_id"] != request_id:
@@ -97,6 +100,8 @@ class Actor:
 
 
 from emerald_multiplayer.battle_reservations import enable_battle_reservations
+from emerald_multiplayer.protocol import PROTOCOL_VERSION
+from emerald_multiplayer.trade_protocol import PREPARATION_OPERATIONS, PREPARATION_VERSION
 
 
 class BattleArbitrationTests(unittest.IsolatedAsyncioTestCase):
@@ -308,7 +313,9 @@ class BattleArbitrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(first["state"],"offering")
         result = (await self.actors[3].rpc("trade_confirm",transaction_id=view["transaction_id"],
             generation=view["generation"],fingerprint=view["fingerprint"]))["trade"]
-        self.assertEqual(result["state"],"committed")
+        # Mutual consent advances the uninvolved pair to recipient preparation
+        # (preparation v1); the held battle pair's checkpoints never move.
+        self.assertEqual(result["state"],"preparing")
         self.assertEqual(self.store.read_checkpoint(*self.actor(0)).revision,1)
         self.assertEqual(self.store.read_checkpoint(*self.actor(1)).revision,1)
         self.store.integrity_check()

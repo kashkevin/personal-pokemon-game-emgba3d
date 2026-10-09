@@ -241,10 +241,19 @@ class CompanionTradeGuardTests(unittest.IsolatedAsyncioTestCase):
         readonly = {Opcode.QUERY, Opcode.QUERY_OWNERSHIP, Opcode.QUERY_TRADE}
         emergency = {Opcode.BEGIN_EMERGENCY_EXPORT, Opcode.PRESERVE_EMERGENCY, Opcode.QUERY_EMERGENCY,
                      Opcode.PROMOTE_EMERGENCY_EXPORT}
-        for opcode in set(Opcode)-readonly-emergency:
+        # Native trade-effect record/choice/save operations exist only under a
+        # retained trade's dedicated authority (trade_effect_rpc), never here.
+        effect = {opcode for opcode in Opcode if opcode >= Opcode.BEGIN_EFFECT_RECORD}
+        effect_sizes = {Opcode.BEGIN_EFFECT_RECORD: 192, Opcode.CHOOSE_EFFECT_MOVE: 56,
+                        Opcode.BEGIN_EFFECT_SAVE: 88}
+        for opcode in set(Opcode)-readonly-emergency-effect:
             command = self.control(opcode, revision=1 if opcode == Opcode.BEGIN_TRADE_EXPORT else 0,
                 data=sizes.get(opcode, b""))
             with self.subTest(opcode=opcode), self.assertRaisesRegex(ValueError, "pending trade recovery"):
+                await self.companion.save_rpc(command)
+        for opcode in effect:
+            command = self.control(opcode, revision=1, data=bytes(effect_sizes.get(opcode, 48)))
+            with self.subTest(opcode=opcode), self.assertRaisesRegex(ValueError, "dedicated retained trade authority|record preparation context"):
                 await self.companion.save_rpc(command)
         # These commands have no public lifecycle authority at all, including
         # while a pending trade exists. Use valid envelopes to test that gate.

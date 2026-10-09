@@ -71,8 +71,17 @@ class NativeEnvelopeTests(unittest.TestCase):
                         dict(rng=bytes(15)), dict(rng=bytearray(16))):
             with self.subTest(changed=changed), self.assertRaises(BattleMailboxError):
                 replace(prep, **changed)
-        with self.assertRaises(BattleMailboxError):
-            Preparation.unpack(prep.pack()[:-4]+struct.pack("<I", 1))
+        # The final word carries only a co-op Gym index (1..8) for phase 4.
+        for gym in range(1, 9):
+            coop = replace(prep, gym=gym)
+            self.assertEqual(struct.unpack_from("<I", coop.pack(), 32)[0], gym)
+            self.assertEqual(Preparation.unpack(coop.pack()), coop)
+        for flags in (9, 0x100, 0xFFFFFFFF):
+            with self.subTest(flags=flags), self.assertRaises(BattleMailboxError):
+                Preparation.unpack(prep.pack()[:-4]+struct.pack("<I", flags))
+        for gym in (-1, 9, True):
+            with self.subTest(gym=gym), self.assertRaises(BattleMailboxError):
+                replace(prep, gym=gym)
 
     def test_binary_envelope_crc_zero_tail_and_diagnostic_separation(self):
         value = control()

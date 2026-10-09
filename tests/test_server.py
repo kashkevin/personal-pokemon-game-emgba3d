@@ -10,6 +10,7 @@ from emerald_multiplayer.server import (
     OutboundClosed, OutboundFull, OutboundQueue, ServerConfig, WorldServer,
     is_local_address,
 )
+from emerald_multiplayer.protocol import PROTOCOL_VERSION
 
 BUILD = "test-mailbox-rom-build"
 RULESET = "clean-upstream-test"
@@ -25,7 +26,7 @@ class Client:
         reader, writer = await asyncio.open_connection(*address)
         client = cls(reader, writer, player_id or str(uuid.uuid4()))
         await client.send({
-            "type": "hello", "protocol": 1, "build_id": BUILD,
+            "type": "hello", "protocol": PROTOCOL_VERSION, "build_id": BUILD,
             "ruleset_id": RULESET, "player_id": client.player_id,
             "display_name": "Player", **hello_changes,
         })
@@ -137,7 +138,7 @@ class ServerTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_identity_protocol_build_and_ruleset_rejection(self):
         for changes, expected in (
-            ({"protocol": 2}, "unsupported_protocol"),
+            ({"protocol": PROTOCOL_VERSION + 1}, "unsupported_protocol"),
             ({"build_id": "different"}, "build_mismatch"),
             ({"ruleset_id": "gen6"}, "ruleset_mismatch"),
             ({"player_id": "invalid"}, "invalid_player_id"),
@@ -178,7 +179,7 @@ class ServerTests(unittest.IsolatedAsyncioTestCase):
         await client.move(seq=1, map_epoch=2, x=98)
         await client.move(seq=4, map_epoch=2, map_number=2, x=97)
         # A ping/pong round trip proves all preceding TCP frames were processed.
-        await client.send({"type": "ping", "protocol": 1, "session_epoch": client.epoch, "nonce": 7})
+        await client.send({"type": "ping", "protocol": PROTOCOL_VERSION, "session_epoch": client.epoch, "nonce": 7})
         while (await client.next())["type"] != "pong":
             pass
         current = self.server.sessions[client.player_id].presence
@@ -202,7 +203,7 @@ class ServerTests(unittest.IsolatedAsyncioTestCase):
         reader, writer = await asyncio.open_connection(*self.server.address)
         self.clients.append(Client(reader, writer, "partial"))
         frame = encode_message({
-            "type": "hello", "protocol": 1, "build_id": BUILD, "ruleset_id": RULESET,
+            "type": "hello", "protocol": PROTOCOL_VERSION, "build_id": BUILD, "ruleset_id": RULESET,
             "player_id": str(uuid.uuid4()), "display_name": "Partial",
         })
         for chunk in (frame[:1], frame[1:3], frame[3:20], frame[20:]):
@@ -246,7 +247,7 @@ class ServerTests(unittest.IsolatedAsyncioTestCase):
         await flooded.world(lambda message: len(message["players"]) == 2)
         session = self.server.sessions[flooded.player_id]
         flooded.writer.write(b"".join(encode_message({
-            "type": "ping", "protocol": 1, "session_epoch": flooded.epoch,
+            "type": "ping", "protocol": PROTOCOL_VERSION, "session_epoch": flooded.epoch,
             "nonce": index,
         }) for index in range(100)))
         await flooded.writer.drain()

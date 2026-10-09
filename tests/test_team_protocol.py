@@ -10,6 +10,7 @@ from emerald_multiplayer.protocol import MAX_COUNTER, MAX_FRAME_BYTES, ProtocolE
 from emerald_multiplayer.team_protocol import (
     TEAM_OPERATIONS, validate_team_common, validate_team_request, validate_team_reply,
 )
+from emerald_multiplayer.protocol import PROTOCOL_VERSION
 
 
 ACTOR, PEER, THIRD, FOURTH, WORLD, REQUEST, INVITE, GENERATION, TEAM, TEAM_GEN = (
@@ -51,7 +52,7 @@ def reply(operation, **changes):
         'status': dict(scope='session-local-development', team=formed(),
                        teams=[formed()], invitations=[]),
     }
-    return dict(type='team_result', protocol=1, session_epoch=EPOCH,
+    return dict(type='team_result', protocol=PROTOCOL_VERSION, session_epoch=EPOCH,
                 request_id=REQUEST, operation=operation, world_id=WORLD,
                 player_id=ACTOR, result=results[operation], **changes)
 
@@ -111,7 +112,7 @@ class TeamProtocolTests(unittest.TestCase):
                 self.validate({**value, **change}, request('accept'))
 
     def test_reply_identity_operation_and_request_target_correlation(self):
-        for change in ({'protocol': True}, {'protocol': 2}, {'session_epoch': EPOCH+1},
+        for change in ({'protocol': True}, {'protocol': PROTOCOL_VERSION + 1}, {'session_epoch': EPOCH+1},
                        {'request_id': str(uuid4())}, {'operation': 'accept'},
                        {'type': 'trade_result'}, {'payload': 'save'}, {'player_id': PEER}):
             with self.subTest(change=change), self.assertRaises(ProtocolError):

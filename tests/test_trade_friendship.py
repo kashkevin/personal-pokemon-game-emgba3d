@@ -114,7 +114,9 @@ class FriendshipPlanTests(unittest.TestCase):
         for field, values in (
             ("active_friendship", (-1, 256, True, None)), ("base_friendship", (-1, 256, False, None)),
             ("refresh_handler", (0, None, "false")),
-            ("moves", ((0, 0, 0), (622, 0, 0, 0), (-1, 0, 0, 0), (True, 0, 0, 0), [0, 0, 0, 0])),
+            # Owner decision: stored later-generation moves (e.g. 633) trade as-is;
+            # only values outside the pinned engine's move table are refused.
+            ("moves", ((0, 0, 0), (848, 0, 0, 0), (-1, 0, 0, 0), (True, 0, 0, 0), [0, 0, 0, 0])),
         ):
             for value in values:
                 with self.subTest(field=field, value=value), self.assertRaises(FriendshipPlanError):

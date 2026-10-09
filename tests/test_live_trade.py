@@ -32,6 +32,7 @@ from emerald_multiplayer.trade_storage import TradeCheckpointStore
 from test_live_checkpoint import FakeCompanion, checkpoint_metadata
 from test_flash import _rewrite
 from test_ownership_storage import source_flash, owned_flash
+from emerald_multiplayer.protocol import PROTOCOL_VERSION
 
 
 class TradeCompanion(FakeCompanion):
@@ -121,7 +122,7 @@ class TradeCompanion(FakeCompanion):
             raise TradeError(error.code, error.message) from error
         if operation in PREPARATION_OPERATIONS:
             result["preparation_version"] = 1
-        reply = validate_trade_reply(dict(type="trade_result", protocol=1, session_epoch=self.session_epoch,
+        reply = validate_trade_reply(dict(type="trade_result", protocol=PROTOCOL_VERSION, session_epoch=self.session_epoch,
             request_id=request["request_id"], operation=operation, world_id=self.world_id,
             player_id=self.config.player_id, **result), self.config, self.save_profile, self.world_id, self.session_epoch)
         if self.trade_hook is not None:

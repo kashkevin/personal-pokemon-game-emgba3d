@@ -9,11 +9,12 @@ from emerald_multiplayer.protocol import (
     MAX_FRAME_BYTES, ProtocolError, encode_message, read_message,
     validate_heartbeat, validate_hello, validate_presence,
 )
+from emerald_multiplayer.protocol import PROTOCOL_VERSION
 
 
 def hello(**changes):
     return {
-        "type": "hello", "protocol": 1, "build_id": "test-build",
+        "type": "hello", "protocol": PROTOCOL_VERSION, "build_id": "test-build",
         "ruleset_id": "clean-upstream-test", "player_id": str(uuid.uuid4()),
         "display_name": "Player", **changes,
     }
@@ -88,7 +89,7 @@ class ValidationTests(unittest.TestCase):
         valid = hello()
         self.assertEqual(validate_hello(valid, "test-build", "clean-upstream-test"), valid)
         for changes, code in (
-            ({"protocol": 2}, "unsupported_protocol"),
+            ({"protocol": PROTOCOL_VERSION + 1}, "unsupported_protocol"),
             ({"protocol": True}, "unsupported_protocol"),
             ({"build_id": "another"}, "build_mismatch"),
             ({"ruleset_id": "gen6"}, "ruleset_mismatch"),
@@ -119,9 +120,9 @@ class ValidationTests(unittest.TestCase):
                     validate_presence(presence(**changes), 1)
 
     def test_heartbeat_is_bound_to_protocol_and_session(self):
-        message = {"type": "pong", "protocol": 1, "session_epoch": 9, "nonce": 42}
+        message = {"type": "pong", "protocol": PROTOCOL_VERSION, "session_epoch": 9, "nonce": 42}
         self.assertEqual(validate_heartbeat(message, 9), message)
-        for changes in ({"session_epoch": 8}, {"protocol": 2}, {"nonce": True}, {"nonce": -1}):
+        for changes in ({"session_epoch": 8}, {"protocol": PROTOCOL_VERSION + 1}, {"nonce": True}, {"nonce": -1}):
             with self.subTest(changes=changes):
                 with self.assertRaises(ProtocolError):
                     validate_heartbeat({**message, **changes}, 9)

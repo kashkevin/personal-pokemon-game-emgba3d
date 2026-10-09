@@ -7,6 +7,7 @@ from emerald_multiplayer.battle_protocol import (
     BATTLE_OPERATIONS, SCOPE, validate_battle_request, validate_battle_reply,
 )
 from emerald_multiplayer.protocol import MAX_FRAME_BYTES, ProtocolError, encode_message
+from emerald_multiplayer.protocol import PROTOCOL_VERSION
 
 ACTOR, PEER, THIRD, FOURTH, WORLD, REQUEST, BATTLE, GENERATION = (str(uuid4()) for _ in range(8))
 
@@ -80,7 +81,7 @@ def reply(op):
         result = handoff_view(decode_control(handoff_receipt(), response=True))
     else:
         result = [] if op in ("history", "waiting") else ([view()] if op == "pending" else view(3 if op == "invite_multi" else 2))
-    return dict(type="battle_result", protocol=1, session_epoch=7, request_id=REQUEST,
+    return dict(type="battle_result", protocol=PROTOCOL_VERSION, session_epoch=7, request_id=REQUEST,
         operation=op, world_id=WORLD, player_id=ACTOR,
         result=result)
 

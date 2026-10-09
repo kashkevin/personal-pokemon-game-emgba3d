@@ -15,6 +15,7 @@ from emerald_multiplayer.host_world import HostWorld
 from emerald_multiplayer.invitations import Invitation, InvitationError
 from emerald_multiplayer.protocol import ProtocolError
 from test_host_world import make_trade_files, directory_hashes
+from emerald_multiplayer.protocol import PROTOCOL_VERSION
 
 
 def add_profile(rom, manifest):
@@ -41,7 +42,7 @@ class GenerationProfileTests(unittest.TestCase):
         value = add_profile(self.rom, self.manifest)
         current = config()
         self.assertEqual(current.ruleset_id, GEN6_DEFAULTS_RULESET)
-        welcome = dict(type="welcome", protocol=1, build_id=current.build_id,
+        welcome = dict(type="welcome", protocol=PROTOCOL_VERSION, build_id=current.build_id,
                        ruleset_id=current.ruleset_id, player_id=current.player_id,
                        session_epoch=1, max_players=4, heartbeat_interval=5, idle_timeout=20)
         validate_welcome(welcome, current)

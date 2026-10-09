@@ -20,6 +20,8 @@ from emerald_multiplayer.team_protocol import validate_team_reply
 from emerald_multiplayer.trade_storage import TradeCheckpointStore
 from test_companion import BinaryBridge, make_files, make_pose
 from test_ownership_storage import source_flash, owned_flash
+from emerald_multiplayer.protocol import PROTOCOL_VERSION
+from emerald_multiplayer.trade_protocol import PREPARATION_OPERATIONS, PREPARATION_VERSION
 
 
 async def wait_until(predicate, timeout=5):
@@ -33,7 +35,7 @@ class RawTeamClient:
     async def connect(cls, address, player, build):
         self = cls()
         self.reader, self.writer = await asyncio.open_connection(*address)
-        await self.send(dict(type='hello', protocol=1, build_id=build,
+        await self.send(dict(type='hello', protocol=PROTOCOL_VERSION, build_id=build,
             ruleset_id=BASELINE_RULESET, player_id=player.player_id,
             display_name=player.display_name, credential=player.credential.hex()))
         welcome = await self.next()
@@ -342,6 +344,8 @@ class TeamTradeIndependenceTests(unittest.IsolatedAsyncioTestCase):
                 transaction = str(uuid4())
                 async def trade(operation, **fields):
                     request_id = str(uuid4())
+                    if operation in PREPARATION_OPERATIONS:
+                        fields['preparation_version'] = PREPARATION_VERSION
                     await clients[0].send(dict(type='trade_' + operation, session_epoch=clients[0].epoch,
                                               request_id=request_id, **fields))
                     value = await clients[0].next()

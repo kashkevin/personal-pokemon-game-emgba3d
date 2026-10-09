@@ -55,7 +55,8 @@ static bool setreg(struct mCore* core, const char* name, uint32_t value) {
     return core->writeRegister(core, name, &value);
 }
 static bool shape(const uint8_t* input, uint32_t length, uint32_t* expected) {
-    if (length < 32 || read32(input) != 1 || read32(input + 8) > 255
+    /* input + 8: resolved friendship (bits 0-7) and the host's Lucky Trade bit 8. */
+    if (length < 32 || read32(input) != 1 || read32(input + 8) > 0x1FF
             || read32(input + 12) > 16 || read32(input + 16) > 5 || read32(input + 20) > 5
             || read32(input + 24) || read32(input + 28)) return false;
     uint32_t operation = read32(input + 4), count = read32(input + 12);

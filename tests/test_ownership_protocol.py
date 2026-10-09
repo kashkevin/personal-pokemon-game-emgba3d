@@ -7,6 +7,7 @@ import uuid
 
 from emerald_multiplayer.ownership_protocol import OWNERSHIP_PROFILE, validate_ownership_reply
 from emerald_multiplayer.protocol import ProtocolError, validate_checkpoint_request
+from emerald_multiplayer.protocol import PROTOCOL_VERSION
 
 
 class OwnershipProtocolTests(unittest.TestCase):
@@ -15,7 +16,7 @@ class OwnershipProtocolTests(unittest.TestCase):
         self.config = SimpleNamespace(player_id=self.player)
         self.request = {"type": "ownership_grant", "request_id": str(uuid.uuid4()), "session_epoch": 3,
                         "expected_revision": 0, "incarnation": 1, "count": 432}
-        self.reply = {"type": "checkpoint_result", "protocol": 1, "request_id": self.request["request_id"],
+        self.reply = {"type": "checkpoint_result", "protocol": PROTOCOL_VERSION, "request_id": self.request["request_id"],
                       "session_epoch": 3, "operation": "ownership_grant", "checkpoint": None,
                       "grant": {"world_id": self.world, "player_id": self.player, "grant_id": str(uuid.uuid4()),
                                 "start": 1, "end_exclusive": 433, "lease_epoch": 3, "incarnation": 1,

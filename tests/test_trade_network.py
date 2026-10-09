@@ -24,6 +24,7 @@ from emerald_multiplayer.server import ServerConfig, WorldServer
 from emerald_multiplayer.trade_storage import TradeCheckpointStore
 from test_companion import BinaryBridge, make_files, make_pose
 from test_ownership_storage import source_flash, owned_flash
+from emerald_multiplayer.protocol import PROTOCOL_VERSION
 
 
 async def wait_until(predicate, timeout=8):
@@ -39,7 +40,7 @@ class RawClient:
     async def connect(cls, address, player, build):
         self = cls()
         self.reader, self.writer = await asyncio.open_connection(*address)
-        self.writer.write(encode_message(dict(type="hello", protocol=1, build_id=build,
+        self.writer.write(encode_message(dict(type="hello", protocol=PROTOCOL_VERSION, build_id=build,
             ruleset_id=BASELINE_RULESET, player_id=player.player_id,
             display_name=player.display_name, credential=player.credential.hex())))
         await self.writer.drain()

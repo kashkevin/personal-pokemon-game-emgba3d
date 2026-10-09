@@ -115,3 +115,51 @@ class BattleManifestTests(unittest.TestCase):
             rom.seek(0x300); rom.write(b"\xff\xff\xff\xff")
         with self.assertRaises(ValueError):
             validate_battle_manifest(generated, self.rom)
+
+
+class CoopAndWorldManifestTests(unittest.TestCase):
+    """Co-op Gym (native phase 4) and EMW1 shared-world markers from the ELF."""
+    tearDown = fixtures.SaveManifestTests.tearDown
+    generate = fixtures.SaveManifestTests.generate
+    configure = fixtures.SaveManifestTests.configure
+
+    def setUp(self):
+        BattleManifestTests.setUp(self)
+        with self.rom.open("r+b") as rom:
+            rom.seek(200)
+            rom.write(b"\x03\0\0\0")  # native ABI3 channel
+            rom.write(b"\x01\0\0\0")  # 204: co-op Gym marker
+            rom.write(b"\x01\0\0\0")  # 208: EMW1 marker
+        self.coop = "080000cc 00000004 R gMultiplayerBattleCoopAbiVersion\n"
+        self.world = ("080000d0 00000004 R gMultiplayerWorldAbiVersion\n"
+                      "02023000 00000100 B gMultiplayerWorldMailbox\n")
+
+    def test_coop_marker_requires_abi3_channel_and_exact_rom_value(self):
+        from emerald_multiplayer.battle_manifest import COOP_FIELDS
+        generated = self.generate(self.base + self.battle + self.coop)
+        self.assertEqual({key: generated[key] for key in COOP_FIELDS},
+                         {"battle_coop_abi_version": 1, "battle_coop_abi_address": 0x080000CC})
+        self.assertTrue(validate_battle_manifest(generated, self.rom))
+        for changes in ({"battle_coop_abi_version": 2}, {"battle_coop_abi_address": 0x080000CE},
+                        {"battle_coop_abi_address": 0x080000C8}, {"battle_abi_version": 2}):
+            with self.subTest(changes=changes), self.assertRaises(ValueError):
+                validate_battle_manifest({**generated, **changes}, self.rom)
+        partial = dict(generated)
+        del partial["battle_coop_abi_address"]
+        with self.assertRaises(ValueError):
+            validate_battle_manifest(partial, self.rom)
+        with self.assertRaises(ValueError):
+            self.generate(self.base + self.coop)  # no native battle channel
+
+    def test_world_marker_and_mailbox_are_generated_and_verified(self):
+        from emerald_multiplayer.world_mailbox import validate_world_manifest
+        generated = self.generate(self.base + self.battle + self.world)
+        self.assertEqual((generated["world_abi_version"], generated["world_abi_address"],
+                          generated["world_mailbox_address"], generated["world_mailbox_size"]),
+                         (1, 0x080000D0, 0x02023000, 256))
+        self.assertTrue(validate_world_manifest(generated, self.rom))
+        with self.assertRaises(ValueError):
+            self.generate(self.base + self.battle + "080000d0 00000004 R gMultiplayerWorldAbiVersion\n")
+        with self.assertRaises(ValueError):
+            self.generate(self.base + self.battle + "080000d0 00000004 R gMultiplayerWorldAbiVersion\n"
+                          "02021100 00000100 B gMultiplayerWorldMailbox\n")  # overlaps the save mailbox
