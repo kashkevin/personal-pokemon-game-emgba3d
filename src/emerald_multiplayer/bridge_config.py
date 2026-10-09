@@ -87,7 +87,12 @@ def configure(manifest: dict, token: str, port: int, bridge: str) -> str:
     if validate_presence_animation_manifest(manifest):
         animation_config = (", presence_animation_abi=1"
                             f", presence_animation_abi_address={manifest['presence_animation_abi_address']}")
+    from .world_mailbox import validate_world_manifest
+    world_config = ""
+    if validate_world_manifest(manifest):
+        world_config = (f", world_abi=1, world_abi_address={manifest['world_abi_address']}"
+                        f", world_address={manifest['world_mailbox_address']}, world_size=256")
     return (
         f'EMERALD_BRIDGE = {{address={address}, rom_size={size}, rom_crc32="{crc}", '
-        f'port={port}, token="{token}"{save_config}{trade_config}{battle_config}{window_config}{menu_config}{emergency_config}{reset_config}{effect_config}{animation_config}}}\n' + bridge
+        f'port={port}, token="{token}"{save_config}{trade_config}{battle_config}{window_config}{menu_config}{emergency_config}{reset_config}{effect_config}{animation_config}{world_config}}}\n' + bridge
     )

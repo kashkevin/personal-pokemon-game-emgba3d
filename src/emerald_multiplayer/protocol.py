@@ -12,7 +12,9 @@ import struct
 import uuid
 from typing import Any
 
-PROTOCOL_VERSION = 1
+# Version 2 adds shared-world presence (followers, mounts), appearance,
+# the world clock, World Events and notices. Mixed versions refuse cleanly.
+PROTOCOL_VERSION = 2
 MAX_FRAME_BYTES = 16_384
 MAX_PLAYERS = 4
 MAX_COUNTER = 2_147_483_647
@@ -25,6 +27,7 @@ CHECKPOINT_TYPES = frozenset({
 })
 ACTIVITIES = frozenset({"overworld", "menu", "battle", "transition", "unavailable"})
 MOVEMENT_MODES = frozenset({"walk", "run", "bike", "surf"})
+WORLD_PRESENCE_FIELDS = frozenset({"follower_species", "follower_flags", "mount_state", "mount_species", "mount_flags"})
 _IDENTITY = re.compile(r"[A-Za-z0-9_.:-]{1,128}\Z")
 
 
@@ -167,7 +170,7 @@ def validate_presence(message: dict[str, Any], session_epoch: int) -> dict[str, 
         "type", "session_epoch", "seq", "map_epoch", "map_group", "map_number",
         "x", "y", "direction", "elevation", "avatar_gender", "activity",
     }
-    _fields(message, required, {"movement_mode"})
+    _fields(message, required, {"movement_mode"} | WORLD_PRESENCE_FIELDS)
     if message["type"] != "presence":
         raise ProtocolError("invalid_type", "expected a presence message")
     epoch = _integer(message["session_epoch"], "session_epoch", 1, MAX_COUNTER)
@@ -191,6 +194,9 @@ def validate_presence(message: dict[str, Any], session_epoch: int) -> dict[str, 
         raise ProtocolError("invalid_field", "activity is unsupported")
     if not isinstance(result["movement_mode"], str) or result["movement_mode"] not in MOVEMENT_MODES:
         raise ProtocolError("invalid_field", "movement_mode is unsupported")
+    for name, high in (("follower_species", 1700), ("follower_flags", 7), ("mount_state", 1),
+                       ("mount_species", 1700), ("mount_flags", 3)):
+        result[name] = _integer(message.get(name, 0), name, 0, high)
     return result
 
 

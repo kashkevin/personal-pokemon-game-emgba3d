@@ -83,6 +83,7 @@ class BridgeOutbox:
         self.limit = limit
         self.controls: deque[bytes] = deque()
         self.pending: bytes | None = None
+        self.pending_world: bytes | None = None
         self.closed = False
         self.ready = asyncio.Event()
         self._control_burst = 0
@@ -91,6 +92,13 @@ class BridgeOutbox:
         frame = encode_packet(payload)
         if not self.closed:
             self.pending = frame
+            self.ready.set()
+
+    def put_world(self, payload: bytes) -> None:
+        """Second replaceable snapshot for the shared-world mailbox."""
+        frame = encode_packet(payload)
+        if not self.closed:
+            self.pending_world = frame
             self.ready.set()
 
     def put_control(self, payload: bytes) -> None:
@@ -111,6 +119,10 @@ class BridgeOutbox:
                 frame, self.pending = self.pending, None
                 self._control_burst = 0
                 return frame
+            if self.pending_world is not None:
+                frame, self.pending_world = self.pending_world, None
+                self._control_burst = 0
+                return frame
             self.ready.clear()
             await self.ready.wait()
         return None
@@ -119,4 +131,5 @@ class BridgeOutbox:
         self.closed = True
         self.controls.clear()
         self.pending = None
+        self.pending_world = None
         self.ready.set()

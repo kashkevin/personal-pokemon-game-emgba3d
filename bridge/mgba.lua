@@ -178,6 +178,24 @@ if resetInputEnabled then
         and cfg.reset_input_abi_address ~= cfg.reset_abi_address
         and emu:read32(cfg.reset_input_abi_address) == 1, "Invalid native reset input capability")
 end
+-- Shared-world extension (EMW1): followers, mounts, appearance, world clock,
+-- world events and notices. A separate 256-byte mailbox; the bridge writes
+-- only its inbound half (offsets 44..255).
+local worldAddr = cfg.world_address
+local worldEnabled = worldAddr ~= nil or cfg.world_abi ~= nil or cfg.world_abi_address ~= nil or cfg.world_size ~= nil
+if worldEnabled then
+    assert(type(worldAddr) == "number" and worldAddr % 4 == 0
+        and worldAddr >= 0x02000000 and worldAddr + 256 <= 0x02040000
+        and cfg.world_abi == 1 and cfg.world_size == 256
+        and type(cfg.world_abi_address) == "number" and cfg.world_abi_address % 4 == 0
+        and cfg.world_abi_address >= 0x08000000 and cfg.world_abi_address + 4 <= 0x08000000 + cfg.rom_size
+        and emu:read32(cfg.world_abi_address) == 1, "Invalid shared-world capability")
+    for _, region in ipairs({{addr,128},{saveAddr or 0,512},{battleAddr or 0,512},{menuAddr or 0,512},{windowAddr or 0,4096},{resetAddr or 0,128}}) do
+        assert(worldAddr + 256 <= region[1] or region[1] + region[2] <= worldAddr, "Overlapping shared-world mailbox")
+    end
+end
+local latestWorld = nil
+
 local function routeResetChord(enabled)
     -- Older runtimes have no opt-in function and retain their suppression.
     if type(emeraldResetInput) == "function" then
@@ -207,6 +225,60 @@ end
 
 local function frame(payload)
     return string.pack(">I4", #payload) .. payload
+end
+
+local function worldHeaderReady()
+    return worldEnabled and emu:read32(worldAddr) == 0x31574D45
+        and emu:read16(worldAddr + 4) == 1 and emu:read16(worldAddr + 6) == 256
+end
+
+local function printableNotice(text)
+    local zero = text:find("\0", 1, true)
+    local last = zero and zero - 1 or #text
+    if zero and text:sub(zero) ~= string.rep("\0", #text - zero + 1) then return false end
+    for i = 1, last do
+        local c = text:byte(i)
+        if c < 32 or c > 126 then return false end
+    end
+    return true
+end
+
+local function validWorldInbound(payload)
+    if #payload ~= 208 then return false end
+    local flags = string.unpack("<I4", payload, 1)
+    if flags > 3 then return false end
+    local seen = {}
+    for i = 0, 2 do
+        local o = 21 + i * 20
+        local token, species, fflags, mount, mspecies, mflags, reserved = string.unpack("<I4I2BBI2BB", payload, o)
+        if token == 0 then
+            if payload:sub(o, o + 19) ~= string.rep("\0", 20) then return false end
+        else
+            if seen[token] or fflags > 7 or mount > 1 or mflags > 3 or reserved ~= 0
+                or species > 1700 or mspecies > 1700 then return false end
+            seen[token] = true
+        end
+    end
+    local e = 81
+    local eventId, species, level, eflags = string.unpack("<I4I2BB", payload, e)
+    local perfect = payload:byte(e + 20)
+    if level > 100 or eflags > 31 or perfect > 6 or species > 1700
+        or payload:sub(e + 21, e + 31) ~= string.rep("\0", 11) then return false end
+    if eventId == 0 and payload:sub(e, e + 31) ~= string.rep("\0", 32) then return false end
+    if not printableNotice(payload:sub(117, 164)) then return false end
+    return payload:sub(165) == string.rep("\0", 44)
+end
+
+local function commitWorld(payload)
+    if not verified or not worldHeaderReady() or #payload ~= 208 then return false end
+    local current = emu:read32(worldAddr + 44)
+    local odd = ((current - current % 2) + 1) % 0x100000000
+    emu:write32(worldAddr + 44, odd)
+    for offset = 0, 204, 4 do
+        emu:write32(worldAddr + 48 + offset, (string.unpack("<I4", payload, offset + 1)))
+    end
+    emu:write32(worldAddr + 44, (odd + 1) % 0x100000000)
+    return true
 end
 
 local function menuHeaderReady()
@@ -480,6 +552,8 @@ local function stop(reason, fatal)
     menuCapabilitySent, menuSequence = false, nil
     resetCapabilitySent, resetSequence, resetReceipt = false, nil, nil
     commit(string.rep("\0", 88))
+    latestWorld = nil
+    commitWorld(string.rep("\0", 208))
     if reason then
         stopped = fatal or false
         lastConnect = tick
@@ -763,6 +837,10 @@ local function receive()
                 if not resetCapabilitySent or not commitReset(payload:sub(2)) then
                     stop("invalid personal encounter acknowledgment", true); return
                 end
+            elseif payload:sub(1, 1) == "N" then
+                if not worldEnabled or not validWorldInbound(payload:sub(2)) or not commitWorld(payload:sub(2)) then
+                    stop("invalid shared-world update", true); return
+                end
             elseif payload:sub(1, 1) == "M" then
                 if not menuCapabilitySent or not validMenuScreen(payload:sub(2)) or not commitMenu(payload:sub(2)) then
                     stop("invalid menu screen", true); return
@@ -782,6 +860,9 @@ local function flush()
             controlBurst = controlBurst + 1
         elseif latestPose then
             tx, latestPose = latestPose, nil
+            controlBurst = 0
+        elseif latestWorld then
+            tx, latestWorld = latestWorld, nil
             controlBurst = 0
         end
     end
@@ -804,6 +885,7 @@ local function onFrame()
         local candidate, err = socket.connect("127.0.0.1", cfg.port)
         if not candidate then return end
         sock, rx, tx = candidate, "", frame("H" .. token)
+        latestWorld = nil
         controls, controlBurst = {}, 0
         savePending, saveGeneration, capabilitySent = nil, nil, false
         windowCapabilitySent = false
@@ -868,6 +950,15 @@ local function onFrame()
     pollReset()
     if not sock then return end
     routeResetChord(resetCapabilitySent and resetHeaderReady())
+    if tick % 6 == 3 and worldHeaderReady() then
+        local generation = emu:read32(worldAddr + 8)
+        if generation % 2 == 0 then
+            local record = emu:readRange(worldAddr + 12, 32)
+            if generation == emu:read32(worldAddr + 8) and #record == 32 then
+                latestWorld = frame("G" .. record)
+            end
+        end
+    end
     if tick % 6 == 0 then
         local generation = emu:read32(addr + 12)
         if generation % 2 == 0 then

@@ -199,6 +199,16 @@ def generate(rom: Path, elf: Path, nm: str, engine_commit: str, *, trade_effect_
         manifest.update(reset_catalogue_version=version, reset_catalogue_address=address,
                         reset_source_mask=enabled, reset_control_flags=controls, reset_build_flags=build_flags)
         validate_reset_manifest(manifest, rom)  # Also verifies first/count/build bytes.
+    world = re.findall(r"^([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+[Rr]\s+gMultiplayerWorldAbiVersion$", symbols, re.M)
+    world_channel = re.findall(r"^([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+[BDbd]\s+gMultiplayerWorldMailbox$", symbols, re.M)
+    if world or world_channel:
+        from emerald_multiplayer.world_mailbox import validate_world_manifest
+        if len(world) != 1 or len(world_channel) != 1 or int(world[0][1], 16) != 4:
+            raise ValueError("shared world requires one marker and one allocated mailbox")
+        manifest.update(world_abi_version=1, world_abi_address=int(world[0][0], 16),
+                        world_mailbox_address=int(world_channel[0][0], 16),
+                        world_mailbox_size=int(world_channel[0][1], 16))
+        validate_world_manifest(manifest, rom)
     if len(objects) == 1:
         obj_address, obj_size = (int(value, 16) for value in objects[0])
         # Read-only test metadata for the pinned engine's 0x24-byte objects.

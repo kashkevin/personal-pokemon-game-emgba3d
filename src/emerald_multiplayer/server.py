@@ -18,6 +18,7 @@ import math
 from typing import Any, TYPE_CHECKING
 
 from .battle_desk import BattleDesk, BattleError
+from .shared_world_protocol import WORLD_TYPES, validate_world_request
 from .protocol import (
     CHECKPOINT_TYPES, MAX_COUNTER, MAX_FRAME_BYTES, MAX_PLAYERS, PROTOCOL_VERSION, ProtocolError,
     encode_message, read_message, validate_heartbeat, validate_hello,
@@ -285,6 +286,14 @@ class WorldServer:
             if self._battle_reservations is None:
                 raise StorageError("battle_migration_required", "enable backed-up durable reservations before native battles")
             self.battle_desk = _ServerBattleDesk(self)
+        # Shared-world state (clock, appearances, World Events, notices).
+        from .shared_world import SharedWorld
+        if store is not None:
+            world_path = store.path.with_name(store.path.name + ".shared-world.sqlite3")
+            self.shared_world = SharedWorld(world_path, store.metadata.world_id)
+        else:
+            self.shared_world = SharedWorld(":memory:", "00000000-0000-0000-0000-000000000000")
+        self._last_clock_broadcast = 0.0
         self.world_seq = 0
         self._session_epoch = 0
         self._server: asyncio.Server | None = None
@@ -444,6 +453,7 @@ class WorldServer:
         # Closing them above must precede this await to avoid shutdown deadlock.
         if listening_server is not None:
             await listening_server.wait_closed()
+        self.shared_world.close()
 
     async def _reject(self, writer: asyncio.StreamWriter, code: str, message: str) -> None:
         try:
@@ -500,6 +510,7 @@ class WorldServer:
             )
             # Admission has no await between checking and claiming the lease.
             self.sessions[session.player_id] = session
+            self.shared_world.set_active_players(len(self.sessions))
             welcome = {
                 "type": "welcome", "protocol": PROTOCOL_VERSION,
                 "build_id": self.config.build_id, "ruleset_id": self.config.ruleset_id,
@@ -534,6 +545,8 @@ class WorldServer:
                 session.close("disconnected")
                 if self.sessions.get(session.player_id) is session:
                     del self.sessions[session.player_id]
+                    self.shared_world.player_disconnected(session.player_id)
+                    self.shared_world.set_active_players(len(self.sessions))
                     if self.team_desk is not None:
                         with suppress(StorageError):
                             self.team_desk.refresh()
@@ -584,6 +597,10 @@ class WorldServer:
             else:
                 self._control(session, {**heartbeat, "type": "pong"})
             session.last_seen = now
+        elif isinstance(kind, str) and kind in WORLD_TYPES:
+            request = validate_world_request(message, session.session_epoch)
+            session.last_seen = now
+            self._shared_world_request(session, request)
         elif isinstance(kind, str) and kind in RESET_TYPES and self.store is not None:
             validate_reset_common(message, session.session_epoch)
             try:
@@ -1095,13 +1112,81 @@ class WorldServer:
 
     def _broadcast_world(self) -> None:
         self.world_seq += 1
+        world = self.shared_world
         players = [{
             "player_id": session.player_id, "display_name": session.display_name,
             "session_epoch": session.session_epoch, "presence": session.presence,
+            "appearance": world.appearance(session.player_id),
         } for session in sorted(self.sessions.values(), key=lambda item: item.player_id) if not session.closed]
-        frame = encode_message({"type": "world", "protocol": PROTOCOL_VERSION, "world_seq": self.world_seq, "players": players})
+        frame = encode_message({"type": "world", "protocol": PROTOCOL_VERSION, "world_seq": self.world_seq,
+                                "players": players, "clock": world.clock_view(), "event": world.event_view(),
+                                "notice": world.notice_view()})
+        self._last_clock_broadcast = asyncio.get_running_loop().time()
         for session in tuple(self.sessions.values()):
             session.outbox.put_world(frame)
+
+    def _progression_level(self) -> int:
+        """Average of each connected player's strongest party level."""
+        levels = []
+        if self.store is not None:
+            from .flash import POKEMON_SIZE, SAVED_PARTY_OFFSET, inspect_flash
+            for session in self.sessions.values():
+                try:
+                    checkpoint = self.store.read_checkpoint(session.player_id, session.session_epoch)
+                    if checkpoint is None:
+                        continue
+                    snapshot = inspect_flash(checkpoint.payload, save_profile=checkpoint.save_profile)
+                    count = min(snapshot.metadata.party_count, 6)
+                    party = [snapshot.save_block1[SAVED_PARTY_OFFSET + i * POKEMON_SIZE + 84] for i in range(count)]
+                    if party:
+                        levels.append(max(party))
+                except Exception:  # noqa: BLE001 - progression is advisory only
+                    continue
+        return int(sum(levels) / len(levels)) if levels else 10
+
+    def _world_reply(self, session, request, *, result=None, error=None):
+        if error is not None:
+            reply = {"type": "world_error", "request_id": request["request_id"],
+                     "code": error.code, "message": error.message}
+        else:
+            reply = {"type": "world_result", "request_id": request["request_id"], "result": result}
+        self._control(session, reply)
+
+    def _shared_world_request(self, session, request) -> None:
+        from .shared_world import SharedWorldError
+        world = self.shared_world
+        kind = request["type"]
+        try:
+            if kind == "appearance_get":
+                self._world_reply(session, request, result={"appearance": world.appearance(session.player_id)})
+                return
+            if kind == "appearance_set":
+                value = world.set_appearance(session.player_id, request["appearance"])
+                self._world_reply(session, request, result={"appearance": value})
+                self._broadcast_world()
+                return
+            action = request["action"]
+            if action == "claim":
+                outcome = world.claim_event(session.player_id, request["event_id"])
+            elif action == "result":
+                outcome = world.event_result(session.player_id, request["event_id"], request["result"],
+                                             session.display_name)
+                self._record_activity("event_together", session.player_id, request["event_id"])
+            else:
+                outcome = world.event_result(session.player_id, request["event_id"], "cancelled",
+                                             session.display_name)
+            self._world_reply(session, request, result={"outcome": outcome, "seq": request["seq"]})
+            self._broadcast_world()
+        except SharedWorldError as error:
+            self._world_reply(session, request, error=error)
+
+    def _record_activity(self, kind, player_id, reference) -> None:
+        """Hook for player-friendship progression (see friendship.py)."""
+        friendship = getattr(self, "friendships", None)
+        if friendship is None:
+            return
+        others = [pid for pid in self.sessions if pid != player_id]
+        friendship.record_shared(kind, player_id, others, reference)
 
     async def _write(self, session: PlayerSession) -> None:
         try:
@@ -1140,6 +1225,10 @@ class WorldServer:
                         "type": "ping", "protocol": PROTOCOL_VERSION,
                         "session_epoch": session.session_epoch, "nonce": session.ping_nonce,
                     })
+            if self.shared_world.tick_events(len(self.sessions), self._progression_level):
+                changed = True
+            if self.sessions and now - self._last_clock_broadcast >= 1.0:
+                changed = True
             if changed:
                 self._broadcast_world()
 

@@ -26,6 +26,7 @@ WITNESS_FORMAT = "emerald-native-trade-record-witness-v1"
 MAX_CHOICES = 16
 DECLINE_MOVE = 4
 MAX_GEN6_MOVE = 621
+MAX_STORED_MOVE = 847  # pinned engine MOVES_COUNT - 1
 
 
 class TradeEffectWitnessError(ValueError):
@@ -126,7 +127,8 @@ def _record(mon):
     held = struct.unpack_from("<H", logical, 2)[0] & 0x3FF
     _require(mon[85] == 0xFF and not 199 <= held <= 210, "mail needs recipient-local allocation")
     moves = tuple(word & 0x7FF for word in struct.unpack_from("<4H", logical, 12))
-    _require(all(move <= MAX_GEN6_MOVE for move in moves), "post-Gen6 moves are outside this adapter")
+    # Existing later-generation moves are preserved unchanged (owner decision).
+    _require(all(move <= MAX_STORED_MOVE for move in moves), "unknown stored move identifier")
     return (serial, personality, ot, species), logical, held
 
 

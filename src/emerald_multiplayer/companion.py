@@ -144,6 +144,8 @@ def verify_rom_manifest(rom_path: Path, manifest_path: Path) -> tuple[str, dict[
     validate_generation_profile(manifest, rom_path)
     from .player_build import validate_player_build_manifest
     validate_player_build_manifest(manifest, rom_path)
+    from .world_mailbox import validate_world_manifest
+    validate_world_manifest(manifest, rom_path)
     return actual_hash, manifest
 
 
@@ -195,6 +197,7 @@ class CompanionConfig:
     menu_abi_version: int = field(init=False, default=1)
     emergency_save_enabled: bool = field(init=False, default=False)
     emergency_save_abi_version: int = field(init=False, default=0)
+    world_enabled: bool = field(init=False, default=False)
 
     def __post_init__(self) -> None:
         rom_path, manifest_path = Path(self.rom_path).resolve(), Path(self.manifest_path).resolve()
@@ -226,6 +229,8 @@ class CompanionConfig:
         object.__setattr__(self, "reset_build_flags", manifest.get("reset_build_flags"))
         object.__setattr__(self, "emergency_save_enabled", manifest.get("emergency_save_abi_version") in (1, 2))
         object.__setattr__(self, "emergency_save_abi_version", manifest.get("emergency_save_abi_version", 0))
+        from .world_mailbox import validate_world_manifest
+        object.__setattr__(self, "world_enabled", validate_world_manifest(manifest))
         if type(self.development_battle_channel) is not bool:
             raise ValueError("development_battle_channel must be a boolean")
         if self.development_battle_channel and (not self.battle_enabled or self.server_credential is None):
@@ -325,7 +330,11 @@ def validate_welcome(message: dict[str, Any], config: CompanionConfig) -> dict[s
 
 
 def validate_world(message: dict[str, Any], config: CompanionConfig, session_epoch: int) -> list[dict[str, Any]]:
-    _fields(message, {"type", "protocol", "world_seq", "players"}, "world")
+    _fields(message, {"type", "protocol", "world_seq", "players", "clock", "event", "notice"}, "world")
+    from .shared_world_protocol import validate_clock, validate_event, validate_notice, validate_appearance_hex
+    validate_clock(message["clock"])
+    validate_event(message["event"])
+    validate_notice(message["notice"])
     _integer(message["world_seq"], 1, MAX_COUNTER, "world_seq")
     players = message["players"]
     if not isinstance(players, list) or not 1 <= len(players) <= MAX_PLAYERS:
@@ -333,8 +342,9 @@ def validate_world(message: dict[str, Any], config: CompanionConfig, session_epo
     validated = []
     seen = set()
     for player in players:
-        if not isinstance(player, dict) or set(player) != {"player_id", "display_name", "session_epoch", "presence"}:
+        if not isinstance(player, dict) or set(player) != {"player_id", "display_name", "session_epoch", "presence", "appearance"}:
             raise ProtocolError("invalid_server_message", "invalid player roster fields")
+        validate_appearance_hex(player["appearance"])
         validate_hello({
             "type": "hello", "protocol": PROTOCOL_VERSION, "build_id": config.build_id,
             "ruleset_id": config.ruleset_id, "player_id": player["player_id"],
@@ -419,6 +429,15 @@ class Companion:
         self._roster_signature: tuple | None = None
         self._roster_epoch = 0
         self._heartbeat = 0
+        # Protocol-2 shared world (EMW1 mailbox).
+        self._local_world = None
+        self._world_action_sent = 0
+        self._world_action_ack = 0
+        self._world_clock: dict | None = None
+        self._world_clock_time = 0.0
+        self._world_event: dict | None = None
+        self._world_notice: dict | None = None
+        self._world_pending: dict[str, tuple[dict, asyncio.Future]] = {}
 
     @property
     def ipc_address(self) -> tuple[str, int]:
@@ -471,6 +490,49 @@ class Companion:
     def _publish_snapshot(self) -> None:
         if self._bridge is not None:
             self._bridge.outbox.put(b"S" + self.snapshot.pack())
+            if self.config.world_enabled:
+                self._bridge.outbox.put_world(b"N" + self.world_inbound().pack())
+
+    def world_inbound(self):
+        """The EMW1 inbound record matching the current presence snapshot."""
+        from .world_mailbox import (EVENT_BUSY, EVENT_MEGA, EVENT_MINE, EVENT_SHINY, EVENT_VISIBLE,
+                                    WorldEventView, WorldInbound, WorldState)
+        if not self.connected or self._roster_signature is None:
+            return WorldInbound(action_ack=self._world_action_ack)
+        own = next((p for p in self._players if p["player_id"] == self.config.player_id), None)
+        appearance = bytes.fromhex(own["appearance"]) if own and own.get("appearance") else bytes(8)
+        peers = []
+        for index, player in enumerate(self._players):
+            if player["player_id"] == self.config.player_id or player["presence"] is None:
+                continue
+            look = bytes.fromhex(player["appearance"]) if player.get("appearance") else bytes(8)
+            peers.append((index + 1, WorldState.from_network(player["presence"], look)))
+        seconds = 0
+        clock = self._world_clock
+        if clock is not None:
+            seconds = clock["seconds"]
+            if clock["running"]:
+                from .balance import BALANCE
+                elapsed = asyncio.get_running_loop().time() - self._world_clock_time
+                seconds += int(max(0.0, min(elapsed, 5.0)) * BALANCE.clock_rate)
+        event = WorldEventView()
+        current = self._world_event
+        if current is not None:
+            flags = EVENT_VISIBLE | (EVENT_SHINY if current["shiny"] else 0) | (EVENT_MEGA if current["mega"] else 0)
+            if current["claimant"] == self.config.player_id:
+                flags |= EVENT_MINE
+            elif current["claimant"] is not None:
+                flags |= EVENT_BUSY
+            event = WorldEventView(current["event_id"] & 0xFFFFFFFF, current["species"], current["level"], flags,
+                                   current["map_group"], current["map_number"], current["x"], current["y"],
+                                   current["held_item"], current["seconds_left"], current["perfect_ivs"])
+        notice_id, notice_text = 0, ""
+        notice = self._world_notice
+        if notice is not None and (notice["to"] is None or self.config.player_id in notice["to"]):
+            notice_id, notice_text = notice["id"], notice["text"]
+        return WorldInbound(clock_valid=clock is not None, events_enabled=True, world_seconds=seconds & 0xFFFFFFFF,
+                            action_ack=self._world_action_ack, self_appearance=appearance, peers=tuple(peers),
+                            event=event, notice_id=notice_id, notice_text=notice_text)
 
     async def _snapshot_loop(self) -> None:
         while True:
@@ -607,6 +669,19 @@ class Companion:
                         bridge.menu_session.feed(packet[1:])
                     except ValueError as error:
                         raise BridgeError("invalid native menu request") from error
+                    continue
+                if packet[:1] == b"G":
+                    from .world_mailbox import WorldMailboxError, unpack_local
+                    if not self.config.world_enabled or len(packet) != 33:
+                        raise BridgeError("shared-world state disagrees with verified manifest")
+                    try:
+                        state, action = unpack_local(packet[1:])
+                    except WorldMailboxError as error:
+                        raise BridgeError("invalid shared-world state") from error
+                    self._local_world = state
+                    if action.seq != 0 and action.seq != self._world_action_sent and action.kind != 0:
+                        self._world_action_sent = action.seq
+                        self._spawn_world_action(action)
                     continue
                 if len(packet) != 21 or packet[:1] != b"P":
                     raise BridgeError("expected one bounded local pose")
@@ -964,6 +1039,11 @@ class Companion:
             if not future.done():
                 future.set_exception(ConnectionError("personal encounter admission lost its host connection"))
         self._reset_pending.clear()
+        for _, future in self._world_pending.values():
+            if not future.done():
+                future.set_exception(ConnectionError("shared-world request lost its host connection"))
+        self._world_pending.clear()
+        self._world_clock = self._world_event = self._world_notice = None
         self._players = []
         self._peer_history.clear()
         self._roster_signature = None
@@ -1087,6 +1167,8 @@ class Companion:
             if pose is not None:
                 fresh = self._bridge is not None and asyncio.get_running_loop().time() - self._last_pose_time <= self.config.pause_timeout
                 fields = pose.network_fields(fresh)
+                if self.config.world_enabled and self._local_world is not None:
+                    fields.update(self._local_world.network_fields())
                 source_signature = (self._bridge_incarnation, pose.map_epoch, pose.map_group, pose.map_number)
                 pose_signature = (source_signature, pose.frame, tuple(fields.values()))
                 if pose_signature != self._sent_pose_signature:
@@ -1124,6 +1206,8 @@ class Companion:
                 self._receive_reset(message)
             elif message.get("type") in {"battle_result", "battle_error"}:
                 self._receive_challenge(message)
+            elif message.get("type") in {"world_result", "world_error"}:
+                self._receive_world(message)
             else:
                 raise ProtocolError("invalid_server_message", "unexpected server message type")
 
@@ -1452,7 +1536,80 @@ class Companion:
             self._roster_signature = signature
         self._players, self._peer_history = players, history
         self._last_world_seq = message["world_seq"]
+        self._world_clock = message["clock"]
+        self._world_clock_time = asyncio.get_running_loop().time()
+        self._world_event = message["event"]
+        if message["notice"] is not None:
+            self._world_notice = message["notice"]
         self._publish_snapshot()
+
+    # ----------------------------------------------------------- shared world
+    def _spawn_world_action(self, action) -> None:
+        from .world_mailbox import ACTION_KINDS, RESULT_NAMES
+        kind = ACTION_KINDS.get(action.kind)
+        if kind is None or action.event_id == 0:
+            self._world_action_ack = action.seq
+            return
+        result = RESULT_NAMES.get(action.result) if kind == "result" else None
+        if kind == "result" and result is None:
+            self._world_action_ack = action.seq
+            return
+
+        async def run():
+            try:
+                await self.world_rpc("world_action", action=kind, event_id=action.event_id,
+                                     result=result, seq=action.seq)
+            except Exception:  # noqa: BLE001 - the ROM times out and the host expires stale claims
+                pass
+            finally:
+                self._world_action_ack = action.seq
+                self._publish_snapshot()
+
+        task = asyncio.create_task(run(), name="companion-world-action")
+        self._ipc_handlers.add(task)
+        task.add_done_callback(self._ipc_handlers.discard)
+
+    async def world_rpc(self, operation: str, *, timeout: float = 5.0, **fields):
+        from .shared_world_protocol import validate_world_request
+        if not self.connected or self._remote_writer is None or self.session_epoch is None:
+            raise ConnectionError("no shared-world session")
+        request_id = str(uuid4())
+        request = dict(type=operation, session_epoch=self.session_epoch, request_id=request_id, **fields)
+        validate_world_request(request, self.session_epoch)
+        if len(self._world_pending) >= 8:
+            raise ValueError("shared-world request capacity is exhausted")
+        future = asyncio.get_running_loop().create_future()
+        self._world_pending[request_id] = (request, future)
+        try:
+            await self._send_remote(self._remote_writer, request)
+            return await asyncio.wait_for(future, timeout)
+        finally:
+            self._world_pending.pop(request_id, None)
+            if not future.done():
+                future.cancel()
+
+    def _receive_world(self, message):
+        from .shared_world_protocol import validate_world_reply
+        validated = validate_world_reply(message)
+        pending = self._world_pending.get(validated["request_id"])
+        if pending is None:
+            return
+        _, future = pending
+        if not future.done():
+            if validated["type"] == "world_error":
+                future.set_exception(ProtocolError(validated["code"], validated["message"]))
+            else:
+                future.set_result(validated["result"])
+
+    async def appearance_rpc(self, appearance: bytes | None = None) -> bytes | None:
+        """Read or replace this player's customized trainer look on the host."""
+        if appearance is None:
+            result = await self.world_rpc("appearance_get")
+        else:
+            from .appearance import validate_appearance
+            result = await self.world_rpc("appearance_set", appearance=validate_appearance(appearance).hex())
+        value = result.get("appearance")
+        return None if value is None else bytes.fromhex(value)
 
 
 async def _run(config: CompanionConfig) -> None:

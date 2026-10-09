@@ -13,6 +13,11 @@ from .ownership import SERIAL_MAX, _SUBSTRUCT_OFFSETS, _decode_box
 CAPABILITY_ID = "gen6-handler-friendship-plan-v1"
 RETURN, FRUSTRATION = 216, 218
 MAX_GEN6_MOVE = 621
+# Owner decision (Oct 9, 2026): Pokemon that already know a move from a later
+# generation (for example Leafage, 633) may be traded unchanged. Stored moves are
+# validated against the pinned engine's complete move table instead; newly
+# learned evolution moves still use the Gen6 bound.
+MAX_STORED_MOVE = 847  # MOVES_COUNT - 1 in the pinned engine
 
 
 class FriendshipPlanError(ValueError):
@@ -117,7 +122,7 @@ def plan_friendship(history: FriendshipHistory, recipient: TrainerIdentity, *, a
     if type(refresh_handler) is not bool or type(moves) is not tuple or len(moves) != 4:
         raise FriendshipPlanError("four native moves and an explicit handler-refresh decision are required")
     for move in moves:
-        _integer(move, MAX_GEN6_MOVE, "Gen6 move")
+        _integer(move, MAX_STORED_MOVE, "stored move")
     state = replace(history, **{"original_friendship" if history.current_handler == 0 else "handling_friendship": active_friendship})
     initialized = False
     if recipient == state.original:
