@@ -38,6 +38,8 @@ def capable(native=True):
         _bridge=SimpleNamespace(save_capable=True, window_capable=True, trade_effect_prepare_capable=True,
             trade_effect_save_capable=True, trade_effect_choice_capable=True) if native else None,
         world_id=str(uuid4()), server_epoch=5, session_epoch=2, connected=True,
+        # The pending-recovery fence runs locally before any capability probe.
+        _guard_pending_trade_mutation=lambda: None,
         _trade_rpc=AsyncMock(side_effect=[{"effects_version": 1}, {"trade": "answer"}]))
 
 
