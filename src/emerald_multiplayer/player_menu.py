@@ -14,6 +14,14 @@ from uuid import uuid4
 from .companion import TeamError, BattleChallengeError, TradeError
 
 
+WAGER_CHOICES = (1_000, 5_000, 10_000, 25_000, 50_000, 100_000)
+_OPEN_BATTLE_STATES = ("invited", "accepted", "prepared")
+
+
+def _money(amount):
+    return f"${amount:,}"
+
+
 class PlayerMenuError(ValueError):
     def __init__(self, code):
         self.code = code
@@ -68,6 +76,8 @@ class PlayerMenu:
         self._hunt_order = "source"
         self._players = {}
         self._friends = {}
+        self._wager = None  # {"wager": view | None, "money": int | None} for the pending challenge
+        self._wager_amount = WAGER_CHOICES[1]
         self._binding = None
         self._signature = None
         self._actions = {}
@@ -137,6 +147,16 @@ class PlayerMenu:
                 raise PlayerMenuError("session_changed")
             if kind == "team": self._team = value
             else: self._battles = value
+        # The optional money wager on the pending challenge (host-owned).
+        self._wager = None
+        wager_rpc = getattr(self.companion, "wager_rpc", None)
+        if self._battles and callable(wager_rpc) and getattr(self.companion.config, "world_enabled", False):
+            try:
+                self._wager = await wager_rpc("wager_get", battle_id=self._battles[0]["battle_id"])
+            except Exception:  # noqa: BLE001 - wagers are optional; older hosts have none
+                self._wager = None
+            if self._session() != binding:
+                raise PlayerMenuError("session_changed")
         self._trades = None
         if (callable(getattr(self.companion, "_native_menu_handoff", None))
                 and getattr(self.companion.config, "menu_abi_version", 1) == 2
@@ -298,14 +318,30 @@ class PlayerMenu:
                 battle = self._battles[0]
                 title = "1v1 challenge" if battle["mode"] == 2 else "2v2 full-party challenge"
                 status = self._notice or f"Accepted: {len(battle['consent'])}/{len(battle['players'])}"
-                for cp in battle["checkpoints"]:
-                    actions.append((f"{self._name(cp['player_id'])[:18]} ({cp['party_count']})", "", ()))
+                parties = {cp["player_id"]: cp["party_count"] for cp in battle["checkpoints"]}
+                if battle["mode"] == 2:
+                    for cp in battle["checkpoints"]:
+                        actions.append((f"{self._name(cp['player_id'])[:18]} ({cp['party_count']})", "", ()))
+                else:
+                    # Two team rows keep room for the consent and wager rows.
+                    for team in (battle["players"][::2], battle["players"][1::2]):
+                        actions.append((" & ".join(f"{self._name(p)[:8]}({parties.get(p, 0)})" for p in team), "", ()))
                 params = (battle["battle_id"], battle["generation"])
-                if battle["state"] in ("invited", "accepted", "prepared"):
+                wager = self._wager["wager"] if self._wager is not None else None
+                wager_ready = wager is None or set(wager["accepted"]) == set(wager["players"])
+                if battle["state"] in _OPEN_BATTLE_STATES and self._wager is not None:
+                    if wager is None:
+                        label = "Wager: none (set one)"
+                    else:
+                        label = f"Wager {_money(wager['amount'])} {len(wager['accepted'])}/{len(wager['players'])} OK"
+                    actions.append((label, "wager", (battle["battle_id"],)))
+                if battle["state"] in _OPEN_BATTLE_STATES:
                     if actor not in battle["consent"] and actor != battle["sender"]:
                         actions.append(("Accept challenge", "battle_accept", (*params, battle["fingerprint"])))
                     actions.append(("Cancel challenge", "battle_cancel", params))
-                    if battle["state"] == "accepted":
+                    if battle["state"] == "accepted" and not wager_ready:
+                        status = "Everyone must accept the wager"
+                    elif battle["state"] == "accepted":
                         status = "Waiting for battle coordinator"
                         if (callable(getattr(self.companion, "_native_menu_handoff", None))
                                 and (getattr(self.companion.config, "battle_resume_abi_version", 0) != 1
@@ -323,6 +359,31 @@ class PlayerMenu:
                 actions.append(("Full record archives", "records", ()))
                 actions.append(("Your Trainer Card", "card", (actor,)))
                 actions.append(("Championship", "championship", ()))
+        elif page == "wager":
+            title = "Battle wager"
+            battle = next((b for b in self._battles or () if b["battle_id"] == target), None)
+            view = self._wager
+            if battle is None or view is None or battle["state"] not in _OPEN_BATTLE_STATES:
+                status = self._notice or "This challenge has no open wager"
+            else:
+                wager, money = view["wager"], view["money"]
+                actions.append(("Your money: " + ("unknown" if money is None else _money(money)), "", ()))
+                if wager is None:
+                    status = self._notice or "Each trainer stakes the same"
+                    actions.append((f"Amount: {_money(self._wager_amount)}", "wager_amount", (target,)))
+                    actions.append(("Propose this wager", "wager_propose", (target, self._wager_amount)))
+                    actions.append(("Winners take the stakes", "", ()))
+                else:
+                    status = self._notice or f"{_money(wager['amount'])} each, {len(wager['accepted'])}/{len(wager['players'])} accepted"
+                    actions.append(("Proposed by " + self._name(wager["sender"])[:13], "", ()))
+                    if actor not in wager["accepted"]:
+                        actions.append((f"Accept {_money(wager['amount'])} wager", "wager_accept", (target, wager["amount"])))
+                        actions.append(("Decline wager", "wager_decline", (target,)))
+                    elif actor == wager["sender"]:
+                        actions.append(("Remove wager", "wager_remove", (target,)))
+                    else:
+                        actions.append(("You accepted this wager", "", ()))
+            actions.append(("Back to challenge", "battles", ()))
         elif page == "championship":
             return self._show(*self._championship.render())
         elif page == "records":
@@ -598,6 +659,26 @@ class PlayerMenu:
                 fields = dict(battle_id=args[0], generation=args[1])
                 if op == "battle_accept": fields["fingerprint"] = args[2]
                 await self.companion.battle_challenge_rpc(op.removeprefix("battle_"), **fields)
+            elif op == "wager":
+                self._page = ("wager", args[0])
+            elif op == "wager_amount":
+                index = WAGER_CHOICES.index(self._wager_amount) if self._wager_amount in WAGER_CHOICES else 0
+                self._wager_amount = WAGER_CHOICES[(index + 1) % len(WAGER_CHOICES)]
+                self._page = ("wager", args[0])
+            elif op in ("wager_propose", "wager_remove", "wager_accept", "wager_decline"):
+                from .protocol import ProtocolError
+                operation, fields = {
+                    "wager_propose": ("wager_set", dict(battle_id=args[0], amount=args[1] if len(args) > 1 else 0)),
+                    "wager_remove": ("wager_set", dict(battle_id=args[0], amount=0)),
+                    "wager_accept": ("wager_accept", dict(battle_id=args[0], amount=args[1] if len(args) > 1 else 0)),
+                    "wager_decline": ("wager_decline", dict(battle_id=args[0])),
+                }[op]
+                try:
+                    await self.companion.wager_rpc(operation, **fields)
+                except ProtocolError as error:
+                    # Money rules are the host's: show why, never retry silently.
+                    self._notice = error.message[:31]
+                self._page = ("wager", args[0])
             elif op == "battle_enter":
                 battle = next((b for b in self._battles or () if
                     (b["battle_id"], b["generation"], b["fingerprint"]) == args), None)

@@ -1,5 +1,5 @@
 """Pure codecs for the EMW1 shared-world mailbox (followers, mounts, appearance,
-world clock, world events and notices).
+world clock, world events, notices and wager wallet adjustments).
 
 The ROM publishes a 32-byte local record (state + one action). The bridge writes
 a 208-byte inbound record. These helpers only translate bytes; they never pick
@@ -43,8 +43,11 @@ ACTION_CLAIM = 1
 ACTION_RESULT = 2
 ACTION_RELEASE = 3
 ACTION_APPEARANCE = 4  # the local state carries a newly saved trainer look
+ACTION_WALLET = 5      # the save applied wallet adjustment event_id moving `amount`
 ACTION_KINDS = {ACTION_CLAIM: "claim", ACTION_RESULT: "result", ACTION_RELEASE: "release",
-                ACTION_APPEARANCE: "appearance"}
+                ACTION_APPEARANCE: "appearance", ACTION_WALLET: "wallet"}
+MAX_MONEY = 999_999
+WALLET_OFFSET = 180  # inbound: u32 wallet seq, s32 wallet delta
 
 RESULT_NAMES = {1: "caught", 2: "defeated", 3: "ran", 4: "lost", 5: "cancelled"}
 
@@ -79,6 +82,7 @@ class WorldState:
     mount_species: int = 0
     mount_flags: int = 0
     appearance: bytes = bytes(APPEARANCE_BYTES)
+    wallet_seq: int = 0  # local record only: low byte of the save's last applied wallet sequence
 
     def __post_init__(self):
         _bound(self.follower_species, 0, MAX_SPECIES, "follower species")
@@ -86,9 +90,11 @@ class WorldState:
         _bound(self.mount_state, 0, 1, "mount state")
         _bound(self.mount_species, 0, MAX_SPECIES, "mount species")
         _bound(self.mount_flags, 0, 3, "mount flags")
+        _bound(self.wallet_seq, 0, 255, "wallet sequence")
         _appearance(self.appearance)
 
     def pack(self) -> bytes:
+        # Peer records never carry another player's wallet sequence.
         return _STATE.pack(self.follower_species, self.follower_flags, self.mount_state,
                            self.mount_species, self.mount_flags, 0, self.appearance)
 
@@ -96,16 +102,14 @@ class WorldState:
     def unpack(cls, payload: bytes) -> "WorldState":
         if len(payload) != 16:
             raise WorldMailboxError("world state must contain exactly 16 bytes")
-        species, flags, mount, mount_species, mount_flags, reserved, appearance = _STATE.unpack(payload)
-        if reserved != 0:
-            raise WorldMailboxError("world state reserved byte must be zero")
-        return cls(species, flags, mount, mount_species, mount_flags, appearance)
+        species, flags, mount, mount_species, mount_flags, wallet_seq, appearance = _STATE.unpack(payload)
+        return cls(species, flags, mount, mount_species, mount_flags, appearance, wallet_seq)
 
     def network_fields(self) -> dict:
         return {
             "follower_species": self.follower_species, "follower_flags": self.follower_flags,
             "mount_state": self.mount_state, "mount_species": self.mount_species,
-            "mount_flags": self.mount_flags,
+            "mount_flags": self.mount_flags, "wallet_seq": self.wallet_seq,
         }
 
     @classmethod
@@ -123,25 +127,27 @@ class WorldAction:
     result: int = 0
     species: int = 0
     event_id: int = 0
+    amount: int = 0  # wallet receipts only: the money the save actually moved
 
     def __post_init__(self):
         _bound(self.seq, 0, _UINT32, "action seq")
-        _bound(self.kind, 0, 4, "action kind")
+        _bound(self.kind, 0, ACTION_WALLET, "action kind")
         _bound(self.result, 0, 5, "action result")
         _bound(self.species, 0, MAX_SPECIES, "action species")
         _bound(self.event_id, 0, _UINT32, "action event")
+        _bound(self.amount, 0, MAX_MONEY if self.kind == ACTION_WALLET else 0, "action amount")
 
     def pack(self) -> bytes:
-        return _ACTION.pack(self.seq, self.kind, self.result, self.species, self.event_id, 0)
+        return _ACTION.pack(self.seq, self.kind, self.result, self.species, self.event_id, self.amount)
 
     @classmethod
     def unpack(cls, payload: bytes) -> "WorldAction":
         if len(payload) != 16:
             raise WorldMailboxError("world action must contain exactly 16 bytes")
-        seq, kind, result, species, event_id, reserved = _ACTION.unpack(payload)
-        if reserved != 0:
-            raise WorldMailboxError("world action reserved field must be zero")
-        return cls(seq, kind, result, species, event_id)
+        seq, kind, result, species, event_id, amount = _ACTION.unpack(payload)
+        if amount != 0 and kind != ACTION_WALLET:
+            raise WorldMailboxError("only wallet receipts carry an amount")
+        return cls(seq, kind, result, species, event_id, amount)
 
 
 def unpack_local(payload: bytes) -> tuple[WorldState, WorldAction]:
@@ -199,11 +205,17 @@ class WorldInbound:
     event: WorldEventView = field(default_factory=WorldEventView)
     notice_id: int = 0
     notice_text: str = ""
+    wallet_seq: int = 0     # this player's next wallet adjustment (0 = none)
+    wallet_delta: int = 0   # money to add (positive) or collect (negative)
 
     def __post_init__(self):
         _bound(self.world_seconds, 0, _UINT32, "world seconds")
         _bound(self.action_ack, 0, _UINT32, "action ack")
         _bound(self.notice_id, 0, _UINT32, "notice id")
+        _bound(self.wallet_seq, 0, 0xFFFF, "wallet sequence")
+        _bound(self.wallet_delta, -MAX_MONEY, MAX_MONEY, "wallet delta")
+        if (self.wallet_seq == 0) != (self.wallet_delta == 0):
+            raise WorldMailboxError("a wallet adjustment needs both a sequence and a nonzero delta")
         _appearance(self.self_appearance)
         if not isinstance(self.peers, tuple) or len(self.peers) > 3:
             raise WorldMailboxError("at most three world peers")
@@ -219,6 +231,8 @@ class WorldInbound:
         data += bytes(20 * (3 - len(self.peers)))
         data += self.event.pack()
         data += struct.pack("<I", self.notice_id) + _notice_bytes(self.notice_text)
+        assert len(data) == WALLET_OFFSET
+        data += struct.pack("<Ii", self.wallet_seq, self.wallet_delta)
         data += bytes(WORLD_INBOUND_SIZE - len(data))
         assert len(data) == WORLD_INBOUND_SIZE
         return data

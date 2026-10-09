@@ -330,11 +330,13 @@ def validate_welcome(message: dict[str, Any], config: CompanionConfig) -> dict[s
 
 
 def validate_world(message: dict[str, Any], config: CompanionConfig, session_epoch: int) -> list[dict[str, Any]]:
-    _fields(message, {"type", "protocol", "world_seq", "players", "clock", "event", "notice"}, "world")
-    from .shared_world_protocol import validate_clock, validate_event, validate_notice, validate_appearance_hex
+    _fields(message, {"type", "protocol", "world_seq", "players", "clock", "event", "notice", "wallet"}, "world")
+    from .shared_world_protocol import (validate_clock, validate_event, validate_notice, validate_appearance_hex,
+                                        validate_wallet)
     validate_clock(message["clock"])
     validate_event(message["event"])
     validate_notice(message["notice"])
+    validate_wallet(message["wallet"])
     _integer(message["world_seq"], 1, MAX_COUNTER, "world_seq")
     players = message["players"]
     if not isinstance(players, list) or not 1 <= len(players) <= MAX_PLAYERS:
@@ -437,6 +439,7 @@ class Companion:
         self._world_clock_time = 0.0
         self._world_event: dict | None = None
         self._world_notice: dict | None = None
+        self._world_wallet: dict | None = None
         self._world_pending: dict[str, tuple[dict, asyncio.Future]] = {}
 
     @property
@@ -530,9 +533,11 @@ class Companion:
         notice = self._world_notice
         if notice is not None and (notice["to"] is None or self.config.player_id in notice["to"]):
             notice_id, notice_text = notice["id"], notice["text"]
+        wallet = self._world_wallet or {"seq": 0, "delta": 0}
         return WorldInbound(clock_valid=clock is not None, events_enabled=True, world_seconds=seconds & 0xFFFFFFFF,
                             action_ack=self._world_action_ack, self_appearance=appearance, peers=tuple(peers),
-                            event=event, notice_id=notice_id, notice_text=notice_text)
+                            event=event, notice_id=notice_id, notice_text=notice_text,
+                            wallet_seq=wallet["seq"], wallet_delta=wallet["delta"])
 
     async def _snapshot_loop(self) -> None:
         while True:
@@ -1043,7 +1048,7 @@ class Companion:
             if not future.done():
                 future.set_exception(ConnectionError("shared-world request lost its host connection"))
         self._world_pending.clear()
-        self._world_clock = self._world_event = self._world_notice = None
+        self._world_clock = self._world_event = self._world_notice = self._world_wallet = None
         self._players = []
         self._peer_history.clear()
         self._roster_signature = None
@@ -1539,6 +1544,7 @@ class Companion:
         self._world_clock = message["clock"]
         self._world_clock_time = asyncio.get_running_loop().time()
         self._world_event = message["event"]
+        self._world_wallet = message["wallet"]
         if message["notice"] is not None:
             self._world_notice = message["notice"]
         self._publish_snapshot()
@@ -1549,6 +1555,9 @@ class Companion:
         kind = ACTION_KINDS.get(action.kind)
         if kind == "appearance":
             self._spawn_appearance_save(action.seq)
+            return
+        if kind == "wallet":
+            self._spawn_wallet_receipt(action)
             return
         if kind is None or action.event_id == 0:
             self._world_action_ack = action.seq
@@ -1589,6 +1598,36 @@ class Companion:
         task = asyncio.create_task(run(), name="companion-appearance-save")
         self._ipc_handlers.add(task)
         task.add_done_callback(self._ipc_handlers.discard)
+
+    def _spawn_wallet_receipt(self, action) -> None:
+        """The save applied a wager wallet adjustment: tell the host exactly
+        what moved so a winner is credited only money that was collected."""
+        seq, amount = action.event_id, action.amount
+
+        async def run():
+            try:
+                if 1 <= seq <= 0xFFFF:
+                    await self.world_rpc("wallet_applied", seq=seq, amount=amount)
+            except Exception:  # noqa: BLE001 - the ROM re-posts its last receipt on every connection
+                pass
+            finally:
+                self._world_action_ack = action.seq
+                self._publish_snapshot()
+
+        task = asyncio.create_task(run(), name="companion-wallet-receipt")
+        self._ipc_handlers.add(task)
+        task.add_done_callback(self._ipc_handlers.discard)
+
+    async def wager_rpc(self, operation: str, **fields) -> dict:
+        """Read, propose, accept or decline the wager on a pending challenge."""
+        result = await self.world_rpc(operation, **fields)
+        wager, money = result.get("wager"), result.get("money")
+        if (wager is not None and (type(wager) is not dict
+                or not {"battle_id", "amount", "sender", "players", "accepted", "state"} <= set(wager)
+                or type(wager["amount"]) is not int or type(wager["accepted"]) is not list)) \
+                or (money is not None and (type(money) is not int or not 0 <= money <= 999_999)):
+            raise ProtocolError("invalid_server_message", "invalid wager view")
+        return {"wager": wager, "money": money}
 
     async def world_rpc(self, operation: str, *, timeout: float = 5.0, **fields):
         from .shared_world_protocol import validate_world_request

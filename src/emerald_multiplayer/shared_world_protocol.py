@@ -7,7 +7,8 @@ from typing import Any
 
 from .protocol import MAX_COUNTER, ProtocolError
 
-WORLD_TYPES = frozenset({"world_action", "appearance_get", "appearance_set", "friendship_get"})
+WORLD_TYPES = frozenset({"world_action", "appearance_get", "appearance_set", "friendship_get",
+                         "wager_get", "wager_set", "wager_accept", "wager_decline", "wallet_applied"})
 ACTIONS = frozenset({"claim", "result", "release"})
 RESULTS = frozenset({"caught", "defeated", "ran", "lost", "cancelled"})
 _HEX16 = re.compile(r"[0-9a-f]{16}\Z")
@@ -77,6 +78,19 @@ def validate_notice(value: Any) -> dict | None:
     return value
 
 
+def validate_wallet(value: Any) -> dict | None:
+    """This player's next wager wallet adjustment (per-player world field)."""
+    if value is None:
+        return None
+    if type(value) is not dict or set(value) != {"seq", "delta"}:
+        raise ProtocolError("invalid_server_message", "invalid wallet adjustment")
+    _int(value["seq"], "wallet sequence", 1, 0xFFFF)
+    _int(value["delta"], "wallet delta", -999_999, 999_999)
+    if value["delta"] == 0:
+        raise ProtocolError("invalid_server_message", "a wallet adjustment moves money")
+    return value
+
+
 def validate_appearance_hex(value: Any) -> str | None:
     if value is None:
         return None
@@ -114,6 +128,20 @@ def validate_world_request(message: Any, session_epoch: int) -> dict:
     elif kind in ("appearance_get", "friendship_get"):
         if set(message) != {"type", "session_epoch", "request_id"}:
             raise ProtocolError("invalid_fields", "shared-world read has unexpected fields")
+    elif kind in ("wager_get", "wager_decline"):
+        if set(message) != {"type", "session_epoch", "request_id", "battle_id"}:
+            raise ProtocolError("invalid_fields", "wager request has unexpected fields")
+        _uuid(message["battle_id"], "battle_id")
+    elif kind in ("wager_set", "wager_accept"):
+        if set(message) != {"type", "session_epoch", "request_id", "battle_id", "amount"}:
+            raise ProtocolError("invalid_fields", "wager request has unexpected fields")
+        _uuid(message["battle_id"], "battle_id")
+        _int(message["amount"], "wager amount", 0, 999_999)
+    elif kind == "wallet_applied":
+        if set(message) != {"type", "session_epoch", "request_id", "seq", "amount"}:
+            raise ProtocolError("invalid_fields", "wallet receipt has unexpected fields")
+        _int(message["seq"], "wallet sequence", 1, 0xFFFF)
+        _int(message["amount"], "wallet amount", 0, 999_999)
     else:
         if set(message) != {"type", "session_epoch", "request_id", "appearance"}:
             raise ProtocolError("invalid_fields", "appearance update has unexpected fields")

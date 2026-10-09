@@ -27,7 +27,8 @@ CHECKPOINT_TYPES = frozenset({
 })
 ACTIVITIES = frozenset({"overworld", "menu", "battle", "transition", "unavailable"})
 MOVEMENT_MODES = frozenset({"walk", "run", "bike", "surf"})
-WORLD_PRESENCE_FIELDS = frozenset({"follower_species", "follower_flags", "mount_state", "mount_species", "mount_flags"})
+WORLD_PRESENCE_FIELDS = frozenset({"follower_species", "follower_flags", "mount_state", "mount_species", "mount_flags",
+                                   "wallet_seq"})
 _IDENTITY = re.compile(r"[A-Za-z0-9_.:-]{1,128}\Z")
 
 
@@ -195,7 +196,7 @@ def validate_presence(message: dict[str, Any], session_epoch: int) -> dict[str, 
     if not isinstance(result["movement_mode"], str) or result["movement_mode"] not in MOVEMENT_MODES:
         raise ProtocolError("invalid_field", "movement_mode is unsupported")
     for name, high in (("follower_species", 1700), ("follower_flags", 7), ("mount_state", 1),
-                       ("mount_species", 1700), ("mount_flags", 3)):
+                       ("mount_species", 1700), ("mount_flags", 3), ("wallet_seq", 255)):
         result[name] = _integer(message.get(name, 0), name, 0, high)
     return result
 

@@ -92,6 +92,8 @@ class BattleDesk:
                 raise ValueError("battle history must match this exact world and release")
         self.results = results
         self.on_closed = None  # host friendship bookkeeping after a closed battle
+        self.on_aborted = None  # host wager bookkeeping after an abort
+        self.start_gate = None  # host wager check before the first START
         self.timeout, self.clock = float(timeout), clock
         self._last_time = None
         self._active: dict[str, _Battle] = {}
@@ -139,6 +141,11 @@ class BattleDesk:
         battle.state = "aborting" if battle.abort_pending else "aborted"
         if not battle.abort_pending:
             self._archive(battle)
+        if callable(self.on_aborted):
+            try:
+                self.on_aborted(battle)
+            except Exception:  # noqa: BLE001 - a void wager never blocks the abort
+                pass
 
     def _recover(self, battle, reason):
         battle.state, battle.reason = "recovery_required", reason
@@ -479,6 +486,8 @@ class BattleDesk:
                 or battle.prepared != set(battle.players) or battle.bound != set(battle.players)):
             raise BattleError("battle_not_ready", "all trainers must consent, bind and prepare")
         self._heads(battle)
+        if callable(self.start_gate):
+            self.start_gate(battle)  # raises BattleError: an unaccepted/unfunded wager
         battle.state, battle.deadline = "starting", self._now()+self.timeout
         return self._view(battle)
 

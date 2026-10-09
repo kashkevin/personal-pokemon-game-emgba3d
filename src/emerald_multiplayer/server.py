@@ -290,14 +290,17 @@ class WorldServer:
         # Shared-world state (clock, appearances, World Events, notices).
         from .shared_world import SharedWorld
         from .friendship import FriendshipStore
+        from .wagers import Wagers
         if store is not None:
             world_path = store.path.with_name(store.path.name + ".shared-world.sqlite3")
             self.shared_world = SharedWorld(world_path, store.metadata.world_id)
             self.friendships = FriendshipStore(store.path.with_name(store.path.name + ".friendships.sqlite3"),
                                                store.metadata.world_id)
+            self.wagers = Wagers(store.path.with_name(store.path.name + ".wagers.sqlite3"), store.metadata.world_id)
         else:
             self.shared_world = SharedWorld(":memory:", "00000000-0000-0000-0000-000000000000")
             self.friendships = FriendshipStore(":memory:", "00000000-0000-0000-0000-000000000000")
+            self.wagers = Wagers(":memory:", "00000000-0000-0000-0000-000000000000")
         self.shared_world.on_event_finished = self._on_event_finished
         if self._trade_recovery_desk is not None:
             self._trade_recovery_desk.on_commit = self._on_trade_committed
@@ -306,6 +309,8 @@ class WorldServer:
             self.trade_effects.on_commit = self._on_trade_committed
         if self.battle_desk is not None:
             self.battle_desk.on_closed = self._on_battle_closed
+            self.battle_desk.on_aborted = self._on_battle_aborted
+            self.battle_desk.start_gate = self._wager_gate
         self._last_friendship_tick = time.monotonic()
         self._last_clock_broadcast = 0.0
         self.world_seq = 0
@@ -469,6 +474,7 @@ class WorldServer:
             await listening_server.wait_closed()
         self.shared_world.close()
         self.friendships.close()
+        self.wagers.close()
 
     async def _reject(self, writer: asyncio.StreamWriter, code: str, message: str) -> None:
         try:
@@ -1133,12 +1139,19 @@ class WorldServer:
             "session_epoch": session.session_epoch, "presence": session.presence,
             "appearance": world.appearance(session.player_id),
         } for session in sorted(self.sessions.values(), key=lambda item: item.player_id) if not session.closed]
-        frame = encode_message({"type": "world", "protocol": PROTOCOL_VERSION, "world_seq": self.world_seq,
-                                "players": players, "clock": world.clock_view(), "event": world.event_view(),
-                                "notice": world.notice_view()})
+        base = {"type": "world", "protocol": PROTOCOL_VERSION, "world_seq": self.world_seq,
+                "players": players, "clock": world.clock_view(), "event": world.event_view(),
+                "notice": world.notice_view()}
         self._last_clock_broadcast = asyncio.get_running_loop().time()
         for session in tuple(self.sessions.values()):
-            session.outbox.put_world(frame)
+            # Each game receives only its own next wallet adjustment (wagers).
+            wallet = None
+            if session.presence is not None:
+                try:
+                    wallet = self.wagers.next_adjustment(session.player_id, session.presence.get("wallet_seq"))
+                except Exception:  # noqa: BLE001 - money waits; the world view still flows
+                    wallet = None
+            session.outbox.put_world(encode_message({**base, "wallet": wallet}))
 
     def _progression_level(self) -> int:
         """Average of each connected player's strongest party level."""
@@ -1169,9 +1182,19 @@ class WorldServer:
 
     def _shared_world_request(self, session, request) -> None:
         from .shared_world import SharedWorldError
+        from .wagers import WagerError
         world = self.shared_world
         kind = request["type"]
         try:
+            if kind.startswith("wager_"):
+                self._world_reply(session, request, result=self._wager_request(session, request))
+                return
+            if kind == "wallet_applied":
+                credits = self.wagers.applied(session.player_id, request["seq"], request["amount"])
+                self._world_reply(session, request, result={"seq": request["seq"]})
+                if credits:
+                    self._broadcast_world()
+                return
             if kind == "appearance_get":
                 self._world_reply(session, request, result={"appearance": world.appearance(session.player_id)})
                 return
@@ -1196,8 +1219,103 @@ class WorldServer:
                                              session.display_name)
             self._world_reply(session, request, result={"outcome": outcome, "seq": request["seq"]})
             self._broadcast_world()
-        except SharedWorldError as error:
+        except (SharedWorldError, WagerError) as error:
             self._world_reply(session, request, error=error)
+
+    # ---------------------------------------------------------------- wagers
+    def _money(self, player_id) -> int | None:
+        """Money in a connected player's canonical checkpoint (the same frozen
+        save a battle challenge uses), or None when unknown."""
+        session = self.sessions.get(player_id)
+        if self.store is None or session is None or session.closed:
+            return None
+        try:
+            checkpoint = self.store.read_checkpoint(player_id, session.session_epoch)
+            if checkpoint is None:
+                return None
+            from .flash import inspect_flash
+            from .wagers import money_from_snapshot
+            return money_from_snapshot(inspect_flash(checkpoint.payload, save_profile=checkpoint.save_profile))
+        except Exception:  # noqa: BLE001 - unknown money never allows a wager
+            return None
+
+    def _wager_request(self, session, request) -> dict:
+        from .shared_world import _banner
+        from .wagers import WagerError, format_money
+        kind, actor = request["type"], session.player_id
+        desk = self.battle_desk
+        if desk is None:
+            raise WagerError("battle_disabled", "battles are not enabled on this host")
+        desk.refresh()
+        battle = desk._active.get(request["battle_id"])
+        if battle is None or actor not in battle.players:
+            raise WagerError("no_battle", "that challenge is no longer pending")
+        if self._championships is not None and self._championships.claims_battle(battle.battle_id):
+            raise WagerError("championship_match", "Championship matches have no wagers")
+        battle_id, players = battle.battle_id, list(battle.players)
+        open_states = ("invited", "accepted", "prepared")
+        if kind != "wager_get" and battle.state not in open_states:
+            raise WagerError("wager_locked", "the battle has already started")
+        name = self._player_name(actor).upper()[:12]
+        others = [player for player in players if player != actor]
+        current = self.wagers.view(battle_id)
+        if kind == "wager_set":
+            amount = request["amount"]
+            if current is not None and current["sender"] != actor:
+                raise WagerError("wager_owned", "decline this wager before proposing another")
+            funds = {player: self._money(player) or 0 for player in players}
+            view = self.wagers.propose(battle_id, actor, players, amount, funds)
+            if view is not None:
+                self.shared_world.post_notice(_banner(f"{name}: WAGER {format_money(amount)}",
+                                                      "Accept it in PLAYERS"), to=others)
+            elif current is not None:
+                self.shared_world.post_notice(_banner("WAGER REMOVED", f"by {name}"), to=others)
+        elif kind == "wager_accept":
+            view = self.wagers.accept(battle_id, actor, request["amount"], self._money(actor) or 0)
+            if set(view["accepted"]) == set(view["players"]):
+                self.shared_world.post_notice(_banner(f"WAGER ON: {format_money(view['amount'])} EACH",
+                                                      "Winner takes the stakes!"), to=players)
+        elif kind == "wager_decline":
+            self.wagers.decline(battle_id, actor)
+            if current is not None and current["sender"] != actor:
+                self.shared_world.post_notice(_banner("WAGER DECLINED", f"by {name}"), to=[current["sender"]])
+        if kind != "wager_get":
+            self._broadcast_world()
+        return {"wager": self.wagers.view(battle_id), "money": self._money(actor)}
+
+    def _wager_gate(self, battle) -> None:
+        """START is refused until every trainer accepted the wager (and can pay)."""
+        from .wagers import WagerError
+        if self.wagers.view(battle.battle_id) is None:
+            return
+        try:
+            if not self.wagers.ready(battle.battle_id):
+                raise WagerError("wager_pending", "every trainer must accept the wager first")
+            self.wagers.lock(battle.battle_id, {player: self._money(player) or 0 for player in battle.players})
+        except WagerError as error:
+            raise BattleError(error.code, error.message) from error
+
+    def _on_battle_aborted(self, battle) -> None:
+        from .shared_world import _banner
+        current = self.wagers.view(battle.battle_id)
+        if current is None or current["state"] not in ("proposed", "locked"):
+            return
+        self.wagers.cancel(battle.battle_id)
+        self.shared_world.post_notice(_banner("WAGER CANCELED", "The battle never started"), to=list(battle.players))
+        self._broadcast_world()
+
+    def _settle_wager(self, battle, outcome) -> None:
+        from .shared_world import _banner
+        from .wagers import format_money
+        players = list(battle.players)
+        debits = self.wagers.settle(battle.battle_id, players, battle.mode, outcome)
+        if not debits:
+            return
+        amount = debits[0][1]
+        losers = [player for player, _ in debits]
+        winners = [player for player in players if player not in losers]
+        self.shared_world.post_notice(_banner("YOU WON THE WAGER!", f"{format_money(amount)} is on its way"), to=winners)
+        self.shared_world.post_notice(_banner("WAGER LOST", f"{format_money(amount)} goes to the winner"), to=losers)
 
     def _record_activity(self, kind, player_id, reference) -> None:
         """Kept for compatibility: World Event results are credited once the
@@ -1238,6 +1356,12 @@ class WorldServer:
 
     def _on_battle_closed(self, battle) -> None:
         players = list(battle.players)
+        outcome = next(iter(battle.finished.values()), None)
+        if outcome is not None:
+            try:
+                self._settle_wager(battle, outcome)
+            except Exception:  # noqa: BLE001 - a wager never changes the battle record
+                pass
         championship = self._championships is not None and self._championships.claims_battle(battle.battle_id)
         changes = []
         if battle.mode == 3:
