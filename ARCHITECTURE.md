@@ -83,12 +83,31 @@ build (fallback) and the native PC build being migrated to. Requirements are in
   replaces `bridge/mgba.lua`. It reads/writes the same mailbox structs directly in
   process memory and speaks the same local protocol to the existing companion, so
   the companion and host need no changes.
-* **Renderer** (Milestone D, not started in this engine): the voxel project's
-  Diorama renderer (OpenGL 3.3) builds a 3D scene from a per-frame snapshot of the
-  game state (map, metatiles, object events, camera) and composites the 2D GBA frame
-  for UI. 3DS-only features (buildings, relief, trees, lighting, shadows) are ported
-  from ZallaxDev/pokeemerald-3Ds-dualscreen's portable C modules; its Citro3D
-  backend is rewritten for OpenGL.
+* **Renderer** (Milestone D, in progress on engine branch `claude/native-graphics`,
+  build with `DIORAMA=1`): the voxel project's Diorama renderer (OpenGL 3.3 core).
+  * *Snapshot*: hooks in `main.c` (frame begin/end), `overworld.c` (after the
+    visible-spawn update) and `fieldmap.c` (map changed) copy what the 3D view needs
+    on the game thread: metatiles and attributes around the camera, tileset graphics
+    and palettes (so day/night tints and fades apply), object events with their
+    current sprite frame, camera pan, weather. The snapshot is handed to the main
+    thread through a double-buffered exchange; the renderer never writes game
+    memory.
+  * *Scene*: terrain mesh and voxel trees built from rule tables that
+    `tools/diorama_rules` compiles from our own `data/maps`, `data/layouts` and
+    tilesets at build time (classifying each metatile: ground, cliff, ledge, water,
+    building part, tree, ...); objects are camera-facing sprites with shadows.
+  * *Compositing*: the 2D GBA frame (text boxes, menus, map-name popup, battles) is
+    drawn over or instead of the 3D view; battles and full-screen menus stay 2D. F4
+    switches to the classic 2D view at any time.
+  * *Pacing*: one presented frame per loop; when a frame takes longer than about 83
+    ms (below 12 fps) the game advances one frame per presented frame, so a slow GPU
+    slows the game instead of skipping input.
+  * Planned (D4): 3DS-only features (buildings, relief, trees, lighting, shadows)
+    ported from ZallaxDev/pokeemerald-3Ds-dualscreen's portable C modules; its
+    Citro3D backend is rewritten for OpenGL.
+* **No GBA Wireless Adapter**: the wireless library is never set up natively;
+  anything that would scan for adapter players (the Pokémon Center Union Room scan)
+  is skipped under `PORTABLE` (KNOWN_ISSUES N24).
 
 ## 3. Boundaries (rules)
 

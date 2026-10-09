@@ -54,11 +54,13 @@ emulator, ending in a Windows .exe. Work so far is on Linux. [dir] [base] [mig]
   A5-A13 pass under Wine in the cloud workspace; still to do: run it on the owner's
   PC (real GPU, sound, controller) and resolve or rule out KNOWN_ISSUES N20 (one
   unexplained crash). Needs: A4. [dir] [mig]
+  2026-10-09: entering any Pokémon Center crashed natively (N24); fixed in engine
+  `5b2bcb7ce`, verified on Linux and Windows (Wine).
 - [x] A17 In-process soft reset (the game's `DoSoftReset`), Linux and Windows.
 - [ ] A15 Licensing of the imported native platform layer (from
-  ZallaxDev/pokeemerald-voxel-project): record it in `docs/dependency-ledger.md` (it is
-  not there yet), and replace or properly license the GPL/MPL-derived `bios.c` code
-  before the native game is given to anyone. [agents] [eng-platform]
+  ZallaxDev/pokeemerald-voxel-project): recorded in `docs/dependency-ledger.md`; still
+  to do: replace or properly license the GPL/MPL-derived `bios.c` code before the
+  native game is given to anyone. [agents] [eng-platform]
 - [ ] A16 Keep the emulator build working as the fallback until Milestone G passes.
   [dir] [base]
 
@@ -77,6 +79,9 @@ Milestone A is stable when A8-A14 are done (A9 and the owner's-PC part of A14 re
 - [ ] K4 Multiplayer harness with application-level network simulation. Supports: C,
   G, step 7. [dir]
 - [ ] K5 Graphics benchmark scene. Supports: D, F. [dir]
+  Started: `PKMN_PERF_LOG=1` logs game and presented frames per second and the time
+  per present every 5 s; the Diorama debug overlay (F3) shows triangles and draw
+  calls. The fixed benchmark scene itself is not built.
 - [ ] K6 CI workflow files: written (`.github/workflows/`), never run because neither
   repository is hosted on GitHub. Supports: all. [dir]
 
@@ -143,13 +148,21 @@ The highest priority once the native engine (Milestone A) is stable. [dir]
 
 - [x] D1 Research: the voxel project's own Diorama build was run separately, outside
   our engine. [mig]
-- [ ] D2 Before importing anything: license, attribution, exact revision, dependencies
+- [x] D2 Before importing anything: license, attribution, exact revision, dependencies
   and performance of the Diorama renderer (ZallaxDev/pokeemerald-voxel-project) and of
   the ZallaxDev/pokeemerald-3Ds-dualscreen graphics; record them in
   `docs/dependency-ledger.md`. [agents] [vis]
+  Done 2026-10-09: voxel `cfb429bd1` (MIT) imported and recorded; 3DS `4a699e3` (MIT)
+  recorded as research reference until code is ported (D4). Performance: software-GL
+  numbers only (KNOWN_ISSUES V3); real-GPU numbers come from the owner's PC test.
 - [ ] D3 Integrate the Diorama renderer as the technical base, kept separate from
   authoritative gameplay state; graphics never override save, trade, battle, ownership
   or recovery guarantees. Needs: A stable, D2. [dir] [spec]
+  In progress (engine branch `claude/native-graphics`, `DIORAMA=1`): renders Route 101,
+  Oldale, Littleroot and a Pokémon Center interior in 3D on Linux and Windows (Wine);
+  the renderer only reads a per-frame snapshot of game state. Open: battle start from
+  the 3D view, follower during Poké Ball animation (V1), real-GPU test, wider map
+  coverage, merge into `claude/native-pc` after parity.
 - [ ] D4 Adopt the enhanced dimensional overworld graphics of
   ZallaxDev/pokeemerald-3Ds-dualscreen - graphics only, not its dual-screen interface.
   Needs: D3. [dir]
@@ -163,6 +176,8 @@ The highest priority once the native engine (Milestone A) is stable. [dir]
 ## Milestone E - single-screen PC UI
 
 - [ ] E1 Single-screen PC interface starting at 1920x1080. Needs: A. [dir]
+  Started: `windowScale=6` gives a 1920x1080 window, F11 toggles fullscreen (graphics
+  branch); not yet seen on a 1080p display.
 - [ ] E2 Keyboard support. Needs: E1. [dir]
 - [ ] E3 Controller support. Needs: E1. [dir]
 - [ ] E4 Local Soft Reset classic chord and Select input on keyboard and controller.

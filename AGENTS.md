@@ -39,6 +39,7 @@ Main documents (keep them current; merge, never overwrite blindly):
 | --- | --- | --- | --- |
 | App (host, companion, bridge, launcher, docs, tests) | `/home/claude/pokemon` | `claude/native-pc` | `claude/continuation` |
 | Engine (pokeemerald-expansion 1.17.1 fork) | `/home/claude/engine` | `claude/native-pc` | `claude/engine-continuation` |
+| Engine, graphics worktree (Diorama 3D, Milestone D) | `/home/claude/engine-graphics` | `claude/native-graphics` (merges `claude/native-pc`) | — |
 
 The owner's PC copy is `C:\Users\kashh\OneDrive\Documents\ChatGPT\Pokemon` (Codex's
 state, left untouched). Private checkpoints go to
@@ -55,6 +56,8 @@ make -f Makefile_pc NATIVE_LINUX=1 -j2         # native Linux i386 binary: pokee
 make -f Makefile_pc NATIVE_LINUX=1 SANITIZE=1  # UBSan build for finding GBA-only behaviour
 make -f Makefile_pc SDL_DIR=<sdl2-mingw>/i686-w64-mingw32   # Windows pokeemerald-mp.exe
 make -f Makefile_pc NATIVE_LINUX=1 check-native check-abi   # native unit + layout tests
+make -f Makefile_pc NATIVE_LINUX=1 DIORAMA=1 -j2           # graphics branch: 3D build pokeemerald-mp-diorama
+make -f Makefile_pc NATIVE_LINUX=1 DIORAMA=1 check-diorama # renderer unit tests + compositor goldens
 ```
 
 The GBA ROM must stay byte-identical while changes are PORTABLE-only; compare

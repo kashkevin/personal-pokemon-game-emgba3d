@@ -107,8 +107,24 @@ way gets a source fix and a row in `KNOWN_ISSUES.md`. A crash writes `crash.log`
 | Emulator `.sav` (mGBA) loads; native save over a copy reloads | Pass | Load and play: pass |
 | Wild battle: Fight, Bag, switch, Run, win | Pass | Fight and win: pass |
 | Soft reset (clear-save screen, answer NO) | Pass; save unchanged | Pass; save unchanged |
+| Pokémon Center: enter, nurse heals, save, leave, re-enter | Pass (after N24) | Pass (after N24) |
 | Trainer battle, Mega Evolution, evolution, PC storage | Not run | Not run |
 | Controller, real audio device, owner's PC | Not run | Not run |
+
+Diorama 3D build (`pokeemerald-mp-diorama`, graphics branch), software OpenGL in the
+cloud workspace; `PKMN_DIORAMA_LOG=1` logs sprites the 3D view refuses,
+`PKMN_PERF_LOG=1` logs frame rates; F4 switches 3D/classic, F3 shows the terrain
+debug overlay (triangles, draw calls).
+
+| Check | Linux | Windows (Wine) |
+| --- | --- | --- |
+| Continue into the 3D overworld (Route 101 save, Pokémon Center save) | Pass | Pass (Pokémon Center save) |
+| Route 101, Oldale Town, Littleroot Town, Oldale Pokémon Center 1F drawn in 3D | Pass (screenshots) | Oldale Town and Pokémon Center: pass |
+| Walk, door warps, map connections, ledges in the 3D view | Pass | Door out: pass |
+| Player, NPCs, follower, visible wild Pokémon drawn | Pass; follower refused during Poké Ball animation (V1) | Player and NPCs: pass |
+| Wild battle started in the classic view, fled, 3D view afterwards | Pass | Not run |
+| Wild battle started while the 3D view shows | Not run | Not run |
+| Frame rate | 3-6 fps outdoors, 40-60 fps indoors (llvmpipe) | Not measured |
 
 UBSan reports now come only from real findings; a false positive from the engine's
 `if_comptime` trick is avoided in the sanitizer build (`NATIVE_SANITIZE`).
@@ -127,12 +143,30 @@ simulated in-process with a TCP proxy, never by changing system networking. The
 transport is TCP, so packet loss and reordering appear to the game as delay or a
 dropped connection; those are the cases the proxy produces.
 
-## 7. Graphics benchmark scene (planned, Milestone D)
+## 7. Graphics: renderer tests and benchmark scene (Milestone D)
 
-Repeatable scene at 1920x1080 measuring average FPS, frame-time distribution, 1%
-low, CPU frame time, GPU time where measurable, RAM, draw calls and entity counts.
-Real hardware specs and measured numbers only; nothing is reported until it runs.
-RenderDoc capture is set up once the Diorama renderer runs in this engine.
+Renderer unit tests (graphics branch, needs a `DIORAMA=1` build first so the
+generated tables exist):
+
+```sh
+make -f Makefile_pc NATIVE_LINUX=1 DIORAMA=1 check-diorama        # ~1 min after the first build
+make -f Makefile_pc NATIVE_LINUX=1 DIORAMA=1 check-diorama-tools  # slow; needs >3 GB free RAM
+```
+
+`check-diorama` runs the voxel project's 10 C test programs (snapshot exchange, map
+connections, presentation transition, metatile atlas, terrain mesh, sprite frames,
+weather, UI overlay, rules), compares the C metatile compositor with the Python one
+on all 18,318 logical metatiles of the 75 Emerald tilesets, validates the rule
+sources and checks the generated tables are current. Result 2026-10-09: pass.
+`check-diorama-tools`: 8 pass; `test_rules_parity` fails here and upstream
+(KNOWN_ISSUES V2); `test_compile_rules` was killed for lack of memory when run
+alongside other jobs (rerun alone).
+
+Benchmark scene (planned): repeatable scene at 1920x1080 measuring average FPS,
+frame-time distribution, 1% low, CPU frame time, GPU time where measurable, RAM, draw
+calls and entity counts. Real hardware specs and measured numbers only; nothing is
+reported until it runs. RenderDoc capture is set up once the renderer is stable.
+`PKMN_PERF_LOG=1` (frame rates every 5 s) is the first piece.
 
 ## 8. CI
 

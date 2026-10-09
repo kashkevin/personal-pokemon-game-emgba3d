@@ -214,6 +214,14 @@ The [customization and reuse audit](customization-and-reuse.md) additionally ins
 | SDL2 (Linux development build) | Ubuntu `libsdl2-dev:i386` 2.30.0 | zlib licence; development only. |
 | MinGW-w64 i686 cross compiler | Ubuntu `gcc-mingw-w64-i686` 13 (win32 threads) | Compiler licence terms; linked runtime pieces under the GCC Runtime Library Exception. |
 
+### Diorama 3D renderer (engine branch `claude/native-graphics`, recorded 2026-10-09)
+
+| Dependency | Exact source / role | Terms and status |
+| --- | --- | --- |
+| Diorama renderer, rule compiler and tests | ZallaxDev/pokeemerald-voxel-project `cfb429bd145e81dbeab822f30b91a4e4f009a7d2` (2026-08-13). Copied into the engine: `src/diorama/**`, `include/diorama/**` (except generated headers), `tools/diorama_rules/*.py`, `tools/diorama_tree/*.py`, `data/diorama/**` (rule sources, JSON), `tree_model/emerald_tree.vox`, `tests/diorama/*.c`, `diorama_rules.mk`. Adapted to pokeemerald-expansion; every change is listed in engine `src/diorama/README.md`. The rule tables and tree model (`*.generated.c/h`) are generated at build time from our maps and tilesets and are not committed. Compiled only with `DIORAMA=1`; never in the GBA ROM. | MIT, same notice as the platform layer ("Copyright (c) 2026 pokeemerald-multiplatform contributors"); does not cover pret/expansion code or game assets. Keep the notice with these files. The voxel project's background/border artwork (`BG*.png/bmp`, `Border.*`) was **not** imported. |
+| OpenGL 3.3 core | System library: Windows `opengl32.dll` with the GPU driver; Linux Mesa `libGL` (development) | Platform library; nothing bundled. |
+| ZallaxDev/pokeemerald-3Ds-dualscreen | `4a699e3`; research reference for Milestone D4 (buildings, relief, trees, shadows, camera in `3ds_port/src/voxel/*.c`) | MIT (inspected). **No code imported yet**; record exact files here when any are ported. |
+
 Project-owned native files (no third-party code): `agb_flash_pc.c`, `siirtc_pc.c`,
 `gba_support.c`, `fault_compat.c`, `null_trap.c`, `game_memory.c`, `stub.c` (rewritten),
 `tools/pc_port/*`.

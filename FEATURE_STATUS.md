@@ -146,7 +146,7 @@ with the audit's rules (no packaged gameplay run means not "tested").
 ## Native PC migration
 
 Status of the native build (branch `claude/native-pc` in both repositories) as of
-2026-10-09, evening. "Linux" runs are under Xvfb in the cloud workspace; "Windows"
+2026-10-09, night. "Linux" runs are under Xvfb in the cloud workspace; "Windows"
 runs are the real `pokeemerald-mp.exe` under Wine 9.0 in the same workspace. Nothing
 has run on the owner's PC yet, and no run used a real controller, monitor or sound
 device.
@@ -167,11 +167,39 @@ device.
 | Stability | No crash in the final runs | One unexplained crash in about ten launches (not reproduced; crash reporter added since) | |
 | Controller input | Not yet | Not yet | Windows has XInput code from the voxel project; untested. |
 | Native multiplayer bridge (replaces the mGBA Lua bridge) | Not started | Not started | Milestone C. |
-| Diorama/3DS-style graphics in our engine | Not started | Not started | Milestone D. |
+| Pokémon Center: enter, heal, save, leave, re-enter | Yes | Yes | Crashed before engine `5b2bcb7ce` (KNOWN_ISSUES N24). |
+| 1920x1080 window / fullscreen | Configurable, not seen | Configurable, not seen | `windowScale=6` in `pokeemerald.cfg` gives 1920x1080; F11 toggles fullscreen. The cloud display is 1280x720, so neither was observed. |
+
+### Diorama 3D overworld (Milestone D, engine branch `claude/native-graphics`)
+
+Built with `make -f Makefile_pc DIORAMA=1` (`pokeemerald-mp-diorama[.exe]`). Renderer
+from ZallaxDev/pokeemerald-voxel-project `cfb429bd1`, adapted to our engine. F4
+switches between the 3D view and the classic 2D view. All runs below used software
+OpenGL (Mesa llvmpipe) in the cloud workspace: they show what is drawn, not how fast
+a real GPU draws it.
+
+| Item | Linux | Windows (Wine) | Notes |
+| --- | --- | --- | --- |
+| Compiles; GBA ROM unchanged | Yes | Yes | ROM sha256 `f214735b...3387`. |
+| Launches into the 3D overworld | Yes | Yes | |
+| Visually renders: Route 101, Oldale Town, Littleroot Town | Yes | Oldale Town | Voxel trees, buildings, ledges, grass, signs, flowers, map-name popup, neighbouring maps. |
+| Visually renders: interior (Oldale Pokémon Center 1F) | Yes | Yes | |
+| Player, NPCs, follower, visible wild Pokémon in 3D | Yes | Yes (player, NPCs) | Follower hidden during Poké Ball animation (KNOWN_ISSUES V1). |
+| Day/night tint in 3D | Seen | Seen | Evening tint under Wine; not compared against the 2D view. |
+| Walking, warps (door in/out), map connections in 3D | Yes | Yes (door out) | |
+| Wild battle in the Diorama build | Yes: started and fled in the classic view; 3D view correct afterwards | Not yet | Battle start while the 3D view is showing not exercised yet. |
+| Frame rate | 3-6 fps outdoors, 40-60 fps indoors (software GL) | Not measured | Real GPU unmeasured (KNOWN_ISSUES V3). |
+| 3DS-project features (buildings, relief, trees, shadows) | Not started | Not started | Milestone D4. |
+| Dual screen removed / single screen | Yes (renderer is single-screen) | Yes | |
+| Works in multiplayer | No | No | Needs the native bridge (Milestone C). |
 
 Automated native checks (engine `Makefile_pc`, see `TEST_PLAN.md`): `check-native`
 1057 checks pass; `check-abi` pass (Linux and Windows); `check-game-sections` pass
-(Linux and Windows); `check-decompress` 7469 assets pass (Linux).
+(Linux and Windows); `check-decompress` 7469 assets pass (Linux). Graphics branch:
+`check-diorama` passes (10 renderer unit-test programs, 18,318-metatile C/Python
+compositor goldens, rule validation, generated tables up to date); of the rule
+compiler's own Python tests 8 pass, `test_rules_parity` fails upstream as well
+(KNOWN_ISSUES V2) and `test_compile_rules` needs a rerun with more memory.
 
 ## Decision pending - owner to confirm: personal vs shared wild spawns
 
