@@ -1,5 +1,11 @@
 """Two or four actual cores using the authenticated battle execution service.
 
+``--mode coop`` runs a co-op Gym battle (native phase 4): two linked trainers
+against a Gym Leader and partner whose AI runs on the master core. The host
+issues it through the production co-op Gym world request after the two
+trainers form a team and stand on the same map; each game then runs its own
+reward or consolation script, which ordinary A presses dismiss.
+
 The production host executor routes authenticated participants' typed blocks
 and the production client journals own every mailbox mutation. This is not the
 player challenge UI or an Internet proof. Gameplay uses ordinary joypad
@@ -57,8 +63,9 @@ async def run(args):
         raise ValueError("this execution proof requires the exact ABI3 development ROM")
     if hashlib.sha256(args.elf.read_bytes()).hexdigest() != manifest["elf_sha256"]:
         raise ValueError("ELF does not match the native build manifest")
-    mode = 2 if getattr(args, "mode", "multi") == "singles" else 3
-    count = 2 if mode == 2 else 4
+    mode = {"singles": 2, "multi": 3, "coop": 4}[getattr(args, "mode", "multi")]
+    count = 4 if mode == 3 else 2
+    gym = getattr(args, "gym", 1)
     sources = [args.save_a, args.save_b]
     if mode == 3:
         if args.save_c is None or args.save_d is None:
@@ -80,7 +87,8 @@ async def run(args):
     (root/"controller.py").write_bytes(Path(__file__).read_bytes())
     bridge_source = args.bridge.read_text()
     (root/"bridge-source.lua").write_text(bridge_source)
-    kind = "two actual native singles cores" if mode == 2 else "four actual native full-party Multi cores"
+    kind = {2: "two actual native singles cores", 3: "four actual native full-party Multi cores",
+            4: f"two actual native co-op Gym cores (Gym {gym}: Leader and partner AI on the master)"}[mode]
     evidence = dict(scope=kind+" using authenticated consent/execution RPC, host-owned routing and persistent client command journals; no native menu, interrupted-battle recovery, Windows or Internet claim",
         mode=mode,
         engine_commit=manifest["engine_commit"], rom_sha256=manifest["rom_sha256"],
@@ -122,14 +130,17 @@ async def run(args):
     store = TradeCheckpointStore(root/"world.sqlite3", manifest["rom_sha256"], manifest["ruleset_id"])
     from emerald_multiplayer.battle_reservations import enable_battle_reservations
     enable_battle_reservations(store, root/"before-battle-reservations.sqlite3")
-    label = "Native Singles " if mode == 2 else "Native Multi "
+    label = {2: "Native Singles ", 3: "Native Multi ", 4: "Coop Gym "}[mode]
     identities = sorted([store.create_player(label+name) for name in "ABCD"[:count]], key=lambda p: p.player_id)
+    # The battler each core chooses for (co-op: slot 1 owns battler 2).
+    own_battler = [0, 2] if mode == 4 else list(range(count))
     for identity, payload in zip(identities, originals):
         store.enroll_player(identity.player_id, payload)
     (root/"profiles.json").write_text(json.dumps([dict(player_id=i.player_id,
         display_name=i.display_name, credential=i.credential.hex()) for i in identities], indent=2)+"\n")
     server = WorldServer(ServerConfig(manifest["rom_sha256"], manifest["ruleset_id"],
-        heartbeat_interval=.2, idle_timeout=12), store=store, development_trades=True, development_battles=True)
+        heartbeat_interval=.2, idle_timeout=12), store=store, development_trades=True, development_battles=True,
+        development_teams=mode == 4)
     server.enable_battle_execution(read_string_lengths(rom, table_address=symbols["gBattleStringsTable"][0]), root/"execution-host")
     execution_started = time.monotonic()
     server.battle_execution.observer = lambda block: evidence["blocks"].append(
@@ -217,7 +228,7 @@ async def run(args):
 
         pump.keys[i] = 0
         deadline = time.monotonic()+120
-        while validator.pending[i] == 21:
+        while validator.pending[own_battler[i]] == 21:
             if time.monotonic() >= deadline:
                 raise AssertionError(("ordinary party menu did not accept a usable Pokemon", i))
             active, cursor = await menu_state()
@@ -234,6 +245,18 @@ async def run(args):
             else:
                 await pump.advance(12)
         pump.keys[i] = 0
+
+    async def read_money(i):
+        """Diagnostic read: SaveBlock1.money XOR SaveBlock2.encryptionKey."""
+        sb1 = int.from_bytes(await cores[i].read(manifest["debug_save_block1_ptr_address"], 4), "little")
+        sb2 = int.from_bytes(await cores[i].read(manifest["debug_save_block2_ptr_address"], 4), "little")
+        raw = int.from_bytes(await cores[i].read(sb1 + 0x490, 4), "little")
+        key = int.from_bytes(await cores[i].read(sb2 + 0xAC, 4), "little")
+        return raw ^ key
+
+    async def read_wallet_seq(i):
+        sb1 = int.from_bytes(await cores[i].read(manifest["debug_save_block1_ptr_address"], 4), "little")
+        return int.from_bytes(await cores[i].read(sb1 + 0x139C + (0x40FE - 0x4000) * 2, 2), "little")
 
     async def native_state(i):
         core = cores[i]
@@ -273,12 +296,30 @@ async def run(args):
             flash_path = root/f"before-battle-{i}.flash"
             await cores[i].command(f"D {flash_path}")
             original_flash.append(flash_path.read_bytes())
-        number = "two" if mode == 2 else "four"
+        number = "four" if mode == 3 else "two"
         record(number+"-ordinary-Continue-and-canonical-owned-parties", counts=[r.party_count for r in rosters])
         desk = server.battle_desk
         if mode == 2:
             offer = (await companions[0].battle_challenge_rpc("invite",
                 peer=identities[1].player_id, battle_id=battle_id))["result"]
+        elif mode == 4:
+            # Production co-op path: a host-formed team on one map asks the host.
+            invitation = (await companions[0].team_rpc("invite", peer=identities[1].player_id,
+                invitation_id=str(uuid4())))["result"]
+            await companions[1].team_rpc("accept", invitation_id=invitation["invitation_id"],
+                generation=invitation["generation"])
+            for _ in range(200):
+                if all(c._world_teammate is not None for c in companions):
+                    break
+                await asyncio.sleep(.025)
+            else:
+                raise AssertionError("host-formed teammate did not reach both companions")
+            request = await companions[0].world_rpc("gym_coop", gym=gym)
+            battle_id = request["battle_id"]
+            offer = (await companions[0].battle_challenge_rpc("status", battle_id=battle_id))["result"]
+            assert offer["gym"] == gym and offer["players"][0] == identities[0].player_id
+            record("host-issued-coop-gym-challenge-for-same-map-teammates", gym=gym, battle_id=battle_id,
+                notices=[c._world_notice for c in companions])
         else:
             offer = (await companions[0].battle_challenge_rpc("invite_multi",
                 teammate=identities[2].player_id,
@@ -286,6 +327,18 @@ async def run(args):
         assert offer["players"] == [identity.player_id for identity in identities]
         assert offer["mode"] == mode
         generation = offer["generation"]
+        money_before = None
+        if args.wager:
+            # Both trainers agree on the exact stake before the challenge is accepted.
+            if mode != 2:
+                raise ValueError("this proof wagers only on 1v1 battles")
+            money_before = [await read_money(i) for i in range(count)]
+            proposed = await companions[0].wager_rpc("wager_set", battle_id=battle_id, amount=args.wager)
+            accepted = await companions[1].wager_rpc("wager_accept", battle_id=battle_id, amount=args.wager)
+            assert proposed["money"] == money_before[0] and accepted["money"] == money_before[1], (proposed, accepted, money_before)
+            assert sorted(accepted["wager"]["accepted"]) == sorted(offer["players"])
+            record("exact-wager-proposed-and-accepted-from-canonical-money", amount=args.wager,
+                money=money_before, wager=accepted["wager"])
         for i in range(1, count):
             await companions[i].battle_challenge_rpc("accept", battle_id=battle_id,
                 generation=generation, fingerprint=offer["fingerprint"])
@@ -303,7 +356,7 @@ async def run(args):
                 if selection is not None and selection.done():
                     await selection
                     party_input[i] = None
-                if party_input[i] is None and validator.pending[i] == 21 and rosters[i].party_count > 1:
+                if party_input[i] is None and validator.pending[own_battler[i]] == 21 and rosters[i].party_count > 1:
                     party_input[i] = asyncio.create_task(drive_party_menu(i))
                 if party_input[i] is None:
                     pump.keys[i] = 1 if pump.frames//12 % 2 else 0
@@ -345,6 +398,58 @@ async def run(args):
             routed_blocks=len(evidence["blocks"]), selected_party_slots=selected_slots,
             execution_seconds=round(time.monotonic()-execution_started, 6))
         await pump.advance(120)
+        if args.wager:
+            outcome = state["outcome"]
+            players = offer["players"]
+            if outcome in (1, 2):
+                winner_id, loser_id = (players[0], players[1]) if outcome == 1 else (players[1], players[0])
+                winner = next(i for i, x in enumerate(identities) if x.player_id == winner_id)
+                loser = next(i for i, x in enumerate(identities) if x.player_id == loser_id)
+                stake = min(args.wager, money_before[loser])
+                wallet_deadline = time.monotonic() + 180
+                while time.monotonic() < wallet_deadline:
+                    rows = {i: server.wagers.pending_for(identities[i].player_id) for i in range(count)}
+                    if (rows[loser] and rows[loser][0]["applied"] is not None
+                            and rows[winner] and rows[winner][0]["applied"] is not None):
+                        break
+                    await pump.advance(30)
+                else:
+                    raise AssertionError(("wager wallet adjustments were not applied by both games",
+                        {i: server.wagers.pending_for(identities[i].player_id) for i in range(count)}))
+                money_after = [await read_money(i) for i in range(count)]
+                assert money_after[loser] == money_before[loser] - stake, (money_before, money_after)
+                assert money_after[winner] == money_before[winner] + stake, (money_before, money_after)
+                assert [await read_wallet_seq(i) for i in range(count)] == [1, 1]
+                await snapshot("03w-wager-wallet-applied")
+                # A repeated receipt (for example after a reconnect) never pays twice.
+                assert server.wagers.applied(loser_id, 1, stake) == []
+                assert [row["delta"] for row in server.wagers.pending_for(winner_id)] == [stake]
+                record("wager-stake-moved-exactly-once-by-each-game", outcome=outcome, stake=stake,
+                    money_before=money_before, money_after=money_after,
+                    wallet=[server.wagers.pending_for(identities[i].player_id) for i in range(count)])
+            else:
+                assert all(not server.wagers.pending_for(x.player_id) for x in identities)
+                record("drawn-wager-moved-no-money", outcome=outcome)
+        if mode == 4:
+            # Each game runs its own co-op result script on the calm field:
+            # prize money and the Gym's own victory script, or a consolation.
+            await snapshot("04a-coop-result-script")
+            settle_deadline = time.monotonic() + 120
+            dismissed = 0
+            while time.monotonic() < settle_deadline:
+                rows = [inspect_mailbox(await core.read(manifest["mailbox_address"], 128))[0] for core in cores]
+                if all(pose.activity == 1 for pose in rows) and dismissed >= 4:
+                    break
+                for i in range(count):
+                    pump.keys[i] = 1 if rows[i].activity != 1 else 0
+                await pump.advance(12)
+                pump.keys[:] = [0]*count
+                await pump.advance(24)
+                dismissed += 1
+            else:
+                raise AssertionError("co-op result scripts did not return both games to the field")
+            pump.keys[:] = [0]*count
+            await pump.advance(60)
         returned = await snapshot("04-independent-current-map-return")
         for before, after_row in zip(initial, returned):
             assert after_row["pose"]["activity"] == 1
@@ -452,7 +557,11 @@ def main():
         parser.add_argument("--"+name, type=Path, required=True)
     for name in ("save-c", "save-d"):
         parser.add_argument("--"+name, type=Path)
-    parser.add_argument("--mode", choices=("singles", "multi"), default="multi")
+    parser.add_argument("--mode", choices=("singles", "multi", "coop"), default="multi")
+    parser.add_argument("--wager", type=int, default=0,
+        help="1v1 only: both trainers stake this much money (100..100000)")
+    parser.add_argument("--gym", type=int, choices=range(1, 9), default=1,
+        help="co-op Gym (1 Rustboro .. 8 Sootopolis); both trainers must share a map")
     parser.add_argument("--bridge", type=Path, default=Path(__file__).parents[2]/"bridge/mgba.lua")
     parser.add_argument("--timeout", type=float, default=600)
     parser.add_argument("--require-full-parties", action="store_true",
