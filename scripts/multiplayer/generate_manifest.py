@@ -163,6 +163,13 @@ def generate(rom: Path, elf: Path, nm: str, engine_commit: str, *, trade_effect_
         manifest.update(battle_admission_cleanup_abi_version=1,
                         battle_admission_cleanup_abi_address=int(cleanup[0][0], 16))
         validate_battle_manifest(manifest, rom)
+    coop = re.findall(r"^([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+[Rr]\s+gMultiplayerBattleCoopAbiVersion$", symbols, re.M)
+    if coop:
+        from emerald_multiplayer.battle_manifest import validate_battle_manifest
+        if len(coop) != 1 or int(coop[0][1], 16) != 4 or not battle:
+            raise ValueError("co-op Gym battles require one four-byte marker and the native battle channel")
+        manifest.update(battle_coop_abi_version=1, battle_coop_abi_address=int(coop[0][0], 16))
+        validate_battle_manifest(manifest, rom)
     objects = re.findall(r"^([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+[BDbd]\s+gObjectEvents$", symbols, re.M)
     reset = re.findall(r"^([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+[Rr]\s+gMultiplayerResetAbiVersion$", symbols, re.M)
     reset_channel = re.findall(r"^([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+[BDbd]\s+gMultiplayerResetMailbox$", symbols, re.M)

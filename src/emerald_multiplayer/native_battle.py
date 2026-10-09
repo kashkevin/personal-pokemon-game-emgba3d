@@ -1,4 +1,4 @@
-"""ABI2 singles and ABI3 full-party Multi envelopes; ABI1 stays separate.
+"""ABI2 singles, ABI3 full-party Multi and co-op Gym envelopes; ABI1 stays separate.
 
 These codecs validate bounded transport envelopes. Complete startup blocks still
 need canonical-save comparison, and controller blocks need the stateful native
@@ -22,18 +22,36 @@ ABI_VERSION = 2
 PHASE = 2
 MULTI_ABI_VERSION = 3
 MULTI_PHASE = 3
+# Co-op Gym phase (ABI3 + the ROM's co-op marker): two trainers on one side
+# against a Gym Leader and partner run by the master core's AI.
+COOP_PHASE = 4
+COOP_GYM_COUNT = 8
 _U32 = 0xFFFFFFFF
 _PREPARE = struct.Struct("<IIII16sI")
 
 
 def player_count_for_phase(phase):
-    _integer(phase, PHASE, MULTI_PHASE, "native phase")
+    """Trainers (cores) in a native phase."""
+    _integer(phase, PHASE, COOP_PHASE, "native phase")
+    return 4 if phase == MULTI_PHASE else 2
+
+
+def battler_count_for_phase(phase):
+    """Battlers on the field: both double phases have four."""
+    _integer(phase, PHASE, COOP_PHASE, "native phase")
     return 2 if phase == PHASE else 4
+
+
+def battler_owner(phase, battler):
+    """The core supplying a battler's choices. Co-op: slot 0 runs both AI foes."""
+    if phase == COOP_PHASE:
+        return 1 if battler == 2 else 0
+    return battler
 
 
 def supports_native_phase(abi, phase):
     return (type(abi) is int and type(phase) is int
-            and ((abi == 2 and phase == 2) or (abi == 3 and phase in (2, 3))))
+            and ((abi == 2 and phase == 2) or (abi == 3 and phase in (2, 3, COOP_PHASE))))
 
 
 class Opcode(IntEnum):
@@ -111,9 +129,9 @@ class NativeBinding:
 
     @classmethod
     def unpack(cls, data):
-        if (type(data) is not bytes or len(data) != 116 or data[114] not in (PHASE, MULTI_PHASE)
+        if (type(data) is not bytes or len(data) != 116 or data[114] not in (PHASE, MULTI_PHASE, COOP_PHASE)
                 or data[115] not in (0, 1)):
-            raise BattleMailboxError("native binding requires exactly 116 phase2/3 bytes")
+            raise BattleMailboxError("native binding requires exactly 116 phase2/3/4 bytes")
         shape = BattleBinding.unpack(data[:114] + b"\x01\0")
         return cls(shape.generation, shape.players, shape.leases,
                    shape.incarnations, shape.local_slot, data[114], bool(data[115]))
@@ -135,6 +153,7 @@ class Preparation:
     trainer_id: int
     party_crc32: int
     rng: bytes
+    gym: int = 0  # co-op Gym index (1..8); zero for PvP phases
 
     def __post_init__(self):
         _integer(self.checkpoint_revision, 1, MAX_COUNTER, "checkpoint revision")
@@ -142,19 +161,20 @@ class Preparation:
             _integer(getattr(self, name), 0, _U32, name)
         if type(self.rng) is not bytes or len(self.rng) != 16 or not any(self.rng):
             raise BattleMailboxError("preparation needs one nonzero 16-byte issued RNG state")
+        _integer(self.gym, 0, COOP_GYM_COUNT, "co-op Gym")
 
     def pack(self):
         return _PREPARE.pack(self.checkpoint_revision, self.native_counter,
-                             self.trainer_id, self.party_crc32, self.rng, 0)
+                             self.trainer_id, self.party_crc32, self.rng, self.gym)
 
     @classmethod
     def unpack(cls, data):
         if type(data) is not bytes or len(data) != 36:
             raise BattleMailboxError("native preparation needs exactly 36 bytes")
         revision, counter, trainer, crc, rng, flags = _PREPARE.unpack(data)
-        if flags:
-            raise BattleMailboxError("preparation flags are reserved")
-        return cls(revision, counter, trainer, crc, rng)
+        if flags > COOP_GYM_COUNT:
+            raise BattleMailboxError("preparation flags carry only a co-op Gym index")
+        return cls(revision, counter, trainer, crc, rng, flags)
 
 
 @dataclass(frozen=True)

@@ -44,10 +44,11 @@ ACTION_RESULT = 2
 ACTION_RELEASE = 3
 ACTION_APPEARANCE = 4  # the local state carries a newly saved trainer look
 ACTION_WALLET = 5      # the save applied wallet adjustment event_id moving `amount`
+ACTION_COOP_GYM = 6    # a Gym Leader script asks for a co-op battle; event_id = Gym 1..8
 ACTION_KINDS = {ACTION_CLAIM: "claim", ACTION_RESULT: "result", ACTION_RELEASE: "release",
-                ACTION_APPEARANCE: "appearance", ACTION_WALLET: "wallet"}
+                ACTION_APPEARANCE: "appearance", ACTION_WALLET: "wallet", ACTION_COOP_GYM: "coop_gym"}
 MAX_MONEY = 999_999
-WALLET_OFFSET = 180  # inbound: u32 wallet seq, s32 wallet delta
+WALLET_OFFSET = 180  # inbound: u32 wallet seq, s32 wallet delta, u32 teammate token
 
 RESULT_NAMES = {1: "caught", 2: "defeated", 3: "ran", 4: "lost", 5: "cancelled"}
 
@@ -131,7 +132,7 @@ class WorldAction:
 
     def __post_init__(self):
         _bound(self.seq, 0, _UINT32, "action seq")
-        _bound(self.kind, 0, ACTION_WALLET, "action kind")
+        _bound(self.kind, 0, ACTION_COOP_GYM, "action kind")
         _bound(self.result, 0, 5, "action result")
         _bound(self.species, 0, MAX_SPECIES, "action species")
         _bound(self.event_id, 0, _UINT32, "action event")
@@ -207,6 +208,7 @@ class WorldInbound:
     notice_text: str = ""
     wallet_seq: int = 0     # this player's next wallet adjustment (0 = none)
     wallet_delta: int = 0   # money to add (positive) or collect (negative)
+    teammate_token: int = 0  # peer token of the host-formed teammate (0 = none)
 
     def __post_init__(self):
         _bound(self.world_seconds, 0, _UINT32, "world seconds")
@@ -216,6 +218,9 @@ class WorldInbound:
         _bound(self.wallet_delta, -MAX_MONEY, MAX_MONEY, "wallet delta")
         if (self.wallet_seq == 0) != (self.wallet_delta == 0):
             raise WorldMailboxError("a wallet adjustment needs both a sequence and a nonzero delta")
+        _bound(self.teammate_token, 0, 4, "teammate token")
+        if self.teammate_token and self.teammate_token not in [token for token, _ in self.peers]:
+            raise WorldMailboxError("the teammate must be one of the published peers")
         _appearance(self.self_appearance)
         if not isinstance(self.peers, tuple) or len(self.peers) > 3:
             raise WorldMailboxError("at most three world peers")
@@ -232,7 +237,7 @@ class WorldInbound:
         data += self.event.pack()
         data += struct.pack("<I", self.notice_id) + _notice_bytes(self.notice_text)
         assert len(data) == WALLET_OFFSET
-        data += struct.pack("<Ii", self.wallet_seq, self.wallet_delta)
+        data += struct.pack("<IiI", self.wallet_seq, self.wallet_delta, self.teammate_token)
         data += bytes(WORLD_INBOUND_SIZE - len(data))
         assert len(data) == WORLD_INBOUND_SIZE
         return data

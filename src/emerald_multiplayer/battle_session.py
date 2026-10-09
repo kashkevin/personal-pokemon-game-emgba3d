@@ -275,7 +275,7 @@ class NativeBattleSession:
                         raise BattleJournalError("battle_intent_mismatch", "native command targets another battle")
                     if command.opcode == Opcode.PREPARE:
                         preparation = Preparation.unpack(command.data)
-                        if preparation != roster.preparation(preparation.rng):
+                        if preparation != roster.preparation(preparation.rng, challenge.get("gym", 0)):
                             raise BattleJournalError("canonical_head_mismatch", "native preparation changed the personal party")
                     self._command, self._dispatch_id, self._response = command, dispatch_id, None
                     self._persist()

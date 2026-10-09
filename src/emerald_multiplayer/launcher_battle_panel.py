@@ -282,11 +282,13 @@ class BattlePanel:
             names, actor = snapshot["roster"], snapshot["actor"]
             parties = {p["player_id"]: p["party_count"] for p in view["checkpoints"]}
             lines = []
+            coop = view["mode"] == 4  # both trainers together against a Gym Leader and partner
             for index, player in enumerate(view["players"]):
-                lines.append(f"Side {index % 2 + 1}: {names.get(player, 'Offline Trainer')}"
+                lines.append((f"Team: " if coop else f"Side {index % 2 + 1}: ") + names.get(player, 'Offline Trainer')
                     + (" (you)" if player == actor else "") + f" · {parties[player]} Pokémon · "
                     + ("accepted" if player in view["consent"] else "awaiting consent"))
-            self.details.set(("1v1" if view["mode"] == 2 else "2v2 full parties") + " · " + view["state"]
+            label = "Team Gym battle" if coop else ("1v1" if view["mode"] == 2 else "2v2 full parties")
+            self.details.set(label + " · " + view["state"]
                 + "\n" + "\n".join(lines) + "\n" + ("Everyone accepted: use the original game’s Players menu to Enter." if view["state"] == "accepted" else "Refresh to see new consent; no automatic polling."))
         else:
             self.details.set("No pending challenge. Review a connected opponent below."

@@ -1,4 +1,4 @@
-"""Stateful singles/full-party Multi admission for the pinned ARM layout.
+"""Stateful singles/full-party Multi/co-op Gym admission for the pinned ARM layout.
 
 This mirrors multiplayer_battle_controller.c. It permits no raw-memory, DMA,
 debug, capture, bag or XP dispatch. Values are compiler/source-derived from the
@@ -11,7 +11,7 @@ from pathlib import Path
 import struct
 
 from .battle_mailbox import BattleMailboxError, _integer
-from .native_battle import PHASE, MULTI_PHASE, player_count_for_phase
+from .native_battle import PHASE, battler_count_for_phase, battler_owner, player_count_for_phase
 
 MASTER_LENGTHS = {
     0: 4, 4: 4, 5: 4, 6: 2, 7: 4, 8: 4, 9: 4, 10: 4,
@@ -84,9 +84,14 @@ class ControllerValidator:
                        for value in string_lengths)):
             raise BattleMailboxError("controller validation needs the pinned ROM string lengths")
         self._string_lengths = string_lengths
-        self._count = player_count_for_phase(mode)
+        # Battler indices bound every header/message field; the cores that
+        # exchange blocks bound sources and completions. Co-op Gym battles have
+        # four battlers but two cores (the master owns both AI opponents).
+        self._count = battler_count_for_phase(mode)
+        self._cores = player_count_for_phase(mode)
         self._mode = mode
         self._mask = (1 << self._count)-1
+        self._done_mask = (1 << self._cores)-1
         self._pending = [None]*self._count
         self._done = [0]*self._count
         self._replied = [False]*self._count
@@ -150,7 +155,7 @@ class ControllerValidator:
 
     def _move_choice_valid(self, p):
         m = p[4:44]
-        return (p[1] == int(self._mode == MULTI_PHASE) and p[2] <= 1 and p[3] == 0 and _half(m, 16) < _SPECIES
+        return (p[1] == int(self._mode != PHASE) and p[2] <= 1 and p[3] == 0 and _half(m, 16) < _SPECIES
             and m[24] >> 2 <= 6
             and all(_half(m, i*2) < _MOVES and m[8+i] <= m[12+i]
                     and _half(m, 30+i*2) < _MOVES and not m[25+i] & ~15 for i in range(4))
@@ -203,7 +208,7 @@ class ControllerValidator:
 
     def validate(self, data, source):
         """Check a whole block without advancing pending requests/completions."""
-        _integer(source, 0, self._count-1, "authenticated controller source")
+        _integer(source, 0, self._cores-1, "authenticated controller source")
         if type(data) is not bytes or not 12 <= len(data) <= 156:
             raise BattleMailboxError("native controller block has an invalid byte length")
         role, battler, attacker, target, padded, absent, effect = struct.unpack_from("<BBBBHBB", data)
@@ -214,7 +219,7 @@ class ControllerValidator:
         if role == 2:
             valid = (padded == 8 and p[0] == source and not any(p[1:])
                 and pending is not None and not self._done[battler] & (1 << source)
-                and (source != battler or pending not in _NEEDS_REPLY or self._replied[battler]))
+                and (source != battler_owner(self._mode, battler) or pending not in _NEEDS_REPLY or self._replied[battler]))
         else:
             command = p[0]
             raw = (3+SET_FIELDS[p[1]] if command == 2 and p[1] in SET_FIELDS
@@ -224,7 +229,8 @@ class ControllerValidator:
             p = p[:raw]
             if role == 0:
                 valid = source == 0 and command not in REPLY_LENGTHS and pending is None and self._master_valid(p)
-            elif role == 1 and source == battler and pending is not None and not self._replied[battler]:
+            elif (role == 1 and source == battler_owner(self._mode, battler) and pending is not None
+                  and not self._replied[battler]):
                 if command == 28:
                     valid = pending == 0 and self._mon_valid(p)
                 elif command == 33:
@@ -250,6 +256,6 @@ class ControllerValidator:
             self._replied[battler] = True
         else:
             self._done[battler] |= 1 << source
-            if self._done[battler] == self._mask:
+            if self._done[battler] == self._done_mask:
                 self._pending[battler] = None
         return self

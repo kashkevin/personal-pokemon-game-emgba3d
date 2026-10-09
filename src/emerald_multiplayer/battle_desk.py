@@ -44,6 +44,7 @@ class _Battle:
     fingerprint: str
     deadline: float
     mode: int = 2
+    gym: int = 0  # co-op Gym index (mode 4 only)
     resumable: bool = False
     lease_lineage: tuple = ()
     renewal_digest: str | None = None
@@ -216,7 +217,9 @@ class BattleDesk:
 
     @staticmethod
     def _view(battle):
-        view = dict(scope="session-local-native-singles-development" if battle.mode == 2 else "session-local-native-full-multi-development", battle_id=battle.battle_id,
+        scope = {2: "session-local-native-singles-development", 3: "session-local-native-full-multi-development",
+                 4: "session-local-native-coop-gym"}[battle.mode]
+        view = dict(scope=scope, battle_id=battle.battle_id,
             generation=battle.generation, sender=battle.sender, state=battle.state, reason=battle.reason,
             players=list(battle.players), fingerprint=battle.fingerprint,
             consent=sorted(battle.consent), bound=sorted(battle.bound),
@@ -230,6 +233,9 @@ class BattleDesk:
                 for r in battle.roster])
         if battle.mode == 3:
             view.update(mode=3, teams=[list(battle.players[::2]), list(battle.players[1::2])])
+        elif battle.mode == 4:
+            # Both trainers share one side against the Gym's two AI trainers.
+            view.update(mode=4, gym=battle.gym, teams=[list(battle.players)])
         return view
 
     def invite(self, actor, lease, peer, battle_id):
@@ -256,11 +262,26 @@ class BattleDesk:
         own, other = sorted((actor, teammate)), sorted(opponents)
         return self._invite(actor, lease, (own[0], other[0], own[1], other[1]), battle_id, mode=3)
 
-    def _invite(self, actor, lease, players, battle_id, *, mode):
+    def invite_coop(self, actor, lease, teammate, gym, battle_id):
+        """Two teammates against a Gym Leader and partner (both AI on slot 0).
+
+        The requesting trainer is slot 0, the master core that runs both AI
+        trainers. The teammate's consent is collected exactly like any other
+        native challenge; nothing is inherited from the team membership.
+        """
+        self._id(teammate, "teammate"); self._id(battle_id, "battle ID")
+        if actor == teammate:
+            raise BattleError("invalid_battle", "a co-op Gym battle needs two different trainers")
+        if type(gym) is not int or isinstance(gym, bool) or not 1 <= gym <= 8:
+            raise BattleError("invalid_battle", "unknown co-op Gym")
+        self._auth(actor, lease)
+        return self._invite(actor, lease, (actor, teammate), battle_id, mode=4, gym=gym)
+
+    def _invite(self, actor, lease, players, battle_id, *, mode, gym=0):
         self._auth(actor, lease); self.refresh()
         existing = self._active.get(battle_id) or self._history.get(battle_id)
         if existing is not None:
-            if existing.sender != actor or existing.players != players or existing.mode != mode:
+            if existing.sender != actor or existing.players != players or existing.mode != mode or existing.gym != gym:
                 raise BattleError("request_conflict", "battle ID belongs to another challenge")
             return self._view(existing)
         if self.results is not None and self.results.contains(battle_id):
@@ -294,11 +315,14 @@ class BattleDesk:
             raise BattleError("rng_unavailable", "could not issue a nonzero native battle RNG state")
         material = [self.store.metadata.world_id, battle_id, generation,
             [[p, l, r.revision, r.checkpoint_sha256] for p, l, r in zip(players, leases, roster)], rng.hex()]
-        domain = b"EM-NATIVE-SINGLES-CONSENT-1\0" if mode == 2 else b"EM-NATIVE-FULL-MULTI-CONSENT-1\0"
+        if mode == 4:
+            material.append(gym)  # consent names the exact Gym (Leader and partner)
+        domain = {2: b"EM-NATIVE-SINGLES-CONSENT-1\0", 3: b"EM-NATIVE-FULL-MULTI-CONSENT-1\0",
+                  4: b"EM-NATIVE-COOP-GYM-CONSENT-1\0"}[mode]
         fingerprint = hashlib.sha256(domain +
             json.dumps(material, separators=(",", ":")).encode("ascii")).hexdigest()
         battle = _Battle(battle_id, generation, actor, players, tuple(leases),
-            tuple(roster), rng, fingerprint, self._now()+self.timeout, mode=mode, consent={actor})
+            tuple(roster), rng, fingerprint, self._now()+self.timeout, mode=mode, gym=gym, consent={actor})
         self._active[battle_id] = battle
         return self._view(battle)
 
@@ -369,7 +393,7 @@ class BattleDesk:
         battle = self._get(actor, lease, battle_id, generation)
         if actor not in battle.bound or battle.state not in ("accepted", "prepared"):
             raise BattleError("battle_state", "native binding must be acknowledged before preparation")
-        return battle.roster[battle.players.index(actor)].preparation(battle.rng)
+        return battle.roster[battle.players.index(actor)].preparation(battle.rng, battle.gym)
 
     def _receipt(self, battle, actor, request, response, opcode, *, once=True):
         try:
@@ -455,7 +479,7 @@ class BattleDesk:
         descriptor = battle.roster[battle.players.index(actor)]
         try:
             descriptor.verify_startup(Kind.TRAINER, trainer)
-            if request.data != descriptor.preparation(battle.rng).pack():
+            if request.data != descriptor.preparation(battle.rng, battle.gym).pack():
                 raise BattleMailboxError("native preparation changes the canonical checkpoint or issued RNG")
         except BattleMailboxError as error:
             if not duplicate:
@@ -637,7 +661,9 @@ class BattleDesk:
 
     def _publish_closed(self, battle, actor, request, response):
         """Shared durable publication after live or exact replay validation."""
-        if self.results is not None:
+        # The archive holds PvP results (player cards, Championships). A co-op
+        # Gym battle is PvE: its closure is the reservation's durable record.
+        if self.results is not None and battle.mode != 4:
             view = self._view(battle)
             summary = {key: view[key] for key in ("battle_id", "generation", "sender", "players",
                 "fingerprint", "outcome", "checkpoints")}

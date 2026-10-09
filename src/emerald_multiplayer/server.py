@@ -17,6 +17,7 @@ import hashlib
 import math
 import time
 from typing import Any, TYPE_CHECKING
+from uuid import uuid4
 
 from .battle_desk import BattleDesk, BattleError
 from .shared_world_protocol import WORLD_TYPES, validate_world_request
@@ -1144,14 +1145,16 @@ class WorldServer:
                 "notice": world.notice_view()}
         self._last_clock_broadcast = asyncio.get_running_loop().time()
         for session in tuple(self.sessions.values()):
-            # Each game receives only its own next wallet adjustment (wagers).
+            # Each game receives only its own next wallet adjustment (wagers)
+            # and its own host-formed teammate (co-op Gym offers).
             wallet = None
             if session.presence is not None:
                 try:
                     wallet = self.wagers.next_adjustment(session.player_id, session.presence.get("wallet_seq"))
                 except Exception:  # noqa: BLE001 - money waits; the world view still flows
                     wallet = None
-            session.outbox.put_world(encode_message({**base, "wallet": wallet}))
+            session.outbox.put_world(encode_message({**base, "wallet": wallet,
+                                                     "teammate": self._teammate(session.player_id)}))
 
     def _progression_level(self) -> int:
         """Average of each connected player's strongest party level."""
@@ -1189,6 +1192,9 @@ class WorldServer:
             if kind.startswith("wager_"):
                 self._world_reply(session, request, result=self._wager_request(session, request))
                 return
+            if kind == "gym_coop":
+                self._world_reply(session, request, result=self._gym_coop_request(session, request["gym"]))
+                return
             if kind == "wallet_applied":
                 credits = self.wagers.applied(session.player_id, request["seq"], request["amount"])
                 self._world_reply(session, request, result={"seq": request["seq"]})
@@ -1222,6 +1228,57 @@ class WorldServer:
         except (SharedWorldError, WagerError) as error:
             self._world_reply(session, request, error=error)
 
+    # ------------------------------------------------------------- co-op Gyms
+    _GYM_LEADERS = {1: "ROXANNE", 2: "BRAWLY", 3: "WATTSON", 4: "FLANNERY", 5: "NORMAN",
+                    6: "WINONA", 7: "TATE&LIZA", 8: "JUAN"}
+
+    def _teammate(self, player_id) -> str | None:
+        """This player's connected host-formed teammate, if any."""
+        desk = self.team_desk
+        if desk is None:
+            return None
+        try:
+            desk.refresh()
+            team = desk._team_for(player_id)
+        except Exception:  # noqa: BLE001 - team display is advisory
+            return None
+        if team is None:
+            return None
+        mate = next((member for member in team.members if member != player_id), None)
+        session = self.sessions.get(mate) if mate is not None else None
+        return mate if session is not None and not session.closed else None
+
+    def _gym_coop_request(self, session, gym) -> dict:
+        """A Gym script asked to challenge the Leader with this player's teammate."""
+        from .shared_world import SharedWorldError, _banner
+        actor = session.player_id
+
+        def refuse(code, message, hint):
+            self.shared_world.post_notice(_banner("TEAM GYM CHALLENGE", hint), to=[actor])
+            self._broadcast_world()
+            raise SharedWorldError(code, message)
+
+        if self.battle_desk is None:
+            refuse("battle_disabled", "battles are not enabled on this host", "Battles are off on this host")
+        teammate = self._teammate(actor)
+        if teammate is None:
+            refuse("no_teammate", "form a team in the Players menu first", "Form a team in PLAYERS first")
+        here, there = session.presence, self.sessions[teammate].presence
+        if (here is None or there is None or there.get("activity") == "unavailable"
+                or (here["map_group"], here["map_number"]) != (there["map_group"], there["map_number"])):
+            refuse("teammate_away", "your teammate must be in this Gym", "Your teammate must be here")
+        try:
+            self._assert_battle_available(actor, teammate)
+            view = self.battle_desk.invite_coop(actor, session.session_epoch, teammate, gym, str(uuid4()))
+        except (BattleError, StorageError, ProtocolError) as error:
+            refuse(error.code, error.message, "Finish other battles first")
+        leader = self._GYM_LEADERS.get(gym, "the LEADER")
+        name = self._player_name(actor).upper()[:10]
+        self.shared_world.post_notice(_banner(f"TEAM GYM vs {leader}!", f"{name}: open PLAYERS to join"), to=[teammate])
+        self.shared_world.post_notice(_banner(f"TEAM GYM vs {leader}!", "Open PLAYERS > Challenges"), to=[actor])
+        self._broadcast_world()
+        return {"battle_id": view["battle_id"]}
+
     # ---------------------------------------------------------------- wagers
     def _money(self, player_id) -> int | None:
         """Money in a connected player's canonical checkpoint (the same frozen
@@ -1252,6 +1309,8 @@ class WorldServer:
             raise WagerError("no_battle", "that challenge is no longer pending")
         if self._championships is not None and self._championships.claims_battle(battle.battle_id):
             raise WagerError("championship_match", "Championship matches have no wagers")
+        if battle.mode == 4:
+            raise WagerError("coop_gym", "Gym battles together have no wagers")
         battle_id, players = battle.battle_id, list(battle.players)
         open_states = ("invited", "accepted", "prepared")
         if kind != "wager_get" and battle.state not in open_states:
@@ -1364,7 +1423,10 @@ class WorldServer:
                 pass
         championship = self._championships is not None and self._championships.claims_battle(battle.battle_id)
         changes = []
-        if battle.mode == 3:
+        if battle.mode == 4:
+            # A co-op Gym battle: completing a Gym together (won or not).
+            changes.append(self.friendships.record_pair("gym_together", players[0], players[1], battle.battle_id))
+        elif battle.mode == 3:
             teams = (players[::2], players[1::2])
             for team in teams:
                 changes.append(self.friendships.record_pair("battle_together", team[0], team[1], battle.battle_id))

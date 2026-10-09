@@ -139,22 +139,31 @@ def _digest(value):
 def challenge_view(view):
     """Expose consent and canonical counts; never native RNG or save bytes."""
     mode = view.get("mode", 2)
-    return dict(scope=SCOPE, battle_id=view["battle_id"], generation=view["generation"],
+    result = dict(scope=SCOPE, battle_id=view["battle_id"], generation=view["generation"],
         sender=view["sender"], mode=mode, state=view["state"], reason=view["reason"],
         players=list(view["players"]), fingerprint=view["fingerprint"],
         consent=list(view["consent"]), outcome=view["outcome"],
         checkpoints=[dict(cp) for cp in view["checkpoints"]])
+    if mode == 4:
+        result["gym"] = view["gym"]  # co-op Gym: which Leader and partner
+    return result
 
 
 def _view(value, actor):
+    if type(value) is not dict:
+        raise ProtocolError("invalid_server_message", "invalid battle challenge")
+    coop = value.get("mode") == 4
     _fields(value, {"scope", "battle_id", "generation", "sender", "mode", "state",
-                    "reason", "players", "fingerprint", "consent", "outcome", "checkpoints"})
+                    "reason", "players", "fingerprint", "consent", "outcome", "checkpoints"}
+            | ({"gym"} if coop else set()))
     for key in ("battle_id", "generation", "sender"):
         _uuid(value[key], key)
     _digest(value["fingerprint"])
-    if value["scope"] != SCOPE or type(value["mode"]) is not int or value["mode"] not in (2, 3):
+    if value["scope"] != SCOPE or type(value["mode"]) is not int or value["mode"] not in (2, 3, 4):
         raise ProtocolError("invalid_server_message", "unsupported battle challenge format")
-    count = 2 if value["mode"] == 2 else 4
+    if coop:
+        _integer(value["gym"], "co-op Gym", 1, 8)
+    count = 4 if value["mode"] == 3 else 2
     players = value["players"]
     if type(players) is not list or len(players) != count:
         raise ProtocolError("invalid_server_message", "incorrect battle participant count")

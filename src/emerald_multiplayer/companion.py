@@ -330,13 +330,15 @@ def validate_welcome(message: dict[str, Any], config: CompanionConfig) -> dict[s
 
 
 def validate_world(message: dict[str, Any], config: CompanionConfig, session_epoch: int) -> list[dict[str, Any]]:
-    _fields(message, {"type", "protocol", "world_seq", "players", "clock", "event", "notice", "wallet"}, "world")
+    _fields(message, {"type", "protocol", "world_seq", "players", "clock", "event", "notice", "wallet", "teammate"},
+            "world")
     from .shared_world_protocol import (validate_clock, validate_event, validate_notice, validate_appearance_hex,
-                                        validate_wallet)
+                                        validate_teammate, validate_wallet)
     validate_clock(message["clock"])
     validate_event(message["event"])
     validate_notice(message["notice"])
     validate_wallet(message["wallet"])
+    validate_teammate(message["teammate"])
     _integer(message["world_seq"], 1, MAX_COUNTER, "world_seq")
     players = message["players"]
     if not isinstance(players, list) or not 1 <= len(players) <= MAX_PLAYERS:
@@ -440,6 +442,7 @@ class Companion:
         self._world_event: dict | None = None
         self._world_notice: dict | None = None
         self._world_wallet: dict | None = None
+        self._world_teammate: str | None = None
         self._world_pending: dict[str, tuple[dict, asyncio.Future]] = {}
 
     @property
@@ -534,10 +537,14 @@ class Companion:
         if notice is not None and (notice["to"] is None or self.config.player_id in notice["to"]):
             notice_id, notice_text = notice["id"], notice["text"]
         wallet = self._world_wallet or {"seq": 0, "delta": 0}
+        # The teammate is published as its ordinary peer token (EMP1 index+1).
+        teammate = next((index + 1 for index, player in enumerate(self._players)
+                         if player["player_id"] == self._world_teammate
+                         and player["player_id"] != self.config.player_id and player["presence"] is not None), 0)
         return WorldInbound(clock_valid=clock is not None, events_enabled=True, world_seconds=seconds & 0xFFFFFFFF,
                             action_ack=self._world_action_ack, self_appearance=appearance, peers=tuple(peers),
                             event=event, notice_id=notice_id, notice_text=notice_text,
-                            wallet_seq=wallet["seq"], wallet_delta=wallet["delta"])
+                            wallet_seq=wallet["seq"], wallet_delta=wallet["delta"], teammate_token=teammate)
 
     async def _snapshot_loop(self) -> None:
         while True:
@@ -1049,6 +1056,7 @@ class Companion:
                 future.set_exception(ConnectionError("shared-world request lost its host connection"))
         self._world_pending.clear()
         self._world_clock = self._world_event = self._world_notice = self._world_wallet = None
+        self._world_teammate = None
         self._players = []
         self._peer_history.clear()
         self._roster_signature = None
@@ -1545,6 +1553,7 @@ class Companion:
         self._world_clock_time = asyncio.get_running_loop().time()
         self._world_event = message["event"]
         self._world_wallet = message["wallet"]
+        self._world_teammate = message["teammate"]
         if message["notice"] is not None:
             self._world_notice = message["notice"]
         self._publish_snapshot()
@@ -1558,6 +1567,9 @@ class Companion:
             return
         if kind == "wallet":
             self._spawn_wallet_receipt(action)
+            return
+        if kind == "coop_gym":
+            self._spawn_coop_gym_request(action)
             return
         if kind is None or action.event_id == 0:
             self._world_action_ack = action.seq
@@ -1615,6 +1627,24 @@ class Companion:
                 self._publish_snapshot()
 
         task = asyncio.create_task(run(), name="companion-wallet-receipt")
+        self._ipc_handlers.add(task)
+        task.add_done_callback(self._ipc_handlers.discard)
+
+    def _spawn_coop_gym_request(self, action) -> None:
+        """A Gym Leader script asked the host for a co-op Gym challenge."""
+        gym = action.event_id
+
+        async def run():
+            try:
+                if 1 <= gym <= 8:
+                    await self.world_rpc("gym_coop", gym=gym)
+            except Exception:  # noqa: BLE001 - the host posts its own refusal banner
+                pass
+            finally:
+                self._world_action_ack = action.seq
+                self._publish_snapshot()
+
+        task = asyncio.create_task(run(), name="companion-coop-gym")
         self._ipc_handlers.add(task)
         task.add_done_callback(self._ipc_handlers.discard)
 

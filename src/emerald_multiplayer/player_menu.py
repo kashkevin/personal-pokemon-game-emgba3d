@@ -15,6 +15,8 @@ from .companion import TeamError, BattleChallengeError, TradeError
 
 
 WAGER_CHOICES = (1_000, 5_000, 10_000, 25_000, 50_000, 100_000)
+GYM_LEADERS = {1: "Roxanne", 2: "Brawly", 3: "Wattson", 4: "Flannery", 5: "Norman",
+               6: "Winona", 7: "Tate&Liza", 8: "Juan"}
 _OPEN_BATTLE_STATES = ("invited", "accepted", "prepared")
 
 
@@ -316,10 +318,11 @@ class PlayerMenu:
             title = "Challenges"
             if self._battles:
                 battle = self._battles[0]
-                title = "1v1 challenge" if battle["mode"] == 2 else "2v2 full-party challenge"
+                title = {2: "1v1 challenge", 3: "2v2 full-party challenge",
+                         4: "Team Gym vs " + GYM_LEADERS.get(battle.get("gym"), "Leader")}.get(battle["mode"], "Challenge")
                 status = self._notice or f"Accepted: {len(battle['consent'])}/{len(battle['players'])}"
                 parties = {cp["player_id"]: cp["party_count"] for cp in battle["checkpoints"]}
-                if battle["mode"] == 2:
+                if battle["mode"] in (2, 4):
                     for cp in battle["checkpoints"]:
                         actions.append((f"{self._name(cp['player_id'])[:18]} ({cp['party_count']})", "", ()))
                 else:

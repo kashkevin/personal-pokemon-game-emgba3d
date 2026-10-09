@@ -268,10 +268,12 @@ local function validWorldInbound(payload)
     -- notice: id at 113, 64 printable characters (a "|" breaks the banner line)
     if not printableNotice(payload:sub(117, 180)) then return false end
     -- wager wallet adjustment: u32 sequence and s32 money delta
-    local walletSeq, walletDelta = string.unpack("<I4i4", payload, 181)
+    local walletSeq, walletDelta, teammate = string.unpack("<I4i4I4", payload, 181)
     if walletSeq > 0xFFFF or walletDelta > 999999 or walletDelta < -999999
         or (walletSeq == 0) ~= (walletDelta == 0) then return false end
-    return payload:sub(189) == string.rep("\0", 20)
+    -- co-op Gym teammate: zero or one of the published peer tokens
+    if teammate ~= 0 and not seen[teammate] then return false end
+    return payload:sub(193) == string.rep("\0", 16)
 end
 
 local function commitWorld(payload)

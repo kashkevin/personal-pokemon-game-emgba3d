@@ -11,7 +11,7 @@ import zlib
 
 from .battle_mailbox import BattleMailboxError, _integer, _uuid
 from .flash import SAVED_PARTY_OFFSET, inspect_flash
-from .native_battle import Kind, Preparation, PHASE, player_count_for_phase
+from .native_battle import Kind, Preparation, PHASE, MULTI_PHASE, player_count_for_phase
 from .ownership import OWNERSHIP_PROFILE, inspect_ownership
 from .protocol import MAX_COUNTER
 from .storage import Checkpoint
@@ -88,14 +88,17 @@ class CanonicalBattler:
         struct.pack_into("<HHI", trainer, 0, 0x4003, 0, metadata.trainer_id)
         trainer[8:16] = snapshot.save_block2[:8]
         trainer[19] = metadata.gender
-        struct.pack_into("<IHH", trainer, 20, 0x2211 if mode == PHASE else 0x2255, source_slot, 2)
+        # LINKTYPE_MULTI_BATTLE only for four linked trainers; singles and
+        # co-op Gym battles (two linked trainers) use LINKTYPE_BATTLE.
+        struct.pack_into("<IHH", trainer, 20, 0x2255 if mode == MULTI_PHASE else 0x2211, source_slot, 2)
         return cls(world_id, checkpoint.player_id, checkpoint.revision, checkpoint.sha256,
             source_slot, metadata.counter, metadata.trainer_id, metadata.party_count,
             zlib.crc32(party), party, bytes(trainer), mode)
 
-    def preparation(self, rng):
+    def preparation(self, rng, gym=0):
+        """``gym`` is the co-op Gym index for phase 4 (zero otherwise)."""
         return Preparation(self.revision, self.native_counter, self.trainer_id,
-                           self.party_crc32, rng)
+                           self.party_crc32, rng, gym)
 
     def verify_startup(self, kind, data):
         """Compare a complete trainer/party block, including unused party tails.

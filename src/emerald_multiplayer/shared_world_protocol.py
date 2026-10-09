@@ -8,7 +8,8 @@ from typing import Any
 from .protocol import MAX_COUNTER, ProtocolError
 
 WORLD_TYPES = frozenset({"world_action", "appearance_get", "appearance_set", "friendship_get",
-                         "wager_get", "wager_set", "wager_accept", "wager_decline", "wallet_applied"})
+                         "wager_get", "wager_set", "wager_accept", "wager_decline", "wallet_applied",
+                         "gym_coop"})
 ACTIONS = frozenset({"claim", "result", "release"})
 RESULTS = frozenset({"caught", "defeated", "ran", "lost", "cancelled"})
 _HEX16 = re.compile(r"[0-9a-f]{16}\Z")
@@ -91,6 +92,13 @@ def validate_wallet(value: Any) -> dict | None:
     return value
 
 
+def validate_teammate(value: Any) -> str | None:
+    """This player's connected host-formed teammate (per-player world field)."""
+    if value is None:
+        return None
+    return _uuid(value, "teammate")
+
+
 def validate_appearance_hex(value: Any) -> str | None:
     if value is None:
         return None
@@ -137,6 +145,10 @@ def validate_world_request(message: Any, session_epoch: int) -> dict:
             raise ProtocolError("invalid_fields", "wager request has unexpected fields")
         _uuid(message["battle_id"], "battle_id")
         _int(message["amount"], "wager amount", 0, 999_999)
+    elif kind == "gym_coop":
+        if set(message) != {"type", "session_epoch", "request_id", "gym"}:
+            raise ProtocolError("invalid_fields", "co-op Gym request has unexpected fields")
+        _int(message["gym"], "co-op Gym", 1, 8)
     elif kind == "wallet_applied":
         if set(message) != {"type", "session_epoch", "request_id", "seq", "amount"}:
             raise ProtocolError("invalid_fields", "wallet receipt has unexpected fields")

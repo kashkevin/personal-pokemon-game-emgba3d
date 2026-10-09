@@ -19,7 +19,7 @@ from .battle_roster import CanonicalBattler
 from .battle_session import BattleCompletion, RenewedBattleSession
 from .checkpoint_client import CheckpointClient
 from .live_checkpoint import _atomic, _json_bytes, _sync_directory
-from .native_battle import NativeBinding, NativeQuery, Opcode, Preparation, supports_native_phase
+from .native_battle import COOP_PHASE, NativeBinding, NativeQuery, Opcode, Preparation, supports_native_phase
 from .native_battle_resume import ResumeAuthorization, ResumeQuery
 from .storage import Checkpoint
 
@@ -496,7 +496,9 @@ class NativeBattleRecoverySession:
                 command.validate_command(binding=self.binding, player_id=i.player_id)
             if command.opcode == Opcode.PREPARE:
                 preparation = Preparation.unpack(command.data)
-                if preparation != self.roster.preparation(preparation.rng):
+                # Only a co-op Gym binding carries a Gym index (fixed at consent).
+                gym = preparation.gym if self.binding is not None and self.binding.mode == COOP_PHASE else 0
+                if preparation != self.roster.preparation(preparation.rng, gym):
                     raise BattleJournalError("canonical_head_mismatch", "resumed native preparation changed the canonical party")
 
     async def _terminal(self, view):
