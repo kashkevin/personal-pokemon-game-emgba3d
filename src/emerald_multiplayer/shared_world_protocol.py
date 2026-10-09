@@ -67,7 +67,7 @@ def validate_notice(value: Any) -> dict | None:
         raise ProtocolError("invalid_server_message", "invalid world notice")
     _int(value["id"], "notice id", 1, MAX_COUNTER)
     text = value["text"]
-    if not isinstance(text, str) or len(text) > 48 or any(not 32 <= ord(c) < 127 for c in text):
+    if not isinstance(text, str) or len(text) > 64 or any(not 32 <= ord(c) < 127 for c in text):
         raise ProtocolError("invalid_server_message", "invalid world notice text")
     if value["to"] is not None:
         if type(value["to"]) is not list or len(value["to"]) > 4:

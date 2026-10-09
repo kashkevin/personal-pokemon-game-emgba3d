@@ -30,7 +30,9 @@ from .balance import BALANCE
 SCOPE = "shared-world-v1"
 APPEARANCE_RE = re.compile(r"[0-9a-f]{16}\Z")
 DEFAULT_APPEARANCE = "0000000000000000"
-NOTICE_CHARS = 48
+NOTICE_CHARS = 64  # two banner lines of at most 32 characters, joined by "|"
+LINE_CHARS = 32
+REMINDER_SECONDS = (600, 300, 60)
 _SCHEMA = (
     "CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
     "CREATE TABLE IF NOT EXISTS clock (id INTEGER PRIMARY KEY CHECK (id = 1), seconds INTEGER NOT NULL)",
@@ -51,6 +53,18 @@ class SharedWorldError(ValueError):
 
 def _ascii(text: str) -> str:
     return "".join(c if 32 <= ord(c) < 127 else " " for c in text)[:NOTICE_CHARS]
+
+
+def _banner(first: str, second: str = "") -> str:
+    """Two short lines for the in-game banner (the ROM breaks lines at "|")."""
+    first = _ascii(first).replace("|", " ")[:LINE_CHARS].rstrip()
+    second = _ascii(second).replace("|", " ")[:LINE_CHARS - 1].rstrip()
+    return first if not second else f"{first}|{second}"
+
+
+def _clock_text(seconds: float) -> str:
+    seconds = max(0, int(seconds))
+    return f"{seconds // 60}:{seconds % 60:02d}"
 
 
 @dataclass
@@ -223,12 +237,43 @@ class SharedWorld:
         }
 
     def _event_name(self, event: dict) -> str:
-        return event.get("name", "A rare Pokemon")
+        return event.get("name", "RARE POKEMON")
+
+    def _event_label(self, event: dict) -> str:
+        return ("SHINY " if event.get("shiny") else "") + self._event_name(event)
+
+    def _announce(self, event: dict, seconds_left: float) -> None:
+        label = self._event_label(event)
+        first = f"WORLD EVENT! {label}" if len(label) <= LINE_CHARS - 13 else f"{label} appeared!"
+        self.post_notice(_banner(first, f"near {event['place']}  {_clock_text(seconds_left)} left"))
+
+    def _choose_location(self, progression_level: int, types: list[str]) -> dict | None:
+        reachable = [loc for loc in self.locations if int(loc.get("min_level", 0)) <= progression_level]
+        if not reachable:
+            reachable = [loc for loc in self.locations if int(loc.get("min_level", 0)) == 0] or list(self.locations)
+        if not reachable:
+            return None
+        last = self._kv("last_place", "")
+        weights = []
+        for loc in reachable:
+            weight = 4.0 if set(types) & set(loc.get("themes", ())) else 1.0
+            if loc.get("name") == last and len({l.get("name") for l in reachable}) > 1:
+                weight *= 0.25  # rarely the same place twice in a row
+            weights.append(weight)
+        return self._rng.choices(reachable, weights)[0]
+
+    def _choose_stage(self, entry: dict, level: int) -> dict:
+        stages = entry.get("stages")
+        if not stages:
+            return entry
+        eligible = [stage for stage in stages if int(stage.get("min_level", 0)) <= level] or stages[:1]
+        best = max(int(stage.get("min_level", 0)) for stage in eligible)
+        return self._rng.choice([stage for stage in eligible if int(stage.get("min_level", 0)) == best])
 
     def spawn_event(self, *, progression_level: int, category: str | None = None) -> dict | None:
         """Create one World Event (used by the scheduler and by tests)."""
         catalogue = self.catalogue
-        if not self.locations or not catalogue.get("rare"):
+        if not self.locations:
             return None
         weights = BALANCE.event_category_weights
         if category is None:
@@ -239,28 +284,31 @@ class SharedWorld:
         pool = catalogue.get(category) or []
         if not pool:
             return None
-        entry = self._rng.choice(pool)
-        location = self._rng.choice(self.locations)
         legendary = category in ("legendary", "mythical", "mega_legendary")
         offset = BALANCE.event_level_offset_legendary if legendary else BALANCE.event_level_offset_rare
         level = max(BALANCE.event_level_min, min(BALANCE.event_level_max, progression_level + offset))
+        entry = self._rng.choice(pool)
+        stage = self._choose_stage(entry, level)
+        location = self._choose_location(progression_level, list(entry.get("types", ())))
+        if location is None:
+            return None
         shiny = self._rng.random() < BALANCE.event_shiny_chance
         event_id = int(self._kv("event_id", "0")) + 1
         with self._transaction():
             self._set_kv("event_id", str(event_id))
+            self._set_kv("last_place", location["name"])
         self._event = {
-            "event_id": event_id, "category": category, "species": entry["species"],
-            "name": entry["name"], "level": level, "shiny": shiny, "mega": bool(entry.get("mega")),
-            "held_item": entry.get("held_item", 0), "perfect_ivs": 3 if legendary else 1,
+            "event_id": event_id, "category": category, "species": stage["species"],
+            "name": stage["name"], "level": level, "shiny": shiny, "mega": bool(entry.get("mega")),
+            "held_item": int(entry.get("held_item", 0) or 0), "perfect_ivs": 3 if legendary else 1,
             "map_group": location["map_group"], "map_number": location["map_number"],
             "x": location["x"], "y": location["y"], "place": location["name"],
             "expires": self._now() + BALANCE.event_duration_seconds,
+            "reminded": [],
         }
         self._claim = None
         self._save_event("active")
-        minutes = BALANCE.event_duration_seconds // 60
-        label = ("SHINY " if shiny else "") + entry["name"].upper()
-        self.post_notice(f"EVENT! {label} near {location['name'].upper()} {minutes}:00")
+        self._announce(self._event, BALANCE.event_duration_seconds)
         return self.event_view()
 
     def tick_events(self, connected: int, progression: Callable[[], int]) -> bool:
@@ -268,12 +316,21 @@ class SharedWorld:
         now = self._now()
         changed = False
         if self._event is not None and now >= self._event["expires"]:
-            name = self._event_name(self._event)
+            label = self._event_label(self._event)
             self._save_event("expired")
             self._event, self._claim = None, None
-            self.post_notice(f"The {name} has disappeared...")
+            self.post_notice(_banner(f"The {label}", "has disappeared..."))
             self._next_event_at = now + self._rng.uniform(*BALANCE.event_interval)
             changed = True
+        if self._event is not None:
+            left = self._event["expires"] - now
+            reminded = self._event.setdefault("reminded", [])
+            for mark in REMINDER_SECONDS:
+                if left <= mark and mark not in reminded:
+                    reminded.append(mark)
+                    if left > mark - 30 and (self._claim is None or self._claim.get("released_at") is not None):
+                        self._announce(self._event, left)
+                        changed = True
         if self._claim is not None and self._claim.get("released_at") is not None and now >= self._claim["released_at"]:
             self._claim = None
             changed = True
@@ -283,6 +340,8 @@ class SharedWorld:
             self._next_event_at = now + self._rng.uniform(*BALANCE.event_interval)
         if now - self._last_persist >= 30:
             self.persist_clock()
+            if self._event is not None:
+                self._save_event("active")
         return changed
 
     def claim_event(self, player_id: str, event_id: int) -> str:
@@ -302,7 +361,8 @@ class SharedWorld:
             return "not_claimant"
         if result == "caught":
             self._save_event("caught", player_id)
-            self.post_notice(f"{display_name.upper()} caught the {event['name'].upper()}!")
+            name = _ascii(display_name).upper()[:16] or "A TRAINER"
+            self.post_notice(_banner(f"{name} caught the", self._event_label(event) + "!"))
             self._event, self._claim = None, None
             self._next_event_at = self._now() + self._rng.uniform(*BALANCE.event_interval)
             return "consumed"
@@ -316,7 +376,8 @@ class SharedWorld:
 
 def load_event_catalogue() -> dict:
     """Event species and locations generated from the pinned engine data."""
-    path = Path(__file__).with_name("data") / "world_events.json"
-    if not path.is_file():
+    try:
+        from .world_event_catalogue import CATALOGUE
+    except ImportError:  # a development checkout without the generated module
         return {}
-    return json.loads(path.read_text(encoding="utf-8"))
+    return CATALOGUE

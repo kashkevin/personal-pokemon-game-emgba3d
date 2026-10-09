@@ -265,8 +265,9 @@ local function validWorldInbound(payload)
     if level > 100 or eflags > 31 or perfect > 6 or species > 1700
         or payload:sub(e + 21, e + 31) ~= string.rep("\0", 11) then return false end
     if eventId == 0 and payload:sub(e, e + 31) ~= string.rep("\0", 32) then return false end
-    if not printableNotice(payload:sub(117, 164)) then return false end
-    return payload:sub(165) == string.rep("\0", 44)
+    -- notice: id at 113, 64 printable characters (a "|" breaks the banner line)
+    if not printableNotice(payload:sub(117, 180)) then return false end
+    return payload:sub(181) == string.rep("\0", 28)
 end
 
 local function commitWorld(payload)
