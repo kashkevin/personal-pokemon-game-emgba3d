@@ -27,6 +27,8 @@ Confirmed problems only. Severity: Blocker / High / Medium / Low.
 | N19 | Medium | Windows build: `RandomUniform` and three other functions are weak aliases, which MinGW does not resolve (link failure); `gTestRunnerEnabled` is weak data. | Link the .exe. | Fixed natively: plain functions/data (`src/random.c`, `src/test_runner_stub.c`). |
 | N20 | High | Windows (Wine): one crash during the intro after loading a save, in about ten launches; not reproduced since. Cause unknown. | Launch with a save; unknown trigger. | Open. `crash.log` reporter added (`src/platform/crash_report.c`); watch for a recurrence. |
 | N21 | Info | Title screen B+SELECT opens the Berry Program Update, which waits for a link cable forever natively, exactly as on a GBA with no cable attached. | Title screen, hold B+SELECT. | By design (vanilla); close the game to leave. |
+| N22 | Medium | Visible wild spawns: when no object had the new spawn's local id, `UpdateOverworldWildEncounter` used `gObjectEvents[OBJECT_EVENTS_COUNT]` (the memory after the array) and could pass it to `RemoveObjectEvent`, corrupting whatever follows (upstream expansion bug, also present in the GBA build). Found by AddressSanitizer. | Walk among visible wild Pokémon. | Fixed natively (`src/wild_encounter_ow.c`); GBA build unchanged (candidate fix for the emulator build). |
+| N23 | Low | Benign over-reads seen by AddressSanitizer: the quickstart HUD loads a 16-colour palette from a 6-colour array; the smol decoder reads one word past compressed data. Both read adjacent read-only data; output is unaffected (all 7469 assets decode correctly). | Title screen; any compressed graphic. | Accepted; revisit if a crash ever points there. |
 
 ## Emulator build and gameplay (from the 2026-10-09 audit)
 

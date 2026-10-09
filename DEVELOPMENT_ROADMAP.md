@@ -68,9 +68,9 @@ Milestone A is stable when A8-A14 are done (A9 and the owner's-PC part of A14 re
 
 - [x] K1 pytest: configured (`pytest.ini`, `conftest.py`, pinned venv); 1373 passed,
   1 skipped. Supports: all Python work. [dir]
-- [ ] K2 Sanitizers and static analysis for the native build: UBSan build in use
-  (found N13-N16); NULL trap in use; AddressSanitizer and clang static analysis not
-  set up yet. Supports: A, B. [dir]
+- [ ] K2 Sanitizers and static analysis for the native build: UBSan build (found
+  N13-N16), AddressSanitizer build (found N22) and the NULL trap are in use; clang
+  static analysis not set up yet. Supports: A, B. [dir]
 - [x] K3 Native C tests: `check-native` (1057 checks), `check-abi` (Linux and
   Windows), `check-game-sections`, `check-decompress` (7469 assets). Supports: A, B.
   [dir] [hand]

@@ -87,6 +87,7 @@ items). It runs the GBA build, which shares all game logic with the native build
 ```sh
 PKMN_NULL_TRAP=1 ./pokeemerald-mp --save test.sav          # logs NULL accesses to null_trap.log
 UBSAN_OPTIONS=print_stacktrace=1 ./pokeemerald-mp-san --save test.sav   # UB reports
+ASAN_OPTIONS=halt_on_error=0:detect_leaks=0:log_path=asan.log ./pokeemerald-mp-asan --save test.sav  # out-of-range access
 SDL_AUDIODRIVER=disk SDL_DISKAUDIOFILE=audio.raw ./pokeemerald-mp       # capture audio
 WINEDEBUG=-all wine pokeemerald-mp.exe --save test.sav     # Windows build (SDL2.dll beside it)
 ```
@@ -111,6 +112,9 @@ way gets a source fix and a row in `KNOWN_ISSUES.md`. A crash writes `crash.log`
 
 UBSan reports now come only from real findings; a false positive from the engine's
 `if_comptime` trick is avoided in the sanitizer build (`NATIVE_SANITIZE`).
+AddressSanitizer build (`make -f Makefile_pc NATIVE_LINUX=1 SANITIZE=address`,
+game and renderer code): first pass on 2026-10-09 (title, continue, party, summary,
+Bag, Pokédex, wild battle, run) found N22 and the benign N23 over-reads.
 
 ## 6. Multiplayer harness and network simulation (planned, Milestone C)
 
