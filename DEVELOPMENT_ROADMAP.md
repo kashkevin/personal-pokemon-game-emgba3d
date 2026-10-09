@@ -39,15 +39,22 @@ emulator, ending in a Windows .exe. Work so far is on Linux. [dir] [base] [mig]
 - [x] A6 Renders the intro, title screen, main menu, Professor Birch intro and naming
   screen. Needs: A5. [mig]
 - [x] A7 Audio produces non-silent samples. Needs: A5. [mig]
-- [ ] A8 Investigate and fix the intro logo that appeared corrupted. Needs: A6. [mig]
+- [x] A8 Investigate and fix the intro logo that appeared corrupted: the Linux build's
+  "fast draw" renderer has no 256-colour backgrounds; both targets now use "easy
+  draw". Decompression of all 7469 assets verified. Needs: A6. [mig]
 - [ ] A9 Listen to the audio (so far only the samples were checked). Needs: A7. [mig]
-- [ ] A10 Overworld runs natively. Needs: A6. [mig]
-- [ ] A11 Movement. Needs: A10. [mig]
-- [ ] A12 Saves: save and reload natively, in the GBA 128 KiB Flash format. Needs: A10.
-  [mig] [base]
-- [ ] A13 Battles. Needs: A10. [mig]
-- [ ] A14 Build the Windows .exe and repeat the A5-A13 checks on Windows. Needs: A4.
-  [dir] [mig]
+- [x] A10 Overworld runs natively (Linux and Windows under Wine). Needs: A6. [mig]
+- [x] A11 Movement (Linux and Windows under Wine). Needs: A10. [mig]
+- [x] A12 Saves: save and reload natively in the GBA 128 KiB Flash format; emulator
+  saves load (Linux and Windows under Wine). Needs: A10. [mig] [base]
+- [x] A13 Battles: wild battles with Fight, Bag, switch, Run (Linux); fight and win
+  (Windows under Wine). Trainer battles and Mega Evolution not run yet (B5). Needs:
+  A10. [mig]
+- [ ] A14 Build the Windows .exe and repeat the A5-A13 checks on Windows. Built, and
+  A5-A13 pass under Wine in the cloud workspace; still to do: run it on the owner's
+  PC (real GPU, sound, controller) and resolve or rule out KNOWN_ISSUES N20 (one
+  unexplained crash). Needs: A4. [dir] [mig]
+- [x] A17 In-process soft reset (the game's `DoSoftReset`), Linux and Windows.
 - [ ] A15 Licensing of the imported native platform layer (from
   ZallaxDev/pokeemerald-voxel-project): record it in `docs/dependency-ledger.md` (it is
   not there yet), and replace or properly license the GPL/MPL-derived `bios.c` code
@@ -55,18 +62,23 @@ emulator, ending in a Windows .exe. Work so far is on Linux. [dir] [base] [mig]
 - [ ] A16 Keep the emulator build working as the fallback until Milestone G passes.
   [dir] [base]
 
-Milestone A is stable when A8-A14 are done.
+Milestone A is stable when A8-A14 are done (A9 and the owner's-PC part of A14 remain).
 
 ## Development toolkit (being added alongside Milestone A)
 
-- [ ] K1 pytest. Supports: all Python work. [dir]
-- [ ] K2 Sanitizers and static analysis for the native build. Supports: A, B. [dir]
-- [ ] K3 Native C tests (the existing ones are in `tests/native/`). Supports: A, B.
+- [x] K1 pytest: configured (`pytest.ini`, `conftest.py`, pinned venv); 1373 passed,
+  1 skipped. Supports: all Python work. [dir]
+- [ ] K2 Sanitizers and static analysis for the native build: UBSan build in use
+  (found N13-N16); NULL trap in use; AddressSanitizer and clang static analysis not
+  set up yet. Supports: A, B. [dir]
+- [x] K3 Native C tests: `check-native` (1057 checks), `check-abi` (Linux and
+  Windows), `check-game-sections`, `check-decompress` (7469 assets). Supports: A, B.
   [dir] [hand]
 - [ ] K4 Multiplayer harness with application-level network simulation. Supports: C,
   G, step 7. [dir]
 - [ ] K5 Graphics benchmark scene. Supports: D, F. [dir]
-- [ ] K6 CI workflow files. Supports: all. [dir]
+- [ ] K6 CI workflow files: written (`.github/workflows/`), never run because neither
+  repository is hosted on GitHub. Supports: all. [dir]
 
 ## Owner decisions and records
 
@@ -74,8 +86,8 @@ Milestone A is stable when A8-A14 are done.
   earlier owner decision is personal spawns (as built); the newest directive lists
   shared, server-authoritative spawns. The audit asked for this before the migration.
   Blocks 9.13 and the spawn part of F1. [audit] [dir]
-- [ ] O2 Save the 2026-10-09 native PC directive verbatim as a `docs/project-*.txt`
-  file, as was done for every earlier amendment. [agents] [spec]
+- [x] O2 Save the 2026-10-09 native PC directive verbatim as a `docs/project-*.txt`
+  file (and the toolkit directive). [agents] [spec]
 - [ ] O3 `docs/balance-defaults.md` is cited by four source files but does not exist:
   create it or point those comments at `PROJECT_SPEC.md` section 7. [audit]
 - [ ] O4 Update `docs/master-spec.md`, `docs/visible-world-design.md` and

@@ -42,9 +42,38 @@ matches the GBA SFC32 sequence.
 make -f Makefile_pc NATIVE_LINUX=1 check-abi    # python3 tools/pc_port/abi_layout.py
 ```
 
-Compiles a probe for both targets and compares DWARF layouts of save blocks,
-Pokémon, storage, battle link packets, all companion mailboxes, and map/sound data
-built by assembler macros. **Result 2026-10-09**: 172 types, all match.
+Compiles a probe for the GBA, Linux i386 and Windows (MinGW, converted to ELF to
+read its DWARF) and compares the layouts of save blocks, Pokémon, storage, battle
+link packets, all companion mailboxes, and map/sound data built by assembler macros.
+The Windows build needs `-mno-ms-bitfields -mno-align-double` (MinGW otherwise uses
+the MSVC layout, which already fails the engine's own static asserts).
+**Result 2026-10-09**: 172 types, all match, on both Linux and Windows.
+
+## 3a. Soft-reset memory layout
+
+```sh
+make -f Makefile_pc NATIVE_LINUX=1 check-game-sections   # Linux
+make -f Makefile_pc SDL_DIR=... check-game-sections      # Windows
+```
+
+Fails if a game object keeps any writable section outside the memory that a soft
+reset restores, if a preserved platform object is inside it, or if (by `nm` on the
+linked program) a game global variable lies outside the restored range.
+**Result 2026-10-09**: Linux 953 objects, 7 preserved, 518 globals checked, pass;
+Windows 953 objects, 7 preserved, 521 globals checked, pass.
+
+## 3b. Compressed graphics decode natively
+
+```sh
+make -f Makefile_pc NATIVE_LINUX=1 check-decompress
+```
+
+Runs every compressed graphic in `build/assets` (`.smol`, `.fastSmol`, `.smolTM`)
+through the game's own decompressor inside the native binary, via both the WRAM and
+VRAM entry points, and compares it byte for byte with the uncompressed file the GBA
+build compressed it from (with an overrun guard).
+**Result 2026-10-09 (Linux)**: 7469 assets, 0 failures (a deliberately wrong
+reference is reported as a failure).
 
 ## 4. Game mechanics (expansion test suite)
 
@@ -53,26 +82,35 @@ built by assembler macros. **Result 2026-10-09**: 172 types, all match.
 items). It runs the GBA build, which shares all game logic with the native build.
 **Not run yet in this session** (scheduled for Milestone B).
 
-## 5. Native gameplay checks (manual/scripted, Linux under Xvfb)
+## 5. Native gameplay checks (scripted, Linux under Xvfb and Windows under Wine)
 
 ```sh
 PKMN_NULL_TRAP=1 ./pokeemerald-mp --save test.sav          # logs NULL accesses to null_trap.log
 UBSAN_OPTIONS=print_stacktrace=1 ./pokeemerald-mp-san --save test.sav   # UB reports
 SDL_AUDIODRIVER=disk SDL_DISKAUDIOFILE=audio.raw ./pokeemerald-mp       # capture audio
+WINEDEBUG=-all wine pokeemerald-mp.exe --save test.sav     # Windows build (SDL2.dll beside it)
 ```
 
-Driven with `xdotool` key events (helper scripts in the session scratch area). Every
-new native crash class found this way gets a source fix and a note in
-`KNOWN_ISSUES.md`.
+Driven with `xdotool` key events and screenshots (helper scripts in the session
+scratch area; under Wine the window must be given focus first). Emulator saves are
+always copies of the staged read-only inputs. Every new native crash class found this
+way gets a source fix and a row in `KNOWN_ISSUES.md`. A crash writes `crash.log`.
 
-| Check | Status 2026-10-09 |
-| --- | --- |
-| Launch, intro, title, main menu | Done (Linux) |
-| New game: Birch speech, gender, naming | Done; found and fixed NULL accesses and a shift-by-32 glyph bug |
-| Overworld, movement, menus | Not yet |
-| Save, quit, continue; load an emulator `.sav` | Not yet |
-| Wild and trainer battles, Mega Evolution | Not yet |
-| Windows `.exe` (Wine here, then the owner's PC) | Not yet |
+| Check | Linux | Windows (Wine) |
+| --- | --- | --- |
+| Launch, intro, title, main menu | Pass | Pass |
+| New game: Birch speech, gender, naming, into the truck | Pass (after N9, N10) | Pass |
+| Overworld, movement, start menu | Pass | Pass |
+| Party menu, summary pages, Bag pockets, Pokédex (list, entry, area, cry, size) | Pass under UBSan (after N13-N16) | Not run |
+| Save, quit, continue | Pass | Pass |
+| Emulator `.sav` (mGBA) loads; native save over a copy reloads | Pass | Load and play: pass |
+| Wild battle: Fight, Bag, switch, Run, win | Pass | Fight and win: pass |
+| Soft reset (clear-save screen, answer NO) | Pass; save unchanged | Pass; save unchanged |
+| Trainer battle, Mega Evolution, evolution, PC storage | Not run | Not run |
+| Controller, real audio device, owner's PC | Not run | Not run |
+
+UBSan reports now come only from real findings; a false positive from the engine's
+`if_comptime` trick is avoided in the sanitizer build (`NATIVE_SANITIZE`).
 
 ## 6. Multiplayer harness and network simulation (planned, Milestone C)
 

@@ -61,9 +61,24 @@ build (fallback) and the native PC build being migrated to. Requirements are in
   verified by `tools/pc_port/abi_layout.py`. Existing `.sav` files load unchanged.
 * **Saves**: the same 128 KiB flash image, held in memory and written atomically
   (temp file + rename) at frame boundaries after any flash write; path via `--save`.
-* **Soft reset** (in progress): game globals are grouped into dedicated sections so
-  a reset restores them in-process while the window, audio device, save image and
-  multiplayer bridge survive, matching what the GBA cartridge keeps.
+  Emulator `.sav` files load unchanged (the trailing mGBA RTC block is ignored).
+* **Soft reset**: every game object's `.data`/`.bss` is moved into dedicated
+  sections at build time; `game_memory.c` snapshots them just before the game thread
+  starts and restores them when the game calls `SoftReset`, then restarts
+  `AgbMain`. The window, audio device, save image, clock and (later) multiplayer
+  bridge are in preserved objects and survive, as the cartridge does on a GBA.
+  `check-game-sections` verifies the layout on both platforms.
+* **Interrupts**: the GBA runs its VBlank interrupt in the middle of whatever the
+  game is doing; natively it runs only between frames (in `VBlankIntrWait`). Game
+  loops that busy-wait for interrupt work (the synchronous map loader waiting for
+  DMA3 requests) call `Platform_SpinWaitForVBlank`, which ends the frame once a
+  caller is clearly spinning, as a lag frame would on the GBA.
+* **GBA-tolerated faults**: reads through NULL or far out of range are harmless on
+  the GBA but fault natively. They are found with the NULL trap and UBSan builds
+  and fixed in source under `PORTABLE` (KNOWN_ISSUES N1-N16); a crash writes
+  `crash.log` with a stack trace.
+* **Struct layout**: Linux i386 gcc and MinGW (with `-mno-ms-bitfields
+  -mno-align-double`) both reproduce the GBA layout of every boundary type.
 * **Native bridge** (Milestone C, not started): a C module in the platform layer
   replaces `bridge/mgba.lua`. It reads/writes the same mailbox structs directly in
   process memory and speaks the same local protocol to the existing companion, so

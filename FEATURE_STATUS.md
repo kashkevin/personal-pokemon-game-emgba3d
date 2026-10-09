@@ -21,9 +21,10 @@ Every row uses exactly one of these.
 | Blocked | Cannot move until a named dependency or owner decision is resolved. | not used yet |
 | Broken | A recorded run or check fails on the current build. | not used yet |
 
-**Native PC status** is "Not yet tested natively" for every gameplay row: on
-2026-10-09 the native build had not yet reached the overworld, saves or battles, and the
-native multiplayer bridge had not been started (see Native PC migration below).
+**Native PC status** is "Not yet tested natively" for every gameplay row. The native
+build now reaches the overworld, saves and battles (see Native PC migration below), but
+none of the project's multiplayer features can run natively until the native bridge
+exists (Milestone C), and no gameplay row has been re-verified natively yet.
 
 Conventions (from the audit): bare file names are under app `src/emerald_multiplayer/`;
 `app:` is this repository; `eng:` is the engine repository (our pokeemerald-expansion
@@ -145,26 +146,32 @@ with the audit's rules (no packaged gameplay run means not "tested").
 ## Native PC migration
 
 Status of the native build (branch `claude/native-pc` in both repositories) as of
-2026-10-09. Only these facts are recorded.
+2026-10-09, evening. "Linux" runs are under Xvfb in the cloud workspace; "Windows"
+runs are the real `pokeemerald-mp.exe` under Wine 9.0 in the same workspace. Nothing
+has run on the owner's PC yet, and no run used a real controller, monitor or sound
+device.
 
-| Item | Result | Notes |
-| --- | --- | --- |
-| Engine compiles and links natively for Linux i386 (`Makefile_pc`) | Compiles: yes | Linux only so far. |
-| Launches on Linux under Xvfb | Yes | |
-| Renders intro, title screen, main menu, Professor Birch intro, naming screen | Yes | One intro logo appeared corrupted; under investigation. |
-| Audio produces non-silent samples | Yes | Not listened to. |
-| Overworld | Not yet tested | |
-| Movement | Not yet tested | |
-| Saves | Not yet tested | |
-| Battles | Not yet tested | |
-| Windows .exe | Not yet built | |
-| Native multiplayer bridge (replaces the mGBA Lua bridge) | Not started | |
-| Diorama/3DS-style graphics in our engine | Not started | The voxel project's own Diorama build was run separately earlier. |
+| Item | Linux | Windows (Wine) | Notes |
+| --- | --- | --- | --- |
+| Compiles and links (`Makefile_pc`) | Yes | Yes | Windows needs `-mno-ms-bitfields -mno-align-double` for GBA-compatible struct layout. |
+| Byte layout of save data, mailboxes, battle packets, asm data | 172 types match | 172 types match | `tools/pc_port/abi_layout.py`. |
+| Launches; intro, title, main menu | Yes | Yes | RHH logo fixed (KNOWN_ISSUES N4). |
+| New game: Birch intro, naming, into the truck | Yes | Yes | Needed fixes N9 and N10. |
+| Overworld, movement, start menu | Yes | Yes | |
+| Menus: party, summary (4 pages), Bag, Pokédex list/entry/area/cry/size | Yes (UBSan build) | Not yet | Needed fixes for out-of-range reads (see KNOWN_ISSUES). |
+| Save, quit, continue | Yes | Yes | Same 128 KiB flash format; written atomically. |
+| Load an emulator `.sav` (mGBA, 131088 bytes) and save over a copy | Yes | Load: yes | Native save then reloads correctly; the mGBA RTC footer is dropped when the native build writes. |
+| Wild battle: Fight, Bag, switch, Run, win | Yes | Fight and win: yes | Visible wild Pokémon trigger battles; follower and spawns show. |
+| Soft reset (game's `DoSoftReset`) | Yes | Yes | Process stays up; save unchanged. |
+| Audio | Samples produced (earlier) | No device under Wine | Not listened to. |
+| Stability | No crash in the final runs | One unexplained crash in about ten launches (not reproduced; crash reporter added since) | |
+| Controller input | Not yet | Not yet | Windows has XInput code from the voxel project; untested. |
+| Native multiplayer bridge (replaces the mGBA Lua bridge) | Not started | Not started | Milestone C. |
+| Diorama/3DS-style graphics in our engine | Not started | Not started | Milestone D. |
 
-Source: native migration status reported on 2026-10-09. The engine work-in-progress
-commit `822ea59f9` on engine branch `claude/native-pc` records the same build, launch,
-render and audio results and lists overworld, saves, battles and the Windows exe as not
-yet verified.
+Automated native checks (engine `Makefile_pc`, see `TEST_PLAN.md`): `check-native`
+1057 checks pass; `check-abi` pass (Linux and Windows); `check-game-sections` pass
+(Linux and Windows); `check-decompress` 7469 assets pass (Linux).
 
 ## Decision pending - owner to confirm: personal vs shared wild spawns
 
