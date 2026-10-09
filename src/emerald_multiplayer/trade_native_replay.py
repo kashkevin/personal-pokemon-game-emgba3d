@@ -80,7 +80,9 @@ class NativeTradeReplay:
             raise NativeReplayError("the replay engine changed")
 
     def _request(self, operation, body, friendship, choices, deadline, *, outgoing=0, incoming=0):
-        if type(friendship) is not int or not 0 <= friendship <= 255 or type(choices) is not tuple or len(choices) > 16:
+        # Bits 0-7: resolved friendship; bit 8: the host's Lucky Trade decision.
+        if (type(friendship) is not int or not 0 <= friendship <= 0x1FF
+                or type(choices) is not tuple or len(choices) > 16):
             raise NativeReplayError("invalid native replay policy or choice transcript")
         encoded = []
         for move, slot in choices:

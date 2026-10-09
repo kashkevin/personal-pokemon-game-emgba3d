@@ -27,6 +27,15 @@ MAX_CHOICES = 16
 DECLINE_MOVE = 4
 MAX_GEN6_MOVE = 621
 MAX_STORED_MOVE = 847  # pinned engine MOVES_COUNT - 1
+# Lucky Trades (owner amendment): the resolved-friendship word passed to the
+# native preparation carries the host's decision in bit 8. A Lucky received
+# Pokemon has every IV raised to the floor (never lowered, max 31) and its
+# permanent marker bit set (bit 31 of the IV word: the unused G-Max factor).
+LUCKY_BIT = 0x100
+LUCKY_IV_FLOOR = 12  # engine include/constants/multiplayer_balance.h MP_LUCKY_IV_FLOOR
+_IV_WORD = 40        # logical offset of the IV/egg/G-Max word (misc substruct + 4)
+_LUCKY_MARKER = 1 << 31
+_EGG_BIT = 1 << 30
 
 
 class TradeEffectWitnessError(ValueError):
@@ -132,7 +141,22 @@ def _record(mon):
     return (serial, personality, ot, species), logical, held
 
 
-def _protected(mon, logical, evolved):
+def lucky_ivs(word):
+    """The IV word after a Lucky conversion: floors raised, marker set."""
+    result = word & _EGG_BIT
+    for stat in range(6):
+        iv = (word >> (stat * 5)) & 31
+        result |= max(iv, LUCKY_IV_FLOOR) << (stat * 5)
+    return result | _LUCKY_MARKER
+
+
+def lucky_conversion_ok(before_logical, after_logical):
+    before = struct.unpack_from("<I", before_logical, _IV_WORD)[0]
+    after = struct.unpack_from("<I", after_logical, _IV_WORD)[0]
+    return after == lucky_ivs(before)
+
+
+def _protected(mon, logical, evolved, lucky=False):
     """Independent exact mask of fields the pinned record adapter may change.
 
     Native replay still determines every allowed new value. Clearing a field
@@ -143,6 +167,12 @@ def _protected(mon, logical, evolved):
     party = bytearray(mon[80:])
     header[28:30] = b"\0\0"  # encrypted record checksum
     secure[9] = 0              # explicitly resolved friendship
+    if lucky:
+        # IVs and the marker follow lucky_ivs() exactly (checked separately);
+        # the derived stats are recomputed natively from them.
+        word = struct.unpack_from("<I", secure, _IV_WORD)[0]
+        struct.pack_into("<I", secure, _IV_WORD, word & _EGG_BIT)
+        party[6:20] = bytes(14)
     if evolved:
         header[8:18] = bytes(10)  # same-language unnicknamed evolution rename
         struct.pack_into("<H", header, 30, struct.unpack_from("<H", header, 30)[0] & 0xC000)
@@ -162,7 +192,7 @@ def _protected(mon, logical, evolved):
 
 
 def prepare_record_effect(context, received, sent, history, recipient, *, refresh_handler,
-                          choices, replay_native):
+                          choices, replay_native, lucky=False):
     """Compute a fully bound witness; unknown history remains an explicit refusal.
 
     The trusted native callback signature is (received100, sent100, friendship,
@@ -174,8 +204,8 @@ def prepare_record_effect(context, received, sent, history, recipient, *, refres
     context_values = context.values()
     _require(type(history) is FriendshipHistory and type(recipient) is TrainerIdentity,
              "complete retained friendship and recipient identities required")
-    _require(type(refresh_handler) is bool and callable(replay_native),
-             "explicit refresh policy and trusted native replay required")
+    _require(type(refresh_handler) is bool and callable(replay_native) and type(lucky) is bool,
+             "explicit refresh policy, Lucky decision and trusted native replay required")
     _require(type(choices) is tuple and len(choices) <= MAX_CHOICES
              and all(type(choice) is EvolutionMoveChoice for choice in choices),
              "bounded typed native move transcript required")
@@ -185,12 +215,14 @@ def prepare_record_effect(context, received, sent, history, recipient, *, refres
     _require(original[0] != other[0], "trade effects require two distinct owned instances")
     _, transition = transform_received_party_record(received, history, recipient,
         base_friendship=base_friendship(original[3]), refresh_handler=refresh_handler)
-    candidate = replay_native(received, sent, transition.friendship, decisions)
+    candidate = replay_native(received, sent, transition.friendship | (LUCKY_BIT if lucky else 0), decisions)
     result, after, resulting_item = _record(candidate)
     _require(result[:3] == original[:3], "native preparation changed immutable instance identity")
     evolved = result[3] != original[3]
-    _require(_protected(received, before, evolved) == _protected(candidate, after, evolved),
+    _require(_protected(received, before, evolved, lucky) == _protected(candidate, after, evolved, lucky),
              "native preparation changed protected Pokémon data")
+    _require(not lucky or lucky_conversion_ok(before, after),
+             "native Lucky conversion differs from the exact IV floor and marker")
     _require(after[9] == transition.friendship and resulting_item in {held, 0},
              "native preparation changed resolved friendship or introduced an item")
     _require(evolved or not choices, "unevolved result cannot consume evolution decisions")
@@ -198,17 +230,19 @@ def prepare_record_effect(context, received, sent, history, recipient, *, refres
     policy_sha = _hash(_json(policy))
     receipt = [WITNESS_FORMAT, context_values, _hash(received), _hash(sent), policy_sha,
                decisions, _history(transition.history), _hash(candidate)]
+    if lucky:
+        receipt.append("lucky")  # absent for ordinary trades: earlier witnesses keep their digests
     return RecordEffectWitness(context, choices, _hash(received), _hash(sent), policy_sha,
                                transition.history, candidate, _hash(_json(receipt)))
 
 
 def validate_record_effect(witness, received, sent, history, recipient, *, expected_context,
-                           refresh_handler, replay_native):
+                           refresh_handler, replay_native, lucky=False):
     """Replay from authenticated sources, not from fields in a received result."""
     _require(type(witness) is RecordEffectWitness, "typed record-effect witness required")
     _require(type(expected_context) is EffectContext and witness.context == expected_context,
              "record-effect witness belongs to another authenticated preparation")
     rebuilt = prepare_record_effect(expected_context, received, sent, history, recipient,
-        refresh_handler=refresh_handler, choices=witness.choices, replay_native=replay_native)
+        refresh_handler=refresh_handler, choices=witness.choices, replay_native=replay_native, lucky=lucky)
     _require(witness == rebuilt, "retained native candidate or witness changed")
     return rebuilt

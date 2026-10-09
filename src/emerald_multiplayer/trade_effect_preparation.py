@@ -33,8 +33,14 @@ def digest(value):
     return hashlib.sha256(canonical(value).encode("ascii")).hexdigest()
 
 
+_PLAN_FIELDS = frozenset({"player_id", "history", "refresh_handler", "gift_ribbons"})
+
+
 def decode_effect_plan(value):
-    _require(type(value) is dict and set(value) == {"player_id", "history", "refresh_handler", "gift_ribbons"},
+    # "lucky" appears (always true) only on a host-decided Lucky Trade, so
+    # every earlier plan keeps its exact canonical form and digests.
+    _require(type(value) is dict and (set(value) == _PLAN_FIELDS
+             or (set(value) == _PLAN_FIELDS | {"lucky"} and value["lucky"] is True)),
              "invalid offered effect plan")
     _require(_uuid(value["player_id"]) and type(value["refresh_handler"]) is bool,
              "invalid effect owner or handler decision")
@@ -45,13 +51,14 @@ def decode_effect_plan(value):
         raise TradePreparationError("invalid original gift ribbon bytes") from error
     _require(len(gifts) == 7 and base64.b64encode(gifts).decode("ascii") == value["gift_ribbons"],
              "effect source must contain exactly seven original ribbon bytes")
-    return EffectOfferPlan(history, value["refresh_handler"])
+    return EffectOfferPlan(history, value["refresh_handler"], lucky="lucky" in value)
 
 
 def preparation_id(value):
     effects = value["effects"]
     sources = [[p["player_id"], p["lease_epoch"], p["revision"], p["request_id"], p["sha256"],
                 _history(decode_effect_plan(plan).history), plan["refresh_handler"]]
+               + (["lucky"] if decode_effect_plan(plan).lucky else [])
                for p, plan in zip(value["players"], effects["offers"])]
     # Exactly the identity used by prepare_effect_pair / EffectContext.
     return digest([PLAN_ID, TABLE_ID, VALUES_SHA256, value["world_id"], value["build_id"], value["ruleset_id"],
@@ -126,8 +133,11 @@ def describe_effect_pair(world_id, transaction_id, generation, fingerprint, chec
         players.append(dict(player_id=cp.player_id, lease_epoch=lease, revision=cp.revision,
             request_id=cp.request_id, sha256=cp.sha256, serial=plan.history.serial,
             record_sha256=hashlib.sha256(record).hexdigest(), candidate_sha256=None, candidate_size=len(cp.payload)))
-        offers.append(dict(player_id=cp.player_id, history=_encode(plan.history), refresh_handler=plan.refresh_handler,
-            gift_ribbons=base64.b64encode(snapshot.save_block1[GIFT_RIBBONS:GIFT_RIBBONS + GIFT_RIBBON_COUNT]).decode("ascii")))
+        offer = dict(player_id=cp.player_id, history=_encode(plan.history), refresh_handler=plan.refresh_handler,
+            gift_ribbons=base64.b64encode(snapshot.save_block1[GIFT_RIBBONS:GIFT_RIBBONS + GIFT_RIBBON_COUNT]).decode("ascii"))
+        if plan.lucky:
+            offer["lucky"] = True
+        offers.append(offer)
     common = dict(format=FORMAT, capability=PLAN_ID, world_id=world_id, build_id=first.build_id,
         ruleset_id=first.ruleset_id, save_profile=OWNERSHIP_PROFILE, transaction_id=transaction_id,
         generation=generation, fingerprint=fingerprint, players=players,

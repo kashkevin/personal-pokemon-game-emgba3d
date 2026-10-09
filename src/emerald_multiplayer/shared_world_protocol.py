@@ -7,7 +7,7 @@ from typing import Any
 
 from .protocol import MAX_COUNTER, ProtocolError
 
-WORLD_TYPES = frozenset({"world_action", "appearance_get", "appearance_set"})
+WORLD_TYPES = frozenset({"world_action", "appearance_get", "appearance_set", "friendship_get"})
 ACTIONS = frozenset({"claim", "result", "release"})
 RESULTS = frozenset({"caught", "defeated", "ran", "lost", "cancelled"})
 _HEX16 = re.compile(r"[0-9a-f]{16}\Z")
@@ -111,9 +111,9 @@ def validate_world_request(message: Any, session_epoch: int) -> dict:
                 raise ProtocolError("invalid_field", "unsupported event result")
         elif message["result"] is not None:
             raise ProtocolError("invalid_field", "only results carry an outcome")
-    elif kind == "appearance_get":
+    elif kind in ("appearance_get", "friendship_get"):
         if set(message) != {"type", "session_epoch", "request_id"}:
-            raise ProtocolError("invalid_fields", "appearance request has unexpected fields")
+            raise ProtocolError("invalid_fields", "shared-world read has unexpected fields")
     else:
         if set(message) != {"type", "session_epoch", "request_id", "appearance"}:
             raise ProtocolError("invalid_fields", "appearance update has unexpected fields")

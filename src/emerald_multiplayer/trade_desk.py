@@ -69,6 +69,9 @@ class TradeDesk:
         self.store, self.lease_for = store, lease_for
         self.timeout, self.clock = timeout, clock
         self._proposals: dict[str, _Proposal] = {}
+        # Host friendship bookkeeping after a committed exact swap (no Lucky
+        # conversion: an exact swap never changes either Pokémon).
+        self.on_commit = None
 
     def _auth(self, player: str, lease: int) -> Checkpoint | None:
         checkpoint = self.store.read_checkpoint(player, lease)
@@ -352,4 +355,9 @@ class TradeDesk:
         result = self.store.commit_prepared_trade(transaction_id, *sides,
             self.store.build_id, self.store.ruleset_id, self.store.save_profile,
             preparations=proposal.preparations)
+        if callable(self.on_commit):
+            try:
+                self.on_commit(transaction_id, proposal.players, False)
+            except Exception:  # noqa: BLE001 - never undo a committed trade
+                pass
         return self._committed(player, result)

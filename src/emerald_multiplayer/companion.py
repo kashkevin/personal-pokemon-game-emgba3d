@@ -1622,6 +1622,19 @@ class Companion:
             else:
                 future.set_result(validated["result"])
 
+    async def friendship_rpc(self) -> dict:
+        """This player's friendship with every connected player (host-owned)."""
+        result = await self.world_rpc("friendship_get")
+        friends = result.get("friends")
+        if type(friends) is not dict:
+            raise ProtocolError("invalid_server_message", "invalid friendship view")
+        for player, view in friends.items():
+            if (type(view) is not dict or not {"level", "name", "points", "next", "lucky_friends"} <= set(view)
+                    or type(view["level"]) is not int or not 0 <= view["level"] <= 4
+                    or type(view["points"]) is not int or type(view["lucky_friends"]) is not bool):
+                raise ProtocolError("invalid_server_message", "invalid friendship view")
+        return friends
+
     async def appearance_rpc(self, appearance: bytes | None = None) -> bytes | None:
         """Read or replace this player's customized trainer look on the host."""
         if appearance is None:

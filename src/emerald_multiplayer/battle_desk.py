@@ -91,6 +91,7 @@ class BattleDesk:
                     build_id=store.build_id, ruleset_id=store.ruleset_id)):
                 raise ValueError("battle history must match this exact world and release")
         self.results = results
+        self.on_closed = None  # host friendship bookkeeping after a closed battle
         self.timeout, self.clock = float(timeout), clock
         self._last_time = None
         self._active: dict[str, _Battle] = {}
@@ -641,6 +642,11 @@ class BattleDesk:
                         material.extend(raw)
             self.results._append_closed(summary, hashlib.sha256(material).hexdigest())
         self.reservations._finish(battle, "closed", actor, request, response)
+        if callable(self.on_closed):
+            try:
+                self.on_closed(battle)
+            except Exception:  # noqa: BLE001 - friendship never affects the battle record
+                pass
 
     def cancel(self, actor, lease, battle_id, generation):
         battle = self._get(actor, lease, battle_id, generation)

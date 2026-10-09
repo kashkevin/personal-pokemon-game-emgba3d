@@ -100,7 +100,7 @@ def validate_command(opcode, data):
         raise ValueError("invalid native record preparation context")
     if opcode == 23:
         slot, friendship = struct.unpack_from("<II", data, 80)
-        if not any(data[48:80]) or slot > 5 or friendship > 255:
+        if not any(data[48:80]) or slot > 5 or friendship & ~0x1FF:
             raise ValueError("invalid native record preparation input")
     if opcode == 24:
         index, move, slot, reserved = struct.unpack_from("<IHBB", data, 48)
@@ -124,6 +124,7 @@ class PreparedRecord:
     friendship: int
     candidate: bytes
     choices: tuple[tuple[int, int], ...]
+    lucky: bool = False  # native MP_TRADE_RECORD_FLAG_LUCKY
 
     @classmethod
     def parse(cls, data):
@@ -132,7 +133,7 @@ class PreparedRecord:
         version, received, sent, species, evolved, before, after, move, cursor, state, friendship, count, reserved = struct.unpack_from("<III6H4B", data)
         if (version != 1 or not 1 <= received <= 0xFFFFF or not 1 <= sent <= 0xFFFFF or received == sent
                 or not 1 <= species <= 721 or not 0 <= evolved <= 721 or before > 1023 or after > 1023
-                or cursor > 256 or state not in (1, 2) or count > 16 or reserved
+                or cursor > 256 or state not in (1, 2) or count > 16 or reserved not in (0, 1)
                 or (state == 1 and not 1 <= move <= 621) or (state == 2 and move != 0)):
             raise ValueError("invalid native prepared record state")
         choices = []
@@ -146,4 +147,4 @@ class PreparedRecord:
             else:
                 choices.append((decision, slot))
         return cls(received, sent, species, evolved, before, after, move, cursor, state,
-                   friendship, data[28:128], tuple(choices))
+                   friendship, data[28:128], tuple(choices), bool(reserved))

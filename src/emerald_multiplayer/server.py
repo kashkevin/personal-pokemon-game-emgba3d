@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 import ipaddress
 import hashlib
 import math
+import time
 from typing import Any, TYPE_CHECKING
 
 from .battle_desk import BattleDesk, BattleError
@@ -288,11 +289,24 @@ class WorldServer:
             self.battle_desk = _ServerBattleDesk(self)
         # Shared-world state (clock, appearances, World Events, notices).
         from .shared_world import SharedWorld
+        from .friendship import FriendshipStore
         if store is not None:
             world_path = store.path.with_name(store.path.name + ".shared-world.sqlite3")
             self.shared_world = SharedWorld(world_path, store.metadata.world_id)
+            self.friendships = FriendshipStore(store.path.with_name(store.path.name + ".friendships.sqlite3"),
+                                               store.metadata.world_id)
         else:
             self.shared_world = SharedWorld(":memory:", "00000000-0000-0000-0000-000000000000")
+            self.friendships = FriendshipStore(":memory:", "00000000-0000-0000-0000-000000000000")
+        self.shared_world.on_event_finished = self._on_event_finished
+        if self._trade_recovery_desk is not None:
+            self._trade_recovery_desk.on_commit = self._on_trade_committed
+        if self.trade_effects is not None:
+            self.trade_effects.lucky_decider = self._decide_lucky_trade
+            self.trade_effects.on_commit = self._on_trade_committed
+        if self.battle_desk is not None:
+            self.battle_desk.on_closed = self._on_battle_closed
+        self._last_friendship_tick = time.monotonic()
         self._last_clock_broadcast = 0.0
         self.world_seq = 0
         self._session_epoch = 0
@@ -454,6 +468,7 @@ class WorldServer:
         if listening_server is not None:
             await listening_server.wait_closed()
         self.shared_world.close()
+        self.friendships.close()
 
     async def _reject(self, writer: asyncio.StreamWriter, code: str, message: str) -> None:
         try:
@@ -1160,6 +1175,10 @@ class WorldServer:
             if kind == "appearance_get":
                 self._world_reply(session, request, result={"appearance": world.appearance(session.player_id)})
                 return
+            if kind == "friendship_get":
+                friends = self.friendships.view_for(session.player_id, list(self.sessions))
+                self._world_reply(session, request, result={"friends": friends})
+                return
             if kind == "appearance_set":
                 value = world.set_appearance(session.player_id, request["appearance"])
                 self._world_reply(session, request, result={"appearance": value})
@@ -1181,12 +1200,66 @@ class WorldServer:
             self._world_reply(session, request, error=error)
 
     def _record_activity(self, kind, player_id, reference) -> None:
-        """Hook for player-friendship progression (see friendship.py)."""
-        friendship = getattr(self, "friendships", None)
-        if friendship is None:
-            return
-        others = [pid for pid in self.sessions if pid != player_id]
-        friendship.record_shared(kind, player_id, others, reference)
+        """Kept for compatibility: World Event results are credited once the
+        event finishes, to the players who actually challenged it."""
+        return None
+
+    # ------------------------------------------------------------ friendship
+    def _player_name(self, player_id) -> str:
+        session = self.sessions.get(player_id)
+        return session.display_name if session is not None else "a friend"
+
+    def _friendship_notices(self, changes) -> None:
+        from .shared_world import _banner
+        for change in changes:
+            a, b = change["pair"]
+            if change.get("lucky_friends"):
+                for me, other in ((a, b), (b, a)):
+                    self.shared_world.post_notice(_banner(f"LUCKY FRIENDS with {self._player_name(other).upper()[:14]}!",
+                                                          "Next trade together: LUCKY!"), to=[me])
+            elif change.get("level_up"):
+                for me, other in ((a, b), (b, a)):
+                    self.shared_world.post_notice(_banner(f"{change['level'].upper()} with",
+                                                          f"{self._player_name(other).upper()[:20]}!"), to=[me])
+
+    def _decide_lucky_trade(self, players) -> bool:
+        lucky, _ = self.friendships.lucky_trade_decision(*players)
+        return lucky
+
+    def _on_trade_committed(self, transaction_id, players, lucky) -> None:
+        a, b = players
+        guaranteed = self.friendships.pair(a, b)["lucky_friends"]
+        change = self.friendships.commit_trade(transaction_id, a, b, lucky, guaranteed)
+        if lucky:
+            from .shared_world import _banner
+            self.shared_world.post_notice(_banner("LUCKY TRADE!", "Both POKEMON are now LUCKY!"), to=list(players))
+        self._friendship_notices([change])
+        self._broadcast_world()
+
+    def _on_battle_closed(self, battle) -> None:
+        players = list(battle.players)
+        championship = self._championships is not None and self._championships.claims_battle(battle.battle_id)
+        changes = []
+        if battle.mode == 3:
+            teams = (players[::2], players[1::2])
+            for team in teams:
+                changes.append(self.friendships.record_pair("battle_together", team[0], team[1], battle.battle_id))
+            kind = "championship" if championship else "battle_against"
+            for x in teams[0]:
+                for y in teams[1]:
+                    changes.append(self.friendships.record_pair(kind, x, y, battle.battle_id))
+        elif len(players) == 2:
+            kind = "championship" if championship else "battle_against"
+            changes.append(self.friendships.record_pair(kind, players[0], players[1], battle.battle_id))
+        self._friendship_notices(changes)
+        self._broadcast_world()
+
+    def _on_event_finished(self, participants, event_id) -> None:
+        changes = []
+        for i, x in enumerate(participants):
+            for y in participants[i + 1:]:
+                changes.append(self.friendships.record_pair("event_together", x, y, f"event:{event_id}"))
+        self._friendship_notices(changes)
 
     async def _write(self, session: PlayerSession) -> None:
         try:
@@ -1227,6 +1300,15 @@ class WorldServer:
                     })
             if self.shared_world.tick_events(len(self.sessions), self._progression_level):
                 changed = True
+            # Online-together friendship time (small, daily capped).
+            mono = time.monotonic()
+            if mono - self._last_friendship_tick >= 60:
+                elapsed, self._last_friendship_tick = mono - self._last_friendship_tick, mono
+                online = [pid for pid, session in self.sessions.items()
+                          if session.presence is not None and session.presence.get("activity") != "unavailable"]
+                if len(online) > 1:
+                    self._friendship_notices(self.friendships.add_time_together(online, min(elapsed, 120)))
+                    changed = True
             if self.sessions and now - self._last_clock_broadcast >= 1.0:
                 changed = True
             if changed:

@@ -22,7 +22,9 @@ from .ownership import OWNERSHIP_PROFILE, inspect_ownership
 from .protocol import MAX_COUNTER
 from .save_mailbox import Opcode, SaveControl, State
 from .trade_effect_mailbox import OPS, PreparedRecord, context_bytes
-from .trade_effect_witness import EffectContext, EvolutionMoveChoice, _history, _record, _protected
+from .trade_effect_witness import (
+    LUCKY_BIT, EffectContext, EvolutionMoveChoice, _history, _record, _protected, lucky_conversion_ok,
+)
 from .trade_flash import _party_record
 from .trade_friendship import FriendshipHistory, TrainerIdentity, transform_received_party_record
 
@@ -112,6 +114,7 @@ class HeldTradeEffectClient:
             raise ValueError("record preparation source ownership changed")
         offset, sent = _party_record(snapshot, ownership, own["serial"])
         incoming = _bytes(description["incoming_record"], 100)
+        lucky = False
         if "effects" in description:
             from .trade_effect_preparation import decode_effect_plan
             effects = description["effects"]
@@ -120,6 +123,7 @@ class HeldTradeEffectClient:
                     or self.game_version != effects["profile_game_version"]
                     or self.engine_source_sha256 != effects["engine_source_sha256"]):
                 raise ValueError("native preparation differs from the authenticated effect history/policy")
+            lucky = plan.lucky  # the host's Lucky Trade decision for the Pokémon this player receives
         if (hashlib.sha256(sent).hexdigest() != own["record_sha256"]
                 or hashlib.sha256(incoming).hexdigest() != peer["record_sha256"]
                 or _record(incoming)[0][0] != peer["serial"]):
@@ -134,7 +138,7 @@ class HeldTradeEffectClient:
             description["preparation_id"], intent["build_id"], intent["ruleset_id"], self.engine_source_sha256)
         key = context_bytes(intent["generation"], description["preparation_id"])
         data = (key + bytes.fromhex(intent["frozen_sha256"]) + struct.pack("<II", (offset-SAVED_PARTY_OFFSET)//100,
-            transition.friendship) + incoming + struct.pack("<I", held_crc))
+            transition.friendship | (LUCKY_BIT if lucky else 0)) + incoming + struct.pack("<I", held_crc))
         binding = dict(format=_FORMAT, recipient=retained, context=context.values(),
             incoming_history=_history(self.history), resulting_history=_history(transition.history),
             refresh_handler=self.refresh, profile_game_version=self.game_version,
@@ -199,12 +203,15 @@ class HeldTradeEffectClient:
         original, before, held = _record(incoming)
         current, after, item = _record(result.candidate)
         evolved = current[3] != original[3]
+        word = struct.unpack_from("<I", begin, 84)[0]
+        lucky = bool(word & LUCKY_BIT)
         if (result.received_serial != original[0] or result.sent_serial != _record(sent)[0][0]
                 or result.received_species != original[3] or current[:3] != original[:3]
                 or current[3] != (result.evolved_species or original[3])
-                or result.friendship != struct.unpack_from("<I", begin, 84)[0] or after[9] != result.friendship
+                or result.friendship != word & 0xFF or after[9] != result.friendship
+                or result.lucky != lucky or (lucky and not lucky_conversion_ok(before, after))
                 or result.item_before != held or result.item_after != item or item not in {held, 0}
-                or _protected(incoming, before, evolved) != _protected(result.candidate, after, evolved)
+                or _protected(incoming, before, evolved, lucky) != _protected(result.candidate, after, evolved, lucky)
                 or (not evolved and (result.choices or result.pending_move))):
             raise ValueError("native private record changed protected or resolved fields")
         return result

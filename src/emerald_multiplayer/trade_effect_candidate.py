@@ -8,7 +8,7 @@ from .ownership import OWNERSHIP_PROFILE, inspect_ownership
 from .trade_effect_flash import _private_blocks_with_gifts, _write_blocks
 from .trade_effect_mailbox import PreparedRecord
 from .trade_effect_source import validate_effect_source
-from .trade_effect_witness import _record, _protected
+from .trade_effect_witness import _record, _protected, lucky_conversion_ok
 from .trade_flash import _party_record
 from .trade_preparation import validate_preparation
 
@@ -48,13 +48,19 @@ def validate_streamed_candidate(source, description, effect_source, record_bytes
     received, before, held = _record(incoming)
     result, after, item = _record(prepared.candidate)
     evolved = received[3] != result[3]
+    lucky = False
+    if "effects" in description:
+        from .trade_effect_preparation import decode_effect_plan
+        lucky = decode_effect_plan(next(p for p in description["effects"]["offers"]
+                                        if p["player_id"] == peer["player_id"])).lucky
     if (prepared.state != 2 or prepared.pending_move
             or (prepared.received_serial, prepared.sent_serial) != (peer["serial"], own["serial"])
             or prepared.received_species != received[3] or result[:3] != received[:3]
             or result[3] != (prepared.evolved_species or received[3])
             or prepared.item_before != held or prepared.item_after != item or item not in {held, 0}
             or prepared.friendship != after[9] or not evolved and prepared.choices
-            or _protected(incoming, before, evolved) != _protected(prepared.candidate, after, evolved)
+            or prepared.lucky != lucky or (lucky and not lucky_conversion_ok(before, after))
+            or _protected(incoming, before, evolved, lucky) != _protected(prepared.candidate, after, evolved, lucky)
             or hashlib.sha256(sent).hexdigest() != own["record_sha256"]):
         raise ValueError("full candidate is not bound to the READY offered record")
     expected = _write_blocks(snapshot, *_private_blocks_with_gifts(snapshot, gifts, offset, incoming, prepared.candidate))

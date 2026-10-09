@@ -2,8 +2,8 @@
 
 Every tunable number for the newer shared-world systems lives here so it can
 be changed in one place. Values that the ROM must know (Shiny Charm coin
-price, Mega Stone prices, mount speed) live in the engine's
-include/config/multiplayer_balance.h and are mirrored in docs/balance-defaults.md.
+price, Mega Stone price, Lucky IV floor) live in the engine's
+include/constants/multiplayer_balance.h and are mirrored in docs/balance-defaults.md.
 """
 from __future__ import annotations
 
@@ -48,6 +48,10 @@ class Balance:
     lucky_iv_floor: int = 12                 # Lucky Pokemon IVs are raised to at least this (max 31)
     lucky_friends_chance: float = 0.10       # per eligible Best-Friends interaction
     lucky_friends_cooldown_hours: int = 12
+
+    @property
+    def lucky_friends_cooldown_seconds(self) -> int:
+        return self.lucky_friends_cooldown_hours * 3600
 
     # PvP wagers (fictional in-game money only).
     wager_max: int = 100_000

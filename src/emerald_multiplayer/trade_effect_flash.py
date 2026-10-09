@@ -21,7 +21,7 @@ from .flash import (
 from .gen6_friendship import TABLE_ID, VALUES_SHA256
 from .ownership import OWNERSHIP_PROFILE, inspect_ownership
 from .trade_effect_witness import (
-    EffectContext, RecordEffectWitness, _history, _record, prepare_record_effect,
+    LUCKY_BIT, EffectContext, RecordEffectWitness, _history, _record, prepare_record_effect,
 )
 from .trade_flash import TradeFlashError, _party_record
 from .trade_friendship import FriendshipHistory, TrainerIdentity
@@ -48,9 +48,13 @@ STAT_MAX = 0xFFFFFF
 
 @dataclass(frozen=True)
 class EffectOfferPlan:
-    """History/explicit handler decision follows the offered owned instance."""
+    """History/explicit handler decision follows the offered owned instance.
+
+    ``lucky`` is the host's Lucky Trade decision for this instance: its
+    recipient receives it as a Lucky Pokémon (IV floor + permanent marker)."""
     history: FriendshipHistory
     refresh_handler: bool
+    lucky: bool = False
 
 
 @dataclass(frozen=True)
@@ -163,7 +167,7 @@ def _write_blocks(snapshot, block1, block2):
 
 
 def _recipient(snapshot, owner, partner, incoming_owner, outgoing_serial,
-               incoming_serial, witness, *, replay_save_native):
+               incoming_serial, witness, *, replay_save_native, lucky=False):
     offset, outgoing = _party_record(snapshot, owner, outgoing_serial)
     peer_offset, incoming = _party_record(partner, incoming_owner, incoming_serial)
     _require(witness.sent_sha256 == _sha(outgoing)
@@ -174,7 +178,7 @@ def _recipient(snapshot, owner, partner, incoming_owner, outgoing_serial,
     # Independent native full-block replay is mandatory, not a hash assertion.
     native = replay_save_native(snapshot.save_block1, snapshot.save_block2,
         partner.save_block1, (offset - SAVED_PARTY_OFFSET) // POKEMON_SIZE,
-        (peer_offset - SAVED_PARTY_OFFSET) // POKEMON_SIZE, secure[9], decisions)
+        (peer_offset - SAVED_PARTY_OFFSET) // POKEMON_SIZE, secure[9] | (LUCKY_BIT if lucky else 0), decisions)
     _require(type(native) is tuple and len(native) == 2
              and all(type(block) is bytes for block in native)
              and native == expected, "native save effects differ from exact authorized bookkeeping")
@@ -203,7 +207,8 @@ bound engine on copies. This internal computation grants no consent or commit.
              "trusted record and complete saved-block native replay are required")
     for plan in (plan_a, plan_b):
         _require(type(plan) is EffectOfferPlan and type(plan.history) is FriendshipHistory
-                 and type(plan.refresh_handler) is bool, "both offers need typed complete handler policy")
+                 and type(plan.refresh_handler) is bool and type(plan.lucky) is bool,
+                 "both offers need typed complete handler policy")
         plan.history.validate()
     _require(type(leases) is tuple and len(leases) == 2, "exact authenticated lease pair required")
     _require(type(fingerprint) is str and re.fullmatch(r"[0-9a-f]{64}", fingerprint) is not None,
@@ -224,7 +229,7 @@ bound engine on copies. This internal computation grants no consent or commit.
     recipient_a.validate()
     recipient_b.validate()
     sources = [[cp.player_id, lease, cp.revision, cp.request_id, cp.sha256,
-                _history(plan.history), plan.refresh_handler]
+                _history(plan.history), plan.refresh_handler] + (["lucky"] if plan.lucky else [])
                for cp, lease, plan in ((a, leases[0], plan_a), (b, leases[1], plan_b))]
     preparation = _digest([PLAN_ID, TABLE_ID, VALUES_SHA256, oa.world_id, a.build_id, a.ruleset_id,
         OWNERSHIP_PROFILE, transaction_id, generation, fingerprint, engine_source_sha256,
@@ -237,13 +242,15 @@ bound engine on copies. This internal computation grants no consent or commit.
     for context in contexts:
         context.values()
     wa = prepare_record_effect(contexts[0], mon_b, mon_a, plan_b.history, recipient_a,
-        refresh_handler=plan_b.refresh_handler, choices=choices_a, replay_native=replay_native)
+        refresh_handler=plan_b.refresh_handler, choices=choices_a, replay_native=replay_native,
+        lucky=plan_b.lucky)
     wb = prepare_record_effect(contexts[1], mon_a, mon_b, plan_a.history, recipient_b,
-        refresh_handler=plan_a.refresh_handler, choices=choices_b, replay_native=replay_native)
+        refresh_handler=plan_a.refresh_handler, choices=choices_b, replay_native=replay_native,
+        lucky=plan_a.lucky)
     after_a = _recipient(sa, oa, sb, ob, plan_a.history.serial, plan_b.history.serial, wa,
-                         replay_save_native=replay_save_native)
+                         replay_save_native=replay_save_native, lucky=plan_b.lucky)
     after_b = _recipient(sb, ob, sa, oa, plan_b.history.serial, plan_a.history.serial, wb,
-                         replay_save_native=replay_save_native)
+                         replay_save_native=replay_save_native, lucky=plan_a.lucky)
     outcome = _digest([PLAN_ID, preparation, wa.sha256, wb.sha256, _sha(after_a), _sha(after_b)])
     return SaveEffectPair(preparation, outcome, wa, wb, after_a, after_b)
 

@@ -104,6 +104,9 @@ class SharedWorld:
         self._notice_id = int(self._kv("notice_id", "0"))
         self._notice: dict | None = None
         self._notice_expires = 0.0
+        self._notice_queue: list[dict] = []  # later notices wait their turn on the banner
+        self._participants: set[str] = set()  # players who challenged the current event
+        self.on_event_finished = None         # callback(participants, event_id) for friendship
         self.catalogue = event_catalogue if event_catalogue is not None else load_event_catalogue()
         self.locations = locations if locations is not None else self.catalogue.get("locations", [])
         self._event: dict | None = None
@@ -195,12 +198,20 @@ class SharedWorld:
         self._notice_id = self._notice_id % 0x7FFFFFFF + 1
         with self._transaction():
             self._set_kv("notice_id", str(self._notice_id))
-        self._notice = {"id": self._notice_id, "text": _ascii(text), "to": sorted(to) if to else None}
-        self._notice_expires = self._now() + BALANCE.notice_seconds
+        notice = {"id": self._notice_id, "text": _ascii(text), "to": sorted(to) if to else None}
+        if len(self._notice_queue) < 16:
+            self._notice_queue.append(notice)
+        self._advance_notice()
+
+    def _advance_notice(self) -> None:
+        if self._notice is not None and self._now() <= self._notice_expires:
+            return
+        self._notice = self._notice_queue.pop(0) if self._notice_queue else None
+        if self._notice is not None:
+            self._notice_expires = self._now() + BALANCE.notice_seconds
 
     def notice_view(self) -> dict | None:
-        if self._notice is not None and self._now() > self._notice_expires:
-            self._notice = None
+        self._advance_notice()
         return None if self._notice is None else dict(self._notice)
 
     # ---------------------------------------------------------------- events
@@ -307,6 +318,7 @@ class SharedWorld:
             "reminded": [],
         }
         self._claim = None
+        self._participants = set()
         self._save_event("active")
         self._announce(self._event, BALANCE.event_duration_seconds)
         return self.event_view()
@@ -318,6 +330,7 @@ class SharedWorld:
         if self._event is not None and now >= self._event["expires"]:
             label = self._event_label(self._event)
             self._save_event("expired")
+            self._finish_participation(self._event["event_id"])
             self._event, self._claim = None, None
             self.post_notice(_banner(f"The {label}", "has disappeared..."))
             self._next_event_at = now + self._rng.uniform(*BALANCE.event_interval)
@@ -351,7 +364,16 @@ class SharedWorld:
         if self._claim is not None and self._claim["player_id"] != player_id:
             return "busy"
         self._claim = {"player_id": player_id, "event_id": event_id, "released_at": None}
+        self._participants.add(player_id)
         return "granted"
+
+    def _finish_participation(self, event_id: int) -> None:
+        participants, self._participants = sorted(self._participants), set()
+        if len(participants) > 1 and callable(self.on_event_finished):
+            try:
+                self.on_event_finished(participants, event_id)
+            except Exception:  # noqa: BLE001 - friendship bookkeeping never blocks the event
+                pass
 
     def event_result(self, player_id: str, event_id: int, result: str, display_name: str) -> str:
         event = self._event
@@ -363,6 +385,7 @@ class SharedWorld:
             self._save_event("caught", player_id)
             name = _ascii(display_name).upper()[:16] or "A TRAINER"
             self.post_notice(_banner(f"{name} caught the", self._event_label(event) + "!"))
+            self._finish_participation(event_id)
             self._event, self._claim = None, None
             self._next_event_at = self._now() + self._rng.uniform(*BALANCE.event_interval)
             return "consumed"

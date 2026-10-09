@@ -54,6 +54,11 @@ class TradeEffectsBackend:
         self.jobs, self.errors, self.receipts = {}, {}, {}
         self._native_lock = asyncio.Lock()
         self.owner = object()
+        # Player friendship (set by the host): lucky_decider(players) -> bool
+        # decides a Lucky Trade once both players consent; on_commit(tx,
+        # players, lucky) runs after the paired commit succeeded.
+        self.lucky_decider = None
+        self.on_commit = None
 
     def _rows(self):
         return self.store._connection.execute("SELECT * FROM trade_effect_proposals ORDER BY transaction_id").fetchall()
@@ -306,8 +311,12 @@ class TradeEffectsBackend:
                 raise StorageError("trade_offer_changed", "reconnected participants must confirm the new exact offer fingerprint")
             proposal.confirmed.add(actor)
             if proposal.confirmed == set(proposal.players):
+                # A Lucky Trade makes both received Pokémon Lucky. The decision
+                # is retained in the durable plan, so retries never re-roll it.
+                lucky = bool(self.lucky_decider(proposal.players)) if callable(self.lucky_decider) else False
                 plans = tuple(EffectOfferPlan(FriendshipHistoryLedger(self.store).read_current(p, epoch, proposal.offers[p].serial),
-                    self.policy_id == "gen6-absent-geography-refresh-v1") for p, epoch in zip(proposal.players, current))
+                    self.policy_id == "gen6-absent-geography-refresh-v1", lucky=lucky)
+                    for p, epoch in zip(proposal.players, current))
                 proposal.preparations = describe_effect_pair(self.store.metadata.world_id, tx, generation, fingerprint,
                     tuple(proposal.offers[p].checkpoint for p in proposal.players), proposal.leases, plans,
                     engine_source_sha256=self.adapter.engine_source_sha256, profile_game_version=self.adapter.profile_game_version,
@@ -433,3 +442,8 @@ class TradeEffectsBackend:
         self.store.commit_trade(proposal.transaction_id, *sides, self.store.build_id, self.store.ruleset_id,
             self.store.save_profile, _effect_authority=EffectCommitAuthority(self.owner, document, pair))
         self.desk._proposals.pop(proposal.transaction_id, None)
+        if callable(self.on_commit):
+            try:
+                self.on_commit(proposal.transaction_id, proposal.players, any(plan.lucky for plan in plans))
+            except Exception:  # noqa: BLE001 - friendship bookkeeping never undoes a committed trade
+                pass

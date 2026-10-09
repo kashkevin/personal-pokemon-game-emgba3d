@@ -67,6 +67,7 @@ class PlayerMenu:
         self._hunt_show = "all"
         self._hunt_order = "source"
         self._players = {}
+        self._friends = {}
         self._binding = None
         self._signature = None
         self._actions = {}
@@ -113,6 +114,16 @@ class PlayerMenu:
         self._binding = binding
         # Immutable value copies; the companion owns and validates the roster.
         self._players = {p["player_id"]: p["display_name"] for p in self.companion._players}
+        # Player friendship (host-owned); older hosts simply show none.
+        self._friends = {}
+        friendship_rpc = getattr(self.companion, "friendship_rpc", None)
+        if callable(friendship_rpc) and getattr(self.companion.config, "world_enabled", False):
+            try:
+                self._friends = await friendship_rpc()
+            except Exception:  # noqa: BLE001 - friendship display is optional
+                self._friends = {}
+            if self._session() != binding:
+                raise PlayerMenuError("session_changed")
         for kind, call in (("team", self.companion.team_rpc), ("battle", self.companion.battle_challenge_rpc)):
             try:
                 value = (await call("status" if kind == "team" else "pending"))["result"]
@@ -239,6 +250,12 @@ class PlayerMenu:
         title, status = "Players", self._notice or f"Connected: {len(self._players)}/4"
         if page == "player" and target in self._players and target != actor:
             title = self._name(target)
+            friend = self._friends.get(target)
+            if friend is not None:
+                progress = "" if friend["next"] is None else f" {friend['points']}/{friend['next']}"
+                status = friend["name"] + progress
+                if friend["lucky_friends"]:
+                    actions.append(("LUCKY FRIENDS: next trade", "", ()))
             if self._trades is not None and not self._trades:
                 actions.append(("Trade Pokemon", "trade_open", (target,)))
             if self._team is not None and self._team["team"] is None:
@@ -246,7 +263,8 @@ class PlayerMenu:
             if self._battles is not None and not self._battles:
                 actions.append(("Challenge 1v1", "battle_invite", (target,)))
             actions.append(("View Trainer Card", "card", (target,)))
-            status = self._notice or "Choose an interaction"
+            if self._notice or friend is None:
+                status = self._notice or "Choose an interaction"
         elif page == "trade" and self._trades:
             trade = self._trades[0]
             title, status = "Trade Pokemon", "With " + self._name(next(p for p in trade["players"] if p != actor))
@@ -469,7 +487,11 @@ class PlayerMenu:
             self._page = ("home", None)
             for player in self._players:
                 if player != actor:
-                    actions.append((self._name(player), "player", (player,)))
+                    friend = self._friends.get(player)
+                    label = self._name(player)
+                    if friend is not None:
+                        label = f"{label[:13]} - {friend['name'].split()[0]}"
+                    actions.append((label, "player", (player,)))
             if self._team is not None:
                 actions.append(("Team invitation" if self._team["invitations"] else "Your team", "team", ()))
             if self._battles is not None:
