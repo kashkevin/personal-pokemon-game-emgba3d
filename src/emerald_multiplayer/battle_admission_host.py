@@ -7,8 +7,10 @@ original core and ordinary sequence base across a pre-BIND host restart.
 from __future__ import annotations
 
 import json
+import hashlib
 from pathlib import Path
 import stat
+from dataclasses import replace
 
 from .battle_desk import BattleError
 from .battle_execution_journal import RouteJournal
@@ -97,6 +99,8 @@ class BattleAdmissionHost:
         path = self._path(b.battle_id)
         previous = self._read(b.battle_id) if path.exists() else None
         if previous is not None:
+            if previous["canceled"]:
+                raise BattleError("battle_admission_canceled", "original consent is irrevocably canceled")
             if (previous["view"]["generation"] != b.generation or previous["leases"] != list(b.leases)
                     or previous["rng"] != b.rng.hex()
                     or (actor in previous["identities"] and previous["identities"][actor] != identity)):
@@ -119,7 +123,7 @@ class BattleAdmissionHost:
     def claim(self, actor, lease, request):
         b = self.desk._get(actor, lease, request["battle_id"], request["generation"])
         value = self._read(b.battle_id)
-        if (b.state != "accepted" or b.consent != set(b.players)
+        if (value["canceled"] or b.state != "accepted" or b.consent != set(b.players)
                 or value["view"]["state"] != "accepted"
                 or value["identities"].get(actor) != self.require_identity(request)):
             raise BattleError("battle_not_ready", "Enter requires the exact accepted original game core")
@@ -133,8 +137,256 @@ class BattleAdmissionHost:
         path = self._path(battle_id)
         if path.exists():
             value = self._read(battle_id)
+            if not value["canceled"]:
+                value["canceled"] = True
+                _atomic(path, _json_bytes(value))
+
+    def assert_not_canceled(self, battle_id):
+        """Synchronous first-BIND fence, including after host reconstruction."""
+        from .battle_journal import path_present
+        if path_present(self._path(battle_id)) and self._read(battle_id)["canceled"]:
+            raise BattleError("battle_admission_canceled", "original consent is irrevocably canceled")
+
+    def has_consent(self, battle_id):
+        """Presence is only a contradiction check, never proof of safe absence."""
+        from .battle_journal import path_present
+        return path_present(self._path(battle_id))
+
+    def unentered_terminal(self, battle_id, *, revoke=False):
+        """Affirmative incomplete-consent evidence, before any eligible Enter.
+
+        The accepted descriptor is persisted before it can reach a client, and
+        claim/ADMIT require that fully accepted descriptor. A partial record is
+        therefore useful evidence; a missing record is not. Cancellation fences
+        late capture/claim/BIND before the volatile invitation is archived.
+        """
+        from .battle_admission_cleanup_protocol import UnenteredInvitationTerminal
+        if not self.has_consent(battle_id):
+            return None
+        value = self._read(battle_id)
+        view = value["view"]
+        if (view["mode"] != 2 or view["state"] != "invited" or view["outcome"] is not None
+                or set(view["consent"]) != {view["sender"]}
+                or set(value["identities"]) != {view["sender"]}
+                or value["claimed"] or value["proofs"]):
+            return None
+        battle = self.desk._active.get(battle_id) or self.desk._history.get(battle_id)
+        if battle is not None:
+            if (battle.generation != view["generation"] or battle.fingerprint != view["fingerprint"]
+                    or battle.sender != view["sender"] or list(battle.players) != view["players"]
+                    or list(battle.leases) != value["leases"] or battle.mode != view["mode"]):
+                raise BattleError("battle_admission_invalid", "unentered invitation identity changed")
+            if (battle.state not in {"invited", "aborted", "recovery_required"}
+                    or battle.consent == set(battle.players) or battle.resumable):
+                return None
+        try:
+            self._unreserved(value)
+        except BattleError as error:
+            if error.code == "battle_recovery_required":
+                return None
+            raise
+        if not value["canceled"]:
+            if not revoke:
+                return None
             value["canceled"] = True
-            _atomic(path, _json_bytes(value))
+            _atomic(self._path(battle_id), _json_bytes(value))
+        # A lost tombstone-write reply may leave only this volatile cleanup.
+        # Completing it is safe even on a read: cancellation is already durable.
+        if battle is not None and battle.state != "aborted":
+            self.desk._abort(battle, "unentered_invitation_canceled")
+        return UnenteredInvitationTerminal(
+            value["world_id"], value["build_id"], value["ruleset_id"], battle_id,
+            view["generation"], view["sender"], view["mode"], tuple(view["players"]),
+            view["fingerprint"], hashlib.sha256(_json_bytes(value)).hexdigest())
+
+    def _unreserved(self, value):
+        from .battle_journal import path_present
+        view, battle_id = value["view"], value["view"]["battle_id"]
+        row = self.desk.store._connection.execute(
+            "SELECT battle_id FROM battle_reservations WHERE battle_id=?", (battle_id,)).fetchone()
+        room = self.execution.rooms.get(battle_id)
+        battle = self.desk._active.get(battle_id) or self.desk._history.get(battle_id)
+        if (row is not None or path_present(self.execution.directory / (battle_id + ".events.jsonl"))
+                or battle is not None and (battle.bind_intent or battle.bound or battle.prepared or battle.started)
+                or room is not None and (room.pending or room.acknowledged or room.journal is not None)):
+            raise BattleError("battle_recovery_required", "a reserved or possibly dispatched battle cannot use neutral cleanup")
+        # A prior host may have persisted a command before losing its in-memory
+        # room. Never infer absence from the current process's maps alone.
+        path = self.execution.directory / (battle_id + ".json")
+        if path_present(path):
+            from .battle_terminal import _read
+            record = _read(path)
+            if (set(record) != {"format", "world_id", "build_id", "ruleset_id", "battle_id", "generation",
+                    "fingerprint", "players", "leases", "incarnations", "state", "error", "admitted", "pending", "acknowledged"}
+                    or record["format"] != "native-battle-execution-intent-v1"
+                    or any(record[key] != value[key] for key in ("world_id", "build_id", "ruleset_id", "leases"))
+                    or any(record[key] != view[key] for key in ("battle_id", "generation", "fingerprint", "players"))
+                    or type(record["incarnations"]) is not dict
+                    or any(actor not in value["identities"] or type(incarnation) is not int
+                        or incarnation != value["identities"][actor]["incarnation"]
+                        for actor, incarnation in record["incarnations"].items())
+                    or record["pending"] != {} or record["acknowledged"] != {} or record["admitted"] != {}
+                    or record["state"] not in ("waiting", "executing", "aborted") or record["error"] is not None):
+                raise BattleError("battle_recovery_required", "persisted execution cannot prove undispatched admission")
+
+    def cancel_admission(self, actor, lease, request):
+        """Durably revoke only a battle that has NEVER obtained a reservation.
+
+        No await occurs between exclusion, tombstone publication and archive.
+        A canceled consent is immutable; its digest names every retry forever.
+        """
+        from .battle_admission_cleanup_protocol import AdmissionCancellation, SCOPE
+        from .battle_journal import path_present
+        from .battle_terminal import _read
+        value = self._read(request["battle_id"])
+        view = value["view"]
+        cp = self.desk._auth(actor, lease)
+        if (actor not in value["identities"] or view["generation"] != request["generation"]
+                or value["identities"][actor] != self.require_identity(request)):
+            raise BattleError("battle_incarnation_changed", "cleanup requires its original consented game core")
+        slot = view["players"].index(actor)
+        pinned = view["checkpoints"][slot]
+        if (lease < value["leases"][slot] or cp is None
+                or (cp.revision, cp.sha256) != (pinned["revision"], pinned["sha256"])):
+            raise BattleError("canonical_head_mismatch", "cleanup changed its original canonical checkpoint")
+        import struct
+        ready = NativeControl(request["incarnation"], lease, view["battle_id"], 1, Opcode.ADMISSION_CANCEL_READY,
+            phase=view["mode"], source_slot=slot,
+            data=Admission(view["generation"], actor, request["runtime_id"]).pack() + struct.pack("<I", value["leases"][slot]))
+        receipt = decode_control(request["cleanup_ready_b64"], response=True)
+        receipt.validate_response(ready)
+        if receipt.status:
+            raise BattleError("invalid_receipt", "native capacity/phase readiness was refused")
+        self._unreserved(value)
+        if not value["canceled"]:
+            value["canceled"] = True
+            _atomic(self._path(view["battle_id"]), _json_bytes(value))
+        battle = self.desk._active.get(view["battle_id"])
+        if battle is not None:
+            self.desk._abort(battle, "admission_canceled")
+        room = self.execution.rooms.get(view["battle_id"])
+        if room is not None:
+            room.state = "aborted"
+            self.execution._persist(room)
+        digest = hashlib.sha256(_json_bytes(value)).hexdigest()
+        result = dict(scope=SCOPE, battle_id=view["battle_id"], generation=view["generation"],
+            **value["identities"][actor], original_lease=value["leases"][slot],
+            tombstone_sha256=digest, acknowledged=request["cleanup_receipt_b64"] is not None)
+        if result["acknowledged"]:
+            payload = AdmissionCancellation(Admission(view["generation"], actor, result["runtime_id"]),
+                result["original_lease"], digest).pack()
+            command = NativeControl(result["incarnation"], lease, view["battle_id"], 1,
+                Opcode.ADMISSION_CANCEL_HOLD, phase=view["mode"], source_slot=slot, data=payload)
+            receipt = decode_control(request["cleanup_receipt_b64"], response=True)
+            receipt.validate_response(command)
+            if receipt.status:
+                raise BattleError("invalid_receipt", "neutral native hold was not acknowledged")
+            record = dict(format=SCOPE, player_id=actor, result=result,
+                          command_b64=encode_control(command), receipt_b64=encode_control(receipt))
+            path = self.execution.directory / (view["battle_id"] + "." + actor + "." + str(lease) + ".cancel-ack.json")
+            if path_present(path) and _read(path) != record:
+                raise BattleError("invalid_receipt", "neutral cleanup acknowledgment changed")
+            _atomic(path, _json_bytes(record))
+        return result
+
+    def _handoff_path(self, battle_id, actor):
+        return self.execution.directory / (battle_id + "." + actor + ".cancel-handoff.json")
+
+    def _handoff_record(self, value, actor, receipt):
+        """Reconstruct one receipt only from the durable original HOLD ACK."""
+        from .battle_admission_cleanup_protocol import (AdmissionCancellation, HANDOFF_SCOPE,
+            SCOPE, handoff_view)
+        from .battle_terminal import _read
+        view = value["view"]
+        identity = value["identities"][actor]
+        slot = view["players"].index(actor)
+        digest = hashlib.sha256(_json_bytes(value)).hexdigest()
+        payload = AdmissionCancellation(Admission(view["generation"], actor, identity["runtime_id"]),
+            value["leases"][slot], digest).pack()
+        command = NativeControl(identity["incarnation"], receipt.session_epoch, view["battle_id"], 1,
+            Opcode.ADMISSION_CANCEL_HANDOFF, phase=view["mode"], source_slot=slot, data=payload)
+        command.validate_command(player_id=actor)
+        receipt.validate_response(command)
+        if (receipt.status or not value["canceled"]
+                or receipt.session_epoch > self.desk.store._validate_metadata()["session_epoch"]):
+            raise ValueError("handoff requires its immutable cancellation and successful receipt")
+        held = replace(command, opcode=Opcode.ADMISSION_CANCEL_HOLD)
+        ack_path = self.execution.directory / (view["battle_id"] + "." + actor + "."
+            + str(command.session_epoch) + ".cancel-ack.json")
+        ack = _read(ack_path)
+        expected = dict(format=SCOPE, player_id=actor,
+            result=dict(scope=SCOPE, battle_id=view["battle_id"], generation=view["generation"],
+                **identity, original_lease=value["leases"][slot], tombstone_sha256=digest, acknowledged=True),
+            command_b64=encode_control(held), receipt_b64=encode_control(held))
+        # Successful HOLD echoes the entire exact command, including payload.
+        if ack != expected:
+            raise ValueError("handoff lacks the exact successful host-acknowledged HOLD")
+        return dict(format=HANDOFF_SCOPE, **{key: value[key] for key in
+                ("world_id", "build_id", "ruleset_id", "save_profile")}, player_id=actor,
+            result=handoff_view(receipt), hold_sha256=hashlib.sha256(_json_bytes(ack)).hexdigest(),
+            command_b64=encode_control(command), receipt_b64=encode_control(receipt))
+
+    def admission_handoff(self, actor, lease, request):
+        """Record an already completed native release; issue no native control.
+
+        A newer authenticated lease may deliver the original historical receipt.
+        The current checkpoint need not be rolled back to the admitted revision.
+        """
+        from .battle_journal import path_present
+        from .battle_terminal import _read
+        self.desk._auth(actor, lease)
+        value = self._read(request["battle_id"])
+        if (value["view"]["generation"] != request["generation"]
+                or value["identities"].get(actor) != self.require_identity(request)):
+            raise BattleError("battle_incarnation_changed", "handoff differs from original durable consent")
+        self._unreserved(value)
+        try:
+            receipt = decode_control(request["handoff_receipt_b64"], response=True)
+            if receipt.session_epoch > lease:
+                raise ValueError("handoff receipt belongs to a future lease")
+            record = self._handoff_record(value, actor, receipt)
+            path = self._handoff_path(request["battle_id"], actor)
+            if path_present(path):
+                if _read(path) != record:
+                    raise ValueError("the original terminal handoff changed")
+            else:
+                _atomic(path, _json_bytes(record))
+        except (ValueError, TypeError, KeyError) as error:
+            raise BattleError("invalid_receipt", "retain the exact original terminal handoff and host HOLD acknowledgment") from error
+        return record["result"]
+
+    def terminal(self, battle_id):
+        """Read affirmative all-originals handoff evidence, never absence proof."""
+        from .battle_admission_cleanup_protocol import AdmissionCleanupTerminal
+        from .battle_journal import path_present
+        from .battle_mailbox import _uuid
+        from .battle_terminal import _read
+        _uuid(battle_id, "battle ID")
+        if not path_present(self._path(battle_id)):
+            return None
+        value = self._read(battle_id)
+        view = value["view"]
+        if (not value["canceled"] or view["state"] != "accepted"
+                or set(value["identities"]) != set(view["players"])
+                or set(view["consent"]) != set(view["players"])):
+            return None
+        paths = [self._handoff_path(battle_id, actor) for actor in view["players"]]
+        if not all(path_present(path) for path in paths):
+            return None
+        self._unreserved(value)
+        records = []
+        try:
+            for actor, path in zip(view["players"], paths):
+                record = _read(path)
+                receipt = decode_control(record["receipt_b64"], response=True)
+                if record != self._handoff_record(value, actor, receipt):
+                    raise ValueError("terminal handoff no longer matches original consent")
+                records.append(record)
+        except (ValueError, TypeError, KeyError) as error:
+            raise BattleError("battle_admission_invalid", "original terminal handoff evidence is inconsistent") from error
+        return AdmissionCleanupTerminal(value["world_id"], value["build_id"], value["ruleset_id"],
+            battle_id, view["generation"], view["sender"], view["mode"], tuple(view["players"]),
+            view["fingerprint"], hashlib.sha256(_json_bytes(records)).hexdigest())
 
     @staticmethod
     def _proof(value, actor, proof):
@@ -243,6 +495,7 @@ class BattleAdmissionHost:
         """
         from .battle_reservations import SCOPE, _digest, _json
         store, view = self.desk.store, value["view"]
+        self.assert_not_canceled(view["battle_id"])
         with store._transaction():
             old = store._connection.execute("SELECT * FROM battle_reservations WHERE battle_id=?", (view["battle_id"],)).fetchone()
             if old is not None:

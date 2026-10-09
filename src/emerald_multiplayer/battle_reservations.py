@@ -8,6 +8,7 @@ request can acknowledge, cancel, resume, expire or delete a reservation.
 from __future__ import annotations
 
 import hashlib
+from dataclasses import dataclass
 from itertools import zip_longest
 import json
 from pathlib import Path
@@ -34,6 +35,26 @@ RESERVATION_SCHEMA = {
         source_slot INTEGER NOT NULL CHECK(source_slot BETWEEN 0 AND 3),
         UNIQUE(battle_id, source_slot))""",
 }
+
+
+@dataclass(frozen=True)
+class BattleReservationTerminal:
+    """Trusted read projection of an already verified durable terminal fact.
+
+    This is not a public receipt, a client cancellation claim or release
+    authority. Reading it never changes a reservation or character barrier.
+    """
+    world_id: str
+    build_id: str
+    ruleset_id: str
+    battle_id: str
+    generation: str
+    sender: str
+    mode: int
+    players: tuple[str, ...]
+    fingerprint: str
+    kind: str
+    digest: str
 
 
 def _json(value):
@@ -208,6 +229,31 @@ class BattleReservations:
             if row is not None:
                 self._read(row)
             return row is not None
+
+    def terminal(self, battle_id):
+        """Read a terminal record without relying on bounded Desk history.
+
+        None means no durable terminal evidence, including an active row. It
+        never proves that an invitation, provisional Enter or BIND did not run.
+        Only the existing trusted _finish path may create the fact returned here.
+        """
+        _player_id(battle_id)
+        with self.store._transaction():
+            # This also rejects stray terminal actor barriers instead of
+            # allowing this read to conceal a conflicting held lifecycle.
+            self._active()
+            row = self.store._connection.execute(
+                "SELECT * FROM battle_reservations WHERE battle_id=?", (battle_id,)).fetchone()
+            if row is None:
+                return None
+            record = self._read(row)
+            if row["terminal_kind"] is None:
+                return None
+            view = record["view"]
+            return BattleReservationTerminal(
+                record["world_id"], record["build_id"], record["ruleset_id"],
+                view["battle_id"], view["generation"], view["sender"], view["mode"],
+                tuple(view["players"]), view["fingerprint"], row["terminal_kind"], row["terminal_digest"])
 
     def waiting(self, actor, lease):
         with self.store._transaction():

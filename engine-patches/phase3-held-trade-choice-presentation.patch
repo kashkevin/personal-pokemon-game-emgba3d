@@ -1,0 +1,196 @@
+diff --git a/include/multiplayer_trade_effects.h b/include/multiplayer_trade_effects.h
+index 48e17dd..2e6f50a 100644
+--- a/include/multiplayer_trade_effects.h
++++ b/include/multiplayer_trade_effects.h
+@@ -106,6 +106,36 @@ bool32 MultiplayerTradeEffects_ChooseMove(struct MultiplayerTradeRecordPreparati
+                                         u32 sequence, u32 move, u32 slot);
+ bool32 MultiplayerTradeEffects_FinishRecord(const struct MultiplayerTradeRecordPreparation *state,
+                                           struct Pokemon *out);
++// Read-only UI facts. Four current slots plus the pending move, all read from
++// private scratch and the pinned move table. Names remain presentation data.
++struct MultiplayerTradeMoveInfo
++{
++    u16 move;
++    u8 pp;
++    u8 maxPp;
++    u16 power;
++    u8 accuracy;
++    u8 type;
++    u8 category;
++    u8 flags; // bit0: native CannotForgetMove; other bits zero.
++    u16 reserved;
++};
++struct MultiplayerTradeChoiceView
++{
++    u32 version;
++    u32 receivedSerial;
++    u32 sentSerial;
++    u32 recordCrc; // Filled by the held mailbox over the exact 192-byte record.
++    u16 pendingMove;
++    u16 learnsetCursor;
++    u8 state;
++    u8 choiceCount;
++    u8 replaceMask;
++    u8 reserved;
++    struct MultiplayerTradeMoveInfo moves[5];
++};
++bool32 MultiplayerTradeEffects_DescribeRecord(const struct MultiplayerTradeRecordPreparation *state,
++                                             struct MultiplayerTradeChoiceView *out);
+ // Deterministic replay requires every decision exactly once, no trailing choices.
+ bool32 MultiplayerTradeEffects_ReplayRecord(const struct Pokemon *received,
+                                           const struct Pokemon *sent,
+diff --git a/src/multiplayer_trade_effects.c b/src/multiplayer_trade_effects.c
+index 2929668..c81e4c6 100644
+--- a/src/multiplayer_trade_effects.c
++++ b/src/multiplayer_trade_effects.c
+@@ -3,6 +3,7 @@
+ #include "pokemon.h"
+ #include "mail.h"
+ #include "battle.h"
++#include "move.h"
+ #include "string_util.h"
+ #include "constants/moves.h"
+ #include "constants/game_stat.h"
+@@ -11,6 +12,8 @@
+ STATIC_ASSERT(sizeof(struct MultiplayerTradeEffectPreview) == 36, TradeEffectPreviewSize);
+ STATIC_ASSERT(sizeof(struct Pokemon) == 100, TradeEffectPartyRecordSize);
+ STATIC_ASSERT(sizeof(struct MultiplayerTradeRecordPreparation) == 192, TradeEffectRecordPreparationSize);
++STATIC_ASSERT(sizeof(struct MultiplayerTradeMoveInfo) == 12, TradeEffectMoveInfoSize);
++STATIC_ASSERT(sizeof(struct MultiplayerTradeChoiceView) == 84, TradeEffectChoiceViewSize);
+ // Exact profile consumed by trade_effect_flash.py. A changed layout must fail
+ // compilation rather than silently write another save field.
+ STATIC_ASSERT(sizeof(struct SaveBlock1) == 15568, TradeEffectSaveBlock1Size);
+@@ -290,6 +293,55 @@ bool32 MultiplayerTradeEffects_ChooseMove(struct MultiplayerTradeRecordPreparati
+     return TRUE;
+ }
+ 
++bool32 MultiplayerTradeEffects_DescribeRecord(const struct MultiplayerTradeRecordPreparation *state,
++                                             struct MultiplayerTradeChoiceView *out)
++{
++    struct MultiplayerTradeChoiceView view = {0};
++    struct Pokemon candidate;
++    u32 i, serial;
++    u16 species;
++    if (state == NULL || out == NULL || Overlaps(out, sizeof(*out), state, sizeof(*state))
++     || state->version != MP_TRADE_RECORD_VERSION || state->choiceCount > MP_TRADE_RECORD_MAX_CHOICES
++     || (state->state != MP_TRADE_RECORD_CHOOSE_MOVE && state->state != MP_TRADE_RECORD_READY)
++     || (state->state == MP_TRADE_RECORD_CHOOSE_MOVE && (state->pendingMove == MOVE_NONE || state->pendingMove > MOVE_HYPERSPACE_FURY
++          || state->choiceCount >= MP_TRADE_RECORD_MAX_CHOICES))
++     || (state->state == MP_TRADE_RECORD_READY && state->pendingMove != MOVE_NONE))
++        return FALSE;
++    candidate = state->candidate;
++    if (!ReadMon(&candidate, &serial, &species) || serial != state->receivedSerial
++     || species != (state->evolvedSpecies ? state->evolvedSpecies : state->receivedSpecies))
++        return FALSE;
++    view.version = 1;
++    view.receivedSerial = state->receivedSerial;
++    view.sentSerial = state->sentSerial;
++    view.pendingMove = state->pendingMove;
++    view.learnsetCursor = state->learnsetCursor;
++    view.state = state->state;
++    view.choiceCount = state->choiceCount;
++    for (i = 0; i < ARRAY_COUNT(view.moves); i++)
++    {
++        struct MultiplayerTradeMoveInfo *info = &view.moves[i];
++        u32 move = i < MAX_MON_MOVES ? GetMonData(&candidate, MON_DATA_MOVE1 + i) : state->pendingMove;
++        if (move > MOVE_HYPERSPACE_FURY) return FALSE;
++        if (move == MOVE_NONE) continue;
++        info->move = move;
++        info->pp = i < MAX_MON_MOVES ? GetMonData(&candidate, MON_DATA_PP1 + i) : GetMovePP(move);
++        info->maxPp = i < MAX_MON_MOVES ? CalculatePPWithBonus(move, GetMonData(&candidate, MON_DATA_PP_BONUSES), i) : GetMovePP(move);
++        info->power = GetMovePower(move);
++        info->accuracy = GetMoveAccuracy(move);
++        info->type = GetMoveType(move);
++        info->category = GetMoveCategory(move);
++        if (i < MAX_MON_MOVES)
++        {
++            info->flags = CannotForgetMove(move) ? 1 : 0;
++            if (!info->flags && state->state == MP_TRADE_RECORD_CHOOSE_MOVE)
++                view.replaceMask |= 1 << i;
++        }
++    }
++    *out = view;
++    return TRUE;
++}
++
+ bool32 MultiplayerTradeEffects_FinishRecord(const struct MultiplayerTradeRecordPreparation *state,
+                                           struct Pokemon *out)
+ {
+diff --git a/include/multiplayer_save.h b/include/multiplayer_save.h
+index e3effd0..0b1d770 100644
+--- a/include/multiplayer_save.h
++++ b/include/multiplayer_save.h
+@@ -17,6 +17,7 @@ enum MultiplayerSaveOpcode {
+     MP_SAVE_BEGIN_EFFECT_RECORD, MP_SAVE_CHOOSE_EFFECT_MOVE,
+     MP_SAVE_QUERY_EFFECT_RECORD, MP_SAVE_DISCARD_EFFECT_RECORD,
+     MP_SAVE_BEGIN_EFFECT_SAVE, MP_SAVE_READ_EFFECT_WINDOW,
++    MP_SAVE_QUERY_EFFECT_CHOICE,
+ };
+ enum MultiplayerSaveState {
+     MP_SAVE_UNBOUND, MP_SAVE_BOUND, MP_SAVE_EXPORTING, MP_SAVE_IMPORTING,
+@@ -59,6 +60,7 @@ extern volatile struct MultiplayerSaveMailbox gMultiplayerSaveMailbox;
+ extern const u32 gMultiplayerTradeAbiVersion;
+ extern const u32 gMultiplayerTradeEffectPrepareAbiVersion;
+ extern const u32 gMultiplayerTradeEffectSaveAbiVersion;
++extern const u32 gMultiplayerTradeEffectChoiceAbiVersion;
+ extern const u32 gMultiplayerSaveWindowAbiVersion;
+ extern const u32 gMultiplayerEmergencySaveAbiVersion;
+ void MultiplayerSave_Init(void);
+diff --git a/src/multiplayer_save.c b/src/multiplayer_save.c
+index 8d3d849..845d0e3 100644
+--- a/src/multiplayer_save.c
++++ b/src/multiplayer_save.c
+@@ -45,6 +45,7 @@ const u32 gMultiplayerTradeAbiVersion = 1;
+ // Private record preparation only: never grants effect import/publication.
+ const u32 gMultiplayerTradeEffectPrepareAbiVersion = 1;
+ const u32 gMultiplayerTradeEffectSaveAbiVersion = 1;
++const u32 gMultiplayerTradeEffectChoiceAbiVersion = 1;
+ _Static_assert(sizeof(struct MultiplayerTradeRecordPreparation) == 192, "Trade record response ABI");
+ // Optional read-only 4096-byte export window in the existing sector buffer.
+ const u32 gMultiplayerSaveWindowAbiVersion = 1;
+@@ -539,6 +540,7 @@ void MultiplayerSave_Init(void)
+     (void)*(const volatile u32 *)&gMultiplayerTradeAbiVersion;
+     (void)*(const volatile u32 *)&gMultiplayerTradeEffectPrepareAbiVersion;
+     (void)*(const volatile u32 *)&gMultiplayerTradeEffectSaveAbiVersion;
++    (void)*(const volatile u32 *)&gMultiplayerTradeEffectChoiceAbiVersion;
+     (void)*(const volatile u32 *)&gMultiplayerSaveWindowAbiVersion;
+     (void)*(const volatile u32 *)&gMultiplayerEmergencySaveAbiVersion;
+     MultiplayerOwnership_InvalidateGrant();
+@@ -750,6 +752,14 @@ static void Handle(const struct MultiplayerSaveControl *command)
+         {
+             PublishResponse(command, MP_SAVE_ORDER, NULL, 0, sOffset); return;
+         }
++        if (command->opcode == MP_SAVE_QUERY_EFFECT_CHOICE
++         && (!sTradeActive || !sEffectActive || sTradeExpired || sTradeImportStarted
++          || sState != MP_SAVE_TRADE_HELD
++          || (sCachedResponse.status == MP_SAVE_OK
++           && ReadU32(sCachedResponse.data + 12) != Crc32(0, (const u8 *)&sEffectRecord, sizeof(sEffectRecord)))))
++        {
++            PublishResponse(command, MP_SAVE_ORDER, NULL, 0, sOffset); return;
++        }
+         if (!sPending)
+         {
+             struct MultiplayerSaveControl cached = sCachedResponse;
+@@ -1012,6 +1022,7 @@ static void Handle(const struct MultiplayerSaveControl *command)
+     case MP_SAVE_CHOOSE_EFFECT_MOVE:
+     case MP_SAVE_QUERY_EFFECT_RECORD:
+     case MP_SAVE_DISCARD_EFFECT_RECORD:
++    case MP_SAVE_QUERY_EFFECT_CHOICE:
+         // The original frozen export and live party still belong to this hold.
+         // No path here changes a party, Flash, save counter or hold ownership.
+         if (!sTradeActive || sTradeImportStarted || sState != MP_SAVE_TRADE_HELD
+@@ -1068,6 +1079,14 @@ static void Handle(const struct MultiplayerSaveControl *command)
+                  command->data[54])))
+                 { status = MP_SAVE_VALIDATION; break; }
+         }
++        if (command->opcode == MP_SAVE_QUERY_EFFECT_CHOICE)
++        {
++            struct MultiplayerTradeChoiceView view;
++            if (!MultiplayerTradeEffects_DescribeRecord(&sEffectRecord, &view))
++                { status = MP_SAVE_VALIDATION; break; }
++            view.recordCrc = Crc32(0, (const u8 *)&sEffectRecord, sizeof(sEffectRecord));
++            PublishResponse(command, MP_SAVE_OK, (const u8 *)&view, sizeof(view), 0); return;
++        }
+         PublishResponse(command, MP_SAVE_OK, (const u8 *)&sEffectRecord, sizeof(sEffectRecord), 0); return;
+     case MP_SAVE_BEGIN_EFFECT_SAVE:
+     case MP_SAVE_READ_EFFECT_WINDOW:

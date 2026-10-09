@@ -5,7 +5,8 @@ import threading
 from types import SimpleNamespace
 import unittest
 
-from emerald_multiplayer.launcher_setup_gui import SetupEvent, SetupWorker, SetupWindow
+from emerald_multiplayer.launcher_setup_gui import SetupEvent, SetupWorker, SetupWindow, TRADE_POLICIES
+from emerald_multiplayer.launcher_setup import SetupAccount
 
 
 class Controller:
@@ -19,7 +20,12 @@ class Controller:
         self.options = options
         class World:
             directory = Path("private/worlds/example")
+            accounts = (SimpleNamespace(slot=0, display_name="Host"),)
         return World()
+
+    def upgrade_world_features(self, installation, **options):
+        self.options = options
+        return options["world_directory"]
 
     @asynccontextmanager
     async def host_enrollment(self, installation, private_root, **options):
@@ -39,7 +45,8 @@ class Controller:
 class SetupWorkerTests(unittest.TestCase):
     def setUp(self):
         self.controller = Controller()
-        self.worker = SetupWorker(object(), Path("private"), controller=self.controller)
+        self.worker = SetupWorker(SimpleNamespace(rom_sha256="a" * 64, manifest_sha256="b" * 64),
+                                  Path("private"), controller=self.controller)
         self.addCleanup(self.cleanup)
 
     def cleanup(self):
@@ -52,7 +59,8 @@ class SetupWorkerTests(unittest.TestCase):
     def test_creation_returns_private_selection_without_showing_credentials(self):
         self.worker.start("create", player_names=["Host"], endpoint="127.0.0.1", port=8765)
         self.worker.thread.join(3)
-        self.assertEqual(self.worker.events.get_nowait(), SetupEvent("complete", "created", Path("private/worlds/example")))
+        self.assertEqual(self.worker.events.get_nowait(), SetupEvent("complete", "created", Path("private/worlds/example"),
+                         accounts=(SetupAccount(0, "Host"),)))
         self.assertEqual(self.controller.options["player_names"], ["Host"])
 
     def test_enrollment_requires_explicit_finish_and_drains_before_completion(self):
@@ -98,7 +106,8 @@ class SetupWorkerTests(unittest.TestCase):
                 self_finished = exited.is_set() and not closed.is_set()
                 if not self_finished:
                     raise AssertionError("receipt must be made under the draft lease after game exit")
-                return SimpleNamespace(source_path=Path("private/drafts/new/character.sav"))
+                return SimpleNamespace(source_path=Path("private/drafts/new/character.sav"),
+                                       sha256="c" * 64, party_count=1)
         self.worker.draft_factory = lambda *_: Draft()
         self.addCleanup(exited.set)
         self.worker.start("draft")
@@ -111,6 +120,7 @@ class SetupWorkerTests(unittest.TestCase):
         self.assertTrue(closed.is_set())
         self.assertEqual(event.source_path, Path("private/drafts/new/character.sav"))
         self.assertEqual(event.code, "draft_created")
+        self.assertEqual(event.character_source.sha256, "c" * 64)
 
     def test_safe_native_rejection_waits_for_another_explicit_finish_in_same_context(self):
         from emerald_multiplayer.live_checkpoint import LiveSaveError
@@ -154,19 +164,51 @@ class SetupWidgetTests(unittest.TestCase):
 
     def test_host_approval_is_required_and_slot_change_revokes_it(self):
         self.window.world_directory, self.window.source_path = Path("world"), Path("original.sav")
+        self.window.account_slots = {"Host — Host": 0, "Friend 1 — Friend": 1}
+        self.window.slot_control.configure(values=tuple(self.window.account_slots))
+        self.window.slot.set("Host — Host")
         self.window.enroll()
         self.assertIn("explicitly approve", self.window.status.get())
         self.assertFalse(self.worker.busy)
         self.window.approval.set(True)
-        self.window.slot.set("Friend 1")
+        self.window.slot.set("Friend 1 — Friend")
         self.window.slot_control.event_generate("<<ComboboxSelected>>")
         self.assertFalse(self.window.approval.get())
+
+    def test_world_upgrade_requires_policy_and_explicit_approval(self):
+        self.window.world_directory = Path("world")
+        self.window.upgrade()
+        self.assertFalse(self.worker.busy)
+        self.assertIsNone(self.controller.options)
+        first, second = tuple(TRADE_POLICIES)
+        self.window.trade_policy.set(first)
+        self.window.upgrade()
+        self.assertIsNone(self.controller.options)
+        self.window.upgrade_approval.set(True)
+        self.window.trade_policy.set(second)
+        self.assertFalse(self.window.upgrade_approval.get())
+        self.window.upgrade_approval.set(True)
+        self.window.upgrade()
+        self.worker.thread.join(3)
+        self.assertEqual(self.controller.options, dict(world_directory=Path("world"), trade_effect_policy=TRADE_POLICIES[second]))
+        self.assertEqual(self.worker.events.get_nowait().code, "upgraded")
 
     def test_blank_port_is_rejected_before_world_creation(self):
         self.window.port.set("")
         self.window.create()
         self.assertFalse(self.worker.busy)
         self.assertIn("Check the player names", self.window.status.get())
+
+    def test_explicit_host_approval_passes_the_verified_selection_hash(self):
+        from emerald_multiplayer.character_handoff import CharacterSource
+        self.window.world_directory, self.window.source_path = Path("world"), Path("source.sav")
+        self.window.character_source = CharacterSource(self.window.source_path, "c" * 64, "a" * 64, "b" * 64, 1)
+        self.window.account_slots = {"Friend 1 — Friend": 1}
+        self.window.slot.set("Friend 1 — Friend")
+        self.window.approval.set(True)
+        self.window.enroll()
+        self.assertTrue(self.controller.opened.wait(2))
+        self.assertEqual(self.controller.options["expected_source_sha256"], "c" * 64)
 
 
 if __name__ == "__main__":

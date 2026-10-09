@@ -136,17 +136,32 @@ class TradeCheckpointStore(OwnershipCheckpointStore):
 
     _schema, _schema_version = _TRADE_SCHEMA, TRADE_SCHEMA_VERSION
 
+    def _assert_effect_mutations(self):
+        if (self.trade_effects_enabled and not getattr(self, "_effect_replay_verified", False)
+                and self._connection.execute("SELECT 1 FROM trade_effect_commits LIMIT 1").fetchone()):
+            raise StorageError("trade_effect_replay_required", "native trade history must pass pinned replay before persistent changes")
+
+    def _assert_no_battle_reservation(self, *players):
+        self._assert_effect_mutations()
+        return super()._assert_no_battle_reservation(*players)
+
+    def enroll_player(self, player_id, source_payload):
+        self._assert_effect_mutations()
+        return super().enroll_player(player_id, source_payload)
+
     def _ensure_applied(self, player_id: str) -> None:
         if self._connection.execute("SELECT 1 FROM trade_recovery WHERE player_id = ? AND acknowledged = 0", (player_id,)).fetchone():
             raise StorageError("trade_recovery_required", "apply the committed trade before another persistent mutation")
 
     def _prepare_checkpoint(self, player, revision: int, payload: bytes):
+        self._assert_effect_mutations()
         self._ensure_applied(player["player_id"])
         return super()._prepare_checkpoint(player, revision, payload)
 
     def reserve_instances(self, player_id, lease_epoch, request_id, expected_revision, incarnation, count):
         # Store calls are synchronous and confined to SQLite's owning thread;
         # there is no scheduling point between this guard and the base method.
+        self._assert_effect_mutations()
         with self._transaction():
             self._require_lease(player_id, lease_epoch)
             self._ensure_applied(player_id)
@@ -191,7 +206,11 @@ class TradeCheckpointStore(OwnershipCheckpointStore):
                                      (revision, retired[serial], serial))
             events.append((serial, "retire", retired[serial], None))
         self._membership(checkpoint, owned, events)
-        self._connection.execute("INSERT INTO checkpoint_order VALUES (?, ?, ?)", (player, revision, self._group("checkpoint")))
+        sequence = self._group("checkpoint")
+        self._connection.execute("INSERT INTO checkpoint_order VALUES (?, ?, ?)", (player, revision, sequence))
+        if self.friendship_history_enabled:
+            from .trade_friendship_migration import FriendshipHistoryLedger
+            FriendshipHistoryLedger(self)._append_group(sequence)
 
     def _owned(self, player_id: str, payload: bytes):
         enrollment = self._enrollment(player_id)
@@ -232,8 +251,44 @@ class TradeCheckpointStore(OwnershipCheckpointStore):
                     checkpoint.player_id, "active", r.personality, r.ot_id):
                 raise StorageError("storage_corrupt", "trade pre-image differs from current ownership")
 
+    def commit_prepared_trade(self, transaction_id, side_a, side_b, build_id, ruleset_id,
+                              save_profile=OWNERSHIP_PROFILE, *, preparations):
+        """Publish two acknowledged recipient candidates under the same lock.
+
+        The only qualified recipe remains exact exchange. Both immutable
+        pre-images and complete post-images are retained by schema-3 history;
+        its replay continues to reject every unqualified native effect.
+        """
+        if type(preparations) is not tuple or len(preparations) != 2:
+            raise StorageError("invalid_trade", "both exact recipient preparations are required")
+        return self.commit_trade(transaction_id, side_a, side_b, build_id, ruleset_id,
+                                 save_profile, _preparations=preparations)
+
+    def _validate_preparations(self, transaction_id, before, sides, descriptions, *, replay=False):
+        from .trade_preparation import TradePreparationError, prepare_pair, validate_preparation
+        try:
+            for description in descriptions:
+                validate_preparation(description)
+            leases = tuple(s.lease_epoch for s in sides)
+            if replay:
+                # Authentication above uses today's leases. A read-only replay
+                # retains the descriptor's original consent leases; rebuilding
+                # it with renewed leases would change its immutable pair ID.
+                retained = tuple(p["lease_epoch"] for p in descriptions[0]["players"])
+                if any(original > current for original, current in zip(retained, leases)):
+                    raise TradePreparationError("preparation belongs to a future lease")
+                leases = retained
+            expected, candidates = prepare_pair(self._validate_metadata()["world_id"], transaction_id,
+                descriptions[0]["generation"], descriptions[0]["fingerprint"], tuple(before),
+                leases, tuple(s.serial for s in sides))
+            if descriptions != expected or candidates != tuple(s.payload for s in sides):
+                raise TradePreparationError("paired recipient preparation changed")
+        except (ValueError, TypeError, KeyError, FlashError) as error:
+            raise StorageError("invalid_trade", "recipient candidates are not the exact canonical preparation") from error
+
     def commit_trade(self, transaction_id: str, side_a: TradeSide, side_b: TradeSide,
-                     build_id: str, ruleset_id: str, save_profile: str = OWNERSHIP_PROFILE) -> TradeResult:
+                     build_id: str, ruleset_id: str, save_profile: str = OWNERSHIP_PROFILE,
+                     *, _preparations=None, _effect_authority=None) -> TradeResult:
         """Commit a mutually confirmed exact exchange, or replay its original result.
 
         Sides/results are ordered by player UUID. Fresh authenticated leases may
@@ -249,6 +304,14 @@ class TradeCheckpointStore(OwnershipCheckpointStore):
         if any(len(s.payload) > self.max_payload_bytes for s in sides):
             raise StorageError("invalid_field", "trade post-image exceeds this world's checkpoint limit")
         fingerprint = _fingerprint(sides, build_id, ruleset_id, save_profile)
+        self._assert_effect_mutations()
+        if _effect_authority is not None:
+            from .trade_effect_storage import EffectCommitAuthority
+            if (type(_effect_authority) is not EffectCommitAuthority or not self.trade_effects_enabled
+                    or _effect_authority.owner is not getattr(self, "_effect_authority_owner", None)
+                    or not getattr(self, "_effect_replay_verified", False)
+                    or _preparations is not None):
+                raise StorageError("trade_effect_authority_required", "native publication requires the verified owning coordinator")
         with self._transaction():
             players = [self._require_lease(s.player_id, s.lease_epoch) for s in sides]
             self._assert_no_battle_reservation(*(s.player_id for s in sides))
@@ -257,6 +320,21 @@ class TradeCheckpointStore(OwnershipCheckpointStore):
                 result = self._result(prior)
                 if prior["fingerprint"] != fingerprint or any(cp.payload != s.payload for cp, s in zip((result.checkpoint_a, result.checkpoint_b), sides)):
                     raise StorageError("request_conflict", "trade transaction was already committed with different content")
+                if _preparations is not None:
+                    before = []
+                    for s in sides:
+                        row = self._connection.execute(
+                            "SELECT * FROM checkpoints WHERE player_id = ? AND revision = ?",
+                            (s.player_id, s.expected_revision)).fetchone()
+                        if row is None:
+                            raise StorageError("storage_corrupt", "committed trade pre-image is missing")
+                        before.append(self._checkpoint(row))
+                    self._validate_preparations(transaction_id, before, sides, _preparations, replay=True)
+                if _effect_authority is not None:
+                    from .trade_effect_storage import parse_document
+                    row = self._connection.execute("SELECT * FROM trade_effect_commits WHERE transaction_id=?", (transaction_id,)).fetchone()
+                    if row is None or parse_document(row) != _effect_authority.document:
+                        raise StorageError("request_conflict", "committed native effect proof differs")
                 return result
             before = []
             for s, player in zip(sides, players):
@@ -275,7 +353,30 @@ class TradeCheckpointStore(OwnershipCheckpointStore):
                 instance = self._connection.execute("SELECT * FROM ownership_instances WHERE serial = ?", (s.serial,)).fetchone()
                 if instance is None or instance["player_id"] != s.player_id or instance["status"] != "active":
                     raise StorageError("foreign_ownership", "the offered instance is not owned by this player")
-            _validate_swap(before[0].payload, sides[0].serial, before[1].payload, sides[1].serial, sides[0].payload, sides[1].payload)
+            if _preparations is not None:
+                self._validate_preparations(transaction_id, before, sides, _preparations)
+            if _effect_authority is None:
+                _validate_swap(before[0].payload, sides[0].serial, before[1].payload, sides[1].serial, sides[0].payload, sides[1].payload)
+            else:
+                from .trade_effect_storage import check_result, require, parse_document, read_effect_policy
+                document, pair = _effect_authority.document, _effect_authority.pair
+                check_result(document, before, pair)
+                require((pair.after_a, pair.after_b) == tuple(s.payload for s in sides), "native post-images changed before publication")
+                first = document["descriptions"][0]
+                require(first["transaction_id"] == transaction_id and tuple(p["serial"] for p in first["players"]) == tuple(s.serial for s in sides),
+                        "native authority names another transaction or offer")
+                pending = self._connection.execute("SELECT * FROM trade_effect_proposals WHERE transaction_id=?", (transaction_id,)).fetchone()
+                require(pending is not None and pending["state"] == "active", "native consent was cancelled or lost")
+                retained = parse_document(pending)
+                require(retained["preparations"] == document["descriptions"]
+                        and retained["confirmed"] == [s.player_id for s in sides]
+                        and [retained["receipts"].get(s.player_id) for s in sides] == document["receipts"]
+                        and first["effects"]["policy_id"] == read_effect_policy(self),
+                        "native authority differs from durable consent, receipts or policy")
+                for cp, plan in zip(before, first["effects"]["offers"]):
+                    history = self._connection.execute("SELECT history FROM pokemon_friendship_history WHERE player_id=? AND revision=? AND serial=?",
+                        (cp.player_id, cp.revision, plan["history"]["serial"])).fetchone()
+                    require(history is not None and json.loads(history[0])["value"] == plan["history"], "native authority used stale handler history")
             owned = [self._owned(s.player_id, s.payload) for s in sides]
             sequence = self._group("trade")
             checkpoints = []
@@ -289,6 +390,11 @@ class TradeCheckpointStore(OwnershipCheckpointStore):
             self._connection.execute("INSERT INTO trade_transactions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (transaction_id, sequence, fingerprint, sides[0].player_id, checkpoints[0].revision, sides[0].serial,
                  sides[1].player_id, checkpoints[1].revision, sides[1].serial))
+            if _effect_authority is not None:
+                from .trade_effect_storage import canonical, digest
+                self._connection.execute("INSERT INTO trade_effect_commits VALUES (?,?,?)",
+                    (transaction_id, canonical(_effect_authority.document), digest(_effect_authority.document)))
+                self._connection.execute("UPDATE trade_effect_proposals SET state='committed' WHERE transaction_id=?", (transaction_id,))
             for i, (cp, parsed) in enumerate(zip(checkpoints, owned)):
                 incoming, outgoing = sides[1-i].serial, sides[i].serial
                 events = [(outgoing, "transfer_out", None, transaction_id)]
@@ -299,6 +405,9 @@ class TradeCheckpointStore(OwnershipCheckpointStore):
                 self._membership(cp, parsed, events)
                 self._connection.execute("INSERT INTO trade_recovery VALUES (?, ?, ?, ?, 0)",
                                           (cp.player_id, transaction_id, cp.revision, cp.sha256))
+            if self.friendship_history_enabled:
+                from .trade_friendship_migration import FriendshipHistoryLedger
+                FriendshipHistoryLedger(self)._append_group(sequence)
             return TradeResult(sequence, transaction_id, *checkpoints, fingerprint)
 
     def read_trade(self, player_id: str, lease_epoch: int, transaction_id: str) -> TradeResult | None:
@@ -309,6 +418,38 @@ class TradeCheckpointStore(OwnershipCheckpointStore):
             if row is not None and player_id not in (row["a_player"], row["b_player"]):
                 raise StorageError("trade_not_participant", "this player is not a participant in that trade")
             return self._result(row) if row is not None else None
+
+    def trade_statistics(self, player_id: str, lease_epoch: int, *, peer_id=None):
+        """Count committed ownership transactions, separately from delivery ACKs.
+
+        The store's existing full startup integrity replay validates this ledger.
+        This read has no ability to settle, acknowledge or republish a trade.
+        """
+        if peer_id is not None:
+            _player_id(peer_id)
+            if peer_id == player_id:
+                raise StorageError("invalid_field", "shared trade counts require another player")
+        with self._transaction():
+            self._require_lease(player_id, lease_epoch)
+            self._validate_schema()
+            if peer_id is None:
+                committed = self._connection.execute(
+                    "SELECT COUNT(*) FROM trade_transactions WHERE ? IN (a_player, b_player)",
+                    (player_id,)).fetchone()[0]
+                pending = self._connection.execute(
+                    "SELECT COUNT(*) FROM trade_recovery WHERE player_id=? AND acknowledged=0",
+                    (player_id,)).fetchone()[0]
+            else:
+                pair = tuple(sorted((player_id, peer_id)))
+                committed = self._connection.execute(
+                    "SELECT COUNT(*) FROM trade_transactions WHERE a_player=? AND b_player=?", pair).fetchone()[0]
+                pending = self._connection.execute(
+                    "SELECT COUNT(*) FROM trade_recovery r JOIN trade_transactions t USING(transaction_id) "
+                    "WHERE r.player_id=? AND r.acknowledged=0 AND t.a_player=? AND t.b_player=?",
+                    (player_id, *pair)).fetchone()[0]
+            if not 0 <= pending <= committed <= MAX_COUNTER:
+                raise StorageError("storage_corrupt", "trade counts are inconsistent")
+            return dict(committed=committed, pending=pending)
 
     def pending_trade_recovery(self, player_id: str, lease_epoch: int) -> tuple[TradeRecovery, ...]:
         with self._transaction():
@@ -341,9 +482,31 @@ class TradeCheckpointStore(OwnershipCheckpointStore):
             raise StorageError("storage_corrupt", message)
         try:
             self._audit_history(corrupt)
+            if self.trade_effects_enabled:
+                if not self.friendship_history_enabled:
+                    corrupt("native effect history lacks its complete handler ledger")
+                from .trade_effect_storage import parse_document, read_effect_policy
+                read_effect_policy(self)
+                for row in self._connection.execute("SELECT * FROM trade_effect_proposals"):
+                    document = parse_document(row)
+                    if (document.get("transaction_id"), document.get("generation")) != (row["transaction_id"], row["generation"]):
+                        corrupt("native effect proposal identity differs")
+                    effect = self._connection.execute("SELECT * FROM trade_effect_commits WHERE transaction_id=?", (row["transaction_id"],)).fetchone()
+                    if (row["state"] == "committed") != (effect is not None):
+                        corrupt("native proposal fate differs from atomic publication")
+                    if effect is not None:
+                        proof = parse_document(effect)
+                        if (document.get("preparations") != proof["descriptions"]
+                                or [document.get("receipts", {}).get(p["player_id"]) for p in proof["descriptions"][0]["players"]] != proof["receipts"]):
+                            corrupt("native effect publication lost original consent receipts")
+                if self._connection.execute("SELECT 1 FROM trade_effect_commits e LEFT JOIN trade_transactions t USING(transaction_id) WHERE t.transaction_id IS NULL").fetchone():
+                    corrupt("native effect proof lacks paired publication")
             if self.friendship_observations_enabled:
                 from .trade_friendship_observations import FriendshipObservations
                 FriendshipObservations(self)._integrity()
+            if self.friendship_history_enabled:
+                from .trade_friendship_migration import FriendshipHistoryLedger
+                FriendshipHistoryLedger(self)._integrity()
         except StorageError as error:
             if error.code == "storage_corrupt":
                 raise
@@ -420,7 +583,14 @@ class TradeCheckpointStore(OwnershipCheckpointStore):
                     if origin is None or origin[0] != s.player_id or origin[5] != "active":
                         corrupt("trade offered an unowned or retired identity")
                 pre = [checkpoints[(c["player_id"], c["expected_revision"])]["payload"] for c in cps]
-                _validate_swap(pre[0], sides[0].serial, pre[1], sides[1].serial, sides[0].payload, sides[1].payload)
+                effect = False
+                if self.trade_effects_enabled:
+                    from .trade_effect_storage import audit_commit
+                    effect = audit_commit(self, trade["transaction_id"],
+                        tuple(self._checkpoint(checkpoints[(c["player_id"], c["expected_revision"])]) for c in cps),
+                        tuple(s.payload for s in sides))
+                if not effect:
+                    _validate_swap(pre[0], sides[0].serial, pre[1], sides[1].serial, sides[0].payload, sides[1].payload)
                 if _fingerprint(sides, self.build_id, self.ruleset_id, self.save_profile) != trade["fingerprint"]:
                     corrupt("trade outcome fingerprint changed")
             elif trade is not None:

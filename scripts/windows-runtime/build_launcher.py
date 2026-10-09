@@ -1,8 +1,9 @@
 """Build a private Windows onedir launcher from explicit trusted release pins.
 
 No ROM, invitation, world database or player save is copied into the package.
-A patch is optional for a clearly labelled development package; enabling import
-requires both an explicitly supplied owner's base dump and a verified BPS patch.
+Normal packaging requires a verified import patch and production game gates.
+An explicit --development-preview keeps the earlier private, import-disabled
+candidate workflow available. Base dumps may be raw GBA or bounded single-GBA ZIP.
 """
 from __future__ import annotations
 
@@ -19,7 +20,8 @@ import sys
 PROJECT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT / "src"))
 
-from emerald_multiplayer.game_import import ImportRelease, MAX_PATCH, MAX_ROM, apply_bps
+from emerald_multiplayer.game_import import ImportRelease, MAX_PATCH, MAX_ROM, apply_bps, read_game_source
+from emerald_multiplayer.game_patch import create_bps
 from emerald_multiplayer.launcher_gui import LauncherRelease
 from package_audit import audit_files, audit_tree
 
@@ -28,6 +30,14 @@ PYINSTALLER = "6.22.3"
 
 def sha(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def bounded_bytes(path, maximum):
+    with Path(path).open("rb") as handle:
+        data = handle.read(maximum + 1)
+    if len(data) > maximum:
+        raise ValueError("release input exceeds the bounded import format")
+    return data
 
 
 def pinned_copy(source, target, digest):
@@ -81,21 +91,56 @@ def build(args):
     installation.verify()
     runtime_manifest = json.loads((args.runtime / "runtime.json").read_bytes())
     audit_files(args.runtime / name for name in runtime_manifest["files"])
+    game_manifest = json.loads(bounded_bytes(args.manifest, 131072))
+    development = getattr(args, "development_preview", False)
+    if not development:
+        from emerald_multiplayer.player_build import require_production_player_build
+        from emerald_multiplayer.reset_catalogue import require_production_reset_manifest
+        from emerald_multiplayer.trade_replay_manifest import validate_trade_replay_manifest
+        require_production_player_build(game_manifest, args.rom)
+        require_production_reset_manifest(game_manifest, args.rom)
+        if not validate_trade_replay_manifest(game_manifest, args.rom):
+            raise ValueError("the production game must declare its pinned isolated trade replay entry point")
+        if "emerald-trade-replay.exe" not in runtime_manifest["files"]:
+            raise ValueError("the production runtime must include its pinned trusted trade replay worker")
     import_release = None
+    patch = None
+    patch_origin = None
     patch_options = (args.base, args.base_sha256, args.patch, args.patch_sha256)
-    if any(value is not None for value in patch_options):
+    create_patch = getattr(args, "create_patch", False)
+    if create_patch:
+        if args.base is None or args.base_sha256 is None or args.patch is not None or args.patch_sha256 is not None:
+            raise ValueError("create-patch requires explicit base and base SHA-256, without an external patch")
+        source, target = read_game_source(args.base), bounded_bytes(args.rom, MAX_ROM)
+        if hashlib.sha256(source).hexdigest() != args.base_sha256 or hashlib.sha256(target).hexdigest() != release.rom_sha256:
+            raise ValueError("base or game differs from its explicit release pin")
+        patch = create_bps(source, target)
+        patch_digest = hashlib.sha256(patch).hexdigest()
+        patch_origin = "project-linear-bps-v1"
+    elif any(value is not None for value in patch_options):
         if any(value is None for value in patch_options):
             raise ValueError("import requires explicit base, base SHA-256, patch and patch SHA-256")
-        if args.base.stat().st_size > MAX_ROM or args.patch.stat().st_size > MAX_PATCH:
-            raise ValueError("base or patch exceeds the bounded import format")
-        source, patch = args.base.read_bytes(), args.patch.read_bytes()
+        source, patch = read_game_source(args.base), bounded_bytes(args.patch, MAX_PATCH)
         if hashlib.sha256(source).hexdigest() != args.base_sha256 or hashlib.sha256(patch).hexdigest() != args.patch_sha256:
             raise ValueError("base or patch differs from its explicit release pin")
+        patch_digest = args.patch_sha256
+        patch_origin = "explicit-pinned-patch"
+    if patch is not None:
         reconstructed = apply_bps(source, patch)
         if hashlib.sha256(reconstructed).hexdigest() != release.rom_sha256:
             raise ValueError("patch does not reconstruct the verified release ROM")
-        import_release = ImportRelease(args.base_sha256, args.patch_sha256, release.rom_sha256,
+        import_release = ImportRelease(args.base_sha256, patch_digest, release.rom_sha256,
                                        len(source), len(reconstructed))
+    if import_release is None and not development:
+        raise ValueError("an importable package requires the pinned owner's base plus --create-patch or a pinned BPS; use --development-preview only for a private candidate")
+    if getattr(args, "preflight_only", False):
+        print(json.dumps(dict(format="emerald-release-input-check-v1", preflight_only=True,
+            package_created=False, development_preview=development, import_enabled=import_release is not None,
+            rom_sha256=release.rom_sha256, manifest_sha256=release.manifest_sha256,
+            runtime_sha256=release.runtime_sha256,
+            base_sha256=import_release.source_sha256 if import_release else None,
+            patch_sha256=import_release.patch_sha256 if import_release else None)))
+        return
     output.mkdir(parents=True, exist_ok=False)
     resources = output / "resources"
     resources.mkdir()
@@ -110,7 +155,10 @@ def build(args):
     RuntimeBundle(resources / "runtime", release.runtime_sha256).verify()
     audit_tree(resources / "runtime")
     if import_release:
-        pinned_copy(args.patch, resources / "game.bps", import_release.patch_sha256)
+        # Keep the already verified bytes. Neither a changed source path nor a
+        # second read can replace the patch after reconstruction above.
+        with (resources / "game.bps").open("xb") as handle:
+            handle.write(patch)
     versions = collect_notices(resources)
     source_hashes = {}
     frozen_source = output / "source/emerald_multiplayer"
@@ -132,13 +180,18 @@ def build(args):
     provenance = dict(format="emerald-launcher-private-package-v1", version=release.version,
         python=sys.version, dependencies=versions, rom_sha256=release.rom_sha256,
         manifest_sha256=release.manifest_sha256, runtime_sha256=release.runtime_sha256,
-        import_enabled=import_release is not None, source_sha256=source_hashes,
+        import_enabled=import_release is not None, development_preview=development, source_sha256=source_hashes,
+        import_release=(dict(source_sha256=import_release.source_sha256,
+            source_size=import_release.source_size, patch_sha256=import_release.patch_sha256,
+            target_sha256=import_release.target_sha256, target_size=import_release.target_size,
+            patch_origin=patch_origin) if import_release else None),
         guide_sha256=guide_hashes,
         qualification="private executable only; clean-machine, gameplay and network acceptance remain separate")
     (resources / "package-provenance.json").write_text(json.dumps(provenance, indent=2) + "\n")
     (resources / "README.txt").write_text(
         "Emerald Together - " + release.version + "\n\n"
-        "Private development preview: Host Game / Join Game, local character setup,\n"
+        + ("Private development preview: " if development else "Importable private release candidate: ")
+        + "Host Game / Join Game, local character setup,\n"
         "autosave every 5 minutes (on by default), and launcher Save now.\n"
         "Your character's autosave toggle is remembered on this PC.\n"
         "Read QUICK-START.txt and RELEASE-LIMITS.txt before playing.\n"
@@ -186,6 +239,12 @@ def main():
     for name in ("base", "patch"):
         parser.add_argument("--" + name, type=Path)
         parser.add_argument("--" + name + "-sha256")
+    parser.add_argument("--create-patch", action="store_true",
+                        help="create the BPS from the explicitly pinned owner dump and verified release game")
+    parser.add_argument("--development-preview", action="store_true",
+                        help="explicit private candidate; permits missing import patch or production-only ROM capabilities")
+    parser.add_argument("--preflight-only", action="store_true",
+                        help="verify exact inputs and reconstruct BPS in memory; create no output and run no build or game")
     build(parser.parse_args())
 
 

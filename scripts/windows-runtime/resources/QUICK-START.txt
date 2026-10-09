@@ -1,4 +1,4 @@
-Emerald Together — private Windows preview
+Emerald Together — private Windows package
 
 Before starting
 
@@ -8,29 +8,74 @@ on a friend's PC. See README.txt for this package's game-import availability.
 An import-disabled preview requires a separately prepared matching installation;
 it cannot install the game on a new PC yet.
 
+Packages labeled "Gen6 defaults" use a separate game and rules identity. This
+selects engine generation defaults; it is not the completed Gen6 game. Keep
+candidate 9 for worlds created with that release. Installing the new game does
+not convert or repin an old world or rewrite its Pokemon. Use a new world and
+newly prepared characters for this candidate. See RELEASE-LIMITS.txt.
+
+Install your own game once
+
+1. In an import-enabled package, choose "Import my game…" and select your
+   matching original Emerald .gba dump or ZIP containing exactly one .gba.
+   Archives are read in memory; your original dump/archive is not changed.
+2. Wait for "Game installed". The launcher validates the original, patch and
+   reconstructed game against this release's exact hashes before publishing
+   its private copy. An existing different installation is never overwritten.
+3. "Check installed game files" verifies the ROM, manifest and runtime pins
+   without starting a game. File verification does not establish gameplay,
+   network acceptance or import availability in an import-disabled preview.
+4. Every friend's PC repeats this import with their own matching dump and
+   the same release package. Never include the game or saves in the shared ZIP.
+
 Create the host world
 
-1. Choose "Set up a world or character…", then "Create world".
+1. Choose "Set up a world or character…", then "I'm hosting".
 2. Enter the host name and up to three friends' names. Choose the numeric
    address friends will reach and the game port before creating the world.
    127.0.0.1 works only on this PC. For friends on your home network, use the
    host PC's local network address. The default game port is 8765.
-3. Choose "Create private world". Keep the host world on the host PC.
+3. If this release offers native trade effects, explicitly choose the world's
+   trade friendship rule. Read the two choices before creating the world;
+   setup does not pick one for you, and it becomes permanent for this world.
+4. Choose "Create private world". Keep the host world on the host PC.
 
-Prepare each character on the host PC
+Upgrade features in an existing same-release world
 
-1. In "Set up character", choose "Create a new character…", or select an
+Close every character, host session and game first. In setup, select the exact
+host world on the character tab, then open "Upgrade world features". Select and
+approve its trade friendship rule and the backed-up upgrade. The action retains
+verified backups, adds supported personal-attempt tracking and initializes
+missing older handler values to each species' Gen 6 base while preserving known
+values. An already chosen rule cannot be changed here. This does not convert an
+older world's game build, resolve unfinished trades/battles or replace saves.
+Use it only when this exact installed release supports the displayed upgrade.
+
+Prepare a character on either player's PC
+
+1. A friend chooses "I'm joining a friend" in setup. The host can also use
+   "Set up character". Choose "Create a new character…", or select an
    existing original character save that has no multiplayer ownership.
 2. For a new character, play ordinary New Game, choose a starter, use the
    game's normal Save menu, then close the game using its title-bar Close.
    The launcher selects the saved character after validating it.
-3. Choose the host world and the correct Host/Friend slot. Check the box
+   Follow the starter selector in that exact game build. In a build with the
+   eighteen-starter selector, Up/Down or L/R changes region; Left/Right picks
+   one of three starters and A previews/confirms it. Older builds differ.
+3. A friend on another PC chooses "Export character for host approval…" and
+   saves a new .sav copy. Give only that copy to the host yourself; this launcher
+   does not send files. The original is preserved. No host world or credentials
+   are needed on the friend's PC to prepare and export this character.
+4. On the host PC, choose "I am the host", select the character copy, then
+   choose the host world and the correct named Host/Friend account. Check the box
    approving that exact character save, then "Approve and open character".
-4. Continue in the game to a safe field location outside menus and battles.
+   A source that changes after selection is refused; reselect and review it.
+5. Continue in the game to a safe field location outside menus and battles.
    Return to setup and choose "I'm in the world — finish enrollment".
-5. Repeat for each friend. Choose each friend's slot and export that friend's
+6. Repeat for each friend. Choose each friend's slot and export that friend's
    invitation. Give each person only their own invitation. This preview
-   performs initial character approval locally on the host PC.
+   performs initial character approval locally on the host PC. Once enrolled,
+   play through Host/Join; do not keep playing or merge the unassigned backup.
 
 Host and join
 
@@ -66,7 +111,14 @@ Closing the game does not itself save progress to the host.
 
 If the host reports an unresolved multiplayer battle, the launcher blocks a
 fresh game session. Keep the original game open and retain the recovery files.
-This build preserves the waiting battle but cannot resume it yet.
+Restore the host connection and choose "Recover battle" in every original
+player's launcher. The match waits for all of its original players.
+
+If the host service stopped but its original game and launcher are still open,
+the host can choose "Restart host service" when that action becomes available.
+After it succeeds, the host and every original participant choose "Recover
+battle". Restarting the service alone does not resume the match. An exited game
+or host application cannot recover its waiting battle through this button.
 
 If the host disconnects during normal exploration or an ordinary save, the
 launcher attempts to preserve that exact save locally for rejoining. Wait for
@@ -74,6 +126,32 @@ its status before closing. A confirmed preserved save can be reconciled through
 Host Game or Join Game after the host returns. An unsafe or uncertain operation
 may keep the game held without a completed save; do not close it while the
 launcher asks you to keep it open.
+
+If the host disconnects during a trade, keep both original game windows and
+launchers open. The surviving host uses "Restart host service" when offered.
+Each player then uses "Resolve interrupted trade" and reads its confirmation:
+it may cancel an unfinished trade or retain an already committed result. Wait
+for the verified message that says closing is safe, then close the game
+normally and reopen the same Host/Join identity for recovery and Continue.
+If the status remains held or uncertain, retain the game and recovery files.
+This does not resume the trade in that same game process or reconstruct an
+exited game/whole PC. Do not discard journals or copy a backup over the character.
+
+Trainer Cards and hunt records
+
+Open the launcher's Trainer Card & Players tab and choose Refresh while your
+character is connected. Records shows completed 1v1/2v2 results and win streaks,
+committed trades and saved party/storage counts. Hunts shows recorded personal
+attempts when the world's durable hunt ledger is enabled; attempts do not alter
+shiny odds. Records are snapshots, not unsaved live progress. The in-game Players
+menu also has Your Trainer Card and connected players' public battle cards.
+
+Host/Join connection details
+
+Choose an invitation to see its host address and port. Copy connection details
+copies public support information only. Your friend still needs their own
+private invitation file; those details alone do not grant character access.
+Controls & Help explains the existing keys and recovery actions.
 
 Default game controls
 

@@ -18,6 +18,7 @@ import stat
 from uuid import UUID
 
 from .companion import CompanionConfig, BASELINE_RULESET, verify_rom_manifest
+from .gen6_profile import GEN6_DEFAULTS_RULESET
 from .ownership import OWNERSHIP_PROFILE
 from .secure_transport import ClientTlsConfig, is_numeric_unicast_address
 
@@ -190,7 +191,9 @@ class Invitation:
         _name(self.display_name)
         _endpoint(self.endpoint, self.port)
         if (type(self.credential) is not bytes or len(self.credential) != 32
-                or not _hash(self.build_id) or self.ruleset_id != BASELINE_RULESET or self.save_profile != OWNERSHIP_PROFILE):
+                or not _hash(self.build_id)
+                or self.ruleset_id not in (BASELINE_RULESET, GEN6_DEFAULTS_RULESET)
+                or self.save_profile != OWNERSHIP_PROFILE):
             raise InvitationError("invalid_invitation", "invitation credential or game profile is incompatible")
         _certificate(self.certificate_pem, self.world_id, self.certificate_sha256)
 

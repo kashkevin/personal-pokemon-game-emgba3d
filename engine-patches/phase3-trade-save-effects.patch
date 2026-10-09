@@ -1,0 +1,161 @@
+diff --git a/include/multiplayer_trade_effects.h b/include/multiplayer_trade_effects.h
+index d273de8..01b069e 100644
+--- a/include/multiplayer_trade_effects.h
++++ b/include/multiplayer_trade_effects.h
+@@ -22,6 +22,8 @@ enum MultiplayerTradeEffectFlags
+ };
+ 
+ struct Pokemon;
++struct SaveBlock1;
++struct SaveBlock2;
+ struct MultiplayerTradeEffectPreview
+ {
+     u32 version;
+@@ -111,4 +113,19 @@ bool32 MultiplayerTradeEffects_ReplayRecord(const struct Pokemon *received,
+                                           const struct MultiplayerTradeMoveChoice *choices,
+                                           u32 count, struct Pokemon *out);
+ 
++// Private saved-block preparation. Inputs are the exact frozen recipient and
++// counterpart blocks; output buffers must be distinct caller-owned copies.
++// Replays the record first, then received/evolved Dex, encrypted saturated
++// counters and ribbon presentation. Failure leaves both outputs untouched.
++// This does not write Flash, bind a transaction, increment the save counter,
++// arm a save, choose missing handler policy or enable an effects capability.
++bool32 MultiplayerTradeEffects_ReplaySaveBlocks(const struct SaveBlock1 *recipient1,
++                                               const struct SaveBlock2 *recipient2,
++                                               const struct SaveBlock1 *partner1,
++                                               u32 outgoingSlot, u32 incomingSlot,
++                                               u32 resolvedFriendship,
++                                               const struct MultiplayerTradeMoveChoice *choices,
++                                               u32 count, struct SaveBlock1 *out1,
++                                               struct SaveBlock2 *out2);
++
+ #endif // GUARD_MULTIPLAYER_TRADE_EFFECTS_H
+diff --git a/src/multiplayer_trade_effects.c b/src/multiplayer_trade_effects.c
+index e623d66..84ce7a3 100644
+--- a/src/multiplayer_trade_effects.c
++++ b/src/multiplayer_trade_effects.c
+@@ -5,10 +5,27 @@
+ #include "battle.h"
+ #include "string_util.h"
+ #include "constants/moves.h"
++#include "constants/game_stat.h"
++#include "constants/flags.h"
+ 
+ STATIC_ASSERT(sizeof(struct MultiplayerTradeEffectPreview) == 36, TradeEffectPreviewSize);
+ STATIC_ASSERT(sizeof(struct Pokemon) == 100, TradeEffectPartyRecordSize);
+ STATIC_ASSERT(sizeof(struct MultiplayerTradeRecordPreparation) == 192, TradeEffectRecordPreparationSize);
++// Exact profile consumed by trade_effect_flash.py. A changed layout must fail
++// compilation rather than silently write another save field.
++STATIC_ASSERT(sizeof(struct SaveBlock1) == 15568, TradeEffectSaveBlock1Size);
++STATIC_ASSERT(sizeof(struct SaveBlock2) == 3884, TradeEffectSaveBlock2Size);
++STATIC_ASSERT(offsetof(struct SaveBlock1, playerParty) == 0x238, TradeEffectPartyOffset);
++STATIC_ASSERT(offsetof(struct SaveBlock1, flags) == 0x1270, TradeEffectFlagsOffset);
++STATIC_ASSERT(offsetof(struct SaveBlock1, gameStats) == 0x159C, TradeEffectStatsOffset);
++STATIC_ASSERT(offsetof(struct SaveBlock1, giftRibbons) == 0x31A8, TradeEffectGiftRibbonsOffset);
++STATIC_ASSERT(offsetof(struct SaveBlock1, dexSeen) == 0x3598, TradeEffectDexSeenOffset);
++STATIC_ASSERT(offsetof(struct SaveBlock1, dexCaught) == 0x3619, TradeEffectDexCaughtOffset);
++STATIC_ASSERT(offsetof(struct SaveBlock2, encryptionKey) == 0xAC, TradeEffectKeyOffset);
++STATIC_ASSERT(offsetof(struct SaveBlock2, pokedex.unownPersonality) == 0x1C, TradeEffectUnownOffset);
++STATIC_ASSERT(offsetof(struct SaveBlock2, pokedex.spindaPersonality) == 0x20, TradeEffectSpindaOffset);
++STATIC_ASSERT(NUM_DEX_FLAG_BYTES == 129 && NUM_GIFT_RIBBONS == 7 && MAX_GIFT_RIBBON == 64, TradeEffectArrays);
++STATIC_ASSERT(FLAG_SYS_RIBBON_GET == 0x89B && GAME_STAT_POKEMON_TRADES == 21 && GAME_STAT_EVOLVED_POKEMON == 14, TradeEffectBookkeepingIds);
+ 
+ static bool32 OutputAliasesMon(const struct MultiplayerTradeEffectPreview *out,
+                               const struct Pokemon *mon)
+@@ -313,3 +330,94 @@ bool32 MultiplayerTradeEffects_ReplayRecord(const struct Pokemon *received,
+     *out = candidate;
+     return TRUE;
+ }
++
++static bool32 SaveOutputIsPrivate(const void *out, u32 size,
++                                 const struct SaveBlock1 *recipient1,
++                                 const struct SaveBlock2 *recipient2,
++                                 const struct SaveBlock1 *partner1,
++                                 const struct MultiplayerTradeMoveChoice *choices, u32 count)
++{
++    return out != NULL
++        && !Overlaps(out, size, recipient1, sizeof(*recipient1))
++        && !Overlaps(out, size, recipient2, sizeof(*recipient2))
++        && !Overlaps(out, size, partner1, sizeof(*partner1))
++        && !(count && Overlaps(out, size, choices, count * sizeof(*choices)))
++        && !(gSaveBlock1Ptr && Overlaps(out, size, gSaveBlock1Ptr, sizeof(*gSaveBlock1Ptr)))
++        && !(gSaveBlock2Ptr && Overlaps(out, size, gSaveBlock2Ptr, sizeof(*gSaveBlock2Ptr)))
++        && !(gSaveBlock3Ptr && Overlaps(out, size, gSaveBlock3Ptr, sizeof(*gSaveBlock3Ptr)))
++        && !Overlaps(out, size, gParties, sizeof(gParties));
++}
++
++static void IncrementPrivateStat(struct SaveBlock1 *block, u32 key, u32 index)
++{
++    u32 value = block->gameStats[index] ^ key;
++    block->gameStats[index] = (value < 0xFFFFFF ? value + 1 : 0xFFFFFF) ^ key;
++}
++
++bool32 MultiplayerTradeEffects_ReplaySaveBlocks(const struct SaveBlock1 *recipient1,
++                                               const struct SaveBlock2 *recipient2,
++                                               const struct SaveBlock1 *partner1,
++                                               u32 outgoingSlot, u32 incomingSlot,
++                                               u32 resolvedFriendship,
++                                               const struct MultiplayerTradeMoveChoice *choices,
++                                               u32 count, struct SaveBlock1 *out1,
++                                               struct SaveBlock2 *out2)
++{
++    struct Pokemon incoming, candidate;
++    u32 receivedSpecies, finalSpecies, dex, finalDex, personality, index, mask, ribbons = 0;
++    if (recipient1 == NULL || recipient2 == NULL || partner1 == NULL || recipient1 == partner1
++     || recipient1->playerPartyCount > PARTY_SIZE || partner1->playerPartyCount > PARTY_SIZE
++     || outgoingSlot >= recipient1->playerPartyCount || incomingSlot >= partner1->playerPartyCount
++     || count > MP_TRADE_RECORD_MAX_CHOICES || (count && choices == NULL)
++     || !SaveOutputIsPrivate(out1, sizeof(*out1), recipient1, recipient2, partner1, choices, count)
++     || !SaveOutputIsPrivate(out2, sizeof(*out2), recipient1, recipient2, partner1, choices, count)
++     || Overlaps(out1, sizeof(*out1), out2, sizeof(*out2)))
++        return FALSE;
++    if (!MultiplayerTradeEffects_ReplayRecord(&partner1->playerParty[incomingSlot],
++        &recipient1->playerParty[outgoingSlot], resolvedFriendship, choices, count, &candidate))
++        return FALSE;
++    incoming = partner1->playerParty[incomingSlot];
++    receivedSpecies = GetMonData(&incoming, MON_DATA_SPECIES);
++    finalSpecies = GetMonData(&candidate, MON_DATA_SPECIES);
++    dex = SpeciesToNationalPokedexNum(receivedSpecies);
++    finalDex = SpeciesToNationalPokedexNum(finalSpecies);
++    // This save adapter is for the standard 1..721 profile, not arbitrary forms.
++    if (dex != receivedSpecies || finalDex != finalSpecies || !dex || !finalDex
++     || dex > SPECIES_VOLCANION || finalDex > SPECIES_VOLCANION)
++        return FALSE;
++    personality = GetMonData(&incoming, MON_DATA_PERSONALITY);
++    // Preserve the exact native trade's presentation range; contest ranks are
++    // outside MON_DATA_CHAMPION_RIBBON..WORLD_RIBBON in this engine.
++    for (index = MON_DATA_CHAMPION_RIBBON; index <= MON_DATA_WORLD_RIBBON; index++)
++        ribbons += GetMonData(&incoming, index);
++
++    // No failing operations follow these writes. Both complete outputs remain
++    // private; the owner must validate/publish the pair in one transaction.
++    memcpy(out1, recipient1, sizeof(*out1));
++    memcpy(out2, recipient2, sizeof(*out2));
++    out1->playerParty[outgoingSlot] = candidate;
++    index = (dex - 1) / 8;
++    mask = 1 << ((dex - 1) % 8);
++    out1->dexSeen[index] |= mask;
++    if (!(out1->dexCaught[index] & mask))
++    {
++        out1->dexCaught[index] |= mask;
++        if (receivedSpecies == SPECIES_UNOWN) out2->pokedex.unownPersonality = personality;
++        if (receivedSpecies == SPECIES_SPINDA) out2->pokedex.spindaPersonality = personality;
++    }
++    if (finalSpecies != receivedSpecies)
++    {
++        index = (finalDex - 1) / 8;
++        mask = 1 << ((finalDex - 1) % 8);
++        out1->dexSeen[index] |= mask;
++        out1->dexCaught[index] |= mask;
++        IncrementPrivateStat(out1, out2->encryptionKey, GAME_STAT_EVOLVED_POKEMON);
++    }
++    IncrementPrivateStat(out1, out2->encryptionKey, GAME_STAT_POKEMON_TRADES);
++    if (ribbons) out1->flags[FLAG_SYS_RIBBON_GET / 8] |= 1 << (FLAG_SYS_RIBBON_GET % 8);
++    for (index = 0; index < NUM_GIFT_RIBBONS; index++)
++        if (!out1->giftRibbons[index] && partner1->giftRibbons[index]
++         && partner1->giftRibbons[index] < MAX_GIFT_RIBBON)
++            out1->giftRibbons[index] = partner1->giftRibbons[index];
++    return TRUE;
++}
+

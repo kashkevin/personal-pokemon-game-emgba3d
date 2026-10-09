@@ -185,6 +185,8 @@ class _ServerBattleDesk(BattleDesk):
         # Preflight and the inherited intent reservation are synchronous, so
         # no checkpoint/trade mutation can interleave between them.
         battle = self._get(actor, lease, battle_id, generation)
+        if self.server.battle_execution is not None:
+            self.server.battle_execution.admission.assert_not_canceled(battle_id)
         self.server._preflight_battle_bind(battle.players, battle.leases)
         return super().authorize_bind(actor, lease, battle_id, generation)
 
@@ -198,7 +200,8 @@ class WorldServer:
 
     def __init__(self, config: ServerConfig, *, store: CheckpointStore | None = None,
                  development_trades: bool = False, development_teams: bool = False,
-                 development_battles: bool = False) -> None:
+                 development_battles: bool = False, trade_effect_adapter=None,
+                 trade_effect_policy=None) -> None:
         self.config = config
         self.store = store
         self._world_metadata: WorldMetadata | None = None
@@ -216,8 +219,9 @@ class WorldServer:
         self.sessions: dict[str, PlayerSession] = {}
         from .reset_attempts import ResetAttempts
         self._reset_attempts = ResetAttempts(store) if store is not None and store.reset_attempts_enabled else None
-        # Explicit opt-in for integration proofs. Native side effects and the
-        # cold-start recovery gate must pass before this becomes player-facing.
+        # The launcher enables only the qualified native/menu/ownership path.
+        # Recipient preparation preserves eligible exact swaps; unsupported
+        # native evolution, friendship, egg and mail effects remain refused.
         self.trade_desk = None
         if type(development_trades) is not bool:
             raise ValueError("development_trades must be a boolean")
@@ -232,6 +236,12 @@ class WorldServer:
             if self._trade_recovery_desk is None:
                 raise ValueError("development trades require an explicit schema-3 world")
             self.trade_desk = self._trade_recovery_desk
+        self.trade_effects = None
+        if trade_effect_adapter is not None:
+            if self._trade_recovery_desk is None:
+                raise ValueError("native effects require an owned paired-trade world")
+            from .trade_effect_backend import TradeEffectsBackend
+            self.trade_effects = TradeEffectsBackend(self._trade_recovery_desk, trade_effect_adapter, trade_effect_policy)
         # Teams are session-local development state, separate from trades and
         # ordinary save profiles. Authentication still requires an owned world.
         self.team_desk = None
@@ -246,6 +256,7 @@ class WorldServer:
         self.battle_desk = None
         self.battle_execution = None
         self._battle_results = None
+        self._championships = None
         from .battle_reservations import BattleReservations
         self._battle_reservations = (BattleReservations(store)
             if store is not None and store.battle_reservations_enabled else None)
@@ -258,9 +269,14 @@ class WorldServer:
         from .ownership_storage import OwnershipCheckpointStore
         if isinstance(store, OwnershipCheckpointStore):
             archive_path = store.path.with_name(store.path.name + ".battle-results.sqlite3")
-            if development_battles or archive_path.exists():
+            championship_path = store.path.with_name(store.path.name + ".championships.sqlite3")
+            if development_battles or archive_path.exists() or championship_path.exists():
                 from .battle_results import BattleResults
                 self._battle_results = BattleResults(archive_path, world_id=store.metadata.world_id,
+                    build_id=store.build_id, ruleset_id=store.ruleset_id)
+            if development_battles or championship_path.exists():
+                from .championship import Championships
+                self._championships = Championships(championship_path, world_id=store.metadata.world_id,
                     build_id=store.build_id, ruleset_id=store.ruleset_id)
         if development_battles:
             from .ownership_storage import OwnershipCheckpointStore
@@ -342,6 +358,12 @@ class WorldServer:
             roster[session.player_id] = session.session_epoch
         return roster
 
+    @property
+    def is_serving(self):
+        """Whether this service still owns its active listener and heartbeat."""
+        return (not self._closing and self._server is not None and self._server.is_serving()
+                and self._monitor_task is not None and not self._monitor_task.done())
+
     async def start(self, host: str = "127.0.0.1", port: int = 8765, *, allow_lan: bool = False,
                     tls: ServerTlsConfig | None = None, public: bool = False) -> None:
         if self._server is not None:
@@ -373,12 +395,18 @@ class WorldServer:
         try:
             if self.store is not None:
                 self._world_metadata = self.store.begin_server_boot()
+                if self.store.trade_effects_enabled and self.trade_effects is None:
+                    raise StorageError("trade_effect_replay_required", "this effect-enabled world requires its pinned native worker")
+            if self.trade_effects is not None:
+                await self.trade_effects.start()
             self._server = listener
             await listener.start_serving()
         except BaseException:
             self._server = None
             listener.close()
             await listener.wait_closed()
+            if self.trade_effects is not None:
+                await self.trade_effects.close()
             raise
         self._monitor_task = asyncio.create_task(self._monitor(), name="world-heartbeat")
 
@@ -389,6 +417,8 @@ class WorldServer:
 
     async def close(self) -> None:
         self._closing = True
+        if self.trade_effects is not None:
+            await self.trade_effects.close()
         if self.battle_execution is not None:
             await self.battle_execution.close()
         listening_server = self._server
@@ -397,8 +427,10 @@ class WorldServer:
             self._server = None
         if self._monitor_task is not None:
             self._monitor_task.cancel()
-            with suppress(asyncio.CancelledError):
-                await self._monitor_task
+            # A crashed heartbeat is one reason a surviving launcher needs to
+            # restart this service. Its old failure must not strand accepted
+            # connections and the store owner on every subsequent close.
+            await asyncio.gather(self._monitor_task, return_exceptions=True)
             self._monitor_task = None
         for writer in tuple(self._connections):
             writer.close()
@@ -647,19 +679,72 @@ class WorldServer:
             result = getattr(desk, operation)(*actor, request["invitation_id"], request["generation"])
         self._team_reply(session, request, result=result)
 
-    def _battle_reply(self, session, request, *, error=None, result=None):
+    def _battle_reply(self, session, request, *, error=None, result=None, player_card=None, championship=None,
+                      admission_handoff_version=None, history_extensions=None):
         assert self._world_metadata is not None
         self._control(session, dict(
             type="battle_error" if error is not None else "battle_result",
             protocol=PROTOCOL_VERSION, session_epoch=session.session_epoch,
             request_id=request["request_id"], operation=request["type"].removeprefix("battle_"),
             world_id=self._world_metadata.world_id, player_id=session.player_id,
+            **({"player_card_version": player_card["version"], "player_card": player_card} if player_card is not None and error is None else {}),
+            **({"championship": championship} if championship is not None and error is None else {}),
+            **({"admission_handoff_version": admission_handoff_version}
+               if admission_handoff_version is not None and error is None else {}),
+            **(history_extensions if history_extensions is not None and error is None else {}),
             **({"code": error.code, "message": error.message} if error is not None else {"result": result})))
+
+    def _championship_challenge(self, session, request):
+        if self._championships is None:
+            raise ProtocolError("championship_disabled", "This host has not enabled Championships")
+        self.store.read_checkpoint(session.player_id, session.session_epoch)
+        if self._connected_lease(session.player_id) != session.session_epoch:
+            raise ProtocolError("stale_lease", "Championships require the current authenticated player")
+        desk = self.battle_desk
+        capture_original = self.battle_execution is not None and self.battle_execution.resume_enabled
+        # Recovery only asks the original durable ledger to classify/revoke a
+        # never-entered invitation. It grants no new native core or consent;
+        # only a separately requested match may call the invitation callback.
+        if capture_original and request["championship"]["operation"] == "match":
+            self.battle_execution.admission.require_identity(request)
+
+        def invite(battle_id, peer):
+            desk.invite(session.player_id, session.session_epoch, peer, battle_id)
+            if capture_original:
+                self.battle_execution.admission.capture(session.player_id, session.session_epoch,
+                    dict(request, battle_id=battle_id))
+
+        authenticated = self._team_roster()
+        roster = {player: self.sessions[player].display_name for player in authenticated}
+        extension = self._championships.handle(session.player_id, request["championship"],
+            roster=roster, desk=desk, results=self._battle_results, invite=invite,
+            reservations=self._battle_reservations,
+            admission=self.battle_execution.admission if self.battle_execution is not None else None)
+        pending = [] if desk is None else [challenge_view(view) for view in
+            desk.pending(session.player_id, session.session_epoch)]
+        self._battle_reply(session, request, result=pending, championship=extension)
 
     def _battle_challenge(self, session, request):
         # Public consent never authorizes BIND/START, supplies native receipts,
         # or claims a winner. Those remain trusted coordinator operations.
         operation = request["type"].removeprefix("battle_")
+        if operation == "pending" and "admission_handoff_version" in request:
+            if self.battle_execution is None or not self.battle_execution.resume_enabled:
+                raise ProtocolError("admission_handoff_unsupported", "this host has no original admission handoff ledger")
+            result = [challenge_view(view) for view in self.battle_desk.pending(session.player_id, session.session_epoch)]
+            self._battle_reply(session, request, result=result, admission_handoff_version=1)
+            return
+        if operation == "pending" and "championship" in request:
+            self._championship_challenge(session, request)
+            return
+        if operation in ("cancel_admission", "admission_handoff"):
+            if self.battle_execution is None or not self.battle_execution.resume_enabled:
+                raise ProtocolError("battle_resume_disabled", "neutral cleanup requires native execution with original consent")
+            dispatch = (self.battle_execution.admission.cancel_admission if operation == "cancel_admission"
+                        else self.battle_execution.admission.admission_handoff)
+            result = dispatch(session.player_id, session.session_epoch, request)
+            self._battle_reply(session, request, result=result)
+            return
         if operation in ("execute", "resume"):
             if self.battle_execution is None:
                 raise ProtocolError("battle_execution_disabled", "this host has not enabled native battle execution")
@@ -685,8 +770,28 @@ class WorldServer:
             self.store.read_checkpoint(session.player_id, session.session_epoch)
             if self._connected_lease(session.player_id) != session.session_epoch:
                 raise ProtocolError("stale_lease", "battle history requires the current authenticated player")
+            extensions = {"battle_archive", "reset_history", "trade_archive"}.intersection(request)
+            if extensions:
+                key = next(iter(extensions))
+                if key == "battle_archive":
+                    if self._battle_results is None:
+                        raise ProtocolError("battle_archive_unsupported", "this host has no released battle archive")
+                    value = self._battle_results.archive(session.player_id, request[key])
+                elif key == "reset_history":
+                    if self._reset_attempts is None:
+                        raise ProtocolError("reset_disabled", "this world has no personal attempt ledger")
+                    value = self._reset_attempts.history(session.player_id, session.session_epoch, request[key])
+                else:
+                    from .trade_archive import read_trade_archive
+                    value = read_trade_archive(self.store, session.player_id, session.session_epoch, request[key])
+                self._battle_reply(session, request, result=[], history_extensions={key: value})
+                return
+            card = None
+            if "player_card_version" in request:
+                from .player_card import build_player_card
+                card = build_player_card(self, session, request["card_player"], version=request["player_card_version"])
             self._battle_reply(session, request, result=[] if self._battle_results is None
-                else self._battle_results.history(session.player_id))
+                else self._battle_results.history(session.player_id), player_card=card)
             return
         if self.battle_desk is None:
             raise ProtocolError("battle_disabled", "this development world has not enabled battle challenges")
@@ -699,6 +804,9 @@ class WorldServer:
             result = [challenge_view(view) for view in desk.pending(*actor)]
         else:
             battle_id = request["battle_id"]
+            if (operation in ("invite", "invite_multi") and self._championships is not None
+                    and self._championships.claims_battle(battle_id)):
+                raise ProtocolError("championship_match_owned", "Use the Championship page for this reserved match")
             if operation == "invite":
                 view = desk.invite(*actor, request["peer"], battle_id)
             elif operation == "invite_multi":
@@ -722,6 +830,15 @@ class WorldServer:
 
     def _trade_reply(self, session, request, *, error=None, **fields):
         assert self._world_metadata is not None
+        if "preparation_version" in request:
+            from .trade_protocol import PREPARATION_VERSION
+            fields["preparation_version"] = PREPARATION_VERSION
+        if request.get("effects_version") == 1 and self.trade_effects is not None and self.trade_effects.ready:
+            fields["effects_version"] = 1
+        if error is None and request["type"] == "trade_status":
+            for feature in ("inspection_version", "effect_source_version"):
+                if request.get(feature) == 1:
+                    fields[feature] = 1
         self._control(session, dict(
             type="trade_error" if error is not None else "trade_result",
             protocol=PROTOCOL_VERSION, session_epoch=session.session_epoch,
@@ -733,10 +850,20 @@ class WorldServer:
         kind = request["type"].removeprefix("trade_")
         desk = self.trade_desk
         if desk is None:
-            if kind not in {"pending", "status", "ack"} or self._trade_recovery_desk is None:
+            retained_effect = (self.trade_effects is not None and request.get("effects_version") == 1
+                               and self.trade_effects.handles(request.get("transaction_id")))
+            if (kind not in {"pending", "status", "ack"} and not retained_effect) or self._trade_recovery_desk is None:
                 raise ProtocolError("trade_disabled", "this development world has not enabled new trade operations")
             desk = self._trade_recovery_desk
         actor = (session.player_id, session.session_epoch)
+        effects = self.trade_effects
+        requested_effects = request.get("effects_version") == 1
+        tx = request.get("transaction_id")
+        effect_transaction = effects is not None and tx is not None and effects.handles(tx)
+        if effect_transaction and not requested_effects and kind not in {"pending", "ack"}:
+            raise ProtocolError("trade_effect_negotiation_required", "this retained native trade requires version negotiation")
+        if requested_effects and kind not in {"status", "proposals", "pending", "ack"} and (effects is None or not effects.ready):
+            raise ProtocolError("trade_effect_unsupported", "native trade replay is unavailable on this host")
         if kind not in {"status", "pending", "proposals"}:
             players = [session.player_id]
             if kind == "open":
@@ -747,7 +874,10 @@ class WorldServer:
                     players.extend(proposal.players)
             self._assert_battle_available(*players)
         if kind == "proposals":
-            self._trade_reply(session, request, proposals=desk.proposals(*actor))
+            proposals = desk.proposals(*actor)
+            if requested_effects and effects is not None and effects.ready:
+                proposals += effects.proposals(*actor)
+            self._trade_reply(session, request, proposals=proposals)
             return
         if kind == "pending":
             self._trade_reply(session, request, recoveries=[dict(
@@ -757,6 +887,36 @@ class WorldServer:
                 for r in desk.store.pending_trade_recovery(*actor)])
             return
         txid = request["transaction_id"]
+        effect_route = effect_transaction or (kind == "open" and requested_effects)
+        if effect_route:
+            if kind == "prepared":
+                raise ProtocolError("trade_effect_receipt_required", "native candidates require the recorded choice receipt")
+            if kind == "open":
+                result = effects.open(*actor, request["peer"], txid)
+            elif kind == "offer":
+                result = effects.offer(*actor, txid, request["generation"], request["revision"], request["sha256"], request["serial"])
+            elif kind == "confirm":
+                result = effects.confirm(*actor, txid, request["generation"], request["fingerprint"])
+            elif kind == "prepare":
+                result = effects.preparation(*actor, txid, request["generation"])
+            elif kind == "inspect":
+                result = effects.inspect(*actor, txid, request["generation"], request["fingerprint"])
+            elif kind == "effect_source":
+                result = effects.effect_source(*actor, txid, request["generation"], request["preparation_id"])
+            elif kind == "effect_prepared":
+                result = effects.prepared(*actor, txid, request["generation"], request["fingerprint"], request["preparation_id"],
+                    {k: request[k] for k in ("choices", "candidate_sha256", "candidate_size", "record_sha256")})
+            elif kind == "cancel":
+                result = effects.cancel(*actor, txid, request["generation"])
+            elif kind == "status":
+                result = effects.status(*actor, txid)
+            elif kind != "ack":
+                raise ProtocolError("invalid_type", "unsupported native trade operation")
+            if kind != "ack":
+                self._trade_reply(session, request, trade=result)
+                return
+        if kind == "effect_prepared":
+            raise ProtocolError("trade_effect_negotiation_required", "no effectful preparation exists for this transaction")
         if kind == "ack":
             desk.store.acknowledge_trade(*actor, txid, request["revision"], request["sha256"])
             result = dict(transaction_id=txid, state="acknowledged",
@@ -768,6 +928,15 @@ class WorldServer:
                                 request["sha256"], request["serial"])
         elif kind == "confirm":
             result = desk.confirm(*actor, txid, request["generation"], request["fingerprint"])
+        elif kind == "prepare":
+            result = desk.preparation(*actor, txid, request["generation"])
+        elif kind == "inspect":
+            result = desk.inspect(*actor, txid, request["generation"], request["fingerprint"])
+        elif kind == "effect_source":
+            result = desk.effect_source(*actor, txid, request["generation"], request["preparation_id"])
+        elif kind == "prepared":
+            result = desk.prepared(*actor, txid, request["generation"], request["fingerprint"],
+                                   request["preparation_id"], request["candidate_sha256"])
         elif kind == "cancel":
             result = desk.cancel(*actor, txid, request["generation"])
         else:

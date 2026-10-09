@@ -1,0 +1,144 @@
+diff --git a/include/multiplayer_save.h b/include/multiplayer_save.h
+index 67cc9a1..9de4b1f 100644
+--- a/include/multiplayer_save.h
++++ b/include/multiplayer_save.h
+@@ -14,6 +14,8 @@ enum MultiplayerSaveOpcode {
+     MP_SAVE_RELEASE_TRADE, MP_SAVE_REBIND_TRADE, MP_SAVE_QUERY_TRADE,
+     MP_SAVE_READ_WINDOW,
+     MP_SAVE_BEGIN_EMERGENCY_EXPORT, MP_SAVE_PRESERVE_EMERGENCY, MP_SAVE_QUERY_EMERGENCY, MP_SAVE_PROMOTE_EMERGENCY_EXPORT,
++    MP_SAVE_BEGIN_EFFECT_RECORD, MP_SAVE_CHOOSE_EFFECT_MOVE,
++    MP_SAVE_QUERY_EFFECT_RECORD, MP_SAVE_DISCARD_EFFECT_RECORD,
+ };
+ enum MultiplayerSaveState {
+     MP_SAVE_UNBOUND, MP_SAVE_BOUND, MP_SAVE_EXPORTING, MP_SAVE_IMPORTING,
+@@ -54,6 +56,7 @@ struct MultiplayerSaveMailbox {
+ };
+ extern volatile struct MultiplayerSaveMailbox gMultiplayerSaveMailbox;
+ extern const u32 gMultiplayerTradeAbiVersion;
++extern const u32 gMultiplayerTradeEffectPrepareAbiVersion;
+ extern const u32 gMultiplayerSaveWindowAbiVersion;
+ extern const u32 gMultiplayerEmergencySaveAbiVersion;
+ void MultiplayerSave_Init(void);
+diff --git a/src/multiplayer_save.c b/src/multiplayer_save.c
+index 7a4b914..a9e93f0 100644
+--- a/src/multiplayer_save.c
++++ b/src/multiplayer_save.c
+@@ -1,5 +1,6 @@
+ #include "global.h"
+ #include "multiplayer_save.h"
++#include "multiplayer_trade_effects.h"
+ #include "multiplayer.h"
+ #include "multiplayer_battle.h"
+ #include "multiplayer_menu.h"
+@@ -41,6 +42,9 @@ _Static_assert(sizeof(struct PokemonStorage) == 34144, "Pinned storage");
+ _Static_assert(sizeof(rng_value_t) == 16, "Pinned SFC32");
+ 
+ const u32 gMultiplayerTradeAbiVersion = 1;
++// Private record preparation only: never grants effect import/publication.
++const u32 gMultiplayerTradeEffectPrepareAbiVersion = 1;
++_Static_assert(sizeof(struct MultiplayerTradeRecordPreparation) == 192, "Trade record response ABI");
+ // Optional read-only 4096-byte export window in the existing sector buffer.
+ const u32 gMultiplayerSaveWindowAbiVersion = 1;
+ // Opt-in, immutable local preservation. This does not authorize a host commit.
+@@ -80,6 +84,9 @@ static EWRAM_DATA bool8 sTradeActive = FALSE;
+ static EWRAM_DATA bool8 sTradeExpired = FALSE;
+ static EWRAM_DATA bool8 sTradeImportStarted = FALSE;
+ static EWRAM_DATA u32 sTradePreparedRevision = 0;
++static EWRAM_DATA struct MultiplayerTradeRecordPreparation sEffectRecord = {0};
++static EWRAM_DATA u8 sEffectInput[192] = {0};
++static EWRAM_DATA bool8 sEffectActive = FALSE;
+ static EWRAM_DATA bool8 sEmergencyActive = FALSE;
+ static EWRAM_DATA bool8 sEmergencyValid = FALSE;
+ static EWRAM_DATA u8 sEmergencyStatus = MP_SAVE_OK;
+@@ -283,6 +290,9 @@ static void Release(void)
+     sState = MP_SAVE_BOUND;
+     sPending = FALSE;
+     sTradeActive = FALSE; sTradeExpired = FALSE; sTradeImportStarted = FALSE;
++    sEffectActive = FALSE;
++    memset(&sEffectRecord, 0, sizeof(sEffectRecord));
++    memset(sEffectInput, 0, sizeof(sEffectInput));
+ }
+ 
+ static void Hold(u32 state, const struct MultiplayerSaveControl *command)
+@@ -510,11 +520,15 @@ void MultiplayerSave_Init(void)
+     sIncarnation = 0; sSession = 0; sLastSeq = 0; sPending = FALSE;
+     sTradeActive = FALSE; sTradeExpired = FALSE; sTradeImportStarted = FALSE;
+     sTradePreparedRevision = 0;
++    sEffectActive = FALSE;
++    memset(&sEffectRecord, 0, sizeof(sEffectRecord));
++    memset(sEffectInput, 0, sizeof(sEffectInput));
+     sEmergencyActive = FALSE; sEmergencyValid = FALSE; sEmergencyStatus = MP_SAVE_OK;
+     sRevision = 0; sOffset = 0; sCrc = 0; sDeadline = 0; sCommitted = FALSE;
+     memset(sRequestId, 0, sizeof(sRequestId));
+     // Read the capability through volatile storage so section GC retains it.
+     (void)*(const volatile u32 *)&gMultiplayerTradeAbiVersion;
++    (void)*(const volatile u32 *)&gMultiplayerTradeEffectPrepareAbiVersion;
+     (void)*(const volatile u32 *)&gMultiplayerSaveWindowAbiVersion;
+     (void)*(const volatile u32 *)&gMultiplayerEmergencySaveAbiVersion;
+     MultiplayerOwnership_InvalidateGrant();
+@@ -975,6 +989,65 @@ static void Handle(const struct MultiplayerSaveControl *command)
+         if (command->length || command->offset) { status = MP_SAVE_MALFORMED; break; }
+         Release();
+         PublishResponse(command, MP_SAVE_OK, NULL, 0, sOffset); return;
++    case MP_SAVE_BEGIN_EFFECT_RECORD:
++    case MP_SAVE_CHOOSE_EFFECT_MOVE:
++    case MP_SAVE_QUERY_EFFECT_RECORD:
++    case MP_SAVE_DISCARD_EFFECT_RECORD:
++        // The original frozen export and live party still belong to this hold.
++        // No path here changes a party, Flash, save counter or hold ownership.
++        if (!sTradeActive || sTradeImportStarted || sState != MP_SAVE_TRADE_HELD
++         || sOffset != MULTIPLAYER_SAVE_FLASH_SIZE || command->revision != sTradePreparedRevision)
++            { status = MP_SAVE_ORDER; break; }
++        if (command->offset || command->totalSize != MULTIPLAYER_SAVE_FLASH_SIZE
++         || command->length != (command->opcode == MP_SAVE_BEGIN_EFFECT_RECORD ? 192
++                              : command->opcode == MP_SAVE_CHOOSE_EFFECT_MOVE ? 56 : 48))
++            { status = MP_SAVE_MALFORMED; break; }
++        if (AllBytes(command->data, 16, 0) || AllBytes(command->data + 16, 32, 0))
++            { status = MP_SAVE_MALFORMED; break; }
++        if (command->opcode == MP_SAVE_BEGIN_EFFECT_RECORD)
++        {
++            u32 i, slot = ReadU32(command->data + 80);
++            u8 generation = 0, pair = 0, source = 0;
++            for (i = 0; i < 16; i++) generation |= command->data[i];
++            for (i = 16; i < 48; i++) pair |= command->data[i];
++            for (i = 48; i < 80; i++) source |= command->data[i];
++            if (!generation || !pair || !source || slot >= gPlayerPartyCount || slot >= PARTY_SIZE
++             || ReadU32(command->data + 84) > 255 || ReadU32(command->data + 188) != sCrc)
++                { status = MP_SAVE_VALIDATION; break; }
++            if (sEffectActive)
++            {
++                if (memcmp(sEffectInput, command->data, sizeof(sEffectInput)))
++                    { status = MP_SAVE_ORDER; break; }
++            }
++            else
++            {
++                if (!MultiplayerTradeEffects_BeginRecord((const struct Pokemon *)(command->data + 88),
++                    &gPlayerParty[slot], ReadU32(command->data + 84), &sEffectRecord))
++                    { status = MP_SAVE_VALIDATION; break; }
++                memcpy(sEffectInput, command->data, sizeof(sEffectInput));
++                sEffectActive = TRUE;
++            }
++        }
++        else
++        {
++            if (memcmp(sEffectInput, command->data, 48)
++             || (!sEffectActive && command->opcode != MP_SAVE_DISCARD_EFFECT_RECORD))
++                { status = MP_SAVE_ORDER; break; }
++            if (command->opcode == MP_SAVE_DISCARD_EFFECT_RECORD)
++            {
++                sEffectActive = FALSE;
++                memset(&sEffectRecord, 0, sizeof(sEffectRecord));
++                // Retain only the exact input/context until Release so a lost
++                // discard receipt can be retried, including after REBIND.
++                PublishResponse(command, MP_SAVE_OK, NULL, 0, 0); return;
++            }
++            if (command->opcode == MP_SAVE_CHOOSE_EFFECT_MOVE
++             && (command->data[55] || !MultiplayerTradeEffects_ChooseMove(&sEffectRecord,
++                 ReadU32(command->data + 48), command->data[52] | command->data[53] << 8,
++                 command->data[54])))
++                { status = MP_SAVE_VALIDATION; break; }
++        }
++        PublishResponse(command, MP_SAVE_OK, (const u8 *)&sEffectRecord, sizeof(sEffectRecord), 0); return;
+     case MP_SAVE_RELEASE_TRADE:
+         if (!sTradeActive || !sTradeImportStarted || sState != MP_SAVE_COMMITTED || sOffset != 131072)
+             { status = MP_SAVE_ORDER; break; }

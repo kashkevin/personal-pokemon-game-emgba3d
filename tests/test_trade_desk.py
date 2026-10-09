@@ -73,17 +73,29 @@ class TradeDeskTests(unittest.TestCase):
     def confirm(self,index,view):
         return self.desk.confirm(*self.actor(index),self.transaction,view['generation'],view['fingerprint'])
 
+    def finish_preparation(self, view):
+        self.assertEqual(view['state'], 'preparing')
+        for index in (0, 1):
+            description = self.desk.preparation(*self.actor(index), self.transaction, view['generation'])['preparation']
+            own = next(p for p in description['players'] if p['player_id'] == self.actor(index)[0])
+            result = self.desk.prepared(*self.actor(index), self.transaction, view['generation'],
+                description['fingerprint'], description['preparation_id'], own['candidate_sha256'])
+        return result
+
     def assert_code(self,expected,call,*args):
         with self.assertRaises(StorageError) as caught:call(*args)
         self.assertEqual(caught.exception.code,expected)
 
-    def test_only_two_separate_authenticated_confirmations_commit(self):
+    def test_two_confirmations_then_two_separate_recipient_receipts_commit(self):
         ready=self.ready()
         first=self.confirm(0,ready)
         self.assertEqual(first['confirmations'],[self.players[0].player_id])
         self.assertEqual(self.confirm(0,ready),first)
         self.assertEqual(self.store.read_checkpoint(*self.actor(0)),self.heads[0])
         result=self.confirm(1,ready)
+        self.assertEqual(result['state'], 'preparing')
+        self.assertEqual(self.store.read_checkpoint(*self.actor(0)),self.heads[0])
+        result = self.finish_preparation(result)
         self.assertEqual(result['state'],'committed')
         self.assertEqual(result['revision'],2)
         self.assertNotIn('payload',str(result))
@@ -94,13 +106,13 @@ class TradeDeskTests(unittest.TestCase):
     def test_builder_failure_clears_all_consent_without_mutating_canonical_saves(self):
         ready = self.ready()
         self.confirm(0, ready)
-        with patch('emerald_multiplayer.trade_desk.build_party_swap', side_effect=TradeFlashError('injected')):
+        with patch('emerald_multiplayer.trade_desk.prepare_pair', side_effect=TradeFlashError('injected')):
             self.assert_code('invalid_trade', self.confirm, 1, ready)
         self.assertEqual(self.desk.status(*self.actor(0), self.transaction)['confirmations'], [])
         for index in (0, 1):
             self.assertEqual(self.store.read_checkpoint(*self.actor(index)), self.heads[index])
         self.assertEqual(self.confirm(1, ready)['state'], 'offering')
-        self.assertEqual(self.confirm(0, ready)['state'], 'committed')
+        self.assertEqual(self.finish_preparation(self.confirm(0, ready))['state'], 'committed')
 
     def test_unsupported_mail_offer_is_rejected_before_proposal_or_head_changes(self):
         head = self.heads[0]
@@ -129,12 +141,12 @@ class TradeDeskTests(unittest.TestCase):
             self.assertEqual(self.store.read_checkpoint(*self.actor(index)), self.heads[index])
         self.assertIsNone(self.store.read_trade(*self.actor(0), self.transaction))
         self.assertEqual(self.confirm(1, ready)['state'], 'offering')
-        self.assertEqual(self.confirm(0, ready)['state'], 'committed')
+        self.assertEqual(self.finish_preparation(self.confirm(0, ready))['state'], 'committed')
 
     def test_reopening_committed_transaction_cannot_change_peer(self):
         ready = self.ready()
         self.confirm(0, ready)
-        self.confirm(1, ready)
+        self.finish_preparation(self.confirm(1, ready))
         self.assert_code('request_conflict', self.desk.open, *self.actor(0),
                          self.players[2].player_id, self.transaction)
         self.assertEqual(self.desk.open(*self.actor(0), self.players[1].player_id,
@@ -150,7 +162,7 @@ class TradeDeskTests(unittest.TestCase):
         self.assertNotEqual(restored['fingerprint'],old['fingerprint'])
         self.assert_code('trade_offer_changed',self.confirm,0,old)
         self.confirm(0,restored)
-        self.assertEqual(self.confirm(1,restored)['state'],'committed')
+        self.assertEqual(self.finish_preparation(self.confirm(1,restored))['state'],'committed')
 
     def test_unoffered_and_third_party_or_wrong_lease_cannot_confirm(self):
         self.assert_code('trade_offer_changed',self.confirm,0,self.view)
@@ -188,7 +200,7 @@ class TradeDeskTests(unittest.TestCase):
         self.assertEqual(self.desk.status(*self.actor(0),self.transaction)['state'],'aborted')
         self.view=self.desk.open(*self.actor(0),self.players[1].player_id,self.transaction)
         self.assert_code('trade_generation_mismatch',self.confirm,1,ready)
-        ready=self.ready(); self.confirm(0,ready);result=self.confirm(1,ready)
+        ready=self.ready(); self.confirm(0,ready);result=self.finish_preparation(self.confirm(1,ready))
         self.desk=TradeDesk(self.store,self.leases.get)
         self.assertEqual(self.desk.status(*self.actor(1),self.transaction),result)
         self.assertEqual(self.desk.cancel(*self.actor(1),self.transaction,ready['generation']),result)

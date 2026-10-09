@@ -117,6 +117,7 @@ class EmergencySaveController:
         self.task = None
         self.result = EmergencyResult("unarmed")
         self.lost = asyncio.Event()
+        self._admission_cleanup_successor = False
 
     def _publish(self, state, operation_id=None, sha256=None, can_close=False):
         self.result = EmergencyResult(state, operation_id, sha256, can_close)
@@ -132,6 +133,8 @@ class EmergencySaveController:
             raise ValueError("pre-arming requires the verified local canonical revision")
         async with live._own():
             live._assert_no_trade()
+            from .battle_admission_cleanup import prepare_cleanup_successor
+            cleanup_successor = prepare_cleanup_successor(c, self.directory)
             session = live._session()
             bridge = c._bridge
             if (getattr(c.config, "emergency_save_abi_version", 0) != 2 or bridge is None
@@ -163,6 +166,7 @@ class EmergencySaveController:
             self.session, self.bridge = session, bridge
             self.base_revision, self.identity = expected_revision, identity
             self.needs_arm = False
+            self._admission_cleanup_successor = cleanup_successor
             c._emergency_controller = self
             return self._publish("armed")
 
@@ -249,28 +253,54 @@ class EmergencySaveController:
         return result
 
     async def retire_after_battle_recovery(self, completion, original_intent, retained_bridge):
+        return await self._retire_after_terminal(completion, original_intent, retained_bridge, cleanup=False)
+
+    async def retire_after_admission_cleanup(self, completion, original_intent, retained_bridge):
+        return await self._retire_after_terminal(completion, original_intent, retained_bridge, cleanup=True)
+
+    async def _retire_after_terminal(self, completion, original_intent, retained_bridge, *, cleanup):
         """Hand off only an exactly settled retained battle to a NEW controller.
 
         A lost controller's old session/task/grant fence is never renewed. The
-        caller must freshly BIND and arm the successor at the verified base.
+        caller must freshly arm the successor at the verified base. An
+        unchanged authenticated lease retains its progressed native binding
+        and command cursor; a renewed lease requires a new native BIND.
         """
-        from .battle_recovery_session import verify_recovery_completion
+        if cleanup:
+            from .battle_admission_cleanup import verify_cleanup_completion as verify_terminal
+        else:
+            from .battle_recovery_session import verify_recovery_completion as verify_terminal
+        retired_state = "retired_after_admission" if cleanup else "retired_after_battle"
+        receipt_name = ".admission-emergency-retirement.json" if cleanup else ".emergency-retirement.json"
         await self.drain()
         c = self.companion
         async with c.live_checkpoint_lock:
-            if self.result.state == "retired_after_battle":
-                record = verify_recovery_completion(c, self.directory, completion, original_intent, retained_bridge)
-                saved = _read_json(self.directory / (original_intent.battle_id + ".emergency-retirement.json"))
+            if self.result.state == retired_state:
+                record = verify_terminal(c, self.directory, completion, original_intent, retained_bridge)
+                saved = _read_json(self.directory / (original_intent.battle_id + receipt_name))
+                expected = {"schema": 1, "battle_id": original_intent.battle_id,
+                    "old_session": list(self.session), "renewed_session": completion.renewed_session.value(),
+                    "canonical_revision": self.base_revision, "canonical_sha256": completion.canonical_sha256,
+                    "terminal_receipt_sha256": hashlib.sha256(_json_bytes(record)).hexdigest()}
+                same_retirement = saved == expected
+                if cleanup:
+                    from .battle_admission_cleanup import verify_cleanup_retirement_predecessor
+                    same_retirement = verify_cleanup_retirement_predecessor(self.directory, saved, completion,
+                        original_intent, self.session)
+                same_lease = completion.renewed_session.lease_epoch == self.session[1]
+                retained_binding = (same_retirement
+                    and saved["renewed_session"]["lease_epoch"] == self.session[1]
+                    and getattr(c, "_live_binding", None) == self.session)
                 if (c._emergency_controller is not None or c._bridge is not self.bridge
                         or retained_bridge is not self.bridge or c._live_save_owner is not None
                         or getattr(c, "_live_battle_owner", None) is not None
-                        or getattr(c, "_live_binding", None) is not None
+                        or getattr(c, "_live_binding", None) is not None and not retained_binding
+                        or same_lease and not retained_binding
                         or getattr(c, "_live_bind_pending", None) is not None
-                        or saved != {"schema": 1, "battle_id": original_intent.battle_id,
-                            "old_session": list(self.session), "renewed_session": completion.renewed_session.value(),
-                            "canonical_revision": self.base_revision, "canonical_sha256": completion.canonical_sha256,
-                            "terminal_receipt_sha256": hashlib.sha256(_json_bytes(record)).hexdigest()}):
+                        or not same_retirement):
                     raise LiveSaveError("emergency_binding", "retired battle handoff no longer matches its terminal proof")
+                if not same_lease:
+                    c._live_binding = None
                 return self.result
             waiting = (self.lost.is_set() and self.task is not None and self.task.done()
                        and self.result.state == "battle_waiting")
@@ -285,21 +315,26 @@ class EmergencySaveController:
                     or getattr(c, "_live_battle_owner", None) is not None
                     or getattr(c, "_live_binding", None) != self.session):
                 raise LiveSaveError("emergency_binding", "battle completion cannot retire this retained save lifecycle")
-            record = verify_recovery_completion(c, self.directory, completion, original_intent, retained_bridge)
+            record = verify_terminal(c, self.directory, completion, original_intent, retained_bridge)
             retirement = {"schema": 1, "battle_id": original_intent.battle_id,
                 "old_session": list(self.session), "renewed_session": completion.renewed_session.value(),
                 "canonical_revision": self.base_revision, "canonical_sha256": completion.canonical_sha256,
                 "terminal_receipt_sha256": hashlib.sha256(_json_bytes(record)).hexdigest()}
-            path = self.directory / (original_intent.battle_id + ".emergency-retirement.json")
+            path = self.directory / (original_intent.battle_id + receipt_name)
             if path.exists():
                 if _read_json(path) != retirement:
                     raise LiveSaveError("emergency_binding", "battle save handoff receipt changed")
             else:
                 _atomic(path, _json_bytes(retirement))
-            c._live_binding = None
+            # An online terminal result may retain its authenticated lease.
+            # Native save BIND cannot be repeated after that binding has
+            # progressed. Keep its exact binding/sequence for the fresh saver;
+            # a renewed lease still requires a new native BIND as before.
+            if completion.renewed_session.lease_epoch != self.session[1]:
+                c._live_binding = None
             c._live_bind_pending = None
             c._emergency_controller = None
-            return self._publish("retired_after_battle")
+            return self._publish(retired_state)
 
     async def _command(self, authority, opcode, offset=0):
         c = self.companion
@@ -374,6 +409,20 @@ class EmergencySaveController:
             async with c.live_checkpoint_lock:
                 c._live_save_owner = asyncio.current_task()
                 try:
+                    from .battle_admission_cleanup import hold_original_cleanup_for_emergency
+                    try:
+                        if await hold_original_cleanup_for_emergency(self):
+                            return self._publish("battle_waiting")
+                    except Exception:
+                        # Corrupt or uncertain cleanup evidence cannot certify
+                        # a hold. The original saver's exact offline binding
+                        # still authorizes the same permanent freeze fallback
+                        # used for an uncertain initial ADMIT below.
+                        if (not c.connected and c._bridge is self.bridge
+                                and getattr(c, "_live_binding", None) == self.session and c._reconnect_blocked):
+                            authority = EmergencyAuthority(self.bridge, self.session, str(uuid4()), self.base_revision)
+                            c._emergency_authority = authority
+                        raise
                     if pending_battle(c, self.directory):
                         provisional = self.directory / "pending-battle-admission.json"
                         if provisional.exists() and not (self.directory / "pending-battle.json").exists():

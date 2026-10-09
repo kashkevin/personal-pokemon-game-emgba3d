@@ -1,5 +1,51 @@
 # Local host setup controller
 
+## October 9 friend-first setup handoff
+
+The current setup UI separates host and friend routes and exports a verified,
+closed unassigned character copy for explicit host approval. New Game receipts
+retain their exact source hash; changed/owned/active sources and existing or
+managed-private destinations are refused. World creation/selection leads to
+account setup, and scrollable forms retain visible completion controls. See
+[Windows first-run setup](windows-first-run-setup.md) for the complete flow,
+32-test scope and the later actual candidate-9 GUI import observation. This
+does not add remote enrollment or qualify a rebuilt friend package.
+
+## October 9 native-effects setup
+
+New replay-capable games require an explicit `trade_effect_policy` when creating
+a world. The setup form offers the two documented geography adaptations with
+no preselected policy. This is separate from the owner's already approved rule
+that missing legacy handler friendship starts at each species' Gen6 base.
+Known handler values and the current native friendship byte are preserved.
+
+The new **Upgrade world features** tab is an explicit closed-world action. It
+verifies the existing world's exact ROM/build, takes the normal exclusive host
+owner lock, refuses active player leases, and retains separate verified backups
+before enabling handler history, recipient effects and personal-reset ledgers.
+Changing the selected world or policy clears the form's approval. An existing
+effect policy cannot be silently replaced. A partial failure retains completed
+backups/extensions for inspection and retry; there is no destructive rollback.
+
+This action does not repin an older world to a different ROM, enroll a character,
+resolve an unfinished trade/battle or run merely because the form was opened.
+Normal host startup requires the reset ledger and selects only the pinned native
+worker/ROM. First-enrollment hosting also restores native historical replay
+before allowing canonical mutation. No original private world has been upgraded
+by development work.
+
+The earlier API notes below describe the base setup behavior. Current source:
+`host_world.py`, `launcher_setup.py`, `launcher_setup_gui.py`,
+`launcher_session.py`, `trade_native_replay.py`. Trade lifecycle evidence and
+remaining actual-play limits are in the [handoff](../PROJECT_STATUS_AND_HANDOFF.md).
+
+`tests/test_world_effect_upgrade.py` passed nine focused checks using real
+disposable SQLite databases, certificates and file locks with synthetic verified
+ROM markers. It covers both explicit policies, backed-up new/legacy worlds,
+preserved canonical data, other-build refusal, active-host/stale-lease refusal,
+policy immutability and idempotent retry. No original world was migrated; this
+does not establish new-ROM migration or actual-game compatibility.
+
 [`launcher_setup.py`](../src/emerald_multiplayer/launcher_setup.py) composes the existing private world and [first-enrollment backend](launcher-session.md#explicit-first-enrollment-backend) for launcher forms. These are developer entry points; they do not authorize an unattended enrollment or replace the player's explicit host approval.
 
 `create_world(installation, private_root, *, player_names, endpoint, port)` verifies the application's exact ROM, manifest and runtime pins, then creates a new UUID-named directory under `private_root/worlds`. It returns the existing `HostWorld` value. The existing API generates one host and up to three distinct friends, certificate/key, credentials and schema-3 store. It never overwrites a world or opens a listener. Incomplete creation stays marked for inspection.
@@ -28,6 +74,16 @@ The explicit host-approved source is an existing wholly unassigned legacy Flash 
 Status callbacks receive frozen `SetupStatus(phase, code)` records: validation, approval, connection, the ordinary Continue step, completion, or a bounded failure. No credentials, raw exceptions or source paths appear in those records. Observer errors cannot cancel cleanup. An uncertain attempt retains its original source, approval, private copy and journals; this controller adds no retry, recopy, offline merge, battle settlement or abandoned-attempt deletion policy.
 
 Selecting no source returns `source_required`; the separate draft runtime below creates that source through ordinary player inputs. The required starter selector/content and customization, remote source approval, and integration/acceptance of GUI inputs remain separate tasks. These controllers do not synthesize a starter save or write emulator RAM. Their automated tests use native Flash/export fixtures, so they do not establish actual native or Windows enrollment gameplay acceptance.
+
+The later source-only setup improvement adds `world_accounts`, a world
+verification operation returning only account slot/name labels. The GUI loads that
+actual roster when a world is created or selected, instead of offering four
+hard-coded slots regardless of which accounts exist. World/account changes
+clear the approval checkbox. Existing `HostWorld.open` checks the descriptor,
+certificate and database roster/integrity without booting the service or acquiring
+player leases. No credentials enter the event queue. This change is untested under the owner's
+stop-testing instruction. The [18-starter selector](eighteen-starter-selection.md)
+is also implemented separately in native source and is not in existing binaries.
 
 ## Ordinary New Game source preparation
 

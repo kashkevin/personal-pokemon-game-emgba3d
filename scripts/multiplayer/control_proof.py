@@ -216,7 +216,8 @@ async def run(args):
             for i, core in enumerate(cores):
                 data = await core.read(manifest["mailbox_address"], 128)
                 try:
-                    pose, inbound = inspect_mailbox(data)
+                    pose, inbound = inspect_mailbox(
+                        data, presentation_version=manifest.get("presence_animation_abi_version", 0))
                     from dataclasses import asdict
                     item = {"pose": asdict(pose), "inbound": asdict(inbound)}
                 except ValueError as error:

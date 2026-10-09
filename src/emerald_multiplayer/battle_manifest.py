@@ -6,10 +6,11 @@ BATTLE_FIELDS = frozenset({"battle_abi_version", "battle_abi_address",
 EXECUTION_FIELDS = frozenset({"battle_execution_abi_version", "battle_string_table_address",
                               "battle_string_table_size"})
 RESUME_FIELDS = frozenset({"battle_resume_abi_version", "battle_resume_abi_address"})
+ADMISSION_CLEANUP_FIELDS = frozenset({"battle_admission_cleanup_abi_version", "battle_admission_cleanup_abi_address"})
 
 
 def validate_battle_manifest(manifest, rom_path=None):
-    if (EXECUTION_FIELDS | RESUME_FIELDS).intersection(manifest) and not BATTLE_FIELDS.issubset(manifest):
+    if (EXECUTION_FIELDS | RESUME_FIELDS | ADMISSION_CLEANUP_FIELDS).intersection(manifest) and not BATTLE_FIELDS.issubset(manifest):
         raise ValueError("native execution metadata requires the battle capability")
     if not BATTLE_FIELDS.intersection(manifest):
         return False
@@ -72,4 +73,24 @@ def validate_battle_manifest(manifest, rom_path=None):
                 source.seek(address - 0x08000000)
                 if source.read(4) != b"\x01\0\0\0":
                     raise ValueError("resume marker disagrees with the verified ROM")
+    if ADMISSION_CLEANUP_FIELDS.intersection(manifest):
+        if (not ADMISSION_CLEANUP_FIELDS.issubset(manifest) or not RESUME_FIELDS.issubset(manifest)
+                or any(type(manifest.get(key)) is not int or manifest[key] != expected for key, expected in (
+                    ("battle_admission_cleanup_abi_version", 1), ("battle_resume_abi_version", 1),
+                    ("battle_abi_version", 3), ("battle_execution_abi_version", 1),
+                    ("menu_abi_version", 2), ("emergency_save_abi_version", 2)))):
+            raise ValueError("admission cleanup requires its ABI1 marker, resume executor, menu ABI2 and emergency ABI2")
+        from .menu_mailbox import validate_menu_manifest
+        from .emergency_protocol import validate_emergency_manifest
+        validate_menu_manifest(manifest, rom_path)
+        validate_emergency_manifest(manifest, rom_path)
+        address = manifest["battle_admission_cleanup_abi_address"]
+        if (type(address) is not int or address % 4
+                or not 0x08000000 <= address <= 0x08000000 + size - 4):
+            raise ValueError("admission cleanup marker lies outside its exact ROM")
+        if rom_path is not None:
+            with Path(rom_path).open("rb") as source:
+                source.seek(address - 0x08000000)
+                if source.read(4) != b"\x01\0\0\0":
+                    raise ValueError("admission cleanup marker disagrees with the verified ROM")
     return True

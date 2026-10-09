@@ -19,7 +19,7 @@ from test_trade_friendship import ALICE, BOB, decode_fixture, encode_fixture, ma
 
 
 class FriendshipFlashTests(unittest.TestCase):
-    def sources(self, *, counter=2, previous=True, rtc=True):
+    def sources(self, *, counter=2, previous=True, rtc=True, species=(265, 265)):
         payloads = flash_fixtures.TradeFlashTests().sources(counter_a=counter, counter_b=counter,
                                                           rtc=rtc, previous=previous)
         checkpoints, plans = [], []
@@ -36,6 +36,7 @@ class FriendshipFlashTests(unittest.TestCase):
                                       friendship=215 if index == 0 else 160,
                                       moves=(33, 45, 0, 0) if index == 0 else (33, 45, 0, 218))
             logical = decode_fixture(mon)
+            struct.pack_into("<H", logical[0], 0, species[index])
             changed = bytearray(mon)
             struct.pack_into("<I", changed, 4, trainer.trainer_id)
             changed[20:27] = trainer.name + bytes([255])*(7-len(trainer.name))
@@ -46,7 +47,7 @@ class FriendshipFlashTests(unittest.TestCase):
             checkpoints.append(Checkpoint(owner.player_id, 5+index, str(uuid4()), payload,
                 hashlib.sha256(payload).hexdigest(), "friendship-native-build", "gen6-pending-profile", OWNERSHIP_PROFILE))
             history = FriendshipHistory(serial, trainer, 200, None, 0, 0)
-            plans.append(FriendshipOfferPlan(history, 70 if index == 0 else 35, False))
+            plans.append(FriendshipOfferPlan(history, False))
         return checkpoints[0], plans[0], checkpoints[1], plans[1]
 
     def test_exact_paired_changes_and_recipient_identities_come_from_canonical_flash(self):
@@ -81,7 +82,7 @@ class FriendshipFlashTests(unittest.TestCase):
         for ca, plan, version in (
             (replace(a, revision=10), pa, 3), (replace(a, request_id=str(uuid4())), pa, 3),
             (a, replace(pa, history=replace(pa.history, original_friendship=199)), 3),
-            (a, replace(pa, base_friendship=71), 3), (a, replace(pa, refresh_handler=True), 3),
+            (a, replace(pa, refresh_handler=True), 3),
             (a, pa, 4),
         ):
             with self.subTest(revision=ca.revision, plan=plan, version=version):
@@ -119,12 +120,26 @@ class FriendshipFlashTests(unittest.TestCase):
         for changed in (replace(pa, history=replace(pa.history, known=False)),
                         replace(pa, history=replace(pa.history, serial=33)),
                         replace(pa, history=replace(pa.history, original=BOB)),
-                        replace(pa, refresh_handler=None), replace(pa, base_friendship=256)):
+                        replace(pa, refresh_handler=None)):
             with self.subTest(changed=changed), self.assertRaises(TradeFlashError):
                 build_friendship_pair(a, changed, b, pb, profile_game_version=3)
         for version in (True, -1, 16, None):
             with self.subTest(version=version), self.assertRaises(TradeFlashError):
                 build_friendship_pair(a, pa, b, pb, profile_game_version=version)
+
+    def test_species_base_is_derived_from_each_exact_offered_record(self):
+        # Gen6 Buneary starts at 0; Buneary and Zubat share neither a base nor
+        # an implicit handler value. Return still preserves the offered 160.
+        a, pa, b, pb = self.sources(species=(427, 41))
+        result = build_friendship_pair(a, pa, b, pb, profile_game_version=3)
+        self.assertEqual(result.offered_a.friendship, 0)
+        self.assertEqual(result.offered_b.friendship, 160)
+        recipient = inspect_flash(result.after_b, save_profile=OWNERSHIP_PROFILE)
+        self.assertEqual(decode_fixture(recipient.save_block1[0x238:0x238+100])[0][9], 0)
+        with self.assertRaises(TypeError):
+            FriendshipOfferPlan(pa.history, False, base_friendship=255)
+        with self.assertRaises(TypeError):
+            replace(pa, base_friendship=255)
 
     def test_preserves_bank_rotation_counter_wrap_previous_bank_and_rtc(self):
         for counter in (0, 1, 13, 14, 0xFFFFFFFF):

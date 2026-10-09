@@ -56,6 +56,13 @@ class Opcode(IntEnum):
     PRESERVE_EMERGENCY = 20
     QUERY_EMERGENCY = 21
     PROMOTE_EMERGENCY_EXPORT = 22
+    BEGIN_EFFECT_RECORD = 23
+    CHOOSE_EFFECT_MOVE = 24
+    QUERY_EFFECT_RECORD = 25
+    DISCARD_EFFECT_RECORD = 26
+    BEGIN_EFFECT_SAVE = 27
+    READ_EFFECT_WINDOW = 28
+    QUERY_EFFECT_CHOICE = 29
 
 
 class Status(IntEnum):
@@ -158,7 +165,11 @@ class SaveControl:
                    Opcode.ABORT_TRADE: 0, Opcode.RELEASE_TRADE: 0,
                    Opcode.REBIND_TRADE: 0, Opcode.QUERY_TRADE: 0, Opcode.READ_WINDOW: 0,
                    Opcode.BEGIN_EMERGENCY_EXPORT: 0, Opcode.PRESERVE_EMERGENCY: 0,
-                   Opcode.QUERY_EMERGENCY: 0, Opcode.PROMOTE_EMERGENCY_EXPORT: 0}
+                   Opcode.QUERY_EMERGENCY: 0, Opcode.PROMOTE_EMERGENCY_EXPORT: 0,
+                   Opcode.BEGIN_EFFECT_RECORD: 192, Opcode.CHOOSE_EFFECT_MOVE: 56,
+                   Opcode.QUERY_EFFECT_RECORD: 48, Opcode.DISCARD_EFFECT_RECORD: 48,
+                   Opcode.BEGIN_EFFECT_SAVE: 88, Opcode.READ_EFFECT_WINDOW: 48,
+                   Opcode.QUERY_EFFECT_CHOICE: 48}
         if self.status != Status.OK or self.length != lengths[self.opcode]:
             raise SaveMailboxError("save command status or data length is invalid")
         if self.opcode in (Opcode.READ, Opcode.WRITE) and (self.total_size != FLASH_SIZE
@@ -177,12 +188,20 @@ class SaveControl:
         if self.opcode == Opcode.READ_WINDOW and (self.total_size != FLASH_SIZE or self.offset % 4096
                                                    or self.offset > FLASH_SIZE - 4096):
             raise SaveMailboxError("Flash window must be aligned and within canonical Flash")
-        if self.opcode >= Opcode.BEGIN_EMERGENCY_EXPORT:
+        if Opcode.BEGIN_EMERGENCY_EXPORT <= self.opcode <= Opcode.PROMOTE_EMERGENCY_EXPORT:
             expected_offset = FLASH_SIZE if self.opcode == Opcode.PRESERVE_EMERGENCY else 0
             if self.total_size != FLASH_SIZE or self.offset != expected_offset:
                 raise SaveMailboxError("emergency control has an invalid size or offset")
             if self.opcode != Opcode.QUERY_EMERGENCY and self.revision == 0:
                 raise SaveMailboxError("emergency export needs a positive target revision")
+        if self.opcode >= Opcode.BEGIN_EFFECT_RECORD:
+            from .trade_effect_mailbox import validate_command
+            window = self.opcode == Opcode.READ_EFFECT_WINDOW
+            if (self.total_size != FLASH_SIZE or not 1 <= self.revision < MAX_COUNTER
+                    or (window and (self.offset % 4096 or self.offset > FLASH_SIZE - 4096))
+                    or (not window and self.offset)):
+                raise SaveMailboxError("record preparation needs an exact frozen trade revision")
+            validate_command(self.opcode, self.data)
         return self
 
     def validate_response(self) -> SaveControl:
@@ -194,9 +213,24 @@ class SaveControl:
                    Opcode.ABORT_TRADE: 0, Opcode.RELEASE_TRADE: 4,
                    Opcode.REBIND_TRADE: 48, Opcode.QUERY_TRADE: 48, Opcode.READ_WINDOW: 4,
                    Opcode.BEGIN_EMERGENCY_EXPORT: 40, Opcode.PRESERVE_EMERGENCY: 4,
-                   Opcode.QUERY_EMERGENCY: 48, Opcode.PROMOTE_EMERGENCY_EXPORT: 40}
+                   Opcode.QUERY_EMERGENCY: 48, Opcode.PROMOTE_EMERGENCY_EXPORT: 40,
+                   Opcode.BEGIN_EFFECT_RECORD: 192, Opcode.CHOOSE_EFFECT_MOVE: 192,
+                   Opcode.QUERY_EFFECT_RECORD: 192, Opcode.DISCARD_EFFECT_RECORD: 0,
+                   Opcode.BEGIN_EFFECT_SAVE: 8, Opcode.READ_EFFECT_WINDOW: 4,
+                   Opcode.QUERY_EFFECT_CHOICE: 84}
         if self.length != (lengths[self.opcode] if self.status == Status.OK else 0):
             raise SaveMailboxError("save response data length is invalid")
+        if self.status == Status.OK and self.opcode >= Opcode.BEGIN_EFFECT_RECORD:
+            window = self.opcode == Opcode.READ_EFFECT_WINDOW
+            if (self.total_size != FLASH_SIZE or (not window and self.offset)
+                    or (window and (self.offset % 4096 or self.offset > FLASH_SIZE - 4096))):
+                raise SaveMailboxError("prepared record response escaped the held context")
+            if self.opcode in (Opcode.BEGIN_EFFECT_RECORD, Opcode.CHOOSE_EFFECT_MOVE, Opcode.QUERY_EFFECT_RECORD):
+                from .trade_effect_mailbox import PreparedRecord
+                PreparedRecord.parse(self.data)
+            if self.opcode == Opcode.QUERY_EFFECT_CHOICE:
+                from .trade_effect_choice import NativeChoiceView
+                NativeChoiceView.parse(self.data)
         if self.status == Status.OK and self.opcode == Opcode.READ and (self.total_size != FLASH_SIZE
                 or self.offset % SAVE_CHUNK_SIZE or self.offset > FLASH_SIZE - SAVE_CHUNK_SIZE):
             raise SaveMailboxError("read response does not contain one aligned Flash chunk")

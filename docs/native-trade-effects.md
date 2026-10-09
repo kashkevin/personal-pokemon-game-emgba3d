@@ -2,7 +2,18 @@
 
 The existing transaction still implements [`simple-owned-party-exchange-v1`](trade-eligibility.md). Its exclusions remain active. Native effects need a separate prepared-result capability before the server can publish anything beyond the exact offered record exchange.
 
+The current [recipient preparation implementation](trade-recipient-preparation.md) connects both consented recipients, immutable local candidates and receipts to the existing atomic exact-swap transaction, including same-core and closed-start recovery. It is source-only and untested following the owner's instruction to stop testing. It does not invoke this document's native preview or enable evolved/effectful candidates; those native and history dependencies remain below.
+
+The subsequent [native record preparation](native-trade-record-preparation.md) now computes actual evolved party-record candidates and replays explicit move decisions on private copies. It adds a strict bound witness helper but remains unbuilt, untested and outside public mailbox/storage capability. Live evolution presentation and durable effect publication remain incomplete.
+
 ## Reuse audit
+
+The [held record transport](native-trade-record-transport.md) now connects the
+private record helper to an optional save-mailbox capability and a durable,
+same-core companion client. This is source-only; full saved-block transport,
+native presentation and atomic effect/history publication remain unfinished.
+
+The newer [save-wide preparation layer](native-trade-save-effects.md) implements private native saved-block replay and paired Flash reconstruction/validation for Dex entries, encrypted counters and ribbon presentation. It remains source-only; held-game transport, presentation and atomic effect-history publication remain incomplete. The ordinary exact-swap commit gate is unchanged.
 
 The October 8 audit inspected qualified combined engine `afd92ce3a12204873e2f06a77a7bf1717d04f53b`, then based the isolated preview work on corrected menu source `84a4d1c1e906bd7340b9d08b231e485b0fa5c07c`. Both inherit RHH base `bb1093a7c72d3961d9a37d8e02ad2abc2c866682`; the old trade proof `b2cdd466` remains preserved. Later read-only upstream `HEAD` checks returned RHH `12f292fe14871ca54bc2d73279912a17a921f24b`, PKHeX `66ef5983a5d349efa2dd615f2926a1b1ee97306e`, and Wired-Ariel `01e43f5b5e415ef2511974c5f9e0ec34d18e7a9e`; these observations do not update an installed pin.
 

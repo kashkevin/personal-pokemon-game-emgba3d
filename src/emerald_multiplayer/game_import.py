@@ -13,11 +13,13 @@ import re
 import struct
 import tempfile
 import zlib
+import zipfile
 
 MAX_ROM = 32 * 1024 * 1024
 MAX_PATCH = 64 * 1024 * 1024
 MAX_METADATA = 1024 * 1024
 MAX_ACTIONS = 2 * 1024 * 1024
+MAX_SOURCE_ARCHIVE = 64 * 1024 * 1024
 
 
 class GameImportError(ValueError):
@@ -39,6 +41,53 @@ def _read(path, maximum):
         raise GameImportError("import_file") from error
     _require(len(data) <= maximum, "import_size")
     return data
+
+
+def read_game_source(path):
+    """Read a raw dump or one bounded GBA member, without extracting an archive.
+
+    ZIP CRC/size/header checks identify corruption; the package's explicit
+    source SHA-256 still determines which owner's dump is accepted.
+    """
+    path = Path(path)
+    if path.suffix.lower() != ".zip":
+        return _read(path, MAX_ROM)
+    try:
+        # Bound the central directory as well as expanded member bytes. Reading
+        # one fixed archive byte snapshot avoids races between listing/opening.
+        import io
+        raw = _read(path, MAX_SOURCE_ARCHIVE)
+        # Refuse an oversized directory before ZipFile allocates ZipInfo
+        # objects. ZIP64/multipart are unnecessary for one <=32 MiB dump.
+        end = raw.rfind(b"PK\x05\x06", max(0, len(raw) - 65557))
+        _require(end >= 0 and end + 22 <= len(raw), "source_archive")
+        _, disk, central_disk, local_count, total_count, central_size, central_offset, comment = struct.unpack_from("<4s4H2IH", raw, end)
+        _require(disk == central_disk == 0 and local_count == total_count
+                 and 1 <= total_count <= 64 and central_size <= 1024 * 1024
+                 and central_offset + central_size <= end and end + 22 + comment == len(raw), "source_archive")
+        with zipfile.ZipFile(io.BytesIO(raw)) as archive:
+            members = archive.infolist()
+            _require(len(members) == total_count, "source_archive")
+            games = [member for member in members if not member.is_dir()
+                     and Path(member.filename).suffix.lower() == ".gba"]
+            _require(len(games) == 1, "source_archive")
+            member = games[0]
+            _require(not member.flag_bits & 1 and member.compress_type in
+                     {zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED}
+                     and 192 <= member.file_size <= MAX_ROM
+                     and 0 < member.compress_size <= MAX_SOURCE_ARCHIVE, "source_archive")
+            with archive.open(member, "r") as source:
+                data = source.read(MAX_ROM + 1)
+            _require(len(data) == member.file_size and len(data) <= MAX_ROM, "source_archive")
+        # Header checksum covers title/game code/version. Names alone never
+        # establish this is the supported release; the caller checks its pin.
+        _require(data[0xB2] == 0x96
+                 and (sum(data[0xA0:0xBD]) + 0x19 + data[0xBD]) & 0xFF == 0, "source_archive")
+        return data
+    except GameImportError:
+        raise
+    except (OSError, ValueError, RuntimeError, zipfile.BadZipFile, zlib.error, EOFError, NotImplementedError) as error:
+        raise GameImportError("source_archive") from error
 
 
 def apply_bps(source: bytes, patch: bytes) -> bytes:
@@ -137,7 +186,7 @@ class GameImporter:
         return self.private_directory / "games" / self.release.target_sha256 / "game.gba"
 
     def install(self, source_path):
-        source = _read(source_path, MAX_ROM)
+        source = read_game_source(source_path)
         _require(len(source) == self.release.source_size and
                  hashlib.sha256(source).hexdigest() == self.release.source_sha256, "source_mismatch")
         patch = _read(self.patch_path, MAX_PATCH)

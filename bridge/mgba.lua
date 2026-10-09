@@ -26,6 +26,14 @@ local verified = true
 
 local token = cfg.token:gsub("..", function(pair) return string.char(tonumber(pair, 16)) end)
 local addr = cfg.address
+local animationEnabled = cfg.presence_animation_abi ~= nil or cfg.presence_animation_abi_address ~= nil
+if animationEnabled then
+    assert(cfg.presence_animation_abi == 1
+        and type(cfg.presence_animation_abi_address) == "number" and cfg.presence_animation_abi_address % 4 == 0
+        and cfg.presence_animation_abi_address >= 0x08000000
+        and cfg.presence_animation_abi_address + 4 <= 0x08000000 + cfg.rom_size
+        and emu:read32(cfg.presence_animation_abi_address) == 1, "Invalid presence animation capability marker")
+end
 local sock, rx, tx, latestPose = nil, "", "", nil
 local controls, controlBurst = {}, 0
 local saveAddr = cfg.save_address
@@ -107,6 +115,42 @@ if menuEnabled then
         and emu:read32(cfg.menu_abi_address) == cfg.menu_abi, "Invalid Players menu capability")
 end
 local menuCapabilitySent, menuSequence = false, nil
+local tradeEffectPrepareEnabled = cfg.trade_effect_prepare_abi ~= nil or cfg.trade_effect_prepare_abi_address ~= nil
+if tradeEffectPrepareEnabled then
+    assert(tradeEnabled and menuEnabled and cfg.menu_abi == 2 and cfg.trade_effect_prepare_abi == 1
+        and type(cfg.trade_effect_prepare_abi_address) == "number" and cfg.trade_effect_prepare_abi_address % 4 == 0
+        and cfg.trade_effect_prepare_abi_address >= 0x08000000
+        and cfg.trade_effect_prepare_abi_address + 4 <= 0x08000000 + cfg.rom_size
+        and emu:read32(cfg.trade_effect_prepare_abi_address) == 1, "Invalid private trade record capability")
+end
+local tradeEffectPrepareCapabilitySent = false
+local tradeEffectSaveEnabled = cfg.trade_effect_save_abi ~= nil or cfg.trade_effect_save_abi_address ~= nil
+if tradeEffectSaveEnabled then
+    assert(tradeEffectPrepareEnabled and windowEnabled and cfg.trade_effect_save_abi == 1
+        and type(cfg.trade_effect_save_abi_address) == "number" and cfg.trade_effect_save_abi_address % 4 == 0
+        and cfg.trade_effect_save_abi_address >= 0x08000000
+        and cfg.trade_effect_save_abi_address + 4 <= 0x08000000 + cfg.rom_size
+        and emu:read32(cfg.trade_effect_save_abi_address) == 1, "Invalid full trade candidate capability")
+end
+local tradeEffectSaveCapabilitySent = false
+local tradeEffectChoiceEnabled = cfg.trade_effect_choice_abi ~= nil or cfg.trade_effect_choice_abi_address ~= nil
+if tradeEffectChoiceEnabled then
+    assert(tradeEffectPrepareEnabled and cfg.trade_effect_choice_abi == 1
+        and type(cfg.trade_effect_choice_abi_address) == "number" and cfg.trade_effect_choice_abi_address % 4 == 0
+        and cfg.trade_effect_choice_abi_address >= 0x08000000
+        and cfg.trade_effect_choice_abi_address + 4 <= 0x08000000 + cfg.rom_size
+        and emu:read32(cfg.trade_effect_choice_abi_address) == 1, "Invalid native move presentation capability")
+end
+local tradeEffectChoiceCapabilitySent = false
+local battleAdmissionCleanupEnabled = cfg.battle_admission_cleanup_abi ~= nil or cfg.battle_admission_cleanup_abi_address ~= nil
+if battleAdmissionCleanupEnabled then
+    assert(battleResumeEnabled and cfg.battle_execution_abi == 1 and menuEnabled and cfg.menu_abi == 2
+        and emergencyEnabled and cfg.emergency_save_abi == 2 and cfg.battle_admission_cleanup_abi == 1
+        and type(cfg.battle_admission_cleanup_abi_address) == "number" and cfg.battle_admission_cleanup_abi_address % 4 == 0
+        and cfg.battle_admission_cleanup_abi_address >= 0x08000000
+        and cfg.battle_admission_cleanup_abi_address + 4 <= 0x08000000 + cfg.rom_size
+        and emu:read32(cfg.battle_admission_cleanup_abi_address) == 1, "Invalid native battle admission cleanup capability")
+end
 local resetAddr = cfg.reset_address
 local resetEnabled = resetAddr ~= nil or cfg.reset_abi ~= nil or cfg.reset_abi_address ~= nil or cfg.reset_size ~= nil
 if resetEnabled then
@@ -122,6 +166,25 @@ if resetEnabled then
 end
 local resetCapabilitySent, resetSequence = false, nil
 local resetReceipt = nil
+-- Attempt-admission ABI2 alone does not authorize passing the reboot chord.
+-- This separate marker promises an unconditional native reboot guard, and is
+-- emitted only by builds that also enable the eligible encounter handlers.
+local resetInputEnabled = cfg.reset_input_abi ~= nil or cfg.reset_input_abi_address ~= nil
+if resetInputEnabled then
+    assert(resetEnabled and cfg.reset_abi == 2 and cfg.reset_input_abi == 1
+        and type(cfg.reset_input_abi_address) == "number" and cfg.reset_input_abi_address % 4 == 0
+        and cfg.reset_input_abi_address >= 0x08000000
+        and cfg.reset_input_abi_address + 4 <= 0x08000000 + cfg.rom_size
+        and cfg.reset_input_abi_address ~= cfg.reset_abi_address
+        and emu:read32(cfg.reset_input_abi_address) == 1, "Invalid native reset input capability")
+end
+local function routeResetChord(enabled)
+    -- Older runtimes have no opt-in function and retain their suppression.
+    if type(emeraldResetInput) == "function" then
+        emeraldResetInput(enabled and resetInputEnabled and 1 or 0)
+    end
+end
+routeResetChord(false)
 local observedReset, previousResetFrame = false, nil
 local observedMenu, previousMenuFrame = false, nil
 local observedBattle, previousBattleFrame, previousBattleState = false, nil, nil
@@ -159,7 +222,7 @@ end
 local function commitReset(payload)
     if not verified or not resetHeaderReady() or #payload ~= 32 then return false end
     local seq, session, incarnation, encounter, attempt, status = string.unpack("<I4I4I4I4I4I4", payload)
-    if seq == 0 or session == 0 or incarnation == 0 or encounter < 0x1001 or encounter > 0x1009 or status > (cfg.reset_abi == 2 and 2 or 1)
+    if seq == 0 or session == 0 or incarnation == 0 or encounter < 0x1001 or encounter > 0x1019 or status > (cfg.reset_abi == 2 and 2 or 1)
         or payload:sub(25) ~= string.rep("\0", 8)
         or (status ~= 0 and attempt ~= 0) or (status == 0 and attempt == 0) then return false end
     if seq ~= emu:read32(resetAddr + 16) or session ~= emu:read32(resetAddr + 20)
@@ -246,20 +309,38 @@ local function saveControl(payload, command)
     if inc == 0 or epoch == 0 or epoch > 0x7FFFFFFF or seq == 0
         or request == string.rep("\0", 16) or offset > 131072
         or (size ~= 0 and size ~= 131072) or revision > 0x7FFFFFFF
-        or opcode < 1 or opcode > (emergencyEnabled and (cfg.emergency_save_abi == 2 and 22 or 21) or (windowEnabled and 18 or (tradeEnabled and 17 or 11)))
+        or opcode < 1 or opcode > (tradeEffectChoiceEnabled and 29 or (tradeEffectSaveEnabled and 28 or (tradeEffectPrepareEnabled and 26 or (emergencyEnabled and (cfg.emergency_save_abi == 2 and 22 or 21) or (windowEnabled and 18 or (tradeEnabled and 17 or 11))))))
+        or ((opcode == 27 or opcode == 28) and not tradeEffectSaveEnabled)
+        or (opcode == 29 and not tradeEffectChoiceEnabled)
+        or (opcode >= 19 and opcode <= 22 and (not emergencyEnabled or (opcode == 22 and cfg.emergency_save_abi ~= 2)))
         or (opcode == 18 and not windowEnabled) or status > (battleResumeEnabled and 14 or 13) or length > 192
         or data:sub(length + 1) ~= string.rep("\0", 192 - length)
         or crc32(data:sub(1, length)) ~= crc then return nil end
     if command then
-        local lengths = {0, 0, 0, 0, 16, 128, 0, 0, 0, 0, 60, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+        local lengths = {0, 0, 0, 0, 16, 128, 0, 0, 0, 0, 60, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 192, 56, 48, 48, 88, 48, 48}
         if status ~= 0 or length ~= lengths[opcode] then return nil end
         if opcode >= 12 and opcode <= 17 and (size ~= 131072 or offset ~= 0) then return nil end
         if opcode == 18 and (size ~= 131072 or offset % 4096 ~= 0 or offset > 126976) then return nil end
         if opcode == 12 and (revision == 0 or revision >= 0x7FFFFFFF) then return nil end
         if opcode == 16 and seq ~= 1 then return nil end
-        if opcode >= 19 then
+        if opcode >= 19 and opcode <= 22 then
             if size ~= 131072 or offset ~= (opcode == 20 and 131072 or 0) then return nil end
             if opcode ~= 21 and revision == 0 then return nil end
+        end
+        if opcode >= 23 then
+            if not tradeEffectPrepareEnabled or size ~= 131072 or (opcode ~= 28 and offset ~= 0)
+                or (opcode == 28 and (not tradeEffectSaveEnabled or offset % 4096 ~= 0 or offset > 126976))
+                or revision == 0 or revision >= 0x7FFFFFFF
+                or data:sub(1,16) == string.rep("\0",16) or data:sub(17,48) == string.rep("\0",32) then return nil end
+            if opcode == 23 then
+                local slot, friendship = string.unpack("<I4I4", data, 81)
+                if slot > 5 or friendship > 255 or data:sub(49,80) == string.rep("\0",32) then return nil end
+            elseif opcode == 24 then
+                local index, move, slot, reserved = string.unpack("<I4I2BB", data, 49)
+                if index >= 16 or move < 1 or move > 621 or slot > 4 or reserved ~= 0 then return nil end
+            elseif opcode == 27 then
+                if not tradeEffectSaveEnabled or data:sub(49,80) == string.rep("\0",32) or data:byte(88) ~= 0 then return nil end
+            end
         end
         if (opcode == 3 or opcode == 6) and (size ~= 131072
             or offset % 128 ~= 0 or offset >= 131072) then return nil end
@@ -268,10 +349,12 @@ local function saveControl(payload, command)
             if size ~= 131072 or rotation >= 14 then return nil end
         end
     else
-        local lengths = {0, 40, 128, 4, 8, 0, 0, 0, 48, 80, 80, 40, 48, 0, 4, 48, 48, 4, 40, 4, 48, 40}
+        local lengths = {0, 40, 128, 4, 8, 0, 0, 0, 48, 80, 80, 40, 48, 0, 4, 48, 48, 4, 40, 4, 48, 40, 192, 192, 192, 0, 8, 4, 84}
         if (status == 0 and length ~= lengths[opcode]) or (status ~= 0 and length ~= 0) then return nil end
         if status == 0 and opcode == 3 and (offset % 128 ~= 0 or offset > 130944) then return nil end
         if status == 0 and opcode == 18 and (size ~= 131072 or offset % 4096 ~= 0 or offset > 126976) then return nil end
+        if status == 0 and opcode >= 23 and ((opcode ~= 28 and offset ~= 0) or size ~= 131072
+            or (opcode == 28 and (offset % 4096 ~= 0 or offset > 126976))) then return nil end
     end
     return {incarnation=inc, epoch=epoch, request=request, sequence=seq,
         opcode=opcode, revision=revision, offset=offset, size=size, status=status, payload=payload}
@@ -302,7 +385,7 @@ local function battleControl(payload, command)
     local inc, epoch, id, seq, block, offset, size, opcode, status, phase, source, kind, reserved, length, crc, data
         = string.unpack("<I4I4c16I4I4I2I2BBBBBBI2I4c192", payload)
     if inc == 0 or epoch == 0 or epoch > 0x7FFFFFFF or id == string.rep("\0", 16)
-        or seq == 0 or size > 256 or offset > size or opcode < 1 or opcode > (battleResumeEnabled and 21 or 13)
+        or seq == 0 or size > 256 or offset > size or opcode < 1 or opcode > (battleAdmissionCleanupEnabled and 24 or (battleResumeEnabled and 21 or 13))
         or status > 10 or source > 3 or reserved ~= 0
         or length > 192 or data:sub(length + 1) ~= string.rep("\0", 192 - length)
         or crc32(data:sub(1, length)) ~= crc then return nil end
@@ -327,8 +410,15 @@ local function battleControl(payload, command)
     elseif block ~= 0 or offset ~= 0 or size ~= 0 or kind ~= 0 then return nil end
     if command then
         local lengths = native and {[1]=116,[2]=0,[4]=0,[5]=8,[6]=math.min(128,size-offset),
-            [9]=0,[10]=36,[11]=0,[12]=0,[13]=8,[14]=0,[15]=0,[16]=140,[17]=20,[18]=0,[19]=48,[20]=28,[21]=28} or {116, 0, 4, 0, 8, 40, 4, 0, 0}
+            [9]=0,[10]=36,[11]=0,[12]=0,[13]=8,[14]=0,[15]=0,[16]=140,[17]=20,[18]=0,[19]=48,[20]=28,[21]=28,[22]=84,[23]=84,[24]=52} or {116, 0, 4, 0, 8, 40, 4, 0, 0}
         if status ~= 0 or length ~= lengths[opcode] then return nil end
+        if opcode >= 22 then
+            local originalLease = string.unpack("<I4", data, 49)
+            if seq ~= 1 or originalLease == 0 or originalLease > epoch
+                or data:sub(1,16) == string.rep("\0",16) or data:sub(17,32) == string.rep("\0",16)
+                or data:sub(33,48) == string.rep("\0",16)
+                or (opcode ~= 24 and data:sub(53,84) == string.rep("\0",32)) then return nil end
+        end
         if native and opcode == 1 and (data:byte(116) > 1 or (data:byte(116) == 1 and not battleResumeEnabled)) then return nil end
         if opcode == 5 or opcode == 7 then
             local mask = string.unpack("<I4", data, opcode == 5 and 5 or 1)
@@ -342,7 +432,7 @@ local function battleControl(payload, command)
         end
     else
         local lengths = native and {[1]=64,[2]=64,[4]=math.min(128,size-offset),[5]=0,
-            [6]=0,[9]=64,[10]=64,[11]=64,[12]=0,[13]=0,[14]=64,[15]=88,[16]=88,[17]=88,[18]=88,[19]=64,[20]=28,[21]=28} or {64, 64, 64, 40, 0, 0, 0, 0, 64}
+            [6]=0,[9]=64,[10]=64,[11]=64,[12]=0,[13]=0,[14]=64,[15]=88,[16]=88,[17]=88,[18]=88,[19]=64,[20]=28,[21]=28,[22]=84,[23]=84,[24]=52} or {64, 64, 64, 40, 0, 0, 0, 0, 64}
         if (status == 0 and length ~= lengths[opcode]) or (status ~= 0 and length ~= 0) then return nil end
     end
     -- Bytes 1-37 and 39-41 are the immutable response correlation fields;
@@ -376,12 +466,16 @@ local function commit(payload)
 end
 
 local function stop(reason, fatal)
+    routeResetChord(false)
     if sock then sock:close(); sock = nil end
     rx, tx, latestPose = "", "", nil
     controls, controlBurst = {}, 0
     savePending, saveGeneration, capabilitySent = nil, nil, false
     windowCapabilitySent = false
     emergencyCapabilitySent = false
+    tradeEffectPrepareCapabilitySent = false
+    tradeEffectSaveCapabilitySent = false
+    tradeEffectChoiceCapabilitySent = false
     battlePending, battleGeneration, battleCapabilitySent = nil, nil, false
     menuCapabilitySent, menuSequence = false, nil
     resetCapabilitySent, resetSequence, resetReceipt = false, nil, nil
@@ -415,13 +509,16 @@ local function pollSave()
         or response.opcode ~= savePending.opcode or response.revision ~= savePending.revision
         or response.size ~= savePending.size then return end
     if response.status == 0 and ((response.opcode == 3 and response.offset ~= savePending.offset)
-        or (response.opcode == 18 and response.offset ~= savePending.offset)
+        or ((response.opcode == 18 or response.opcode == 28) and response.offset ~= savePending.offset)
         or (response.opcode == 6 and response.offset ~= savePending.offset + 128)) then
         stop("invalid save response offset", true); return
     end
-    if response.opcode == 18 and response.status == 0 then
+    if (response.opcode == 18 or response.opcode == 28) and response.status == 0 then
         local state = emu:read32(saveAddr + 12)
-        if state ~= 2 and state ~= 6 then stop("save window no longer held", true); return end
+        if (response.opcode == 18 and state ~= 2 and state ~= 6)
+            or (response.opcode == 28 and (not tradeEffectSaveEnabled or state ~= 8)) then
+            stop("save window no longer held", true); return
+        end
         local bytes = emu:readRange(windowAddr, 4096)
         local expected = string.unpack("<I4", payload, 49)
         if #bytes ~= 4096 or crc32(bytes) ~= expected
@@ -470,7 +567,7 @@ local function pollReset()
     if generation ~= emu:read32(resetAddr + 12) or payload == string.rep("\0", 32) then return end
     if #payload ~= 32 then stop("invalid personal encounter read", true); return end
     local seq, session, incarnation, encounter = string.unpack("<I4I4I4I4", payload)
-    if seq == 0 or session == 0 or incarnation == 0 or encounter < 0x1001 or encounter > 0x1009
+    if seq == 0 or session == 0 or incarnation == 0 or encounter < 0x1001 or encounter > 0x1019
         or payload:sub(21) ~= string.rep("\0", 12) then stop("invalid personal encounter request", true); return end
     if seq ~= resetSequence then
         if resetSequence and seq < resetSequence then stop("personal encounter sequence regressed", true); return end
@@ -493,7 +590,7 @@ local function validPose(bytes)
     local epoch, f, x, y, group, map, direction, elevation, gender, mode, activity, reserved
         = string.unpack("<I4I4i2i2BBBBBBBB", bytes)
     return direction >= 1 and direction <= 4 and elevation <= 15
-        and gender <= 1 and mode <= 4 and activity <= 1 and reserved == 0
+        and gender <= 1 and mode <= (animationEnabled and 5 or 4) and activity <= 1 and reserved == 0
 end
 
 local function regressed(current, previous)
@@ -650,7 +747,7 @@ local function receive()
                 -- Recovery must observe/rebind an uncertain trade command.
                 -- The ROM fences UUID/incarnation/lease and preserves pending
                 -- Flash publication; these controls cannot release the hold.
-                local recovery = command.opcode == 1 or command.opcode == 16 or command.opcode == 17 or command.opcode == 21 or command.opcode == 22
+                local recovery = command.opcode == 1 or command.opcode == 16 or command.opcode == 17 or command.opcode == 21 or command.opcode == 22 or command.opcode == 25
                 if savePending and not recovery and command.payload ~= savePending.payload then
                     stop("multiple outstanding save commands", true); return
                 end
@@ -701,7 +798,7 @@ end
 local function onFrame()
     tick = tick + 1
     if stopped or not verified then return end
-    if not runtimeReady() then return end
+    if not runtimeReady() then routeResetChord(false); return end
     if not sock and tick - lastConnect >= 120 then
         lastConnect = tick
         local candidate, err = socket.connect("127.0.0.1", cfg.port)
@@ -711,6 +808,9 @@ local function onFrame()
         savePending, saveGeneration, capabilitySent = nil, nil, false
         windowCapabilitySent = false
         emergencyCapabilitySent = false
+        tradeEffectPrepareCapabilitySent = false
+        tradeEffectSaveCapabilitySent = false
+        tradeEffectChoiceCapabilitySent = false
         battlePending, battleGeneration, battleCapabilitySent = nil, nil, false
         menuCapabilitySent, menuSequence = false, nil
         resetCapabilitySent, resetSequence, resetReceipt = false, nil, nil
@@ -739,6 +839,20 @@ local function onFrame()
         if not reliable("Z" .. string.pack("<I2I2I2I2", cfg.emergency_save_abi, 19, cfg.emergency_save_abi == 2 and 22 or 21, 10)) then return end
         emergencyCapabilitySent = true
     end
+    if tradeEffectPrepareEnabled and saveHeaderReady() and capabilitySent and not tradeEffectPrepareCapabilitySent and #controls < 4 then
+        if not reliable("K" .. string.pack("<I2I2", 1, 192)) then return end
+        tradeEffectPrepareCapabilitySent = true
+    end
+    if tradeEffectChoiceEnabled and saveHeaderReady() and tradeEffectPrepareCapabilitySent
+        and not tradeEffectChoiceCapabilitySent and #controls < 4 then
+        if not reliable("O" .. string.pack("<I2I2", 1, 84)) then return end
+        tradeEffectChoiceCapabilitySent = true
+    end
+    if tradeEffectSaveEnabled and saveHeaderReady() and tradeEffectPrepareCapabilitySent
+        and windowCapabilitySent and not tradeEffectSaveCapabilitySent and #controls < 4 then
+        if not reliable("L" .. string.pack("<I2I2", 1, 4096)) then return end
+        tradeEffectSaveCapabilitySent = true
+    end
     receive()
     if not sock then return end
     pollSave()
@@ -753,6 +867,7 @@ local function onFrame()
     end
     pollReset()
     if not sock then return end
+    routeResetChord(resetCapabilitySent and resetHeaderReady())
     if tick % 6 == 0 then
         local generation = emu:read32(addr + 12)
         if generation % 2 == 0 then

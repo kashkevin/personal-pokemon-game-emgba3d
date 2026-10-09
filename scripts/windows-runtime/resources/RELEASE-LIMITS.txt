@@ -1,57 +1,123 @@
-Emerald Together — development preview limits
+Emerald Together — private release limits
 
-This is a private development package for up to four players. It is not the
-completed game. README.txt states whether this exact package can import a
-matching owner-supplied dump. Packages without a verified release patch keep
-Import my game disabled and cannot prepare a new friend's installation yet.
+This guide accompanies private packages for up to four players. README.txt and
+_internal/package-provenance.json identify the exact frozen package and whether
+Import my game is available. A source change or a successful package build is
+not evidence that its gameplay, installation or network paths have passed.
+Earlier private package 7 remains unchanged and import-disabled. Testing resumed
+on October 9; later isolated worker, ROM and BPS reconstruction checks have their
+own evidence. They do not qualify a new player package. Earlier acceptance
+belongs only to its recorded frozen pins.
 
-The launcher includes Host Game / Join Game, local host world and character
-setup, separate friend invitations, five-minute autosave, launcher Save now,
-and an encrypted connection check. Autosave is on by default; its toggle is
-remembered for this character and world on this PC. It waits for a safe field
-location. Save now works with autosave off. First character setup requires
-ordinary New Game, starter selection and native Save, followed by explicit
-host enrollment.
+Current release source
 
-The native Players menu and multiplayer services have separate acceptance
-records. A battle invitation or accepted team is not a completed battle.
-Native battle handoff and mutual trade confirmation have been implemented,
-but complete battles, trade effects and interruption recovery still need their
-remaining playable acceptance. Campaign and customization work remains.
+A package labeled "Gen6 defaults" has a separately identified ROM and ruleset.
+Its compiled descriptor verifies eighteen selected generation defaults against
+the exact game bytes. This does not complete the 721-species acquisition gates,
+TM/tutor/egg data, all forms/Megas, or every generation-dependent mechanic.
+Later species remain compiled to preserve the existing save layout; that is
+not permission to use them in the intended Gen1-6 game. Separate affection and
+friendship, explicit later-mechanic booleans and full content eligibility still
+need work. Existing Pokemon and learned moves are not rewritten. Shiny odds
+were not changed. Keep candidate 9 for its existing worlds; there is no world
+migration or repinning path to this candidate.
 
-The host can retain durable reservations for interrupted multiplayer battles.
-When it reports an unresolved battle, the launcher blocks a fresh game session,
-including after a host restart. This preserves the waiting state and prevents
-ordinary play from bypassing recovery; it does not resume or clear the battle.
+Normal packaging requires a pinned installation patch, the full 25-source
+production Local Soft Reset descriptor, and a compatible ROM-declared native
+trade replay entry point with its separately pinned Windows worker. It also
+requires a compiled player-build descriptor, checked against the exact ROM,
+that disables the overworld debug menu, battle debug menu, Pokemon sprite
+visualizer and debug trainer-ID suppression. Candidate 10 predates this gate
+and is preserved as a blocked diagnostic package; do not share it for play.
+A private development preview is explicitly marked and may omit release gates.
+The importer accepts the matching owner-supplied raw GBA dump or one valid GBA
+inside a bounded ZIP. It never downloads a game or changes the original dump.
 
-The accepted host-loss behavior is to save and disconnect each player, and an
-interrupted multiplayer battle must wait for every participant to reconnect.
-This build includes emergency preservation for a safe field location or an
-ordinary save already in progress. The launcher keeps the exact local save
-until it can reconcile it with the host on rejoin. Unsafe scenes can remain
-held without a completed save; keep the game open when the launcher reports
-that recovery is needed. Interrupted multiplayer battle resumption remains
-unavailable in this build. Automatic and manual checkpoints normally require
-a reachable host. Keep private recovery files when an operation is uncertain.
-Use the launcher's Save now and wait for its success message before closing;
-the game's own Save menu and window closure do not confirm a host checkpoint.
+Production reset source now enables the 25 authored personal adapters with
+development/test modes off. Compiled adapter availability does not establish
+current encounter eligibility: tickets, progression, watering, event exclusions,
+object identity and first-action guards remain in force. Ordinary wild battles
+and world events are excluded. The capability-gated classic reset chord requests
+Local Soft Reset only; unsupported or unsafe contexts suppress emulator reboot.
+Attempt records count durable pre-generation admissions, not shiny encounters,
+captures or altered probabilities. Complete encounter-by-encounter gameplay
+qualification of these latest adapters remains incomplete.
 
-Windows runtime checks passed the full five-minute autosave interval, separate
-per-player toggles, manual saving and fresh Continue. A source-launched window
-also passed Host Game, the autosave checkbox, Save now and reopen. The standalone
-packaged buttons and complete visible New Game-to-enrollment flow still need
-their own checks. Headless game checks passed host loss in a safe field and
-partway through an ordinary save; Windows host-loss interaction, pause comfort,
-physical keyboard, audio and gamepads remain unverified.
-The desktop automation helper's ordinary keys did not produce the SDL button
-events needed for gameplay. Hardware keyboard failure has not been established.
+Native recipient trade-effect source now connects explicit move decisions,
+recipient save candidates, host replay and atomic paired effect/history storage
+under the world's explicitly chosen Gen 6 handler rule. The host worker uses a
+fresh isolated core and original canonical checkpoints; it cannot access a live
+player core. Unsupported records, including eggs/mail in this adapter, remain
+refused. Its Gen 6 move limits also reject later-generation moves such as
+Leafage; an existing Pokemon with an unsupported move cannot use this flow.
+How imported later-generation moves should be handled remains an owner decision;
+this candidate does not delete, substitute or silently permit those moves.
+The isolated Windows worker and copied native record/save-block replay
+have passed scoped checks. Those checks do not qualify the complete visible
+trading experience or recovery in a new Windows package.
 
-Clean-machine installation, full-game BPS import, accessibility, four separate
-Windows PCs, Wi-Fi, port-forwarded Internet, latency/loss and reconnect behavior
-remain separate acceptance checks. A successful Check connection verifies the
-invited TLS endpoint only; it sends no player login and proves no remote path.
+Host Game / Join Game and character setup
 
-The download contains no game ROM, player save, world database, host certificate
-or personal invitation. Keep each friend's invitation separate from the ZIP.
-Exact component pins and source hashes are in _internal/package-provenance.json;
-license notices and native source/relink material are under _internal.
+The launcher provides local world creation, named character accounts, separate
+friend invitations and one-time own-game import when the package includes its
+verified patch. Initial character approval remains local to the host PC and
+requires ordinary New Game, starter selection, native Save and explicit host
+enrollment. An existing world can use the explicit, backed-up feature upgrade
+only with its original game identity; setup cannot repin it to another release.
+Keep each friend's private invitation separate from the shared application ZIP.
+Friends can prepare a normal New Game character on their own PC and explicitly
+export a verified unassigned .sav copy for host approval. Export is a local
+file copy, not enrollment or automatic file transmission. Changed, owned,
+active-launcher and invalid sources are refused, and existing destinations
+are never replaced. The host still approves the exact selected bytes locally.
+
+Saving and recovery
+
+Autosave defaults on and waits five minutes plus a safe field opportunity.
+Its toggle is remembered for this character and world on this PC. Save now
+also works with autosave off. Both normally need a reachable host. The game's
+own Save menu and window closure do not confirm a canonical host checkpoint.
+Wait for the launcher's successful save message before ordinary closure.
+
+Host loss can preserve a safe field save or finish an ordinary save already in
+progress for later reconciliation. Unsafe or uncertain operations may remain
+held without a completed save. Preserve private recovery files and keep the
+original game open whenever the launcher says recovery is needed.
+
+Resolve interrupted trade is an explicit recovery action after the host
+returns. It uses authenticated retained evidence to cancel unfinished work or
+retain a committed result. Only the verified close-ready message permits
+normal game closure followed by the same identity's Host/Join cold recovery.
+Unknown evidence remains held. This is not same-core resumed trading or whole-PC
+reconstruction; each original surviving player follows their own recovery status.
+
+Interrupted multiplayer battles wait for every original participant and retain
+their original games. Recover battle and Restart host service do not recreate
+an exited core, application or PC, and do not permit a replacement player.
+Cancel battle entry is limited to an authenticated, never-reserved entry with
+affirmative native handoff evidence; it does not cancel a started match.
+An invitation, consent, result record or receipt alone does not prove the whole
+battle, save, fresh Continue or interrupted recovery path passed.
+
+Verification boundaries
+
+Recorded earlier Windows scenarios cover specific real Host/Join, timed autosave,
+manual saves, pre-entry cancellation, native 1v1 and native 2v2 flows with their
+own pinned source, runtime, input parties and normal-close evidence. They do not
+retroactively qualify later unbuilt source or a newly packaged executable.
+
+Candidate 9's actual GUI BPS import passed in a fresh private profile using the
+owner's supplied ZIP; that ROM and package remained unchanged. This does not
+qualify a different candidate's setup, gameplay or whole installation flow.
+Clean-machine installation, physical keyboard,
+audio, gamepads, four separate Windows PCs, Wi-Fi and outside-network Internet
+gameplay remain separate acceptance gates. Ordinary desktop key automation did
+not establish physical keyboard failure. Check connection verifies the invited
+TLS endpoint only; it sends no character login and proves no Internet gameplay.
+The application does not alter firewall rules or configure router forwarding.
+
+The download must contain no game ROM, player save, world database, private key
+or invitation. Component pins, notices and covered native source/relink material
+remain under _internal. Those materials and patch packaging do not by themselves
+resolve game-content distribution permissions. Campaign, region, customization
+and remaining master-specification work are not declared complete here.

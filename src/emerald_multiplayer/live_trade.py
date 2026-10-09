@@ -1,9 +1,9 @@
-"""Durable development trade orchestration for the same running ROM.
+"""Durable trade orchestration for the same running ROM.
 
 Only the allocated ROM mailbox changes Flash. This module never edits a live
 save, resumes on a timeout, or confirms for the peer. A replaced companion or
-IPC incarnation requires the future paused-start recovery gate. Native trade
-effects and player UI remain separate acceptance work.
+IPC incarnation requires the paused-start recovery gate. Optional native effects
+require the negotiated host plan and the original recipient's explicit review.
 """
 from __future__ import annotations
 
@@ -23,6 +23,7 @@ from .live_receipt import record_live_apply, read_live_receipt
 from .ownership import OWNERSHIP_PROFILE, inspect_ownership
 from .protocol import MAX_COUNTER
 from .save_mailbox import Opcode, SaveControl, State, TradeHold, SAVE_CHUNK_SIZE
+from .trade_preparation import prepare_recipient as build_recipient_candidate, validate_preparation
 
 
 class LiveTradeError(LiveSaveError):
@@ -85,6 +86,16 @@ class LiveTradeCoordinator(LiveCheckpointCoordinator):
             raise LiveTradeError("trade_unavailable", "live trading requires the verified ownership trade build")
         return session
 
+    def native_effect_preparation(self, history, *, refresh_handler, profile_game_version, engine_source_sha256):
+        """Create a private held-record client; never enables an effect commit.
+
+        The client requires this actor's existing confirmed native trade hold
+        and complete retained incoming history. Existing exact swaps stay exact.
+        """
+        from .trade_effect_session import HeldTradeEffectClient
+        return HeldTradeEffectClient(self, history, refresh_handler=refresh_handler,
+            profile_game_version=profile_game_version, engine_source_sha256=engine_source_sha256)
+
     def _same_session(self, expected):
         current = self._session()
         if current[0] != expected[0] or current[2] != expected[2]:
@@ -100,7 +111,7 @@ class LiveTradeCoordinator(LiveCheckpointCoordinator):
     def _validate_intent(self, intent):
         try:
             c = self.companion
-            if not isinstance(intent, dict) or set(intent) != _FIELDS or type(intent["schema"]) is not int or intent["schema"] != 1:
+            if not isinstance(intent, dict) or set(intent) != _FIELDS or type(intent["schema"]) is not int or intent["schema"] not in (1, 2):
                 raise ValueError()
             for field in ("world_id", "player_id", "transaction_id", "generation", "prepare_id", "runtime_id"):
                 if not _uuid(intent[field]):
@@ -317,7 +328,7 @@ class LiveTradeCoordinator(LiveCheckpointCoordinator):
                 head = await self.client.info(); self._same_session(session)
                 if head is None or head["revision"] != expected_revision:
                     raise LiveTradeError("revision_conflict", "the locally verified trade base differs from the canonical head")
-                intent = dict(schema=1, world_id=session[0], player_id=self.companion.config.player_id,
+                intent = dict(schema=2, world_id=session[0], player_id=self.companion.config.player_id,
                     build_id=self.companion.config.build_id, ruleset_id=self.companion.config.ruleset_id,
                     save_profile=OWNERSHIP_PROFILE, transaction_id=transaction_id, generation=generation,
                     prepare_id=str(uuid4()), expected_revision=expected_revision, incarnation=session[2],
@@ -423,11 +434,171 @@ class LiveTradeCoordinator(LiveCheckpointCoordinator):
             if not intent["export_ended"]:
                 raise LiveTradeError("preparation_required", "finish frozen preparation before consenting")
             await self._held(intent, session)
+            self._immutable(intent["transaction_id"] + ".consent-" + fingerprint + ".json",
+                _json_bytes(self._consent_record(intent, fingerprint, session[1])))
             view = (await self._rpc(session, "confirm", transaction_id=intent["transaction_id"],
                 generation=intent["generation"], fingerprint=fingerprint))["trade"]
             if view["state"] == "committed":
                 self._record_fate(intent, view)
             return view
+
+    def _consent_record(self, intent, fingerprint, epoch):
+        return dict(format="emerald-live-trade-consent-v1", world_id=intent["world_id"],
+            player_id=intent["player_id"], transaction_id=intent["transaction_id"],
+            generation=intent["generation"], fingerprint=fingerprint, session_epoch=epoch,
+            incarnation=intent["incarnation"], runtime_id=intent["runtime_id"],
+            prepare_id=intent["prepare_id"], frozen_sha256=intent["frozen_sha256"])
+
+    def _recipient_record(self, intent, session, description):
+        validate_preparation(description)
+        c = self.companion
+        own = next(p for p in description["players"] if p["player_id"] == description["recipient_id"])
+        if ((description["world_id"], description["recipient_id"], description["transaction_id"],
+             description["generation"], description["build_id"], description["ruleset_id"]) !=
+                (session[0], c.config.player_id, intent["transaction_id"], intent["generation"],
+                 c.config.build_id, c.config.ruleset_id)
+                or intent["prepared"] is None or not intent["export_ended"]
+                or (own["revision"], own["request_id"], own["sha256"], own["candidate_size"]) !=
+                (intent["prepared"]["revision"], intent["prepare_id"], intent["frozen_sha256"], FLASH_SIZE)
+                or own["lease_epoch"] > session[1]):
+            raise LiveTradeError("trade_preparation_mismatch", "recipient preparation changed its frozen authority")
+        path = self.directory / (intent["transaction_id"] + ".consent-" + description["fingerprint"] + ".json")
+        expected = _json_bytes(self._consent_record(intent, description["fingerprint"], own["lease_epoch"]))
+        if not path.exists():
+            raise LiveTradeError("trade_consent_required", "recipient preparation lacks this original actor's exact consent")
+        with path.open("rb") as source:
+            if source.read(len(expected)+1) != expected:
+                raise LiveTradeError("trade_consent_required", "recipient preparation lacks this original actor's exact consent")
+        return dict(format="emerald-live-trade-recipient-v1", preparation=description,
+            prepare_id=intent["prepare_id"], incarnation=intent["incarnation"], runtime_id=intent["runtime_id"])
+
+    def _prepared_candidate(self, intent, session):
+        prefix = intent["transaction_id"] + "." + intent["generation"]
+        path = self.directory / (prefix + ".recipient-preparation.json")
+        if not path.exists():
+            if intent["schema"] == 2:
+                raise LiveTradeError("trade_preparation_required", "committed trade lacks its retained recipient candidate")
+            return None  # Preserve recovery of existing pre-preparation intents.
+        with path.open("rb") as source:
+            raw = source.read(_LIMIT+1)
+        try:
+            if len(raw) > _LIMIT:
+                raise ValueError("recipient preparation exceeds journal bound")
+            record = json.loads(raw, object_pairs_hook=_unique)
+            description = record["preparation"]
+            expected = self._recipient_record(intent, session, description)
+            if record != expected or raw != _json_bytes(expected):
+                raise ValueError("recipient preparation journal changed")
+            payload = self._bytes(intent["prepare_id"] + ".flash", intent["frozen_sha256"], FLASH_SIZE)
+            if "effects" in description:
+                from .trade_effect_recovery import retained_effect_candidate
+                candidate, _ = retained_effect_candidate(self, intent, session, description)
+            else:
+                candidate = build_recipient_candidate(payload, description)
+            retained = self._bytes(prefix + ".recipient-candidate.flash",
+                                   hashlib.sha256(candidate).hexdigest(), FLASH_SIZE)
+            if retained != candidate:
+                raise ValueError("retained recipient candidate changed")
+            return candidate
+        except (ValueError, TypeError, KeyError) as error:
+            raise LiveTradeError("invalid_journal", "recipient preparation cannot be reconstructed exactly") from error
+
+    async def _prepare_recipient(self, intent, session):
+        await self._held(intent, session)
+        response = (await self._rpc(session, "prepare", transaction_id=intent["transaction_id"],
+                                   generation=intent["generation"]))["trade"]
+        if response["state"] == "committed":
+            self._record_fate(intent, response)
+            return response
+        description = response["preparation"]
+        if "effects" in description:
+            return await self._submit_effect_recipient(intent, session, description)
+        own = next(p for p in description["players"] if p["player_id"] == intent["player_id"])
+        if own["lease_epoch"] != session[1]:
+            raise LiveTradeError("trade_preparation_mismatch", "preparation belongs to a superseded lease")
+        record = self._recipient_record(intent, session, description)
+        payload = self._bytes(intent["prepare_id"] + ".flash", intent["frozen_sha256"], FLASH_SIZE)
+        candidate = build_recipient_candidate(payload, description)
+        # Both immutable artifacts reach disk before the receipt can authorize
+        # publication. No native Flash/import/evolution runs during this phase.
+        prefix = intent["transaction_id"] + "." + intent["generation"]
+        self._immutable(prefix + ".recipient-candidate.flash", candidate)
+        self._immutable(prefix + ".recipient-preparation.json", _json_bytes(record))
+        if await self.client.info() != intent["prepared"]:
+            raise LiveTradeError("revision_conflict", "canonical preparation changed before recipient acknowledgment")
+        self._same_session(session)
+        await self._held(intent, session)
+        view = (await self._rpc(session, "prepared", transaction_id=intent["transaction_id"],
+            generation=intent["generation"], fingerprint=description["fingerprint"],
+            preparation_id=description["preparation_id"], candidate_sha256=own["candidate_sha256"]))["trade"]
+        if view["state"] == "committed":
+            self._record_fate(intent, view)
+        return view
+
+    async def prepare_recipient(self):
+        """Prepare this original recipient; never acknowledge for the peer."""
+        async with self._own():
+            session = self._session()
+            return await self._prepare_recipient(self._load(session), session)
+
+    async def _submit_effect_recipient(self, intent, session, description):
+        from .trade_effect_recovery import retained_effect_candidate
+        prefix = intent["transaction_id"] + "." + intent["generation"]
+        if not (self.directory / (prefix + ".effect-receipt.json")).exists():
+            raise LiveTradeError("effect_menu_required", "finish the original in-game evolution review before publication")
+        record = self._recipient_record(intent, session, description)
+        candidate, receipt = retained_effect_candidate(self, intent, session, description)
+        self._immutable(prefix + ".recipient-candidate.flash", candidate)
+        self._immutable(prefix + ".recipient-preparation.json", _json_bytes(record))
+        if await self.client.info() != intent["prepared"]:
+            raise LiveTradeError("revision_conflict", "canonical source changed before effect acknowledgement")
+        self._same_session(session)
+        await self._held(intent, session)
+        view = (await self._rpc(session, "effect_prepared", transaction_id=intent["transaction_id"],
+            generation=intent["generation"], fingerprint=description["fingerprint"],
+            preparation_id=description["preparation_id"], **receipt))["trade"]
+        if view["state"] == "committed":
+            self._record_fate(intent, view)
+        return view
+
+    async def prepare_effect_recipient(self, menu_session):
+        """Run explicit original-core review, retain evidence, then submit one receipt."""
+        from .trade_effect_recovery import client_for_plan
+        async with self._own():
+            session = self._session(); intent = self._load(session)
+            await self._held(intent, session)
+            response = (await self._rpc(session, "prepare", transaction_id=intent["transaction_id"],
+                                       generation=intent["generation"]))["trade"]
+            if response["state"] == "committed":
+                self._record_fate(intent, response)
+                return response
+            description = response["preparation"]
+            self._recipient_record(intent, session, description)
+            prefix = intent["transaction_id"] + "." + intent["generation"]
+            if (self.directory / (prefix + ".effect-receipt.json")).exists():
+                return await self._submit_effect_recipient(intent, session, description)
+        # Do not hold the checkpoint lock across menu input. Each exact native
+        # operation takes the existing authority lock on this same MenuSession task.
+        client = client_for_plan(self, description)
+        result = await client.prepare_in_game(menu_session)
+        self._same_session(session)
+        if result.state == "paused":
+            return None
+        if result.state != "prepared" or result.candidate is None or client.review is None:
+            raise LiveTradeError("effect_preparation_required", "native review did not produce a complete candidate")
+        async with self._own():
+            current = self._load(session)
+            if current != intent:
+                raise LiveTradeError("trade_changed", "native review lost its original trade intent")
+            record = client._load()
+            from .trade_effect_session import _bytes
+            ready = client._result(_bytes(record["response"], 192))
+            receipt = dict(choices=record["choices"], candidate_sha256=result.candidate.sha256,
+                candidate_size=len(result.candidate.payload), record_sha256=hashlib.sha256(ready.candidate).hexdigest())
+            self._immutable(prefix + ".effect-receipt.json", _json_bytes(dict(
+                format="emerald-public-effect-receipt-v1", preparation_id=description["preparation_id"],
+                receipt=receipt, review=client.review)))
+            return await self._submit_effect_recipient(intent, session, description)
 
     async def _terminal(self, intent, session, opcode, revision):
         previous = None if intent["control"] is None else SaveControl.unpack(base64.b64decode(intent["control"]))
@@ -450,12 +621,24 @@ class LiveTradeCoordinator(LiveCheckpointCoordinator):
         # with a fresh generation. Preserve each consent generation's outcome.
         self._immutable(intent["transaction_id"] + "." + intent["generation"] + ".trade-complete.json",
             _json_bytes({"intent": intent, "outcome": outcome}))
+        received = None
+        if outcome == "applied":
+            prefix = intent["transaction_id"] + "." + intent["generation"]
+            if (self.directory / (prefix + ".effect-receipt.json")).exists():
+                from .trade_effect_recovery import completed_effect_summary
+                received = completed_effect_summary(self, intent, self._session())
+                self._immutable(prefix + ".received-result.json", _json_bytes(received))
         emergency = getattr(self.companion, "_emergency_controller", None)
         if emergency is not None:
             emergency.trade_completed(self._session(), intent, outcome)
         self.trade_path.unlink()
         _sync_directory(self.directory)
-        return {"transaction_id": intent["transaction_id"], "state": outcome, "checkpoint": intent["canonical"] or intent["prepared"]}
+        result = {"transaction_id": intent["transaction_id"], "generation": intent["generation"],
+            "expected_revision": intent["expected_revision"], "state": outcome,
+            "checkpoint": intent["canonical"] or intent["prepared"]}
+        if received is not None:
+            result["received"] = received
+        return result
 
     async def _abort(self, intent, session):
         if intent["phase"] == "intent":
@@ -515,6 +698,9 @@ class LiveTradeCoordinator(LiveCheckpointCoordinator):
         downloaded = await self.client.download(); self._same_session(session)
         if downloaded is None or downloaded.metadata != head or (downloaded.world_id, downloaded.player_id) != (session[0], intent["player_id"]):
             raise LiveTradeError("trade_conflict", "downloaded trade result changed or belongs to another character")
+        candidate = self._prepared_candidate(intent, session)
+        if candidate is not None and downloaded.payload != candidate:
+            raise LiveTradeError("trade_preparation_mismatch", "committed bytes differ from this recipient's retained candidate")
         parsed = inspect_flash(downloaded.payload, save_profile=OWNERSHIP_PROFILE)
         self._immutable(intent["transaction_id"] + ".canonical.flash", downloaded.payload)
         if intent["canonical"] is not None and intent["canonical"] != head:
@@ -588,6 +774,8 @@ class LiveTradeCoordinator(LiveCheckpointCoordinator):
             if view["generation"] != intent["generation"]:
                 raise LiveTradeError("trade_changed", "a new proposal generation requires a new explicit preparation")
             await self._prepare(intent, session)
+            if view["state"] == "preparing":
+                return await self._prepare_recipient(intent, session)
             return view
 
     async def recover(self):

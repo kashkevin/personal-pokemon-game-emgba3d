@@ -1,0 +1,78 @@
+--- a/src/multiplayer_local_reset.c
++++ b/src/multiplayer_local_reset.c
+@@ -35,10 +35,15 @@
+ static EWRAM_DATA struct LocalResetGuard sLocalResetGuard;
+ static EWRAM_DATA u32 sLocalResetSession, sLocalResetIncarnation, sLocalResetRosterEpoch;
+ static EWRAM_DATA u32 sLocalResetEncounterId;
+-static EWRAM_DATA bool8 sLocalResetActive, sLocalResetWindow, sLocalResetRequested, sLocalResetConfirming, sLocalResetAccepted, sLocalResetClosed, sLocalResetChordHeld;
++static EWRAM_DATA bool8 sLocalResetActive, sLocalResetWindow, sLocalResetRequested, sLocalResetConfirming, sLocalResetAccepted, sLocalResetClosed;
++// Input ownership outlives an encounter; Finish must not rearm a held chord.
++static EWRAM_DATA bool8 sLocalResetChordHeld = FALSE;
+ static EWRAM_DATA u8 sLocalResetCursor;
+ static const u8 sLocalResetPrompt[] = _("Reset this encounter?");
+ #if MP_LOCAL_RESET_ENABLED
++// Separate from the unconditional admission ABI: only enabled encounter builds
++// advertise this safe input contract. Disabled builds still consume the chord.
++const u32 gMultiplayerResetInputAbiVersion = 1;
+ static const u8 sLocalResetActionPrompt[] = _("Choose an action\nSELECT: Reset");
+ static EWRAM_DATA u8 sPersonalActionPrompt[40];
+ static const u8 sAttemptLabel[] = _("Attempt: ");
+@@ -117,7 +122,7 @@
+ void MultiplayerLocalReset_Init(void)
+ {
+     sLocalResetActive = sLocalResetWindow = sLocalResetRequested = sLocalResetConfirming = sLocalResetAccepted = sLocalResetClosed = FALSE;
+-    sLocalResetSession = sLocalResetIncarnation = sLocalResetRosterEpoch = 0; sLocalResetChordHeld = FALSE;
++    sLocalResetSession = sLocalResetIncarnation = sLocalResetRosterEpoch = 0;
+     sLocalResetEncounterId = 0;
+ }
+ 
+@@ -305,22 +310,27 @@
+ 
+ bool32 MultiplayerLocalReset_HandleChord(void)
+ {
+-#if MP_LOCAL_RESET_ENABLED
+-    // Suppress a BIOS reboot for an enrolled game, including unsafe scenes.
+-    u32 session, incarnation;
+     const u16 chord = A_BUTTON | B_BUTTON | START_BUTTON | SELECT_BUTTON;
+-    if (JOY_HELD_RAW(chord) != chord)
++    const u16 held = JOY_HELD_RAW(chord);
++    if (!held)
+     {
+         sLocalResetChordHeld = FALSE;
+         return FALSE;
+     }
+-    if (!MultiplayerSave_HasBinding()) return FALSE;
+-    if (!sLocalResetChordHeld && MultiplayerSave_GetIdleBinding(&session, &incarnation)) Request();
++    // Once claimed, consume every partial release until ALL four are up.
++    // This guard is unconditional: pre-binding, disconnected, disabled and
++    // ineligible scenes can never fall through to the BIOS reboot branch.
++    if (sLocalResetChordHeld) return TRUE;
++    if (held != chord) return FALSE;
+     sLocalResetChordHeld = TRUE;
+-    return TRUE;
+-#else
+-    return FALSE;
+-#endif
++#if MP_LOCAL_RESET_ENABLED
++    // Request rechecks the original encounter, exact live session/incarnation
++    // and roster, personal-state guard and first-action window. A chord cannot
++    // turn an existing confirmation into another request or imply Yes.
++    if (*(const volatile u32 *)&gMultiplayerResetInputAbiVersion == 1
++     && !sLocalResetRequested && !sLocalResetConfirming) Request();
++#endif
++    return TRUE;
+ }
+ 
+ u32 MultiplayerLocalReset_HandlePlayerInput(enum BattlerId battler)
+--- a/include/multiplayer_local_reset.h
++++ b/include/multiplayer_local_reset.h
+@@ -13,6 +13,9 @@
+     MP_LOCAL_RESET_INPUT_PASS, MP_LOCAL_RESET_INPUT_HANDLED,
+     MP_LOCAL_RESET_INPUT_CANCELED,
+ };
++#if MP_LOCAL_RESET_ENABLED
++extern const u32 gMultiplayerResetInputAbiVersion;
++#endif
+ void MultiplayerLocalReset_Init(void);
+ bool32 MultiplayerLocalReset_HandleChord(void);
+ const u8 *MultiplayerLocalReset_GetActionPrompt(enum BattlerId battler);

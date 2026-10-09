@@ -37,6 +37,7 @@ class ClosedStartResult:
     mirror: MirrorInfo
     lease: MirrorLease
     evidence_path: Path
+    trade_result: dict | None = None
 
 
 class _ClosedTradeReader(LiveTradeCoordinator):
@@ -196,7 +197,7 @@ class ColdStartRecovery:
             if not getattr(self.companion.config, "trade_enabled", False):
                 raise ColdStartError("trade_unavailable", "this build cannot reconcile its pending trade")
             fate = (await self._rpc(session, "status", transaction_id=intent["transaction_id"]))["trade"]
-            if fate["state"] == "offering":
+            if fate["state"] in {"offering", "preparing"}:
                 if fate["generation"] != intent["generation"]:
                     raise ColdStartError("trade_changed", "a new proposal generation cannot replace pending local recovery intent")
                 fate = (await self._rpc(session, "cancel", transaction_id=intent["transaction_id"], generation=intent["generation"]))["trade"]
@@ -237,6 +238,11 @@ class ColdStartRecovery:
         if (downloaded is None or downloaded.metadata != head
                 or (downloaded.world_id, downloaded.player_id) != (session[0], session[4])):
             raise ColdStartError("revision_conflict", "canonical head changed during startup download")
+        if intent is not None and fate["state"] == "committed":
+            candidate = trade._prepared_candidate(intent, (session[0], session[1], None))
+            if candidate is not None and downloaded.payload != candidate:
+                raise ColdStartError("trade_preparation_mismatch",
+                                     "committed bytes differ from the retained recipient candidate")
         self._payload_owner(downloaded.payload, session)
         if await self._head(session) != head:
             raise ColdStartError("revision_conflict", "canonical head changed before closed restore")
@@ -266,13 +272,27 @@ class ColdStartRecovery:
             raise ColdStartError("mirror_changed", "the installed mirror changed before startup completed")
         self._unchanged(raw)
         self._closed(session)
+        trade_result = None
+        if intent is not None:
+            trade_result = dict(transaction_id=intent["transaction_id"], generation=intent["generation"],
+                                state="applied" if fate["state"] == "committed" else "aborted", checkpoint=head)
+            prefix = intent["transaction_id"] + "." + intent["generation"]
+            if fate["state"] == "committed" and (self.directory / (prefix + ".effect-receipt.json")).exists():
+                from .trade_effect_recovery import completed_effect_summary
+                received = completed_effect_summary(trade, intent, (session[0], session[1], None),
+                                                    canonical_checkpoint=head)
+                trade._immutable(prefix + ".received-result.json", _json_bytes(received))
+                trade_result["received"] = received
+            self._record(archive / "trade-result.json", trade_result)
+            self._unchanged(raw)
+            self._closed(session)
         self._record(archive / "completed.json", dict(record, trade_ack=acknowledgment))
         for path, original, _ in raw:
             if original is not None:
                 path.unlink()
         _sync_directory(self.directory)
         self._closed(session)
-        return ClosedStartResult(mirror, lease, archive / "completed.json")
+        return ClosedStartResult(mirror, lease, archive / "completed.json", trade_result)
 
     @asynccontextmanager
     async def open(self, *, expected_session=None):

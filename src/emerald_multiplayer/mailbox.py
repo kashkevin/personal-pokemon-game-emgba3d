@@ -47,6 +47,7 @@ class Pose:
     avatar_gender: int
     movement_mode: int
     activity: int
+    presentation_version: int = 0
 
     def __post_init__(self) -> None:
         for name in ("map_epoch", "frame"):
@@ -58,7 +59,8 @@ class Pose:
         _bound(self.direction, 1, 4, "direction")
         _bound(self.elevation, 0, 15, "elevation")
         _bound(self.avatar_gender, 0, 1, "avatar_gender")
-        _bound(self.movement_mode, 0, 4, "movement_mode")
+        _bound(self.presentation_version, 0, 1, "presentation_version")
+        _bound(self.movement_mode, 0, 5 if self.presentation_version else 4, "movement_mode")
         _bound(self.activity, 0, 1, "activity")
 
     def pack(self) -> bytes:
@@ -69,16 +71,16 @@ class Pose:
         )
 
     @classmethod
-    def unpack(cls, payload: bytes) -> Pose:
+    def unpack(cls, payload: bytes, *, presentation_version=0) -> Pose:
         if len(payload) != POSE_SIZE:
             raise MailboxError("local pose must contain exactly 20 bytes")
         fields = _POSE.unpack(payload)
         if fields[-1] != 0:
             raise MailboxError("local pose reserved byte must be zero")
-        return cls(*fields[:-1])
+        return cls(*fields[:-1], presentation_version=presentation_version)
 
     def network_fields(self, available: bool) -> dict:
-        modes = {0: "walk", 1: "bike", 2: "bike", 3: "surf", 4: "walk"}
+        modes = {0: "walk", 1: "bike", 2: "bike", 3: "surf", 4: "walk", 5: "run"}
         return {
             "map_group": self.map_group, "map_number": self.map_number,
             "x": self.x, "y": self.y, "direction": self.direction,
@@ -88,13 +90,14 @@ class Pose:
         }
 
     @classmethod
-    def from_presence(cls, presence: dict) -> Pose:
-        modes = {"walk": 0, "run": 0, "bike": 1, "surf": 3}
+    def from_presence(cls, presence: dict, *, presentation_version=0) -> Pose:
+        modes = {"walk": 0, "run": 5 if presentation_version else 0, "bike": 1, "surf": 3}
         return cls(
             presence["map_epoch"], presence["seq"], presence["x"], presence["y"],
             presence["map_group"], presence["map_number"], presence["direction"],
             presence["elevation"], presence["avatar_gender"],
             modes[presence["movement_mode"]], 1 if presence["activity"] == "overworld" else 0,
+            presentation_version=presentation_version,
         )
 
 
@@ -135,7 +138,7 @@ class Snapshot:
         return data + bytes(INBOUND_SIZE - len(data))
 
     @classmethod
-    def unpack(cls, payload: bytes) -> Snapshot:
+    def unpack(cls, payload: bytes, *, presentation_version=0) -> Snapshot:
         if len(payload) != INBOUND_SIZE:
             raise MailboxError("inbound snapshot must contain exactly 88 bytes")
         flags, heartbeat, epoch, slot, count, reserved = _INBOUND.unpack(payload[:16])
@@ -145,13 +148,13 @@ class Snapshot:
         for index in range(count):
             start = 16 + index * 24
             token = struct.unpack("<I", payload[start:start + 4])[0]
-            peers.append(Peer(token, Pose.unpack(payload[start + 4:start + 24])))
+            peers.append(Peer(token, Pose.unpack(payload[start + 4:start + 24], presentation_version=presentation_version)))
         if any(payload[16 + count * 24:]):
             raise MailboxError("unused peer records must be zero")
         return cls(flags, heartbeat, epoch, slot, tuple(peers))
 
 
-def inspect_mailbox(payload: bytes) -> tuple[Pose, Snapshot]:
+def inspect_mailbox(payload: bytes, *, presentation_version=0) -> tuple[Pose, Snapshot]:
     """Validate a complete stable mailbox copy without reading emulator memory."""
     if len(payload) != MAILBOX_SIZE:
         raise MailboxError("mailbox must contain exactly 128 bytes")
@@ -161,4 +164,5 @@ def inspect_mailbox(payload: bytes) -> tuple[Pose, Snapshot]:
     external_gen = struct.unpack("<I", payload[EXTERNAL_GEN_OFFSET:INBOUND_OFFSET])[0]
     if local_gen & 1 or external_gen & 1:
         raise MailboxError("mailbox copy was made during an update")
-    return Pose.unpack(payload[LOCAL_POSE_OFFSET:EXTERNAL_GEN_OFFSET]), Snapshot.unpack(payload[INBOUND_OFFSET:])
+    return (Pose.unpack(payload[LOCAL_POSE_OFFSET:EXTERNAL_GEN_OFFSET], presentation_version=presentation_version),
+            Snapshot.unpack(payload[INBOUND_OFFSET:], presentation_version=presentation_version))

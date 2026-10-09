@@ -55,6 +55,11 @@ class FriendshipHistory:
     handling_friendship: int | None
     current_handler: int | None
     known: bool = True
+    # Historical provenance: these slots initially lacked a retained value.
+    # They are usable after the owner's explicit base-friendship migration,
+    # but must never be presented as recovered original history.
+    initialized_fields: tuple[str, ...] = ()
+    handler_identity_unknown: bool = False
 
     def validate(self):
         if type(self.serial) is not int or not 1 <= self.serial <= SERIAL_MAX:
@@ -67,9 +72,17 @@ class FriendshipHistory:
         _integer(self.original_friendship, 255, "original friendship")
         _integer(self.handling_friendship, 255, "handling friendship")
         _integer(self.current_handler, 1, "current handler")
+        if (type(self.initialized_fields) is not tuple
+                or any(type(value) is not str or value not in ("original_friendship", "handling_friendship")
+                       for value in self.initialized_fields)
+                or self.initialized_fields != tuple(sorted(set(self.initialized_fields)))):
+            raise FriendshipPlanError("invalid initialized friendship provenance")
+        if type(self.handler_identity_unknown) is not bool or (self.handler is not None and self.handler_identity_unknown):
+            raise FriendshipPlanError("invalid missing-handler identity provenance")
         if self.handler is None:
-            if self.current_handler != 0 or self.handling_friendship != 0:
-                raise FriendshipPlanError("untraded history contains a handling trainer value")
+            if self.current_handler != 0 or (self.handling_friendship != 0
+                    and "handling_friendship" not in self.initialized_fields and not self.handler_identity_unknown):
+                raise FriendshipPlanError("absent handling identity lacks an explicit initialization policy")
         elif not isinstance(self.handler, TrainerIdentity):
             raise FriendshipPlanError("handling trainer identity is invalid")
         else:
@@ -112,7 +125,7 @@ def plan_friendship(history: FriendshipHistory, recipient: TrainerIdentity, *, a
     else:
         initialized = state.handler is None or state.handler.handler_key != recipient.handler_key or refresh_handler
         if initialized:
-            state = replace(state, handler=recipient, handling_friendship=base_friendship)
+            state = replace(state, handler=recipient, handling_friendship=base_friendship, handler_identity_unknown=False)
         state = replace(state, current_handler=1)
     changed = state.current_handler != history.current_handler
     if changed and (RETURN in moves or FRUSTRATION in moves):

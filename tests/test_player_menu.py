@@ -60,11 +60,11 @@ class PlayerMenuNetworkTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(screen.status, "Connection lost")
         self.assertFalse(screen.rows)
 
-    async def test_disabled_services_have_no_action_buttons(self):
+    async def test_disabled_services_keep_read_only_card_but_no_mutation_buttons(self):
         self.server.team_desk = self.server.battle_desk = None
         menu = PlayerMenu(self.companions[0]); await menu.refresh()
         screen = await self.click(menu, "Trainer 1")
-        self.assertEqual(screen.rows, ())
+        self.assertEqual([row.label for row in screen.rows], ["View Trainer Card"])
 
     async def test_recent_results_show_own_side_and_read_only_roster(self):
         # Simulated native receipts have their own Desk tests. This is the
@@ -80,8 +80,9 @@ class PlayerMenuNetworkTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(screen.rows[0].label, f"1v1 {label} #1")
         screen = await self.click(menu, screen.rows[0].label)
         self.assertEqual(screen.status, "Team 1 won")
-        self.assertEqual(len(screen.rows), 2)
-        self.assertTrue(all(row.action == 0 for row in screen.rows))
+        self.assertEqual(len(screen.rows), 3)
+        self.assertTrue(all(row.action == 0 for row in screen.rows[:2]))
+        self.assertEqual(screen.rows[2].label, "Back to matching results")
 
     async def test_history_stays_reachable_when_new_battles_are_disabled(self):
         fixture = fixtures.BattleChallengeNetworkTests
@@ -93,9 +94,11 @@ class PlayerMenuNetworkTests(unittest.IsolatedAsyncioTestCase):
         screen = await menu.refresh()
         self.assertEqual(len(screen.rows), 6)  # Three peers, team, history, refresh.
         self.assertNotIn("Challenges", [row.label for row in screen.rows])
+        await self.click(menu, "Battles and records")
         screen = await self.click(menu, "Recent battle results")
-        self.assertEqual(len(screen.rows), 1)
+        self.assertEqual(len(screen.rows), 2)
         self.assertIn("#1", screen.rows[0].label)
+        self.assertEqual(screen.rows[1].label, "Filters and refresh")
         await menu.choose(screen.revision, 7)
         screen = await self.click(menu, "Trainer 1")
         self.assertNotIn("Challenge 1v1", [row.label for row in screen.rows])

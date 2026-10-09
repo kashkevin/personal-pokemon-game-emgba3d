@@ -9,7 +9,7 @@ from uuid import uuid4
 
 from emerald_multiplayer.ownership_protocol import OWNERSHIP_PROFILE
 from emerald_multiplayer.protocol import MAX_COUNTER, MAX_FRAME_BYTES, ProtocolError, encode_message, read_message
-from emerald_multiplayer.trade_protocol import TRADE_TYPES, validate_trade_common, validate_trade_request, validate_trade_reply
+from emerald_multiplayer.trade_protocol import TRADE_TYPES, PREPARATION_OPERATIONS, validate_trade_common, validate_trade_request, validate_trade_reply
 
 ACTOR, PEER = sorted((str(uuid4()), str(uuid4())))
 WORLD, TX, GENERATION, REQUEST = (str(uuid4()) for _ in range(4))
@@ -23,13 +23,20 @@ def request(operation, **changes):
         "open": {"peer": PEER, "transaction_id": TX},
         "offer": {"transaction_id": TX, "generation": GENERATION, "revision": 1, "sha256": SHA, "serial": 1},
         "confirm": {"transaction_id": TX, "generation": GENERATION, "fingerprint": SHA},
+        "prepare": {"transaction_id": TX, "generation": GENERATION},
+        "prepared": {"transaction_id": TX, "generation": GENERATION, "fingerprint": SHA, "preparation_id": SHA, "candidate_sha256": SHA},
+        "inspect": {"transaction_id": TX, "generation": GENERATION, "fingerprint": SHA},
+        "effect_source": {"transaction_id": TX, "generation": GENERATION, "preparation_id": SHA},
+        "effect_prepared": {"transaction_id": TX, "generation": GENERATION, "fingerprint": SHA, "preparation_id": SHA,
+            "candidate_sha256": SHA, "candidate_size": 131072, "record_sha256": SHA, "choices": [[33, 4]], "effects_version": 1},
         "cancel": {"transaction_id": TX, "generation": GENERATION},
         "status": {"transaction_id": TX},
         "pending": {},
         "proposals": {},
         "ack": {"transaction_id": TX, "revision": 2, "sha256": SHA},
     }[operation]
-    return {"type": "trade_" + operation, "request_id": REQUEST, "session_epoch": EPOCH, **body, **changes}
+    version = {"preparation_version": 1} if operation in PREPARATION_OPERATIONS else {}
+    return {"type": "trade_" + operation, "request_id": REQUEST, "session_epoch": EPOCH, **version, **body, **changes}
 
 
 def offering(count=2, confirmed=False):
@@ -54,6 +61,8 @@ def metadata():
 def reply(op, **changes):
     value = {"type": "trade_result", "protocol": 1, "session_epoch": EPOCH,
              "request_id": REQUEST, "operation": op, "world_id": WORLD, "player_id": ACTOR}
+    if op in PREPARATION_OPERATIONS:
+        value['preparation_version'] = 1
     if op == "proposals":
         value["proposals"] = [offering()]
     elif op == "pending":
@@ -68,6 +77,17 @@ def reply(op, **changes):
 
 
 class TradeRequestTests(unittest.TestCase):
+    def test_effect_receipt_requires_explicit_version_and_bounded_real_choices(self):
+        valid = request("effect_prepared")
+        self.assertEqual(validate_trade_request(valid, EPOCH), valid)
+        for changes in ({"effects_version": 0}, {"effects_version": True}, {"choices": [[33, 5]]},
+                        {"choices": [[622, 4]]}, {"choices": [[33, 4]] * 17},
+                        {"record_sha256": "bad"}, {"candidate_size": True}, {"choices": [[True, 0]]}):
+            with self.subTest(changes=changes), self.assertRaises(ProtocolError):
+                validate_trade_request({**valid, **changes}, EPOCH)
+        del valid["effects_version"]
+        with self.assertRaises(ProtocolError):
+            validate_trade_request(valid, EPOCH)
     def test_every_exact_request_is_bounded_and_preserved(self):
         for kind in TRADE_TYPES:
             message = request(kind.removeprefix("trade_"))
@@ -109,6 +129,19 @@ class TradeRequestTests(unittest.TestCase):
 class TradeReplyTests(unittest.TestCase):
     def validate(self, message):
         return validate_trade_reply(message, CONFIG, OWNERSHIP_PROFILE, WORLD, EPOCH)
+
+    def test_effect_preparing_may_wait_for_native_after_both_receipts_only_if_negotiated(self):
+        view = offering()
+        view.update(state="preparing", confirmations=[ACTOR, PEER], prepared=[ACTOR, PEER],
+                    preparation_id=SHA, capability="native-recipient-save-effects-v1")
+        response = reply("effect_prepared", effects_version=1, trade=view)
+        self.validate(response)
+        unnegotiated = dict(response); del unnegotiated["effects_version"]
+        with self.assertRaises(ProtocolError):
+            self.validate(unnegotiated)
+        plain = dict(view); del plain["capability"]
+        with self.assertRaises(ProtocolError):
+            self.validate(reply("prepared", trade=plain))
 
     def test_proposal_discovery_is_bounded_and_actor_scoped(self):
         self.validate(reply("proposals"))

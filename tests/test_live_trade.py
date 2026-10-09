@@ -81,8 +81,11 @@ class TradeCompanion(FakeCompanion):
             raise CheckpointError(error.code, error.message) from error
 
     async def trade_rpc(self, operation, *, request_id=None, **fields):
+        from emerald_multiplayer.trade_protocol import PREPARATION_OPERATIONS
         request = dict(type="trade_"+operation, session_epoch=self.session_epoch,
             request_id=request_id or str(uuid4()), **fields)
+        if operation in PREPARATION_OPERATIONS:
+            request["preparation_version"] = 1
         validate_trade_request(request, self.session_epoch)
         self.server_calls.append(("trade_"+operation, fields))
         actor = (self.config.player_id, self.session_epoch)
@@ -103,15 +106,21 @@ class TradeCompanion(FakeCompanion):
                     "status": (), "cancel": ("generation",), "open": ("peer",),
                     "offer": ("generation", "revision", "sha256", "serial"),
                     "confirm": ("generation", "fingerprint"),
+                    "prepare": ("generation",),
+                    "prepared": ("generation", "fingerprint", "preparation_id", "candidate_sha256"),
                 }[operation]
                 if operation == "open":
                     view = self.desk.open(*actor, fields["peer"], fields["transaction_id"])
+                elif operation == "prepare":
+                    view = self.desk.preparation(*actor, fields["transaction_id"], fields["generation"])
                 else:
                     view = getattr(self.desk, operation)(*actor, fields["transaction_id"],
                         *(fields[name] for name in parameters))
                 result = dict(trade=view)
         except StorageError as error:
             raise TradeError(error.code, error.message) from error
+        if operation in PREPARATION_OPERATIONS:
+            result["preparation_version"] = 1
         reply = validate_trade_reply(dict(type="trade_result", protocol=1, session_epoch=self.session_epoch,
             request_id=request["request_id"], operation=operation, world_id=self.world_id,
             player_id=self.config.player_id, **result), self.config, self.save_profile, self.world_id, self.session_epoch)
@@ -283,6 +292,8 @@ class LiveTradeTests(unittest.IsolatedAsyncioTestCase):
         view = await self.ready()
         await self.coordinators[0].confirm(view["fingerprint"])
         await self.coordinators[1].confirm(view["fingerprint"])
+        await self.coordinators[0].prepare_recipient()
+        await self.coordinators[1].prepare_recipient()
         return view
 
     async def test_two_explicit_consents_then_own_canonical_apply_ack_and_release(self):
@@ -291,6 +302,11 @@ class LiveTradeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(first["state"], "offering")
         self.assertEqual(self.companions[0].head().revision, 2)
         second = await self.coordinators[1].confirm(view["fingerprint"])
+        self.assertEqual(second["state"], "preparing")
+        self.assertEqual(self.companions[0].head().revision, 2)
+        await self.coordinators[0].prepare_recipient()
+        self.assertEqual(self.companions[0].head().revision, 2)
+        second = await self.coordinators[1].prepare_recipient()
         self.assertEqual(second["revision"], 3)
         for index in range(2):
             intent = self.intent(index)
@@ -370,17 +386,19 @@ class LiveTradeTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn(Opcode.CANCEL, self.ops())
         self.assertEqual({entry[0] for entry in c.upload_payloads}, {intent["prepare_id"]})
 
-    async def test_lost_second_confirm_reply_has_durable_fate_then_rebind_and_apply(self):
+    async def test_lost_second_prepared_reply_has_durable_fate_then_rebind_and_apply(self):
         view = await self.ready()
         await self.coordinators[0].confirm(view["fingerprint"])
+        await self.coordinators[1].confirm(view["fingerprint"])
+        await self.coordinators[0].prepare_recipient()
         c = self.companions[1]
         async def lose_confirm(operation, result):
-            if operation == "confirm":
+            if operation == "prepared":
                 c.trade_hook = None
                 raise asyncio.TimeoutError("paired commit reply lost")
         c.trade_hook = lose_confirm
         with self.assertRaises(asyncio.TimeoutError):
-            await self.coordinators[1].confirm(view["fingerprint"])
+            await self.coordinators[1].prepare_recipient()
         self.assertEqual(c.head().revision, 3)
         c.reconnect()
         result = await self.replacement(1).recover()
@@ -502,7 +520,7 @@ class LiveTradeTests(unittest.IsolatedAsyncioTestCase):
         await coordinator.keepalive()
         self.assertFalse(c.expired)
         journal = coordinator.trade_path.read_bytes()
-        coordinator.trade_path.write_bytes(journal.replace(b'"schema":1', b'"schema":true'))
+        coordinator.trade_path.write_bytes(journal.replace(b'"schema":2', b'"schema":true'))
         with self.assertRaises(LiveTradeError) as caught:
             await coordinator.cancel()
         self.assertEqual(caught.exception.code, "invalid_journal")

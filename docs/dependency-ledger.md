@@ -12,6 +12,14 @@ Recorded October 7, 2026, for Phase 1. This records provenance and observed term
 
 The desktop emulator and the upstream test emulator are different builds. A source commit is not a binary checksum; installed/build artifact hashes belong in the build manifest.
 
+The [generated Gen6 friendship table](gen6-friendship-table.md) extracts 721 standard-species numeric facts from that same incorporated RHH pin with a temporary `P_UPDATED_FRIENDSHIP=GEN_6` probe. Its [provenance](gen6-friendship-table.json) records exact input hashes and toolchain versions. It imports no new library, source implementation or artwork and changes no installed engine configuration. The inherited engine/asset distribution limits remain unchanged.
+
+The [held trade record transport](native-trade-record-transport.md) reuses that
+same incorporated native trade/evolution code through project-owned private
+record helpers and the existing save mailbox. No external code, library or
+artwork was imported. Its optional capability and additive source patch are
+unbuilt and untested; existing distribution limits remain unchanged.
+
 The optional retained-battle recovery candidate is a project-owned delta on combined native source `1a7a0cdb5dadd2820a3b6c25c4ecafce1facd6eb`. Its isolated source commit is `aef47e4b28fd6d0e84376961e0cc6632996bb0be`; the reviewable [source patch](../engine-patches/phase5-native-retained-recovery.patch) has SHA-256 `94ee6c7c62beb1c97f4d222a9f4a3c6aec1f329f994fdf2ec8c56a19de48b078`. It adapts existing project mailboxes, native field holds and ownership checks without importing another networking engine, library, art or save layout. Existing upstream terms remain unchanged. The [recovery audit](native-battle-recovery.md) records its qualification limits; it is excluded from the qualified non-resume preview.
 
 ## Bundled upstream test tools
@@ -97,6 +105,79 @@ The original source archive is `24e11bd15b49dcbd74513e8fd6acdcead005616c0e3f52b8
 
 ## Incorporation and distribution status
 
+The October 9 trusted trade replay worker is project-owned C linked against
+the same incorporated mGBA `26b7884bc25a5933960f3cdcd98bac1ae14d42e2` core and
+existing Lua/libepoxy/Winpthreads cache. No core source changes, PKHeX code or
+additional dependency were imported. It uses the public core register/bus API
+to execute only the verified ROM's bounded copy-only trade trampoline in an
+isolated unbooted VM. Its separate executable is included in `runtime.json`;
+the exact worker source/object are retained in `relink-inputs.tar.gz` with a
+separate MinGW `-municode` command. Existing covered source, sanitizer provenance,
+component notices and LGPL blip_buf relink inputs remain required. These source
+and collection changes alone establish neither successful linking nor replay
+correctness/performance; see [worker design and evidence](native-trade-replay-worker.md).
+
+The bounded single-GBA ZIP reader uses Python's already bundled standard
+`zipfile`/`zlib` modules and the existing project BPS implementation. It imports
+no external patcher. The supplied owner dump remains private and read-only;
+only a separately verified modification patch may enter a new package.
+
+The October 8 source-only feature batch reuses the already incorporated pinned
+RHH trade/evolution, authored encounter and object APIs plus the project's
+existing host journals, menus and bundled Tk. No new third-party implementation,
+asset, runtime or library was imported. Exact adaptations and inspected current
+upstream references are recorded in [trade record preparation](native-trade-record-preparation.md),
+[expanded personal sources](local-reset-expanded-sources.md) and
+[Trainer Card/hunt records](player-card-and-hunt-records.md). Their new source
+has not been built, tested or distributed; inherited source/asset terms remain.
+
+The subsequent October 8–9 source batch adds project-owned [Championship
+orchestration](championships.md), [five ticket/static reset adapters](local-reset-ticket-sources.md)
+and [complete paired recipient save-effect preparation](native-trade-save-effects.md).
+It reuses the same incorporated engine, project battle/recovery services and
+Python standard-library SQLite; no external implementation, asset or dependency
+was imported. The linked component notes retain exact upstream research pins,
+save/multiplayer boundaries and unmeasured performance. Research references are
+not incorporated dependencies. No build, dependency installation or distribution
+was performed for this batch.
+
+The October 9 [launcher Championship panel](windows-championship-panel.md),
+[recovery reconciliation](championship-recovery.md), and [extended Trainer Cards](trainer-card-shared-records.md)
+adapt the existing project services and bundled Tk/SQLite without importing new
+dependencies or assets. The [species display labels](species-menu-labels.md) are
+721 factual names extracted from the already incorporated engine source; the
+[provenance manifest](species-labels-provenance.json) records native Git lineage,
+all input hashes and the generated output hash. No native compilation or execution
+was involved. This does not change the species roster or resolve asset-distribution
+permissions. Existing attribution remains required.
+
+The preceding [twelve-addition source continuation](feature-batch-20261009.md) extends
+those same services and native/Tk controls. [Trade inspection](trade-offer-inspection.md)
+uses source-derived move/item/nature/Latin-character display facts from the existing
+engine; `trade-labels-provenance.json` records every input and generated-output hash.
+No new roster, acquisition rule, third-party implementation or art is introduced.
+[Full native save transport](native-trade-save-transport.md) adapts the already
+incorporated trade/Dex/stat/ribbon and sector-window implementation; its exact
+additive patch and private before-source snapshots are recorded there.
+[Admission terminal delivery](admission-terminal-handoff.md), [launcher player
+interactions](windows-player-interactions.md) and [record browsers](record-browsers.md)
+are project-owned extensions with no new dependency or save schema. The linked
+notes retain original pins, multiplayer/ownership boundaries and unknown runtime
+performance. No build, dependency install or distribution occurred.
+
+The [extended October 9 batch](large-feature-batch-20261009.md) reuses the same
+project-owned history, consent, reset, native menu/save and bundled Tk/SQLite
+components. [Held move presentation](native-trade-choice-presentation.md) reads
+the pinned engine's move facts and `CannotForgetMove` predicate; the native
+descriptor patch records exact lineage and hashes. The reset catalogue adds a
+read-only descriptor without enabling encounters. The [approved legacy handler
+policy](trade-friendship-migration.md) uses the existing generated Gen6 base table
+and pinned `VERSION_EMERALD = 3`, adapting the established backed-up transaction
+pattern. No PKHeX code/package, new dependency, art or third-party implementation
+was imported. The +800 optional history schema is a project-owned source change,
+not an executed migration. Existing license/attribution and distribution limits
+remain; new runtime and storage performance are unmeasured.
+
 The [customization and reuse audit](customization-and-reuse.md) additionally inspected current RHH upstream, Perfect Emerald's style/color system, Emerald Rogue's outfit/remote-profile system, and CFRU's customization code. These are research references with recorded revisions and integration limits; no source or assets from those candidates were imported. The new project-wide research rule requires component-level licensing, dependency, maintenance/issue, performance and save/network compatibility checks before integration.
 
 - No additional third-party networking implementation or art has been imported beyond the unmodified upstream engine tree.
@@ -104,3 +185,21 @@ The [customization and reuse audit](customization-and-reuse.md) additionally ins
 - The project-owned Python companion/server, Lua mailbox bridge, and headless test frontends are implemented for private development. They have not been shipped. No third-party networking source was copied into them.
 - An adapted Windows SDL frontend and closed-save launcher lifecycle are now private development implementations. The Host/Join interface and final player package remain unfinished; automatic Lua loading alone does not establish release acceptance.
 - Before sending a package to friends, record every included binary, modified source component, and asset's revision, notices, applicable terms, and unresolved permission. Distribution review is pending; emulator licensing does not license Pokémon content.
+
+- The October 9 [graphics inventory](graphics-resource-inventory.md) records
+  existing tracked art/tilesets and the exact requested community research pins.
+  [Remote running](remote-running-animation.md) reuses existing RHH Brendan/May
+  walking/running tiles and native movement/animation functions; no external art,
+  new palette allocation or additional third-party component was introduced.
+  Modern_Emerald, EmceeMikey's fork and the Gen VI DS-style resource remain
+  research references only. Their component attribution/permission and measured
+  combined multiplayer cost remain prerequisites to any later import.
+
+- The [separate Gen6 defaults profile](gen6-defaults-profile.md) adapts existing
+  pinned RHH generation settings and ORAS level-up data, retaining the compiled
+  species/save layout. The new descriptor and exact-profile host/client checks
+  are project-owned. Current upstream was inspected at the recorded revision;
+  no additional third-party source/assets/dependency were imported. Five focused
+  native tests and isolated Windows trade replay provide bounded evidence;
+  complete Gen6 content, runtime peaks and combined multiplayer acceptance
+  remain separate gates.

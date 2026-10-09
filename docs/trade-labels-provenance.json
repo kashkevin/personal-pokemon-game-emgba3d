@@ -1,0 +1,20 @@
+{
+  "format": "emerald-trade-display-facts-v1",
+  "engine_base": "aef47e4b28fd6d0e84376961e0cc6632996bb0be",
+  "incorporated_upstream": "bb1093a7c72d3961d9a37d8e02ad2abc2c866682",
+  "input_sha256": {
+    "include/constants/moves.h": "d86e4d5d5b94b838625a9d1c5c5bbce2e57556a171d66028eab1993f4fa44200",
+    "src/data/moves_info.h": "31c841954be8ca3f24b48c49dc447cd90678c9530045f7c43772dcaea95ade1f",
+    "include/constants/items.h": "2d37d71fd294fbfc148cace384c08cecd23d81c21300d28862176bf9bf75cb56",
+    "src/data/items.h": "107f1b78a457f3a9c48749f325d674b62fe559b0ebfc365db13e82b00b19ecd3",
+    "include/constants/pokemon.h": "9718b67e727a1ff1882f2ffb0239fe57705aa9d11adf9c8769440cb503b6eb2f",
+    "include/pokemon.h": "bee4c5121be718ad72073da2e6881595d2a018ac137e24b59581f3b8ea5fcc5c",
+    "src/pokemon.c": "2c248b04a1c880b7b5791120fa9d239284725ca8664bb4633083a1885728c4f6",
+    "charmap.txt": "8fb1f15ada8fe2b961d5bcbe17a0d0f75053770083ba9492dc24ce9cfba86ac2"
+  },
+  "moves": 617,
+  "items": 813,
+  "natures": 25,
+  "output_sha256": "4ea34595b79d4831ea45e1dcb14adea7d4062a2bc3fc8483aad9e0a014ac2036",
+  "scope": "Display only; ambiguous or computed IDs use explicit numeric fallback. No acquisition changes."
+}

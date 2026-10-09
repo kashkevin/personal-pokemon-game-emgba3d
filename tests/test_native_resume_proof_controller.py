@@ -16,6 +16,30 @@ with patch.object(sys, "path", [str(script.parent), *sys.path]):
 
 
 class ResumeProofOperationDrainTests(unittest.IsolatedAsyncioTestCase):
+    async def test_partial_quorum_preserves_failed_operation_instead_of_claiming_completion(self):
+        failure = TimeoutError("retained recovery RPC expired while parsing history")
+        async def failed():
+            raise failure
+        task = asyncio.create_task(failed())
+        await asyncio.sleep(0)
+        with self.assertRaises(TimeoutError) as caught:
+            await controller.require_partial_recovery_waiting([task])
+        self.assertIs(caught.exception, failure)
+
+    async def test_partial_quorum_rejects_success_and_does_not_cancel_waiting_operation(self):
+        waiting = asyncio.create_task(asyncio.Event().wait())
+        try:
+            await controller.require_partial_recovery_waiting([waiting])
+            self.assertFalse(waiting.done())
+            done = asyncio.get_running_loop().create_future()
+            done.set_result(None)
+            with self.assertRaisesRegex(AssertionError, "partial quorum completed"):
+                await controller.require_partial_recovery_waiting([waiting, done])
+            self.assertFalse(waiting.done())
+        finally:
+            waiting.cancel()
+            await asyncio.gather(waiting, return_exceptions=True)
+
     async def test_reconnecting_operation_is_canceled_and_drained_without_touching_original_core_or_intent(self):
         with tempfile.TemporaryDirectory() as temporary:
             intent = Path(temporary) / "pending-battle.json"

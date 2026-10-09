@@ -4,9 +4,14 @@
  * This is a development runtime; network lifecycle qualification is separate.
  */
 #include "sdl-multiplayer.h"
+#include <mgba/feature/commandline.h>
+#include <mgba/core/core.h>
+#include <mgba/core/thread.h>
 #include <mgba/core/scripting.h>
 #include <mgba/script/context.h>
+#include <mgba/script/macros.h>
 #include <mgba-util/socket.h>
+#include <SDL.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -18,6 +23,8 @@ static bool sSocketInitialized;
 static struct mCore* sCore;
 static void (*sSetKeys)(struct mCore*, uint32_t);
 static void (*sAddKeys)(struct mCore*, uint32_t);
+static void (*sClearKeys)(struct mCore*, uint32_t);
+static struct mSDLMultiplayerInput sInput;
 
 static const struct mOption sOptions[] = {
     { "multiplayer-script", true, '\0' },
@@ -70,20 +77,28 @@ void mSDLMultiplayerConfigure(struct mCore* core) {
     core->opts.rewindBufferCapacity = 0;
 }
 
-static uint32_t FilterKeys(uint32_t keys) {
-    /* GBA A+B+Select+Start must not reboot an enrolled character underneath a
-     * pending transaction. Local encounter reset will get its own ROM command.
-     * Suppress Start only for this full combination; ordinary buttons work. */
-    return (keys & 15) == 15 ? keys & ~8u : keys;
-}
-
 static void SetKeys(struct mCore* core, uint32_t keys) {
-    sSetKeys(core, FilterKeys(keys));
+    sSetKeys(core, mSDLMultiplayerFilterKeys(&sInput, keys));
 }
 
 static void AddKeys(struct mCore* core, uint32_t keys) {
-    sSetKeys(core, FilterKeys(core->getKeys(core) | keys));
+    sSetKeys(core, mSDLMultiplayerAddKeys(&sInput, keys));
 }
+
+static void ClearKeys(struct mCore* core, uint32_t keys) {
+    sSetKeys(core, mSDLMultiplayerClearKeys(&sInput, keys));
+}
+
+static uint32_t EnableNativeChord(uint32_t abi) {
+    /* Only the verified bridge opts in after checking the separate ROM marker.
+     * Native ABI1 consumes the gesture even without an eligible encounter or
+     * live binding; it never falls through to BIOS soft reset. */
+    mSDLMultiplayerEnableNativeChord(&sInput, abi == 1);
+    if (sCore) SetKeys(sCore, sInput.keys);
+    return 1;
+}
+
+mSCRIPT_BIND_FUNCTION(EnableNativeChordBinding, U32, EnableNativeChord, 1, U32, abi);
 
 static void AttachThreadScript(struct mCoreThread* thread) {
     /* mCoreThread explicitly supports adding an already initialized context in
@@ -103,8 +118,12 @@ bool mSDLMultiplayerLoad(struct mCoreThread* thread, struct mLogger* logger) {
     sCore = core;
     sSetKeys = core->setKeys;
     sAddKeys = core->addKeys;
+    sClearKeys = core->clearKeys;
+    sInput = (struct mSDLMultiplayerInput) { .keys = core->getKeys(core) };
     core->setKeys = SetKeys;
     core->addKeys = AddKeys;
+    core->clearKeys = ClearKeys;
+    SetKeys(core, sInput.keys);
     /* SDL does not initialize the platform socket subsystem upstream. Qt and
      * the upstream network examples do this before attaching script sockets. */
     SocketSubsystemInit();
@@ -116,6 +135,8 @@ bool mSDLMultiplayerLoad(struct mCoreThread* thread, struct mLogger* logger) {
     mScriptContextRegisterEngines(&sScript);
     mScriptContextAttachLogger(&sScript, logger);
     mScriptContextAttachCore(&sScript, core);
+    mScriptContextSetGlobal(&sScript, "emeraldResetInput",
+                           mScriptValueAlloc(EnableNativeChordBinding.type));
     struct mScriptEngineContext* lua = HashTableLookup(&sScript.engines, "lua");
     if (!lua || !mScriptContextLoadFile(&sScript, sScriptPath) || !lua->run(lua)) {
         fprintf(stderr, "Multiplayer bridge initialization failed: %s\n",
@@ -140,6 +161,8 @@ void mSDLMultiplayerUnload(void) {
     if (sCore) {
         sCore->setKeys = sSetKeys;
         sCore->addKeys = sAddKeys;
+        sCore->clearKeys = sClearKeys;
+        sInput = (struct mSDLMultiplayerInput) { 0 };
         sCore = NULL;
     }
 }

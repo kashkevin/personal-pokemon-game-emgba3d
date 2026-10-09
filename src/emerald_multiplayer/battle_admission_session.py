@@ -196,8 +196,8 @@ async def hold_admission(c, directory, intent, bridge):
         response = await c.battle_rpc(intent.admit)
         response.validate_response(intent.admit)
         authority.record["response_b64"] = encode_control(response)
-        _validate_receipt(authority.record, intent)
         _atomic(authority.path, _json_bytes(authority.record))
+        _validate_receipt(authority.record, intent)
         authority._retained()
         return response
     finally:

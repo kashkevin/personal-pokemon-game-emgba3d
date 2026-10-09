@@ -93,4 +93,19 @@ emu.checksum=function() return "bad!" end
 env.callback.start(); env.step(10)
 assert(#env.writes==0 and env.closed and #env.errors==1,
     "Switching ROMs must invalidate write permission before cleanup")
-print("PASS: bridge identity, ABI boundary, partial IPC, atomic snapshot, malformed frames")
+-- Running must pass both directions only for a ROM-verified extension.
+pose = string.pack("<I4I4i2i2BBBBBBBB", 1, 11, 6, 7, 0, 9, 4, 3, 0, 5, 1, 0)
+env=fresh(); dofile(bridge); env.ready(); env.step(40)
+assert(#env.sent == #hello, "Legacy bridge published unsupported running mode")
+env=fresh()
+EMERALD_BRIDGE.presence_animation_abi=1
+EMERALD_BRIDGE.presence_animation_abi_address=0x08000100
+assert(not pcall(dofile, bridge), "Missing ROM marker enabled running")
+env.memory[0x08000100]=1
+dofile(bridge); env.ready(); env.step(40)
+assert(env.sent:find("P"..pose, 1, true), "Running pose failed publication")
+payload=string.pack("<I4I4I4BBI2",1,2,1,0,1,0)
+    ..string.pack("<I4",2)..pose..string.rep("\0",48)
+env.feed(string.pack(">I4",89).."S"..payload,7); env.step(5)
+assert(#env.writes==24 and not env.closed, "Running snapshot failed commit")
+print("PASS: bridge identity, ABI boundary, partial IPC, atomic snapshot, malformed frames, running capability")

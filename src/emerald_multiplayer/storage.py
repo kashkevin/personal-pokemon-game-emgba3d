@@ -220,6 +220,10 @@ class CheckpointStore:
                     if self._base_schema_version == 3:
                         from .trade_friendship_observations import EXTENSION_VERSION as FRIENDSHIP_VERSION, OBSERVATION_SCHEMA
                         capabilities.append((FRIENDSHIP_VERSION, OBSERVATION_SCHEMA))
+                        from .trade_friendship_migration import EXTENSION_VERSION as HISTORY_VERSION, HISTORY_SCHEMA
+                        capabilities.append((HISTORY_VERSION, HISTORY_SCHEMA))
+                        from .trade_effect_storage import EXTENSION_VERSION as EFFECT_VERSION, EFFECT_SCHEMA
+                        capabilities.append((EFFECT_VERSION, EFFECT_SCHEMA))
                     for mask in range(1, 1 << len(capabilities)):
                         selected = [item for index, item in enumerate(capabilities) if mask & (1 << index)]
                         if extension == sum(item[0] for item in selected):
@@ -285,6 +289,14 @@ class CheckpointStore:
     @property
     def friendship_observations_enabled(self) -> bool:
         return "pokemon_friendship_observations" in self._schema
+
+    @property
+    def friendship_history_enabled(self) -> bool:
+        return "pokemon_friendship_history" in self._schema
+
+    @property
+    def trade_effects_enabled(self) -> bool:
+        return "trade_effect_commits" in self._schema
 
     def _assert_no_battle_reservation(self, *players) -> None:
         """Called inside the owning store transaction, including direct APIs."""

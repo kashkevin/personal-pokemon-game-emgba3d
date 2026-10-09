@@ -55,12 +55,15 @@ class EnrollmentApproval:
     payload: bytes = field(repr=False)
 
 
-def approve_enrollment_source(store, player_id, source_path):
+def approve_enrollment_source(store, player_id, source_path, *, expected_source_sha256=None):
     """Explicit local-host mutation: authorize exact source provenance once."""
     if not isinstance(store, TradeCheckpointStore):
         raise EnrollmentRuntimeError("unsupported_world", "first enrollment requires a schema-3 host world")
     path = Path(source_path).resolve(strict=True)
     payload = _source_bytes(path)
+    if (expected_source_sha256 is not None
+            and hashlib.sha256(payload).hexdigest() != expected_source_sha256):
+        raise EnrollmentRuntimeError("source_changed", "the selected source changed before host approval")
     enrollment = store.enroll_player(player_id, payload)
     return EnrollmentApproval(store.metadata.world_id, player_id, store.build_id,
                               store.ruleset_id, enrollment.source_sha256, path, payload)

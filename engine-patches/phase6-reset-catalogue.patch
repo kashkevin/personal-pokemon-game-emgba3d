@@ -1,0 +1,57 @@
+diff --git a/include/multiplayer_static_reset.h b/include/multiplayer_static_reset.h
+index 1a3e794..9b98733 100644
+--- a/include/multiplayer_static_reset.h
++++ b/include/multiplayer_static_reset.h
+@@ -29,6 +29,13 @@
+ #define MP_STATIC_RESET_LAST MP_STATIC_RESET_LATIAS
+ #define MP_STATIC_RESET_VERSION_1 0x5601
+ 
++// Immutable ROM catalogue. Flags describe compiled adapters and controls only;
++// exact script, ticket, progression and first-action gates still own eligibility.
++struct MultiplayerResetCatalogue {
++    u32 version, firstId, sourceCount, enabledMask, controlFlags, reserved;
++};
++extern const struct MultiplayerResetCatalogue gMultiplayerResetCatalogue;
++
+ // Internal adapters for exact authored personal encounters. No generic
+ // wild/event enrollment; the common reset core owns the connection/action gates.
+ bool32 MultiplayerStaticReset_EntryReady(u32 encounterId);
+diff --git a/src/multiplayer_static_reset.c b/src/multiplayer_static_reset.c
+index e3f5292..36bf048 100644
+--- a/src/multiplayer_static_reset.c
++++ b/src/multiplayer_static_reset.c
+@@ -62,6 +62,24 @@ static const struct StaticSource sSources[] = {
+     SOURCE(MP_STATIC_RESET_LATIAS, MAP_SOUTHERN_ISLAND_INTERIOR, 2, 13, 11, SPECIES_LATIAS, 50, FLAG_HIDE_SOUTHERN_ISLAND_UNCHOSEN_EON_DUO_MON, FLAG_DEFEATED_LATIAS_OR_LATIOS, FLAG_ENABLE_SHIP_SOUTHERN_ISLAND, TRUE),
+ };
+ _Static_assert(ARRAY_COUNT(sSources) == MP_STATIC_RESET_LAST - MP_STATIC_RESET_VOLTORB_1 + 1, "Static catalogue IDs");
++#if MP_LOCAL_RESET_STATIC || TESTING
++#define MP_STATIC_COMPILED_MASK ((1u << ARRAY_COUNT(sSources)) - 1)
++#elif MP_LOCAL_RESET_NEW_MAUVILLE_PILOT
++#define MP_STATIC_COMPILED_MASK 1u
++#else
++#define MP_STATIC_COMPILED_MASK 0u
++#endif
++#if MP_LOCAL_RESET_ENABLED
++#define MP_STATIC_CONTROL_FLAGS 3u
++#else
++#define MP_STATIC_CONTROL_FLAGS 0u
++#endif
++const struct MultiplayerResetCatalogue gMultiplayerResetCatalogue = {
++    1, MP_STATIC_RESET_VOLTORB_1, ARRAY_COUNT(sSources), MP_STATIC_COMPILED_MASK,
++    MP_STATIC_CONTROL_FLAGS, 0,
++};
++_Static_assert(sizeof(gMultiplayerResetCatalogue) == 24, "Reset catalogue layout");
++_Static_assert(ARRAY_COUNT(sSources) < 32, "Reset catalogue bit budget");
+ static EWRAM_DATA u32 sObserved[ARRAY_COUNT(sSources)];
+ static EWRAM_DATA u32 sAttempt, sActiveId, sAdmittedCount, sAdmittedId;
+ static EWRAM_DATA u16 sMapState, sBlueState, sGreenState;
+@@ -83,6 +101,9 @@ static const struct StaticSource *Source(u32 id)
+ 
+ void MultiplayerStaticReset_InitCache(void)
+ {
++    // Retain the descriptor in every normal build, including disabled builds.
++    // A volatile read prevents linker GC without changing runtime eligibility.
++    (void)*(const volatile u32 *)&gMultiplayerResetCatalogue.version;
+     memset(sObserved, 0, sizeof(sObserved));
+     sAttempt = sActiveId = sAdmittedCount = sAdmittedId = 0;
+     sMewReturn.valid = FALSE;

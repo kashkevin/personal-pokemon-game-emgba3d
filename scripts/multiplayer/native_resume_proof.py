@@ -65,6 +65,14 @@ async def drain_interrupted_operations(tasks, *, timeout=30):
         raise TimeoutError("previous explicit battle operations did not drain before the next recovery stage")
 
 
+async def require_partial_recovery_waiting(tasks):
+    """A failed operation is distinct from an unauthorized successful completion."""
+    for task in tasks:
+        if task.done():
+            await task
+            raise AssertionError("a partial quorum completed recovery")
+
+
 async def run(args):
     root = args.output.resolve()
     if "/multiplayer-proof/" not in str(root)+"/" or root.exists():
@@ -421,10 +429,7 @@ async def run(args):
         recovery_tasks = [asyncio.create_task(recoveries[i].run(), name=f"proof-recovery-{i}") for i in range(3)]
         async with asyncio.timeout(30):
             while not all(c.connected for c in companions[:3]):
-                for task in recovery_tasks:
-                    if task.done():
-                        await task
-                        raise AssertionError("a partial quorum completed battle recovery")
+                await require_partial_recovery_waiting(recovery_tasks)
                 await asyncio.sleep(.02)
         if companions[3].connected:
             raise AssertionError("the fourth original reconnected without its explicit recovery action")
@@ -434,8 +439,7 @@ async def run(args):
             Opcode.ACK_OUT, Opcode.RECEIVE, Opcode.KEEP, Opcode.RELEASE, Opcode.RESUME)}
         if any(row["opcode"] in forbidden for row in evidence["native_dispatches"][trace_start:]):
             raise AssertionError("partial quorum dispatched ordinary progression or released a core")
-        if any(task.done() for task in recovery_tasks):
-            raise AssertionError("a partial quorum completed recovery")
+        await require_partial_recovery_waiting(recovery_tasks)
         for i, original in enumerate(originals_retained):
             c, core = companions[i], cores[i]
             if (core is not original[0] or core.process.pid != original[1] or core.process.returncode is not None

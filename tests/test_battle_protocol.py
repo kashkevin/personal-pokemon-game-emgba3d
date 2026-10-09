@@ -1,4 +1,5 @@
 from copy import deepcopy
+import struct
 import unittest
 from uuid import uuid4
 
@@ -10,6 +11,27 @@ from emerald_multiplayer.protocol import MAX_FRAME_BYTES, ProtocolError, encode_
 ACTOR, PEER, THIRD, FOURTH, WORLD, REQUEST, BATTLE, GENERATION = (str(uuid4()) for _ in range(8))
 
 
+def cleanup_receipt(*, held=False):
+    """Wire fixture only; host/native authority is tested in the cleanup suites."""
+    from emerald_multiplayer.battle_execution_protocol import encode_control
+    from emerald_multiplayer.native_battle import NativeControl, Opcode
+    from emerald_multiplayer.native_battle_resume import Admission
+    data = Admission(GENERATION, ACTOR, REQUEST).pack() + struct.pack("<I", 7)
+    if held:
+        data += bytes.fromhex("c" * 64)
+    return encode_control(NativeControl(1, 7, BATTLE, 1,
+        Opcode.ADMISSION_CANCEL_HOLD if held else Opcode.ADMISSION_CANCEL_READY,
+        phase=2, source_slot=0, data=data))
+
+
+def handoff_receipt():
+    from dataclasses import replace
+    from emerald_multiplayer.battle_execution_protocol import decode_control, encode_control
+    from emerald_multiplayer.native_battle import Opcode
+    return encode_control(replace(decode_control(cleanup_receipt(held=True)),
+                                  opcode=Opcode.ADMISSION_CANCEL_HANDOFF))
+
+
 def request(op, **fields):
     extra = dict(
         invite=dict(peer=PEER, battle_id=BATTLE),
@@ -17,6 +39,11 @@ def request(op, **fields):
         accept=dict(battle_id=BATTLE, generation=GENERATION, fingerprint="a" * 64),
         claim=dict(battle_id=BATTLE, generation=GENERATION, incarnation=1, runtime_id=REQUEST),
         cancel=dict(battle_id=BATTLE, generation=GENERATION),
+        cancel_admission=dict(battle_id=BATTLE, generation=GENERATION, incarnation=1,
+                              runtime_id=REQUEST, cleanup_ready_b64=cleanup_receipt(),
+                              cleanup_receipt_b64=None),
+        admission_handoff=dict(battle_id=BATTLE, generation=GENERATION, incarnation=1,
+                               runtime_id=REQUEST, handoff_receipt_b64=handoff_receipt()),
         status=dict(battle_id=BATTLE), pending={}, history={}, waiting={},
         execute=dict(battle_id=BATTLE, generation=GENERATION, incarnation=1,
                      response_id=0, response_b64=None),
@@ -42,6 +69,15 @@ def reply(op):
     elif op == "resume":
         from emerald_multiplayer.battle_recovery_protocol import recovery_view
         result = recovery_view(BATTLE, GENERATION, "waiting")
+    elif op == "cancel_admission":
+        from emerald_multiplayer.battle_admission_cleanup_protocol import SCOPE as CLEANUP_SCOPE
+        result = dict(scope=CLEANUP_SCOPE, battle_id=BATTLE, generation=GENERATION,
+            incarnation=1, runtime_id=REQUEST, original_lease=7,
+            tombstone_sha256="c" * 64, acknowledged=False)
+    elif op == "admission_handoff":
+        from emerald_multiplayer.battle_admission_cleanup_protocol import handoff_view
+        from emerald_multiplayer.battle_execution_protocol import decode_control
+        result = handoff_view(decode_control(handoff_receipt(), response=True))
     else:
         result = [] if op in ("history", "waiting") else ([view()] if op == "pending" else view(3 if op == "invite_multi" else 2))
     return dict(type="battle_result", protocol=1, session_epoch=7, request_id=REQUEST,
@@ -59,6 +95,46 @@ class BattleProtocolTests(unittest.TestCase):
             self.assertEqual(validate_battle_request(req, 7), req)
             self.assertEqual(self.check(result, req), result)
             self.assertLess(len(encode_message(result)) - 4, MAX_FRAME_BYTES)
+
+    def test_cancellation_acknowledgment_has_exact_stage_and_identity(self):
+        req = request("cancel_admission", cleanup_receipt_b64=cleanup_receipt(held=True))
+        result = reply("cancel_admission")
+        result["result"]["acknowledged"] = True
+        self.assertEqual(validate_battle_request(req, 7), req)
+        self.assertEqual(self.check(result, req), result)
+        self.assertLess(len(encode_message(req)) - 4, MAX_FRAME_BYTES)
+        self.assertLess(len(encode_message(result)) - 4, MAX_FRAME_BYTES)
+        for field, value in (("battle_id", str(uuid4())), ("generation", str(uuid4())),
+                             ("runtime_id", str(uuid4())), ("incarnation", 2),
+                             ("acknowledged", False), ("tombstone_sha256", "0" * 64)):
+            changed = deepcopy(result)
+            changed["result"][field] = value
+            with self.subTest(field=field), self.assertRaises(ProtocolError):
+                self.check(changed, req)
+
+    def test_cancellation_requires_ready_and_correct_successful_receipt_kinds(self):
+        for field, value in (("cleanup_ready_b64", None), ("cleanup_ready_b64", "invalid"),
+                             ("cleanup_ready_b64", cleanup_receipt(held=True)),
+                             ("cleanup_receipt_b64", cleanup_receipt()),
+                             ("cleanup_receipt_b64", True)):
+            with self.subTest(field=field, value=value), self.assertRaises(ProtocolError):
+                validate_battle_request(request("cancel_admission", **{field: value}), 7)
+        missing = request("cancel_admission")
+        del missing["cleanup_ready_b64"]
+        with self.assertRaises(ProtocolError):
+            validate_battle_request(missing, 7)
+
+    def test_handoff_requires_original_receipt_and_exact_acknowledgment(self):
+        req = request("admission_handoff")
+        for value in (cleanup_receipt(), cleanup_receipt(held=True), None):
+            with self.subTest(receipt=value), self.assertRaises(ProtocolError):
+                validate_battle_request(request("admission_handoff",handoff_receipt_b64=value),7)
+        for key,value in (("receipt_sha256","d"*64),("handoff_lease",8),
+                          ("generation",str(uuid4())),("acknowledged",False)):
+            result = reply("admission_handoff")
+            result["result"][key] = value
+            with self.subTest(field=key), self.assertRaises(ProtocolError):
+                self.check(result,req)
 
     def test_execution_and_actor_fields_never_accepted(self):
         for key, value in dict(actor=PEER, player_id=PEER, outcome=1,

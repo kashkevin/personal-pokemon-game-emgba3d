@@ -91,6 +91,19 @@ class LauncherSetupTests(unittest.IsolatedAsyncioTestCase):
         return (patch("emerald_multiplayer.launcher_setup.Companion", self.companion),
                 patch("emerald_multiplayer.player_runtime.asyncio.create_subprocess_exec", self.spawn))
 
+    async def test_changed_gui_selected_source_refuses_before_approval_or_child(self):
+        selected_sha256 = hashlib.sha256(self.original).hexdigest()
+        self.source.write_bytes(source_flash(personalities=(887766,)))
+        with self.assertRaises(LauncherSetupError) as caught:
+            async with self.context(expected_source_sha256=selected_sha256):
+                self.fail("changed character must not be approved or opened")
+        self.assertEqual(caught.exception.code, "source_changed")
+        self.assertFalse(self.children)
+        self.assertFalse(self.companions)
+        with self.host.open_store() as store:
+            self.assertEqual(store._connection.execute("SELECT COUNT(*) FROM ownership_enrollments").fetchone()[0], 0)
+        self.assertFalse((self.profile() / "pending-enrollment.json").exists())
+
     async def test_creation_uses_private_unique_worlds_without_boot_or_listener(self):
         second = create_world(self.installation, self.root / "private",
             player_names=("Second",), endpoint="127.0.0.1", port=self.port)

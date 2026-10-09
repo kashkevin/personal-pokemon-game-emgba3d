@@ -1,0 +1,126 @@
+--- a/include/multiplayer.h
++++ b/include/multiplayer.h
+@@ -10,6 +10,8 @@
+ #define MULTIPLAYER_CONNECTED (1u << 0)
+ #define MULTIPLAYER_ACTIVITY_UNAVAILABLE 0
+ #define MULTIPLAYER_ACTIVITY_OVERWORLD 1
++#define MULTIPLAYER_PRESENCE_ANIMATION_ABI 1
++#define MULTIPLAYER_MOVEMENT_RUN 5
+ 
+ struct MultiplayerPose
+ {
+@@ -22,7 +24,7 @@
+     u8 direction;
+     u8 elevation;
+     u8 gender;
+-    u8 movementMode; // PLAYER_AVATAR_STATE_NORMAL through UNDERWATER (0..4).
++    u8 movementMode; // Avatar states 0..4; animation capability v1 additionally permits RUN=5.
+     u8 activity;
+     u8 reserved;
+ };
+--- a/src/multiplayer.c
++++ b/src/multiplayer.c
+@@ -37,11 +37,13 @@
+ _Static_assert(MULTIPLAYER_LOCAL_ID_BASE + MULTIPLAYER_MAX_PEERS <= LOCALID_OW_ENCOUNTER_END - OWE_SPAWNS_MAX + 1, "Remote IDs outside generated encounters");
+ 
+ EWRAM_DATA volatile struct MultiplayerMailbox gMultiplayerMailbox = {0};
++const u32 gMultiplayerPresenceAnimationAbiVersion = MULTIPLAYER_PRESENCE_ANIMATION_ABI;
+ 
+ struct RemoteState
+ {
+     struct MultiplayerPeer peer;
+     u8 objectEventId;
++    bool8 moving;
+ };
+ 
+ static EWRAM_DATA struct RemoteState sRemotes[MULTIPLAYER_MAX_PEERS] = {0};
+@@ -85,6 +87,7 @@
+         }
+     }
+     sRemotes[i].objectEventId = OBJECT_EVENTS_COUNT;
++    sRemotes[i].moving = FALSE;
+ }
+ 
+ void Multiplayer_LeaveField(void)
+@@ -154,6 +157,11 @@
+         return PLAYER_AVATAR_STATE_ACRO_BIKE;
+     if (gPlayerAvatar.flags & PLAYER_AVATAR_FLAG_MACH_BIKE)
+         return PLAYER_AVATAR_STATE_MACH_BIKE;
++    // The actual native run action owns this flag. Do not infer running from
++    // network distance or invent a faster local movement rule.
++    if ((gPlayerAvatar.flags & PLAYER_AVATAR_FLAG_DASH)
++     && *(const volatile u32 *)&gMultiplayerPresenceAnimationAbiVersion == MULTIPLAYER_PRESENCE_ANIMATION_ABI)
++        return MULTIPLAYER_MOVEMENT_RUN;
+     return PLAYER_AVATAR_STATE_NORMAL;
+ }
+ 
+@@ -204,7 +212,7 @@
+     return pose->x >= 0 && pose->y >= 0
+         && pose->direction >= DIR_SOUTH && pose->direction <= DIR_EAST
+         && pose->elevation <= 15 && pose->gender <= FEMALE
+-        && pose->movementMode <= PLAYER_AVATAR_STATE_UNDERWATER;
++        && pose->movementMode <= MULTIPLAYER_MOVEMENT_RUN;
+ }
+ 
+ static void ReadInbound(void)
+@@ -310,17 +318,24 @@
+     u32 id = sRemotes[i].objectEventId;
+     u16 graphicsId;
+     s16 x, y, dx, dy;
++    bool32 completed;
+     enum Direction direction;
+     if (sRemotes[i].peer.playerId == 0 || !PeerVisible(pose))
+     {
+         RemoveRemote(i);
+         return;
+     }
+-    graphicsId = GetPlayerAvatarGraphicsIdByStateIdAndGender(pose->movementMode, pose->gender);
++    // Normal avatar graphics already include dedicated running frames for both
++    // trainers. Reuse their native animation table without another sprite,
++    // palette, frame cache, decompression, or save field.
++    graphicsId = GetPlayerAvatarGraphicsIdByStateIdAndGender(
++        pose->movementMode == MULTIPLAYER_MOVEMENT_RUN ? PLAYER_AVATAR_STATE_NORMAL : pose->movementMode,
++        pose->gender);
+     if (id >= OBJECT_EVENTS_COUNT || !Multiplayer_IsRemoteObject(&gObjectEvents[id]))
+     {
+         struct ObjectEventTemplate template = {0};
+         sRemotes[i].objectEventId = OBJECT_EVENTS_COUNT;
++        sRemotes[i].moving = FALSE;
+         if (!CanAllocateObject(graphicsId) || GetObjectEventIdByLocalId(MULTIPLAYER_LOCAL_ID_BASE + i) < OBJECT_EVENTS_COUNT)
+             return;
+         template.localId = MULTIPLAYER_LOCAL_ID_BASE + i;
+@@ -350,11 +365,17 @@
+         if (IndexOfSpritePaletteTag(paletteTag) == 0xFF && IndexOfSpritePaletteTag(TAG_NONE) == 0xFF)
+             return;
+         ObjectEventClearHeldMovementIfActive(objectEvent);
++        sRemotes[i].moving = FALSE;
+         ObjectEventSetGraphicsId(objectEvent, graphicsId);
+         MoveObjectEventToMapCoords(objectEvent, x, y);
+     }
+-    if (ObjectEventClearHeldMovementIfFinished(objectEvent) == TRUE)
++    completed = ObjectEventClearHeldMovementIfFinished(objectEvent) == TRUE;
++    if (completed)
++    {
+         MoveObjectEventToMapCoords(objectEvent, objectEvent->currentCoords.x, objectEvent->currentCoords.y);
++        completed = sRemotes[i].moving;
++        sRemotes[i].moving = FALSE;
++    }
+     if (ObjectEventIsHeldMovementActive(objectEvent))
+         return;
+     dx = x - objectEvent->currentCoords.x;
+@@ -369,10 +390,11 @@
+     else if (dx != 0 || dy != 0)
+     {
+         direction = dx > 0 ? DIR_EAST : dx < 0 ? DIR_WEST : dy > 0 ? DIR_SOUTH : DIR_NORTH;
+-        ObjectEventSetHeldMovement(objectEvent, abs(dx) + abs(dy) > 1
+-            ? GetWalkFastMovementAction(direction) : GetWalkNormalMovementAction(direction));
+-    }
+-    else if (objectEvent->facingDirection != pose->direction)
++        sRemotes[i].moving = !ObjectEventSetHeldMovement(objectEvent, pose->movementMode == MULTIPLAYER_MOVEMENT_RUN
++            ? GetPlayerRunMovementAction(direction)
++            : abs(dx) + abs(dy) > 1 ? GetWalkFastMovementAction(direction) : GetWalkNormalMovementAction(direction));
++    }
++    else if (objectEvent->facingDirection != pose->direction || completed)
+     {
+         ObjectEventSetHeldMovement(objectEvent, GetFaceDirectionMovementAction(pose->direction));
+     }

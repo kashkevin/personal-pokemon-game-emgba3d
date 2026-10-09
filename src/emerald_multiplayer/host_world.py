@@ -11,6 +11,7 @@ import hashlib
 from pathlib import Path
 
 from .companion import BASELINE_RULESET, verify_rom_manifest
+from .gen6_profile import GEN6_DEFAULTS_RULESET
 from .invitations import (Invitation, InvitationError, _bytes, _certificate, _endpoint,
                           _hash, _json, _name, _read, _regular, _uuid, _write_new)
 from .ownership import OWNERSHIP_PROFILE
@@ -49,7 +50,7 @@ class HostAccount:
 def _build(rom_path, manifest_path):
     build, manifest = verify_rom_manifest(Path(rom_path), Path(manifest_path))
     if (manifest.get("trade_abi_version") != 1 or manifest.get("save_profile") != OWNERSHIP_PROFILE
-            or manifest.get("ruleset_id") != BASELINE_RULESET):
+            or manifest.get("ruleset_id") not in (BASELINE_RULESET, GEN6_DEFAULTS_RULESET)):
         raise HostWorldError("build_mismatch", "host provisioning requires the verified ownership/trade game build")
     return build, manifest["ruleset_id"], manifest
 
@@ -106,9 +107,15 @@ class HostWorld:
         return ServerTlsConfig(self.directory / "host-certificate.pem", self.directory / "host-key.pem")
 
     @classmethod
-    def create(cls, directory, rom_path, manifest_path, *, player_names, endpoint, port, validity_days=365):
+    def create(cls, directory, rom_path, manifest_path, *, player_names, endpoint, port, validity_days=365,
+               trade_effect_policy=None):
         """Create a new private directory; failed partials stay marked in place."""
         build, rules, manifest = _build(rom_path, manifest_path)
+        from .trade_effect_preparation import POLICIES
+        effects = manifest.get("trade_replay_abi_version") == 1
+        if (effects and trade_effect_policy not in POLICIES
+                or not effects and trade_effect_policy is not None):
+            raise HostWorldError("trade_effect_policy_required", "select an explicit compatible handler policy for this game")
         _endpoint(endpoint, port)
         if (type(player_names) not in (tuple, list) or not 1 <= len(player_names) <= 4
                 or type(validity_days) is not int or not 1 <= validity_days <= 3650):
@@ -134,6 +141,11 @@ class HostWorld:
             if manifest.get("reset_abi_version") in (1, 2):
                 from .reset_attempts import enable_reset_attempts
                 enable_reset_attempts(store, root / "before-personal-attempts.sqlite3")
+            if effects:
+                from .trade_friendship_migration import enable_friendship_history
+                from .trade_effect_storage import enable_trade_effects
+                enable_friendship_history(store, root / "before-handler-history.sqlite3")
+                enable_trade_effects(store, root / "before-native-trade-effects.sqlite3", policy_id=trade_effect_policy)
             descriptor = dict(format=HOST_FORMAT, world_id=world_id, build_id=build, ruleset_id=rules,
                               save_profile=OWNERSHIP_PROFILE, endpoint=endpoint, port=port, certificate_sha256=pin,
                               accounts=[dict(role=p.role, slot=p.slot, player_id=p.player_id,

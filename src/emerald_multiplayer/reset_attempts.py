@@ -31,6 +31,16 @@ def _digest(values):
     return hashlib.sha256(json.dumps(values, separators=(",", ":"), ensure_ascii=True).encode("ascii")).hexdigest()
 
 
+def require_reset_ledger(store, manifest):
+    """Fail before hosting an enabled game against an unprepared old world."""
+    if (manifest.get("reset_catalogue_version") == 1 and manifest.get("reset_source_mask", 0)
+            and not store.reset_attempts_enabled):
+        raise StorageError("reset_migration_required",
+            "this game enables personal hunts but the selected world lacks its attempt ledger; "
+            "close the world and complete an explicit backed-up upgrade before hosting")
+    return True
+
+
 def enable_reset_attempts(store, backup_path):
     """Add the optional ledger only while idle, after verifying a new backup."""
     if not store._supports_battle_reservations or store._base_schema_version not in (2, 3):
@@ -111,6 +121,68 @@ class ResetAttempts:
             if result["attempt"] != counts.get(key, 0) + 1:
                 raise StorageError("reset_attempt_invalid", "personal attempt history has a gap")
             counts[key] = result["attempt"]
+
+    def summary(self, actor, lease):
+        """Read personal admitted attempts without beginning or changing a hunt."""
+        counts = {encounter: 0 for encounter in ENCOUNTERS}
+        with self.store._transaction():
+            self.store._require_lease(actor, lease)
+            self.store._validate_schema()
+            # Full receipt/digest replay already runs at store boot. Do not
+            # repeat per-attempt Python/metadata queries on the heartbeat loop.
+            groups = self.store._connection.execute(
+                "SELECT encounter_id, COUNT(*) AS length, MAX(attempt) AS last "
+                "FROM personal_reset_attempts WHERE player_id=? GROUP BY encounter_id", (actor,)).fetchall()
+            for group in groups:
+                encounter = group["encounter_id"]
+                if encounter not in counts or group["last"] != group["length"]:
+                    raise StorageError("reset_attempt_invalid", "personal attempt history has a gap")
+                row = self.store._connection.execute(
+                    "SELECT * FROM personal_reset_attempts WHERE player_id=? AND encounter_id=? AND attempt=?",
+                    (actor, encounter, group["last"])).fetchone()
+                if row is None:
+                    raise StorageError("reset_attempt_invalid", "personal attempt head is missing")
+                counts[encounter] = self._read(row)["attempt"]
+        return [dict(encounter_id=encounter, attempts=count)
+                for encounter, count in sorted(counts.items())]
+
+    def history(self, actor, lease, request):
+        """Read one actor's receipt page under a stable source-counter snapshot."""
+        from .reset_history import SCOPE as HISTORY_SCOPE, validate_reset_history_request, validate_reset_history_reply
+        request = validate_reset_history_request(request)
+        source = request["encounter_id"]
+        with self.store._transaction():
+            self.store._require_lease(actor, lease)
+            self.store._validate_schema()
+            current, length = self.store._connection.execute(
+                "SELECT COALESCE(MAX(attempt),0),COUNT(*) FROM personal_reset_attempts WHERE player_id=? AND encounter_id=?",
+                (actor, source)).fetchone()
+            if current != length:
+                raise StorageError("reset_attempt_invalid", "personal attempt history has a gap")
+
+            def receipt(attempt):
+                row = self.store._connection.execute(
+                    "SELECT * FROM personal_reset_attempts WHERE player_id=? AND encounter_id=? AND attempt=?",
+                    (actor, source, attempt)).fetchone()
+                if row is None:
+                    raise StorageError("reset_attempt_invalid", "personal attempt receipt is missing")
+                self._read(row)
+                return {key: row[key] for key in ("attempt", "request_id", "checkpoint_revision", "observed_count")}
+
+            if current:
+                receipt(current)  # The current head is evidence even on an older snapshot.
+            through = current if request["through_attempt"] is None else request["through_attempt"]
+            if through > current:
+                raise StorageError("reset_history_ahead", "history snapshot exceeds the host ledger")
+            top = min(through, request["before_attempt"] - 1) if request["before_attempt"] is not None else through
+            # Bounded keyed reads validate each digest and every expected number;
+            # no skipped or missing row may silently shorten a page.
+            entries = [receipt(attempt) for attempt in range(top, max(0, top - request["limit"]), -1)]
+            result = dict(scope=HISTORY_SCOPE, encounter_id=source, through_attempt=through,
+                current_attempt=current, before_attempt=request["before_attempt"], limit=request["limit"],
+                next_before=entries[-1]["attempt"] if entries and entries[-1]["attempt"] > 1 else None,
+                first=receipt(1) if through else None, latest=receipt(through) if through else None, entries=entries)
+            return validate_reset_history_reply(result, request)
 
     def begin(self, actor, lease, request):
         request = validate_reset_request(request, lease)

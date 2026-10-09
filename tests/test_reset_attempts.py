@@ -127,13 +127,13 @@ class ResetAttemptTests(unittest.TestCase):
         self.assertEqual(self.attempts.begin(p.player_id, lease, request)["attempt"], 1)
         self.assertEqual(self.begin(self.request(2, 1))["attempt"], 2)
 
-    def test_all_nine_sources_keep_separate_durable_histories_for_one_player(self):
+    def test_catalogue_sources_keep_separate_durable_histories_for_one_player(self):
         from emerald_multiplayer.reset_protocol import ENCOUNTERS
         for sequence, encounter in enumerate(sorted(ENCOUNTERS), 1):
             request = {**self.request(sequence), "encounter_id": encounter}
             self.assertEqual(self.begin(request)["attempt"], 1)
             self.assertEqual(self.begin(request)["attempt"], 1)
-        self.assertEqual(self.begin({**self.request(10, 1), "encounter_id": 0x1009})["attempt"], 2)
+        self.assertEqual(self.begin({**self.request(len(ENCOUNTERS) + 1, 1), "encounter_id": 0x1009})["attempt"], 2)
         self.assertEqual(self.store.read_checkpoint(self.player.player_id, self.lease), self.head)
         self.store.integrity_check()
 

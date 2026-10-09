@@ -1,0 +1,115 @@
+diff --git a/src/multiplayer_trade_effects.c b/src/multiplayer_trade_effects.c
+--- a/src/multiplayer_trade_effects.c
++++ b/src/multiplayer_trade_effects.c
+@@ -4,6 +4,7 @@
+ #include "mail.h"
+ #include "battle.h"
+ #include "move.h"
++#include "malloc.h"
+ #include "string_util.h"
+ #include "constants/moves.h"
+ #include "constants/game_stat.h"
+@@ -30,6 +31,30 @@
+ STATIC_ASSERT(NUM_DEX_FLAG_BYTES == 129 && NUM_GIFT_RIBBONS == 7 && MAX_GIFT_RIBBON == 64, TradeEffectArrays);
+ STATIC_ASSERT(FLAG_SYS_RIBBON_GET == 0x89B && GAME_STAT_POKEMON_TRADES == 21 && GAME_STAT_EVOLVED_POKEMON == 14, TradeEffectBookkeepingIds);
+ 
++// A headless host VM may invoke only this fixed, copy-only operation. There is
++// no general memory RPC. The descriptor is read from the exact verified ROM.
++#define MP_TRADE_REPLAY_MAGIC 0x57525445
++#define MP_TRADE_REPLAY_INPUT_MAX 35116
++#define MP_TRADE_REPLAY_OUTPUT_MAX 19452
++static u32 MultiplayerTradeReplay_Run(const u8 *input, u32 length, u8 *out, u32 capacity);
++struct MultiplayerTradeReplayDescriptor
++{
++    u32 magic;
++    u32 version;
++    u32 (*run)(const u8 *, u32, u8 *, u32);
++    u8 *heap;
++    u32 heapSize;
++    u32 inputMax;
++    u32 outputMax;
++    u32 reserved;
++};
++const struct MultiplayerTradeReplayDescriptor gMultiplayerTradeReplayDescriptor =
++{
++    MP_TRADE_REPLAY_MAGIC, 1, MultiplayerTradeReplay_Run, gHeap, HEAP_SIZE,
++    MP_TRADE_REPLAY_INPUT_MAX, MP_TRADE_REPLAY_OUTPUT_MAX, 0
++};
++STATIC_ASSERT(sizeof(struct MultiplayerTradeReplayDescriptor) == 32, TradeReplayDescriptorSize);
++
+ static bool32 OutputAliasesMon(const struct MultiplayerTradeEffectPreview *out,
+                               const struct Pokemon *mon)
+ {
+@@ -58,6 +83,10 @@
+     u32 incomingEgg, outgoingEgg;
+     u32 i;
+ 
++    // Retain the descriptor and its single function under linker GC. Volatile
++    // prevents the compiler from folding this reference to a constant.
++    if (((const volatile struct MultiplayerTradeReplayDescriptor *)&gMultiplayerTradeReplayDescriptor)->magic != MP_TRADE_REPLAY_MAGIC)
++        return FALSE;
+     if (out == NULL || (received != NULL && OutputAliasesMon(out, received))
+      || (sent != NULL && OutputAliasesMon(out, sent)))
+         return FALSE;
+@@ -137,6 +166,61 @@
+         && !Overlaps(out, size, sent, sizeof(*sent));
+ }
+ 
++static bool32 ReplayHeapRange(const void *pointer, u32 length)
++{
++    uintptr_t start = (uintptr_t)pointer, base = (uintptr_t)gHeap;
++    return start >= base && length <= HEAP_SIZE - 4
++        && start - base <= HEAP_SIZE - 4 - length && (start & 3) == 0;
++}
++
++static u32 MultiplayerTradeReplay_Run(const u8 *input, u32 length, u8 *out, u32 capacity)
++{
++    const u32 *header;
++    const struct MultiplayerTradeMoveChoice *choices;
++    u32 operation, friendship, count, outSlot, inSlot, base, i;
++
++    // Valid exclusively in an isolated, fresh VM. Even a correctly bounded
++    // request cannot commandeer the live game's allocator or save blocks.
++    if (gSaveBlock1Ptr != NULL || gSaveBlock2Ptr != NULL || gSaveBlock3Ptr != NULL
++     || length < 32 || length > MP_TRADE_REPLAY_INPUT_MAX
++     || capacity != MP_TRADE_REPLAY_OUTPUT_MAX
++     || !ReplayHeapRange(input, length) || !ReplayHeapRange(out, capacity)
++     || Overlaps(input, length, out, capacity))
++        return 0;
++    header = (const u32 *)input;
++    operation = header[1];
++    friendship = header[2];
++    count = header[3];
++    outSlot = header[4];
++    inSlot = header[5];
++    if (header[0] != 1 || friendship > 255 || count > MP_TRADE_RECORD_MAX_CHOICES
++     || outSlot >= PARTY_SIZE || inSlot >= PARTY_SIZE || header[6] || header[7])
++        return 0;
++    if (operation == 1)
++    {
++        if (outSlot || inSlot) return 0;
++        base = 32 + 2 * sizeof(struct Pokemon);
++    }
++    else if (operation == 2)
++        base = 32 + 2 * sizeof(struct SaveBlock1) + sizeof(struct SaveBlock2);
++    else
++        return 0;
++    if (length != base + count * sizeof(*choices)) return 0;
++    choices = (const struct MultiplayerTradeMoveChoice *)(input + base);
++    for (i = 0; i < count; i++)
++        if (choices[i].move == MOVE_NONE || choices[i].slot > MAX_MON_MOVES || choices[i].reserved)
++            return 0;
++    if (operation == 1)
++        return MultiplayerTradeEffects_ReplayRecord((const struct Pokemon *)(input + 32),
++            (const struct Pokemon *)(input + 32 + sizeof(struct Pokemon)), friendship,
++            choices, count, (struct Pokemon *)out) ? sizeof(struct Pokemon) : 0;
++    return MultiplayerTradeEffects_ReplaySaveBlocks((const struct SaveBlock1 *)(input + 32),
++        (const struct SaveBlock2 *)(input + 32 + sizeof(struct SaveBlock1)),
++        (const struct SaveBlock1 *)(input + 32 + sizeof(struct SaveBlock1) + sizeof(struct SaveBlock2)),
++        outSlot, inSlot, friendship, choices, count, (struct SaveBlock1 *)out,
++        (struct SaveBlock2 *)(out + sizeof(struct SaveBlock1))) ? MP_TRADE_REPLAY_OUTPUT_MAX : 0;
++}
++
+ static bool32 TradeConditionsAreLocal(u16 species)
+ {
+     const struct Evolution *rules = GetSpeciesEvolutions(species);

@@ -1,0 +1,72 @@
+diff --git a/Makefile b/Makefile
+index 4720d57..fc6b454 100644
+--- a/Makefile
++++ b/Makefile
+@@ -157,8 +157,9 @@ else
+ O_LEVEL ?= 2
+ endif
+ LOCAL_RESET_DEVELOPMENT ?= 0
+-LOCAL_RESET_STATIC ?= 0
+-CPPFLAGS := $(INCLUDE_CPP_ARGS) -Wno-trigraphs -DMODERN=1 -DTESTING=$(TEST) -D$(GAME_VERSION) -std=gnu17 -DMP_LOCAL_RESET_DEVELOPMENT=$(LOCAL_RESET_DEVELOPMENT) -DMP_LOCAL_RESET_STATIC=$(LOCAL_RESET_STATIC)
++LOCAL_RESET_STATIC ?= 1
++LOCAL_RESET_NEW_MAUVILLE_PILOT ?= 0
++CPPFLAGS := $(INCLUDE_CPP_ARGS) -Wno-trigraphs -DMODERN=1 -DTESTING=$(TEST) -D$(GAME_VERSION) -std=gnu17 -DMP_LOCAL_RESET_DEVELOPMENT=$(LOCAL_RESET_DEVELOPMENT) -DMP_LOCAL_RESET_STATIC=$(LOCAL_RESET_STATIC) -DMP_LOCAL_RESET_NEW_MAUVILLE_PILOT=$(LOCAL_RESET_NEW_MAUVILLE_PILOT)
+ ifeq ($(RELEASE),1)
+ 	override CPPFLAGS += -DRELEASE
+ 	ifeq ($(USE_LTO_ON_RELEASE),1)
+diff --git a/include/config/multiplayer_local_reset.h b/include/config/multiplayer_local_reset.h
+index 20c9d50..266f787 100644
+--- a/include/config/multiplayer_local_reset.h
++++ b/include/config/multiplayer_local_reset.h
+@@ -8,9 +8,11 @@
+ #ifndef MP_LOCAL_RESET_NEW_MAUVILLE_PILOT
+ #define MP_LOCAL_RESET_NEW_MAUVILLE_PILOT 0
+ #endif
+-// Audited authored sources. Off pending ordinary-route release acceptance.
++// Personal authored adapters are enabled for the production multiplayer game.
++// Ordinary source/progression and exact connected admission guards still apply.
++// Explicit LOCAL_RESET_STATIC=0 builds remain available for isolation work.
+ #ifndef MP_LOCAL_RESET_STATIC
+-#define MP_LOCAL_RESET_STATIC 0
++#define MP_LOCAL_RESET_STATIC 1
+ #endif
+ // A published admission must yield the authored bytecode before inspecting TRUE/FALSE.
+ #define MP_LOCAL_RESET_ADMISSION_PENDING 2
+diff --git a/include/multiplayer_static_reset.h b/include/multiplayer_static_reset.h
+index 9b98733..4f95859 100644
+--- a/include/multiplayer_static_reset.h
++++ b/include/multiplayer_static_reset.h
+@@ -32,7 +32,7 @@
+ // Immutable ROM catalogue. Flags describe compiled adapters and controls only;
+ // exact script, ticket, progression and first-action gates still own eligibility.
+ struct MultiplayerResetCatalogue {
+-    u32 version, firstId, sourceCount, enabledMask, controlFlags, reserved;
++    u32 version, firstId, sourceCount, enabledMask, controlFlags, buildFlags;
+ };
+ extern const struct MultiplayerResetCatalogue gMultiplayerResetCatalogue;
+ 
+diff --git a/src/multiplayer_static_reset.c b/src/multiplayer_static_reset.c
+index 36bf048..cb46077 100644
+--- a/src/multiplayer_static_reset.c
++++ b/src/multiplayer_static_reset.c
+@@ -74,9 +74,19 @@ _Static_assert(ARRAY_COUNT(sSources) == MP_STATIC_RESET_LAST - MP_STATIC_RESET_V
+ #else
+ #define MP_STATIC_CONTROL_FLAGS 0u
+ #endif
++#if MP_LOCAL_RESET_DEVELOPMENT
++#define MP_STATIC_DEV_FLAG 1u
++#else
++#define MP_STATIC_DEV_FLAG 0u
++#endif
++#if TESTING
++#define MP_STATIC_TEST_FLAG 2u
++#else
++#define MP_STATIC_TEST_FLAG 0u
++#endif
+ const struct MultiplayerResetCatalogue gMultiplayerResetCatalogue = {
+     1, MP_STATIC_RESET_VOLTORB_1, ARRAY_COUNT(sSources), MP_STATIC_COMPILED_MASK,
+-    MP_STATIC_CONTROL_FLAGS, 0,
++    MP_STATIC_CONTROL_FLAGS, MP_STATIC_DEV_FLAG | MP_STATIC_TEST_FLAG,
+ };
+ _Static_assert(sizeof(gMultiplayerResetCatalogue) == 24, "Reset catalogue layout");
+ _Static_assert(ARRAY_COUNT(sSources) < 32, "Reset catalogue bit budget");

@@ -51,12 +51,13 @@ def capability_packet():
     return b"X" + struct.pack("<HH", 1, WINDOW_SIZE)
 
 
-def parse_window_packet(packet):
+def parse_window_packet(packet, *, allow_effect_save=False):
     if not isinstance(packet, bytes) or len(packet) != WINDOW_FRAME_SIZE or packet[:1] != b"F":
         raise SaveMailboxError("expected one complete bounded Flash window")
     control = SaveControl.unpack(packet[1:241]).validate_response()
     data = packet[241:]
-    if (control.opcode != Opcode.READ_WINDOW or control.status != Status.OK
+    allowed = {Opcode.READ_WINDOW, Opcode.READ_EFFECT_WINDOW} if allow_effect_save else {Opcode.READ_WINDOW}
+    if (control.opcode not in allowed or control.status != Status.OK
             or struct.unpack("<I", control.data)[0] != zlib.crc32(data)):
         raise SaveMailboxError("Flash window does not match its ROM acknowledgement")
     return control, data

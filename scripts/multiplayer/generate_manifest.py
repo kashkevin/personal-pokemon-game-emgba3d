@@ -12,7 +12,7 @@ import zlib
 RULESET = "baseline-rhh1.17.1-mailbox-v1"
 
 
-def generate(rom: Path, elf: Path, nm: str, engine_commit: str) -> dict:
+def generate(rom: Path, elf: Path, nm: str, engine_commit: str, *, trade_effect_prepare=False, trade_effect_save=False, trade_effect_choice=False) -> dict:
     if not re.fullmatch(r"[0-9a-f]{40}", engine_commit):
         raise ValueError("engine_commit must be the exact Git commit")
     symbols = subprocess.check_output([nm, "--print-size", "--defined-only", str(elf)], text=True)
@@ -36,6 +36,29 @@ def generate(rom: Path, elf: Path, nm: str, engine_commit: str) -> dict:
         "rom_size": rom_size, "elf_sha256": hashlib.sha256(elf.read_bytes()).hexdigest(),
         "ruleset_id": RULESET, "engine_commit": engine_commit,
     }
+    player_guard = [line for line in symbols.splitlines() if line.split()[-1:] == ["gMultiplayerPlayerBuildGuard"]]
+    if player_guard:
+        from emerald_multiplayer.player_build import DESCRIPTOR, validate_player_build_manifest
+        match = re.fullmatch(r"([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+[Rr]\s+gMultiplayerPlayerBuildGuard", player_guard[0])
+        if len(player_guard) != 1 or match is None or int(match[2], 16) != len(DESCRIPTOR):
+            raise ValueError("player build guard requires one exact read-only ROM descriptor")
+        manifest.update(player_build_guard_abi_version=1, player_build_guard_address=int(match[1], 16))
+        validate_player_build_manifest(manifest, rom)
+    generation = re.findall(r"^([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+[Rr]\s+gMultiplayerGenerationProfile$", symbols, re.M)
+    if generation:
+        from emerald_multiplayer.gen6_profile import DESCRIPTOR, GEN6_DEFAULTS_RULESET, validate_generation_profile
+        if len(generation) != 1 or int(generation[0][1], 16) != len(DESCRIPTOR):
+            raise ValueError("generation profile requires one exact ROM descriptor")
+        manifest.update(ruleset_id=GEN6_DEFAULTS_RULESET, generation_profile_version=1,
+                        generation_profile_address=int(generation[0][0], 16))
+        validate_generation_profile(manifest, rom)
+    presentation = re.findall(r"^([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+[Rr]\s+gMultiplayerPresenceAnimationAbiVersion$", symbols, re.M)
+    if presentation:
+        from emerald_multiplayer.presence_animation import validate_presence_animation_manifest
+        if len(presentation) != 1 or int(presentation[0][1], 16) != 4:
+            raise ValueError("presence animation requires one exact ROM marker")
+        manifest.update(presence_animation_abi_version=1, presence_animation_abi_address=int(presentation[0][0], 16))
+        validate_presence_animation_manifest(manifest, rom)
     save = re.findall(r"^([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+[BDbd]\s+gMultiplayerSaveMailbox$", symbols, re.M)
     if save:
         if len(save) != 1:
@@ -132,6 +155,14 @@ def generate(rom: Path, elf: Path, nm: str, engine_commit: str) -> dict:
         manifest.update(menu_abi_version=version, menu_abi_address=marker,
                         menu_mailbox_address=int(menu_channel[0][0], 16), menu_mailbox_size=int(menu_channel[0][1], 16))
         validate_menu_manifest(manifest, rom)
+    cleanup = re.findall(r"^([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+[Rr]\s+gMultiplayerBattleAdmissionCleanupAbiVersion$", symbols, re.M)
+    if cleanup:
+        from emerald_multiplayer.battle_manifest import validate_battle_manifest
+        if len(cleanup) != 1 or int(cleanup[0][1], 16) != 4:
+            raise ValueError("admission cleanup requires one four-byte compiler-located marker")
+        manifest.update(battle_admission_cleanup_abi_version=1,
+                        battle_admission_cleanup_abi_address=int(cleanup[0][0], 16))
+        validate_battle_manifest(manifest, rom)
     objects = re.findall(r"^([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+[BDbd]\s+gObjectEvents$", symbols, re.M)
     reset = re.findall(r"^([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+[Rr]\s+gMultiplayerResetAbiVersion$", symbols, re.M)
     reset_channel = re.findall(r"^([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+[BDbd]\s+gMultiplayerResetMailbox$", symbols, re.M)
@@ -146,6 +177,28 @@ def generate(rom: Path, elf: Path, nm: str, engine_commit: str) -> dict:
         manifest.update(reset_abi_version=reset_version, reset_abi_address=reset_address,
             reset_mailbox_address=int(reset_channel[0][0], 16), reset_mailbox_size=int(reset_channel[0][1], 16))
         validate_reset_manifest(manifest, rom)
+    reset_input = re.findall(r"^([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+[Rr]\s+gMultiplayerResetInputAbiVersion$", symbols, re.M)
+    if reset_input:
+        from emerald_multiplayer.reset_mailbox import validate_reset_manifest
+        if len(reset_input) != 1 or int(reset_input[0][1], 16) != 4 or not reset:
+            raise ValueError("reset input requires one four-byte compiler-located marker and reset support")
+        manifest.update(reset_input_abi_version=1, reset_input_abi_address=int(reset_input[0][0], 16))
+        validate_reset_manifest(manifest, rom)
+    reset_catalogue = re.findall(r"^([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+[Rr]\s+gMultiplayerResetCatalogue$", symbols, re.M)
+    if reset_catalogue:
+        from emerald_multiplayer.reset_catalogue import DESCRIPTOR
+        from emerald_multiplayer.reset_mailbox import validate_reset_manifest
+        if len(reset_catalogue) != 1 or int(reset_catalogue[0][1], 16) != DESCRIPTOR.size or not reset:
+            raise ValueError("personal reset catalogue requires one compiler-located descriptor and reset support")
+        address = int(reset_catalogue[0][0], 16)
+        if address % 4 or not 0x08000000 <= address <= 0x08000000 + rom.stat().st_size - DESCRIPTOR.size:
+            raise ValueError("personal reset catalogue is outside ROM")
+        with rom.open("rb") as source:
+            source.seek(address - 0x08000000)
+            version, first, count, enabled, controls, build_flags = DESCRIPTOR.unpack(source.read(DESCRIPTOR.size))
+        manifest.update(reset_catalogue_version=version, reset_catalogue_address=address,
+                        reset_source_mask=enabled, reset_control_flags=controls, reset_build_flags=build_flags)
+        validate_reset_manifest(manifest, rom)  # Also verifies first/count/build bytes.
     if len(objects) == 1:
         obj_address, obj_size = (int(value, 16) for value in objects[0])
         # Read-only test metadata for the pinned engine's 0x24-byte objects.
@@ -180,6 +233,43 @@ def generate(rom: Path, elf: Path, nm: str, engine_commit: str) -> dict:
     manifest.update(debug_saved_objects_offset=0xA30,
                     debug_saved_party_count_offset=0x234,
                     debug_saved_party_offset=0x238, debug_party_size=600)
+    # Internal computation transport is an explicit opt-in, never inferred from
+    # the trade marker or enabled in an existing release manifest.
+    if type(trade_effect_prepare) is not bool:
+        raise ValueError("trade_effect_prepare must be an explicit boolean")
+    if trade_effect_prepare:
+        markers = re.findall(r"^([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+[Rr]\s+gMultiplayerTradeEffectPrepareAbiVersion$", symbols, re.M)
+        if len(markers) != 1 or int(markers[0][1], 16) != 4:
+            raise ValueError("missing native record preparation marker")
+        from emerald_multiplayer.trade_effect_mailbox import validate_effect_prepare_manifest
+        manifest.update(trade_effect_prepare_abi_version=1,
+                        trade_effect_prepare_abi_address=int(markers[0][0], 16))
+        validate_effect_prepare_manifest(manifest, rom)
+    if type(trade_effect_save) is not bool or (trade_effect_save and not trade_effect_prepare):
+        raise ValueError("full save preparation needs explicit record preparation opt-in")
+    if trade_effect_save:
+        markers = re.findall(r"^([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+[Rr]\s+gMultiplayerTradeEffectSaveAbiVersion$", symbols, re.M)
+        if len(markers) != 1 or int(markers[0][1], 16) != 4:
+            raise ValueError("missing full save preparation marker")
+        from emerald_multiplayer.trade_effect_mailbox import validate_effect_save_manifest
+        manifest.update(trade_effect_save_abi_version=1, trade_effect_save_abi_address=int(markers[0][0], 16))
+        validate_effect_save_manifest(manifest, rom)
+    if type(trade_effect_choice) is not bool or (trade_effect_choice and not trade_effect_prepare):
+        raise ValueError("move presentation needs explicit record preparation opt-in")
+    if trade_effect_choice:
+        markers = re.findall(r"^([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+[Rr]\s+gMultiplayerTradeEffectChoiceAbiVersion$", symbols, re.M)
+        if len(markers) != 1 or int(markers[0][1], 16) != 4:
+            raise ValueError("missing native move presentation marker")
+        from emerald_multiplayer.trade_effect_mailbox import validate_effect_choice_manifest
+        manifest.update(trade_effect_choice_abi_version=1, trade_effect_choice_abi_address=int(markers[0][0], 16))
+        validate_effect_choice_manifest(manifest, rom)
+    replay = re.findall(r"^([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+[Rr]\s+gMultiplayerTradeReplayDescriptor$", symbols, re.M)
+    if replay and trade_effect_prepare and trade_effect_save and trade_effect_choice:
+        from emerald_multiplayer.trade_replay_manifest import DESCRIPTOR, validate_trade_replay_manifest
+        if len(replay) != 1 or int(replay[0][1], 16) != DESCRIPTOR.size:
+            raise ValueError("native replay requires one exact ROM descriptor")
+        manifest.update(trade_replay_abi_version=1, trade_replay_descriptor_address=int(replay[0][0], 16))
+        validate_trade_replay_manifest(manifest, rom)
     return manifest
 
 
@@ -190,8 +280,16 @@ def main() -> None:
     parser.add_argument("--engine-commit", required=True)
     parser.add_argument("--nm", default="arm-none-eabi-nm")
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--trade-effect-prepare", action="store_true",
+                        help="opt into internal held record preparation; does not enable effect publication")
+    parser.add_argument("--trade-effect-save", action="store_true",
+                        help="opt into complete private candidate windows; requires --trade-effect-prepare")
+    parser.add_argument("--trade-effect-choice", action="store_true",
+                        help="opt into native move presentation; requires --trade-effect-prepare")
     args = parser.parse_args()
-    manifest = generate(args.rom, args.elf, args.nm, args.engine_commit)
+    manifest = generate(args.rom, args.elf, args.nm, args.engine_commit,
+                        trade_effect_prepare=args.trade_effect_prepare, trade_effect_save=args.trade_effect_save,
+                        trade_effect_choice=args.trade_effect_choice)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     print(f"Verified mailbox manifest: {args.output}; ROM {manifest['rom_sha256']}")

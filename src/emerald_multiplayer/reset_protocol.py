@@ -9,6 +9,14 @@ SOURCES = {
     0x1004: "Aqua Hideout Electrode 1", 0x1005: "Aqua Hideout Electrode 2",
     0x1006: "Ancient Tomb Registeel", 0x1007: "Desert Ruins Regirock", 0x1008: "Island Cave Regice",
     0x1009: "Sky Pillar Rayquaza",
+    0x100A: "Battle Frontier Sudowoodo",
+    0x100B: "Marine Cave Kyogre", 0x100C: "Terra Cave Groudon",
+    0x100D: "Route 120 Kecleon 1", 0x100E: "Route 120 Kecleon 2", 0x100F: "Route 120 Kecleon 3",
+    0x1010: "Route 120 Kecleon 4", 0x1011: "Route 120 Kecleon 5",
+    0x1012: "Route 119 Kecleon 1", 0x1013: "Route 119 Kecleon 2",
+    0x1014: "Navel Rock Lugia",
+    0x1015: "Navel Rock Ho-Oh", 0x1016: "Faraway Island Mew",
+    0x1017: "Birth Island Deoxys", 0x1018: "Southern Island Latios", 0x1019: "Southern Island Latias",
 }
 ENCOUNTERS = frozenset(SOURCES)
 RESET_TYPES = frozenset({"reset_begin"})

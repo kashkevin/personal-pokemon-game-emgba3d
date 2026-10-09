@@ -49,6 +49,9 @@ def collect(source, dependencies, output):
             raise ValueError("source archive differs from its pin")
         archives.append(dict(name=name, url=url, sha256=digest))
     build = source / "build-windows"
+    worker_source = project / "native/windows-runtime/trade-replay-worker.c"
+    if (build / "trade-replay-worker.c").read_bytes() != worker_source.read_bytes():
+        raise ValueError("replay worker build source differs from project source")
     cache = (build / "CMakeCache.txt").read_text()
     for setting in ("BUILD_LTO:BOOL=OFF", "BUILD_STATIC:BOOL=ON", "BUILD_SHARED:BOOL=OFF",
                     "ENABLE_SCRIPTING:BOOL=ON", "USE_LUA:BOOL=ON",
@@ -58,12 +61,13 @@ def collect(source, dependencies, output):
     sdl = dependencies / "sdl-devel/SDL2-2.32.10/x86_64-w64-mingw32"
     pthread = Path(command("x86_64-w64-mingw32-gcc", "-print-file-name=libwinpthread-1.dll").decode().strip()).resolve()
     components = {"mgba-sdl.exe": build / "mgba-sdl.exe", "SDL2.dll": sdl / "bin/SDL2.dll",
-                  "libwinpthread-1.dll": pthread, "mgba.lua": project / "bridge/mgba.lua"}
+                  "libwinpthread-1.dll": pthread, "mgba.lua": project / "bridge/mgba.lua",
+                  "emerald-trade-replay.exe": build / "emerald-trade-replay.exe"}
     system_dlls = {"advapi32.dll", "gdi32.dll", "imm32.dll", "kernel32.dll", "msvcrt.dll", "ole32.dll",
                    "oleaut32.dll", "setupapi.dll", "shell32.dll", "shlwapi.dll", "user32.dll",
                    "version.dll", "winmm.dll", "ws2_32.dll"}
     imports = {}
-    for name in ("mgba-sdl.exe", "SDL2.dll", "libwinpthread-1.dll"):
+    for name in ("mgba-sdl.exe", "emerald-trade-replay.exe", "SDL2.dll", "libwinpthread-1.dll"):
         text = command("x86_64-w64-mingw32-objdump", "-p", str(components[name])).decode()
         imports[name] = re.findall(r"DLL Name:\s*(\S+)", text)
         if any(dll.lower() not in system_dlls | {"sdl2.dll", "libwinpthread-1.dll"} for dll in imports[name]):
@@ -103,7 +107,13 @@ def collect(source, dependencies, output):
               "libSDL2main.a": sdl / "lib/libSDL2main.a",
               "libSDL2.dll.a": sdl / "lib/libSDL2.dll.a",
               "libwinpthread.dll.a": pthread.parent / "libwinpthread.dll.a",
-              "frontend-objects.a": build / "sdl/CMakeFiles/mgba-sdl.dir/objects.a"}
+              "frontend-objects.a": build / "sdl/CMakeFiles/mgba-sdl.dir/objects.a",
+              "trade-replay-worker.c": build / "trade-replay-worker.c",
+              "trade-replay-worker.obj": build / "trade-replay-worker.obj",
+              # Retain build documentation inside the existing source/relink
+              # archive so the additional executable fits the strict 32-file
+              # runtime manifest without dropping notices or raising the bound.
+              "README.md": Path(__file__).with_name("README.md")}
     relink.update({"frontend/" + path.name: path for path in sorted((build / "sdl/CMakeFiles/mgba-sdl.dir").glob("*.obj"))})
     with tarfile.open(output / "relink-inputs.tar.gz", "w:gz") as archive:
         for name, path in relink.items():
@@ -115,9 +125,14 @@ def collect(source, dependencies, output):
         "-o mgba-sdl.exe libmgba.a libSDL2main.a libSDL2.dll.a libepoxy.a liblua.a "
         "-limm32 -lsetupapi -lversion -lwinmm -lopengl32 -lglu32 -lgdi32 -lws2_32 -lshlwapi "
         "-lm -lkernel32 -luser32 -lwinspool -lshell32 -lole32 -loleaut32 -luuid -lcomdlg32 -ladvapi32\n"
-        "Keep the original SDL2.dll and libwinpthread-1.dll beside the relinked executable.\n")
+        "Keep the original SDL2.dll and libwinpthread-1.dll beside the relinked executable.\n\n"
+        "The independent trusted replay worker uses its retained source/object and the same core/libraries:\n"
+        "x86_64-w64-mingw32-gcc -municode -static-libgcc -static-libstdc++ trade-replay-worker.obj "
+        "libmgba.a libepoxy.a liblua.a -lopengl32 -lglu32 -lgdi32 -lws2_32 -lshlwapi -lole32 -luuid -lm "
+        "libwinpthread.dll.a -o emerald-trade-replay.exe\n"
+        "Keep libwinpthread-1.dll beside the worker. It opens no player save or window.\n")
     for name in ("build_runtime.sh", "mingw64.cmake", "mingw64-meson.ini", "prepare_frontend.py",
-                 "fetch_dependencies.py", "README.md", "sanitize_source.py", "source-fixtures.json"):
+                 "fetch_dependencies.py", "sanitize_source.py", "source-fixtures.json"):
         shutil.copyfile(Path(__file__).with_name(name), output / name)
     provenance = dict(mgba_commit=PIN, core_source_unchanged=True, dll_imports=imports,
                       dependency_sources=archives, compiler=command("x86_64-w64-mingw32-gcc", "--version").decode(),
@@ -125,7 +140,9 @@ def collect(source, dependencies, output):
                                                 "gcc-mingw-w64-x86-64-posix-runtime").decode(),
                       frontend_source={name: sha(project / "native/windows-runtime" / name)
                                        for name in ("sdl-multiplayer.c", "sdl-multiplayer.h")},
-                      qualification="private native build; scripted startup/bridge smoke only; no player release acceptance")
+                      replay_worker_source=sha(worker_source),
+                      replay_worker_object=sha(build / "trade-replay-worker.obj"),
+                      qualification="private native build; runtime smoke and player release acceptance not established by collection")
     (output / "build-provenance.json").write_text(json.dumps(provenance, sort_keys=True, indent=2) + "\n")
     files = {path.name: sha(path) for path in sorted(output.iterdir()) if path.is_file()}
     if len(files) > 32:

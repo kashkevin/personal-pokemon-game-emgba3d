@@ -1,0 +1,21 @@
+{
+  "display_adaptations": "ASCII accent folding; Nidoran gender symbols become F/M",
+  "engine_base": "aef47e4b28fd6d0e84376961e0cc6632996bb0be",
+  "format": "source-derived-species-menu-labels-v1",
+  "generated_without_native_execution": true,
+  "output_sha256": "037b7a5d7cd7443393737749fba7645a0a74b0ced3184339d95e89da4307ad86",
+  "source_files": {
+    "include/constants/species.h": "cd07f8773c77b41b9821ac030cbc3e0ef82cc6f0740efc7608afbf5ffe78ceaf",
+    "src/data/pokemon/species_info/gen_1_families.h": "2ffd8f08012627e607e76c766e867436b317802bcae6f851af4379ed377e5d19",
+    "src/data/pokemon/species_info/gen_2_families.h": "96a6ca09868a7e63f581fc85582af44b4cdf4e1dbbfc96f911f2f0ba8aa0fc9c",
+    "src/data/pokemon/species_info/gen_3_families.h": "d170eba0c1aa2ed8d4c613868b4734b05fb85bd0288c7539c98968f7637bcd7e",
+    "src/data/pokemon/species_info/gen_4_families.h": "246a75a86ca22f708adc377f3bb5bcd60da7c08af76634465c43493d5dcf5b3e",
+    "src/data/pokemon/species_info/gen_5_families.h": "80dc215e4ff3593bd17347e77e71d061c05212a7c33d0dc71ad11d6d42f4fe01",
+    "src/data/pokemon/species_info/gen_6_families.h": "02ef7f07465f49df16e45eb2d81e2f9ab41fee57c783fcd16c50d2c262dd4850",
+    "src/data/pokemon/species_info/gen_7_families.h": "7ff18191c0fb4b855432f9ab4796252a15284340f440eae0f1a99304e0509577",
+    "src/data/pokemon/species_info/gen_8_families.h": "b57faeadc0b5ae3da78ff2d26d59db5c1d1820db5a2a45ba60552887ccecce07",
+    "src/data/pokemon/species_info/gen_9_families.h": "8e060d74f3327c124be2f1cb09ac911df68c1583e25196d4e0f07c18bf8acac2"
+  },
+  "standard_species": 721,
+  "upstream_base": "bb1093a7c72d3961d9a37d8e02ad2abc2c866682"
+}

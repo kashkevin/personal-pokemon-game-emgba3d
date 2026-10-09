@@ -163,6 +163,31 @@ class GuiWorkerTests(unittest.TestCase):
         self.assertEqual(self.finish_events()[-1].code, "game_closed")
         self.assertEqual(session.save_count, 1)
 
+    def test_trade_close_review_action_is_exclusive_and_drained(self):
+        session = self.launch()
+        started, finish = threading.Event(), threading.Event()
+        self.addCleanup(finish.set)
+        async def prepare():
+            started.set()
+            while not finish.is_set():
+                await asyncio.sleep(.005)
+            session.publish(SessionState.RUNNING, "trade_recovery_close")
+        session.prepare_trade_recovery = prepare
+        session.release_connect.set()
+        self.assertTrue(session.played.wait(2))
+        self.worker._publish(SessionStatus(SessionState.RUNNING, "host_loss_trade_waiting",
+                                           trade_recovery_available=True))
+        self.assertTrue(self.worker.request_trade_recovery())
+        self.assertTrue(started.wait(2))
+        self.assertFalse(self.worker.request_trade_recovery())
+        self.assertFalse(self.worker.request_save())
+        self.assertFalse(self.worker.request_autosave(False))
+        session.release_game.set()
+        time.sleep(.04)
+        self.assertFalse(session.closed.is_set())
+        finish.set()
+        self.assertTrue(any(e.code == "trade_recovery_close" for e in self.finish_events()))
+
     def test_autosave_setting_is_single_flight_and_drained_before_completion(self):
         self.assertFalse(self.worker.request_autosave(False))
         session = self.launch()
@@ -288,6 +313,23 @@ class WidgetTests(unittest.TestCase):
             except tk.TclError:
                 pass  # The tested close path may already have destroyed it.
         self.addCleanup(destroy_if_open)
+
+    def test_footer_is_visible_at_default_and_shorter_actual_tk_sizes(self):
+        window = LauncherWindow(self.root)
+        window.message.set(status_text("trade_recovery_close"))
+        window.restart_host_button.pack(side="left", padx=(12, 0))
+        self.root.deiconify()
+        for size in ("740x810", "660x730"):
+            self.root.geometry(size); self.root.update(); self.root.update_idletasks()
+            left, top = self.root.winfo_rootx(), self.root.winfo_rooty()
+            width, height = self.root.winfo_width(), self.root.winfo_height()
+            for widget in (window.status_label, window.recover_trade_button, window.recover_battle_button,
+                           window.cancel_battle_entry_button, window.restart_host_button, window.cancel):
+                self.assertGreater(widget.winfo_height(), 1, str(widget))
+                self.assertGreaterEqual(widget.winfo_rootx(), left)
+                self.assertGreaterEqual(widget.winfo_rooty(), top)
+                self.assertLessEqual(widget.winfo_rootx() + widget.winfo_width(), left + width, str(widget))
+                self.assertLessEqual(widget.winfo_rooty() + widget.winfo_height(), top + height, str(widget))
 
     def test_preview_disables_play_without_release(self):
         window = LauncherWindow(self.root)

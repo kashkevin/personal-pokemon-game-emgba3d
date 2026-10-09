@@ -55,6 +55,9 @@ class Opcode(IntEnum):
     ADMIT = 19
     RETIRE = 20
     HANDOFF = 21
+    ADMISSION_CANCEL_HOLD = 22
+    ADMISSION_CANCEL_HANDOFF = 23
+    ADMISSION_CANCEL_READY = 24
 
 
 class Kind(IntEnum):
@@ -192,6 +195,8 @@ class NativeQuery:
     def terminal_waiting(self): return bool(self.flags & 256)
     @property
     def handoff_waiting(self): return bool(self.flags & 512)
+    @property
+    def admission_cleanup_waiting(self): return bool(self.flags & 1024)
 
     @classmethod
     def unpack(cls, data):
@@ -202,6 +207,11 @@ class NativeQuery:
             return cls(flags, None, count, local, mode, *words)
         seq, out_seq, kind, size, crc, cursor, received, remaining, revision, outcome = words
         expected_count = player_count_for_phase(mode)
+        if flags & 1024:
+            if (flags != 1025 or reserved or count != expected_count or local >= count
+                    or not any(generation) or any(words[1:])):
+                raise BattleMailboxError("admission cleanup query contains unrelated native state")
+            return cls(flags, str(UUID(bytes=generation)), count, local, mode, *words)
         if flags & (256 | 512):
             if (flags not in (257, 513) or reserved or count != expected_count or local >= count
                     or not any(generation) or not seq or any(words[1:])):
@@ -301,7 +311,8 @@ class NativeControl:
             Opcode.KEEP: 0, Opcode.PREPARE: 36, Opcode.START: 0,
             Opcode.ABORT_PRE_START: 0, Opcode.RELEASE: 8, Opcode.ARM_RESUME: 0,
             Opcode.SUSPEND: 0, Opcode.REAUTHORIZE: 140, Opcode.RESUME: 20,
-            Opcode.RESUME_QUERY: 0, Opcode.ADMIT: 48, Opcode.RETIRE: 28, Opcode.HANDOFF: 28}
+            Opcode.RESUME_QUERY: 0, Opcode.ADMIT: 48, Opcode.RETIRE: 28, Opcode.HANDOFF: 28,
+            Opcode.ADMISSION_CANCEL_HOLD: 84, Opcode.ADMISSION_CANCEL_HANDOFF: 84, Opcode.ADMISSION_CANCEL_READY: 52}
         if len(self.data) != lengths[self.opcode]:
             raise BattleMailboxError("native command has the wrong exact payload length")
         if self.opcode == Opcode.BIND:
@@ -325,6 +336,19 @@ class NativeControl:
             admission = Admission.unpack(self.data)
             if player_id is not None and admission.player_id != player_id:
                 raise BattleMailboxError("provisional admission changed the authenticated player")
+        elif self.opcode == Opcode.ADMISSION_CANCEL_READY:
+            from .native_battle_resume import Admission
+            admission = Admission.unpack(self.data[:48])
+            original_lease = struct.unpack_from("<I", self.data, 48)[0]
+            if (self.sequence != 1 or not 1 <= original_lease <= self.session_epoch
+                    or player_id is not None and admission.player_id != player_id):
+                raise BattleMailboxError("cleanup readiness changed the original native identity")
+        elif self.opcode in (Opcode.ADMISSION_CANCEL_HOLD, Opcode.ADMISSION_CANCEL_HANDOFF):
+            from .battle_admission_cleanup_protocol import AdmissionCancellation
+            cancellation = AdmissionCancellation.unpack(self.data)
+            if (self.sequence != 1 or cancellation.original_lease > self.session_epoch
+                    or player_id is not None and cancellation.admission.player_id != player_id):
+                raise BattleMailboxError("admission cleanup changed its original identity or lease")
         elif self.opcode in (Opcode.RETIRE, Opcode.HANDOFF):
             from .native_battle_resume import Retirement
             Retirement.unpack(self.data)
@@ -359,7 +383,16 @@ class NativeControl:
                 raise BattleMailboxError("native error response must be empty")
             return self
         self._validate_block()
-        if self.opcode in (Opcode.RETIRE, Opcode.HANDOFF):
+        if self.opcode == Opcode.ADMISSION_CANCEL_READY:
+            self.validate_command()
+            if request is not None and self.data != request.data:
+                raise BattleMailboxError("cleanup readiness changed the original native identity")
+        elif self.opcode in (Opcode.ADMISSION_CANCEL_HOLD, Opcode.ADMISSION_CANCEL_HANDOFF):
+            from .battle_admission_cleanup_protocol import AdmissionCancellation
+            AdmissionCancellation.unpack(self.data)
+            if request is not None and self.data != request.data:
+                raise BattleMailboxError("admission cancellation receipt changed its identity")
+        elif self.opcode in (Opcode.RETIRE, Opcode.HANDOFF):
             from .native_battle_resume import Retirement
             Retirement.unpack(self.data)
             if request is not None and self.data != request.data:

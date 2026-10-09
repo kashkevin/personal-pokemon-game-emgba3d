@@ -1,0 +1,285 @@
+diff --git a/include/multiplayer_save.h b/include/multiplayer_save.h
+index 9de4b1f..e3effd0 100644
+--- a/include/multiplayer_save.h
++++ b/include/multiplayer_save.h
+@@ -16,6 +16,7 @@ enum MultiplayerSaveOpcode {
+     MP_SAVE_BEGIN_EMERGENCY_EXPORT, MP_SAVE_PRESERVE_EMERGENCY, MP_SAVE_QUERY_EMERGENCY, MP_SAVE_PROMOTE_EMERGENCY_EXPORT,
+     MP_SAVE_BEGIN_EFFECT_RECORD, MP_SAVE_CHOOSE_EFFECT_MOVE,
+     MP_SAVE_QUERY_EFFECT_RECORD, MP_SAVE_DISCARD_EFFECT_RECORD,
++    MP_SAVE_BEGIN_EFFECT_SAVE, MP_SAVE_READ_EFFECT_WINDOW,
+ };
+ enum MultiplayerSaveState {
+     MP_SAVE_UNBOUND, MP_SAVE_BOUND, MP_SAVE_EXPORTING, MP_SAVE_IMPORTING,
+@@ -57,6 +58,7 @@ struct MultiplayerSaveMailbox {
+ extern volatile struct MultiplayerSaveMailbox gMultiplayerSaveMailbox;
+ extern const u32 gMultiplayerTradeAbiVersion;
+ extern const u32 gMultiplayerTradeEffectPrepareAbiVersion;
++extern const u32 gMultiplayerTradeEffectSaveAbiVersion;
+ extern const u32 gMultiplayerSaveWindowAbiVersion;
+ extern const u32 gMultiplayerEmergencySaveAbiVersion;
+ void MultiplayerSave_Init(void);
+diff --git a/src/multiplayer_save.c b/src/multiplayer_save.c
+index a9e93f0..8d3d849 100644
+--- a/src/multiplayer_save.c
++++ b/src/multiplayer_save.c
+@@ -44,6 +44,7 @@ _Static_assert(sizeof(rng_value_t) == 16, "Pinned SFC32");
+ const u32 gMultiplayerTradeAbiVersion = 1;
+ // Private record preparation only: never grants effect import/publication.
+ const u32 gMultiplayerTradeEffectPrepareAbiVersion = 1;
++const u32 gMultiplayerTradeEffectSaveAbiVersion = 1;
+ _Static_assert(sizeof(struct MultiplayerTradeRecordPreparation) == 192, "Trade record response ABI");
+ // Optional read-only 4096-byte export window in the existing sector buffer.
+ const u32 gMultiplayerSaveWindowAbiVersion = 1;
+@@ -87,6 +88,10 @@ static EWRAM_DATA u32 sTradePreparedRevision = 0;
+ static EWRAM_DATA struct MultiplayerTradeRecordPreparation sEffectRecord = {0};
+ static EWRAM_DATA u8 sEffectInput[192] = {0};
+ static EWRAM_DATA bool8 sEffectActive = FALSE;
++static EWRAM_DATA u8 sEffectSaveInput[88] = {0};
++static EWRAM_DATA u32 sEffectSaveCounter = 0;
++static EWRAM_DATA u32 sEffectSaveRotation = 0;
++static EWRAM_DATA bool8 sEffectSaveActive = FALSE;
+ static EWRAM_DATA bool8 sEmergencyActive = FALSE;
+ static EWRAM_DATA bool8 sEmergencyValid = FALSE;
+ static EWRAM_DATA u8 sEmergencyStatus = MP_SAVE_OK;
+@@ -291,6 +296,8 @@ static void Release(void)
+     sPending = FALSE;
+     sTradeActive = FALSE; sTradeExpired = FALSE; sTradeImportStarted = FALSE;
+     sEffectActive = FALSE;
++    sEffectSaveActive = FALSE;
++    memset(sEffectSaveInput, 0, sizeof(sEffectSaveInput));
+     memset(&sEffectRecord, 0, sizeof(sEffectRecord));
+     memset(sEffectInput, 0, sizeof(sEffectInput));
+ }
+@@ -521,6 +528,8 @@ void MultiplayerSave_Init(void)
+     sTradeActive = FALSE; sTradeExpired = FALSE; sTradeImportStarted = FALSE;
+     sTradePreparedRevision = 0;
+     sEffectActive = FALSE;
++    sEffectSaveActive = FALSE;
++    memset(sEffectSaveInput, 0, sizeof(sEffectSaveInput));
+     memset(&sEffectRecord, 0, sizeof(sEffectRecord));
+     memset(sEffectInput, 0, sizeof(sEffectInput));
+     sEmergencyActive = FALSE; sEmergencyValid = FALSE; sEmergencyStatus = MP_SAVE_OK;
+@@ -529,6 +538,7 @@ void MultiplayerSave_Init(void)
+     // Read the capability through volatile storage so section GC retains it.
+     (void)*(const volatile u32 *)&gMultiplayerTradeAbiVersion;
+     (void)*(const volatile u32 *)&gMultiplayerTradeEffectPrepareAbiVersion;
++    (void)*(const volatile u32 *)&gMultiplayerTradeEffectSaveAbiVersion;
+     (void)*(const volatile u32 *)&gMultiplayerSaveWindowAbiVersion;
+     (void)*(const volatile u32 *)&gMultiplayerEmergencySaveAbiVersion;
+     MultiplayerOwnership_InvalidateGrant();
+@@ -731,6 +741,15 @@ static void Handle(const struct MultiplayerSaveControl *command)
+         {
+             PublishResponse(command, MP_SAVE_ORDER, NULL, 0, sOffset); return;
+         }
++        if (command->opcode == MP_SAVE_READ_EFFECT_WINDOW
++         && (!sEffectActive || !sEffectSaveActive || sTradeExpired || sTradeImportStarted
++          || sState != MP_SAVE_TRADE_HELD || gSaveCounter != sEffectSaveCounter
++          || gLastWrittenSector != sEffectSaveRotation
++          || (sCachedResponse.status == MP_SAVE_OK
++           && ReadU32(sCachedResponse.data) != Crc32(0, (const u8 *)&gSaveDataBuffer, 4096))))
++        {
++            PublishResponse(command, MP_SAVE_ORDER, NULL, 0, sOffset); return;
++        }
+         if (!sPending)
+         {
+             struct MultiplayerSaveControl cached = sCachedResponse;
+@@ -1036,6 +1055,8 @@ static void Handle(const struct MultiplayerSaveControl *command)
+             if (command->opcode == MP_SAVE_DISCARD_EFFECT_RECORD)
+             {
+                 sEffectActive = FALSE;
++                sEffectSaveActive = FALSE;
++                memset(sEffectSaveInput, 0, sizeof(sEffectSaveInput));
+                 memset(&sEffectRecord, 0, sizeof(sEffectRecord));
+                 // Retain only the exact input/context until Release so a lost
+                 // discard receipt can be retried, including after REBIND.
+@@ -1048,6 +1069,68 @@ static void Handle(const struct MultiplayerSaveControl *command)
+                 { status = MP_SAVE_VALIDATION; break; }
+         }
+         PublishResponse(command, MP_SAVE_OK, (const u8 *)&sEffectRecord, sizeof(sEffectRecord), 0); return;
++    case MP_SAVE_BEGIN_EFFECT_SAVE:
++    case MP_SAVE_READ_EFFECT_WINDOW:
++        if (!sTradeActive || sTradeImportStarted || sState != MP_SAVE_TRADE_HELD
++         || sOffset != MULTIPLAYER_SAVE_FLASH_SIZE || command->revision != sTradePreparedRevision
++         || !sEffectActive || sEffectRecord.state != MP_TRADE_RECORD_READY)
++            { status = MP_SAVE_ORDER; break; }
++        if (command->totalSize != MULTIPLAYER_SAVE_FLASH_SIZE
++         || command->length != (command->opcode == MP_SAVE_BEGIN_EFFECT_SAVE ? 88 : 48)
++         || memcmp(sEffectInput, command->data, 48))
++            { status = MP_SAVE_MALFORMED; break; }
++        if (command->opcode == MP_SAVE_BEGIN_EFFECT_SAVE)
++        {
++            if (command->offset || command->data[87] || AllBytes(command->data + 48, 32, 0))
++                { status = MP_SAVE_MALFORMED; break; }
++            if (sEffectSaveActive)
++            {
++                if (memcmp(sEffectSaveInput, command->data, sizeof(sEffectSaveInput))
++                 || gSaveCounter != sEffectSaveCounter || gLastWrittenSector != sEffectSaveRotation)
++                    { status = MP_SAVE_ORDER; break; }
++            }
++            else
++            {
++                if (!LocalBankValid()) { status = MP_SAVE_VALIDATION; break; }
++                memcpy(sEffectSaveInput, command->data, sizeof(sEffectSaveInput));
++                sEffectSaveCounter = gSaveCounter;
++                sEffectSaveRotation = gLastWrittenSector;
++                sEffectSaveActive = TRUE;
++            }
++            PutU32(data, sEffectSaveCounter); PutU32(data + 4, sEffectSaveRotation);
++            PublishResponse(command, MP_SAVE_OK, data, 8, 0); return;
++        }
++        if (!sEffectSaveActive || gSaveCounter != sEffectSaveCounter || gLastWrittenSector != sEffectSaveRotation
++         || command->offset >= MULTIPLAYER_SAVE_FLASH_SIZE || (command->offset & 4095))
++            { status = MP_SAVE_ORDER; break; }
++        {
++            u32 sector = command->offset / 4096;
++            struct Pokemon incoming;
++            memcpy(&incoming, sEffectInput + 88, sizeof(incoming));
++            ReadFlashBytes(command->offset, (u8 *)&gSaveDataBuffer, 4096);
++            if (sector / 14 == (sEffectSaveCounter & 1) && sector < 28)
++            {
++                u32 id = gSaveDataBuffer.id;
++                if (id >= 14 || gSaveDataBuffer.signature != SECTOR_SIGNATURE
++                 || gSaveDataBuffer.counter != sEffectSaveCounter
++                 || (id + sEffectSaveRotation) % 14 != sector % 14
++                 || gSaveDataBuffer.checksum != Checksum(gSaveDataBuffer.data, sSectionSizes[id]))
++                    { status = MP_SAVE_VALIDATION; break; }
++                if (id <= 4)
++                {
++                    if (!MultiplayerTradeEffects_OverlaySaveSlice(gSaveBlock1Ptr, gSaveBlock2Ptr,
++                        &incoming, &sEffectRecord, sEffectSaveInput + 80,
++                        ReadU32(sEffectInput + 80), id == 0 ? 2 : 1,
++                        id == 0 ? 0 : (id - 1) * 3968, sSectionSizes[id], gSaveDataBuffer.data))
++                        { status = MP_SAVE_VALIDATION; break; }
++                    gSaveDataBuffer.checksum = Checksum(gSaveDataBuffer.data, sSectionSizes[id]);
++                }
++            }
++        }
++        // Read-only candidate window. Original export offset/CRC and Flash
++        // remain unchanged; repeated windows never increment a counter twice.
++        PutU32(data, Crc32(0, (const u8 *)&gSaveDataBuffer, 4096));
++        PublishResponse(command, MP_SAVE_OK, data, 4, command->offset); return;
+     case MP_SAVE_RELEASE_TRADE:
+         if (!sTradeActive || !sTradeImportStarted || sState != MP_SAVE_COMMITTED || sOffset != 131072)
+             { status = MP_SAVE_ORDER; break; }
+diff --git a/include/multiplayer_trade_effects.h b/include/multiplayer_trade_effects.h
+index 01b069e..48e17dd 100644
+--- a/include/multiplayer_trade_effects.h
++++ b/include/multiplayer_trade_effects.h
+@@ -128,4 +128,15 @@ bool32 MultiplayerTradeEffects_ReplaySaveBlocks(const struct SaveBlock1 *recipie
+                                                u32 count, struct SaveBlock1 *out1,
+                                                struct SaveBlock2 *out2);
+ 
++// Overlay one original saved-block slice in private readback memory. The
++// original bytes must match the frozen recipient block exactly. This reuses
++// the READY record and bounded original partner ribbon descriptions; it does
++// not need a second full SaveBlock allocation or modify the live source.
++bool32 MultiplayerTradeEffects_OverlaySaveSlice(const struct SaveBlock1 *recipient1,
++                                              const struct SaveBlock2 *recipient2,
++                                              const struct Pokemon *incoming,
++                                              const struct MultiplayerTradeRecordPreparation *prepared,
++                                              const u8 *giftRibbons, u32 outgoingSlot,
++                                              u32 block, u32 offset, u32 size, u8 *out);
++
+ #endif // GUARD_MULTIPLAYER_TRADE_EFFECTS_H
+diff --git a/src/multiplayer_trade_effects.c b/src/multiplayer_trade_effects.c
+index 84ce7a3..2929668 100644
+--- a/src/multiplayer_trade_effects.c
++++ b/src/multiplayer_trade_effects.c
+@@ -354,6 +354,97 @@ static void IncrementPrivateStat(struct SaveBlock1 *block, u32 key, u32 index)
+     block->gameStats[index] = (value < 0xFFFFFF ? value + 1 : 0xFFFFFF) ^ key;
+ }
+ 
++static void OverlayBytes(u8 *out, u32 offset, u32 size, u32 target, const void *data, u32 length)
++{
++    u32 start = max(offset, target), end = min(offset + size, target + length);
++    if (start < end) memcpy(out + start - offset, (const u8 *)data + start - target, end - start);
++}
++
++static void OverlayBit(u8 *out, u32 offset, u32 size, u32 target, u32 bit)
++{
++    if (target >= offset && target - offset < size) out[target - offset] |= bit;
++}
++
++bool32 MultiplayerTradeEffects_OverlaySaveSlice(const struct SaveBlock1 *recipient1,
++                                              const struct SaveBlock2 *recipient2,
++                                              const struct Pokemon *incoming,
++                                              const struct MultiplayerTradeRecordPreparation *prepared,
++                                              const u8 *giftRibbons, u32 outgoingSlot,
++                                              u32 block, u32 offset, u32 size, u8 *out)
++{
++    struct Pokemon received, sent, candidate;
++    const u8 *source;
++    u32 blockSize, dex, finalDex, species, finalSpecies, personality, index, mask, value, ribbons = 0;
++    if (recipient1 == NULL || recipient2 == NULL || incoming == NULL || prepared == NULL
++     || giftRibbons == NULL || out == NULL || block < 1 || block > 2 || !size || size > 3968
++     || recipient1->playerPartyCount > PARTY_SIZE || outgoingSlot >= recipient1->playerPartyCount)
++        return FALSE;
++    blockSize = block == 1 ? sizeof(*recipient1) : sizeof(*recipient2);
++    source = block == 1 ? (const u8 *)recipient1 : (const u8 *)recipient2;
++    if (offset > blockSize || size > blockSize - offset
++     || !SaveOutputIsPrivate(out, size, recipient1, recipient2, recipient1, NULL, 0)
++     || Overlaps(out, size, incoming, sizeof(*incoming))
++     || Overlaps(out, size, prepared, sizeof(*prepared))
++     || Overlaps(out, size, giftRibbons, NUM_GIFT_RIBBONS)
++     || memcmp(out, source + offset, size)
++     || !MultiplayerTradeEffects_FinishRecord(prepared, &candidate))
++        return FALSE;
++    received = *incoming;
++    sent = recipient1->playerParty[outgoingSlot];
++    species = GetMonData(&received, MON_DATA_SPECIES);
++    finalSpecies = GetMonData(&candidate, MON_DATA_SPECIES);
++    dex = SpeciesToNationalPokedexNum(species);
++    finalDex = SpeciesToNationalPokedexNum(finalSpecies);
++    if (!dex || !finalDex || dex != species || finalDex != finalSpecies
++     || dex > SPECIES_VOLCANION || finalDex > SPECIES_VOLCANION
++     || GetMonData(&received, MON_DATA_MULTIPLAYER_ID) != prepared->receivedSerial
++     || GetMonData(&sent, MON_DATA_MULTIPLAYER_ID) != prepared->sentSerial)
++        return FALSE;
++    personality = GetMonData(&received, MON_DATA_PERSONALITY);
++    for (index = MON_DATA_CHAMPION_RIBBON; index <= MON_DATA_WORLD_RIBBON; index++)
++        ribbons += GetMonData(&received, index);
++    // All failure checks precede writes. The recipient source remains immutable.
++    if (block == 1)
++    {
++        OverlayBytes(out, offset, size, offsetof(struct SaveBlock1, playerParty)
++                     + outgoingSlot * sizeof(candidate), &candidate, sizeof(candidate));
++        index = (dex - 1) / 8; mask = 1 << ((dex - 1) % 8);
++        OverlayBit(out, offset, size, offsetof(struct SaveBlock1, dexSeen) + index, mask);
++        OverlayBit(out, offset, size, offsetof(struct SaveBlock1, dexCaught) + index, mask);
++        if (species != finalSpecies)
++        {
++            index = (finalDex - 1) / 8; mask = 1 << ((finalDex - 1) % 8);
++            OverlayBit(out, offset, size, offsetof(struct SaveBlock1, dexSeen) + index, mask);
++            OverlayBit(out, offset, size, offsetof(struct SaveBlock1, dexCaught) + index, mask);
++            value = recipient1->gameStats[GAME_STAT_EVOLVED_POKEMON] ^ recipient2->encryptionKey;
++            value = (value < 0xFFFFFF ? value + 1 : 0xFFFFFF) ^ recipient2->encryptionKey;
++            OverlayBytes(out, offset, size, offsetof(struct SaveBlock1, gameStats)
++                         + GAME_STAT_EVOLVED_POKEMON * 4, &value, 4);
++        }
++        value = recipient1->gameStats[GAME_STAT_POKEMON_TRADES] ^ recipient2->encryptionKey;
++        value = (value < 0xFFFFFF ? value + 1 : 0xFFFFFF) ^ recipient2->encryptionKey;
++        OverlayBytes(out, offset, size, offsetof(struct SaveBlock1, gameStats)
++                     + GAME_STAT_POKEMON_TRADES * 4, &value, 4);
++        if (ribbons) OverlayBit(out, offset, size, offsetof(struct SaveBlock1, flags)
++                               + FLAG_SYS_RIBBON_GET / 8, 1 << (FLAG_SYS_RIBBON_GET % 8));
++        for (index = 0; index < NUM_GIFT_RIBBONS; index++)
++            if (!recipient1->giftRibbons[index] && giftRibbons[index] && giftRibbons[index] < MAX_GIFT_RIBBON)
++                OverlayBytes(out, offset, size, offsetof(struct SaveBlock1, giftRibbons) + index, giftRibbons + index, 1);
++    }
++    else
++    {
++        index = (dex - 1) / 8; mask = 1 << ((dex - 1) % 8);
++        if (!(recipient1->dexCaught[index] & mask))
++        {
++            if (species == SPECIES_UNOWN)
++                OverlayBytes(out, offset, size, offsetof(struct SaveBlock2, pokedex.unownPersonality), &personality, 4);
++            if (species == SPECIES_SPINDA)
++                OverlayBytes(out, offset, size, offsetof(struct SaveBlock2, pokedex.spindaPersonality), &personality, 4);
++        }
++    }
++    return TRUE;
++}
++
+ bool32 MultiplayerTradeEffects_ReplaySaveBlocks(const struct SaveBlock1 *recipient1,
+                                                const struct SaveBlock2 *recipient2,
+                                                const struct SaveBlock1 *partner1,

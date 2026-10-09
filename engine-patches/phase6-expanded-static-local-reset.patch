@@ -1,0 +1,369 @@
+diff --git a/include/multiplayer_static_reset.h b/include/multiplayer_static_reset.h
+--- a/include/multiplayer_static_reset.h
++++ b/include/multiplayer_static_reset.h
+@@ -11,7 +11,17 @@
+ #define MP_STATIC_RESET_REGICE 0x1008
+ #define MP_STATIC_RESET_RAYQUAZA 0x1009
+ #define MP_STATIC_RESET_SUDOWOODO 0x100A
+-#define MP_STATIC_RESET_LAST MP_STATIC_RESET_SUDOWOODO
++#define MP_STATIC_RESET_KYOGRE 0x100B
++#define MP_STATIC_RESET_GROUDON 0x100C
++#define MP_STATIC_RESET_ROUTE120_KECLEON_1 0x100D
++#define MP_STATIC_RESET_ROUTE120_KECLEON_2 0x100E
++#define MP_STATIC_RESET_ROUTE120_KECLEON_3 0x100F
++#define MP_STATIC_RESET_ROUTE120_KECLEON_4 0x1010
++#define MP_STATIC_RESET_ROUTE120_KECLEON_5 0x1011
++#define MP_STATIC_RESET_ROUTE119_KECLEON_1 0x1012
++#define MP_STATIC_RESET_ROUTE119_KECLEON_2 0x1013
++#define MP_STATIC_RESET_LUGIA 0x1014
++#define MP_STATIC_RESET_LAST MP_STATIC_RESET_LUGIA
+ #define MP_STATIC_RESET_VERSION_1 0x5601
+ 
+ // Internal adapters for exact authored personal encounters. No generic
+@@ -25,6 +35,7 @@
+ void MultiplayerStaticReset_InitCache(void);
+ void MultiplayerStaticReset_BeginVoltorb1(void);
+ void MultiplayerStaticReset_BeginCurrent(void);
++void MultiplayerStaticReset_ReturnWeatherSource(void);
+ bool32 MultiplayerStaticReset_SetAdmission(u32 encounterId, u32 count);
+ 
+ #endif
+diff --git a/src/multiplayer_static_reset.c b/src/multiplayer_static_reset.c
+--- a/src/multiplayer_static_reset.c
++++ b/src/multiplayer_static_reset.c
+@@ -9,12 +9,15 @@
+ #include "pokemon.h"
+ #include "item.h"
+ #include "item_menu.h"
++#include "main.h"
++#include "sprite.h"
+ #include "constants/items.h"
+ #include "constants/event_objects.h"
+ #include "constants/flags.h"
+ #include "constants/maps.h"
+ #include "constants/map_groups.h"
+ #include "constants/vars.h"
++#include "constants/weather.h"
+ 
+ struct StaticSource {
+     u16 id, species, hide, defeated, prerequisite;
+@@ -34,11 +37,25 @@
+     SOURCE(MP_STATIC_RESET_REGICE, MAP_ISLAND_CAVE, 1, 8, 7, SPECIES_REGICE, 40, FLAG_HIDE_REGICE, FLAG_DEFEATED_REGICE, FLAG_SYS_BRAILLE_REGICE_COMPLETED, TRUE),
+     SOURCE(MP_STATIC_RESET_RAYQUAZA, MAP_SKY_PILLAR_TOP, 2, 14, 6, SPECIES_RAYQUAZA, 70, FLAG_HIDE_SKY_PILLAR_TOP_RAYQUAZA_STILL, FLAG_DEFEATED_RAYQUAZA, 0, TRUE),
+     SOURCE(MP_STATIC_RESET_SUDOWOODO, MAP_BATTLE_FRONTIER_OUTSIDE_EAST, 14, 54, 62, SPECIES_SUDOWOODO, 40, FLAG_HIDE_BATTLE_FRONTIER_SUDOWOODO, FLAG_DEFEATED_SUDOWOODO, 0, FALSE),
++    // The weather legends have already approached three tiles before admission.
++    SOURCE(MP_STATIC_RESET_KYOGRE, MAP_MARINE_CAVE_END, 1, 9, 25, SPECIES_KYOGRE, 70, FLAG_HIDE_MARINE_CAVE_KYOGRE, FLAG_DEFEATED_KYOGRE, FLAG_SYS_GAME_CLEAR, TRUE),
++    SOURCE(MP_STATIC_RESET_GROUDON, MAP_TERRA_CAVE_END, 1, 17, 25, SPECIES_GROUDON, 70, FLAG_HIDE_TERRA_CAVE_GROUDON, FLAG_DEFEATED_GROUDON, FLAG_SYS_GAME_CLEAR, TRUE),
++    // Kecleon uses its individual hide flag for completion; it has no separate
++    // defeated flag. These are only the seven Devon Scope repeat interactions.
++    SOURCE(MP_STATIC_RESET_ROUTE120_KECLEON_1, MAP_ROUTE120, 37, 20, 11, SPECIES_KECLEON, 30, FLAG_HIDE_ROUTE_120_KECLEON_1, FLAG_HIDE_ROUTE_120_KECLEON_1, FLAG_RECEIVED_DEVON_SCOPE, FALSE),
++    SOURCE(MP_STATIC_RESET_ROUTE120_KECLEON_2, MAP_ROUTE120, 38, 27, 2, SPECIES_KECLEON, 30, FLAG_HIDE_ROUTE_120_KECLEON_2, FLAG_HIDE_ROUTE_120_KECLEON_2, FLAG_RECEIVED_DEVON_SCOPE, FALSE),
++    SOURCE(MP_STATIC_RESET_ROUTE120_KECLEON_3, MAP_ROUTE120, 39, 4, 77, SPECIES_KECLEON, 30, FLAG_HIDE_ROUTE_120_KECLEON_3, FLAG_HIDE_ROUTE_120_KECLEON_3, FLAG_RECEIVED_DEVON_SCOPE, FALSE),
++    SOURCE(MP_STATIC_RESET_ROUTE120_KECLEON_4, MAP_ROUTE120, 41, 19, 48, SPECIES_KECLEON, 30, FLAG_HIDE_ROUTE_120_KECLEON_4, FLAG_HIDE_ROUTE_120_KECLEON_4, FLAG_RECEIVED_DEVON_SCOPE, FALSE),
++    SOURCE(MP_STATIC_RESET_ROUTE120_KECLEON_5, MAP_ROUTE120, 40, 7, 51, SPECIES_KECLEON, 30, FLAG_HIDE_ROUTE_120_KECLEON_5, FLAG_HIDE_ROUTE_120_KECLEON_5, FLAG_RECEIVED_DEVON_SCOPE, FALSE),
++    SOURCE(MP_STATIC_RESET_ROUTE119_KECLEON_1, MAP_ROUTE119, 35, 31, 6, SPECIES_KECLEON, 30, FLAG_HIDE_ROUTE_119_KECLEON_1, FLAG_HIDE_ROUTE_119_KECLEON_1, FLAG_RECEIVED_DEVON_SCOPE, FALSE),
++    SOURCE(MP_STATIC_RESET_ROUTE119_KECLEON_2, MAP_ROUTE119, 36, 25, 15, SPECIES_KECLEON, 30, FLAG_HIDE_ROUTE_119_KECLEON_2, FLAG_HIDE_ROUTE_119_KECLEON_2, FLAG_RECEIVED_DEVON_SCOPE, FALSE),
++    SOURCE(MP_STATIC_RESET_LUGIA, MAP_NAVEL_ROCK_BOTTOM, 1, 11, 13, SPECIES_LUGIA, 70, FLAG_HIDE_LUGIA, FLAG_DEFEATED_LUGIA, FLAG_ENABLE_SHIP_NAVEL_ROCK, TRUE),
+ };
+ _Static_assert(ARRAY_COUNT(sSources) == MP_STATIC_RESET_LAST - MP_STATIC_RESET_VOLTORB_1 + 1, "Static catalogue IDs");
+ static EWRAM_DATA u32 sObserved[ARRAY_COUNT(sSources)];
+ static EWRAM_DATA u32 sAttempt, sActiveId, sAdmittedCount, sAdmittedId;
+ static EWRAM_DATA u16 sMapState, sBlueState, sGreenState;
++static EWRAM_DATA u16 sWeatherSteps, sWeatherEnd;
+ 
+ static const struct StaticSource *Source(u32 id)
+ {
+@@ -72,10 +89,14 @@
+ }
+ 
+ static bool32 IsNewMauville(u32 id) { return id >= MP_STATIC_RESET_VOLTORB_1 && id <= MP_STATIC_RESET_VOLTORB_3; }
++static bool32 IsWeatherSource(u32 id) { return id == MP_STATIC_RESET_KYOGRE || id == MP_STATIC_RESET_GROUDON; }
++static bool32 IsKecleon(u32 id) { return id >= MP_STATIC_RESET_ROUTE120_KECLEON_1 && id <= MP_STATIC_RESET_ROUTE119_KECLEON_2; }
+ static u16 MapState(u32 id)
+ {
+     if (IsNewMauville(id)) return VarGet(VAR_NEW_MAUVILLE_STATE);
+     if (id == MP_STATIC_RESET_RAYQUAZA) return VarGet(VAR_SKY_PILLAR_STATE);
++    if (IsWeatherSource(id)) return VarGet(VAR_ABNORMAL_WEATHER_LOCATION);
++    if (IsKecleon(id)) return gSpecialVar_0x8009;
+     return 0;
+ }
+ 
+@@ -93,7 +114,22 @@
+      || (source->prerequisite && !FlagGet(source->prerequisite))) return FALSE;
+     if (IsNewMauville(id) && MapState(id) != 1 && MapState(id) != 2) return FALSE;
+     if (id == MP_STATIC_RESET_RAYQUAZA && MapState(id) < 2) return FALSE;
++    if (IsWeatherSource(id))
++    {
++        u16 start = id == MP_STATIC_RESET_KYOGRE ? MARINE_CAVE_LOCATIONS_START : TERRA_CAVE_LOCATIONS_START;
++        u16 count = id == MP_STATIC_RESET_KYOGRE ? MARINE_CAVE_LOCATIONS : TERRA_CAVE_LOCATIONS;
++        if (VarGet(VAR_TEMP_1) != 1 || MapState(id) < start || MapState(id) >= start + count) return FALSE;
++    }
++    if (IsKecleon(id) && (MapState(id) != id - MP_STATIC_RESET_ROUTE120_KECLEON_1 + 1
++     || !CheckBagHasItem(ITEM_DEVON_SCOPE, 1))) return FALSE;
++    if (id == MP_STATIC_RESET_LUGIA && (FlagGet(FLAG_CAUGHT_LUGIA)
++     || !FlagGet(FLAG_ARRIVED_AT_NAVEL_ROCK) || !CheckBagHasItem(ITEM_MYSTIC_TICKET, 1))) return FALSE;
+     if (TryGetObjectEventIdByLocalIdAndMap(source->localId, source->mapNum, source->mapGroup, &objectId)) return FALSE;
++    if ((IsKecleon(id) && (gObjectEvents[objectId].graphicsId != OBJ_EVENT_GFX_KECLEON
++                          || gObjectEvents[objectId].invisible))
++     || (id == MP_STATIC_RESET_KYOGRE && gObjectEvents[objectId].graphicsId != OBJ_EVENT_GFX_KYOGRE_FRONT)
++     || (id == MP_STATIC_RESET_GROUDON && gObjectEvents[objectId].graphicsId != OBJ_EVENT_GFX_GROUDON_FRONT)
++     || (id == MP_STATIC_RESET_LUGIA && gObjectEvents[objectId].graphicsId != OBJ_EVENT_GFX_LUGIA)) return FALSE;
+     // This descriptor belongs only to the existing Wailmer Pail interaction.
+     // The script admits after watering; recheck its item and exact native object
+     // while opening/confirming the first-action window. Nothing consumes the pail.
+@@ -136,6 +172,8 @@
+     sMapState = MapState(id);
+     sBlueState = VarGet(VAR_TEMP_1);
+     sGreenState = VarGet(VAR_TEMP_2);
++    sWeatherSteps = VarGet(VAR_ABNORMAL_WEATHER_STEP_COUNTER);
++    sWeatherEnd = VarGet(VAR_SHOULD_END_ABNORMAL_WEATHER);
+     return TRUE;
+ }
+ 
+@@ -146,6 +184,9 @@
+     if (!MultiplayerStaticReset_EntryReady(id) || sActiveId != id
+      || MultiplayerStaticReset_GetCount(id) != sAttempt || MapState(id) != sMapState
+      || (id == MP_STATIC_RESET_VOLTORB_1 && VarGet(VAR_MP_VOLTORB_1_RESET_VERSION) != MP_STATIC_RESET_VERSION_1)
++     || (IsWeatherSource(id) && (VarGet(VAR_TEMP_1) != sBlueState
++         || VarGet(VAR_ABNORMAL_WEATHER_STEP_COUNTER) != sWeatherSteps
++         || VarGet(VAR_SHOULD_END_ABNORMAL_WEATHER) != sWeatherEnd))
+      || (IsNewMauville(id) && (VarGet(VAR_TEMP_1) != sBlueState || VarGet(VAR_TEMP_2) != sGreenState))) return FALSE;
+     // Clone reads: native checksum failure handling may mark a bad egg.
+     enemy = gParties[B_TRAINER_OPPONENT_A][0];
+@@ -154,6 +195,7 @@
+      || GetMonData(&enemy, MON_DATA_SANITY_IS_BAD_EGG)
+      || GetMonData(&enemy, MON_DATA_IS_EGG) || enemy.box.isEgg
+      || GetMonData(&enemy, MON_DATA_LEVEL) != source->level) return FALSE;
++    if (id == MP_STATIC_RESET_LUGIA && !GetMonData(&enemy, MON_DATA_MODERN_FATEFUL_ENCOUNTER)) return FALSE;
+     for (u32 slot = 1; slot < PARTY_SIZE; slot++)
+     {
+         enemy = gParties[B_TRAINER_OPPONENT_A][slot];
+@@ -180,6 +222,42 @@
+         }
+ }
+ 
++void MultiplayerStaticReset_ReturnWeatherSource(void)
++{
++#if MP_LOCAL_RESET_STATIC || TESTING
++    // Called only from the authored neutral return, after an explicit refusal
++    // or consumed first-action reset. Never clear a hide/defeat/weather flag,
++    // respawn a missing object, or move the player to manufacture eligibility.
++    if (gMain.inBattle) return;
++    for (u32 id = MP_STATIC_RESET_KYOGRE; id <= MP_STATIC_RESET_GROUDON; id++)
++    {
++        const struct StaticSource *source = Source(id);
++        u8 objectId;
++        if (!MultiplayerStaticReset_EntryReady(id)
++         || TryGetObjectEventIdByLocalIdAndMap(source->localId, source->mapNum, source->mapGroup, &objectId)) continue;
++        struct ObjectEvent *object = &gObjectEvents[objectId];
++        if (object->spriteId >= MAX_SPRITES || !gSprites[object->spriteId].inUse) return;
++        struct Sprite *sprite = &gSprites[object->spriteId];
++        // Admission can be refused before any battle has rebuilt field sprites.
++        // Free only a still-owned affine matrix; after battle it is already off.
++        if (sprite->oam.affineMode != ST_OAM_AFFINE_OFF)
++        {
++            FreeOamMatrix(sprite->oam.matrixNum);
++            sprite->oam.affineMode = ST_OAM_AFFINE_OFF;
++        }
++        const struct ObjectEventGraphicsInfo *graphics = GetObjectEventGraphicsInfo(object->graphicsId);
++        if (graphics->subspriteTables != NULL) SetSubspriteTables(sprite, graphics->subspriteTables);
++        else sprite->subspriteMode = SUBSPRITES_OFF;
++        sprite->x2 = sprite->y2 = 0;
++        TryMoveObjectEventToMapCoords(source->localId, source->mapNum, source->mapGroup, source->x, source->y - 3);
++        ObjectEventTurn(object, DIR_SOUTH);
++        // VAR_TEMP_1 remains 1. A new player step onto the original coordinate
++        // trigger runs the same approach and asks for a new durable admission.
++        return;
++    }
++#endif
++}
++
+ bool32 MultiplayerStaticReset_SetAdmission(u32 id, u32 count)
+ {
+     if (!id && !count) { sAdmittedCount = sAdmittedId = 0; return TRUE; }
+diff --git a/data/specials.inc b/data/specials.inc
+--- a/data/specials.inc
++++ b/data/specials.inc
+@@ -643,3 +643,4 @@
+ 	def_special MultiplayerLocalReset_Finish
+ 	def_special MultiplayerStaticReset_BeginVoltorb1
+ 	def_special MultiplayerStaticReset_BeginCurrent
++	def_special MultiplayerStaticReset_ReturnWeatherSource
+diff --git a/data/maps/MarineCave_End/scripts.inc b/data/maps/MarineCave_End/scripts.inc
+--- a/data/maps/MarineCave_End/scripts.inc
++++ b/data/maps/MarineCave_End/scripts.inc
+@@ -33,10 +33,23 @@
+ 	delay 40
+ 	waitmoncry
+ 	setvar VAR_LAST_TALKED, LOCALID_MARINE_CAVE_KYOGRE
++#if MP_LOCAL_RESET_STATIC || TESTING
++MarineCave_End_EventScript_KyogreAdmission::
++	special MultiplayerStaticReset_BeginCurrent
++	goto_if_ne VAR_RESULT, MP_LOCAL_RESET_ADMISSION_PENDING, MarineCave_End_EventScript_KyogreAdmissionReady
++	waitstate
++MarineCave_End_EventScript_KyogreAdmissionReady::
++	goto_if_eq VAR_RESULT, FALSE, MarineCave_End_EventScript_KyogreResetReturn
++#endif
+ 	setwildbattle SPECIES_KYOGRE, 70
+ 	setflag FLAG_SYS_CTRL_OBJ_DELETE
+ 	special BattleSetup_StartLegendaryBattle
++MarineCave_End_EventScript_KyogrePersonalReturn::
+ 	clearflag FLAG_SYS_CTRL_OBJ_DELETE
++#if MP_LOCAL_RESET_STATIC || TESTING
++	special MultiplayerLocalReset_ConsumeResult
++	goto_if_eq VAR_RESULT, TRUE, MarineCave_End_EventScript_KyogreResetReturn
++#endif
+ 	setvar VAR_TEMP_1, 0
+ 	specialvar VAR_RESULT, GetBattleOutcome
+ 	goto_if_eq VAR_RESULT, B_OUTCOME_WON, MarineCave_End_EventScript_DefeatedKyogre
+@@ -46,6 +59,13 @@
+ 	setflag FLAG_DEFEATED_KYOGRE
+ 	releaseall
+ 	end
++
++#if MP_LOCAL_RESET_STATIC || TESTING
++MarineCave_End_EventScript_KyogreResetReturn::
++	special MultiplayerStaticReset_ReturnWeatherSource
++	releaseall
++	end
++#endif
+ 
+ MarineCave_End_EventScript_DefeatedKyogre::
+ 	setvar VAR_SHOULD_END_ABNORMAL_WEATHER, 1
+@@ -68,4 +88,3 @@
+ 	delay_16
+ 	walk_down_affine
+ 	step_end
+-
+diff --git a/data/maps/TerraCave_End/scripts.inc b/data/maps/TerraCave_End/scripts.inc
+--- a/data/maps/TerraCave_End/scripts.inc
++++ b/data/maps/TerraCave_End/scripts.inc
+@@ -33,10 +33,23 @@
+ 	delay 40
+ 	waitmoncry
+ 	setvar VAR_LAST_TALKED, LOCALID_TERRA_CAVE_GROUDON
++#if MP_LOCAL_RESET_STATIC || TESTING
++TerraCave_End_EventScript_GroudonAdmission::
++	special MultiplayerStaticReset_BeginCurrent
++	goto_if_ne VAR_RESULT, MP_LOCAL_RESET_ADMISSION_PENDING, TerraCave_End_EventScript_GroudonAdmissionReady
++	waitstate
++TerraCave_End_EventScript_GroudonAdmissionReady::
++	goto_if_eq VAR_RESULT, FALSE, TerraCave_End_EventScript_GroudonResetReturn
++#endif
+ 	setwildbattle SPECIES_GROUDON, 70
+ 	setflag FLAG_SYS_CTRL_OBJ_DELETE
+ 	special BattleSetup_StartLegendaryBattle
++TerraCave_End_EventScript_GroudonPersonalReturn::
+ 	clearflag FLAG_SYS_CTRL_OBJ_DELETE
++#if MP_LOCAL_RESET_STATIC || TESTING
++	special MultiplayerLocalReset_ConsumeResult
++	goto_if_eq VAR_RESULT, TRUE, TerraCave_End_EventScript_GroudonResetReturn
++#endif
+ 	setvar VAR_TEMP_1, 0
+ 	specialvar VAR_RESULT, GetBattleOutcome
+ 	goto_if_eq VAR_RESULT, B_OUTCOME_WON, TerraCave_End_EventScript_DefeatedGroudon
+@@ -46,6 +59,13 @@
+ 	setflag FLAG_DEFEATED_GROUDON
+ 	releaseall
+ 	end
++
++#if MP_LOCAL_RESET_STATIC || TESTING
++TerraCave_End_EventScript_GroudonResetReturn::
++	special MultiplayerStaticReset_ReturnWeatherSource
++	releaseall
++	end
++#endif
+ 
+ TerraCave_End_EventScript_DefeatedGroudon::
+ 	setvar VAR_SHOULD_END_ABNORMAL_WEATHER, 1
+@@ -68,4 +88,3 @@
+ 	delay_16
+ 	walk_down_affine
+ 	step_end
+-
+diff --git a/data/maps/NavelRock_Bottom/scripts.inc b/data/maps/NavelRock_Bottom/scripts.inc
+--- a/data/maps/NavelRock_Bottom/scripts.inc
++++ b/data/maps/NavelRock_Bottom/scripts.inc
+@@ -51,10 +51,23 @@
+ 	playmoncry SPECIES_LUGIA, CRY_MODE_ENCOUNTER
+ 	waitmoncry
+ 	delay 20
++#if MP_LOCAL_RESET_STATIC || TESTING
++NavelRock_Bottom_EventScript_LugiaAdmission::
++	special MultiplayerStaticReset_BeginCurrent
++	goto_if_ne VAR_RESULT, MP_LOCAL_RESET_ADMISSION_PENDING, NavelRock_Bottom_EventScript_LugiaAdmissionReady
++	waitstate
++NavelRock_Bottom_EventScript_LugiaAdmissionReady::
++	goto_if_eq VAR_RESULT, FALSE, NavelRock_Bottom_EventScript_LugiaResetReturn
++#endif
+ 	seteventmon SPECIES_LUGIA, 70
+ 	setflag FLAG_SYS_CTRL_OBJ_DELETE
+ 	special BattleSetup_StartLegendaryBattle
++NavelRock_Bottom_EventScript_LugiaPersonalReturn::
+ 	clearflag FLAG_SYS_CTRL_OBJ_DELETE
++#if MP_LOCAL_RESET_STATIC || TESTING
++	special MultiplayerLocalReset_ConsumeResult
++	goto_if_eq VAR_RESULT, TRUE, NavelRock_Bottom_EventScript_LugiaResetReturn
++#endif
+ 	specialvar VAR_RESULT, GetBattleOutcome
+ 	goto_if_eq VAR_RESULT, B_OUTCOME_WON, NavelRock_Bottom_EventScript_DefeatedLugia
+ 	goto_if_eq VAR_RESULT, B_OUTCOME_RAN, NavelRock_Bottom_EventScript_RanFromLugia
+@@ -62,6 +75,12 @@
+ 	setflag FLAG_CAUGHT_LUGIA
+ 	release
+ 	end
++
++#if MP_LOCAL_RESET_STATIC || TESTING
++NavelRock_Bottom_EventScript_LugiaResetReturn::
++	release
++	end
++#endif
+ 
+ NavelRock_Bottom_EventScript_DefeatedLugia::
+ 	setflag FLAG_DEFEATED_LUGIA
+diff --git a/data/scripts/kecleon.inc b/data/scripts/kecleon.inc
+--- a/data/scripts/kecleon.inc
++++ b/data/scripts/kecleon.inc
+@@ -71,16 +71,42 @@
+ 	playmoncry SPECIES_KECLEON, CRY_MODE_ENCOUNTER
+ 	delay 40
+ 	waitmoncry
++#if MP_LOCAL_RESET_STATIC || TESTING
++EventScript_KecleonAdmission::
++	special MultiplayerStaticReset_BeginCurrent
++	goto_if_ne VAR_RESULT, MP_LOCAL_RESET_ADMISSION_PENDING, EventScript_KecleonAdmissionReady
++	waitstate
++EventScript_KecleonAdmissionReady::
++	goto_if_eq VAR_RESULT, FALSE, EventScript_KecleonResetReturn
++#endif
+ 	setwildbattle SPECIES_KECLEON, 30
+ 	setflag FLAG_SYS_CTRL_OBJ_DELETE
+ 	dowildbattle
++EventScript_KecleonPersonalReturn::
+ 	clearflag FLAG_SYS_CTRL_OBJ_DELETE
++#if MP_LOCAL_RESET_STATIC || TESTING
++	special MultiplayerLocalReset_ConsumeResult
++	goto_if_eq VAR_RESULT, TRUE, EventScript_KecleonResetReturn
++#endif
+ 	specialvar VAR_RESULT, GetBattleOutcome
+ 	goto_if_eq VAR_RESULT, B_OUTCOME_WON, EventScript_RemoveKecleon
+ 	goto_if_eq VAR_RESULT, B_OUTCOME_RAN, EventScript_RemoveKecleon
+ 	goto_if_eq VAR_RESULT, B_OUTCOME_PLAYER_TELEPORTED, EventScript_RemoveKecleon
+ 	release
+ 	end
++
++#if MP_LOCAL_RESET_STATIC || TESTING
++EventScript_KecleonResetReturn::
++	@ Only visual visibility changes; the object's hide/completion flag is intact.
++	applymovement VAR_LAST_TALKED, Movement_KecleonResetInvisible
++	waitmovement 0
++	release
++	end
++
++Movement_KecleonResetInvisible:
++	set_invisible
++	step_end
++#endif
+ 
+ EventScript_RemoveKecleon::
+ 	goto Common_EventScript_RemoveStaticPokemon

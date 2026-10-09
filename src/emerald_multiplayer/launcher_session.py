@@ -24,6 +24,7 @@ from .companion import Companion, verify_rom_manifest
 from .host_world import HostWorld
 from .invitations import Invitation
 from .launcher_settings import AUTOSAVE_INTERVAL, LauncherSettings
+from .network_diagnostics import ConnectionDetails
 from .player_runtime import PlayerRuntime, RuntimeBundle, _finish_even_if_cancelled
 from .server import ServerConfig, WorldServer, is_local_address
 
@@ -37,6 +38,11 @@ _MESSAGES = {
     "runtime_unlisted": "The bundle contains an unexpected runtime component.",
     "runtime_size": "A runtime component exceeds its size limit.",
     "world_invalid": "The private host world could not be verified.",
+    "reset_migration_required": "Close the world and run its backed-up Local Soft Reset ledger upgrade before hosting this game build.",
+    "trade_effect_migration_required": "Close the world and run its backed-up trade history upgrade before enabling trade effects.",
+    "trade_effect_policy_required": "Choose this world's Gen 6 handler geography policy in setup before enabling trade effects.",
+    "trade_native_replay_failed": "The host could not verify native trade effects; nothing new was committed.",
+    "trade_effect_replay_required": "This world needs its matching game and native trade replay worker before it can host.",
     "certificate_invalid": "The host certificate is invalid or expired.",
     "build_mismatch": "The invitation requires a different installed game.",
     "invalid_invitation": "The friend invitation could not be verified.",
@@ -44,6 +50,12 @@ _MESSAGES = {
     "pending_battle": "An unresolved battle requires explicit recovery before launch.",
     "battle_recovery_unavailable": "This host could not verify interrupted-battle admission.",
     "trade_recovery_unavailable": "This host does not provide authenticated trade recovery.",
+    "trade_recovery_held": "Retain this interrupted trade's original game and records until its exact canonical fate is verified.",
+    "trade_recovery_checking": "Checking the exact trade; an unfinished trade will be canceled, never guessed or completed for the other player.",
+    "trade_recovery_close": "Trade fate and canonical bytes verified. Close this game window normally, then use the same Host Game or Join Game identity to recover before Continue.",
+    "trade_recovery_reopen": "The original game is closed. Use the same Host Game or Join Game identity; canonical trade recovery runs before Continue.",
+    "trade_recovered": "Your committed trade was recovered and its saved result is loaded.",
+    "trade_aborted_recovered": "The interrupted trade was canceled; your verified pre-trade character is loaded.",
     "mirror_active": "Another game or controller owns this character's save.",
     "connection_timeout": "The host did not authenticate this session before the timeout.",
     "connection_lost": "The authenticated host connection is unavailable.",
@@ -61,6 +73,10 @@ _MESSAGES = {
     "settings_busy": "A settings change is already finishing.",
     "battle_recovery_not_ready": "Keep the original game open until its interrupted battle can recover.",
     "battle_recovery_held": "Battle recovery remains incomplete; retain the original game and its recovery records.",
+    "admission_cleanup_unsupported": "This installed game does not support neutral battle entry cleanup; retain the original game.",
+    "admission_cleanup_held": "Battle entry cleanup remains incomplete; retain the original game and its recovery records.",
+    "host_restart_not_ready": "Host restart requires this host's disconnected, retained original battle or prepared trade with no other operation running.",
+    "host_restart_failed": "The host service could not restart; retain every original game and retry after restoring the host configuration.",
 }
 
 
@@ -131,6 +147,14 @@ class SessionStatus:
     exit_code: int | None = None
     autosave_enabled: bool = True
     battle_recovery_available: bool = False
+    admission_cleanup_available: bool = False
+    is_host: bool = False
+    host_restart_available: bool = False
+    connection_details: ConnectionDetails | None = None
+    save_available: bool = False
+    championship_available: bool = False
+    player_actions_available: bool = False
+    trade_recovery_available: bool = False
 
 
 class LauncherSession:
@@ -197,6 +221,56 @@ class LauncherSession:
         self._battle_recovery_intent = None
         self._battle_handoff_successor = None
         self._battle_menu_preparation = None
+        self._trade_retained = self._trade_close_review = None
+        self._trade_recovery_task = None
+        self._host_world = None
+        self._host_restart_task = None
+        self._host_restart_notice = None
+        self._connection_details = None
+        self._championship_controller = None
+        self._player_panel_controller = None
+        self._battle_panel_controller = None
+        self._record_archive_controller = None
+        self._reset_panel_controller = None
+
+    @property
+    def companion(self):
+        """The existing session-owned transport; use only on its owning loop."""
+        return self._companion
+
+    async def championship_action(self, snapshot_id=None, action_id=None):
+        """Use one session-bound controller; no caller supplies RPC parameters."""
+        from .launcher_championship_panel import ChampionshipPanelController
+        if self._championship_controller is None:
+            self._championship_controller = ChampionshipPanelController(self)
+        return await self._championship_controller.dispatch(snapshot_id, action_id)
+
+    async def player_panel_action(self, snapshot_id=None, action_id=None):
+        """Retain roster/card/team choices on this original session's loop."""
+        from .launcher_player_panel import PlayerPanelController
+        if self._player_panel_controller is None:
+            self._player_panel_controller = PlayerPanelController(self)
+        return await self._player_panel_controller.dispatch(snapshot_id, action_id)
+
+    async def battle_panel_action(self, snapshot_id=None, action_id=None):
+        """Only proposal/consent actions; native admission remains in Players."""
+        from .launcher_battle_panel import BattlePanelController
+        if self._battle_panel_controller is None:
+            self._battle_panel_controller = BattlePanelController(self)
+        return await self._battle_panel_controller.dispatch(snapshot_id, action_id)
+
+    async def record_archive_action(self, kind, filters=None, snapshot_id=None, action_id=None):
+        """Read this actor's bounded archive on its original authenticated loop."""
+        from .launcher_record_archive import RecordArchiveController
+        if self._record_archive_controller is None:
+            self._record_archive_controller = RecordArchiveController(self)
+        return await self._record_archive_controller.dispatch(kind, filters, snapshot_id, action_id)
+
+    async def reset_panel_action(self, snapshot_id=None, action_id=None):
+        from .launcher_reset_panel import ResetPanelController
+        if self._reset_panel_controller is None:
+            self._reset_panel_controller = ResetPanelController(self)
+        return await self._reset_panel_controller.dispatch(snapshot_id, action_id)
 
     @property
     def profile_directory(self):
@@ -219,13 +293,36 @@ class LauncherSession:
         current = self._signature()
         value = replace(self._status, connected=current is not None,
                         autosave_enabled=self.autosave_enabled,
-                        battle_recovery_available=self.can_recover_battle)
+                        battle_recovery_available=self.can_recover_battle,
+                        admission_cleanup_available=self.can_cancel_battle_entry,
+                        is_host=self._world_directory is not None,
+                        host_restart_available=self.can_restart_host_service,
+                        connection_details=self._connection_details,
+                        save_available=self.can_save,
+                        championship_available=self.can_manage_championship,
+                        player_actions_available=self.can_manage_players,
+                        trade_recovery_available=self.can_prepare_trade_recovery)
+        if self._trade_recovery_task is not None:
+            return replace(value, state=SessionState.RUNNING, code="trade_recovery_checking")
+        if self._trade_close_review is not None:
+            return replace(value, code="trade_recovery_close" if self._game is not None else "trade_recovery_reopen",
+                           trade_recovery_available=False)
+        if self._host_restart_task is not None:
+            return replace(value, state=SessionState.RUNNING, code="host_service_restarting")
         if self._battle_recovery_task is not None:
-            return replace(value, state=SessionState.RUNNING, code="battle_recovering")
+            return replace(value, state=SessionState.RUNNING, code=("admission_canceling"
+                if self._status.code == "admission_canceling" else "battle_recovering"))
         if self._terminal_successor_preserved():
             return replace(value, code="host_loss_preserved", battle_recovery_available=False)
+        if (self._host_restart_notice is not None and self._game is not None
+                and self._game.process.returncode is None):
+            notice = self._host_restart_notice
+            if notice == "host_service_restarted" and not getattr(self._server, "is_serving", False):
+                notice = "host_restart_failed"
+            return replace(value, state=SessionState.RUNNING, code=notice)
         if self._battle_recovery_failed and self._game is not None and self._game.process.returncode is None:
-            return replace(value, state=SessionState.RUNNING, code="battle_recovery_held")
+            return replace(value, state=SessionState.RUNNING, code=("admission_cleanup_held"
+                if self._status.code == "admission_cleanup_held" else "battle_recovery_held"))
         emergency = self._emergency
         if emergency is not None and emergency.lost.is_set():
             return replace(value, code="host_loss_" + emergency.result.state)
@@ -267,6 +364,7 @@ class LauncherSession:
         _, self._manifest = verify_rom_manifest(game.rom_path, game.manifest_path)
         if self._world_directory is not None:
             host = HostWorld.open(self._world_directory, game.rom_path, game.manifest_path)
+            self._host_world = host
             world_id, player_id = host.world_id, host.accounts[0].player_id
         else:
             host = None
@@ -277,26 +375,14 @@ class LauncherSession:
         configure = host.host_companion_config if host is not None else identity.companion_config
         config = configure(game.rom_path, game.manifest_path, token=secrets.token_bytes(32),
                            private_directory=self._profile_directory, ipc_port=0)
+        self._connection_details = ConnectionDetails.from_identity(host if host is not None else identity)
         if self._manifest.get("battle_execution_abi_version") == 1:
             config = replace(config, development_battle_channel=True)
         if host is not None:
             # Advertised WAN address remains in invitations. The local host
             # route changes only the socket destination, preserving its TLS pin.
             config = replace(config, server_host=self._host_route)
-            self._store = host.open_store()
-            battles = bool(self._manifest.get("battle_execution_abi_version") == 1
-                           and self._store.battle_reservations_enabled)
-            self._server = WorldServer(ServerConfig(host.build_id, host.ruleset_id),
-                store=self._store, development_trades=self._development_trades,
-                development_teams=battles, development_battles=battles)
-            if battles:
-                from .battle_controller import read_string_lengths
-                lengths = read_string_lengths(game.rom_path,
-                    table_address=self._manifest["battle_string_table_address"])
-                self._server.enable_battle_execution(lengths, host.directory / "native-battle-execution",
-                    resume_enabled=self._manifest.get("battle_resume_abi_version") == 1)
-            await self._server.start(self._bind_address, host.port, allow_lan=True,
-                                     public=self._public, tls=host.server_tls)
+            await self._start_host_service(host)
         self._companion = Companion(config)
         if (self._manifest.get("battle_execution_abi_version") == 1
                 or self._manifest.get("menu_abi_version") == 2):
@@ -321,7 +407,245 @@ class LauncherSession:
         self._open = True
         await self.readiness()
 
+    async def _start_host_service(self, host):
+        """The session owns the real service/store on its original event loop."""
+        if self._server is not None or self._store is not None:
+            raise LauncherSessionError("host_restart_failed")
+        self._store = host.open_store()
+        from .reset_attempts import require_reset_ledger
+        require_reset_ledger(self._store, self._manifest)
+        from .ownership_protocol import OWNERSHIP_PROFILE
+        from .trade_storage import TradeCheckpointStore
+        ordinary_trades = (self._manifest.get("trade_abi_version") == 1
+            and self._manifest.get("menu_abi_version") == 2
+            and self._manifest.get("save_profile") == OWNERSHIP_PROFILE
+            and isinstance(self._store, TradeCheckpointStore))
+        battles = bool(self._manifest.get("battle_execution_abi_version") == 1
+                       and self._store.battle_reservations_enabled)
+        from .trade_native_replay import host_trade_effect_options
+        effects = host_trade_effect_options(self.installation, self._store, self._manifest)
+        self._server = WorldServer(ServerConfig(host.build_id, host.ruleset_id),
+            store=self._store, development_trades=self._development_trades or ordinary_trades,
+            development_teams=battles, development_battles=battles, **effects)
+        if battles:
+            from .battle_controller import read_string_lengths
+            lengths = read_string_lengths(self.installation.rom_path,
+                table_address=self._manifest["battle_string_table_address"])
+            self._server.enable_battle_execution(lengths, host.directory / "native-battle-execution",
+                resume_enabled=self._manifest.get("battle_resume_abi_version") == 1)
+        await self._server.start(self._bind_address, host.port, allow_lan=True,
+                                 public=self._public, tls=host.server_tls)
+
+    async def _close_host_service(self):
+        # Retain an owner if its shutdown raises, so retry/final cleanup can
+        # finish it. Never put a second service over a still-owned store.
+        if self._server is not None:
+            await self._server.close()
+            self._server = None
+        if self._store is not None:
+            self._store.close()
+            self._store = None
+
+    @property
+    def can_restart_host_service(self):
+        if (self._world_directory is None or self._host_world is None
+                or self._host_restart_task is not None or self._companion is None
+                or self._trade_close_review is not None
+                or self._companion.connected
+                or self._host_restart_notice == "host_service_restarted"
+                and getattr(self._server, "is_serving", False)):
+            return False
+        try:
+            if self._trade_retained is not None:
+                self._retained_trade()
+            else:
+                self._retained_battle()
+            return True
+        except (ValueError, OSError, AttributeError, ConnectionError):
+            return False
+
+    async def restart_host_service(self):
+        """Restart this surviving host's service, then await explicit recovery.
+
+        This does not recreate an exited game or resume any participant. Battle
+        originals still need full-roster recovery; interrupted trades use the
+        separate verified-close action and normal cold startup.
+        """
+        if not self.can_restart_host_service:
+            raise LauncherSessionError("host_restart_not_ready")
+        trade = self._trade_retained is not None
+        retained = self._retained_trade() if trade else self._retained_battle()
+        companion = self._companion
+        self._save_failed = True
+        self._host_restart_notice = None
+        task = asyncio.create_task(self._restart_host_service(retained, companion, trade=trade),
+                                   name="launcher-retained-host-service")
+        self._host_restart_task = self._interaction = task
+        self._autosave_wake.set()
+        self._publish(SessionState.RUNNING, "host_service_restarting", revision=self._revision)
+        try:
+            result, canceled = await _finish_even_if_cancelled(task)
+        finally:
+            if self._interaction is task:
+                self._interaction = None
+            if self._host_restart_task is task:
+                self._host_restart_task = None
+            self._autosave_wake.set()
+        if canceled:
+            raise asyncio.CancelledError()
+        return result
+
+    async def _restart_host_service(self, retained, companion, *, trade=False):
+        if trade:
+            game, runtime, bridge = retained[:3]
+        else:
+            intent, game, bridge, runtime = retained
+        closed_original = False
+
+        def same_original():
+            if trade:
+                if (self._companion is not companion or self._interaction is not asyncio.current_task()
+                        or self._retained_trade(allow_owner=asyncio.current_task()) != retained):
+                    raise LauncherSessionError("host_restart_not_ready")
+                return
+            if (not self._open or self._closing or self._game is not game
+                    or game.process.returncode is not None or self._runtime is not runtime
+                    or self._companion is not companion or companion._bridge is not bridge
+                    or bridge.incarnation != intent.incarnation
+                    or companion._live_battle_runtime_id != intent.runtime_id
+                    or companion.connected or self._read_retained_battle_intent() != intent
+                    or self._interaction is not asyncio.current_task()):
+                raise LauncherSessionError("host_restart_not_ready")
+
+        def verified_host():
+            host = HostWorld.open(self._world_directory, self.installation.rom_path,
+                                  self.installation.manifest_path)
+            # Includes the exact world, address/port, certificate pin, roster
+            # and credentials. No edited descriptor can retarget this game.
+            if host != self._host_world:
+                raise LauncherSessionError("host_restart_failed")
+            return host
+
+        try:
+            self.installation.verify()
+            same_original()
+            verified_host()  # Reject changed installation/world before closure.
+            await self._stop_autosave()
+            if self._autosave_task is not None:
+                await self._autosave_task
+            same_original()
+            await self._close_host_service()
+            closed_original = True
+            same_original()
+            host = verified_host()
+            await self._start_host_service(host)
+            same_original()
+            self._host_restart_notice = "host_service_restarted"
+            self._publish(SessionState.RUNNING, "host_service_restarted", revision=self._revision)
+        except (Exception, asyncio.CancelledError) as error:
+            # If replacement setup partly succeeded, retain its owner until
+            # cleanup completes. A retry can finish a failed shutdown safely.
+            if closed_original:
+                try:
+                    await self._close_host_service()
+                except Exception:
+                    pass
+            self._host_restart_notice = "host_restart_failed"
+            self._publish(SessionState.RUNNING, "host_restart_failed", revision=self._revision)
+            if isinstance(error, asyncio.CancelledError):
+                raise
+            raise LauncherSessionError("host_restart_failed") from None
+
+    def _retained_trade(self, *, allow_owner=None, check_bytes=True):
+        """This original remains disconnected and receives no native commands."""
+        from .trade_close_recovery import read_original_trade
+        c, retained = self._companion, self._trade_retained
+        if (not self._open or self._closing or retained is None or c is None or c.connected
+                or self._interaction is not allow_owner or self._settings_busy
+                or self._save_task is not None and not self._save_task.done()
+                or self._autosave_dispatched or getattr(c, "_live_save_owner", None) is not None
+                or getattr(c, "_live_battle_owner", None) is not None
+                or self._battle_retained is not None or pending_battle(c, self._profile_directory)):
+            raise LauncherSessionError("trade_recovery_held")
+        game, runtime, bridge, binding, identity, menu, launch_revision = retained
+        emergency = self._emergency
+        if (self._game is not game or game.process.returncode is not None or self._runtime is not runtime
+                or c._bridge is not bridge or bridge.incarnation != identity[3]
+                or getattr(c, "_live_trade_runtime_id", None) != identity[4]
+                or self._binding != binding or self._revision != launch_revision
+                or not c._reconnect_blocked or menu is not getattr(bridge, "menu_session", None)
+                or menu._task is not None and not menu._task.done() and menu._task is not allow_owner
+                or emergency is None or emergency.bridge is not bridge
+                or emergency.session != (binding[0], binding[2], identity[3])
+                or not emergency.lost.is_set() or emergency.task is None or not emergency.task.done()
+                or emergency.task.cancelled() or emergency.task.exception() is not None
+                or emergency.task.result() != emergency.result
+                or emergency.result.state != "trade_waiting"
+                or any((self._profile_directory / name).exists() for name in
+                       ("pending-export.json", "pending-emergency.json"))):
+            raise LauncherSessionError("trade_recovery_held")
+        if check_bytes:
+            read_original_trade(c, self._profile_directory, binding, identity)
+        elif not (self._profile_directory / "pending-trade.json").exists():
+            raise LauncherSessionError("trade_recovery_held")
+        return retained
+
+    @property
+    def can_prepare_trade_recovery(self):
+        if self._trade_recovery_task is not None or self._host_restart_task is not None or self._trade_close_review is not None:
+            return False
+        try:
+            self._retained_trade(check_bytes=False)
+            return True
+        except (ValueError, OSError, AttributeError, ConnectionError):
+            return False
+
+    async def prepare_trade_recovery(self):
+        """Explicitly cancel an unfinished trade or verify its committed fate.
+
+        Success authorizes normal closure only. The original never reconnects,
+        rebinds or resumes; a fresh Host/Join must pass the closed recovery gate.
+        """
+        from .trade_close_recovery import review_interrupted_trade
+        if not self.can_prepare_trade_recovery:
+            raise LauncherSessionError("trade_recovery_held")
+        retained = self._retained_trade()
+        c, owner = self._companion, asyncio.current_task()
+        self._trade_recovery_task = self._interaction = owner
+        self._host_restart_notice = None
+        self._save_failed = True
+        self._autosave_wake.set()
+        self._publish(SessionState.RUNNING, "trade_recovery_checking", revision=self._revision)
+        def same_original():
+            if self._companion is not c or self._retained_trade(allow_owner=owner, check_bytes=False) != retained:
+                raise LauncherSessionError("trade_recovery_held")
+        try:
+            await self._stop_autosave()
+            if self._autosave_task is not None:
+                await self._autosave_task
+            self.installation.verify()
+            same_original()
+            review = await review_interrupted_trade(c, self._profile_directory, retained[3], retained[4],
+                check_original=same_original, timeout=self._timeout)
+            same_original()
+            self._trade_close_review = review
+            self._publish(SessionState.RUNNING, "trade_recovery_close", revision=self._revision)
+            return review
+        except (Exception, asyncio.CancelledError) as error:
+            self._publish(SessionState.RUNNING, "trade_recovery_held", revision=self._revision)
+            if isinstance(error, asyncio.CancelledError):
+                raise
+            raise LauncherSessionError("trade_recovery_held") from error
+        finally:
+            self._trade_recovery_task = None
+            if self._interaction is owner:
+                self._interaction = None
+            self._autosave_wake.set()
+
     async def _ready(self):
+        self._assert_session()
+        from .battle_admission_cleanup import publish_cleanup_handoffs
+        await publish_cleanup_handoffs(self._companion, self._profile_directory)
         self._assert_session()
         if pending_battle(self._companion, self._profile_directory):
             raise LauncherSessionError("pending_battle")
@@ -379,7 +703,9 @@ class LauncherSession:
                 self._played = True
                 self._game = game
                 self._revision = game.startup.mirror.revision
-                self._publish(SessionState.RUNNING, "running", revision=self._revision)
+                recovered_trade = getattr(game.startup, "trade_result", None)
+                code = ("trade_recovered" if recovered_trade["state"] == "applied" else "trade_aborted_recovered") if recovered_trade else "running"
+                self._publish(SessionState.RUNNING, code, revision=self._revision)
                 self._autosave_task = asyncio.create_task(self._schedule_autosave(), name="launcher-autosave")
                 if getattr(self._companion.config, "emergency_save_abi_version", 0) == 2:
                     from .emergency_save import EmergencySaveController
@@ -401,6 +727,14 @@ class LauncherSession:
                         _, canceled = await _finish_even_if_cancelled(
                             asyncio.gather(self._battle_recovery_task, return_exceptions=True))
                         interrupted |= canceled
+                    if self._host_restart_task is not None:
+                        _, canceled = await _finish_even_if_cancelled(
+                            asyncio.gather(self._host_restart_task, return_exceptions=True))
+                        interrupted |= canceled
+                    if self._trade_recovery_task is not None:
+                        _, canceled = await _finish_even_if_cancelled(
+                            asyncio.gather(self._trade_recovery_task, return_exceptions=True))
+                        interrupted |= canceled
                     for pending in (self._emergency_task, self._autosave_task, self._save_task):
                         if pending is not None:
                             _, canceled = await _finish_even_if_cancelled(pending)
@@ -411,7 +745,8 @@ class LauncherSession:
                 # IPC can close before process exit is observed. Only confirmed
                 # normal exit clears an idle-only loss; this does not save.
                 self._save_failed = self._idle_save_disconnect = False
-            self._publish(SessionState.FINISHED, "save_recovery_required" if self._save_failed else "game_closed", revision=self._revision,
+            self._publish(SessionState.FINISHED, "trade_recovery_reopen" if self._trade_close_review is not None
+                          else "save_recovery_required" if self._save_failed else "game_closed", revision=self._revision,
                           exit_code=result)
             return result
         except asyncio.CancelledError:
@@ -433,10 +768,24 @@ class LauncherSession:
                 and (self._save_task is None or self._save_task.done())
                 and (self._autosave is None or self._autosave.status.state is not AutosaveState.SAVING))
 
+    @property
+    def can_manage_championship(self):
+        """Bracket choices require the ordinary live lifecycle, never recovery."""
+        return (self.can_save and not self._settings_busy
+                and self._battle_recovery_task is None and self._host_restart_task is None
+                and self._battle_menu_preparation is None
+                and getattr(self._companion, "_live_battle_owner", None) is None)
+
+    @property
+    def can_manage_players(self):
+        """Team changes use the same ordinary lifecycle gate as bracket choices."""
+        return self.can_manage_championship
+
     def _retain_interrupted_core(self):
         if self._game is None or self._game.process.returncode is not None:
             return False
-        if getattr(self, "_battle_recovery_task", None) is not None:
+        if (getattr(self, "_battle_recovery_task", None) is not None
+                or getattr(self, "_host_restart_task", None) is not None):
             return True
         if self._terminal_successor_preserved():
             return False
@@ -453,6 +802,7 @@ class LauncherSession:
     def _terminal_successor_preserved(self):
         """A finished successor receipt can close a retired battle's original core."""
         from .battle_journal import BattleIntent
+        from .battle_admission_intent import BattleAdmissionIntent
         from .emergency_save import EmergencySaveController, EmergencyResult
         s = getattr(self, "_battle_handoff_successor", None)
         if type(s) is not EmergencySaveController:
@@ -460,7 +810,7 @@ class LauncherSession:
         try:
             c, retained, intent = self._companion, self._battle_retained, self._battle_recovery_intent
             if (s is not self._emergency or s is not getattr(c, "_emergency_controller", None)
-                    or s.companion is not c or type(intent) is not BattleIntent or retained is None
+                    or s.companion is not c or type(intent) not in (BattleIntent, BattleAdmissionIntent) or retained is None
                     or retained[0] is not self._game or retained[1] is not self._runtime
                     or retained[2] is not c._bridge or s.bridge is not retained[2]
                     or retained[3:] != (intent.battle_id, intent.generation, intent.canonical_revision,
@@ -482,22 +832,30 @@ class LauncherSession:
         except (ValueError, OSError, AttributeError, TypeError, IndexError):
             return False
 
-    def _retained_battle(self):
+    def _retained_battle(self, *, allow_admission_owner=False):
         """Read exact local identity; visibility never grants native authority."""
         from .battle_journal import path_present
         from .native_battle import NativeBinding
         from .battle_admission_intent import BattleAdmissionIntent
         c = self._companion
+        prepared = self._battle_menu_preparation
+        menu_owner = (allow_admission_owner and prepared is not None
+            and type(prepared[2]) is BattleAdmissionIntent
+            and self._interaction in (prepared[0], prepared[1])
+            and getattr(prepared[1], "_admission_identity", None) == (prepared[2].battle_id, prepared[2].generation)
+            and getattr(prepared[1], "_battle_latched", False)
+            and (prepared[0] is None or prepared[0] is getattr(prepared[1], "_task", None)))
+        permitted_owner = prepared[0] if menu_owner else None
         if (not self._open or self._closing or self._game is None or self._game.process.returncode is not None
-                or self._runtime is None or self._interaction is not None or self._battle_recovery_task is not None
+                or self._runtime is None or self._interaction is not None and not menu_owner or self._battle_recovery_task is not None
                 or self._settings_busy or self._save_task is not None and not self._save_task.done()
                 or self._autosave_dispatched or self._manifest.get("battle_resume_abi_version") != 1
                 or c is None or getattr(c.config, "battle_resume_abi_version", 0) != 1
                 or self._manifest.get("emergency_save_abi_version") != 2
                 or getattr(c.config, "emergency_save_abi_version", 0) != 2
                 or c._bridge is None or not getattr(c._bridge, "battle_capable", False)
-                or getattr(c, "_live_battle_owner", None) is not None
-                or getattr(c, "_live_save_owner", None) is not None):
+                or getattr(c, "_live_battle_owner", None) not in (None, permitted_owner)
+                or getattr(c, "_live_save_owner", None) not in (None, permitted_owner)):
             raise LauncherSessionError("battle_recovery_not_ready")
         if any(path_present(self._profile_directory / name) for name in
                ("pending-export.json", "pending-trade.json", "pending-emergency.json")):
@@ -533,7 +891,8 @@ class LauncherSession:
             intent = read_battle_intent(full)
         else:
             intent = previous
-            if intent is None or not path_present(directory / (intent.battle_id + ".battle-recovery-complete.json")):
+            if intent is None or not (path_present(directory / (intent.battle_id + ".battle-recovery-complete.json"))
+                    or type(intent) is BattleAdmissionIntent and path_present(directory / (intent.battle_id + ".admission-cleanup.json"))):
                 raise LauncherSessionError("battle_recovery_not_ready")
         if previous is not None and previous != intent:
             if not isinstance(previous, BattleAdmissionIntent) or isinstance(intent, BattleAdmissionIntent):
@@ -555,6 +914,11 @@ class LauncherSession:
         from .battle_admission_intent import BattleAdmissionIntent
         from .battle_admission_session import verify_admission_conversion
         intent, game, bridge, runtime = self._retained_battle()
+        self._host_restart_notice = None
+        if isinstance(intent, BattleAdmissionIntent):
+            from .battle_admission_cleanup import cleanup_path
+            if cleanup_path(self._profile_directory, intent).exists():
+                return await self.cancel_battle_entry()
         c = self._companion
         self._battle_recovery_intent = intent
         self._battle_recovery_task = self._interaction = asyncio.current_task()
@@ -587,11 +951,103 @@ class LauncherSession:
             self._battle_recovery_task = self._interaction = None
             self._autosave_wake.set()
 
-    async def _adopt_battle_completion(self, result, intent, game, bridge, runtime):
+    @property
+    def can_cancel_battle_entry(self):
+        from .battle_admission_intent import BattleAdmissionIntent
+        try:
+            intent, _, _, _ = self._retained_battle(allow_admission_owner=True)
+            return (type(intent) is BattleAdmissionIntent
+                and self._manifest.get("battle_admission_cleanup_abi_version") == 1
+                and getattr(self._companion.config, "battle_admission_cleanup_abi_version", 0) == 1)
+        except (ValueError, OSError, AttributeError, ConnectionError):
+            return False
+
+    async def cancel_battle_entry(self):
+        from .battle_admission_cleanup import AdmissionCleanupSession
+        from .battle_admission_intent import BattleAdmissionIntent
+        if (self._manifest.get("battle_admission_cleanup_abi_version") != 1
+                or getattr(self._companion.config, "battle_admission_cleanup_abi_version", 0) != 1):
+            raise LauncherSessionError("admission_cleanup_unsupported")
+        intent, game, bridge, runtime = self._retained_battle(allow_admission_owner=True)
+        if type(intent) is not BattleAdmissionIntent:
+            raise LauncherSessionError("admission_cleanup_held")
+        self._host_restart_notice = None
+        self._battle_recovery_intent = intent
+        old_interaction, prepared = self._interaction, self._battle_menu_preparation
+        previous_failures = self._save_failed, self._battle_recovery_failed
+        cleanup_session = None
+        self._battle_recovery_task = asyncio.current_task()
+        if old_interaction is None:
+            self._save_failed = True
+        self._autosave_wake.set()
+        self._publish(SessionState.RUNNING, "admission_canceling", revision=self._revision)
+        try:
+            await self._stop_autosave()
+            if old_interaction is None and self._autosave_task is not None:
+                await self._autosave_task
+            self.installation.verify()
+            if (self._game is not game or game.process.returncode is not None or self._runtime is not runtime
+                    or self._companion._bridge is not bridge or self._read_retained_battle_intent() != intent):
+                raise LauncherSessionError("admission_cleanup_held")
+            cleanup_session = AdmissionCleanupSession(self._companion, self._profile_directory, intent)
+            if old_interaction is not None:
+                await cleanup_session.revoke_before_menu_drain()
+                current_prepared = self._battle_menu_preparation
+                task = None if prepared is None else prepared[1]._task
+                # Revocation may itself finish the original polling task with
+                # battle_admission_canceled. That is still the exact task to drain.
+                still_owned = (current_prepared is not None and current_prepared[1:] == prepared[1:]
+                    and self._interaction in (prepared[1], task)) if prepared is not None else False
+                already_drained = (task is not None and task.done() and current_prepared is None and self._interaction is None)
+                if (prepared is None or not (still_owned or already_drained) or prepared[2] != intent
+                        or getattr(bridge, "menu_session", None) is not prepared[1]):
+                    raise LauncherSessionError("admission_cleanup_held")
+                if task is None or task is asyncio.current_task():
+                    raise LauncherSessionError("admission_cleanup_held")
+                if not task.done():
+                    task.cancel()
+                from .player_runtime import _finish_even_if_cancelled
+                _, interrupted = await _finish_even_if_cancelled(asyncio.gather(task, return_exceptions=True))
+                if interrupted:
+                    raise asyncio.CancelledError()
+                if self._interaction is not None or self._battle_menu_preparation is not None:
+                    raise LauncherSessionError("admission_cleanup_held")
+            self._interaction = asyncio.current_task()
+            self._save_failed = True
+            self._autosave_wake.set()
+            if self._autosave_task is not None:
+                await self._autosave_task
+            completion = await cleanup_session.run()
+            await self._adopt_battle_completion(completion, intent, game, bridge, runtime, cleanup=True)
+            self._publish(SessionState.RUNNING, "admission_canceled", revision=self._revision)
+            return completion
+        except (Exception, asyncio.CancelledError) as error:
+            self._save_failed = self._battle_recovery_failed = True
+            if old_interaction is not None and cleanup_session is not None and not cleanup_session.revocation_requested:
+                # READY refusal (including capacity) changed no host consent or
+                # native state. Let the untouched original battle task continue.
+                self._save_failed, self._battle_recovery_failed = previous_failures
+            self._publish(SessionState.RUNNING, "admission_cleanup_held", revision=self._revision)
+            if isinstance(error, asyncio.CancelledError):
+                raise
+            raise LauncherSessionError("admission_cleanup_held") from error
+        finally:
+            self._battle_recovery_task = None
+            if self._interaction is asyncio.current_task():
+                self._interaction = None
+            self._autosave_wake.set()
+
+    async def _adopt_battle_completion(self, result, intent, game, bridge, runtime, *, cleanup=False):
         """Transfer terminal native ownership before making this character writable."""
         from .battle_session import BattleCompletion, RenewedBattleSession
         from .battle_recovery_session import verify_recovery_completion
         from .battle_terminal import complete_battle_handoff
+        if cleanup:
+            from .battle_admission_cleanup import AdmissionCleanupCompletion as Completion
+            from .battle_admission_cleanup import verify_cleanup_completion as verify_completion
+            from .battle_admission_cleanup import complete_cleanup_handoff as complete_handoff
+        else:
+            Completion, verify_completion, complete_handoff = BattleCompletion, verify_recovery_completion, complete_battle_handoff
         from .battle_journal import path_present
         c, emergency = self._companion, self._emergency
         if (self._manifest.get("emergency_save_abi_version") != 2
@@ -612,8 +1068,8 @@ class LauncherSession:
         if self._autosave_task is not None:
             await self._autosave_task
         renewed = getattr(result, "renewed_session", None)
-        if (not isinstance(result, BattleCompletion) or not isinstance(renewed, RenewedBattleSession)
-                or result.state != "closed"
+        if (type(result) is not Completion or not isinstance(renewed, RenewedBattleSession)
+                or result.state != ("admission_canceled" if cleanup else "closed")
                 or (result.battle_id, result.generation, result.canonical_revision, result.canonical_sha256) !=
                    (intent.battle_id, intent.generation, intent.canonical_revision, intent.canonical_sha256)
                 or (renewed.world_id, renewed.player_id, renewed.build_id, renewed.ruleset_id, renewed.save_profile,
@@ -635,7 +1091,7 @@ class LauncherSession:
                                 ("pending-export.json", "pending-trade.json", "pending-emergency.json")))
         if not same_released_core():
             raise LauncherSessionError("battle_recovery_held")
-        verify_recovery_completion(c, self._profile_directory, result, intent, bridge)
+        verify_completion(c, self._profile_directory, result, intent, bridge)
         successor = self._battle_handoff_successor
         if successor is not None and self._emergency is not successor:
             raise LauncherSessionError("battle_recovery_held")
@@ -644,7 +1100,10 @@ class LauncherSession:
                        and emergency.bridge is None and emergency.task is None
                        and emergency.result.state == "unarmed" and not emergency.lost.is_set())
             if not unarmed:
-                await emergency.retire_after_battle_recovery(result, intent, bridge)
+                if cleanup:
+                    await emergency.retire_after_admission_cleanup(result, intent, bridge)
+                else:
+                    await emergency.retire_after_battle_recovery(result, intent, bridge)
             # The previous watcher must not arm or publish after replacement.
             if self._emergency_task is not None and not self._emergency_task.done():
                 self._emergency_task.cancel()
@@ -660,7 +1119,7 @@ class LauncherSession:
             raise LauncherSessionError("battle_recovery_held")
         if successor.result.state != "armed" or successor.needs_arm:
             await successor.arm(intent.canonical_revision)
-        await complete_battle_handoff(c, self._profile_directory, result, intent, bridge, successor)
+        await complete_handoff(c, self._profile_directory, result, intent, bridge, successor)
         if not same_released_core():
             raise LauncherSessionError("battle_recovery_held")
         menu_session = getattr(bridge, "menu_session", None)
@@ -705,7 +1164,7 @@ class LauncherSession:
             raise LauncherSessionError("session_closed")
         if type(enabled) is not bool:
             raise LauncherSessionError("invalid_configuration")
-        if self._settings_busy:
+        if self._settings_busy or self._host_restart_task is not None:
             raise LauncherSessionError("settings_busy")
         self._settings_busy = True
         try:
@@ -1021,11 +1480,20 @@ class LauncherSession:
                 from .trade_menu import NativeTradeMenu
                 from .checkpoint_client import validate_metadata
                 self._publish(SessionState.RUNNING, "trade_running", revision=base)
-                result = await NativeTradeMenu(c, self._profile_directory, menu_session).run(descriptor, base)
+                trade_menu = NativeTradeMenu(c, self._profile_directory, menu_session)
+                original_base = (trade_menu.coordinator._load(trade_menu.coordinator._session())["expected_revision"]
+                                 if trade_menu.coordinator.trade_path.exists() else base)
+                self._trade_retained = (self._game, self._runtime, c._bridge, self._binding,
+                    (descriptor["transaction_id"], descriptor["generation"], original_base, incarnation,
+                     c._live_trade_runtime_id), menu_session, base)
+                result = await trade_menu.run(descriptor, base)
                 checkpoint = validate_metadata(result["checkpoint"], c.config, c.save_profile)
+                original_base = result.get("expected_revision")
                 if (result["transaction_id"] != descriptor["transaction_id"] or checkpoint is None
+                        or result.get("generation") != descriptor["generation"]
+                        or type(original_base) is not int or original_base not in {base, base - 1}
                         or result["state"] not in {"applied", "aborted"}
-                        or checkpoint["revision"] != base + (2 if result["state"] == "applied" else 1)
+                        or checkpoint["revision"] != original_base + (2 if result["state"] == "applied" else 1)
                         or (self._profile_directory / "pending-trade.json").exists()):
                     raise LauncherSessionError("recovery_required")
                 code = "trade_finished" if result["state"] == "applied" else "trade_cancelled"
@@ -1036,6 +1504,7 @@ class LauncherSession:
                 raise LauncherSessionError("recovery_required")
             if kind == "trade":
                 self._revision = checkpoint["revision"]
+                self._trade_retained = None
             self._autosave_due = self._autosave_clock() + AUTOSAVE_INTERVAL
             self._publish(SessionState.RUNNING, code, revision=self._revision)
         except (Exception, asyncio.CancelledError):
@@ -1134,6 +1603,8 @@ class LauncherSession:
         if self._play_task is not None and not self._play_task.done():
             self._play_task.cancel()
             await asyncio.gather(self._play_task, return_exceptions=True)
+        if self._host_restart_task is not None:
+            await asyncio.gather(self._host_restart_task, return_exceptions=True)
         try:
             if self._companion is not None:
                 await self._companion.close()

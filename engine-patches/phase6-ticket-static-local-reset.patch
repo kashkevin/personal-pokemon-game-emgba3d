@@ -1,0 +1,513 @@
+diff --git a/include/multiplayer_static_reset.h b/include/multiplayer_static_reset.h
+--- a/include/multiplayer_static_reset.h
++++ b/include/multiplayer_static_reset.h
+@@ -21,7 +21,12 @@
+ #define MP_STATIC_RESET_ROUTE119_KECLEON_1 0x1012
+ #define MP_STATIC_RESET_ROUTE119_KECLEON_2 0x1013
+ #define MP_STATIC_RESET_LUGIA 0x1014
+-#define MP_STATIC_RESET_LAST MP_STATIC_RESET_LUGIA
++#define MP_STATIC_RESET_HO_OH 0x1015
++#define MP_STATIC_RESET_MEW 0x1016
++#define MP_STATIC_RESET_DEOXYS 0x1017
++#define MP_STATIC_RESET_LATIOS 0x1018
++#define MP_STATIC_RESET_LATIAS 0x1019
++#define MP_STATIC_RESET_LAST MP_STATIC_RESET_LATIAS
+ #define MP_STATIC_RESET_VERSION_1 0x5601
+ 
+ // Internal adapters for exact authored personal encounters. No generic
+@@ -36,6 +41,9 @@
+ void MultiplayerStaticReset_BeginVoltorb1(void);
+ void MultiplayerStaticReset_BeginCurrent(void);
+ void MultiplayerStaticReset_ReturnWeatherSource(void);
++void MultiplayerStaticReset_CaptureMew(void);
++void MultiplayerStaticReset_ReturnTicketSource(void);
++void MultiplayerStaticReset_ForgetMew(void);
+ bool32 MultiplayerStaticReset_SetAdmission(u32 encounterId, u32 count);
+ 
+ #endif
+diff --git a/src/multiplayer_static_reset.c b/src/multiplayer_static_reset.c
+--- a/src/multiplayer_static_reset.c
++++ b/src/multiplayer_static_reset.c
+@@ -6,6 +6,8 @@
+ #include "event_data.h"
+ #include "event_object_movement.h"
+ #include "fieldmap.h"
++#include "field_weather.h"
++#include "metatile_behavior.h"
+ #include "pokemon.h"
+ #include "item.h"
+ #include "item_menu.h"
+@@ -50,12 +52,28 @@
+     SOURCE(MP_STATIC_RESET_ROUTE119_KECLEON_1, MAP_ROUTE119, 35, 31, 6, SPECIES_KECLEON, 30, FLAG_HIDE_ROUTE_119_KECLEON_1, FLAG_HIDE_ROUTE_119_KECLEON_1, FLAG_RECEIVED_DEVON_SCOPE, FALSE),
+     SOURCE(MP_STATIC_RESET_ROUTE119_KECLEON_2, MAP_ROUTE119, 36, 25, 15, SPECIES_KECLEON, 30, FLAG_HIDE_ROUTE_119_KECLEON_2, FLAG_HIDE_ROUTE_119_KECLEON_2, FLAG_RECEIVED_DEVON_SCOPE, FALSE),
+     SOURCE(MP_STATIC_RESET_LUGIA, MAP_NAVEL_ROCK_BOTTOM, 1, 11, 13, SPECIES_LUGIA, 70, FLAG_HIDE_LUGIA, FLAG_DEFEATED_LUGIA, FLAG_ENABLE_SHIP_NAVEL_ROCK, TRUE),
++    SOURCE(MP_STATIC_RESET_HO_OH, MAP_NAVEL_ROCK_TOP, 1, 12, 9, SPECIES_HO_OH, 70, FLAG_HIDE_HO_OH, FLAG_DEFEATED_HO_OH, FLAG_ENABLE_SHIP_NAVEL_ROCK, TRUE),
++    // Mew's exact chased coordinates come only from CaptureMew, not this table.
++    SOURCE(MP_STATIC_RESET_MEW, MAP_FARAWAY_ISLAND_INTERIOR, 1, 0, 0, SPECIES_MEW, 30, FLAG_HIDE_MEW, FLAG_DEFEATED_MEW, FLAG_ENABLE_SHIP_FARAWAY_ISLAND, TRUE),
++    // These hidden map templates are explicitly spawned by the native script;
++    // their hide flags intentionally remain set even while the object exists.
++    SOURCE(MP_STATIC_RESET_DEOXYS, MAP_BIRTH_ISLAND_EXTERIOR, 2, 15, 10, SPECIES_DEOXYS_NORMAL, 30, FLAG_HIDE_DEOXYS, FLAG_DEFEATED_DEOXYS, FLAG_ENABLE_SHIP_BIRTH_ISLAND, TRUE),
++    SOURCE(MP_STATIC_RESET_LATIOS, MAP_SOUTHERN_ISLAND_INTERIOR, 2, 13, 11, SPECIES_LATIOS, 50, FLAG_HIDE_SOUTHERN_ISLAND_UNCHOSEN_EON_DUO_MON, FLAG_DEFEATED_LATIAS_OR_LATIOS, FLAG_ENABLE_SHIP_SOUTHERN_ISLAND, TRUE),
++    SOURCE(MP_STATIC_RESET_LATIAS, MAP_SOUTHERN_ISLAND_INTERIOR, 2, 13, 11, SPECIES_LATIAS, 50, FLAG_HIDE_SOUTHERN_ISLAND_UNCHOSEN_EON_DUO_MON, FLAG_DEFEATED_LATIAS_OR_LATIOS, FLAG_ENABLE_SHIP_SOUTHERN_ISLAND, TRUE),
+ };
+ _Static_assert(ARRAY_COUNT(sSources) == MP_STATIC_RESET_LAST - MP_STATIC_RESET_VOLTORB_1 + 1, "Static catalogue IDs");
+ static EWRAM_DATA u32 sObserved[ARRAY_COUNT(sSources)];
+ static EWRAM_DATA u32 sAttempt, sActiveId, sAdmittedCount, sAdmittedId;
+ static EWRAM_DATA u16 sMapState, sBlueState, sGreenState;
+ static EWRAM_DATA u16 sWeatherSteps, sWeatherEnd;
++static EWRAM_DATA u16 sPuzzleSteps;
++static EWRAM_DATA struct {
++    bool8 valid, invisible, fixedPriority;
++    u8 subspriteMode, subspriteTableNum, subpriority, priority;
++    u8 elevation, previousElevation, facing;
++    s16 x, y, previousX, previousY;
++    u16 steps, temp1;
++} sMewReturn;
+ 
+ static const struct StaticSource *Source(u32 id)
+ {
+@@ -67,6 +85,7 @@
+ {
+     memset(sObserved, 0, sizeof(sObserved));
+     sAttempt = sActiveId = sAdmittedCount = sAdmittedId = 0;
++    sMewReturn.valid = FALSE;
+ }
+ 
+ u32 MultiplayerStaticReset_Count(void)
+@@ -91,12 +110,26 @@
+ static bool32 IsNewMauville(u32 id) { return id >= MP_STATIC_RESET_VOLTORB_1 && id <= MP_STATIC_RESET_VOLTORB_3; }
+ static bool32 IsWeatherSource(u32 id) { return id == MP_STATIC_RESET_KYOGRE || id == MP_STATIC_RESET_GROUDON; }
+ static bool32 IsKecleon(u32 id) { return id >= MP_STATIC_RESET_ROUTE120_KECLEON_1 && id <= MP_STATIC_RESET_ROUTE119_KECLEON_2; }
++static bool32 IsLati(u32 id) { return id == MP_STATIC_RESET_LATIOS || id == MP_STATIC_RESET_LATIAS; }
++static bool32 TicketReady(u32 id)
++{
++    if (id == MP_STATIC_RESET_LUGIA || id == MP_STATIC_RESET_HO_OH)
++        return FlagGet(FLAG_ARRIVED_AT_NAVEL_ROCK) && CheckBagHasItem(ITEM_MYSTIC_TICKET, 1);
++    if (id == MP_STATIC_RESET_MEW) return CheckBagHasItem(ITEM_OLD_SEA_MAP, 1);
++    if (id == MP_STATIC_RESET_DEOXYS) return CheckBagHasItem(ITEM_AURORA_TICKET, 1);
++    if (IsLati(id)) return CheckBagHasItem(ITEM_EON_TICKET, 1);
++    return TRUE;
++}
+ static u16 MapState(u32 id)
+ {
+     if (IsNewMauville(id)) return VarGet(VAR_NEW_MAUVILLE_STATE);
+     if (id == MP_STATIC_RESET_RAYQUAZA) return VarGet(VAR_SKY_PILLAR_STATE);
+     if (IsWeatherSource(id)) return VarGet(VAR_ABNORMAL_WEATHER_LOCATION);
+     if (IsKecleon(id)) return gSpecialVar_0x8009;
++    if (id == MP_STATIC_RESET_HO_OH) return GetCurrentWeather();
++    if (id == MP_STATIC_RESET_MEW) return VarGet(VAR_FARAWAY_ISLAND_STEP_COUNTER);
++    if (id == MP_STATIC_RESET_DEOXYS) return VarGet(VAR_DEOXYS_ROCK_LEVEL);
++    if (IsLati(id)) return VarGet(VAR_ROAMER_POKEMON);
+     return 0;
+ }
+ 
+@@ -110,7 +143,8 @@
+      || gSaveBlock1Ptr->location.mapGroup != source->mapGroup
+      || gSaveBlock1Ptr->location.mapNum != source->mapNum
+      || gSpecialVar_LastTalked != source->localId
+-     || FlagGet(source->hide) || FlagGet(source->defeated)
++     || ((id == MP_STATIC_RESET_DEOXYS || IsLati(id)) ? !FlagGet(source->hide) : FlagGet(source->hide))
++     || FlagGet(source->defeated) || !TicketReady(id)
+      || (source->prerequisite && !FlagGet(source->prerequisite))) return FALSE;
+     if (IsNewMauville(id) && MapState(id) != 1 && MapState(id) != 2) return FALSE;
+     if (id == MP_STATIC_RESET_RAYQUAZA && MapState(id) < 2) return FALSE;
+@@ -124,12 +158,27 @@
+      || !CheckBagHasItem(ITEM_DEVON_SCOPE, 1))) return FALSE;
+     if (id == MP_STATIC_RESET_LUGIA && (FlagGet(FLAG_CAUGHT_LUGIA)
+      || !FlagGet(FLAG_ARRIVED_AT_NAVEL_ROCK) || !CheckBagHasItem(ITEM_MYSTIC_TICKET, 1))) return FALSE;
++    if (id == MP_STATIC_RESET_HO_OH && (FlagGet(FLAG_CAUGHT_HO_OH)
++     || VarGet(VAR_TEMP_1) != 1 || MapState(id) != WEATHER_NONE)) return FALSE;
++    if (id == MP_STATIC_RESET_MEW && (!sMewReturn.valid || FlagGet(FLAG_CAUGHT_MEW)
++     || VarGet(VAR_TEMP_1) != sMewReturn.temp1 || MapState(id) != 0xFFFF)) return FALSE;
++    if (id == MP_STATIC_RESET_DEOXYS && (FlagGet(FLAG_BATTLED_DEOXYS)
++     || !FlagGet(FLAG_DEOXYS_ROCK_COMPLETE) || !FlagGet(FLAG_HIDE_BIRTH_ISLAND_DEOXYS_TRIANGLE)
++     || MapState(id) != 10)) return FALSE; // final level of the native eleven-position puzzle
++    if (IsLati(id) && (FlagGet(FLAG_CAUGHT_LATIAS_OR_LATIOS) || !FlagGet(FLAG_TEMP_2)
++     || !FlagGet(FLAG_ENCOUNTERED_LATIAS_OR_LATIOS) || VarGet(VAR_TEMP_4) != source->species
++     || ((MapState(id) == 0) != (id == MP_STATIC_RESET_LATIOS)))) return FALSE;
+     if (TryGetObjectEventIdByLocalIdAndMap(source->localId, source->mapNum, source->mapGroup, &objectId)) return FALSE;
+     if ((IsKecleon(id) && (gObjectEvents[objectId].graphicsId != OBJ_EVENT_GFX_KECLEON
+                           || gObjectEvents[objectId].invisible))
+      || (id == MP_STATIC_RESET_KYOGRE && gObjectEvents[objectId].graphicsId != OBJ_EVENT_GFX_KYOGRE_FRONT)
+      || (id == MP_STATIC_RESET_GROUDON && gObjectEvents[objectId].graphicsId != OBJ_EVENT_GFX_GROUDON_FRONT)
+-     || (id == MP_STATIC_RESET_LUGIA && gObjectEvents[objectId].graphicsId != OBJ_EVENT_GFX_LUGIA)) return FALSE;
++     || (id == MP_STATIC_RESET_LUGIA && gObjectEvents[objectId].graphicsId != OBJ_EVENT_GFX_LUGIA)
++     || (id == MP_STATIC_RESET_HO_OH && gObjectEvents[objectId].graphicsId != OBJ_EVENT_GFX_HOOH)
++     || (id == MP_STATIC_RESET_MEW && (gObjectEvents[objectId].graphicsId != OBJ_EVENT_GFX_MEW || gObjectEvents[objectId].invisible))
++     || (id == MP_STATIC_RESET_DEOXYS && gObjectEvents[objectId].graphicsId != OBJ_EVENT_GFX_DEOXYS)
++     || (id == MP_STATIC_RESET_LATIOS && gObjectEvents[objectId].graphicsId != OBJ_EVENT_GFX_LATIOS)
++     || (id == MP_STATIC_RESET_LATIAS && gObjectEvents[objectId].graphicsId != OBJ_EVENT_GFX_LATIAS)) return FALSE;
+     // This descriptor belongs only to the existing Wailmer Pail interaction.
+     // The script admits after watering; recheck its item and exact native object
+     // while opening/confirming the first-action window. Nothing consumes the pail.
+@@ -138,8 +187,8 @@
+       || gObjectEvents[objectId].graphicsId != OBJ_EVENT_GFX_SUDOWOODO)) return FALSE;
+     return !gObjectEvents[objectId].isPlayer
+         && !Multiplayer_IsRemoteObject(&gObjectEvents[objectId])
+-        && gObjectEvents[objectId].currentCoords.x == source->x + MAP_OFFSET
+-        && gObjectEvents[objectId].currentCoords.y == source->y + MAP_OFFSET;
++        && gObjectEvents[objectId].currentCoords.x == (id == MP_STATIC_RESET_MEW ? sMewReturn.x : source->x + MAP_OFFSET)
++        && gObjectEvents[objectId].currentCoords.y == (id == MP_STATIC_RESET_MEW ? sMewReturn.y - 2 : source->y + MAP_OFFSET);
+ #else
+     return FALSE;
+ #endif
+@@ -174,6 +223,7 @@
+     sGreenState = VarGet(VAR_TEMP_2);
+     sWeatherSteps = VarGet(VAR_ABNORMAL_WEATHER_STEP_COUNTER);
+     sWeatherEnd = VarGet(VAR_SHOULD_END_ABNORMAL_WEATHER);
++    sPuzzleSteps = VarGet(VAR_DEOXYS_ROCK_STEP_COUNT);
+     return TRUE;
+ }
+ 
+@@ -181,13 +231,14 @@
+ {
+     const struct StaticSource *source = Source(id);
+     struct Pokemon enemy;
+-    if (!MultiplayerStaticReset_EntryReady(id) || sActiveId != id
++    if (!MultiplayerStaticReset_EntryReady(id) || !TicketReady(id) || sActiveId != id
+      || MultiplayerStaticReset_GetCount(id) != sAttempt || MapState(id) != sMapState
+      || (id == MP_STATIC_RESET_VOLTORB_1 && VarGet(VAR_MP_VOLTORB_1_RESET_VERSION) != MP_STATIC_RESET_VERSION_1)
+      || (IsWeatherSource(id) && (VarGet(VAR_TEMP_1) != sBlueState
+          || VarGet(VAR_ABNORMAL_WEATHER_STEP_COUNTER) != sWeatherSteps
+          || VarGet(VAR_SHOULD_END_ABNORMAL_WEATHER) != sWeatherEnd))
+      || (IsNewMauville(id) && (VarGet(VAR_TEMP_1) != sBlueState || VarGet(VAR_TEMP_2) != sGreenState))) return FALSE;
++    if (id == MP_STATIC_RESET_DEOXYS && VarGet(VAR_DEOXYS_ROCK_STEP_COUNT) != sPuzzleSteps) return FALSE;
+     // Clone reads: native checksum failure handling may mark a bad egg.
+     enemy = gParties[B_TRAINER_OPPONENT_A][0];
+     if (GetMonData(&enemy, MON_DATA_SPECIES) != source->species
+@@ -195,7 +246,8 @@
+      || GetMonData(&enemy, MON_DATA_SANITY_IS_BAD_EGG)
+      || GetMonData(&enemy, MON_DATA_IS_EGG) || enemy.box.isEgg
+      || GetMonData(&enemy, MON_DATA_LEVEL) != source->level) return FALSE;
+-    if (id == MP_STATIC_RESET_LUGIA && !GetMonData(&enemy, MON_DATA_MODERN_FATEFUL_ENCOUNTER)) return FALSE;
++    if (id >= MP_STATIC_RESET_LUGIA && !GetMonData(&enemy, MON_DATA_MODERN_FATEFUL_ENCOUNTER)) return FALSE;
++    if (IsLati(id) && GetMonData(&enemy, MON_DATA_HELD_ITEM) != ITEM_SOUL_DEW) return FALSE;
+     for (u32 slot = 1; slot < PARTY_SIZE; slot++)
+     {
+         enemy = gParties[B_TRAINER_OPPONENT_A][slot];
+@@ -258,6 +310,110 @@
+ #endif
+ }
+ 
++void MultiplayerStaticReset_CaptureMew(void)
++{
++    sMewReturn.valid = FALSE;
++    gSpecialVar_Result = FALSE;
++#if MP_LOCAL_RESET_STATIC || TESTING
++    const struct StaticSource *source = Source(MP_STATIC_RESET_MEW);
++    u8 objectId;
++    if (gMain.inBattle || !gSaveBlock1Ptr
++     || gSaveBlock1Ptr->location.mapGroup != source->mapGroup
++     || gSaveBlock1Ptr->location.mapNum != source->mapNum
++     || gSpecialVar_LastTalked != source->localId
++     || FlagGet(source->hide) || FlagGet(source->defeated) || FlagGet(FLAG_CAUGHT_MEW)
++     || !FlagGet(source->prerequisite) || !TicketReady(source->id)
++     || VarGet(VAR_TEMP_1) != 1 || VarGet(VAR_FARAWAY_ISLAND_STEP_COUNTER) >= 9999
++     || TryGetObjectEventIdByLocalIdAndMap(source->localId, source->mapNum, source->mapGroup, &objectId)) return;
++    struct ObjectEvent *object = &gObjectEvents[objectId];
++    if (object->isPlayer || Multiplayer_IsRemoteObject(object) || object->graphicsId != OBJ_EVENT_GFX_MEW
++     || object->spriteId >= MAX_SPRITES || !gSprites[object->spriteId].inUse
++     || object->currentCoords.y < MAP_OFFSET + 2
++     || !MetatileBehavior_IsPokeGrass(MapGridGetMetatileBehaviorAt(object->currentCoords.x, object->currentCoords.y))) return;
++    const struct Sprite *sprite = &gSprites[object->spriteId];
++    // Only the authored interaction supplies this ephemeral presentation anchor.
++    // Never copy a save, player position, RNG state, puzzle or progression flag.
++    sMewReturn.x = object->currentCoords.x;
++    sMewReturn.y = object->currentCoords.y;
++    sMewReturn.previousX = object->previousCoords.x;
++    sMewReturn.previousY = object->previousCoords.y;
++    sMewReturn.elevation = object->currentElevation;
++    sMewReturn.previousElevation = object->previousElevation;
++    sMewReturn.facing = object->facingDirection;
++    sMewReturn.invisible = object->invisible;
++    sMewReturn.fixedPriority = object->fixedPriority;
++    sMewReturn.subspriteMode = sprite->subspriteMode;
++    sMewReturn.subspriteTableNum = sprite->subspriteTableNum;
++    sMewReturn.subpriority = sprite->subpriority;
++    sMewReturn.priority = sprite->oam.priority;
++    sMewReturn.steps = VarGet(VAR_FARAWAY_ISLAND_STEP_COUNTER);
++    sMewReturn.temp1 = VarGet(VAR_TEMP_1);
++    sMewReturn.valid = TRUE;
++    gSpecialVar_Result = TRUE;
++#endif
++}
++
++void MultiplayerStaticReset_ForgetMew(void)
++{
++    sMewReturn.valid = FALSE;
++}
++
++void MultiplayerStaticReset_ReturnTicketSource(void)
++{
++    gSpecialVar_Result = FALSE;
++#if MP_LOCAL_RESET_STATIC || TESTING
++    if (gMain.inBattle) return;
++    for (u32 id = MP_STATIC_RESET_HO_OH; id <= MP_STATIC_RESET_LATIAS; id++)
++    {
++        const struct StaticSource *source = Source(id);
++        u8 objectId;
++        if (!MultiplayerStaticReset_EntryReady(id)
++         || TryGetObjectEventIdByLocalIdAndMap(source->localId, source->mapNum, source->mapGroup, &objectId)) continue;
++        struct ObjectEvent *object = &gObjectEvents[objectId];
++        if (object->spriteId >= MAX_SPRITES || !gSprites[object->spriteId].inUse) return;
++        if (id == MP_STATIC_RESET_HO_OH)
++        {
++            TryMoveObjectEventToMapCoords(source->localId, source->mapNum, source->mapGroup, 12, 4);
++            ObjectEventTurn(object, DIR_SOUTH);
++            VarSet(VAR_TEMP_1, 0); // only the native approach trigger; no caught/defeated flag
++        }
++        else if (id == MP_STATIC_RESET_MEW)
++        {
++            struct Sprite *sprite = &gSprites[object->spriteId];
++            TryMoveObjectEventToMapCoords(source->localId, source->mapNum, source->mapGroup,
++                                         sMewReturn.x - MAP_OFFSET, sMewReturn.y - MAP_OFFSET);
++            object->previousCoords.x = sMewReturn.previousX;
++            object->previousCoords.y = sMewReturn.previousY;
++            object->currentElevation = sMewReturn.elevation;
++            object->previousElevation = sMewReturn.previousElevation;
++            object->invisible = sMewReturn.invisible;
++            object->fixedPriority = sMewReturn.fixedPriority;
++            ObjectEventTurn(object, sMewReturn.facing);
++            sprite->subspriteMode = sMewReturn.subspriteMode;
++            sprite->subspriteTableNum = sMewReturn.subspriteTableNum;
++            sprite->subpriority = sMewReturn.subpriority;
++            sprite->oam.priority = sMewReturn.priority;
++            VarSet(VAR_FARAWAY_ISLAND_STEP_COUNTER, sMewReturn.steps);
++            sMewReturn.valid = FALSE;
++            // The native script already destroyed its grass-effect sprite
++            // before admission. Its old sprite index must never be reused here.
++        }
++        else if (IsLati(id))
++        {
++            // This temporary object was explicitly added from a hidden template.
++            // Remove only the local instance; do not write its hide flag, permanent
++            // encounter history, roaming selection, ticket or species variable.
++            RemoveObjectEvent(object);
++            FlagClear(FLAG_TEMP_2);
++        }
++        // Deoxys stays revealed at its post-approach position. Its new guarded
++        // object interaction retries generation without undoing the solved puzzle.
++        gSpecialVar_Result = TRUE;
++        return;
++    }
++#endif
++}
++
+ bool32 MultiplayerStaticReset_SetAdmission(u32 id, u32 count)
+ {
+     if (!id && !count) { sAdmittedCount = sAdmittedId = 0; return TRUE; }
+diff --git a/data/specials.inc b/data/specials.inc
+--- a/data/specials.inc
++++ b/data/specials.inc
+@@ -644,3 +644,6 @@
+ 	def_special MultiplayerStaticReset_BeginVoltorb1
+ 	def_special MultiplayerStaticReset_BeginCurrent
+ 	def_special MultiplayerStaticReset_ReturnWeatherSource
++	def_special MultiplayerStaticReset_CaptureMew
++	def_special MultiplayerStaticReset_ReturnTicketSource
++	def_special MultiplayerStaticReset_ForgetMew
+diff --git a/data/maps/NavelRock_Top/scripts.inc b/data/maps/NavelRock_Top/scripts.inc
+--- a/data/maps/NavelRock_Top/scripts.inc
++++ b/data/maps/NavelRock_Top/scripts.inc
+@@ -55,11 +55,24 @@
+ 	applymovement LOCALID_NAVEL_ROCK_HO_OH, NavelRock_Top_Movement_HoOhApproach
+ 	waitmovement 0
+ 	special RemoveCameraObject
++#if MP_LOCAL_RESET_STATIC || TESTING
++	setvar VAR_LAST_TALKED, LOCALID_NAVEL_ROCK_HO_OH
++NavelRock_Top_EventScript_HoOhAdmission::
++	special MultiplayerStaticReset_BeginCurrent
++	goto_if_ne VAR_RESULT, MP_LOCAL_RESET_ADMISSION_PENDING, NavelRock_Top_EventScript_HoOhAdmissionReady
++	waitstate
++NavelRock_Top_EventScript_HoOhAdmissionReady::
++	goto_if_eq VAR_RESULT, FALSE, NavelRock_Top_EventScript_HoOhResetReturn
++#endif
+ 	seteventmon SPECIES_HO_OH, 70
+ 	setflag FLAG_SYS_CTRL_OBJ_DELETE
+ 	special BattleSetup_StartLegendaryBattle
+ 	clearflag FLAG_SYS_CTRL_OBJ_DELETE
+ 	setvar VAR_LAST_TALKED, LOCALID_NAVEL_ROCK_HO_OH
++#if MP_LOCAL_RESET_STATIC || TESTING
++	special MultiplayerLocalReset_ConsumeResult
++	goto_if_eq VAR_RESULT, TRUE, NavelRock_Top_EventScript_HoOhResetReturn
++#endif
+ 	specialvar VAR_RESULT, GetBattleOutcome
+ 	goto_if_eq VAR_RESULT, B_OUTCOME_WON, NavelRock_Top_EventScript_DefeatedHoOh
+ 	goto_if_eq VAR_RESULT, B_OUTCOME_RAN, NavelRock_Top_EventScript_RanFromHoOh
+@@ -67,6 +80,17 @@
+ 	setflag FLAG_CAUGHT_HO_OH
+ 	releaseall
+ 	end
++
++#if MP_LOCAL_RESET_STATIC || TESTING
++NavelRock_Top_EventScript_HoOhResetReturn::
++	special MultiplayerStaticReset_ReturnTicketSource
++	goto_if_eq VAR_RESULT, FALSE, NavelRock_Top_EventScript_HoOhResetRelease
++	setweather WEATHER_SHADE
++	doweather
++NavelRock_Top_EventScript_HoOhResetRelease::
++	releaseall
++	end
++#endif
+ 
+ NavelRock_Top_EventScript_DefeatedHoOh::
+ 	setflag FLAG_DEFEATED_HO_OH
+diff --git a/data/maps/FarawayIsland_Interior/scripts.inc b/data/maps/FarawayIsland_Interior/scripts.inc
+--- a/data/maps/FarawayIsland_Interior/scripts.inc
++++ b/data/maps/FarawayIsland_Interior/scripts.inc
+@@ -113,6 +113,10 @@
+ FarawayIsland_Interior_EventScript_Mew::
+ 	lock
+ 	faceplayer
++#if MP_LOCAL_RESET_STATIC || TESTING
++	special MultiplayerStaticReset_CaptureMew
++	goto_if_eq VAR_RESULT, FALSE, FarawayIsland_Interior_EventScript_MewResetRelease
++#endif
+ 	applymovement LOCALID_FARAWAY_ISLAND_MEW, FarawayIsland_Interior_Movement_MewAppear
+ 	waitmovement 0
+ 	setvar VAR_0x8004, 0
+@@ -127,10 +131,23 @@
+ 	special DestroyMewEmergingGrassSprite
+ 	delay 40
+ 	waitmoncry
++#if MP_LOCAL_RESET_STATIC || TESTING
++FarawayIsland_Interior_EventScript_MewAdmission::
++	special MultiplayerStaticReset_BeginCurrent
++	goto_if_ne VAR_RESULT, MP_LOCAL_RESET_ADMISSION_PENDING, FarawayIsland_Interior_EventScript_MewAdmissionReady
++	waitstate
++FarawayIsland_Interior_EventScript_MewAdmissionReady::
++	goto_if_eq VAR_RESULT, FALSE, FarawayIsland_Interior_EventScript_MewResetReturn
++#endif
+ 	seteventmon SPECIES_MEW, 30
+ 	setflag FLAG_SYS_CTRL_OBJ_DELETE
+ 	special BattleSetup_StartLegendaryBattle
+ 	clearflag FLAG_SYS_CTRL_OBJ_DELETE
++#if MP_LOCAL_RESET_STATIC || TESTING
++	special MultiplayerLocalReset_ConsumeResult
++	goto_if_eq VAR_RESULT, TRUE, FarawayIsland_Interior_EventScript_MewResetReturn
++	special MultiplayerStaticReset_ForgetMew
++#endif
+ 	specialvar VAR_RESULT, GetBattleOutcome
+ 	goto_if_eq VAR_RESULT, B_OUTCOME_WON, FarawayIsland_Interior_EventScript_MewDefeated
+ 	goto_if_eq VAR_RESULT, B_OUTCOME_RAN, FarawayIsland_Interior_EventScript_PlayerOrMewRan
+@@ -139,6 +156,15 @@
+ 	setflag FLAG_CAUGHT_MEW
+ 	release
+ 	end
++
++#if MP_LOCAL_RESET_STATIC || TESTING
++FarawayIsland_Interior_EventScript_MewResetReturn::
++	special MultiplayerStaticReset_ReturnTicketSource
++FarawayIsland_Interior_EventScript_MewResetRelease::
++	closemessage
++	release
++	end
++#endif
+ 
+ FarawayIsland_Interior_EventScript_MewDefeated::
+ 	setflag FLAG_DEFEATED_MEW
+diff --git a/data/maps/BirthIsland_Exterior/scripts.inc b/data/maps/BirthIsland_Exterior/scripts.inc
+--- a/data/maps/BirthIsland_Exterior/scripts.inc
++++ b/data/maps/BirthIsland_Exterior/scripts.inc
+@@ -80,10 +80,22 @@
+ 	delay 40
+ 	waitmoncry
+ 	setvar VAR_LAST_TALKED, LOCALID_BIRTH_ISLAND_DEOXYS
++#if MP_LOCAL_RESET_STATIC || TESTING
++BirthIsland_Exterior_EventScript_DeoxysAdmission::
++	special MultiplayerStaticReset_BeginCurrent
++	goto_if_ne VAR_RESULT, MP_LOCAL_RESET_ADMISSION_PENDING, BirthIsland_Exterior_EventScript_DeoxysAdmissionReady
++	waitstate
++BirthIsland_Exterior_EventScript_DeoxysAdmissionReady::
++	goto_if_eq VAR_RESULT, FALSE, BirthIsland_Exterior_EventScript_DeoxysResetReturn
++#endif
+ 	seteventmon SPECIES_DEOXYS_NORMAL, 30
+ 	setflag FLAG_SYS_CTRL_OBJ_DELETE
+ 	special BattleSetup_StartLegendaryBattle
+ 	clearflag FLAG_SYS_CTRL_OBJ_DELETE
++#if MP_LOCAL_RESET_STATIC || TESTING
++	special MultiplayerLocalReset_ConsumeResult
++	goto_if_eq VAR_RESULT, TRUE, BirthIsland_Exterior_EventScript_DeoxysResetReturn
++#endif
+ 	specialvar VAR_RESULT, GetBattleOutcome
+ 	goto_if_eq VAR_RESULT, B_OUTCOME_WON, BirthIsland_Exterior_EventScript_DefeatedDeoxys
+ 	goto_if_eq VAR_RESULT, B_OUTCOME_RAN, BirthIsland_Exterior_EventScript_RanFromDeoxys
+@@ -91,6 +103,25 @@
+ 	setflag FLAG_BATTLED_DEOXYS
+ 	release
+ 	end
++
++@ Only a still-present, already revealed personal Deoxys can reach admission.
++@ In ordinary builds the original object remains non-interactive.
++BirthIsland_Exterior_EventScript_DeoxysRetry::
++#if MP_LOCAL_RESET_STATIC || TESTING
++	lock
++	faceplayer
++	setvar VAR_LAST_TALKED, LOCALID_BIRTH_ISLAND_DEOXYS
++	goto BirthIsland_Exterior_EventScript_DeoxysAdmission
++#else
++	end
++#endif
++
++#if MP_LOCAL_RESET_STATIC || TESTING
++BirthIsland_Exterior_EventScript_DeoxysResetReturn::
++	special MultiplayerStaticReset_ReturnTicketSource
++	release
++	end
++#endif
+ 
+ BirthIsland_Exterior_EventScript_DefeatedDeoxys::
+ 	setflag FLAG_DEFEATED_DEOXYS
+diff --git a/data/maps/BirthIsland_Exterior/map.json b/data/maps/BirthIsland_Exterior/map.json
+--- a/data/maps/BirthIsland_Exterior/map.json
++++ b/data/maps/BirthIsland_Exterior/map.json
+@@ -40,7 +40,7 @@
+       "movement_range_y": 1,
+       "trainer_type": "TRAINER_TYPE_NONE",
+       "trainer_sight_or_berry_tree_id": "0",
+-      "script": "0x0",
++      "script": "BirthIsland_Exterior_EventScript_DeoxysRetry",
+       "flag": "FLAG_HIDE_DEOXYS"
+     }
+   ],
+diff --git a/data/maps/SouthernIsland_Interior/scripts.inc b/data/maps/SouthernIsland_Interior/scripts.inc
+--- a/data/maps/SouthernIsland_Interior/scripts.inc
++++ b/data/maps/SouthernIsland_Interior/scripts.inc
+@@ -72,11 +72,23 @@
+ 	delay 50
+ 	special RemoveCameraObject
+ 	setvar VAR_LAST_TALKED, LOCALID_SOUTHERN_ISLAND_LATI
++#if MP_LOCAL_RESET_STATIC || TESTING
++SouthernIsland_Interior_EventScript_LatiAdmission::
++	special MultiplayerStaticReset_BeginCurrent
++	goto_if_ne VAR_RESULT, MP_LOCAL_RESET_ADMISSION_PENDING, SouthernIsland_Interior_EventScript_LatiAdmissionReady
++	waitstate
++SouthernIsland_Interior_EventScript_LatiAdmissionReady::
++	goto_if_eq VAR_RESULT, FALSE, SouthernIsland_Interior_EventScript_LatiResetReturn
++#endif
+ 	call_if_eq VAR_ROAMER_POKEMON, 0, SouthernIsland_Interior_EventScript_SetLatiosBattleVars
+ 	call_if_ne VAR_ROAMER_POKEMON, 0, SouthernIsland_Interior_EventScript_SetLatiasBattleVars
+ 	setflag FLAG_SYS_CTRL_OBJ_DELETE
+ 	special BattleSetup_StartLatiBattle
+ 	clearflag FLAG_SYS_CTRL_OBJ_DELETE
++#if MP_LOCAL_RESET_STATIC || TESTING
++	special MultiplayerLocalReset_ConsumeResult
++	goto_if_eq VAR_RESULT, TRUE, SouthernIsland_Interior_EventScript_LatiResetReturn
++#endif
+ 	specialvar VAR_RESULT, GetBattleOutcome
+ 	goto_if_eq VAR_RESULT, B_OUTCOME_WON, SouthernIsland_Interior_EventScript_LatiDefeated
+ 	goto_if_eq VAR_RESULT, B_OUTCOME_RAN, SouthernIsland_Interior_EventScript_RanFromLati
+@@ -84,6 +96,13 @@
+ 	setflag FLAG_CAUGHT_LATIAS_OR_LATIOS
+ 	releaseall
+ 	end
++
++#if MP_LOCAL_RESET_STATIC || TESTING
++SouthernIsland_Interior_EventScript_LatiResetReturn::
++	special MultiplayerStaticReset_ReturnTicketSource
++	releaseall
++	end
++#endif
+ 
+ SouthernIsland_Interior_EventScript_LatiDefeated::
+ 	setflag FLAG_DEFEATED_LATIAS_OR_LATIOS

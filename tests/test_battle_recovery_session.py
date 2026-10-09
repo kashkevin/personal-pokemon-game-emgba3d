@@ -24,7 +24,7 @@ from emerald_multiplayer.bridge_protocol import encode_packet, read_packet
 from emerald_multiplayer.battle_mailbox import response_packet
 from emerald_multiplayer.emergency_save import EmergencySaveController
 from emerald_multiplayer.live_checkpoint import _json_bytes
-from emerald_multiplayer.native_battle import NativeControl, Opcode
+from emerald_multiplayer.native_battle import NativeControl, NativeQuery, Opcode
 from emerald_multiplayer.native_battle_resume import ResumeAuthorization
 import test_battle_admission as admission_fixture
 from test_companion import wait_until
@@ -373,7 +373,11 @@ class RetainedBattleRecoveryTests(unittest.IsolatedAsyncioTestCase):
             session._retained()
         self.journal.path.write_bytes(self.original_intent)
 
-    async def run_scripted_completion(self, *, lose_host=True, closed_early=False):
+    async def run_scripted_completion(self, *, lose_host=True, closed_early=False, provisional=False):
+        if provisional:
+            original = NativeBattleSession(self.c, self.directory)
+            original.intent, original._command, original._dispatch_id = self.intent, self.bind, 1
+            original._persist("admitting")
         if lose_host:
             await self.disconnect()
         session = NativeBattleRecoverySession(self.c, self.directory)
@@ -392,11 +396,15 @@ class RetainedBattleRecoveryTests(unittest.IsolatedAsyncioTestCase):
                 bound = replace(self.binding, leases=leases)
                 renewal = ResumeAuthorization(bound, b"q"*16, 1, 1)
                 base = replace(self.bind, session_epoch=self.c.session_epoch)
-                commands = [
-                    ("recovery", 1, replace(base, opcode=Opcode.QUERY, data=b"", sequence=2)),
-                    ("recovery", 2, replace(base, opcode=Opcode.SUSPEND, data=b"", sequence=2)),
-                    ("recovery", 3, replace(base, opcode=Opcode.REAUTHORIZE, data=renewal.pack(), sequence=2)),
-                    ("recovery", 4, replace(base, opcode=Opcode.RESUME, data=b"q"*16+struct.pack("<I", 1), sequence=2)),
+                recovery = [replace(base, opcode=Opcode.QUERY, data=b"", sequence=2)]
+                if provisional:
+                    recovery.append(replace(base, data=bound.pack()))
+                recovery.extend([
+                    replace(base, opcode=Opcode.SUSPEND, data=b"", sequence=2),
+                    replace(base, opcode=Opcode.REAUTHORIZE, data=renewal.pack(), sequence=2),
+                    replace(base, opcode=Opcode.RESUME, data=b"q"*16+struct.pack("<I", 1), sequence=2),
+                ])
+                commands = [("recovery", index, command) for index, command in enumerate(recovery, 1)] + [
                     ("route", 2, replace(base, opcode=Opcode.KEEP, data=b"", sequence=2)),
                     ("route", 3, replace(base, opcode=Opcode.RELEASE,
                         data=struct.pack("<II", self.canonical.party_crc32, 2), sequence=3)),
@@ -414,7 +422,8 @@ class RetainedBattleRecoveryTests(unittest.IsolatedAsyncioTestCase):
             issued.append(command)
             response_stage, response_id = stage, dispatch
             data = {
-                Opcode.QUERY: self.query(), Opcode.SUSPEND: self.recovery_query(),
+                Opcode.QUERY: self.query(flags=129, sequence=0, remaining=0) if provisional else self.query(),
+                Opcode.BIND: self.query(), Opcode.SUSPEND: self.recovery_query(),
                 Opcode.REAUTHORIZE: self.recovery_query(epoch=1, token=b"q"*16),
                 Opcode.RESUME: self.recovery_query(suspended=False, epoch=1, token=b"q"*16),
                 Opcode.KEEP: self.query(sequence=2), Opcode.RELEASE: b"",
@@ -429,6 +438,15 @@ class RetainedBattleRecoveryTests(unittest.IsolatedAsyncioTestCase):
             completion = await asyncio.wait_for(session.run(), 10)
         await asyncio.gather(*replies)
         return session, completion, issued
+
+    async def test_provisional_query_recovers_original_unexecuted_bind_through_real_ipc(self):
+        session, completion, commands = await self.run_scripted_completion(provisional=True)
+        self.assertGreater(completion.renewed_session.lease_epoch, self.intent.lease_epoch)
+        self.assertEqual([command.opcode for command in commands],
+            [Opcode.QUERY, Opcode.BIND, Opcode.SUSPEND, Opcode.REAUTHORIZE, Opcode.RESUME, Opcode.KEEP, Opcode.RELEASE])
+        self.assertEqual(commands[1].sequence, self.bind.sequence)
+        self.assertFalse(self.journal.path.exists())
+        verify_recovery_completion(self.c, self.directory, completion, self.intent, session.bridge)
 
     async def test_new_authenticated_lease_exact_ipc_and_terminal_adoption_retry(self):
         session, completion, commands = await self.run_scripted_completion()
@@ -600,6 +618,30 @@ class RetainedBattleRecoveryTests(unittest.IsolatedAsyncioTestCase):
             ("route", 3, replace(self.bind, opcode=Opcode.KEEP, data=b"", sequence=2))):
             with self.subTest(opcode=command.opcode), self.assertRaises(ValueError):
                 session._validate_command(stage, command, dispatch)
+
+    async def test_provisional_bind_requires_exact_original_generation_participant_and_sequence(self):
+        session = NativeBattleRecoverySession(self.c, self.directory)
+        session.renewed_session = session._session()
+        session._load()
+        # This is the actual native pre-BIND shape: held, same generation,
+        # no ordinary command consumed. The previous client rejected it.
+        observation = NativeQuery.unpack(self.query(flags=129, sequence=0, remaining=0))
+        cases = [None, NativeQuery.unpack(self.query()),
+            replace(observation, generation=str(uuid4())),
+            replace(observation, local_slot=1-self.binding.local_slot),
+            replace(observation, player_count=4, mode=3),
+            replace(observation, last_sequence=1)]
+        for query in cases:
+            session._observation = query
+            with self.subTest(query=query), self.assertRaises(BattleJournalError):
+                session._validate_command("recovery", self.bind, 2)
+        session._observation = observation
+        for command in (replace(self.bind, sequence=2),
+                        replace(self.bind, data=replace(self.binding, generation=str(uuid4())).pack())):
+            with self.subTest(command=command), self.assertRaises(ValueError):
+                session._validate_command("recovery", command, 2)
+        session._validate_command("recovery", self.bind, 2)
+        self.assertEqual(session.binding, self.binding)
 
     async def test_loaded_recovery_rejects_malformed_identity_dispatch_and_receipt_evidence(self):
         session = NativeBattleRecoverySession(self.c, self.directory)

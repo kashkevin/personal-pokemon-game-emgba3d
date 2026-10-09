@@ -17,7 +17,8 @@ class TradeMenuTests(unittest.IsolatedAsyncioTestCase):
         dialog = SimpleNamespace(menu=SimpleNamespace(screen=MenuScreen(1, "Players", "", ())),
             open_trade_dialog=AsyncMock(), close_dialog=AsyncMock(), show_dialog=lambda screen: None)
         coordinator = SimpleNamespace(prepare=AsyncMock(), status=AsyncMock(return_value=view),
-            keepalive=AsyncMock(), offer=AsyncMock(), confirm=AsyncMock(), resume=AsyncMock(return_value="receipt"))
+            keepalive=AsyncMock(), offer=AsyncMock(), confirm=AsyncMock(), resume=AsyncMock(return_value="receipt"),
+            trade_path=SimpleNamespace(exists=lambda: False))
         with patch("emerald_multiplayer.trade_menu.LiveTradeCoordinator", return_value=coordinator):
             menu = NativeTradeMenu(companion, ".", dialog)
         return menu, dialog, coordinator, companion, view
@@ -25,7 +26,7 @@ class TradeMenuTests(unittest.IsolatedAsyncioTestCase):
     def test_render_has_explicit_disabled_eligibility_and_exact_fingerprint(self):
         menu, _, _, _, view = self.make()
         screen = menu._render(view, (PartyChoice(41, 25, 7, True), PartyChoice(42, 64, 8, False)))
-        self.assertEqual(screen.rows[1].action, 0)
+        self.assertEqual(menu.actions[screen.rows[1].action], ("blocked", 42))
         self.assertEqual(menu.actions[1], ("offer", 41))
         self.assertEqual(menu.actions[7], ("cancel", None))
         menu.page = "review"

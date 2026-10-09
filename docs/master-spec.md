@@ -2,6 +2,13 @@
 
 This is the current specification for a private Windows game for one to four players total, using Emerald as its visual and technical foundation. The October 7, 2026 Generation 6 update replaces the original Gen 1–5 roster, Gen 5 mechanics, and exclusion of Fairy. The subsequent [combined amendment](project-update-customization-friendship-shiny-charm.txt) adds customized Trainers, research/reuse requirements, player friendship and Lucky trading, and a personal Shiny Charm with a Game Corner reward path. Other accepted requirements remain in force. Original briefs and amendments are preserved verbatim; the [current delivery order](development-roadmap.md) records the owner's latest priorities.
 
+The October 9 [visual/world amendment](project-update-maximum-visuals-visible-wild-riding-time.txt)
+adds an ambitious Emerald-compatible fake-2.5D direction, primary visible wild
+encounters, investigated shared spawn ownership, synchronized followers and
+ground mounts, and persistent shared morning/day/evening/night. It explicitly
+requires research, recoverable assets, staged implementation and testing. These
+are requirements, not claims that the systems already work.
+
 ## Game identity and delivery
 
 - Start with Hoenn and Emerald's GBA-style 2D presentation.
@@ -48,6 +55,57 @@ Randomized encounters select from eligible Gen 1–6 evolutionary families, with
 Early encounters primarily use low-level basic forms. Rare families such as Bagon, Larvitar, Gible, Axew, Deino, Riolu, Honedge, or Goomy can appear early at balanced rarity and low levels; their final evolutions should not normally appear at starter-level difficulty. Evolution stages and encounter levels expand with progression. Common, uncommon, rare, and very rare are possible rarity categories; exact weights are a later balancing decision.
 
 Every player receives independent encounter rolls, even in the same patch of grass. Shinies remain possible and must display correctly in battle and as followers. Do not silently choose a new shiny rate.
+
+The newer visible-world amendment supersedes invisible random encounters as the
+primary presentation. Generate eligible species before displaying their roaming
+overworld representation; start battle by approaching/touching/interacting.
+Keep traditional encounter infrastructure for appropriate areas/modes. Shared
+visible entities are the recommended direction, with the first initiating player
+temporarily claiming one; publish catch/defeat/run/disconnect/crash rules before
+implementation. The older independent-roll rule still applies to traditional
+personal encounters; final shared-spawn RNG, mixed-progression eligibility and
+personal Charm interaction need explicit resolution. Display preselected shinies
+in the overworld wherever reliable matching palettes exist. Visibility, clock
+and attempt counters must never silently alter shiny odds or World Event identity.
+
+## Visual world, followers, mounts and time
+
+Retain the 2D Emerald/expansion engine. Use layered terrain/roofs/foreground,
+perspective, overlapping trees, shadows, animated water/vegetation, weather,
+particles, cave/window/street lighting and authored landmarks to create depth.
+Do not promise modern shader depth-of-field or real-time polygonal lighting on
+the GBA. Improve Hoenn iteratively; preserve previous assets and collision data.
+
+Audit existing player idle/walk/run/turn/fish/bike/surf/ledge/door/item/battle
+animation states before replacing them. Fishing targets cast/splash/wait/bite/
+reel/encounter. Reuse good existing Gen 1–6 front/back/shiny/form/Mega and
+overworld art with component attribution; a file's presence is not verified
+animation coverage. Add species-appropriate movement/idle/reactions where assets
+support them. A synchronized follower must handle paths, running, transitions,
+indoors and shiny/form rendering on every observer.
+
+Mounts begin as ground movement/cosmetics with a supported species/animation
+roster and balanced common speed, whose numeric value remains pending. Mounting
+does not grant Fly, Surf, or another progression ability. Follower→mount→follower,
+rider alignment, collisions and mount/dismount movement must synchronize to peers.
+
+One authoritative persistent world clock supplies every connected player.
+Recommend clock mode/time scale before finalizing it; exact visual period
+boundaries remain pending. Smooth palette transitions must compose with weather,
+interiors, fades and accessibility. Audit the complete Gen 1–6 time-dependent
+evolution list against Gen 6 requirements; do not remove legitimate day/night
+gates. Time can filter/weight eligible randomized spawns without making most
+species inaccessible or changing shiny odds. Major time-gated events need
+reasonable access for different real-world play schedules.
+
+Budget for four players, followers, mounts, visible wild Pokémon, NPCs and
+effects together. Reuse assets/animation tables and bounded loading; reserve
+critical actors before cosmetic entities, cull offscreen work, reduce distant
+updates and cap effects. Measure object/sprite/palette/VRAM/heap/frame and
+network costs on actual four-client scenes before increasing limits. Record
+resource source/creator, terms, coverage/states, changes, missing art and
+compatibility in the asset inventory. Graphics never override save, trade,
+battle, ownership or multiplayer recovery guarantees.
 
 ## Multiplayer safe Local Soft Reset
 

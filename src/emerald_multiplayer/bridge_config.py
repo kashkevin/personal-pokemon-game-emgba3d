@@ -51,6 +51,9 @@ def configure(manifest: dict, token: str, port: int, bridge: str) -> str:
                          f", battle_address={manifest['battle_mailbox_address']}, battle_size=512")
         if manifest.get("battle_resume_abi_version") == 1:
             battle_config += f", battle_resume_abi=1, battle_resume_abi_address={manifest['battle_resume_abi_address']}"
+        if manifest.get("battle_admission_cleanup_abi_version") == 1:
+            battle_config += (", battle_execution_abi=1, battle_admission_cleanup_abi=1"
+                              f", battle_admission_cleanup_abi_address={manifest['battle_admission_cleanup_abi_address']}")
     window_config = ""
     if validate_window_manifest(manifest):
         window_config = (f", window_abi=1, window_abi_address={manifest['save_window_abi_address']}"
@@ -66,10 +69,25 @@ def configure(manifest: dict, token: str, port: int, bridge: str) -> str:
     if validate_reset_manifest(manifest):
         reset_config = (f", reset_abi={manifest['reset_abi_version']}, reset_abi_address={manifest['reset_abi_address']}"
                         f", reset_address={manifest['reset_mailbox_address']}, reset_size=128")
+        if manifest.get("reset_input_abi_version") == 1:
+            reset_config += f", reset_input_abi=1, reset_input_abi_address={manifest['reset_input_abi_address']}"
     emergency_config = ""
     if validate_emergency_manifest(manifest):
         emergency_config = f", emergency_save_abi={manifest['emergency_save_abi_version']}, emergency_save_abi_address={manifest['emergency_save_abi_address']}"
+    from .trade_effect_mailbox import validate_effect_prepare_manifest, validate_effect_save_manifest, validate_effect_choice_manifest
+    effect_config = ""
+    if validate_effect_prepare_manifest(manifest):
+        effect_config = f", trade_effect_prepare_abi=1, trade_effect_prepare_abi_address={manifest['trade_effect_prepare_abi_address']}"
+    if validate_effect_save_manifest(manifest):
+        effect_config += f", trade_effect_save_abi=1, trade_effect_save_abi_address={manifest['trade_effect_save_abi_address']}"
+    if validate_effect_choice_manifest(manifest):
+        effect_config += f", trade_effect_choice_abi=1, trade_effect_choice_abi_address={manifest['trade_effect_choice_abi_address']}"
+    from .presence_animation import validate_presence_animation_manifest
+    animation_config = ""
+    if validate_presence_animation_manifest(manifest):
+        animation_config = (", presence_animation_abi=1"
+                            f", presence_animation_abi_address={manifest['presence_animation_abi_address']}")
     return (
         f'EMERALD_BRIDGE = {{address={address}, rom_size={size}, rom_crc32="{crc}", '
-        f'port={port}, token="{token}"{save_config}{trade_config}{battle_config}{window_config}{menu_config}{emergency_config}{reset_config}}}\n' + bridge
+        f'port={port}, token="{token}"{save_config}{trade_config}{battle_config}{window_config}{menu_config}{emergency_config}{reset_config}{effect_config}{animation_config}}}\n' + bridge
     )

@@ -10,7 +10,7 @@ import re
 from .protocol import MAX_COUNTER, PROTOCOL_VERSION, ProtocolError, _fields, _integer
 from .team_protocol import _uuid
 
-BATTLE_OPERATIONS = frozenset({"invite", "invite_multi", "accept", "claim", "cancel", "status", "pending", "history", "waiting", "execute", "resume"})
+BATTLE_OPERATIONS = frozenset({"invite", "invite_multi", "accept", "claim", "cancel", "cancel_admission", "admission_handoff", "status", "pending", "history", "waiting", "execute", "resume"})
 BATTLE_TYPES = frozenset("battle_" + op for op in BATTLE_OPERATIONS)
 STATES = frozenset({"invited", "accepted", "prepared", "starting", "running", "finishing",
                     "release_authorized", "closed", "aborting", "aborted", "recovery_required"})
@@ -39,14 +39,47 @@ def validate_battle_request(message, epoch):
         "accept": {"battle_id", "generation", "fingerprint"},
         "claim": {"battle_id", "generation", "incarnation", "runtime_id"},
         "cancel": {"battle_id", "generation"},
+        "cancel_admission": {"battle_id", "generation", "incarnation", "runtime_id", "cleanup_ready_b64", "cleanup_receipt_b64"},
+        "admission_handoff": {"battle_id", "generation", "incarnation", "runtime_id", "handoff_receipt_b64"},
         "status": {"battle_id"}, "pending": set(), "history": set(), "waiting": set(),
         "execute": {"battle_id", "generation", "incarnation", "response_b64", "response_id"},
         "resume": {"battle_id", "generation", "incarnation", "response_b64", "response_id", "response_stage"},
     }[operation]
+    championship_match = False
+    if operation == "pending" and "championship" in message:
+        from .championship_protocol import validate_championship_request
+        validate_championship_request(message["championship"])
+        extra = extra | {"championship"}
+        championship_match = message["championship"]["operation"] == "match"
+    if operation == "pending" and "admission_handoff_version" in message:
+        if "championship" in message or type(message["admission_handoff_version"]) is not int or message["admission_handoff_version"] != 1:
+            raise ProtocolError("admission_handoff_unsupported", "unsupported admission handoff capability query")
+        extra = extra | {"admission_handoff_version"}
+    card_fields = {"player_card_version", "card_player"}
+    history_extensions = {"battle_archive", "reset_history", "trade_archive"}.intersection(message)
+    if history_extensions:
+        if operation != "history" or len(history_extensions) != 1 or card_fields.intersection(message):
+            raise ProtocolError("invalid_fields", "request one private history view at a time")
+        key = next(iter(history_extensions))
+        if key == "battle_archive":
+            from .battle_archive import validate_battle_archive_request
+            validate_battle_archive_request(message[key])
+        elif key == "reset_history":
+            from .reset_history import validate_reset_history_request
+            validate_reset_history_request(message[key])
+        else:
+            from .trade_archive import validate_trade_archive_request
+            validate_trade_archive_request(message[key])
+        extra = extra | history_extensions
+    if operation == "history" and card_fields.intersection(message):
+        from .player_card import SUPPORTED_VERSIONS
+        extra = extra | card_fields
+        if type(message.get("player_card_version")) is not int or message["player_card_version"] not in SUPPORTED_VERSIONS:
+            raise ProtocolError("player_card_unsupported", "unsupported Trainer Card version")
     if operation in ("execute", "resume") and "admission_sha256" in message:
         extra = extra | {"admission_sha256"}
     identity_fields = {"incarnation", "runtime_id"}
-    if operation == "claim" or (operation in ("invite", "invite_multi", "accept") and identity_fields.intersection(message)):
+    if operation in ("claim", "cancel_admission", "admission_handoff") or ((operation in ("invite", "invite_multi", "accept") or championship_match) and identity_fields.intersection(message)):
         extra = extra | identity_fields
         _integer(message.get("incarnation"), "incarnation", 1, 0xFFFFFFFF)
         _uuid(message.get("runtime_id"), "runtime_id")
@@ -54,7 +87,7 @@ def validate_battle_request(message, epoch):
     if operation in ("execute", "resume") and provisional_fields.intersection(message):
         extra = extra | provisional_fields
     _fields(message, {"type", "request_id", "session_epoch"} | extra)
-    for key in extra - {"opponents", "fingerprint", "incarnation", "response_b64", "response_id", "response_stage", "admission_sha256", "admission_b64", "admission_receipt_b64"}:
+    for key in extra - {"opponents", "fingerprint", "incarnation", "response_b64", "response_id", "response_stage", "admission_sha256", "admission_b64", "admission_receipt_b64", "cleanup_receipt_b64", "cleanup_ready_b64", "handoff_receipt_b64", "admission_handoff_version", "player_card_version", "championship", "battle_archive", "reset_history", "trade_archive"}:
         _uuid(message[key], key)
     if operation == "execute":
         from .battle_execution_protocol import validate_execution_request
@@ -62,6 +95,29 @@ def validate_battle_request(message, epoch):
     elif operation == "resume":
         from .battle_recovery_protocol import validate_recovery_request
         validate_recovery_request(message)
+    elif operation == "cancel_admission":
+        from .battle_execution_protocol import decode_control
+        from .native_battle import Opcode
+        for key, opcode in (("cleanup_ready_b64", Opcode.ADMISSION_CANCEL_READY),
+                            ("cleanup_receipt_b64", Opcode.ADMISSION_CANCEL_HOLD)):
+            if key == "cleanup_receipt_b64" and message[key] is None:
+                continue
+            receipt = decode_control(message[key], response=True)
+            if receipt.opcode != opcode or receipt.status:
+                raise ProtocolError("invalid_field", "cleanup needs its exact successful native readiness/hold receipt")
+    elif operation == "admission_handoff":
+        from .battle_execution_protocol import decode_control
+        from .native_battle import Opcode
+        from .battle_admission_cleanup_protocol import AdmissionCancellation
+        receipt = decode_control(message["handoff_receipt_b64"], response=True)
+        if receipt.opcode != Opcode.ADMISSION_CANCEL_HANDOFF or receipt.status:
+            raise ProtocolError("invalid_field", "handoff needs the successful original native receipt")
+        decode_control(message["handoff_receipt_b64"])  # Preserve normal RPC errors for malformed command fields.
+        cancellation = AdmissionCancellation.unpack(receipt.data)
+        if ((receipt.battle_id, receipt.incarnation, cancellation.admission.generation,
+                cancellation.admission.runtime_id) != (message["battle_id"], message["incarnation"],
+                message["generation"], message["runtime_id"]) or receipt.session_epoch > epoch):
+            raise ProtocolError("identity_mismatch", "handoff changed its original admission or lease")
     if "opponents" in extra:
         opponents = message["opponents"]
         if type(opponents) is not list or len(opponents) != 2:
@@ -151,9 +207,53 @@ def validate_battle_reply(message, actor, world_id, epoch, request=None):
                 or not message["message"].isprintable()):
             raise ProtocolError("invalid_server_message", "invalid battle error text")
     elif message["type"] == "battle_result":
-        _fields(message, common | {"result"})
+        card_fields = {"player_card_version", "player_card"}
+        has_card = bool(card_fields.intersection(message))
+        has_championship = "championship" in message
+        has_handoff = "admission_handoff_version" in message
+        history_extensions = {"battle_archive", "reset_history", "trade_archive"}.intersection(message)
+        _fields(message, common | {"result"} | (card_fields if has_card else set())
+                | ({"championship"} if has_championship else set())
+                | ({"admission_handoff_version"} if has_handoff else set()) | history_extensions)
+        if history_extensions:
+            if op != "history" or len(history_extensions) != 1 or has_card:
+                raise ProtocolError("invalid_server_message", "invalid private history extension")
+            key = next(iter(history_extensions))
+            requested = request.get(key) if request is not None else None
+            if key == "battle_archive":
+                from .battle_archive import validate_battle_archive_reply
+                validate_battle_archive_reply(message[key], actor, requested)
+            elif key == "reset_history":
+                from .reset_history import validate_reset_history_reply
+                validate_reset_history_reply(message[key], requested)
+            else:
+                from .trade_archive import validate_trade_archive_reply
+                validate_trade_archive_reply(message[key], actor, requested)
+        if has_handoff and (op != "pending" or has_championship
+                or type(message["admission_handoff_version"]) is not int or message["admission_handoff_version"] != 1):
+            raise ProtocolError("invalid_server_message", "invalid admission handoff capability")
+        if has_championship:
+            from .championship_protocol import validate_championship_reply
+            if op != "pending":
+                raise ProtocolError("invalid_server_message", "invalid Championship response extension")
+            validate_championship_reply(message["championship"], actor)
+        if has_card:
+            from .player_card import SUPPORTED_VERSIONS, validate_player_card
+            if (op != "history" or type(message["player_card_version"]) is not int
+                    or message["player_card_version"] not in SUPPORTED_VERSIONS):
+                raise ProtocolError("invalid_server_message", "invalid Trainer Card response extension")
+            target = message["player_card"].get("player_id") if type(message["player_card"]) is dict else None
+            validate_player_card(message["player_card"], actor, target)
+            if message["player_card"]["version"] != message["player_card_version"]:
+                raise ProtocolError("invalid_server_message", "Trainer Card version differs from its envelope")
         result = message["result"]
-        if op == "resume":
+        if op == "cancel_admission":
+            from .battle_admission_cleanup_protocol import validate_cancellation_view
+            validate_cancellation_view(result, actor, request)
+        elif op == "admission_handoff":
+            from .battle_admission_cleanup_protocol import validate_handoff_view
+            validate_handoff_view(result, actor, request)
+        elif op == "resume":
             from .battle_recovery_protocol import validate_recovery_view
             validate_recovery_view(message["result"], request=request)
         elif op == "execute":
@@ -189,7 +289,28 @@ def validate_battle_reply(message, actor, world_id, epoch, request=None):
         validate_battle_request(request, epoch)
         if message["request_id"] != request["request_id"] or op != request["type"].removeprefix("battle_"):
             raise ProtocolError("invalid_server_message", "battle reply does not match its request")
-        if message["type"] == "battle_result" and op not in ("pending", "history", "waiting", "execute", "resume"):
+        if message["type"] == "battle_result" and op == "pending":
+            if ("admission_handoff_version" in request) != ("admission_handoff_version" in message):
+                raise ProtocolError("invalid_server_message", "admission handoff capability was omitted or unsolicited")
+            requested = "championship" in request
+            if requested != ("championship" in message):
+                raise ProtocolError("invalid_server_message", "Championship extension was omitted or unsolicited")
+            if requested:
+                from .championship_protocol import validate_championship_reply
+                validate_championship_reply(message["championship"], actor, request["championship"])
+        if message["type"] == "battle_result" and op == "history":
+            extensions = {"battle_archive", "reset_history", "trade_archive"}
+            if extensions.intersection(message) != extensions.intersection(request):
+                raise ProtocolError("invalid_server_message", "private history extension was omitted or unsolicited")
+            requested = "player_card_version" in request
+            if requested != ("player_card_version" in message):
+                raise ProtocolError("invalid_server_message", "Trainer Card extension was omitted or unsolicited")
+            if requested:
+                from .player_card import validate_player_card
+                if message["player_card_version"] != request["player_card_version"]:
+                    raise ProtocolError("invalid_server_message", "Trainer Card changed the requested version")
+                validate_player_card(message["player_card"], actor, request["card_player"])
+        if message["type"] == "battle_result" and op not in ("pending", "history", "waiting", "execute", "resume", "cancel_admission", "admission_handoff"):
             result = message["result"]
             if result["battle_id"] != request["battle_id"]:
                 raise ProtocolError("identity_mismatch", "battle reply changed the target")

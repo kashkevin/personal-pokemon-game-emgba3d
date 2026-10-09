@@ -1,7 +1,8 @@
 """Verified-ROM companion connecting a loopback binary bridge to the world server.
 
-The current ruleset identifies the unmodified RHH baseline plus the mailbox,
-not a completed Gen 6 game. This component never writes ROM/RAM or save files.
+Rulesets distinguish the inherited baseline and the ROM-verified Gen6 defaults
+profile. Neither claims a completed content catalogue. This component never
+writes ROM/RAM or save files.
 """
 
 from __future__ import annotations
@@ -67,8 +68,9 @@ def verify_rom_manifest(rom_path: Path, manifest_path: Path) -> tuple[str, dict[
         raise ValueError("manifest ABI is incompatible")
     if type(manifest.get("mailbox_size")) is not int or manifest["mailbox_size"] != MAILBOX_SIZE:
         raise ValueError("manifest mailbox size is incompatible")
-    if manifest.get("ruleset_id") != BASELINE_RULESET:
-        raise ValueError("manifest ruleset must identify the baseline mailbox build")
+    from .gen6_profile import GEN6_DEFAULTS_RULESET
+    if manifest.get("ruleset_id") not in (BASELINE_RULESET, GEN6_DEFAULTS_RULESET):
+        raise ValueError("manifest ruleset is not a supported game profile")
     expected_hash = manifest.get("rom_sha256")
     if not isinstance(expected_hash, str) or re.fullmatch("[0-9a-f]{64}", expected_hash) is None:
         raise ValueError("manifest ROM SHA256 is invalid")
@@ -130,6 +132,18 @@ def verify_rom_manifest(rom_path: Path, manifest_path: Path) -> tuple[str, dict[
     validate_reset_manifest(manifest, rom_path)
     from .emergency_protocol import validate_emergency_manifest
     validate_emergency_manifest(manifest, rom_path)
+    from .trade_effect_mailbox import validate_effect_prepare_manifest, validate_effect_save_manifest, validate_effect_choice_manifest
+    validate_effect_prepare_manifest(manifest, rom_path)
+    validate_effect_save_manifest(manifest, rom_path)
+    validate_effect_choice_manifest(manifest, rom_path)
+    from .trade_replay_manifest import validate_trade_replay_manifest
+    validate_trade_replay_manifest(manifest, rom_path)
+    from .presence_animation import validate_presence_animation_manifest
+    validate_presence_animation_manifest(manifest, rom_path)
+    from .gen6_profile import validate_generation_profile
+    validate_generation_profile(manifest, rom_path)
+    from .player_build import validate_player_build_manifest
+    validate_player_build_manifest(manifest, rom_path)
     return actual_hash, manifest
 
 
@@ -161,12 +175,22 @@ class CompanionConfig:
     save_enabled: bool = field(init=False, default=False)
     ownership_enabled: bool = field(init=False, default=False)
     trade_enabled: bool = field(init=False, default=False)
+    trade_effect_prepare_abi_version: int = field(init=False, default=0)
+    trade_effect_save_abi_version: int = field(init=False, default=0)
+    trade_effect_choice_abi_version: int = field(init=False, default=0)
+    presence_animation_abi_version: int = field(init=False, default=0)
     battle_enabled: bool = field(init=False, default=False)
     battle_abi_version: int = field(init=False, default=0)
     battle_resume_abi_version: int = field(init=False, default=0)
+    battle_admission_cleanup_abi_version: int = field(init=False, default=0)
     save_window_enabled: bool = field(init=False, default=False)
     reset_enabled: bool = field(init=False, default=False)
     reset_abi_version: int = field(init=False, default=0)
+    reset_input_abi_version: int = field(init=False, default=0)
+    reset_catalogue_version: int = field(init=False, default=0)
+    reset_source_mask: int | None = field(init=False, default=None)
+    reset_control_flags: int | None = field(init=False, default=None)
+    reset_build_flags: int | None = field(init=False, default=None)
     menu_enabled: bool = field(init=False, default=False)
     menu_abi_version: int = field(init=False, default=1)
     emergency_save_enabled: bool = field(init=False, default=False)
@@ -178,17 +202,28 @@ class CompanionConfig:
         object.__setattr__(self, "manifest_path", manifest_path)
         build_id, manifest = verify_rom_manifest(rom_path, manifest_path)
         object.__setattr__(self, "build_id", build_id)
+        object.__setattr__(self, "ruleset_id", manifest["ruleset_id"])
         object.__setattr__(self, "save_enabled", "save_mailbox_address" in manifest)
         object.__setattr__(self, "ownership_enabled", manifest.get("ownership_abi_version") == 1)
         object.__setattr__(self, "trade_enabled", manifest.get("trade_abi_version") == 1)
+        object.__setattr__(self, "trade_effect_prepare_abi_version", manifest.get("trade_effect_prepare_abi_version", 0))
+        object.__setattr__(self, "trade_effect_save_abi_version", manifest.get("trade_effect_save_abi_version", 0))
+        object.__setattr__(self, "trade_effect_choice_abi_version", manifest.get("trade_effect_choice_abi_version", 0))
+        object.__setattr__(self, "presence_animation_abi_version", manifest.get("presence_animation_abi_version", 0))
         object.__setattr__(self, "battle_enabled", manifest.get("battle_abi_version") in (1, 2, 3))
         object.__setattr__(self, "battle_abi_version", manifest.get("battle_abi_version", 0))
         object.__setattr__(self, "battle_resume_abi_version", manifest.get("battle_resume_abi_version", 0))
+        object.__setattr__(self, "battle_admission_cleanup_abi_version", manifest.get("battle_admission_cleanup_abi_version", 0))
         object.__setattr__(self, "menu_enabled", manifest.get("menu_abi_version") in (1, 2))
         object.__setattr__(self, "menu_abi_version", manifest.get("menu_abi_version", 1))
         object.__setattr__(self, "save_window_enabled", manifest.get("save_window_abi_version") == 1)
         object.__setattr__(self, "reset_enabled", manifest.get("reset_abi_version") in (1, 2))
         object.__setattr__(self, "reset_abi_version", manifest.get("reset_abi_version", 0))
+        object.__setattr__(self, "reset_input_abi_version", manifest.get("reset_input_abi_version", 0))
+        object.__setattr__(self, "reset_catalogue_version", manifest.get("reset_catalogue_version", 0))
+        object.__setattr__(self, "reset_source_mask", manifest.get("reset_source_mask"))
+        object.__setattr__(self, "reset_control_flags", manifest.get("reset_control_flags"))
+        object.__setattr__(self, "reset_build_flags", manifest.get("reset_build_flags"))
         object.__setattr__(self, "emergency_save_enabled", manifest.get("emergency_save_abi_version") in (1, 2))
         object.__setattr__(self, "emergency_save_abi_version", manifest.get("emergency_save_abi_version", 0))
         if type(self.development_battle_channel) is not bool:
@@ -328,6 +363,9 @@ class BridgeSession:
     incarnation: int
     writer_task: asyncio.Task[None] | None = None
     save_capable: bool = False
+    trade_effect_prepare_capable: bool = False
+    trade_effect_save_capable: bool = False
+    trade_effect_choice_capable: bool = False
     window_capable: bool = False
     emergency_save_capable: bool = False
     battle_capable: bool = False
@@ -394,7 +432,10 @@ class Companion:
         if not self.connected or self._roster_signature is None:
             return Snapshot(heartbeat=self._heartbeat, roster_epoch=self._roster_epoch)
         own_slot = next((index for index, player in enumerate(self._players) if player["player_id"] == self.config.player_id), 0)
-        peers = tuple(Peer(index + 1, Pose.from_presence(player["presence"])) for index, player in enumerate(self._players) if player["player_id"] != self.config.player_id and player["presence"] is not None)
+        peers = tuple(Peer(index + 1, Pose.from_presence(player["presence"],
+            presentation_version=self.config.presence_animation_abi_version))
+            for index, player in enumerate(self._players)
+            if player["player_id"] != self.config.player_id and player["presence"] is not None)
         return Snapshot(CONNECTED, self._heartbeat, self._roster_epoch, own_slot, peers)
 
     async def start(self) -> None:
@@ -468,6 +509,27 @@ class Companion:
                         raise BridgeError("save capability disagrees with verified manifest")
                     bridge.save_capable = True
                     continue
+                if packet[:1] == b"K":
+                    from .trade_effect_mailbox import capability_packet
+                    if (not bridge.save_capable or self.config.trade_effect_prepare_abi_version != 1
+                            or packet != capability_packet()):
+                        raise BridgeError("record preparation differs from verified manifest")
+                    bridge.trade_effect_prepare_capable = True
+                    continue
+                if packet[:1] == b"L":
+                    from .trade_effect_mailbox import save_capability_packet
+                    if (not bridge.trade_effect_prepare_capable or not bridge.window_capable
+                            or self.config.trade_effect_save_abi_version != 1 or packet != save_capability_packet()):
+                        raise BridgeError("native save candidate differs from verified manifest")
+                    bridge.trade_effect_save_capable = True
+                    continue
+                if packet[:1] == b"O":
+                    from .trade_effect_mailbox import choice_capability_packet
+                    if (not bridge.trade_effect_prepare_capable or self.config.trade_effect_choice_abi_version != 1
+                            or packet != choice_capability_packet()):
+                        raise BridgeError("native move presentation differs from verified manifest")
+                    bridge.trade_effect_choice_capable = True
+                    continue
                 if packet[:1] == b"R":
                     if not bridge.save_capable:
                         raise BridgeError("save response arrived before its verified capability")
@@ -491,7 +553,7 @@ class Companion:
                     if not bridge.window_capable:
                         raise BridgeError("save window arrived before its verified capability")
                     try:
-                        response, window = parse_window_packet(packet)
+                        response, window = parse_window_packet(packet, allow_effect_save=bridge.trade_effect_save_capable)
                     except ValueError as error:
                         raise BridgeError("invalid Flash window") from error
                     self._receive_save_response(response.pack(), bridge, window=window)
@@ -548,7 +610,7 @@ class Companion:
                     continue
                 if len(packet) != 21 or packet[:1] != b"P":
                     raise BridgeError("expected one bounded local pose")
-                pose = Pose.unpack(packet[1:])
+                pose = Pose.unpack(packet[1:], presentation_version=self.config.presence_animation_abi_version)
                 previous = self._local_pose
                 if previous is not None:
                     epoch_distance = (pose.map_epoch - previous.map_epoch) & _UINT32
@@ -654,6 +716,8 @@ class Companion:
         if not isinstance(control, SaveControl):
             raise ValueError("save command must be a validated SaveControl")
         control.validate_command()
+        if control.opcode >= Opcode.BEGIN_EFFECT_RECORD:
+            raise ValueError("record preparation requires its dedicated retained trade authority")
         if control.opcode >= Opcode.BEGIN_EMERGENCY_EXPORT:
             # Capability advertisement alone never grants destructive/offline
             # lifecycle authority. A dedicated controller is required later.
@@ -666,6 +730,31 @@ class Companion:
         if (not self.connected or bridge is None or not bridge.save_capable
                 or control.incarnation != bridge.incarnation or control.session_epoch != self.session_epoch):
             raise ConnectionError("live-save command has no matching active session")
+        if self._save_pending:
+            raise ValueError("a live-save command is already pending")
+        return await self._dispatch_save_control(bridge, control, timeout)
+
+    async def trade_effect_rpc(self, authority, control, *, timeout=12.0):
+        """Private record/choice operations only, under the original held trade."""
+        from .save_mailbox import SaveControl, Opcode
+        from .trade_effect_mailbox import OPS
+        from .trade_effect_session import HeldTradeEffectClient
+        if (type(authority) is not HeldTradeEffectClient or not isinstance(control, SaveControl)
+                or control.opcode not in OPS or not authority.authorizes(self, control)):
+            raise ValueError("record preparation lacks its exact retained trade authority")
+        control.validate_command()
+        self._guard_pending_trade_mutation()
+        bridge = self._bridge
+        if (self.config.trade_effect_prepare_abi_version != 1 or not self.connected or bridge is None
+                or not bridge.save_capable or not bridge.trade_effect_prepare_capable
+                or control.incarnation != bridge.incarnation or control.session_epoch != self.session_epoch):
+            raise ConnectionError("record preparation has no verified live capability")
+        if control.opcode in (Opcode.BEGIN_EFFECT_SAVE, Opcode.READ_EFFECT_WINDOW) and (self.config.trade_effect_save_abi_version != 1
+                or not bridge.trade_effect_save_capable or not bridge.window_capable):
+            raise ValueError("full save candidate requires its separately verified window capability")
+        if control.opcode == Opcode.QUERY_EFFECT_CHOICE and (self.config.trade_effect_choice_abi_version != 1
+                or not bridge.trade_effect_choice_capable):
+            raise ValueError("native move presentation requires its separately verified capability")
         if self._save_pending:
             raise ValueError("a live-save command is already pending")
         return await self._dispatch_save_control(bridge, control, timeout)
@@ -724,14 +813,15 @@ class Companion:
         fields = ("incarnation", "session_epoch", "request_id", "sequence", "total_size", "revision", "opcode")
         if bridge is not self._bridge or any(getattr(response, key) != getattr(command, key) for key in fields):
             raise BridgeError("live-save response does not match its request")
-        if response.opcode == Opcode.READ_WINDOW:
+        window_op = response.opcode in (Opcode.READ_WINDOW, Opcode.READ_EFFECT_WINDOW)
+        if window_op:
             if ((response.status == Status.OK and (window is None or response.offset != command.offset))
                     or (response.status != Status.OK and window is not None)):
                 raise BridgeError("read window response lacks its matching bounded bytes")
         elif window is not None:
             raise BridgeError("unexpected Flash window for another save command")
         if not future.done():
-            future.set_result((response, window or b"") if response.opcode == Opcode.READ_WINDOW else response)
+            future.set_result((response, window or b"") if window_op else response)
 
     @property
     def battle_incarnation(self) -> int:
@@ -751,6 +841,8 @@ class Companion:
                 or not isinstance(control, (BattleControl, NativeControl))
                 or (isinstance(control, NativeControl) and control.opcode > 13
                     and self.config.battle_resume_abi_version != 1)
+                or (isinstance(control, NativeControl) and control.opcode > 21
+                    and getattr(self.config, "battle_admission_cleanup_abi_version", 0) != 1)
                 or (isinstance(control, NativeControl) and control.opcode == Opcode.BIND
                     and len(control.data) == 116 and control.data[115]
                     and self.config.battle_resume_abi_version != 1)
@@ -758,27 +850,39 @@ class Companion:
             raise ValueError("battle channel requires explicit development opt-in and a matching ABI control")
         control.validate_command(player_id=self.config.player_id)
         if control.opcode != Opcode.QUERY:
-            self._guard_pending_trade_mutation(allow_battle_owner=True)
             from .battle_journal import pending_battle
             from .battle_session import NativeBattleSession
             from .battle_recovery_session import NativeBattleRecoverySession
             from .battle_terminal import BattleHandoffAuthority
             from .battle_admission_session import AdmissionHoldAuthority
+            from .battle_admission_cleanup import AdmissionCleanupSession, AdmissionCleanupHandoffAuthority
+            from .battle_admission_cleanup import AdmissionCleanupReadinessAuthority
+            from .battle_admission_cleanup import AdmissionCleanupOfflineHoldAuthority
             executor = getattr(self, "_live_battle_executor", None)
             execution_authority = (isinstance(executor, (NativeBattleSession, NativeBattleRecoverySession,
-                                                        BattleHandoffAuthority, AdmissionHoldAuthority))
+                                                        BattleHandoffAuthority, AdmissionHoldAuthority,
+                                                        AdmissionCleanupSession, AdmissionCleanupHandoffAuthority,
+                                                        AdmissionCleanupOfflineHoldAuthority))
                                    and executor._authorizes(control))
-            if isinstance(control, NativeControl) and control.opcode in (19, 20, 21) and not execution_authority:
+            readiness = getattr(self, "_live_battle_cleanup_readiness", None)
+            cleanup_observation = (isinstance(control, NativeControl) and control.opcode == 24
+                and type(readiness) is AdmissionCleanupReadinessAuthority and readiness._authorizes(control))
+            if not cleanup_observation:
+                self._guard_pending_trade_mutation(allow_battle_owner=True)
+            execution_authority = execution_authority or cleanup_observation
+            if isinstance(control, NativeControl) and control.opcode in (19, 20, 21, 22, 23, 24) and not execution_authority:
                 raise ValueError("battle hold transitions require their exact persisted lifecycle authority")
             if ((getattr(self, "_live_battle_owner", None) is not None or pending_battle(self))
                     and control != getattr(self, "_live_battle_admission_control", None)
                     and not execution_authority):
                 raise ValueError("pending battle admission permits only its exact persisted BIND")
-            if self._live_save_owner is not None and self._live_save_owner is not asyncio.current_task():
+            if self._live_save_owner is not None and self._live_save_owner is not asyncio.current_task() and not cleanup_observation:
                 raise ValueError("a live-save lifecycle owns this character's mutations")
         bridge = self._bridge
         original_admission = (isinstance(control, NativeControl) and control.opcode == 19
             and execution_authority and isinstance(executor, AdmissionHoldAuthority))
+        original_admission = original_admission or (isinstance(control, NativeControl) and control.opcode == 22
+            and execution_authority and type(executor) is AdmissionCleanupOfflineHoldAuthority)
         if (not original_admission and (not self.connected or self.world_id is None or bridge is None or not bridge.battle_capable
                 or control.incarnation != bridge.incarnation or control.session_epoch != self.session_epoch)):
             raise ConnectionError("diagnostic command has no matching authenticated session")
@@ -885,7 +989,8 @@ class Companion:
         original intent and verified optional native marker are all required.
         """
         from .battle_recovery_session import NativeBattleRecoverySession
-        if not isinstance(recovery, NativeBattleRecoverySession) or not recovery._authorizes_reconnect():
+        from .battle_admission_cleanup import AdmissionCleanupSession
+        if not isinstance(recovery, (NativeBattleRecoverySession, AdmissionCleanupSession)) or not recovery._authorizes_reconnect():
             raise ValueError("battle reconnect requires its exact retained lifecycle authority")
         self._reconnect_blocked = True
         self._battle_recovery_authority = recovery
@@ -1119,8 +1224,15 @@ class Companion:
             raise ConnectionError("no authenticated ownership battle session")
         if set(fields) & {"type", "session_epoch"}:
             raise ValueError("battle envelope fields cannot be overridden")
+        if operation == "pending" and "championship" in fields:
+            pending_path = getattr(self, "_live_battle_pending_path", None)
+            if pending_path is not None:
+                from .battle_admission_cleanup import publish_cleanup_handoffs
+                await publish_cleanup_handoffs(self, Path(pending_path).parent)
         consent_core = None
-        if operation in {"invite", "invite_multi", "accept"} and self.config.battle_resume_abi_version == 1:
+        championship_match = (operation == "pending" and type(fields.get("championship")) is dict
+                              and fields["championship"].get("operation") == "match")
+        if (operation in {"invite", "invite_multi", "accept"} or championship_match) and self.config.battle_resume_abi_version == 1:
             if self.config.battle_abi_version != 3 or self._bridge is None or not self._bridge.battle_capable:
                 raise ValueError("resumable consent requires the current verified native core")
             if getattr(self, "_live_battle_runtime_id", None) is None:
@@ -1165,15 +1277,52 @@ class Companion:
 
     async def trade_rpc(self, operation: str, *, request_id: str | None = None,
                         timeout: float = 5.0, **fields: Any) -> dict[str, Any]:
-        """Explicit development trade controls over the authenticated reader."""
-        from .trade_protocol import TRADE_OPERATIONS, validate_trade_request
-        if operation in {"open", "offer", "confirm", "cancel", "ack"}:
+        """Negotiate optional effects through a known read before any new operation."""
+        from .trade_capability import native_effects_available
+        effect_ops = {"status", "proposals", "open", "offer", "confirm", "prepare", "inspect",
+                      "effect_source", "cancel", "effect_prepared"}
+        if "effects_version" in fields:
+            raise ValueError("effect capability negotiation is owned by the companion")
+        native = native_effects_available(self)
+        if operation in effect_ops and (native or operation in {"status", "cancel"}):
+            binding = (self.world_id, self.server_epoch, self.session_epoch)
+            cached = getattr(self, "_trade_effect_negotiation", None)
+            if cached is None or cached[0] != binding:
+                try:
+                    # Recovery-only hosts intentionally expose status while
+                    # disabling proposal creation. Probe the exact known fate
+                    # operation for recovery instead of requiring a live desk.
+                    if operation in {"status", "cancel"} and "transaction_id" in fields:
+                        probe = await self._trade_rpc("status", timeout=timeout, effects_version=1,
+                            transaction_id=fields["transaction_id"])
+                    else:
+                        probe = await self._trade_rpc("proposals", timeout=timeout, effects_version=1)
+                    supported = probe.get("effects_version") == 1
+                except TradeError as error:
+                    if error.code != "invalid_fields":
+                        raise
+                    supported = False
+                if not self.connected or binding != (self.world_id, self.server_epoch, self.session_epoch):
+                    raise ConnectionError("trade effect negotiation changed authenticated session")
+                cached = (binding, supported)
+                self._trade_effect_negotiation = cached
+            if cached[1]:
+                fields["effects_version"] = 1
+        if operation == "effect_prepared" and (not native or fields.get("effects_version") != 1):
+            raise TradeError("trade_effect_unsupported", "matching host and original native effect capabilities are required")
+        return await self._trade_rpc(operation, request_id=request_id, timeout=timeout, **fields)
+
+    async def _trade_rpc(self, operation: str, *, request_id: str | None = None,
+                        timeout: float = 5.0, **fields: Any) -> dict[str, Any]:
+        """Validated trade controls over the authenticated reader."""
+        from .trade_protocol import TRADE_OPERATIONS, PREPARATION_OPERATIONS, PREPARATION_VERSION, validate_trade_request
+        if operation in {"open", "offer", "confirm", "prepare", "prepared", "effect_prepared", "cancel", "ack"}:
             self._guard_pending_trade_mutation()
         if not self.config.trade_enabled or operation not in TRADE_OPERATIONS:
             raise ValueError("trade operation requires a verified trade-capable build")
         if not self.connected or self.world_id is None or self._remote_writer is None:
             raise ConnectionError("no authenticated trade session")
-        if set(fields) & {"type", "session_epoch"}:
+        if set(fields) & {"type", "session_epoch", "preparation_version"}:
             raise ValueError("trade envelope fields cannot be overridden")
         if self._live_save_owner is not None and self._live_save_owner is not asyncio.current_task() and operation not in {"status", "pending", "proposals"}:
             raise ValueError("a live-save lifecycle owns this character's mutations")
@@ -1182,6 +1331,8 @@ class Companion:
             raise ValueError("trade request is pending or capacity is exhausted")
         request = dict(type="trade_" + operation, session_epoch=self.session_epoch,
                        request_id=request_id, **fields)
+        if operation in PREPARATION_OPERATIONS:
+            request["preparation_version"] = PREPARATION_VERSION
         validate_trade_request(request, self.session_epoch)
         future = asyncio.get_running_loop().create_future()
         self._trade_pending[request_id] = (request, future)
@@ -1200,6 +1351,9 @@ class Companion:
         if pending is None:
             return  # A timed-out RPC remains uncertain until an explicit status.
         request, future = pending
+        for feature in ("inspection_version", "effect_source_version", "effects_version"):
+            if feature in validated and request.get(feature) != validated[feature]:
+                raise ProtocolError("invalid_server_message", "unsolicited trade feature acknowledgement")
         if (validated["operation"] != request["type"].removeprefix("trade_")
                 or validated["session_epoch"] != request["session_epoch"]
                 or (validated["type"] == "trade_result" and "transaction_id" in request
@@ -1207,7 +1361,12 @@ class Companion:
             raise ProtocolError("invalid_server_message", "trade reply does not match its request")
         if not future.done():
             if validated["type"] == "trade_error":
-                future.set_exception(TradeError(validated["code"], validated["message"]))
+                if (validated["operation"] == "proposals" and "preparation_version" in request
+                        and validated["code"] == "invalid_field" and "preparation_version" not in validated):
+                    future.set_exception(TradeError("trade_preparation_unsupported",
+                        "host does not support recipient preparation version 1"))
+                else:
+                    future.set_exception(TradeError(validated["code"], validated["message"]))
             else:
                 future.set_result(validated)
 

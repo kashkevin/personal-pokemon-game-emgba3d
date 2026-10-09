@@ -266,6 +266,7 @@ class MenuSessionTests(unittest.IsolatedAsyncioTestCase):
         self.session.finish_battle_admission("original", 1)
         self.assertFalse(self.session._battle_latched)
         self.assertFalse(self.session._battle_admission_failed)
+        self.assertIsNone(self.session._admission_identity)
         self.assertFalse(self.bridge.outbox.controls)
         self.feed(4)
         await self.session._task
@@ -275,6 +276,41 @@ class MenuSessionTests(unittest.IsolatedAsyncioTestCase):
     async def test_headless_battle_completion_does_not_require_menu_ownership(self):
         self.session.finish_battle_admission("headless", 1)
         self.assertFalse(self.session._battle_latched)
+
+    async def test_retired_menu_battle_does_not_claim_a_later_headless_completion(self):
+        async def handoff(kind, value, owner):
+            owner.finish_battle_admission(value["battle_id"], value["generation"])
+        await self.admission_menu(handoff=handoff)
+        self.feed(2, 1, 1, 2)
+        await self.session._task
+        self.assertFalse(self.session._battle_latched)
+        self.session.finish_battle_admission("later-headless", 1)
+        self.assertFalse(self.bridge.outbox.controls)
+
+    async def test_retired_battle_cannot_clear_a_new_menu_admission(self):
+        async def handoff(kind, value, owner):
+            owner.finish_battle_admission(value["battle_id"], value["generation"])
+        await self.admission_menu(handoff=handoff)
+        self.feed(2, 1, 1, 2)
+        await self.session._task
+        self.feed(4)
+        await self.session._task
+        frame = await asyncio.wait_for(self.bridge.outbox.get(), 1)
+        self.assertEqual(unpack_screen(frame[5:], allow_battle_admission=True)[0], 4)
+        self.session.menu.claim_battle_admission = lambda *_: {
+            "battle_id": "next", "generation": 2}
+        def capture(*_):
+            raise OSError("publication uncertain")
+        self.companion._native_menu_capture_battle = capture
+        self.feed(5, 1, 1, 2)
+        await self.session._task
+        self.assertTrue(self.session._battle_latched)
+        with self.assertRaises(ConnectionError):
+            self.session.finish_battle_admission("original", 1)
+        self.assertTrue(self.session._battle_latched)
+        self.session.finish_battle_admission("next", 2)
+        self.assertFalse(self.session._battle_latched)
+        self.assertIsNone(self.session._admission_identity)
 
     async def test_synchronous_capture_failure_never_emits_ordinary_close(self):
         await self.admission_menu()

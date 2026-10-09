@@ -5,6 +5,7 @@ import struct
 from .reset_protocol import ENCOUNTERS
 
 FIELDS = frozenset({"reset_abi_version", "reset_abi_address", "reset_mailbox_address", "reset_mailbox_size"})
+INPUT_FIELDS = frozenset({"reset_input_abi_version", "reset_input_abi_address"})
 CAPABILITY = b"Q" + struct.pack("<HHHH", 1, 128, 32, 32)
 _REQUEST = struct.Struct("<IIIII12s")
 _REPLY = struct.Struct("<IIIIII8s")
@@ -84,7 +85,10 @@ class ResetReceipt:
 
 
 def validate_reset_manifest(manifest, rom_path=None):
+    from .reset_catalogue import FIELDS as CATALOGUE_FIELDS, validate_reset_catalogue
     if not FIELDS.intersection(manifest):
+        if INPUT_FIELDS.intersection(manifest) or CATALOGUE_FIELDS.intersection(manifest):
+            raise ValueError("reset input requires the personal encounter mailbox")
         return False
     if not FIELDS <= set(manifest):
         raise ValueError("personal encounter manifest is incomplete")
@@ -113,4 +117,19 @@ def validate_reset_manifest(manifest, rom_path=None):
             source.seek(marker - 0x08000000)
             if source.read(4) != struct.pack("<I", manifest["reset_abi_version"]):
                 raise ValueError("personal encounter ROM marker differs")
+    if INPUT_FIELDS.intersection(manifest):
+        input_marker = manifest.get("reset_input_abi_address")
+        if (not INPUT_FIELDS <= set(manifest) or manifest["reset_abi_version"] != 2
+                or type(manifest.get("reset_input_abi_version")) is not int
+                or manifest["reset_input_abi_version"] != 1
+                or type(input_marker) is not int or input_marker % 4
+                or not 0x08000000 <= input_marker <= 0x08000000 + size - 4
+                or input_marker == marker):
+            raise ValueError("invalid separate native reset input capability")
+        if rom_path is not None:
+            with Path(rom_path).open("rb") as source:
+                source.seek(input_marker - 0x08000000)
+                if source.read(4) != struct.pack("<I", 1):
+                    raise ValueError("native reset input ROM marker differs")
+    validate_reset_catalogue(manifest, rom_path)
     return True

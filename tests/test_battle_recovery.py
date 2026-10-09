@@ -5,21 +5,319 @@ This proves protocol/replay/lease fences, not real native battle acceptance.
 import asyncio
 import hashlib
 import json
+import os
 from dataclasses import replace
+from pathlib import Path
 import struct
+import threading
+from types import SimpleNamespace
 import unittest
+from unittest.mock import Mock, patch
 from uuid import UUID, uuid4
 
 from emerald_multiplayer.battle_execution import BattleExecutionService
+from emerald_multiplayer.battle_desk import BattleError
 from emerald_multiplayer.battle_execution_journal import RouteJournal
 from emerald_multiplayer.battle_execution_protocol import decode_control, encode_control
+from emerald_multiplayer.battle_journal import BattleJournalError
 from emerald_multiplayer.battle_protocol import validate_battle_reply
+from emerald_multiplayer.battle_recovery import BattleRecoveryService
 from emerald_multiplayer.native_battle import NativeBinding, NativeControl, Opcode
 from emerald_multiplayer.native_battle_resume import Admission, ResumeAuthorization
 from emerald_multiplayer.server import ServerConfig, WorldServer
 from emerald_multiplayer.trade_storage import TradeCheckpointStore
 import test_battle_arbitration as fixture
+import test_battle_desk as desk_fixture
 import test_battle_execution as execution_fixture
+
+
+class RecoveryRecordTests(unittest.TestCase):
+    """Real checkpoint/reservation validation on every synchronous recovery poll."""
+
+    tearDown = desk_fixture.BattleDeskTests.tearDown
+    actor = desk_fixture.BattleDeskTests.actor
+    call = desk_fixture.BattleDeskTests.call
+    accept = desk_fixture.BattleDeskTests.accept
+    register = desk_fixture.BattleDeskTests.register
+    assert_code = desk_fixture.BattleDeskTests.assert_code
+
+    def setUp(self):
+        desk_fixture.BattleDeskTests.setUp(self)
+        self.register()
+        self.call("authorize_bind", 0)
+        self.recovery = BattleRecoveryService(SimpleNamespace(desk=self.desk))
+        self.request = dict(battle_id=self.battle_id, generation=self.generation, incarnation=100)
+
+    def record(self):
+        return self.recovery._record(*self.actor(0), self.request)
+
+    def test_one_full_checkpoint_validation_per_poll_without_cross_request_cache(self):
+        with patch.object(self.store, "read_checkpoint", wraps=self.store.read_checkpoint) as read:
+            first = self.record()
+            self.assertEqual(read.call_count, 1)
+            self.assertEqual(self.record(), first)
+            self.assertEqual(read.call_count, 2)
+            # A subsequent poll must hash the current bytes, even with the same head.
+            self.store._connection.execute(
+                "UPDATE checkpoints SET payload=? WHERE player_id=? AND revision=?",
+                (b"corrupt", self.actor(0)[0], self.heads[0].revision))
+            self.assert_code("storage_corrupt", self.record)
+            self.assertEqual(read.call_count, 3)
+
+    def test_live_and_durable_lease_checks_survive_successful_poll(self):
+        self.record()
+        actor, lease = self.actor(0)
+        self.leases[actor] = lease + 1
+        self.assert_code("stale_lease", self.recovery._record, actor, lease, self.request)
+        self.leases[actor] = lease
+        self.assertTrue(self.store.release_lease(actor, lease))
+        # Even a missing reservation must not hide the stale durable lease.
+        missing = dict(self.request, battle_id=str(uuid4()))
+        self.assert_code("stale_lease", self.recovery._record, actor, lease, missing)
+
+    def test_valid_but_changed_canonical_head_is_rejected_after_successful_poll(self):
+        self.record()
+        actor, _ = self.actor(0)
+        # Inject a separately valid checkpoint head into this disposable database.
+        # Production commits are reserved during battles; this probes the read fence.
+        self.store._connection.execute("""INSERT INTO checkpoints
+            SELECT player_id, revision+1, ?, revision, payload, sha256, build_id, ruleset_id, save_profile
+            FROM checkpoints WHERE player_id=? AND revision=?""",
+            (str(uuid4()), actor, self.heads[0].revision))
+        self.store._connection.execute("UPDATE players SET latest_revision=? WHERE player_id=?",
+            (self.heads[0].revision + 1, actor))
+        self.assert_code("canonical_head_mismatch", self.record)
+
+    def test_changed_reservation_digest_is_rejected_after_successful_poll(self):
+        self.record()
+        self.store._connection.execute("UPDATE battle_reservations SET sha256=? WHERE battle_id=?",
+            ("0" * 64, self.battle_id))
+        self.assert_code("battle_reservation_invalid", self.record)
+
+
+class RecoveryWaitingJournalTests(unittest.IsolatedAsyncioTestCase):
+    """Real route bytes and SQLite ownership; admission transport is isolated."""
+
+    tearDown = desk_fixture.BattleDeskTests.tearDown
+    actor = desk_fixture.BattleDeskTests.actor
+    call = desk_fixture.BattleDeskTests.call
+    accept = desk_fixture.BattleDeskTests.accept
+    register = desk_fixture.BattleDeskTests.register
+    descriptor = desk_fixture.BattleDeskTests.descriptor
+    query = desk_fixture.BattleDeskTests.query
+    record = RecoveryRecordTests.record
+
+    def setUp(self):
+        RecoveryRecordTests.setUp(self)
+        self.directory = Path(self.temp.name) / "execution"
+        self.directory.mkdir()
+        self.recovery = BattleRecoveryService(SimpleNamespace(desk=self.desk,
+            resume_enabled=True, directory=self.directory,
+            admission=SimpleNamespace(register_full=Mock())))
+        self.request.update(response_b64=None, response_id=0, response_stage="recovery")
+        record = self.record()
+        view = record["view"]
+        self.header = dict(record=record, battle_id=self.battle_id, generation=self.generation,
+            players=view["players"], leases=record["leases"], incarnations=record["incarnations"],
+            mode=view["mode"], initial_sequences=[0, 0])
+        self.path = self.directory / (self.battle_id + ".events.jsonl")
+        self.binds = [NativeControl(100 + slot, self.actor(slot)[1], self.battle_id, 1, Opcode.BIND,
+            phase=view["mode"], source_slot=self.descriptor(slot).source_slot,
+            data=self.call("authorize_bind", slot).pack())
+            for slot in range(2)]
+
+    async def asyncTearDown(self):
+        await self.recovery.close()
+
+    def seed(self, *, bootstrap=False):
+        # Encode a real canonical chain in one write, avoiding thousands of
+        # fixture fsyncs. Production RouteJournal must validate every row.
+        from emerald_multiplayer.battle_execution_journal import FORMAT, ZERO_HASH
+        values = [dict(kind="header", format=FORMAT, value=self.header)]
+        def event(kind, slot, ident, control):
+            values.append(dict(kind=kind, actor=self.actor(slot)[0], dispatch_id=ident,
+                               control_b64=encode_control(control)))
+        for slot in range(1 if bootstrap else 2):
+            event("command", slot, 1, self.binds[slot])
+            values.append(dict(kind="admission", actor=self.actor(slot)[0],
+                               control_sha256=hashlib.sha256(self.binds[slot].pack()).hexdigest()))
+        if not bootstrap:
+            for slot in range(2):
+                event("response", slot, 1, replace(self.binds[slot], data=self.query(slot, 1)))
+            for ident in range(2, 514):
+                for slot in range(2):
+                    query = replace(self.binds[slot], sequence=2, opcode=Opcode.QUERY, data=b"")
+                    event("command", slot, ident, query)
+                    event("response", slot, ident, replace(query, data=self.query(slot, 1)))
+        raw, previous = bytearray(), ZERO_HASH
+        for sequence, value in enumerate(values):
+            line, previous = RouteJournal._record(sequence, previous, value)
+            raw.extend(line)
+        self.path.write_bytes(raw)
+        return bytes(raw)
+
+    async def poll(self):
+        result = self.recovery.exchange(*self.actor(0), self.request)
+        room = self.recovery.rooms[self.battle_id]
+        if room.loading is not None:
+            await asyncio.wait_for(asyncio.shield(room.loading), 5)
+            result = self.recovery.exchange(*self.actor(0), self.request)
+        self.assertEqual(result["state"], "waiting")
+        self.assertIsNone(room.task)  # The absent original peer remains required.
+        return room
+
+    async def test_completed_waiting_history_is_decoded_once_but_verified_on_every_poll(self):
+        original = self.seed()
+        with patch.object(self.recovery, "_load_journal", wraps=self.recovery._load_journal) as load:
+            room = await self.poll()
+            self.assertEqual(load.call_count, 1)
+            self.assertEqual(len(room.journal.completed), 1026)
+            with patch.object(room.journal, "verify_current", wraps=room.journal.verify_current) as verify, \
+                    patch("emerald_multiplayer.battle_execution_journal.decode_control",
+                          wraps=decode_control) as decode:
+                for _ in range(5):
+                    self.assertIs(await self.poll(), room)
+                self.assertEqual(verify.call_count, 5)
+                self.assertEqual(decode.call_count, 0)
+                self.assertEqual(load.call_count, 1)
+        self.assertEqual(self.path.read_bytes(), original)
+
+    async def test_same_size_prefix_corruption_is_rejected_even_if_metadata_is_unchanged(self):
+        raw = self.seed()
+        room = await self.poll()
+        changed = bytearray(raw)
+        changed[raw.index(b'"sha256":"') + len(b'"sha256":"')] ^= 1
+        self.path.write_bytes(changed)
+        self.assertEqual(len(changed), len(raw))
+        # Model coarse or masked filesystem timestamps: the full-byte digest,
+        # not a metadata cache or last-record check, must reject this prefix.
+        with patch.object(room.journal, "_identity", return_value=room.journal._stamp), \
+                self.assertRaises(BattleError) as caught:
+            await self.poll()
+        self.assertEqual(caught.exception.code, "battle_journal_changed")
+
+    async def test_waiting_poll_rejects_identical_replacement_growth_and_truncation(self):
+        raw = self.seed()
+        for mutation in ("replacement", "growth", "truncation"):
+            with self.subTest(mutation=mutation):
+                self.path.write_bytes(raw)
+                self.recovery.rooms.clear()
+                room = await self.poll()
+                if mutation == "replacement":
+                    replacement = self.path.with_suffix(".replacement")
+                    replacement.write_bytes(raw)
+                    info = self.path.stat()
+                    os.utime(replacement, ns=(info.st_atime_ns, info.st_mtime_ns))
+                    replacement.replace(self.path)
+                elif mutation == "growth":
+                    with self.path.open("ab") as stream:
+                        stream.write(b"\n")
+                else:
+                    self.path.write_bytes(raw[:-1])
+                with self.assertRaises(BattleError) as caught:
+                    await self.poll()
+                self.assertEqual(caught.exception.code, "battle_journal_changed")
+                self.assertIsNone(room.task)
+
+    async def test_incomplete_bootstrap_still_reloads_a_valid_external_first_bind_extension(self):
+        self.seed(bootstrap=True)
+        room = await self.poll()
+        original = room.journal
+        extended = RouteJournal(self.path, self.header)
+        extended.append("command", self.actor(1)[0], 1, self.binds[1])
+        with patch.object(self.recovery, "_load_journal", wraps=self.recovery._load_journal) as load:
+            self.assertIs(await self.poll(), room)
+            self.assertEqual(load.call_count, 1)
+        self.assertIsNot(room.journal, original)
+        self.assertEqual(room.journal.pending[self.actor(1)[0]], (1, self.binds[1]))
+        self.assertFalse(room.journal.completed)
+
+    async def test_slow_initial_read_is_single_flight_and_cannot_register_or_dispatch(self):
+        raw = self.seed()
+        started, finish = threading.Event(), threading.Event()
+        load = self.recovery._load_journal
+        main_thread = threading.get_ident()
+        def delayed(room):
+            self.assertNotEqual(threading.get_ident(), main_thread)
+            started.set()
+            if not finish.wait(5):
+                raise TimeoutError("test failed to release read-only worker")
+            return load(room)
+        with patch.object(self.recovery, "_load_journal", side_effect=delayed) as spy:
+            try:
+                for _ in range(10):
+                    result = self.recovery.exchange(*self.actor(0), self.request)
+                    self.assertEqual((result["state"], result["command_b64"]), ("waiting", None))
+                    await asyncio.sleep(.01)
+                self.assertTrue(started.is_set())
+                room = self.recovery.rooms[self.battle_id]
+                self.assertEqual(spy.call_count, 1)
+                self.assertEqual(room.ready, {})
+                self.assertIsNone(room.task)
+                self.assertIsNone(room.journal)
+                self.recovery.execution.admission.register_full.assert_not_called()
+            finally:
+                finish.set()
+            await asyncio.wait_for(room.loading, 5)
+            self.assertIs(await self.poll(), room)
+            self.assertEqual(spy.call_count, 1)
+        self.assertEqual(self.path.read_bytes(), raw)
+
+    async def test_changed_bytes_after_worker_completion_are_rejected_before_readiness(self):
+        raw = self.seed()
+        self.recovery.exchange(*self.actor(0), self.request)
+        room = self.recovery.rooms[self.battle_id]
+        await asyncio.wait_for(room.loading, 5)
+        self.path.write_bytes(raw[:-1])
+        with self.assertRaises(BattleError):
+            self.recovery.exchange(*self.actor(0), self.request)
+        self.assertIsNone(room.journal)
+        self.assertEqual(room.ready, {})
+        self.recovery.execution.admission.register_full.assert_not_called()
+
+    async def test_read_error_is_consumed_and_retry_still_validates_real_history(self):
+        raw = self.seed()
+        self.path.write_bytes(raw[:-1])
+        self.recovery.exchange(*self.actor(0), self.request)
+        room = self.recovery.rooms[self.battle_id]
+        await asyncio.gather(room.loading, return_exceptions=True)
+        with self.assertRaises(BattleError):
+            self.recovery.exchange(*self.actor(0), self.request)
+        self.assertIsNone(room.loading)
+        self.assertIsNone(room.journal)
+        self.assertEqual(room.ready, {})
+        self.path.write_bytes(raw)
+        self.assertIs(await self.poll(), room)
+
+    async def test_close_does_not_publish_a_late_read_only_worker_result(self):
+        raw = self.seed()
+        started, finish, finished = threading.Event(), threading.Event(), threading.Event()
+        load = self.recovery._load_journal
+        def delayed(room):
+            started.set()
+            if not finish.wait(5):
+                raise TimeoutError("test failed to release read-only worker")
+            try:
+                return load(room)
+            finally:
+                finished.set()
+        with patch.object(self.recovery, "_load_journal", side_effect=delayed):
+            self.recovery.exchange(*self.actor(0), self.request)
+            room = self.recovery.rooms[self.battle_id]
+            try:
+                async with asyncio.timeout(2):
+                    while not started.is_set():
+                        await asyncio.sleep(.01)
+                await asyncio.wait_for(self.recovery.close(), 1)
+                self.assertTrue(room.loading.cancelled())
+                self.assertIsNone(room.journal)
+                self.assertEqual(room.ready, {})
+            finally:
+                finish.set()
+                # The canceled thread wrapper may finish its read, but has no
+                # callback capable of publishing to the closed host room.
+                self.assertTrue(await asyncio.to_thread(finished.wait, 5))
+        self.assertEqual(self.path.read_bytes(), raw)
 
 
 class RetainedFixture(execution_fixture.NativeFixture):
@@ -336,6 +634,15 @@ class BattleRecoveryNetworkTests(unittest.IsolatedAsyncioTestCase):
             response_stage=None, admission_sha256=self.recovery_admissions[0])
         self.assertEqual(result["type"], "battle_result", result)
         self.assertEqual(result["result"]["state"], "waiting")
+        room = self.server.battle_execution.recovery.rooms[self.battle_id]
+        if room.loading is not None:
+            # A full intent counts toward provisional bootstrap only after
+            # its original route bytes have completed read-only validation.
+            await asyncio.wait_for(room.loading, 5)
+            result = await self.actors[0].rpc("battle_resume", battle_id=self.battle_id,
+                generation=self.generation, incarnation=100, response_id=0, response_b64=None,
+                response_stage=None, admission_sha256=self.recovery_admissions[0])
+            self.assertEqual(result["result"]["state"], "waiting")
         command = decode_control((await provisional(1))["admission"]["bind_b64"])
         self.recovery_admissions[1] = hashlib.sha256(command.pack()).hexdigest()
         self.assertTrue(all(not model.bound for model in self.models.values()))
@@ -355,4 +662,31 @@ class BattleRecoveryNetworkTests(unittest.IsolatedAsyncioTestCase):
         retirement = decode_control(result["result"]["terminal"]["retire_b64"])
         self.assertEqual(retirement.opcode, Opcode.RETIRE)
         self.assertEqual(retirement.session_epoch, self.actors[0].lease)
+        self.assertEqual(sum(len(model.calls) for model in self.models.values()), before)
+        recovery = self.server.battle_execution.recovery
+        fields = dict(battle_id=self.battle_id, generation=self.generation,
+            incarnation=100, response_id=0, response_b64=None, response_stage=None)
+        with patch.object(recovery, "_load_journal", wraps=recovery._load_journal) as load:
+            for _ in range(2):
+                result = await self.actors[0].rpc("battle_resume", **fields)
+                self.assertEqual(result["result"]["stage"], "terminal")
+            self.assertEqual(load.call_count, 0)
+            # Discard only the closed service's memory, as on a fresh host.
+            await recovery.close()
+            recovery.rooms.clear()
+            result = await self.actors[0].rpc("battle_resume", **fields)
+            self.assertEqual(result["result"]["state"], "waiting")
+            room = recovery.rooms[self.battle_id]
+            await asyncio.wait_for(room.loading, 5)
+            result = await self.actors[0].rpc("battle_resume", **fields)
+            self.assertEqual(result["result"]["stage"], "terminal")
+            self.assertEqual(load.call_count, 1)
+        journal = room.journal
+        raw = journal.path.read_bytes()
+        changed = bytearray(raw)
+        changed[raw.index(b'"sha256":"') + len(b'"sha256":"')] ^= 1
+        journal.path.write_bytes(changed)
+        with patch.object(journal, "_identity", return_value=journal._stamp):
+            result = await self.actors[0].rpc("battle_resume", **fields)
+        self.assertEqual(result["type"], "battle_error")
         self.assertEqual(sum(len(model.calls) for model in self.models.values()), before)

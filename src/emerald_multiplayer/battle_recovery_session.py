@@ -462,7 +462,14 @@ class NativeBattleRecoverySession:
                 bound = NativeBinding.unpack(command.data)
                 _same_roster(bound, self.binding)
                 query = self._observation
-                if (not isinstance(query, NativeQuery) or query.held or query.generation == i.generation
+                # ADMIT deliberately holds the original generation before its
+                # first BIND. That exact provisional receipt proves the BIND
+                # is still unexecuted; an ordinary held battle does not.
+                unexecuted = isinstance(query, NativeQuery) and (
+                    (query.provisional and (query.generation, query.player_count, query.local_slot, query.mode) ==
+                        (i.generation, len(bound.players), bound.local_slot, bound.mode))
+                    or (not query.held and query.generation != i.generation))
+                if (not unexecuted
                         or query.last_sequence + 1 != i.bind.sequence
                         or command != replace(i.bind, session_epoch=command.session_epoch, data=bound.pack())):
                     raise BattleJournalError("battle_order", "replacement BIND lacks proof the original was never executed")

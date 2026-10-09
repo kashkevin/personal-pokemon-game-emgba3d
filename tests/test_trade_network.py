@@ -62,6 +62,9 @@ class RawClient:
 
     async def rpc(self, operation, **fields):
         request_id = str(uuid4())
+        from emerald_multiplayer.trade_protocol import PREPARATION_OPERATIONS
+        if operation in PREPARATION_OPERATIONS:
+            fields.setdefault("preparation_version", 1)
         self.writer.write(encode_message(dict(type="trade_" + operation,
             request_id=request_id, session_epoch=self.epoch, **fields)))
         await self.writer.drain()
@@ -163,7 +166,20 @@ class TradeNetworkTests(unittest.IsolatedAsyncioTestCase):
     async def commit(self):
         view = await self.ready()
         await self.confirm(0, view)
-        return await self.confirm(1, view)
+        return await self.finish_preparation(await self.confirm(1, view))
+
+    async def prepare_receipt(self, index, view):
+        description = (await self.rpc(index, "prepare", transaction_id=view["transaction_id"],
+            generation=view["generation"]))["trade"]["preparation"]
+        own = next(p for p in description["players"] if p["player_id"] == self.players[index].player_id)
+        return (await self.rpc(index, "prepared", transaction_id=view["transaction_id"], generation=view["generation"],
+            fingerprint=description["fingerprint"], preparation_id=description["preparation_id"],
+            candidate_sha256=own["candidate_sha256"]))["trade"]
+
+    async def finish_preparation(self, view):
+        self.assertEqual(view["state"], "preparing")
+        await self.prepare_receipt(0, view)
+        return await self.prepare_receipt(1, view)
 
     async def assert_trade_error(self, code, index, operation, **fields):
         with self.assertRaises(TradeError) as caught:
@@ -202,6 +218,9 @@ class TradeNetworkTests(unittest.IsolatedAsyncioTestCase):
             and self.server.sessions[self.players[1].player_id].presence["x"] == 7
             and self.server.sessions[self.players[1].player_id].ping_nonce > 0)
         committed = await self.confirm(1, view)
+        self.assertEqual(committed["state"], "preparing")
+        self.assertEqual((await CheckpointClient(self.companions[0]).info())["revision"], 1)
+        committed = await self.finish_preparation(committed)
         self.assertEqual(committed["state"], "committed")
         snapshots = []
         for index in (0, 1):
@@ -249,26 +268,28 @@ class TradeNetworkTests(unittest.IsolatedAsyncioTestCase):
         own_pending = await client.rpc("pending")
         self.assertEqual(own_pending["recoveries"], [])
         self.assertEqual((await self.rpc(0, "status", transaction_id=self.transaction))["trade"]["confirmations"], [])
-        await self.confirm(0, view); await self.confirm(1, view)
+        await self.confirm(0, view); await self.finish_preparation(await self.confirm(1, view))
         denied = await client.rpc("status", transaction_id=self.transaction)
         self.assertEqual(denied["code"], "trade_not_participant")
         self.assertEqual((await client.rpc("pending"))["recoveries"], [])
 
-    async def test_lost_second_confirmation_reply_has_committed_fate_on_fresh_lease(self):
+    async def test_lost_second_prepared_reply_has_committed_fate_on_fresh_lease(self):
         view = await self.ready()
         await self.confirm(0, view)
+        view = await self.confirm(1, view)
+        await self.prepare_receipt(0, view)
         old_epoch = self.companions[1].session_epoch
         original = self.server._trade_reply
         dropped = []
         def drop_committed_ack(session, request, **fields):
-            if request["type"] == "trade_confirm" and fields.get("trade", {}).get("state") == "committed":
+            if request["type"] == "trade_prepared" and fields.get("trade", {}).get("state") == "committed":
                 dropped.append(fields["trade"])
                 session.close("test_lost_commit_ack")
                 return
             original(session, request, **fields)
         with patch.object(self.server, "_trade_reply", side_effect=drop_committed_ack):
             with self.assertRaises(ConnectionError):
-                await self.confirm(1, view)
+                await self.prepare_receipt(1, view)
         self.assertEqual(len(dropped), 1)
         await wait_until(lambda: self.companions[1].connected and self.companions[1].session_epoch != old_epoch)
         fate = (await self.rpc(1, "status", transaction_id=self.transaction))["trade"]
@@ -289,7 +310,7 @@ class TradeNetworkTests(unittest.IsolatedAsyncioTestCase):
         await self.assert_trade_error("trade_generation_mismatch", 1, "confirm", transaction_id=self.transaction,
             generation=view["generation"], fingerprint=view["fingerprint"])
         self.assertEqual((await self.confirm(1, fresh))["state"], "offering")
-        self.assertEqual((await self.confirm(0, fresh))["state"], "committed")
+        self.assertEqual((await self.finish_preparation(await self.confirm(0, fresh)))["state"], "committed")
         self.store.integrity_check()
 
     async def test_restart_keeps_committed_fate_and_both_apply_receipts(self):
@@ -322,7 +343,7 @@ class TradeNetworkTests(unittest.IsolatedAsyncioTestCase):
         fresh = await self.ready()
         self.assertNotEqual(fresh["generation"], view["generation"])
         self.assertEqual((await self.confirm(1, fresh))["confirmations"], [self.players[1].player_id])
-        self.assertEqual((await self.confirm(0, fresh))["state"], "committed")
+        self.assertEqual((await self.finish_preparation(await self.confirm(0, fresh)))["state"], "committed")
         self.store.integrity_check()
 
     async def test_changed_offer_clears_both_consents_and_old_fingerprint_is_rejected(self):
@@ -335,7 +356,7 @@ class TradeNetworkTests(unittest.IsolatedAsyncioTestCase):
         await self.assert_trade_error("trade_offer_changed", 1, "confirm", transaction_id=self.transaction,
             generation=view["generation"], fingerprint=view["fingerprint"])
         self.assertEqual((await self.confirm(1, changed))["state"], "offering")
-        self.assertEqual((await self.confirm(0, changed))["state"], "committed")
+        self.assertEqual((await self.finish_preparation(await self.confirm(0, changed)))["state"], "committed")
         self.store.integrity_check()
 
     async def test_schema3_default_keeps_trade_disabled_without_disrupting_checkpoints(self):

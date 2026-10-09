@@ -1,0 +1,48 @@
+--- a/include/config/general.h
++++ b/include/config/general.h
+@@ -71,7 +71,8 @@
+ #define GEN_CHAMPIONS GEN_9 + 1
+ #define GEN_COUNT GEN_CHAMPIONS + 1
+ // Changing GEN_LATEST's value to a different Generation will change every default setting that uses it at once.
+-#define GEN_LATEST GEN_9
++// Project Gen6 defaults. Keep species_enabled.h unchanged to preserve save layout.
++#define GEN_LATEST GEN_6
+ 
+ // General settings
+ #define EXPANSION_INTRO              TRUE    // If TRUE, a custom RHH intro will play after the vanilla copyright screen.
+--- a/src/multiplayer.c
++++ b/src/multiplayer.c
+@@ -39,6 +39,21 @@
+ EWRAM_DATA volatile struct MultiplayerMailbox gMultiplayerMailbox = {0};
+ const u32 gMultiplayerPresenceAnimationAbiVersion = MULTIPLAYER_PRESENCE_ANIMATION_ABI;
+ 
++// Compiled settings identify this candidate independently of the retained
++// baseline. Species IDs/save arrays and pre-existing records are not remapped.
++const u32 gMultiplayerGenerationProfile[] =
++{
++    0x36474445, 1,
++    GEN_LATEST, P_LVL_UP_LEARNSETS, P_UPDATED_TYPES, P_UPDATED_STATS,
++    P_UPDATED_ABILITIES, P_UPDATED_FRIENDSHIP, P_EVOLUTION_LEVEL_1_LEARN,
++    P_FRIENDSHIP_EVO_THRESHOLD, B_UPDATED_MOVE_DATA, B_UPDATED_ABILITY_DATA,
++    B_UPDATED_TYPE_MATCHUPS, B_PHYSICAL_SPECIAL_SPLIT, B_CRIT_MULTIPLIER,
++    B_PARALYSIS_SPEED, B_CONFUSION_SELF_DMG_CHANCE, B_BURN_DAMAGE,
++    B_MEGA_EVO_TURN_ORDER, B_ATE_MULTIPLIER,
++};
++_Static_assert(sizeof(gMultiplayerGenerationProfile) == 80, "Generation profile ABI");
++
++
+ struct RemoteState
+ {
+     struct MultiplayerPeer peer;
+@@ -133,7 +148,10 @@
+     gMultiplayerMailbox.byteSize = sizeof(gMultiplayerMailbox);
+     gMultiplayerMailbox.local.mapEpoch = sMapEpoch;
+     gMultiplayerMailbox.local.direction = DIR_SOUTH;
+-    gMultiplayerMailbox.magic = MULTIPLAYER_MAGIC;
++    // Keep the descriptor under linker garbage collection, and publish only
++    // the declared profile. The host verifies every compiled word from ROM.
++    if (((const volatile u32 *)gMultiplayerGenerationProfile)[0] == 0x36474445)
++        gMultiplayerMailbox.magic = MULTIPLAYER_MAGIC;
+ }
+ 
+ static bool32 FieldReady(void)

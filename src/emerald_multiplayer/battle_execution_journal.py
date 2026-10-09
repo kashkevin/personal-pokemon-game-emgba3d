@@ -256,7 +256,7 @@ class RouteJournal:
         self._append(dict(kind="admission", actor=actor, control_sha256=control_sha256))
 
     def verify_current(self):
-        """Check every committed byte once before publishing terminal closure.
+        """Authenticate every current byte of an already validated journal.
 
         Per-append metadata and tail checks are bounded live-owner witnesses,
         not a whole-history integrity check: filesystem times can be coarse.
@@ -267,7 +267,7 @@ class RouteJournal:
         with os.fdopen(os.open(self.path, flags), "rb") as source:
             info = os.fstat(source.fileno())
             if not stat.S_ISREG(info.st_mode) or self._identity(info) != self._stamp:
-                raise BattleJournalError("battle_journal_changed", "native route evidence changed before closure")
+                raise BattleJournalError("battle_journal_changed", "native route evidence changed before use")
             digest = hashlib.sha256()
             size = 0
             while data := source.read(1024 * 1024):

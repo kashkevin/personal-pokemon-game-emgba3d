@@ -13,6 +13,7 @@ import struct
 from .battle_desk import BattleError
 from .battle_execution import _independent
 from .battle_execution_journal import RouteJournal
+from .battle_journal import BattleJournalError
 from .battle_execution_protocol import decode_control, encode_control
 from .battle_recovery_protocol import recovery_view
 from .battle_replay import RouteReplay
@@ -34,6 +35,7 @@ class _Recovery:
     task: object = None
     replay: object = None
     journal: object = None
+    loading: object = None
     error: object = None
 
 
@@ -43,7 +45,7 @@ class BattleRecoveryService:
         self.rooms = {}
 
     def _record(self, actor, lease, request):
-        self.desk._auth(actor, lease)
+        cp = self.desk._auth(actor, lease)
         row = self.desk.store._connection.execute("SELECT * FROM battle_reservations WHERE battle_id=?",
             (request["battle_id"],)).fetchone()
         if row is None:
@@ -55,7 +57,6 @@ class BattleRecoveryService:
         slot = view["players"].index(actor)
         if request["incarnation"] != record["incarnations"][slot] or lease < record["leases"][slot]:
             raise BattleError("battle_incarnation_changed", "retain the exact original game core")
-        cp = self.desk._auth(actor, lease)
         pinned = view["checkpoints"][slot]
         if cp is None or (cp.revision, cp.sha256) != (pinned["revision"], pinned["sha256"]):
             raise BattleError("canonical_head_mismatch", "the original battle checkpoint changed")
@@ -77,9 +78,17 @@ class BattleRecoveryService:
         battle_id, generation = record["view"]["battle_id"], record["view"]["generation"]
         terminal = self.desk.store._connection.execute(
             "SELECT terminal_kind, terminal_digest FROM battle_reservations WHERE battle_id=?", (battle_id,)).fetchone()
-        if terminal["terminal_kind"] == "closed":
-            return self._terminal(actor, lease, record, terminal["terminal_digest"])
         room = self.rooms.get(battle_id)
+        if terminal["terminal_kind"] == "closed":
+            if room is None:
+                room = _Recovery(record, self.execution.directory / (battle_id+".quorum.json"))
+                self.rooms[battle_id] = room
+            if room.record != record:
+                raise BattleError("battle_generation_mismatch", "durable reservation changed during recovery")
+            if not self._journal_ready(room):
+                return recovery_view(battle_id, generation, "waiting")
+            self._verify_journal(room.journal)
+            return self._terminal(actor, lease, record, terminal["terminal_digest"], room.journal)
         if room is not None and actor in room.ready and room.ready[actor] != [lease, request["incarnation"]]:
             if room.task is not None and not room.task.done():
                 room.task.cancel()
@@ -93,16 +102,20 @@ class BattleRecoveryService:
             if request["response_b64"] is not None:
                 raise BattleError("invalid_receipt", "recovery must first register the authenticated original core")
             room = _Recovery(record, self.execution.directory / (battle_id+".quorum.json"))
-            room.journal = self._load_journal(room)
             self.rooms[battle_id] = room
         if room.record != record:
             raise BattleError("battle_generation_mismatch", "durable reservation changed during recovery")
+        if not self._journal_ready(room):
+            return recovery_view(battle_id, generation, "waiting")
         if room.task is None:
             # Provisional bootstrap can extend a valid first-BIND crash prefix
-            # while already-converted trainers wait here. Reopen that strict
-            # journal before validating another intent ACK; never retain a
-            # second mutable owner after the recovery task has begun.
-            room.journal = self._load_journal(room)
+            # only before any native response exists. After that boundary,
+            # authenticate every current byte without decoding the entire
+            # unchanged history again on each wait-for-everyone poll.
+            if room.journal.completed:
+                self._verify_journal(room.journal)
+            else:
+                room.journal = self._load_journal(room)
         admission = request.get("admission_sha256")
         if actor not in room.journal.admitted:
             pending = room.journal.pending.get(actor)
@@ -147,7 +160,36 @@ class BattleRecoveryService:
         return recovery_view(battle_id, generation, room.state, room.stage,
             None if pending is None else pending[0], 0 if pending is None else pending[2])
 
-    def _terminal(self, actor, lease, record, expected_digest):
+    def _journal_ready(self, room):
+        """Load exact history without blocking RPCs, heartbeats or native holds.
+
+        Only immutable record data and read-only route bytes reach the worker.
+        SQLite authentication and all publication remain on the event loop.
+        A loading room supplies neither readiness nor native commands.
+        """
+        if room.journal is not None:
+            return True
+        if room.loading is None:
+            room.loading = asyncio.create_task(asyncio.to_thread(self._load_journal, room),
+                name="native-route-journal-read")
+        if not room.loading.done():
+            return False
+        loading, room.loading = room.loading, None
+        journal = loading.result()  # Consume errors; the next authenticated poll may retry.
+        self._verify_journal(journal)  # Reject mutation after the worker finished reading.
+        room.journal = journal
+        return True
+
+    @staticmethod
+    def _verify_journal(journal):
+        try:
+            journal.verify_current()
+        except BattleJournalError as error:
+            # Cache validation must use the same bounded authenticated error
+            # response as initial parsing, rather than dropping the socket.
+            raise BattleError(error.code, str(error)) from error
+
+    def _terminal(self, actor, lease, record, expected_digest, journal):
         """Retire one already-finished original core without recalling its peers.
 
         Global closure already requires every native restored RELEASE. Verify
@@ -156,7 +198,6 @@ class BattleRecoveryService:
         """
         from .battle_reservations import SCOPE
         view = record["view"]
-        journal = self._load_journal(_Recovery(record, self.execution.directory / (view["battle_id"]+".quorum.json")))
         receipts = {}
         for player, _, command, response in journal.completed:
             if response.status == 0 and command.opcode in (Opcode.BIND, Opcode.PREPARE, Opcode.START, Opcode.QUERY, Opcode.RELEASE):
@@ -293,7 +334,9 @@ class BattleRecoveryService:
                 old.task.cancel()
                 await asyncio.gather(old.task, return_exceptions=True)
             self._current(room)
-            room.journal = self._load_journal(room)
+            room.journal = await asyncio.to_thread(self._load_journal, room)
+            self._current(room)
+            room.journal.verify_current()
             leases = tuple(room.ready[actor][0] for actor in view["players"])
             replay = room.replay = RouteReplay(self.execution, room.record, room.journal, leases)
             route_room = await replay.prepare()
@@ -367,7 +410,9 @@ class BattleRecoveryService:
         self._persist(room)
 
     async def close(self):
-        tasks = [room.task for room in self.rooms.values() if room.task is not None and not room.task.done()]
+        tasks = [task for room in self.rooms.values() for task in (room.task, room.loading)
+                 if task is not None]
         for task in tasks:
-            task.cancel()
+            if not task.done():
+                task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)

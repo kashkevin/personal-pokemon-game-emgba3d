@@ -1,0 +1,319 @@
+diff --git a/include/multiplayer_trade_effects.h b/include/multiplayer_trade_effects.h
+index 6a90d14379..d273de889b 100644
+--- a/include/multiplayer_trade_effects.h
++++ b/include/multiplayer_trade_effects.h
+@@ -1,6 +1,8 @@
+ #ifndef GUARD_MULTIPLAYER_TRADE_EFFECTS_H
+ #define GUARD_MULTIPLAYER_TRADE_EFFECTS_H
+ 
++#include "pokemon.h"
++
+ #define MP_TRADE_EFFECT_PREVIEW_VERSION 1
+ 
+ // This observation never authorizes an offer, mutation, export or commit.
+@@ -47,4 +49,66 @@ bool32 MultiplayerTradeEffects_Preview(const struct Pokemon *received,
+                                       const struct Pokemon *sent,
+                                       struct MultiplayerTradeEffectPreview *out);
+ 
++// Internal candidate API, NOT a mailbox ABI or permission to publish effects.
++// The owner must supply friendship resolved from authenticated retained history.
++// Unknown handler history/geographic policy must never be replaced by a guess.
++#define MP_TRADE_RECORD_VERSION 1
++#define MP_TRADE_RECORD_MAX_CHOICES 16
++#define MP_TRADE_RECORD_DECLINE 4
++
++enum MultiplayerTradeRecordState
++{
++    MP_TRADE_RECORD_REFUSED,
++    MP_TRADE_RECORD_CHOOSE_MOVE,
++    MP_TRADE_RECORD_READY,
++};
++
++struct MultiplayerTradeMoveChoice
++{
++    u16 move;
++    u8 slot; // 0..3 replaces that move; 4 explicitly declines learning.
++    u8 reserved;
++};
++
++// Caller-owned scratch, never a pointer into a live party/save. Copy/export only
++// through FinishRecord. Its state and candidate are internal, not client input.
++struct MultiplayerTradeRecordPreparation
++{
++    u32 version;
++    u32 receivedSerial;
++    u32 sentSerial;
++    u16 receivedSpecies;
++    u16 evolvedSpecies; // NONE means no trade evolution applies.
++    u16 itemBefore;
++    u16 itemAfter;
++    u16 pendingMove;
++    u16 learnsetCursor;
++    u8 state;
++    u8 friendship;
++    u8 choiceCount;
++    u8 reserved;
++    struct Pokemon candidate;
++    struct MultiplayerTradeMoveChoice choices[MP_TRADE_RECORD_MAX_CHOICES];
++};
++
++// Operates on copies only. No field/party mutation, Dex/stat publication, link
++// callbacks, native save, RNG draw or heap allocation. The current pinned native
++// rules are reused; this does not certify the complete Gen6 configuration.
++bool32 MultiplayerTradeEffects_BeginRecord(const struct Pokemon *received,
++                                         const struct Pokemon *sent,
++                                         u32 resolvedFriendship,
++                                         struct MultiplayerTradeRecordPreparation *out);
++// Exact move + zero-based choice sequence reject stale or duplicated decisions.
++// Invalid input leaves the current candidate and pending choice unchanged.
++bool32 MultiplayerTradeEffects_ChooseMove(struct MultiplayerTradeRecordPreparation *state,
++                                        u32 sequence, u32 move, u32 slot);
++bool32 MultiplayerTradeEffects_FinishRecord(const struct MultiplayerTradeRecordPreparation *state,
++                                          struct Pokemon *out);
++// Deterministic replay requires every decision exactly once, no trailing choices.
++bool32 MultiplayerTradeEffects_ReplayRecord(const struct Pokemon *received,
++                                          const struct Pokemon *sent,
++                                          u32 resolvedFriendship,
++                                          const struct MultiplayerTradeMoveChoice *choices,
++                                          u32 count, struct Pokemon *out);
++
+ #endif // GUARD_MULTIPLAYER_TRADE_EFFECTS_H
+diff --git a/src/multiplayer_trade_effects.c b/src/multiplayer_trade_effects.c
+index 15681b0f6a..e623d6628f 100644
+--- a/src/multiplayer_trade_effects.c
++++ b/src/multiplayer_trade_effects.c
+@@ -2,9 +2,13 @@
+ #include "multiplayer_trade_effects.h"
+ #include "pokemon.h"
+ #include "mail.h"
++#include "battle.h"
++#include "string_util.h"
+ #include "constants/moves.h"
+ 
+ STATIC_ASSERT(sizeof(struct MultiplayerTradeEffectPreview) == 36, TradeEffectPreviewSize);
++STATIC_ASSERT(sizeof(struct Pokemon) == 100, TradeEffectPartyRecordSize);
++STATIC_ASSERT(sizeof(struct MultiplayerTradeRecordPreparation) == 192, TradeEffectRecordPreparationSize);
+ 
+ static bool32 OutputAliasesMon(const struct MultiplayerTradeEffectPreview *out,
+                               const struct Pokemon *mon)
+@@ -92,3 +96,220 @@ bool32 MultiplayerTradeEffects_Preview(const struct Pokemon *received,
+     *out = preview;
+     return TRUE;
+ }
++
++// Bounds protect this internal adapter from a future incompatible rules table.
++// They are refusal capacities, not new gameplay limits or truncated learnsets.
++#define MP_TRADE_MAX_EVOLUTIONS 64
++#define MP_TRADE_MAX_CONDITIONS 16
++#define MP_TRADE_MAX_LEARNSET 256
++
++static bool32 Overlaps(const void *left, u32 leftSize, const void *right, u32 rightSize)
++{
++    uintptr_t a = (uintptr_t)left, b = (uintptr_t)right;
++    return a < b + rightSize && b < a + leftSize;
++}
++
++static bool32 IsRecordOutput(const void *out, u32 size, const struct Pokemon *received,
++                            const struct Pokemon *sent)
++{
++    return out != NULL && received != NULL && sent != NULL
++        && !Overlaps(out, size, received, sizeof(*received))
++        && !Overlaps(out, size, sent, sizeof(*sent));
++}
++
++static bool32 TradeConditionsAreLocal(u16 species)
++{
++    const struct Evolution *rules = GetSpeciesEvolutions(species);
++    u32 i, j;
++    if (rules == NULL) return TRUE;
++    for (i = 0; i < MP_TRADE_MAX_EVOLUTIONS; i++)
++    {
++        const struct EvolutionParam *params;
++        if (rules[i].method == EVOLUTIONS_END) return TRUE;
++        if (rules[i].method != EVO_TRADE) continue;
++        if (rules[i].targetSpecies == SPECIES_NONE || rules[i].targetSpecies > SPECIES_VOLCANION)
++            return FALSE;
++        params = rules[i].params;
++        if (params == NULL) continue;
++        for (j = 0; j < MP_TRADE_MAX_CONDITIONS; j++)
++        {
++            if (params[j].condition == CONDITIONS_END) break;
++            // In particular, never let DO_EVO reach IF_BAG_ITEM_COUNT and
++            // remove a real bag item while preparing only a copied record.
++            if (params[j].condition != IF_HOLD_ITEM
++             && params[j].condition != IF_TRADE_PARTNER_SPECIES)
++                return FALSE;
++        }
++        if (j == MP_TRADE_MAX_CONDITIONS) return FALSE;
++    }
++    return FALSE;
++}
++
++static bool32 AdvanceRecord(struct MultiplayerTradeRecordPreparation *state)
++{
++    const struct LevelUpMove *learnset;
++    u32 level, result;
++    if (state->evolvedSpecies == SPECIES_NONE)
++    {
++        state->state = MP_TRADE_RECORD_READY;
++        return TRUE;
++    }
++    learnset = GetSpeciesLevelUpLearnset(state->evolvedSpecies);
++    if (learnset == NULL) return FALSE;
++    level = GetMonData(&state->candidate, MON_DATA_LEVEL);
++    while (state->learnsetCursor < MP_TRADE_MAX_LEARNSET)
++    {
++        const struct LevelUpMove *entry = &learnset[state->learnsetCursor++];
++        if (entry->move == LEVEL_UP_MOVE_END)
++        {
++            state->pendingMove = MOVE_NONE;
++            state->state = MP_TRADE_RECORD_READY;
++            return TRUE;
++        }
++        // Same ordering/condition as MonTryLearningNewMoveEvolution, without
++        // its shared sLearningMoveTableID or gMoveToLearn cursor.
++        if ((entry->level != 0 && entry->level != level)
++         || (P_EVOLUTION_LEVEL_1_LEARN >= GEN_8 && entry->level == 1))
++            continue;
++        if (entry->move == MOVE_NONE || entry->move >= MOVES_COUNT_GEN6) return FALSE;
++        result = GiveMoveToMon(&state->candidate, entry->move);
++        if (result == MON_HAS_MAX_MOVES)
++        {
++            if (state->choiceCount == MP_TRADE_RECORD_MAX_CHOICES) return FALSE;
++            state->pendingMove = entry->move;
++            state->state = MP_TRADE_RECORD_CHOOSE_MOVE;
++            return TRUE;
++        }
++        // Known moves and automatic empty-slot learning are native outcomes;
++        // neither fabricates a recipient decision nor consumes a choice slot.
++    }
++    return FALSE;
++}
++
++bool32 MultiplayerTradeEffects_BeginRecord(const struct Pokemon *received,
++                                         const struct Pokemon *sent,
++                                         u32 resolvedFriendship,
++                                         struct MultiplayerTradeRecordPreparation *out)
++{
++    struct MultiplayerTradeRecordPreparation prepared = {0};
++    struct MultiplayerTradeEffectPreview preview;
++    struct Pokemon partner;
++    u16 target;
++    u32 i, zero = 0;
++    u8 oldLevelUpHP;
++    u8 nickname[POKEMON_NAME_BUFFER_SIZE];
++    if (!IsRecordOutput(out, sizeof(*out), received, sent)) return FALSE;
++    memset(out, 0, sizeof(*out));
++    if (resolvedFriendship > MAX_FRIENDSHIP
++     || !MultiplayerTradeEffects_Preview(received, sent, &preview)
++     || (preview.flags & (MP_TRADE_EFFECT_EGG | MP_TRADE_EFFECT_MAIL
++                       | MP_TRADE_EFFECT_SPECIES_REVIEW | MP_TRADE_EFFECT_NATIVE_FORBIDDEN))
++     || !TradeConditionsAreLocal(preview.receivedSpecies))
++        return FALSE;
++    prepared.version = MP_TRADE_RECORD_VERSION;
++    prepared.receivedSerial = preview.receivedSerial;
++    prepared.sentSerial = preview.sentSerial;
++    prepared.receivedSpecies = preview.receivedSpecies;
++    prepared.itemBefore = preview.heldItem;
++    prepared.friendship = resolvedFriendship;
++    prepared.candidate = *received;
++    partner = *sent;
++    for (i = 0; i < MAX_MON_MOVES; i++)
++        if (GetMonData(&prepared.candidate, MON_DATA_MOVE1 + i) >= MOVES_COUNT_GEN6
++         || GetMonData(&partner, MON_DATA_MOVE1 + i) >= MOVES_COUNT_GEN6)
++            return FALSE;
++    SetMonData(&prepared.candidate, MON_DATA_FRIENDSHIP, &prepared.friendship);
++    target = GetEvolutionTargetSpecies(&prepared.candidate, EVO_MODE_TRADE,
++                                       ITEM_NONE, &partner, NULL, CHECK_EVO);
++    if (target != SPECIES_NONE)
++    {
++        if (target > SPECIES_VOLCANION || gSpeciesInfo[target].cannotBeTraded
++         || gSpeciesInfo[target].growthRate != gSpeciesInfo[preview.receivedSpecies].growthRate
++         || GetLevelFromMonExp(&prepared.candidate) != GetMonData(&prepared.candidate, MON_DATA_LEVEL)
++         || GetEvolutionTargetSpecies(&prepared.candidate, EVO_MODE_TRADE,
++                                      ITEM_NONE, &partner, NULL, DO_EVO) != target)
++            return FALSE;
++        prepared.evolvedSpecies = target;
++        SetMonData(&prepared.candidate, MON_DATA_SPECIES, &target);
++        SetMonData(&prepared.candidate, MON_DATA_EVOLUTION_TRACKER, &zero);
++        // CalculateMonStats writes this one shared scratch byte. Restore it;
++        // no battle renderer/controller receives this private preparation.
++        oldLevelUpHP = gBattleScripting.levelUpHP;
++        CalculateMonStats(&prepared.candidate);
++        gBattleScripting.levelUpHP = oldLevelUpHP;
++        // EvolutionRenameMon uses gStringVar1; perform its exact name/language
++        // check locally instead of disturbing a retained native menu string.
++        GetMonData(&prepared.candidate, MON_DATA_NICKNAME, nickname);
++        if (GetMonData(&prepared.candidate, MON_DATA_LANGUAGE) == GAME_LANGUAGE
++         && !StringCompare(GetSpeciesName(preview.receivedSpecies), nickname))
++            SetMonData(&prepared.candidate, MON_DATA_NICKNAME, GetSpeciesName(target));
++    }
++    prepared.itemAfter = GetMonData(&prepared.candidate, MON_DATA_HELD_ITEM);
++    if (!AdvanceRecord(&prepared)) return FALSE;
++    *out = prepared;
++    return TRUE;
++}
++
++bool32 MultiplayerTradeEffects_ChooseMove(struct MultiplayerTradeRecordPreparation *state,
++                                        u32 sequence, u32 move, u32 slot)
++{
++    struct MultiplayerTradeRecordPreparation next;
++    if (state == NULL || state->version != MP_TRADE_RECORD_VERSION
++     || state->state != MP_TRADE_RECORD_CHOOSE_MOVE
++     || sequence != state->choiceCount || sequence >= MP_TRADE_RECORD_MAX_CHOICES
++     || move != state->pendingMove || move == MOVE_NONE || slot > MP_TRADE_RECORD_DECLINE)
++        return FALSE;
++    next = *state;
++    if (slot < MAX_MON_MOVES)
++    {
++        if (CannotForgetMove(GetMonData(&next.candidate, MON_DATA_MOVE1 + slot))) return FALSE;
++        RemoveMonPPBonus(&next.candidate, slot);
++        SetMonMoveSlot(&next.candidate, move, slot);
++    }
++    next.choices[next.choiceCount++] = (struct MultiplayerTradeMoveChoice){move, slot, 0};
++    next.pendingMove = MOVE_NONE;
++    if (!AdvanceRecord(&next)) return FALSE;
++    *state = next;
++    return TRUE;
++}
++
++bool32 MultiplayerTradeEffects_FinishRecord(const struct MultiplayerTradeRecordPreparation *state,
++                                          struct Pokemon *out)
++{
++    struct Pokemon candidate;
++    u32 serial;
++    u16 species;
++    if (state == NULL || out == NULL || Overlaps(out, sizeof(*out), state, sizeof(*state))
++     || state->version != MP_TRADE_RECORD_VERSION || state->state != MP_TRADE_RECORD_READY
++     || state->pendingMove != MOVE_NONE || state->choiceCount > MP_TRADE_RECORD_MAX_CHOICES)
++        return FALSE;
++    candidate = state->candidate;
++    if (!ReadMon(&candidate, &serial, &species) || serial != state->receivedSerial
++     || species != (state->evolvedSpecies ? state->evolvedSpecies : state->receivedSpecies))
++        return FALSE;
++    *out = candidate;
++    return TRUE;
++}
++
++bool32 MultiplayerTradeEffects_ReplayRecord(const struct Pokemon *received,
++                                          const struct Pokemon *sent,
++                                          u32 resolvedFriendship,
++                                          const struct MultiplayerTradeMoveChoice *choices,
++                                          u32 count, struct Pokemon *out)
++{
++    struct MultiplayerTradeRecordPreparation prepared;
++    struct Pokemon candidate;
++    u32 i;
++    if (!IsRecordOutput(out, sizeof(*out), received, sent)
++     || count > MP_TRADE_RECORD_MAX_CHOICES || (count && choices == NULL)
++     || (count && Overlaps(out, sizeof(*out), choices, count * sizeof(*choices))))
++        return FALSE;
++    if (!MultiplayerTradeEffects_BeginRecord(received, sent, resolvedFriendship, &prepared))
++        return FALSE;
++    for (i = 0; i < count; i++)
++        if (choices[i].reserved || !MultiplayerTradeEffects_ChooseMove(&prepared, i, choices[i].move, choices[i].slot))
++            return FALSE;
++    if (!MultiplayerTradeEffects_FinishRecord(&prepared, &candidate)) return FALSE;
++    *out = candidate;
++    return TRUE;
++}

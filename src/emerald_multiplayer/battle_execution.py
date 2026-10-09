@@ -101,6 +101,7 @@ class BattleExecutionService:
             acknowledged={p: [value[0], encode_control(value[1])] for p, value in room.acknowledged.items()})))
 
     def exchange(self, actor, lease, request):
+        self.admission.assert_not_canceled(request["battle_id"])
         battle = self.desk._get(actor, lease, request["battle_id"], request["generation"])
         room = self.rooms.get(battle.battle_id)
         if room is None:
@@ -202,6 +203,7 @@ class BattleExecutionService:
 
     async def _command(self, room, actor, command):
         b = room.battle
+        self.admission.assert_not_canceled(b.battle_id)
         self.desk._get(actor, b.leases[b.players.index(actor)], b.battle_id, b.generation)
         if actor in room.pending:
             raise BattleError("battle_order", "one native command may be outstanding per player")

@@ -193,6 +193,7 @@ class MenuSession:
             raise ConnectionError("completed battle does not own this native menu latch")
         self._battle_latched = self._battle_admission_failed = False
         self._admission_display = self._admission_selection = self._queued_open = None
+        self._admission_identity = None
 
     async def close_for_handoff(self, request, screen, *, timeout=5):
         """Wait for the native window to relinquish its field ownership.

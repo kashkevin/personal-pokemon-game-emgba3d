@@ -1,0 +1,1095 @@
+# PROJECT UPDATE — MAXIMUM FAKE-2.5D VISUALS + VISIBLE WILD POKÉMON + RIDING + DAY/NIGHT
+
+Add the following systems to the existing Pokémon Emerald Multiplayer project.
+
+This is an ADDITION to the existing specification.
+
+Do NOT change any other established gameplay rule unless specifically overridden below.
+
+---
+
+# MAXIMUM-QUALITY FAKE 2.5D VISUAL DIRECTION
+
+Keep Pokémon Emerald/pokeemerald-expansion as our technical 2D foundation.
+
+DO NOT attempt to convert the engine into true polygonal 2.5D/3D.
+
+Instead, push the existing 2D engine as visually far as reasonably possible while maintaining multiplayer stability and acceptable performance.
+
+The target is:
+
+A highly enhanced, atmospheric, depth-heavy Pokémon pixel-art world that visually takes inspiration from later Pokémon games and HD-2D presentation while remaining technically compatible with our Emerald-based architecture.
+
+Research existing compatible graphics/tileset/rendering enhancements before building everything from scratch.
+
+---
+
+# VISUAL TARGETS
+
+Investigate and implement where practical:
+
+- Higher-quality tilesets
+- More detailed terrain
+- Larger buildings
+- Better building perspective
+- Layered roofs
+- Foreground/background layering
+- Trees that visually overlap players/Pokémon
+- Better cliffs and elevation illusions
+- Dynamic-looking shadows
+- Animated water
+- Fake water reflections where practical
+- Improved waterfalls
+- Animated grass
+- Moving flowers/vegetation
+- Environmental particles
+- Leaves
+- Fog
+- Rain
+- Storms
+- Improved cave lighting
+- Light shafts where practical
+- Window/street lighting
+- Improved battle backgrounds
+- Improved battle transitions
+- Larger landmarks
+- Environmental animations
+- Improved towns/cities
+- Improved forests
+- More atmospheric routes
+- Day/night lighting
+- Visible overworld Pokémon
+- Followers
+- Rideable Pokémon
+
+The goal is NOT:
+
+"Vanilla Emerald with slightly improved tiles."
+
+The goal is to make the game look as visually impressive as we can reasonably make an Emerald-based 2D project.
+
+---
+
+# PERFORMANCE RULE
+
+Visual quality must NOT destroy multiplayer stability.
+
+Remember that a scene may contain:
+
+- Up to 4 customized players
+- Up to 4 follower Pokémon
+- Ride Pokémon
+- Visible wild Pokémon
+- NPCs
+- Weather
+- Environmental animations
+- Multiplayer synchronization
+
+Design a sensible visual/performance budget.
+
+Investigate systems such as:
+
+- Maximum active overworld Pokémon
+- Effect limits
+- Animation distance
+- Reduced animation/update rates for distant entities
+- Culling
+- Sprite/object limits
+- Simplified distant effects
+
+Prioritize stable gameplay over one additional visual effect.
+
+---
+
+# VISIBLE WILD POKÉMON
+
+Change the primary wild encounter presentation.
+
+Instead of relying primarily on:
+
+Walk through grass
+→ invisible random encounter
+
+wild Pokémon should generally be VISIBLE in the overworld.
+
+Pokémon should physically appear in appropriate environments.
+
+Examples:
+
+Land Pokémon walking through grass/terrain.
+
+Bird Pokémon appearing in appropriate outdoor environments.
+
+Water Pokémon visibly swimming where technically practical.
+
+Rare Pokémon visibly appearing as rare spawns.
+
+The player approaches/touches/interacts with the Pokémon to initiate the battle.
+
+---
+
+# RANDOMIZATION STILL EXISTS
+
+Our random Pokémon system remains.
+
+The difference is PRESENTATION.
+
+Instead of secretly rolling the species only after entering grass, the spawn system determines which Pokémon appears and creates its overworld representation.
+
+The existing rules remain:
+
+- Gen 1–6 species pool
+- No ordinary wild Legendary/Mythical Pokémon
+- Appropriate progression
+- Mostly basic/first-stage Pokémon early
+- Rarity weighting
+- Shinies
+- Starters may appear
+- Strong families can appear rarely at low/basic stages
+
+---
+
+# SHINY OVERWORLD POKÉMON
+
+Where technically practical, shiny Pokémon should appear SHINY in the overworld.
+
+This means a player may actually notice:
+
+SHINY POKÉMON!
+
+before initiating battle.
+
+Do not hide the shiny appearance until battle if our sprite/assets architecture can support overworld shiny coloration reliably.
+
+This should make overworld shiny hunting exciting.
+
+---
+
+# SHARED VISIBLE SPAWNS
+
+Because Pokémon physically exist in the shared world, investigate making visible wild Pokémon shared world entities.
+
+If a rare Beldum appears near multiple connected players, those players should be able to see the same Beldum.
+
+Recommended initial behavior:
+
+FIRST PLAYER TO INITIATE THE ENCOUNTER CLAIMS THE SPAWN TEMPORARILY.
+
+Other players cannot steal the Pokémon while the encounter is active.
+
+Determine appropriate behavior if the initiating player:
+
+- Catches it
+- Defeats it
+- Runs away
+- Disconnects
+- Crashes
+
+Prevent duplication/desynchronization.
+
+Document the final spawn ownership rules before implementation.
+
+---
+
+# OPTIONAL TRADITIONAL ENCOUNTERS
+
+Do not permanently remove the possibility of traditional hidden/random encounters at the engine level.
+
+Keep the architecture flexible enough that certain areas, modes, special mechanics, or future settings could still use traditional encounters if desired.
+
+However:
+
+VISIBLE OVERWORLD POKÉMON should become our primary normal encounter presentation.
+
+---
+
+# RIDEABLE POKÉMON
+
+Add a Pokémon riding/mount system.
+
+IMPORTANT:
+
+RIDING IS PRIMARILY A GROUND MOVEMENT/COSMETIC SYSTEM.
+
+It is NOT automatically connected to Fly, Surf, or other traversal abilities.
+
+Example:
+
+Player rides Charizard.
+
+Charizard travels along the ground as a mount.
+
+This does NOT automatically allow the player to fly.
+
+---
+
+# RIDE ELIGIBILITY
+
+Pokémon that are physically appropriate and have supported assets/animations may eventually be rideable.
+
+Examples may include:
+
+- Arcanine
+- Rapidash
+- Tauros
+- Rhyhorn
+- Rhydon
+- Charizard
+- Tyranitar
+- Salamence
+- Garchomp
+- Zebstrika
+- Sawsbuck
+- Other sufficiently large/appropriate Pokémon
+
+Do not assume every Pokémon must immediately support riding.
+
+Create a supported ride roster and expand it over time.
+
+---
+
+# RIDE BALANCE
+
+Do NOT create a situation where everyone chooses the same Pokémon because it has the highest hidden movement speed.
+
+Prefer standardized or tightly balanced riding speeds.
+
+Mount choice should primarily be:
+
+COSMETIC/PERSONAL PREFERENCE
+
+rather than competitive optimization.
+
+A modest movement-speed improvement over normal walking/running is acceptable.
+
+Exact speed should be balanced later.
+
+---
+
+# FOLLOWER → MOUNT
+
+Where supported, allow a player's current follower Pokémon to transition naturally into a mount.
+
+Example:
+
+Arcanine is following Player.
+
+Player interacts/selects Mount.
+
+Mount animation occurs.
+
+Player rides Arcanine.
+
+Player dismounts.
+
+Arcanine returns to follower state.
+
+This should feel seamless where technically practical.
+
+---
+
+# MULTIPLAYER RIDING
+
+Other connected players must see:
+
+- Which Pokémon you are riding
+- Your mounted movement
+- Mount/dismount state
+- Appropriate animations
+
+Do NOT make mounts visible only on the local player's client.
+
+Mount state becomes part of synchronized player appearance/state.
+
+---
+
+# RIDING DOES NOT EQUAL TRAVERSAL ABILITY
+
+Keep these systems separate.
+
+Riding Charizard:
+Does NOT automatically unlock Fly.
+
+Riding a Pokémon capable of swimming:
+Does NOT automatically mean Surf is unlocked unless our separate traversal rules allow it.
+
+Mounting is its own system.
+
+Traversal abilities are separate gameplay/progression systems.
+
+---
+
+# DAY / NIGHT CYCLE
+
+Add a persistent DAY/NIGHT cycle.
+
+The world should visually transition through time periods.
+
+At minimum support meaningful states such as:
+
+MORNING
+
+DAY
+
+EVENING
+
+NIGHT
+
+Exact clock boundaries can be balanced later.
+
+Where technically practical, transitions should feel gradual rather than instantly changing the entire world's palette.
+
+---
+
+# MULTIPLAYER TIME
+
+All connected players in the same shared world/session should use the same WORLD TIME.
+
+Do not allow:
+
+Player 1 sees daytime
+while
+Player 2 sees nighttime
+
+unless we intentionally add a special area/mechanic later.
+
+World time should remain synchronized.
+
+Determine whether the world clock should:
+
+- Follow host/system real-world time
+- Follow server time
+- Use an accelerated in-game clock
+
+Research the tradeoffs and recommend the best option before finalizing the time scale.
+
+---
+
+# DAY/NIGHT VISUALS
+
+Day/night should materially affect the world's presentation.
+
+Investigate:
+
+- Morning lighting
+- Day lighting
+- Sunset/evening palettes
+- Night lighting
+- Building window lights
+- Street lamps
+- Moonlight
+- Water appearance
+- Shadows
+- Weather interaction
+- Cave/interior exceptions
+- Environmental particles/effects
+
+This system should contribute significantly to our fake-2.5D/atmospheric visual target.
+
+---
+
+# TIME-BASED POKÉMON MECHANICS
+
+IMPORTANT:
+
+Because our baseline mechanics are Generation 6, FOLLOW GENERATION 6 TIME-BASED POKÉMON REQUIREMENTS where applicable.
+
+If a Pokémon's legitimate evolution or mechanic depends on:
+
+DAY
+
+NIGHT
+
+TIME OF DAY
+
+then our game should respect that requirement unless we explicitly decide otherwise later.
+
+Do NOT remove time-based requirements simply for convenience.
+
+---
+
+# TIME-BASED EVOLUTIONS
+
+Examples include Pokémon whose evolution depends on time conditions.
+
+Implement the appropriate Gen 6 requirements.
+
+Examples may include:
+
+Eevee → Espeon
+Friendship + appropriate daytime requirement.
+
+Eevee → Umbreon
+Friendship + appropriate nighttime requirement.
+
+Riolu → Lucario
+Friendship + appropriate daytime requirement.
+
+Amaura → Aurorus
+Appropriate level + nighttime requirement.
+
+Other Gen 1–6 Pokémon with time-based evolution requirements should follow their appropriate Gen 6 behavior.
+
+Research the complete Gen 1–6 list rather than relying only on these examples.
+
+---
+
+# TIME-BASED WILD SPAWNS
+
+Day/night may also influence visible overworld Pokémon.
+
+Certain Pokémon may:
+
+- Spawn primarily during daytime
+- Spawn primarily at night
+- Have increased/decreased spawn rates depending on time
+- Appear in different areas depending on time
+
+This should follow established Pokémon behavior where appropriate while still respecting our randomized encounter system.
+
+Do NOT make every Pokémon equally likely at every time if time-of-day behavior would make exploration more interesting.
+
+Design the exact spawn weighting carefully.
+
+---
+
+# RANDOMIZER + TIME REQUIREMENTS
+
+Our randomized species system remains active.
+
+Time of day should become another SPAWN WEIGHT/FILTER where appropriate.
+
+Example:
+
+A nocturnal Pokémon may have a significantly higher chance of being selected at night.
+
+A daytime Pokémon may become more common during the day.
+
+Do not completely destroy encounter variety.
+
+The system should encourage players to explore at different times without making enormous portions of the Pokédex practically unobtainable.
+
+---
+
+# SHINY HUNTING + DAY/NIGHT
+
+Shiny Charm and normal shiny mechanics continue functioning.
+
+Day/night does NOT inherently alter shiny odds unless a specific established mechanic or future design explicitly says otherwise.
+
+Local Soft Reset continues working for eligible personal/static encounters regardless of world time, provided the Pokémon's encounter requirements are satisfied.
+
+World Events continue using their existing server-generated shiny rules.
+
+---
+
+# WORLD EVENTS + TIME
+
+World Events may optionally use time-of-day requirements.
+
+Examples:
+
+Certain Pokémon/event types may only spawn at night.
+
+Others may be more likely during the day.
+
+However, do NOT make every major event inaccessible to players simply because they cannot play at a specific real-world hour.
+
+This is one reason the world-clock architecture should be considered carefully before choosing real-time vs accelerated time.
+
+---
+
+# RESEARCH EXISTING IMPLEMENTATIONS FIRST
+
+Follow our existing project-wide rule.
+
+Before building these systems from scratch, research compatible current pokeemerald/pokeemerald-expansion implementations for:
+
+- Enhanced tilesets
+- Lighting
+- Day/night systems
+- Weather
+- Environmental effects
+- Visible overworld Pokémon
+- Overworld Pokémon sprites
+- Shiny overworld sprites
+- Followers
+- Mount/riding systems
+- Player/follower animation
+- Expanded object-event limits
+- Sprite optimization
+- Culling/performance improvements
+- Time-based encounters
+- Time-based evolution
+
+Prefer maintained compatible existing implementations when appropriate.
+
+---
+
+# DEVELOPMENT PRIORITY
+
+DO NOT attempt to build all of this before the multiplayer proof-of-concept.
+
+Add these features to the appropriate development backlog.
+
+Recommended broad order:
+
+1. Multiplayer foundation.
+2. Persistent player state.
+3. Basic synchronized overworld entities.
+4. Gen 1–6 Pokémon/mechanics.
+5. Visible wild Pokémon prototype.
+6. Shared spawn synchronization.
+7. Followers.
+8. Day/night world clock.
+9. Time-based Pokémon mechanics.
+10. Ride Pokémon prototype.
+11. Multiplayer mount synchronization.
+12. Major visual overhaul.
+13. Environmental effects/polish.
+14. Performance optimization.
+
+The visual overhaul should be developed iteratively rather than replacing the entire game's graphics in one enormous pass.
+
+---
+
+# DO NOT CHANGE ANYTHING ELSE
+
+This amendment adds:
+
+MAXIMUM-QUALITY FAKE 2.5D VISUAL DIRECTION
+
+VISIBLE OVERWORLD WILD POKÉMON
+
+SHARED WILD SPAWN SYSTEM
+
+GROUND-BASED RIDEABLE POKÉMON
+
+DAY/NIGHT CYCLE
+
+GEN 6 TIME-BASED POKÉMON REQUIREMENTS
+
+All previously established project rules remain unchanged unless specifically overridden above.
+
+If a technical limitation requires changing an established gameplay rule, explain the issue and ask before making the gameplay change.
+
+# POKÉMON EMERALD — COMPLETE GRAPHICS, SPRITES & ANIMATION UPGRADE
+
+## YOUR MISSION
+
+We are developing a heavily upgraded Pokémon Emerald multiplayer game with Gen 6 mechanics, Pokémon from Generations 1–6, Mega Evolutions, visible wild Pokémon, following Pokémon, rideable Pokémon, a day/night cycle, and an ambitious fake-2.5D graphical style inspired by Octopath Traveler.
+
+Your mission is to dramatically improve the entire game's visual presentation, character animations, Pokémon sprites, overworld animations, battle effects, environments, and movement systems.
+
+**CRITICAL: DO NOT RECREATE ASSETS FROM SCRATCH WHEN HIGH-QUALITY EXISTING ASSETS ARE AVAILABLE.**
+
+Pokémon Emerald has existed since 2004. The ROM-hacking community has spent more than 20 years creating upgraded sprites, animations, graphics, and systems.
+
+Research these resources extensively, find the best available implementations, and use them as our starting foundation.
+
+However, **do not treat existing community assets as the quality ceiling.** If you can improve their appearance, animation smoothness, consistency, lighting, detail, or overall presentation, you are encouraged to do so.
+
+Our goal is not simply to make Emerald look slightly better. Our goal is to make it look and feel like an exceptionally polished modern Pokémon game while preserving its pixel-art identity.
+
+---
+
+## PHASE 1 — RESEARCH EXISTING RESOURCES
+
+Before creating or replacing any assets, research publicly available Pokémon Emerald and Pokémon ROM-hacking resources.
+
+Start with:
+
+1. **Pokéemerald Expansion**
+   https://github.com/rh-hideout/pokeemerald-expansion
+
+2. **Modern Emerald**
+   https://github.com/Mickosis/Modern_Emerald
+
+3. **Emerald follower implementation**
+   https://github.com/EmceeMikey/pokeemerald
+
+4. **Generation 6 DS-style sprite resource**
+   https://www.pokecommunity.com/threads/gen-vi-ds-style-64x64-pokemon-sprite-resource.314422/
+
+Also research other relevant GitHub repositories, PokéCommunity resources, community tilesets, open-source animation projects, Pokémon sprite databases, and graphics enhancement projects.
+
+These are starting points, not the only sources you may use.
+
+For every useful resource:
+
+- Identify its assets and capabilities.
+- Check whether it is compatible with our current codebase.
+- Verify licensing, attribution requirements, and permissions.
+- Compare visual quality and animation coverage.
+- Check whether it is actively maintained.
+- Identify missing Pokémon, frames, and animation states.
+- Select the best available option rather than blindly choosing the first result.
+
+Publicly accessible does not automatically mean open-source or freely reusable. Respect licenses and creator permissions.
+
+Use existing implementations as foundations where appropriate, but do not overwrite our working game with an incompatible repository.
+
+---
+
+## PHASE 2 — COMPLETE PLAYER ANIMATION OVERHAUL
+
+Upgrade all player movement animations.
+
+### Walking
+- Smooth directional walking animations.
+- Natural alternating footsteps.
+- Consistent movement speed and frame timing.
+- Correct animation for all supported directions.
+- Proper alignment with terrain and surroundings.
+
+### Running
+- Dedicated running animations rather than simply speeding up walking.
+- More expressive arm and leg movement.
+- Smooth transitions between walking and running.
+- Optional subtle dust effects on appropriate surfaces.
+
+### Fishing
+Implement a complete fishing animation sequence:
+
+1. Player prepares the fishing rod.
+2. Player casts the line.
+3. Bobber lands in the water with a splash.
+4. Player waits while the bobber subtly moves.
+5. Bobber reacts when a Pokémon bites.
+6. Player reels in the line.
+7. Encounter or successful catch sequence begins.
+
+Improve water ripples, fishing line appearance, and animation timing.
+
+### Additional player animations
+Upgrade or implement:
+
+- Standing idle
+- Turning
+- Interacting with objects
+- Jumping over ledges
+- Cycling
+- Surfing
+- Entering and exiting buildings
+- Mounting Pokémon
+- Dismounting Pokémon
+- Using items
+- Throwing Poké Balls
+- Entering battles
+- Victory celebrations
+
+Reuse existing animations where appropriate, but improve them when possible.
+
+---
+
+## PHASE 3 — COMPLETE POKÉMON OVERWORLD ANIMATIONS
+
+We want Pokémon to feel alive.
+
+Research and collect the best available overworld sprites and animation frames for Pokémon from Generations 1–6.
+
+### Movement animations
+
+Where appropriate for the species, support:
+
+- Idle
+- Walking
+- Running
+- Turning
+- Hopping
+- Swimming
+- Flying or hovering
+- Sleeping
+- Reacting to the player
+- Entering and exiting battles
+- Following the trainer
+
+Do not force identical animations onto every Pokémon.
+
+Examples:
+
+**Pikachu:** Walks, runs, moves its ears and tail, and occasionally reacts to nearby objects.
+
+**Pidgey:** Hops on the ground and flaps its wings when flying.
+
+**Magikarp:** Swims in water and occasionally jumps above the surface.
+
+**Charizard:** Walks on land, moves its wings and tail, and has an animated tail flame.
+
+**Gengar:** Floats or moves with an appropriate ghostly motion.
+
+These examples establish the quality target, not a requirement to hand-animate every species immediately.
+
+### Visible wild Pokémon
+
+Our game should not rely exclusively on random encounters in tall grass.
+
+Pokémon should visibly appear in appropriate environments.
+
+Implement or improve:
+
+- Pokémon roaming in grass
+- Pokémon wandering through forests
+- Flying Pokémon appearing in the air
+- Aquatic Pokémon swimming
+- Pokémon resting or standing idle
+- Pokémon reacting to approaching players
+- Pokémon spawning at appropriate times of day
+- Species-specific movement behavior
+
+Keep encounter levels and spawn rules consistent with our existing game design.
+
+Ensure multiplayer players see synchronized Pokémon positions and interactions.
+
+---
+
+## PHASE 4 — FOLLOWING POKÉMON
+
+We want Pokémon to follow their trainers, similar to HeartGold and SoulSilver, but with improved visual presentation.
+
+Research existing follower systems and sprite collections.
+
+Implement or improve:
+
+- Smooth Pokémon following
+- Directional walking animations
+- Correct following distance
+- Appropriate movement speed
+- Turning and pathing
+- Entering and exiting buildings
+- Following through different environments
+- Idle animations when the trainer stops
+- Proper handling when the trainer starts running
+
+Avoid teleporting, sliding, clipping, or unnatural movement wherever possible.
+
+Make follower Pokémon visible to other multiplayer players.
+
+Preserve our existing multiplayer architecture and synchronization rules.
+
+---
+
+## PHASE 5 — RIDEABLE POKÉMON
+
+We want players to ride suitable Pokémon while traveling.
+
+**IMPORTANT: Riding a Pokémon does not automatically mean flying.**
+
+For example, a player riding Charizard can travel along the ground. The fact that Charizard can fly does not mean riding it should automatically enable flight.
+
+Implement ground-based riding first.
+
+Research existing riding sprites, mount systems, and animations.
+
+Features:
+
+- Mounting animation
+- Dismounting animation
+- Proper trainer positioning
+- Pokémon walking while mounted
+- Pokémon running while mounted
+- Appropriate movement speed
+- Correct directional sprites
+- Terrain collision
+- Multiplayer synchronization
+
+Different Pokémon should feel appropriately different.
+
+For example:
+
+- Arcanine runs on four legs.
+- Rapidash gallops.
+- Charizard walks using its own body proportions.
+- Lapras swims when used for water travel.
+
+Use existing mount sprites when available.
+
+If suitable sprites do not exist, create compatible custom artwork.
+
+Do not enable unrestricted flight unless explicitly authorized.
+
+---
+
+## PHASE 6 — BATTLE SPRITES AND ANIMATIONS
+
+Research existing high-quality battle sprites for every supported Pokémon.
+
+Prioritize Generations 1–6, including:
+
+- Normal forms
+- Shiny forms
+- Mega Evolutions
+- Alternate forms where applicable
+- Front sprites
+- Back sprites
+- Available animation frames
+
+Improve visual consistency between generations.
+
+Where technically feasible, add or enhance:
+
+- Idle battle animations
+- Entrance animations
+- Attack movement
+- Taking damage
+- Fainting
+- Status effects
+- Mega Evolution transformations
+- Shiny sparkle effects
+- Poké Ball capture effects
+
+Preserve correct battle mechanics, Pokémon stats, forms, abilities, and existing game functionality.
+
+Do not confuse visual improvements with changing battle balance.
+
+---
+
+## PHASE 7 — FAKE-2.5D GRAPHICAL OVERHAUL
+
+Our visual inspiration is **Octopath Traveler's HD-2D presentation**, adapted to our Pokémon Emerald foundation.
+
+We are not necessarily converting the game into a true 3D game.
+
+Instead, create the strongest possible illusion of depth using techniques supported by our engine.
+
+Research modern Pokémon pixel-art environments, upgraded Emerald tilesets, lighting systems, shadows, and environmental animation resources.
+
+### Environmental improvements
+
+Upgrade:
+
+- Grass and tall grass
+- Trees and forests
+- Rivers and lakes
+- Beaches and oceans
+- Mountains and cliffs
+- Caves
+- Towns and cities
+- Buildings
+- Roads and pathways
+- Bridges
+- Interior environments
+
+### Depth and atmosphere
+
+Where feasible, implement:
+
+- Layered foreground and background elements
+- Improved environmental shadows
+- More expressive lighting
+- Atmospheric color palettes
+- Animated foliage
+- Water reflections or convincing approximations
+- Weather effects
+- Day/night transitions
+- Improved scene composition
+- Depth-enhancing terrain and architecture
+
+Make buildings and environments feel more dimensional without breaking movement or collision.
+
+### Day/night cycle
+
+Preserve and improve our planned day/night system.
+
+Include:
+
+- Morning
+- Daytime
+- Evening
+- Nighttime
+- Appropriate palette transitions
+- Lighting changes
+- Environmental ambience
+- Time-dependent Pokémon appearances
+
+Ensure Pokémon evolution and other time-dependent mechanics follow the intended Gen 6-compatible rules where applicable.
+
+### Important technical limitation
+
+If our game still runs as a GBA ROM, do not claim that true real-time 3D lighting, modern depth of field, or shader effects are possible without significant engine changes.
+
+Use the strongest technically feasible alternatives.
+
+If a requested effect exceeds the current engine's capabilities, document the limitation and propose the closest achievable implementation.
+
+Do not silently change engines or abandon Emerald compatibility.
+
+---
+
+## PHASE 8 — ANIMATION QUALITY IMPROVEMENTS
+
+Existing community sprites are the starting point, not necessarily the final result.
+
+For each major asset or animation, evaluate:
+
+1. Is the existing asset visually good enough?
+2. Does it match our game's art direction?
+3. Is its animation smooth?
+4. Does it contain all necessary directions and frames?
+5. Can it be improved without losing compatibility?
+6. Will the improvement justify its performance and memory cost?
+
+If you can produce a genuinely better result, do so.
+
+Potential improvements include:
+
+- Additional animation frames
+- Cleaner sprite silhouettes
+- Better shading
+- More consistent proportions
+- Smoother transitions
+- Improved movement timing
+- Better environmental integration
+- Species-specific idle behavior
+- More expressive battle effects
+
+Do not increase animation frames blindly. Evaluate whether the result actually looks better in motion.
+
+Maintain consistent sprite scale, perspective, color palettes, and pixel-art style.
+
+Avoid mixing incompatible visual styles.
+
+---
+
+## PHASE 9 — MULTIPLAYER COMPATIBILITY
+
+This is a multiplayer Pokémon game.
+
+Every major animation and graphical system must work correctly with multiple players.
+
+Verify:
+
+- Other players can see walking and running animations.
+- Mounted players appear correctly.
+- Following Pokémon synchronize.
+- Visible wild Pokémon remain consistent.
+- Fishing animations display correctly.
+- Surfing and riding states synchronize.
+- Day/night behavior follows our intended multiplayer rules.
+- Animations do not interfere with trading or battling.
+- Players do not become invisible or desynchronized.
+- Animation updates do not introduce significant network overhead.
+
+Reuse our existing multiplayer systems.
+
+Do not rewrite unrelated systems without demonstrating that changes are necessary.
+
+---
+
+## PHASE 10 — PERFORMANCE AND ENGINE LIMITATIONS
+
+Graphics must not destroy performance.
+
+Inspect the actual project's technical constraints before implementation.
+
+Pay attention to:
+
+- GBA sprite and tile limits
+- VRAM
+- Palette limitations
+- Animation memory
+- Sprite decompression
+- Frame timing
+- Multiplayer synchronization
+- Emulator compatibility
+- Save compatibility
+
+If the game runs through a modified engine or PC runtime, identify those capabilities separately.
+
+Optimize animations and visual effects appropriately.
+
+Prefer efficient sprite reuse, animation sharing, and carefully managed asset loading.
+
+Never sacrifice stability solely for visual improvements.
+
+---
+
+## PHASE 11 — SAFE DEVELOPMENT WORKFLOW
+
+Before changing anything:
+
+1. Inspect the current project.
+2. Identify the engine and repository structure.
+3. Document existing graphics and animation systems.
+4. Create a recoverable checkpoint.
+5. Build a resource inventory.
+6. Identify compatible existing assets.
+7. Rank improvements by visual impact and implementation risk.
+8. Implement in small, testable stages.
+
+**NEVER DELETE OUR PREVIOUS WORKING ASSETS JUST BECAUSE YOU CREATED BETTER ONES.**
+
+Keep original assets and implementations recoverable.
+
+Do not replace working systems without validation.
+
+Do not overwrite our multiplayer functionality, Pokémon mechanics, save system, or existing game features.
+
+Test every major addition.
+
+Use automated tests where possible and visual in-game testing for graphical changes.
+
+If an improvement fails, restore the previous working version and investigate.
+
+---
+
+## PHASE 12 — EXECUTION AND DELIVERABLES
+
+Do not stop after writing a research report.
+
+Once you understand the project, begin implementing compatible improvements.
+
+Prioritize:
+
+1. Existing sprite and animation resource integration.
+2. Player walking, running, fishing, and surfing improvements.
+3. Pokémon overworld animations.
+4. Following Pokémon animations.
+5. Visible wild Pokémon animations.
+6. Rideable Pokémon animations.
+7. Battle sprite and effect improvements.
+8. Environment and fake-2.5D enhancements.
+9. Day/night visual polish.
+10. Performance optimization and final testing.
+
+Create an asset inventory documenting:
+
+- Asset name
+- Source and creator
+- License or permission status
+- Pokémon or character coverage
+- Available animation states
+- Current implementation status
+- Improvements made
+- Missing frames or assets
+- Compatibility limitations
+
+For each completed stage, provide:
+
+- What you researched
+- Which resources you selected
+- Why those resources were selected
+- What was reused
+- What was improved or newly created
+- What was implemented
+- What was tested
+- What remains unfinished
+
+Do not claim completion without verifying the result.
+
+### FINAL INSTRUCTIONS
+
+Be ambitious and creative, but technically disciplined.
+
+Use the best compatible, legally reusable community resources available.
+
+Do not waste time recreating excellent existing work.
+
+At the same time, do not settle for mediocre assets simply because they already exist.
+
+If you can make an animation smoother, a sprite more detailed, an environment more immersive, or an effect more impressive, pursue that improvement while respecting our technical constraints.
+
+**Our ultimate goal is a Pokémon Emerald multiplayer experience that looks dramatically better than the original, feels alive, has polished player and Pokémon animations, and delivers the most impressive fake-2.5D presentation realistically achievable with our chosen engine.**
+
+Research first. Preserve existing work. Implement carefully. Test thoroughly. Keep improving.
+
