@@ -42,7 +42,9 @@ ACTION_NONE = 0
 ACTION_CLAIM = 1
 ACTION_RESULT = 2
 ACTION_RELEASE = 3
-ACTION_KINDS = {ACTION_CLAIM: "claim", ACTION_RESULT: "result", ACTION_RELEASE: "release"}
+ACTION_APPEARANCE = 4  # the local state carries a newly saved trainer look
+ACTION_KINDS = {ACTION_CLAIM: "claim", ACTION_RESULT: "result", ACTION_RELEASE: "release",
+                ACTION_APPEARANCE: "appearance"}
 
 RESULT_NAMES = {1: "caught", 2: "defeated", 3: "ran", 4: "lost", 5: "cancelled"}
 
@@ -124,7 +126,7 @@ class WorldAction:
 
     def __post_init__(self):
         _bound(self.seq, 0, _UINT32, "action seq")
-        _bound(self.kind, 0, 3, "action kind")
+        _bound(self.kind, 0, 4, "action kind")
         _bound(self.result, 0, 5, "action result")
         _bound(self.species, 0, MAX_SPECIES, "action species")
         _bound(self.event_id, 0, _UINT32, "action event")

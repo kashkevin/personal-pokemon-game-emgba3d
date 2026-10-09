@@ -1547,6 +1547,9 @@ class Companion:
     def _spawn_world_action(self, action) -> None:
         from .world_mailbox import ACTION_KINDS, RESULT_NAMES
         kind = ACTION_KINDS.get(action.kind)
+        if kind == "appearance":
+            self._spawn_appearance_save(action.seq)
+            return
         if kind is None or action.event_id == 0:
             self._world_action_ack = action.seq
             return
@@ -1566,6 +1569,24 @@ class Companion:
                 self._publish_snapshot()
 
         task = asyncio.create_task(run(), name="companion-world-action")
+        self._ipc_handlers.add(task)
+        task.add_done_callback(self._ipc_handlers.discard)
+
+    def _spawn_appearance_save(self, seq: int) -> None:
+        """The in-game STYLE editor saved a look: store it in the host profile."""
+        look = self._local_world.appearance if self._local_world is not None else None
+
+        async def run():
+            try:
+                if look is not None:
+                    await self.appearance_rpc(look)
+            except Exception:  # noqa: BLE001 - the ROM re-offers the look until the host confirms it
+                pass
+            finally:
+                self._world_action_ack = seq
+                self._publish_snapshot()
+
+        task = asyncio.create_task(run(), name="companion-appearance-save")
         self._ipc_handlers.add(task)
         task.add_done_callback(self._ipc_handlers.discard)
 
