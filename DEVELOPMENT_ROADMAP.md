@@ -128,8 +128,12 @@ All of the project's gameplay code runs in the native build. [dir]
   `draft_runtime.py` start it with `--save`, `--bridge` (a private bridge.txt) and
   `--config` (engine `9e1de660f`: settings kept beside the launch folders) and refuse
   another ROM build before recovery. Proved through `PlayerRuntime` under Wine
-  (`native-launcher-evidence.json`). Still to do: the launcher window with a native
-  release (application folder and release record), the 3D exe through the launcher,
+  (`native-launcher-evidence.json`), and through the whole launcher (`LauncherWindow`,
+  `SessionWorker`, `LauncherSession`, host and join, with world creation, host
+  enrollment and the friend's invitation) with two Linux games and a 1v1 battle
+  (`native-launcher-battle-evidence.json`). Still to do: the launcher window with the
+  Windows exe from a native release (application folder and release record), the 3D
+  exe through the launcher,
   and whether a native install still needs the user's GBA ROM (`game_import.py`,
   `game_patch.py`: the companion verifies it, KNOWN_ISSUES M1); `trade_native_replay.py`
   keeps its mGBA replay worker (B4).
@@ -156,6 +160,10 @@ All of the project's gameplay code runs in the native build. [dir]
   ROM's manifest, and pairing the executable with it is open (KNOWN_ISSUES M1).
 - [ ] C3 Battle transport natively (today the GBA link layer: SendBlock /
   GetBlockReceivedStatus). Needs: C2. [audit]
+  Progress 2026-10-10: the battle mailbox path runs natively through the C bridge: a
+  1v1 between two native games routed 362 blocks, the same count and forced switch
+  as the emulator qualifier wqb1 (`native-launcher-battle-evidence.json`). 2v2 (four
+  clients) not run yet.
 - [ ] C4 Input and reset-chord routing through the native bridge (today in the Lua
   bridge and the SDL adapter). Needs: C1, B4. [audit]
   Done in code (the SDL adapter's guard ported, unit-tested with its own cases); the
@@ -167,7 +175,10 @@ All of the project's gameplay code runs in the native build. [dir]
   Started: `scripts/multiplayer/native_presence_proof.py` drives 2-4 real native
   clients (Linux, Windows under Wine, or the 3D build) with key presses on their own
   X displays (door map change, companion restart optional);
-  `native_checkpoint_proof.py` adds the ownership store and live checkpoints.
+  `native_checkpoint_proof.py` adds the ownership store and live checkpoints;
+  `native_trade_proof.py` a trade through the Players menu; `native_launcher_proof.py`
+  the launcher's `PlayerRuntime`; `native_launcher_battle_proof.py` ports the Windows
+  1v1 qualifier (`qualify_menu_battle.py`) with the whole launcher.
 - [ ] C6 Two, then four native clients: connect, see each other, move, change maps,
   disconnect and reconnect, then trade and battle. Needs: C2-C5. [audit] [brief]
   In progress: connect, see each other and move pass with 2 Linux, 2 Windows (Wine),
@@ -176,8 +187,12 @@ All of the project's gameplay code runs in the native build. [dir]
   checkpoints into the ownership store pass with 2 Linux, 2 Wine and 2 3D clients:
   enrollment, a save after walking, both games restarted, saves after the restart,
   and live recovery into a running game (2 Linux, 2 Wine)
-  (`native-checkpoint-evidence.json`). Next: trade, then 1v1/2v2 battles, the Players
-  menu; host restart and network loss between companion and host.
+  (`native-checkpoint-evidence.json`); a trade through the Players menu with its cancel
+  path and a restart (2 Linux, `native-trade-evidence.json`); a 1v1 battle through the
+  Players menu between two games the launcher started (2 Linux,
+  `native-launcher-battle-evidence.json`). Next: a trade and a battle between Windows
+  clients (Wine), 2v2 with four clients; host restart and network loss between
+  companion and host.
 
 ## Milestone D - enhanced graphics
 

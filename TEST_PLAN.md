@@ -276,6 +276,26 @@ covers the bundle format, the bridge file and the arguments without a game.
 | native-launcher-1..3 | Windows 2D exe under Wine | Failed on the harness (no SDL2.dll beside the directly started game; started before the companion's new lease; a store without trades); each fixed in the script |
 | native-launcher-4 | Windows 2D exe under Wine, engine `9e1de660f` | Pass: arguments `--save --bridge --config`, canonical save installed, overworld at the canonical position, live checkpoint 1.4 s, lease released, settings file kept, other-ROM bundle refused |
 
+The whole launcher with native games: host and friend battle 1v1 from the Players
+menu (the Windows qualifier `qualify_menu_battle.py` on the native build). The real
+`LauncherWindow`, `SessionWorker` and `LauncherSession` start the games from a native
+runtime bundle; on Linux the bundle holds the Linux executable under its `.exe` name
+with a placeholder SDL2.dll. Each player's games open on their own X display. The
+harness reads the games' menus, tasks and parties at the unstripped executable's
+symbols (never writes them) and needs the genuine two- and one-Pokémon sources.
+
+```sh
+PYTHONPATH=src:scripts/multiplayer:scripts/windows-runtime \
+  python scripts/multiplayer/native_launcher_battle_proof.py \
+    --game ../engine/pokeemerald-mp --rom pokedev.gba --manifest manifest.json \
+    --source-a a.sav --source-b b.sav --display :98 --display :97 \
+    --output /private/multiplayer-proof/native-launcher-battle-N
+```
+
+| Run | Clients | Result |
+| --- | --- | --- |
+| native-launcher-battle-1 | 2 Linux, engine `9e1de660f` | Pass in 8 min 11 s: enrollment through bootstrap games, Challenge 1v1 / Accept / Enter battle through the Players menu, 362 routed blocks with the forced switch (as the emulator qualifier wqb1), the same durable result for both (the friend won), full parties restored in memory, Recent battle results on both games, manual saves (revision 2), normal close (exit 0), fresh Continue onto the same checkpoints; 632 key presses, no forced cleanup (`native-launcher-battle-evidence.json`) |
+
 A harness will start the real host plus N simulated clients (and later native game
 clients) and run the scenarios in the toolkit directive (2 and 4 clients, movement,
 map changes, teams, trades, 1v1/2v2 and concurrent battles, World Events, reconnect,
