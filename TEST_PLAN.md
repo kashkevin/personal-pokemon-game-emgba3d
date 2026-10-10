@@ -181,8 +181,8 @@ N33).
 | F4 to classic and back during a battle; into 3D mid-battle | Pass | Not run |
 | Save on the field, reload, battle in 3D | Pass | Not run |
 | 1920x1080 window (`windowScale=6`): layout, battle frame rate | Pass (60 game frames a second in the battle) | Not run |
-| Second round: water and flowers move (`PKMN_DIORAMA_BATTLE_TILES=1`; by cost they stay still on software OpenGL) | Pass (Oldale Town) | Not run |
-| Second round: the battle's scenery where the world ends (rooms, caves) | Pass (Petalburg Gym, Sidney's room, Granite Cave B1F) | Not run |
+| Second round: water and flowers move (`PKMN_DIORAMA_BATTLE_TILES=1`; by cost they stay still on software OpenGL) | Pass (Oldale Town) | Cost check only: still (Granite Cave 1F, a redraw 39 ms on Wine's software OpenGL) |
+| Second round: the battle's scenery where the world ends (rooms, caves) | Pass (Petalburg Gym, Sidney's room, Granite Cave B1F) | Granite Cave 1F: wild battle in 3D, the cave's scenery caught, Run, field back in 3D (the merge candidate's exe as packed) |
 | Second round: transitions - people unmoved while the field slices; Blur mosaic on the 3D field | Pass (Route 101 slice; Granite Cave B1F blur) | Not run |
 | Second round: double battle with Mega Evolution (Kate & Joy, Oldale Town) | Pass | Not run |
 | Second round: native crash scenarios in 3D (Trainer Card, Fly map, PC boxes: cursor, close, summary and back, Poké Ball, Mega) | Pass | Not run |

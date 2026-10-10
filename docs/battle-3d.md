@@ -11,7 +11,7 @@ mechanics changes).
 | --- | --- | --- | --- |
 | `claude/battle-3d` | `claude/native-graphics` `b02cf0e97` | `5a4772ff0` 3D battles; `31d15a804` four native NULL faults; `dce1a991a` Windows build fix; `02d580fe1` Poké Ball crash; `68669dd62` Trainer Card crash; `b752d8e48` stage search sees the voxel trees | The port, on the overworld as it was when this work started |
 | `claude/battle-3d-integration` | `claude/native-graphics` `8920f1f67`, then `3e39f2b15` merged in (the other graphics session's checkpoint `native-wip-20261010-3`) | First round: `6caa1922c` merge; `0c553430e` integration; `177efdefc` battle transitions over the 3D field; `f1e5f5ea3`, `a5e3aa903`, `925b47933` (the three fixes above); `e7f6285f5` merge of `3e39f2b15` (four conflicts, resolved by hand); `732fbef43` 3DS trees in battles (tag `battle3d-wip-20261010-1`). Second round: `389d744b6`, `fae86b6c1` PC box crashes (N35, N36); `79fc306f3` field tile animations into a copy; `90c15d594` the GBA renderer keeps the scenery's own picture; `13fea91ef` transition mosaic captured; `ae08acbf3` stage search measures what the camera sees; `0fa2bf87a` water and flowers, scenery past a room's edge, transitions (tag `battle3d-wip-20261010-2`) | The 3D battles' working line |
-| `claude/native-graphics-3d-battles` | `claude/native-graphics` `edd1f5105` (`graphics-wip-20261010-4`, the newest 3D overworld: 3DS camera and trees as defaults, live-save pacing, XInput at run time) | `958bf83f1`: merge of `claude/battle-3d-integration` (no conflicts) | **Merge candidate**: the owner's `claude/native-graphics` with the 3D battles; fast-forward `claude/native-graphics` to it to merge |
+| `claude/native-graphics-3d-battles` | `claude/native-graphics` `edd1f5105` (`graphics-wip-20261010-4`, the newest 3D overworld: 3DS camera and trees as defaults, live-save pacing, XInput at run time) | `7bf42d267`: merge of `claude/battle-3d-integration` (no conflicts) | **Merge candidate**: the owner's `claude/native-graphics` with the 3D battles; fast-forward `claude/native-graphics` to it to merge |
 | `claude/native-pc-box-fixes` | `claude/native-pc` `1579e7fd8` | `ae6533e25` opening the PC's boxes crashed (N35); `aa2841d7a` leaving them crashed (N36) | The two crash fixes found since the first round, for the 2D game; merges cleanly into `claude/native-graphics` too |
 
 The first round's five crash fixes (N26-N32) are already on `claude/native-pc`
@@ -180,7 +180,7 @@ battles from the debug menu were therefore started in a town.
 | GBA ROM | `pokedev.gba` sha256 unchanged (`f214735b…3387`) on both branches |
 
 Second round (2026-10-10 afternoon; `claude/battle-3d-integration` `0fa2bf87a`,
-then the merge candidate `claude/native-graphics-3d-battles` `958bf83f1`, debug-menu
+then the merge candidate `claude/native-graphics-3d-battles` `7bf42d267`, debug-menu
 test builds):
 
 | Check | Result |
@@ -195,7 +195,8 @@ test builds):
 | PC box crashes (2D, `claude/native-crash-fixes` and `claude/native-pc-box-fixes`) | Reproduced with gdb before the fixes (`SpriteCB_CursorShadow` after `FreePokeStorageData`, closing the boxes and opening a summary); alive after, the summary round trip back to the boxes and out of the PC too |
 | Unit tests | `check-diorama` passes (stage-search tests: trees in front of the opponent, doubles, rooms with high and low walls, a wall right behind, a leaning crown) |
 | Native checks | `check-native` (1063 + 4186), `check-abi` (172 types), `check-game-sections`, `check-decompress` (7469 assets) pass |
-| GBA ROM | unchanged (`f214735b…3387`) on every branch |
+| Windows build (Wine), the merge candidate's exe as packed for the owner | Pass: `run-3d-battle-cave.bat`'s save (Granite Cave 1F), a wild Ledyba in 3D, the cost check ("the world takes 39.46 ms to draw ... water and flowers stand still"), the cave's scenery caught, Run, back to the 3D field |
+| GBA ROM | unchanged (`f214735b…3387`) on every branch, the merge candidate `7bf42d267` included |
 
 Not tested: multiplayer battles (1v1, 2v2, co-op, Twin Gym Leaders, Championship)
 in the native build - their transport is Milestone C3, not done yet; the 3D
@@ -215,8 +216,9 @@ redraw is cheap: the game times its first redraws in each battle and logs the re
 (`PKMN_DIORAMA_LOG=1`: "the world takes N ms to draw ... water and flowers move" or
 "stand still"); here that is 25-250 ms, so they stand still. A real graphics card
 has not been measured (KNOWN_ISSUES V3): whether the water moves there, and how
-fast the glide and the transitions run, needs the owner's `run-3d-battle-test.bat`
-log. No claim is made that the renderer is optimized.
+fast the glide and the transitions run, needs the owner's `battle-log.txt` from
+`run-3d-battle-water.bat` (Route 102's pond) and `run-3d-battle-cave.bat` (Granite
+Cave 1F). No claim is made that the renderer is optimized.
 
 ## Review of the visual problems (second round, 2026-10-10)
 
@@ -237,4 +239,7 @@ round did:
 
 Found in the second round: Petalburg Woods has no 3D view (the Diorama's map
 support), so its battles are 2D; on a graphics card the cost check stalls the
-glide's first eight redraws for their completion (`glFinish`), a few milliseconds.
+glide's first eight redraws for their completion (`glFinish`), a few milliseconds;
+a move that brings its own background (Psychic, Feint Attack...) shows it in the
+GBA picture's area only, with the rest of a wide window black meanwhile (as in the
+first round; its edges could be carried out as the scenery's are: KNOWN_ISSUES V13).
