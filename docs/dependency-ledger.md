@@ -236,3 +236,24 @@ Project-owned native files (no third-party code): `agb_flash_pc.c`, `siirtc_pc.c
 | GCC UBSan/ASan runtimes (32-bit) | Ubuntu `lib32ubsan1`, `lib32asan8` 14.2 | Sanitizer builds of the native game |
 | cppcheck | Ubuntu 2.13.0 | Static analysis (GPL-3.0; tool only) |
 | python3-tk | Ubuntu package | Runs the launcher GUI tests |
+| Wine | Ubuntu 24.04 `wine32:i386` and `wine64` 9.0~repack-4build3 (LGPL-2.1-or-later) | Runs the Windows game exe in the proofs (one prefix per player) and, since 2026-10-10, the Windows Python that builds the launcher package; nothing from Wine is bundled |
+| xdotool, Xvfb | Ubuntu `xdotool` 3.20160805.1, `xvfb` 21.1.12 | Ordinary key presses and window focus on private X displays in the game proofs |
+
+### Launcher package built under Wine (recorded 2026-10-10)
+
+The cloud workspace has no Windows computer, so the private preview package
+"Native 3D preview 1" was built under Wine with the project's own
+`scripts/windows-runtime/build_launcher.py` (unchanged build steps; only a native
+runtime is now accepted for a development package). The same pinned build tools as
+the [launcher packaging table](#private-windows-launcher-packaging) were used, with a
+different Python build:
+
+| Component | Exact version | Terms and role |
+| --- | --- | --- |
+| CPython (python-build-standalone) | astral-sh/python-build-standalone release 20251014, CPython 3.14.0 x86_64-pc-windows-msvc install-only archive, SHA-256 `d90e97fe69b819f0a776cd665d06fef6526a4259211d11f00e501688659f1c0e` | PSF licence plus the bundled components' notices (`LICENSE.txt` copied into the package, as with the official installer). Bundled by PyInstaller into `EmeraldTogether.exe`'s folder as the launcher's runtime. Its Tcl/Tk is 8.6.14 (the official 3.14.4 installer used before ships 8.6.15) |
+| Build wheels | PyInstaller 6.22.3, pyinstaller-hooks-contrib 2026.8, altgraph 0.17.5, packaging 26.3, pefile 2024.8.26, pywin32-ctypes 0.2.3, setuptools 84.0.0; runtime cryptography 50.0.2, cffi 2.1.1, pycparser 3.0 | The pinned wheels of `requirements-launcher-build.txt` and `requirements-host-provisioning.txt`; every downloaded wheel's SHA-256 matches its pin (checked again after the build) |
+
+The package audit of `build_launcher.py` passed (2 archives, 1261 files and members
+inspected). Not established by this: that the package runs on real Windows (only
+started under Wine and its file check run), and the final distribution review.
+

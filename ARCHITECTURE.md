@@ -121,7 +121,18 @@ build (fallback) and the native PC build being migrated to. Requirements are in
     multiplayer battles are unaffected by it. On the other branches battles stay 2D.
   * *Pacing*: one presented frame per loop; when a frame takes longer than about 83
     ms (below 12 fps) the game advances one frame per presented frame, so a slow GPU
-    slows the game instead of skipping input.
+    slows the game instead of skipping input. Exceptions for live saves (KNOWN_ISSUES
+    M5): while a save holds the game and no menu is open, frames run without being
+    drawn (redrawn once a second); and when drawing a frame takes longer than 25 ms,
+    frames also run undrawn while the bridge has a save command in the game and for
+    250 ms after it (graphics `edd1f5105`). Game state is the same either way; only
+    the drawing is skipped.
+  * *Looks*: the 3DS project's close camera and its trees are the defaults (the
+    owner's choice, graphics `2057c4ac7`); F7 switches the camera to the wide Diorama
+    view and F8 the trees to the voxel trees. The settings file (`pokeemerald.cfg`, or
+    the launcher's `--config` file) keeps zoom and tilt, and the camera and tree style
+    once the player has chosen one (or an older build wrote one); a saved choice wins
+    over the default.
   * *Modelled buildings* (D4, from ZallaxDev/pokeemerald-3Ds-dualscreen): its
     generator (`tools/diorama_buildings`) models every house, Center, Mart, lab and
     piece of furniture from its own drawing at build time; `buildings.c` reads the
@@ -139,6 +150,16 @@ build (fallback) and the native PC build being migrated to. Requirements are in
     sprite from one point over its feet. Strength from the snapshot: none indoors
     or in bad weather, half at night.
   * Still to port from the 3DS project: `docs/diorama-3ds-gap-analysis.md`.
+* **Launcher with the native game** (Milestone B3): the Python launcher
+  (`launcher_gui.py`, `launcher_session.py`, `player_runtime.py`,
+  `enrollment_runtime.py`, `draft_runtime.py`) starts the native executable from a
+  native runtime bundle (`runtime.json`, format `emerald-native-runtime-v1`: the
+  executable, its SDL2.dll, their hashes and the ROM build it pairs with) with
+  `--save`, `--bridge` and `--config`; no mGBA and no Lua bridge are involved. The
+  companion still checks the GBA ROM of the same engine source (KNOWN_ISSUES M1), so
+  an installation still needs `game.gba`. A bundle naming another ROM build is
+  refused before any game starts. The emulator runtime format still works (the
+  rollback).
 * **No GBA Wireless Adapter**: the wireless library is never set up natively;
   anything that would scan for adapter players (the Pokémon Center Union Room scan)
   is skipped under `PORTABLE` (KNOWN_ISSUES N24).

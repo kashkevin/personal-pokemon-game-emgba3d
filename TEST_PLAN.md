@@ -20,7 +20,11 @@ DISPLAY=:99 /home/claude/venv312/bin/python -m pytest      # whole suite
   trading (offers, confirmation, effects, recovery), battles (admission,
   arbitration, journal, recovery), teams, world clock/events/claims, friendship and
   Lucky Trades, wagers, co-op Gyms, saves and checkpoints, local reset, launcher.
-* **Result 2026-10-10** (`claude/native-pc`, after the native checkpoint proof):
+* **Result 2026-10-10, launcher migration** (`claude/native-pc` `4f4691e` plus these
+  documents): 1388 tests collected, exit code 0 (no failures, no errors), about 9 min.
+  With `-q` on the command line as well as in `pytest.ini` pytest prints no summary
+  line; the exit code is the record (1374 tests at the run below).
+* Result 2026-10-10 (`claude/native-pc`, after the native checkpoint proof):
   3638 test cases in the JUnit report (the same 1373 tests + 2264 subtests + 1 skipped
   as 2026-10-09), 0 failures, 0 errors, 8 min 55 s (game proofs ran at the same time).
   The `-q` summary line was not printed in this run; the JUnit report and exit code 0
@@ -39,7 +43,9 @@ the flash driver (program/verify/erase/bounds), the host RTC (BCD, locking), BIO
 helpers (`Div`, `BitUnPack`), GBA division-by-zero results, that `Random32`
 matches the GBA SFC32 sequence, and that a runaway HBlank DMA is stopped while a
 re-armed one keeps running (N25).
-**Result 2026-10-09**: 1063 checks, 0 failures.
+**Result 2026-10-09**: 1063 checks, 0 failures. **2026-10-10** (`claude/native-pc`
+`1579e7fd8`, with the battle branch's crash fixes, XInput loaded at run time and the
+save-command query): 1063 checks and the bridge's 4186 checks, 0 failures.
 
 ## 3. GBA/native byte-layout parity
 
@@ -52,7 +58,8 @@ read its DWARF) and compares the layouts of save blocks, Pokémon, storage, batt
 link packets, all companion mailboxes, and map/sound data built by assembler macros.
 The Windows build needs `-mno-ms-bitfields -mno-align-double` (MinGW otherwise uses
 the MSVC layout, which already fails the engine's own static asserts).
-**Result 2026-10-09**: 172 types, all match, on both Linux and Windows.
+**Result 2026-10-09**: 172 types, all match, on both Linux and Windows; again on
+2026-10-10 at `1579e7fd8`.
 
 ## 3a. Soft-reset memory layout
 
@@ -269,6 +276,8 @@ Results 2026-10-09/10 (`scripts/multiplayer/native-checkpoint-evidence.json`):
 | native-checkpoint-3d-4 | 2 Linux, 3D build (graphics `0ab8ee710`), 2.4 frames a second, before the M5 fix | Pass; 32.0-37.7 s per save |
 | native-checkpoint-3d-5 | 2 Linux, 3D build (graphics `2f150c4db`, M5 fix), `--recover` | Pass; 4.0-6.4 s per save; live recovery 69.3 s, same process and lease |
 | native-checkpoint-wine3d-1 | 2 Windows 3D exe under Wine, the stripped exe of checkpoint native-wip-20261010-3 (graphics `3e39f2b15`), `--recover` | Pass; 4.2-6.5 s per save; live recovery 72.9 s |
+| native-checkpoint-3d-6 | 2 Linux, 3D build (graphics `edd1f5105`: a save's commands no longer wait for slow drawing), `--recover`, the same software-OpenGL setup as -3d-5 | Pass; 1.6-1.9 s per save (enrollment 1.7-1.8 s); live recovery 42.5 s (KNOWN_ISSUES M5) |
+| native-checkpoint-wine3d-2 | 2 Windows 3D exes under Wine, the stripped exe of checkpoint native-wip-20261010-4 as shipped (graphics `edd1f5105`, the launcher package's runtime), `--recover` | Pass; 1.7-2.0 s per save (4.2-6.5 s in wine3d-1); live recovery 43.5 s (72.9 s) |
 
 Under Wine the games end by signal (exit code -15) and their saves are still
 intact, since the native build writes the save file at the frame after every Flash
@@ -344,6 +353,73 @@ with `--game` the Windows exe of the same commit. The bundle then holds the exe 
 its SDL2.dll, the launcher's spawn is prefixed with `wine`, and a normal close is
 Alt+F4.
 
+Disconnect and reconnect through the launcher (the owner's rule: if the host is lost,
+everyone saves and disconnects), on the same harness:
+
+```sh
+PYTHONPATH=src:scripts/multiplayer:scripts/windows-runtime \
+  python scripts/multiplayer/native_launcher_reconnect_proof.py \
+    --game ../engine/pokeemerald-mp --rom pokedev.gba --manifest manifest.json \
+    --source-a a.sav --source-b b.sav --display :98 --display :97 \
+    --output /private/multiplayer-proof/native-launcher-reconnect-N
+# Windows clients: the same --wine/--sdl/--elf arguments as the battle proof
+```
+
+Both players Continue into Littleroot and see each other, walk two steps and save
+(revision 2); the friend walks two more steps without saving; the host's game closes
+normally, which ends the host's session and world server; the friend's launcher must
+keep the running game's unsaved progress locally (`host_loss_preserved`,
+`pending-emergency.json` and `pending-export.json`, closing allowed); the friend
+closes; the host starts again (revision 2) and the friend joins again: its kept
+progress becomes revision 3 and the game must continue on the tile where it stood;
+both see each other, save (host 3, friend 4) and close; the host store's integrity
+check passes (`scripts/multiplayer/native-launcher-reconnect-evidence.json`).
+
+| Run | Clients | Result |
+| --- | --- | --- |
+| native-launcher-reconnect-1 | 2 Linux, engine `34ddb17a6` | Pass in 4.7 min: progress kept 1.5 s after the host closed; the friend rejoined at revision 3 on its unsaved tile; both saved again (3, 4); every game closed normally (exit 0); 30 key presses |
+| native-launcher-reconnect-wine-1 | 2 Windows 2D exes under Wine | Failed on the harness after both saved: the game's one-time style hint banner (after 12 s in the field) kept the field busy and the walk refused to start. Fixed: the harness waits for the field before every step |
+| native-launcher-reconnect-wine-2 | 2 Windows 2D exes under Wine, `34ddb17a6` | Pass in 5.2 min: the same checks; progress kept 4.0 s after the host closed; Alt+F4 closes (exit 0) |
+
+Not covered: a network drop while the host keeps running (the companion does not
+reconnect by itself after a loss; the player closes the game and joins again, as the
+launcher says), a host loss during a battle or a trade, the 3D build, separate PCs.
+
+Four players, 2v2 with full parties (`native_launcher_multi_proof.py`: `--source` and
+`--display` four times each): not passed yet. The
+attempts multi-1..8 stopped on the harness (wild battles in the Route 101 grass, the
+walk to the meeting spots, CPU with four games on two cores, KNOWN_ISSUES M6's name
+truncation, which was a product bug and is fixed); the last run was paused by the
+owner's new priorities at 351 routed battle blocks with no failure. Native 2v2 is
+not marked working until a run passes.
+
+The Windows launcher package with a native runtime (no Windows computer here, so
+under Wine with a Windows Python; `docs/dependency-ledger.md` lists the exact
+Python and wheels):
+
+```sh
+# one-time: a 64-bit Wine prefix with python-build-standalone 3.14.0 (Windows) and the
+# pinned wheels of requirements-launcher-build.txt + requirements-host-provisioning.txt
+WINEPREFIX=<prefix> wine <python>/python.exe scripts/windows-runtime/build_launcher.py \
+    --rom pokedev.gba --manifest manifest.json --runtime <native runtime dir> \
+    --rom-sha256 <sha> --manifest-sha256 <sha> --runtime-sha256 <sha> \
+    --version "Native 3D preview 1" --development-preview \
+    --output <private>/launcher-build < /dev/null 2>&1 | cat > build.log
+```
+
+Windows Python under Wine needs its input from /dev/null and its output piped
+(redirecting it to a file gives "invalid handle"). A native runtime is accepted only
+for a `--development-preview` package, and its QUICK-START.txt then lists the native
+game's keys. Result 2026-10-10: built (PyInstaller 6.22.3), package audit passed, no
+mGBA or Lua file in the package (its only executables: `EmeraldTogether.exe` and the
+game); `EmeraldTogether.exe` started under Wine (its output piped, as above: a file
+redirect stops the frozen Python with "can't initialize sys standard streams") and
+"Check installed game files" accepted the native runtime, manifest and game file. Not
+run: the package played through, real Windows.
+
+`tests/test_scripts_compile.py` compiles every `scripts/**/*.py` (a syntax error in
+`build_launcher.py` once reached a commit because no test imported it).
+
 A harness will start the real host plus N simulated clients (and later native game
 clients) and run the scenarios in the toolkit directive (2 and 4 clients, movement,
 map changes, teams, trades, 1v1/2v2 and concurrent battles, World Events, reconnect,
@@ -371,7 +447,8 @@ sources and checks the generated tables are current. Result 2026-10-09: pass (ag
 after the D4 buildings, shadows and sprite-occlusion work); 2026-10-10: pass after the
 weather light (graphics `23ad56924`) and after the dapples, dust, rays and bloom
 (`8920f1f67`); again after the F7/F8 switches (`8750fd07b`) and the dark caves'
-light (`3e39f2b15`).
+light (`3e39f2b15`); again at `edd1f5105` (the camera and tree defaults, the crash
+fixes and XInput from `claude/native-pc`, the save pacing).
 
 Light checks done by hand (screenshots, 2026-10-10): `PKMN_DIORAMA_LIGHT=0` against
 the default in the Oldale Pokemon Center must be pixel-identical (it was: 0 pixels

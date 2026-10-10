@@ -137,6 +137,17 @@ All of the project's gameplay code runs in the native build. [dir]
   and whether a native install still needs the user's GBA ROM (`game_import.py`,
   `game_patch.py`: the companion verifies it, KNOWN_ISSUES M1); `trade_native_replay.py`
   keeps its mGBA replay worker (B4).
+  Launcher migration, 2026-10-10 (owner's priority): the launcher no longer needs mGBA
+  for native gameplay: a native runtime bundle holds only the game exe and SDL2.dll (no
+  mGBA, no Lua bridge), and every native proof above ran without them. Host loss and
+  rejoin through the launcher pass (2 Linux, 2 Windows under Wine,
+  `native-launcher-reconnect-evidence.json`). The launcher's controls help names the
+  native game's keys for a native runtime; `build_launcher.py` accepts a native runtime
+  for a development preview, and the private package "Native 3D preview 1" (the 3D exe
+  as its runtime) was built under Wine: its file check accepts the native runtime,
+  manifest and game file. The emulator runtime stays the rollback (branch
+  `claude/continuation`, unchanged). Not run yet: that package played through, real
+  Windows, a new character (draft) through the launcher.
 - [ ] B4 Replace the mGBA-specific Windows runtime: SDL hooks and reset-chord filter
   (`native/windows-runtime/sdl-multiplayer.c/.h`) and the headless-mGBA trade replay
   worker (`trade-replay-worker.c`). Needs: A14. [audit]
@@ -163,7 +174,10 @@ All of the project's gameplay code runs in the native build. [dir]
   Progress 2026-10-10: the battle mailbox path runs natively through the C bridge: a
   1v1 between two native games routed 362 blocks, the same count and forced switch
   as the emulator qualifier wqb1, on Linux and with the Windows exe under Wine
-  (`native-launcher-battle-evidence.json`). 2v2 (four clients) not run yet.
+  (`native-launcher-battle-evidence.json`). 2v2 (four clients, full parties):
+  `native_launcher_multi_proof.py` written; no run has passed yet (the attempts
+  stopped on harness problems, one product bug fixed: M6), so native 2v2 is not
+  working yet.
 - [ ] C4 Input and reset-chord routing through the native bridge (today in the Lua
   bridge and the SDL adapter). Needs: C1, B4. [audit]
   Done in code (the SDL adapter's guard ported, unit-tested with its own cases); the
@@ -178,7 +192,9 @@ All of the project's gameplay code runs in the native build. [dir]
   `native_checkpoint_proof.py` adds the ownership store and live checkpoints;
   `native_trade_proof.py` a trade through the Players menu; `native_launcher_proof.py`
   the launcher's `PlayerRuntime`; `native_launcher_battle_proof.py` ports the Windows
-  1v1 qualifier (`qualify_menu_battle.py`) with the whole launcher.
+  1v1 qualifier (`qualify_menu_battle.py`) with the whole launcher; its
+  `LauncherHarness` is reused by `native_launcher_reconnect_proof.py` (host loss and
+  rejoin) and `native_launcher_multi_proof.py` (four players, 2v2).
 - [ ] C6 Two, then four native clients: connect, see each other, move, change maps,
   disconnect and reconnect, then trade and battle. Needs: C2-C5. [audit] [brief]
   In progress: connect, see each other and move pass with 2 Linux, 2 Windows (Wine),
@@ -190,9 +206,11 @@ All of the project's gameplay code runs in the native build. [dir]
   (`native-checkpoint-evidence.json`); a trade through the Players menu with its cancel
   path and a restart (2 Linux and 2 Windows under Wine, `native-trade-evidence.json`);
   a 1v1 battle through the Players menu between two games the launcher started (2
-  Linux and 2 Windows under Wine, `native-launcher-battle-evidence.json`). Next: 2v2
-  with four clients, trades and battles in the 3D build; host restart and network loss between
-  companion and host.
+  Linux and 2 Windows under Wine, `native-launcher-battle-evidence.json`); the host
+  lost and the friend rejoining through the launcher with its unsaved progress kept (2
+  Linux and 2 Windows under Wine, `native-launcher-reconnect-evidence.json`). Next: 2v2
+  with four clients, trades and battles in the 3D build; a network loss while the host
+  keeps running; a host loss during a battle or a trade.
 
 ## Milestone D - enhanced graphics
 
@@ -222,9 +240,14 @@ The highest priority once the native engine (Milestone A) is stable. [dir]
   and furniture (its generator, 475 models from our maps), walkers drawn whole in
   front of furniture and walls (its `ModelPush` plus upright-card depth), sun shadows
   (shadow map; none indoors or in bad weather, half at night) - visually rendering on
-  Linux and Windows (Wine), software GL only. Remaining, in the order of
-  `docs/diorama-3ds-gap-analysis.md`: doors on models (V6), colour grade, cast sprite
-  shadows, signposts, tree style, weather light, relief, 3D battle scenery.
+  Linux and Windows (Wine), software GL only. Since then (graphics up to `edd1f5105`):
+  doors on models, colour grade, cast sprite shadows, the 3DS tree style, weather
+  light, dapples, dust, rays, bloom, fog banks and a dark cave's light, all visually
+  rendering. Defaults (the owner's choice, 2026-10-10, graphics `2057c4ac7`): the 3DS
+  close camera and the 3DS trees; F7 and F8 switch both, and a camera, zoom, tilt or
+  tree style the player saved is kept. Remaining, in the order of
+  `docs/diorama-3ds-gap-analysis.md`: signposts (compared, not worth it as is),
+  relief, camera menu entries.
   3D battle scenery, 2026-10-10 (owner directive "INTEGRATE EMERALD 3DS BATTLE
   GRAPHICS ONLY"): ported on engine branches `claude/battle-3d` and
   `claude/battle-3d-integration` (the latter on graphics `3e39f2b15`), kept off
@@ -232,8 +255,9 @@ The highest priority once the native engine (Milestone A) is stable. [dir]
   trainer, double, Mega, catch, defeat, terrains and return to the field verified
   on software GL (Linux, Windows under Wine). Open: multiplayer battles in 3D (after
   C3), real-GPU frame rate (V3), the visual problems in `docs/battle-3d.md`. The
-  native crash fixes found on the way (KNOWN_ISSUES N26-N32) are candidates for
-  `claude/native-pc`.
+  native crash fixes found on the way (KNOWN_ISSUES N26-N32) are on `claude/native-pc`
+  (cherry-picked, `8f32fa79e`, `52844189f`, `fb6ee9455`) and in the graphics branch
+  (merge `5a4431686`); the battle branches themselves were not changed.
 - [ ] D5 Keep previous working assets recoverable and the asset inventory current
   (source, creator, license, coverage, states, changes, missing art). Needs: D4.
   [vis] [spec]
@@ -248,6 +272,11 @@ The highest priority once the native engine (Milestone A) is stable. [dir]
   branch); not yet seen on a 1080p display.
 - [ ] E2 Keyboard support. Needs: E1. [dir]
 - [ ] E3 Controller support. Needs: E1. [dir]
+  2026-10-10: the Windows exe no longer imports `xinput1_3.dll` (part of the old
+  DirectX redistributable, not shipped with Windows 10/11: without it the game could not
+  start); it loads XInput at run time
+  (`xinput1_4`, then `1_3`, then `9_1_0`) and works without it (engine `34ddb17a6`,
+  KNOWN_ISSUES N34). No physical controller tested.
 - [ ] E4 Local Soft Reset classic chord and Select input on keyboard and controller.
   Needs: E2, E3, C4. [lsr] [audit]
 
