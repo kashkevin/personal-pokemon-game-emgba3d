@@ -141,6 +141,41 @@ UTC gives midday); Wine follows it too.
 | A dark cave needing Flash: dark but for the circle round the player; menus over the dark; normal maps unchanged | Pass (Granite Cave B1F, debug-menu test save, wide and 3DS camera; Route 104; graphics `3e39f2b15`) | Not run |
 | Flash used in a dark cave: the circle opens, Flash's glow | Not run | Not run |
 
+3D battles (engine branch `claude/battle-3d-integration`, `docs/battle-3d.md`), same
+setup. `PKMN_DIORAMA_LOG=1` also logs each battle's stage choice with a map of the
+ground round the player (`#` tall, `g` grass, `s` sand, `~` water, `.` plain).
+Trainer, double and warp checks use a debug-menu test build: the same sources with
+the expansion's overworld debug menu compiled in, for testing only (player builds
+keep it off), built from the engine tree with
+
+```sh
+make -f Makefile_pc NATIVE_LINUX=1 DIORAMA=1 -j2 \
+  OBJ_DIR=build/pc-linux-diorama-debugmenu TARGET=pokeemerald-mp-diorama-debugmenu \
+  CC="gcc -DGUARD_CONFIG_DEBUG_H -DDEBUG_OVERWORLD_MENU=TRUE -DDEBUG_OVERWORLD_HELD_KEYS=R_BUTTON \
+      -DDEBUG_OVERWORLD_TRIGGER_EVENT=pressedStartButton -DDEBUG_OVERWORLD_IN_MENU=TRUE \
+      -DDEBUG_BATTLE_MENU=FALSE -DDEBUG_AI_DELAY_TIMER=FALSE -DDEBUG_POKEMON_SPRITE_VISUALIZER=FALSE"
+```
+
+(Windows: `make -f Makefile_pc DIORAMA=1 SDL_DIR=...` with `i686-w64-mingw32-gcc` and
+the same flags.) DEBUG is then the start menu's first entry. Start debug trainer
+battles (Trainers > Trainer 1, Double Battle, Try Battle) in a town: on a route a
+visible wild Pokémon can wipe the trainer's party during the transition (KNOWN_ISSUES
+N33).
+
+| Check | Linux | Windows (Wine) |
+| --- | --- | --- |
+| Wild battle from the 3D view: transition over the 3D field, glide, intro, moves, damage, Bag, party, Run, field back in 3D | Pass | Pass (move, Poké Ball from the Bag, Run) |
+| Catch (Bag and R quick-throw), Pokédex page, nickname declined | Pass | Ball thrown (broke free) |
+| Shiny send-out; Mega Evolution in a single and a double battle | Pass | Not run |
+| Trainer battles: rival May (win), Drake (to the end; and a loss with a level 2 Magikarp: blackout home in 3D), Kate & Joy double (Route 101, Oldale Town) with a Potion through the party menu | Pass | Not run |
+| Terrain: grass, sand, water (surf), cave 1F, dark cave B1F, town, gym | Pass | Route 101 |
+| Stage search keeps trees and buildings out of the battlers' way (stage map log; Kate & Joy on Route 101) | Pass after `b752d8e48` / `732fbef43` | Not run |
+| Voxel and 3DS trees (F8), wide and 3DS camera (F7), dark cave | Pass | Voxel, wide |
+| F4 to classic and back during a battle; into 3D mid-battle | Pass | Not run |
+| Save on the field, reload, battle in 3D | Pass | Not run |
+| 1920x1080 window (`windowScale=6`): layout, battle frame rate | Pass (60 game frames a second in the battle) | Not run |
+| Multiplayer battles in 3D | Not run (C3) | Not run |
+
 UBSan reports now come only from real findings; a false positive from the engine's
 `if_comptime` trick is avoided in the sanitizer build (`NATIVE_SANITIZE`).
 AddressSanitizer build (`make -f Makefile_pc NATIVE_LINUX=1 SANITIZE=address`,

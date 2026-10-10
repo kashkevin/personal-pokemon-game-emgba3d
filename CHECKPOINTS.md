@@ -15,6 +15,7 @@ owner's PC (never in Git, never public). Each folder has a README with restore s
 | 2026-10-10 | `native-wip-20261010-1` | tag on `claude/native-pc` (proof scripts, docs) | tag `native-wip-20261010-1` = `edb755a26` on `claude/native-pc`; tag `graphics-wip-20261010-1` = `b02cf0e97` on `claude/native-graphics` | Milestone C progress: native live checkpoints into the ownership store (enroll, save, restart, save, live recovery), door map change, companion restart; bridge keeps up below 60 frames a second (M4) | Incremental bundles and two private Windows test builds (both new; the 3D exe passed a 2-client Wine presence run as shipped) on the PC |
 | 2026-10-10 | `native-wip-20261010-2` | tag on `claude/native-pc` (docs, proof timing) | `claude/native-pc` unchanged (`edb755a26`, tag `native-wip-20261010-1`); tag `graphics-wip-20261010-2` = `8920f1f67` on `claude/native-graphics` | Milestone D: the 3DS project's doors, colour grade, cast shadows, weather light, sun dapples, sunlit dust, sun rays and bloom in the 3D view; scripted scenes and fades stay 3D; trees follow the night tint; follower's Poke Ball phase; keyboard zoom | Incremental bundles and a private Windows 3D test build (2D unchanged since -1) on the PC; the 3D exe passed a 2-client Wine presence run as shipped |
 | 2026-10-10 | `native-wip-20261010-3` | tag on `claude/native-pc` (docs, evidence) | `claude/native-pc` unchanged (`edb755a26`, tag `native-wip-20261010-1`); tag `graphics-wip-20261010-3` = `3e39f2b15` on `claude/native-graphics` | Milestone D: F7/F8 switch the camera framing and the tree style while playing (kept in `pokeemerald.cfg` with the zoom); the 3DS fog banks and cave gloom; dark caves dark in 3D; 3DS tree crowns as bright as the 3DS shows them; live saves no longer follow the 3D drawing rate (M5) | Incremental bundles and a private Windows 3D test build (2D unchanged since -1) on the PC; the 3D exe passed a 2-client Wine live-checkpoint and recovery run as shipped (native-checkpoint-wine3d-1) |
+| 2026-10-10 | `battle3d-wip-20261010-1` | tag on `claude/battle-3d` (docs) | tag `battle3d-wip-20261010-1` = `732fbef43` on `claude/battle-3d-integration` (3D battles merged with graphics `3e39f2b15`); `claude/battle-3d` = `b752d8e48` (the port on graphics `b02cf0e97`); local tag `battle3d-integ-on-8920f1f67` = `925b47933`; `claude/native-pc` and `claude/native-graphics` unchanged | 3D battles (the Emerald 3DS battle scene on one screen, graphics only, `docs/battle-3d.md`) on the newest 3D overworld; native crash fixes N26-N32 (Mega Evolution, PC storage, Fly map, Poké Ball, Trainer Card), candidates for `claude/native-pc` | Bundles, a private Windows test build (3D exe with 3D battles) and a separate, clearly labelled debug-menu test exe on the PC; the 3D exe passed a Wine battle run as shipped |
 
 ## GBA ROM identity guard
 
@@ -22,7 +23,9 @@ While native-port changes are `PORTABLE`-only, the GBA ROM must stay identical t
 the baseline: `pokedev.gba` sha256
 `f214735b64e113fd10730eacca5764d757f2c93a3685230aa905af7a7cdd3387`. Last confirmed
 on 2026-10-10 for engine `edb755a26` (`claude/native-pc`) and `8920f1f67`
-(`claude/native-graphics`); re-check before every native checkpoint.
+(`claude/native-graphics`), and for `b752d8e48` (`claude/battle-3d`) and `732fbef43`
+(`claude/battle-3d-integration`, which contains `3e39f2b15`); re-check before every
+native checkpoint.
 
 ## Rollback
 
