@@ -115,7 +115,9 @@ way gets a source fix and a row in `KNOWN_ISSUES.md`. A crash writes `crash.log`
 Diorama 3D build (`pokeemerald-mp-diorama`, graphics branch), software OpenGL in the
 cloud workspace; `PKMN_DIORAMA_LOG=1` logs sprites the 3D view refuses,
 `PKMN_PERF_LOG=1` logs frame rates; F4 switches 3D/classic, F3 shows the terrain
-debug overlay (triangles, draw calls).
+debug overlay (triangles, draw calls). The native clock is the local time, so a POSIX
+`TZ` offset moves the time of day for a run (`TZ=XXX+9` with the workspace at 21:00
+UTC gives midday); Wine follows it too.
 
 | Check | Linux | Windows (Wine) |
 | --- | --- | --- |
@@ -126,7 +128,11 @@ debug overlay (triangles, draw calls).
 | Wild battle started in the classic view, fled, 3D view afterwards | Pass | Not run |
 | Wild battle started while the 3D view shows; flee returns to 3D | Pass | Not run |
 | Clear-save screen (wait 15 s), NO, soft reset, Continue into 3D | Pass (after N25) | 2D build: pass; 3D build: Continue into 3D pass |
-| Frame rate | 3-6 fps outdoors, 40-60 fps indoors (llvmpipe) | Not measured |
+| Modelled buildings and furniture drawn (D4) | Pass: Littleroot, Oldale Town, Oldale Pokémon Center, a house | Pass: Oldale Town, Pokémon Center |
+| Walker whole at the Center counter and PC, beside a wall; nurse behind the counter; walker behind a roof hidden by it | Pass (screenshots) | Counter: pass |
+| Sun shadows by day outdoors, fainter at night, none indoors; a sprite darkens as a whole in a building's shadow | Pass (screenshots; midday via `TZ`) | Day outdoors and none indoors: pass |
+| No model drawn past the edge of the scene | Pass (Oldale Town, after `65f44c42e`) | Not looked for |
+| Frame rate (llvmpipe, standing still) | Route 101 3-6 fps; Oldale Town 7.1 fps (7.6 shadows off); Pokémon Center about 44 fps | Oldale Town about 4 fps |
 
 UBSan reports now come only from real findings; a false positive from the engine's
 `if_comptime` trick is avoided in the sanitizer build (`NATIVE_SANITIZE`).
@@ -159,7 +165,8 @@ make -f Makefile_pc NATIVE_LINUX=1 DIORAMA=1 check-diorama-tools  # slow; needs 
 connections, presentation transition, metatile atlas, terrain mesh, sprite frames,
 weather, UI overlay, rules), compares the C metatile compositor with the Python one
 on all 18,318 logical metatiles of the 75 Emerald tilesets, validates the rule
-sources and checks the generated tables are current. Result 2026-10-09: pass.
+sources and checks the generated tables are current. Result 2026-10-09: pass (again
+after the D4 buildings, shadows and sprite-occlusion work).
 `check-diorama-tools`: 8 pass; `test_rules_parity` fails here and upstream
 (KNOWN_ISSUES V2); `test_compile_rules` (about 9 minutes, 3.3 GB RAM; run it alone)
 runs 23 tests, one fails (KNOWN_ISSUES V4).

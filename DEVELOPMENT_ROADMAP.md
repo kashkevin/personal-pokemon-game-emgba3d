@@ -160,12 +160,19 @@ The highest priority once the native engine (Milestone A) is stable. [dir]
   or recovery guarantees. Needs: A stable, D2. [dir] [spec]
   In progress (engine branch `claude/native-graphics`, `DIORAMA=1`): renders Route 101,
   Oldale, Littleroot and a Pokémon Center interior in 3D on Linux and Windows (Wine);
-  the renderer only reads a per-frame snapshot of game state. Open: battle start from
-  the 3D view, follower during Poké Ball animation (V1), real-GPU test, wider map
-  coverage, merge into `claude/native-pc` after parity.
+  the renderer only reads a per-frame snapshot of game state. Battle start from the
+  3D view and soft reset in 3D verified. Open: follower during Poké Ball animation
+  (V1), real-GPU test, wider map coverage, merge into `claude/native-pc` after parity.
 - [ ] D4 Adopt the enhanced dimensional overworld graphics of
   ZallaxDev/pokeemerald-3Ds-dualscreen - graphics only, not its dual-screen interface.
   Needs: D3. [dir]
+  In progress (engine `claude/native-graphics` up to `7a200f33d`): modelled buildings
+  and furniture (its generator, 475 models from our maps), walkers drawn whole in
+  front of furniture and walls (its `ModelPush` plus upright-card depth), sun shadows
+  (shadow map; none indoors or in bad weather, half at night) - visually rendering on
+  Linux and Windows (Wine), software GL only. Remaining, in the order of
+  `docs/diorama-3ds-gap-analysis.md`: doors on models (V6), colour grade, cast sprite
+  shadows, signposts, tree style, weather light, relief, 3D battle scenery.
 - [ ] D5 Keep previous working assets recoverable and the asset inventory current
   (source, creator, license, coverage, states, changes, missing art). Needs: D4.
   [vis] [spec]

@@ -102,9 +102,23 @@ build (fallback) and the native PC build being migrated to. Requirements are in
   * *Pacing*: one presented frame per loop; when a frame takes longer than about 83
     ms (below 12 fps) the game advances one frame per presented frame, so a slow GPU
     slows the game instead of skipping input.
-  * Planned (D4): 3DS-only features (buildings, relief, trees, lighting, shadows)
-    ported from ZallaxDev/pokeemerald-3Ds-dualscreen's portable C modules; its
-    Citro3D backend is rewritten for OpenGL.
+  * *Modelled buildings* (D4, from ZallaxDev/pokeemerald-3Ds-dualscreen): its
+    generator (`tools/diorama_buildings`) models every house, Center, Mart, lab and
+    piece of furniture from its own drawing at build time; `buildings.c` reads the
+    table, `gl_building_renderer.c` draws the placements of the maps in the scene
+    with the live BG palettes. Cells a model owns become flat ground for the
+    Diorama's own terrain, so it does not extrude them a second time.
+  * *Sprite depth*: sprite cards lean back to face the camera, but write the depth
+    of an upright card at their feet, so everything north of the feet is behind a
+    walker and everything south in front, as on the GBA; furniture whose model
+    comes forward of the feet moves that upright stand-in in front of its face
+    (the 3DS project's `ModelPush`).
+  * *Sun shadows* (`gl_shadow.c`): a 2048x2048 depth map from a fixed sun in the
+    northwest (the 3DS project's sun), drawn again only when its square steps or
+    the terrain/buildings change; terrain and buildings are lit per pixel, a
+    sprite from one point over its feet. Strength from the snapshot: none indoors
+    or in bad weather, half at night.
+  * Still to port from the 3DS project: `docs/diorama-3ds-gap-analysis.md`.
 * **No GBA Wireless Adapter**: the wireless library is never set up natively;
   anything that would scan for adapter players (the Pokémon Center Union Room scan)
   is skipped under `PORTABLE` (KNOWN_ISSUES N24).

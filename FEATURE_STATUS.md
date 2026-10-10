@@ -185,12 +185,15 @@ a real GPU draws it.
 | Visually renders: Route 101, Oldale Town, Littleroot Town | Yes | Oldale Town | Voxel trees, buildings, ledges, grass, signs, flowers, map-name popup, neighbouring maps. |
 | Visually renders: interior (Oldale Pokémon Center 1F) | Yes | Yes | |
 | Player, NPCs, follower, visible wild Pokémon in 3D | Yes | Yes (player, NPCs) | Follower hidden during Poké Ball animation (KNOWN_ISSUES V1). |
-| Day/night tint in 3D | Seen | Seen | Evening tint under Wine; not compared against the 2D view. |
+| Day/night tint in 3D | Seen; compared with the 2D view at night and midday in Oldale Town | Seen (day) | Ground, buildings and sprites match the 2D tint; the 3D tree crowns stay brighter at night (KNOWN_ISSUES V5). |
 | Walking, warps (door in/out), map connections in 3D | Yes | Yes (door out) | |
 | Wild battle in the Diorama build | Yes: started from the 3D view (walking into a visible wild Pokémon), fled, game returned to the 3D view by itself; also from the classic view | Not yet | The battle-intro frames themselves were not inspected. |
 | Soft reset in the Diorama build | Yes: clear-save screen, NO, Continue into the 3D view | Not yet | |
-| Frame rate | 3-6 fps outdoors, 40-60 fps indoors (software GL) | Not measured | Real GPU unmeasured (KNOWN_ISSUES V3). |
-| 3DS-project features (buildings, relief, trees, shadows) | Not started | Not started | Milestone D4. |
+| Modelled buildings and furniture (3DS project, D4) | Yes: Littleroot, Oldale Town, Oldale Pokémon Center, a house | Yes: Oldale Town, Oldale Pokémon Center | 475 models generated from our maps at build time (`tools/diorama_buildings`), coloured from the live palettes. Doors do not open in 3D (KNOWN_ISSUES V6). |
+| Walkers whole in front of furniture and walls | Yes: at the Center counter and PC, beside the Center and a house; a walker behind the Center's roof is hidden by it | Yes: at the counter | Engine `d63407185`. Before it the counter hid two thirds of a walker standing at it. |
+| Sun shadows (terrain, trees, buildings, sprites) | Yes: Oldale Town by day, fainter at night; none in the Center | Yes: Oldale Town by day; none in the Center | Off indoors and in rain, fog, ash, sand and overcast weather (not seen in those weathers yet). `PKMN_DIORAMA_SHADOWS=0` turns them off. |
+| Frame rate (software GL) | Route 101 3-6 fps; Oldale Town 7.1 fps (7.6 without shadows); Pokémon Center about 44 fps | Oldale Town about 4 fps | Real GPU unmeasured (KNOWN_ISSUES V3). |
+| Other 3DS-project features (doors, colour grade, sprite shadows, signposts, tree style, weather light, relief, battle scenery) | Not started | Not started | Ordered list in `docs/diorama-3ds-gap-analysis.md`. |
 | Dual screen removed / single screen | Yes (renderer is single-screen) | Yes | |
 | Works in multiplayer | No | No | Needs the native bridge (Milestone C). |
 
