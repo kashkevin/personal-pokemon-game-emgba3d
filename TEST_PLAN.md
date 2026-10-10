@@ -32,9 +32,10 @@ make -f Makefile_pc NATIVE_LINUX=1 check-native
 Minimal C harness (`tools/pc_port/tests/minitest.h`; a C++ framework such as Catch2
 would add a toolchain for no benefit in a C engine). Covers ARM shift semantics,
 the flash driver (program/verify/erase/bounds), the host RTC (BCD, locking), BIOS
-helpers (`Div`, `BitUnPack`), GBA division-by-zero results, and that `Random32`
-matches the GBA SFC32 sequence.
-**Result 2026-10-09**: 1057 checks, 0 failures.
+helpers (`Div`, `BitUnPack`), GBA division-by-zero results, that `Random32`
+matches the GBA SFC32 sequence, and that a runaway HBlank DMA is stopped while a
+re-armed one keeps running (N25).
+**Result 2026-10-09**: 1063 checks, 0 failures.
 
 ## 3. GBA/native byte-layout parity
 
@@ -123,7 +124,8 @@ debug overlay (triangles, draw calls).
 | Walk, door warps, map connections, ledges in the 3D view | Pass | Door out: pass |
 | Player, NPCs, follower, visible wild Pokémon drawn | Pass; follower refused during Poké Ball animation (V1) | Player and NPCs: pass |
 | Wild battle started in the classic view, fled, 3D view afterwards | Pass | Not run |
-| Wild battle started while the 3D view shows | Not run | Not run |
+| Wild battle started while the 3D view shows; flee returns to 3D | Pass | Not run |
+| Clear-save screen (wait 15 s), NO, soft reset, Continue into 3D | Pass (after N25) | 2D build: pass; 3D build: Continue into 3D pass |
 | Frame rate | 3-6 fps outdoors, 40-60 fps indoors (llvmpipe) | Not measured |
 
 UBSan reports now come only from real findings; a false positive from the engine's
@@ -159,8 +161,8 @@ weather, UI overlay, rules), compares the C metatile compositor with the Python 
 on all 18,318 logical metatiles of the 75 Emerald tilesets, validates the rule
 sources and checks the generated tables are current. Result 2026-10-09: pass.
 `check-diorama-tools`: 8 pass; `test_rules_parity` fails here and upstream
-(KNOWN_ISSUES V2); `test_compile_rules` was killed for lack of memory when run
-alongside other jobs (rerun alone).
+(KNOWN_ISSUES V2); `test_compile_rules` (about 9 minutes, 3.3 GB RAM; run it alone)
+runs 23 tests, one fails (KNOWN_ISSUES V4).
 
 Benchmark scene (planned): repeatable scene at 1920x1080 measuring average FPS,
 frame-time distribution, 1% low, CPU frame time, GPU time where measurable, RAM, draw

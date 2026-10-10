@@ -162,7 +162,7 @@ device.
 | Save, quit, continue | Yes | Yes | Same 128 KiB flash format; written atomically. |
 | Load an emulator `.sav` (mGBA, 131088 bytes) and save over a copy | Yes | Load: yes | Native save then reloads correctly; the mGBA RTC footer is dropped when the native build writes. |
 | Wild battle: Fight, Bag, switch, Run, win | Yes | Fight and win: yes | Visible wild Pokémon trigger battles; follower and spawns show. |
-| Soft reset (game's `DoSoftReset`) | Yes | Yes | Process stays up; save unchanged. |
+| Soft reset (game's `DoSoftReset`) | Yes | Yes | Process stays up; save unchanged. The clear-save screen used for this test crashed after a few seconds before engine `3ebd6b3a0` (KNOWN_ISSUES N25). |
 | Audio | Samples produced (earlier) | No device under Wine | Not listened to. |
 | Stability | No crash in the final runs | One unexplained crash in about ten launches (not reproduced; crash reporter added since) | |
 | Controller input | Not yet | Not yet | Windows has XInput code from the voxel project; untested. |
@@ -187,19 +187,21 @@ a real GPU draws it.
 | Player, NPCs, follower, visible wild Pokémon in 3D | Yes | Yes (player, NPCs) | Follower hidden during Poké Ball animation (KNOWN_ISSUES V1). |
 | Day/night tint in 3D | Seen | Seen | Evening tint under Wine; not compared against the 2D view. |
 | Walking, warps (door in/out), map connections in 3D | Yes | Yes (door out) | |
-| Wild battle in the Diorama build | Yes: started and fled in the classic view; 3D view correct afterwards | Not yet | Battle start while the 3D view is showing not exercised yet. |
+| Wild battle in the Diorama build | Yes: started from the 3D view (walking into a visible wild Pokémon), fled, game returned to the 3D view by itself; also from the classic view | Not yet | The battle-intro frames themselves were not inspected. |
+| Soft reset in the Diorama build | Yes: clear-save screen, NO, Continue into the 3D view | Not yet | |
 | Frame rate | 3-6 fps outdoors, 40-60 fps indoors (software GL) | Not measured | Real GPU unmeasured (KNOWN_ISSUES V3). |
 | 3DS-project features (buildings, relief, trees, shadows) | Not started | Not started | Milestone D4. |
 | Dual screen removed / single screen | Yes (renderer is single-screen) | Yes | |
 | Works in multiplayer | No | No | Needs the native bridge (Milestone C). |
 
 Automated native checks (engine `Makefile_pc`, see `TEST_PLAN.md`): `check-native`
-1057 checks pass; `check-abi` pass (Linux and Windows); `check-game-sections` pass
+1063 checks pass; `check-abi` pass (Linux and Windows); `check-game-sections` pass
 (Linux and Windows); `check-decompress` 7469 assets pass (Linux). Graphics branch:
 `check-diorama` passes (10 renderer unit-test programs, 18,318-metatile C/Python
 compositor goldens, rule validation, generated tables up to date); of the rule
 compiler's own Python tests 8 pass, `test_rules_parity` fails upstream as well
-(KNOWN_ISSUES V2) and `test_compile_rules` needs a rerun with more memory.
+(KNOWN_ISSUES V2), and `test_compile_rules` runs 23 tests with one failure
+(mountain cliff flags, KNOWN_ISSUES V4).
 
 ## Decision pending - owner to confirm: personal vs shared wild spawns
 

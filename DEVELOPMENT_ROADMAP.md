@@ -73,7 +73,7 @@ Milestone A is stable when A8-A14 are done (A9 and the owner's-PC part of A14 re
 - [ ] K2 Sanitizers and static analysis for the native build: UBSan build (found
   N13-N16), AddressSanitizer build (found N22) and the NULL trap are in use; clang
   static analysis not set up yet. Supports: A, B. [dir]
-- [x] K3 Native C tests: `check-native` (1057 checks), `check-abi` (Linux and
+- [x] K3 Native C tests: `check-native` (1063 checks), `check-abi` (Linux and
   Windows), `check-game-sections`, `check-decompress` (7469 assets). Supports: A, B.
   [dir] [hand]
 - [ ] K4 Multiplayer harness with application-level network simulation. Supports: C,
