@@ -186,6 +186,7 @@ Results 2026-10-09 (engine `e2e3917e2`, `scripts/multiplayer/native-presence-evi
 | native-presence-3d-3 | 2 Linux, 3D build (graphics `b02cf0e97`), outdoors in Littleroot, about 2.4 frames a second | Pass: same checks as native-presence-5 |
 | native-presence-wine3d-1 | 2 Windows 3D build under Wine (the checkpoint's stripped exe), Littleroot | Pass: same checks; B's door map change seen both ways |
 | native-presence-3d-5 | 2 Linux, 3D build (graphics `398d486ef`: doors open, the warp stays 3D) | Pass: same checks as native-presence-5; the door warp took about 35 s at 2.4 frames a second (native-presence-3d-4 had timed out at 30 s, KNOWN_ISSUES V7) |
+| native-presence-wine3d-3 | 2 Windows 3D build under Wine, the stripped exe of checkpoint native-wip-20261010-2 (graphics `8920f1f67`: weather light, dapples, dust, rays, bloom) | Pass: same checks; B's door map change seen both ways. native-presence-wine3d-2 had timed out waiting 30 s for the others to see B back outside (the 3D door exit at about 2 frames a second); the two door waits are now 60 x `--slow` |
 
 Earlier attempts that did not pass were harness problems, not bridge problems: a key
 press before the window existed, wild battles on Route 101 under slow Wine clients,
@@ -256,7 +257,16 @@ connections, presentation transition, metatile atlas, terrain mesh, sprite frame
 weather, UI overlay, rules), compares the C metatile compositor with the Python one
 on all 18,318 logical metatiles of the 75 Emerald tilesets, validates the rule
 sources and checks the generated tables are current. Result 2026-10-09: pass (again
-after the D4 buildings, shadows and sprite-occlusion work).
+after the D4 buildings, shadows and sprite-occlusion work); 2026-10-10: pass after the
+weather light (graphics `23ad56924`) and after the dapples, dust, rays and bloom
+(`8920f1f67`).
+
+Light checks done by hand (screenshots, 2026-10-10): `PKMN_DIORAMA_LIGHT=0` against
+the default in the Oldale Pokemon Center must be pixel-identical (it was: 0 pixels
+differ); in Littleroot by day the light's per-pixel ratio stays within the weather's
+dapple range (0.94-1.07 for `WEATHER_SUNNY`); `PKMN_DIORAMA_AIR=0` against the default
+brightens only the scene's top left (rays, +3.8 levels) and never the dark past the
+scene's cells (0).
 `check-diorama-tools`: 8 pass; `test_rules_parity` fails here and upstream
 (KNOWN_ISSUES V2); `test_compile_rules` (about 9 minutes, 3.3 GB RAM; run it alone)
 runs 23 tests, one fails (KNOWN_ISSUES V4).

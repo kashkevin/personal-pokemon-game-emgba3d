@@ -243,8 +243,10 @@ async def run(args: argparse.Namespace) -> None:
             inside = own_map(mover)
             await wait_for(f"client {mover} walked through a door: its own map changed", lambda: inside != outside, 1,
                            outside=outside, inside=inside)
+            # Scaled like the door itself: since the 3D view draws scripted
+            # scenes (KNOWN_ISSUES V7) a warp's door and fades run at its rate.
             await wait_for(f"the others see client {mover} on the new map",
-                           lambda: all(seen_map(o, mover) == inside for o in observers), 30,
+                           lambda: all(seen_map(o, mover) == inside for o in observers), 60 * args.slow,
                            seen=lambda: [seen_map(o, mover) for o in observers])
             await asyncio.sleep(4 * args.slow)
             for i, display in enumerate(args.display):
@@ -253,7 +255,8 @@ async def run(args: argparse.Namespace) -> None:
             await wait_for(f"client {mover} walked back out", lambda: own_map(mover) == outside, 10)
             await wait_for(f"the others see client {mover} outside again, in the overworld",
                            lambda: all(seen_map(o, mover) == outside for o in observers)
-                           and all(overworld_peers(i) == others for i in range(len(companions))), 30,
+                           and all(overworld_peers(i) == others for i in range(len(companions))),
+                           60 * args.slow,
                            seen=lambda: [seen_map(o, mover) for o in observers])
             await asyncio.sleep(3 * args.slow)
             for i, display in enumerate(args.display):

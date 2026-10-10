@@ -196,6 +196,28 @@
         "after the rejoin every client sees the others in the overworld",
         "passed"
       ]
+    },
+    {
+      "run": "native-presence-wine3d-3",
+      "clients": "Windows 3D (Diorama) exe under Wine x2, the stripped file of checkpoint native-wip-20261010-2 (weather light, dapples, dust, rays, bloom); Littleroot; door map change, the warp drawn in 3D",
+      "engine": "graphics 8920f1f67 (bridge edb755a26)",
+      "game_sha256": "5fa4af97619e30e548fd6fa003f6e011567ff5edd8a3077e207e4545f776e47d",
+      "evidence_sha256": "4ba9cc6b6d352c45286b45503fb85426b9aea48eb4e18718b84544ac1fa44535",
+      "passed": true,
+      "checks": [
+        "native bridges authenticated to their companions",
+        "companions joined the world server",
+        "every client is in the overworld (its bridge's own pose)",
+        "every client sees the others in the overworld",
+        "a move by client A reaches client B",
+        "client B's view after the move",
+        "peer poses as each companion sees them",
+        "client 1 walked through a door: its own map changed",
+        "the others see client 1 on the new map",
+        "client 1 walked back out",
+        "the others see client 1 outside again, in the overworld",
+        "passed"
+      ]
     }
   ],
   "failed_runs": [
@@ -210,6 +232,12 @@
       "engine": "graphics 398d486ef",
       "result": "failed: client B's door warp did not finish within the 30 s key hold",
       "cause": "harness timeout: with the warp now drawn in 3D at about 2.4 frames a second it takes about 35 s (KNOWN_ISSUES V7); the hold limit is now 60 x --slow"
+    },
+    {
+      "run": "native-presence-wine3d-2",
+      "engine": "graphics 8920f1f67 (bridge edb755a26)",
+      "result": "failed: the others did not see client 1 back outside within 30 s of its own map changing back",
+      "cause": "harness timeout: under Wine at about 2 frames a second per client the door exit (drawn in 3D since 398d486ef, KNOWN_ISSUES V7) outlasts the fixed 30 s; client 1 was outside its door in its own view at the timeout. The two door waits are now 60 x --slow like the key holds"
     }
   ]
 }
