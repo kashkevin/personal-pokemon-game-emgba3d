@@ -155,6 +155,19 @@ class PackageAuditTests(unittest.TestCase):
             archive.addfile(link)
         self.assertEqual(self.check("source.tar", result.getvalue())["files_and_members"], 2)
 
+    def test_native_package_guide_lists_the_native_game_keys(self):
+        guide = Path(build_launcher.__file__).resolve().parent / "resources" / "QUICK-START.txt"
+        template = guide.read_text(encoding="utf-8")
+        self.assertEqual(build_launcher.quick_start_text(template, False), template)
+        native = build_launcher.quick_start_text(template, True)
+        self.assertIn("Z: A / confirm        X: B / back", native)
+        self.assertIn("Backslash (\\): Select", native)
+        self.assertNotIn("Backspace: Select", native)
+        crlf = build_launcher.quick_start_text(template.replace("\n", "\r\n"), True)
+        self.assertEqual(crlf, native.replace("\n", "\r\n"))
+        with self.assertRaises(ValueError):
+            build_launcher.quick_start_text(template.replace("Backspace: Select", "Select"), True)
+
     def test_builder_rejects_runtime_before_creating_output_or_launching_pyinstaller(self):
         runtime = self.root / "runtime"
         runtime.mkdir()

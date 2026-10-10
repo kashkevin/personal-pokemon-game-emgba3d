@@ -27,6 +27,20 @@ from package_audit import audit_files, audit_tree
 
 PYINSTALLER = "6.22.3"
 
+# QUICK-START.txt lists the emulator runtime's keys. The native PC game has its
+# own (engine src/platform/sdl2.c), so a native package gets them instead.
+EMULATOR_CONTROLS = ("Default game controls\n\n"
+    "Arrow keys: move       X: A / confirm        Z: B / back\n"
+    "Enter: Start          Backspace: Select     A / S: L / R\n")
+NATIVE_CONTROLS = ("Default game controls (the PC game, no emulator)\n\n"
+    "Arrow keys: move       Z: A / confirm        X: B / back\n"
+    "Enter: Start          Backslash (\\): Select  A / S: L / R\n"
+    "F11: fullscreen\n"
+    "3D game: F4 3D or classic view, F7 camera, F8 trees,\n"
+    "mouse wheel or - / =: zoom, comma / period: camera tilt\n"
+    "Ctrl+R: the A+B+Select+Start chord (Local Soft Reset only)\n"
+    "Click the game window before using the keyboard.\n")
+
 
 def sha(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
@@ -46,6 +60,17 @@ def pinned_copy(source, target, digest):
         raise ValueError("input changed during package collection")
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_bytes(data)
+
+
+def quick_start_text(template, native):
+    """The quick-start guide of a package: a native game lists its own keys."""
+    if not native:
+        return template
+    newline = "\r\n" if "\r\n" in template else "\n"
+    old, new = (block.replace("\n", newline) for block in (EMULATOR_CONTROLS, NATIVE_CONTROLS))
+    if template.count(old) != 1:
+        raise ValueError("QUICK-START.txt no longer has the emulator controls to replace")
+    return template.replace(old, new)
 
 
 def collect_notices(destination):
@@ -184,6 +209,10 @@ def build(args):
         source = Path(__file__).resolve().parent / "resources" / name
         guide_hashes[name] = sha(source)
         pinned_copy(source, resources / name, guide_hashes[name])
+    if native:
+        guide = resources / "QUICK-START.txt"
+        guide.write_bytes(quick_start_text(guide.read_bytes().decode("utf-8"), True).encode("utf-8"))
+        guide_hashes["QUICK-START.txt with the native game's keys"] = sha(guide)
     provenance = dict(format="emerald-launcher-private-package-v1", version=release.version,
         runtime_format=runtime_manifest.get("format"), game_executable=runtime_manifest.get("executable"),
         python=sys.version, dependencies=versions, rom_sha256=release.rom_sha256,
