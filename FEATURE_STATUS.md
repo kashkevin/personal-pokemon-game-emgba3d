@@ -196,7 +196,7 @@ a real GPU draws it.
 | Frame rate (software GL) | Route 101 3-6 fps; Oldale Town 7.1 fps (7.6 without shadows); Pokémon Center about 44 fps | Oldale Town about 5 fps | Real GPU unmeasured (KNOWN_ISSUES V3). |
 | Other 3DS-project features (doors, colour grade, sprite shadows, signposts, tree style, weather light, relief, battle scenery) | Not started | Not started | Ordered list in `docs/diorama-3ds-gap-analysis.md`. |
 | Dual screen removed / single screen | Yes (renderer is single-screen) | Yes | |
-| Works in multiplayer | No | No | Needs the native bridge (Milestone C). |
+| Works in multiplayer | Presence: yes (2 clients in the 3D Pokémon Center saw each other and a move; remote players and followers drawn in 3D) | Not yet | Graphics branch `2c063c9a8` merges the native bridge; presence only (`scripts/multiplayer/native-presence-evidence.json`). |
 
 Automated native checks (engine `Makefile_pc`, see `TEST_PLAN.md`): `check-native`
 1063 checks pass; `check-abi` pass (Linux and Windows); `check-game-sections` pass

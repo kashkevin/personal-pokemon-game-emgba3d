@@ -170,6 +170,7 @@ Results 2026-10-09 (engine `e2e3917e2`, `scripts/multiplayer/native-presence-evi
 | native-presence-2 | 2 Linux, Route 101 | Pass: bridges authenticated, both joined, each sees the other in the overworld, A's two steps reach B |
 | native-presence-wine-7 | 2 Windows (Wine), Littleroot | Pass (same checks; Winsock bridge) |
 | native-presence-four-1 | 4 Linux, Littleroot and Oldale Pokémon Center | Pass: 4 sessions, each sees 3 others, A's move reaches B |
+| native-presence-3d-1 | 2 Linux, 3D (Diorama) build, Oldale Pokémon Center | Pass: same checks; remote player and follower drawn in the 3D view |
 
 Earlier attempts that did not pass were harness problems, not bridge problems: a key
 press before the window existed, wild battles on Route 101 under slow Wine clients,
