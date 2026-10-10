@@ -226,9 +226,10 @@ compiler's own Python tests 8 pass, `test_rules_parity` fails upstream as well
 
 The Emerald 3DS project's battle scene on one screen, graphics only (owner directive
 2026-10-10); details, switches and the review of the visual problems in
-`docs/battle-3d.md`. Not merged into `claude/native-graphics` or `claude/native-pc`;
-merge candidate `claude/native-graphics-3d-battles` (graphics `edd1f5105` + the 3D
-battles). Software OpenGL only.
+`docs/battle-3d.md`. Not merged into `claude/native-graphics` yet: merge candidate
+`claude/native-graphics-3d-battles-3` (`2a368fd8d`: graphics `6743bc1e5`, the
+Adventure camera, + the 3D battles), waiting for the owner's graphics-card logs.
+Software OpenGL only so far.
 
 | Item | Linux | Windows (Wine) | Notes |
 | --- | --- | --- | --- |
@@ -243,8 +244,13 @@ battles). Software OpenGL only.
 | 1920x1080 window | Yes: battle picture 6x at the bottom centre, the world round it; 60 game frames a second in the battle on software GL (the glide about 2) | Not run | |
 | Multiplayer battles in 3D | Not run (native battle transport is Milestone C3) | Not run | The 3D view only reads the battle; it decides nothing in it. |
 | Frame rate | Battle: 60 game frames a second at about 200 presented (world copied while the camera stands still); the glide at the field's rate | Battle about 60 | Real GPU unmeasured (V3). |
-| Water and flowers moving in the battle's world (second round) | Yes with `PKMN_DIORAMA_BATTLE_TILES=1` (Oldale Town flowers, Route 110 sea); by cost still on software OpenGL (a redraw 25-250 ms, limit 12 ms) | Cost check: still (a redraw 61-69 ms on Wine's software OpenGL) | KNOWN_ISSUES V9: needs a real GPU to move by default. |
+| Water and flowers moving in the battle's world (second round) | Yes with `PKMN_DIORAMA_BATTLE_TILES=1` (Oldale Town flowers, Route 110 sea); by cost still on software OpenGL (a redraw 25-250 ms, limit 12 ms) | Cost check: still (a redraw 61-69 ms on Wine's software OpenGL) | Replaced by the third round's frame-time pacing (below). |
 | The battle's scenery where the world ends; transitions with the people unmoved and the Blur mosaic (second round) | Yes: Petalburg Gym, Sidney's room, Granite Cave B1F; Route 101 slice, Granite Cave B1F blur | Granite Cave 1F wild battle (the merge candidate's exe as packed) | V10 improved, V11 fixed. |
+| A move's own background over the whole window (third round) | Yes: Psychic (960x540), Feint Attack (1280x720), Future Sight, Imprison in a double battle | Not run (the owner's optional `run-3d-battle-psychic.bat`) | KNOWN_ISSUES V13 fixed: repeated or mirrored past the picture, nothing stretched. |
+| Water and flowers paced by measured frame times (third round) | Yes: every 16 game frames after a 45 ms glide, then 32, then still on software OpenGL; forced on, the sea and flowers move | Yes: Granite Cave 1F, every 16 then 32 game frames (Wine's software OpenGL) | V9; a graphics card: the owner's logs. |
+| Glide from the Adventure and Diorama cameras (graphics `6743bc1e5`) | Yes: Route 101 through the Slice transition, both cameras | Adventure (Granite Cave 1F) | The merge candidate. |
+| Petalburg Woods battles in 3D (the woods drawn in 3D since graphics `6743bc1e5`) | Yes: wild Diglett on the forest path, shade light | Not run | Before, its battles were 2D (no 3D view there). |
+| Battle world at the chosen render size and antialiasing (third round) | Yes: 4x MSAA (Ultra) on the battle's world | Not run | Same render target as the field (`gl_target.h`). |
 
 ### Resolution, display modes and graphics quality (engine `graphics-wip-20261010-5`)
 

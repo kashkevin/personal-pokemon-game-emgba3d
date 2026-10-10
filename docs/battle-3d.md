@@ -11,16 +11,20 @@ mechanics changes).
 | --- | --- | --- | --- |
 | `claude/battle-3d` | `claude/native-graphics` `b02cf0e97` | `5a4772ff0` 3D battles; `31d15a804` four native NULL faults; `dce1a991a` Windows build fix; `02d580fe1` Poké Ball crash; `68669dd62` Trainer Card crash; `b752d8e48` stage search sees the voxel trees | The port, on the overworld as it was when this work started |
 | `claude/battle-3d-integration` | `claude/native-graphics` `8920f1f67`, then `3e39f2b15` merged in (the other graphics session's checkpoint `native-wip-20261010-3`) | First round: `6caa1922c` merge; `0c553430e` integration; `177efdefc` battle transitions over the 3D field; `f1e5f5ea3`, `a5e3aa903`, `925b47933` (the three fixes above); `e7f6285f5` merge of `3e39f2b15` (four conflicts, resolved by hand); `732fbef43` 3DS trees in battles (tag `battle3d-wip-20261010-1`). Second round: `389d744b6`, `fae86b6c1` PC box crashes (N35, N36); `79fc306f3` field tile animations into a copy; `90c15d594` the GBA renderer keeps the scenery's own picture; `13fea91ef` transition mosaic captured; `ae08acbf3` stage search measures what the camera sees; `0fa2bf87a` water and flowers, scenery past a room's edge, transitions (tag `battle3d-wip-20261010-2`) | The 3D battles' working line |
-| `claude/native-graphics-3d-battles` | `claude/native-graphics` `edd1f5105` (`graphics-wip-20261010-4`, the newest 3D overworld: 3DS camera and trees as defaults, live-save pacing, XInput at run time) | `7bf42d267`: merge of `claude/battle-3d-integration` (no conflicts) | **Merge candidate**: the owner's `claude/native-graphics` with the 3D battles; fast-forward `claude/native-graphics` to it to merge |
-| `claude/native-pc-box-fixes` | `claude/native-pc` `1579e7fd8` | `ae6533e25` opening the PC's boxes crashed (N35); `aa2841d7a` leaving them crashed (N36) | The two crash fixes found since the first round, for the 2D game; merges cleanly into `claude/native-graphics` too |
+| `claude/native-graphics-3d-battles` | `claude/native-graphics` `edd1f5105` (`graphics-wip-20261010-4`, the newest 3D overworld: 3DS camera and trees as defaults, live-save pacing, XInput at run time) | `7bf42d267`: merge of `claude/battle-3d-integration` (no conflicts) | First merge candidate (second round), superseded by the third below |
+| `claude/native-pc-box-fixes` | `claude/native-pc` `1579e7fd8` | `ae6533e25` opening the PC's boxes crashed (N35); `aa2841d7a` leaving them crashed (N36) | The two crash fixes found since the first round, for the 2D game; merges cleanly into `claude/native-graphics` too. `claude/native-pc` itself was fast-forwarded to `aa2841d7a` on 2026-10-10 (the owner's go); tag `native-wip-20261010-4` stays on `1579e7fd8` |
+| `claude/native-graphics-3d-battles-2` | `claude/native-graphics` `b86ea813a` (`graphics-wip-20261010-5`, the resolution work) | `7a9ca1e42`: merge of `claude/battle-3d-integration` | Second merge candidate, superseded |
+| `claude/battle-3d-next` | `7a9ca1e42` | Third round: `061dcaf1b` a move's own background past the picture (V13); `e1903a302` water and flowers paced by measured frame times; `f671c8dd1` the world at the render size and antialiasing the display settings choose; `1efe205dc` a move's background repeated only where the move filled it, or mirrored; `1ee0245ce` Diorama README; `7fc944377`, `5c897ff7c` log lines (the graphics card and the 3D view's size) | The 3D battles' working line since the third round |
+| `claude/native-graphics-3d-battles-3` | `claude/native-graphics` `6743bc1e5` (`graphics-wip-20261010-6`: the Adventure and Diorama cameras, photo mode, the 49 x 49 scene) | `2a368fd8d`: merge of `claude/battle-3d-next`; two conflicts (`gl_compositor.c`, `sdl2.c`) and the field camera's new interface, resolved by hand (the commit message lists them) | **Merge candidate**: the owner's `claude/native-graphics` with the 3D battles; `claude/native-graphics` is fast-forwarded to it once the owner's graphics-card logs show no significant regression |
 
 The first round's five crash fixes (N26-N32) are already on `claude/native-pc`
 (`8f32fa79e`, `52844189f`, `fb6ee9455`, cherry-picked by the native session with the
 same patches) and in `claude/native-graphics` (merge `5a4431686`). Local tag
 `battle3d-integ-on-8920f1f67` (`925b47933`) marks the integration before `3e39f2b15`.
-Nothing of the 3D battles is merged into `claude/native-graphics` or
-`claude/native-pc` itself: the merge candidate is a branch of its own, and the
-other sessions' branches were only read (from the checkpoint bundles). Files and
+Nothing of the 3D battles is merged into `claude/native-graphics` yet: the merge
+candidate is a branch of its own, waiting for the owner's graphics-card logs, and the
+other sessions' branches were only read (from the checkpoint bundles).
+`claude/native-pc` got the two PC box fixes (a fast-forward to `aa2841d7a`). Files and
 provenance: engine `src/diorama/README.md` ("3D battles"). Compiled only with
 `DIORAMA=1`; the GBA ROM is unchanged (`f214735b…3387`).
 
@@ -228,6 +232,23 @@ test builds):
 | Windows build (Wine), the merge candidate's exe as packed for the owner | Pass: `run-3d-battle-cave.bat`'s save (Granite Cave 1F), a wild Durant in 3D, the cost check ("the world takes 69.18 ms to draw ... water and flowers stand still"), the cave's scenery caught, Run, back to the 3D field; `run-3d-battle-water.bat`'s save (Route 110), a wild Diglett in 3D with the sea behind it (still by cost, 60.76 ms); the debug-menu test exe: a wild battle on Route 101 in 3D |
 | GBA ROM | unchanged (`f214735b…3387`) on every branch, the merge candidate `7bf42d267` included |
 
+Third round (2026-10-10 evening; `claude/battle-3d-next`, then the merge candidate
+`claude/native-graphics-3d-battles-3` `2a368fd8d` on graphics `6743bc1e5`, debug-menu
+test builds; the Windows player exe of `2a368fd8d` as packed for the owner):
+
+| Check | Result |
+| --- | --- |
+| Builds and automated checks on the merge candidate | Pass: Linux 3D, 2D and debug-menu test builds; Windows 3D, 2D and debug-menu test builds; `check-game-sections` (Linux 3D and 2D, Windows 3D), `check-decompress` (7469 assets), `check-native` (1063 + 4186 + 139 + 176), `check-abi` (172 types), `check-diorama` (the camera's 403 checks, the stage-search tests, the compositor goldens); `claude/native-pc` `aa2841d7a` merges into it with no file changed |
+| A move's own background over the whole window (KNOWN_ISSUES V13) | Pass: Psychic at 960x540 (its psychic background mirrored at the picture's edges; the attacker's colour cycle and the target's shake as before), Feint Attack at 1280x720 (its dark background), Future Sight at 960x540; on `claude/battle-3d-next` also Future Sight at 1280x720 and Imprison in a double battle. The log: "a move's own background, carried past the picture (40, 40 and 20 pixels left, right and above)". The moves were given to the test team's Gardevoir with gdb at the action menu (test only) |
+| Water and flowers paced by measured frame times | Pass on software OpenGL: Route 110, a glide of 44.8 ms a frame: every 16 game frames; then redraw frames of 31 ms: every 32, then still; at 1280x720 (glide 67 ms) still from the start. Forced on (`PKMN_DIORAMA_BATTLE_TILES=1`): Route 110's sea changes between shots half a second apart (45,603-67,014 pixels), Oldale Town's flowers (4,531-12,750) |
+| The glide from the new cameras (graphics `6743bc1e5`) | Pass: Route 101 wild battle through the Slice transition from the Adventure camera (the default) and from the Diorama camera (F7, `cameraMode=diorama`): the transition over the field as shown, then the glide from that view down to the battle's |
+| Render size and antialiasing (`claude/battle-3d-next`) | Pass: Ultra (4x MSAA): "3D view: drawn at 960x540, 4x MSAA" and the battle's world antialiased like the field (edge colours counted, zoomed crop) |
+| Petalburg Woods (in 3D since graphics `6743bc1e5`) | Pass: a wild Diglett in the grass south of the north gate, the battle on the forest path with the woods' shade light; glide 67.6 ms a frame: water and flowers still |
+| Rooms, caves, double battle, transitions, crash scenarios (as in the second round) | Pass: Petalburg Gym and Sidney's room (the room's background past its edge), Kate & Joy double battle with Mega Evolution in Oldale Town, the Blur transition's mosaic in Granite Cave B1F, Trainer Card, Fly map, PC boxes (cursor, close, summary, summary and back), Poké Ball, Mega Evolution: all alive |
+| Windows player exe as packed for the owner (Wine) | Pass: Granite Cave 1F, a wild battle in 3D (the new log line names Wine's software renderer, the window and the 3D view at 1280x720), the cave's scenery caught, glide 50.5 ms a frame: every 16 game frames, then 32; Run; back to the 3D field |
+| The overworld's frame rate with the battles merged (no regression) | Pass: `--benchmark 5` in Littleroot Town (no wild Pokémon to start a battle mid-run), three runs each, alternating, same machine: graphics `6743bc1e5` against the merge candidate - 1280x720 9.9 / 9.7 fps, 1920x1080 5.9 / 6.2, 2560x1440 4.1 / 4.1, 3840x2160 2.3 / 2.2: within the runs' own spread (up to 0.8 fps). Outside a battle the merge adds only flag checks and small buffers to each frame. (On Route 101, where visible wild Pokémon roam, the same benchmark varied by up to 30% at one size and one run of the base build left the 3D view altogether - a wild Pokémon reaching the player starts a battle; Littleroot Town has none) |
+| GBA ROM | Unchanged (`f214735b…3387`) built from the merge candidate |
+
 Not tested: multiplayer battles (1v1, 2v2, co-op, Twin Gym Leaders, Championship)
 in the native build - their transport is Milestone C3, not done yet; the 3D
 presentation only reads the battle and does not take part in it (link battles keep
@@ -236,20 +257,35 @@ wanted: see Performance). Flash being used in a dark cave before a battle.
 
 ## Performance
 
-Software OpenGL here, 960x540: in a battle 60 game frames a second with about 200
-presented (the world is copied, not redrawn: e.g. "world drawn 90 times, kept 8881"
-in one wild battle); the glide's 1.5 s redraws the world every frame and runs at the
-3D field's own rate (about 5 frames a second on this machine; the game slows with it,
-by design). Moving water and flowers redraw the world whenever their tiles change
-(about 20 times a second for the general tileset), so they are allowed only where a
-redraw is cheap: the game times its first redraws in each battle and logs the result
-(`PKMN_DIORAMA_LOG=1`: "the world takes N ms to draw ... water and flowers move" or
-"stand still"); here that is 25-250 ms, so they stand still. A real graphics card
-has not been measured (KNOWN_ISSUES V3): whether the water moves there, and how
-fast the glide and the transitions run, needs the owner's logs from
-`run-3d-battle-water.bat` (Route 110's sea), `run-3d-battle-flowers.bat` (Route 102)
-and `run-3d-battle-cave.bat` (Granite Cave 1F). No claim is made that the renderer
-is optimized.
+Software OpenGL here (Mesa llvmpipe, 2 cores): a battle runs at 60 game frames a
+second; while the camera stands still the world is copied, not redrawn (e.g. "world
+drawn 69 times, kept 5626" in one wild battle), a frame then taking about 5-9 ms
+present to present; a frame that redraws the world takes 30-67 ms (960x540 to
+1280x720), and the glide's 1.5 s redraws it every frame (38-67 ms a frame here; the
+game slows with it, by design).
+
+Water and flowers are paced by those measured frame times (third round; the second
+round timed the first eight redraws with `glFinish` against a fixed 12 ms limit).
+Each battle frame is timed present to present and counted as a glide frame, a frame
+that redrew the world or a kept one. The glide's average decides how often the tile
+animations may redraw the world: at every change while its frames keep within the
+budget give or take a tenth (a 60 Hz frame, 16.67 ms, or the kept frames' own pace
+if that is slower), every 4 game frames up to twice that, every 16 up to four times,
+not at all beyond; afterwards a running average of the frames that redraw the world
+moves that up (over 1.25 times the budget: half as often, still past every 32 game
+frames) or back down (eight such frames in a row within 1.05 times: twice as often).
+The changes in between are gathered into one redraw, so up to every 16 game frames
+the GBA's tile animations (most change once in 16 frames) keep their pace. A graphics card at 60 Hz should therefore
+keep them moving at every change, and a slow one reduces them instead of the battle
+slowing down. `PKMN_DIORAMA_LOG=1` logs each decision and, at the battle's end, the
+frame times by kind ("kept world ... world redrawn ... glide ..."); the first 3D
+battle of a run also logs the graphics card, the window's and the 3D view's size and
+the multisampling.
+
+A real graphics card has not been measured yet (KNOWN_ISSUES V3): the owner's logs
+from `battle3d-test-runs\wip-20261010-3` (`run-3d-battle-water.bat`,
+`run-3d-battle-flowers.bat`, `run-3d-battle-cave.bat`) decide it. No claim is made
+that the renderer is optimized.
 
 ## Review of the visual problems (second round, 2026-10-10)
 
@@ -274,3 +310,16 @@ glide's first eight redraws for their completion (`glFinish`), a few millisecond
 a move that brings its own background (Psychic, Feint Attack...) shows it in the
 GBA picture's area only, with the rest of a wide window black meanwhile (as in the
 first round; its edges could be carried out as the scenery's are: KNOWN_ISSUES V13).
+
+Third round (2026-10-10 evening), the owner's priorities: (1) the move backgrounds'
+black past the picture is fixed (V13) by drawing BG3 on past the picture's edges -
+repeated or mirrored, never stretched, the move animations untouched; (2) water and
+flowers are paced by measured frame times, and the `glFinish` stall of the second
+round is gone (every frame is timed present to present instead); their cost on a
+real graphics card is still to be measured (the owner's logs); (3) the presentation:
+the battle's world is drawn at the display settings' render size and antialiasing
+like the field, the picture at the same whole-number scale, and the glide starts
+from the new Adventure or Diorama camera exactly as shown. Petalburg Woods is drawn
+in 3D since graphics `6743bc1e5`, so its battles are 3D too (checked: a wild Diglett on
+the forest path, the woods' shade light in the battle's world).
+
