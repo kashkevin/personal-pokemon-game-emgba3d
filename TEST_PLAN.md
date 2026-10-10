@@ -392,12 +392,17 @@ reconnect by itself after a loss; the player closes the game and joins again, as
 launcher says), a host loss during a battle or a trade, the 3D build, separate PCs.
 
 Four players, 2v2 with full parties (`native_launcher_multi_proof.py`: `--source` and
-`--display` four times each): not passed yet. The
-attempts multi-1..8 stopped on the harness (wild battles in the Route 101 grass, the
-walk to the meeting spots, CPU with four games on two cores, KNOWN_ISSUES M6's name
-truncation, which was a product bug and is fixed); the last run was paused by the
-owner's new priorities at 351 routed battle blocks with no failure. Native 2v2 is
-not marked working until a run passes.
+`--display` four times each, `--match-seconds 12000`): each source walks out of
+Route 101's grass into Littleroot and is enrolled; four launchers start their games;
+two duos form from the Players menu; the host challenges, the three others accept,
+all four enter; default moves and forced switches to the end; the same durable
+result for all four, full parties back, result screens, saves, normal close, fresh
+Continue (`scripts/multiplayer/native-launcher-multi-evidence.json`).
+
+| Run | Clients | Result |
+| --- | --- | --- |
+| native-launcher-multi-1..9 | 4 Linux | Failed on the harness (timeouts, walks out of the grass, CPU with four games on two cores, a busy field during an enrollment walk) or on KNOWN_ISSUES M6 (fixed); multi-8 was stopped on purpose at 351 blocks with no failure |
+| native-launcher-multi-10 | 4 Linux, engine `1579e7fd8` | Pass in 152 min: 5545 routed blocks in 8391.6 s, seventeen party selections (three trainers sent out their sixth Pokemon, the host its second), team 1 won for all four, results screens, revision 2 for all four, normal close (exit 0 x4) twice, fresh Continue; 48316 key presses, no forced cleanup |
 
 The Windows launcher package with a native runtime (no Windows computer here, so
 under Wine with a Windows Python; `docs/dependency-ledger.md` lists the exact
@@ -466,11 +471,43 @@ scene's cells (0).
 (KNOWN_ISSUES V2); `test_compile_rules` (about 9 minutes, 3.3 GB RAM; run it alone)
 runs 23 tests, one fails (KNOWN_ISSUES V4).
 
-Benchmark scene (planned): repeatable scene at 1920x1080 measuring average FPS,
-frame-time distribution, 1% low, CPU frame time, GPU time where measurable, RAM, draw
-calls and entity counts. Real hardware specs and measured numbers only; nothing is
-reported until it runs. RenderDoc capture is set up once the renderer is stable.
-`PKMN_PERF_LOG=1` (frame rates every 5 s) is the first piece.
+Benchmark (since graphics `graphics-wip-20261010-5`): `pokeemerald-mp-diorama --save
+<outdoor save> --benchmark [seconds]` boots and Continues by itself, then measures the
+3D view at 1280x720, 1920x1080, 2560x1440 and 3840x2160 (VSync off, the player's
+quality, 3 s warm-up, 15 s each by default) and writes `benchmark.log` (average fps,
+1% low, median/99th/worst frame time, 3D frame count, GPU, CPU, RAM, display). Pass
+when every measured frame is 3D. Real hardware numbers only from the owner's PC; the
+cloud computer's are labelled software (llvmpipe). `PKMN_PERF_LOG=1` still logs frame
+rates every 5 s. RenderDoc capture is set up once a real GPU run is available.
+
+### 7a. Resolution and display (graphics `graphics-wip-20261010-5`)
+
+Unit: `make -f Makefile_pc NATIVE_LINUX=1 check-native` builds and runs
+`tools/pc_port/tests/test_display_settings.c` (139 checks: resolutions, modes,
+presets, settings file keys and older files, window fitting, pixel scales, the F10
+menu's confirmation, the benchmark's boot and statistics). Launcher: `pytest
+tests/test_game_display_settings.py tests/test_launcher_gui.py`.
+
+By hand (Xvfb, `xdotool`; openbox for the fullscreen kinds; then the Windows exe
+under Wine), each with a copy of an outdoor save:
+
+1. A fresh folder starts windowed at 1920x1080 (or the largest 16:9 window the
+   display fits, logged).
+2. F10 opens the menu (sharp at a whole scale); Left/Right on Resolution shows the
+   new size with the keep/undo box; Esc and the 15 s timeout undo it; Enter keeps it
+   and `pokeemerald.cfg` gets `resolution=`. No `windowScale=` unless kept.
+3. Display mode: borderless and exclusive fullscreen under a window manager; F11.
+4. Pixel art: the 240x160 picture at 4x/6x/8x/12x (whole steps; check edges with
+   `convert` crops).
+5. Show frame rate: the corner readout; kept in the settings file.
+6. `--benchmark 5`: `benchmark.log` with every frame 3D.
+7. Regression: `native_checkpoint_proof.py --slow 1.5 --recover` with the 3D build.
+8. 3D battles (only with the battle branch merged or on a trial merge): walk into
+   the wild Pokemon of `battle-test.sav` at 1280x720, 1920x1080, 2560x1440 and
+   3840x2160; world, sprites, health box and text box aligned.
+
+Result 2026-10-10: all pass (Linux and Wine for 1, 2, 5, 6; Linux for 3, 4, 7, 8).
+Not testable here: Windows display scaling and several displays (KNOWN_ISSUES V21).
 
 ## 8. CI
 

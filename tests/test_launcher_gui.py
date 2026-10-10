@@ -2,6 +2,8 @@ import asyncio
 from contextlib import asynccontextmanager
 from pathlib import Path
 import queue
+import shutil
+import tempfile
 import threading
 import time
 import unittest
@@ -358,6 +360,65 @@ class WidgetTests(unittest.TestCase):
         self.assertIn("F7: camera", native)
         self.assertNotIn("mGBA", native)
         self.assertIn("mGBA", help_text(False))
+
+    def test_game_display_tab_writes_the_native_games_settings(self):
+        import tkinter as tk
+        from tkinter import ttk
+        from types import SimpleNamespace
+        from emerald_multiplayer.game_display_settings import read_display_settings
+
+        private = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, private)
+        settings = private / "game-settings.cfg"
+        settings.write_text("cameraStyle=1\nvolume=7\n")
+        window = LauncherWindow(self.root)
+        bundle = SimpleNamespace(is_native=lambda: True)
+        window.worker = SimpleNamespace(installation=SimpleNamespace(bundle=bundle), importer=None,
+                                        private_root=private, busy=True)
+        before = set(self.root.winfo_children())
+        window.show_help()
+        widgets = []
+        def walk(widget):
+            widgets.append(widget)
+            for child in widget.winfo_children():
+                walk(child)
+        for child in set(self.root.winfo_children()) - before:
+            walk(child)
+        notebook = next(w for w in widgets if isinstance(w, ttk.Notebook))
+        self.assertIn("Game display", [notebook.tab(tab, "text") for tab in notebook.tabs()])
+        boxes = [w for w in widgets if isinstance(w, ttk.Combobox) and "1920 x 1080 (default)" in w.cget("values")]
+        self.assertEqual(len(boxes), 1)
+        resolution = boxes[0]
+        mode = next(w for w in widgets if isinstance(w, ttk.Combobox) and "Borderless fullscreen" in w.cget("values"))
+        quality = next(w for w in widgets if isinstance(w, ttk.Combobox) and "High (default)" in w.cget("values"))
+        self.assertEqual((resolution.get(), mode.get(), quality.get()),
+                         ("1920 x 1080 (default)", "Windowed", "High (default)"))
+        save = next(w for w in widgets if isinstance(w, ttk.Button) and w.cget("text") == "Save display settings")
+        resolution.set("2560 x 1440")
+        mode.set("Borderless fullscreen")
+        quality.set("Low (fastest)")
+        save.invoke()  # a game is running: nothing is written
+        self.assertEqual(settings.read_text(), "cameraStyle=1\nvolume=7\n")
+        window.worker.busy = False
+        save.invoke()
+        self.assertEqual(read_display_settings(settings),
+                         dict(resolution="2560x1440", mode="borderless", quality="low"))
+        self.assertTrue(settings.read_text().startswith("cameraStyle=1\nvolume=7\n"))
+        for child in set(self.root.winfo_children()) - before:
+            child.destroy()
+
+    def test_dpi_awareness_only_on_windows(self):
+        from unittest.mock import patch
+        from emerald_multiplayer import launcher_gui
+        import types
+        with patch.object(launcher_gui.os, "name", "posix"):
+            self.assertFalse(launcher_gui.windows_dpi_awareness())
+        calls = []
+        shcore = types.SimpleNamespace(SetProcessDpiAwareness=lambda level: calls.append(level) or 0)
+        fake = types.SimpleNamespace(windll=types.SimpleNamespace(shcore=shcore))
+        with patch.object(launcher_gui.os, "name", "nt"), patch.dict("sys.modules", {"ctypes": fake}):
+            self.assertTrue(launcher_gui.windows_dpi_awareness())
+        self.assertEqual(calls, [1])
 
     def test_preview_disables_play_without_release(self):
         window = LauncherWindow(self.root)

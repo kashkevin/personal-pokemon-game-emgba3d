@@ -19,6 +19,12 @@ bundle, production world creation, host enrollment and invitation):
      friend 4), close normally, and the host store passes its integrity check;
      the source saves are unchanged.
 
+With --drop the disconnect is a network drop instead: the friend's connection
+to the host breaks (the harness aborts the companion's TCP connection, as a
+dropped network would) while the host keeps running; the friend's launcher
+keeps its progress the same way, the friend's game closes, and the friend
+joins the still-running host again (revision 3); the host saves at 3.
+
 Ordinary key presses only (direction keys checked step by step against the
 game's reported position); the harness reads the games' memory only to see
 what is on screen and compare parties.
@@ -98,10 +104,19 @@ async def run(args):
         unsaved = await walk_right(harness, friend, 2)
         record("friend-walked-on-without-saving", position=list(unsaved))
 
-        # Disconnect: the host goes away.
         started = time.monotonic()
-        codes = await harness.close([host])
-        record("host-closed-normally", exit_codes=codes)
+        if args.drop:
+            # Disconnect: the friend's network drops; the host keeps running.
+            async def drop(s):
+                writer = s._companion._remote_writer
+                require(writer is not None and s._companion.connected, "the friend has no host connection to drop")
+                writer.transport.abort()
+            await on_worker(friend.worker, drop)
+            record("friend-connection-dropped-host-still-running")
+        else:
+            # Disconnect: the host goes away.
+            codes = await harness.close([host])
+            record("host-closed-normally", exit_codes=codes)
         async with asyncio.timeout(180):
             while (await status(friend))[0] != "host_loss_preserved":
                 require(friend.game.process.returncode is None, "the friend's game exited during host loss")
@@ -117,9 +132,17 @@ async def run(args):
         codes = await harness.close([friend])
         record("friend-closed-normally-to-rejoin-later", exit_codes=codes)
 
-        # Reconnect: the host returns, the friend joins again.
-        host = await _start(harness, "rejoin", 0, 2)
-        friend = await _start(harness, "rejoin", 1, 3)
+        if args.drop:
+            # Reconnect: the friend joins the host that kept running.
+            require(host.game.process.returncode is None, "the host's game exited during the friend's drop")
+            async def host_view(s):
+                return s.status.code, s.status.revision, s._companion.connected
+            record("host-still-running", status=list(await on_worker(host.worker, host_view)))
+            friend = await _start(harness, "rejoin", 1, 3)
+        else:
+            # Reconnect: the host returns, the friend joins again.
+            host = await _start(harness, "rejoin", 0, 2)
+            friend = await _start(harness, "rejoin", 1, 3)
         here = where(friend.companion)
         require(here is not None and list(here[:4]) == list(unsaved),
                 f"the friend did not continue where it stood: {here} instead of {unsaved}")
@@ -169,6 +192,8 @@ def main():
     parser.add_argument("--wine", type=Path, action="append", help="a Wine prefix per player: Windows clients")
     parser.add_argument("--sdl", type=Path, help="SDL2.dll for the Windows game")
     parser.add_argument("--elf", type=Path, help="the Linux build of the same engine commit (symbol sizes)")
+    parser.add_argument("--drop", action="store_true",
+                        help="the friend's network drops while the host keeps running (instead of the host closing)")
     asyncio.run(run(parser.parse_args()))
 
 

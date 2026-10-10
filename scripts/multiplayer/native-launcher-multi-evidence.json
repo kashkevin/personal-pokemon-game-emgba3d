@@ -1,0 +1,73 @@
+{
+  "scope": "Four native games through the whole launcher: two teams battle 2v2 from the Players menu with full parties (six Pokemon per trainer, twelve a side; the owner's rule). Four real launcher workers (LauncherWindow, SessionWorker, LauncherSession; host and three friends) start four native games from a native runtime bundle; production world creation, host enrollment of the four legacy saves through bootstrap games (each walks out of Route 101's grass into Littleroot first), the friends' invitations; ordinary team invitations and acceptances form two duos; the host challenges the other team to 2v2, the other three accept, all four press Enter battle; default moves and forced switches until the battle ends; all four launchers report battle_finished with their original games, bridges and runtime identities; the durable result is the same for all four; each player's exact personal party is back in memory; each game's Recent battle results shows it; all four save (revision 2), close normally (friends first) and Continue again onto the same canonical saves; the host store passes its integrity check; source saves unchanged. Ordinary key presses on each player's own X display; the harness reads the games' memory only to see menus, tasks and parties.",
+  "build_id": "f214735b64e113fd10730eacca5764d757f2c93a3685230aa905af7a7cdd3387",
+  "runs": [
+    {
+      "run": "native-launcher-multi-10",
+      "clients": "Linux i386 native client x4 (engine claude/native-pc 1579e7fd8: the battle branch's crash fixes, XInput at run time), started by the launchers' session workers; 640x360 windows (windowScale=2) and SDL_FRAMEBUFFER_ACCELERATION=0 so four games share the cloud computer's two cores",
+      "game_sha256": "3a4e17c65a9d5d4a86ad79afafc1fb84a9012a16a039a81d45eae77265854e14",
+      "bundle_manifest_sha256": "97866651445728f4c259087ad7947440318d555cb9ca25ef5222f405e8fb26d5",
+      "evidence_sha256": "1299d78273af045017bc5ff5f89b1f9930f360ad31f2417bee2da9ceda0a6f36",
+      "passed": true,
+      "checks": [
+        "each of the four sources walked out of Route 101's grass into its own spot in Littleroot (25-27 steps, direction keys checked step by step) and was enrolled through its bootstrap game (exit 0), revision 1, parties unchanged (six each)",
+        "four launchers started their games in Littleroot; ordinary team invitations formed two exact duos (accounts 0+1, 2+3)",
+        "challenge 2v2 from the host's Your team; the three others accepted; four identical consent descriptors; all four pressed Enter battle",
+        "the battle ran to its end on the host's battle service: 5545 routed blocks in 8391.6 s; seventeen party selections, the sixth Pokemon (slot 5) sent out by three trainers; the host's second Pokemon selected",
+        "all four launchers report battle_finished with the original game processes, runtime objects, bridges and runtime identities; no battle ownership or pending recovery intent left",
+        "the durable result is the same for all four (mode 3: 2v2, team 1 won, sequence 1)",
+        "each player's full personal party restored in memory; each game's Recent battle results shows 'Team 1 won'",
+        "all four saved through the launcher (revision 2); all four games closed normally (exit 0 x4)",
+        "fresh launchers Continued all four onto the same canonical checkpoints (revision 2, the same parties); closed normally (exit 0 x4)",
+        "host store integrity check passed; source saves unchanged"
+      ],
+      "routed_blocks": 5545,
+      "battle_seconds": 8391.6,
+      "run_minutes": 152,
+      "key_presses": 48316,
+      "forced_children": 0,
+      "launcher_save_failure_records": "4, all 'The authenticated host connection is unavailable' from the launchers' autosave scheduler (autosave was off); this harness revision did not record when; no pending recovery file was left and every later check passed. The harness now records the time and the preceding check of each.",
+      "harness": "scripts/multiplayer/native_launcher_multi_proof.py --match-seconds 12000 at app commit after 3d0f97e (stuck-field diagnostics)"
+    }
+  ],
+  "failed_runs": [
+    {
+      "run": "native-launcher-multi-1, -2",
+      "cause": "harness timeouts with four games on two cores; the waits were lengthened"
+    },
+    {
+      "run": "native-launcher-multi-3",
+      "cause": "harness: the field went busy during a walk out of the grass (Route 101 14,10); the walk now waits for the field and runs from a wild battle"
+    },
+    {
+      "run": "native-launcher-multi-5",
+      "cause": "harness: a step down was blocked at Route 101 (9,17); the walk now follows absolute waypoints round the rock"
+    },
+    {
+      "run": "native-launcher-multi-4",
+      "cause": "product bug KNOWN_ISSUES M6: the Players menu cut names to 13 characters before the friendship level, so 'Multi Friend 1..3' all read 'Multi Friend'; fixed (25 characters)"
+    },
+    {
+      "run": "native-launcher-multi-6",
+      "cause": "the battle went to recovery after 8 routed blocks with the processors overloaded (load 7.5 on 2 cores; cause not recorded); 640x360 windows and SDL_FRAMEBUFFER_ACCELERATION=0 cut each game from about 39% to 16% of a core"
+    },
+    {
+      "run": "native-launcher-multi-7",
+      "cause": "an enrollment failed and its cause was not kept; the harness now captures the enrollment error"
+    },
+    {
+      "run": "native-launcher-multi-8",
+      "cause": "stopped on purpose at 351 routed blocks (no failure) when the owner changed priorities; the games were ended by process id"
+    },
+    {
+      "run": "native-launcher-multi-9",
+      "cause": "harness: during slot 1's enrollment walk the field stayed busy for 45 s at Route 101 (10,11) without a battle menu; the game was closed before a picture was taken. The walk's field wait now saves a picture and the game's main callbacks when it gives up (field-stuck-N.png)"
+    }
+  ],
+  "not_covered": [
+    "Windows clients (Wine) and the 3D build in a 2v2",
+    "an interrupted 2v2 (host loss, disconnect, game closed mid-battle)",
+    "physical keyboard or controller input and clicks on the launcher windows",
+    "separate PCs, Wi-Fi or Internet (one machine over loopback)"
+  ]
+}

@@ -149,6 +149,18 @@ build (fallback) and the native PC build being migrated to. Requirements are in
     the terrain/buildings change; terrain and buildings are lit per pixel, a
     sprite from one point over its feet. Strength from the snapshot: none indoors
     or in bad weather, half at night.
+  * *Display* (graphics `graphics-wip-20261010-5`, `docs/native-resolution.md`):
+    `src/platform/display_settings.c` (resolutions, display modes, quality presets,
+    the settings file's keys; pure and unit-tested) feeds `sdl2.c`, which sizes the
+    window (per-monitor DPI aware on Windows) and tells the renderer the render
+    height and samples. `gl_target.c` draws the 3D scene straight into the window
+    or into an offscreen target at the chosen resolution (MSAA on request) and
+    scales it in; `gl_quality.c` gives the shadow map size and the light and air
+    switches; the 240x160 picture is drawn at a whole-number scale. The PC's own
+    interface (`gl_pc_overlay.c`, the F10 menu and frame rate) is the last layer:
+    a 640x360 canvas drawn on the CPU in the UI art direction's style and shown at
+    a whole-number scale. `--benchmark` (`src/platform/benchmark.c`) measures the
+    3D view at the four resolutions.
   * Still to port from the 3DS project: `docs/diorama-3ds-gap-analysis.md`.
 * **Launcher with the native game** (Milestone B3): the Python launcher
   (`launcher_gui.py`, `launcher_session.py`, `player_runtime.py`,

@@ -174,10 +174,11 @@ All of the project's gameplay code runs in the native build. [dir]
   Progress 2026-10-10: the battle mailbox path runs natively through the C bridge: a
   1v1 between two native games routed 362 blocks, the same count and forced switch
   as the emulator qualifier wqb1, on Linux and with the Windows exe under Wine
-  (`native-launcher-battle-evidence.json`). 2v2 (four clients, full parties):
-  `native_launcher_multi_proof.py` written; no run has passed yet (the attempts
-  stopped on harness problems, one product bug fixed: M6), so native 2v2 is not
-  working yet.
+  (`native-launcher-battle-evidence.json`). 2v2 with four clients and full parties
+  passes through the launcher (native-launcher-multi-10: 5545 routed blocks, the
+  same result for all four, parties back, saves, fresh Continue;
+  `native-launcher-multi-evidence.json`), after harness fixes and one product bug
+  (M6). Not run yet: Windows clients and the 3D build in multiplayer battles.
 - [ ] C4 Input and reset-chord routing through the native bridge (today in the Lua
   bridge and the SDL adapter). Needs: C1, B4. [audit]
   Done in code (the SDL adapter's guard ported, unit-tested with its own cases); the
@@ -208,9 +209,11 @@ All of the project's gameplay code runs in the native build. [dir]
   a 1v1 battle through the Players menu between two games the launcher started (2
   Linux and 2 Windows under Wine, `native-launcher-battle-evidence.json`); the host
   lost and the friend rejoining through the launcher with its unsaved progress kept (2
-  Linux and 2 Windows under Wine, `native-launcher-reconnect-evidence.json`). Next: 2v2
-  with four clients, trades and battles in the 3D build; a network loss while the host
-  keeps running; a host loss during a battle or a trade.
+  Linux and 2 Windows under Wine, `native-launcher-reconnect-evidence.json`); a 2v2
+  with full parties between four launchers' games (4 Linux,
+  `native-launcher-multi-evidence.json`). Next: trades and battles in the 3D build; a
+  network loss while the host keeps running (`native_launcher_reconnect_proof.py
+  --drop`, written); a host loss during a battle or a trade.
 
 ## Milestone D - enhanced graphics
 

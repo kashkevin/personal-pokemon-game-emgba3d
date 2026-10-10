@@ -56,6 +56,7 @@ import asyncio
 from dataclasses import asdict
 import json
 from pathlib import Path
+import subprocess
 import sys
 import time
 
@@ -86,6 +87,25 @@ def where(companion):
     return None if pose is None else (pose.map_group, pose.map_number, pose.x, pose.y, pose.activity)
 
 
+def field_state(probe):
+    """What a game is doing, for a harness failure: its main callbacks by name (Linux
+    builds have every symbol), the field script status and the open menus."""
+    names = getattr(probe, "_names", None)
+    if names is None:
+        names = probe._names = {address: name for name, (address, _) in probe.symbols.items()}
+    state = {}
+    if "gMain" in probe.symbols:
+        main = probe.mem("gMain", 8)
+        for field, offset in (("callback1", 0), ("callback2", 4)):
+            address = int.from_bytes(main[offset:offset + 4], "little") & ~1
+            state[field] = names.get(address, hex(address))
+    if "sGlobalScriptContextStatus" in probe.symbols:
+        state["script_status"] = probe.mem("sGlobalScriptContextStatus", 1)[0]
+    state["players_menu_active"] = probe.mem("sMultiplayerMenuActive")[0]
+    state["choose_action"] = probe.in_choose_action()
+    return state
+
+
 async def settle(probe, companion, slot, seconds=45):
     """Back to a field the player controls: a notice banner or the map's name ends by
     itself; a wild Pokemon that walked up and started a battle is run from."""
@@ -98,7 +118,13 @@ async def settle(probe, companion, slot, seconds=45):
             await probe.run_from_wild_battle(lambda: (where(companion) or (0,) * 5)[4] == 1)
             probe.record("ran-from-a-wild-battle", slot=slot, during="walk", position=list((now or (0,) * 5)[:4]))
             continue
-        require(time.monotonic() < deadline, f"the field did not come back: {now}")
+        if time.monotonic() >= deadline:
+            # Keep the picture and the game's state before the harness closes the game.
+            output = getattr(probe, "output", None)
+            if output is not None:
+                subprocess.run(["import", "-window", "root", str(output / f"field-stuck-{slot}.png")],
+                               env=probe.environment, capture_output=True)
+            raise AssertionError(f"the field did not come back: {now} {field_state(probe)}")
         await asyncio.sleep(.1)
 
 
