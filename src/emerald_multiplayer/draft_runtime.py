@@ -19,12 +19,14 @@ from .flash import LAYOUT_ID, MAX_CONTAINER_SIZE, inspect_flash
 from .launcher_session import GameInstallation
 from .live_checkpoint import _atomic, _json_bytes
 from .ownership import extract_source_inventory
-from .player_runtime import RunningGame, PlayerRuntimeError, _check_native_paths, _finish_even_if_cancelled, _stop
+from .player_runtime import (NativeGame, RunningGame, PlayerRuntimeError, SETTINGS_NAME, _check_native_paths,
+                             _finish_even_if_cancelled, _stop)
 
 
 # The verified SDL adapter requires a script/save pair. An empty Lua chunk
 # retains its isolated-save and reset/state/cheat protections without attaching
-# any callbacks, IPC, sockets, memory writes or ownership grants.
+# any callbacks, IPC, sockets, memory writes or ownership grants. The native
+# game needs neither: started without --bridge it has no network at all.
 DRAFT_SCRIPT = "-- Ordinary New Game source preparation; no bridge or callbacks.\n"
 _MESSAGES = {
     "invalid_configuration": "The new-character configuration is invalid.",
@@ -62,16 +64,22 @@ class DraftRuntime:
         if not isinstance(installation, GameInstallation):
             raise DraftRuntimeError("invalid_configuration")
         self.installation = installation
+        self.settings_path = Path(private_root).resolve() / SETTINGS_NAME
         self.directory = Path(private_root).resolve() / "drafts" / str(uuid4())
         self.save_path = self.directory / "character.sav"
         self._entered = self._active = False
+        self._native = False
         self._process = None
         self.result = None
 
     def _verify(self):
         try:
             self.installation.verify()
-            return self.installation.bundle.verify()[0]
+            executable, bridge = self.installation.bundle.verify()
+            if isinstance(bridge, NativeGame) and bridge.rom_sha256 != self.installation.rom_sha256:
+                raise ValueError("the native game was built for another ROM")
+            self._native = isinstance(bridge, NativeGame)
+            return executable
         except Exception:
             raise DraftRuntimeError("installation_changed") from None
 
@@ -84,26 +92,30 @@ class DraftRuntime:
         try:
             rom_path = Path(self.installation.rom_path).resolve()
             script = self.directory / "draft.lua"
-            _check_native_paths(executable, rom_path, self.save_path, self.directory, script)
+            _check_native_paths(executable, rom_path, self.save_path, self.directory, script, self.settings_path)
             self.directory.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
             self.directory.mkdir(mode=0o700, exist_ok=False)
             with MirrorLease(self.save_path):
-                _atomic(script, DRAFT_SCRIPT.encode("ascii"))
+                if not self._native:
+                    _atomic(script, DRAFT_SCRIPT.encode("ascii"))
                 _atomic(self.directory / "draft-intent.json", _json_bytes(dict(
                     format="emerald-new-character-draft-v1",
                     build_id=self.installation.rom_sha256,
                     manifest_sha256=self.installation.manifest_sha256)))
                 executable = self._verify()
-                _check_native_paths(executable, rom_path, self.save_path, self.directory, script)
+                _check_native_paths(executable, rom_path, self.save_path, self.directory, script, self.settings_path)
+                if self._native:
+                    arguments = (str(executable), "--save", str(self.save_path), "--config", str(self.settings_path))
+                else:
+                    arguments = (str(executable), "--multiplayer-script", str(script),
+                                 "--multiplayer-save", str(self.save_path), str(rom_path))
                 log_path = self.directory / "runtime.log"
                 options = dict(cwd=self.directory, stdin=asyncio.subprocess.DEVNULL)
                 if os.name == "nt":
                     options["creationflags"] = subprocess.CREATE_NO_WINDOW
                 with log_path.open("xb") as log:
                     spawn = asyncio.create_task(asyncio.create_subprocess_exec(
-                        str(executable), "--multiplayer-script", str(script),
-                        "--multiplayer-save", str(self.save_path), str(rom_path),
-                        stdout=log, stderr=log, **options))
+                        *arguments, stdout=log, stderr=log, **options))
                     try:
                         self._process, cancelled = await _finish_even_if_cancelled(spawn)
                         if cancelled:

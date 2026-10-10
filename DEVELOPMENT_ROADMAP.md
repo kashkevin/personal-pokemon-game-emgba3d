@@ -122,6 +122,17 @@ All of the project's gameplay code runs in the native build. [dir]
   `draft_runtime.py`, `enrollment_runtime.py`, `trade_native_replay.py`,
   `game_import.py`, `game_patch.py` (today they launch mGBA or patch a GBA ROM).
   Needs: A14. [audit]
+  Progress 2026-10-10: a native runtime bundle (`emerald-native-runtime-v1`,
+  `scripts/windows-runtime/collect_native_bundle.py`) holds the exe and SDL2.dll and
+  names the ROM build it pairs with; `player_runtime.py`, `enrollment_runtime.py` and
+  `draft_runtime.py` start it with `--save`, `--bridge` (a private bridge.txt) and
+  `--config` (engine `9e1de660f`: settings kept beside the launch folders) and refuse
+  another ROM build before recovery. Proved through `PlayerRuntime` under Wine
+  (`native-launcher-evidence.json`). Still to do: the launcher window with a native
+  release (application folder and release record), the 3D exe through the launcher,
+  and whether a native install still needs the user's GBA ROM (`game_import.py`,
+  `game_patch.py`: the companion verifies it, KNOWN_ISSUES M1); `trade_native_replay.py`
+  keeps its mGBA replay worker (B4).
 - [ ] B4 Replace the mGBA-specific Windows runtime: SDL hooks and reset-chord filter
   (`native/windows-runtime/sdl-multiplayer.c/.h`) and the headless-mGBA trade replay
   worker (`trade-replay-worker.c`). Needs: A14. [audit]

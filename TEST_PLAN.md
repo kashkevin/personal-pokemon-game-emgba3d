@@ -239,6 +239,27 @@ Under Wine the games end by signal (exit code -15) and their saves are still
 intact, since the native build writes the save file at the frame after every Flash
 write.
 
+The launcher's player runtime with the native game (Milestone B3):
+
+```sh
+PYTHONPATH=src python scripts/multiplayer/native_launcher_proof.py \
+    --game ../engine/pokeemerald-mp.exe --sdl SDL2.dll --rom pokedev.gba \
+    --manifest manifest.json --save a.sav --display :98 --wine PREFIX \
+    --output /private/multiplayer-proof/native-launcher-N
+```
+
+It collects a native runtime bundle, enrolls the player through a directly started
+game, then lets `PlayerRuntime` (the launcher's own code) recover and start the
+game, reach the overworld, save through it and close it; a bundle naming another
+ROM build must be refused before any process starts
+(`scripts/multiplayer/native-launcher-evidence.json`). `tests/test_native_runtime.py`
+covers the bundle format, the bridge file and the arguments without a game.
+
+| Run | Client | Result |
+| --- | --- | --- |
+| native-launcher-1..3 | Windows 2D exe under Wine | Failed on the harness (no SDL2.dll beside the directly started game; started before the companion's new lease; a store without trades); each fixed in the script |
+| native-launcher-4 | Windows 2D exe under Wine, engine `9e1de660f` | Pass: arguments `--save --bridge --config`, canonical save installed, overworld at the canonical position, live checkpoint 1.4 s, lease released, settings file kept, other-ROM bundle refused |
+
 A harness will start the real host plus N simulated clients (and later native game
 clients) and run the scenarios in the toolkit directive (2 and 4 clients, movement,
 map changes, teams, trades, 1v1/2v2 and concurrent battles, World Events, reconnect,

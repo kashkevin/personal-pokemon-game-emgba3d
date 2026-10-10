@@ -5,6 +5,28 @@ from .battle_manifest import validate_battle_manifest
 from .save_window import validate_window_manifest
 
 
+def configure_native(manifest: dict, token: str, port: int) -> str:
+    """The native game's bridge file (engine src/platform/mp_bridge.c,
+    MpBridge_Configure): the companion's loopback port and launch token, and
+    the manifest's explicit trade-effect opt-ins. The native game takes its
+    mailboxes and capability markers from its own symbols, so nothing else
+    of the manifest goes in; the runtime bundle pairs it with the ROM build
+    the companion verified (player_runtime.NativeGame)."""
+    from .trade_effect_mailbox import (validate_effect_choice_manifest, validate_effect_prepare_manifest,
+                                       validate_effect_save_manifest)
+    if (not isinstance(token, str) or not re.fullmatch(r"[0-9a-f]{64}", token)
+            or type(port) is not int or not 1 <= port <= 65535):
+        raise ValueError("Invalid bridge token or port")
+    lines = [f"port={port}", f"token={token}"]
+    if validate_effect_prepare_manifest(manifest):
+        lines.append("trade_effect_prepare=1")
+    if validate_effect_save_manifest(manifest):
+        lines.append("trade_effect_save=1")
+    if validate_effect_choice_manifest(manifest):
+        lines.append("trade_effect_choice=1")
+    return "\n".join(lines) + "\n"
+
+
 def configure(manifest: dict, token: str, port: int, bridge: str) -> str:
     if not re.fullmatch(r"[0-9a-f]{64}", token) or not 1 <= port <= 65535:
         raise ValueError("Invalid bridge token or port")

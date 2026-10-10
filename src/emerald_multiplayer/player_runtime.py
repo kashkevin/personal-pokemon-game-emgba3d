@@ -2,7 +2,9 @@
 
 This is the launcher lifecycle beneath a future Host/Join interface. It only
 opens an already enrolled character. The application pins a runtime manifest;
-the manifest pins every executable, DLL and the Lua bridge in its bundle.
+the manifest pins every executable and DLL in its bundle, and either the Lua
+bridge mGBA runs (emerald-windows-runtime-v1) or, for the native game with its
+own bridge, the ROM build it pairs with (emerald-native-runtime-v1).
 """
 from __future__ import annotations
 
@@ -17,7 +19,7 @@ import re
 import subprocess
 from uuid import uuid4
 
-from .bridge_config import configure
+from .bridge_config import configure, configure_native
 from .cold_start import ColdStartRecovery
 from .companion import verify_rom_manifest
 from .live_checkpoint import _atomic
@@ -27,6 +29,11 @@ _NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,99}")
 _MAX_FILE = 128 * 1024 * 1024
 _WINDOWS_NATIVE_PATHS = os.name == "nt"
 _LAUNCH_ID_PLACEHOLDER = "00000000-0000-0000-0000-000000000000"
+_WINDOWS_RUNTIME = "emerald-windows-runtime-v1"
+_NATIVE_RUNTIME = "emerald-native-runtime-v1"
+# The native game's settings (window, sound, the 3D view's look): one file
+# beside the launch folders, since every game starts in a new one.
+SETTINGS_NAME = "game-settings.cfg"
 
 
 class PlayerRuntimeError(ValueError):
@@ -59,7 +66,15 @@ def _preflight_launch(executable, rom_path, save_path, directory, *, launch_root
     root = Path(launch_root) if launch_root is not None else Path(directory) / "launches"
     prospective = root.resolve() / _LAUNCH_ID_PLACEHOLDER
     _check_native_paths(Path(executable).resolve(), Path(rom_path).resolve(),
-                        Path(save_path).resolve(), prospective, prospective / "bridge.lua")
+                        Path(save_path).resolve(), prospective, prospective / "bridge.lua",
+                        root.resolve().parent / SETTINGS_NAME)
+
+
+def _check_pairing(bridge, build):
+    """A native game was built from one engine source: refuse it next to the
+    ROM of another (KNOWN_ISSUES M1), before anything is reconciled."""
+    if isinstance(bridge, NativeGame) and bridge.rom_sha256 != build:
+        raise PlayerRuntimeError("game_changed", "the native game was built for another ROM than the verified one")
 
 
 def _read(path, maximum):
@@ -80,6 +95,15 @@ def _unique(pairs):
 
 
 @dataclass(frozen=True)
+class NativeGame:
+    """What a native runtime bundle stands for in place of a Lua bridge: the
+    executable bridges itself (engine src/platform/mp_bridge.c) and was built
+    from the engine source of this GBA ROM build, which the companion verifies
+    (KNOWN_ISSUES M1: the bundle's own record is the pairing)."""
+    rom_sha256: str
+
+
+@dataclass(frozen=True)
 class RuntimeBundle:
     directory: Path
     manifest_sha256: str
@@ -94,8 +118,14 @@ class RuntimeBundle:
             raise PlayerRuntimeError("runtime_hash", "runtime manifest differs from the launcher pin")
         try:
             manifest = json.loads(raw, object_pairs_hook=_unique)
-            if (not isinstance(manifest, dict) or set(manifest) != {"format", "executable", "bridge", "files"}
-                    or manifest["format"] != "emerald-windows-runtime-v1"):
+            if not isinstance(manifest, dict):
+                raise ValueError()
+            native = manifest.get("format") == _NATIVE_RUNTIME
+            if native:
+                if (set(manifest) != {"format", "executable", "rom_sha256", "files"}
+                        or not isinstance(manifest["rom_sha256"], str) or not _HASH.fullmatch(manifest["rom_sha256"])):
+                    raise ValueError()
+            elif set(manifest) != {"format", "executable", "bridge", "files"} or manifest["format"] != _WINDOWS_RUNTIME:
                 raise ValueError()
             files = manifest["files"]
             if not isinstance(files, dict) or not 2 <= len(files) <= 32:
@@ -105,10 +135,17 @@ class RuntimeBundle:
                 raise ValueError()
             if len({name.casefold() for name in files}) != len(files):
                 raise ValueError()
-            executable, bridge = manifest["executable"], manifest["bridge"]
-            if (executable not in files or bridge not in files or executable == bridge
-                    or not executable.lower().endswith(".exe") or not bridge.lower().endswith(".lua")):
+            executable = manifest["executable"]
+            if executable not in files or not executable.lower().endswith(".exe"):
                 raise ValueError()
+            if native:
+                # Nothing for an emulator to run: the game is its own bridge.
+                if any(name.lower().endswith(".lua") for name in files):
+                    raise ValueError()
+            else:
+                bridge = manifest["bridge"]
+                if bridge not in files or executable == bridge or not bridge.lower().endswith(".lua"):
+                    raise ValueError()
         except (TypeError, ValueError, KeyError, UnicodeError) as error:
             raise PlayerRuntimeError("runtime_manifest", "runtime manifest has an unsupported bounded format") from error
         # Reject unlisted DLLs rather than silently loading a different runtime.
@@ -121,6 +158,8 @@ class RuntimeBundle:
                 raise PlayerRuntimeError("runtime_path", "runtime component must be a regular file inside its bundle")
             if hashlib.sha256(_read(path, _MAX_FILE)).hexdigest() != digest:
                 raise PlayerRuntimeError("runtime_hash", "runtime component differs from its pinned hash")
+        if native:
+            return root / executable, NativeGame(manifest["rom_sha256"])
         return root / executable, (root / bridge).read_text(encoding="utf-8")
 
 
@@ -180,10 +219,23 @@ async def _open_child(companion, bundle, directory, save_path, build, manifest,
     root = Path(launch_root) if launch_root is not None else Path(directory) / "launches"
     launch_directory = (root.resolve() / str(uuid4())).resolve()
     rom_path, save_path = Path(companion.config.rom_path).resolve(), Path(save_path).resolve()
-    script = launch_directory / "bridge.lua"
-    _check_native_paths(executable, rom_path, save_path, launch_directory, script)
+    native = isinstance(bridge, NativeGame)
+    _check_pairing(bridge, build)
+    script = launch_directory / ("bridge.txt" if native else "bridge.lua")
+    settings = root.resolve().parent / SETTINGS_NAME
+    _check_native_paths(executable, rom_path, save_path, launch_directory, script, settings)
     launch_directory.mkdir(mode=0o700, parents=True)
-    _atomic(script, configure(manifest, companion.config.token.hex(), companion.ipc_address[1], bridge).encode())
+    token, port = companion.config.token.hex(), companion.ipc_address[1]
+    if native:
+        # The native game reads its port and token from this private file
+        # and keeps its settings beside the launch folders.
+        _atomic(script, configure_native(manifest, token, port).encode())
+        arguments = (str(executable), "--save", str(save_path), "--bridge", str(script),
+                     "--config", str(settings))
+    else:
+        _atomic(script, configure(manifest, token, port, bridge).encode())
+        arguments = (str(executable), "--multiplayer-script", str(script),
+                     "--multiplayer-save", str(save_path), str(rom_path))
     log_path = launch_directory / "runtime.log"
     options = dict(cwd=launch_directory, stdin=asyncio.subprocess.DEVNULL)
     if os.name == "nt":
@@ -191,9 +243,7 @@ async def _open_child(companion, bundle, directory, save_path, build, manifest,
     process = None
     with log_path.open("xb") as log:
         spawn = asyncio.create_task(asyncio.create_subprocess_exec(
-            str(executable), "--multiplayer-script", str(script),
-            "--multiplayer-save", str(save_path), str(rom_path),
-            stdout=log, stderr=log, **options))
+            *arguments, stdout=log, stderr=log, **options))
         try:
             process, cancelled = await _finish_even_if_cancelled(spawn)
             if cancelled:
@@ -230,11 +280,12 @@ class PlayerRuntime:
             raise PlayerRuntimeError("game_active", "this launcher already owns a game process")
         self._active = True
         try:
-            executable, _ = self.bundle.verify()
+            executable, bridge = self.bundle.verify()
             c = self.companion
             build, manifest = verify_rom_manifest(c.config.rom_path, c.config.manifest_path)
             if build != c.config.build_id:
                 raise PlayerRuntimeError("game_changed", "the game changed after companion authentication")
+            _check_pairing(bridge, build)
             _preflight_launch(executable, c.config.rom_path, self.save_path, self.directory,
                               launch_root=self.launch_root)
             gate = ColdStartRecovery(c, self.directory, self.save_path)

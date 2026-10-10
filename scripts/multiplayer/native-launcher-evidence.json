@@ -1,0 +1,55 @@
+{
+  "scope": "The launcher's own PlayerRuntime with a native runtime bundle (scripts/windows-runtime/collect_native_bundle.py, format emerald-native-runtime-v1): no emulator, no Lua bridge. One player on the real world server with the launcher's trade-capable ownership store and an unchanged companion: the legacy save enrolled through a directly started native game; then PlayerRuntime.open() verified the pinned bundle and the ROM build it names, closed-game recovery installed the canonical save and the native game started with --save, --bridge (a private bridge.txt with the companion's port and token only) and --config (the settings file beside the launch folders); Continue restored the canonical position, a live checkpoint went through the launched game's bridge; after closing, the save lease was released and the settings file stayed; a bundle naming another ROM build was refused before any process started; store integrity and the source save checked.",
+  "build_id": "f214735b64e113fd10730eacca5764d757f2c93a3685230aa905af7a7cdd3387",
+  "runs": [
+    {
+      "run": "native-launcher-4",
+      "clients": "Windows 2D exe under Wine (engine 9e1de660f, --config)",
+      "game_sha256": "ebd05f02621a8fe7a7f5c0f045de89390f35fb58bd0f9367d0106c4c5d7c0d3a",
+      "bundle_manifest_sha256": "45b14b05516a6f63ec18274cceaf3e58eafc40ce6ca6d73570feda3369c9a068",
+      "evidence_sha256": "2e6555ec0150b7376da99b47e96f952dd59afa77f8ef18f30b7648d5d752ff9b",
+      "passed": true,
+      "checks": [
+        "the companion joined the world server with the player's credentials",
+        "enrollment game: the game's bridge authenticated to the companion",
+        "enrollment game: the game is in the overworld (its bridge's own pose)",
+        "enrollment game: the bridge announced the live-save mailbox and the 4 KiB save window",
+        "legacy save enrolled through a directly started native game",
+        "enrollment game closed: the companion lost its bridge",
+        "the companion rejoined the world server with a new lease",
+        "the launcher started the native game with its save, bridge file and settings file",
+        "launched game: the game's bridge authenticated to the companion",
+        "launched game: the game is in the overworld (its bridge's own pose)",
+        "launched game: the bridge announced the live-save mailbox and the 4 KiB save window",
+        "Continue restored the canonical position in the launched game",
+        "live checkpoint through the launched game's bridge",
+        "launched game closed: the companion lost its bridge",
+        "save lease released; the settings file stays beside the launch folders",
+        "a bundle naming another ROM build was refused before any process started",
+        "host store integrity check passed; source save unchanged",
+        "passed"
+      ],
+      "checkpoint_seconds": [
+        1.41
+      ],
+      "harness": "committed revision"
+    }
+  ],
+  "failed_runs": [
+    {
+      "run": "native-launcher-1",
+      "result": "failed: the directly started enrollment game never connected",
+      "cause": "harness: it started the bare build output, which has no SDL2.dll beside it; the game could not load under Wine. Fixed: the enrollment game runs from the collected bundle."
+    },
+    {
+      "run": "native-launcher-2",
+      "result": "failed: closed-game recovery refused the session",
+      "cause": "harness: the launcher start began while the companion was still taking a new lease after the enrollment game closed (a closed game's lease is never reused). Fixed: wait for the new lease, as the launcher does."
+    },
+    {
+      "run": "native-launcher-3",
+      "result": "failed: closed-game recovery's trade query refused",
+      "cause": "harness: the proof's world used the plain ownership store; the launcher's host world uses the trade-capable one with trades enabled. Fixed: the same store as host_world.py."
+    }
+  ]
+}

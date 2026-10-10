@@ -20,7 +20,7 @@ from .companion import verify_rom_manifest
 from .flash import LAYOUT_ID, MAX_CONTAINER_SIZE, inspect_flash
 from .live_checkpoint import LiveCheckpointCoordinator, _atomic, _json_bytes, _sync_directory
 from .ownership import OWNERSHIP_PROFILE, extract_source_inventory
-from .player_runtime import _finish_even_if_cancelled, _open_child, _preflight_launch, _stop
+from .player_runtime import NativeGame, _finish_even_if_cancelled, _open_child, _preflight_launch, _stop
 from .trade_storage import TradeCheckpointStore
 
 
@@ -132,11 +132,13 @@ class EnrollmentRuntime:
         if self._entered:
             raise EnrollmentRuntimeError("session_used", "each enrollment runtime can be entered only once")
         self._entered = True
-        executable, _ = self.bundle.verify()
+        executable, bridge = self.bundle.verify()
         c = self.companion
         build, manifest = verify_rom_manifest(c.config.rom_path, c.config.manifest_path)
         if build != c.config.build_id:
             raise EnrollmentRuntimeError("game_changed", "the installed game differs from the authenticated build")
+        if isinstance(bridge, NativeGame) and bridge.rom_sha256 != build:
+            raise EnrollmentRuntimeError("game_changed", "the native game was built for another ROM")
         _preflight_launch(executable, c.config.rom_path, self.save_path, self.directory,
                           launch_root=self.launch_root)
         self.directory.mkdir(mode=0o700, parents=True, exist_ok=True)
