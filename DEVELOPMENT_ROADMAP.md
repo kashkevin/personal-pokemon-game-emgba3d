@@ -125,22 +125,35 @@ All of the project's gameplay code runs in the native build. [dir]
 
 ## Milestone C - native multiplayer
 
-- [ ] C1 A native bridge replaces `bridge/mgba.lua` and preserves the protocol; the
+- [x] C1 A native bridge replaces `bridge/mgba.lua` and preserves the protocol; the
   Python host and companion stay. Needs: B2. [dir] [audit]
+  Done 2026-10-09: engine `src/platform/mp_bridge.c` (`e2e3917e2`), a line-for-line C
+  port with the Lua bridge's checks; 4170 unit checks in `check-native`; native
+  clients joined an unchanged server through unchanged companions (C6).
 - [ ] C2 Native in-process interface for the mailboxes (presence EMP1 128 B; save 512 B
   plus the 4 KiB save window; battle and menu 512 B each; reset 128 B; trade effects;
   world EMW1 256 B), keeping the struct layouts as contracts and replacing the
   ELF-symbol manifest (`scripts/multiplayer/generate_manifest.py`). Needs: C1. [audit]
+  In progress: the bridge takes every mailbox and marker from the executable's own
+  symbols (layouts checked by `abi_layout.py`); the companion still verifies the GBA
+  ROM's manifest, and pairing the executable with it is open (KNOWN_ISSUES M1).
 - [ ] C3 Battle transport natively (today the GBA link layer: SendBlock /
   GetBlockReceivedStatus). Needs: C2. [audit]
 - [ ] C4 Input and reset-chord routing through the native bridge (today in the Lua
   bridge and the SDL adapter). Needs: C1, B4. [audit]
+  Done in code (the SDL adapter's guard ported, unit-tested with its own cases); the
+  native reset handler taking the chord has not run in gameplay yet.
 - [ ] C5 Rebuild the proof and qualification harness for the native build (today
   libmGBA `harness.c`, `scripts/multiplayer/*_proof.py`,
   `scripts/windows-runtime/qualify_*.py`); it produced all current evidence. Needs: C1,
   K4. [audit]
+  Started: `scripts/multiplayer/native_presence_proof.py` drives 2-4 real native
+  clients (Linux, or Windows under Wine) with key presses on their own X displays.
 - [ ] C6 Two, then four native clients: connect, see each other, move, change maps,
   disconnect and reconnect, then trade and battle. Needs: C2-C5. [audit] [brief]
+  In progress: connect, see each other and move pass with 2 Linux, 2 Windows (Wine)
+  and 4 Linux clients (presence only, `scripts/multiplayer/native-presence-evidence.json`).
+  Next: map changes, disconnect/reconnect, then the ownership store, trade and battles.
 
 ## Milestone D - enhanced graphics
 

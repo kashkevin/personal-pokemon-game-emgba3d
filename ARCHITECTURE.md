@@ -79,10 +79,18 @@ build (fallback) and the native PC build being migrated to. Requirements are in
   `crash.log` with a stack trace.
 * **Struct layout**: Linux i386 gcc and MinGW (with `-mno-ms-bitfields
   -mno-align-double`) both reproduce the GBA layout of every boundary type.
-* **Native bridge** (Milestone C, not started): a C module in the platform layer
-  replaces `bridge/mgba.lua`. It reads/writes the same mailbox structs directly in
-  process memory and speaks the same local protocol to the existing companion, so
-  the companion and host need no changes.
+* **Native bridge** (Milestone C, engine `src/platform/mp_bridge.c` since
+  `e2e3917e2`): a line-for-line C port of `bridge/mgba.lua` (and of the reset-chord
+  guard in `native/windows-runtime/sdl-multiplayer.h`). It reads and writes the same
+  mailboxes in process memory, at the frame boundary while the game thread is parked,
+  and speaks the same loopback protocol to the companion, so the companion and the
+  world server are unchanged. Started with `--bridge FILE` (port, token and the
+  manifest's explicit opt-ins), written by the launcher as it writes `bridge.lua`.
+  Mailbox addresses and capability markers come from the executable's own symbols
+  instead of the manifest. *Identity*: the companion still verifies a GBA ROM and its
+  manifest; for a native client that is the ROM built from the same engine source,
+  and pairing the executable with it is the launcher's job (not automated yet,
+  KNOWN_ISSUES M1).
 * **Renderer** (Milestone D, in progress on engine branch `claude/native-graphics`,
   build with `DIORAMA=1`): the voxel project's Diorama renderer (OpenGL 3.3 core).
   * *Snapshot*: hooks in `main.c` (frame begin/end), `overworld.c` (after the

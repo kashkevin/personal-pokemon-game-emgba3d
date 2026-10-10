@@ -1,0 +1,58 @@
+{
+  "scope": "Native clients (no emulator) through the native C bridge (engine e2e3917e2, claude/native-pc), unchanged companions and an unchanged world server; presence only (no ownership store: saves, trades and battles have their own gates). Ordinary key presses on each client's own X display.",
+  "build_id": "f214735b64e113fd10730eacca5764d757f2c93a3685230aa905af7a7cdd3387",
+  "note": "The companion verifies the GBA ROM and manifest of the same engine source; the native executable is a separate artefact of that source, identified by game_sha256.",
+  "runs": [
+    {
+      "run": "native-presence-2",
+      "clients": "Linux i386 native client x2",
+      "game_sha256": "075f4f47c366e4ed9ffe41a307681261b5126228035884ce3a018cc45463090e",
+      "evidence_sha256": "ae16350e3f474342983f18c583dc26cb57209c7668f329690cd6331f40515802",
+      "passed": true,
+      "checks": [
+        "native bridges authenticated to their companions",
+        "companions joined the world server",
+        "every client is in the overworld (its bridge's own pose)",
+        "every client sees the others in the overworld",
+        "a move by client A reaches client B",
+        "client B's view after the move",
+        "peer poses as each companion sees them",
+        "passed"
+      ]
+    },
+    {
+      "run": "native-presence-wine-7",
+      "clients": "Windows exe under Wine x2 (one prefix each)",
+      "game_sha256": "8eb73561ebcb02e292dcc83d2d256362ad9b647b59e4c070dc594e6c30ea2ced",
+      "evidence_sha256": "e358f3fcafeb2ab26ee8f4b3876212feb408b1e173c053390f1677a575451a0b",
+      "passed": true,
+      "checks": [
+        "native bridges authenticated to their companions",
+        "companions joined the world server",
+        "every client is in the overworld (its bridge's own pose)",
+        "every client sees the others in the overworld",
+        "a move by client A reaches client B",
+        "client B's view after the move",
+        "peer poses as each companion sees them",
+        "passed"
+      ]
+    },
+    {
+      "run": "native-presence-four-1",
+      "clients": "Linux i386 native client x4",
+      "game_sha256": "075f4f47c366e4ed9ffe41a307681261b5126228035884ce3a018cc45463090e",
+      "evidence_sha256": "52e2759d1e6bf1111d3097fe921b9843bd9f0db69ef8eb154062f02152ffcf68",
+      "passed": true,
+      "checks": [
+        "native bridges authenticated to their companions",
+        "companions joined the world server",
+        "every client is in the overworld (its bridge's own pose)",
+        "every client sees the others in the overworld",
+        "a move by client A reaches client B",
+        "client B's view after the move",
+        "peer poses as each companion sees them",
+        "passed"
+      ]
+    }
+  ]
+}

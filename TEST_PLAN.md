@@ -132,7 +132,7 @@ UTC gives midday); Wine follows it too.
 | Walker whole at the Center counter and PC, beside a wall; nurse behind the counter; walker behind a roof hidden by it | Pass (screenshots) | Counter: pass |
 | Sun shadows by day outdoors, fainter at night, none indoors; a sprite darkens as a whole in a building's shadow | Pass (screenshots; midday via `TZ`) | Day outdoors and none indoors: pass |
 | No model drawn past the edge of the scene | Pass (Oldale Town, after `65f44c42e`) | Not looked for |
-| Frame rate (llvmpipe, standing still) | Route 101 3-6 fps; Oldale Town 7.1 fps (7.6 shadows off); Pokémon Center about 44 fps | Oldale Town about 4 fps |
+| Frame rate (llvmpipe, standing still) | Route 101 3-6 fps; Oldale Town 7.1 fps (7.6 shadows off); Pokémon Center about 44 fps | Oldale Town about 5 fps |
 
 UBSan reports now come only from real findings; a false positive from the engine's
 `if_comptime` trick is avoided in the sanitizer build (`NATIVE_SANITIZE`).
@@ -140,7 +140,40 @@ AddressSanitizer build (`make -f Makefile_pc NATIVE_LINUX=1 SANITIZE=address`,
 game and renderer code): first pass on 2026-10-09 (title, continue, party, summary,
 Bag, Pokédex, wild battle, run) found N22 and the benign N23 over-reads.
 
-## 6. Multiplayer harness and network simulation (planned, Milestone C)
+## 6. Multiplayer: native clients, harness and network simulation (Milestone C)
+
+Native bridge unit tests run in `check-native` (engine
+`tools/pc_port/tests/test_mp_bridge.c`, 4170 checks: the cases of the app's
+`tests/test_mgba_bridge.lua` and `tests/native/windows-input-guard.c`, plus save
+command/response, CRC, shared-world and capability checks).
+
+Native presence proof (real native clients, real companions, real world server, no
+ownership store), one X display per client:
+
+```sh
+# companion identity: the GBA ROM and manifest of the same engine source
+make -j2 BUILD_NAME=dev                                       # engine
+PYTHONPATH=src python scripts/multiplayer/generate_manifest.py --rom <engine>/pokedev.gba \
+    --elf <engine>/pokedev.elf --engine-commit <sha> --output manifest.json
+PYTHONPATH=src python scripts/multiplayer/native_presence_proof.py \
+    --game <engine>/pokeemerald-mp --rom <engine>/pokedev.gba --manifest manifest.json \
+    --save a.sav --save b.sav --display :98 --display :97 \
+    --output <private>/multiplayer-proof/native-presence-N
+# Windows clients under Wine: --game pokeemerald-mp.exe --wine PREFIX_A --wine PREFIX_B
+# (one prefix per client; KNOWN_ISSUES M3)
+```
+
+Results 2026-10-09 (engine `e2e3917e2`, `scripts/multiplayer/native-presence-evidence.json`):
+
+| Run | Clients | Result |
+| --- | --- | --- |
+| native-presence-2 | 2 Linux, Route 101 | Pass: bridges authenticated, both joined, each sees the other in the overworld, A's two steps reach B |
+| native-presence-wine-7 | 2 Windows (Wine), Littleroot | Pass (same checks; Winsock bridge) |
+| native-presence-four-1 | 4 Linux, Littleroot and Oldale Pokémon Center | Pass: 4 sessions, each sees 3 others, A's move reaches B |
+
+Earlier attempts that did not pass were harness problems, not bridge problems: a key
+press before the window existed, wild battles on Route 101 under slow Wine clients,
+and the shared Wine prefix (M3).
 
 A harness will start the real host plus N simulated clients (and later native game
 clients) and run the scenarios in the toolkit directive (2 and 4 clients, movement,

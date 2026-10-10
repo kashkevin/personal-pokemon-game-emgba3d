@@ -21,10 +21,11 @@ Every row uses exactly one of these.
 | Blocked | Cannot move until a named dependency or owner decision is resolved. | not used yet |
 | Broken | A recorded run or check fails on the current build. | not used yet |
 
-**Native PC status** is "Not yet tested natively" for every gameplay row. The native
-build now reaches the overworld, saves and battles (see Native PC migration below), but
-none of the project's multiplayer features can run natively until the native bridge
-exists (Milestone C), and no gameplay row has been re-verified natively yet.
+**Native PC status** is "Not yet tested natively" for every gameplay row unless the
+row says otherwise. The native build reaches the overworld, saves and battles (see
+Native PC migration below). The native multiplayer bridge exists (engine `e2e3917e2`);
+so far only presence (players connecting, seeing each other, movement) has been
+re-verified natively, in presence-only runs without the ownership store.
 
 Conventions (from the audit): bare file names are under app `src/emerald_multiplayer/`;
 `app:` is this repository; `eng:` is the engine repository (our pokeemerald-expansion
@@ -59,7 +60,7 @@ Implemented but unverified 2.
 
 | Feature | Status | Native PC status | Evidence | Notes |
 | --- | --- | --- | --- | --- |
-| Up to four players | Implemented and tested | Not yet tested natively | Doc four-player-foundation.md: four actual cores, "A fifth authenticated player is refused"; `protocol.py` MAX_PLAYERS=4; Doc windows-menu-multi-proof.md: wqm1 four Windows clients "passed". | Ran on earlier builds only. One PC only; separate PCs, Wi-Fi, Internet never run. Delta: protocol 2 / EMW1 (7056dd2, 5618a4aa9). |
+| Up to four players | Implemented and tested | Four native Linux clients joined and each saw the other three (presence only; the fifth-player refusal not rerun) | Doc four-player-foundation.md: four actual cores, "A fifth authenticated player is refused"; `protocol.py` MAX_PLAYERS=4; Doc windows-menu-multi-proof.md: wqm1 four Windows clients "passed". | Ran on earlier builds only. One PC only; separate PCs, Wi-Fi, Internet never run. Delta: protocol 2 / EMW1 (7056dd2, 5618a4aa9). |
 | Independent exploration | Implemented and tested | Not yet tested natively | Doc four-player-foundation.md: "three simultaneous maps, an open menu on C, and an indoor scene on D"; A's wild battle "while the other three games continue independently". | Ran on earlier builds only. Delta: presence v2. |
 | Free-form teams | Implemented and tested | Not yet tested natively | Doc native-players-menu.md run-2 (4 actual cores): invitation, acceptance, leaving, "forming both teams"; wqm1 formed two teams. `team_desk.py`. | Ran on earlier builds only. Teams are session-local: dissolve on disconnect/restart (Doc team-foundation.md); persistence rule undecided. |
 | Maximum normal team size of two | Implemented and tested | Not yet tested natively | `team_desk.py`: "a team requires two different players", MAX_TEAMS=2, "at most two teams may coexist"; 2+2 teams formed in run-2 and wqm1. | Ran on earlier builds only. |
@@ -117,9 +118,9 @@ These are the reference behaviours for Milestone G.
 
 | Feature | Status | Native PC status | Evidence | Notes |
 | --- | --- | --- | --- | --- |
-| Players connecting | Implemented and tested | Not yet tested natively | Doc phase2-presence.md (2 actual cores); four-player-foundation.md (4 cores, 5th refused); handoff: wq1 "simultaneous authenticated TLS Host/Join" on Windows; wqt2/wqb1/wqm1. | Ran on earlier builds only. One PC, loopback only. Delta: protocol 2 (7056dd2). |
+| Players connecting | Implemented and tested | Tested natively (presence only): 2 and 4 Linux clients, 2 Windows clients under Wine, through the native bridge, unchanged companions and world server (`scripts/multiplayer/native-presence-evidence.json`) | Doc phase2-presence.md (2 actual cores); four-player-foundation.md (4 cores, 5th refused); handoff: wq1 "simultaneous authenticated TLS Host/Join" on Windows; wqt2/wqb1/wqm1. | Ran on earlier builds only. One PC, loopback only. Delta: protocol 2 (7056dd2). |
 | Player synchronization | Implemented and tested | Not yet tested natively | Doc phase2-presence.md: tile and relative-pixel checks on both clients; Doc remote-running-animation.md: two actual cores, observer running frames. | Ran on earlier builds only. EMW1 sync (followers, mounts, appearance, clock, events) never run. Delta: remote avatars now need 8 free sprites (80fef1a82). |
-| Movement | Implemented and tested | Not yet tested natively | phase2-presence: "Simultaneous movement passed tile and relative pixel checks on both clients". | Ran on earlier builds only. Delta: avatar drawing reads mount state. |
+| Movement | Implemented and tested | Tested natively: one client's two steps reach another client (same 2- and 4-client runs) | phase2-presence: "Simultaneous movement passed tile and relative pixel checks on both clients". | Ran on earlier builds only. Delta: avatar drawing reads mount state. |
 | Map transitions | Implemented and tested | Not yet tested natively | phase2-presence: interior and route transitions "without duplication"; four-player: three maps at once. | Ran on earlier builds only. |
 | Separate parties/inventories/money | Implemented and tested | Not yet tested natively | One canonical save per character; four-player: closed Flash "exactly match each character's canonical payload"; battles restore every original party (run 5, wqm1). | Ran on earlier builds only. Wagers now move money (unverified). |
 | Separate rewards | Implemented but unverified | Not yet tested natively | See Individual rewards. | - |
@@ -166,7 +167,7 @@ device.
 | Audio | Samples produced (earlier) | No device under Wine | Not listened to. |
 | Stability | No crash in the final runs | One unexplained crash in about ten launches (not reproduced; crash reporter added since) | |
 | Controller input | Not yet | Not yet | Windows has XInput code from the voxel project; untested. |
-| Native multiplayer bridge (replaces the mGBA Lua bridge) | Not started | Not started | Milestone C. |
+| Native multiplayer bridge (replaces the mGBA Lua bridge) | Yes: 2 and 4 clients, presence | Yes: 2 clients, presence (Winsock) | Engine `e2e3917e2` (`src/platform/mp_bridge.c`, a C port of `bridge/mgba.lua`; 4170 unit checks). Saves, trades, battles, menus and world mailboxes are carried by the same code but not yet exercised natively. The launcher does not start native clients yet. |
 | Pokémon Center: enter, heal, save, leave, re-enter | Yes | Yes | Crashed before engine `5b2bcb7ce` (KNOWN_ISSUES N24). |
 | 1920x1080 window / fullscreen | Configurable, not seen | Configurable, not seen | `windowScale=6` in `pokeemerald.cfg` gives 1920x1080; F11 toggles fullscreen. The cloud display is 1280x720, so neither was observed. |
 
@@ -192,7 +193,7 @@ a real GPU draws it.
 | Modelled buildings and furniture (3DS project, D4) | Yes: Littleroot, Oldale Town, Oldale Pokémon Center, a house | Yes: Oldale Town, Oldale Pokémon Center | 475 models generated from our maps at build time (`tools/diorama_buildings`), coloured from the live palettes. Doors do not open in 3D (KNOWN_ISSUES V6). |
 | Walkers whole in front of furniture and walls | Yes: at the Center counter and PC, beside the Center and a house; a walker behind the Center's roof is hidden by it | Yes: at the counter | Engine `d63407185`. Before it the counter hid two thirds of a walker standing at it. |
 | Sun shadows (terrain, trees, buildings, sprites) | Yes: Oldale Town by day, fainter at night; none in the Center | Yes: Oldale Town by day; none in the Center | Off indoors and in rain, fog, ash, sand and overcast weather (not seen in those weathers yet). `PKMN_DIORAMA_SHADOWS=0` turns them off. |
-| Frame rate (software GL) | Route 101 3-6 fps; Oldale Town 7.1 fps (7.6 without shadows); Pokémon Center about 44 fps | Oldale Town about 4 fps | Real GPU unmeasured (KNOWN_ISSUES V3). |
+| Frame rate (software GL) | Route 101 3-6 fps; Oldale Town 7.1 fps (7.6 without shadows); Pokémon Center about 44 fps | Oldale Town about 5 fps | Real GPU unmeasured (KNOWN_ISSUES V3). |
 | Other 3DS-project features (doors, colour grade, sprite shadows, signposts, tree style, weather light, relief, battle scenery) | Not started | Not started | Ordered list in `docs/diorama-3ds-gap-analysis.md`. |
 | Dual screen removed / single screen | Yes (renderer is single-screen) | Yes | |
 | Works in multiplayer | No | No | Needs the native bridge (Milestone C). |
