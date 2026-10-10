@@ -196,7 +196,8 @@ a real GPU draws it.
 | Frame rate (software GL) | Route 101 3-6 fps; Oldale Town 7.1 fps (7.6 without shadows); Pokémon Center about 44 fps | Oldale Town about 5 fps | Real GPU unmeasured (KNOWN_ISSUES V3). |
 | 3DS colour grade (saturation 1.30) | Yes: Littleroot by day, the Pokémon Center | Not yet | Graphics `0d10b9936`; `PKMN_DIORAMA_GRADE=0` turns it off. |
 | Walkers' cast shadows (their own silhouette along the sun) | Yes: Littleroot by day (none for a walker in a building's shadow); round shadows kept indoors | Not yet | Graphics `fde3a5741`, the 3DS project's `EmitCastShadow` on flat ground. |
-| Other 3DS-project features (signposts, tree style, weather light, relief, battle scenery, camera options) | Not started | Not started | Ordered list in `docs/diorama-3ds-gap-analysis.md`; doors, colour grade and cast shadows are done. |
+| 3DS weather light (warm sun, cool shade, distance haze per weather) | Yes: Littleroot by day and at night; rain, fog and ash light previewed by forcing the light's weather (the game's own rain/fog maps not visited yet); indoors unchanged (pixel-identical with it off) | Not yet | Graphics `23ad56924`; `PKMN_DIORAMA_LIGHT=0` turns it off. Dapples, rays, bloom and motes not yet. |
+| Other 3DS-project features (signposts, tree style, relief, camera options) | Not started | Not started | Ordered list in `docs/diorama-3ds-gap-analysis.md`. 3D battle scenery is being done separately (owner, 2026-10-10). |
 | Scripted scenes, fades and night tint in 3D | Yes: a door warp, healing at the nurse, the warp's fades; trees follow the night tint and fades (V5 fixed) | Not yet | Before graphics `398d486ef` scripted scenes and fades cut to the 2D view. |
 | Follower in and out of its Poke Ball in 3D | Yes: walking off the Oldale Pokémon Center counter (V1 fixed) | Not yet | Graphics `8dda1e1be`: affine sprites drawn with their matrix. |
 | Dual screen removed / single screen | Yes (renderer is single-screen) | Yes | |
