@@ -186,7 +186,7 @@ test builds):
 | Check | Result |
 | --- | --- |
 | Stage survey: every walkable spot within 8 tiles of 1-3 spots on each of 44 maps (all gyms, the Elite Four, 26 caves, Weather Institute, Oceanic Museum, Space Center, Trick House, Trainer Hill; cells dumped by the game, `PKMN_DIORAMA_STAGE_DUMP`), singles and doubles: 20,428 stage choices, measured as the camera sees them | Against the 3DS scoring alone: stages with something over a battler 1,872 -> 771 (-59%), with a wall pressed behind a battler 1,012 -> 535 (-47%), showing over 2% black 5,872 -> 5,750 (-2%). Petalburg Woods has no 3D view (Diorama), so no survey there |
-| Water and flowers in a battle | Pass with `PKMN_DIORAMA_BATTLE_TILES=1`: Oldale Town trainer battle, the flower beds change between screenshots half a second apart (pixel diff only on the flowers). By cost here: "the world takes 248 ms to draw ... water and flowers stand still (too slow to redraw)" (Oldale), 30 ms (Petalburg Gym), 215 ms (Route 101) - all over the 12 ms limit on software OpenGL, so still, as designed |
+| Water and flowers in a battle | Pass with `PKMN_DIORAMA_BATTLE_TILES=1`: Oldale Town trainer battle, the flower beds change between screenshots half a second apart (pixel diff only on the flowers); Route 110 wild battle (the merge candidate's player build), the sea behind the opponent: its waves change between screenshots (pixel diff on the water and the bobbing healthbox only). Water the GBA keeps still stays still (Route 102's pond uses tiles no animation touches). By cost here: "the world takes 248 ms to draw ... water and flowers stand still (too slow to redraw)" (Oldale), 30 ms (Petalburg Gym), 215 ms (Route 101) - all over the 12 ms limit on software OpenGL, so still, as designed |
 | Scenery where the world ends | Pass: Petalburg Gym (Roxanne's gym room) and Sidney's room: the black above and beside the room is now the gym's cream background and Sidney's teal one, the walls in front of it; Granite Cave B1F: the cave background (`scenery caught ... top left ffc5b483`) |
 | Slice transition (Route 101, walking into the Shinx; 3DS camera) | Pass: the field's ground and trees slice and slide, the player, follower, the Shinx and the NPCs stay put and are cut only by the transition's windows, as on the GBA |
 | Blur transition (Granite Cave B1F, dark, wild Sunkern) | Pass: "the field in mosaic blocks of 2 x 2" and coarser; the lit floor turns to blocks, the people stay sharp |
@@ -195,7 +195,7 @@ test builds):
 | PC box crashes (2D, `claude/native-crash-fixes` and `claude/native-pc-box-fixes`) | Reproduced with gdb before the fixes (`SpriteCB_CursorShadow` after `FreePokeStorageData`, closing the boxes and opening a summary); alive after, the summary round trip back to the boxes and out of the PC too |
 | Unit tests | `check-diorama` passes (stage-search tests: trees in front of the opponent, doubles, rooms with high and low walls, a wall right behind, a leaning crown) |
 | Native checks | `check-native` (1063 + 4186), `check-abi` (172 types), `check-game-sections`, `check-decompress` (7469 assets) pass |
-| Windows build (Wine), the merge candidate's exe as packed for the owner | Pass: `run-3d-battle-cave.bat`'s save (Granite Cave 1F), a wild Ledyba in 3D, the cost check ("the world takes 39.46 ms to draw ... water and flowers stand still"), the cave's scenery caught, Run, back to the 3D field |
+| Windows build (Wine), the merge candidate's exe as packed for the owner | Pass: `run-3d-battle-cave.bat`'s save (Granite Cave 1F), a wild Durant in 3D, the cost check ("the world takes 69.18 ms to draw ... water and flowers stand still"), the cave's scenery caught, Run, back to the 3D field; `run-3d-battle-water.bat`'s save (Route 110), a wild Diglett in 3D with the sea behind it (still by cost, 60.76 ms); the debug-menu test exe: a wild battle on Route 101 in 3D |
 | GBA ROM | unchanged (`f214735b…3387`) on every branch, the merge candidate `7bf42d267` included |
 
 Not tested: multiplayer battles (1v1, 2v2, co-op, Twin Gym Leaders, Championship)
@@ -216,9 +216,10 @@ redraw is cheap: the game times its first redraws in each battle and logs the re
 (`PKMN_DIORAMA_LOG=1`: "the world takes N ms to draw ... water and flowers move" or
 "stand still"); here that is 25-250 ms, so they stand still. A real graphics card
 has not been measured (KNOWN_ISSUES V3): whether the water moves there, and how
-fast the glide and the transitions run, needs the owner's `battle-log.txt` from
-`run-3d-battle-water.bat` (Route 102's pond) and `run-3d-battle-cave.bat` (Granite
-Cave 1F). No claim is made that the renderer is optimized.
+fast the glide and the transitions run, needs the owner's logs from
+`run-3d-battle-water.bat` (Route 110's sea), `run-3d-battle-flowers.bat` (Route 102)
+and `run-3d-battle-cave.bat` (Granite Cave 1F). No claim is made that the renderer
+is optimized.
 
 ## Review of the visual problems (second round, 2026-10-10)
 
