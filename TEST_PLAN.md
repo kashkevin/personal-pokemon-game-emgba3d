@@ -181,6 +181,12 @@ N33).
 | F4 to classic and back during a battle; into 3D mid-battle | Pass | Not run |
 | Save on the field, reload, battle in 3D | Pass | Not run |
 | 1920x1080 window (`windowScale=6`): layout, battle frame rate | Pass (60 game frames a second in the battle) | Not run |
+| Second round: water and flowers move (`PKMN_DIORAMA_BATTLE_TILES=1`; by cost they stay still on software OpenGL) | Pass (Oldale Town) | Not run |
+| Second round: the battle's scenery where the world ends (rooms, caves) | Pass (Petalburg Gym, Sidney's room, Granite Cave B1F) | Not run |
+| Second round: transitions - people unmoved while the field slices; Blur mosaic on the 3D field | Pass (Route 101 slice; Granite Cave B1F blur) | Not run |
+| Second round: double battle with Mega Evolution (Kate & Joy, Oldale Town) | Pass | Not run |
+| Second round: native crash scenarios in 3D (Trainer Card, Fly map, PC boxes: cursor, close, summary and back, Poké Ball, Mega) | Pass | Not run |
+| Stage survey (test tool): `PKMN_DIORAMA_STAGE_SURVEY=1` (and `PKMN_DIORAMA_STAGE_DUMP=<folder>`) on 44 maps' rooms, caves and gyms, reached by a save whose continue-game warp points there | Pass: 20,428 stage choices; 59% fewer with something over a battler, 47% fewer with a wall pressed behind one, 2% fewer showing black than the 3DS scoring alone | - |
 | Multiplayer battles in 3D | Not run (C3) | Not run |
 
 UBSan reports now come only from real findings; a false positive from the engine's

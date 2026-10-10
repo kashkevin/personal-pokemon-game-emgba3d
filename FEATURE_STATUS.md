@@ -223,8 +223,10 @@ compiler's own Python tests 8 pass, `test_rules_parity` fails upstream as well
 ### 3D battles (Milestone D, engine branch `claude/battle-3d-integration`)
 
 The Emerald 3DS project's battle scene on one screen, graphics only (owner directive
-2026-10-10); details, switches and remaining visual problems in `docs/battle-3d.md`.
-Not merged into `claude/native-graphics` or `claude/native-pc`. Software OpenGL only.
+2026-10-10); details, switches and the review of the visual problems in
+`docs/battle-3d.md`. Not merged into `claude/native-graphics` or `claude/native-pc`;
+merge candidate `claude/native-graphics-3d-battles` (graphics `edd1f5105` + the 3D
+battles). Software OpenGL only.
 
 | Item | Linux | Windows (Wine) | Notes |
 | --- | --- | --- | --- |
@@ -239,6 +241,8 @@ Not merged into `claude/native-graphics` or `claude/native-pc`. Software OpenGL 
 | 1920x1080 window | Yes: battle picture 6x at the bottom centre, the world round it; 60 game frames a second in the battle on software GL (the glide about 2) | Not run | |
 | Multiplayer battles in 3D | Not run (native battle transport is Milestone C3) | Not run | The 3D view only reads the battle; it decides nothing in it. |
 | Frame rate | Battle: 60 game frames a second at about 200 presented (world copied while the camera stands still); the glide at the field's rate | Battle about 60 | Real GPU unmeasured (V3). |
+| Water and flowers moving in the battle's world (second round) | Yes with `PKMN_DIORAMA_BATTLE_TILES=1`; by cost still on software OpenGL (a redraw 25-250 ms, limit 12 ms) | Not run | KNOWN_ISSUES V9: needs a real GPU to move by default. |
+| The battle's scenery where the world ends; transitions with the people unmoved and the Blur mosaic (second round) | Yes: Petalburg Gym, Sidney's room, Granite Cave B1F; Route 101 slice, Granite Cave B1F blur | Not run | V10 improved, V11 fixed. |
 
 ## Decision pending - owner to confirm: personal vs shared wild spawns
 
