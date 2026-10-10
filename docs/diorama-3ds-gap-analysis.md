@@ -15,13 +15,13 @@ of the running game (Linux, and Windows under Wine), all on software OpenGL.
 | --- | --- | --- | --- |
 | Buildings, furniture, hedges, railings modelled from their own drawing (`voxel_building.c`, `gen_voxel_buildings.py`) | Generator imported as `tools/diorama_buildings/`; 475 models, 136 pages, 3100 placements generated from our maps at build time; drawn by `gl_building_renderer.c` | Visually renders (Littleroot, Oldale Town, Oldale Pokémon Center, a house) | Coloured from the live palettes, so fades and the day/night tint reach them. The 3DS's railing footprint masks are not used. |
 | Walkers drawn in front of the furniture they stand before (`ModelPush`) | Ported, plus an upright-card depth for the Diorama's leaning cards | Visually renders (counter, PC, house and Center walls, roof hiding a walker behind it) | Before this, the counter hid two thirds of a walker standing at it. |
+| Doors on models (`PortDoor_Get`, `EmitDoor`, `DoorLight`, `VoxelBuildings_DoorWall`) | Ported (graphics `398d486ef`); scripted scenes and fades now stay in 3D so the door is seen | Visually renders (Birch's lab, in and out, at night) | Swinging doors open too (the 3DS shows sliding ones only); no opening on an unmodelled building. |
 | Fixed sun in the northwest, cast shadows, ambient 0.70 (`voxel_lighting.c`) | GPU shadow map (`gl_shadow.c`) for terrain, trees and buildings; one light sample per sprite | Visually renders | Different method: the 3DS bakes on the CPU. Off indoors and in rain/fog/ash/sand/overcast (as the 3DS effectively does), half strength at night (our own call, the 3DS has no clock). |
 
 ## Not ported yet (in rough order of value for the effort)
 
 | 3DS feature | What it does there | Ours today | Effort |
 | --- | --- | --- | --- |
-| Doors on models (`PortDoor_Get`, `VoxelBuildings_DoorWall`) | An opening door is a black opening on the model's wall; the walker goes into the dark | The door animation plays only in the 2D view; in 3D the walker walks into a closed door before the warp | Small |
 | Colour grade (`voxel_grade.c`) | 3D textures a little more saturated (1.30) | Not graded | Small (shader or atlas step, 3D only) |
 | Cast sprite shadows (`voxel_entities.c`) | Each walker's own picture laid on the ground along the sun | The Diorama's round blob shadows | Small to medium |
 | 3D signposts (`voxel_sign.c`) | Pixel-masked sign geometry, lamp heads | The Diorama's own sign handling | Medium |
@@ -35,7 +35,7 @@ of the running game (Linux, and Windows under Wine), all on software OpenGL.
 
 - V1: the follower is refused during the Poké Ball animation frames.
 - V3: frame rate on a real GPU is unmeasured; on software GL outdoors is about 7 fps.
-- V5: the Diorama's 3D tree crowns stay brighter than the 2D view's night tint.
+- V5 (fixed `398d486ef`): the voxel tree model's colours now follow the night tint and fades.
 - A model with any cell in the scene is drawn whole, so one straddling the scene's edge
   can show over the dark (expected from the rule; not seen yet).
 

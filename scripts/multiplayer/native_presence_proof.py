@@ -239,7 +239,7 @@ async def run(args: argparse.Namespace) -> None:
             back = {"Up": "Down", "Down": "Up", "Left": "Right", "Right": "Left"}[key]
             observers = [i for i in range(len(companions)) if i != mover]
             outside = own_map(mover)
-            await hold_until(mover, key, lambda: own_map(mover) != outside, 20 * args.slow)
+            await hold_until(mover, key, lambda: own_map(mover) != outside, 60 * args.slow)
             inside = own_map(mover)
             await wait_for(f"client {mover} walked through a door: its own map changed", lambda: inside != outside, 1,
                            outside=outside, inside=inside)
@@ -249,7 +249,7 @@ async def run(args: argparse.Namespace) -> None:
             await asyncio.sleep(4 * args.slow)
             for i, display in enumerate(args.display):
                 await asyncio.to_thread(_screenshot, display, root / f"03-entered-{i}.png")
-            await hold_until(mover, back, lambda: own_map(mover) == outside, 20 * args.slow)
+            await hold_until(mover, back, lambda: own_map(mover) == outside, 60 * args.slow)
             await wait_for(f"client {mover} walked back out", lambda: own_map(mover) == outside, 10)
             await wait_for(f"the others see client {mover} outside again, in the overworld",
                            lambda: all(seen_map(o, mover) == outside for o in observers)

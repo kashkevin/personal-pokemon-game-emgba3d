@@ -185,6 +185,7 @@ Results 2026-10-09 (engine `e2e3917e2`, `scripts/multiplayer/native-presence-evi
 | native-presence-four-2 | 4 Linux, Littleroot and Oldale Pokémon Center, `edb755a26` | Pass: same checks; all three others saw B's door map change both ways |
 | native-presence-3d-3 | 2 Linux, 3D build (graphics `b02cf0e97`), outdoors in Littleroot, about 2.4 frames a second | Pass: same checks as native-presence-5 |
 | native-presence-wine3d-1 | 2 Windows 3D build under Wine (the checkpoint's stripped exe), Littleroot | Pass: same checks; B's door map change seen both ways |
+| native-presence-3d-5 | 2 Linux, 3D build (graphics `398d486ef`: doors open, the warp stays 3D) | Pass: same checks as native-presence-5; the door warp took about 35 s at 2.4 frames a second (native-presence-3d-4 had timed out at 30 s, KNOWN_ISSUES V7) |
 
 Earlier attempts that did not pass were harness problems, not bridge problems: a key
 press before the window existed, wild battles on Route 101 under slow Wine clients,
