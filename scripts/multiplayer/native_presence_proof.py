@@ -7,7 +7,17 @@ executable, exactly as they do for mGBA; the native bridge takes its mailboxes
 from the executable itself. Each client runs on its own X display and gets
 ordinary key presses (xdotool); results come from the companions' and the
 server's state and from screenshots. Presence only: no ownership store, so
-saves, trades and battles are out of scope here.
+saves, trades and battles are out of scope here (native_checkpoint_proof.py
+covers saves).
+
+Optional steps after the basic checks:
+  --enter 1:Up   client 1 walks Up through a door (held until its own map
+                 changes); the others see it on the new map; it walks back out
+                 (the opposite key) and the others see it outside again.
+  --rejoin 1     client 1's companion is closed and a new one started on the
+                 same port with the same launch token; the running native game's
+                 bridge reconnects by itself, the companion rejoins the host,
+                 and every client sees the others again.
 
     PYTHONPATH=src python scripts/multiplayer/native_presence_proof.py \\
         --game ../engine/pokeemerald-mp --rom ../engine/pokedev.gba \\
@@ -18,6 +28,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+from dataclasses import replace
 import hashlib
 import json
 import os
@@ -29,6 +40,7 @@ import time
 from uuid import uuid4
 
 from emerald_multiplayer.companion import Companion, CompanionConfig
+from emerald_multiplayer.mailbox import Pose
 from emerald_multiplayer.server import ServerConfig, WorldServer
 
 
@@ -72,6 +84,7 @@ async def run(args: argparse.Namespace) -> None:
         raise ValueError("ROM differs from its manifest")
     game = args.game.resolve()
     evidence = dict(scope="native clients through the native bridge: presence only (no ownership store)",
+                    enter=args.enter, rejoin=args.rejoin, hold=args.hold, slow=args.slow,
                     game_sha256=hashlib.sha256(game.read_bytes()).hexdigest(),
                     build_id=manifest["rom_sha256"], engine_commit=manifest.get("engine_commit"),
                     checks=[], passed=False)
@@ -121,7 +134,7 @@ async def run(args: argparse.Namespace) -> None:
                     raise AssertionError(f"{name}: timed out; " + json.dumps(
                         [dict(connected=c.connected, bridge=c._bridge is not None, error=c.last_error) for c in companions]))
                 await asyncio.sleep(.25)
-            record(name, **fields)
+            record(name, **{k: (v() if callable(v) else v) for k, v in fields.items()})
 
         await wait_for("native bridges authenticated to their companions",
                        lambda: all(c._bridge is not None for c in companions), 90)
@@ -129,14 +142,27 @@ async def run(args: argparse.Namespace) -> None:
                        lambda: all(c.connected for c in companions) and len(server.sessions) == len(companions), 30,
                        sessions=len(server.sessions))
 
-        # A slow client (Wine, several games on two cores) may run one main-loop
-        # pass in more than 150 ms; a shorter press is then lost between frames.
-        default_hold = .5 if args.wine else .15
+        # A slow client (Wine, the 3D build on software OpenGL, several games on
+        # two cores) may run one main-loop pass in more than 150 ms; a shorter
+        # press is then lost between frames.
+        default_hold = args.hold if args.hold is not None else .5 if args.wine else .15
+        loop = asyncio.get_running_loop()
 
         async def press(key: str, seconds: float | None = None, clients=None) -> None:
             seconds = default_hold if seconds is None else seconds
             await asyncio.gather(*(asyncio.to_thread(_hold, args.display[i], key, seconds)
                                    for i in (clients if clients is not None else range(len(processes)))))
+
+        async def hold_until(i: int, key: str, condition, timeout: float) -> None:
+            """Hold a key until the condition holds (a slow game needs longer)."""
+            await asyncio.to_thread(_focus, args.display[i])
+            await asyncio.to_thread(_xdotool, args.display[i], "keydown", key)
+            try:
+                deadline = loop.time() + timeout
+                while not condition() and loop.time() < deadline:
+                    await asyncio.sleep(.1)
+            finally:
+                await asyncio.to_thread(_xdotool, args.display[i], "keyup", key)
 
         # Title screen, main menu, Continue: the same keys a player presses,
         # A again on any client whose game has not reached the overworld yet
@@ -145,11 +171,11 @@ async def run(args: argparse.Namespace) -> None:
             pose = companions[i]._local_pose
             return pose is not None and pose.activity == 1
 
-        await asyncio.sleep(12)
+        await asyncio.sleep(12 * args.slow)
         await press("Return")
-        await asyncio.sleep(5)
+        await asyncio.sleep(5 * args.slow)
         await press("Return")
-        await asyncio.sleep(12)
+        await asyncio.sleep(12 * args.slow)
         await press("z")
         for _ in range(12):
             waiting = [i for i in range(len(companions)) if not in_overworld(i)]
@@ -178,12 +204,11 @@ async def run(args: argparse.Namespace) -> None:
                           for p in companions[observer].snapshot.peers)
 
         before = seen_by(1)
-        # Two steps in whichever direction is open for A.
+        # A walks in whichever direction is open: the key is held until B's
+        # companion has A's new position (a slow game needs several seconds
+        # to turn and start a step), then released.
         for direction in ("Down", "Right", "Up", "Left"):
-            await press(direction, max(default_hold, 2 * .267 - .12), clients=[0])
-            deadline = asyncio.get_running_loop().time() + 8
-            while seen_by(1) == before and asyncio.get_running_loop().time() < deadline:
-                await asyncio.sleep(.25)
+            await hold_until(0, direction, lambda: seen_by(1) != before, 8 * args.slow)
             if seen_by(1) != before:
                 break
         await wait_for("a move by client A reaches client B", lambda: seen_by(1) != before, 10, before=before)
@@ -193,6 +218,65 @@ async def run(args: argparse.Namespace) -> None:
             await asyncio.to_thread(_screenshot, display, root / f"02-after-move-{i}.png")
         poses = [seen_by(i) for i in range(len(companions))]
         record("peer poses as each companion sees them", poses=poses)
+
+        def own_map(i: int) -> tuple[int, int]:
+            pose = companions[i]._local_pose
+            return pose.map_group, pose.map_number
+
+        def seen_map(observer: int, subject: int) -> tuple[int, int] | None:
+            """The subject's map as the observer's companion has it from the host."""
+            player_id = companions[subject].config.player_id
+            for player in companions[observer]._players:
+                if player["player_id"] == player_id and player["presence"] is not None:
+                    pose = Pose.from_presence(player["presence"],
+                                              presentation_version=companions[observer].config.presence_animation_abi_version)
+                    return pose.map_group, pose.map_number
+            return None
+
+        if args.enter:
+            mover, key = args.enter.split(":")
+            mover = int(mover)
+            back = {"Up": "Down", "Down": "Up", "Left": "Right", "Right": "Left"}[key]
+            observers = [i for i in range(len(companions)) if i != mover]
+            outside = own_map(mover)
+            await hold_until(mover, key, lambda: own_map(mover) != outside, 20 * args.slow)
+            inside = own_map(mover)
+            await wait_for(f"client {mover} walked through a door: its own map changed", lambda: inside != outside, 1,
+                           outside=outside, inside=inside)
+            await wait_for(f"the others see client {mover} on the new map",
+                           lambda: all(seen_map(o, mover) == inside for o in observers), 30,
+                           seen=lambda: [seen_map(o, mover) for o in observers])
+            await asyncio.sleep(4 * args.slow)
+            for i, display in enumerate(args.display):
+                await asyncio.to_thread(_screenshot, display, root / f"03-entered-{i}.png")
+            await hold_until(mover, back, lambda: own_map(mover) == outside, 20 * args.slow)
+            await wait_for(f"client {mover} walked back out", lambda: own_map(mover) == outside, 10)
+            await wait_for(f"the others see client {mover} outside again, in the overworld",
+                           lambda: all(seen_map(o, mover) == outside for o in observers)
+                           and all(overworld_peers(i) == others for i in range(len(companions))), 30,
+                           seen=lambda: [seen_map(o, mover) for o in observers])
+            await asyncio.sleep(3 * args.slow)
+            for i, display in enumerate(args.display):
+                await asyncio.to_thread(_screenshot, display, root / f"04-back-out-{i}.png")
+
+        if args.rejoin is not None:
+            i = args.rejoin
+            old, port, epoch = companions[i].config, companions[i].ipc_address[1], companions[i].session_epoch
+            await companions[i].close()
+            await wait_for(f"client {i}'s companion closed: the host dropped its session",
+                           lambda: len(server.sessions) == len(companions) - 1, 30)
+            await asyncio.sleep(2)
+            companions[i] = Companion(replace(old, ipc_port=port))
+            await companions[i].start()
+            await wait_for(f"client {i}'s running game reconnected its bridge to the new companion by itself",
+                           lambda: companions[i]._bridge is not None, 60)
+            await wait_for(f"client {i}'s new companion rejoined the host with a new lease",
+                           lambda: companions[i].connected and len(server.sessions) == len(companions), 30,
+                           epoch_before=epoch, epoch_after=lambda: companions[i].session_epoch)
+            await wait_for("after the rejoin every client sees the others in the overworld",
+                           lambda: in_overworld(i) and all(overworld_peers(j) == others for j in range(len(companions))), 60)
+            for j, display in enumerate(args.display):
+                await asyncio.to_thread(_screenshot, display, root / f"05-rejoined-{j}.png")
         evidence["passed"] = True
         record("passed")
     finally:
@@ -219,6 +303,10 @@ def main() -> None:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--wine", type=Path, action="append",
                         help="Wine prefix, one per client: run the Windows executable under Wine")
+    parser.add_argument("--hold", type=float, help="seconds each key is held (default .15, Wine .5)")
+    parser.add_argument("--slow", type=float, default=1.0, help="stretch the start-up waits (3D build: 1.5)")
+    parser.add_argument("--enter", help="CLIENT:KEY, e.g. 1:Up: that client walks through a door and back out")
+    parser.add_argument("--rejoin", type=int, help="CLIENT: restart that client's companion while its game runs")
     asyncio.run(run(parser.parse_args()))
 
 

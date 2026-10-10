@@ -73,7 +73,7 @@ Milestone A is stable when A8-A14 are done (A9 and the owner's-PC part of A14 re
 - [ ] K2 Sanitizers and static analysis for the native build: UBSan build (found
   N13-N16), AddressSanitizer build (found N22) and the NULL trap are in use; clang
   static analysis not set up yet. Supports: A, B. [dir]
-- [x] K3 Native C tests: `check-native` (1063 checks), `check-abi` (Linux and
+- [x] K3 Native C tests: `check-native` (1063 checks, plus 4186 bridge checks), `check-abi` (Linux and
   Windows), `check-game-sections`, `check-decompress` (7469 assets). Supports: A, B.
   [dir] [hand]
 - [ ] K4 Multiplayer harness with application-level network simulation. Supports: C,
@@ -106,10 +106,15 @@ Other open decisions sit next to the work they block: 1.6, 2.6, 2.8, 8.7, 9.8, 9
 
 All of the project's gameplay code runs in the native build. [dir]
 
-- [ ] B1 Save layout parity: byte-identical save blocks (SaveBlock1 15568, SaveBlock2
+- [x] B1 Save layout parity: byte-identical save blocks (SaveBlock1 15568, SaveBlock2
   3884, SaveBlock3 600 bytes), so the Python readers and the stored 128 KiB Flash
   checkpoints keep working; otherwise migrate every reader and checkpoint. Needs: A12.
   [base] [audit]
+  Done 2026-10-10: `check-abi` finds the three save blocks identical on GBA, Linux and
+  Windows; the native game continues from emulator saves; the Python readers
+  (`inspect_flash`, `inspect_ownership`) read every save the native game wrote, which
+  equal their canonical checkpoints byte for byte; canonical checkpoints go back into a
+  running native game by live recovery (`native-checkpoint-evidence.json`).
 - [ ] B2 Adapt or confirm the GBA-specific parts of the project engine code: EWRAM
   mailboxes, Flash save path, RTC hook (host world clock while connected, local clock
   otherwise), 16-object / 64-sprite / palette budgets. Needs: A10. [audit]
@@ -128,8 +133,9 @@ All of the project's gameplay code runs in the native build. [dir]
 - [x] C1 A native bridge replaces `bridge/mgba.lua` and preserves the protocol; the
   Python host and companion stay. Needs: B2. [dir] [audit]
   Done 2026-10-09: engine `src/platform/mp_bridge.c` (`e2e3917e2`), a line-for-line C
-  port with the Lua bridge's checks; 4170 unit checks in `check-native`; native
-  clients joined an unchanged server through unchanged companions (C6).
+  port with the Lua bridge's checks; native clients joined an unchanged server through
+  unchanged companions (C6). `edb755a26` departs from the Lua budgets on purpose so
+  the bridge keeps up below 60 frames a second (KNOWN_ISSUES M4); 4186 unit checks.
 - [ ] C2 Native in-process interface for the mailboxes (presence EMP1 128 B; save 512 B
   plus the 4 KiB save window; battle and menu 512 B each; reset 128 B; trade effects;
   world EMW1 256 B), keeping the struct layouts as contracts and replacing the
@@ -148,12 +154,19 @@ All of the project's gameplay code runs in the native build. [dir]
   `scripts/windows-runtime/qualify_*.py`); it produced all current evidence. Needs: C1,
   K4. [audit]
   Started: `scripts/multiplayer/native_presence_proof.py` drives 2-4 real native
-  clients (Linux, or Windows under Wine) with key presses on their own X displays.
+  clients (Linux, Windows under Wine, or the 3D build) with key presses on their own
+  X displays (door map change, companion restart optional);
+  `native_checkpoint_proof.py` adds the ownership store and live checkpoints.
 - [ ] C6 Two, then four native clients: connect, see each other, move, change maps,
   disconnect and reconnect, then trade and battle. Needs: C2-C5. [audit] [brief]
-  In progress: connect, see each other and move pass with 2 Linux, 2 Windows (Wine)
-  and 4 Linux clients (presence only, `scripts/multiplayer/native-presence-evidence.json`).
-  Next: map changes, disconnect/reconnect, then the ownership store, trade and battles.
+  In progress: connect, see each other and move pass with 2 Linux, 2 Windows (Wine),
+  4 Linux and 2 3D clients; a door map change (2, 4 and 3D clients) and a companion
+  restart while the game runs (2D and 3D) pass (`native-presence-evidence.json`); live
+  checkpoints into the ownership store pass with 2 Linux, 2 Wine and 2 3D clients:
+  enrollment, a save after walking, both games restarted, saves after the restart,
+  and live recovery into a running game (2 Linux, 2 Wine)
+  (`native-checkpoint-evidence.json`). Next: trade, then 1v1/2v2 battles, the Players
+  menu; host restart and network loss between companion and host.
 
 ## Milestone D - enhanced graphics
 

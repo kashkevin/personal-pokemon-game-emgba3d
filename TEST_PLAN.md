@@ -20,8 +20,12 @@ DISPLAY=:99 /home/claude/venv312/bin/python -m pytest      # whole suite
   trading (offers, confirmation, effects, recovery), battles (admission,
   arbitration, journal, recovery), teams, world clock/events/claims, friendship and
   Lucky Trades, wagers, co-op Gyms, saves and checkpoints, local reset, launcher.
-* **Result 2026-10-09** (`claude/native-pc`, app `2dac312` + docs): 1373 passed,
-  1 skipped, 2264 subtests passed, 0 failed, 7 min 42 s.
+* **Result 2026-10-10** (`claude/native-pc`, after the native checkpoint proof):
+  3638 test cases in the JUnit report (the same 1373 tests + 2264 subtests + 1 skipped
+  as 2026-10-09), 0 failures, 0 errors, 8 min 55 s (game proofs ran at the same time).
+  The `-q` summary line was not printed in this run; the JUnit report and exit code 0
+  are the record. Earlier: 2026-10-09 (`2dac312`), 1373 passed, 1 skipped, 2264
+  subtests passed, 7 min 42 s.
 
 ## 2. Native platform unit tests (engine repo)
 
@@ -143,9 +147,12 @@ Bag, Pokédex, wild battle, run) found N22 and the benign N23 over-reads.
 ## 6. Multiplayer: native clients, harness and network simulation (Milestone C)
 
 Native bridge unit tests run in `check-native` (engine
-`tools/pc_port/tests/test_mp_bridge.c`, 4170 checks: the cases of the app's
+`tools/pc_port/tests/test_mp_bridge.c`, 4186 checks: the cases of the app's
 `tests/test_mgba_bridge.lua` and `tests/native/windows-input-guard.c`, plus save
-command/response, CRC, shared-world and capability checks).
+command/response, CRC, shared-world and capability checks, and the frame-rate cases
+of engine `edb755a26`: a slow frame drains a 2 KiB backlog and the save command
+behind it; with a clock the pose and shared-world record follow real time at 60 and
+at 2.5 frames a second; without one, mgba.lua's 6-frame cadence).
 
 Native presence proof (real native clients, real companions, real world server, no
 ownership store), one X display per client:
@@ -161,6 +168,9 @@ PYTHONPATH=src python scripts/multiplayer/native_presence_proof.py \
     --output <private>/multiplayer-proof/native-presence-N
 # Windows clients under Wine: --game pokeemerald-mp.exe --wine PREFIX_A --wine PREFIX_B
 # (one prefix per client; KNOWN_ISSUES M3)
+# optional: --enter 1:Up (client 1 walks through a door and back out; Littleroot saves:
+# the lab door), --rejoin 0 (client 0's companion restarted while its game runs)
+# 3D build: --game pokeemerald-mp-diorama --hold 1.0 --slow 1.5
 ```
 
 Results 2026-10-09 (engine `e2e3917e2`, `scripts/multiplayer/native-presence-evidence.json`):
@@ -171,10 +181,54 @@ Results 2026-10-09 (engine `e2e3917e2`, `scripts/multiplayer/native-presence-evi
 | native-presence-wine-7 | 2 Windows (Wine), Littleroot | Pass (same checks; Winsock bridge) |
 | native-presence-four-1 | 4 Linux, Littleroot and Oldale Pokémon Center | Pass: 4 sessions, each sees 3 others, A's move reaches B |
 | native-presence-3d-1 | 2 Linux, 3D (Diorama) build, Oldale Pokémon Center | Pass: same checks; remote player and follower drawn in the 3D view |
+| native-presence-5 | 2 Linux, Littleroot, engine `edb755a26` | Pass: same checks; B walked into the lab and back out, A saw both map changes; A's companion restarted, A's game reconnected by itself, both saw each other again |
+| native-presence-four-2 | 4 Linux, Littleroot and Oldale Pokémon Center, `edb755a26` | Pass: same checks; all three others saw B's door map change both ways |
+| native-presence-3d-3 | 2 Linux, 3D build (graphics `b02cf0e97`), outdoors in Littleroot, about 2.4 frames a second | Pass: same checks as native-presence-5 |
 
 Earlier attempts that did not pass were harness problems, not bridge problems: a key
 press before the window existed, wild battles on Route 101 under slow Wine clients,
-and the shared Wine prefix (M3).
+and the shared Wine prefix (M3). native-presence-3d-2: a fixed 1 s key hold is 2-3 game frames
+at 2.4 frames a second, enough to turn but not to step; the proofs now hold a key until
+the pose moves.
+
+Native live-checkpoint proof (real native clients, real companions, real world server
+with the ownership store and player credentials):
+
+```sh
+PYTHONPATH=src python scripts/multiplayer/native_checkpoint_proof.py \
+    --game <engine>/pokeemerald-mp --rom <engine>/pokedev.gba --manifest manifest.json \
+    --save a.sav --save b.sav --display :98 --display :97 \
+    --output <private>/multiplayer-proof/native-checkpoint-N
+# Wine: --game pokeemerald-mp.exe --wine PREFIX_A --wine PREFIX_B
+# 3D build: --game pokeemerald-mp-diorama --hold 1.0 --slow 1.5
+# --recover: also apply A's canonical save to its running game (live recovery)
+```
+
+Two distinct legacy saves are provisioned on the host; each is enrolled through the
+running game (revision 1); A walks and saves (revision 2: the canonical save holds the
+position A's game reported); both games are closed (each game's own save file must hold
+its canonical player state); both start again (Continue restores each saved position,
+new leases and incarnations, the players see each other) and save against their last
+revision (A 3, B 2); the host store's integrity check passes and the source saves are
+unchanged. Every save byte goes through the ROM's save mailbox and 4 KiB save window.
+
+Results 2026-10-09/10 (`scripts/multiplayer/native-checkpoint-evidence.json`):
+
+| Run | Clients | Result |
+| --- | --- | --- |
+| native-checkpoint-1 | 2 Linux, Littleroot, engine `e2e3917e2` | Pass; 1.3-1.5 s per save; each game's file byte-identical to its canonical save |
+| native-checkpoint-wine-1 | 2 Windows (Wine), `e2e3917e2` | Pass; 1.4-1.7 s per save |
+| native-checkpoint-3d-1 | 2 Linux, 3D build (graphics `2c063c9a8`), 2.4 frames a second | Fail: a save-window command timed out during enrollment (KNOWN_ISSUES M4) |
+| native-checkpoint-2 | 2 Linux, `edb755a26` | Pass; 1.4 s per save |
+| native-checkpoint-3d-2 | 2 Linux, 3D build (graphics `b02cf0e97`) | Both enrollments passed (26-28 s each); then the harness's fixed key hold did not make A walk (fixed in the script) |
+| native-checkpoint-3d-3 | 2 Linux, 3D build (graphics `b02cf0e97`), 2.4 frames a second | Pass; 26-31 s per save (KNOWN_ISSUES M5) |
+| native-checkpoint-wine-2 | 2 Windows (Wine), `edb755a26` | Pass; 1.4-1.5 s per save |
+| native-checkpoint-3 | 2 Linux, `edb755a26`, `--recover` | Pass; live recovery 36.9 s: A walked off its saved tile, the canonical save was applied to the running game and A stood on the saved tile again, same process and lease |
+| native-checkpoint-wine-3 | 2 Windows (Wine), `edb755a26`, `--recover` | Pass; live recovery 49.8 s (the test suite ran at the same time) |
+
+Under Wine the games end by signal (exit code -15) and their saves are still
+intact, since the native build writes the save file at the frame after every Flash
+write.
 
 A harness will start the real host plus N simulated clients (and later native game
 clients) and run the scenarios in the toolkit directive (2 and 4 clients, movement,

@@ -87,7 +87,11 @@ build (fallback) and the native PC build being migrated to. Requirements are in
   world server are unchanged. Started with `--bridge FILE` (port, token and the
   manifest's explicit opt-ins), written by the launcher as it writes `bridge.lua`.
   Mailbox addresses and capability markers come from the executable's own symbols
-  instead of the manifest. *Identity*: the companion still verifies a GBA ROM and its
+  instead of the manifest. *Frame rate*: one deliberate difference from the Lua file
+  (`edb755a26`): mGBA always runs at 60 frames a second, the native game slows down
+  with its drawing, so per game frame the bridge reads up to 16 KiB and sends up to 8
+  frames (Lua: 1 KiB, 1 frame) and publishes the pose and shared-world record every
+  100 ms of real time (Lua: every 6 frames); KNOWN_ISSUES M4. *Identity*: the companion still verifies a GBA ROM and its
   manifest; for a native client that is the ROM built from the same engine source,
   and pairing the executable with it is the launcher's job (not automated yet,
   KNOWN_ISSUES M1).

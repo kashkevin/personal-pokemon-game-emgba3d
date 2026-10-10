@@ -1,5 +1,5 @@
 {
-  "scope": "Native clients (no emulator) through the native C bridge (engine e2e3917e2, claude/native-pc), unchanged companions and an unchanged world server; presence only (no ownership store: saves, trades and battles have their own gates). Ordinary key presses on each client's own X display.",
+  "scope": "Native clients (no emulator) through the native C bridge (engine claude/native-pc), unchanged companions and an unchanged world server; presence only (no ownership store: saves have native-checkpoint-evidence.json; trades and battles have their own gates). Ordinary key presses on each client's own X display.",
   "build_id": "f214735b64e113fd10730eacca5764d757f2c93a3685230aa905af7a7cdd3387",
   "note": "The companion verifies the GBA ROM and manifest of the same engine source; the native executable is a separate artefact of that source, identified by game_sha256.",
   "runs": [
@@ -18,7 +18,8 @@
         "client B's view after the move",
         "peer poses as each companion sees them",
         "passed"
-      ]
+      ],
+      "engine": "e2e3917e2"
     },
     {
       "run": "native-presence-wine-7",
@@ -35,7 +36,8 @@
         "client B's view after the move",
         "peer poses as each companion sees them",
         "passed"
-      ]
+      ],
+      "engine": "e2e3917e2"
     },
     {
       "run": "native-presence-four-1",
@@ -52,7 +54,8 @@
         "client B's view after the move",
         "peer poses as each companion sees them",
         "passed"
-      ]
+      ],
+      "engine": "e2e3917e2"
     },
     {
       "run": "native-presence-3d-1",
@@ -69,7 +72,90 @@
         "client B's view after the move",
         "peer poses as each companion sees them",
         "passed"
+      ],
+      "engine": "graphics 2c063c9a8 (bridge e2e3917e2)"
+    },
+    {
+      "run": "native-presence-5",
+      "clients": "Linux i386 native client x2; door map change (client B into Professor Birch's Lab and back); companion restart (client A)",
+      "engine": "edb755a26",
+      "game_sha256": "d663fd7672002ed1787cee475bbecfcaff8c5ce6a9dd5ba0f4cbb7b918b509f3",
+      "evidence_sha256": "7652ffd85ad3a07f62f5c6bbfacd913db92e6e14a5b34355e9d857c990a1a0d5",
+      "passed": true,
+      "checks": [
+        "native bridges authenticated to their companions",
+        "companions joined the world server",
+        "every client is in the overworld (its bridge's own pose)",
+        "every client sees the others in the overworld",
+        "a move by client A reaches client B",
+        "client B's view after the move",
+        "peer poses as each companion sees them",
+        "client 1 walked through a door: its own map changed",
+        "the others see client 1 on the new map",
+        "client 1 walked back out",
+        "the others see client 1 outside again, in the overworld",
+        "client 0's companion closed: the host dropped its session",
+        "client 0's running game reconnected its bridge to the new companion by itself",
+        "client 0's new companion rejoined the host with a new lease",
+        "after the rejoin every client sees the others in the overworld",
+        "passed"
       ]
+    },
+    {
+      "run": "native-presence-four-2",
+      "clients": "Linux i386 native client x4; door map change seen by all three others",
+      "engine": "edb755a26",
+      "game_sha256": "d663fd7672002ed1787cee475bbecfcaff8c5ce6a9dd5ba0f4cbb7b918b509f3",
+      "evidence_sha256": "b9498d514456988af2687f0131ac90d1b112f3dde4f77cadca09d4920b948818",
+      "passed": true,
+      "checks": [
+        "native bridges authenticated to their companions",
+        "companions joined the world server",
+        "every client is in the overworld (its bridge's own pose)",
+        "every client sees the others in the overworld",
+        "a move by client A reaches client B",
+        "client B's view after the move",
+        "peer poses as each companion sees them",
+        "client 1 walked through a door: its own map changed",
+        "the others see client 1 on the new map",
+        "client 1 walked back out",
+        "the others see client 1 outside again, in the overworld",
+        "passed"
+      ]
+    },
+    {
+      "run": "native-presence-3d-3",
+      "clients": "Linux i386 3D (Diorama) build x2, outdoors in Littleroot at about 2.4 game frames a second (software OpenGL); door map change; companion restart",
+      "engine": "graphics b02cf0e97 (bridge edb755a26)",
+      "game_sha256": "d061aa82f3e009f1a6ad0bdd365c2e55efb8e84428ba9af9c1c350393cb8c36a",
+      "evidence_sha256": "56b458f7e1551099b5365c8e3c62eb1991b7fb1690115dd3b44d337ba39247c2",
+      "passed": true,
+      "checks": [
+        "native bridges authenticated to their companions",
+        "companions joined the world server",
+        "every client is in the overworld (its bridge's own pose)",
+        "every client sees the others in the overworld",
+        "a move by client A reaches client B",
+        "client B's view after the move",
+        "peer poses as each companion sees them",
+        "client 1 walked through a door: its own map changed",
+        "the others see client 1 on the new map",
+        "client 1 walked back out",
+        "the others see client 1 outside again, in the overworld",
+        "client 0's companion closed: the host dropped its session",
+        "client 0's running game reconnected its bridge to the new companion by itself",
+        "client 0's new companion rejoined the host with a new lease",
+        "after the rejoin every client sees the others in the overworld",
+        "passed"
+      ]
+    }
+  ],
+  "failed_runs": [
+    {
+      "run": "native-presence-3d-2",
+      "engine": "graphics b02cf0e97 (bridge edb755a26)",
+      "result": "failed: client A's move did not reach client B",
+      "cause": "harness: fixed 1 s key hold at 2.4 game frames a second only turns the player; fixed by holding until the pose moves"
     }
   ]
 }
