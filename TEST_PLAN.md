@@ -254,6 +254,12 @@ PYTHONPATH=src:scripts/multiplayer python scripts/multiplayer/native_trade_proof
 | --- | --- | --- |
 | native-trade-1..4 | 2 Linux, engine `9e1de660f` | Failed on the harness before the trade (this build's Player submenu has Style; the players list shows the friendship level; a Python error); each fixed in the script |
 | native-trade-5 | 2 Linux, engine `9e1de660f` | Pass: both offers shown, one confirmation commits nothing, trade applied in both games (43 s from the first confirmation), ownership conserved, parties in memory equal the canonical saves, backing out aborts, restart keeps both (`native-trade-evidence.json`) |
+| native-trade-wine-1 | 2 Windows 2D exes under Wine, one prefix each, engine `9e1de660f` | Pass: the same checks; 46.7 s from the first confirmation; 0.5 s key holds |
+
+Windows clients: add `--wine PREFIX1 --wine PREFIX2 --sdl SDL2.dll --elf ../engine/pokeemerald-mp`
+and give `--game` the Windows exe built from the same commit (symbol table kept). The
+harness reads the games' memory at the exe's symbols (Wine maps it at its preferred
+base; checked) with the sizes of the Linux build.
 
 The launcher's player runtime with the native game (Milestone B3):
 

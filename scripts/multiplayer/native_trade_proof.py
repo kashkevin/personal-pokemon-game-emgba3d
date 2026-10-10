@@ -25,6 +25,13 @@ never writes it, and no save, party or RNG is edited.
         --game ../engine/pokeemerald-mp --rom pokedev.gba --manifest manifest.json \\
         --save a.sav --save b.sav --display :98 --display :97 \\
         --output /private/multiplayer-proof/native-trade-1
+
+Windows clients: `--game` is the Windows `pokeemerald-mp.exe` (its symbol table
+kept), run under Wine with one prefix per client (`--wine P1 --wine P2`, see
+KNOWN_ISSUES M3) next to `--sdl SDL2.dll`. Wine maps the image at its preferred
+base, so the PE symbols' addresses are the game's addresses (checked through the
+`MZ` header there); their sizes come from `--elf`, the Linux build of the same
+engine commit, and each must fit before the PE's next symbol.
 """
 from __future__ import annotations
 
@@ -55,6 +62,30 @@ KEYS = {1: "z", 2: "x", 8: "Return", 128: "Down"}
 PLAYER_OPTIONS = 15            # start_menu.c MENU_ACTION_PLAYER_OPTIONS (the "Player" entry)
 TRAINER_CARD, PLAYERS = 16, 17 # its submenu: Trainer Card, Players, (Style,) Back
 PARTY_BYTES = 600              # six struct Pokemon
+
+
+PE_IMAGE_BASE = 0x400000      # mingw's default; the header check below confirms it
+
+
+def pe_symbols(exe: Path, elf: Path, names) -> dict[str, tuple[int, int]]:
+    """Addresses from the Windows executable, sizes from the Linux build of the same source."""
+    sizes = symbols_of(elf)
+    rows = subprocess.run(["i686-w64-mingw32-nm", "-n", str(exe)], capture_output=True, text=True,
+                          check=True).stdout
+    entries = []
+    for line in rows.splitlines():
+        row = line.split()
+        if len(row) == 3:
+            entries.append((int(row[0], 16), row[2][1:] if row[2].startswith("_") else row[2]))
+    symbols = {}
+    for n, (address, name) in enumerate(entries):
+        if name in names and name in sizes:
+            size = sizes[name][1]
+            following = next((a for a, _ in entries[n + 1:] if a > address), None)
+            if following is not None and address + size > following:
+                raise ValueError(f"{name}: the Linux build's size does not fit the Windows layout")
+            symbols[name] = (address, size)
+    return symbols
 
 
 def symbols_of(game: Path) -> dict[str, tuple[int, int]]:
@@ -90,19 +121,35 @@ async def run(args: argparse.Namespace) -> None:
     if hashlib.sha256(args.rom.read_bytes()).hexdigest() != manifest["rom_sha256"]:
         raise ValueError("ROM differs from its manifest")
     game_path = args.game.resolve()
-    symbols = symbols_of(game_path)
-    for name in ("sMultiplayerMenuActive", "sMultiplayerMenuWaiting", "sMultiplayerMenuCursor",
-                 "sMultiplayerMenuScreen", "sCurrentStartMenuActions", "sNumStartMenuActions",
-                 "sStartMenuCursorPos", "gParties"):
+    needed = ("sMultiplayerMenuActive", "sMultiplayerMenuWaiting", "sMultiplayerMenuCursor",
+              "sMultiplayerMenuScreen", "sCurrentStartMenuActions", "sNumStartMenuActions",
+              "sStartMenuCursorPos", "gParties")
+    if args.wine:
+        if len(args.wine) != 2 or len(set(args.wine)) != 2 or not args.sdl or not args.elf:
+            raise ValueError("Windows clients need two Wine prefixes, --sdl and --elf")
+        symbols = pe_symbols(game_path, args.elf.resolve(), needed)
+    else:
+        symbols = symbols_of(game_path)
+    for name in needed:
         if name not in symbols:
             raise ValueError(f"the native game has no symbol {name}: build it unstripped")
+    hold = args.hold if args.hold is not None else .5 if args.wine else .12
     originals = [p.read_bytes() for p in args.save]
     meta = [inspect_flash(b).metadata for b in originals]
     if meta[0].trainer_id == meta[1].trainer_id or any(not m.party_count for m in meta):
         raise ValueError("two distinct parties are required")
     root.mkdir(mode=0o700, parents=True)
+    run_path = game_path
+    if args.wine:
+        # The game loads SDL2.dll from its own folder.
+        (root / "game").mkdir()
+        run_path = root / "game" / game_path.name
+        run_path.write_bytes(game_path.read_bytes())
+        (root / "game" / "SDL2.dll").write_bytes(args.sdl.read_bytes())
     evidence = dict(scope=__doc__.split("\n\n")[0], passed=False, build_id=manifest["rom_sha256"],
                     game_sha256=hashlib.sha256(game_path.read_bytes()).hexdigest(), checks=[], inputs=[],
+                    wine=bool(args.wine), hold=hold,
+                    elf_sha256=hashlib.sha256(args.elf.read_bytes()).hexdigest() if args.wine else None,
                     sources=[dict(path=str(p), sha256=hashlib.sha256(b).hexdigest())
                              for p, b in zip(args.save, originals)])
 
@@ -155,8 +202,13 @@ async def run(args: argparse.Namespace) -> None:
         bridge.chmod(0o600)
         log = (root / f"client-{i}-{generation}.log").open("wb")
         environment = dict(__import__("os").environ, DISPLAY=args.display[i], SDL_AUDIODRIVER="dummy")
-        process = subprocess.Popen([str(game_path), "--save", str(saves[i]), "--bridge", str(bridge)],
-                                   cwd=root, env=environment, stdout=log, stderr=subprocess.STDOUT)
+        command = [str(run_path), "--save", str(saves[i]), "--bridge", str(bridge)]
+        if args.wine:
+            # One prefix (wineserver) per client: KNOWN_ISSUES M3. The process
+            # Popen starts is the game itself (Wine execs into it).
+            command = ["wine"] + command
+            environment.update(WINEPREFIX=str(args.wine[i]), WINEDEBUG="-all")
+        process = subprocess.Popen(command, cwd=root, env=environment, stdout=log, stderr=subprocess.STDOUT)
         games[i] = NativeGame(process, symbols)
 
     def close_games():
@@ -188,9 +240,11 @@ async def run(args: argparse.Namespace) -> None:
                 raise AssertionError(f"{name}: timed out")
             await asyncio.sleep(.1)
 
+    hold_seconds = hold
+
     async def press(i, key, hold=None):
         evidence["inputs"].append(dict(player=i, key=KEYS[key]))
-        await asyncio.to_thread(_hold, args.display[i], KEYS[key], args.hold if hold is None else hold)
+        await asyncio.to_thread(_hold, args.display[i], KEYS[key], hold_seconds if hold is None else hold)
         await asyncio.sleep(args.gap)
 
     def in_overworld(i):
@@ -217,6 +271,12 @@ async def run(args: argparse.Namespace) -> None:
                 if not in_overworld(i):
                     await press(i, 1)
         await until(f"{phase}: both games in the overworld", lambda: all(in_overworld(i) for i in range(2)), 20)
+        if args.wine:
+            for game in games:
+                with open(f"/proc/{game.process.pid}/mem", "rb", buffering=0) as memory:
+                    memory.seek(PE_IMAGE_BASE)
+                    if memory.read(2) != b"MZ":
+                        raise AssertionError("the Windows game is not mapped at its preferred base")
         await until(f"{phase}: menus and save mailboxes announced",
                     lambda: all(c._bridge is not None and c._bridge.menu_session is not None
                                 and c._bridge.save_capable for c in companions), 30)
@@ -419,7 +479,10 @@ def main() -> None:
     parser.add_argument("--save", type=Path, action="append", required=True)
     parser.add_argument("--display", action="append", required=True)
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--hold", type=float, default=.12, help="seconds each key is held")
+    parser.add_argument("--hold", type=float, help="seconds each key is held (default .12; .5 under Wine)")
+    parser.add_argument("--wine", type=Path, action="append", help="a Wine prefix per client: Windows clients")
+    parser.add_argument("--sdl", type=Path, help="SDL2.dll for the Windows game")
+    parser.add_argument("--elf", type=Path, help="the Linux build of the same engine commit (symbol sizes)")
     parser.add_argument("--gap", type=float, default=.25, help="seconds after each key")
     parser.add_argument("--trade-timeout", type=float, default=300)
     asyncio.run(run(parser.parse_args()))

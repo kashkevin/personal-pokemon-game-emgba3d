@@ -1,5 +1,5 @@
 {
-  "scope": "Two native Linux clients (no emulator) through the native C bridge, unchanged companions, the real world server and the launcher's trade-capable ownership store: both legacy saves enrolled through the running games; A opens Start > Player > Players, picks B, Trade Pokemon and its first eligible Pokemon; B opens Pending trade and offers its first; both screens show both offers; A's confirmation alone commits nothing; B's completes it (revision 3 on both, ownership conserved: the parties' serials are exchanged, none lost or doubled; each running game's party in memory equals its new canonical save); A starts another trade and backs out with B (aborted, nothing moves); both games closed and started again from closed-game recovery hold the parties of their latest canonical saves; host store integrity; source saves unchanged. Ordinary key presses on each game's own X display; the harness reads the games' memory (/proc/PID/mem at the non-PIE executable's symbols) only to see the menus and compare parties.",
+  "scope": "Two native clients (no emulator; Linux, or the Windows exe under Wine) through the native C bridge, unchanged companions, the real world server and the launcher's trade-capable ownership store: both legacy saves enrolled through the running games; A opens Start > Player > Players, picks B, Trade Pokemon and its first eligible Pokemon; B opens Pending trade and offers its first; both screens show both offers; A's confirmation alone commits nothing; B's completes it (revision 3 on both, ownership conserved: the parties' serials are exchanged, none lost or doubled; each running game's party in memory equals its new canonical save); A starts another trade and backs out with B (aborted, nothing moves); both games closed and started again from closed-game recovery hold the parties of their latest canonical saves; host store integrity; source saves unchanged. Ordinary key presses on each game's own X display; the harness reads the games' memory (/proc/PID/mem at the non-PIE executable's symbols) only to see the menus and compare parties.",
   "build_id": "f214735b64e113fd10730eacca5764d757f2c93a3685230aa905af7a7cdd3387",
   "runs": [
     {
@@ -21,6 +21,30 @@
       ],
       "trade_seconds_from_first_confirmation": 43.1,
       "key_presses": 51,
+      "harness": "committed revision"
+    },
+    {
+      "run": "native-trade-wine-1",
+      "clients": "Windows 2D exe x2 under Wine 9.0, one prefix each (engine 9e1de660f)",
+      "game_sha256": "ebd05f02621a8fe7a7f5c0f045de89390f35fb58bd0f9367d0106c4c5d7c0d3a",
+      "symbol_sizes_from_linux_build_sha256": "d15cdfe95c8b71c2903044506a42ff7ec5ade11f303151601f752bd09311f377",
+      "evidence_sha256": "667d8c7b8be3938514a764039919d81bb2e56d8b90f348a89043fe1e3e086373",
+      "passed": true,
+      "checks": [
+        "first start: both games in the overworld with menus and save mailboxes",
+        "both legacy saves enrolled through their running games",
+        "both games show both offers",
+        "A's confirmation alone commits nothing",
+        "trade applied in both running games; ownership conserved; each party equals its canonical save",
+        "B backs out of an unconfirmed trade: aborted, nothing transferred",
+        "restart: both games in the overworld with menus and save mailboxes",
+        "restarted games hold the parties of their latest canonical saves",
+        "host store integrity check passed; source saves unchanged"
+      ],
+      "trade_seconds_from_first_confirmation": 46.7,
+      "key_presses": 51,
+      "key_hold_seconds": 0.5,
+      "memory_reads": "at the PE symbols' addresses (image at its preferred base 0x400000, checked by its MZ header), sizes from the Linux build of the same commit",
       "harness": "committed revision"
     }
   ],

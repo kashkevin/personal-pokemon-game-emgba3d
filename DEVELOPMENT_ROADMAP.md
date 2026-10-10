@@ -188,9 +188,9 @@ All of the project's gameplay code runs in the native build. [dir]
   enrollment, a save after walking, both games restarted, saves after the restart,
   and live recovery into a running game (2 Linux, 2 Wine)
   (`native-checkpoint-evidence.json`); a trade through the Players menu with its cancel
-  path and a restart (2 Linux, `native-trade-evidence.json`); a 1v1 battle through the
-  Players menu between two games the launcher started (2 Linux,
-  `native-launcher-battle-evidence.json`). Next: a trade and a battle between Windows
+  path and a restart (2 Linux and 2 Windows under Wine, `native-trade-evidence.json`);
+  a 1v1 battle through the Players menu between two games the launcher started (2
+  Linux, `native-launcher-battle-evidence.json`). Next: a battle between Windows
   clients (Wine), 2v2 with four clients; host restart and network loss between
   companion and host.
 
