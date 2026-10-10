@@ -16,14 +16,14 @@ of the running game (Linux, and Windows under Wine), all on software OpenGL.
 | Buildings, furniture, hedges, railings modelled from their own drawing (`voxel_building.c`, `gen_voxel_buildings.py`) | Generator imported as `tools/diorama_buildings/`; 475 models, 136 pages, 3100 placements generated from our maps at build time; drawn by `gl_building_renderer.c` | Visually renders (Littleroot, Oldale Town, Oldale Pokémon Center, a house) | Coloured from the live palettes, so fades and the day/night tint reach them. The 3DS's railing footprint masks are not used. |
 | Walkers drawn in front of the furniture they stand before (`ModelPush`) | Ported, plus an upright-card depth for the Diorama's leaning cards | Visually renders (counter, PC, house and Center walls, roof hiding a walker behind it) | Before this, the counter hid two thirds of a walker standing at it. |
 | Doors on models (`PortDoor_Get`, `EmitDoor`, `DoorLight`, `VoxelBuildings_DoorWall`) | Ported (graphics `398d486ef`); scripted scenes and fades now stay in 3D so the door is seen | Visually renders (Birch's lab, in and out, at night) | Swinging doors open too (the 3DS shows sliding ones only); no opening on an unmodelled building. |
+| Colour grade (`voxel_grade.c`) | Ported (graphics `0d10b9936`): saturation 1.30 in the terrain, building and sprite shaders | Visually renders | `PKMN_DIORAMA_GRADE=0` to compare. |
+| Cast sprite shadows (`EmitCastShadow`, `voxel_entities.c`) | Ported (graphics `fde3a5741`): the sprite's silhouette along the sun, dark blue, alpha 0.36 x sun x light on the walker | Visually renders (Littleroot by day) | Flat ground only; the round shadow stays where there is no sun. |
 | Fixed sun in the northwest, cast shadows, ambient 0.70 (`voxel_lighting.c`) | GPU shadow map (`gl_shadow.c`) for terrain, trees and buildings; one light sample per sprite | Visually renders | Different method: the 3DS bakes on the CPU. Off indoors and in rain/fog/ash/sand/overcast (as the 3DS effectively does), half strength at night (our own call, the 3DS has no clock). |
 
 ## Not ported yet (in rough order of value for the effort)
 
 | 3DS feature | What it does there | Ours today | Effort |
 | --- | --- | --- | --- |
-| Colour grade (`voxel_grade.c`) | 3D textures a little more saturated (1.30) | Not graded | Small (shader or atlas step, 3D only) |
-| Cast sprite shadows (`voxel_entities.c`) | Each walker's own picture laid on the ground along the sun | The Diorama's round blob shadows | Small to medium |
 | 3D signposts (`voxel_sign.c`) | Pixel-masked sign geometry, lamp heads | The Diorama's own sign handling | Medium |
 | Tree style (`voxel_tree.c`) | Trunk plus a north-leaning cut-out crown textured from the tileset | The Diorama's voxel tree model | Medium; a look choice for the owner |
 | Weather light (`ctr_voxel.c` `LightFor`) | Sun colour, haze, dappled light, rays, bloom, motes per weather | Weather particles only (the Diorama's rain/fog/ash) | Medium |
