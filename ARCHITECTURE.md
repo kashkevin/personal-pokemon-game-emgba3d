@@ -127,12 +127,17 @@ build (fallback) and the native PC build being migrated to. Requirements are in
     frames also run undrawn while the bridge has a save command in the game and for
     250 ms after it (graphics `edd1f5105`). Game state is the same either way; only
     the drawing is skipped.
-  * *Looks*: the 3DS project's close camera and its trees are the defaults (the
-    owner's choice, graphics `2057c4ac7`); F7 switches the camera to the wide Diorama
-    view and F8 the trees to the voxel trees. The settings file (`pokeemerald.cfg`, or
-    the launcher's `--config` file) keeps zoom and tilt, and the camera and tree style
-    once the player has chosen one (or an older build wrote one); a saved choice wins
-    over the default.
+  * *Looks*: the 3DS project's trees are the default (the owner's choice, graphics
+    `2057c4ac7`; F8 switches to the voxel trees). The overworld camera
+    (`diorama/camera.h`, graphics `graphics-wip-20261010-6`) is the Adventure camera
+    (the 3DS framing with a smoothed follow, look-ahead and the eye riding the
+    ground); F7 switches to the wider Diorama camera, F9 to photo mode (the game
+    paused, the camera free) and F12 saves a PNG (`platform/png_write.c`). Every
+    scene shader takes the camera as the 3D battle session's rig
+    (`DioramaCameraRig`). The scene holds 49 x 49 cells, fading at its edge into the
+    sky colour the picture is cleared to. The settings file (`pokeemerald.cfg`, or
+    the launcher's `--config` file) keeps the camera and each camera's zoom and
+    tilt, and the tree style once chosen; a saved choice wins over the default.
   * *Modelled buildings* (D4, from ZallaxDev/pokeemerald-3Ds-dualscreen): its
     generator (`tools/diorama_buildings`) models every house, Center, Mart, lab and
     piece of furniture from its own drawing at build time; `buildings.c` reads the

@@ -20,7 +20,7 @@ for the launcher's part.
 | Anti-aliasing | Off, 2x, 4x, 8x MSAA | Off | F10 |
 | Game picture | Standard (8/9 of the height), Largest (as large as fits) | Standard | F10 |
 | Show frame rate | On, Off | Off | F10 |
-| Camera, Trees | 3DS close / Wide, 3DS / Voxel | 3DS, 3DS (owner's choice) | F10; F7, F8 |
+| Camera, Trees | Adventure / Diorama (since `graphics-wip-20261010-6`; 3DS close / Wide before), 3DS / Voxel | Adventure, 3DS | F10; F7, F8 (F9 photo mode, F12 picture: `docs/graphics-overhaul.md`) |
 
 Presets: Low = shadows off, lighting off, effects off; Medium = shadows low,
 lighting on, effects off; High = shadows medium, lighting and effects on; Ultra =
