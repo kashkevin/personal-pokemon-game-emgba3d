@@ -148,6 +148,28 @@
         "after the rejoin every client sees the others in the overworld",
         "passed"
       ]
+    },
+    {
+      "run": "native-presence-wine3d-1",
+      "clients": "Windows 3D (Diorama) exe under Wine x2, the stripped file of checkpoint native-wip-20261010-1; Littleroot; door map change",
+      "engine": "graphics b02cf0e97 (bridge edb755a26)",
+      "game_sha256": "6694b5ac7035966c62e70f365a9908b81e9e74984ac43ef8b04c7fbdd291c031",
+      "evidence_sha256": "bf8b56e56607b9f6763f7694550320076fb4327c7eb0601982ca6d0df8f1d57e",
+      "passed": true,
+      "checks": [
+        "native bridges authenticated to their companions",
+        "companions joined the world server",
+        "every client is in the overworld (its bridge's own pose)",
+        "every client sees the others in the overworld",
+        "a move by client A reaches client B",
+        "client B's view after the move",
+        "peer poses as each companion sees them",
+        "client 1 walked through a door: its own map changed",
+        "the others see client 1 on the new map",
+        "client 1 walked back out",
+        "the others see client 1 outside again, in the overworld",
+        "passed"
+      ]
     }
   ],
   "failed_runs": [

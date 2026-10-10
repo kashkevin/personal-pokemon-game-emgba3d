@@ -184,6 +184,7 @@ Results 2026-10-09 (engine `e2e3917e2`, `scripts/multiplayer/native-presence-evi
 | native-presence-5 | 2 Linux, Littleroot, engine `edb755a26` | Pass: same checks; B walked into the lab and back out, A saw both map changes; A's companion restarted, A's game reconnected by itself, both saw each other again |
 | native-presence-four-2 | 4 Linux, Littleroot and Oldale Pokémon Center, `edb755a26` | Pass: same checks; all three others saw B's door map change both ways |
 | native-presence-3d-3 | 2 Linux, 3D build (graphics `b02cf0e97`), outdoors in Littleroot, about 2.4 frames a second | Pass: same checks as native-presence-5 |
+| native-presence-wine3d-1 | 2 Windows 3D build under Wine (the checkpoint's stripped exe), Littleroot | Pass: same checks; B's door map change seen both ways |
 
 Earlier attempts that did not pass were harness problems, not bridge problems: a key
 press before the window existed, wild battles on Route 101 under slow Wine clients,
