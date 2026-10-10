@@ -200,11 +200,13 @@ def build(args):
         "Emerald Together - " + release.version + "\n\n"
         + ("Private development preview: " if development else "Importable private release candidate: ")
         + "Host Game / Join Game, local character setup,\n"
-        + ("The game is the native PC game " + runtime_manifest["executable"] + " (no emulator, no\n"
-           "mGBA): it contains game data, so this package is for your own PC only.\n" if native else "")
         "autosave every 5 minutes (on by default), and launcher Save now.\n"
         "Your character's autosave toggle is remembered on this PC.\n"
         "Read QUICK-START.txt and RELEASE-LIMITS.txt before playing.\n"
+        + ("\nThe game is the native PC game " + runtime_manifest["executable"] + " (no emulator,\n"
+           "no mGBA). It contains game data, so this package is for your own PC only.\n"
+           "The launcher still checks the matching game file (game.gba of the same build)\n"
+           "before every start; install it separately (see the checkpoint README).\n\n" if native else "")
         + ("Use Import my game to select your own matching dump.\n" if import_release else
            "Game import is unavailable: this development package has no release patch.\n")
         + "It contains no game ROM, player save, invitation or world database.\n"
