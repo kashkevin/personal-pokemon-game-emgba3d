@@ -1106,7 +1106,8 @@ class LauncherWindow:
         keys = (("Default keyboard controls (PC game, no emulator)\n"
             "Arrows: move · Z: A/confirm · X: B/back\nEnter: Start/menu · Backslash (\\): Select · A/S: L/R\n"
             "F10: display & graphics settings (resolution, display mode, quality) · F11: fullscreen\n"
-            "F4: 3D or classic view · F7: camera · F8: trees · mouse wheel or -/=: zoom · comma/period: tilt\n"
+            "F4: 3D or classic view · F7: camera (Adventure or Diorama) · F8: trees · F9: photo mode · F12: picture\n"
+            "Mouse wheel or -/=: zoom · comma/period: tilt\n"
             "Ctrl+R: the A+B+Select+Start chord (Local Soft Reset only, see below). Click the game window before using the keyboard.\n\n")
             if native else ("Default keyboard controls\n"
             "Arrows: move · X: A/confirm · Z: B/back\nEnter: Start/menu · Backspace: Select · A/S: L/R\n"
