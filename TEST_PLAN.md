@@ -228,6 +228,8 @@ Results 2026-10-09/10 (`scripts/multiplayer/native-checkpoint-evidence.json`):
 | native-checkpoint-wine-2 | 2 Windows (Wine), `edb755a26` | Pass; 1.4-1.5 s per save |
 | native-checkpoint-3 | 2 Linux, `edb755a26`, `--recover` | Pass; live recovery 36.9 s: A walked off its saved tile, the canonical save was applied to the running game and A stood on the saved tile again, same process and lease |
 | native-checkpoint-wine-3 | 2 Windows (Wine), `edb755a26`, `--recover` | Pass; live recovery 49.8 s (the test suite ran at the same time) |
+| native-checkpoint-3d-4 | 2 Linux, 3D build (graphics `0ab8ee710`), 2.4 frames a second, before the M5 fix | Pass; 32.0-37.7 s per save |
+| native-checkpoint-3d-5 | 2 Linux, 3D build (graphics `2f150c4db`, M5 fix), `--recover` | Pass; 4.0-6.4 s per save; live recovery 69.3 s, same process and lease |
 
 Under Wine the games end by signal (exit code -15) and their saves are still
 intact, since the native build writes the save file at the frame after every Flash

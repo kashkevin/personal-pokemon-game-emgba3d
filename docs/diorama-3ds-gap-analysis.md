@@ -31,7 +31,7 @@ of the running game (Linux, and Windows under Wine), all on software OpenGL.
 | 3D signposts (`voxel_sign.c`) | Pixel-masked sign geometry, lamp heads | The Diorama's own sign handling | Medium |
 | Terrain relief read off the drawing (`voxel_relief.c`, `gen_voxel_relief.py`) | Cliffs, stairs, rocks at sea lifted to the height the art implies; everything on them lifted too | The Diorama's own rule-driven terraces, cliffs and ledges | Large: a second generator, lifting models and sprites, `CardPush` on stairs |
 | 3D battle scenery (`voxel_battle.c`) | The map drawn behind the battle, low camera | 2D battle screen | Being done separately (owner, 2026-10-10): not in this branch's plan |
-| Camera options in the OPTION menu (angle, zoom) | Menu entries | The Diorama's pitch keys only; no menu entries | Small |
+| Camera options (angle, zoom; the 3DS sets them on its bottom screen) | Pitch and zoom presets, kept in its settings | The 3DS framing as an option (graphics `0ab8ee710`, `PKMN_DIORAMA_CAMERA=3ds`); pitch and zoom keys (`,` `.` `-` `=` and the mouse wheel), not kept between runs; no menu entries | Small |
 
 ## Known visual issues of our own (see `KNOWN_ISSUES.md`)
 
