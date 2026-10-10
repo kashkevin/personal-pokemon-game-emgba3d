@@ -501,7 +501,7 @@ under Wine), each with a copy of an outdoor save:
    3840x2160; world, sprites, health box and text box aligned.
 
 Result 2026-10-10: all pass (Linux and Wine for 1, 2, 5, 6; Linux for 3, 4, 7, 8).
-Not testable here: Windows display scaling and several displays (KNOWN_ISSUES V14).
+Not testable here: Windows display scaling and several displays (KNOWN_ISSUES V21).
 
 ## 8. CI
 

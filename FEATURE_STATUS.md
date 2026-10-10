@@ -251,11 +251,11 @@ display, no Windows display scaling.
 | --- | --- | --- | --- |
 | 1920x1080 default; 1280x720, 2560x1440, 3840x2160 | Visually renders: the default window, 1280x720, 2560x1440 and 3840x2160 windows (a 4096x2304 virtual display) | Visually renders: default window (fitted to 1859x1046 on a 1080p display) | A size that does not fit the display gets the largest window of that shape that does (logged). |
 | Pixel art at whole-number scales | Visually renders: 8x at 1440p, 12x at 4K checked pixel by pixel; 3D sprites keep nearest-neighbour texels | Not checked by pixel | |
-| Windowed, borderless, exclusive fullscreen; F11 | Visually renders (openbox on Xvfb): borderless with a 1920x1080 render on a 4K display; exclusive 3840x2160 with 4x MSAA | Not run | Real displays, refresh rates and Alt+Tab untested (KNOWN_ISSUES V14). |
+| Windowed, borderless, exclusive fullscreen; F11 | Visually renders (openbox on Xvfb): borderless with a 1920x1080 render on a 4K display; exclusive 3840x2160 with 4x MSAA | Not run | Real displays, refresh rates and Alt+Tab untested (KNOWN_ISSUES V21). |
 | F10 Display & Graphics menu (UI art direction v2: engine fonts, Emerald panels, whole-number canvas) | Works in gameplay: rows, values, Esc/F10 close; a resolution change is shown, kept with Enter, undone with Esc or after 15 s | Works in gameplay: menu, frame-rate readout | The UI session's Options screen replaces this look when designed. |
-| Quality presets and single values (shadows, lighting, effects, MSAA) | High (default) and Ultra seen; Low and Medium not inspected yet | High | KNOWN_ISSUES V15. |
+| Quality presets and single values (shadows, lighting, effects, MSAA) | High (default) and Ultra seen; Low and Medium not inspected yet | High | KNOWN_ISSUES V22. |
 | Settings kept between sessions; older settings files | Works in gameplay: `resolution=2560x1440` kept and restored; `windowScale=4` files get 1080p | Works in gameplay: `showFrameRate=1` kept | Unit-tested (139 checks). |
-| Per-monitor DPI awareness, moving between displays | Not testable here | Not testable here | Owner test (V14). |
+| Per-monitor DPI awareness, moving between displays | Not testable here | Not testable here | Owner test (V21). |
 | `--benchmark` / `benchmark.bat` | Works: every measured frame 3D, `benchmark.log` written (software numbers only) | Works: `benchmark.log` with the CPU from the registry | Reference numbers need the owner's PC (V3). |
 | 3D battles at all four resolutions | Visually renders on a trial merge with `claude/battle-3d-integration` (`trial/resolution-battle3d`, not merged): world, sprites, health box and text box aligned at 1280x720, 1834x1032, 2560x1440, 3840x2160 | Not run | Two adjacent-insertion conflicts in `gl_compositor.c` when merged (keep both sides). |
 | Multiplayer with the new build | Works in multiplayer: native-checkpoint-3d-7 (2 clients: enrol, save 1.6-1.7 s, restart, live recovery 41.6 s) | Not run | |
