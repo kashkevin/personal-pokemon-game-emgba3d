@@ -77,12 +77,26 @@ from emerald_multiplayer.launcher_session import GameInstallation  # noqa: E402
 from emerald_multiplayer.launcher_setup import create_world, export_friend_invitation, host_enrollment  # noqa: E402
 from emerald_multiplayer.menu_mailbox import unpack_screen  # noqa: E402
 
-KEYS = {1: "z", 2: "x", 8: "Return", 128: "Down"}
+KEYS = {1: "z", 2: "x", 8: "Return", 16: "Right", 32: "Left", 64: "Up", 128: "Down"}
 PLAYER_OPTIONS, TRAINER_CARD, PLAYERS = 15, 16, 17
 PARTY_TASKS = ("Task_HandleChooseMonInput", "Task_HandleSelectionMenuInput", "Task_PrintAndWaitForText")
 NEEDED = ("sMultiplayerMenuActive", "sMultiplayerMenuWaiting", "sMultiplayerMenuCursor", "sMultiplayerMenuScreen",
           "sCurrentStartMenuActions", "sNumStartMenuActions", "sStartMenuCursorPos", "gMultiplayerBattleHoldFlags",
-          "gMultiplayerBattleMailbox", "gTasks", "gPartyMenu", "gParties", "gPartiesCount", *PARTY_TASKS)
+          "gMultiplayerBattleMailbox", "gTasks", "gPartyMenu", "gParties", "gPartiesCount", *PARTY_TASKS,
+          "gBattlerControllerFuncs", "gActionSelectionCursor")
+CHOOSE_ACTION = "HandleInputChooseAction"  # static in each battle controller: every address counts
+
+
+def function_addresses(game, name, *, pe=False):
+    """All addresses of a (possibly static, so repeated) function in the game's symbol table."""
+    rows = subprocess.run(["i686-w64-mingw32-nm" if pe else "nm", str(game)], capture_output=True, text=True,
+                          check=True).stdout
+    found = set()
+    for line in rows.splitlines():
+        row = line.split()
+        if len(row) == 3 and row[1] in ("T", "t") and row[2] in (name, "_" + name):
+            found.add(int(row[0], 16) & ~1)
+    return frozenset(found)
 
 
 def symbols_of(game):
@@ -98,8 +112,9 @@ def symbols_of(game):
 class NativeProbe:
     """One launcher-started native game: keys to its window, reads of its memory."""
 
-    def __init__(self, pid, symbols, display, record, *, hold=.15, gap=.2):
+    def __init__(self, pid, symbols, display, record, *, hold=.15, gap=.2, choose_action=frozenset()):
         self.pid, self.symbols, self.display, self.record = pid, symbols, display, record
+        self.choose_action = choose_action
         self.hold, self.gap, self.presses = hold, gap, 0
         self.environment = dict(os.environ, DISPLAY=display)
 
@@ -214,6 +229,24 @@ class NativeProbe:
         raw = self.mem("gParties", 600)
         boxes = b"".join(raw[i * 100:i * 100 + 80] for i in range(count))
         return dict(count=count, box_crc=f"{zlib.crc32(boxes):08x}")
+
+    def in_choose_action(self):
+        """The player's battle controller waits on its action menu (Fight, Bag, Pokemon, Run)."""
+        funcs = int.from_bytes(self.mem("gBattlerControllerFuncs", 4), "little") & ~1
+        return funcs in self.choose_action
+
+    async def run_from_wild_battle(self, in_field, timeout=120):
+        """A wild Pokemon walked up to the player: Run, as a player would (no move is used, so
+        nothing in the party changes). Text is advanced with B, which selects nothing."""
+        async with asyncio.timeout(timeout):
+            while not in_field():
+                if self.in_choose_action():
+                    cursor = self.mem("gActionSelectionCursor", 1)[0]
+                    # Fight 0, Bag 1, Pokemon 2, Run 3 (two by two).
+                    await self.press(1 if cursor == 3 else 128 if cursor == 1 else 16)
+                else:
+                    await self.press(2)
+                await asyncio.sleep(.2)
 
     async def boot(self, slow=1.0):
         """Title screen, main menu, Continue: what a player presses."""
@@ -362,186 +395,361 @@ async def native_menu_match(current, probes, games, host, symbols, record):
     return results[0]
 
 
-async def run(args):
-    output = args.output.resolve()
-    require("/multiplayer-proof/" in str(output) + "/" and not output.exists(), "choose a new private proof directory")
-    output.mkdir(parents=True)
-    game = args.game.resolve()
-    wine = bool(args.wine)
-    if wine:
-        require(len(args.wine) == 2 and len(set(args.wine)) == 2 and args.sdl and args.elf,
-                "Windows clients need two Wine prefixes, --sdl and --elf")
-        symbols = pe_symbols(game, args.elf.resolve(), NEEDED)
-    else:
-        symbols = symbols_of(game)
-    missing = [name for name in NEEDED if name not in symbols]
-    require(not missing, f"the native game lacks symbols {missing}: build it unstripped")
-    manifest = json.loads(args.manifest.read_text())
-    require(len(args.display) == 2 and len(set(args.display)) == 2, "one X display per player")
-    os.environ.update(DISPLAY=args.display[0], SDL_AUDIODRIVER="dummy")
-    if wine:
-        os.environ["WINEDEBUG"] = "-all"
-    hold, gap = (.5, .3) if wine else (.15, .2)
+class Player:
+    """One player's launcher worker, its native game and the probe on that game."""
 
-    def use_display(slot):
-        """The next game the launcher starts opens on this player's display (and Wine prefix)."""
-        os.environ["DISPLAY"] = args.display[slot]
+    def __init__(self, slot, worker, game, probe, mirror, companion):
+        self.slot, self.worker, self.game, self.probe, self.mirror = slot, worker, game, probe, mirror
+        self.companion = companion
+
+
+class LauncherHarness:
+    """The whole launcher with one native game per player (2 or 4): setup, players, cleanup.
+
+    `settings` is written to the launchers' shared settings file before any game
+    starts (window size only); `after_boot(phase, slot, probe, companion)` runs
+    once each game is in the field (ordinary play, such as walking somewhere);
+    `environment` is added to the environment the games inherit (display
+    plumbing only). A save failure inside a launcher (`LauncherSession._fail_save`)
+    is recorded with where it came from: a pass-through wrapper that calls it
+    unchanged. Every exit records evidence; a failure also screenshots each display."""
+
+    def __init__(self, args, *, names, sources, party_counts, version, settings=None, scope=None,
+                 after_boot=None, environment=None):
+        self.args, self.names, self.party_counts, self.version = args, tuple(names), tuple(party_counts), version
+        self.settings, self.after_boot, self.environment = settings, after_boot, environment
+        self.count = count = len(names)
+        self.output = output = args.output.resolve()
+        require("/multiplayer-proof/" in str(output) + "/" and not output.exists(), "choose a new private proof directory")
+        output.mkdir(parents=True)
+        game = args.game.resolve()
+        self.wine = wine = bool(args.wine)
         if wine:
-            os.environ["WINEPREFIX"] = str(args.wine[slot].resolve())
-    if wine:
-        # The release's own files: the Windows exe and its SDL2.dll.
-        info = collect(game, args.sdl.resolve(), args.rom, output / "application" / "runtime")
-    else:
-        # The launcher's own bundle and installation checks, for the Linux game.
-        staging = output / "linux-game"
-        staging.mkdir()
-        (staging / "pokeemerald-mp.exe").write_bytes(game.read_bytes())
-        (staging / "pokeemerald-mp.exe").chmod(0o755)
-        (staging / "SDL2.dll").write_bytes(b"Linux harness: the Linux game links the system's libSDL2.\n")
-        info = collect(staging / "pokeemerald-mp.exe", staging / "SDL2.dll", args.rom,
-                       output / "application" / "runtime")
-        # The collector copies bytes only; a Linux executable also needs its mode
-        # (the bundle's pins are content hashes, unchanged by this).
-        (Path(info["directory"]) / "pokeemerald-mp.exe").chmod(0o755)
-    from emerald_multiplayer.player_runtime import RuntimeBundle
-    bundle = RuntimeBundle(Path(info["directory"]), info["manifest_sha256"])
-    installation = GameInstallation(args.rom.resolve(), args.manifest.resolve(), sha(args.rom), sha(args.manifest), bundle)
-    installation.verify()
-    sources = [args.source_a.resolve(), args.source_b.resolve()]
-    source_hashes = [sha(p) for p in sources]
-    evidence = dict(passed=False, scope=__doc__.split("\n\n")[0], game_sha256=sha(game), bundle=info,
-                    wine=wine, key_hold_seconds=hold, elf_sha256=sha(args.elf) if wine else None,
-                    build_id=manifest["rom_sha256"], sources=[dict(path=str(p), sha256=h) for p, h in zip(sources, source_hashes)],
-                    checks=[], inputs=0, forced_children=[])
-    def persist():
-        (output / "evidence.json").write_text(json.dumps(evidence, indent=2) + "\n")
-    def record(name, quiet=False, **fields):
-        if quiet:
-            evidence["inputs"] += 1
-            return
-        evidence["checks"].append(dict(verified=name, **fields))
-        persist()
-        output_event(check=name, **fields)
-    workers, windows, roots, children = [], [], [], []
-    private = output / "private"
-    completed = False
+            require(len(args.wine) == count and len(set(args.wine)) == count and args.sdl and args.elf,
+                    "Windows clients need a Wine prefix per player, --sdl and --elf")
+            self.symbols = pe_symbols(game, args.elf.resolve(), NEEDED)
+        else:
+            self.symbols = symbols_of(game)
+        missing = [name for name in NEEDED if name not in self.symbols]
+        self.choose_action = function_addresses(game, CHOOSE_ACTION, pe=wine)
+        require(self.choose_action, f"the native game lacks {CHOOSE_ACTION}: build it unstripped")
+        require(not missing, f"the native game lacks symbols {missing}: build it unstripped")
+        manifest = json.loads(args.manifest.read_text())
+        require(len(args.display) == count and len(set(args.display)) == count, "one X display per player")
+        os.environ.update(DISPLAY=args.display[0], SDL_AUDIODRIVER="dummy", **(environment or {}))
+        if wine:
+            os.environ["WINEDEBUG"] = "-all"
+        self.hold, self.gap = (.5, .3) if wine else (.15, .2)
+        self.ready_seconds = 20 if count == 2 else 90
+        if wine:
+            # The release's own files: the Windows exe and its SDL2.dll.
+            info = collect(game, args.sdl.resolve(), args.rom, output / "application" / "runtime")
+        else:
+            # The launcher's own bundle and installation checks, for the Linux game.
+            staging = output / "linux-game"
+            staging.mkdir()
+            (staging / "pokeemerald-mp.exe").write_bytes(game.read_bytes())
+            (staging / "pokeemerald-mp.exe").chmod(0o755)
+            (staging / "SDL2.dll").write_bytes(b"Linux harness: the Linux game links the system's libSDL2.\n")
+            info = collect(staging / "pokeemerald-mp.exe", staging / "SDL2.dll", args.rom,
+                           output / "application" / "runtime")
+            # The collector copies bytes only; a Linux executable also needs its mode
+            # (the bundle's pins are content hashes, unchanged by this).
+            (Path(info["directory"]) / "pokeemerald-mp.exe").chmod(0o755)
+        from emerald_multiplayer.player_runtime import RuntimeBundle
+        bundle = RuntimeBundle(Path(info["directory"]), info["manifest_sha256"])
+        self.installation = GameInstallation(args.rom.resolve(), args.manifest.resolve(), sha(args.rom),
+                                             sha(args.manifest), bundle)
+        self.installation.verify()
+        self.sources = [Path(path).resolve() for path in sources]
+        self.source_hashes = [sha(p) for p in self.sources]
+        self.evidence = dict(passed=False, scope=scope or __doc__.split("\n\n")[0], game_sha256=sha(game), bundle=info,
+                             wine=wine, key_hold_seconds=self.hold, elf_sha256=sha(args.elf) if wine else None,
+                             build_id=manifest["rom_sha256"],
+                             sources=[dict(path=str(p), sha256=h) for p, h in zip(self.sources, self.source_hashes)],
+                             checks=[], inputs=0, forced_children=[], players=list(names),
+                             expected_party_counts=list(party_counts), settings=settings, environment=environment,
+                             save_failures=[])
+        self.workers, self.windows, self.roots, self.children = [], [], [], []
+        self.private = output / "private"
+        self.completed = False
+        self.host = None
+        self.expected = []
+        self.invitations = [None]
 
-    async def poll_until(predicate, timeout=30):
+    # Evidence -------------------------------------------------------------
+    def persist(self):
+        (self.output / "evidence.json").write_text(json.dumps(self.evidence, indent=2) + "\n")
+
+    def record(self, name, quiet=False, **fields):
+        if quiet:
+            self.evidence["inputs"] += 1
+            return
+        self.evidence["checks"].append(dict(verified=name, **fields))
+        self.persist()
+        output_event(check=name, **fields)
+
+    # Plumbing -------------------------------------------------------------
+    def use_display(self, slot):
+        """The next game the launcher starts opens on this player's display (and Wine prefix)."""
+        os.environ["DISPLAY"] = self.args.display[slot]
+        if self.wine:
+            os.environ["WINEPREFIX"] = str(self.args.wine[slot].resolve())
+
+    async def poll_until(self, predicate, timeout=30):
         async with asyncio.timeout(timeout):
             while not predicate():
                 await asyncio.sleep(.05)
 
-    async def gui_pump():
+    async def _gui_pump(self):
         while True:
-            for root in roots:
+            for root in self.roots:
                 root.update()
             await asyncio.sleep(.02)
 
-    async def boot_until_field(companion, game_process, slow, slot):
-        probe = NativeProbe(game_process.pid, symbols, args.display[slot], record, hold=hold, gap=gap)
-        await probe.boot(slow)
-        for _ in range(12):
+    async def __aenter__(self):
+        self._real_spawn = real_spawn = asyncio.create_subprocess_exec
+
+        async def spawn_with_wine(program, *arguments, **options):
+            # The launcher (player_runtime / enrollment) starts the bundle's exe;
+            # on this Linux workspace Wine runs it. Nothing else is redirected.
+            if str(program).lower().endswith(".exe"):
+                return await real_spawn("wine", program, *arguments, **options)
+            return await real_spawn(program, *arguments, **options)
+
+        if self.wine:
+            asyncio.create_subprocess_exec = spawn_with_wine
+        from emerald_multiplayer.launcher_session import LauncherSession
+        self._session_class = LauncherSession
+        self._original_fail_save = original = LauncherSession._fail_save
+        harness = self
+
+        def recorded_fail_save(session, *values, **options):
+            harness.evidence["save_failures"].append(dict(
+                status=getattr(getattr(session, "status", None), "code", None), exception=repr(sys.exc_info()[1]),
+                stack=traceback.format_stack(limit=12)[:-1]))
+            harness.persist()
+            return original(session, *values, **options)
+
+        LauncherSession._fail_save = recorded_fail_save
+        self._pump = asyncio.create_task(self._gui_pump())
+        return self
+
+    async def __aexit__(self, kind, error, tb):
+        evidence = self.evidence
+        if error is not None:
+            evidence["error"] = repr(error)
+            evidence["traceback"] = "".join(traceback.format_exception(kind, error, tb))
+            evidence["load_average"] = os.getloadavg()
+            for slot, display in enumerate(self.args.display):
+                subprocess.run(["import", "-window", "root", str(self.output / f"failure-{slot}.png")],
+                               env=dict(os.environ, DISPLAY=display), capture_output=True)
+        for child in self.children:
+            if child.returncode is None:
+                evidence["forced_children"].append(child.pid)
+                try:
+                    os.kill(child.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+        try:
+            await self.poll_until(lambda: not any(w.busy for w in self.workers), 20)
+        except BaseException as cleanup_error:
+            evidence.setdefault("cleanup_errors", []).append(repr(cleanup_error))
+        self._pump.cancel()
+        await asyncio.gather(self._pump, return_exceptions=True)
+        for window in reversed(self.windows):
+            try:
+                window._destroy()
+            except Exception as cleanup_error:
+                evidence.setdefault("cleanup_errors", []).append(repr(cleanup_error))
+        asyncio.create_subprocess_exec = self._real_spawn
+        self._session_class._fail_save = self._original_fail_save
+        evidence["passed"] = (error is None and self.completed and not evidence["forced_children"]
+                              and not evidence.get("cleanup_errors"))
+        self.persist()
+        output_event(passed=evidence["passed"])
+        if error is None:
+            require(evidence["passed"], "proof failed; the private evidence records why")
+        return False
+
+    # Steps ----------------------------------------------------------------
+    async def boot_until_field(self, companion, game_process, slot):
+        probe = NativeProbe(game_process.pid, self.symbols, self.args.display[slot], self.record, hold=self.hold,
+                            gap=self.gap, choose_action=self.choose_action)
+        await probe.boot(self.args.slow)
+        for _ in range(20):
             pose = companion._local_pose
             if pose is not None and pose.activity == 1:
                 break
             await asyncio.sleep(4)
             pose = companion._local_pose
-            if pose is None or pose.activity != 1:
+            if probe.in_choose_action():
+                # A visible wild Pokemon reached a player idling in grass; A would fight.
+                await probe.run_from_wild_battle(lambda: companion._local_pose is not None
+                                                 and companion._local_pose.activity == 1)
+                self.record("ran-from-a-wild-battle", slot=slot, during="startup")
+            elif pose is None or pose.activity != 1:
                 await probe.press(1)
-        if wine:
+        if self.wine:
             with open(f"/proc/{game_process.pid}/mem", "rb", buffering=0) as memory:
                 memory.seek(PE_IMAGE_BASE)
                 require(memory.read(2) == b"MZ", "the Windows game is not mapped at its preferred base")
         return probe
 
-    real_spawn = asyncio.create_subprocess_exec
-
-    async def spawn_with_wine(program, *arguments, **options):
-        # The launcher (player_runtime / enrollment) starts the bundle's exe;
-        # on this Linux workspace Wine runs it. Nothing else is redirected.
-        if str(program).lower().endswith(".exe"):
-            return await real_spawn("wine", program, *arguments, **options)
-        return await real_spawn(program, *arguments, **options)
-
-    if wine:
-        asyncio.create_subprocess_exec = spawn_with_wine
-    pump = asyncio.create_task(gui_pump())
-    try:
+    async def setup_world(self):
+        """Production world creation, host enrollment of every source, friends' invitations."""
         with socket.socket() as probe_socket:
             probe_socket.bind(("127.0.0.1", 0))
             port = probe_socket.getsockname()[1]
-        host = create_world(installation, private, player_names=("Battle Host", "Battle Friend"),
-                            endpoint="127.0.0.1", port=port)
-        expected = []
-        for slot, source in enumerate(sources):
-            use_display(slot)
-            async with host_enrollment(installation, private, world_directory=host.directory, slot=slot,
+        if self.settings is not None:
+            self.private.mkdir(parents=True, exist_ok=True)
+            (self.private / "game-settings.cfg").write_text(self.settings)
+        self.host = host = create_world(self.installation, self.private, player_names=self.names,
+                                        endpoint="127.0.0.1", port=port)
+        for slot, source in enumerate(self.sources):
+            self.use_display(slot)
+            async with host_enrollment(self.installation, self.private, world_directory=host.directory, slot=slot,
                                        source_path=source) as runtime:
-                children.append(runtime._game.process)
-                await boot_until_field(runtime.companion, runtime._game.process, args.slow, slot)
-                await field_ready(runtime.companion, runtime._game)
-                enrolled = await runtime.enroll()
+                self.children.append(runtime._game.process)
+                try:
+                    probe = await self.boot_until_field(runtime.companion, runtime._game.process, slot)
+                    if self.after_boot is not None:
+                        # Enrollment saves the running game, so the character is enrolled
+                        # where it then stands; walking changes no party.
+                        await self.after_boot("enrollment", slot, probe, runtime.companion)
+                    await field_ready(runtime.companion, runtime._game)
+                    enrolled = await runtime.enroll()
+                except BaseException:
+                    # host_enrollment reports only a safe summary; keep the cause.
+                    self.evidence["enrollment_error"] = dict(slot=slot, traceback=traceback.format_exc())
+                    self.persist()
+                    raise
                 require(enrolled.metadata["revision"] == 1, "enrollment revision differs")
                 require(runtime._game.process.returncode is not None, "production enrollment did not close its bootstrap child")
-                record("production-enrollment-closed-bootstrap", slot=slot, pid=runtime._game.process.pid,
-                       returncode=runtime._game.process.returncode)
+                self.record("production-enrollment-closed-bootstrap", slot=slot, pid=runtime._game.process.pid,
+                            returncode=runtime._game.process.returncode)
             with MirrorLease(runtime.save_path):
                 pass
             with host.open_store() as store:
-                expected.append(party(inspect_closed_head(store, host.accounts[slot].player_id)))
-        require([value["count"] for value in expected] == [2, 1],
-                "this bounded proof requires the pinned ordinary two/one-member parties")
-        invitation = output / "friend-invitation.json"
-        export_friend_invitation(installation, host.directory, 1, invitation)
+                self.expected.append(party(inspect_closed_head(store, host.accounts[slot].player_id)))
+        require([value["count"] for value in self.expected] == list(self.party_counts),
+                "the sources' parties differ from this proof's party profile")
+        for slot in range(1, self.count):
+            invitation = self.output / ("friend-invitation.json" if self.count == 2 else f"friend-{slot}-invitation.json")
+            export_friend_invitation(self.installation, host.directory, slot, invitation)
+            self.invitations.append(invitation)
+
+    async def start(self, phase, slot):
+        """Host Game (slot 0) or Join Game through a real launcher worker and window; boot to the field."""
+        worker = SessionWorker(self.installation, self.private)
+        self.workers.append(worker)
+        import tkinter as tk
+        self.use_display(slot)  # Toplevels stay on the first root's display
+        root = tk.Tk() if not self.roots else tk.Toplevel(self.roots[0])
+        window = LauncherWindow(root, worker, version=self.version)
+        root.title(f"{self.version} {phase} {self.names[slot]}")
+        self.roots.append(root)
+        self.windows.append(window)
+        mode = "host" if slot == 0 else "join"
+        selection = self.host.directory / "world.json" if slot == 0 else self.invitations[slot]
+        require(worker.start(LaunchRequest(mode, selection)), "real GUI worker did not start")
+        await self.poll_until(lambda: worker._active_session is not None or not worker.busy)
+        require(worker._active_session is not None, "launcher worker failed before play")
+        async def prepare(s):
+            async with asyncio.timeout(30):
+                while s._game is None:
+                    await asyncio.sleep(.03)
+            await s.set_autosave_enabled(False)
+            return s._game, s.profile_directory / "character.sav", s._companion
+        game_handle, mirror, companion = await on_worker(worker, prepare)
+        self.children.append(game_handle.process)
+        probe = await self.boot_until_field(companion, game_handle.process, slot)
+        if self.after_boot is not None:
+            await self.after_boot(phase, slot, probe, companion)
+        return Player(slot, worker, game_handle, probe, mirror, companion)
+
+    async def ready(self, player):
+        """Field, capabilities, the terminal saver armed and the save lease held; the startup revision."""
+        ready_seconds = self.ready_seconds
+        async def ready(s):
+            await field_ready(s._companion, s._game, timeout=180)
+            loop = asyncio.get_running_loop()
+            deadline = loop.time() + ready_seconds
+            while s._emergency is None or s._emergency.result.state != "armed":
+                if loop.time() >= deadline:
+                    c, pose = s._companion, s._companion._local_pose
+                    raise AssertionError("the launcher did not arm its terminal saver: " + json.dumps(dict(
+                        state=None if s._emergency is None else s._emergency.result.state,
+                        connected=c.connected, bridge=c._bridge is not None,
+                        emergency_capable=getattr(c._bridge, "emergency_save_capable", None),
+                        activity=None if pose is None else pose.activity,
+                        pose_age=round(loop.time() - c._last_pose_time, 2),
+                        checkpoint_locked=c.live_checkpoint_lock.locked(),
+                        interaction=s._interaction is not None, save_failed=s._save_failed)))
+                await asyncio.sleep(.03)
+            lease_is_owned(s.profile_directory / "character.sav")
+            return s.status.revision
+        return await on_worker(player.worker, ready)
+
+    async def save(self, player, revision):
+        async def save(s):
+            require(await s.save(), "manual save did not finish")
+            require(s.status.revision == revision, "manual save revision differs")
+        await on_worker(player.worker, save)
+
+    async def close(self, players):
+        """Ordinary close in the given order (SIGTERM, which SDL turns into a quit; Alt+F4 under Wine)."""
+        for player in players:
+            if self.wine:
+                await player.probe.close_window()
+            else:
+                os.kill(player.game.process.pid, signal.SIGTERM)
+            await self.poll_until(lambda g=player.game: g.process.returncode is not None, 30)
+        await self.poll_until(lambda: not any(p.worker.busy for p in players), 120)
+        codes = [p.game.process.returncode for p in players]
+        require(codes == [0] * len(players), f"ordinary SDL exit failed: {codes}")
+        for player in players:
+            with MirrorLease(player.mirror):
+                pass
+        return codes
+
+    def finish(self):
+        with self.host.open_store() as store:
+            store.integrity_check()
+        require([sha(p) for p in self.sources] == self.source_hashes, "a source save changed")
+        self.completed = True
+        self.record("store integrity check passed; source saves unchanged")
+
+
+async def launcher_proof(args, *, names, sources, party_counts, match, version, settings=None, scope=None,
+                         after_boot=None, environment=None):
+    """World and enrollment, then two phases of real launcher workers (host, then
+    each friend): `match(current, probes, games, host, symbols, record)` and manual
+    saves in the first, fresh Continue in the second; both end with a normal close,
+    friends first."""
+    harness = LauncherHarness(args, names=names, sources=sources, party_counts=party_counts, version=version,
+                              settings=settings, scope=scope, after_boot=after_boot, environment=environment)
+    async with harness:
+        await harness.setup_world()
+        host, expected, record = harness.host, harness.expected, harness.record
         saved = []
         for phase in ("battle-and-save", "fresh-Continue"):
-            current, games, probes, mirrors = [], [], [], []
-            for slot, mode in enumerate(("host", "join")):
-                worker = SessionWorker(installation, private)
-                workers.append(worker)
-                current.append(worker)
-                import tkinter as tk
-                use_display(slot)  # Toplevels stay on the first root's display
-                root = tk.Tk() if not roots else tk.Toplevel(roots[0])
-                window = LauncherWindow(root, worker, version="Native 1v1 proof")
-                root.title(f"Native battle proof {phase} {mode}")
-                roots.append(root)
-                windows.append(window)
-                selection = host.directory / "world.json" if slot == 0 else invitation
-                require(worker.start(LaunchRequest(mode, selection)), "real GUI worker did not start")
-                await poll_until(lambda: worker._active_session is not None or not worker.busy)
-                require(worker._active_session is not None, "launcher worker failed before play")
-                async def prepare(s):
-                    async with asyncio.timeout(30):
-                        while s._game is None:
-                            await asyncio.sleep(.03)
-                    await s.set_autosave_enabled(False)
-                    return s._game, s.profile_directory / "character.sav"
-                game_handle, mirror = await on_worker(worker, prepare)
-                children.append(game_handle.process)
-                games.append(game_handle)
-                mirrors.append(mirror)
-                async def companion_of(s):
-                    return s._companion
-                companion = await on_worker(worker, companion_of)
-                probes.append(await boot_until_field(companion, game_handle.process, args.slow, slot))
-                async def ready(s):
-                    await field_ready(s._companion, s._game)
-                    async with asyncio.timeout(20):
-                        while s._emergency is None or s._emergency.result.state != "armed":
-                            await asyncio.sleep(.03)
-                    lease_is_owned(s.profile_directory / "character.sav")
-                    return s.status.revision
-                require(await on_worker(worker, ready) == (1 if phase == "battle-and-save" else 2), "startup revision differs")
-            record("actual-launcher-workers-ready", phase=phase, pids=[g.process.pid for g in games])
+            players = []
+            for slot in range(harness.count):
+                player = await harness.start(phase, slot)
+                players.append(player)
+                require(await harness.ready(player) == (1 if phase == "battle-and-save" else 2),
+                        "startup revision differs")
+            current = [p.worker for p in players]
+            games = [p.game for p in players]
+            probes = [p.probe for p in players]
+            record("actual-launcher-workers-ready", phase=phase, pids=[g.process.pid for g in games],
+                   load_average=[round(v, 2) for v in os.getloadavg()])
             if phase == "battle-and-save":
-                await native_menu_match(current, probes, games, host, symbols, record)
-                for worker in current:
-                    async def save(s):
-                        require(await s.save(), "manual save did not finish")
-                        require(s.status.revision == 2, "manual save revision differs")
-                    await on_worker(worker, save)
-                record("both-saved-after-the-battle", revision=2)
+                await match(current, probes, games, host, harness.symbols, record)
+                for player in players:
+                    await harness.save(player, 2)
+                record("all-saved-after-the-battle", revision=2, players=harness.count)
             async def heads(s):
                 rows = []
                 for slot, account in enumerate(host.accounts):
@@ -560,51 +768,14 @@ async def run(args):
             require(parties == [dict(count=e["count"], box_crc=e["box_crc"]) for e in expected],
                     "a running game's party differs from its canonical character")
             record("ready_for_normal_close", phase=phase, parties=parties)
-            for g, probe in reversed(list(zip(games, probes))):  # friend, then host
-                if wine:
-                    await probe.close_window()
-                else:
-                    os.kill(g.process.pid, signal.SIGTERM)
-                await poll_until(lambda g=g: g.process.returncode is not None, 30)
-            await poll_until(lambda: not any(w.busy for w in current), 120)
-            require([g.process.returncode for g in games] == [0, 0], "ordinary SDL exit failed")
-            for mirror in mirrors:
-                with MirrorLease(mirror):
-                    pass
-            record("normal-close", phase=phase, exit_codes=[0, 0])
-        with host.open_store() as store:
-            store.integrity_check()
-        require([sha(p) for p in sources] == source_hashes, "a source save changed")
-        completed = True
-        record("store integrity check passed; source saves unchanged")
-    except BaseException as error:
-        evidence["error"] = repr(error)
-        evidence["traceback"] = traceback.format_exc()
-        raise
-    finally:
-        for child in children:
-            if child.returncode is None:
-                evidence["forced_children"].append(child.pid)
-                try:
-                    os.kill(child.pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
-        try:
-            await poll_until(lambda: not any(w.busy for w in workers), 20)
-        except BaseException as error:
-            evidence.setdefault("cleanup_errors", []).append(repr(error))
-        pump.cancel()
-        await asyncio.gather(pump, return_exceptions=True)
-        for window in reversed(windows):
-            try:
-                window._destroy()
-            except Exception as error:
-                evidence.setdefault("cleanup_errors", []).append(repr(error))
-        asyncio.create_subprocess_exec = real_spawn
-        evidence["passed"] = completed and not evidence["forced_children"] and not evidence.get("cleanup_errors")
-        persist()
-        output_event(passed=evidence["passed"])
-    require(evidence["passed"], "proof failed; the private evidence records why")
+            codes = await harness.close(list(reversed(players)))  # friends, then host
+            record("normal-close", phase=phase, exit_codes=codes)
+        harness.finish()
+
+
+async def run(args):
+    await launcher_proof(args, names=("Battle Host", "Battle Friend"), sources=(args.source_a, args.source_b),
+                         party_counts=(2, 1), match=native_menu_match, version="Native 1v1 proof")
 
 
 def main():
