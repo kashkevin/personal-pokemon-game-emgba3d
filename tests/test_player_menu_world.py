@@ -68,6 +68,29 @@ class PlayerMenuWorldTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(screen.status, "Good Friends 40/120")
         self.assertIn("LUCKY FRIENDS: next trade", self.labels(menu))
 
+    async def test_long_names_stay_apart_beside_the_friendship_level(self):
+        # native-launcher-multi-4: "Multi Friend 1/2/3" were all cut to "Multi Friend ".
+        companion = FakeCompanion()
+        third = "33333333-3333-4333-8333-333333333333"
+        companion._players = [{"player_id": ALICE, "display_name": "Alice"},
+                              {"player_id": BOB, "display_name": "Multi Friend 1"},
+                              {"player_id": third, "display_name": "Multi Friend 2"}]
+        async def friendship_rpc():
+            return {BOB: {"level": 1, "name": "Good Friends", "points": 40, "next": 120, "lucky_friends": False},
+                    third: {"level": 2, "name": "Great Friends", "points": 130, "next": 300, "lucky_friends": False}}
+        companion.friendship_rpc = friendship_rpc
+        menu = PlayerMenu(companion)
+        await menu.refresh()
+        labels = self.labels(menu)
+        self.assertIn("Multi Friend 1 - Good", labels)
+        self.assertIn("Multi Friend 2 - Great", labels)
+        # The longest name (24 characters) is cut only to make room for the level.
+        companion._players[1]["display_name"] = "A" * 23 + "Z"
+        await menu.refresh()
+        long = next(label for label in self.labels(menu) if label.startswith("AAA"))
+        self.assertEqual(long, "A" * 18 + " - Good")
+        self.assertLessEqual(max(len(label) for label in self.labels(menu)), 25)
+
     async def test_wager_must_be_accepted_by_everyone_before_enter(self):
         companion = FakeCompanion()
         menu = PlayerMenu(companion)

@@ -15,6 +15,7 @@ from .companion import TeamError, BattleChallengeError, TradeError
 
 
 WAGER_CHOICES = (1_000, 5_000, 10_000, 25_000, 50_000, 100_000)
+LABEL_CHARACTERS = 25  # a menu row's label: menu_mailbox packs 26 bytes, NUL-terminated
 GYM_LEADERS = {1: "Roxanne", 2: "Brawly", 3: "Wattson", 4: "Flannery", 5: "Norman",
                6: "Winona", 7: "Tate&Liza", 8: "Juan"}
 _OPEN_BATTLE_STATES = ("invited", "accepted", "prepared")
@@ -554,7 +555,11 @@ class PlayerMenu:
                     friend = self._friends.get(player)
                     label = self._name(player)
                     if friend is not None:
-                        label = f"{label[:13]} - {friend['name'].split()[0]}"
+                        # The level's first word after the name, in the row's 25
+                        # characters: a name is cut only where both cannot fit, so
+                        # names that differ after their 13th character stay apart.
+                        level = friend["name"].split()[0]
+                        label = f"{label[:LABEL_CHARACTERS - 3 - len(level)]} - {level}"
                     actions.append((label, "player", (player,)))
             if self._team is not None:
                 actions.append(("Team invitation" if self._team["invitations"] else "Your team", "team", ()))
