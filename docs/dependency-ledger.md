@@ -238,6 +238,8 @@ Project-owned native files (no third-party code): `agb_flash_pc.c`, `siirtc_pc.c
 | python3-tk | Ubuntu package | Runs the launcher GUI tests |
 | Wine | Ubuntu 24.04 `wine32:i386` and `wine64` 9.0~repack-4build3 (LGPL-2.1-or-later) | Runs the Windows game exe in the proofs (one prefix per player) and, since 2026-10-10, the Windows Python that builds the launcher package; nothing from Wine is bundled |
 | xdotool, Xvfb | Ubuntu `xdotool` 3.20160805.1, `xvfb` 21.1.12 | Ordinary key presses and window focus on private X displays in the game proofs |
+| openbox | Ubuntu `openbox` 3.6.1-12build5 (GPL-2.0-or-later; tool only) | A window manager on the private X displays, so borderless and exclusive fullscreen can be exercised (2026-10-10, resolution work); nothing is bundled |
+| ImageMagick (`import`, `convert`) | Ubuntu `imagemagick-6.q16` 6.9.12.98 (ImageMagick license; tool only) | Screenshots of the private X displays and their downscaled copies; nothing is bundled |
 
 ### Launcher package built under Wine (recorded 2026-10-10)
 

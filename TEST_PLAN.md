@@ -465,11 +465,43 @@ scene's cells (0).
 (KNOWN_ISSUES V2); `test_compile_rules` (about 9 minutes, 3.3 GB RAM; run it alone)
 runs 23 tests, one fails (KNOWN_ISSUES V4).
 
-Benchmark scene (planned): repeatable scene at 1920x1080 measuring average FPS,
-frame-time distribution, 1% low, CPU frame time, GPU time where measurable, RAM, draw
-calls and entity counts. Real hardware specs and measured numbers only; nothing is
-reported until it runs. RenderDoc capture is set up once the renderer is stable.
-`PKMN_PERF_LOG=1` (frame rates every 5 s) is the first piece.
+Benchmark (since graphics `graphics-wip-20261010-5`): `pokeemerald-mp-diorama --save
+<outdoor save> --benchmark [seconds]` boots and Continues by itself, then measures the
+3D view at 1280x720, 1920x1080, 2560x1440 and 3840x2160 (VSync off, the player's
+quality, 3 s warm-up, 15 s each by default) and writes `benchmark.log` (average fps,
+1% low, median/99th/worst frame time, 3D frame count, GPU, CPU, RAM, display). Pass
+when every measured frame is 3D. Real hardware numbers only from the owner's PC; the
+cloud computer's are labelled software (llvmpipe). `PKMN_PERF_LOG=1` still logs frame
+rates every 5 s. RenderDoc capture is set up once a real GPU run is available.
+
+### 7a. Resolution and display (graphics `graphics-wip-20261010-5`)
+
+Unit: `make -f Makefile_pc NATIVE_LINUX=1 check-native` builds and runs
+`tools/pc_port/tests/test_display_settings.c` (139 checks: resolutions, modes,
+presets, settings file keys and older files, window fitting, pixel scales, the F10
+menu's confirmation, the benchmark's boot and statistics). Launcher: `pytest
+tests/test_game_display_settings.py tests/test_launcher_gui.py`.
+
+By hand (Xvfb, `xdotool`; openbox for the fullscreen kinds; then the Windows exe
+under Wine), each with a copy of an outdoor save:
+
+1. A fresh folder starts windowed at 1920x1080 (or the largest 16:9 window the
+   display fits, logged).
+2. F10 opens the menu (sharp at a whole scale); Left/Right on Resolution shows the
+   new size with the keep/undo box; Esc and the 15 s timeout undo it; Enter keeps it
+   and `pokeemerald.cfg` gets `resolution=`. No `windowScale=` unless kept.
+3. Display mode: borderless and exclusive fullscreen under a window manager; F11.
+4. Pixel art: the 240x160 picture at 4x/6x/8x/12x (whole steps; check edges with
+   `convert` crops).
+5. Show frame rate: the corner readout; kept in the settings file.
+6. `--benchmark 5`: `benchmark.log` with every frame 3D.
+7. Regression: `native_checkpoint_proof.py --slow 1.5 --recover` with the 3D build.
+8. 3D battles (only with the battle branch merged or on a trial merge): walk into
+   the wild Pokemon of `battle-test.sav` at 1280x720, 1920x1080, 2560x1440 and
+   3840x2160; world, sprites, health box and text box aligned.
+
+Result 2026-10-10: all pass (Linux and Wine for 1, 2, 5, 6; Linux for 3, 4, 7, 8).
+Not testable here: Windows display scaling and several displays (KNOWN_ISSUES V14).
 
 ## 8. CI
 

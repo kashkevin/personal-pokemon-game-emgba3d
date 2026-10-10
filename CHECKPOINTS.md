@@ -23,8 +23,10 @@ owner's PC (never in Git, never public). Each folder has a README with restore s
 While native-port changes are `PORTABLE`-only, the GBA ROM must stay identical to
 the baseline: `pokedev.gba` sha256
 `f214735b64e113fd10730eacca5764d757f2c93a3685230aa905af7a7cdd3387`. Last confirmed
-on 2026-10-10 for engine `1579e7fd8` (`claude/native-pc`, with the crash fixes of the
-battle branch) and `edd1f5105` (`claude/native-graphics`); before that for
+on 2026-10-10 for engine `b86ea813a` (`claude/native-graphics` with the resolution
+work, `pokeemerald.gba` rebuilt from it); before that for `1579e7fd8`
+(`claude/native-pc`, with the crash fixes of the battle branch) and `edd1f5105`
+(`claude/native-graphics`); before that for
 `edb755a26`, `8920f1f67`, `b752d8e48` (`claude/battle-3d`) and `732fbef43`
 (`claude/battle-3d-integration`, which contains `3e39f2b15`); re-check before every
 native checkpoint.
