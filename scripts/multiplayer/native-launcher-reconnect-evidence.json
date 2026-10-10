@@ -1,0 +1,62 @@
+{
+  "scope": "The launcher's disconnect and reconnect with native games (the owner's rule: if the host is lost, everyone saves and disconnects). Two players through the whole launcher (real LauncherWindow, SessionWorker and LauncherSession, a native runtime bundle, production world creation, host enrollment and invitation): both Continue into Littleroot Town and see each other; both walk two steps and save through the launcher (revision 2); the friend walks two more steps without saving; the host's game closes normally, which ends the host's session and world server; the friend's launcher keeps the running game's unsaved progress locally (host_loss_preserved) and allows closing; the friend's game closes normally; the host starts again (revision 2); the friend joins again and its kept progress becomes its next canonical save (revision 3): the game continues exactly where the friend stood; both see each other again, save (host 3, friend 4), close normally; the host store passes its integrity check; source saves unchanged. Ordinary key presses on each player's own X display; direction keys are checked step by step against the game's reported position; the harness reads the games' memory only to see what is on screen and compare parties.",
+  "build_id": "f214735b64e113fd10730eacca5764d757f2c93a3685230aa905af7a7cdd3387",
+  "runs": [
+    {
+      "run": "native-launcher-reconnect-1",
+      "clients": "Linux i386 native client x2 (engine claude/native-pc 34ddb17a6: the five crash fixes from the 3D battle branch), started by the launcher's session workers",
+      "game_sha256": "a6c2a32a7617250192d16c72224832154a2cde4c4674ab711e2068c1003cf460",
+      "bundle_manifest_sha256": "e41fbad163b6b6080d80207aba1e26a32d0e044aa813aafc2e48602e93f3f583",
+      "evidence_sha256": "5a366516c505d65c3bc6331098ca1194048c02165fe06424913f77c38146eec2",
+      "passed": true,
+      "checks": [
+        "host enrollment closed each bootstrap game itself (exit 0), revision 1 for both",
+        "both games in the field at revision 1; each companion's roster lists both players",
+        "both walked two steps and saved through the launcher (revision 2)",
+        "the friend walked two more steps without saving (Littleroot 11,17)",
+        "the host's game closed normally (exit 0): host session and world server gone",
+        "the friend's launcher kept the unsaved progress locally in 1.5 s (host_loss_preserved; pending-emergency.json and pending-export.json; closing allowed); the friend's game kept running until closed",
+        "the friend's game closed normally (exit 0)",
+        "the host started again at revision 2, where it had saved",
+        "the friend joined again at revision 3, standing at 11,17 where it had walked without saving; both rosters list both players",
+        "both saved again (host 3, friend 4); canonical parties unchanged; running parties equal them",
+        "both closed normally (exit 0); host store integrity check passed; source saves unchanged"
+      ],
+      "kept_progress_seconds": 1.5,
+      "run_minutes": 4.7,
+      "key_presses": 30,
+      "forced_children": 0,
+      "harness": "scripts/multiplayer/native_launcher_reconnect_proof.py at app commit 627c5ef"
+    },
+    {
+      "run": "native-launcher-reconnect-wine-2",
+      "clients": "Windows 2D exe x2 under Wine 9.0, one prefix each (engine claude/native-pc 34ddb17a6: the five crash fixes and XInput loaded at run time), started by the launcher's session workers",
+      "game_sha256": "283b8f01b57a3eb8a8650195b59a966029fb251d8b3c4202e4920cba4c71964a",
+      "bundle_manifest_sha256": "b1db4f5b1828e485c2247e2e2dc590f9a462e5ae87f719a42115a86c95e175e7",
+      "evidence_sha256": "25e65ba8cdc942710679b5e26c9370f919475f2300a31c0a6a626aa5bc169348",
+      "passed": true,
+      "checks": [
+        "the same checks as native-launcher-reconnect-1; games closed with Alt+F4 (exit 0); enrollment's bootstrap games ended by the launcher's terminate (-15 under Wine)"
+      ],
+      "kept_progress_seconds": 4.0,
+      "run_minutes": 5.2,
+      "key_presses": 29,
+      "key_hold_seconds": 0.5,
+      "forced_children": 0,
+      "harness": "scripts/multiplayer/native_launcher_reconnect_proof.py with the field wait (settle) of the next app commit"
+    }
+  ],
+  "failed_runs": [
+    {
+      "run": "native-launcher-reconnect-wine-1",
+      "result": "failed after both saved (revision 2), before the friend's unsaved steps",
+      "cause": "harness: the game's one-time style hint banner ('Make your own TRAINER look', shown after 12 s in the field) was up, so the field reported busy and the walk refused to start. Fixed: before every step the harness waits for the field to come back by itself (and runs from a wild battle if one starts)."
+    }
+  ],
+  "not_covered": [
+    "a network drop with the host still running (only the host closing was used); the companion does not reconnect by itself after a loss: the player closes the game and joins again, as the launcher says",
+    "a host loss during a battle or a trade (separate recovery paths)",
+    "the 3D build (a 2D game was used); separate PCs, Wi-Fi or Internet",
+    "physical keyboard or controller input and clicks on the launcher window"
+  ]
+}

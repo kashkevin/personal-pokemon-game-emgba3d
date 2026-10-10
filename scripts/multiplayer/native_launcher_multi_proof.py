@@ -86,11 +86,27 @@ def where(companion):
     return None if pose is None else (pose.map_group, pose.map_number, pose.x, pose.y, pose.activity)
 
 
+async def settle(probe, companion, slot, seconds=45):
+    """Back to a field the player controls: a notice banner or the map's name ends by
+    itself; a wild Pokemon that walked up and started a battle is run from."""
+    deadline = time.monotonic() + seconds
+    while True:
+        now = where(companion)
+        if now is not None and now[4] == 1:
+            return now
+        if probe.in_choose_action():
+            await probe.run_from_wild_battle(lambda: (where(companion) or (0,) * 5)[4] == 1)
+            probe.record("ran-from-a-wild-battle", slot=slot, during="walk", position=list((now or (0,) * 5)[:4]))
+            continue
+        require(time.monotonic() < deadline, f"the field did not come back: {now}")
+        await asyncio.sleep(.1)
+
+
 async def step(probe, companion, key, slot):
     """An ordinary key press toward the next tile, and the position afterwards. A press that
-    only turns the player is repeated; a wild Pokemon that walks up and starts a battle is
-    run from (the caller then walks on from wherever the player stands)."""
-    start = where(companion)
+    only turns the player is repeated; when the field is busy (a notice, a wild battle) the
+    player waits or runs, and the caller walks on from wherever the player stands."""
+    start = await settle(probe, companion, slot)
     for _ in range(8):
         await probe.press(key, frames=8, release=1)
         deadline = time.monotonic() + 1.5
@@ -98,13 +114,11 @@ async def step(probe, companion, key, slot):
             await asyncio.sleep(.05)
             now = where(companion)
             require(now is not None, "no position while walking")
-            if now[4] != 1:
-                await probe.run_from_wild_battle(lambda: (where(companion) or (0,) * 5)[4] == 1)
-                probe.record("ran-from-a-wild-battle", slot=slot, during="walk", position=list(now[:4]))
-                return where(companion)
             if now[:4] != start[:4]:
                 await asyncio.sleep(.4)  # the step finishes
                 return now
+            if now[4] != 1:
+                return await settle(probe, companion, slot)
     raise AssertionError(f"could not step {KEY_NAMES[key]} from {start}")
 
 

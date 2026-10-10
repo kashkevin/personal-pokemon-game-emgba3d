@@ -43,7 +43,7 @@ import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "windows-runtime"))
 from native_launcher_battle_proof import LauncherHarness  # noqa: E402
-from native_launcher_multi_proof import RIGHT, walk_to, where  # noqa: E402
+from native_launcher_multi_proof import RIGHT, settle, walk_to, where  # noqa: E402
 from qualify_admission_cleanup import on_worker, require  # noqa: E402
 from qualify_launcher_session import inspect_closed_head  # noqa: E402
 from qualify_live_runtime import party  # noqa: E402
@@ -76,8 +76,9 @@ async def status(player):
 
 
 async def walk_right(harness, player, steps):
-    here = where(player.companion)
-    require(here is not None and here[:2] == LITTLEROOT and here[4] == 1, f"not in Littleroot's field: {here}")
+    # A notice banner (the style hint after 12 s in the field) pauses the field briefly.
+    here = await settle(player.probe, player.companion, player.slot)
+    require(here[:2] == LITTLEROOT, f"not in Littleroot: {here}")
     await walk_to(player.probe, player.companion, player.slot, LITTLEROOT, here[2] + steps, here[3], steps + 4)
     return where(player.companion)[:4]
 
