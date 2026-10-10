@@ -1105,7 +1105,8 @@ class LauncherWindow:
         native = bool(installation is not None and installation.bundle.is_native())
         keys = (("Default keyboard controls (PC game, no emulator)\n"
             "Arrows: move · Z: A/confirm · X: B/back\nEnter: Start/menu · Backslash (\\): Select · A/S: L/R\n"
-            "F11: fullscreen · F4: 3D or classic view · F7: camera · F8: trees · mouse wheel or -/=: zoom · comma/period: tilt\n"
+            "F10: display & graphics settings (resolution, display mode, quality) · F11: fullscreen\n"
+            "F4: 3D or classic view · F7: camera · F8: trees · mouse wheel or -/=: zoom · comma/period: tilt\n"
             "Ctrl+R: the A+B+Select+Start chord (Local Soft Reset only, see below). Click the game window before using the keyboard.\n\n")
             if native else ("Default keyboard controls\n"
             "Arrows: move · X: A/confirm · Z: B/back\nEnter: Start/menu · Backspace: Select · A/S: L/R\n"
@@ -1130,6 +1131,10 @@ class LauncherWindow:
             tabs.add(container, text=title)
             page = scrollable_frame(container)
             ttk.Label(page, text=text, wraplength=570, justify="left").pack(anchor="w")
+        if native:
+            container = ttk.Frame(tabs)
+            tabs.add(container, text="Game display")
+            self._game_display_page(scrollable_frame(container))
         options = ttk.Frame(body)
         options.pack(fill="x", pady=(10, 0))
         ttk.Label(options, text="Launcher text size").pack(side="left")
@@ -1142,6 +1147,59 @@ class LauncherWindow:
         choice.bind("<<ComboboxSelected>>", selected)
         ttk.Label(body, textvariable=feedback).pack(anchor="w")
         ttk.Button(body, text="Close", command=help_window.destroy).pack(anchor="e", pady=(12, 0))
+
+    def _game_display_page(self, page):
+        """The native game's resolution, display mode and quality (game-settings.cfg;
+        F10 in the game changes the same settings while playing)."""
+        import tkinter as tk
+        from tkinter import ttk
+        from .game_display_settings import (MODE_LABELS, QUALITY_LABELS, QUALITIES, RESOLUTION_LABELS,
+                                            RESOLUTIONS, read_display_settings, write_display_settings)
+        from .player_runtime import SETTINGS_NAME
+        private = getattr(self.worker, "private_root", None)
+        path = Path(private) / SETTINGS_NAME if private is not None else None
+        try:
+            current = read_display_settings(path) if path is not None else None
+        except (OSError, ValueError):
+            current = None
+        ttk.Label(page, text=("The 3D view is drawn at the resolution chosen here; menus and text boxes "
+                              "stay sharp pixel art at any size. Used the next time the game starts. While "
+                              "playing, F10 opens the same settings in the game."), wraplength=570,
+                  justify="left").pack(anchor="w", pady=(0, 10))
+        if current is None:
+            ttk.Label(page, text="The game settings file cannot be read here.").pack(anchor="w")
+            return
+        resolutions = list(RESOLUTIONS) + ([current["resolution"]] if current["resolution"] not in RESOLUTIONS else [])
+        qualities = list(QUALITIES) + (["custom"] if current["quality"] == "custom" else [])
+        rows = (("Resolution", resolutions, RESOLUTION_LABELS, current["resolution"]),
+                ("Display mode", list(MODE_LABELS), MODE_LABELS, current["mode"]),
+                ("Graphics quality", qualities, QUALITY_LABELS, current["quality"]))
+        choices = {}
+        grid = ttk.Frame(page)
+        grid.pack(anchor="w")
+        for row, (label, keys, labels, value) in enumerate(rows):
+            ttk.Label(grid, text=label).grid(row=row, column=0, sticky="w", padx=(0, 12), pady=4)
+            shown = [labels.get(key, key.replace("x", " x ")) for key in keys]
+            variable = tk.StringVar(value=shown[keys.index(value)])
+            ttk.Combobox(grid, textvariable=variable, values=shown, state="readonly", width=40).grid(
+                row=row, column=1, sticky="w", pady=4)
+            choices[label] = (variable, keys, shown)
+        feedback = tk.StringVar()
+
+        def save():
+            if self.worker is None or self.worker.busy:
+                feedback.set("Close the game first: it keeps these settings in the same file while it runs.")
+                return
+            picked = {label: keys[shown.index(variable.get())] for label, (variable, keys, shown) in choices.items()}
+            try:
+                write_display_settings(path, resolution=picked["Resolution"], mode=picked["Display mode"],
+                                       quality=picked["Graphics quality"])
+            except (OSError, ValueError):
+                feedback.set("The game settings file could not be written; nothing changed.")
+                return
+            feedback.set("Saved. The game uses these the next time it starts.")
+        ttk.Button(page, text="Save display settings", command=save).pack(anchor="w", pady=(10, 4))
+        ttk.Label(page, textvariable=feedback, wraplength=570, justify="left").pack(anchor="w")
 
     def open_setup(self):
         if self.worker is None or self.worker.busy or self.setup_window is not None:
@@ -1389,9 +1447,26 @@ class LauncherWindow:
         self._poll_id = self.root.after(80, self.poll)
 
 
+def windows_dpi_awareness():
+    """Sharp launcher text on high-DPI Windows displays: without it Windows draws
+    the window at 96 DPI and stretches it (blurred) at 125-200% scaling. Before
+    any window exists; nothing to do elsewhere or if already set."""
+    if os.name != "nt":
+        return False
+    import ctypes
+    try:
+        return ctypes.windll.shcore.SetProcessDpiAwareness(1) == 0  # system DPI aware
+    except (AttributeError, OSError):
+        try:
+            return bool(ctypes.windll.user32.SetProcessDPIAware())
+        except (AttributeError, OSError):
+            return False
+
+
 def main(release=None, application_directory=None, import_release=None):
     """Packaged entry supplies compiled release pins; source launch is a preview."""
     import tkinter as tk
+    windows_dpi_awareness()
     root = tk.Tk()
     worker = None
     private_error = False
