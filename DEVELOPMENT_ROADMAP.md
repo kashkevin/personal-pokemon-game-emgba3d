@@ -225,6 +225,15 @@ The highest priority once the native engine (Milestone A) is stable. [dir]
   Linux and Windows (Wine), software GL only. Remaining, in the order of
   `docs/diorama-3ds-gap-analysis.md`: doors on models (V6), colour grade, cast sprite
   shadows, signposts, tree style, weather light, relief, 3D battle scenery.
+  3D battle scenery, 2026-10-10 (owner directive "INTEGRATE EMERALD 3DS BATTLE
+  GRAPHICS ONLY"): ported on engine branches `claude/battle-3d` and
+  `claude/battle-3d-integration` (the latter on graphics `3e39f2b15`), kept off
+  `claude/native-graphics` until the owner merges it (`docs/battle-3d.md`): wild,
+  trainer, double, Mega, catch, defeat, terrains and return to the field verified
+  on software GL (Linux, Windows under Wine). Open: multiplayer battles in 3D (after
+  C3), real-GPU frame rate (V3), the visual problems in `docs/battle-3d.md`. The
+  native crash fixes found on the way (KNOWN_ISSUES N26-N32) are candidates for
+  `claude/native-pc`.
 - [ ] D5 Keep previous working assets recoverable and the asset inventory current
   (source, creator, license, coverage, states, changes, missing art). Needs: D4.
   [vis] [spec]

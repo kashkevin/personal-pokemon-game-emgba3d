@@ -109,8 +109,16 @@ build (fallback) and the native PC build being migrated to. Requirements are in
     tilesets at build time (classifying each metatile: ground, cliff, ledge, water,
     building part, tree, ...); objects are camera-facing sprites with shadows.
   * *Compositing*: the 2D GBA frame (text boxes, menus, map-name popup, battles) is
-    drawn over or instead of the 3D view; battles and full-screen menus stay 2D. F4
-    switches to the classic 2D view at any time.
+    drawn over or instead of the 3D view; full-screen menus stay 2D. F4 switches to
+    the classic 2D view at any time.
+  * *3D battles* (engine branch `claude/battle-3d-integration`, the 3DS project's
+    battle scene; `docs/battle-3d.md`): the battle's GBA picture is drawn with its
+    scenery layer see-through (the GBA's own blending kept per pixel) over the map
+    the field last showed, seen from a battle camera that glides down from the
+    field's view; a battle transition plays over the 3D field. The stage search
+    picks the spot from the scene's cells. It only reads the battle (frame
+    boundary, game thread parked) and decides nothing in it, so link and
+    multiplayer battles are unaffected by it. On the other branches battles stay 2D.
   * *Pacing*: one presented frame per loop; when a frame takes longer than about 83
     ms (below 12 fps) the game advances one frame per presented frame, so a slow GPU
     slows the game instead of skipping input.

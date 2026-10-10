@@ -205,7 +205,7 @@ a real GPU draws it.
 | 3DS tree style (option: F8 in the game, kept in `pokeemerald.cfg`; `PKMN_DIORAMA_TREES=3ds` for one run) | Yes: Littleroot (day, wide, early morning), Dewford Town (its own small tree), Route 104; about 3-4 times the frame rate of the voxel trees on software GL; F8 swaps voxel and 3DS trees in place while playing (Route 104) | Not yet | Graphics `633be85c6`, switch `8750fd07b`; crowns 1.12x as bright as the 3DS loads them (`c405136a3`). Voxel trees stay the default until the owner picks. |
 | 3DS camera framing (option: F7 in the game, kept in `pokeemerald.cfg`; `PKMN_DIORAMA_CAMERA=3ds` for one run) | Yes: Route 104 (about 10 tiles top to bottom at the player, as on the GBA, against about 30 with the default); F7 switches while playing; the pitch and zoom keys' steps are kept between runs too (restart came back at the same zoom) | Not yet | Graphics `0ab8ee710`, switch `8750fd07b`: the 3DS project's 40 degree pitch and distance rule as a focal length; zoom keys still work. Wide view stays the default until the owner picks (KNOWN_ISSUES V8). |
 | Dark caves in 3D (the circle of light round the player) | Yes: Granite Cave B1F, wide and 3DS camera (dark but for an ellipse round the player the size of the GBA's circle; the start menu over the dark); Route 104 unchanged. Flash being used (the circle opening, its glow) not seen yet | Not yet | Graphics `3e39f2b15`, the 3DS project's `VoxelFlashLight`. Before it Granite Cave B1F/B2F and Victory Road B1F/B2F were fully lit in 3D. |
-| Other 3DS-project features (relief, camera menu entries; signposts compared and not ported) | Not started | Not started | Ordered list in `docs/diorama-3ds-gap-analysis.md`. 3D battle scenery is being done separately (owner, 2026-10-10). |
+| Other 3DS-project features (relief, camera menu entries; signposts compared and not ported) | Not started | Not started | Ordered list in `docs/diorama-3ds-gap-analysis.md`. 3D battle scenery: ported separately, see "3D battles" below. |
 | Scripted scenes, fades and night tint in 3D | Yes: a door warp, healing at the nurse, the warp's fades; trees follow the night tint and fades (V5 fixed) | Not yet | Before graphics `398d486ef` scripted scenes and fades cut to the 2D view. |
 | Follower in and out of its Poke Ball in 3D | Yes: walking off the Oldale Pokémon Center counter (V1 fixed) | Not yet | Graphics `8dda1e1be`: affine sprites drawn with their matrix. |
 | Dual screen removed / single screen | Yes (renderer is single-screen) | Yes | |
@@ -219,6 +219,26 @@ compositor goldens, rule validation, generated tables up to date); of the rule
 compiler's own Python tests 8 pass, `test_rules_parity` fails upstream as well
 (KNOWN_ISSUES V2), and `test_compile_rules` runs 23 tests with one failure
 (mountain cliff flags, KNOWN_ISSUES V4).
+
+### 3D battles (Milestone D, engine branch `claude/battle-3d-integration`)
+
+The Emerald 3DS project's battle scene on one screen, graphics only (owner directive
+2026-10-10); details, switches and remaining visual problems in `docs/battle-3d.md`.
+Not merged into `claude/native-graphics` or `claude/native-pc`. Software OpenGL only.
+
+| Item | Linux | Windows (Wine) | Notes |
+| --- | --- | --- | --- |
+| Battle drawn in the 3D world (the map where it started, battle camera, glide from the field, contact shadows) | Yes: wild, trainer (May, Drake), double (Kate & Joy), catch, Mega Evolution, defeat | Yes: wild battle, a move, a Poké Ball from the Bag, Run | The battle's own picture (sprites, healthboxes, menus, animations, sounds) unchanged on top. |
+| Battle transition over the 3D field | Yes: wild (slices) and trainer (white bars) | Yes (wild) | The 3DS project's `RenderTransition`; `PKMN_DIORAMA_TRANSITION_2D=1` cuts to the flat picture as before. |
+| Shiny and Mega forms | Yes: shiny Gardevoir's sparkles, Mega Gardevoir in single and double battles | Not run | |
+| Items in battle | Yes: Poké Balls from the Bag and with the R quick-throw, a Potion through the party menu in a double battle | Yes: Poké Ball from the Bag | Crashed natively before engine `02d580fe1` (KNOWN_ISSUES N31). |
+| Terrain types (stage search) | Yes: grass, plain, sand (Route 109 beach), water (surfing), cave (Granite Cave 1F, B1F dark), town (Oldale), gym (Rustboro) | Route 101 | KNOWN_ISSUES V10 (stage a few tiles away; cramped rooms). |
+| With the newest overworld's looks (graphics `3e39f2b15`) | Yes: voxel and 3DS trees (F8) in the battle's world, wide and 3DS camera (F7) before the glide, dark cave (battle lit as on the GBA), field back in 3D afterwards | Voxel trees, wide camera | The stage search sees both tree styles (V12 fixed). |
+| F4 during a battle | Yes: to classic and back; into 3D mid-battle (no glide) | Not run | |
+| Return to the field, save and reload | Yes after run, catch, win, double, defeat; saves made and reloaded by both 3D battle builds | Yes after Run | |
+| 1920x1080 window | Yes: battle picture 6x at the bottom centre, the world round it; 60 game frames a second in the battle on software GL (the glide about 2) | Not run | |
+| Multiplayer battles in 3D | Not run (native battle transport is Milestone C3) | Not run | The 3D view only reads the battle; it decides nothing in it. |
+| Frame rate | Battle: 60 game frames a second at about 200 presented (world copied while the camera stands still); the glide at the field's rate | Battle about 60 | Real GPU unmeasured (V3). |
 
 ## Decision pending - owner to confirm: personal vs shared wild spawns
 
