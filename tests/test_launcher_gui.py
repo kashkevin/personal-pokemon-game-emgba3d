@@ -331,6 +331,34 @@ class WidgetTests(unittest.TestCase):
                 self.assertLessEqual(widget.winfo_rootx() + widget.winfo_width(), left + width, str(widget))
                 self.assertLessEqual(widget.winfo_rooty() + widget.winfo_height(), top + height, str(widget))
 
+    def test_help_names_the_native_game_keys_for_a_native_runtime(self):
+        import tkinter as tk
+        from types import SimpleNamespace
+
+        def help_text(native):
+            window = LauncherWindow(self.root)
+            bundle = SimpleNamespace(is_native=lambda: native)
+            window.worker = SimpleNamespace(installation=SimpleNamespace(bundle=bundle), importer=None)
+            before = set(self.root.winfo_children())
+            window.show_help()
+            texts = []
+            def walk(widget):
+                try:
+                    texts.append(str(widget.cget("text")))
+                except tk.TclError:
+                    pass
+                for child in widget.winfo_children():
+                    walk(child)
+            for child in set(self.root.winfo_children()) - before:
+                walk(child)
+                child.destroy()
+            return "\n".join(texts)
+        native = help_text(True)
+        self.assertIn("Z: A/confirm", native)
+        self.assertIn("F7: camera", native)
+        self.assertNotIn("mGBA", native)
+        self.assertIn("mGBA", help_text(False))
+
     def test_preview_disables_play_without_release(self):
         window = LauncherWindow(self.root)
         self.root.update_idletasks()

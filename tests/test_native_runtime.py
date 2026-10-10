@@ -68,6 +68,12 @@ class NativeBundleTests(unittest.TestCase):
         self.assertEqual(executable, self.root / "pokeemerald-mp.exe")
         self.assertEqual(bridge, NativeGame(self.rom))
 
+    def test_is_native_reads_the_record_for_display_only(self):
+        self.assertTrue(write_native_bundle(self.root, self.rom).is_native())
+        self.assertFalse(RuntimeBundle(self.root / "missing", "00" * 32).is_native())
+        (self.root / "runtime.json").write_text(json.dumps(dict(format="emerald-windows-runtime-v1")))
+        self.assertFalse(RuntimeBundle(self.root, "00" * 32).is_native())
+
     def test_lua_bridge_never_part_of_a_native_bundle(self):
         (self.root / "bridge.lua").write_text("-- not for the native game\n")
         with self.assertRaisesRegex(PlayerRuntimeError, "bounded format"):

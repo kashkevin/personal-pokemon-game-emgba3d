@@ -108,6 +108,15 @@ class RuntimeBundle:
     directory: Path
     manifest_sha256: str
 
+    def is_native(self):
+        """Display only (help text, labels): whether runtime.json names the native PC game.
+        Every launch still runs verify(), which decides what may start."""
+        try:
+            raw = _read(Path(self.directory) / "runtime.json", 16384)
+            return json.loads(raw).get("format") == _NATIVE_RUNTIME
+        except (OSError, ValueError, AttributeError, PlayerRuntimeError):
+            return False
+
     def verify(self):
         """Recheck the pinned bundle immediately before each process launch."""
         if not isinstance(self.manifest_sha256, str) or not _HASH.fullmatch(self.manifest_sha256):

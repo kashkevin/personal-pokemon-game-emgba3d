@@ -93,6 +93,13 @@ def build(args):
     audit_files(args.runtime / name for name in runtime_manifest["files"])
     game_manifest = json.loads(bounded_bytes(args.manifest, 131072))
     development = getattr(args, "development_preview", False)
+    # The native PC game (collect_native_bundle.py) replaces mGBA and its Lua
+    # bridge. Production gates still need the isolated trade replay worker, which
+    # today runs a headless mGBA core (roadmap B4), so a native package is a
+    # private development preview until a native replay exists.
+    native = runtime_manifest.get("format") == "emerald-native-runtime-v1"
+    if native and not development:
+        raise ValueError("a native-game package is a --development-preview until the native trade replay worker exists")
     if not development:
         from emerald_multiplayer.player_build import require_production_player_build
         from emerald_multiplayer.reset_catalogue import require_production_reset_manifest
@@ -178,6 +185,7 @@ def build(args):
         guide_hashes[name] = sha(source)
         pinned_copy(source, resources / name, guide_hashes[name])
     provenance = dict(format="emerald-launcher-private-package-v1", version=release.version,
+        runtime_format=runtime_manifest.get("format"), game_executable=runtime_manifest.get("executable"),
         python=sys.version, dependencies=versions, rom_sha256=release.rom_sha256,
         manifest_sha256=release.manifest_sha256, runtime_sha256=release.runtime_sha256,
         import_enabled=import_release is not None, development_preview=development, source_sha256=source_hashes,
@@ -192,6 +200,8 @@ def build(args):
         "Emerald Together - " + release.version + "\n\n"
         + ("Private development preview: " if development else "Importable private release candidate: ")
         + "Host Game / Join Game, local character setup,\n"
+        + ("The game is the native PC game " + runtime_manifest["executable"] + " (no emulator, no\n"
+           "mGBA): it contains game data, so this package is for your own PC only.\n" if native else "")
         "autosave every 5 minutes (on by default), and launcher Save now.\n"
         "Your character's autosave toggle is remembered on this PC.\n"
         "Read QUICK-START.txt and RELEASE-LIMITS.txt before playing.\n"

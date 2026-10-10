@@ -1101,9 +1101,16 @@ class LauncherWindow:
         from .launcher_display import scrollable_frame
         tabs = ttk.Notebook(body)
         tabs.pack(fill="both", expand=True)
-        topics = (("Controls", ("Default keyboard controls\n"
+        installation = getattr(self.worker, "installation", None)
+        native = bool(installation is not None and installation.bundle.is_native())
+        keys = (("Default keyboard controls (PC game, no emulator)\n"
+            "Arrows: move · Z: A/confirm · X: B/back\nEnter: Start/menu · Backslash (\\): Select · A/S: L/R\n"
+            "F11: fullscreen · F4: 3D or classic view · F7: camera · F8: trees · mouse wheel or -/=: zoom · comma/period: tilt\n"
+            "Ctrl+R: the A+B+Select+Start chord (Local Soft Reset only, see below). Click the game window before using the keyboard.\n\n")
+            if native else ("Default keyboard controls\n"
             "Arrows: move · X: A/confirm · Z: B/back\nEnter: Start/menu · Backspace: Select · A/S: L/R\n"
-            "Click the game window before using the keyboard. Existing custom mGBA mappings may override these defaults.\n\n"
+            "Click the game window before using the keyboard. Existing custom mGBA mappings may override these defaults.\n\n"))
+        topics = (("Controls", (keys +
             "Local Soft Reset\n"
             "For a supported personal encounter, use Select before your first action. The classic A+B+Select+Start combination works only in a compatible enabled build. Confirming resets that eligible encounter; it does not restart the game or reset other players. Wild encounters and shared events are excluded.\n\n"
             "Launcher keyboard access\nTab / Shift+Tab move between controls; Space activates a focused button. F1 opens this help. Ctrl++ / Ctrl+- change launcher text size; Ctrl+0 restores Standard. A focused page scrollbar/canvas supports Page Up, Page Down, Home and End. These launcher shortcuts do not remap the game.")),
