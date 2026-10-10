@@ -471,6 +471,7 @@ class LauncherHarness:
                              expected_party_counts=list(party_counts), settings=settings, environment=environment,
                              save_failures=[])
         self.workers, self.windows, self.roots, self.children = [], [], [], []
+        self.started = time.monotonic()
         self.private = output / "private"
         self.completed = False
         self.host = None
@@ -525,8 +526,12 @@ class LauncherHarness:
         harness = self
 
         def recorded_fail_save(session, *values, **options):
+            checks = harness.evidence["checks"]
             harness.evidence["save_failures"].append(dict(
                 status=getattr(getattr(session, "status", None), "code", None), exception=repr(sys.exc_info()[1]),
+                # When: seconds into the proof and the last check recorded before it.
+                seconds=round(time.monotonic() - harness.started, 1),
+                after_check=checks[-1]["verified"] if checks else None,
                 stack=traceback.format_stack(limit=12)[:-1]))
             harness.persist()
             return original(session, *values, **options)
@@ -576,6 +581,7 @@ class LauncherHarness:
     async def boot_until_field(self, companion, game_process, slot):
         probe = NativeProbe(game_process.pid, self.symbols, self.args.display[slot], self.record, hold=self.hold,
                             gap=self.gap, choose_action=self.choose_action)
+        probe.output = self.output  # for pictures taken when a step fails
         await probe.boot(self.args.slow)
         for _ in range(20):
             pose = companion._local_pose

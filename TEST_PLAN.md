@@ -386,12 +386,17 @@ reconnect by itself after a loss; the player closes the game and joins again, as
 launcher says), a host loss during a battle or a trade, the 3D build, separate PCs.
 
 Four players, 2v2 with full parties (`native_launcher_multi_proof.py`: `--source` and
-`--display` four times each): not passed yet. The
-attempts multi-1..8 stopped on the harness (wild battles in the Route 101 grass, the
-walk to the meeting spots, CPU with four games on two cores, KNOWN_ISSUES M6's name
-truncation, which was a product bug and is fixed); the last run was paused by the
-owner's new priorities at 351 routed battle blocks with no failure. Native 2v2 is
-not marked working until a run passes.
+`--display` four times each, `--match-seconds 12000`): each source walks out of
+Route 101's grass into Littleroot and is enrolled; four launchers start their games;
+two duos form from the Players menu; the host challenges, the three others accept,
+all four enter; default moves and forced switches to the end; the same durable
+result for all four, full parties back, result screens, saves, normal close, fresh
+Continue (`scripts/multiplayer/native-launcher-multi-evidence.json`).
+
+| Run | Clients | Result |
+| --- | --- | --- |
+| native-launcher-multi-1..9 | 4 Linux | Failed on the harness (timeouts, walks out of the grass, CPU with four games on two cores, a busy field during an enrollment walk) or on KNOWN_ISSUES M6 (fixed); multi-8 was stopped on purpose at 351 blocks with no failure |
+| native-launcher-multi-10 | 4 Linux, engine `1579e7fd8` | Pass in 152 min: 5545 routed blocks in 8391.6 s, seventeen party selections (three trainers sent out their sixth Pokemon, the host its second), team 1 won for all four, results screens, revision 2 for all four, normal close (exit 0 x4) twice, fresh Continue; 48316 key presses, no forced cleanup |
 
 The Windows launcher package with a native runtime (no Windows computer here, so
 under Wine with a Windows Python; `docs/dependency-ledger.md` lists the exact
