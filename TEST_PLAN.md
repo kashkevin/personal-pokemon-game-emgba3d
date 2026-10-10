@@ -137,6 +137,9 @@ UTC gives midday); Wine follows it too.
 | Sun shadows by day outdoors, fainter at night, none indoors; a sprite darkens as a whole in a building's shadow | Pass (screenshots; midday via `TZ`) | Day outdoors and none indoors: pass |
 | No model drawn past the edge of the scene | Pass (Oldale Town, after `65f44c42e`) | Not looked for |
 | Frame rate (llvmpipe, standing still) | Route 101 3-6 fps; Oldale Town 7.1 fps (7.6 shadows off); Pokémon Center about 44 fps | Oldale Town about 5 fps |
+| F7 camera framing and F8 tree style while playing; `pokeemerald.cfg` keeps them and the zoom steps; `PKMN_DIORAMA_CAMERA` overrides one run without writing the file | Pass (Route 104, graphics `8750fd07b`) | Not run |
+| A dark cave needing Flash: dark but for the circle round the player; menus over the dark; normal maps unchanged | Pass (Granite Cave B1F, debug-menu test save, wide and 3DS camera; Route 104; graphics `3e39f2b15`) | Not run |
+| Flash used in a dark cave: the circle opens, Flash's glow | Not run | Not run |
 
 UBSan reports now come only from real findings; a false positive from the engine's
 `if_comptime` trick is avoided in the sanitizer build (`NATIVE_SANITIZE`).
@@ -261,7 +264,8 @@ on all 18,318 logical metatiles of the 75 Emerald tilesets, validates the rule
 sources and checks the generated tables are current. Result 2026-10-09: pass (again
 after the D4 buildings, shadows and sprite-occlusion work); 2026-10-10: pass after the
 weather light (graphics `23ad56924`) and after the dapples, dust, rays and bloom
-(`8920f1f67`).
+(`8920f1f67`); again after the F7/F8 switches (`8750fd07b`) and the dark caves'
+light (`3e39f2b15`).
 
 Light checks done by hand (screenshots, 2026-10-10): `PKMN_DIORAMA_LIGHT=0` against
 the default in the Oldale Pokemon Center must be pixel-identical (it was: 0 pixels
