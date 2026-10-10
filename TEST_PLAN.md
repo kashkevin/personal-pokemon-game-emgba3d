@@ -239,6 +239,22 @@ Under Wine the games end by signal (exit code -15) and their saves are still
 intact, since the native build writes the save file at the frame after every Flash
 write.
 
+Trades between native clients through the Players menu (native_trade_menu_proof.py on
+the native build; the harness reads the games' memory at the unstripped Linux
+executable's symbols only to see the menus and compare parties):
+
+```sh
+PYTHONPATH=src:scripts/multiplayer python scripts/multiplayer/native_trade_proof.py \
+    --game ../engine/pokeemerald-mp --rom pokedev.gba --manifest manifest.json \
+    --save a.sav --save b.sav --display :98 --display :97 \
+    --output /private/multiplayer-proof/native-trade-N
+```
+
+| Run | Clients | Result |
+| --- | --- | --- |
+| native-trade-1..4 | 2 Linux, engine `9e1de660f` | Failed on the harness before the trade (this build's Player submenu has Style; the players list shows the friendship level; a Python error); each fixed in the script |
+| native-trade-5 | 2 Linux, engine `9e1de660f` | Pass: both offers shown, one confirmation commits nothing, trade applied in both games (43 s from the first confirmation), ownership conserved, parties in memory equal the canonical saves, backing out aborts, restart keeps both (`native-trade-evidence.json`) |
+
 The launcher's player runtime with the native game (Milestone B3):
 
 ```sh
