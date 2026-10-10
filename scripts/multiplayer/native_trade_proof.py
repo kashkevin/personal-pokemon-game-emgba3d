@@ -68,7 +68,10 @@ PE_IMAGE_BASE = 0x400000      # mingw's default; the header check below confirms
 
 
 def pe_symbols(exe: Path, elf: Path, names) -> dict[str, tuple[int, int]]:
-    """Addresses from the Windows executable, sizes from the Linux build of the same source."""
+    """Addresses from the Windows executable, sizes from the Linux build of the same source.
+
+    Data is read through these, so each data symbol's size must fit before the
+    PE's next symbol; a function's address is only compared with task pointers."""
     sizes = symbols_of(elf)
     rows = subprocess.run(["i686-w64-mingw32-nm", "-n", str(exe)], capture_output=True, text=True,
                           check=True).stdout
@@ -76,14 +79,15 @@ def pe_symbols(exe: Path, elf: Path, names) -> dict[str, tuple[int, int]]:
     for line in rows.splitlines():
         row = line.split()
         if len(row) == 3:
-            entries.append((int(row[0], 16), row[2][1:] if row[2].startswith("_") else row[2]))
+            entries.append((int(row[0], 16), row[1], row[2][1:] if row[2].startswith("_") else row[2]))
     symbols = {}
-    for n, (address, name) in enumerate(entries):
+    for n, (address, kind, name) in enumerate(entries):
         if name in names and name in sizes:
             size = sizes[name][1]
-            following = next((a for a, _ in entries[n + 1:] if a > address), None)
-            if following is not None and address + size > following:
-                raise ValueError(f"{name}: the Linux build's size does not fit the Windows layout")
+            if kind not in ("T", "t"):
+                following = next((a for a, _, _ in entries[n + 1:] if a > address), None)
+                if following is not None and address + size > following:
+                    raise ValueError(f"{name}: the Linux build's size does not fit the Windows layout")
             symbols[name] = (address, size)
     return symbols
 

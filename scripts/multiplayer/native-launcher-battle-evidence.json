@@ -1,5 +1,5 @@
 {
-  "scope": "The real launcher (LauncherWindow, SessionWorker, LauncherSession; host and join) with native games and no emulator: a native runtime bundle holding the Linux executable (under the bundle's .exe name, with a placeholder SDL2.dll; the launcher's own bundle and installation checks ran), production world creation, host enrollment of both legacy saves through bootstrap games that close themselves, the friend's invitation; both launchers start their games, which Continue into the overworld; the host opens Start > Player > Players, picks Battle Friend and Challenge 1v1; the friend opens Pending challenge and accepts; both press Enter battle; default moves until the battle ends, with the forced switch when the host's first Pokemon faints; both launchers report battle_finished with the original game processes, bridges and runtime identities; the durable result is the same for both; each player's full personal party is back in memory; each game's Players > Challenges > Recent battle results shows it; both save through the launcher (revision 2); both games close normally (exit 0); fresh launchers Continue onto the same canonical saves; the host store passes its integrity check; source saves unchanged. Ordinary key presses on each player's own X display; the harness reads the games' memory (/proc/PID/mem at the non-PIE executable's symbols) only to see menus, tasks and parties, never writes it.",
+  "scope": "The real launcher (LauncherWindow, SessionWorker, LauncherSession; host and join) with native games and no emulator: a native runtime bundle (the Windows exe and its SDL2.dll, run under Wine; or the Linux executable under the bundle's .exe name with a placeholder SDL2.dll; the launcher's own bundle and installation checks ran either way), production world creation, host enrollment of both legacy saves through bootstrap games that close themselves, the friend's invitation; both launchers start their games, which Continue into the overworld; the host opens Start > Player > Players, picks Battle Friend and Challenge 1v1; the friend opens Pending challenge and accepts; both press Enter battle; default moves until the battle ends, with the forced switch when the host's first Pokemon faints; both launchers report battle_finished with the original game processes, bridges and runtime identities; the durable result is the same for both; each player's full personal party is back in memory; each game's Players > Challenges > Recent battle results shows it; both save through the launcher (revision 2); both games close normally (exit 0: SIGTERM on Linux, Alt+F4 under Wine); fresh launchers Continue onto the same canonical saves; the host store passes its integrity check; source saves unchanged. Ordinary key presses on each player's own X display; the harness reads the games' memory (/proc/PID/mem at the non-PIE executable's symbols) only to see menus, tasks and parties, never writes it.",
   "build_id": "f214735b64e113fd10730eacca5764d757f2c93a3685230aa905af7a7cdd3387",
   "runs": [
     {
@@ -29,12 +29,59 @@
       "key_presses": 632,
       "forced_children": 0,
       "comparison": "The emulator qualifier wqb1 (docs/windows-menu-battle-proof.md: the same two/one-member parties and default-move policy, mGBA under Windows) also routed 362 blocks with the same forced switch, in 168.1 s.",
+      "harness": "scripts/multiplayer/native_launcher_battle_proof.py at app commit 4a9c181"
+    },
+    {
+      "run": "native-launcher-battle-wine-1",
+      "clients": "Windows 2D exe x2 under Wine 9.0, one prefix each (engine 9e1de660f), started by the launcher's session workers",
+      "game_sha256": "ebd05f02621a8fe7a7f5c0f045de89390f35fb58bd0f9367d0106c4c5d7c0d3a",
+      "bundle_manifest_sha256": "45b14b05516a6f63ec18274cceaf3e58eafc40ce6ca6d73570feda3369c9a068",
+      "symbol_sizes_from_linux_build_sha256": "d15cdfe95c8b71c2903044506a42ff7ec5ade11f303151601f752bd09311f377",
+      "evidence_sha256": "15572ee08369d994dec51f9dfd8d0b949b0eb7575e561be9b56bb6b106ff93f5",
+      "passed": true,
+      "checks": [
+        "host enrollment closed each bootstrap game itself (under Wine the launcher's terminate ends it with -15), revision 1 for both",
+        "host and friend launchers started their games; both reached the overworld with save, window, battle and menu capabilities, terminal savers armed, save leases held",
+        "challenge, acceptance and Enter battle through the Players menu on both games; both consent descriptors identical",
+        "battle ran to its end on the host's battle service: 362 routed blocks; the host's forced switch selected its second Pokemon",
+        "both launchers report battle_finished with the original game processes, runtime objects, bridges and runtime identities",
+        "no battle ownership or pending recovery intent left; fresh terminal savers armed",
+        "the durable result is the same for both players (1v1, team 1, the friend, won; sequence 1)",
+        "each player's full personal party restored in memory (party bytes equal those before the battle)",
+        "Recent battle results on each game matches the durable result ('Battle result', 'Team 1 won')",
+        "both saved through the launcher (revision 2); parties in memory equal the canonical characters",
+        "both games closed normally with Alt+F4, friend then host (exit codes 0, 0); save leases released",
+        "fresh launchers Continued onto the same canonical checkpoints (revision 2, same hashes as the saved mirrors)",
+        "host store integrity check passed; source saves unchanged"
+      ],
+      "routed_blocks": 362,
+      "battle_seconds_including_terminal_adoption": 188.9,
+      "key_presses": 478,
+      "key_hold_seconds": 0.5,
+      "forced_children": 0,
+      "comparison": "The same 362 blocks, forced switch and result (team 1, the friend) as native-launcher-battle-1 on Linux and the emulator qualifier wqb1.",
+      "harness": "scripts/multiplayer/native_launcher_battle_proof.py --wine, committed revision"
+    },
+    {
+      "run": "native-launcher-battle-2",
+      "clients": "Linux i386 native client x2 (engine 9e1de660f), started by the launcher's session workers",
+      "game_sha256": "d15cdfe95c8b71c2903044506a42ff7ec5ade11f303151601f752bd09311f377",
+      "bundle_manifest_sha256": "f0a1154ed736f117a93c2fe2fab39fa21fdde522b9588aad76bd2873409ccd93",
+      "evidence_sha256": "f83187afe662cfe8d8a30471277969f09ac0913452667ce2ea7b9e0391f72446",
+      "passed": true,
+      "checks": [
+        "the Linux path again with the harness revision that added --wine (visible-window search, Alt+F4 close under Wine only): the same checks, 362 routed blocks, the same forced switch and result"
+      ],
+      "routed_blocks": 362,
+      "battle_seconds_including_terminal_adoption": 193.2,
+      "key_presses": 678,
+      "forced_children": 0,
       "harness": "scripts/multiplayer/native_launcher_battle_proof.py, committed revision"
     }
   ],
   "failed_runs": [],
   "not_covered": [
-    "Windows clients (the 2D or 3D exe under Wine) and the 3D build",
+    "the 3D build (Linux or Windows)",
     "2v2, co-op Gym, wager and Championship battles",
     "an interrupted battle (host loss, disconnect, game closed mid-battle)",
     "physical keyboard or controller input and clicks on the launcher window (the harness calls the worker's start as the window's buttons do)",

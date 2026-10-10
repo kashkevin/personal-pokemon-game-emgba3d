@@ -130,10 +130,10 @@ All of the project's gameplay code runs in the native build. [dir]
   another ROM build before recovery. Proved through `PlayerRuntime` under Wine
   (`native-launcher-evidence.json`), and through the whole launcher (`LauncherWindow`,
   `SessionWorker`, `LauncherSession`, host and join, with world creation, host
-  enrollment and the friend's invitation) with two Linux games and a 1v1 battle
-  (`native-launcher-battle-evidence.json`). Still to do: the launcher window with the
-  Windows exe from a native release (application folder and release record), the 3D
-  exe through the launcher,
+  enrollment and the friend's invitation) with a 1v1 battle, both with two Linux games
+  and with two Windows exes under Wine (`native-launcher-battle-evidence.json`). Still
+  to do: the launcher on Windows itself with a native release (application folder and
+  release record), the 3D exe through the launcher,
   and whether a native install still needs the user's GBA ROM (`game_import.py`,
   `game_patch.py`: the companion verifies it, KNOWN_ISSUES M1); `trade_native_replay.py`
   keeps its mGBA replay worker (B4).
@@ -162,8 +162,8 @@ All of the project's gameplay code runs in the native build. [dir]
   GetBlockReceivedStatus). Needs: C2. [audit]
   Progress 2026-10-10: the battle mailbox path runs natively through the C bridge: a
   1v1 between two native games routed 362 blocks, the same count and forced switch
-  as the emulator qualifier wqb1 (`native-launcher-battle-evidence.json`). 2v2 (four
-  clients) not run yet.
+  as the emulator qualifier wqb1, on Linux and with the Windows exe under Wine
+  (`native-launcher-battle-evidence.json`). 2v2 (four clients) not run yet.
 - [ ] C4 Input and reset-chord routing through the native bridge (today in the Lua
   bridge and the SDL adapter). Needs: C1, B4. [audit]
   Done in code (the SDL adapter's guard ported, unit-tested with its own cases); the
@@ -190,8 +190,8 @@ All of the project's gameplay code runs in the native build. [dir]
   (`native-checkpoint-evidence.json`); a trade through the Players menu with its cancel
   path and a restart (2 Linux and 2 Windows under Wine, `native-trade-evidence.json`);
   a 1v1 battle through the Players menu between two games the launcher started (2
-  Linux, `native-launcher-battle-evidence.json`). Next: a battle between Windows
-  clients (Wine), 2v2 with four clients; host restart and network loss between
+  Linux and 2 Windows under Wine, `native-launcher-battle-evidence.json`). Next: 2v2
+  with four clients, trades and battles in the 3D build; host restart and network loss between
   companion and host.
 
 ## Milestone D - enhanced graphics

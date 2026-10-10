@@ -301,6 +301,13 @@ PYTHONPATH=src:scripts/multiplayer:scripts/windows-runtime \
 | Run | Clients | Result |
 | --- | --- | --- |
 | native-launcher-battle-1 | 2 Linux, engine `9e1de660f` | Pass in 8 min 11 s: enrollment through bootstrap games, Challenge 1v1 / Accept / Enter battle through the Players menu, 362 routed blocks with the forced switch (as the emulator qualifier wqb1), the same durable result for both (the friend won), full parties restored in memory, Recent battle results on both games, manual saves (revision 2), normal close (exit 0), fresh Continue onto the same checkpoints; 632 key presses, no forced cleanup (`native-launcher-battle-evidence.json`) |
+| native-launcher-battle-2 | 2 Linux, engine `9e1de660f`, harness with `--wine` support | Pass: the same checks, 362 blocks, the same result (8 min 28 s) |
+| native-launcher-battle-wine-1 | 2 Windows 2D exes under Wine, one prefix each, engine `9e1de660f` | Pass in 9 min 5 s: the same checks, the same 362 blocks, forced switch and result; games closed with Alt+F4 (exit 0); enrollment's bootstrap games ended by the launcher's terminate (-15 under Wine); 478 key presses at 0.5 s holds |
+
+Windows clients: add `--wine PREFIX1 --wine PREFIX2 --sdl SDL2.dll --elf ../engine/pokeemerald-mp`
+with `--game` the Windows exe of the same commit. The bundle then holds the exe and
+its SDL2.dll, the launcher's spawn is prefixed with `wine`, and a normal close is
+Alt+F4.
 
 A harness will start the real host plus N simulated clients (and later native game
 clients) and run the scenarios in the toolkit directive (2 and 4 clients, movement,

@@ -23,6 +23,14 @@ What differs from the Windows qualifier, and why:
     game held is read before it closes instead of from a Lua log line.
   - "Normal close" is SIGTERM, which SDL turns into an ordinary quit (exit 0).
 
+Windows clients (`--wine P1 --wine P2 --sdl SDL2.dll --elf <Linux build>`): the
+bundle holds the Windows exe and its SDL2.dll, exactly as a release would; the
+launcher's spawn goes through `wine` (one prefix per player, KNOWN_ISSUES M3,
+chosen like the display); memory is read at the PE symbols' addresses (see
+native_trade_proof.py); "normal close" is Alt+F4 to the game's window, the
+ordinary Windows close (Wine's window procedure turns it into WM_CLOSE, SDL into
+an ordinary quit, exit 0).
+
 Steps: both sources enrolled by the launcher's host enrollment (each bootstrap
 game closes itself); the friend's invitation exported; host and friend
 launchers start their games, which Continue into the overworld; A challenges B
@@ -62,6 +70,7 @@ from qualify_admission_cleanup import on_worker, require  # noqa: E402
 from qualify_launcher_session import inspect_closed_head, output_event  # noqa: E402
 from qualify_live_runtime import field_ready, lease_is_owned, party, sha  # noqa: E402
 from qualify_menu_battle import party_action  # noqa: E402
+from native_trade_proof import PE_IMAGE_BASE, pe_symbols  # noqa: E402
 from emerald_multiplayer.checkpoint_mirror import MirrorLease  # noqa: E402
 from emerald_multiplayer.launcher_gui import LaunchRequest, LauncherWindow, SessionWorker  # noqa: E402
 from emerald_multiplayer.launcher_session import GameInstallation  # noqa: E402
@@ -117,13 +126,25 @@ class NativeProbe:
                 await asyncio.sleep(.03)
 
     def _window(self):
-        found = subprocess.run(["xdotool", "search", "--pid", str(self.pid)], env=self.environment,
-                               capture_output=True, text=True).stdout.split()
+        # Visible windows only: Wine also gives the process hidden helper windows.
+        found = subprocess.run(["xdotool", "search", "--onlyvisible", "--pid", str(self.pid)],
+                               env=self.environment, capture_output=True, text=True).stdout.split()
         for window in reversed(found):
-            if subprocess.run(["xdotool", "windowfocus", "--sync", window], env=self.environment,
-                              capture_output=True).returncode == 0:
-                return window
+            try:
+                if subprocess.run(["xdotool", "windowfocus", "--sync", window], env=self.environment,
+                                  capture_output=True, timeout=5).returncode == 0:
+                    return window
+            except subprocess.TimeoutExpired:
+                pass
         raise RuntimeError(f"no window of native game {self.pid}")
+
+    def _close_window(self):
+        self._window()
+        subprocess.run(["xdotool", "key", "alt+F4"], env=self.environment, check=True)
+
+    async def close_window(self):
+        """Alt+F4, the ordinary Windows close."""
+        await asyncio.to_thread(self._close_window)
 
     def _press(self, key, seconds):
         self._window()
@@ -346,26 +367,42 @@ async def run(args):
     require("/multiplayer-proof/" in str(output) + "/" and not output.exists(), "choose a new private proof directory")
     output.mkdir(parents=True)
     game = args.game.resolve()
-    symbols = symbols_of(game)
+    wine = bool(args.wine)
+    if wine:
+        require(len(args.wine) == 2 and len(set(args.wine)) == 2 and args.sdl and args.elf,
+                "Windows clients need two Wine prefixes, --sdl and --elf")
+        symbols = pe_symbols(game, args.elf.resolve(), NEEDED)
+    else:
+        symbols = symbols_of(game)
     missing = [name for name in NEEDED if name not in symbols]
     require(not missing, f"the native game lacks symbols {missing}: build it unstripped")
     manifest = json.loads(args.manifest.read_text())
     require(len(args.display) == 2 and len(set(args.display)) == 2, "one X display per player")
     os.environ.update(DISPLAY=args.display[0], SDL_AUDIODRIVER="dummy")
+    if wine:
+        os.environ["WINEDEBUG"] = "-all"
+    hold, gap = (.5, .3) if wine else (.15, .2)
 
     def use_display(slot):
-        """The next game the launcher starts opens on this player's display."""
+        """The next game the launcher starts opens on this player's display (and Wine prefix)."""
         os.environ["DISPLAY"] = args.display[slot]
-    # The launcher's own bundle and installation checks, for the Linux game.
-    staging = output / "linux-game"
-    staging.mkdir()
-    (staging / "pokeemerald-mp.exe").write_bytes(game.read_bytes())
-    (staging / "pokeemerald-mp.exe").chmod(0o755)
-    (staging / "SDL2.dll").write_bytes(b"Linux harness: the Linux game links the system's libSDL2.\n")
-    info = collect(staging / "pokeemerald-mp.exe", staging / "SDL2.dll", args.rom, output / "application" / "runtime")
-    # The collector copies bytes only; a Linux executable also needs its mode
-    # (the bundle's pins are content hashes, unchanged by this).
-    (Path(info["directory"]) / "pokeemerald-mp.exe").chmod(0o755)
+        if wine:
+            os.environ["WINEPREFIX"] = str(args.wine[slot].resolve())
+    if wine:
+        # The release's own files: the Windows exe and its SDL2.dll.
+        info = collect(game, args.sdl.resolve(), args.rom, output / "application" / "runtime")
+    else:
+        # The launcher's own bundle and installation checks, for the Linux game.
+        staging = output / "linux-game"
+        staging.mkdir()
+        (staging / "pokeemerald-mp.exe").write_bytes(game.read_bytes())
+        (staging / "pokeemerald-mp.exe").chmod(0o755)
+        (staging / "SDL2.dll").write_bytes(b"Linux harness: the Linux game links the system's libSDL2.\n")
+        info = collect(staging / "pokeemerald-mp.exe", staging / "SDL2.dll", args.rom,
+                       output / "application" / "runtime")
+        # The collector copies bytes only; a Linux executable also needs its mode
+        # (the bundle's pins are content hashes, unchanged by this).
+        (Path(info["directory"]) / "pokeemerald-mp.exe").chmod(0o755)
     from emerald_multiplayer.player_runtime import RuntimeBundle
     bundle = RuntimeBundle(Path(info["directory"]), info["manifest_sha256"])
     installation = GameInstallation(args.rom.resolve(), args.manifest.resolve(), sha(args.rom), sha(args.manifest), bundle)
@@ -373,6 +410,7 @@ async def run(args):
     sources = [args.source_a.resolve(), args.source_b.resolve()]
     source_hashes = [sha(p) for p in sources]
     evidence = dict(passed=False, scope=__doc__.split("\n\n")[0], game_sha256=sha(game), bundle=info,
+                    wine=wine, key_hold_seconds=hold, elf_sha256=sha(args.elf) if wine else None,
                     build_id=manifest["rom_sha256"], sources=[dict(path=str(p), sha256=h) for p, h in zip(sources, source_hashes)],
                     checks=[], inputs=0, forced_children=[])
     def persist():
@@ -400,7 +438,7 @@ async def run(args):
             await asyncio.sleep(.02)
 
     async def boot_until_field(companion, game_process, slow, slot):
-        probe = NativeProbe(game_process.pid, symbols, args.display[slot], record)
+        probe = NativeProbe(game_process.pid, symbols, args.display[slot], record, hold=hold, gap=gap)
         await probe.boot(slow)
         for _ in range(12):
             pose = companion._local_pose
@@ -410,8 +448,23 @@ async def run(args):
             pose = companion._local_pose
             if pose is None or pose.activity != 1:
                 await probe.press(1)
+        if wine:
+            with open(f"/proc/{game_process.pid}/mem", "rb", buffering=0) as memory:
+                memory.seek(PE_IMAGE_BASE)
+                require(memory.read(2) == b"MZ", "the Windows game is not mapped at its preferred base")
         return probe
 
+    real_spawn = asyncio.create_subprocess_exec
+
+    async def spawn_with_wine(program, *arguments, **options):
+        # The launcher (player_runtime / enrollment) starts the bundle's exe;
+        # on this Linux workspace Wine runs it. Nothing else is redirected.
+        if str(program).lower().endswith(".exe"):
+            return await real_spawn("wine", program, *arguments, **options)
+        return await real_spawn(program, *arguments, **options)
+
+    if wine:
+        asyncio.create_subprocess_exec = spawn_with_wine
     pump = asyncio.create_task(gui_pump())
     try:
         with socket.socket() as probe_socket:
@@ -507,8 +560,11 @@ async def run(args):
             require(parties == [dict(count=e["count"], box_crc=e["box_crc"]) for e in expected],
                     "a running game's party differs from its canonical character")
             record("ready_for_normal_close", phase=phase, parties=parties)
-            for g in reversed(games):  # friend, then host
-                os.kill(g.process.pid, signal.SIGTERM)
+            for g, probe in reversed(list(zip(games, probes))):  # friend, then host
+                if wine:
+                    await probe.close_window()
+                else:
+                    os.kill(g.process.pid, signal.SIGTERM)
                 await poll_until(lambda g=g: g.process.returncode is not None, 30)
             await poll_until(lambda: not any(w.busy for w in current), 120)
             require([g.process.returncode for g in games] == [0, 0], "ordinary SDL exit failed")
@@ -544,6 +600,7 @@ async def run(args):
                 window._destroy()
             except Exception as error:
                 evidence.setdefault("cleanup_errors", []).append(repr(error))
+        asyncio.create_subprocess_exec = real_spawn
         evidence["passed"] = completed and not evidence["forced_children"] and not evidence.get("cleanup_errors")
         persist()
         output_event(passed=evidence["passed"])
@@ -552,7 +609,8 @@ async def run(args):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--game", type=Path, required=True, help="native Linux executable, unstripped")
+    parser.add_argument("--game", type=Path, required=True,
+                        help="native Linux executable, unstripped (or the Windows exe with --wine)")
     parser.add_argument("--rom", type=Path, required=True)
     parser.add_argument("--manifest", type=Path, required=True)
     parser.add_argument("--source-a", type=Path, required=True)
@@ -560,6 +618,9 @@ def main():
     parser.add_argument("--display", action="append", required=True, help="an X display per player (twice)")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--slow", type=float, default=1.0)
+    parser.add_argument("--wine", type=Path, action="append", help="a Wine prefix per player: Windows clients")
+    parser.add_argument("--sdl", type=Path, help="SDL2.dll for the Windows game")
+    parser.add_argument("--elf", type=Path, help="the Linux build of the same engine commit (symbol sizes)")
     asyncio.run(run(parser.parse_args()))
 
 
