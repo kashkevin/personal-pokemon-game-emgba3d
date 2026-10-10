@@ -144,7 +144,7 @@ UTC gives midday); Wine follows it too.
 | Sun shadows by day outdoors, fainter at night, none indoors; a sprite darkens as a whole in a building's shadow | Pass (screenshots; midday via `TZ`) | Day outdoors and none indoors: pass |
 | No model drawn past the edge of the scene | Pass (Oldale Town, after `65f44c42e`) | Not looked for |
 | Frame rate (llvmpipe, standing still) | Route 101 3-6 fps; Oldale Town 7.1 fps (7.6 shadows off); Pokémon Center about 44 fps | Oldale Town about 5 fps |
-| F7 camera framing and F8 tree style while playing; `pokeemerald.cfg` keeps them and the zoom steps; `PKMN_DIORAMA_CAMERA` overrides one run without writing the file | Pass (Route 104, graphics `8750fd07b`) | Not run |
+| F7 camera framing and F8 tree style while playing; `pokeemerald.cfg` keeps them and the zoom steps; `PKMN_DIORAMA_CAMERA` overrides one run without writing the file | Pass (Route 104, graphics `8750fd07b`); since `graphics-wip-20261010-6` F7 switches the Adventure and Diorama cameras, see 7b | Not run |
 | A dark cave needing Flash: dark but for the circle round the player; menus over the dark; normal maps unchanged | Pass (Granite Cave B1F, debug-menu test save, wide and 3DS camera; Route 104; graphics `3e39f2b15`) | Not run |
 | Flash used in a dark cave: the circle opens, Flash's glow | Not run | Not run |
 
@@ -452,14 +452,16 @@ make -f Makefile_pc NATIVE_LINUX=1 DIORAMA=1 check-diorama-tools  # slow; needs 
 
 `check-diorama` runs the voxel project's 10 C test programs (snapshot exchange, map
 connections, presentation transition, metatile atlas, terrain mesh, sprite frames,
-weather, UI overlay, rules), compares the C metatile compositor with the Python one
+weather, UI overlay, rules) and, since graphics `graphics-wip-20261010-6`, the
+overworld camera's (`tests/diorama/test_camera.c`, 403 checks), compares the C metatile compositor with the Python one
 on all 18,318 logical metatiles of the 75 Emerald tilesets, validates the rule
 sources and checks the generated tables are current. Result 2026-10-09: pass (again
 after the D4 buildings, shadows and sprite-occlusion work); 2026-10-10: pass after the
 weather light (graphics `23ad56924`) and after the dapples, dust, rays and bloom
 (`8920f1f67`); again after the F7/F8 switches (`8750fd07b`) and the dark caves'
 light (`3e39f2b15`); again at `edd1f5105` (the camera and tree defaults, the crash
-fixes and XInput from `claude/native-pc`, the save pacing).
+fixes and XInput from `claude/native-pc`, the save pacing); again at
+`graphics-wip-20261010-6` (cameras, 49 x 49 scene, edge fog; 11 programs).
 
 Light checks done by hand (screenshots, 2026-10-10): `PKMN_DIORAMA_LIGHT=0` against
 the default in the Oldale Pokemon Center must be pixel-identical (it was: 0 pixels
@@ -508,6 +510,35 @@ under Wine), each with a copy of an outdoor save:
 
 Result 2026-10-10: all pass (Linux and Wine for 1, 2, 5, 6; Linux for 3, 4, 7, 8).
 Not testable here: Windows display scaling and several displays (KNOWN_ISSUES V21).
+
+### 7b. Cameras, photo mode and the scene's edge (graphics `graphics-wip-20261010-6`)
+
+Unit: `check-diorama` runs `tests/diorama/test_camera.c` (403 checks: each framing
+against the shaders' projection, the modes' zoom and tilt limits, steps kept per
+camera, the follow at 30 and 144 frames a second, look-ahead, warps, map crossings,
+the ground's height, photo mode). `check-native` runs
+`tools/pc_port/tests/test_png_write.c` (176 checks) and `check_png.py`, which decodes
+its nine pictures with Python's zlib and compares every pixel.
+
+By hand (Xvfb 4096x2304, 1920x1080 window; `capture-modes.sh` in the session's
+scratch folder; then the Windows exe under Wine), with copies of the scene saves
+(Route 101, Petalburg Woods, Rustboro City, Oldale Town):
+
+1. Continue: the Adventure camera, the player in the middle, no black anywhere.
+2. F7: the Diorama camera; the picture's edges fade into the sky's colour, no
+   black; F7 again: Adventure.
+3. F9: photo mode, the map name and text boxes hidden, the keys along the bottom;
+   `-` `-` `-` `.` and arrows: zoomed out, steeper, moved; the game stands still.
+4. F12: a message box names `screenshots/emerald-<date>-<time>.png`; the file opens
+   (Python zlib), is the window's size and shows the frame without the hints.
+5. Esc: back to the Adventure camera, the game running.
+6. Petalburg Woods is drawn in 3D (not the 2D view).
+7. Regression: `native_checkpoint_proof.py --slow 1.5 --recover` with the 3D build;
+   `--benchmark 5` with the resolution test save (compare with 7a).
+
+Result 2026-10-10: Linux pass for 1-7 (benchmark: 720p 6.6, 1080p 4.4, 1440p 3.1,
+4K 1.6 fps, software; KNOWN_ISSUES V25); Wine (the Windows exe, Route 101): pass for 1-5 (Wine's clock gave evening light: the edge fog took the dusk colour; the F12 file decoded, the message box had gone by the capture 6 s later). Seen wrong: Petalburg
+Woods' raised band (V23); the player hidden behind Birch's lab (V24, not new).
 
 ## 8. CI
 

@@ -250,7 +250,10 @@ The highest priority once the native engine (Milestone A) is stable. [dir]
   close camera and the 3DS trees; F7 and F8 switch both, and a camera, zoom, tilt or
   tree style the player saved is kept. Remaining, in the order of
   `docs/diorama-3ds-gap-analysis.md`: signposts (compared, not worth it as is),
-  relief, camera menu entries.
+  relief. Graphics overhaul phase 1, step 1 (graphics `graphics-wip-20261010-6`,
+  `docs/graphics-overhaul.md`): Adventure, Diorama and photo cameras, F12 pictures,
+  a 49 x 49 scene fading into the sky, Petalburg Woods in 3D. Next in phase 1:
+  neighbouring maps with other tilesets, a readable player behind buildings.
   3D battle scenery, 2026-10-10 (owner directive "INTEGRATE EMERALD 3DS BATTLE
   GRAPHICS ONLY"): ported on engine branches `claude/battle-3d` and
   `claude/battle-3d-integration` (the latter on graphics `3e39f2b15`), kept off

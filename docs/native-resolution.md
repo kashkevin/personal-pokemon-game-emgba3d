@@ -20,7 +20,7 @@ for the launcher's part.
 | Anti-aliasing | Off, 2x, 4x, 8x MSAA | Off | F10 |
 | Game picture | Standard (8/9 of the height), Largest (as large as fits) | Standard | F10 |
 | Show frame rate | On, Off | Off | F10 |
-| Camera, Trees | 3DS close / Wide, 3DS / Voxel | 3DS, 3DS (owner's choice) | F10; F7, F8 |
+| Camera, Trees | Adventure / Diorama (since `graphics-wip-20261010-6`; 3DS close / Wide before), 3DS / Voxel | Adventure, 3DS | F10; F7, F8 (F9 photo mode, F12 picture: `docs/graphics-overhaul.md`) |
 
 Presets: Low = shadows off, lighting off, effects off; Medium = shadows low,
 lighting on, effects off; High = shadows medium, lighting and effects on; Ultra =
@@ -148,6 +148,18 @@ software renderer's cost grows with the pixel count, nothing about a real GPU.
   outside the field's offscreen pass), which stays correct at every resolution; to
   follow the chosen render resolution in borderless mode they can draw between
   `DioramaGLTarget_Begin`/`End` (`include/diorama/gl_target.h`).
+* The battle session's second round (checkpoint `battle3d-wip-20261010-2`) offers
+  `claude/native-graphics-3d-battles` (`7bf42d267`, their merge of the 3D battles
+  into `claude/native-graphics` `edd1f5105`) as a fast-forward for the owner's go.
+  With the resolution work on `claude/native-graphics` it is no longer one: a trial
+  merge (`git merge-tree`) gives three conflicts, all in
+  `src/diorama/gl/gl_compositor.c`: the two adjacent insertions above, and the field
+  drawing block, where both changed its start (their `composing` flag and an
+  aspect from the window; here the scene size from `DioramaGLTarget_Begin`). Their
+  `DioramaGLBattle_ComposeFieldBands` draws at the window's size: when the field is
+  drawn offscreen (borderless at another render height, or MSAA), it must run after
+  `DioramaGLTarget_End` or be given the scene size, otherwise its bands land in the
+  offscreen target at the wrong scale.
 * The UI session's art direction is followed by the F10 menu (see above). Its
   menus can draw through `DioramaGL_SetOverlay` and the canvas in
   `src/diorama/gl/gl_pc_overlay.c` (engine fonts, Route Caps, panels with stepped
