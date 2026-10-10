@@ -386,6 +386,52 @@
       "recover": true,
       "recovery_seconds": 69.28,
       "harness": "committed revision"
+    },
+    {
+      "run": "native-checkpoint-wine3d-1",
+      "clients": "Windows 3D (Diorama) exe under Wine x2 (one prefix each), the stripped exe of checkpoint native-wip-20261010-3, software OpenGL",
+      "engine": "graphics 3e39f2b15 (bridge edb755a26)",
+      "game_sha256": "258bbf61b7c36251de90ca09c88c795a84aff21f681262256537284a14f1fd48",
+      "evidence_sha256": "830b73cb86d95223ee867b5dbcd9b4647cd6c6d39cbcb7efb24a467d930acf5e",
+      "passed": true,
+      "checks": [
+        "first start: native bridges authenticated to their companions",
+        "first start: companions joined the world server with their credentials",
+        "first start: every client is in the overworld (its bridge's own pose)",
+        "first start: every client sees the other in the overworld",
+        "first start: each bridge announced the live-save mailbox and the 4 KiB save window",
+        "legacy save enrolled through the running game",
+        "legacy save enrolled through the running game",
+        "client A walked",
+        "checkpoint after walking holds the new position",
+        "games closed: the companions lost their bridges",
+        "after closing: each game's own save file holds its canonical player state",
+        "restart: native bridges authenticated to their companions",
+        "restart: companions joined the world server with their credentials",
+        "restart: every client is in the overworld (its bridge's own pose)",
+        "restart: every client sees the other in the overworld",
+        "restart: each bridge announced the live-save mailbox and the 4 KiB save window",
+        "restart: Continue restored each saved map and position; new host leases and game incarnations",
+        "checkpoint after restart against the last revision",
+        "checkpoint after restart against the last revision",
+        "client A walked away from its saved position without saving",
+        "live recovery: A's running game is back at the saved position",
+        "live recovery applied the canonical save to the running game (no restart, same lease)",
+        "games closed again",
+        "final: each game's own save file holds its canonical player state",
+        "host store integrity check passed; source saves unchanged",
+        "passed"
+      ],
+      "checkpoint_seconds": [
+        5.39,
+        5.97,
+        4.17,
+        6.49,
+        6.26
+      ],
+      "recover": true,
+      "recovery_seconds": 72.94,
+      "harness": "committed revision"
     }
   ],
   "failed_runs": [

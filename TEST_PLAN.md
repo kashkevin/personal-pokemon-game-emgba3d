@@ -233,6 +233,7 @@ Results 2026-10-09/10 (`scripts/multiplayer/native-checkpoint-evidence.json`):
 | native-checkpoint-wine-3 | 2 Windows (Wine), `edb755a26`, `--recover` | Pass; live recovery 49.8 s (the test suite ran at the same time) |
 | native-checkpoint-3d-4 | 2 Linux, 3D build (graphics `0ab8ee710`), 2.4 frames a second, before the M5 fix | Pass; 32.0-37.7 s per save |
 | native-checkpoint-3d-5 | 2 Linux, 3D build (graphics `2f150c4db`, M5 fix), `--recover` | Pass; 4.0-6.4 s per save; live recovery 69.3 s, same process and lease |
+| native-checkpoint-wine3d-1 | 2 Windows 3D exe under Wine, the stripped exe of checkpoint native-wip-20261010-3 (graphics `3e39f2b15`), `--recover` | Pass; 4.2-6.5 s per save; live recovery 72.9 s |
 
 Under Wine the games end by signal (exit code -15) and their saves are still
 intact, since the native build writes the save file at the frame after every Flash
