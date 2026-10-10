@@ -45,24 +45,38 @@ provenance: engine `src/diorama/README.md` ("3D battles"). Compiled only with
   and sounds. Only the scenery layer (BG3) is replaced by the world, pixel for pixel,
   with the GBA's own blending and brightness against it kept (a move that darkens or
   tints the background darkens or tints the world; one that shakes it shakes the
-  camera). A move that loads its own background (Psychic, Surf, terrains...) shows
-  that background as it is, then the world comes back.
+  camera). A move that loads its own background (Psychic, Feint Attack, the
+  terrains...) shows that background as it is, then the world comes back; since the
+  third round that background fills the whole window, not only the picture's
+  area: the GBA renderer draws how its screen would go on past the picture - the
+  part of the tilemap the move filled repeated where it repeats without a seam,
+  mirrored at the picture's edges where it would show one - with its scroll,
+  palette cycling, fades and flashes as on screen, nothing stretched (KNOWN_ISSUES
+  V13).
 * Soft contact shadows under the battlers (the opponent's Gen 4 style shadow sprite,
   when the game draws one, is kept instead).
-* Single screen: the battle picture at the 3D view's usual size on the bottom edge,
-  the world filling the whole window above and beside it; the scenery's colour at the
+* Single screen: the battle picture at the field's whole-number scale (6x at 1080p,
+  8x at 1440p, 12x at 4K; the display settings' rule) on the bottom edge, the world
+  filling the whole window above and beside it; the scenery's colour at the
   picture's edges is carried out to a wide window's sides (curtains and fades reach
-  the whole window).
+  the whole window). The world is drawn at the render size and with the
+  antialiasing the display settings choose (F10), as the field is; the picture,
+  text and menus stay sharp at the window's own resolution. The F10 menu and the
+  frame-rate corner show over battles too.
 * The overworld's looks carry into the battle: the trees the player chose with F8
   (voxel or 3DS) stand in the battle's world; the sun, shadows and weather light are
   the field's. The F7 camera choice only changes the field's view, so the glide
   starts from whichever framing the field shows. A dark cave's battle shows the cave
   lit, as the GBA's cave battle background is; the transition into it plays over the
   dark field. Fog banks stay out of the battle (the GBA battle has no fog either).
-* Water and flowers keep moving in the battle's world on a graphics card that
-  redraws the world quickly: the game times the battle's first redraws and moves
-  them only while a redraw takes under 12 ms, at most 15% of the time; on slower
-  graphics they stand still as before (second round).
+* Water and flowers keep moving in the battle's world as often as the measured
+  frame times allow (third round): every battle frame is timed; the glide's frames
+  (each a redraw of the world) choose how often the tiles may redraw it - at every
+  change while such frames stay within a 60 Hz frame, every 4 or 16 game frames
+  when they take up to two or four times that, not at all beyond - and every later
+  redraw frame moves that up or down. On software graphics they stand still as
+  before; tile animations the GBA itself does not have (Route 102's pond) stay
+  still too.
 * Where the world ends - past a room's or a cave's edge, or past the scene - the
   battle's own scenery shows instead of black, as the GBA would show it there (the
   building, cave, gym or Elite Four background, its edges carried out to a wide
@@ -83,8 +97,10 @@ as before; `PKMN_DIORAMA_TRANSITION_2D=1` battle transitions in 2D as before;
 `PKMN_BATTLE3D_PITCH`, `_DISTANCE`, `_FOCAL`, `_ROW` camera tuning;
 `PKMN_DIORAMA_LOG=1` logs the stage choice with a map of the ground round the player
 and what the camera sees from it, how long the world takes to redraw, and each
-composed transition; `PKMN_DIORAMA_BATTLE_TILES=0` water and flowers still, `=1`
-moving whatever the cost; test tools: `PKMN_DIORAMA_STAGE_SURVEY=1` logs, for each
+composed transition, the water's pacing decisions and each battle's frame times;
+`PKMN_DIORAMA_BATTLE_TILES=0` water and flowers still, `=1` moving at every change
+whatever the cost; `PKMN_DIORAMA_BATTLE_FRAME_BUDGET=<ms>` the frame budget the
+pacing keeps to (16.67, a test switch); test tools: `PKMN_DIORAMA_STAGE_SURVEY=1` logs, for each
 map the field shows in 3D, what the stages chosen round the player would show
 (singles and doubles, against the 3DS scoring alone), and with
 `PKMN_DIORAMA_STAGE_DUMP=<folder>` writes the cells the stage search reads.
@@ -115,9 +131,23 @@ map the field shows in 3D, what the stages chosen round the player would show
   (`DioramaBattle_AnimateFieldTiles`: no VRAM, no queue, the counters left as the
   field left them, the Battle Dome's palette lights skipped);
   `DioramaGL_SetBattleTiles` updates the atlas slots whose tiles changed, and the
-  kept world is redrawn. The first eight redraws of each battle (its glide) are timed
-  to completion (`glFinish`); from the slowest of them the animation is allowed or
-  not and paced.
+  kept world is redrawn. Third round: the pacing comes from measured frame times
+  (present to present, by kind: glide, redrawn, kept) instead of the second round's
+  `glFinish` timing of the first eight redraws; the changes between two allowed
+  redraws are gathered into one.
+* A move's own background (third round): `LoadMoveBg` notes how much of BG3's
+  tilemap the move filled (`DioramaBattle_NoteMoveBg`); while the world is not shown
+  the battle asks the GBA renderer for the margins round the picture
+  (`gDioramaSceneWide`), which it draws per line with that line's BG3 registers,
+  the window state of the nearest picture column and BG3's and the backdrop's
+  blending and brightness; repeat or mirror is decided once a load from the
+  background's unfaded colours (the seam's colour step against the steps between
+  neighbours). The battle draws it GBA pixel for GBA pixel at the picture's scale
+  and carries out only the text box's rows from the picture's edges.
+* Render size and antialiasing (third round): the battle's world goes through the
+  display settings' render target (`gl_target.h`, `DioramaGLTarget_Begin/End`) as
+  the field's scene does; the kept copy, the fade, the shadows and the picture are
+  drawn at the window's resolution.
 * The world's end (second round): `gba_easy_draw.c` also draws BG3, the scenery the
   world stands in for, into `gDioramaSceneArt` in its unfaded colours; caught while
   the scenery is at rest, it is drawn just short of the far plane after the world
