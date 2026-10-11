@@ -534,6 +534,45 @@ Result 2026-10-10: Linux pass for 1-7 (benchmark: 720p 6.6, 1080p 4.4, 1440p 3.1
 4K 1.6 fps, software; KNOWN_ISSUES V25); Wine (the Windows exe, Route 101): pass for 1-5 (Wine's clock gave evening light: the edge fog took the dusk colour; the F12 file decoded, the message box had gone by the capture 6 s later). Seen wrong: Petalburg
 Woods' raised band (V23); the player hidden behind Birch's lab (V24, not new).
 
+### 7c. Neighbours, silhouettes, weathers, distant scenery (graphics `graphics-wip-20261010-7`)
+
+Unit (`check-diorama`, 13 programs): `test_metatile_atlas` (atlas slots of the
+neighbour pages, page art and palettes, a page's dirty tiles, the palette mapping
+for identity, black, a night tint, a fade to white, a contrast colour map, light
+colours left out, interpolation and extrapolation), `test_weather` (every weather
+has a 3D look), `test_tree_sprites` (the woods' `0x1F2`/`0x1F3`), `test_far_field`
+(columns, mesh, seams with the scene's cells, sectors and their bounds, the rules'
+static heights).
+
+By hand (Xvfb 4096x2304, 1920x1080 window; scripts `scene-env.sh`, `walk-cross.sh`,
+`photo-env.sh`, `wine-compare.sh` in the session's scratch folder), with copies of
+scene saves made by `place_save.py`:
+
+1. Neighbours: Slateport (18,4), Rustboro (21,4), Route 118 (58,3), Verdanturf
+   (8,4) and Lilycove (75,15), Adventure and Diorama cameras, each with
+   `PKMN_DIORAMA_NEIGHBOURS=0` (before) and without (after): the next map is drawn
+   with its own tiles, hills and buildings instead of border tiles.
+2. A crossing: from Slateport (18,4) hold Up into Route 110 with
+   `PKMN_DIORAMA_LOG=1`: the log says "camera carried across from map 0.1 to 0.25",
+   the pages swap (Slateport becomes a page), the pictures show no jump.
+3. Silhouette: Littleroot, just north of Birch's lab: the player's blue outline
+   through the roof (Adventure and Diorama), none in photo mode.
+4. Woods: Petalburg Woods south east of the north gate: the 3DS crowns whole.
+5. Weathers: Route 124 under water (bubbles), the Route 111 desert (sandstorm);
+   `PKMN_DIORAMA_WEATHER=4` (snow), `8` (sandstorm), `13` (downpour), `5`
+   (thunderstorm), `14` (bubbles) previews on a route.
+6. Distant scenery: Route 101 and Slateport, Diorama camera and photo mode zoomed
+   out (`-` eight times, `,` three times), with `PKMN_DIORAMA_FAR=0` (before) and
+   without: the world goes on past the cells into the haze; nothing missing at the
+   seam with the scene.
+7. Benchmark: `--benchmark 5` with the resolution test save, Adventure and Diorama
+   cameras, with and without `PKMN_DIORAMA_FAR=0` (the distant scenery must cost
+   nothing measurable in the Adventure camera).
+8. Before/after under Wine: the checkpoint -6 exe and the new one in Littleroot,
+   Oldale, Rustboro, Route 101, Petalburg Woods, Granite Cave 1F and Dewford,
+   Adventure and Diorama cameras.
+9. Regression: `native_checkpoint_proof.py --slow 1.5 --recover` with the 3D build.
+
 ## 8. CI
 
 Workflow files exist (`engine/.github/workflows/native-pc.yml`,

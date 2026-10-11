@@ -139,21 +139,6 @@ watched; software GL runs the game at a few frames a second here), night and rai
 with the edge fog, the Windows exe's photo mode on a real GPU, the 2D layers'
 fade around photo mode at full speed.
 
-### What is left of phase 1
-
-* Neighbouring maps whose tilesets differ from the current map's are still drawn as
-  its border block (Rustboro from Route 104, Slateport, Mauville...): the 3DS
-  project's static-layout instances, next.
-* Petalburg Woods in 3D shows a raised band of ground in its south east whose
-  front cuts the 3DS tree crowns in front of it (KNOWN_ISSUES V23); the rules lift
-  some Rustboro-tileset forest metatiles there. Phase 2 (geometry).
-* Readable player: a building south of the player can cover them (Birch's lab in
-  Littleroot when standing just north of it; the old close camera did the same).
-  A see-through silhouette or fading what stands in front (KNOWN_ISSUES V24).
-* Distant scenery past the 49 x 49 cells (the 3DS project's far border block
-  ring) and the other unsupported weathers (sandstorm, thunderstorm, snow,
-  drought, downpour, underwater), which still fall back to the 2D view.
-
 ### Coordination with the 3D battle session
 
 The battle branch (`claude/native-graphics-3d-battles`) introduced
@@ -166,3 +151,110 @@ glide from the field's view can take `DioramaCamera_FixedEyeFocalLength`, or rea
 the rig the field frame set, instead of the old focal-length styles), and
 `gl_air.c`/`gl_object_renderer.c` if the battle branch changed the same uniforms.
 The edge fog is off outside the field pass, so a battle frame has none.
+
+### What was left of phase 1
+
+Done in step 2 below: the neighbouring maps, the readable player, the woods'
+crowns, distant scenery and the other weathers.
+
+## Phase 1, step 2: the neighbours, a readable player, every weather, the distance (2026-10-10)
+
+Engine `claude/graphics-overhaul` (`d73f16e45`..`cb859b10c`), merged into
+`claude/native-graphics` as tag `graphics-wip-20261010-7`; checkpoint
+`native-wip-20261010-7`. This finishes phase 1 (directive "CONTINUE 3D GRAPHICS
+OVERHAUL + COMPLETE ENVIRONMENTAL OBJECT UPGRADE", section 1 items 1-5).
+
+### What the player gets
+
+* **Neighbouring towns and routes look like themselves before you cross into
+  them.** Slateport's north edge shows Route 110 (its sand path, the Trick House,
+  the Cycling Road) instead of the sea; Rustboro shows Route 115's beach and
+  ledges; Route 118 shows Route 119's hills and tall grass; Verdanturf shows Route
+  116's mountains. Their hills and buildings stand in 3D, and walking across the
+  border carries the camera over without a cut.
+* **You are never lost behind a building or a tree.** When the world hides your
+  character (or a teammate, or your follower), a see-through blue outline of them
+  is drawn through it. Not in photo mode, so pictures stay clean.
+* **Petalburg Woods' trees keep their crowns** (the band that cut them is gone).
+* **Every weather is drawn in 3D**: a downpour's heavier rain, snow, a sandstorm's
+  blowing sand with a sandy distance, bubbles rising under water; none drops back to
+  the flat view any more.
+* **The world goes on into the distance.** Past the detailed 49 x 49 tiles a
+  simple version of the surroundings (forests as a green canopy, towns as coloured
+  blocks, the sea) carries on to about 48 tiles and fades into the sky's haze.
+  Mostly seen in the Diorama camera's corners and in photo mode zoomed out.
+* Photo mode can zoom all the way out from the Diorama camera (the scene used to
+  disappear).
+
+### How it works
+
+* Silhouette (`gl_object_renderer.c`, draw mode 5): after the scene, the player,
+  remote players (local ids 241-243) and the follower are drawn once more with the
+  depth test reversed (only where something is in front of them), a 0.75-tile
+  depth margin so the ground at their feet does not count, as a translucent
+  two-tone blue taken from the sprite's own light and dark.
+* Woods: the 3DS tree list maps metatiles `0x1F2`/`0x1F3` (a tree's lower row
+  beside open ground) to the crown's bottom quarters (`tree_sprites.c`).
+* Weather: `weather.c` classifies every weather; `BuildWeatherImage` draws the
+  new layers; `gl_light.c` gives sand and snow their sun and haze;
+  `PKMN_DIORAMA_WEATHER=<n>` previews one (the 3D view only).
+* Neighbour pages (`scene_snapshot.c` `NeighbourPage`, `metatile_atlas.c`
+  `DioramaAtlas_SetPages`, `DioramaAtlas_MapPalette`): up to three neighbouring
+  maps with another secondary tileset at once. Their cells carry `atlasPage`; the
+  atlas holds 512 more metatile slots per page (2560 in all); a page's tiles are
+  the live primary tiles plus that tileset's own secondary tiles (decompressed once
+  on the game thread), its palettes 6-12 the tileset's with the game's night mix,
+  faded by each channel's mapping read off the live palettes (so the day/night
+  tint, weather colour maps and fades match). Terrain materials, alpha masks, the
+  mountains' art masks and the buildings' palette rows follow the page.
+* Distant scenery (`far_field.c`, `CopyFar`): blocks of 2 x 2 cells out to 48
+  tiles from the map, its connections and theirs (the border block beyond), each
+  a column of its rules height (`DioramaRules_StaticHeights`; a model's height for
+  a building; trees a low peaked canopy) coloured with the average of its art;
+  culled in 49 sectors; the edge fog moves out to 30-47 tiles.
+* The scene shaders' far plane goes from 80 to 400 tiles of depth.
+
+### Coordination (shared rendering interfaces)
+
+These change interfaces the 3D battle branch also uses; noted here for the merge
+(no other session was running to message):
+
+* `scene_snapshot.h`: `DioramaCellSnapshot.atlasPage` (it fills a padding byte;
+  the struct keeps its size), `neighbourPages[]` and the far blocks at the end of
+  `DioramaSceneSnapshot`. The battle branch adds `paletteFading` and
+  `battleTransition` after `doorLevel`: no overlap.
+* `metatile_atlas.h`: the atlas functions take slots; a page 0 cell's slot is its
+  metatile id, so code that passes metatile ids of the map's own cells works
+  unchanged. The atlas is 576 x 1440 (was 576 x 576); a reset uploads only the
+  rows in use.
+* `gl_compositor.c` `EnsureAtlas`: calls `DioramaAtlas_SetPages` first and
+  indexes its arrays by slot. The battle branch changes the same function to
+  return whether the atlas changed: keep both (`return reset || changed;`).
+  `DioramaGL_SetBattleTiles` passes snapshots whose pages stay valid (a page's
+  tiles are never freed).
+* `gl_building_renderer.c`: a palette row per page (vertex attribute 3); the battle
+  branch's hunks there are the camera rig's, already applied here.
+* All scene shaders: `farDepth` is `DIORAMA_FAR_DEPTH_GLSL` (400) instead of 80; the
+  battle's own shaders, if they copy the projection, can take the same constant.
+
+### Verification
+
+Engine `cb859b10c` (Linux 3D binary and Windows exe built from it; checkpoint
+`native-wip-20261010-7`).
+
+| Check | Result |
+| --- | --- |
+| Linux and Windows 3D builds | Compile with no new warnings (two Windows-only name clashes found on the way, `near`/`far` are macros in the Windows headers: renamed). |
+| `check-native` | Pass: platform 1063, bridge 4186, display settings 139, PNG writer 176 checks. |
+| `check-diorama` | Pass: 13 programs (new: `test_far_field`, 54,618 checks; `test_metatile_atlas` with the pages and the palette mapping; `test_tree_sprites` with the woods' metatiles; `test_weather` with every weather), 18,318-metatile compositor goldens, rule validation, generated tables. |
+| `check-abi` | Pass (172 types). |
+| GBA ROM | Unchanged, sha256 `f214735b...3387`. |
+| Python tests | 1399 passed, 1 skipped (as at checkpoint -6). |
+| Before/after under Wine (checkpoint -6 exe, then this one; 1920x1080, software GL) | Littleroot, Oldale, Rustboro, Route 101, Petalburg Woods, Granite Cave 1F, Dewford, Adventure and Diorama cameras (28 pictures, put side by side): the Adventure views are the same picture (the distance is out of its frame), the Diorama views go on into distant scenery at their corners where the haze began before (Oldale's forest and Route 103's water, Rustboro's forest), the woods' crowns are whole, nothing new is missing or misplaced. |
+| Linux, the same 7 places, both cameras | Visually render (14 pictures). |
+| Neighbours, silhouette, weathers, distance | As in `TEST_PLAN.md` 7c (by hand, during the work): see the list there. |
+| Frame rate, software GL, `--benchmark 5` | The distant scenery costs nothing measurable: Adventure 720p 6.9 fps with it, 6.6 without; 1080p 4.8 / 4.7; Diorama 720p 6.2 / 6.0, 1080p 4.3 / 4.2; 1440p and 4K 1.6-2.9 either way (CPU renderer: fill bound). A real GPU is unmeasured (V3). |
+| Multiplayer regression | native-checkpoint-3d-9: 2 Linux 3D clients enrol, save (1.6-1.75 s), restart, live recovery (42.0 s), host store intact. |
+
+Not seen yet: snow, a downpour and a thunderstorm on a real map (previews only), a
+neighbour page's tiles at night, the Windows exe on a real GPU.
