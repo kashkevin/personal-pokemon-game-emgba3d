@@ -291,6 +291,22 @@ unit-tested more than watched.
 | Frame rate (software GL) | 720p 6.6 fps (8.3 before), 1080p 4.4 (5.6), 1440p 3.1 (3.2), 4K 1.6 (1.6) | Not measured | The larger scene; real GPU unmeasured (V3). |
 | Multiplayer with the new build | Works in multiplayer: native-checkpoint-3d-8 (2 clients in Littleroot with the Adventure camera: enrol, saves 1.6-1.8 s, walk, restart, Continue, live recovery 42.3 s) | Not run | |
 
+### Graphics overhaul phase 1, step 2: neighbours, readable player, weathers, distance (engine `graphics-wip-20261010-7`)
+
+Directive "CONTINUE 3D GRAPHICS OVERHAUL + COMPLETE ENVIRONMENTAL OBJECT UPGRADE",
+section 1. Design and results in `docs/graphics-overhaul.md`; software OpenGL here.
+
+| Item | Linux | Windows (Wine) | Notes |
+| --- | --- | --- | --- |
+| Neighbouring maps with another secondary tileset drawn with their own tiles, palettes, hills and buildings (up to three at once) | Visually renders: Slateport (Route 110 north), Rustboro (Route 115), Route 118 (Route 119), Verdanturf (Route 116), Lilycove, both cameras, against `PKMN_DIORAMA_NEIGHBOURS=0`; a walk from Slateport into Route 110 carries the camera across (log, pictures) | Not checked separately under Wine | `NeighbourPage`, atlas pages, `DioramaAtlas_MapPalette`; unit-tested. A neighbour's animated tiles stand still (V20). |
+| See-through silhouette of a hidden player, teammate or follower | Visually renders: Littleroot north of Birch's lab (Adventure, Diorama); none in photo mode | Not run separately | V24 fixed. |
+| Petalburg Woods: the 3DS tree crowns whole | Visually renders | Visually renders (before/after: the band is gone) | V23 fixed for the 3DS trees. |
+| Every weather in 3D (sandstorm, snow, downpour, thunderstorm, bubbles under water) | Visually renders: Route 124 under water, the Route 111 desert; the others by preview | Not run | V26: a layer over the picture, not particles in the world yet. |
+| Distant scenery past the 49 x 49 cells (to 48 tiles), haze from 30 to 47 tiles | Visually renders: Route 101 and Slateport (Diorama camera, photo mode zoomed out), the before/after set | Visually renders (all seven places, Diorama camera) | V28; `PKMN_DIORAMA_FAR=0` or effects off removes it. |
+| Far plane 400 tiles (photo mode zoomed out from the Diorama camera) | Works | Works | V27 fixed. |
+| Frame rate (software GL, `--benchmark 5`) | No measurable cost of the distant scenery: Adventure 720p 6.9 fps with it, 6.6 without; 1080p 4.8 / 4.7; Diorama 720p 6.2 / 6.0, 1080p 4.3 / 4.2 (4K 1.6-1.7 either way) | Not measured | Real GPU unmeasured (V3). |
+| Multiplayer with the new build | Works in multiplayer: native-checkpoint-3d-9 (2 clients: enrol, saves 1.6-1.75 s, restart, live recovery 42.0 s) | Not run | |
+
 ## Decision pending - owner to confirm: personal vs shared wild spawns
 
 - Earlier owner decision (2026-10-09): visible wild spawns are **personal**, and
