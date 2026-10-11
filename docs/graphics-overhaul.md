@@ -258,3 +258,119 @@ Engine `cb859b10c` (Linux 3D binary and Windows exe built from it; checkpoint
 
 Not seen yet: snow, a downpour and a thunderstorm on a real map (previews only), a
 neighbour page's tiles at night, the Windows exe on a real GPU.
+
+## Phases 2-4: world detail objects, every building in 3D, lamps and lit windows (2026-10-11)
+
+Engine `claude/graphics-overhaul` (`732a1ad56`..`d799c4a8a`), merged into
+`claude/native-graphics` as tag `graphics-wip-20261010-8`; checkpoint
+`native-wip-20261010-8`. Directive "CONTINUE 3D GRAPHICS OVERHAUL + COMPLETE
+ENVIRONMENTAL OBJECT UPGRADE", sections 2-9 (phases 2-4, and the quality option of
+phase 5).
+
+### What the player gets
+
+* **The small things stand up.** Tall grass and long grass as two swaying cards a
+  tile, flowers, signs and the house signs, white, stone and iron fences and
+  Mauville's wooden posts (facing along their line, north-south runs too),
+  Rustboro's street lamps with
+  their lantern on the post, rocks and boulders (from above as mounds, from the
+  front as reliefs), Slateport's flower baskets and market goods, Lavaridge's lava
+  rocks, Mossdeep's sea rocks, Fallarbor's ash boulders - every one from its own
+  pixel art, lit, casting a real shadow. Collision is unchanged.
+* **The grass moves.** It sways in the wind, harder in rain, a storm or a
+  sandstorm and less in fog, and shivers where someone walks through it.
+* **Every building is a building.** About seventy buildings that lay flat on the
+  ground (in Slateport, Mauville, Lilycove, Fortree, Mossdeep, Pacifidlog, Dewford,
+  Fallarbor, Verdanturf, the route houses and the Battle Frontier) now stand in 3D,
+  built from their own drawing: Lilycove's department store and the Battle Tower
+  are tall, the houses have walls and roofs, doors open on them. From the default
+  cameras each looks exactly like its art; from the side it has depth and casts a
+  shadow. Sootopolis's houses, cut into the crater, stay as drawn.
+* **Towns light up after dark.** In the evening and at night the windows of houses,
+  shops, gyms and Centers glow warm (each window its own brightness), and
+  Rustboro's street lamps light the ground, walls and people round them.
+* **A setting for it.** F10 > World details (On/Off); the Low quality preset turns
+  it off. Lamps and lit windows go off with Lighting.
+
+### How it works
+
+* Props (`include/diorama/props.h`, `scene/props.c`, `gl/gl_props.c`): a catalogue
+  per tileset (made with `tools/diorama_objects`) names a metatile's object and its
+  form (slab, cards, block, mound, relief); the renderer composes each prop's art
+  into a small texture of its own, draws slabs and cards instanced (a slab's sides
+  cut per pixel by the art's transparency) and mounds and reliefs as column meshes
+  made from the art; the ground under a prop is its lower layer or the commonest
+  neighbouring ground. Cells a modelled building stands on (the generator's own
+  hedges, railings and sea rocks) are left to the model
+  (`DioramaProps_SetCellTaken`).
+* Lamps (`gl/gl_lamps.c`): the 16 lamps nearest the camera as point lights with a
+  smooth falloff in the terrain, building, tree, prop and sprite shaders, in the
+  field pass only; `DioramaGLLamps_NightFor` (the game's time of day on maps it
+  tints) sets how lit they and the windows are.
+* Every building (`tools/diorama_buildings/auto_buildings.py`): each door of an
+  outdoor map whose building no spec models gives a building - its front the
+  door's row as far as the cells beside the door are drawn over, its cells up from
+  the front and a little to the sides (never sideways into leaves), the row over
+  its north edge that the roof is painted on, two touching buildings split by their
+  fronts - and the 3DS generator models it as a `Relief` read off its drawing: a
+  front as tall as the facade (the first long edge over the door; overrides for
+  the tall ones), the roof laid back to the north edge of its cells (the depth the
+  drawing does not show laid with the middle of its own roof, `roof_band`, so no
+  eave repeats behind it). Each model is proved pixel for pixel in the GBA
+  projection (`--verify`, 70 of 70).
+* Lit windows (`tools/diorama_buildings/window_glow.py`, `export_gl.py`,
+  `DioramaBuildings_PageWindows`): glass-coloured panes in a darker frame on the
+  models' upright faces, found on their texture pages at build time; the page
+  texture carries each texel's window brightness beside its palette slot (RG8);
+  the building shader mixes in a warm light.
+* World details setting (`platform/display_settings.c`, `pc_menu.c`, `sdl2.c`):
+  `details=` in `pokeemerald.cfg` with the quality block; the launcher's game
+  display settings treat it as a quality key (`game_display_settings.py`).
+
+### Coordination (shared rendering interfaces)
+
+Noted here and in the checkpoint's `COORDINATION.txt` for the 3D battle session,
+whose merge candidate 4 (`e747ce106`, the battles on `cb859b10c`) was tried against
+this tip in memory (`git merge-tree`): one conflict, two insertions at the same place
+in `DioramaGL_Init` (keep both: the props' init, then the battle's). The battle's
+`DioramaGL_DrawBattleWorld` draws the field without the props pass, so the cells a
+prop stands on would show bare ground behind a battle (tall grass first of all);
+the note gives the three lines to add. The changes:
+
+* `gl_compositor.c`: new calls (`DioramaGLProps_Init/Sync/Draw/DrawShadow/
+  Shutdown`, the props' geometry generation in the shadow key,
+  `DioramaGLLamps_SetFocus/SetActive/SetNight` round the field pass).
+* Scene shaders (terrain, building, tree, sprite): `DIORAMA_GLSL_LAMPS` and its
+  uniforms (`DioramaGLLamps_Locate/Apply`; `ApplyNone` in debug and shadow
+  passes); `gl_loader` gains `dglUniform4fv`.
+* `gl_terrain_renderer.c` `BuildInput`: a prop's cell gets its ground material.
+* `gl_building_renderer.c`: page textures are RG8 (slot, window brightness); the
+  fragment shader reads `.rg`; a `windowLight` uniform.
+* `buildings.generated.c` gains `gDioramaBuildingsWindowRuns`; buildings.bin gains
+  about seventy models (545 in all, 3170 placements).
+* Outside the 3D view: `struct DisplaySettings` gains `details` (after `effects`),
+  `enum PcMenuItem` gains `PC_MENU_DETAILS` (after `PC_MENU_EFFECTS`).
+
+### Verification
+
+Engine `d72d32c09` for the checks and the full before/after set; the two roof fixes
+after it (`a82a652c8`, `d799c4a8a`) change only the generated building models and
+were checked again where they show (below). Checkpoint -7's exe and Linux binary
+are the "before".
+
+| Check | Result |
+| --- | --- |
+| Linux and Windows 3D builds | Compile; the Windows build has the same three header warnings as checkpoint -7 and no new ones. |
+| `check-native` | Pass: platform 1063, bridge 4186, display settings 151 (World details row and preset), PNG writer 176 checks. |
+| `check-diorama` | Pass: 13 renderer test programs (new: `test_props`, 1714 checks: catalogue, placement, ground, art, building cells left to the models), compositor goldens (18,318 metatiles), rule validation. |
+| `check-abi` | Pass (172 types). |
+| Building models | All 70 automatic models exact in the GBA projection (`--verify`); `test_auto_buildings` (11) and `test_window_glow` (9) pass. |
+| GBA ROM | Unchanged, sha256 `f214735b...3387` (built from `d72d32c09` and again from `d799c4a8a`). |
+| Before/after, Linux, 1920x1080, software GL | Littleroot, Oldale, Rustboro, Route 101, Petalburg Woods, Granite Cave, Dewford, Lilycove, Slateport, Mauville; Adventure and Diorama cameras (40 pictures, evening): grass, flowers, signs, fences, lamps, rocks and baskets stand; the new buildings stand in the four cities; windows lit; Rustboro's lamps light the street; nothing new missing or misplaced. The roof fix seen again in Lilycove, Slateport, Mauville and Dewford (both cameras). |
+| Before/after, Windows exe under Wine | The same first eight places, both cameras (32 pictures, daytime): the same objects and buildings as on Linux. At night (the final exe; `TZ=EST5EDT`, because Wine's C library reads only POSIX-style zones and took the shell's `America/New_York` as UTC, which is daytime in the test saves): Rustboro's lamps light the street, and windows glow in Rustboro and Lilycove. |
+| Multiplayer | `native_checkpoint_proof.py --slow 1.5 --recover`, Linux 3D, 2 clients: native-checkpoint-3d-12 with the final build passed (enrol, walk and save, restart, saves 1.59-1.77 s, live recovery 42.4 s); native-checkpoint-3d-10 and -11 passed on `d72d32c09` and `a82a652c8`. |
+| Python tests | 1399 passed, 1 skipped (with the launcher's `details=` quality key). |
+| Frame rate, software GL | See FEATURE_STATUS and V30: Lilycove Adventure 7.4 / 5.7 / 3.6 / 1.9 fps at 720p-4K (8.4 / 6.2 / 3.6 / 2.1 with World details off; checkpoint -7 8.7 / 6.4 / 4.0 / 2.3). A real GPU is unmeasured. |
+
+Not seen yet: the props and lamps on a real GPU; a downpour or a storm on a real map
+with the grass (previews only); the World details switch under Wine.

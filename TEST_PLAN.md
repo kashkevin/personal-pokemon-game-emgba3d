@@ -573,6 +573,46 @@ scene saves made by `place_save.py`:
    Adventure and Diorama cameras.
 9. Regression: `native_checkpoint_proof.py --slow 1.5 --recover` with the 3D build.
 
+### 7d. World details, every building, lamps and lit windows (graphics `graphics-wip-20261010-8`)
+
+Unit: `check-diorama` (13 test programs and the compositor goldens; `test_props`: the catalogue, art composition,
+every form's build, lamp heads on their posts, north-south fences, the ground
+under props, wind in each weather, rustle where someone stands, cells a model
+owns left to it), `check-native` (`test_display_settings`: the World details key,
+presets, the F10 row), `tools/diorama_buildings/test_window_glow.py` (panes, the
+wall's own blue, stripes, roofs, glazing bars, runs and brightness) and
+`test_auto_buildings.py` (Lilycove's houses and department store, no overlaps,
+the woods' way in, Sootopolis, two houses side by side, the eave search); the
+generator's `--verify` (every model, the seventy new ones included, reproduces its
+drawing in the GBA projection); launcher `tests/test_game_display_settings.py`.
+
+By hand (Xvfb, scripts `scene-env.sh`, `place-env.sh`, `door-test.sh`,
+`menu-test.sh` in the session's scratch folder):
+
+1. Props, both cameras: Route 101, Oldale, Littleroot, Rustboro (day and night),
+   Petalburg Woods, Granite Cave, Dewford, Slateport (centre and market),
+   Mauville, Lilycove, Mossdeep, Lavaridge, Fallarbor, Petalburg; against
+   `PKMN_DIORAMA_PROPS=0`.
+2. Wind and rustle: Route 101 with `PKMN_DIORAMA_WEATHER=13` (downpour).
+3. Lamps and windows: Rustboro, Littleroot, Oldale, Lilycove, Mauville with the
+   test saves' clock (`TZ=UTC` night, `TZ=UTC+3` evening, `TZ=UTC+8` day).
+4. Buildings: Lilycove, Slateport, Mauville, Fortree, Mossdeep, Dewford (scene
+   saves), Pacifidlog and the Battle Frontier (placed saves), Adventure and
+   Diorama cameras; a door: Lilycove house (36,7), hold Up: the door opens on the
+   model and the player walks in.
+5. F10 > World details Off: the grass and signs lie flat, the terrain redraws,
+   `details=0` and `quality=custom` in `pokeemerald.cfg`.
+6. Benchmark: `--benchmark 5` from the Lilycove save with checkpoint -7's binary,
+   this one, and this one with `PKMN_DIORAMA_PROPS=0`.
+7. Before/after (Linux and Wine): the checkpoint -7 build and this one in the seven
+   places of 7c, plus Lilycove, Slateport and Mauville on Linux (Lilycove under
+   Wine), Adventure and Diorama (`ckpt8-verify.sh`). Look at the new buildings'
+   roofs from the Diorama camera: one roof each, no eave repeated behind it.
+8. Lamps and windows under Wine: Rustboro and Lilycove with a POSIX-style `TZ`
+   (`EST5EDT`; Wine's C library takes a zone name like `America/New_York` as UTC)
+   at an hour that is evening or night in the test saves.
+9. Regression: `native_checkpoint_proof.py --slow 1.5 --recover` with the 3D build.
+
 ## 8. CI
 
 Workflow files exist (`engine/.github/workflows/native-pc.yml`,

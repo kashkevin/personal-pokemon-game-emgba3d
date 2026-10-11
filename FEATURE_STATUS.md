@@ -297,6 +297,22 @@ section 1. Design and results in `docs/graphics-overhaul.md`; software OpenGL he
 | Frame rate (software GL, `--benchmark 5`) | No measurable cost of the distant scenery: Adventure 720p 6.9 fps with it, 6.6 without; 1080p 4.8 / 4.7; Diorama 720p 6.2 / 6.0, 1080p 4.3 / 4.2 (4K 1.6-1.7 either way) | Not measured | Real GPU unmeasured (V3). |
 | Multiplayer with the new build | Works in multiplayer: native-checkpoint-3d-9 (2 clients: enrol, saves 1.6-1.75 s, restart, live recovery 42.0 s) | Not run | |
 
+### Graphics overhaul phases 2-4: world details, every building, lamps and lit windows (engine `graphics-wip-20261010-8`)
+
+Directive "CONTINUE 3D GRAPHICS OVERHAUL + COMPLETE ENVIRONMENTAL OBJECT UPGRADE",
+sections 2-9. Design and results in `docs/graphics-overhaul.md`; software OpenGL here.
+
+| Item | Linux | Windows (Wine) | Notes |
+| --- | --- | --- | --- |
+| World detail objects from their own art (grass, flowers, signs, fences, posts, lamps, rocks, boulders, baskets, market goods) | Visually renders: Route 101, Oldale, Littleroot, Rustboro (day and night), Petalburg Woods, Granite Cave, Dewford, Slateport (centre, market), Mauville, Lilycove, Mossdeep, Lavaridge, Fallarbor, Petalburg; both cameras; against `PKMN_DIORAMA_PROPS=0` | Visually renders: Littleroot, Oldale, Rustboro, Route 101, Petalburg Woods, Granite Cave, Dewford, Lilycove; both cameras, beside checkpoint -7's exe | Catalogue per tileset (`props.c`); `test_props` (1714 checks). Gaps: Slateport's rope fences and stall canopies, benches, Rustboro's fence corners. |
+| Swaying grass and flowers; wind by weather; rustle underfoot | Visually renders (Route 101, downpour preview); rustle unit-tested | Not checked separately | |
+| Street lamps light the night (Rustboro) | Visually renders: night and evening pools on the ground, walls and people; lantern glass glows; none by day | Visually renders: Rustboro at night with the final exe (pools of light on the street, lantern glass lit; Wine's clock set to the evening with `TZ=EST5EDT`) | 16 nearest lamps; off with Lighting. |
+| Every building in 3D (about seventy new models: Slateport, Mauville, Lilycove, Fortree, Mossdeep, Pacifidlog, Dewford, Fallarbor, Verdanturf, route houses, Battle Frontier) | Visually renders: Lilycove, Slateport, Mauville, Fortree, Mossdeep, Dewford, Pacifidlog, Battle Frontier east, both cameras; works in gameplay: a door opens on a new model and the player walks in (Lilycove) | Visually renders: Lilycove, Dewford and Slateport, both cameras (the final build with the roof fixes) | 70 of 70 proved in the GBA projection (`--verify`); `test_auto_buildings` (11). A roof's unseen depth repeats the middle of the roof, not its eave (`a82a652c8`; it read as a second roof from the Diorama camera); Slateport's museum without the sea wall (`d799c4a8a`). V29: flat roofs; Sootopolis and a few others stay flat. |
+| Lit windows in the evening and at night | Visually renders: Littleroot, Oldale, Rustboro, Petalburg, Lilycove, Mauville, Slateport, Dewford | Visually renders: Rustboro and Lilycove at night (final exe) | 2699 window runs; `test_window_glow`. V32: found by colour. |
+| World details setting (F10 row, `details=` in `pokeemerald.cfg`, off in the Low preset) | Works in gameplay: Route 101, F10 > World details Off: props flat, terrain redrawn, file written | Not run | `test_display_settings` (151 checks); launcher reads it as a quality key. |
+| Frame rate (software GL, Lilycove, Adventure) | 7.4 / 5.7 / 3.6 / 1.9 fps at 720p-4K with World details (8.4 / 6.2 / 3.6 / 2.1 without; checkpoint -7: 8.7 / 6.4 / 4.0 / 2.3) | Not measured | V30; real GPU unmeasured (V3). |
+| Multiplayer with the new build | Works in multiplayer: native-checkpoint-3d-12 with the final build (2 clients: enrol, saves 1.59-1.77 s, restart, live recovery 42.4 s); -10 and -11 the same on the two builds before the roof fixes | Not run | |
+
 ## Decision pending - owner to confirm: personal vs shared wild spawns
 
 - Earlier owner decision (2026-10-09): visible wild spawns are **personal**, and
