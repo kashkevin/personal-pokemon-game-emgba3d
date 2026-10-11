@@ -168,7 +168,12 @@ make -f Makefile_pc NATIVE_LINUX=1 DIORAMA=1 -j2 \
 the same flags.) DEBUG is then the start menu's first entry. Start debug trainer
 battles (Trainers > Trainer 1, Double Battle, Try Battle) in a town: on a route a
 visible wild Pokémon can wipe the trainer's party during the transition (KNOWN_ISSUES
-N33).
+N33). The debug menu's trainer selection prints "Attempted to CpuFastSet to NULL" as
+it closes (`Debug_DestroyMenu` clears window 1 after its buffer is gone; the port's
+guard skips the copy): a debug-menu quirk of the test builds, not of the battles.
+Its Try Battle always uses the wild transition; a trainer's own transition (the
+Elite Four's mugshot) needs the real script: warp into Sidney's room at its door
+(continue-game warp 16.0, 6,12), let the walk-in end below him, face up and talk.
 
 | Check | Linux | Windows (Wine) |
 | --- | --- | --- |
@@ -193,6 +198,7 @@ N33).
 | Third round: glide from the Adventure camera and the Diorama camera (`cameraMode=diorama` in `pokeemerald.cfg`) through the Slice transition | Pass | Adventure |
 | Third round: the battle's world at the render size and MSAA of the display settings (Ultra) | Pass | Not run |
 | Third round: the log names the graphics card, the window and the 3D view's size | Pass | Pass |
+| Third round: every battle transition over the 3D field - the 37 field transitions forced one by one on Route 101 (gdb: `break BattleTransition_StartOnField`, `set var transitionId = N`, attached before the field loads; test only), and Sidney's mugshot through his own script | Pass: all composed, battles in 3D, back to the field | Not run |
 | Third round: the overworld not slowed by the merge - `--benchmark 5` in Littleroot Town (a save whose continue-game warp points there; not where wild Pokémon roam), graphics `6743bc1e5` against the merge candidate, three runs each, alternating | Pass: within the runs' spread at all four sizes (e.g. 1920x1080 5.9 against 6.2 fps, software) | Not run |
 | Owner's PC, a real graphics card: `battle3d-test-runs\wip-20261010-3` (`run-3d-battle-water.bat`, `-flowers`, `-cave`; logs `battle-log-*.txt`) | - | Waiting for the owner's run |
 | Multiplayer battles in 3D | Not run (C3) | Not run |
