@@ -200,7 +200,8 @@ Elite Four's mugshot) needs the real script: warp into Sidney's room at its door
 | Third round: the log names the graphics card, the window and the 3D view's size | Pass | Pass |
 | Third round: every battle transition over the 3D field - the 37 field transitions forced one by one on Route 101 (gdb: `break BattleTransition_StartOnField`, `set var transitionId = N`, attached before the field loads; test only), and Sidney's mugshot through his own script | Pass: all composed, battles in 3D, back to the field | Not run |
 | Third round: the overworld not slowed by the merge - `--benchmark 5` in Littleroot Town (a save whose continue-game warp points there; not where wild Pokémon roam), graphics `6743bc1e5` against the merge candidate, three runs each, alternating | Pass: within the runs' spread at all four sizes (e.g. 1920x1080 5.9 against 6.2 fps, software) | Not run |
-| Owner's PC, a real graphics card: `battle3d-test-runs\wip-20261010-3` (`run-3d-battle-water.bat`, `-flowers`, `-cave`; logs `battle-log-*.txt`) | - | Waiting for the owner's run |
+| Fourth merge candidate `e747ce106` (on graphics `cb859b10c`, `graphics-wip-20261010-7`): builds and automated checks (14 renderer test programs, the far field's 54,618 checks included), Petalburg Gym and Sidney's room, Slice from both cameras, Future Sight, Blur, the double battle, Route 110's sea forced, Petalburg Woods, Sidney's mugshot, the crash scenarios | Pass | Pass as packed (Granite Cave 1F) |
+| Owner's PC, a real graphics card: `battle3d-test-runs\wip-20261010-4` (`run-3d-battle-water.bat`, `-flowers`, `-cave`; logs `battle-log-*.txt`; `wip-20261010-3` holds the third candidate's exe) | - | Waiting for the owner's run |
 | Multiplayer battles in 3D | Not run (C3) | Not run |
 
 UBSan reports now come only from real findings; a false positive from the engine's

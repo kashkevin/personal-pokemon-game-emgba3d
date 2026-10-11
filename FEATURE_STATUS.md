@@ -227,9 +227,9 @@ compiler's own Python tests 8 pass, `test_rules_parity` fails upstream as well
 The Emerald 3DS project's battle scene on one screen, graphics only (owner directive
 2026-10-10); details, switches and the review of the visual problems in
 `docs/battle-3d.md`. Not merged into `claude/native-graphics` yet: merge candidate
-`claude/native-graphics-3d-battles-3` (`2a368fd8d`: graphics `6743bc1e5`, the
-Adventure camera, + the 3D battles), waiting for the owner's graphics-card logs.
-Software OpenGL only so far.
+`claude/native-graphics-3d-battles-4` (`e747ce106`: graphics `cb859b10c`,
+`graphics-wip-20261010-7`, + the 3D battles), waiting for the owner's graphics-card
+logs. Software OpenGL only so far.
 
 | Item | Linux | Windows (Wine) | Notes |
 | --- | --- | --- | --- |
