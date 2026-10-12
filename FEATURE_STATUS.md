@@ -337,6 +337,25 @@ workspace.
 | Windows lit at night (dark-glass windows too), lamp glass | Visually renders: Mossdeep, Rustboro (Devon), Sootopolis has none | Visually renders: Rustboro and Mossdeep at night | V32. |
 | Multiplayer with the new build | Works in multiplayer: native-checkpoint-3d-13 (3D, 2 clients: enrol, saves 1.86-1.97 s, restart, live recovery 44.9 s); native-trade-6 (2D build of the same commit: trade through the Players menu, back-out, restart) | Not run | 2v2 with four clients not re-run (152 min; game logic unchanged since native-launcher-multi-10). |
 
+### Option B: real roofs, recessed windows, framed doors, landmarks, cave levels (engine `graphics-wip-20261012-2`)
+
+The owner's option B (2026-10-12): "real sloped roofs, window recesses, door frames and
+architectural trim". Design and results in `docs/graphics-overhaul.md` (last section).
+Software OpenGL here.
+
+| Item | Linux | Windows (Wine) | Notes |
+| --- | --- | --- | --- |
+| Real roofs: 25 pitched with a ridge, 26 flat behind a parapet, 6 domes, 5 cones, 13 pyramids, 3 Battle Tents as domes, 1 split building | Visually renders: Slateport, Lilycove, Dewford, Verdanturf, Fallarbor, Mauville, Mossdeep, Sootopolis, Pacifidlog, Fortree, Route 109, the Battle Frontier; both cameras, before and after checkpoint -1's build; at night | Visually renders: Slateport, Lilycove, both cameras, against checkpoint -1's exe | `dimensional.py`; every facade still proved against its drawing (573 models); `test_dimensional` (14). V41: the roofs are not the drawing pixel for pixel, by design. |
+| Recessed windows and framed doors (298 on 77 models, the hand-made ones too) | Visually renders: the towns above; at night the windows glow in their recesses (Slateport, Lilycove, Mauville, Verdanturf, Mossdeep, Fortree, Dewford, Littleroot) | Visually renders: Slateport, Lilycove by day; night and doors not run | Doors: works in gameplay: 11 doors (houses, a Battle Tent, the Trick House, both cable car stations, the Battle Pyramid and Arena, Trainer Hill): the door opens in its frame and the player is inside |
+| The last flat landmarks: Battle Pyramid, Battle Arena roof, cable car stations (Route 112, Mt. Chimney), Trick House, Trainer Hill | Visually renders: all six, both cameras (they were spiky reliefs) | Visually renders: the Battle Pyramid, both cameras | Trainer Hill also on the days the Mirage Tower is hidden (V40). |
+| Switched layouts (`setmaplayoutindex`): Route 111 without the Mirage Tower, Shoal Cave at high tide, Sootopolis in the legends' battle | Works in gameplay: Route 111 with the tower gone - sand, no tower, Trainer Hill standing (layout 392 logged); with it - the tower | Not run | V40 fixed. |
+| Cave levels: raised floors a tile up, middle floors half way, bridges as decks | Visually renders: Victory Road, Meteor Falls, Shoal Cave, both cameras | Visually renders: Victory Road 1F, both cameras | V38; `test_terrace_topology` (8). The player walks the raised floors on them. |
+| Terrain drawn from indices; no undersides on a cell's floor | Visually renders the same picture (Jagged Pass pixel diff: only ash motes and the map name differ) | Visually renders: every Wine picture is drawn this way; Jagged Pass not run | V37: Jagged Pass GPU buffers 33.9 MB to 24.8 MB, 948,870 vertices built, 632,580 uploaded. |
+| 3D battles with the new geometry | Visually renders on a trial merge's TEST build: 32 battles surveyed (caves with levels, the Lavaridge relief, towns with new roofs, the Frontier), every battler on its ground (foot error 0 px), raised floors included | Not run | Trial merge with `claude/battle-environments-2` (not merged anywhere): `COORDINATION.txt`. |
+| Frame rate (software GL, `--benchmark 8`, 1080p) | Jagged Pass 1.7 to 2.7 fps, Mt. Chimney 1.5 to 2.2 (checkpoint -1 to final; the terrain's GPU time a third to a half less); towns the same within noise | Not measured | Real GPU unmeasured (V39). |
+| The Players menu over the 3D field (V42, the UI session's U11) | Works in multiplayer: native-trade-3d-u11-after (2 Linux 3D clients of the final build): the trade screens over the 3D field, the trade applied, back-out, restart, store check; before the fix the same proof's screens showed only the field | Works in multiplayer: native-trade-wine3d-u11 (2 Windows 3D clients of the checkpoint's exe under Wine): the same | `main.c`; GBA ROM unchanged. |
+| Multiplayer with the new build | Works in multiplayer: native-trade-3d-u11-after (the final Linux 3D build, 2 clients: enrol, trade through the Players menu, back-out, restart, store intact); native-checkpoint-3d-14 with the build before the menu fix (2 clients: enrol, saves 1.54-1.55 s, restart, live recovery 40.9 s); native-trade-7 with the 2D build | Works in multiplayer: native-trade-wine3d-u11 (2 Windows 3D clients under Wine: enrol, trade, back-out, restart, store intact) | |
+
 ## Decision pending - owner to confirm: personal vs shared wild spawns
 
 - Earlier owner decision (2026-10-09): visible wild spawns are **personal**, and

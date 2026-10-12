@@ -655,6 +655,52 @@ session's scratch folder; `PKMN_CLOCK_HOUR=12` for daylight, `22` for night):
    `native_trade_proof.py` with the 2D build of the same commit.
 10. On the owner's PC: `benchmark\run-benchmark.bat` (the frame-rate targets).
 
+### 7f. Option B: real roofs, facades, landmarks, cave levels (graphics `graphics-wip-20261012-2`)
+
+The owner's option B (2026-10-12); `docs/graphics-overhaul.md` (last section).
+
+Unit: `tools/diorama_buildings/test_dimensional.py` (roof reading, swatches, every roof
+type's shape, windows grown to their frame, door cells, the facade proof with the
+details left out), `test_auto_buildings.py` (with `LayoutVariantTests`: Trainer Hill
+stands in Route 111's layout without the Mirage Tower, the tower does not),
+`tools/diorama_rules/test_terrace_topology.py` (cave levels: lowest floor kept, highest a
+tile up, a middle floor half way, bridges as decks at the floor they meet),
+`test_compile_rules.py` `ScriptLayoutTests`, `check-diorama` (`test_terrain_mesh`: no
+underside on a cell's floor, a bridge keeps its deck's;
+`TestFoldedQuadsDrawTheSameTriangles`: the folded vertices drawn through their indices
+are the mesh's own, for a relief, a round tree's hull and a lone triangle). The
+generator's own proof: every model's facade against its drawing (`--verify`), the roofs
+and details left out.
+
+By hand (Xvfb; `place-env2.sh`, `run-tour.sh` with `places.txt` in the session's
+scratch folder):
+
+1. Before/after tour, both cameras: checkpoint -1's Linux build and the new one at 31
+   places (Slateport, Lilycove, Dewford, Verdanturf, Fallarbor, Mauville, Mossdeep,
+   Sootopolis, Pacifidlog, Fortree, Route 109's seashore house, the Trick House, Trainer
+   Hill, both cable car stations, the Battle Pyramid and Arena, Littleroot, Oldale,
+   Victory Road, Meteor Falls, Shoal Cave, Jagged Pass); at night (`PKMN_CLOCK_HOUR=22`)
+   eight towns: windows lit in their recesses.
+2. Doors: stand south of a door and hold Up (`door-test.sh`): the door opens in its
+   frame and the player is inside (eleven doors: houses, a Battle Tent, the Trick House,
+   both cable car stations, the Battle Pyramid and Arena, Trainer Hill).
+3. Switched layouts: a copy of a save with `VAR_MIRAGE_TOWER_STATE` 3 (`set_var.py`):
+   Route 111 at (19,61) - sand, no tower; at (31,116) - Trainer Hill standing;
+   `PKMN_DIORAMA_LOG=1` names layout 392. The plain save: the tower stands (layout 27).
+4. Terrain cost: Jagged Pass with `PKMN_DIORAMA_CHUNK_LOG=1 PKMN_DIORAMA_PROFILE=1`,
+   the build before indexing and the new one at the same spot: the same built vertices,
+   two thirds uploaded, the GPU buffers a quarter smaller, the pictures identical but for
+   animated things (ash, the map name).
+5. 3D battles: a trial merge with the battle session's newest branch, its TEST build and
+   `tools/battle_env/survey.py` on the caves with levels and the towns with new roofs
+   (the checkpoint's `COORDINATION.txt`).
+6. Regression: `native_checkpoint_proof.py --slow 1.5 --recover` with the 3D build;
+   `native_trade_proof.py` with the 2D build; the Windows exe under Wine (both cameras);
+   `--benchmark` A/B in Jagged Pass, Mt. Chimney, Slateport, Lilycove, Mauville.
+7. The Players menu in 3D (V42): `native_trade_proof.py --game <the Linux 3D build>
+   --hold .5 --gap .6` (two 3D clients); `offer-*.png` must show the trade screen over
+   the 3D field, not the field alone.
+
 ## 8. CI
 
 Workflow files exist (`engine/.github/workflows/native-pc.yml`,
