@@ -44,7 +44,7 @@ data; nothing is drawn (host or launcher features, see below).
 | 6 | Pokédex | Partial | lists, search results, entry pane, START menu native; the entry's AREA, CRY and SIZE pages and the search form keep the game's picture; FIND PLANNED; forms catalogue pending |
 | 7 | Trainer card | Game picture | phase 7 (own card exists in the engine) |
 | 8 | Trade | Game picture | phase 6 (the host's text menu) |
-| 9 | Customization | Game picture | phase 5 (the STYLE colour editor) |
+| 9 | Customization | Integrated | the dressing room over the STYLE editor (START > PLAYER > STYLE): its four colour rows (skin tone, hair, outfit, hat and bag) with the engine's names, colours and palette slots behind the BODY, HAIR, TOP and HAT tags; the mirror (the player's field sprite at 3x, recoloured live by the engine's own palette recolour; walk, run, turn), the portrait (base art), the sync tag (the look's 8 bytes, what the host has); presets, body, the styles, bottoms, shoes, bag, accessories and unlocks PLANNED (they need layered art the game does not have) |
 | 10 | Save | Integrated | "saved" only after the engine reports success and the file write finished |
 | 11 | Options | Integrated | the six GBA options; the second tab opens F10 (Display & Graphics) |
 | 12 | Players | Game picture | phase 6 (the host's six-row menu) |
@@ -102,7 +102,8 @@ Cloud computer (Linux, software OpenGL, a virtual display; the Windows build und
 
 | Check | Result |
 | --- | --- |
-| GBA ROM identity at every commit (`2622871e`, `5f71c090`, `58f0194d`, `1364a05f`, `92bee637`, `ee3e1bc9`, `a794a52d`) and the trial merges | byte-identical, `f214735b…3387` |
+| GBA ROM identity at every UI commit (`2622871e`, `5f71c090`, `58f0194d`, `1364a05f`, `92bee637`, `ee3e1bc9`, `a794a52d`, `eb4842ee`) and the trial merges | byte-identical, `f214735b…3387` |
+| GBA ROM with the engine fix `a89294c5` (U10, not UI) | differs only in `start_menu.o` (.text +28 bytes; every other section the same size): `b37759ea…e79a` |
 | Linux and Windows (mingw) builds of `claude/native-ui` and of the trial | pass, no new warnings in the files touched |
 | Title, main menu, CONTINUE, field, pause, bag (Windows exe under Wine) | pass |
 | Bag: all five pockets with a filled test bag (items, Balls, TMs and an HM, Berries, Key Items), item details on 14 items incl. two Mega Stones, browsing by keys, arrows, wheel and the strip, back on the bag at the item shown | pass |
@@ -111,6 +112,7 @@ Cloud computer (Linux, software OpenGL, a virtual display; the Windows build und
 | Battles, doubles (a test build with every wild battle double, not shipped): four databoxes, one-target selection following the engine's cursor, a spread move's targets, faint and removal | pass |
 | 3D battles trial: the HUD over the 3D world, the GBA healthboxes and message box gone | pass |
 | `PKMN_NATIVE_UI=0`: the old presentation (benchmark run through field, pause, bag, party) | pass |
+| Customization, Brendan and a May test save: every colour row by keys and mouse (tags, swatches, L/R, wheel), the planned tags, the mirror's poses (Tab), SAVE by START and by the button ("Is this OK?"), the saved look on the field and on reopening (its tick; "saved here" while offline), B with changes ("Discard your changes?") back to the saved look | pass |
 | Benchmark visit (title, main menu, field, pause, bag, party), UI on and off, Linux at 1280×720 Low and at 1920×1080 High (about 12 fps in the field: the game itself slows down), and the checkpoint's `ui-benchmark.bat` with the Windows exe under Wine | every phase reached, the expected screen up 100 % of each phase |
 
 Not run yet: link battles with two games (PvP 1v1 / 2v2), the multiplayer 2v2 owner tags.
@@ -148,7 +150,7 @@ hitch cannot put it out of step. No frame-rate figure is claimed before those re
 
 | # | Issue |
 | --- | --- |
-| U1 | Screens 7, 8, 9, 12, 15, 22, 25-29 still show the game's picture (phases 5-7). |
+| U1 | Screens 7, 8, 12, 15, 22, 25-29 still show the game's picture (phases 6-7). |
 | U2 | Pokédex: AREA, CRY, SIZE and the search form keep the game's picture. |
 | U3 | PC: the PC's first menus and moving several Pokémon at once keep the game's picture. |
 | U4 | Battle: Safari Zone, catching tutorial and Battle Arena keep the game's picture; ability pop-ups and the level-up stat box are the game's art. |
@@ -157,6 +159,7 @@ hitch cannot put it out of step. No frame-rate figure is claimed before those re
 | U7 | Frame times only from software OpenGL so far (see Performance). |
 | U8 | Opening and leaving the PC boxes crashed natively before this work (also with the UI off): this branch carries the fix commits of `claude/native-pc` (`99a4f186`, `bfa4303e`, cherry-picked unchanged). |
 | U9 | Not the UI's: a battle against two trainers at once aborts natively (KNOWN_ISSUES N37). |
+| U10 | Not the UI's, fixed here: choosing STYLE or RIDE / GET OFF in the Player menu faded the screen to black for good (the start menu fades for every item not on its no-fade list; both stay in the field), with the old menus too, since `e726268e`. Fixed in `a89294c5` (both join the list, as PLAYERS); the same commit is on `claude/fix-player-menu-fade` (on `d799c4a8a`) for the multiplayer start menu's owners. It changes the GBA ROM (`start_menu.c` only). |
 
 ## Shared files touched (for merging)
 
@@ -171,5 +174,6 @@ the end of their files; hooks in the middle of a file keep the GBA line numbers 
 * Accessors: `title_screen.c`, `main_menu.c`, `start_menu.c`, `field_screen_effect.c`,
   `option_menu.c`, `party_menu.c`, `pokemon_summary_screen.c`, `item_menu.c`, `pokedex.c`,
   `pokemon_storage_system.c`, `menu_helpers.c`, `text.c`, `window.c`, `pokemon_icon.c`,
-  `multiplayer.c`, `sprite.c`, `battle_controller_player.c`, `battle_interface.c` (three
-  one-line hooks noting what a healthbox shows).
+  `multiplayer.c`, `multiplayer_appearance.c`, `sprite.c`, `battle_controller_player.c`,
+  `battle_interface.c` (three one-line hooks noting what a healthbox shows).
+* Not UI: `start_menu.c` (U10's fix, two callbacks on the no-fade list).
