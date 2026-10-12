@@ -613,6 +613,48 @@ By hand (Xvfb, scripts `scene-env.sh`, `place-env.sh`, `door-test.sh`,
    at an hour that is evening or night in the test saves.
 9. Regression: `native_checkpoint_proof.py --slow 1.5 --recover` with the 3D build.
 
+### 7e. Performance work and the last flat things (graphics `graphics-wip-20261012-1`)
+
+Directive "8 GB RAM support, 4K 200 FPS optimization and final 3D environment
+overhaul"; `docs/performance/` and `docs/graphics-overhaul.md` (last section).
+
+Unit: `check-native` (`test_display_settings`: frame-rate limits, render scale, memory
+budget, the limiter's beat; `test_platform`: the clock override before and after the
+save blocks), `check-diorama` (`test_terrain_mesh`: steps closed by skirts, ledges on
+a lower level, their sides' mapping - each fails on the old code; `test_props`: the
+catalogue with floating, sloping and deep props), `tools/diorama_rules/
+test_terrace_topology.py` (blocked cells lifted, shallows joined to the solved sea),
+`tools/diorama_buildings/test_auto_buildings.py` (Sootopolis's houses by their roofs)
+and `test_window_glow.py` (dark panes).
+
+By hand (Xvfb; scripts `place-env.sh`/`place-env2.sh`, `wine-env.sh` in the
+session's scratch folder; `PKMN_CLOCK_HOUR=12` for daylight, `22` for night):
+
+1. Steps and holes: Routes 132, 127, 124, 125, 128, 113 (46,4), 116, 118, 119, 109,
+   Pacifidlog, Mossdeep, Sootopolis, Ever Grande, Dewford, Slateport: no pale squares
+   or bands (the clear colour) anywhere; the sea's rocks in the water, shallows level
+   with the sea, ledges closed. `PKMN_DIORAMA_TERRAIN_CHECK=1` reports 0 stale chunks.
+2. Long grass: Route 119 at (27,95): the field stays 3D (with `PKMN_DIORAMA_LOG=1` no
+   `refused (unsupported sprite)` line), the player in the grass.
+3. New models and props: Sootopolis (53,29), Slateport's market, Rustboro's fences,
+   Route 109's beach (12,12), Route 113's ash grass, Mossdeep (25,17).
+4. Night: Rustboro (lamps and their glass, Devon's windows), Mossdeep's windows,
+   Fortree, Petalburg, Lilycove, Lavaridge, Granite Cave.
+5. Weather layer: Route 101 with `PKMN_DIORAMA_WEATHER=3`; with `PKMN_DIORAMA_PROFILE=1`
+   the weather upload (`gl_compositor.c` site) is once per frame below 60 fps (above
+   60 it should fall to 60 a second: needs a graphics card).
+6. Frame-rate limits: title screen at 60, 144, 240 and unlimited (`fpsCap=`):
+   the presented rate holds the limit and the game counts 120 frames every 2 s at each.
+7. Before/after under Wine: checkpoint -8's exe and the new one in Route 101,
+   Mossdeep, Dewford, Lilycove, Granite Cave (Adventure and Diorama); Rustboro and
+   Mossdeep at night.
+8. Benchmark: `--benchmark 5` from the Lilycove save with checkpoint -8's Linux
+   binary and the new one (software numbers only); `run-benchmark.bat quick` under
+   Wine from the checkpoint's own folder layout.
+9. Regression: `native_checkpoint_proof.py --slow 1.5 --recover` with the 3D build;
+   `native_trade_proof.py` with the 2D build of the same commit.
+10. On the owner's PC: `benchmark\run-benchmark.bat` (the frame-rate targets).
+
 ## 8. CI
 
 Workflow files exist (`engine/.github/workflows/native-pc.yml`,

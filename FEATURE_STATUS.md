@@ -313,6 +313,30 @@ sections 2-9. Design and results in `docs/graphics-overhaul.md`; software OpenGL
 | Frame rate (software GL, Lilycove, Adventure) | 7.4 / 5.7 / 3.6 / 1.9 fps at 720p-4K with World details (8.4 / 6.2 / 3.6 / 2.1 without; checkpoint -7: 8.7 / 6.4 / 4.0 / 2.3) | Not measured | V30; real GPU unmeasured (V3). |
 | Multiplayer with the new build | Works in multiplayer: native-checkpoint-3d-12 with the final build (2 clients: enrol, saves 1.59-1.77 s, restart, live recovery 42.4 s); -10 and -11 the same on the two builds before the roof fixes | Not run | |
 
+### Performance, memory and the last flat things (engine `graphics-wip-20261012-1`)
+
+Directive "8 GB RAM support, 4K 200 FPS optimization and final 3D environment
+overhaul" (2026-10-11). Results in `docs/performance/` and `docs/graphics-overhaul.md`
+(last section). Software OpenGL here: no frame-rate target can be checked in the cloud
+workspace.
+
+| Item | Linux | Windows (Wine) | Notes |
+| --- | --- | --- | --- |
+| Frame-rate limit (60/120/144/165/180/200/240/unlimited) and VSync, F10 | Works in gameplay: 60.0, 144.0, 240.0 fps at those limits, about 2000 unlimited (title screen); the game at 120 frames every 2 s at each | Not checked separately | Unit-tested (`test_display_settings`, 244 checks). Pacing on a real high-refresh display untested (V21). |
+| Game speed and battles independent of the frame rate | Works in gameplay: the game's frame count holds at every limit; battles run in game frames | - | The game's fixed step and the renderer's interpolation are unchanged. |
+| 3D render scale (100/83/75/67/50 %), F10 | Works in gameplay: Route 101 at 50 % draws the scene at half the height, upscaled (softer), 2.0 to 4.8 fps on software GL at 1834x1032 | Not checked separately | The benchmark always measures 100 % (native). |
+| Memory budget (auto, 512 MB-8 GB) and RAM/VRAM diagnostics, F10 | Works in gameplay: the row shows the budget in effect and the memory in use; the profile log every 2 s | Works: large-address-aware exe ran with all address space below 2 GB reserved (`PKMN_HIGH_ADDRESS_TEST=1`) | `docs/performance/64-bit-and-memory.md`. A full 64-bit build is not done (audit there). |
+| Benchmark suite (ten scenes, 1080p/1440p/4K, before/after) | Works (`run_benchmark.sh`, `--benchmark`) | Works: `run-benchmark.bat quick` from the checkpoint's own folder layout | **The owner's GPU run is pending**: frame-rate targets unverified (V39). |
+| Frame-rate targets (1080p/1440p 200+, 4K 180-200+, low-end 60+) | Unverified (software GL: 2-10 fps) | Unverified | Measured only on the owner's PC. |
+| Sootopolis's 22 houses in 3D | Visually renders (Sootopolis, day and night) | Not run | All 22 exact in the GBA projection. |
+| Slateport's market stalls, awnings, beach rope; Rustboro's fence corners | Visually renders (Slateport, Rustboro) | Not run | Props that float, slope and lie deep (`test_props`). |
+| Mossdeep's buildings and trees on the town's ground | Visually renders | Visually renders: before/after with checkpoint -8's exe (plinths and broken trees gone) | |
+| Route 109's parasols, deck chairs, air mattresses; Route 113's ash grass | Visually renders | Not run | |
+| No sky through steps (sea rocks, shallows, ledges on lower levels, trees above walks) | Visually renders: 16 places before and after | Visually renders (Mossdeep) | V33 fixed. |
+| Long grass keeps the 3D view (Routes 119, 120) | Works in gameplay (Route 119, standing in the grass) | Not run | V34 fixed. |
+| Windows lit at night (dark-glass windows too), lamp glass | Visually renders: Mossdeep, Rustboro (Devon), Sootopolis has none | Visually renders: Rustboro and Mossdeep at night | V32. |
+| Multiplayer with the new build | Works in multiplayer: native-checkpoint-3d-13 (3D, 2 clients: enrol, saves 1.86-1.97 s, restart, live recovery 44.9 s); native-trade-6 (2D build of the same commit: trade through the Players menu, back-out, restart) | Not run | 2v2 with four clients not re-run (152 min; game logic unchanged since native-launcher-multi-10). |
+
 ## Decision pending - owner to confirm: personal vs shared wild spawns
 
 - Earlier owner decision (2026-10-09): visible wild spawns are **personal**, and

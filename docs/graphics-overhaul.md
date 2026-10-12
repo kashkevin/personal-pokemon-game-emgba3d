@@ -374,3 +374,96 @@ are the "before".
 
 Not seen yet: the props and lamps on a real GPU; a downpour or a storm on a real map
 with the grass (previews only); the World details switch under Wine.
+
+## Performance directive phase 4: the last flat things, levels and steps, night (2026-10-12)
+
+Directive "8 GB RAM support, 4K 200 FPS optimization and final 3D environment
+overhaul", phase 4 (performance and memory: `docs/performance/`). Engine
+`claude/graphics-overhaul` `d799c4a8a`..`c51769606`, tag `graphics-wip-20261012-1`;
+checkpoint `native-wip-20261012-1`.
+
+### What the player gets
+
+* **Sootopolis's houses stand up.** The 22 white houses cut into the crater (the
+  towers under their pyramid roofs and the flat-roofed boxes) are buildings with
+  walls, roofs and doors like every other town's.
+* **Slateport's market has stalls.** The six market stalls have their striped
+  canopy as a roof on posts over the stall, its front hanging high enough to show
+  the stallholder; the orange awnings stand on their legs; the rope along the beach
+  kerb hangs between its posts. Rustboro's iron fences turn their corners.
+* **Mossdeep stands on its ground.** Its houses, Pokemon Center and its own round
+  trees no longer stand a tile up on plinths (the town lies a level under its cliff
+  tops).
+* **Route 109's beach is furnished**: parasols on their poles, deck chairs with
+  raised backrests, air mattresses on the sand.
+* **Route 113's ash grass stands** like tall grass; **long grass** no longer drops
+  Routes 119 and 120 to the flat view when you stand in it.
+* **No more holes in the world.** Pale squares and bands where the sky showed
+  through - round the sea's rocks and sandbars on the sea routes, along Route 113's,
+  116's and 118's ledges, under rows of trees on raised ground - are closed: each
+  step between two levels has its side. The sea's shallows lie level with the sea,
+  and its grey rocks and brown stacks stand in the water.
+* **At night more windows glow**: dark-glass windows (Mossdeep's houses, Devon's in
+  Rustboro) light up as well as the light-glass ones, and Rustboro's lamp glass
+  glows again (the night tint had made it too dark to be found). Trees follow the
+  night tint again (a performance change had left them bright at night for a day).
+
+### How it works
+
+* Props (`props.h`, `props.c`, `gl_props.c`): a prop can float (`lift16`: a canopy,
+  its front), slope (`rise16`: a lying block's north edge raised) and lie deeper
+  than one cell (`depth`); new kind `CANOPY`. Catalogue additions: Slateport's stall
+  roofs, fronts and posts, awnings and legs, beach rope (north-south runs turned to
+  face east), Route 109's parasols (dome, rim, pole), deck chairs and air mattresses,
+  Rustboro's iron fence ends and corners, Route 113's ash grass.
+* Sootopolis (`tools/diorama_buildings/auto_buildings.py` `crater_specs`): the door
+  search ran into the crater's rock, so the map was skipped; its houses are found by
+  their roofs (3 x 4 cells and a tower's tip) and modelled as a Relief read off their
+  drawing like the others; all 22 exact in the GBA projection.
+* Levels (`tools/diorama_rules/terrace_topology.py`, `compile_rules.py`): the
+  terrace solver gives levels to walkable regions only. Now blocked cells take the
+  level of the land nearest them in Mossdeep (`lift_blocked_cells`,
+  `LIFT_BLOCKED_LAYOUTS`; elsewhere a blocked cell by a lower level is as often a wall
+  between two levels, so only there), unsolved shallows joining the solved sea take
+  its level (`join_water`), the sea's rocks and stacks (the buildings generator's own
+  finder, `voxel_props.py`) stand on the water round them, and ledges on a lower level
+  take it.
+* Steps (`terrain_mesh.c` `AppendSkirtFaces`): a cell beside a lower whole cell or
+  ledge gets a side from that cell's top to its own footing, drawn with its ground; a
+  ledge on a level below the ground is a column a voxel thick with its whole drawing
+  on its sides.
+* Long grass (`scene_snapshot.c`): a walker split into full-width strips (subsprite
+  tables 4 and 5) is drawn whole; the 3D grass stands in front of it.
+* Windows (`window_glow.py`): dark panes solid in a much lighter frame are windows
+  too (39 more, 2945 runs); lamp glass is marked from its unfaded colours.
+* Shared renderer hooks for the 3D battles and the UI: the checkpoint's
+  `COORDINATION.txt` (trial merges with both branches, the hunks to keep, the one
+  duplicate function to drop).
+
+### Verification
+
+Engine `c51769606` (the Linux and Windows 3D builds made from it; checkpoint -8's
+builds are the "before").
+
+| Check | Result |
+| --- | --- |
+| Linux and Windows 3D builds | Compile; the Windows build has the same three header warnings as checkpoint -8 and no new ones; the exe is large-address-aware and imports no DirectX redistributable DLL. |
+| `check-native` | Pass: platform 1067 (with the clock override), bridge 4186, display settings 244 (frame-rate limits, render scale, memory budget, the limiter's beat), PNG writer 176 checks. |
+| `check-diorama` | Pass: 13 test programs (`test_terrain_mesh` with the steps, ledges and their sides - each check fails on the old code; `test_props` 5703 checks), compositor goldens (18,318 metatiles), rule validation, generated tables. |
+| `check-abi` | Pass (172 types). |
+| Rules and building tools (`check-diorama-tools`, each file run) | `test_compile_rules` 22 of 23 (the one failure is V31, as before); `test_tile_shape` 8, `test_structures` 13, `test_measured_volumes` 8, `test_mountain_art` 5, `test_terrace_topology` 6, `test_pixel_objects` 15, `test_catalog` 8, `test_occupancy_model` 8, `test_window_glow` 12, `test_auto_buildings` 11 pass; `test_rules_parity` fails as before (V2, upstream). Every Sootopolis model exact in the GBA projection (22/22). |
+| GBA ROM | Unchanged, sha256 `f214735b...3387`. |
+| Python tests | 1399 passed, 1 skipped, 2326 subtests (6 min 46 s). |
+| Holes and steps, Linux, 1920x1080, before and after | Routes 132, 127, 124, 125, 128, 113, 116, 118, 119, 109, Pacifidlog, Mossdeep, Sootopolis, Ever Grande, Dewford, Slateport, Adventure camera, noon: the pale squares and bands are gone; rocks stand in the water, shallows lie level with the sea, ledges closed. `PKMN_DIORAMA_TERRAIN_CHECK=1`: 0 stale chunks. |
+| Long grass | Route 119 (27,95): the field stays 3D, the player in the grass; no refusal in the log. |
+| Survey of the remaining towns and routes (day and night) | Fortree, Pacifidlog, Dewford, Verdanturf, Fallarbor, Lavaridge, Petalburg, Lilycove, Routes 119 and 120, Granite Cave; Fortree, Petalburg, Lilycove, Lavaridge, Granite Cave at night: the holes above (fixed) were the only new faults found. |
+| Before/after under Wine (checkpoint -8's exe and the new one), Adventure and Diorama cameras | Mossdeep (the plinths and broken trees gone), Dewford, Lilycove, Granite Cave (no change), Route 101 (the new exe; the old one's run stayed in the intro: a timing fault of the script); at night Rustboro (Devon's windows lit) and Mossdeep (houses' windows lit). |
+| Frame-rate limits, final build | 60.0, 144.0, 240.0 fps at those limits, about 2000 unlimited, the game at 120 frames every 2 s at each (`docs/performance/high-refresh-and-benchmarks.md`). |
+| Benchmark, software GL | Lilycove and Route 101, checkpoint -8 against the final build: the same within noise standing still (fill bound); see the performance doc. |
+| Multiplayer | native-checkpoint-3d-13 (Linux 3D, 2 clients): enrol 2.0 s, saves 1.86-1.97 s, restart, live recovery 44.9 s, host store intact; native-trade-6 (Linux 2D build of the same commit, 2 clients): both offers, one confirmation commits nothing, trade applied in both games (44.9 s), back-out aborts, restart keeps both parties, host store intact. |
+| Launcher package | "Native 3D preview 6" built under Wine (PyInstaller, package audit), its runtime the tested exe (sha256 `cb58d4e8...`). |
+
+Not seen yet: any of it on a graphics card; Sootopolis's houses at night (no lit
+windows found on them: their glass is not window-coloured); the Battle Pyramid and
+Arena area, the cable car stations, the Trick House and Trainer Hill (still flat).
+
