@@ -77,11 +77,65 @@
       "key_presses": 678,
       "forced_children": 0,
       "harness": "scripts/multiplayer/native_launcher_battle_proof.py, committed revision"
+    },
+    {
+      "run": "native-launcher-battle-3d-characters-8",
+      "clients": "Linux i386 native 3D client x2 (DIORAMA=1, native UI on, animated battle sprite pack; engine claude/emeraldtogether-integration bc7a3cfc7), started by the launcher's session workers",
+      "game_sha256": "03ee988113dd713bb0cfcd73126acb9bf4998afe2190c26bb9126287418fee72",
+      "bundle_manifest_sha256": "7aa136fcdc679d310374a769a07ec65a22a396960e3428751f6a10c09049f571",
+      "evidence_sha256": "a2c37cba3044a0a0d8c197dbea98180c729d6b8331ec3835bbf9e0b683d25abd",
+      "passed": true,
+      "checks": [
+        "host enrollment closed each bootstrap game itself (exit 0), revision 1 for both",
+        "host and friend launchers started their games; both reached the 3D overworld with save, window, battle and menu capabilities, terminal savers armed, save leases held",
+        "challenge, acceptance and Enter battle through the Players menu on both games (native UI on); both consent descriptors identical",
+        "both launchers report battle_finished with the original game processes, runtime objects, bridges and runtime identities",
+        "the durable result is the same for both players (1v1, team 2 won; sequence 1); Recent battle results on each game matches it ('Battle result', 'Team 2 won')",
+        "each player's full personal party restored in memory; both saved through the launcher (revision 2); parties in memory equal the canonical characters",
+        "both games closed normally, friend then host (exit codes 0, 0); fresh launchers Continued onto the same canonical checkpoints (revision 2)",
+        "host store integrity check passed; source saves unchanged",
+        "source looks confirmed by no host (sources' looks not pending): each game took the new world's default look, so both battled as the default trainers"
+      ],
+      "routed_blocks": 306,
+      "battle_seconds_including_terminal_adoption": 158.3,
+      "key_presses": 563,
+      "forced_children": 0,
+      "harness": "scripts/multiplayer/native_launcher_battle_3d_proof.py (run from an uncommitted copy that differs only in its version label), app claude/emeraldtogether-integration"
+    },
+    {
+      "run": "native-launcher-battle-3d-characters-9",
+      "clients": "the same Linux native 3D game as run 8",
+      "game_sha256": "03ee988113dd713bb0cfcd73126acb9bf4998afe2190c26bb9126287418fee72",
+      "bundle_manifest_sha256": "7aa136fcdc679d310374a769a07ec65a22a396960e3428751f6a10c09049f571",
+      "evidence_sha256": "15e71a0c21b510b78d98fb9f32d96897d5ff0f65843fd0d9a55813792f478f5e",
+      "passed": true,
+      "checks": [
+        "host enrollment closed each bootstrap game itself (exit 0), revision 1 for both",
+        "host and friend launchers started their games; both reached the 3D overworld with save, window, battle and menu capabilities, terminal savers armed, save leases held",
+        "challenge, acceptance and Enter battle through the Players menu on both games (native UI on); both consent descriptors identical",
+        "both launchers report battle_finished with the original game processes, runtime objects, bridges and runtime identities",
+        "the durable result is the same for both players (1v1, team 2 won; sequence 1); Recent battle results on each game matches it ('Battle result', 'Team 2 won')",
+        "each player's full personal party restored in memory; both saved through the launcher (revision 2); parties in memory equal the canonical characters",
+        "both games closed normally, friend then host (exit codes 0, 0); fresh launchers Continued onto the same canonical checkpoints (revision 2)",
+        "host store integrity check passed; source saves unchanged",
+        "each source's character look was pending (chosen offline): it reached the host on connect and the host's roster; in the battle the friend's game drew its own trainer as its character (Leaf, back) and the host's as the host's character (KIT 1 - A, front), and the host's game drew the friend as Leaf (screenshots of both games)"
+      ],
+      "routed_blocks": 318,
+      "battle_seconds_including_terminal_adoption": 187.7,
+      "key_presses": 636,
+      "forced_children": 0,
+      "harness": "as run 8"
     }
   ],
-  "failed_runs": [],
+  "failed_runs": [
+    {
+      "runs": "native-launcher-battle-3d-characters-2 to -7 (engine d2989f47e)",
+      "failure": "every 3D game froze at its first battle frame: the 3D battle's backdrop read the trainer class of TRAINER_LINK_OPPONENT (0xFF01), the engine's assertion opened its crash screen on the drawing thread ('include/data.h:260: invalid trainer: 65281', DioramaBattle_Capture > BackdropEnvironment), the answer to START never left the game and the client's 5-second command timeout ended the battle ('Battle recovery could not finish'); the GBA-path checks before it (bind, prepare, trainer blocks) passed",
+      "fixed_by": "engine bc7a3cfc7 (battle_capture.c: only a real trainer id's class is read); runs 8 and 9 passed with it"
+    }
+  ],
   "not_covered": [
-    "the 3D build (Linux or Windows)",
+    "the Windows 3D build in this proof (the Windows exe of the same source was played single-player under Wine; Windows 2D clients passed native-launcher-battle-wine-1)",
     "2v2, co-op Gym, wager and Championship battles",
     "an interrupted battle (host loss, disconnect, game closed mid-battle)",
     "physical keyboard or controller input and clicks on the launcher window (the harness calls the worker's start as the window's buttons do)",
