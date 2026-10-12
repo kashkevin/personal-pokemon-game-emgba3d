@@ -50,7 +50,7 @@ data; nothing is drawn (host or launcher features, see below).
 | 12 | Players | Integrated | the link device over the host-driven Players menu: every page the host sends (players list, a player's actions, records, teams, challenges) with title, status, rows (rows without an action as information), the engine's cursor, waiting for the host, B as Back or Close; beside it you (your field sprite with your saved look in LCD tones, name, place), the session's connected players from the bridge, your card's public facts; FRIENDS, ALL, friendship ranks and Lucky Friends PLANNED |
 | 13 | Teams | Unavailable in game | host-side only |
 | 14 | PC storage | Partial | the boxes in every mode (withdraw, deposit, move Pokémon, move items), menus, JUMP list, wallpapers, marks, item info native; the PC's first menus and moving several Pokémon at once keep the game's picture |
-| 15 | Shop | Game picture | phase 7 |
+| 15 | Shop | Partial | the Poké Mart: the design's mart (awning, pegboard, counter and shelves with the stock, price tags) over the engine's: the field's BUY / SELL / QUIT with the board FOR SALE and the clerk's line, the buy screen (engine prices, the POKéNEWS sale, SOLD OUT key items, how many with its total, YES / NO, the clerk's lines and the Premier Ball bonus), money and the Bag count; SELL is the bag's selling mode (screen 2). Decoration shops keep the game's picture (their icons are the decorations' own art) |
 | 16 | Item details | Integrated | the UI's own view over the bag (Tab, pad Y, Details prompt): prices, description, uses from the item's data, holders, TM compatibility, Mega forms |
 | 17 | Events | Unavailable | no engine screen (PLANNED in the pause menu) |
 | 18 | Championship | Unavailable in game | host-side only |
@@ -104,7 +104,7 @@ Cloud computer (Linux, software OpenGL, a virtual display; the Windows build und
 | --- | --- |
 | GBA ROM identity at every UI commit (`2622871e`, `5f71c090`, `58f0194d`, `1364a05f`, `92bee637`, `ee3e1bc9`, `a794a52d`, `eb4842ee`) and the trial merges | byte-identical, `f214735b…3387` |
 | GBA ROM with the engine fix `a89294c5` (U10, not UI) | differs only in `start_menu.o` (.text +28 bytes; every other section the same size): `b37759ea…e79a` |
-| GBA ROM at the UI commits after it (built at `16de85f4`, which carries `b6a2e945`) | byte-identical, `b37759ea…e79a` |
+| GBA ROM at the UI commits after it (built at `16de85f4`, which carries `b6a2e945`, and at `14049f27`) | byte-identical, `b37759ea…e79a` |
 | Linux and Windows (mingw) builds of `claude/native-ui` and of the trial | pass, no new warnings in the files touched |
 | Title, main menu, CONTINUE, field, pause, bag (Windows exe under Wine) | pass |
 | Bag: all five pockets with a filled test bag (items, Balls, TMs and an HM, Berries, Key Items), item details on 14 items incl. two Mega Stones, browsing by keys, arrows, wheel and the strip, back on the bag at the item shown | pass |
@@ -116,6 +116,7 @@ Cloud computer (Linux, software OpenGL, a virtual display; the Windows build und
 | Players with a real local host (`/home/claude/ui/tools/native_ui/mp_one_client.py`: world server, companions, enrolment, the native game with `--bridge`): one client (the list, the records pages, B back and close, the STYLE hint banner as a toast) and two clients (each other in the list and the session LEDs, a trade offered by one, the pending trade chosen by the other, both offers shown, cancelled with B, aborted on both) | pass |
 | Customization, Brendan and a May test save: every colour row by keys and mouse (tags, swatches, L/R, wheel), the planned tags, the mirror's poses (Tab), SAVE by START and by the button ("Is this OK?"), the saved look on the field and on reopening (its tick; "saved here" while offline), B with changes ("Discard your changes?") back to the saved look | pass |
 | Trainer Card, Brendan and May test saves: front (picture, walking sprite, money, Pokédex caught and seen, time with the blinking colon, profile, 8 badges in the engine's art, stars and colour), back (no records yet: the empty note), the flip caught frame by frame (squashed front, edge-on, squashed back), the host tabs' notes, A / B and a click to flip, a right click to close (back on the pause menu); with two clients on a real local host: 2/4 in this world, the other player "here with you" | pass |
+| Poké Mart (the Mauville Mart, a test save continuing at its counter): the menu with the stock and the clerk's line, buying by keys (3 Super Potions: money and the Bag updated) and by mouse (a row, the quantity arrows, OK, NO, right click back and quit), 10 Poké Balls and the Premier Ball line, SELL into the bag and back, "anything else" | pass |
 | Benchmark visit (title, main menu, field, pause, bag, party), UI on and off, Linux at 1280×720 Low and at 1920×1080 High (about 12 fps in the field: the game itself slows down), and the checkpoint's `ui-benchmark.bat` with the Windows exe under Wine | every phase reached, the expected screen up 100 % of each phase |
 
 Not run yet: link battles with two games (PvP 1v1 / 2v2), the multiplayer 2v2 owner tags.
@@ -153,7 +154,7 @@ hitch cannot put it out of step. No frame-rate figure is claimed before those re
 
 | # | Issue |
 | --- | --- |
-| U1 | Screens 15, 22, 25, 26, 28, 29 still show the game's picture (phase 7). |
+| U1 | Screens 22, 25, 26, 28, 29 still show the game's picture (phase 7); decoration shops (screen 15) too. |
 | U2 | Pokédex: AREA, CRY, SIZE and the search form keep the game's picture. |
 | U3 | PC: the PC's first menus and moving several Pokémon at once keep the game's picture. |
 | U4 | Battle: Safari Zone, catching tutorial and Battle Arena keep the game's picture; ability pop-ups and the level-up stat box are the game's art. |
@@ -163,6 +164,7 @@ hitch cannot put it out of step. No frame-rate figure is claimed before those re
 | U8 | Opening and leaving the PC boxes crashed natively before this work (also with the UI off): this branch carries the fix commits of `claude/native-pc` (`99a4f186`, `bfa4303e`, cherry-picked unchanged). |
 | U9 | Not the UI's: a battle against two trainers at once aborts natively (KNOWN_ISSUES N37). |
 | U11 | Not the UI's (3D view): with the old menus (`PKMN_NATIVE_UI=0`) the Players menu's window never appears in the 3D build: while the menu pauses the field callbacks the view keeps showing the last field frame (the Start submenu). The new Players screen draws over it. For the overworld session. |
+| U12 | Not the UI's (seen in the cloud runs, to check on the PC): leaving a Poké Mart, the clerk's "Please come again!" closes about a second after it has printed, without a button; the same with the old mart menu (`PKMN_NATIVE_UI_SCREENS=title,main_menu`), so not the new Shop screen. |
 | U10 | Not the UI's, fixed here: choosing STYLE or RIDE / GET OFF in the Player menu faded the screen to black for good (the start menu fades for every item not on its no-fade list; both stay in the field), with the old menus too, since `e726268e`. Fixed in `a89294c5` (both join the list, as PLAYERS); the same commit is on `claude/fix-player-menu-fade` (on `d799c4a8a`) for the multiplayer start menu's owners. It changes the GBA ROM (`start_menu.c` only). |
 
 ## Shared files touched (for merging)
@@ -179,6 +181,6 @@ the end of their files; hooks in the middle of a file keep the GBA line numbers 
   `option_menu.c`, `party_menu.c`, `pokemon_summary_screen.c`, `item_menu.c`, `pokedex.c`,
   `pokemon_storage_system.c`, `menu_helpers.c`, `text.c`, `window.c`, `pokemon_icon.c`,
   `multiplayer.c`, `multiplayer_appearance.c`, `multiplayer_menu.c`, `multiplayer_world.c`,
-  `trainer_card.c`, `sprite.c`, `battle_controller_player.c`,
+  `trainer_card.c`, `shop.c`, `sprite.c`, `battle_controller_player.c`,
   `battle_interface.c` (three one-line hooks noting what a healthbox shows).
 * Not UI: `start_menu.c` (U10's fix, two callbacks on the no-fade list).
