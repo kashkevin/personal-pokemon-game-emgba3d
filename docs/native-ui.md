@@ -10,7 +10,8 @@ the engine decides.
 
 Engine code: `src/native_ui/` and `include/native_ui/` (README there), built only with
 `Makefile_pc DIORAMA=1` (`ENABLE_NATIVE_UI`). The GBA ROM and the classic 2D native build
-compile none of it; the ROM stays byte-identical (`f214735b…3387`).
+compile none of it; the ROM stays byte-identical at every UI commit (`b37759ea…e79a` since
+the engine fix U10, `f214735b…3387` before it).
 
 ## Branches and checkpoints
 
@@ -19,12 +20,18 @@ compile none of it; the ROM stays byte-identical (`f214735b…3387`).
 | Engine branch | `claude/native-ui`, from `d799c4a8a` (`graphics-wip-20261010-8`) |
 | App branch (these docs) | `claude/native-ui`, from `4f1115e` (`claude/native-pc`) |
 | Trial with the 3D battles | `claude/native-ui-3dbattle-trial` = `claude/native-ui` + `claude/native-graphics-3d-battles-4` (`e747ce106`), test only, not for merging as is |
+| Trial over the newest overworld | `claude/native-ui-overworld-trial` = the overworld tip `c51769606` (`graphics-wip-20261012-1`) + `claude/native-ui`, a merge check only (two conflicts, resolved as the overworld session's note says); not shipped, not for merging as is |
 | Checkpoints | `claude-checkpoints\ui-native-wip-<date>-<n>` (bundles, a Windows test build, `COORDINATION.txt`) |
 
 Nothing is merged into `claude/native-graphics`, `claude/native-pc` or any other session's
 branch; that waits for validation on the owner's PC and the owner's approval. The 3D
 battle merge goes first; the UI branch then merges that tip (the trial shows it merges
-with one conflict, in `gl_compositor.c`, both sides kept).
+with one conflict, in `gl_compositor.c`, both sides kept). Over the newest overworld tip
+(`c51769606`) it merges with two conflicts, both sides kept as the overworld session's
+note asks: in `gl_compositor.c` the UI's `DIORAMA_PICTURE_HIDE_ALL` condition with the
+overworld's lazy `EnsureFrameTexture()` inside both picture branches, and in `sdl2.c`
+`NativeUi_CaptureFrame()` first, then `DioramaProfile_Begin(DIORAMA_PROF_TICK)`, then
+`VDraw` (the merge check branch `claude/native-ui-overworld-trial`).
 
 ## Screens
 
@@ -91,7 +98,9 @@ picture is never stretched.
 
 * `PKMN_NATIVE_UI=0` (environment): the GBA presentation everywhere, as before this work.
 * `PKMN_NATIVE_UI_SCREENS=title,pause,...`: only the listed screens replaced
-  (`title, main_menu, pause, options, party, summary, bag, pokedex, storage, battle`).
+  (`title, main_menu, options, pause, party, summary, bag, pokedex, storage, battle,
+  customize, players, trainer_card, shop, naming, starters, evolution, game_corner,
+  notice`).
 * The checkpoint's `test-run\run-classic-ui.bat` starts the same build with the old
   presentation. Development switches only: not in the launcher or `pokeemerald.cfg`.
 * Engine rollback points: `graphics-wip-20261010-8` (no native UI) and each
@@ -105,7 +114,7 @@ Cloud computer (Linux, software OpenGL, a virtual display; the Windows build und
 | --- | --- |
 | GBA ROM identity at every UI commit (`2622871e`, `5f71c090`, `58f0194d`, `1364a05f`, `92bee637`, `ee3e1bc9`, `a794a52d`, `eb4842ee`) and the trial merges | byte-identical, `f214735b…3387` |
 | GBA ROM with the engine fix `a89294c5` (U10, not UI) | differs only in `start_menu.o` (.text +28 bytes; every other section the same size): `b37759ea…e79a` |
-| GBA ROM at the UI commits after it (built at `16de85f4`, which carries `b6a2e945`, at `14049f27`, `5b0a37a6`, `b4828995`, `f51084fd`, `59d60a4a` and `6d734278`) | byte-identical, `b37759ea…e79a` |
+| GBA ROM at the UI commits after it (built at `16de85f4`, which carries `b6a2e945`, at `14049f27`, `5b0a37a6`, `b4828995`, `f51084fd`, `59d60a4a`, `6d734278` and `dd6269de`) and on the 3D battles trial `6783586a` | byte-identical, `b37759ea…e79a` |
 | Linux and Windows (mingw) builds of `claude/native-ui` and of the trial | pass, no new warnings in the files touched |
 | Title, main menu, CONTINUE, field, pause, bag (Windows exe under Wine) | pass |
 | Bag: all five pockets with a filled test bag (items, Balls, TMs and an HM, Berries, Key Items), item details on 14 items incl. two Mega Stones, browsing by keys, arrows, wheel and the strip, back on the bag at the item shown | pass |
@@ -113,6 +122,9 @@ Cloud computer (Linux, software OpenGL, a virtual display; the Windows build und
 | Battles, singles: wild (Petalburg Woods) and trainer (a Bug Catcher), messages, commands on the design's grid, moves, L description, Mega toggle offered, Hypnosis (SLP badge after its animation), poison (PSN, HP drain), the last used Ball thrown with R, bag and party from the battle and back, mouse on commands and moves | pass |
 | Battles, doubles (a test build with every wild battle double, not shipped): four databoxes, one-target selection following the engine's cursor, a spread move's targets, faint and removal | pass |
 | 3D battles trial: the HUD over the 3D world, the GBA healthboxes and message box gone | pass |
+| 3D battles trial at `6783586a` (Bug Catcher Rick, a level up in the battle): the level-up box over the 3D battle, the trainer's last words with the scene clear, then the rewards ledger and the trainer's plate with the prize message | pass |
+| Overworld trial `claude/native-ui-overworld-trial` (`fd25d0d2` = the overworld tip `c51769606` + `claude/native-ui`, test only; built from scratch, no new warnings): title, main menu, CONTINUE, the pause menu over the new 3D field (Mauville City Gym), the bag and the party (the 2D picture hidden), back on the field without leftovers, a trainer battle's HUD (2D battle scene) | pass |
+| The checkpoint's two Windows exes (debug info split off) under Wine: title, main menu, CONTINUE, pause, bag; `TRY-NATIVE-UI.bat` under Wine's cmd (the nine-choice menu; a dragged save copied to `play\` and the game started with it) | pass |
 | `PKMN_NATIVE_UI=0`: the old presentation (benchmark run through field, pause, bag, party) | pass |
 | Players with a real local host (`/home/claude/ui/tools/native_ui/mp_one_client.py`: world server, companions, enrolment, the native game with `--bridge`): one client (the list, the records pages, B back and close, the STYLE hint banner as a toast) and two clients (each other in the list and the session LEDs, a trade offered by one, the pending trade chosen by the other, both offers shown, cancelled with B, aborted on both) | pass |
 | Customization, Brendan and a May test save: every colour row by keys and mouse (tags, swatches, L/R, wheel), the planned tags, the mirror's poses (Tab), SAVE by START and by the button ("Is this OK?"), the saved look on the field and on reopening (its tick; "saved here" while offline), B with changes ("Discard your changes?") back to the saved look | pass |
@@ -169,9 +181,9 @@ hitch cannot put it out of step. No frame-rate figure is claimed before those re
 | U7 | Frame times only from software OpenGL so far (see Performance). |
 | U8 | Opening and leaving the PC boxes crashed natively before this work (also with the UI off): this branch carries the fix commits of `claude/native-pc` (`99a4f186`, `bfa4303e`, cherry-picked unchanged). |
 | U9 | Not the UI's: a battle against two trainers at once aborts natively (KNOWN_ISSUES N37). |
+| U10 | Not the UI's, fixed here: choosing STYLE or RIDE / GET OFF in the Player menu faded the screen to black for good (the start menu fades for every item not on its no-fade list; both stay in the field), with the old menus too, since `e726268e`. Fixed in `a89294c5` (both join the list, as PLAYERS); the same commit is on `claude/fix-player-menu-fade` (on `d799c4a8a`) for the multiplayer start menu's owners. It changes the GBA ROM (`start_menu.c` only). |
 | U11 | Not the UI's (3D view): with the old menus (`PKMN_NATIVE_UI=0`) the Players menu's window never appears in the 3D build: while the menu pauses the field callbacks the view keeps showing the last field frame (the Start submenu). The new Players screen draws over it. For the overworld session. |
 | U12 | Not the UI's (seen in the cloud runs, to check on the PC): leaving a Poké Mart, the clerk's "Please come again!" closes about a second after it has printed, without a button; the same with the old mart menu (`PKMN_NATIVE_UI_SCREENS=title,main_menu`), so not the new Shop screen. |
-| U10 | Not the UI's, fixed here: choosing STYLE or RIDE / GET OFF in the Player menu faded the screen to black for good (the start menu fades for every item not on its no-fade list; both stay in the field), with the old menus too, since `e726268e`. Fixed in `a89294c5` (both join the list, as PLAYERS); the same commit is on `claude/fix-player-menu-fade` (on `d799c4a8a`) for the multiplayer start menu's owners. It changes the GBA ROM (`start_menu.c` only). |
 
 ## Shared files touched (for merging)
 
