@@ -82,6 +82,15 @@ data; nothing is drawn (host or launcher features, see below).
 | 30 | Soft reset | Partial | the in-battle prompt shows in the battle HUD (message and YES/NO); hunt records host-side |
 | 31 | Records | Unavailable in game | host-side |
 
+**The field's messages** (not one of the 31 designs; the design's message and menu
+boxes, `field_text`): the field's message box - a person's line, a sign's (in the
+design's wood), the name box's speaker on a plate - with the script's YES / NO and the
+multichoices whose rows the engine lists, over the field, as the pause menu keeps its help
+box; each line stays up until the script closes it (the 3D view drops the game's own box
+once a line is printed, U12). Anything else on the field's window layer that it does not
+draw (a money box, a list, a PokéNav call, rows a script builds itself) keeps the game's
+picture; the mart, the Game Corner and the PC draw their own lines.
+
 ## Input
 
 * Keyboard: the game's keys (Z = A, X = B, Enter = START, `\` = SELECT, A = L, S = R,
@@ -107,7 +116,7 @@ picture is never stretched.
 * `PKMN_NATIVE_UI_SCREENS=title,pause,...`: only the listed screens replaced
   (`title, main_menu, options, pause, party, summary, bag, pokedex, storage, battle,
   customize, players, trainer_card, shop, naming, starters, evolution, game_corner,
-  notice`).
+  field_text, notice`).
 * The checkpoint's `test-run\run-classic-ui.bat` starts the same build with the old
   presentation. Development switches only: not in the launcher or `pokeemerald.cfg`.
 * Engine rollback points: `graphics-wip-20261010-8` (no native UI) and each
@@ -121,7 +130,7 @@ Cloud computer (Linux, software OpenGL, a virtual display; the Windows build und
 | --- | --- |
 | GBA ROM identity at every UI commit (`2622871e`, `5f71c090`, `58f0194d`, `1364a05f`, `92bee637`, `ee3e1bc9`, `a794a52d`, `eb4842ee`) and the trial merges | byte-identical, `f214735b…3387` |
 | GBA ROM with the engine fix `a89294c5` (U10, not UI) | differs only in `start_menu.o` (.text +28 bytes; every other section the same size): `b37759ea…e79a` |
-| GBA ROM at the UI commits after it (built at `16de85f4`, which carries `b6a2e945`, at `14049f27`, `5b0a37a6`, `b4828995`, `f51084fd`, `59d60a4a`, `6d734278`, `dd6269de`, `2bd61f00` and `b6f0b698`) and on the 3D battles trial `6783586a` | byte-identical, `b37759ea…e79a` |
+| GBA ROM at the UI commits after it (built at `16de85f4`, which carries `b6a2e945`, at `14049f27`, `5b0a37a6`, `b4828995`, `f51084fd`, `59d60a4a`, `6d734278`, `dd6269de`, `2bd61f00`, `b6f0b698` and `da6d1397`) and on the 3D battles trial `6783586a` | byte-identical, `b37759ea…e79a` |
 | Linux and Windows (mingw) builds of `claude/native-ui` and of the trial | pass, no new warnings in the files touched |
 | Title, main menu, CONTINUE, field, pause, bag (Windows exe under Wine) | pass |
 | Bag: all five pockets with a filled test bag (items, Balls, TMs and an HM, Berries, Key Items), item details on 14 items incl. two Mega Stones, browsing by keys, arrows, wheel and the strip, back on the bag at the item shown | pass |
@@ -147,6 +156,7 @@ Cloud computer (Linux, software OpenGL, a virtual display; the Windows build und
 | New entry after a catch (Petalburg Woods with a Master Ball from the native battle bag): Miltank's page with REGISTERED and its footprint, a click goes on to the nickname question | pass |
 | The PC's first menus (a test save continuing in front of a Pokémon Center PC, BOX1 and BOX2 filled from the save's own Pokémon): booting up, which PC, "Accessed SOMEONE'S PC.", "POKéMON Storage System opened.", the storage menu with each description by keys, SEE YA! back to which PC, the player's PC ("Accessed …'s PC.", "What would you like to do?", ITEM STORAGE's menu and descriptions, WITHDRAW ITEM's list (the game's picture) and back, CANCEL, TURN OFF), LOG OFF back to the field without leftovers, no frame of the field between the steps; by mouse (the message box, a which-PC row, the MOVE POKéMON row); a one-Pokémon party: DEPOSIT refused ("There is just one POKéMON with you."), the cursor moved while refused | pass |
 | Several Pokémon at once: by keys (the quick hand, A held: 2×2 selected, picked up and lifted, moved right and on into BOX2, two places in the way marked and the put-down refused, moved down, put down) and by mouse (a drag from Treecko to Wingull: 4 selected; a click on a free place: carried as near as it fits and put down; a 2-Pokémon drag, the box's right arrow: pushed into BOX2; a click: put down at the top left); the Windows exe under Wine (keys) | pass |
+| The field's messages (Oldale's Pokémon Center nurse, a save continuing at her counter): every line typing, then up with the arrow until A, YES / NO by keys (YES: the healing, "Thank you for waiting.", "We've restored ...") and by mouse (a click on the box: next line; a right click: next line; a click on NO: "We hope to see you again!"); Oldale's town sign; Bug Catcher Rick's line before his battle; the Mauville Mart's and the Game Corner clerks' first lines handing over to their screens; the Windows exe under Wine (the nurse by mouse) | pass |
 | Battle results (test saves facing Bug Catcher Rick on Route 102): a win (two Wurmples; the plate RICK with his tray, REWARDS: prize ¥64, ¥3,000 to ¥3,064, Gardevoir +96 Exp., Wailord +0), a level up in the battle (the level-up box: +2 +1 +1 +3 +2 +2, then 132 72 72 135 124 88; then UP on the ledger), a loss (OUT OF POKéMON: -¥3,000, ¥3,000 to ¥0, both FNT, NO EXP.) | pass |
 | Benchmark visit (title, main menu, field, pause, bag, party), UI on and off, Linux at 1280×720 Low and at 1920×1080 High (about 12 fps in the field: the game itself slows down), and the checkpoint's `ui-benchmark.bat` with the Windows exe under Wine | every phase reached, the expected screen up 100 % of each phase |
 
@@ -196,7 +206,7 @@ hitch cannot put it out of step. No frame-rate figure is claimed before those re
 | U9 | Not the UI's: a battle against two trainers at once aborts natively (KNOWN_ISSUES N37). The battle session's `claude/native-pc-n37-fix` (`1a26af882`, in `battle3d-env-wip-20261012-1`) fixes it; not in this branch. |
 | U10 | Not the UI's, fixed here: choosing STYLE or RIDE / GET OFF in the Player menu faded the screen to black for good (the start menu fades for every item not on its no-fade list; both stay in the field), with the old menus too, since `e726268e`. Fixed in `a89294c5` (both join the list, as PLAYERS); the same commit is on `claude/fix-player-menu-fade` (on `d799c4a8a`) for the multiplayer start menu's owners. It changes the GBA ROM (`start_menu.c` only). |
 | U11 | Not the UI's (3D view): with the old menus (`PKMN_NATIVE_UI=0`) the Players menu's window never appears in the 3D build: while the menu pauses the field callbacks the view keeps showing the last field frame (the Start submenu). The new Players screen draws over it. For the overworld session. |
-| U12 | Not the UI's (3D view): the field's message box leaves the 3D view as soon as its line is fully printed, UI on or off: `scene_snapshot.c` takes `IsFieldMessageBoxHidden()` for the box being gone, but the field message task sets that when its printer finishes, while the box stays on BG0 until the script closes it; a line that waits for A can only be read while it types. The PC's lines are drawn by the native PC menus. For the overworld session: keep the dialogue rect while window 0's frame is on screen (its tilemap), not only while it prints. |
+| U12 | Not the UI's (3D view): the game's own field message box leaves the 3D view as soon as its line is fully printed: `scene_snapshot.c` takes `IsFieldMessageBoxHidden()` for the box being gone, but the field message task sets that when its printer finishes, while the box stays on BG0 until the script closes it; a line that waits for A can only be read while it types. With the native UI the field's messages are drawn by the UI (`field_text`, `da6d1397`) and stay up; with `PKMN_NATIVE_UI=0`, or a field window the UI does not draw (a money box, a list), the game's box still goes. For the overworld session: keep the dialogue rect while window 0's frame is on screen (its tilemap), not only while it prints. Also (any build): a trainer battle's transition shows the 2D picture with the game's own box for its second. |
 | U12 | Not the UI's (seen in the cloud runs, to check on the PC): leaving a Poké Mart, the clerk's "Please come again!" closes about a second after it has printed, without a button; the same with the old mart menu (`PKMN_NATIVE_UI_SCREENS=title,main_menu`), so not the new Shop screen. |
 
 ## Shared files touched (for merging)
