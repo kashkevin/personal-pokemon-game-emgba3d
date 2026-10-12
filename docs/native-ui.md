@@ -102,7 +102,7 @@ Cloud computer (Linux, software OpenGL, a virtual display; the Windows build und
 
 | Check | Result |
 | --- | --- |
-| GBA ROM identity at every commit (`2622871e`, `5f71c090`, `58f0194d`, `1364a05f`, `92bee637`) and the trial merge | byte-identical, `f214735b…3387` |
+| GBA ROM identity at every commit (`2622871e`, `5f71c090`, `58f0194d`, `1364a05f`, `92bee637`, `ee3e1bc9`, `a794a52d`) and the trial merges | byte-identical, `f214735b…3387` |
 | Linux and Windows (mingw) builds of `claude/native-ui` and of the trial | pass, no new warnings in the files touched |
 | Title, main menu, CONTINUE, field, pause, bag (Windows exe under Wine) | pass |
 | Bag: all five pockets with a filled test bag (items, Balls, TMs and an HM, Berries, Key Items), item details on 14 items incl. two Mega Stones, browsing by keys, arrows, wheel and the strip, back on the bag at the item shown | pass |
@@ -111,29 +111,38 @@ Cloud computer (Linux, software OpenGL, a virtual display; the Windows build und
 | Battles, doubles (a test build with every wild battle double, not shipped): four databoxes, one-target selection following the engine's cursor, a spread move's targets, faint and removal | pass |
 | 3D battles trial: the HUD over the 3D world, the GBA healthboxes and message box gone | pass |
 | `PKMN_NATIVE_UI=0`: the old presentation (benchmark run through field, pause, bag, party) | pass |
+| Benchmark visit (title, main menu, field, pause, bag, party), UI on and off, Linux at 1280×720 Low and at 1920×1080 High (about 12 fps in the field: the game itself slows down), and the checkpoint's `ui-benchmark.bat` with the Windows exe under Wine | every phase reached, the expected screen up 100 % of each phase |
 
 Not run yet: link battles with two games (PvP 1v1 / 2v2), the multiplayer 2v2 owner tags.
 
 ## Performance
 
 The UI pass is one buffer and a few draw calls a frame (a few hundred to a few thousand
-quads), shapes rasterised once into an atlas. Measured in the cloud with **software
-OpenGL** (llvmpipe), 1280×720, `PKMN_NATIVE_UI_BENCH` (these are not graphics-card
-numbers):
+quads), shapes rasterised once into an atlas; the title screen and the main menu add the
+title remaster's animated background, one shader pass at the canvas size. Measured in the
+cloud with **software OpenGL** (llvmpipe: the "GPU" is the CPU), 1280×720, Quality Low,
+`PKMN_NATIVE_UI_BENCH` (these are not graphics-card numbers):
 
-| Phase | UI on: mean frame | UI off: mean frame | UI pass CPU |
-| --- | --- | --- | --- |
-| Field (no menu) | 67.5 ms | 72.4 ms | - |
-| Pause menu over the 3D field | 70.9 ms | 71.7 ms | 1.8 ms |
-| Bag (full screen) | 28.5 ms | 3.0 ms | 2.1 ms |
-| Party (full screen) | 27.0 ms | 3.1 ms | 1.9 ms |
+| Phase | UI on: mean frame | UI off: mean frame | UI pass CPU | UI pass "GPU" |
+| --- | --- | --- | --- | --- |
+| Title screen | 13.7 ms | 3.0 ms | 9.1 ms | 11.1 ms |
+| Main menu | 22.8 ms | 2.9 ms | 11.4 ms | 18.8 ms |
+| Field (no menu) | 48.4 ms | 54.6 ms | - | - |
+| Pause menu over the 3D field | 54.6 ms | 50.2 ms | 1.7 ms | 0.05 ms |
+| Bag (full screen) | 31.1 ms | 2.9 ms | 3.1 ms | 0.11 ms |
+| Party (full screen) | 27.8 ms | 3.0 ms | 1.9 ms | 0.09 ms |
 
-On software OpenGL the 3D field dominates and the native full screens cost their
-rasterisation (the old ones are one 240×160 texture). The real cost on a graphics card,
-and frame rates, come only from the owner's PC: `test-run\ui-benchmark.bat` (about six
-minutes) runs the same visit with the UI on and off at 1920×1080 and 3840×2160 and writes
-the frame times and the UI pass's CPU and GPU time (GL timer queries) to
-`results\ui-benchmark-N.csv`. No frame-rate figure is claimed before those results.
+On software OpenGL the 3D field dominates (on and off differ by noise), and the native
+full screens and the title's shader cost their rasterisation (the old screens are one
+240×160 texture). The real cost on a graphics card, and frame rates, come only from the
+owner's PC: the checkpoint's `test-run\ui-benchmark.bat` (about six minutes, no keys)
+runs the visit four times - UI on and off, in a 1920×1080 window and borderless with the
+3D view at 3840×2160 (Quality High, VSync off) - and writes one CSV per run to
+`test-run\results\ui-run-N\` (per phase: frame-time mean, median, 99th percentile,
+1 % low, the UI pass's CPU time and GPU time from GL timer queries, and how much of the
+phase the expected screen was up). The script presses the game's own buttons one at a
+time and waits for each screen and its fade, counting game frames, so a slow PC or a
+hitch cannot put it out of step. No frame-rate figure is claimed before those results.
 
 ## Known issues
 
