@@ -384,6 +384,7 @@ class BridgeSession:
     window_capable: bool = False
     emergency_save_capable: bool = False
     battle_capable: bool = False
+    battle_looks_capable: bool = False
     menu_session: Any = None
     reset_session: Any = None
 
@@ -638,6 +639,15 @@ class Companion:
                     if not self.config.battle_enabled or packet != capability_packet(self.config.battle_abi_version):
                         raise BridgeError("battle capability disagrees with verified manifest")
                     bridge.battle_capable = True
+                    continue
+                if packet[:1] == b"A":
+                    # The native PC game draws the other players' characters in
+                    # battles from their looks (battle_looks.py); mgba.lua never
+                    # announces it.
+                    from .battle_looks import capability_packet as looks_capability
+                    if not bridge.battle_capable or bridge.battle_looks_capable or packet != looks_capability():
+                        raise BridgeError("battle looks capability differs from this companion")
+                    bridge.battle_looks_capable = True
                     continue
                 if packet[:1] == b"E":
                     if not bridge.battle_capable:
@@ -982,11 +992,34 @@ class Companion:
         self._battle_pending[control.sequence] = (control, future)
         try:
             bridge.outbox.put_control(b"D" + control.pack())
-            return await asyncio.wait_for(future, timeout)
+            response = await asyncio.wait_for(future, timeout)
         finally:
             self._battle_pending.pop(control.sequence, None)
             if not future.done():
                 future.cancel()
+        self._send_battle_looks(bridge, control, response)
+        return response
+
+    def _send_battle_looks(self, bridge, control, response) -> None:
+        """After the native PC game binds a battle: its players' looks (battle_looks.py).
+
+        Cosmetic and best effort: it never delays, changes or fails a battle
+        command; without room in the bridge queue the game shows default trainers.
+        """
+        from .battle_looks import looks_packet
+        from .native_battle import NativeControl, Opcode as NativeOpcode
+        if (not bridge.battle_looks_capable or bridge is not self._bridge or bridge.outbox.closed
+                or not isinstance(control, NativeControl) or control.opcode != NativeOpcode.BIND
+                or response.status != 0 or len(bridge.outbox.controls) >= bridge.outbox.limit):
+            return
+        try:
+            bridge.outbox.put_control(looks_packet(control.data, self._battle_looks_roster()))
+        except ValueError:
+            return
+
+    def _battle_looks_roster(self) -> tuple[dict[str, Any], ...]:
+        """The host's roster: each player's id and look, as the overworld shows them."""
+        return tuple(self._players)
 
     def _receive_battle_response(self, payload, bridge):
         from .battle_mailbox import BattleControl
