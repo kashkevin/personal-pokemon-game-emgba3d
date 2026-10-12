@@ -43,11 +43,11 @@ data; nothing is drawn (host or launcher features, see below).
 | 5 | Summary | Integrated | the game's four pages (CONTEST MOVES takes the RIBBONS tab's place, marked PLANNED) |
 | 6 | Pokédex | Partial | lists, search results, entry pane, START menu native; the entry's AREA, CRY and SIZE pages and the search form keep the game's picture; FIND PLANNED; forms catalogue pending |
 | 7 | Trainer card | Game picture | phase 7 (own card exists in the engine) |
-| 8 | Trade | Game picture | phase 6 (the host's text menu) |
+| 8 | Trade | Partial | the host's trade pages (choose, both offers, confirm, change, cancel, the pending trade) on the Players screen's sheet, on the kit's trade blue, with the engine's cursor; the design's two-panel trade window (portraits, details, consent lamps) needs data the host does not send yet (offers come as text rows) |
 | 9 | Customization | Integrated | the dressing room over the STYLE editor (START > PLAYER > STYLE): its four colour rows (skin tone, hair, outfit, hat and bag) with the engine's names, colours and palette slots behind the BODY, HAIR, TOP and HAT tags; the mirror (the player's field sprite at 3x, recoloured live by the engine's own palette recolour; walk, run, turn), the portrait (base art), the sync tag (the look's 8 bytes, what the host has); presets, body, the styles, bottoms, shoes, bag, accessories and unlocks PLANNED (they need layered art the game does not have) |
 | 10 | Save | Integrated | "saved" only after the engine reports success and the file write finished |
 | 11 | Options | Integrated | the six GBA options; the second tab opens F10 (Display & Graphics) |
-| 12 | Players | Game picture | phase 6 (the host's six-row menu) |
+| 12 | Players | Integrated | the link device over the host-driven Players menu: every page the host sends (players list, a player's actions, records, teams, challenges) with title, status, rows (rows without an action as information), the engine's cursor, waiting for the host, B as Back or Close; beside it you (your field sprite with your saved look in LCD tones, name, place), the session's connected players from the bridge, your card's public facts; FRIENDS, ALL, friendship ranks and Lucky Friends PLANNED |
 | 13 | Teams | Unavailable in game | host-side only |
 | 14 | PC storage | Partial | the boxes in every mode (withdraw, deposit, move Pokémon, move items), menus, JUMP list, wallpapers, marks, item info native; the PC's first menus and moving several Pokémon at once keep the game's picture |
 | 15 | Shop | Game picture | phase 7 |
@@ -62,7 +62,7 @@ data; nothing is drawn (host or launcher features, see below).
 | 24 | Mega | Partial | the battle toggle (screen 3) and the stones' Mega forms (screen 16); no engine screen of its own |
 | 25 | Evolution | Game picture | phase 7 |
 | 26 | Battle results | Game picture | phase 7 (the battle's end messages show in the battle HUD's message plate) |
-| 27 | Connection | Game picture | phase 6 (notices in the game's own windows) |
+| 27 | Connection | Partial | the game's multiplayer notice banner (host notices, wager money, hints) as the design's toast over the calm field, for as long as the game shows it; the recovery dialogs (host lost, saved here, rejoin, mismatches) are the launcher's, not the game's |
 | 28 | Starters | Game picture | phase 7 |
 | 29 | Naming | Game picture | phase 7 |
 | 30 | Soft reset | Partial | the in-battle prompt shows in the battle HUD (message and YES/NO); hunt records host-side |
@@ -112,6 +112,7 @@ Cloud computer (Linux, software OpenGL, a virtual display; the Windows build und
 | Battles, doubles (a test build with every wild battle double, not shipped): four databoxes, one-target selection following the engine's cursor, a spread move's targets, faint and removal | pass |
 | 3D battles trial: the HUD over the 3D world, the GBA healthboxes and message box gone | pass |
 | `PKMN_NATIVE_UI=0`: the old presentation (benchmark run through field, pause, bag, party) | pass |
+| Players with a real local host (`/home/claude/ui/tools/native_ui/mp_one_client.py`: world server, companions, enrolment, the native game with `--bridge`): one client (the list, the records pages, B back and close, the STYLE hint banner as a toast) and two clients (each other in the list and the session LEDs, a trade offered by one, the pending trade chosen by the other, both offers shown, cancelled with B, aborted on both) | pass |
 | Customization, Brendan and a May test save: every colour row by keys and mouse (tags, swatches, L/R, wheel), the planned tags, the mirror's poses (Tab), SAVE by START and by the button ("Is this OK?"), the saved look on the field and on reopening (its tick; "saved here" while offline), B with changes ("Discard your changes?") back to the saved look | pass |
 | Benchmark visit (title, main menu, field, pause, bag, party), UI on and off, Linux at 1280×720 Low and at 1920×1080 High (about 12 fps in the field: the game itself slows down), and the checkpoint's `ui-benchmark.bat` with the Windows exe under Wine | every phase reached, the expected screen up 100 % of each phase |
 
@@ -150,7 +151,7 @@ hitch cannot put it out of step. No frame-rate figure is claimed before those re
 
 | # | Issue |
 | --- | --- |
-| U1 | Screens 7, 8, 12, 15, 22, 25-29 still show the game's picture (phases 6-7). |
+| U1 | Screens 7, 15, 22, 25, 26, 28, 29 still show the game's picture (phase 7). |
 | U2 | Pokédex: AREA, CRY, SIZE and the search form keep the game's picture. |
 | U3 | PC: the PC's first menus and moving several Pokémon at once keep the game's picture. |
 | U4 | Battle: Safari Zone, catching tutorial and Battle Arena keep the game's picture; ability pop-ups and the level-up stat box are the game's art. |
@@ -159,6 +160,7 @@ hitch cannot put it out of step. No frame-rate figure is claimed before those re
 | U7 | Frame times only from software OpenGL so far (see Performance). |
 | U8 | Opening and leaving the PC boxes crashed natively before this work (also with the UI off): this branch carries the fix commits of `claude/native-pc` (`99a4f186`, `bfa4303e`, cherry-picked unchanged). |
 | U9 | Not the UI's: a battle against two trainers at once aborts natively (KNOWN_ISSUES N37). |
+| U11 | Not the UI's (3D view): with the old menus (`PKMN_NATIVE_UI=0`) the Players menu's window never appears in the 3D build: while the menu pauses the field callbacks the view keeps showing the last field frame (the Start submenu). The new Players screen draws over it. For the overworld session. |
 | U10 | Not the UI's, fixed here: choosing STYLE or RIDE / GET OFF in the Player menu faded the screen to black for good (the start menu fades for every item not on its no-fade list; both stay in the field), with the old menus too, since `e726268e`. Fixed in `a89294c5` (both join the list, as PLAYERS); the same commit is on `claude/fix-player-menu-fade` (on `d799c4a8a`) for the multiplayer start menu's owners. It changes the GBA ROM (`start_menu.c` only). |
 
 ## Shared files touched (for merging)
