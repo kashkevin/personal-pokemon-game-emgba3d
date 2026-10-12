@@ -57,7 +57,7 @@ data; nothing is drawn (host or launcher features, see below).
 | 19 | Invites | Unavailable in game | host-side (the ROM shows a battle-admission row only) |
 | 20 | Lobby | Unavailable in game | the launcher |
 | 21 | Title and main menu | Integrated | the Emerald title remaster; CONTINUE with the save's summary; QUIT GAME; Host / Join stay launcher actions |
-| 22 | Game Corner | Game picture | phase 7 (script menus) |
+| 22 | Game Corner | Integrated | the design's prize corner over the Mauville Game Corner's four clerks (scripts): the Coin Case counter with reel digits, money, the prize board with its marquee; the clerk talked to picks the counter (TM, prize, coin); rows are the engine's multichoice rows (TMs with their moves and the party's real compatibility, the three dolls drawn from their field sprites and sent to the PC, 50 / 500 coins for money with the Coin Case's room); the Shiny Charm (the owner's guaranteed prize, 9,000 coins, OWNED once had, refused a second time) heads the prize counter and is its own clerk's; the engine's YES / NO and lines. Another clerk's rows and tabs only say so. The slot machines and roulette keep the game's picture |
 | 23 | Friendship | Unavailable in game | host-side (the ROM has only the Lucky mark) |
 | 24 | Mega | Partial | the battle toggle (screen 3) and the stones' Mega forms (screen 16); no engine screen of its own |
 | 25 | Evolution | Integrated | the design's night stage over the engine's evolution scene: the starfield, the spotlight and stage rings turning while it evolves; the old form alternating with the new one's pale silhouette as fast as the engine alternates its sprites, the new form white in bursts of sparkles, its colours returning with the engine's flash, then the new form; B held, a click or a right click stops an evolution the engine lets stop ("Huh? ... stopped evolving!"); a new move's messages and YES / NO are the engine's (clicks, wheel), the move to forget is chosen on the summary (screen 5). Evolutions inside a trade keep the trade's own picture |
@@ -105,7 +105,7 @@ Cloud computer (Linux, software OpenGL, a virtual display; the Windows build und
 | --- | --- |
 | GBA ROM identity at every UI commit (`2622871e`, `5f71c090`, `58f0194d`, `1364a05f`, `92bee637`, `ee3e1bc9`, `a794a52d`, `eb4842ee`) and the trial merges | byte-identical, `f214735b…3387` |
 | GBA ROM with the engine fix `a89294c5` (U10, not UI) | differs only in `start_menu.o` (.text +28 bytes; every other section the same size): `b37759ea…e79a` |
-| GBA ROM at the UI commits after it (built at `16de85f4`, which carries `b6a2e945`, at `14049f27`, `5b0a37a6`, `b4828995` and `f51084fd`) | byte-identical, `b37759ea…e79a` |
+| GBA ROM at the UI commits after it (built at `16de85f4`, which carries `b6a2e945`, at `14049f27`, `5b0a37a6`, `b4828995`, `f51084fd` and `59d60a4a`) | byte-identical, `b37759ea…e79a` |
 | Linux and Windows (mingw) builds of `claude/native-ui` and of the trial | pass, no new warnings in the files touched |
 | Title, main menu, CONTINUE, field, pause, bag (Windows exe under Wine) | pass |
 | Bag: all five pockets with a filled test bag (items, Balls, TMs and an HM, Berries, Key Items), item details on 14 items incl. two Mega Stones, browsing by keys, arrows, wheel and the strip, back on the bag at the item shown | pass |
@@ -121,6 +121,7 @@ Cloud computer (Linux, software OpenGL, a virtual display; the Windows build und
 | Naming: a new game's player name typed on the keyboard ("Kevin" with the automatic lower case, Backspace, "n!" across to OTHERS and back, Page Down, Enter: Birch asks "So it's Kevin!?"), by mouse (a key, the OTHERS tab, a key, BACK, OK: "So it's B?"); a Box renamed from the PC ("Hunt", shown on the Box afterwards) | pass |
 | Starters (a save continuing beside Birch's bag on Route 101, the bag shown again in a copy): Hoenn, Mudkip, Kanto, Kalos, the question and NO, a click on the GRASS ball and YES: Treecko, the first battle starts | pass |
 | Evolution (test saves: a Kirlia from the bag's Rare Candy, and one that knows four moves at the level where Gardevoir learns Dream Eater): the whole scene (intro, sparkles, the alternation caught frame by frame, the white flash and its colours returning, "Congratulations!"), stopped by a click and by holding B ("Huh? Kirlia stopped evolving!", still a Kirlia), the new move: its messages, YES / NO by keys, a click on NO ("did not learn"), a click on YES, the summary's move choice (Cut refused as an HM, Thunderbolt forgotten), "One... two... and... ta-da!", "learned Dream Eater!", back on the bag | pass |
+| Game Corner (test saves continuing at each clerk with a Coin Case): the TM counter (TM32 for 1,500 coins: coins 5,000 to 3,500, IN BAG x1, the party ABLE), the Shiny Charm clerk (the charm selected, 9,000 coins, YES: given), the coin counter (50 coins for ¥1,000 by a click: 120 to 170 coins, ¥3,000 to ¥2,000; 500 dimmed without the money), the doll counter (a click on TREECKO DOLL: "So your choice is TREECKO DOLL?"; the charm row: "the next clerk's"); the Poké Mart after the shared helpers moved: pixel-identical but for its bobbing arrows | pass |
 | Benchmark visit (title, main menu, field, pause, bag, party), UI on and off, Linux at 1280×720 Low and at 1920×1080 High (about 12 fps in the field: the game itself slows down), and the checkpoint's `ui-benchmark.bat` with the Windows exe under Wine | every phase reached, the expected screen up 100 % of each phase |
 
 Not run yet: link battles with two games (PvP 1v1 / 2v2), the multiplayer 2v2 owner tags.
@@ -158,7 +159,7 @@ hitch cannot put it out of step. No frame-rate figure is claimed before those re
 
 | # | Issue |
 | --- | --- |
-| U1 | Screens 22 and 26 still show the game's picture (phase 7); decoration shops (screen 15) and evolutions inside a trade (screen 25) too. |
+| U1 | Screen 26 still shows the game's picture (phase 7); decoration shops (screen 15), evolutions inside a trade (screen 25) and the Game Corner's slot machines and roulette (screen 22) too. |
 | U2 | Pokédex: AREA, CRY, SIZE and the search form keep the game's picture. |
 | U3 | PC: the PC's first menus and moving several Pokémon at once keep the game's picture. |
 | U4 | Battle: Safari Zone, catching tutorial and Battle Arena keep the game's picture; ability pop-ups and the level-up stat box are the game's art. |
@@ -185,7 +186,7 @@ the end of their files; hooks in the middle of a file keep the GBA line numbers 
   `option_menu.c`, `party_menu.c`, `pokemon_summary_screen.c`, `item_menu.c`, `pokedex.c`,
   `pokemon_storage_system.c`, `menu_helpers.c`, `text.c`, `window.c`, `pokemon_icon.c`,
   `multiplayer.c`, `multiplayer_appearance.c`, `multiplayer_menu.c`, `multiplayer_world.c`,
-  `trainer_card.c`, `shop.c`, `naming_screen.c`, `starter_choose.c`, `evolution_scene.c`, `sprite.c`,
-  `battle_controller_player.c`,
+  `trainer_card.c`, `shop.c`, `naming_screen.c`, `starter_choose.c`, `evolution_scene.c`, `script_menu.c`,
+  `coins.c`, `script.c`, `scrcmd.c`, `event_object_movement.c`, `sprite.c`, `battle_controller_player.c`,
   `battle_interface.c` (three one-line hooks noting what a healthbox shows).
 * Not UI: `start_menu.c` (U10's fix, two callbacks on the no-fade list).
