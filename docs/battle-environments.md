@@ -12,7 +12,8 @@ prove it with screenshots of real battles, reviewed by eye.
 | --- | --- | --- | --- |
 | `claude/battle-environments` | `e747ce106` (`claude/native-graphics-3d-battles-4`, the merge candidate) | `779695f93` first round (Elite Four and Champion rooms, 45 rooms read off their cells, cave walls, the survey); `923e63569` the environment interface for future systems; `0677813f1` second round (more rooms and caves, the light round the stage, staging checks); `226d62af8`, `083bc9754` the test driver's autopilot and timeout; `debd0fae7` the Battle Dome's and Battle Factory's halls, Verdanturf's Battle Tent; `3253670fd` the scenery mirrored past its edges; `4f308a4c7` the sea floor's rock, the test driver locks the field for trainer battles, `survey.py --at`; `4002eac1f` the stage at its battlers' feet, wrong-map pictures caught, the report page; `cd36c10fd` the Battle Palace's arena flat again; `1dfc62cbe` the test driver's key presses held for frames (the 1440p and 4K runs); `55d732298` Lavaridge Gym B1F; `f96f41833` the stage search sees walls that are all face; `acd96dabc` the review and the report | This overhaul. Nothing of it is merged anywhere. Checkpoint `battle3d-env-wip-20261011-1`. |
 | `claude/battle-environments-graphics8` | `claude/battle-environments` merged with the overworld session's `d799c4a8a` (`graphics-wip-20261010-8`: detail objects, seventy more buildings, lit windows) | `6507a67ea` the merge, the objects drawn in battles and seen by the stage search; `c12f2f96a`, `4661fc8b5` the later battle-environment commits merged in; `69440aa02` the objects' art from the field's last steady frame; `9c1c6aef8` the review merged in (tools only) | The same work on the overworld's newest tip, with its object library in battles. Not merged anywhere. |
-| `claude/battle-environments-2` | `claude/battle-environments-graphics8` (`9c1c6aef8`) | Round 3 (below): `claude/native-pc-n37-fix` merged in (N37-N40), the weakest places, the secret bases, the review; candidate `49c47919e` (later commits: tools and the review only) | **The integration candidate.** Not merged anywhere. Checkpoint `battle3d-env-wip-20261012-1`. |
+| `claude/battle-environments-2` | `claude/battle-environments-graphics8` (`9c1c6aef8`) | Round 3 (below): `claude/native-pc-n37-fix` merged in (N37-N40), the weakest places, the secret bases, the review; candidate `49c47919e` (later commits: tools and the review only) | Round 3's candidate, on `d799c4a8a`; superseded by `-3`. Not merged anywhere. Checkpoint `battle3d-env-wip-20261012-1`. |
+| `claude/battle-environments-3` | `claude/battle-environments-2` merged with `c51769606` (`graphics-wip-20261012-1`, the overworld's newest tip) | Round 4 (below): the merge, one way of each; E11, E12; Birth Island's trees; candidate `5056f3ba3` (later commits: the review and the report tools) | **The integration candidate.** `c51769606` is its ancestor. Not merged anywhere. Checkpoint `battle3d-env-wip-20261012-2`. |
 | `claude/native-pc-n37-fix` | `claude/native-pc` `1579e7fd8` | N37, N38, N39, N40 and their selftests | Native crash fixes (`PORTABLE` and the PC sound driver only). Not merged into `claude/native-pc`. |
 
 The merge candidate `e747ce106`, its checkpoint `battle3d-wip-20261010-4` and the pending
@@ -26,8 +27,8 @@ library for the field and battles, as the directive asks).
 
 ## Results
 
-(The first two rounds' results; round 3's are in its section below: **A 5, B 204, C 5, D 0**
-of 214 reviewed maps, 4 untested.)
+(The first two rounds' results; round 3's and round 4's are in their sections below - now
+**A 5, B 205, C 4, D 0** of 214 reviewed maps, 4 untested.)
 
 236 maps where a battle can start, found in the game's own data (map headers, wild encounter
 tables, trainer and scripted battles, legendaries). Of them:
@@ -280,6 +281,9 @@ The class with the objects is each map's `props` in `review.json` and the "+" cl
 WITH OBJECTS picture in the report.
 
 ## Round 3: the weakest places, the untested maps, N37 to N40 (branch `claude/battle-environments-2`)
+
+(Round 3's record as it was made. Round 4, below, puts this work on the overworld's newer tip
+and is the integration candidate now; round 3's Integration steps are superseded by its.)
 
 Recorded 2026-10-12. Owner directive: fix N37 first (its own branch, the smallest safe change,
 a regression test, single, double and multi-trainer battles verified); then the weakest
@@ -582,6 +586,202 @@ Order, as before: the merge candidate first, this work after it; nothing is merg
    survey of a sample with the TEST build (`tools/battle_env/README.md`) and the pictures
    looked at against the report's.
 
+## Round 4: on the overworld's newest tip (branch `claude/battle-environments-3`)
+
+Recorded 2026-10-12, evening. Round 3's checkpoint (`battle3d-env-wip-20261012-1`) was put
+together on `d799c4a8a`, then the newest verified graphics tip. At 17:05 UTC the overworld
+session published `native-wip-20261012-1` and moved `claude/native-graphics` to `c51769606`
+(`graphics-wip-20261012-1`: the performance directive and its phase 4), which does three of
+round 3's things its own way. A candidate on `d799c4a8a` would have met it with conflicts and
+with two ways of doing each, so this round puts the work on `c51769606`, keeps one way of each,
+and checks the result in the same way as round 3: builds, tests, every reviewed map
+photographed again and compared by eye, fights, the Windows build.
+
+### Where it is
+
+| Engine branch | Base | What |
+| --- | --- | --- |
+| `claude/battle-environments-3` | `claude/battle-environments-2` (`719e16c78`) merged with `c51769606` | `6d0322a70` the merge; `9125dd0e6` the battle camera between game frames (E11); `7630b1ad5` the sea's level after the merge (E12); `5056f3ba3` Birth Island's trees; `13f9f9442` and `9e0e2d906` the report tools and the review, `aa63a98a3` the tools README (the tag). **The integration candidate** (code `5056f3ba3`). `c51769606` is its ancestor: `claude/native-graphics` can take it as a fast-forward. Checkpoint `battle3d-env-wip-20261012-2`. |
+
+`claude/battle-environments-2`, `claude/native-pc-n37-fix` and their checkpoint
+`battle3d-env-wip-20261012-1` stay as they were (round 4's checkpoint README says why round
+3's candidate is superseded; round 3's folder is not touched). Nothing is merged into
+`claude/native-graphics`, `claude/native-pc` or any other session's branch; the other
+sessions' branches were read from their checkpoints' bundles only.
+
+### One way of each
+
+Where the overworld session's `c51769606` and round 3 did the same thing, its way is kept: the
+code is its, in its files, and it checked it in the field.
+
+* **A step down to lower ground** (round 3's E1): its terrain skirts (`terrain_mesh.c`
+  `AppendSkirtFaces`, and a ledge on a lower level a full column) stand in for round 3's
+  `ColumnBottom` risers, which are gone with their test; `terrain_mesh.c` and
+  `test_terrain_mesh.c` are its, file for file. Kept from round 3 beside them:
+  `gl_terrain_renderer.c` `RiserShowsWholeCell`. A skirt shows the cell's lower layer, which
+  under a deck, a log walkway or a pier is the water; with it, Pacifidlog's decks, Dewford's
+  pier and Mt. Chimney's rim still stand on their own wood and rock.
+* **A walker in long grass** (E2): its `HasUnsupportedSubsprites` and `FindPartOamOrder`
+  (the top part's own place in the OAM) stand in for round 3's `DioramaSprite_PartsMakeFrame`,
+  which is gone with its test (`sprite_frame.c`/`.h` and `test_sprite_frame.c` are its).
+* **The sea's shallows and rocks**: its rules (`compile_rules.py` `join_water`,
+  `_sea_rock_cells`, the rocks lifted onto the sea's level) and round 3's runtime levels
+  (`buildings.c` `LevelWaterBodies`, `MarkRocksInWater`) both stay. They do different parts:
+  the rules give each cell its level; the runtime puts each body of water at one level per
+  layout and the outdoor sea at most a level below the land, so a body the rules leave at two
+  levels does not stand as steps of water (its own field shows such steps round Route 132's
+  islets; the merge does not).
+
+The conflicts were the ones its COORDINATION note names (`gl_compositor.c`: the battle
+transition's bands before its objects' profile section, the 2D picture's `else if` with its
+`EnsureFrameTexture`, its `DioramaGL_GetFrameTexture` kept and round 3's dropped) and
+`props.c` (both sides' new entries). The weather picture keeps its key (made again only when
+it changes) and takes the weather as a parameter, for the battles' own (a room's fog left
+out). Its new Sootopolis houses and round 3's battle rooms are both in the model library
+(`buildings.bin` is made in the build from both sets of specs: 1539 models, 4634 placements).
+
+### The sea after the merge (E12, found and fixed)
+
+The first build of the merge put the sea of ten layouts (Mossdeep, Routes 124-129, 132-134)
+two tiles down instead of one, and the water it does not join (the neighbouring maps' sea,
+separate bodies) stood a level above it, blocks with water on their sides: the photographs of
+Route 132 showed them, in the field and in its battle. Its rules give the water round the sea's
+rocks the sea's level with that water's own depth (`_lift_record`: -16 - 1 = -17 sixteenths),
+and `LevelWaterBodies` rounded any part of a tile a whole tile down. A level up to five
+sixteenths under a whole tile is that tile now (`7630b1ad5`); water over a whole tile still
+lies a tile down as before. Route 132's cells were dumped before and after (every water cell at
+-1 again, as in round 3) and photographed in the field beside round 3's and the overworld's
+own build; every outdoor battle map was photographed again with the fix.
+
+### The battle camera above 60 frames a second (E11)
+
+The overworld session's frame-rate limit (F10: 60 to 240 or unlimited) draws the 3D view as
+often as the limit allows and places the field's camera and people between game frames
+(`frameAlpha`); its note asked the battle session to do the same for the battle camera.
+`DioramaGLBattle_Present` takes `frameAlpha` (`9125dd0e6`): the camera's own move (the glide
+onto the stage, an effect's shake) is kept for this game frame and the one before and drawn
+between them; the scenery's shift (BG3's scroll) stays the game frame's own, as the GBA picture
+over the world is; a jump (a battle begun, back from the classic view) is not glided across. At
+`frameAlpha` 1 the view is the game frame's own, as before; the TEST build's pictures are
+always taken from it. Checked on software OpenGL with `fpsCap=unlimited` (30 frames of the
+glide drawn between game frames, a battle fought to its end); a high-refresh display has not
+seen it.
+
+### Birth Island's trees (C to B)
+
+Birth Island (where Deoxys is met) was C: "an open meadow; its three round trees drawn flat".
+The trees stand now (`5056f3ba3`, new entries in `props.c` only, a table for
+`gTileset_Dewford`, whose tree cells no other map draws): each crown cell a heap of leaves
+lifted on the trunk, the crown's hem with it, the trunk's cells standing under the crown, the
+shadow painted on the grass left out for the real one. A joined mound was tried first and
+dropped: a joined mound cannot stand the crown's middle cell (all leaves; it has no height and
+is left out), and joined, the crown stood as a box. In its battle the top tree stands at the
+picture's top edge; in the field the three trees stand round the meadow. The meadow itself is
+open, as on the GBA.
+
+### Results
+
+236 battle maps, as before: **214 reviewed**, **4 untested** (the Union Room, the Mystery
+Events house B1F, the Battle Pike's normal and final rooms; round 3's reasons hold), **18
+excluded**. All 214 were photographed again with the candidate's TEST build, at the same spot
+and in the same battle as round 3's picture (the secret bases walked into as in round 3), and
+each picture was looked at beside round 3's.
+
+**Classes now, all 214 reviewed maps: A 5, B 205, C 4, D 0** (round 3: A 5, B 204, C 5, D 0).
+
+* **Birth Island** (C): **B** - its three round trees stand, in its battle and in the field.
+* **Pictures that changed, class held:** Route 113 (its ash grass stands as grass: the
+  overworld's objects), Route 109 (the parasol and the deck chair stand), Route 122 (the stage
+  moved; both battlers stand on the water), Route 118 (the terrace's face shows the cell's lower
+  layer, grass, where round 3's riser showed earth: the overworld's skirts), and the ten
+  layouts of E12 (as round 3's once fixed). Indoors, in caves and in the secret bases every
+  picture is round 3's.
+* **What stays C (4), and why:** the Battle Pyramid's top, the Trainer Hill's roof, Shoal
+  Cave's low-tide entrance and inner room, as in round 3 (above); none reclassified.
+* **No map moved down; no map is D.**
+* **The night sample** (Rustboro, Lilycove, Route 101, Slateport, Mauville and Petalburg at
+  23:00) was taken again: as round 3's.
+* **The field**, twenty spots with three builds (the overworld's own `c51769606`, round 3's
+  candidate and this one; checkpoint `report\field\`): the sea at one level where the
+  overworld's own build shows steps of water round the islets and cliffs of Routes 132, 124,
+  134, 127 and 107; Birth Island's trees; everything else as the overworld's build shows it.
+
+Each map's round-4 class and note are `r4` and `r4_notes` in `tools/battle_env/review.json`
+(round 3's are `now`); the report shows the ROUND 3 and NOW pictures side by side.
+
+### Validation
+
+At the candidate `5056f3ba3` (the commits after it change `tools/battle_env` only):
+
+* **Builds:** Linux 3D and 2D, Windows 3D and 2D (MinGW); the GBA ROM byte-identical
+  (`f214735b…3387`). The player builds carry no test driver (no "Battle env test" string)
+  and no debug menu (`DEBUG_OVERWORLD_MENU`, `DEBUG_BATTLE_MENU` FALSE).
+* **Selftests, Linux 3D and 2D:** `check-party-order` 1119, `check-battle-names` 1724,
+  `check-cry-stop` 5, `check-shake-anim` 11 checks, 0 failed; `check-game-sections` (Linux
+  3D and 2D, Windows 3D), `check-decompress` 7469 assets, `check-native` 176 checks and 9
+  pictures, `check-abi` 172 types, all passing.
+* **`check-diorama`:** every suite passes (the overworld's terrain mesh and sprite frame tests,
+  the props' 7984 checks with Birth Island's trees, the rules, the battle stage, the compositor
+  goldens over 18318 metatiles, `validate_rules`, `compile_rules --check`).
+  **`check-diorama-tools`:** every test passes but the two known upstream failures
+  (KNOWN_ISSUES V2's parity case and V4/V31's mountains flag), which fail the same way on
+  `c51769606` itself (both run there too). The make loop stops at the first of them, so each
+  later file was run on its own: all pass, and the buildings' tests too.
+* **Fought through** on the candidate's TEST build with a strong party, each to its end: the
+  four two-trainer spots (Sootopolis Gym B1F, Victory Road 1F, the Abandoned Ship's rooms, the
+  Trick House's seventh puzzle), Roxanne (single), Tate and Liza (double), the Space Center
+  Multi with Steven, a wild double on Route 102 - **all won**.
+* **Every reviewed map** photographed again and looked at beside round 3's (Results); the
+  first pass found E12, and every outdoor map was photographed again with its fix.
+* **The field:** twenty spots with three builds (Results); Route 132's cells dumped before
+  and after E12's fix.
+* **The glide (E11):** with `fpsCap=unlimited` on software OpenGL, 30 frames of the battle
+  camera's glide drawn between game frames and a battle fought to its end; at `frameAlpha` 1
+  the view is the game frame's own, which is what the TEST build photographs.
+* **Windows player build** (packed, stripped, `5056f3ba3`, the checkpoint's zip) under Wine
+  (software OpenGL, a 1280x720 window): it started, continued a save and drew a wild battle in
+  3D in Granite Cave 1F, ran from it and came back to the 3D field (no GL error, no sprite
+  refused); in Route 119's long grass the field stayed 3D (nothing drawn in 2D). On Route 102
+  the walker met no wild Pokémon in ten minutes at Wine's 9 frames a second (the field 3D
+  throughout, no error); round 3's exe drew that battle. Not a graphics-card run.
+
+Levels, as AGENTS.md asks: compiled, launched, tested and working on the cloud computer
+(software OpenGL, and Wine for the Windows build). Not fully verified: no graphics card and no
+high-refresh display has run it.
+
+### Integration
+
+Nothing is merged here; each step is the owner's decision.
+
+1. The 3D battles' graphics-card tests (`battle3d-test-runs\wip-20261010-4`, candidate
+   `e747ce106`) come first, as before.
+2. Then `claude/battle-environments-3` into `claude/native-graphics`: a **fast-forward**
+   (`git checkout claude/native-graphics`, `git merge --ff-only claude/battle-environments-3`),
+   since `c51769606`, that branch's tip, is its ancestor. It holds the 3D battles candidate
+   `e747ce106`, rounds 1 to 3 and `c51769606`; `claude/battle-environments-2` and
+   `-graphics8` need no merge of their own. If `claude/native-graphics` has moved on by then,
+   it is an ordinary merge, and the files in step 5 are the ones to look at. If the 3D battles
+   go in on their own first (`e747ce106` merged onto `c51769606`: `DioramaGL_Init`, keep both
+   inits), `-3` follows as an ordinary merge; a repeat of that conflict is resolved as `-3`
+   has it.
+3. `claude/native-pc-n37-fix` can go into `claude/native-pc` on its own (the native session's
+   call): a trial merge onto `aa2841d7a` has no conflict. It is in `-3` already.
+4. The native UI session's `claude/native-ui` (`dd6269de4`, `ui-native-wip-20261012-2`) meets
+   `-3` in two files, five hunks, all mechanical (git merge-tree, nothing merged; the UI
+   session's own trials over `c51769606` and over round 3 resolved them the same way):
+   `gl_compositor.c` (its "&& !(pictureFlags & DIORAMA_PICTURE_HIDE_ALL)" on the 2D picture's,
+   the 2D-only branch's and the border's conditions) and `sdl2.c` (its blocks first at the
+   frame boundary and in the key filter). The checkpoint's COORDINATION.txt has the details.
+   The character customization session's `claude/character-customization` (`059dbc4b1`) and
+   `claude/fix-player-menu-fade` (`a85ed3a47`) each merge with `-3` without a conflict (git
+   merge-tree).
+5. Shared code this round changes beyond `c51769606` (COORDINATION.txt section 4):
+   `gl_battle.c`/`.h` and `gl_compositor.c` (`DioramaGLBattle_Present(window, frameAlpha)`),
+   `buildings.c` (`LevelWaterBodies`' rounding), `props.c` (new entries only).
+6. After the merge: `make -f Makefile_pc check-diorama`, the four selftests above, the GBA
+   ROM's hash, then a survey of a sample with the TEST build (`tools/battle_env/README.md`) and
+   the pictures looked at against the report's.
+
 ## Performance
 
 **No graphics card was measured.** The cloud computer draws with Mesa's software renderer
@@ -645,22 +845,25 @@ in `results\` there; none were there when this was written (last looked 2026-10-
 
 ## Known issues
 
-The entries are in `KNOWN_ISSUES.md` (N37-N40, E1-E10); in short (round 3's state):
+The entries are in `KNOWN_ISSUES.md` (N37-N40, E1-E12); in short (round 4's state):
 
 * **N37, N38, N39, N40 (High, native crashes): fixed** on `claude/native-pc-n37-fix`, each
   with a selftest (round 3, above); not merged into `claude/native-pc`.
 * **E1:** sea battles looked through white gaps round the sea rocks: **fixed** in round 3
-  (steps down stand their faces, the sea at one level, the haze past the map).
+  (steps down stand their faces, the sea at one level, the haze past the map); in round 4 the
+  overworld's own skirts and rules stand in for round 3's faces, the sea at one level stays.
 * **E2:** Routes 119 and 120: in the long grass the field and its battles fell back to 2D:
-  **fixed** in round 3 (a walker's split sprite drawn whole).
+  **fixed** in round 3 (a walker's split sprite drawn whole); in round 4 the overworld's own
+  fix for it stands in, the same in the pictures.
 * **E3:** caves: rock one tile high, one block per cell; upper floors level with the lower.
 * **E4:** on `claude/battle-environments` outdoor details (tall grass, flowers, fences, signs,
   ledges) are flat, so most outdoor maps stay C; on `claude/battle-environments-graphics8` the
-  overworld's detail objects stand in battles too (below), and round 3 adds more objects;
-  ledges, Route 113's ash grass and Birth Island's round trees stay flat.
+  overworld's detail objects stand in battles too (below), round 3 adds more objects, and in
+  round 4 Route 113's ash grass and Birth Island's round trees stand; ledges stay flat.
 * **E5:** rooms flat in the first rounds (Trick House 8, Sky Pillar's top, the Battle Pyramid's
   and the Trainer Hill's floors): their objects stand since round 3; still flat: the Pyramid's
-  top, the Trainer Hill's roof floor, Birth Island's meadow, Shoal Cave's tidal flat.
+  top, the Trainer Hill's roof floor, Shoal Cave's tidal flat (Birth Island's meadow is open,
+  its trees standing since round 4).
 * **E6:** after a win in an Elite Four room the back wall's model is left out for the rest of
   the visit (a script redraws the door).
 * **E7:** past a room's edge the battle shows the GBA's battle background (white or streaky
@@ -671,13 +874,21 @@ The entries are in `KNOWN_ISSUES.md` (N37-N40, E1-E10); in short (round 3's stat
   a battler can stand on one.
 * **E10:** Dewford's water battle: the player's side stands on the water just behind the beach,
   a level higher (looked at: not visible as a fault).
+* **E11:** above 60 frames a second the battle camera's glide stepped with the game frames:
+  **fixed** in round 4 (drawn between them, as the field's camera); not seen on a high-refresh
+  display.
+* **E12:** after the merge onto `graphics-wip-20261012-1` ten layouts' sea lay a tile too low
+  with steps of water over it: **fixed** in round 4 (the sea's level rounds to its tile).
 * Not covered: the Union Room's and the Mystery Events house's link and e-Reader battles, the
-  Battle Pike's normal and final rooms (round 3, above). The secret bases are covered since
-  round 3.
+  Battle Pike's normal and final rooms (round 3, above; the same in round 4). The secret bases
+  are covered since round 3.
 
 ## Integration
 
-**Round 3 supersedes this section's step 2:** merge `claude/battle-environments-2` (it holds
+**Round 4 supersedes this section and round 3's** (its Integration steps are in its section
+above). The rest stands as written for the first rounds.
+
+**Round 3 superseded this section's step 2:** merge `claude/battle-environments-2` (it holds
 `claude/battle-environments-graphics8`); its own Integration steps are in the round 3 section
 above. The rest stands as written for the first rounds.
 

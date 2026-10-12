@@ -252,7 +252,7 @@ logs. Software OpenGL only so far.
 | Petalburg Woods battles in 3D (the woods drawn in 3D since graphics `6743bc1e5`) | Yes: wild Diglett on the forest path, shade light | Not run | Before, its battles were 2D (no 3D view there). |
 | Battle world at the chosen render size and antialiasing (third round) | Yes: 4x MSAA (Ultra) on the battle's world | Not run | Same render target as the field (`gl_target.h`). |
 
-### Battle environments (engine branches `claude/battle-environments`, `-graphics8`, `-2`)
+### Battle environments (engine branches `claude/battle-environments`, `-graphics8`, `-2`, `-3`)
 
 Owner directive 2026-10-11 ("COMPLETE 3D BATTLE ENVIRONMENT OVERHAUL — ALL HOENN
 LOCATIONS"): every place a battle is fought audited, the flat ones made dimensional in the
@@ -263,7 +263,13 @@ work merged with the overworld session's `graphics-wip-20261010-8` (its detail o
 in battles too). Round 3 (2026-10-12, `claude/battle-environments-2`, the integration
 candidate `49c47919e`): N37, N38, N39 and N40 fixed on `claude/native-pc-n37-fix` and merged in;
 the weakest places worked on (Route 111, Route 117, the 61 C maps), the untested maps
-photographed (the 24 secret bases) or documented. Software OpenGL only so far.
+photographed (the 24 secret bases) or documented. Round 4 (2026-10-12, evening,
+`claude/battle-environments-3`, the integration candidate `5056f3ba3`): round 3 merged onto the
+overworld session's newest tip `c51769606` (`graphics-wip-20261012-1`, its ancestor: a
+fast-forward for `claude/native-graphics`), one way of each where both had done the same thing
+(the overworld's), the sea's level fixed after the merge (E12), the battle camera between game
+frames (E11), Birth Island's trees; every reviewed map photographed again. Classes now A 5, B 205,
+C 4, D 0. Software OpenGL only so far.
 
 | Item | Linux | Windows (Wine) | Notes |
 | --- | --- | --- | --- |
@@ -275,12 +281,14 @@ photographed (the 24 secret bases) or documented. Software OpenGL only so far.
 | Environment interface for future systems (`battle_environment.h`) | Tested: each battler's ground back to the window 0.0 px, single and double battles | Not run | Not wired to anything yet. |
 | The overworld's detail objects in battles (`-graphics8` branch) | Visually renders: tall grass, flowers, fences, signs, lamps stand in outdoor battles (survey of every outdoor map) | Visually renders: Route 102's tall grass and flowers in a wild battle (the packed player exe) | One object library for the field and battles. |
 | Validation tools (inventory of 236 maps, survey, room proofs, report) | Works: a survey of every map with re-runs, Diorama-camera, night and double-battle samples, 1080p/1440p/4K measurements | TEST exe built | Software numbers only; GPU package for the owner in `battle3d-test-runs\env-20261011-1`. |
-| Windows player builds, one per branch (stripped, debug menus off, no test driver) | - | Works under Wine: each started, continued a save, drew a wild battle in 3D, ran from it and came back to the 3D field; the round 3 candidate's (`49c47919e`) too (Granite Cave 1F, Route 102) | Software OpenGL under Wine; not a graphics-card run. |
+| Windows player builds, one per branch (stripped, debug menus off, no test driver) | - | Works under Wine: each started, continued a save, drew a wild battle in 3D, ran from it and came back to the 3D field; the round 3 candidate's (`49c47919e`) too (Granite Cave 1F, Route 102), and round 4's (`5056f3ba3`: Granite Cave 1F; Route 119's long grass 3D) | Software OpenGL under Wine; not a graphics-card run. |
 | Two-opponent trainer battles (N37), messages naming two trainers (N38), a trainer's double battle before any cry has played (N39), a move animation's shake (N40) | Works in gameplay: fixed on `claude/native-pc-n37-fix`; each reproduced by a selftest that fails before its fix (`check-party-order` 1119, `check-battle-names` 1724, `check-cry-stop` 5, `check-shake-anim` 11 checks, 0 failed); fought through with a strong party on the candidate's TEST build: the four two-trainer spots, Roxanne (single), Tate and Liza (double), the Space Center Multi with Steven, a wild double - all won | Not run | `PORTABLE` and the PC sound driver only; the GBA ROM is unchanged. Not merged into `claude/native-pc`. |
-| Round 3 terrain: steps down stand their faces, the sea at one level a tile below the land, decks and piers on wood, rocks and sandbars in the water at its level | Visually renders: every sea and coast map re-photographed (no white bands, E1 fixed); `test_terrain_mesh` | Visually renders: Route 102's pond below its bank, in the field and a battle (the packed round 3 player exe) | Shared scene: the field shows the same (field screenshots in the checkpoint). |
+| Round 3 terrain: steps down stand their faces, the sea at one level a tile below the land, decks and piers on wood, rocks and sandbars in the water at its level | Visually renders: every sea and coast map re-photographed (no white bands, E1 fixed); `test_terrain_mesh`. Round 4: the overworld's skirts stand in for the risers; every sea map photographed again with the sea's level fixed (E12) | Visually renders: Route 102's pond below its bank, in the field and a battle (the packed round 3 player exe) | Shared scene: the field shows the same (field screenshots in the checkpoints; round 4's at the same spots with three builds). |
 | Route 111's dunes, Mt. Chimney's crater, cave water below the floor, secret bases walled, a room's fog out of its battles | Visually renders: Route 111 (D before, B now), Mt. Chimney, Magma Hideout, Seafloor Cavern, Meteor Falls, the 24 secret bases (photographed for the first time), Lavaridge Gym | Not run | The secret bases are entered by the test driver's in-memory warp (TEST builds only). |
 | New objects in the shared catalogue (Mauville's flowers, Mt. Pyre's graves, Sky Pillar's rubble, the Trick House's boulders, the Trainer Hill's blocks, Southern Island's stone, the Frontier's bushes, the Battle Pyramid's walls) | Visually renders: Route 117 (D before, B now), Mt. Pyre, Sky Pillar's top, Trick House 8, the Trainer Hill's floors, Southern Island (Latias's battle), the Frontier, a Pyramid floor; `test_props` 3184 checks | Not run | Field and battles alike (one object library). |
-| Walkers in long grass drawn whole (E2) | Visually renders: Routes 119 and 120 in their long grass, field and battle 3D (were 2D) | Visually renders: Route 119's long grass, the field stays 3D (the packed round 3 player exe) | `test_sprite_frame`. |
+| Walkers in long grass drawn whole (E2) | Visually renders: Routes 119 and 120 in their long grass, field and battle 3D (were 2D); round 4 with the overworld's own code for it (V34), the same | Visually renders: Route 119's long grass, the field stays 3D (the packed round 3 and round 4 player exes) | Round 3's `test_sprite_frame` case went with its code; the overworld's has none of its own. |
+| The battle camera's glide between game frames above 60 frames a second (E11, round 4) | Works: `fpsCap=unlimited` on software OpenGL, 30 frames of the glide drawn between game frames, the battle fought to its end | Not run | Not seen on a high-refresh display. |
+| Birth Island's round trees (round 4) | Visually renders: the field (three trees round the meadow) and its battle (C before, B now); `test_props` 7984 checks | Not run | New `props.c` entries only. |
 | The field's sky, air and weather over battles | Visually renders: the haze past the map's edge outdoors, rain, sand, ash, fog and bubbles over battles; the night sample | Not run | How the game looks only; the battle's weather is the game's. |
 
 ### Resolution, display modes and graphics quality (engine `graphics-wip-20261010-5`)
