@@ -41,7 +41,7 @@ QUALITY_LABELS = {
 
 # Keys this module owns; every other line of the file is kept as it is.
 _OWNED = ("resolution=", "displayMode=", "fullscreenMode=", "fullscreen=", "windowScale=")
-_QUALITY_KEYS = ("quality=", "shadows=", "lighting=", "effects=", "antialiasing=")
+_QUALITY_KEYS = ("quality=", "shadows=", "lighting=", "effects=", "details=", "antialiasing=")
 _RESOLUTION = re.compile(r"^(\d{3,4})x(\d{3,4})$")
 
 
@@ -75,7 +75,7 @@ def read_display_settings(path):
             values["mode"] = value
         elif key == "quality" and value in QUALITIES + ("custom",):
             values["quality"] = value
-        elif key in ("shadows", "lighting", "effects", "antialiasing") and values["quality"] is None:
+        elif key in ("shadows", "lighting", "effects", "details", "antialiasing") and values["quality"] is None:
             values["quality"] = "custom"  # a value without a preset is a custom choice
         elif key == "fullscreen" and value.isdigit():
             legacy_fullscreen = int(value) != 0

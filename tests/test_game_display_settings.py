@@ -60,14 +60,18 @@ class GameDisplaySettingsTests(unittest.TestCase):
         self.assertIn("fullscreenMode=fullscreen", lines)
 
     def test_custom_quality_stays_the_games(self):
-        self.path.write_text("quality=custom\nshadows=low\nlighting=0\neffects=1\nantialiasing=2\n")
+        self.path.write_text("quality=custom\nshadows=low\nlighting=0\neffects=1\ndetails=0\nantialiasing=2\n")
         self.assertEqual(read_display_settings(self.path)["quality"], "custom")
         write_display_settings(self.path, resolution="1280x720", mode="borderless", quality="custom")
         lines = self.path.read_text().splitlines()
-        for line in ("quality=custom", "shadows=low", "lighting=0", "effects=1", "antialiasing=2"):
+        for line in ("quality=custom", "shadows=low", "lighting=0", "effects=1", "details=0", "antialiasing=2"):
             self.assertIn(line, lines)
         self.path.write_text("shadows=low\n")  # edited by hand, no preset named
         self.assertEqual(read_display_settings(self.path)["quality"], "custom")
+        self.path.write_text("details=0\n")  # the 3D view's world details, set in the game's F10 menu
+        self.assertEqual(read_display_settings(self.path)["quality"], "custom")
+        write_display_settings(self.path, resolution="1920x1080", mode="windowed", quality="high")
+        self.assertNotIn("details=0", self.path.read_text().splitlines())  # the preset decides it
 
     def test_invalid_choices_change_nothing(self):
         self.path.write_text("volume=7\n")
