@@ -64,14 +64,15 @@ data; nothing is drawn (host or launcher features, see below).
 | 26 | Battle results | Game picture | phase 7 (the battle's end messages show in the battle HUD's message plate) |
 | 27 | Connection | Partial | the game's multiplayer notice banner (host notices, wager money, hints) as the design's toast over the calm field, for as long as the game shows it; the recovery dialogs (host lost, saved here, rejoin, mismatches) are the launcher's, not the game's |
 | 28 | Starters | Game picture | phase 7 |
-| 29 | Naming | Game picture | phase 7 |
+| 29 | Naming | Integrated | the name tag (the engine's title, slots, block cursor, count; the player's walking sprite, the Pokémon's icon and gender, the Box icon) and the three keyboard pages over the engine's naming screen (player, rival, Box, nickname, caught Pokémon, Walda's words, codes): the engine's own grid in the design's keycaps (eight keys a row, six on OTHERS, blank keys type a space) with its PAGE / BACK / OK column. Typing on the PC keyboard becomes the engine's own presses (page, cursor, A; then the cursor waits on OK: Enter finishes; Backspace deletes; Page Up / Down); clicks on keys, tabs and PAGE / BACK / OK; the wheel turns pages. Walda's dad and the code man are not drawn in the icon disc |
 | 30 | Soft reset | Partial | the in-battle prompt shows in the battle HUD (message and YES/NO); hunt records host-side |
 | 31 | Records | Unavailable in game | host-side |
 
 ## Input
 
 * Keyboard: the game's keys (Z = A, X = B, Enter = START, `\` = SELECT, A = L, S = R,
-  arrows); **Tab** opens a screen's details view (the bag's item details).
+  arrows); **Tab** opens a screen's details view (the bag's item details). On the naming
+  screen the letter keys type (Enter = A, Backspace and Esc = B, Page Up / Down = pages).
 * Mouse: click a row, button, tab or prompt; right click is the screen's "back" (B); the
   wheel scrolls lists and browses. A click moves the engine's own cursor with the engine's
   own presses (one edge a frame) and then presses A, so every rule stays the engine's.
@@ -104,7 +105,7 @@ Cloud computer (Linux, software OpenGL, a virtual display; the Windows build und
 | --- | --- |
 | GBA ROM identity at every UI commit (`2622871e`, `5f71c090`, `58f0194d`, `1364a05f`, `92bee637`, `ee3e1bc9`, `a794a52d`, `eb4842ee`) and the trial merges | byte-identical, `f214735b…3387` |
 | GBA ROM with the engine fix `a89294c5` (U10, not UI) | differs only in `start_menu.o` (.text +28 bytes; every other section the same size): `b37759ea…e79a` |
-| GBA ROM at the UI commits after it (built at `16de85f4`, which carries `b6a2e945`, and at `14049f27`) | byte-identical, `b37759ea…e79a` |
+| GBA ROM at the UI commits after it (built at `16de85f4`, which carries `b6a2e945`, at `14049f27` and at `5b0a37a6`) | byte-identical, `b37759ea…e79a` |
 | Linux and Windows (mingw) builds of `claude/native-ui` and of the trial | pass, no new warnings in the files touched |
 | Title, main menu, CONTINUE, field, pause, bag (Windows exe under Wine) | pass |
 | Bag: all five pockets with a filled test bag (items, Balls, TMs and an HM, Berries, Key Items), item details on 14 items incl. two Mega Stones, browsing by keys, arrows, wheel and the strip, back on the bag at the item shown | pass |
@@ -117,6 +118,7 @@ Cloud computer (Linux, software OpenGL, a virtual display; the Windows build und
 | Customization, Brendan and a May test save: every colour row by keys and mouse (tags, swatches, L/R, wheel), the planned tags, the mirror's poses (Tab), SAVE by START and by the button ("Is this OK?"), the saved look on the field and on reopening (its tick; "saved here" while offline), B with changes ("Discard your changes?") back to the saved look | pass |
 | Trainer Card, Brendan and May test saves: front (picture, walking sprite, money, Pokédex caught and seen, time with the blinking colon, profile, 8 badges in the engine's art, stars and colour), back (no records yet: the empty note), the flip caught frame by frame (squashed front, edge-on, squashed back), the host tabs' notes, A / B and a click to flip, a right click to close (back on the pause menu); with two clients on a real local host: 2/4 in this world, the other player "here with you" | pass |
 | Poké Mart (the Mauville Mart, a test save continuing at its counter): the menu with the stock and the clerk's line, buying by keys (3 Super Potions: money and the Bag updated) and by mouse (a row, the quantity arrows, OK, NO, right click back and quit), 10 Poké Balls and the Premier Ball line, SELL into the bag and back, "anything else" | pass |
+| Naming: a new game's player name typed on the keyboard ("Kevin" with the automatic lower case, Backspace, "n!" across to OTHERS and back, Page Down, Enter: Birch asks "So it's Kevin!?"), by mouse (a key, the OTHERS tab, a key, BACK, OK: "So it's B?"); a Box renamed from the PC ("Hunt", shown on the Box afterwards) | pass |
 | Benchmark visit (title, main menu, field, pause, bag, party), UI on and off, Linux at 1280×720 Low and at 1920×1080 High (about 12 fps in the field: the game itself slows down), and the checkpoint's `ui-benchmark.bat` with the Windows exe under Wine | every phase reached, the expected screen up 100 % of each phase |
 
 Not run yet: link battles with two games (PvP 1v1 / 2v2), the multiplayer 2v2 owner tags.
@@ -154,7 +156,7 @@ hitch cannot put it out of step. No frame-rate figure is claimed before those re
 
 | # | Issue |
 | --- | --- |
-| U1 | Screens 22, 25, 26, 28, 29 still show the game's picture (phase 7); decoration shops (screen 15) too. |
+| U1 | Screens 22, 25, 26, 28 still show the game's picture (phase 7); decoration shops (screen 15) too. |
 | U2 | Pokédex: AREA, CRY, SIZE and the search form keep the game's picture. |
 | U3 | PC: the PC's first menus and moving several Pokémon at once keep the game's picture. |
 | U4 | Battle: Safari Zone, catching tutorial and Battle Arena keep the game's picture; ability pop-ups and the level-up stat box are the game's art. |
@@ -181,6 +183,6 @@ the end of their files; hooks in the middle of a file keep the GBA line numbers 
   `option_menu.c`, `party_menu.c`, `pokemon_summary_screen.c`, `item_menu.c`, `pokedex.c`,
   `pokemon_storage_system.c`, `menu_helpers.c`, `text.c`, `window.c`, `pokemon_icon.c`,
   `multiplayer.c`, `multiplayer_appearance.c`, `multiplayer_menu.c`, `multiplayer_world.c`,
-  `trainer_card.c`, `shop.c`, `sprite.c`, `battle_controller_player.c`,
+  `trainer_card.c`, `shop.c`, `naming_screen.c`, `sprite.c`, `battle_controller_player.c`,
   `battle_interface.c` (three one-line hooks noting what a healthbox shows).
 * Not UI: `start_menu.c` (U10's fix, two callbacks on the no-fade list).
