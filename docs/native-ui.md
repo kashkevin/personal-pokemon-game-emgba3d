@@ -21,6 +21,7 @@ the engine fix U10, `f214735b…3387` before it).
 | App branch (these docs) | `claude/native-ui`, from `4f1115e` (`claude/native-pc`) |
 | Trial with the 3D battles | `claude/native-ui-3dbattle-trial` = `claude/native-ui` + `claude/native-graphics-3d-battles-4` (`e747ce106`), test only, not for merging as is |
 | Trial over the newest overworld | `claude/native-ui-overworld-trial` = the overworld tip `c51769606` (`graphics-wip-20261012-1`) + `claude/native-ui`, a merge check only (two conflicts, resolved as the overworld session's note says); not shipped, not for merging as is |
+| Trial with the battle environments | `claude/native-ui-battleenv-trial` = `claude/battle-environments-2` (`719e16c78`, `battle3d-env-wip-20261012-1`) + `claude/native-ui`, a merge check only (two conflicts, resolved as the battle session's note says); not shipped, not for merging as is |
 | Checkpoints | `claude-checkpoints\ui-native-wip-<date>-<n>` (bundles, a Windows test build, `COORDINATION.txt`) |
 
 Nothing is merged into `claude/native-graphics`, `claude/native-pc` or any other session's
@@ -31,7 +32,13 @@ with one conflict, in `gl_compositor.c`, both sides kept). Over the newest overw
 note asks: in `gl_compositor.c` the UI's `DIORAMA_PICTURE_HIDE_ALL` condition with the
 overworld's lazy `EnsureFrameTexture()` inside both picture branches, and in `sdl2.c`
 `NativeUi_CaptureFrame()` first, then `DioramaProfile_Begin(DIORAMA_PROF_TICK)`, then
-`VDraw` (the merge check branch `claude/native-ui-overworld-trial`).
+`VDraw` (the merge check branch `claude/native-ui-overworld-trial`). With the battle
+environments (`claude/battle-environments-2`) it merges with two conflicts, both sides
+kept as the battle session's note asks: in `gl_compositor.c` the UI's condition on the
+battles' `else if (sTwoDOpacity > 0 ...)` and on the border, after the battles'
+`sDrewField3D = ...;`, and in `sdl2.c` `NativeUi_FilterKeys()` first, then the
+`DIORAMA_BATTLE_ENV_TEST` key filter (the merge check branch
+`claude/native-ui-battleenv-trial`).
 
 ## Screens
 
@@ -124,6 +131,7 @@ Cloud computer (Linux, software OpenGL, a virtual display; the Windows build und
 | 3D battles trial: the HUD over the 3D world, the GBA healthboxes and message box gone | pass |
 | 3D battles trial at `6783586a` (Bug Catcher Rick, a level up in the battle): the level-up box over the 3D battle, the trainer's last words with the scene clear, then the rewards ledger and the trainer's plate with the prize message | pass |
 | Overworld trial `claude/native-ui-overworld-trial` (`fd25d0d2` = the overworld tip `c51769606` + `claude/native-ui`, test only; built from scratch, no new warnings): title, main menu, CONTINUE, the pause menu over the new 3D field (Mauville City Gym), the bag and the party (the 2D picture hidden), back on the field without leftovers, a trainer battle's HUD (2D battle scene) | pass |
+| Battle environments trial `claude/native-ui-battleenv-trial` (`3352ae7c` = `719e16c78` + `claude/native-ui`, test only; built, no new warnings): title, main menu, CONTINUE, the pause menu over the 3D field, the bag and the party, back on the field; Bug Catcher Rick's battle in the 3D battle environment: the HUD, the level-up box, the trainer's last words, the rewards ledger | pass |
 | The checkpoint's two Windows exes (debug info split off) under Wine: title, main menu, CONTINUE, pause, bag; `TRY-NATIVE-UI.bat` under Wine's cmd (the nine-choice menu; a dragged save copied to `play\` and the game started with it) | pass |
 | `PKMN_NATIVE_UI=0`: the old presentation (benchmark run through field, pause, bag, party) | pass |
 | Players with a real local host (`/home/claude/ui/tools/native_ui/mp_one_client.py`: world server, companions, enrolment, the native game with `--bridge`): one client (the list, the records pages, B back and close, the STYLE hint banner as a toast) and two clients (each other in the list and the session LEDs, a trade offered by one, the pending trade chosen by the other, both offers shown, cancelled with B, aborted on both) | pass |
@@ -180,7 +188,7 @@ hitch cannot put it out of step. No frame-rate figure is claimed before those re
 | U6 | Link (PvP) battles not yet run with two games; in a link battle the fourth command reads GIVE UP (running loses a link battle). |
 | U7 | Frame times only from software OpenGL so far (see Performance). |
 | U8 | Opening and leaving the PC boxes crashed natively before this work (also with the UI off): this branch carries the fix commits of `claude/native-pc` (`99a4f186`, `bfa4303e`, cherry-picked unchanged). |
-| U9 | Not the UI's: a battle against two trainers at once aborts natively (KNOWN_ISSUES N37). |
+| U9 | Not the UI's: a battle against two trainers at once aborts natively (KNOWN_ISSUES N37). The battle session's `claude/native-pc-n37-fix` (`1a26af882`, in `battle3d-env-wip-20261012-1`) fixes it; not in this branch. |
 | U10 | Not the UI's, fixed here: choosing STYLE or RIDE / GET OFF in the Player menu faded the screen to black for good (the start menu fades for every item not on its no-fade list; both stay in the field), with the old menus too, since `e726268e`. Fixed in `a89294c5` (both join the list, as PLAYERS); the same commit is on `claude/fix-player-menu-fade` (on `d799c4a8a`) for the multiplayer start menu's owners. It changes the GBA ROM (`start_menu.c` only). |
 | U11 | Not the UI's (3D view): with the old menus (`PKMN_NATIVE_UI=0`) the Players menu's window never appears in the 3D build: while the menu pauses the field callbacks the view keeps showing the last field frame (the Start submenu). The new Players screen draws over it. For the overworld session. |
 | U12 | Not the UI's (seen in the cloud runs, to check on the PC): leaving a Poké Mart, the clerk's "Please come again!" closes about a second after it has printed, without a button; the same with the old mart menu (`PKMN_NATIVE_UI_SCREENS=title,main_menu`), so not the new Shop screen. |
