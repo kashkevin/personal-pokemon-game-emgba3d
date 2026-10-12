@@ -12,15 +12,18 @@ animated and which keep their GBA sprite.
 
 | Repo | Branch | Base | What |
 | --- | --- | --- | --- |
-| engine | `claude/sprite-integration` | `9c1c6aef8` (`claude/battle-environments-graphics8`: the 3D battles with their environments, on the overworld's `graphics-wip-20261010-8`) | The integration. Nothing merged anywhere. |
-| app | `claude/sprite-integration` | `d778ca3` (the battle-environments docs) | This document, the ledger entry, the known issues S1–S7. |
+| engine | `claude/sprite-integration-2` (head `b67074e93`) | `719e16c78` (`claude/battle-environments-2`, tag `battle3d-env-wip-20261012-1`: the newest 3D battle source, rounds 1-3 of the battle environments and the native fixes N37-N40) | The integration, the sprite commits `308809be`..`b67074e9` replayed onto the newest battle source. Nothing merged anywhere. |
+| engine | `claude/sprite-integration` (`56f6b8b9`) | `9c1c6aef8` (`claude/battle-environments-graphics8`) | The same sprite code on the previous battle source (kept). |
+| app | `claude/sprite-integration-2` | `4a650d4` (the battle environments' round 3 docs) | This document, the ledger entry, the known issues S1-S7. |
 
-Sources looked for (2026-10-12): the battle line's newest is `claude/battle-environments-graphics8`
-`9c1c6aef8` (checkpoint `battle3d-env-wip-20261011-1`), newer than the merge candidate
-`e747ce106`. The performance work's `00fd30ca7` (the `perf-benchmark-20261011` test exe) had no
-source in any checkpoint until `native-wip-20261012-1` (engine `claude/graphics-overhaul`
-`c51769606`, tag `graphics-wip-20261012-1`), which contains it. The UI line is `claude/native-ui`
-`a794a52d3`. Trial merges (in memory and a scratch build, below) show how this branch meets them.
+The sprite commits touch only the sprite files and small insertions (below); the two test-driver
+commits are merged with the battle survey's own test options (TEST builds only). Sources looked
+for (2026-10-12): the newest graphics tip is `claude/native-graphics` `c51769606`
+(`graphics-wip-20261012-1`, checkpoint `native-wip-20261012-1`, with the performance work
+`00fd30ca7`), which has no 3D battles yet; the newest battle source is `claude/battle-environments-2`
+(on the graphics tip before it, `d799c4a8a`); the UI line is `claude/native-ui` `a794a52d3`. The
+battle session merges `c51769606` next; the integration session takes the sprites after it
+(Integration, below).
 
 The sprite pack is the sprite library's permission-gated runtime export (library checkpoint
 `cp-0056`, `battle-sprites.ebsp`, 12,372,036 bytes; byte-for-byte the same sprites as the
@@ -120,8 +123,50 @@ graphics card. The GBA ROM built from this branch is byte-identical to the base'
 * **Windows**: the stripped player exe starts under Wine and loads the pack from its folder; the
   test exe ran a singles battle there with both sprites animated.
 
+On `claude/sprite-integration-2` (`b67074e93`, 2026-10-12): the GBA ROM is byte-identical; the
+Linux TEST and Windows player builds pass (the Windows one with the win32-threads MinGW: its only
+DLLs are SDL2.dll and Windows' own); a singles battle (a shiny female Pikachu against a male one)
+and a doubles battle drew every battler from the pack, every traced frame at the pack's timing
+(5,032 checked, 0 wrong); the stripped Windows exe started under Wine and loaded the pack.
+
 ## The Windows build
 
-`Pokemon\artifacts\sprite-integration\game` on the owner's computer: the player build of this
-branch (`pokeemerald-mp-diorama.exe`, engine `56f6b8b9`), `battle-sprites.ebsp` beside it and
-`SDL2.dll`. The animated sprites are on by default; `PKMN_BATTLE_SPRITES=0` turns them off.
+`Pokemon\artifacts\sprite-integration-v2\game` on the owner's computer: the player build of
+`claude/sprite-integration-2` (`pokeemerald-mp-diorama.exe`, engine `b67074e93`, the 3D battles
+of `battle3d-env-wip-20261012-1` with the sprites), `battle-sprites.ebsp` beside it and `SDL2.dll`.
+The animated sprites are on by default; `PKMN_BATTLE_SPRITES=0` turns them off. It is the sprite
+branch's own build, not the combined game: the newest overworld graphics (`c51769606`) and the
+native menus come with the integration session's merge.
+
+## Integration (for the main integration session)
+
+Nothing is merged. The integration session takes this branch when it combines the lines:
+
+1. Fetch the engine bundle (it needs `719e16c78`, checkpoint `battle3d-env-wip-20261012-1`):
+   `git fetch <path>\engine-claude-sprite-integration-2.bundle claude/sprite-integration-2:claude/sprite-integration-2`.
+2. Merge it after the battle line: on a branch that already holds `claude/battle-environments-2`
+   it adds only the nine sprite commits `308809be`..`b67074e93`. On a battle line rebuilt on
+   `c51769606`, `git cherry-pick 308809be^..b67074e93` does the same.
+3. Expected conflicts, from a trial merge (engine `trial/native-integration-20261012` `d858b1f1`:
+   `c51769606` + `claude/battle-environments-2` + `claude/native-ui` + the sprites; built, GBA ROM
+   unchanged, battles run with the sprites under the native HUD): `src/platform/README.md` (keep
+   the graphics line's benchmark, frame limiter and memory rows, then the four sprite rows) and,
+   if the battle test driver changes again, `src/diorama/scene/battle_env_test.c` (TEST builds
+   only; keep both sides). `gba_easy_draw.c` merges by itself with the native UI: its hide masks
+   (`gPlatformPictureHideObj`, the battles' `gDioramaSceneSkipObj`) are checked before a battler's
+   entry is drawn from the pack. The trial is a reference, not a merge to keep.
+4. Windows builds: the win32-threads MinGW (`gcc-mingw-w64-i686-win32`, as the dependency ledger
+   says). With the posix compiler the native UI's `stb_image` thread-locals (`ui_gfx.c`) make the
+   exe need `libwinpthread-1.dll`.
+5. The launcher: `collect_native_bundle.py ... --extra battle-sprites.ebsp`, so the pack is pinned
+   in `runtime.json` and copied beside the exe. The launcher starts the game in a per-launch
+   folder; the game looks for the pack in the current folder and then beside the exe
+   (`SDL_GetBasePath`).
+6. On by default: `BATTLE_SPRITES ?= 1` in `Makefile_pc`; with the pack beside the exe the battles
+   draw the animated sprites; `PKMN_BATTLE_SPRITES=0` draws the GBA sprites.
+
+Seen in the trial, not the sprites' doing: `test_compile_rules.py`'s
+`test_repository_mountains_are_one_block_art_masked_cliffs` fails on `c51769606` and on
+`claude/battle-environments-2` alone (MB_MOUNTAIN_TOP records with `measuredFlags` 128); with
+battle round 3's water levels the field's ponds and sea lie a level below the land (Route 110's
+pond, a step down with its face), as that round intends.
