@@ -42,7 +42,7 @@ data; nothing is drawn (host or launcher features, see below).
 | 4 | Pause menu | Integrated | the engine's entries; Events marked PLANNED |
 | 5 | Summary | Integrated | the game's four pages (CONTEST MOVES takes the RIBBONS tab's place, marked PLANNED) |
 | 6 | Pokédex | Partial | lists, search results, entry pane, START menu native; the entry's AREA, CRY and SIZE pages and the search form keep the game's picture; FIND PLANNED; forms catalogue pending |
-| 7 | Trainer card | Game picture | phase 7 (own card exists in the engine) |
+| 7 | Trainer card | Integrated | the collectible card over the engine's card (START > PLAYER, and from the Frontier Pass): front with the engine's trainer picture and your walking field sprite (saved look), name, ID No., money, Pokédex caught (and seen), the save's play time with its blinking colon, the profile words, the engine's badge art in sockets and its four stars picking the card colour; back with the records the engine prints (Hall of Fame debut, link battles with a W/L bar, trades, Pokéblocks and contests with friends, Battle Points), only those it has; the design's LINK, CHAMP, TRADES and HUNTS pages are the host's (PLAYERS > Your Trainer Card) and say so, FRIENDS PLANNED; the left panes: who is in this world (bridge), the four star rules with the ones met. The engine's keys (back: A closes, B flips back); click flips, right click closes; the 9-frame flip squash. Other players' cards: the host's PLAYERS pages (screen 12) |
 | 8 | Trade | Partial | the host's trade pages (choose, both offers, confirm, change, cancel, the pending trade) on the Players screen's sheet, on the kit's trade blue, with the engine's cursor; the design's two-panel trade window (portraits, details, consent lamps) needs data the host does not send yet (offers come as text rows) |
 | 9 | Customization | Integrated | the dressing room over the STYLE editor (START > PLAYER > STYLE): its four colour rows (skin tone, hair, outfit, hat and bag) with the engine's names, colours and palette slots behind the BODY, HAIR, TOP and HAT tags; the mirror (the player's field sprite at 3x, recoloured live by the engine's own palette recolour; walk, run, turn), the portrait (base art), the sync tag (the look's 8 bytes, what the host has); presets, body, the styles, bottoms, shoes, bag, accessories and unlocks PLANNED (they need layered art the game does not have) |
 | 10 | Save | Integrated | "saved" only after the engine reports success and the file write finished |
@@ -104,6 +104,7 @@ Cloud computer (Linux, software OpenGL, a virtual display; the Windows build und
 | --- | --- |
 | GBA ROM identity at every UI commit (`2622871e`, `5f71c090`, `58f0194d`, `1364a05f`, `92bee637`, `ee3e1bc9`, `a794a52d`, `eb4842ee`) and the trial merges | byte-identical, `f214735b…3387` |
 | GBA ROM with the engine fix `a89294c5` (U10, not UI) | differs only in `start_menu.o` (.text +28 bytes; every other section the same size): `b37759ea…e79a` |
+| GBA ROM at the UI commits after it (built at `16de85f4`, which carries `b6a2e945`) | byte-identical, `b37759ea…e79a` |
 | Linux and Windows (mingw) builds of `claude/native-ui` and of the trial | pass, no new warnings in the files touched |
 | Title, main menu, CONTINUE, field, pause, bag (Windows exe under Wine) | pass |
 | Bag: all five pockets with a filled test bag (items, Balls, TMs and an HM, Berries, Key Items), item details on 14 items incl. two Mega Stones, browsing by keys, arrows, wheel and the strip, back on the bag at the item shown | pass |
@@ -114,6 +115,7 @@ Cloud computer (Linux, software OpenGL, a virtual display; the Windows build und
 | `PKMN_NATIVE_UI=0`: the old presentation (benchmark run through field, pause, bag, party) | pass |
 | Players with a real local host (`/home/claude/ui/tools/native_ui/mp_one_client.py`: world server, companions, enrolment, the native game with `--bridge`): one client (the list, the records pages, B back and close, the STYLE hint banner as a toast) and two clients (each other in the list and the session LEDs, a trade offered by one, the pending trade chosen by the other, both offers shown, cancelled with B, aborted on both) | pass |
 | Customization, Brendan and a May test save: every colour row by keys and mouse (tags, swatches, L/R, wheel), the planned tags, the mirror's poses (Tab), SAVE by START and by the button ("Is this OK?"), the saved look on the field and on reopening (its tick; "saved here" while offline), B with changes ("Discard your changes?") back to the saved look | pass |
+| Trainer Card, Brendan and May test saves: front (picture, walking sprite, money, Pokédex caught and seen, time with the blinking colon, profile, 8 badges in the engine's art, stars and colour), back (no records yet: the empty note), the flip caught frame by frame (squashed front, edge-on, squashed back), the host tabs' notes, A / B and a click to flip, a right click to close (back on the pause menu); with two clients on a real local host: 2/4 in this world, the other player "here with you" | pass |
 | Benchmark visit (title, main menu, field, pause, bag, party), UI on and off, Linux at 1280×720 Low and at 1920×1080 High (about 12 fps in the field: the game itself slows down), and the checkpoint's `ui-benchmark.bat` with the Windows exe under Wine | every phase reached, the expected screen up 100 % of each phase |
 
 Not run yet: link battles with two games (PvP 1v1 / 2v2), the multiplayer 2v2 owner tags.
@@ -151,7 +153,7 @@ hitch cannot put it out of step. No frame-rate figure is claimed before those re
 
 | # | Issue |
 | --- | --- |
-| U1 | Screens 7, 15, 22, 25, 26, 28, 29 still show the game's picture (phase 7). |
+| U1 | Screens 15, 22, 25, 26, 28, 29 still show the game's picture (phase 7). |
 | U2 | Pokédex: AREA, CRY, SIZE and the search form keep the game's picture. |
 | U3 | PC: the PC's first menus and moving several Pokémon at once keep the game's picture. |
 | U4 | Battle: Safari Zone, catching tutorial and Battle Arena keep the game's picture; ability pop-ups and the level-up stat box are the game's art. |
@@ -176,6 +178,7 @@ the end of their files; hooks in the middle of a file keep the GBA line numbers 
 * Accessors: `title_screen.c`, `main_menu.c`, `start_menu.c`, `field_screen_effect.c`,
   `option_menu.c`, `party_menu.c`, `pokemon_summary_screen.c`, `item_menu.c`, `pokedex.c`,
   `pokemon_storage_system.c`, `menu_helpers.c`, `text.c`, `window.c`, `pokemon_icon.c`,
-  `multiplayer.c`, `multiplayer_appearance.c`, `sprite.c`, `battle_controller_player.c`,
+  `multiplayer.c`, `multiplayer_appearance.c`, `multiplayer_menu.c`, `multiplayer_world.c`,
+  `trainer_card.c`, `sprite.c`, `battle_controller_player.c`,
   `battle_interface.c` (three one-line hooks noting what a healthbox shows).
 * Not UI: `start_menu.c` (U10's fix, two callbacks on the no-fade list).
