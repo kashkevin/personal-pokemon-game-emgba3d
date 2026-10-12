@@ -38,7 +38,7 @@ data; nothing is drawn (host or launcher features, see below).
 | --- | --- | --- | --- |
 | 1 | Party | Integrated | every mode of the single and double layouts (field, items, TMs, giving, battle, challenge choice); SELECT moves; multi-battle layouts keep the game's picture |
 | 2 | Bag | Integrated | every place it opens (field, battle, giving, selling, PC deposit, berries); the item menu, quantities, YES/NO, moving (SELECT), the game's sort (START); FIND marked PLANNED; favourites left out (not in the game) |
-| 3 | Battle HUD | Integrated | singles and doubles, wild and trainer: databoxes (HP as the bar moves, level, status, caught ball), the foe trainer's party pips, messages, commands, moves (type, PP, description, effectiveness mark), the Mega toggle, targets, YES/NO, the last used Ball (R). Kept as the game's picture: the Safari Zone, the catching tutorial, the Battle Arena, ability pop-ups, the level-up stat box. Link (PvP) battles not yet run with two games in the cloud |
+| 3 | Battle HUD | Integrated | singles and doubles, wild and trainer: databoxes (HP as the bar moves, level, status, caught ball), the foe trainer's party pips, messages, commands, moves (type, PP, description, effectiveness mark), the Mega toggle, targets, YES/NO, the last used Ball (R). Kept as the game's picture: the Safari Zone, the catching tutorial, the Battle Arena, ability pop-ups. The level-up box is screen 26's. Link (PvP) battles not yet run with two games in the cloud |
 | 4 | Pause menu | Integrated | the engine's entries; Events marked PLANNED |
 | 5 | Summary | Integrated | the game's four pages (CONTEST MOVES takes the RIBBONS tab's place, marked PLANNED) |
 | 6 | Pokédex | Partial | lists, search results, entry pane, START menu native; the entry's AREA, CRY and SIZE pages and the search form keep the game's picture; FIND PLANNED; forms catalogue pending |
@@ -61,7 +61,7 @@ data; nothing is drawn (host or launcher features, see below).
 | 23 | Friendship | Unavailable in game | host-side (the ROM has only the Lucky mark) |
 | 24 | Mega | Partial | the battle toggle (screen 3) and the stones' Mega forms (screen 16); no engine screen of its own |
 | 25 | Evolution | Integrated | the design's night stage over the engine's evolution scene: the starfield, the spotlight and stage rings turning while it evolves; the old form alternating with the new one's pale silhouette as fast as the engine alternates its sprites, the new form white in bursts of sparkles, its colours returning with the engine's flash, then the new form; B held, a click or a right click stops an evolution the engine lets stop ("Huh? ... stopped evolving!"); a new move's messages and YES / NO are the engine's (clicks, wheel), the move to forget is chosen on the summary (screen 5). Evolutions inside a trade keep the trade's own picture |
-| 26 | Battle results | Game picture | phase 7 (the battle's end messages show in the battle HUD's message plate) |
+| 26 | Battle results | Partial | drawn by the battle HUD over the engine's battle end: the level-up box (gains, then totals, from the engine's stats; its own box and banner left out) and, when a trainer battle ends, the rewards ledger with the defeated trainer's plate - won: the engine's prize (Amulet Coin included), money before and after, each Pokémon's level, Exp. bar and the Exp. gained in this battle (UP, NO EXP., TRADED); lost with money paid: OUT OF POKéMON and the money paid. The engine's messages stay in the message plate. Link and multiplayer results (VS card, records, archived record number) are the host's (PLAYERS records): not drawn; co-op prizes and wagers planned |
 | 27 | Connection | Partial | the game's multiplayer notice banner (host notices, wager money, hints) as the design's toast over the calm field, for as long as the game shows it; the recovery dialogs (host lost, saved here, rejoin, mismatches) are the launcher's, not the game's |
 | 28 | Starters | Integrated | Birch's open bag over the engine's six-page starter choice (Hoenn, Kanto, Johto, Sinnoh, Unova, Kalos): the region tag and page dots, the tray in the region's colour, GRASS / FIRE / WATER cradles, the hand and label, the round window with the Pokémon's front animation; the research card from the engine's data (name, category, types, Pokédex entry, first ability, the role the rival follows); the engine's lines and YES / NO. The first battle, the level and the nickname stay the game's |
 | 29 | Naming | Integrated | the name tag (the engine's title, slots, block cursor, count; the player's walking sprite, the Pokémon's icon and gender, the Box icon) and the three keyboard pages over the engine's naming screen (player, rival, Box, nickname, caught Pokémon, Walda's words, codes): the engine's own grid in the design's keycaps (eight keys a row, six on OTHERS, blank keys type a space) with its PAGE / BACK / OK column. Typing on the PC keyboard becomes the engine's own presses (page, cursor, A; then the cursor waits on OK: Enter finishes; Backspace deletes; Page Up / Down); clicks on keys, tabs and PAGE / BACK / OK; the wheel turns pages. Walda's dad and the code man are not drawn in the icon disc |
@@ -105,7 +105,7 @@ Cloud computer (Linux, software OpenGL, a virtual display; the Windows build und
 | --- | --- |
 | GBA ROM identity at every UI commit (`2622871e`, `5f71c090`, `58f0194d`, `1364a05f`, `92bee637`, `ee3e1bc9`, `a794a52d`, `eb4842ee`) and the trial merges | byte-identical, `f214735b…3387` |
 | GBA ROM with the engine fix `a89294c5` (U10, not UI) | differs only in `start_menu.o` (.text +28 bytes; every other section the same size): `b37759ea…e79a` |
-| GBA ROM at the UI commits after it (built at `16de85f4`, which carries `b6a2e945`, at `14049f27`, `5b0a37a6`, `b4828995`, `f51084fd` and `59d60a4a`) | byte-identical, `b37759ea…e79a` |
+| GBA ROM at the UI commits after it (built at `16de85f4`, which carries `b6a2e945`, at `14049f27`, `5b0a37a6`, `b4828995`, `f51084fd`, `59d60a4a` and `6d734278`) | byte-identical, `b37759ea…e79a` |
 | Linux and Windows (mingw) builds of `claude/native-ui` and of the trial | pass, no new warnings in the files touched |
 | Title, main menu, CONTINUE, field, pause, bag (Windows exe under Wine) | pass |
 | Bag: all five pockets with a filled test bag (items, Balls, TMs and an HM, Berries, Key Items), item details on 14 items incl. two Mega Stones, browsing by keys, arrows, wheel and the strip, back on the bag at the item shown | pass |
@@ -122,6 +122,7 @@ Cloud computer (Linux, software OpenGL, a virtual display; the Windows build und
 | Starters (a save continuing beside Birch's bag on Route 101, the bag shown again in a copy): Hoenn, Mudkip, Kanto, Kalos, the question and NO, a click on the GRASS ball and YES: Treecko, the first battle starts | pass |
 | Evolution (test saves: a Kirlia from the bag's Rare Candy, and one that knows four moves at the level where Gardevoir learns Dream Eater): the whole scene (intro, sparkles, the alternation caught frame by frame, the white flash and its colours returning, "Congratulations!"), stopped by a click and by holding B ("Huh? Kirlia stopped evolving!", still a Kirlia), the new move: its messages, YES / NO by keys, a click on NO ("did not learn"), a click on YES, the summary's move choice (Cut refused as an HM, Thunderbolt forgotten), "One... two... and... ta-da!", "learned Dream Eater!", back on the bag | pass |
 | Game Corner (test saves continuing at each clerk with a Coin Case): the TM counter (TM32 for 1,500 coins: coins 5,000 to 3,500, IN BAG x1, the party ABLE), the Shiny Charm clerk (the charm selected, 9,000 coins, YES: given), the coin counter (50 coins for ¥1,000 by a click: 120 to 170 coins, ¥3,000 to ¥2,000; 500 dimmed without the money), the doll counter (a click on TREECKO DOLL: "So your choice is TREECKO DOLL?"; the charm row: "the next clerk's"); the Poké Mart after the shared helpers moved: pixel-identical but for its bobbing arrows | pass |
+| Battle results (test saves facing Bug Catcher Rick on Route 102): a win (two Wurmples; the plate RICK with his tray, REWARDS: prize ¥64, ¥3,000 to ¥3,064, Gardevoir +96 Exp., Wailord +0), a level up in the battle (the level-up box: +2 +1 +1 +3 +2 +2, then 132 72 72 135 124 88; then UP on the ledger), a loss (OUT OF POKéMON: -¥3,000, ¥3,000 to ¥0, both FNT, NO EXP.) | pass |
 | Benchmark visit (title, main menu, field, pause, bag, party), UI on and off, Linux at 1280×720 Low and at 1920×1080 High (about 12 fps in the field: the game itself slows down), and the checkpoint's `ui-benchmark.bat` with the Windows exe under Wine | every phase reached, the expected screen up 100 % of each phase |
 
 Not run yet: link battles with two games (PvP 1v1 / 2v2), the multiplayer 2v2 owner tags.
@@ -159,10 +160,10 @@ hitch cannot put it out of step. No frame-rate figure is claimed before those re
 
 | # | Issue |
 | --- | --- |
-| U1 | Screen 26 still shows the game's picture (phase 7); decoration shops (screen 15), evolutions inside a trade (screen 25) and the Game Corner's slot machines and roulette (screen 22) too. |
+| U1 | Still the game's picture: decoration shops (screen 15), evolutions inside a trade (screen 25), the Game Corner's slot machines and roulette (screen 22), link battle results (screen 26: the host's records). |
 | U2 | Pokédex: AREA, CRY, SIZE and the search form keep the game's picture. |
 | U3 | PC: the PC's first menus and moving several Pokémon at once keep the game's picture. |
-| U4 | Battle: Safari Zone, catching tutorial and Battle Arena keep the game's picture; ability pop-ups and the level-up stat box are the game's art. |
+| U4 | Battle: Safari Zone, catching tutorial and Battle Arena keep the game's picture; ability pop-ups are the game's art. In the flat (GBA picture) battle view the rewards ledger covers the right of the scene, where the defeated trainer stands while speaking (the design places it beside the trainer of the 3D battle scene). |
 | U5 | With the current 2D battles (no 3D battle merge yet) the strip under the old message box shows the backdrop; with the 3D battles the world shows there. |
 | U6 | Link (PvP) battles not yet run with two games; in a link battle the fourth command reads GIVE UP (running loses a link battle). |
 | U7 | Frame times only from software OpenGL so far (see Performance). |
@@ -187,6 +188,7 @@ the end of their files; hooks in the middle of a file keep the GBA line numbers 
   `pokemon_storage_system.c`, `menu_helpers.c`, `text.c`, `window.c`, `pokemon_icon.c`,
   `multiplayer.c`, `multiplayer_appearance.c`, `multiplayer_menu.c`, `multiplayer_world.c`,
   `trainer_card.c`, `shop.c`, `naming_screen.c`, `starter_choose.c`, `evolution_scene.c`, `script_menu.c`,
-  `coins.c`, `script.c`, `scrcmd.c`, `event_object_movement.c`, `sprite.c`, `battle_controller_player.c`,
+  `coins.c`, `script.c`, `scrcmd.c`, `event_object_movement.c`, `battle_script_commands.c`, `battle_main.c`,
+  `sprite.c`, `battle_controller_player.c`,
   `battle_interface.c` (three one-line hooks noting what a healthbox shows).
 * Not UI: `start_menu.c` (U10's fix, two callbacks on the no-fade list).
