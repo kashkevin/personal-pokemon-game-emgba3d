@@ -252,6 +252,29 @@ logs. Software OpenGL only so far.
 | Petalburg Woods battles in 3D (the woods drawn in 3D since graphics `6743bc1e5`) | Yes: wild Diglett on the forest path, shade light | Not run | Before, its battles were 2D (no 3D view there). |
 | Battle world at the chosen render size and antialiasing (third round) | Yes: 4x MSAA (Ultra) on the battle's world | Not run | Same render target as the field (`gl_target.h`). |
 
+### Battle environments (engine branch `claude/battle-environments`)
+
+Owner directive 2026-10-11 ("COMPLETE 3D BATTLE ENVIRONMENT OVERHAUL — ALL HOENN
+LOCATIONS"): every place a battle is fought audited, the flat ones made dimensional in the
+shared model library, each map classed A-D by looking at a real battle's picture. Details,
+the per-map report and the integration steps in `docs/battle-environments.md`. On the merge
+candidate `e747ce106`; not merged anywhere. `claude/battle-environments-graphics8` is the same
+work merged with the overworld session's `graphics-wip-20261010-8` (its detail objects drawn
+in battles too). Software OpenGL only so far.
+
+| Item | Linux | Windows (Wine) | Notes |
+| --- | --- | --- | --- |
+| Elite Four's and Champion's rooms in 3D (modelled piece by piece, spotlight in each member's colour) | Visually renders: all five rooms in trainer battles (class D before, A after) | Not run | Stand in the field too (shared model library). |
+| 59 more rooms read off their cells (Gyms, Frontier, Tents, Aqua's hideout, Mt. Pyre, Sky Pillar, Mirage Tower, ships, New Mauville, Trick House, Space Center, Weather Institute, Museum, link rooms) and three halls by hand | Visually renders: every listed room photographed in a battle and classed; each proved pixel for pixel against its drawing (`auto_rooms.py`) | Not run | Lavaridge Gym B1F proved with 13 pieces left out. |
+| Cave and sea-floor rock standing as walls | Visually renders: every cave map and Underwater Routes 124 and 126 | Visually renders: a wild battle in Granite Cave 1F (the packed player exe) | One tile high (KNOWN_ISSUES E3). |
+| Light round the stage (arena, spotlight, cave and sea-floor gloom, night) | Visually renders: day and night samples; sprites, healthboxes and text unchanged | Not run | `PKMN_DIORAMA_BATTLE_LIGHT=0` turns it off. |
+| Staging: battlers on the ground, out of walls | Tested: the survey's staging check over every photographed battle; two faults found and fixed (Route 107 floating, Abandoned Ship stage across a wall) | Not run | `test_battle_stage` (a sea with banks). |
+| Environment interface for future systems (`battle_environment.h`) | Tested: each battler's ground back to the window 0.0 px, single and double battles | Not run | Not wired to anything yet. |
+| The overworld's detail objects in battles (`-graphics8` branch) | Visually renders: tall grass, flowers, fences, signs, lamps stand in outdoor battles (survey of every outdoor map) | Visually renders: Route 102's tall grass and flowers in a wild battle (the packed player exe) | One object library for the field and battles. |
+| Validation tools (inventory of 236 maps, survey, room proofs, report) | Works: a survey of every map with re-runs, Diorama-camera, night and double-battle samples, 1080p/1440p/4K measurements | TEST exe built | Software numbers only; GPU package for the owner in `battle3d-test-runs\env-20261011-1`. |
+| Windows player builds, one per branch (stripped, debug menus off, no test driver) | - | Works under Wine: each started, continued a save, drew a wild battle in 3D, ran from it and came back to the 3D field | Software OpenGL under Wine; not a graphics-card run. |
+| Two-opponent trainer battles | Broken natively (found by the survey; KNOWN_ISSUES N37) | Not run | Game logic, not graphics; not fixed here. |
+
 ### Resolution, display modes and graphics quality (engine `graphics-wip-20261010-5`)
 
 Owner directive 2026-10-10 ("NATIVE PC RESOLUTION UPGRADE"); design, results and
