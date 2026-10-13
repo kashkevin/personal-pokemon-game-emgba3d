@@ -19,7 +19,9 @@ DISPLAY=:99 /home/claude/venv312/bin/python -m pytest      # whole suite
 * Covers: protocol encoding, TLS transport, sessions and identity, presence,
   trading (offers, confirmation, effects, recovery), battles (admission,
   arbitration, journal, recovery), teams, world clock/events/claims, friendship and
-  Lucky Trades, wagers, co-op Gyms, saves and checkpoints, local reset, launcher.
+  Lucky Trades, wagers, co-op Gyms, saves and checkpoints, local reset, launcher, the
+  shared wild spawns and mass outbreaks (`test_shared_spawns.py`, `test_spawn_director.py`,
+  `test_shared_world.py`, `test_world_spawns_companion.py`, `test_outbreaks.py`).
 * **Result 2026-10-10, launcher migration** (`claude/native-pc` `4f4691e` plus these
   documents): 1388 tests collected, exit code 0 (no failures, no errors), about 9 min.
   With `-q` on the command line as well as in `pytest.ini` pytest prints no summary
@@ -46,6 +48,20 @@ re-armed one keeps running (N25).
 **Result 2026-10-09**: 1063 checks, 0 failures. **2026-10-10** (`claude/native-pc`
 `1579e7fd8`, with the battle branch's crash fixes, XInput loaded at run time and the
 save-command query): 1063 checks and the bridge's 4186 checks, 0 failures.
+
+### U13 regression (engine `d389ca3443`)
+
+```sh
+make -f Makefile_pc NATIVE_LINUX=1 DIORAMA=1 check-line-break   # --selftest-line-break
+```
+
+The eight trainer defeat lines a little wider than the battle message box (the native UI
+session's scan: Edward, Maura, Melissa, Alberto, Lila's rematch page, Santiago, Mitchell, the
+secret base trainer type 4), as trainer A's and B's line through the real
+`BattleStringExpandPlaceholders`, plus a line that fits: 54 checks pass; without the guard of
+`ad3995ba64` the test crashes at Edward's line (2026-10-13). In the game (cloud harness, not
+committed): Psychic Edward and Triathlete Alyssa's two-trainer battle on Route 110, native 3D
+build, new menus on, won by mashing A: "You got P960 for winning!", back on Route 110, no crash.
 
 ## 3. GBA/native byte-layout parity
 
@@ -418,6 +434,71 @@ Continue (`scripts/multiplayer/native-launcher-multi-evidence.json`).
 | --- | --- | --- |
 | native-launcher-multi-1..9 | 4 Linux | Failed on the harness (timeouts, walks out of the grass, CPU with four games on two cores, a busy field during an enrollment walk) or on KNOWN_ISSUES M6 (fixed); multi-8 was stopped on purpose at 351 blocks with no failure |
 | native-launcher-multi-10 | 4 Linux, engine `1579e7fd8` | Pass in 152 min: 5545 routed blocks in 8391.6 s, seventeen party selections (three trainers sent out their sixth Pokemon, the host its second), team 1 won for all four, results screens, revision 2 for all four, normal close (exit 0 x4) twice, fresh Continue; 48316 key presses, no forced cleanup |
+
+Shared visible wild Pokémon (EmeraldTogether Phase 3; engine `a96cdf1c47`, app
+`8b7a689` and later): a real world server (in process), two real companions and two
+native games, each on its own X display with ordinary key presses (xdotool). The proof
+copies the test save and moves its strongest Pokémon to the front of the copy (the
+source save is never written). It reads what each game actually draws from the game's
+own spawn records ('g' frames: the spawn objects and their tiles) and compares them with
+the host's board.
+
+```sh
+PYTHONPATH=src python scripts/multiplayer/native_spawn_proof.py \
+    --game ../engine-graphics/pokeemerald-mp-diorama --rom ../engine-graphics/pokeemerald.gba \
+    --manifest manifest.json --save route101.sav --display :98 --display :97 \
+    --output <private>/multiplayer-proof/native-spawns-N --rejoin 1
+# --slow (default 1.5) stretches the waits for the 3D build on software OpenGL
+```
+
+Checks, in order: both games announce the spawn mailbox ('w') and the host enables
+shared spawns; both draw the host's Pokémon with the same spawn ids on the same tiles; a
+Pokémon the host walks is redrawn on its new tile by both; a shiny the host places in
+front of both players is drawn by both; both press A at the same moment: exactly one
+claim granted, the winner's game leaves the field for the battle, the other game's
+mailbox marks it busy and the game shows its message; the winner defeats it, the host
+removes it for everybody and neither game draws it any more; both still draw the same
+remaining Pokémon; with `--rejoin N` that client's companion restarts while its game
+runs, the game reconnects and announces its mailbox again, rejoins the host, and both
+games draw the same Pokémon again (`evidence.json` and screenshots in the output folder).
+
+| Run | Clients | Result |
+| --- | --- | --- |
+| native-spawns-1..5 | 2 Linux 3D | Run 1: both games crashed at boot (the spawn code ran before the save was loaded). Runs 2-5 failed on the harness (the players' turn, a full board for the shiny, the A press) and on an engine problem: the spawn objects were removed while the claim script locked the field. Both engine problems were fixed before the commit |
+| native-spawns-6 | 2 Linux 3D | The claim race passed (client 0 won); failed after the battle: the other game's message box stayed open (the harness now closes messages) |
+| native-spawns-7 | 2 Linux 3D | Every check up to the rejoin passed (client 1 won the race); the restarted companion refused the game's spawn record: KNOWN_ISSUES M8, fixed |
+| native-spawns-8 | 2 Linux 3D, engine `a96cdf1c47` | Pass: all 28 checks, including the rejoin |
+| native-spawns-9 | 2 Linux 3D, engine `de470ebc3d` (window and object-reserve fixes) | Pass: all 28 checks, including the rejoin; the games now also draw the host's Pokémon west and north of the players |
+| native-spawns-wine-1 | 2 Windows 3D exes of the package (`--wine`, one prefix each, `--slow 2.0`), engine `d389ca3443` | Pass: all 28 checks, including the rejoin |
+
+Multiplayer following Pokémon (EmeraldTogether Phase 5): `native_follower_proof.py`, the same
+set-up (the save's copy with its strongest Pokémon, Wailord, in front: it is also the follower).
+Checks: each game publishes its follower (species with its form, shiny and female flags,
+visible) and the host and the other game's inbound record carry exactly that; the players walk
+apart and both followers are drawn (screenshots); player 0 talks to player 1's follower, steps
+onto its tile (other players' objects do not block) and talks to player 1: nothing happens (no
+script, claim or battle; the game keeps running); player 1 claims a shared Pokémon the host
+places in front of it and battles it: player 0's game is told player 1 left the overworld and
+draws neither it nor its follower until it is back; every spawn a game draws is a host slot.
+
+```sh
+PYTHONPATH=src python scripts/multiplayer/native_follower_proof.py \
+    --game ../engine-graphics/pokeemerald-mp-diorama --rom ../engine-graphics/pokeemerald.gba \
+    --manifest manifest.json --save route101.sav --display :98 --display :97 \
+    --output <private>/multiplayer-proof/native-followers-N
+```
+
+| Run | Clients | Result |
+| --- | --- | --- |
+| native-followers-1..3 | 2 Linux 3D | Harness: the follower's flags were compared with a shininess computed from the save (the expansion also stores a shiny bit: the game's own flags are compared between the games now); a wild battle reports the player unavailable, not "battle"; the original lead's first move does not damage (the strongest-first copy is used now). Every follower check before the battle passed in run 3 |
+| native-followers-4 | 2 Linux 3D, with an extra guard in `field_control_avatar.c` | Pass |
+| native-followers-noguard-1 | 2 Linux 3D, the same without that guard | Pass: talking to other players' objects never reaches them (the position lookup skips them), so the guard was dropped |
+| native-followers-5 | 2 Linux 3D, engine `de470ebc3d` (final code) | Pass: all 16 checks |
+| native-followers-wine-1 | 2 Windows 3D exes of the package (`--wine`, one prefix each, `--slow 2.0`), engine `d389ca3443` | Pass: all 16 checks |
+
+Not covered: Windows clients (under Wine or on real hardware), two PCs over a network,
+3-4 players, a catch (the proof defeats the Pokémon; catching posts the same removing
+result), a disconnect during the battle.
 
 The Windows launcher package with a native runtime (no Windows computer here, so
 under Wine with a Windows Python; `docs/dependency-ledger.md` lists the exact
