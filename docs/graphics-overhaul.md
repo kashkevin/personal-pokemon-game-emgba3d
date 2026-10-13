@@ -467,3 +467,129 @@ Not seen yet: any of it on a graphics card; Sootopolis's houses at night (no lit
 windows found on them: their glass is not window-coloured); the Battle Pyramid and
 Arena area, the cable car stations, the Trick House and Trainer Hill (still flat).
 
+## Option B: real roofs, recessed windows and framed doors; the last flat landmarks; cave levels (2026-10-12)
+
+The owner's choice of 2026-10-12 ("Option B: real sloped roofs, window recesses,
+door frames and architectural trim ... a genuinely dimensional Pokemon Emerald
+world, not flat GBA artwork viewed from an angle"), keeping Emerald's art style,
+silhouettes, colours and architecture. Engine `claude/graphics-overhaul`
+`c51769606`..`8e4604993`, tag `graphics-wip-20261012-2`; checkpoint `native-wip-20261012-2`.
+
+### What the player gets
+
+* **Real roofs.** The buildings that had their drawn roof laid flat on top now
+  have roofs of their own: 25 pitched hipped roofs with a ridge (Slateport,
+  Lilycove, Dewford, Verdanturf, Fallarbor, Route 109's houses, Mauville's Bike
+  Shop, the Trick House, both cable car stations, the Battle Arena), laid from
+  the tiles of their own drawn roof, never stretched; 26 flat roofs behind a
+  parapet (Lilycove's department store and museum, Slateport's museum, Mossdeep's
+  houses - now two storeys with a railed roof - the Pokemon League, the Safari
+  Zone's gates, Mauville's Game Corner); domes over Fortree's tree houses and the
+  Mirage Tower; cones over Pacifidlog's huts; octagonal pyramids over
+  Sootopolis's towers and Trainer Hill; the Battle Pyramid as a pyramid; the three
+  Battle Tents as domes with their entrance standing out in front.
+* **Windows and doors with depth.** On every building outdoors (the hand-made
+  models too: Pokemon Centers, Marts, Gyms, houses) the windows are set back into
+  the wall with reveals and a sill under them, and the doors stand in a framed
+  recess; the door's own opening animation plays in it. 298 windows and doors on
+  77 buildings. At night the lit windows glow in their recesses.
+* **The last flat landmarks stand.** The Battle Pyramid, the cable car stations
+  on Route 112 and on Mt. Chimney, the Trick House and Trainer Hill (on its rock
+  over the door cut into the cliff) were spiky reliefs of their drawing; they are
+  buildings now. Trainer Hill also stands on the days the Mirage Tower is hidden
+  (and for good after its event), and the Mirage Tower no longer stands on the
+  sand on those days.
+* **Caves have levels.** In caves the raised floors (the GBA's elevations) stand
+  higher than the lower ones - up to a tile, so nobody walking a floor drops out
+  of view - and the bridges between them are wooden decks at their level
+  (Victory Road, Meteor Falls, Shoal Cave, the Cave of Origin, Mirage Tower's
+  top floor, Artisan Cave, Altering Cave; caves of one floor are as they were).
+* **The same look costs less.** The terrain is drawn from fewer vertices: no
+  undersides where a column stands on its own floor, and each quad drawn from its
+  four corners instead of six vertices - in Jagged Pass, the Lavaridge rocks' worst
+  place, a third less vertex work in every pass and a quarter less GPU memory for
+  the terrain, the picture identical.
+* **The Players menu is seen in 3D.** The in-game Players menu (trades, battles,
+  the players list) worked but was never shown over the 3D field (V42, found by
+  the native UI session as its U11): it pauses the field callbacks, and the 3D
+  view's text boxes come from the field's snapshot, which only the field
+  callback published. The main loop now publishes it while the menu is open
+  (`main.c`), so the menu's window shows like the start menu's.
+
+What stays as it was: every building's footprint, door, collision and
+interaction (the models are visual; the cells, warps and scripts are the game's);
+the facades are still proved pixel for pixel against their drawing; Sky Pillar's
+rubble is the 3D battle session's (its props catalogue entries, in its branch).
+
+### How it works
+
+* Roofs (`tools/diorama_buildings/dimensional.py`, project-owned; which building
+  gets which roof: `auto_buildings.py` `ROOFS`, `LANDMARKS`, `CRATER_HOUSES`): the
+  walls stay the Relief read off the drawing; `build_roof` adds a roof by type -
+  pitched (a hipped roof after the 3DS port's `HipRoof`/`Strip`: the drawn roof is
+  read row by row into eave, courses and ridge; a clean swatch of it is appended
+  to the model's art and tiled over the slopes at 30 degrees, with fascia, hips,
+  ridge cap and a 2-pixel overhang), flat (a parapet), dome, cone, pyramid4/8
+  (`Shell`), tent and split. Roof faces are tagged so the GBA-projection proof
+  skips them; the facade must still match its drawing.
+* Facades (`facade_details`, `detail_model`): windows are found as in
+  `window_glow.py` and grown to their frame; doors where the game's door
+  animation draws; each is cut back 1.5 (windows) or 3 (doors) pixels with
+  reveals, a sill under a window; the detail rectangles are left out of the
+  proof (`voxel_building.ortho_check(ignore=...)`).
+* Layouts a map's scripts switch to (`setmaplayoutindex`): the scene snapshot
+  now names the layout the game draws (`scene_snapshot.c` `CurrentLayoutId`;
+  `gMapHeader.mapLayoutId` keeps the map's own); the generator places the
+  buildings found on a map in its switched layouts where their cells are the same
+  (`gen_voxel_buildings.py` `layout_variants`). Shoal Cave at high tide is drawn
+  from its high-tide layout's own rules (with their levels) instead of the
+  low-tide one's; a layout only a script reaches gets its map's cave levels
+  (`compile_rules.py` `_script_layouts`; none of today's caves needs it).
+* Cave levels (`tools/diorama_rules/terrace_topology.py` `cave_levels`): in a
+  layout whose maps are all underground, the walkable floors of each elevation get
+  a level: the lowest where it was, the highest a tile (16/16) over it, the ones
+  between in even steps; bridges (elevation 15) become decks at the highest floor
+  they meet. Walls, water, elevation 0 and cells another solver placed are left.
+* Terrain cost (`terrain_mesh.c` `DropBaseUndersides`, `DioramaTerrain_FoldQuads`;
+  `gl_terrain_renderer.c` `UploadChunk`, `DrawChunk`): a column's bottom face on
+  its own cell's floor is dropped before the faces merge; each chunk's quads are
+  folded to four vertices with 16-bit (or 32-bit) indices written into the
+  scratch buffer's unused tail (no new memory), drawn with `glDrawElements` in all
+  four terrain passes. `PKMN_DIORAMA_CHUNK_LOG=1` logs every chunk's cost.
+
+### Coordination (shared rendering interfaces)
+
+* The checkpoint's `COORDINATION.txt` has the trial merge with the battle
+  session's `claude/battle-environments-2` (`719e16c78`): the conflicts and how
+  they were kept, the merged TEST build's tests and a battle survey of the maps
+  with the new geometry (caves with levels, towns with roofs, the landmarks).
+
+### Verification
+
+Engine `8e4604993` (the checkpoint's Linux and Windows 3D builds; checkpoint -1's builds are
+the "before"). The pictures, doors, benchmark and Wine runs used builds from before the last commit
+(`0c4b1f85c`'s, or earlier where a row says so): that commit changes only `main.c`'s
+paused-callback branch while the Players menu is open (V42), checked by its own row below.
+
+| Check | Result |
+| --- | --- |
+| Linux and Windows 3D builds | Compile; the Windows build has the same three header warnings as before and no new ones; the exe is large-address-aware and imports no DirectX redistributable DLL. |
+| `check-native` | Pass: platform 1067, bridge 4186, display settings 244 (frame-rate limits, render scale, memory budget), PNG writer 176 checks - the settings, memory budget and frame pacing unchanged. |
+| `check-diorama` | Pass: 13 test programs (`test_terrain_mesh` with the folded quads drawing the same triangles; `test_props` 5703 checks), compositor goldens (18,318 metatiles), rule validation, generated tables current. |
+| `check-abi` | Pass (172 types). |
+| Rules and building tools (each file run) | `test_compile_rules` 23 of 24 (the one failure is V31, as before); `test_tile_shape` 8, `test_structures` 13, `test_measured_volumes` 8, `test_mountain_art` 5, `test_terrace_topology` 8, `test_pixel_objects` 15, `test_catalog` 8, `test_occupancy_model` 8, `test_window_glow` 12, `test_auto_buildings` 13, `test_dimensional` 14 pass; `test_rules_parity` fails as before (V2, upstream). The generator's proof (`--verify`): 573 of 573 models exact against their drawing (the roofs and details left out), 50 rooms composed with the terrain, 0 pixels differ. |
+| GBA ROM | Unchanged, sha256 `f214735b...3387`. |
+| Python tests | 1399 passed, 1 skipped. |
+| Before/after tour, Linux 1920x1080, Adventure and Diorama cameras | 31 places by day (62 pairs) and 8 towns at night (16 pairs), checkpoint -1's build against this one: the roofs, recessed windows and framed doors, the six landmarks, the cave levels; lit windows in their recesses at night. Nothing else changed in the pictures (the map name's timing aside). |
+| Doors | Stand south of the door and hold Up (`door-test.sh`, Adventure camera): the door opens in its frame and the player is inside - the Name Rater's house and the Battle Tent (Slateport), a Lilycove house, Wanda's house (Verdanturf), Cozmo's house (Fallarbor), the Trick House, both cable car stations, the Battle Pyramid, the Battle Arena, Trainer Hill: 11 doors, `0c4b1f85c`'s build for 7 of them (the others with earlier builds of this round). On the rocky maps the key has to be held longer: the game runs slowly there on software GL. |
+| Switched layouts (V40) | Route 111 from a save with the Mirage Tower gone: layout 392 logged, sand where the tower stood, Trainer Hill standing; from a save with it shown: layout 27, the tower. |
+| Terrain cost (V37) | Jagged Pass, 1280x720, the same spot, before indexing and after: 948,870 vertices built in both, 632,580 uploaded with 948,870 16-bit indices; the game's GPU buffers 33.9 MB to 24.8 MB; the pictures identical but for the ash motes and the map name. |
+| 3D battles (trial merge with `claude/battle-environments-2`, its TEST build, not merged anywhere) | Builds; its `check-diorama` passes with the skirts' own test left out (the battle side's risers kept); `survey.py` on 32 maps (the caves with levels, the Lavaridge relief, the towns and routes with new roofs, the Battle Frontier): 32 pictures, every battler's foot error 0 px; battles on a raised floor stand on it (Victory Road 1F a tile up, Meteor Falls B1F half a tile). |
+| Benchmark, software GL (`--benchmark 8`, 1080p, the same spots) | Checkpoint -1's build / option B before indexing / the final build, the same spot each: Jagged Pass 1.7 / 2.2 / 2.7 fps (median frame 624 / 499 / 389 ms; terrain on the GPU clock 364 / 257 / 208 ms; 937k / 843k / 843k triangles; the game's GPU memory 82.7 / 79.1 / 70.0 MB); Mt. Chimney 1.5 / 1.7 / 2.2 fps (732 / 664 / 467 ms; terrain 513 / 426 / 289 ms; 1986k / 1670k / 1670k triangles; 128.2 / 118.7 / 100.2 MB); Slateport 5.4 / 5.7 / 5.1, Lilycove 5.7 / 5.7 / 5.9, Mauville 5.6 / 5.5 / 5.6 fps (towns fill-bound on software GL: the same within its noise; the new roofs add 0.5-5 % triangles, GPU memory unchanged). Process RAM: towns and Jagged Pass the same within 5 MB (208-220 MB, 424-427 MB); Mt. Chimney 427-466 MB before indexing and 513-516 MB after (five runs each) - llvmpipe's own queue of binned triangles for its rasterizer threads, which runs further ahead now; with llvmpipe on one thread the indexed build uses 26 MB less (V37). Software numbers only. |
+| Before/after under Wine, both cameras | `0c4b1f85c`'s Windows exe (`3e407ba0...`) against checkpoint -1's (`cb58d4e8...`), 1920x1080, a fresh folder each, Adventure then Diorama camera: Slateport's market, Lilycove, the Battle Pyramid, Victory Road 1F - the new roofs on Slateport's and Lilycove's houses, the Pyramid standing, Victory Road's raised floors and decks; nothing else differs (`pictures\other\wine-*.jpg`). The new exe's first Slateport run was still at the title screen when the script pressed its keys; the same run again went in. |
+| Players menu in 3D (V42) | `native_trade_proof.py` with two Linux 3D clients (`--hold .5 --gap .6`): with `0c4b1f85c`'s build the trade went through while both screens showed only the field (native-trade-3d-u11-before2); with `8e4604993`'s the trade screens show over the 3D field, and the trade, back-out, restart and the host store check pass (native-trade-3d-u11-after; `pictures\other\players-menu-in-3d-before-after.jpg`); the same with two Windows clients of the checkpoint's exe under Wine (native-trade-wine3d-u11, `players-menu-in-3d-wine.jpg`). GBA ROM rebuilt: unchanged. `check-native`, `check-abi`, `check-diorama` pass again on `8e4604993`. |
+| Multiplayer | native-checkpoint-3d-14 (Linux 3D, `0c4b1f85c`'s build, 2 clients): enrol 1.53/1.54 s, saves 1.54-1.55 s, restart, live recovery 40.9 s, host store intact; native-trade-7 (the Linux 2D build - nothing in it changed this round, `make` rebuilt nothing; the last commit's `main.c` lines compile only with `DIORAMA=1` - 2 clients): both offers, one confirmation commits nothing, the trade applied in both games (41.5 s), back-out aborts, restart keeps both parties, host store intact. |
+| Launcher package | "Native 3D preview 7" built under Wine (PyInstaller, package audit: 1009 files, import off), its runtime the checkpoint's exe (sha256 `918e1be1...`, stripped; it ran Lilycove under Wine, both cameras; the Wine trade proof ran its unstripped twin `b25131eb...`). |
+
+Not seen yet: any of it on a graphics card (V39); the high-tide Shoal Cave in game (the
+tide only changes on entering from outside).
