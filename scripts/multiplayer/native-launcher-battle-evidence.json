@@ -173,6 +173,24 @@
       "key_presses": 654,
       "forced_children": 0,
       "harness": "as run 10"
+    },
+    {
+      "run": "native-launcher-battle-3d-unified-2",
+      "clients": "Linux i386 native 3D client x2 (DIORAMA=1, native UI on, animated battle sprite pack; engine claude/emeraldtogether-unified 8c8c11ab2: claude/emeraldtogether-integration 8706f8f6c with the graphics handoff 53bb34a63 merged and the battle session's 5699d58b3 cherry-picked), started by the launcher's session workers",
+      "game_sha256": "124f40bc2bba75c11f11672a68fd5d6686da5dfa29977ceccb86d488a62f2d95",
+      "bundle_manifest_sha256": "4eacaee3c6ee4a0d29669d5468b5c3de27f8b3279a8ce914e21cffdf705b378d",
+      "evidence_sha256": "f683c9d3202855df57fbb296394f4b6f9a19cc2254a00dc410903eeaf57efa1b",
+      "passed": true,
+      "checks": [
+        "host enrollment of menu-a.sav and menu-b.sav (parties 2 and 1) through bootstrap games that closed themselves",
+        "host and friend launchers started their games; both reached the 3D overworld with save, window, battle and menu capabilities",
+        "challenge, acceptance and Enter battle through the Players screen on both games (native UI on); the host's lead fainted and the next Pokemon was chosen on the native party screen",
+        "both launchers report battle_finished; the durable result is the same for both players ('Battle result', 'Team 1 won'); Recent battle results on each game matches it",
+        "each player's full personal party restored; both saved through the launcher (revision 2); both games closed normally (exit 0, 0); fresh launchers Continued onto the same canonical checkpoints",
+        "host store integrity check passed; source saves unchanged; both games loaded the battle sprite pack (948 targets)"
+      ],
+      "routed_blocks": 362,
+      "harness": "scripts/multiplayer/native_launcher_battle_3d_proof.py as committed, with native_launcher_battle_proof.py from an uncommitted copy that differs only in drive_battle_input's party-switch key (Right, 16, instead of Down, 128): the native party screen's grid puts the second Pokemon to the right"
     }
   ],
   "failed_runs": [
@@ -180,6 +198,11 @@
       "runs": "native-launcher-battle-3d-characters-2 to -7 (engine d2989f47e)",
       "failure": "every 3D game froze at its first battle frame: the 3D battle's backdrop read the trainer class of TRAINER_LINK_OPPONENT (0xFF01), the engine's assertion opened its crash screen on the drawing thread ('include/data.h:260: invalid trainer: 65281', DioramaBattle_Capture > BackdropEnvironment), the answer to START never left the game and the client's 5-second command timeout ended the battle ('Battle recovery could not finish'); the GBA-path checks before it (bind, prepare, trainer blocks) passed",
       "fixed_by": "engine bc7a3cfc7 (battle_capture.c: only a real trainer id's class is read); runs 8 and 9 passed with it"
+    },
+    {
+      "runs": "native-launcher-battle-3d-unified-1 (engine 8c8c11ab2)",
+      "failure": "stopped by hand after 5 minutes without battle progress: the host's lead (Torchic) fainted and the harness's party switch pressed Down, which on the native party screen's grid (ui_party.c GridMove, two Pokemon) moves between the fainted Pokemon and Back, never to the second Pokemon; it then pressed A on the fainted one ('Torchic has no energy left to battle!') and looped; the friend's game waited ('Link standby...') with the battle drawn in 3D",
+      "fixed_by": "run 2 with the harness pressing Right for the switch (also correct on the GBA party menu: party_menu.c UpdatePartySelectionSingleLayout, Right from slot 0); the committed harness still presses Down"
     }
   ],
   "not_covered": [
