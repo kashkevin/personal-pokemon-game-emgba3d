@@ -148,7 +148,8 @@ UTC gives midday); Wine follows it too.
 | A dark cave needing Flash: dark but for the circle round the player; menus over the dark; normal maps unchanged | Pass (Granite Cave B1F, debug-menu test save, wide and 3DS camera; Route 104; graphics `3e39f2b15`) | Not run |
 | Flash used in a dark cave: the circle opens, Flash's glow | Not run | Not run |
 
-3D battles (engine branch `claude/battle-3d-integration`, `docs/battle-3d.md`), same
+3D battles (engine branches `claude/battle-3d-integration`, `claude/battle-3d-next` and the
+merge candidate `claude/native-graphics-3d-battles-3`, `docs/battle-3d.md`), same
 setup. `PKMN_DIORAMA_LOG=1` also logs each battle's stage choice with a map of the
 ground round the player (`#` tall, `g` grass, `s` sand, `~` water, `.` plain).
 Trainer, double and warp checks use a debug-menu test build: the same sources with
@@ -167,7 +168,12 @@ make -f Makefile_pc NATIVE_LINUX=1 DIORAMA=1 -j2 \
 the same flags.) DEBUG is then the start menu's first entry. Start debug trainer
 battles (Trainers > Trainer 1, Double Battle, Try Battle) in a town: on a route a
 visible wild Pokémon can wipe the trainer's party during the transition (KNOWN_ISSUES
-N33).
+N33). The debug menu's trainer selection prints "Attempted to CpuFastSet to NULL" as
+it closes (`Debug_DestroyMenu` clears window 1 after its buffer is gone; the port's
+guard skips the copy): a debug-menu quirk of the test builds, not of the battles.
+Its Try Battle always uses the wild transition; a trainer's own transition (the
+Elite Four's mugshot) needs the real script: warp into Sidney's room at its door
+(continue-game warp 16.0, 6,12), let the walk-in end below him, face up and talk.
 
 | Check | Linux | Windows (Wine) |
 | --- | --- | --- |
@@ -181,6 +187,21 @@ N33).
 | F4 to classic and back during a battle; into 3D mid-battle | Pass | Not run |
 | Save on the field, reload, battle in 3D | Pass | Not run |
 | 1920x1080 window (`windowScale=6`): layout, battle frame rate | Pass (60 game frames a second in the battle) | Not run |
+| Second round: water and flowers move (`PKMN_DIORAMA_BATTLE_TILES=1`; by cost they stay still on software OpenGL) | Pass (Oldale Town flowers; Route 110 sea) | Cost check only: still (Granite Cave 1F and Route 110, a redraw 61-69 ms on Wine's software OpenGL) |
+| Second round: the battle's scenery where the world ends (rooms, caves) | Pass (Petalburg Gym, Sidney's room, Granite Cave B1F) | Granite Cave 1F: wild battle in 3D, the cave's scenery caught, Run, field back in 3D; Route 110: wild battle with the sea behind the opponent (the merge candidate's exe as packed) |
+| Second round: transitions - people unmoved while the field slices; Blur mosaic on the 3D field | Pass (Route 101 slice; Granite Cave B1F blur) | Not run |
+| Second round: double battle with Mega Evolution (Kate & Joy, Oldale Town) | Pass | Not run |
+| Second round: native crash scenarios in 3D (Trainer Card, Fly map, PC boxes: cursor, close, summary and back, Poké Ball, Mega) | Pass | Not run |
+| Stage survey (test tool): `PKMN_DIORAMA_STAGE_SURVEY=1` (and `PKMN_DIORAMA_STAGE_DUMP=<folder>`) on 44 maps' rooms, caves and gyms, reached by a save whose continue-game warp points there | Pass: 20,428 stage choices; 59% fewer with something over a battler, 47% fewer with a wall pressed behind one, 2% fewer showing black than the 3DS scoring alone | - |
+| Third round (merge candidate `2a368fd8d`): a move's own background over the whole window - Psychic at 960x540, Feint Attack at 1280x720 (given to the test team's Gardevoir at the action menu with `gdb -p <pid> -batch -ex 'set var gBattleMons[0].moves[0] = 94'`, 185 for Feint Attack; test only), Future Sight | Pass | Not run |
+| Third round: water and flowers paced by measured frame times (`PKMN_DIORAMA_LOG=1`: the glide's decision, later redraw decisions, the frame times by kind at the end); forced on with `PKMN_DIORAMA_BATTLE_TILES=1` | Pass (Route 110: every 16 game frames, then 32, then still; forced: the sea moves) | Pass as packed (Granite Cave 1F: every 16, then 32) |
+| Third round: glide from the Adventure camera and the Diorama camera (`cameraMode=diorama` in `pokeemerald.cfg`) through the Slice transition | Pass | Adventure |
+| Third round: the battle's world at the render size and MSAA of the display settings (Ultra) | Pass | Not run |
+| Third round: the log names the graphics card, the window and the 3D view's size | Pass | Pass |
+| Third round: every battle transition over the 3D field - the 37 field transitions forced one by one on Route 101 (gdb: `break BattleTransition_StartOnField`, `set var transitionId = N`, attached before the field loads; test only), and Sidney's mugshot through his own script | Pass: all composed, battles in 3D, back to the field | Not run |
+| Third round: the overworld not slowed by the merge - `--benchmark 5` in Littleroot Town (a save whose continue-game warp points there; not where wild Pokémon roam), graphics `6743bc1e5` against the merge candidate, three runs each, alternating | Pass: within the runs' spread at all four sizes (e.g. 1920x1080 5.9 against 6.2 fps, software) | Not run |
+| Fourth merge candidate `e747ce106` (on graphics `cb859b10c`, `graphics-wip-20261010-7`): builds and automated checks (14 renderer test programs, the far field's 54,618 checks included), Petalburg Gym and Sidney's room, Slice from both cameras, Future Sight, Blur, the double battle, Route 110's sea forced, Petalburg Woods, Sidney's mugshot, the crash scenarios | Pass | Pass as packed (Granite Cave 1F) |
+| Owner's PC, a real graphics card: `battle3d-test-runs\wip-20261010-4` (`run-3d-battle-water.bat`, `-flowers`, `-cave`; logs `battle-log-*.txt`; `wip-20261010-3` holds the third candidate's exe) | - | Waiting for the owner's run |
 | Multiplayer battles in 3D | Not run (C3) | Not run |
 
 UBSan reports now come only from real findings; a false positive from the engine's
