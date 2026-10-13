@@ -1,11 +1,13 @@
-# EmeraldTogether expansion: two-player Windows test (Phases 3-5)
+# EmeraldTogether expansion: two-player Windows test (Phases 1-5)
 
 For the owner's PCs. What the cloud could not test: Windows on real hardware with a graphics
 card, two PCs over a network, and playing it by hand. Everything below was tested in the cloud
 with native Linux games and (where named) the Windows game under Wine; see `TEST_PLAN.md`.
 
-Package: the checkpoint folder `emeraldtogether-expansion-20261013-1` (launcher "Native 3D
-preview 11", its README names the engine and app commits).
+Package: the checkpoint folder `emeraldtogether-expansion-20261013-2` (launcher "Native 3D
+expansion preview 2", its README names the engine and app commits). It replaces
+`emeraldtogether-expansion-20261013-1` (whose launcher was also called "Native 3D preview 11",
+like the main session's Battle FX checkpoint; the two are different games).
 
 ## Before you start
 
@@ -51,6 +53,11 @@ Note the time of anything unexpected and take a screenshot (Win+Shift+S).
    route goes back to at most 8 (a Pokémon you are battling is never taken away).
 6. Close the game and the launcher normally, open it again and **Host Game**: the same wild
    Pokémon are still there (with their remaining time), and an outbreak continues where it was.
+7. **Exp. Share** (Phase 1). With two or more Pokémon in the party, win a wild or trainer battle
+   with only your lead: after "<lead> gained N Exp. Points!" the game says "The rest of your team
+   gained Exp. Points thanks to the Exp. Share!" and every other Pokémon that can battle got half
+   (Summary > the EXP. bar). No item is needed and there is no switch. Fainted Pokémon and eggs get
+   none.
 
 ## B. Two players (A hosts, B joins)
 
@@ -79,7 +86,9 @@ Note the time of anything unexpected and take a screenshot (Win+Shift+S).
    starts the launcher again and joins: within a few seconds the Pokémon is free again for
    everybody (B's game lets go of a Pokémon it is no longer battling). If B does not come back,
    it is free again after 10 minutes of play.
-8. **Host restart.** A closes the host (everyone sees the host connection lost; follow the
+8. **Battles between you** (PvP 1v1) and co-op Gym battles: no experience for anyone, as in
+   Emerald's own link battles (KNOWN_ISSUES G8 asks whether co-op Gyms should give some).
+9. **Host restart.** A closes the host (everyone sees the host connection lost; follow the
    launcher's messages), opens it again and hosts; B joins again: the shared Pokémon and an
    outbreak continue.
 

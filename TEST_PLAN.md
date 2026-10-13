@@ -161,7 +161,27 @@ reference is reported as a failure).
 `make check` builds the expansion's test ROM and runs it headless in the bundled
 `tools/mgba/mgba-rom-test` (battle mechanics, Gen rules, Mega Evolution, abilities,
 items). It runs the GBA build, which shares all game logic with the native build.
-**Not run yet in this session** (scheduled for Milestone B).
+**Result 2026-10-13** (engine `claude/emeraldtogether-expansion` at `17e82d85ae`, 2 cores, log
+bounded and kept compressed): 5999 tests: 5491 passed, **45 failed**, 18 known failing (marked
+upstream), 15 assumptions failed, 421 to do, 9 expected failing; about 45 minutes.
+
+Triage against the base (`8c8c11ab2`, the unified game before the expansion work): the test ROM
+is built from the GBA objects plus `test/`; between the base and this commit `test/` is
+unchanged, no `TESTING` code changed, every engine change is `PORTABLE`-only or in PC-only files
+left out of the GBA build, and the GBA ROM is byte-identical (`f214735b...3387`) at every commit.
+So the test ROM's code is the base's and all 45 failures were there before the expansion work
+(the base itself was not run separately: no disk room for a second checkout). By origin:
+* 6 of the project's own tests (KNOWN_ISSUES G9): `test/multiplayer_battle_controller.c`
+  lines 39, 62, 95, 123, 156 (native controller validation) and `test/multiplayer_local_reset.c`
+  line 572 (Gen 6 personal shiny rolls in a static reset).
+* 39 upstream tests (KNOWN_ISSUES G10), mostly behaviour named for a later generation or
+  "Champions" rules under the project's GEN_6 profile (weather abilities "fail if overworld weather
+  is present (Gen9)", Sheer Cold Gen7+, Keen Eye/Illuminate Gen9+, Rapid Spin Gen 9+, Encore and
+  Mega Sol (Champions), Charge/Electromorphosis/Wind Power stacking), the experience of two
+  opponents (4156 vs 2771: the GEN_6 trainer multiplier x1.5), trainer slides and 2v1 messages,
+  Disguise/Air Balloon/Assurance, White Herb, Parting Shot, Sticky Web with Mirror Armor, Doodle,
+  Skill Swap, Chilly Reception, one AI score and one animation send-out. Not investigated one by
+  one here.
 
 ## 5. Native gameplay checks (scripted, Linux under Xvfb and Windows under Wine)
 
