@@ -16,7 +16,7 @@ as a small revert, not a new overhaul.
 
 ## The commits
 
-Engine branch `claude/graphics-overhaul` = `claude/native-graphics` = `1d54639cf` (tag
+Engine branch `claude/graphics-overhaul` = `claude/native-graphics` = `53bb34a63` (tag
 `graphics-handoff-20261012`), on top
 of `8e4604993` (`graphics-wip-20261012-2`, the engine of `native-wip-20261012-2`, which the
 integration branch already has: `a9627cfe5` merged it).
@@ -28,6 +28,7 @@ integration branch already has: `a9627cfe5` merged it).
 | `61935f7eb` | V43 (the UI session's U12) | `src/diorama/scene/scene_snapshot.c` | The field's message box stays in the 3D view while the game waits after its last line (it vanished as soon as the line was printed), and the save prompt shows. |
 | `c806a788c` | V29 | `auto_buildings.py`, `test_auto_buildings.py` | A comment and a test's name: the building at Battle Frontier west (19,17) is the Battle Dome (its door leads to the Dome's lobby), not the Battle Factory as `967437999`'s message says. Nothing it makes changes. |
 | `1d54639cf` | V47 (the battle session's E14) | `src/diorama/terrain/terrain_mesh.c`, `tests/diorama/test_terrain_mesh.c` | The undersides on a cell's floor are kept again: dropping them (`9d63e60f5`, V37, in `graphics-wip-20261012-2`) let thin sky-coloured lines show along the Lavaridge relief's steps, in the field and in battles. |
+| `53bb34a63` | V47 | `src/diorama/README.md` | The renderer's README no longer describes the dropped undersides. Documentation only: the builds tested are `1d54639cf`'s. |
 
 Nothing else changed. The roofs, terrain, caves, props, lights, settings and the Players menu fix
 (U11/V42, `main.c`) are as approved; V47 gives the relief back the undersides it had before
@@ -77,7 +78,7 @@ of one shading band (V44), not windows.
 
 ## Merging into the one game
 
-`git merge-tree --write-tree` (git 2.43) of `1d54639cf` with each branch (the newest checkpoints
+`git merge-tree --write-tree` (git 2.43) of `53bb34a63` (and `1d54639cf`) with each branch (the newest checkpoints
 on the owner's PC at the handoff, their bundles fetched into a private namespace):
 
 | With | Result |
@@ -145,9 +146,10 @@ round Rayquaza. Not committed here: the file is the battle session's.
 ## Rollback
 
 - Engine: `claude/native-graphics` back to `8e4604993` (tag `graphics-wip-20261012-2`) undoes all
-  five; each commit also reverts on its own (`git revert`): V29 and V32 are generator changes
-  (the data is made again by the build), V43 and V47 are one C file each (V47's revert brings the
-  cracks back with the V37 saving).
+  six; each commit also reverts on its own (`git revert`, newest first where two touch the same
+  lines: `967437999` after `c806a788c`, `1d54639cf` after `53bb34a63`): V29 and V32 are generator
+  changes (the data is made again by the build), V43 is one C file, V47 a C file and its test
+  (its revert brings the cracks back with the V37 saving).
 - After a merge into the integration branch: `git revert -m 1 <the merge>`.
 - App: the docs only (`claude/native-pc`, tag `graphics-handoff-20261012`); `native-wip-20261012-2`
   is the previous tag.
@@ -158,7 +160,7 @@ round Rayquaza. Not committed here: the file is the battle session's.
 
 Checks on `c806a788c`, and `check-diorama` again on `1d54639cf` (V47 changes `terrain_mesh.c`
 only); the V29, V32 and V43 pictures used `61935f7eb`'s builds, everything after V47 the final
-builds. Results in detail: `docs/graphics-overhaul.md` (last section).
+builds (`1d54639cf`; `53bb34a63` changes only a README). Results in detail: `docs/graphics-overhaul.md` (last section).
 
 - Compile: Linux and Windows 3D, Linux 2D; the GBA ROM byte-identical (`f214735b...3387`). The
   final Windows exe imports only `SDL2.dll` and Windows' own DLLs.
@@ -166,7 +168,7 @@ builds. Results in detail: `docs/graphics-overhaul.md` (last section).
   tests: 1399 passed, 1 skipped. Rules and building tools: all pass but V31 and V2, as before;
   `test_window_glow` 22, `test_auto_buildings` 16.
 - The generator's proof: 573 of 573 models exact against their drawing, 50 rooms, 0 pixels differ.
-- Before/after pictures on Linux: V29 (4 places, both cameras), V32 (11 at night), V43 (the
+- Before/after pictures on Linux: V29 (4 places, both cameras), V32 (9 places at night, 11 pairs), V43 (the
   sign's last line, the save prompt), V47 (5 places, both cameras: the cracks' colour on 0.7-2.3 %
   of the picture before, one lone pixel after); the Windows exe under Wine (Lilycove, Slateport's
   market; Jagged Pass before/after V47: 0.97 % and 0.87 % to none), both cameras.

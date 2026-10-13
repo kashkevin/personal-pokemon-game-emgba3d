@@ -744,7 +744,8 @@ By hand (Xvfb):
 6. V47 before/after at 12:00 with the 3D view's ash off (`PKMN_DIORAMA_WEATHER=0`):
    Jagged Pass (21,16) and (14,24), Mt. Chimney (16,14), Fiery Path (19,8), Magma Hideout
    2F's third room (49,11), both cameras; count the pixels of the cracks' colour (the sky's
-   (174,208,228-231) outdoors, (9,14,18) underground) - none after. The cost: the
+   (173-176, 207-209, 226-232) outdoors, (8-13, 13-15, 17-19) underground) - at most a stray
+   pixel after. The cost: the
    benchmark's `jagged` scene at 1280x720 with `PKMN_DIORAMA_CHUNK_LOG=1` (vertices built and
    uploaded, from the chunk lines) and `--bench-csv` (`triangles_k`, `vram_game_mb`); the
    Windows exe under Wine at Jagged Pass, before and after.
