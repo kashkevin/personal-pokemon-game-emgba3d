@@ -63,6 +63,59 @@ secret base trainer type 4), as trainer A's and B's line through the real
 committed): Psychic Edward and Triathlete Alyssa's two-trainer battle on Route 110, native 3D
 build, new menus on, won by mashing A: "You got P960 for winning!", back on Route 110, no crash.
 
+
+### Expansion Phases 2 and 11 (engine `51bfd74d41`, `41f3cc2d27`)
+
+```sh
+make -f Makefile_pc NATIVE_LINUX=1 DIORAMA=1 check-wild-weather   # --selftest-wild-weather
+make -f Makefile_pc NATIVE_LINUX=1 DIORAMA=1 check-clock          # --selftest-clock
+PYTHONPATH=src python scripts/multiplayer/check_engine_spawn_weights.py \
+    --game ../engine-graphics/pokeemerald-mp-diorama               # engine <-> host weights
+```
+
+`check-wild-weather` runs the randomized wild Pokémon's weather table through the game's own
+code on real map headers (Routes 101, 119, 111, Granite Cave 1F): the clear-weather weights;
+the owner's table for all 20 weathers x 312 families x 4 habitats x day and night; no weather
+underground (also as the same 400 Pokémon in rain and clear); the game's own roll
+(`MPWild_RandomizeSpecies`, weather from the weather engine, time of day from the clock)
+follows these weights for land, surfing, fishing and Rock Smash; the Battle Pike and Pyramid
+keep their own Pokémon. **2026-10-13**: 137 checks, 0 failed; a mutation (snow boosting Water,
+weather read underground) fails 7.
+
+`check_engine_spawn_weights.py` runs the game's `--dump-wild-weights` for every map of the
+shared spawn catalogue and compares the family and member tables, the land weights of each
+map for both times of day and all 20 weathers (923,520 values) and the clock's time of day for
+every hour with the host's `SpawnDirector` and `SharedWorld`. **2026-10-13**: 74 maps (the 31
+Kanto maps are not in this game), 3999 checks, 0 differences after the host fix of KNOWN_ISSUES
+G7 (before: hour 17 differed); deliberate host mutations (sandstorm without Rock, the old
+evening hour) are reported.
+
+`check-clock` drives the game's InitTimeBasedEvents/DoTimeBasedEvents and the world mailbox
+(the companion's record) through offline play, connecting with the world clock days ahead, a
+world day in two real hours, a real day while connected, the same day again, disconnecting
+and reconnecting to a clock behind (real time moved through the save's clock offset).
+**2026-10-13**: 45 checks, 0 failed: VAR_DAYS is always the real day, exactly one daily reset
+per real day, berries grow by the real minutes. With the Phase 11 branches of `src/clock.c`
+disabled 11 checks fail.
+
+### Expansion Phase 1: the permanent Exp. Share (engine `17e82d85ae`)
+
+```sh
+PYTHONPATH=src python scripts/multiplayer/native_exp_share_proof.py \
+    --game ../engine-graphics/pokeemerald-mp-diorama --save route101.sav \
+    --display :98 --output /private/multiplayer-proof/native-exp-share-N [--expect-no-share]
+```
+
+The native 3D game offline: the test save's lead (Wailord) walks up to an overworld wild
+Pokémon on Route 101 (found in the game's object table), wins with its first move; the party's
+experience and the battle's messages are read from memory. **2026-10-13**: native-exp-share-5
+passed (a wild Nidoran: Wailord +15, Gardevoir, not sent out and holding no Exp. Share, +7,
+"The rest of your team gained Exp. Points thanks to the Exp. Share!"); the same build with the
+change undone, `--expect-no-share`: native-exp-share-before-1 passed (Buneary: +30 and +0, no
+such message). Link battles: getexp gives nothing when BattleTypeAllowsExp is false (link, which
+covers PvP and co-op Gyms; Frontier; Safari; Battle Tower; Trainer Hill; e-Reader), and the
+link battle restores the personal party (`native_launcher_battle_proof.py` checks the party
+bytes); not re-run with this change.
 ## 3. GBA/native byte-layout parity
 
 ```sh
