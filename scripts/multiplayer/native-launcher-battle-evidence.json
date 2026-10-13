@@ -125,6 +125,30 @@
       "key_presses": 636,
       "forced_children": 0,
       "harness": "as run 8"
+    },
+    {
+      "run": "native-launcher-battle-3d-characters-10",
+      "clients": "Linux i386 native 3D client x2 (DIORAMA=1, native UI on, animated battle sprite pack; engine claude/emeraldtogether-integration 7a98bd4a5: bc7a3cfc7 with graphics-wip-20261012-2, battle3d-env-wip-20261012-2, ui-native-wip-20261012-3 and sprite-integration-2 merged), started by the launcher's session workers",
+      "game_sha256": "82beb1c153b064a98a559eed3caf9cf8e4bc81825ffc8d8be4485f5523179d9a",
+      "bundle_manifest_sha256": "cf381286bd8b74a813078e7f12ef5fce68b051a9bd31fe96a2e3b8d71e259b7a",
+      "evidence_sha256": "ca45be0a5f99861ed5c9c8abd9dded5954fe5a1447a2779b532593430ee5008e",
+      "passed": true,
+      "checks": [
+        "host enrollment closed each bootstrap game itself (exit 0), revision 1 for both",
+        "host and friend launchers started their games; both reached the 3D overworld with save, window, battle and menu capabilities, terminal savers armed, save leases held",
+        "challenge, acceptance and Enter battle through the Players menu on both games (native UI on); both consent descriptors identical",
+        "both launchers report battle_finished with the original game processes, runtime objects, bridges and runtime identities",
+        "the durable result is the same for both players (1v1, team 1 won; sequence 1); Recent battle results on each game matches it ('Battle result', 'Team 1 won')",
+        "each player's full personal party restored in memory; both saved through the launcher (revision 2); parties in memory equal the canonical characters",
+        "both games closed normally, friend then host (exit codes 0, 0); fresh launchers Continued onto the same canonical checkpoints (revision 2)",
+        "host store integrity check passed; source saves unchanged",
+        "the same pending looks as run 9: in the battle the friend's game drew its own trainer as Leaf (back) and the host's as KIT 1 - A (front), in the 3D battle environment with the animated sprites (screenshot of the friend's game; the host's window lay partly off its virtual screen in this run's captures, its visible part showing Leaf as the opponent)"
+      ],
+      "routed_blocks": 306,
+      "battle_seconds_including_terminal_adoption": 200.9,
+      "key_presses": 680,
+      "forced_children": 0,
+      "harness": "scripts/multiplayer/native_launcher_battle_3d_proof.py as committed (0cbbd13), app claude/emeraldtogether-integration"
     }
   ],
   "failed_runs": [
