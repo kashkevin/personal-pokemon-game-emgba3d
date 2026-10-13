@@ -59,7 +59,7 @@ data; nothing is drawn (host or launcher features, see below).
 | --- | --- | --- | --- |
 | 1 | Party | Integrated | every mode of the single and double layouts (field, items, TMs, giving, battle, challenge choice); SELECT moves; multi-battle layouts keep the game's picture |
 | 2 | Bag | Integrated | every place it opens (field, battle, giving, selling, PC deposit, berries); the item menu, quantities, YES/NO, moving (SELECT), the game's sort (START); FIND marked PLANNED; favourites left out (not in the game) |
-| 3 | Battle HUD | Integrated | singles and doubles, wild and trainer: databoxes (HP as the bar moves, level, status, caught ball), the foe trainer's party pips, messages, commands, moves (type, PP, description, effectiveness mark), the Mega toggle, targets, YES/NO, the last used Ball (R). Kept as the game's picture: the Safari Zone, the catching tutorial, the Battle Arena, ability pop-ups. The level-up box is screen 26's. Link (PvP) battles not yet run with two games in the cloud |
+| 3 | Battle HUD | Integrated | singles and doubles, wild and trainer: databoxes (HP as the bar moves, level, status, caught ball), the foe trainer's party pips, messages, commands, moves (type, PP, description, effectiveness mark), the Mega toggle, targets, YES/NO, the last used Ball (R). Kept as the game's picture: the Safari Zone, the catching tutorial, the Battle Arena, ability pop-ups. The level-up box is screen 26's. A 1v1 link battle has run with two native games and the real launcher; 2v2 not yet |
 | 4 | Pause menu | Integrated | the engine's entries; Events marked PLANNED |
 | 5 | Summary | Integrated | the game's four pages (CONTEST MOVES takes the RIBBONS tab's place, marked PLANNED) |
 | 6 | Pokédex | Integrated | the red device over the game's Pokédex: the Hoenn and National lists, search results, the entry pane, the START menu; the entry's pages in the left screen: AREA (the game's region map art; the sections where it finds the species glow red with its pulse, caves and special places blink as rings with its markers, the player's icon, the place names, AREA UNKNOWN), CRY (the game's cry, its sampled waveform and VU needle, PLAY), SIZE (the game's silhouettes at its scales, 2x; the player's own picture as the game's page has it, a chosen character's); the search form over both screens (SEARCH / SHIFT / CANCEL, the game's rows, option lists, text, results); a catch's new entry page in battle (the entry, REGISTERED, the footprint); FIND PLANNED; forms catalogue pending |
@@ -109,6 +109,10 @@ picture; the mart, the Game Corner and the PC draw their own lines.
 * Controller (XInput on Windows): the game's mapping (A = A, X = B, Back = SELECT, LB / RB
   = L / R, START); **Y** opens the details view (the game does not use Y).
 * Prompts show the keys of the device used last (keyboard caps or pad buttons).
+* The party screen's arrows follow the design's two-column grid (RIGHT: the second
+  Pokémon; DOWN: the row below, or CANCEL from the last row), where the GBA list goes
+  DOWN to the next Pokémon; the UI walks the engine's own cursor there. Scripts that
+  press keys for the GBA list need the grid's keys (or `PKMN_NATIVE_UI=0`).
 
 ## Scaling
 
@@ -169,9 +173,10 @@ Cloud computer (Linux, software OpenGL, a virtual display; the Windows build und
 | Character selection trial `claude/native-ui-character-trial` (`6a344e2d`, Linux; built, no new warnings), a test save with 8 badges: the dressing room's roster (38 cards), RIGHT on CHARACTER (RED · FireRed/LeafGreen · 3 of 37: the mirror walking, the portrait), DOWN skipping the colour rows a character leaves out (to SAVE), clicks on cards (BRENDAN R/S outfit; the trainer, the colour rows back; MAY ORAS FRLG, the id in bytes 4 and 6), a click on PRESET (the editor's cursor walked to CHARACTER), the mirror's poses (Tab), SAVE by START and YES (the cursor walked to SAVE, A): the character on the field; the Trainer Card with Ethan's card picture whole and his walking sprite; the Pokédex SIZE page with Ethan's silhouette beside Mudkip; with a real local host the Players device (Ethan in the LCD's tones and on the session card) and "the host keeps your saved look" | pass |
 | `claude/native-ui` alone after `035b263c` (no character selection): the dressing room's colour rows by keys and mouse, the mirror's poses, B with changes and "Discard your changes?"; the Trainer Card's picture and walking sprite | pass |
 | The three Windows exes of `ui-native-wip-20261012-4` under Wine: the character trial (`6a344e2d`: the roster, LEAF by a click, saved, on the field and on the Trainer Card), `claude/native-ui` (a skin tone saved, on the field and the card), the 3D battles trial `7711e142` (title to the dressing room); `TRY-CHARACTERS-TRIAL.bat` under Wine's cmd (the menu with its hint; a dragged save copied to `play\` and the game started) | pass |
+| A 1v1 link battle with the real launcher (`scripts/multiplayer/native_launcher_battle_proof.py`: the real `LauncherWindow` and workers, a real local host, production enrollment, two native 3D games at `aa3b40ab` with the native UI on, ordinary keys): the challenge, its acceptance and Enter battle on the native Players screen, the battle on the native HUD in both games (Gardevoir against Gardevoir), the host's forced switch through the native party screen, `battle_finished` in both launchers, the same durable result, each full party back, "Recent battle results" on the native Players screen ("1v1 Loss #1", "Team 2 won"), both saved (revision 2), normal close `[0, 0]`, fresh Continue onto the same saves, the store's integrity check. Two test-only changes to a scratch copy of the proof for this run: keys held 0.6 s (the software-rendered 3D games draw slowly enough to miss a 0.15 s press; that first run failed there) and RIGHT instead of DOWN for the party's next Pokémon (the grid, see Input; the second run waited there) | pass |
 | Benchmark visit (title, main menu, field, pause, bag, party), UI on and off, Linux at 1280×720 Low and at 1920×1080 High (about 12 fps in the field: the game itself slows down), and the checkpoint's `ui-benchmark.bat` with the Windows exe under Wine | every phase reached, the expected screen up 100 % of each phase |
 
-Not run yet: link battles with two games (PvP 1v1 / 2v2), the multiplayer 2v2 owner tags.
+Not run yet: 2v2 link battles, four players, the multiplayer 2v2 owner tags.
 
 ## Performance
 
@@ -192,7 +197,12 @@ cloud with **software OpenGL** (llvmpipe: the "GPU" is the CPU), 1280×720, Qual
 
 On software OpenGL the 3D field dominates (on and off differ by noise), and the native
 full screens and the title's shader cost their rasterisation (the old screens are one
-240×160 texture). The real cost on a graphics card, and frame rates, come only from the
+240×160 texture). The full screens that stand over the field (the dressing room,
+Players, the mart, the Game Corner) hide the whole picture, so since `aa3b40ab` the 3D
+scene is not drawn under them: the dressing room went from 63–69 ms per present (13
+fps, the game itself slowing to 46–57 fps) to 33 ms (25 fps, the game at 60), measured
+with `PKMN_PERF_LOG=1` on the same software renderer; the field and its overlays are
+unchanged. The real cost on a graphics card, and frame rates, come only from the
 owner's PC: the checkpoint's `test-run\ui-benchmark.bat` (about six minutes, no keys)
 runs the visit four times - UI on and off, in a 1920×1080 window and borderless with the
 3D view at 3840×2160 (Quality High, VSync off) - and writes one CSV per run to
@@ -211,7 +221,7 @@ hitch cannot put it out of step. No frame-rate figure is claimed before those re
 | U3 | Resolved: the PC's first menus and moving several Pokémon at once are native (`b6f0b698`). The player's PC's item lists, mailbox and decorations and the Hall of Fame PC keep the game's picture. |
 | U4 | Battle: Safari Zone, catching tutorial and Battle Arena keep the game's picture; ability pop-ups are the game's art. The rewards ledger comes with the prize message, after the defeated trainer's last words: it covers the right of the scene, where the trainer stands (flat view and 3D battles trial alike; the design draws the trainer beside it). |
 | U5 | With the current 2D battles (no 3D battle merge yet) the strip under the old message box shows the backdrop; with the 3D battles the world shows there. |
-| U6 | Link (PvP) battles not yet run with two games; in a link battle the fourth command reads GIVE UP (running loses a link battle). |
+| U6 | A 1v1 link battle has run with two native games and the real launcher (see Testing); 2v2 and four players not yet. In a link battle the fourth command reads GIVE UP (running loses a link battle). |
 | U7 | Frame times only from software OpenGL so far (see Performance). |
 | U8 | Opening and leaving the PC boxes crashed natively before this work (also with the UI off): this branch carries the fix commits of `claude/native-pc` (`99a4f186`, `bfa4303e`, cherry-picked unchanged). |
 | U9 | Not the UI's: a battle against two trainers at once aborts natively (KNOWN_ISSUES N37). The battle session's `claude/native-pc-n37-fix` (`1a26af882`, in `battle3d-env-wip-20261012-1`) fixes it; not in this branch. |
@@ -228,7 +238,8 @@ the end of their files; hooks in the middle of a file keep the GBA line numbers 
 * `Makefile_pc` (sources), `src/platform/sdl2.c` (frame-boundary capture, events, key
   filter, overlay chain, XInput Y), `src/platform/gba_easy_draw.c` (`gPlatformPictureHideBgMask`,
   `gPlatformPictureHideObj`: background layers and OAM entries left out of the picture;
-  not Diorama-only, zero outside the UI), `src/diorama/gl/gl_compositor.c` (picture policy).
+  not Diorama-only, zero outside the UI), `src/diorama/gl/gl_compositor.c` (picture policy;
+  no 3D scene under a full screen).
 * Accessors: `title_screen.c`, `main_menu.c`, `start_menu.c`, `field_screen_effect.c`,
   `option_menu.c`, `party_menu.c`, `pokemon_summary_screen.c`, `item_menu.c`, `pokedex.c`,
   `pokemon_storage_system.c`, `menu_helpers.c`, `text.c`, `window.c`, `pokemon_icon.c`,
