@@ -84,6 +84,19 @@ class SharedWorldTests(unittest.TestCase):
             self.world._clock.seconds = hour * 3600
             self.assertEqual(self.world.time_of_day(), name)
 
+    def test_time_of_day_follows_the_games_hours(self):
+        # The engine's Gen 6 hours (include/constants/rtc.h): morning 4-10,
+        # day 11-17, evening 18-20, night 21-3. The host once started the
+        # evening (and the night weights of shared wild Pokemon) at 17.
+        game = {hour: "night" for hour in range(24)}
+        game.update({hour: "morning" for hour in range(4, 11)})
+        game.update({hour: "day" for hour in range(11, 18)})
+        game.update({hour: "evening" for hour in range(18, 21)})
+        for hour, name in game.items():
+            self.world._clock.seconds = 3 * 86400 + hour * 3600 + 1799
+            self.assertEqual(self.world.time_of_day(), name, hour)
+            self.assertEqual(self.world._night(), name in ("evening", "night"), hour)
+
     def test_world_identity_is_bound(self):
         self.world.close()
         with self.assertRaises(SharedWorldError):

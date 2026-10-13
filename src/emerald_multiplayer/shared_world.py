@@ -36,6 +36,22 @@ DEFAULT_APPEARANCE = "0000000000000000"
 NOTICE_CHARS = 64  # two banner lines of at most 32 characters, joined by "|"
 LINE_CHARS = 32
 REMINDER_SECONDS = (600, 300, 60)
+# The game's own times of day (engine include/constants/rtc.h, OW_TIMES_OF_DAY =
+# GEN_6): while connected the game's clock is this world clock, and its wild
+# Pokemon use the night weights in the evening and at night, so the host's
+# shared spawns must use the same hours (scripts/multiplayer/
+# check_engine_spawn_weights.py compares them with the game).
+MORNING_HOURS, DAY_HOURS, EVENING_HOURS = range(4, 11), range(11, 18), range(18, 21)
+
+
+def time_of_day_for_hour(hour: int) -> str:
+    if hour in MORNING_HOURS:
+        return "morning"
+    if hour in DAY_HOURS:
+        return "day"
+    if hour in EVENING_HOURS:
+        return "evening"
+    return "night"
 _SCHEMA = (
     "CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
     "CREATE TABLE IF NOT EXISTS clock (id INTEGER PRIMARY KEY CHECK (id = 1), seconds INTEGER NOT NULL)",
@@ -343,14 +359,7 @@ class SharedWorld:
         self._active = count
 
     def time_of_day(self) -> str:
-        hour = (self.world_seconds() // 3600) % 24
-        if 4 <= hour < 10:
-            return "morning"
-        if 10 <= hour < 17:
-            return "day"
-        if 17 <= hour < 20:
-            return "evening"
-        return "night"
+        return time_of_day_for_hour((self.world_seconds() // 3600) % 24)
 
     # ------------------------------------------------------------- appearance
     def appearance(self, player_id: str) -> str | None:
