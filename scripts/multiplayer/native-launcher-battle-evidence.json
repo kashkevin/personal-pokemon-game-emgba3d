@@ -149,6 +149,30 @@
       "key_presses": 680,
       "forced_children": 0,
       "harness": "scripts/multiplayer/native_launcher_battle_3d_proof.py as committed (0cbbd13), app claude/emeraldtogether-integration"
+    },
+    {
+      "run": "native-launcher-battle-3d-characters-11",
+      "clients": "Linux i386 native 3D client x2 (DIORAMA=1, native UI on, animated battle sprite pack; engine claude/emeraldtogether-integration 8706f8f6c: run 10's engine with ui-native-wip-20261012-4 merged, the native UI session's own character screens), started by the launcher's session workers",
+      "game_sha256": "32c766eecb2cfe16d6855854cda100d8de9c9c2da71b50ec26c95f6753e007f0",
+      "bundle_manifest_sha256": "390f31ee0ca16112113a9bc387853f38d5fd6d38671ec1adfbd27a1a6dc3fbb3",
+      "evidence_sha256": "c009ef82add0796a4a497d1fd962363cff6cfb631251c1bcf85e5cba3c73ad91",
+      "passed": true,
+      "checks": [
+        "host enrollment closed each bootstrap game itself (exit 0), revision 1 for both",
+        "host and friend launchers started their games; both reached the 3D overworld with save, window, battle and menu capabilities, terminal savers armed, save leases held",
+        "challenge, acceptance and Enter battle through the Players menu on both games (native UI on, the UI session's Players screen); both consent descriptors identical",
+        "both launchers report battle_finished with the original game processes, runtime objects, bridges and runtime identities",
+        "the durable result is the same for both players (1v1, team 2 won; sequence 1); Recent battle results on each game matches it ('Battle result', 'Team 2 won')",
+        "each player's full personal party restored in memory; both saved through the launcher (revision 2); parties in memory equal the canonical characters",
+        "both games closed normally, friend then host (exit codes 0, 0); fresh launchers Continued onto the same canonical checkpoints (revision 2)",
+        "host store integrity check passed; source saves unchanged",
+        "the same pending looks as runs 9 and 10: the friend's game drew its own trainer as Leaf (back) and the host's as KIT 1 - A (front) in the 3D battle (screenshot of the friend's display; the host's game window lay under its launcher window)"
+      ],
+      "routed_blocks": 318,
+      "battle_seconds_including_terminal_adoption": 191.0,
+      "key_presses": 654,
+      "forced_children": 0,
+      "harness": "as run 10"
     }
   ],
   "failed_runs": [
