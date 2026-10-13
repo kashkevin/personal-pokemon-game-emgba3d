@@ -112,6 +112,7 @@ class SharedWorld:
         self._event: dict | None = None
         self._claim: dict | None = None
         self._next_event_at = self._now() + self._rng.uniform(*BALANCE.event_first_delay)
+        self._last_tick = None
         self._restore_event()
 
     # ------------------------------------------------------------------ storage
@@ -327,6 +328,11 @@ class SharedWorld:
         """Advance timers; returns True when the shared view changed."""
         now = self._now()
         changed = False
+        # Phase 11: event and spawn timers only run while someone is online.
+        # Time that passes with nobody connected is taken off every deadline.
+        if self._last_tick is not None and connected == 0:
+            self._pause_timers(now - self._last_tick)
+        self._last_tick = now
         if self._event is not None and now >= self._event["expires"]:
             label = self._event_label(self._event)
             self._save_event("expired")
@@ -356,6 +362,15 @@ class SharedWorld:
             if self._event is not None:
                 self._save_event("active")
         return changed
+
+    def _pause_timers(self, elapsed: float) -> None:
+        if elapsed <= 0:
+            return
+        if self._event is not None:
+            self._event["expires"] += elapsed
+        if self._claim is not None and self._claim.get("released_at") is not None:
+            self._claim["released_at"] += elapsed
+        self._next_event_at += elapsed
 
     def claim_event(self, player_id: str, event_id: int) -> str:
         event = self._event

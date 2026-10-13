@@ -139,6 +139,22 @@ class SharedWorldTests(unittest.TestCase):
         self.assertEqual(view["seconds_left"], BALANCE.event_duration_seconds)
         self.assertIn("near Route 101", self.world.notice_view()["text"])
 
+    def test_event_timer_pauses_while_nobody_is_online(self):
+        self.world.set_active_players(1)
+        event = self.world.spawn_event(progression_level=20, category="rare")
+        self.assertIsNotNone(event)
+        self.world.tick_events(1, lambda: 20)
+        self.clock.now += 60  # online: counts down
+        self.world.tick_events(1, lambda: 20)
+        left_online = self.world.event_view()["seconds_left"]
+        self.clock.now += 3600  # an hour with nobody online
+        self.world.tick_events(0, lambda: 20)
+        self.world.tick_events(0, lambda: 20)
+        self.assertEqual(self.world.event_view()["seconds_left"], left_online)
+        self.clock.now += 1
+        self.world.tick_events(1, lambda: 20)
+        self.assertLess(self.world.event_view()["seconds_left"], left_online)
+
     def test_no_event_spawns_while_nobody_is_online(self):
         self.clock.now += BALANCE.event_first_delay[1] + 1
         self.assertFalse(self.world.tick_events(0, lambda: 12))
