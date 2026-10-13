@@ -294,7 +294,9 @@ class WorldServer:
         from .wagers import Wagers
         if store is not None:
             world_path = store.path.with_name(store.path.name + ".shared-world.sqlite3")
-            self.shared_world = SharedWorld(world_path, store.metadata.world_id)
+            from .outbreaks import load_outbreak_settings
+            self.shared_world = SharedWorld(world_path, store.metadata.world_id, outbreak_settings=load_outbreak_settings(
+                store.path.with_name(store.path.name + ".outbreaks.json")))
             self.friendships = FriendshipStore(store.path.with_name(store.path.name + ".friendships.sqlite3"),
                                                store.metadata.world_id)
             self.wagers = Wagers(store.path.with_name(store.path.name + ".wagers.sqlite3"), store.metadata.world_id)
@@ -1503,7 +1505,7 @@ class WorldServer:
             try:
                 if self.shared_world.tick_spawns({player_id: session.presence
                                                   for player_id, session in self.sessions.items()
-                                                  if not session.closed}):
+                                                  if not session.closed}, self._progression_level):
                     changed = True
             except Exception:  # noqa: BLE001 - shared spawns never stop the host loop
                 pass

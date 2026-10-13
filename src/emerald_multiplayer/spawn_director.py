@@ -114,8 +114,30 @@ class SpawnDirector:
         return self._tiles[map_key]
 
     # ------------------------------------------------------------ species
-    def species_weights(self, map_key: str, level: int, night: bool, weather: str | None) -> list[tuple[int, int]]:
-        """(family index, weight) for land families, as MPWild_RandomizeSpecies."""
+    def family_count(self) -> int:
+        return len(self._families)
+
+    def family_tier(self, family_index: int) -> str:
+        return self._families[family_index][0]
+
+    def stage_at(self, family_index: int, level: int) -> int:
+        """The family's most evolved member a wild Pokemon of this level can be
+        (no lower-stage roll): a mass outbreak's one species for a whole map."""
+        members = self._families[family_index][4]
+        depth = max((depth for _, min_level, depth in members if min_level <= level), default=0)
+        return next((species for species, min_level, member_depth in members
+                     if member_depth == depth and min_level <= level), members[0][0])
+
+    def species_name(self, species: int) -> str:
+        for (member_species, _, _), name in zip(self.catalogue["members"], self.catalogue["member_names"]):
+            if member_species == species:
+                return name.replace("_", " ")
+        return "POKEMON"
+
+    def species_weights(self, map_key: str, level: int, night: bool, weather: str | None,
+                        tier_weights: dict[str, int] | None = None) -> list[tuple[int, int]]:
+        """(family index, weight) for land families, as MPWild_RandomizeSpecies.
+        ``tier_weights`` replaces the rarity tiers' base weights (outbreaks)."""
         entry = self.map_entry(map_key) or {}
         boost = set(entry.get("boost", ()))
         habitat = self.catalogue["habitat_land"]
@@ -126,7 +148,9 @@ class SpawnDirector:
         for index, (tier, family_habitat, time, types, _members) in enumerate(self._families):
             if not family_habitat & habitat:
                 continue
-            weight = self._tier_weight[tier]
+            weight = (tier_weights or self._tier_weight).get(tier, 0)
+            if tier_weights is not None and weight == 0:
+                continue  # a rarity tier the outbreak settings leave out
             if time == TIME_NOCTURNAL:
                 weight = weight * 3 if night else weight // 3
             elif time == TIME_DIURNAL:
@@ -234,6 +258,8 @@ class SpawnDirector:
             board = self.boards.board(map_key)
             outbreak = outbreaks.get(map_key)
             board.set_outbreak(outbreak is not None)
+            if board.trim():  # an outbreak ended: back to 8, claimed ones kept
+                changed = True
             if self._retire_far(board, players):
                 changed = True
             if self._wander(map_key, board, players):
@@ -293,9 +319,16 @@ class SpawnDirector:
             if tile is None:
                 break
             level = self.choose_level(map_key)
-            kind = KIND_OUTBREAK if outbreak is not None else KIND_NORMAL
-            species = self.choose_species(map_key, level, night, weather, outbreak)
-            odds = int(outbreak.get("shiny_odds", SHINY_ODDS)) if outbreak is not None else SHINY_ODDS
+            # During an outbreak most new Pokemon are its species (its share);
+            # only those count as outbreak Pokemon. The others keep the map's
+            # usual weights, weather included.
+            from_outbreak = outbreak is not None and self.rng.random() < outbreak.get("share", 0.0)
+            if from_outbreak:
+                species, kind = int(outbreak["species"]), KIND_OUTBREAK
+                odds = int(outbreak.get("shiny_odds", SHINY_ODDS))
+            else:
+                species, kind = self.choose_species(map_key, level, night, weather), KIND_NORMAL
+                odds = SHINY_ODDS
             shiny = self.rng.randrange(max(1, odds)) == 0
             spawn_id = board.create(
                 species=species, level=level, personality=self.rng.getrandbits(32), shiny=shiny,

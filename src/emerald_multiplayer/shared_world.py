@@ -7,6 +7,8 @@ database. It is bound to the world id only (not to a ROM build), so a game
 update keeps the same clock, looks and event history. It never edits a save:
 World Event Pokemon are caught through the ordinary native capture code.
 
+Mass outbreaks (Phase 4: outbreaks.py) run on the same shared spawns.
+
 Owner decisions (Oct 9, 2026):
   * one shared world clock, running 12x real time (a world day every two real
     hours) only while at least one player is connected;
@@ -95,7 +97,7 @@ class SharedWorld:
     def __init__(self, path: Path | str, world_id: str, *, clock: Callable[[], float] = time.monotonic,
                  rng: random.Random | None = None, event_catalogue: dict | None = None,
                  locations: list | None = None, spawn_catalogue: dict | None = None,
-                 spawn_rng: random.Random | None = None, spawn_tuning=None):
+                 spawn_rng: random.Random | None = None, spawn_tuning=None, outbreak_settings=None):
         self.path = Path(path)
         self.world_id = world_id
         self._now = clock
@@ -138,7 +140,7 @@ class SharedWorld:
             wait = self._rng.uniform(*BALANCE.event_first_delay)
         self._next_event_at = self._active_now() + wait
         self._restore_event()
-        self._init_spawns(spawn_catalogue, spawn_rng, spawn_tuning)
+        self._init_spawns(spawn_catalogue, spawn_rng, spawn_tuning, outbreak_settings)
 
     # ------------------------------------------------------------------ storage
     @contextmanager
@@ -189,7 +191,8 @@ class SharedWorld:
             self._save_event("active")
 
     # ------------------------------------------------------------ shared spawns
-    def _init_spawns(self, catalogue: dict | None, rng: random.Random | None, tuning) -> None:
+    def _init_spawns(self, catalogue: dict | None, rng: random.Random | None, tuning, outbreak_settings) -> None:
+        from .outbreaks import DEFAULT_SETTINGS, Outbreaks
         from .shared_spawns import SpawnBoards
         from .spawn_director import DEFAULT_TUNING, SpawnDirector
         if catalogue is None:
@@ -205,16 +208,37 @@ class SharedWorld:
         if boards is None:
             boards = SpawnBoards(self._active_now, int(self._kv("spawn_next_id", "1") or 1))
         self.spawn_boards = boards
-        self.spawn_director = (SpawnDirector(catalogue, boards, rng=spawn_rng_or(rng), clock=self._active_now,
-                                             tuning=tuning or DEFAULT_TUNING)
-                               if self.spawns_enabled else None)
+        self.spawn_director = None
+        self.outbreaks = None
+        if not self.spawns_enabled:
+            return
+        rng = spawn_rng_or(rng)
+        self.spawn_director = SpawnDirector(catalogue, boards, rng=rng, clock=self._active_now,
+                                            tuning=tuning or DEFAULT_TUNING)
+        state = None
+        saved = self._kv("outbreaks", "")
+        if saved:
+            try:
+                state = json.loads(saved)
+            except ValueError:
+                state = None  # an unreadable record never blocks the world: schedule afresh
+        try:
+            self.outbreaks = Outbreaks(self.spawn_director, settings=outbreak_settings or DEFAULT_SETTINGS, rng=rng,
+                                       clock=self._active_now, notice=self.post_notice,
+                                       state=state if isinstance(state, dict) else None)
+        except (ValueError, KeyError, TypeError):
+            self.outbreaks = Outbreaks(self.spawn_director, settings=outbreak_settings or DEFAULT_SETTINGS, rng=rng,
+                                       clock=self._active_now, notice=self.post_notice)
 
     def _save_spawns_locked(self) -> None:
-        """Inside a transaction: the boards with remaining durations only."""
+        """Inside a transaction: the boards and the outbreak scheduler, with
+        remaining durations only."""
         if not getattr(self, "spawns_enabled", False):
             return
         self._set_kv("spawns", json.dumps(self.spawn_boards.to_state(), sort_keys=True, separators=(",", ":")))
         self._set_kv("spawn_next_id", str(self.spawn_boards.next_id))
+        if self.outbreaks is not None:
+            self._set_kv("outbreaks", json.dumps(self.outbreaks.to_state(), sort_keys=True, separators=(",", ":")))
 
     def save_spawns(self) -> None:
         if self._db is None or not self.spawns_enabled:
@@ -226,15 +250,26 @@ class SharedWorld:
         return self.time_of_day() in ("evening", "night")
 
     def spawn_outbreaks(self) -> dict[str, dict]:
-        """Map key -> active outbreak (Phase 4); none yet in Phase 3."""
-        return {}
+        """Map key -> the active mass outbreak (Phase 4, outbreaks.py)."""
+        return self.outbreaks.active() if self.outbreaks is not None else {}
 
-    def tick_spawns(self, presences: dict[str, dict | None]) -> bool:
-        """One director step for every map with players on it. Time only passes
-        while somebody is online, so nothing ages while the world is empty."""
+    def outbreak_view(self) -> dict | None:
+        return self.outbreaks.view() if self.outbreaks is not None else None
+
+    def tick_spawns(self, presences: dict[str, dict | None], progression: Callable[[], int] | None = None) -> bool:
+        """The outbreak scheduler, then one director step for every map with
+        players on it. Time only passes while somebody is online, so nothing
+        ages, starts or ends while the world is empty."""
         if not self.spawns_enabled or self._active == 0:
             return False
-        return self.spawn_director.update(presences, night=self._night(), outbreaks=self.spawn_outbreaks())
+        changed = False
+        live = {player: presence for player, presence in presences.items() if presence is not None}
+        if self.outbreaks is not None and self.outbreaks.tick(progression, night=self._night(), presences=live):
+            changed = True
+            self.save_spawns()  # an outbreak's start and end are durable at once
+        if self.spawn_director.update(presences, night=self._night(), outbreaks=self.spawn_outbreaks()):
+            changed = True
+        return changed
 
     def spawn_view(self, player_id: str, presence: dict | None) -> dict | None:
         if not self.spawns_enabled:

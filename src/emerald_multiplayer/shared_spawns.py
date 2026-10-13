@@ -17,8 +17,10 @@ clock values, so it survives a host restart.
 
 Limits (owner decisions, 2026-10-13): 8 slots per map instance normally, 12
 during a mass outbreak. An outbreak raises the limit to 12 in total; it does
-not add 12 on top of 8. When an outbreak ends nothing is removed: new spawns
-simply wait until fewer than 8 remain, so nothing is duplicated.
+not add 12 on top of 8. When an outbreak ends the map returns to 8: the
+director retires the open Pokemon above the limit (``trim``, outbreak ones
+first, oldest first), never one that somebody is battling, and new spawns wait
+until fewer than 8 remain, so nothing is duplicated.
 """
 
 from __future__ import annotations
@@ -107,8 +109,25 @@ class SpawnBoard:
         return sum(1 for s in self.slots.values() if s.state != REMOVED)
 
     def set_outbreak(self, active: bool) -> None:
-        """Switch the limit. Ending an outbreak keeps existing spawns (no duplicates)."""
+        """Switch the limit. This alone removes nothing (see ``trim``)."""
         self.outbreak_active = bool(active)
+
+    def trim(self) -> list[int]:
+        """Back to the limit after an outbreak: retire open Pokemon above it,
+        outbreak ones first and the oldest first. A claimed Pokemon is never
+        taken away; while claims keep the map above the limit nothing new
+        spawns. Returns the retired ids."""
+        excess = self.live_count() - self.limit()
+        if excess <= 0:
+            return []
+        candidates = sorted((s for s in self.slots.values() if s.state == OPEN),
+                            key=lambda s: (s.kind != KIND_OUTBREAK, s.created_at, s.spawn_id))
+        retired = []
+        for slot in candidates[:excess]:
+            slot.state = REMOVED
+            slot.end_reason = "outbreak_ended"
+            retired.append(slot.spawn_id)
+        return retired
 
     def occupied(self) -> set[tuple[int, int]]:
         return {(s.x, s.y) for s in self.slots.values() if s.state != REMOVED}
