@@ -771,6 +771,30 @@ By hand (Xvfb):
    uploaded, from the chunk lines) and `--bench-csv` (`triangles_k`, `vram_game_mb`); the
    Windows exe under Wine at Jagged Pass, before and after.
 
+### 7h. The unified EmeraldTogether game (`emeraldtogether-unified-20261013-1`)
+
+After merging a line into the combined game (`docs/emeraldtogether-unified.md`):
+
+1. `make` (the ROM's sha256 must stay `f214735b...3387`); `make -f Makefile_pc NATIVE_LINUX=1
+   DIORAMA=1` (3D, native UI on), the Windows 3D exe, the TEST build, `NATIVE_LINUX=1` (2D);
+   `check-native`, `check-abi`, `check-diorama`, `check-decompress`, `check-party-order`,
+   `check-battle-names`, `check-cry-stop`, `check-shake-anim` (3D and 2D), `check-game-sections`.
+2. Switched layouts (V46): `tools/battle_env/survey.py` with `PKMN_NATIVE_UI=0` on
+   `MAP_SKY_PILLAR_1F,3F,5F,TOP`, `MAP_ROUTE131`, `MAP_SHOAL_CAVE_LOW_TIDE_ENTRANCE_ROOM` at
+   12:00 (high tide) and 05:00 (low tide), `MAP_ROUTE111` several times (its tower is hidden on
+   a random half of entries); each `game.log` must say `Diorama battle: 3D on map ... layout N`
+   with the switched layout (433, 435, 437, 438, 319, 168, 392), never `drawn in 2D`.
+3. The field: Sky Pillar's top (rubble), Mt. Chimney (no cracks), a town at 22:00, both cameras;
+   the Gym sign (`sign.sh`) with the native UI on and off.
+4. Multiplayer with the native UI on: `native_launcher_battle_3d_proof.py` (with
+   `PKMN_BATTLE_SPRITES_PACK`), `native_trade_proof.py` (Linux, and the Windows exe under Wine),
+   `native_checkpoint_proof.py --slow 1.5 --recover`. The launcher proof's party switch presses
+   Down (the GBA party menu); the native party screen's grid needs Right for the second
+   Pokémon, so with `menu-a.sav` / `menu-b.sav` (the host's lead faints) the committed harness
+   loops - unified run 2 used a copy pressing Right.
+5. The launcher package (`collect_native_bundle.py --extra battle-sprites.ebsp`, then
+   `build_launcher.py` under Wine): starts under Wine, and "Check installed game files" passes.
+
 ## 8. CI
 
 Workflow files exist (`engine/.github/workflows/native-pc.yml`,

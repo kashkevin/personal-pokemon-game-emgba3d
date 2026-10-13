@@ -421,6 +421,22 @@ too. Details, commits, merge notes and rollback: `docs/graphics-handoff.md`. Sof
 | Multiplayer with the handoff's build | Works in multiplayer: native-checkpoint-3d-16 (2 Linux 3D clients of the final build: enrol 1.54/1.54 s, saves 1.49-1.54 s, restart, live recovery 40.9 s, store intact; before V47 native-checkpoint-3d-15) | Works in multiplayer: native-trade-wine3d-handoff-v47 | |
 | With the integration (trial merges, scratch, not branches: `8706f8f6c` (emeraldtogether-integration-20261012-3) + the handoff + the battle session's `5699d58b3` (V46); before it `7a98bd4a5` + the handoff at `61935f7eb`) | Visually renders (TEST builds, `PKMN_NATIVE_UI=0` for the survey; the GBA ROM byte-identical): 14 battles in 3D by day - Sky Pillar 1F, 3F, 5F and the top on their switched layouts (the rubble round Rayquaza), Route 131, Mt. Chimney, Jagged Pass, Fiery Path, Magma Hideout 1F and 2F (no cracks), Mauville, Lilycove, Sootopolis, Route 113 - and 2 at night; Sky Pillar's top (the rubble standing) and Mt. Chimney in the field, both cameras; the Gym sign's last line with the native UI on (its box) and off (the game's box) | Not run | Without `5699d58b3` the switched layouts' battles are drawn in 2D (V46, the first trial). |
 
+### The unified EmeraldTogether game (engine `emeraldtogether-unified-20261013-1`)
+
+The combined game of `emeraldtogether-integration-20261012-3` with the graphics handoff and the
+battle session's switched-layout fix (`5699d58b3`, V46), on `claude/emeraldtogether-unified`;
+launcher "Native 3D preview 10". Report: `docs/emeraldtogether-unified.md`. Software OpenGL here.
+
+| Item | Linux | Windows (Wine) | Notes |
+| --- | --- | --- | --- |
+| Builds and the GBA ROM | Compiles: 3D (native UI on), 2D, the TEST build; the ROM byte-identical (`f214735b...3387`) | Compiles: the 3D exe (only `SDL2.dll` and Windows' own DLLs) | `check-native`, `check-abi`, `check-diorama`, the game selftests: pass. |
+| The graphics fixes in the one game (V29, V32, V43, V47) | Visually renders: Mt. Chimney with no cracks, Lilycove's windows at 22:00, Sky Pillar's rubble, both cameras; Works in gameplay: the Gym sign's last line with the native UI on and off | Not run (the same source as the Linux build) | The handoff's own before/after: `graphics-handoff-20261012`. |
+| Battles on switched layouts (V46) | Visually renders (TEST build): Sky Pillar's four clean floors, Route 131, Shoal Cave at high tide, Route 111 without its tower - all 3D | Not run | `8c8c11ab2` (the battle session's `5699d58b3`). |
+| The battle environments, sprites, native UI, characters | Works in multiplayer: the launcher 1v1 on the 3D build with the native UI and the animated sprite pack (run 2) | Works in multiplayer: the trade proof with two clients of the packaged exe (native UI on) | Untouched by the merge; Battle FX: no branch exists. |
+| Multiplayer | Works in multiplayer: the launcher 1v1, the trade proof (trade, back-out, restart), the live-save proof (saves 1.54-1.68 s, recovery 41.3 s) | Works in multiplayer: the trade proof | |
+| The launcher "Native 3D preview 10" | Not run (Windows program) | Launches: "Check installed game files" - game and runtime match its pins | Its launcher sources are preview 9's file for file. |
+| Frame rates on a graphics card | Not measured | Not measured | V39: unverified until the owner's benchmark. |
+
 ## Decision pending - owner to confirm: personal vs shared wild spawns
 
 - Earlier owner decision (2026-10-09): visible wild spawns are **personal**, and
