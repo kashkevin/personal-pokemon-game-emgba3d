@@ -84,6 +84,10 @@ class Slot:
     claimant: str | None = None
     grace_until: float | None = None
     end_reason: str | None = None
+    # The player who held it last. A battle result that arrives after the
+    # claim lapsed (a long disconnect, a lost message) is still accepted from
+    # this player while nobody else holds the Pokemon (KNOWN_ISSUES M16).
+    last_claimant: str | None = None
 
 
 @dataclass
@@ -206,6 +210,7 @@ class SpawnBoard:
             return BUSY
         slot.state = CLAIMED
         slot.claimant = player
+        slot.last_claimant = player
         slot.grace_until = None
         return GRANTED
 
@@ -222,6 +227,13 @@ class SpawnBoard:
         slot = self.slots.get(spawn_id)
         if slot is None or slot.state == REMOVED:
             return GONE
+        if slot.state == OPEN and slot.last_claimant == player and outcome in REMOVING_RESULTS:
+            # A late result: the claim lapsed while the battle's result was on
+            # its way, and nobody has claimed the Pokemon since. The game has
+            # already caught or beaten it, so it goes for everybody (M16).
+            slot.state = REMOVED
+            slot.end_reason = outcome
+            return CONSUMED
         if slot.state != CLAIMED or slot.claimant != player:
             return NOT_CLAIMANT
         if outcome not in REMOVING_RESULTS:
@@ -319,7 +331,7 @@ class SpawnBoard:
                 "spawn_id": slot.spawn_id, "species": slot.species, "level": slot.level,
                 "personality": slot.personality, "shiny": slot.shiny, "form": slot.form, "kind": slot.kind,
                 "x": slot.x, "y": slot.y, "facing": slot.facing, "move_seq": slot.move_seq,
-                "state": slot.state, "claimant": slot.claimant,
+                "state": slot.state, "claimant": slot.claimant, "last_claimant": slot.last_claimant,
                 "remaining": max(0.0, slot.expires_at - now), "age": max(0.0, now - slot.created_at),
                 "grace_remaining": None if slot.grace_until is None else max(0.0, slot.grace_until - now),
             })
@@ -352,7 +364,8 @@ class SpawnBoard:
                 expires_at=now + max(0.0, float(item["remaining"])), created_at=now - max(0.0, float(item["age"])),
                 form=int(item.get("form", 0)), move_seq=int(item.get("move_seq", 0)) & 0xFF,
                 state=CLAIMED if claimed else OPEN, claimant=claimant if claimed else None,
-                grace_until=now + grace if claimed else None)
+                grace_until=now + grace if claimed else None,
+                last_claimant=item.get("last_claimant") if isinstance(item.get("last_claimant"), str) else None)
             if slot.kind not in (KIND_NORMAL, KIND_OUTBREAK) or slot.facing not in DIRECTIONS:
                 raise ValueError("invalid spawn slot in saved state")
             board.slots[slot.spawn_id] = slot

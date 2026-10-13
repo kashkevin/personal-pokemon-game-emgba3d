@@ -32,6 +32,7 @@ class Balance:
     event_level_min: int = 5
     event_level_max: int = 70
     event_claim_grace_seconds: int = 120
+    event_claim_away_seconds: int = 60   # a connected claimant on another map lets it go
 
     # Player friendship (pairs). Points per meaningful shared activity.
     friendship_levels: tuple = ("New Friends", "Good Friends", "Great Friends", "Ultra Friends", "Best Friends")

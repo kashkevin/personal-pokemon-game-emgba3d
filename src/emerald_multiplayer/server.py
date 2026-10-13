@@ -1502,13 +1502,15 @@ class WorldServer:
                     })
             if self.shared_world.tick_events(len(self.sessions), self._progression_level):
                 changed = True
+            presences = {player_id: session.presence for player_id, session in self.sessions.items()
+                         if not session.closed}
             try:
-                if self.shared_world.tick_spawns({player_id: session.presence
-                                                  for player_id, session in self.sessions.items()
-                                                  if not session.closed}, self._progression_level):
+                if self.shared_world.tick_spawns(presences, self._progression_level):
                     changed = True
             except Exception:  # noqa: BLE001 - shared spawns never stop the host loop
                 pass
+            if self.shared_world.tick_event_claim(presences):
+                changed = True
             # Online-together friendship time (small, daily capped).
             mono = time.monotonic()
             if mono - self._last_friendship_tick >= 60:

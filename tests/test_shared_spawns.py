@@ -187,6 +187,49 @@ class ReconnectAndDepartureTests(unittest.TestCase):
         self.assertEqual(board.result("a", sid, "caught"), ss.CONSUMED)
         self.assertEqual(board.result("a", sid, "caught"), ss.GONE)
 
+    # Audit 2026-10-13, KNOWN_ISSUES M16: a result that arrives after the claim lapsed.
+    def test_a_late_catch_from_the_last_claimant_removes_it_once(self):
+        board, clock = make_board()
+        sid = add(board, lifetime=10_000)
+        board.claim("a", sid)
+        board.player_disconnected("a")
+        clock.now += ss.CLAIM_GRACE_SECONDS + 1
+        board.tick()  # the grace ran out while the result was on its way
+        self.assertEqual(board.result("b", sid, "caught"), ss.NOT_CLAIMANT)
+        self.assertEqual(board.result("a", sid, "caught"), ss.CONSUMED)
+        self.assertEqual(board.result("a", sid, "caught"), ss.GONE)
+        self.assertEqual(board.claim("b", sid), ss.GONE)
+
+    def test_a_late_run_from_the_last_claimant_changes_nothing(self):
+        board, clock = make_board()
+        sid = add(board, lifetime=10_000)
+        board.claim("a", sid)
+        board.player_disconnected("a")
+        clock.now += ss.CLAIM_GRACE_SECONDS + 1
+        board.tick()
+        self.assertEqual(board.result("a", sid, "ran"), ss.NOT_CLAIMANT)
+        self.assertEqual(board.claim("b", sid), ss.GRANTED)
+
+    def test_a_late_catch_while_another_player_battles_it_is_refused(self):
+        board, clock = make_board()
+        sid = add(board, lifetime=10_000)
+        board.claim("a", sid)
+        board.player_disconnected("a")
+        clock.now += ss.CLAIM_GRACE_SECONDS + 1
+        board.tick()
+        self.assertEqual(board.claim("b", sid), ss.GRANTED)
+        self.assertEqual(board.result("a", sid, "caught"), ss.NOT_CLAIMANT)
+        self.assertEqual(board.result("b", sid, "caught"), ss.CONSUMED)
+
+    def test_the_last_claimant_survives_a_restart(self):
+        clock = ActiveClock()
+        boards = SpawnBoards(clock)
+        sid = add(boards.board("0.16"), lifetime=10_000)
+        boards.board("0.16").claim("alice", sid)
+        boards.board("0.16").result("alice", sid, "ran")
+        again = SpawnBoards.from_state(boards.to_state(), clock)
+        self.assertEqual(again.board("0.16").result("alice", sid, "caught"), ss.CONSUMED)
+
     def test_release_on_map_change_frees_slot(self):
         board, _ = make_board()
         sid = add(board)

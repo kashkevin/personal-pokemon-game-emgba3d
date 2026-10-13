@@ -147,6 +147,10 @@ class SharedWorld:
         self._active_time = _ActiveTime()
         self._event: dict | None = None
         self._claim: dict | None = None
+        # The player who held the event Pokemon last, and since when the
+        # connected claimant has been away from the event's map (active time).
+        self._last_claimant: str | None = None
+        self._claimant_away_since: float | None = None
         saved_wait = self._kv("next_event_remaining", "")
         try:
             wait = max(0.0, float(saved_wait)) if saved_wait else None
@@ -316,6 +320,11 @@ class SharedWorld:
         return outcome
 
     def player_connected(self, player_id: str) -> None:
+        if self._claim is not None and self._claim["player_id"] == player_id:
+            # The claimant is back within its grace period: it keeps the event
+            # Pokemon until it reports or walks away (the spawns do the same).
+            self._claim["released_at"] = None
+            self._claimant_away_since = None
         if getattr(self, "spawns_enabled", False):
             for board in self.spawn_boards.boards():
                 board.player_reconnected(player_id)
@@ -413,6 +422,8 @@ class SharedWorld:
         except (TypeError, ValueError):
             remaining = 0.0
         claim = record.pop("claim", None)
+        last = record.pop("last_claimant", None)
+        self._last_claimant = last if isinstance(last, str) else None
         record["expires"] = self._active_now() + remaining
         self._event = record
         if isinstance(claim, dict) and isinstance(claim.get("player_id"), str):
@@ -426,6 +437,7 @@ class SharedWorld:
                 grace = BALANCE.event_claim_grace_seconds
             self._claim = {"player_id": claim["player_id"], "event_id": record["event_id"],
                            "released_at": self._active_now() + grace}
+            self._last_claimant = claim["player_id"]
 
     def _save_event(self, state: str, winner: str | None = None) -> None:
         event = self._event
@@ -437,6 +449,8 @@ class SharedWorld:
             released_at = claim.get("released_at")
             stored["claim"] = {"player_id": claim["player_id"],
                                "grace_remaining": None if released_at is None else max(0.0, released_at - active_now)}
+        if state == "active" and self._last_claimant is not None:
+            stored["last_claimant"] = self._last_claimant
         with self._transaction():
             self._db.execute("""INSERT INTO events VALUES (?, ?, ?, ?, ?)
                 ON CONFLICT(event_id) DO UPDATE SET record=excluded.record, state=excluded.state, winner=excluded.winner""",
@@ -526,6 +540,8 @@ class SharedWorld:
             "reminded": [],
         }
         self._claim = None
+        self._last_claimant = None
+        self._claimant_away_since = None
         self._participants = set()
         self._save_event("active")
         self._announce(self._event, BALANCE.event_duration_seconds)
@@ -575,8 +591,15 @@ class SharedWorld:
             return "gone"
         if self._claim is not None and self._claim["player_id"] != player_id:
             return "busy"
+        changed = self._claim is None or self._claim.get("released_at") is not None
         self._claim = {"player_id": player_id, "event_id": event_id, "released_at": None}
+        self._last_claimant = player_id
+        self._claimant_away_since = None
         self._participants.add(player_id)
+        if changed:
+            # Durable at once, like a shared spawn's claim: a host restart in
+            # the middle of the battle keeps it for this player.
+            self._save_event("active")
         return "granted"
 
     def _finish_participation(self, event_id: int) -> None:
@@ -591,7 +614,12 @@ class SharedWorld:
         event = self._event
         if event is None or event["event_id"] != event_id:
             return "gone"
-        if self._claim is None or self._claim["player_id"] != player_id:
+        # A late "caught": the claim lapsed (a long disconnect, a lost message)
+        # while the result was on its way and nobody holds the Pokemon now. The
+        # game has it already, so it is consumed for everybody instead of
+        # staying catchable a second time (KNOWN_ISSUES M16).
+        late = self._claim is None and player_id == self._last_claimant and result == "caught"
+        if not late and (self._claim is None or self._claim["player_id"] != player_id):
             return "not_claimant"
         if result == "caught":
             self._save_event("caught", player_id)
@@ -607,6 +635,38 @@ class SharedWorld:
     def player_disconnected(self, player_id: str) -> None:
         if self._claim is not None and self._claim["player_id"] == player_id:
             self._claim["released_at"] = self._active_now() + BALANCE.event_claim_grace_seconds
+
+    def tick_event_claim(self, presences: dict[str, dict | None]) -> bool:
+        """Let go of an event claim whose connected claimant left the event's map.
+
+        The game claims the event Pokemon when its player talks to it and
+        reports the battle's result; it never sends a release. A game that was
+        reset, crashed or restarted between the two (while its companion stayed
+        connected) left the claim held for the rest of the event, and everybody
+        else was told it was busy. The claim now ends after the claimant has
+        been on another map for ``event_claim_away_seconds`` of active time; a
+        result that comes later is still accepted (``event_result``).
+        Returns True when the shared view changed.
+        """
+        claim, event = self._claim, self._event
+        if claim is None or event is None or claim.get("released_at") is not None:
+            self._claimant_away_since = None
+            return False
+        presence = presences.get(claim["player_id"])
+        if presence is None:
+            return False  # disconnected: the grace period applies instead
+        if (presence.get("map_group"), presence.get("map_number")) == (event["map_group"], event["map_number"]):
+            self._claimant_away_since = None
+            return False
+        now = self._active_now()
+        if self._claimant_away_since is None:
+            self._claimant_away_since = now
+            return False
+        if now - self._claimant_away_since < BALANCE.event_claim_away_seconds:
+            return False
+        self._claim, self._claimant_away_since = None, None
+        self._save_event("active")
+        return True
         if getattr(self, "spawns_enabled", False):
             for board in self.spawn_boards.boards():
                 board.player_disconnected(player_id)
