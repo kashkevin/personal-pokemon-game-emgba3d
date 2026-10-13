@@ -205,6 +205,10 @@ class SpawnInbound:
 
     @classmethod
     def from_view(cls, view: dict | None, *, enabled: bool, action_ack: int) -> "SpawnInbound":
+        # A map the host does not share (the Safari Zone, or no land habitat)
+        # is not enabled: the game spawns its own Pokemon there, as offline.
+        if view is not None and not view.get("shared", True):
+            enabled = False
         if not enabled or view is None:
             return cls(enabled=enabled, action_ack=action_ack)
         slots = tuple(SpawnSlotView.from_network(slot) for slot in view["slots"][:SPAWN_MAX_SLOTS])

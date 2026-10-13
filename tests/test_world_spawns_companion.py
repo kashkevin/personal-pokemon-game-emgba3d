@@ -50,7 +50,7 @@ class SpawnMailboxCodecTests(unittest.TestCase):
             SpawnLocal.unpack(bytes(bad))
 
     def test_inbound_packs_flags_per_viewer(self):
-        view = {"map_group": 0, "map_number": 16, "slots": [
+        view = {"map_group": 0, "map_number": 16, "shared": True, "slots": [
             {"spawn_id": 5, "species": 263, "level": 3, "personality": 0xABCDEF01, "shiny": True, "form": 0,
              "kind": "normal", "x": 10, "y": 7, "facing": 2, "move_seq": 4, "mine": True, "busy": False,
              "fresh": False, "seconds_left": 100}]}
@@ -63,6 +63,15 @@ class SpawnMailboxCodecTests(unittest.TestCase):
         self.assertEqual(SpawnInbound.from_view(view, enabled=False, action_ack=9).pack()[:4], bytes(4))
         with self.assertRaises(SpawnMailboxError):
             SpawnSlotView(1, 263, 3, 0, SLOT_MINE | SLOT_BUSY, 0, 0, 1, 0)
+
+    def test_a_map_the_host_does_not_share_is_not_enabled(self):
+        # The Safari Zone (or a map without land habitat): the game keeps its
+        # own encounters there, as offline; the action ack still flows.
+        view = {"map_group": 26, "map_number": 0, "shared": False, "slots": []}
+        inbound = SpawnInbound.from_view(view, enabled=True, action_ack=4)
+        self.assertFalse(inbound.enabled)
+        flags, ack, _, slots = inbound_slots(inbound.pack())
+        self.assertEqual((flags, ack, slots), (0, 4, []))
 
 
 class SpawnCompanionTests(unittest.IsolatedAsyncioTestCase):

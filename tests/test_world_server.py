@@ -400,7 +400,7 @@ class SharedSpawnNetworkTests(WorldServerTests):
         await self.presence(1, x=6, map_number=9)
         self.server.shared_world.tick_spawns({pid: s.presence for pid, s in self.server.sessions.items()})
         view = await self.spawns(1, lambda v: True)
-        self.assertEqual((view["map_group"], view["map_number"], view["slots"]), (0, 9, []))
+        self.assertEqual((view["map_group"], view["map_number"], view["shared"], view["slots"]), (0, 9, False, []))
 
     async def test_spawn_requests_are_validated(self):
         with self.assertRaises(ConnectionError):

@@ -136,11 +136,19 @@ class ConfigValidationTests(unittest.TestCase):
                "appearance": None}
         world = {"type": "world", "protocol": PROTOCOL_VERSION, "world_seq": 1, "players": [own], **WORLD_FIELDS}
         self.assertEqual(validate_world(world, self.config, 1), [own])
+        safari = {"spawns": {"map_group": 26, "map_number": 0, "shared": False, "slots": []}}
+        self.assertEqual(validate_world({**world, **safari}, self.config, 1), [own])
+        slot = {"spawn_id": 1, "species": 263, "level": 3, "personality": 1, "shiny": False, "form": 0,
+                "kind": "normal", "x": 1, "y": 1, "facing": 1, "move_seq": 0, "mine": False, "busy": False,
+                "fresh": False, "seconds_left": 9}
         for changes in ({"players": [own, own]}, {"players": []}, {"world_seq": -1}, {"players": [{**own, "session_epoch": 2}]}, {"players": [{**own, "presence": {}}]},
                         {"clock": None}, {"wallet": {"seq": 1, "delta": 0}}, {"wallet": {"seq": 0, "delta": 5}},
                         {"teammate": "not-a-uuid"}, {"notice": {"id": 1, "text": "x" * 65, "to": None}},
                         {"spawns": {"map_group": 0, "map_number": 16}},
-                        {"spawns": {"map_group": 0, "map_number": 16, "slots": [{"spawn_id": 0}]}},
+                        {"spawns": {"map_group": 0, "map_number": 16, "slots": []}},
+                        {"spawns": {"map_group": 0, "map_number": 16, "shared": 1, "slots": []}},
+                        {"spawns": {"map_group": 0, "map_number": 16, "shared": True, "slots": [{"spawn_id": 0}]}},
+                        {"spawns": {"map_group": 26, "map_number": 0, "shared": False, "slots": [slot]}},
                         {"players": [{**own, "appearance": "zz"}]}, {"players": [{k: v for k, v in own.items() if k != "appearance"}]}):
             with self.subTest(changes=changes), self.assertRaises(ProtocolError):
                 validate_world({**world, **changes}, self.config, 1)

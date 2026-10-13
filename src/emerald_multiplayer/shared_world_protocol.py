@@ -72,13 +72,17 @@ def validate_spawns(value: Any) -> dict | None:
     """The shared wild Pokemon of the map this player stands on (protocol 3)."""
     if value is None:
         return None
-    if type(value) is not dict or set(value) != {"map_group", "map_number", "slots"}:
+    if type(value) is not dict or set(value) != {"map_group", "map_number", "shared", "slots"}:
         raise ProtocolError("invalid_server_message", "invalid shared spawns")
     _int(value["map_group"], "spawn map group", 0, 255)
     _int(value["map_number"], "spawn map number", 0, 255)
+    if type(value["shared"]) is not bool:
+        raise ProtocolError("invalid_server_message", "invalid shared spawn coverage")
     slots = value["slots"]
     if type(slots) is not list or len(slots) > MAX_SPAWN_SLOTS:
         raise ProtocolError("invalid_server_message", "too many shared spawns")
+    if slots and not value["shared"]:
+        raise ProtocolError("invalid_server_message", "shared spawns on a map without them")
     seen = set()
     for slot in slots:
         if type(slot) is not dict or set(slot) != _SPAWN_FIELDS:

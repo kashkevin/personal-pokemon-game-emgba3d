@@ -269,14 +269,25 @@ class ViewTests(DirectorTestCase):
         mine = {s["spawn_id"]: s["mine"] for s in view_a["slots"]}
         busy = {s["spawn_id"]: s["busy"] for s in view_b["slots"]}
         self.assertTrue(mine[sid] and busy[sid])
-        self.assertEqual((view_a["map_group"], view_a["map_number"]), (0, 16))
+        self.assertEqual((view_a["map_group"], view_a["map_number"], view_a["shared"]), (0, 16, True))
 
     def test_a_player_elsewhere_sees_only_its_own_map(self):
         x, y = route101_player_tile(self.director)
         self.fill({"a": presence(x, y)})
         view = self.director.view("b", presence(3, 3, map_number=17))
-        self.assertEqual(view["slots"], [])
+        self.assertEqual((view["slots"], view["shared"]), ([], True))
         self.assertIsNone(self.director.view("b", None))
+
+    def test_maps_with_their_own_battle_rules_are_not_shared(self):
+        # The Safari Zones and the Pokemon Tower keep the game's own encounters
+        # (Safari and ghost battles); towns have no land habitat at all.
+        names = {entry["mapsec"] for entry in self.director.catalogue["maps"].values()}
+        self.assertFalse(names & {"MAPSEC_SAFARI_ZONE", "MAPSEC_KANTO_SAFARI_ZONE", "MAPSEC_POKEMON_TOWER"})
+        for group, number in ((26, 0), (0, 9)):  # Safari Zone northwest, Petalburg City
+            view = self.director.view("b", {**presence(5, 5), "map_group": group, "map_number": number})
+            self.assertEqual((view["shared"], view["slots"]), (False, []))
+        self.director.update({"b": {**presence(5, 5), "map_group": 26, "map_number": 0}}, night=False, force=True)
+        self.assertIsNone(self.boards.existing("26.0"))
 
 
 class TuningTests(unittest.TestCase):

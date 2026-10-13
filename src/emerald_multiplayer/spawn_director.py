@@ -344,10 +344,16 @@ class SpawnDirector:
 
     # ------------------------------------------------------------ views
     def view(self, player_id: str, presence: dict | None) -> dict | None:
-        """The slots of the map this player stands on (None without a pose)."""
+        """The slots of the map this player stands on (None without a pose).
+
+        "shared" is False on a map the catalogue does not cover (no land
+        habitat, or a map whose battles follow their own rules, such as the
+        Safari Zone): the game then keeps its own encounters there."""
         if presence is None:
             return None
         key = f"{presence['map_group']}.{presence['map_number']}"
-        board = self.boards.existing(key)
+        shared = self.map_entry(key) is not None
+        board = self.boards.existing(key) if shared else None
         slots = board.snapshot(player_id) if board is not None else []
-        return {"map_group": presence["map_group"], "map_number": presence["map_number"], "slots": slots}
+        return {"map_group": presence["map_group"], "map_number": presence["map_number"], "shared": shared,
+                "slots": slots}
