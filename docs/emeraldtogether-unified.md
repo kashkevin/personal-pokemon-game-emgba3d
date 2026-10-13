@@ -24,8 +24,9 @@ handoff's docs merged (`3fd7f83`) and this report.
 Nothing of the UI, sprites, characters or battle environments changed: the merge brought only
 the graphics line's files (`scene_snapshot.c`, `terrain_mesh.c` and its test, the building
 generator and its tests, the renderer's README) and the cherry-pick two battle files
-(`battle_capture.c`, `gl_battle.c`). Battle FX: no Battle FX branch or build exists in any
-checkpoint (as the integration's notes say), so there is nothing to keep or add.
+(`battle_capture.c`, `gl_battle.c`). Battle FX: the combined game had none (as the integration's
+notes say), so there was nothing of it to keep. The Battle FX integration's first checkpoint
+appeared a minute after this one and is not in this game (see the last section).
 
 The engine tree equals the one the graphics handoff's trial tested (`8706f8f6c` + `1d54639cf`
 + `5699d58b3`) but for the renderer's README.
@@ -65,3 +66,26 @@ fainted Pokémon and Back on the native party screen, whose grid puts the second
 right (`ui_party.c` `GridMove`). Run 2 used a copy of the harness that differs only in that key
 (Right): passed. The committed harness needs that change before it can cover a fainted lead with
 the native UI on; the game itself was not at fault (Right then A chose the next Pokémon).
+
+## Checkpoints that appeared after this one
+
+Read and merge-checked (`git merge-tree` on `8c8c11ab2`; their bundles fetched into private
+`refs/coord/*` refs without tags, their folders only read). None of them is in this game.
+
+- `battlefx-int-wip-20261012-1` (written a minute after this checkpoint's folder):
+  `claude/battle-fx-integration` `2907a098b`, Battle FX on the battle environments' round 4
+  (`aa63a98a3`), waiting for the owner's go (its `INTEGRATION_REPORT.md`). On `8c8c11ab2` the same
+  four files conflict as on preview 9 (`Makefile_pc`, `gl_battle.c`, `battle_env_test.c`,
+  `gba_easy_draw.c`) with identical conflicting hunks (compared with the markers' labels
+  normalised): the graphics handoff and `5699d58b3` add none, so its COORDINATION.txt section 10
+  holds on this tip. Its trial `claude/battle-fx-sprites-trial` `f6380dbb8` (preview 9 with
+  Battle FX merged, the four files resolved) merges into `8c8c11ab2` without a conflict.
+- `ui-native-wip-20261013-2` and `-3`: `claude/native-ui` `6c789cc3`, then `0b7523cdb`. `0b7523cdb`
+  merges into `8c8c11ab2` without a conflict.
+- U13, reported in `ui-native-wip-20261013-2` for the battle session and the native-PC owners (not
+  the UI's code; `KNOWN_ISSUES.md`): a native crash in the battle text's automatic line breaking
+  (`line_break.c` `BuildNewString`; Psychic Edward's defeat line on Route 110). This game's
+  `line_break.c` is preview 9's (blob `1031b9b9a`), so it has the bug by the code; not reproduced
+  here. The UI session's patch is not applied: as written it changes the GBA ROM (it needs
+  `PORTABLE` and `#line`), and it was not part of this request - for the next integration round.
+  U14 (Taunt's refusal message without the move's name) is upstream expansion code.
