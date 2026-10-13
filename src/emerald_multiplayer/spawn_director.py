@@ -35,7 +35,8 @@ WEATHER_TYPES = {
     "WEATHER_DOWNPOUR": ("TYPE_WATER", None, True),
     "WEATHER_RAIN_THUNDERSTORM": ("TYPE_ELECTRIC", "TYPE_WATER", False),
     "WEATHER_SNOW": ("TYPE_ICE", None, False),
-    "WEATHER_SUNNY": ("TYPE_FIRE", "TYPE_GRASS", False),
+    # Sun is WEATHER_DROUGHT only. WEATHER_SUNNY is Emerald's ordinary clear
+    # sky, the map weather of most routes, and changes nothing (KNOWN_ISSUES G12).
     "WEATHER_DROUGHT": ("TYPE_FIRE", "TYPE_GRASS", False),
     "WEATHER_SANDSTORM": ("TYPE_GROUND", "TYPE_ROCK", False),
     "WEATHER_FOG": ("TYPE_GHOST", "TYPE_PSYCHIC", False),
