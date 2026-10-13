@@ -701,9 +701,10 @@ scratch folder):
    --hold .5 --gap .6` (two 3D clients); `offer-*.png` must show the trade screen over
    the 3D field, not the field alone.
 
-### 7g. Graphics handoff: heights, windows at night, the message box (graphics `graphics-handoff-20261012`)
+### 7g. Graphics handoff: heights, windows at night, the message box, the relief's cracks (graphics `graphics-handoff-20261012`)
 
-The owner's request of 2026-10-12 (V29, V32 before the integration); `docs/graphics-handoff.md`.
+The owner's request of 2026-10-12 (V29, V32 before the integration), and V47 (the battle session's E14);
+`docs/graphics-handoff.md`.
 
 Unit: `test_auto_buildings.py` `HeightTests` (Sootopolis's towers 28 and boxes 34, the
 motel 64, the Battle Dome 56, the glass workshop's own cells with its window);
@@ -711,6 +712,8 @@ motel 64, the Battle Dome 56, the glass workshop's own cells with its window);
 their colour; a shading band, a glint, blue glass a frame does not close; every pane;
 none lost; one window however many drawings see it), `ShopWindowTests`, `StoneWindowTests`
 (an arch with glints lit; an emblem or a door not). The generator's proof (`--verify`).
+`test_terrain_mesh` (V47): the bridge keeps 65 undersides, the mountain art its undersides on the
+floor, the bounds down to them (-17/16, -1/16).
 
 Data (scratch tools in the session's folder, `v32/`): `diffwin.py` - the page's windows
 before and after on every outdoor page (none gone or shrunk); `census.py` - every window
@@ -732,11 +735,19 @@ By hand (Xvfb):
    under Wine (the Players menu over the 3D field); `native_checkpoint_proof.py --slow 1.5
    --recover` with the 3D build.
 5. With the integration: a scratch worktree at a commit merging the integration branch
-   and this one; `make` (ROM hash), the TEST build (`tools/battle_env/README.md`),
-   `survey.py` with `PKMN_NATIVE_UI=0` (the native UI replaces the GBA main menu the survey
-   drives) on towns, caves and Sky Pillar; Sky Pillar's top in the field, both cameras;
-   the Gym sign with the native UI on and off. V46: Sky Pillar's battles need the
-   `battle_capture.c` layout line.
+   and this one (and the battle session's `5699d58b3`, V46); `make` (ROM hash), the TEST
+   build (`tools/battle_env/README.md`), `survey.py` with `PKMN_NATIVE_UI=0` (the native UI
+   replaces the GBA main menu the survey drives) on towns, caves, the Lavaridge relief
+   (`void` in `cap.json` must be 0), Route 131 and Sky Pillar (the log names the switched
+   layout: `3D on map 24.85 layout 438`); Sky Pillar's top and Mt. Chimney in the field, both
+   cameras; the Gym sign with the native UI on and off.
+6. V47 before/after at 12:00 with the 3D view's ash off (`PKMN_DIORAMA_WEATHER=0`):
+   Jagged Pass (21,16) and (14,24), Mt. Chimney (16,14), Fiery Path (19,8), Magma Hideout
+   2F's third room (49,11), both cameras; count the pixels of the cracks' colour (the sky's
+   (174,208,228-231) outdoors, (9,14,18) underground) - none after. The cost: the
+   benchmark's `jagged` scene at 1280x720 with `PKMN_DIORAMA_CHUNK_LOG=1` (vertices built and
+   uploaded, from the chunk lines) and `--bench-csv` (`triangles_k`, `vram_game_mb`); the
+   Windows exe under Wine at Jagged Pass, before and after.
 
 ## 8. CI
 
