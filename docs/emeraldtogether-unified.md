@@ -38,9 +38,12 @@ The engine tree equals the one the graphics handoff's trial tested (`8706f8f6c` 
   (the integration's 2026-10-12 rows, then the handoff's 2026-10-13 row). `KNOWN_ISSUES.md`
   V37 - the integration's row was the merge base's text, the handoff's carries V47's numbers:
   the handoff's taken. Checked after the merge: every issue and checkpoint row of both sides is
-  present (108 issue keys of the integration, 87 of the handoff; rows that differ only where one
-  side updated them: V29, V32, V37 and option B's terrain row from the handoff, N33, V9-V11
-  from the integration).
+  present - `KNOWN_ISSUES.md`: 107 issue IDs of the integration and 86 of the handoff (81 on
+  both sides); where the two sides' rows differ, only one side had changed the row since their
+  common base, and its row was kept (V29, V32 and V37 from the handoff; N33 and V9-V11 from the
+  integration); `CHECKPOINTS.md`: the integration's 30 rows and the handoff's 19, all kept;
+  `FEATURE_STATUS.md` and `TEST_PLAN.md` merged without a conflict, every line either side
+  added kept.
 
 ## Verification (cloud computer: Linux with software OpenGL, the Windows programs under Wine)
 
@@ -49,11 +52,11 @@ The engine tree equals the one the graphics handoff's trial tested (`8706f8f6c` 
 | GBA ROM | `pokeemerald.gba` built from `8c8c11ab2`: sha256 `f214735b...3387`, byte for byte the launcher's game file. |
 | Builds | Linux 3D (native UI on), Windows 3D, the TEST build (the battle survey driver) and Linux 2D compile; only the engine's pre-existing warnings (none in a merged file). The Windows exe imports only `SDL2.dll` and Windows' own DLLs, large-address-aware. |
 | `check-native`, `check-abi` | Pass: 1067 + 4203 + 244 + 176 checks; ABI parity 172 types. |
-| Python tests (app) | 1408 passed, 1 skipped (the integration's 1399 + its 9 battle-look tests). |
+| Python tests (app) | 1408 passed, 1 skipped (1399 as on the graphics line, plus the integration's 9 battle-look tests). |
 | `check-diorama` | Pass: every renderer test (terrain mesh with the undersides, battle stage, props 7984 checks, camera 403, far field 54,618, ...) and the compositor goldens (18,318 metatiles). |
 | Game selftests (3D build; the four crash tests on the 2D build too) | `check-decompress` 7469 assets, `check-party-order` 1119, `check-battle-names` 1724, `check-cry-stop` 5, `check-shake-anim` 11 checks, 0 failed; `check-game-sections` passes. |
-| Switched layouts (V46) | The TEST build (`PKMN_NATIVE_UI=0`: the survey drives the GBA menus), each battle's log naming its layout: Sky Pillar 1F, 3F, 5F and the top on their clean layouts (433, 435, 437, 438; the rubble round Rayquaza), Route 131 (319), Shoal Cave's entrance at 12:00 (high tide, 168) and 05:00 (low tide, 164), Route 111 without its Mirage Tower (392, one entry in five; the tower shows on a random half of entries) and with it (27): all drawn in 3D, foot error 0 px. |
-| Other battles | Mt. Chimney, Jagged Pass (no cracks: void 0), Mauville, Lilycove, Sootopolis, Route 130, Shoal Cave's inner room by day; Lilycove and Sootopolis at 22:00: all 3D. |
+| Switched layouts (V46) | The TEST build (`PKMN_NATIVE_UI=0`: the survey drives the GBA menus), each battle's log naming its layout: Sky Pillar 1F, 3F, 5F and the top on their clean layouts (433, 435, 437, 438; the rubble round Rayquaza), Route 131 (319), Shoal Cave's entrance at 12:00 (high tide, 168) and 05:00 (low tide, 164), Route 111 without its Mirage Tower (392, one entry in five; the tower shows on a random half of entries) and with it (27): all drawn in 3D, foot error 0 px. Not tried: Route 130 with Mirage Island, Shoal Cave's inner room at high tide (warped in directly it keeps its low-tide layout 165: the tide is set by the entrance room), Sootopolis in the legends' battle - the same code path. |
+| Other battles | Mt. Chimney, Jagged Pass (no cracks: void 0), Mauville, Lilycove, Sootopolis, Route 130, Shoal Cave's inner room at 12:00 and 05:00 (165 both times); Lilycove and Sootopolis at 22:00: all 3D. With the switched layouts' battles and Route 111's other entries (27): 22 battles, every one 3D. |
 | The field | Sky Pillar's top with its rubble standing, Mt. Chimney with no cracks, Lilycove's windows lit at 22:00, both cameras; Rustboro's Gym sign keeping its last line with the native UI on (its box) and off (the game's box). |
 | Multiplayer, Linux 3D build (native UI on) | The launcher 1v1 (`native_launcher_battle_3d_proof.py`, the animated sprite pack loaded): world creation, enrollment, both games started by the real launcher, a 1v1 from the Players screen played to the end (362 battle blocks through the host), the same result on both, saves (revision 2), normal close, fresh Continue, store check - passed (run 2; see below). The trade proof (trade, back-out, restart; 50.8 s from the first confirmation) and the live-save proof (enrol 1.66/1.72 s, saves 1.54-1.68 s, live recovery 41.3 s) - passed. |
 | Multiplayer, Windows exe under Wine (native UI on) | The trade proof with two clients of the packaged exe: passed (51.3 s from the first confirmation). |
