@@ -1,5 +1,6 @@
 """Host-owned shared-world state: the persistent accelerated world clock,
-customized trainer appearances, overworld notices and World Events.
+customized trainer appearances, overworld notices, World Events and the shared
+visible wild Pokemon (Phase 3: spawn_director.py, shared_spawns.py).
 
 Stored in ``<world.sqlite3>.shared-world.sqlite3`` beside the canonical world
 database. It is bound to the world id only (not to a ROM build), so a game
@@ -93,7 +94,8 @@ class SharedWorld:
 
     def __init__(self, path: Path | str, world_id: str, *, clock: Callable[[], float] = time.monotonic,
                  rng: random.Random | None = None, event_catalogue: dict | None = None,
-                 locations: list | None = None):
+                 locations: list | None = None, spawn_catalogue: dict | None = None,
+                 spawn_rng: random.Random | None = None, spawn_tuning=None):
         self.path = Path(path)
         self.world_id = world_id
         self._now = clock
@@ -136,6 +138,7 @@ class SharedWorld:
             wait = self._rng.uniform(*BALANCE.event_first_delay)
         self._next_event_at = self._active_now() + wait
         self._restore_event()
+        self._init_spawns(spawn_catalogue, spawn_rng, spawn_tuning)
 
     # ------------------------------------------------------------------ storage
     @contextmanager
@@ -181,8 +184,90 @@ class SharedWorld:
             return
         with self._transaction():
             self._set_kv("next_event_remaining", repr(max(0.0, self._next_event_at - self._active_now())))
+            self._save_spawns_locked()
         if self._event is not None:
             self._save_event("active")
+
+    # ------------------------------------------------------------ shared spawns
+    def _init_spawns(self, catalogue: dict | None, rng: random.Random | None, tuning) -> None:
+        from .shared_spawns import SpawnBoards
+        from .spawn_director import DEFAULT_TUNING, SpawnDirector
+        if catalogue is None:
+            catalogue = load_spawn_catalogue()
+        self.spawns_enabled = bool(catalogue)
+        boards = None
+        saved = self._kv("spawns", "")
+        if saved and self.spawns_enabled:
+            try:
+                boards = SpawnBoards.from_state(json.loads(saved), self._active_now)
+            except (ValueError, KeyError, TypeError):
+                boards = None  # an unreadable record never blocks the world: start empty
+        if boards is None:
+            boards = SpawnBoards(self._active_now, int(self._kv("spawn_next_id", "1") or 1))
+        self.spawn_boards = boards
+        self.spawn_director = (SpawnDirector(catalogue, boards, rng=spawn_rng_or(rng), clock=self._active_now,
+                                             tuning=tuning or DEFAULT_TUNING)
+                               if self.spawns_enabled else None)
+
+    def _save_spawns_locked(self) -> None:
+        """Inside a transaction: the boards with remaining durations only."""
+        if not getattr(self, "spawns_enabled", False):
+            return
+        self._set_kv("spawns", json.dumps(self.spawn_boards.to_state(), sort_keys=True, separators=(",", ":")))
+        self._set_kv("spawn_next_id", str(self.spawn_boards.next_id))
+
+    def save_spawns(self) -> None:
+        if self._db is None or not self.spawns_enabled:
+            return
+        with self._transaction():
+            self._save_spawns_locked()
+
+    def _night(self) -> bool:
+        return self.time_of_day() in ("evening", "night")
+
+    def spawn_outbreaks(self) -> dict[str, dict]:
+        """Map key -> active outbreak (Phase 4); none yet in Phase 3."""
+        return {}
+
+    def tick_spawns(self, presences: dict[str, dict | None]) -> bool:
+        """One director step for every map with players on it. Time only passes
+        while somebody is online, so nothing ages while the world is empty."""
+        if not self.spawns_enabled or self._active == 0:
+            return False
+        return self.spawn_director.update(presences, night=self._night(), outbreaks=self.spawn_outbreaks())
+
+    def spawn_view(self, player_id: str, presence: dict | None) -> dict | None:
+        if not self.spawns_enabled:
+            return None
+        return self.spawn_director.view(player_id, presence)
+
+    def spawn_action(self, player_id: str, action: str, spawn_id: int, result: str | None) -> str:
+        """A game claims, reports or releases a shared wild Pokemon."""
+        from .shared_spawns import CONSUMED, GONE, GRANTED
+        if not self.spawns_enabled:
+            return GONE
+        found = self.spawn_boards.find(spawn_id)
+        if found is None:
+            return GONE
+        board, _slot = found
+        if action == "claim":
+            outcome = board.claim(player_id, spawn_id)
+        elif action == "result":
+            outcome = board.result(player_id, spawn_id, result or "cancelled")
+        elif action == "release":
+            outcome = board.release(player_id, spawn_id)
+        else:
+            raise SharedWorldError("invalid_spawn_action", "unsupported shared spawn action")
+        if outcome in (GRANTED, CONSUMED):
+            # Ownership changes are durable at once: a host crash can neither
+            # resurrect a caught Pokemon nor forget who is battling one.
+            self.save_spawns()
+        return outcome
+
+    def player_connected(self, player_id: str) -> None:
+        if getattr(self, "spawns_enabled", False):
+            for board in self.spawn_boards.boards():
+                board.player_reconnected(player_id)
 
     # ------------------------------------------------------------------ clock
     def _seconds(self) -> float:
@@ -478,6 +563,22 @@ class SharedWorld:
     def player_disconnected(self, player_id: str) -> None:
         if self._claim is not None and self._claim["player_id"] == player_id:
             self._claim["released_at"] = self._active_now() + BALANCE.event_claim_grace_seconds
+        if getattr(self, "spawns_enabled", False):
+            for board in self.spawn_boards.boards():
+                board.player_disconnected(player_id)
+
+
+def spawn_rng_or(rng: random.Random | None) -> random.Random:
+    return rng if rng is not None else random.Random()
+
+
+def load_spawn_catalogue() -> dict:
+    """Shared spawn data generated from the pinned engine (empty without it)."""
+    try:
+        from .shared_spawn_catalogue import CATALOGUE
+    except ImportError:  # a development checkout without the generated module
+        return {}
+    return CATALOGUE
 
 
 def load_event_catalogue() -> dict:

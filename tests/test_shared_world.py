@@ -397,3 +397,115 @@ class ProtocolTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SharedWorldSpawnTests(unittest.TestCase):
+    """Phase 3: the shared world owns the spawn boards, their active-time
+    clock and their persistence."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.path = Path(self.temp.name) / "world.sqlite3.shared-world.sqlite3"
+        self.clock = FakeClock()
+        self.world = self.open()
+        from emerald_multiplayer.spawn_director import SpawnDirector  # noqa: F401 - import check
+        tiles = self.world.spawn_director.habitat("0.16")
+        xs = sorted({x for x, _ in tiles})
+        ys = sorted({y for _, y in tiles})
+        self.spot = (xs[len(xs) // 2], ys[len(ys) // 2])
+
+    def tearDown(self):
+        self.world.close()
+        self.temp.cleanup()
+
+    def open(self):
+        return SharedWorld(self.path, WORLD, clock=self.clock, rng=random.Random(3), event_catalogue=CATALOGUE,
+                           locations=LOCATIONS, spawn_rng=random.Random(11))
+
+    def presences(self, *players):
+        return {player: {"map_group": 0, "map_number": 16, "x": self.spot[0] + i, "y": self.spot[1],
+                         "activity": "overworld"} for i, player in enumerate(players)}
+
+    def run_for(self, seconds, presences):
+        for _ in range(seconds):
+            self.clock.now += 1
+            self.world.tick_spawns(presences)
+
+    def test_nothing_spawns_or_ages_while_nobody_is_online(self):
+        self.assertFalse(self.world.tick_spawns(self.presences("a")))
+        self.assertEqual(self.world.spawn_boards.keys(), [])
+
+    def test_players_on_one_map_see_the_same_wild_pokemon(self):
+        a, b = str(uuid4()), str(uuid4())
+        self.world.set_active_players(2)
+        presences = self.presences(a, b)
+        self.run_for(30, presences)
+        view_a = self.world.spawn_view(a, presences[a])
+        view_b = self.world.spawn_view(b, presences[b])
+        self.assertGreater(len(view_a["slots"]), 0)
+        self.assertEqual(view_a, view_b)
+
+    def test_first_claim_wins_and_a_catch_is_durable_at_once(self):
+        a, b = str(uuid4()), str(uuid4())
+        self.world.set_active_players(2)
+        presences = self.presences(a, b)
+        self.run_for(5, presences)
+        spawn_id = self.world.spawn_view(a, presences[a])["slots"][0]["spawn_id"]
+        self.assertEqual(self.world.spawn_action(a, "claim", spawn_id, None), "granted")
+        self.assertEqual(self.world.spawn_action(b, "claim", spawn_id, None), "busy")
+        self.assertEqual(self.world.spawn_action(a, "result", spawn_id, "caught"), "consumed")
+        # A crash right after the catch (no close()): the record is already saved.
+        crashed = SharedWorld(self.path, WORLD, clock=self.clock, rng=random.Random(3), event_catalogue=CATALOGUE,
+                              locations=LOCATIONS, spawn_rng=random.Random(5))
+        try:
+            self.assertEqual(crashed.spawn_action(b, "claim", spawn_id, None), "gone")
+        finally:
+            crashed._db.close()
+            crashed._db = None
+
+    def test_restart_keeps_pokemon_their_remaining_time_and_claims(self):
+        a = str(uuid4())
+        self.world.set_active_players(1)
+        presences = self.presences(a)
+        self.run_for(10, presences)
+        view = self.world.spawn_view(a, presences[a])
+        spawn_id = view["slots"][0]["spawn_id"]
+        self.world.spawn_action(a, "claim", spawn_id, None)
+        self.world.set_active_players(0)
+        self.world.close()
+        self.clock.now += 86400  # the host is down for a day: nothing ages
+        self.world = self.open()
+        again = self.world.spawn_view(a, presences[a])
+        self.assertEqual([(s["spawn_id"], s["species"], s["personality"], s["x"], s["y"]) for s in again["slots"]],
+                         [(s["spawn_id"], s["species"], s["personality"], s["x"], s["y"]) for s in view["slots"]])
+        before = {s["spawn_id"]: s["seconds_left"] for s in view["slots"]}
+        for slot in again["slots"]:
+            self.assertEqual(slot["seconds_left"], before[slot["spawn_id"]])
+        self.assertTrue(next(s for s in again["slots"] if s["spawn_id"] == spawn_id)["mine"])
+
+    def test_zero_player_period_freezes_spawn_timers(self):
+        a = str(uuid4())
+        self.world.set_active_players(1)
+        presences = self.presences(a)
+        self.run_for(10, presences)
+        left = {s["spawn_id"]: s["seconds_left"] for s in self.world.spawn_view(a, presences[a])["slots"]}
+        self.world.set_active_players(0)
+        self.clock.now += 7200
+        self.world.tick_spawns({})
+        now = {s["spawn_id"]: s["seconds_left"] for s in self.world.spawn_view(a, presences[a])["slots"]}
+        self.assertEqual(now, left)
+
+    def test_disconnected_claimant_keeps_the_pokemon_and_reports_once(self):
+        a, b = str(uuid4()), str(uuid4())
+        self.world.set_active_players(2)
+        presences = self.presences(a, b)
+        self.run_for(5, presences)
+        spawn_id = self.world.spawn_view(a, presences[a])["slots"][0]["spawn_id"]
+        self.world.spawn_action(a, "claim", spawn_id, None)
+        self.world.player_disconnected(a)
+        self.world.set_active_players(1)
+        self.run_for(60, {b: presences[b]})
+        self.assertEqual(self.world.spawn_action(b, "claim", spawn_id, None), "busy")
+        self.world.player_connected(a)
+        self.assertEqual(self.world.spawn_action(a, "result", spawn_id, "caught"), "consumed")
+        self.assertEqual(self.world.spawn_action(a, "result", spawn_id, "caught"), "gone")

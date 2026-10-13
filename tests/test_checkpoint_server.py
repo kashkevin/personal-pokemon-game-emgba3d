@@ -255,7 +255,7 @@ class CheckpointServerTests(unittest.IsolatedAsyncioTestCase):
         # Shared-world fields (clock, World Event, notice, this player's own
         # wallet adjustment and teammate) carry no snapshot or checkpoint data.
         self.assertEqual(set(world), {"type", "protocol", "world_seq", "players",
-                                      "clock", "event", "notice", "wallet", "teammate"})
+                                      "clock", "event", "notice", "wallet", "teammate", "spawns"})
         self.assertIsNone(world["wallet"])
         self.assertIsNone(world["teammate"])
 

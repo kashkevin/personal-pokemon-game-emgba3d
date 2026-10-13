@@ -9,12 +9,18 @@ from .protocol import MAX_COUNTER, ProtocolError
 
 WORLD_TYPES = frozenset({"world_action", "appearance_get", "appearance_set", "friendship_get",
                          "wager_get", "wager_set", "wager_accept", "wager_decline", "wallet_applied",
-                         "gym_coop"})
+                         "gym_coop", "spawn_action"})
 ACTIONS = frozenset({"claim", "result", "release"})
 RESULTS = frozenset({"caught", "defeated", "ran", "lost", "cancelled"})
 _HEX16 = re.compile(r"[0-9a-f]{16}\Z")
 _EVENT_FIELDS = {"event_id", "species", "level", "shiny", "mega", "map_group", "map_number", "x", "y",
                  "held_item", "perfect_ivs", "seconds_left", "claimant"}
+SPAWN_ACTIONS = frozenset({"claim", "result", "release"})
+SPAWN_RESULTS = frozenset({"caught", "defeated", "ran", "lost", "cancelled"})
+SPAWN_KINDS = frozenset({"normal", "outbreak"})
+_SPAWN_FIELDS = {"spawn_id", "species", "level", "personality", "shiny", "form", "kind", "x", "y", "facing",
+                 "move_seq", "mine", "busy", "fresh", "seconds_left"}
+MAX_SPAWN_SLOTS = 12
 
 
 def _int(value: Any, name: str, low: int, high: int) -> int:
@@ -59,6 +65,44 @@ def validate_event(value: Any) -> dict | None:
         raise ProtocolError("invalid_server_message", "invalid world event flags")
     if value["claimant"] is not None:
         _uuid(value["claimant"], "event claimant")
+    return value
+
+
+def validate_spawns(value: Any) -> dict | None:
+    """The shared wild Pokemon of the map this player stands on (protocol 3)."""
+    if value is None:
+        return None
+    if type(value) is not dict or set(value) != {"map_group", "map_number", "slots"}:
+        raise ProtocolError("invalid_server_message", "invalid shared spawns")
+    _int(value["map_group"], "spawn map group", 0, 255)
+    _int(value["map_number"], "spawn map number", 0, 255)
+    slots = value["slots"]
+    if type(slots) is not list or len(slots) > MAX_SPAWN_SLOTS:
+        raise ProtocolError("invalid_server_message", "too many shared spawns")
+    seen = set()
+    for slot in slots:
+        if type(slot) is not dict or set(slot) != _SPAWN_FIELDS:
+            raise ProtocolError("invalid_server_message", "invalid shared spawn")
+        _int(slot["spawn_id"], "spawn id", 1, MAX_COUNTER)
+        if slot["spawn_id"] in seen:
+            raise ProtocolError("invalid_server_message", "duplicate shared spawn")
+        seen.add(slot["spawn_id"])
+        _int(slot["species"], "spawn species", 1, 1700)
+        _int(slot["level"], "spawn level", 1, 100)
+        _int(slot["personality"], "spawn personality", 0, 0xFFFFFFFF)
+        _int(slot["form"], "spawn form", 0, 255)
+        _int(slot["x"], "spawn x", 0, 32767)
+        _int(slot["y"], "spawn y", 0, 32767)
+        _int(slot["facing"], "spawn facing", 1, 4)
+        _int(slot["move_seq"], "spawn move", 0, 255)
+        _int(slot["seconds_left"], "spawn timer", 0, 0xFFFFFFFF)
+        if slot["kind"] not in SPAWN_KINDS:
+            raise ProtocolError("invalid_server_message", "invalid shared spawn kind")
+        for flag in ("shiny", "mine", "busy", "fresh"):
+            if type(slot[flag]) is not bool:
+                raise ProtocolError("invalid_server_message", "invalid shared spawn flags")
+        if slot["mine"] and slot["busy"]:
+            raise ProtocolError("invalid_server_message", "a shared spawn is either mine or busy")
     return value
 
 
@@ -131,6 +175,19 @@ def validate_world_request(message: Any, session_epoch: int) -> dict:
         if message["action"] == "result":
             if message["result"] not in RESULTS:
                 raise ProtocolError("invalid_field", "unsupported event result")
+        elif message["result"] is not None:
+            raise ProtocolError("invalid_field", "only results carry an outcome")
+    elif kind == "spawn_action":
+        expected = {"type", "session_epoch", "request_id", "action", "spawn_id", "result", "seq"}
+        if set(message) != expected:
+            raise ProtocolError("invalid_fields", "spawn action has missing or unexpected fields")
+        if message["action"] not in SPAWN_ACTIONS:
+            raise ProtocolError("invalid_field", "unsupported spawn action")
+        _int(message["spawn_id"], "spawn id", 1, MAX_COUNTER)
+        _int(message["seq"], "action seq", 1, 0xFFFFFFFF)
+        if message["action"] == "result":
+            if message["result"] not in SPAWN_RESULTS:
+                raise ProtocolError("invalid_field", "unsupported spawn result")
         elif message["result"] is not None:
             raise ProtocolError("invalid_field", "only results carry an outcome")
     elif kind in ("appearance_get", "friendship_get"):

@@ -331,10 +331,11 @@ def validate_welcome(message: dict[str, Any], config: CompanionConfig) -> dict[s
 
 
 def validate_world(message: dict[str, Any], config: CompanionConfig, session_epoch: int) -> list[dict[str, Any]]:
-    _fields(message, {"type", "protocol", "world_seq", "players", "clock", "event", "notice", "wallet", "teammate"},
-            "world")
+    _fields(message, {"type", "protocol", "world_seq", "players", "clock", "event", "notice", "wallet", "teammate",
+                      "spawns"}, "world")
     from .shared_world_protocol import (validate_clock, validate_event, validate_notice, validate_appearance_hex,
-                                        validate_teammate, validate_wallet)
+                                        validate_spawns, validate_teammate, validate_wallet)
+    validate_spawns(message["spawns"])
     validate_clock(message["clock"])
     validate_event(message["event"])
     validate_notice(message["notice"])
@@ -385,6 +386,7 @@ class BridgeSession:
     emergency_save_capable: bool = False
     battle_capable: bool = False
     battle_looks_capable: bool = False
+    spawn_capable: bool = False
     menu_session: Any = None
     reset_session: Any = None
 
@@ -446,6 +448,11 @@ class Companion:
         self._world_wallet: dict | None = None
         self._world_teammate: str | None = None
         self._world_pending: dict[str, tuple[dict, asyncio.Future]] = {}
+        # Protocol-3 shared wild Pokemon (the native game's EMV1 mailbox).
+        self._world_spawns: dict | None = None
+        self._local_spawn = None
+        self._spawn_action_sent = 0
+        self._spawn_action_ack = 0
 
     @property
     def ipc_address(self) -> tuple[str, int]:
@@ -500,6 +507,17 @@ class Companion:
             self._bridge.outbox.put(b"S" + self.snapshot.pack())
             if self.config.world_enabled:
                 self._bridge.outbox.put_world(b"N" + self.world_inbound().pack())
+                if self._bridge.spawn_capable:
+                    self._bridge.outbox.put_spawns(b"n" + self.spawn_inbound().pack())
+
+    def spawn_inbound(self):
+        """The EMV1 inbound record: the host's shared wild Pokemon of this
+        player's map. Enabled only while connected to a world (protocol 3), so
+        a disconnected game falls back to its own offline encounters."""
+        from .spawn_mailbox import SpawnInbound
+        enabled = self.connected and self._roster_signature is not None
+        return SpawnInbound.from_view(self._world_spawns if enabled else None, enabled=enabled,
+                                      action_ack=self._spawn_action_ack)
 
     def world_inbound(self):
         """The EMW1 inbound record matching the current presence snapshot."""
@@ -692,6 +710,29 @@ class Companion:
                         bridge.menu_session.feed(packet[1:])
                     except ValueError as error:
                         raise BridgeError("invalid native menu request") from error
+                    continue
+                if packet[:1] == b"w":
+                    # The native PC game announces its shared-spawn mailbox
+                    # (spawn_mailbox.py); mgba.lua never does.
+                    from .spawn_mailbox import capability_packet as spawn_capability
+                    if not self.config.world_enabled or bridge.spawn_capable or packet != spawn_capability():
+                        raise BridgeError("shared spawn capability differs from this companion")
+                    bridge.spawn_capable = True
+                    self._publish_snapshot()
+                    continue
+                if packet[:1] == b"g":
+                    from .spawn_mailbox import SpawnLocal, SpawnMailboxError
+                    if not bridge.spawn_capable or len(packet) != 117:
+                        raise BridgeError("shared spawn record precedes its capability")
+                    try:
+                        local = SpawnLocal.unpack(packet[1:])
+                    except SpawnMailboxError as error:
+                        raise BridgeError("invalid shared spawn record") from error
+                    self._local_spawn = local
+                    action = local.action
+                    if action.seq != 0 and action.seq != self._spawn_action_sent and action.kind != 0:
+                        self._spawn_action_sent = action.seq
+                        self._spawn_spawn_action(action)
                     continue
                 if packet[:1] == b"G":
                     from .world_mailbox import WorldMailboxError, unpack_local
@@ -1216,6 +1257,8 @@ class Companion:
                 fields = pose.network_fields(fresh)
                 if self.config.world_enabled and self._local_world is not None:
                     fields.update(self._local_world.network_fields())
+                if self.config.world_enabled and self._local_spawn is not None:
+                    fields["weather"] = self._local_spawn.weather
                 source_signature = (self._bridge_incarnation, pose.map_epoch, pose.map_group, pose.map_number)
                 pose_signature = (source_signature, pose.frame, tuple(fields.values()))
                 if pose_signature != self._sent_pose_signature:
@@ -1591,6 +1634,7 @@ class Companion:
         self._world_event = message["event"]
         self._world_wallet = message["wallet"]
         self._world_teammate = message["teammate"]
+        self._world_spawns = message["spawns"]
         if message["notice"] is not None:
             self._world_notice = message["notice"]
         self._publish_snapshot()
@@ -1627,6 +1671,30 @@ class Companion:
                 self._publish_snapshot()
 
         task = asyncio.create_task(run(), name="companion-world-action")
+        self._ipc_handlers.add(task)
+        task.add_done_callback(self._ipc_handlers.discard)
+
+    def _spawn_spawn_action(self, action) -> None:
+        """The game claimed, reported or released a shared wild Pokemon."""
+        from .spawn_mailbox import ACTION_KINDS, RESULT_NAMES
+        kind = ACTION_KINDS.get(action.kind)
+        result = RESULT_NAMES.get(action.result) if kind == "result" else None
+        if kind is None or action.spawn_id == 0 or (kind == "result" and result is None):
+            self._spawn_action_ack = action.seq
+            self._publish_snapshot()
+            return
+
+        async def run():
+            try:
+                await self.world_rpc("spawn_action", action=kind, spawn_id=action.spawn_id,
+                                     result=result, seq=action.seq)
+            except Exception:  # noqa: BLE001 - the game times out; the host releases stale claims
+                pass
+            finally:
+                self._spawn_action_ack = action.seq
+                self._publish_snapshot()
+
+        task = asyncio.create_task(run(), name="companion-spawn-action")
         self._ipc_handlers.add(task)
         task.add_done_callback(self._ipc_handlers.discard)
 

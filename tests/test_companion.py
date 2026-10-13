@@ -22,9 +22,10 @@ from emerald_multiplayer.protocol import ProtocolError, encode_message, read_mes
 from emerald_multiplayer.server import ServerConfig, WorldServer
 from emerald_multiplayer.protocol import PROTOCOL_VERSION
 
-# Protocol-2 shared-world fields carried by every world message.
+# Shared-world fields carried by every world message (protocol 2; "spawns",
+# the shared wild Pokemon of the player's map, since protocol 3).
 WORLD_FIELDS = {"clock": {"seconds": 0, "running": False}, "event": None, "notice": None,
-                "wallet": None, "teammate": None}
+                "wallet": None, "teammate": None, "spawns": None}
 
 
 def make_files(directory):
@@ -138,6 +139,8 @@ class ConfigValidationTests(unittest.TestCase):
         for changes in ({"players": [own, own]}, {"players": []}, {"world_seq": -1}, {"players": [{**own, "session_epoch": 2}]}, {"players": [{**own, "presence": {}}]},
                         {"clock": None}, {"wallet": {"seq": 1, "delta": 0}}, {"wallet": {"seq": 0, "delta": 5}},
                         {"teammate": "not-a-uuid"}, {"notice": {"id": 1, "text": "x" * 65, "to": None}},
+                        {"spawns": {"map_group": 0, "map_number": 16}},
+                        {"spawns": {"map_group": 0, "map_number": 16, "slots": [{"spawn_id": 0}]}},
                         {"players": [{**own, "appearance": "zz"}]}, {"players": [{k: v for k, v in own.items() if k != "appearance"}]}):
             with self.subTest(changes=changes), self.assertRaises(ProtocolError):
                 validate_world({**world, **changes}, self.config, 1)

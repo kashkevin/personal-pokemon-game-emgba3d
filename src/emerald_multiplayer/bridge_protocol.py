@@ -84,6 +84,7 @@ class BridgeOutbox:
         self.controls: deque[bytes] = deque()
         self.pending: bytes | None = None
         self.pending_world: bytes | None = None
+        self.pending_spawns: bytes | None = None
         self.closed = False
         self.ready = asyncio.Event()
         self._control_burst = 0
@@ -102,6 +103,13 @@ class BridgeOutbox:
             self.pending_world = frame
             self.ready.set()
 
+    def put_spawns(self, payload: bytes) -> None:
+        """Third replaceable snapshot: the native game's shared spawns ('n')."""
+        frame = encode_packet(payload)
+        if not self.closed:
+            self.pending_spawns = frame
+            self.ready.set()
+
     def put_control(self, payload: bytes) -> None:
         frame = encode_packet(payload)
         if self.closed:
@@ -113,7 +121,8 @@ class BridgeOutbox:
 
     async def get(self) -> bytes | None:
         while not self.closed:
-            snapshot_waiting = self.pending is not None or self.pending_world is not None
+            snapshot_waiting = (self.pending is not None or self.pending_world is not None
+                                or self.pending_spawns is not None)
             if self.controls and (not snapshot_waiting or self._control_burst < 2):
                 self._control_burst += 1
                 return self.controls.popleft()
@@ -128,6 +137,10 @@ class BridgeOutbox:
                 frame, self.pending_world = self.pending_world, None
                 self._control_burst = 0
                 self._presence_last = False
+                return frame
+            if self.pending_spawns is not None:
+                frame, self.pending_spawns = self.pending_spawns, None
+                self._control_burst = 0
                 return frame
             self.ready.clear()
             await self.ready.wait()

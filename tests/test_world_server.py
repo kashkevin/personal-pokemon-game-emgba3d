@@ -119,7 +119,7 @@ class WorldFrameTests(WorldServerTests):
     async def test_every_frame_has_clock_event_notice_and_private_wallet_and_teammate(self):
         world = await self.world(0, lambda w: len(w["players"]) == 4)
         self.assertEqual(set(world), {"type", "protocol", "world_seq", "players", "clock", "event",
-                                      "notice", "wallet", "teammate"})
+                                      "notice", "wallet", "teammate", "spawns"})
         self.assertTrue(world["clock"]["running"])
         self.assertIsNone(world["wallet"])
         self.assertIsNone(world["teammate"])
@@ -339,3 +339,69 @@ class CoopGymRequestTests(WorldServerTests):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SharedSpawnNetworkTests(WorldServerTests):
+    """Phase 3 over real loopback TCP: every game on a map receives the same
+    host-chosen wild Pokemon, claims race through the host, and a catch
+    removes the Pokemon from every game's world frame."""
+
+    async def on_route101(self, index, x, y):
+        message = dict(type="presence", session_epoch=self.actors[index].lease, seq=self.seq(index), map_epoch=0,
+                       map_group=0, map_number=16, x=x, y=y, direction=1, elevation=3,
+                       avatar_gender=0, activity="overworld", weather=3)
+        await self.actors[index].send(message)
+        await wait_until(lambda: (self.server.sessions[self.pid(index)].presence or {}).get("x") == x)
+
+    def spot(self):
+        tiles = self.server.shared_world.spawn_director.habitat("0.16")
+        xs = sorted({x for x, _ in tiles})
+        ys = sorted({y for _, y in tiles})
+        return xs[len(xs) // 2], ys[len(ys) // 2]
+
+    async def spawns(self, index, predicate):
+        return (await self.world(index, lambda w: w["spawns"] is not None and predicate(w["spawns"])))["spawns"]
+
+    async def test_two_players_on_route_101_see_the_same_pokemon_and_race_for_one(self):
+        x, y = self.spot()
+        await self.on_route101(0, x, y)
+        await self.on_route101(1, x + 1, y)
+        self.assertEqual(self.server.sessions[self.pid(0)].presence["weather"], 3)
+        for _ in range(5):
+            self.server.shared_world.spawn_director._last_update = float("-inf")
+            self.server.shared_world.tick_spawns({pid: s.presence for pid, s in self.server.sessions.items()})
+        first = await self.spawns(0, lambda view: len(view["slots"]) >= 3)
+        second = await self.spawns(1, lambda view: [s["spawn_id"] for s in view["slots"]]
+                                   == [s["spawn_id"] for s in first["slots"]])
+        strip = lambda view: [{k: v for k, v in s.items() if k not in ("fresh", "seconds_left")} for s in view["slots"]]
+        self.assertEqual(strip(first), strip(second))
+        target = first["slots"][0]["spawn_id"]
+        # Both games claim at once: the host answers exactly one "granted".
+        replies = await asyncio.gather(
+            self.world_rpc(0, "spawn_action", action="claim", spawn_id=target, result=None, seq=1),
+            self.world_rpc(1, "spawn_action", action="claim", spawn_id=target, result=None, seq=1))
+        outcomes = sorted(reply["result"]["outcome"] for reply in replies)
+        self.assertEqual(outcomes, ["busy", "granted"])
+        winner = 0 if replies[0]["result"]["outcome"] == "granted" else 1
+        loser = 1 - winner
+        view = await self.spawns(loser, lambda v: any(s["spawn_id"] == target and s["busy"] for s in v["slots"]))
+        self.assertTrue(next(s for s in view["slots"] if s["spawn_id"] == target)["busy"])
+        caught = await self.world_rpc(winner, "spawn_action", action="result", spawn_id=target,
+                                      result="caught", seq=2)
+        self.assertEqual(caught["result"]["outcome"], "consumed")
+        for index in (0, 1):
+            await self.spawns(index, lambda v: all(s["spawn_id"] != target for s in v["slots"]))
+        again = await self.world_rpc(loser, "spawn_action", action="claim", spawn_id=target, result=None, seq=2)
+        self.assertEqual(again["result"]["outcome"], "gone")
+
+    async def test_a_player_on_another_map_gets_its_own_empty_view(self):
+        x, y = self.spot()
+        await self.on_route101(0, x, y)
+        await self.presence(1, x=6, map_number=9)
+        self.server.shared_world.tick_spawns({pid: s.presence for pid, s in self.server.sessions.items()})
+        view = await self.spawns(1, lambda v: True)
+        self.assertEqual((view["map_group"], view["map_number"], view["slots"]), (0, 9, []))
+
+    async def test_spawn_requests_are_validated(self):
+        with self.assertRaises(ConnectionError):
+            await self.world_rpc(0, "spawn_action", action="steal", spawn_id=1, result=None, seq=1)
