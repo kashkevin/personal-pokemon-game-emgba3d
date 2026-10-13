@@ -701,6 +701,43 @@ scratch folder):
    --hold .5 --gap .6` (two 3D clients); `offer-*.png` must show the trade screen over
    the 3D field, not the field alone.
 
+### 7g. Graphics handoff: heights, windows at night, the message box (graphics `graphics-handoff-20261012`)
+
+The owner's request of 2026-10-12 (V29, V32 before the integration); `docs/graphics-handoff.md`.
+
+Unit: `test_auto_buildings.py` `HeightTests` (Sootopolis's towers 28 and boxes 34, the
+motel 64, the Battle Dome 56, the glass workshop's own cells with its window);
+`test_window_glow.py` `PageWindowsTests` (a house's panes beside a building walled in
+their colour; a shading band, a glint, blue glass a frame does not close; every pane;
+none lost; one window however many drawings see it), `ShopWindowTests`, `StoneWindowTests`
+(an arch with glints lit; an emblem or a door not). The generator's proof (`--verify`).
+
+Data (scratch tools in the session's folder, `v32/`): `diffwin.py` - the page's windows
+before and after on every outdoor page (none gone or shrunk); `census.py` - every window
+`dimensional.py` sets back against the window runs (dark ones listed); `crops.py` - each
+new or grown window, before and after; `same.py` - `find_windows` over a page as the
+previous commit's on all pages.
+
+By hand (Xvfb):
+
+1. V29 before/after, both cameras, 12:00 (`place-env2.sh`): Sootopolis (9,8), Lilycove
+   (37,26), Battle Frontier west (19,20), Route 113 (33,7).
+2. V32 before/after at 22:00 (`PKMN_CLOCK_HOUR=22`): Slateport (21,46), (5,21), Mauville
+   (8,16), Lilycove (27,9), Sootopolis (23,7), (55,7), Verdanturf (6,17), Petalburg,
+   Battle Frontier east (22,53).
+3. V43: Rustboro's Gym sign from (23,20) (`sign.sh`: turn up, A, hold B, A, hold B): its
+   last line must stay while the game waits; START > SAVE (`u12.sh`): the prompt with
+   YES / NO and the save info.
+4. Multiplayer: `native_trade_proof.py` with the Linux 3D build and with the Windows exe
+   under Wine (the Players menu over the 3D field); `native_checkpoint_proof.py --slow 1.5
+   --recover` with the 3D build.
+5. With the integration: a scratch worktree at a commit merging the integration branch
+   and this one; `make` (ROM hash), the TEST build (`tools/battle_env/README.md`),
+   `survey.py` with `PKMN_NATIVE_UI=0` (the native UI replaces the GBA main menu the survey
+   drives) on towns, caves and Sky Pillar; Sky Pillar's top in the field, both cameras;
+   the Gym sign with the native UI on and off. V46: Sky Pillar's battles need the
+   `battle_capture.c` layout line.
+
 ## 8. CI
 
 Workflow files exist (`engine/.github/workflows/native-pc.yml`,

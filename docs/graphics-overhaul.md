@@ -593,3 +593,83 @@ paused-callback branch while the Players menu is open (V42), checked by its own 
 
 Not seen yet: any of it on a graphics card (V39); the high-tide Shoal Cave in game (the
 tide only changes on entering from outside).
+
+## Graphics handoff: building heights, windows at night, the message box (2026-10-12)
+
+The owner approved option B (`native-wip-20261012-2`) and asked for the remaining graphics
+issues to be finished before the branch goes to the main integration session: V29 (building
+heights) and V32 (windows that should light up at night), keeping every approved roof, terrain,
+cave and environment improvement, the Players menu fix and multiplayer, touching nothing of the
+UI, sprites, Battle FX or characters, and staying compatible with the 3D battle branch (Sky
+Pillar's rubble). Engine `claude/graphics-overhaul` `8e4604993`..`c806a788c`, tag
+`graphics-handoff-20261012`; checkpoint `graphics-handoff-20261012`. Commits, merge notes and
+rollback: `docs/graphics-handoff.md`. With V29 and V32 resolved, the graphics development phase
+is ready for integration; the frame rate on a graphics card (V39) is tracked separately.
+
+### What the player gets
+
+* **Buildings as tall as their drawing (V29).** Sootopolis's 11 tower houses stand up to their
+  roof's outline (they stopped at the door's lintel, 8 rows lower); the Cove Lily Motel
+  (Lilycove) and the Battle Dome (Battle Frontier west) have their second storey, which was laid
+  back as roof; Route 113's glass workshop is one building on its own four rows with its window
+  (it took the trees over it for its roof and left its window's cell out, a hole in its front).
+* **Windows at night (V32).** The windows that stayed dark light up: Slateport's, Petalburg's,
+  Lavaridge's and Verdanturf's houses, with every pane of the white-barred sash windows;
+  Mauville's Game Corner's display windows and every bulb round its door; Lilycove's department
+  store; the Battle Frontier's lounges and exchange corner; Sootopolis's arched windows, drawn in
+  stone (its emblems and doors, in the same greys, stay dark).
+* **Messages stay on screen (V43, the UI session's U12).** A sign's or a person's last line
+  stayed in the 2D game but vanished from the 3D view as soon as it was printed, while the game
+  waited for a button; the save prompt was never shown in 3D. Both stay now.
+
+What stays as it was: every other building, roof, window, door and cave level; the terrain, props,
+lights and settings; the Players menu over the 3D field (V42); the GBA ROM. `buildings.bin`
+differs from option B's only in the V29 buildings.
+
+### How it works
+
+* V29 (`tools/diorama_buildings/auto_buildings.py`): a facade's height is the first long edge
+  over the door (`facade_height`). A survey drew every automatic building's drawing with that
+  edge marked and a 3D preview from 35 degrees (scratch tools, not committed); four were wrong.
+  The fixes are data: `OVERRIDES` (`"facade"` for the motel, 64, and the Battle Dome, 56; the
+  workshop's `"cols"`, `"top"`, `"cells"` and facade 28) and `CRATER_HOUSES` `"facades"`
+  (`{"tower": 28}`, read by `crater_specs`). `test_auto_buildings.py` `HeightTests`.
+* V32 (`tools/diorama_buildings/window_glow.py` `find_page_windows`, called by `export_gl.py`):
+  the page's windows as before (the same pieces on all 137 pages, so `dimensional.py`'s recessed
+  windows are the same and no lit window is lost), then each model's drawing on its own
+  (`model_rects`): a pane whose glass is another building's wall colour on the page (at least
+  3 x 2, not running out to the drawing's side; pale glass only where a frame of one colour
+  closes round it, `enclosed`); every pane of a window past glazing bars of its frame's colour
+  (`whole_window`); shop windows a frame holds at its sides only (`shop_window`); arched stone
+  windows (`stone_panes`: grey with white glints in a dark blue outline, an arch over straight
+  sides, a white sill). `test_window_glow.py` (22 tests, 10 new).
+* V43 (`src/diorama/scene/scene_snapshot.c`): `FieldMessageBoxShown` - a message printing, or
+  window 0's first tile in the window layer's tilemap (`WindowShown`) - decides the dialogue scene
+  and the text box over the 3D view, where `IsFieldMessageBoxHidden()` alone did.
+
+### Verification
+
+Engine `c806a788c` for the checks; the pictures and proofs used the builds of `61935f7eb` (the
+last commit changes a comment and a test's names: `buildings.bin` and `buildings.generated.c`
+are byte for byte the same). "Before" is `native-wip-20261012-2`'s build (`8e4604993`).
+
+| Check | Result |
+| --- | --- |
+| Linux and Windows 3D builds | Compile; the Windows exe imports only `SDL2.dll` and Windows' own DLLs (`objdump -p`). The 2D Linux build compiles (no warnings). |
+| `check-native` | Pass: platform 1067, bridge 4186, display settings 244, PNG writer 176 checks. |
+| `check-diorama` | Pass: 13 test programs (camera 403 checks, far field 54,618, `test_props` 5703, snapshot exchange, presentation transition, UI overlay, terrain mesh, ...), compositor goldens (18,318 metatiles, 75 tilesets), rules valid, generated tables current. |
+| `check-abi` | Pass (172 types). |
+| Rules and building tools (each file run) | `test_compile_rules` 23 of 24 (the one failure is V31, as before); `test_tile_shape` 8, `test_structures` 13, `test_measured_volumes` 8, `test_mountain_art` 5, `test_terrace_topology` 8, `test_pixel_objects` 15, `test_catalog` 8, `test_occupancy_model` 8, `test_window_glow` 22, `test_auto_buildings` 16, `test_dimensional` 14 pass; `test_rules_parity` fails as before (V2, upstream). |
+| The generator's proof (`--verify`) | 573 of 573 models exact against their drawing (98 of 98 automatic; roofs and details left out as before), 50 rooms composed with the terrain, 0 pixels differ. |
+| `find_windows` over a page | The same pieces as `8e4604993`'s on all 137 pages (so the recessed windows are the same); `buildings.bin` with V32 byte for byte the V29 build's. |
+| Windows at night, census | The 260 windows `dimensional.py` sets back outdoors, against the window runs: 12 dark before, 2 after (V44, a shading band). On the 58 outdoor pages 612 windows to 654, 17,297 lit texels to 22,785, 2,884 window runs to 3,842 (every page; no window lost or shrunk). Each new or grown window looked at in crops of its page (before / after). |
+| GBA ROM | Unchanged, sha256 `f214735b...3387`. |
+| Python tests | 1399 passed, 1 skipped. |
+| V29 before/after, Linux 1920x1080, both cameras, 12:00 | Sootopolis (9,8), Lilycove's motel (37,26), the Battle Dome (19,20), Route 113's workshop (33,7): 8 pairs. |
+| V32 before/after, Linux 1920x1080, 22:00 | Slateport (21,46) and (5,21), Mauville's Game Corner (8,16, both cameras), Lilycove's department store (27,9), Sootopolis (23,7, both cameras) and (55,7), Verdanturf (6,17), Petalburg, Battle Frontier east (22,53): 11 pairs. |
+| V43 before/after, Linux | Rustboro's Gym sign from (23,20): its last line ("The ROCK-loving honors student!") gone while the game waits, with the handoff's build on screen (two runs); START > SAVE: the prompt missing, then shown with the save info and YES / NO. |
+| Windows exe under Wine, before/after | Lilycove and Slateport's market, both cameras, in the evening (Wine's clock), against `native-wip-20261012-2`'s exe: the department store's windows lit. |
+| Players menu in 3D (V42) and multiplayer | native-trade-3d-handoff (2 Linux 3D clients) and native-trade-wine3d-handoff (2 clients of the handoff's Windows exe under Wine): the trade screens over the 3D field, trade applied (48.7 / 49.7 s from the first confirmation), back-out, restart, store intact; native-checkpoint-3d-15 (2 Linux 3D clients): enrol 1.45/1.61 s, saves 1.41-1.71 s, restart, live recovery 40.6 s, store intact. |
+| With the integration (trial: `7a98bd4a5` merged with the handoff in a scratch worktree, not a branch, removed) | `git merge-tree`: no conflict. GBA ROM byte-identical. TEST build: 10 battles drawn in 3D (Battle Frontier east, Jagged Pass, Lilycove, Mauville, Meteor Falls, Route 113, Route 119, Slateport, Sootopolis, Victory Road; Lilycove and Sootopolis also at 22:00); Sky Pillar's four floors drawn in 2D - the battle frame's layout id against the snapshot's (V46) - and in 3D with V46's line in `battle_capture.c` (a scratch change on the trial: 1F, 3F, 5F, and the top with the rubble standing round Rayquaza; Mauville unchanged); Sky Pillar's top in the field: the rubble standing (both cameras; flat on the graphics branch alone); the Gym sign with the native UI on (its box) and off (the game's box). |
+
+Not seen yet: any of it on a graphics card (V39).

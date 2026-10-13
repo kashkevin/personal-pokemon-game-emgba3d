@@ -356,6 +356,21 @@ Software OpenGL here.
 | The Players menu over the 3D field (V42, the UI session's U11) | Works in multiplayer: native-trade-3d-u11-after (2 Linux 3D clients of the final build): the trade screens over the 3D field, the trade applied, back-out, restart, store check; before the fix the same proof's screens showed only the field | Works in multiplayer: native-trade-wine3d-u11 (2 Windows 3D clients of the checkpoint's exe under Wine): the same | `main.c`; GBA ROM unchanged. |
 | Multiplayer with the new build | Works in multiplayer: native-trade-3d-u11-after (the final Linux 3D build, 2 clients: enrol, trade through the Players menu, back-out, restart, store intact); native-checkpoint-3d-14 with the build before the menu fix (2 clients: enrol, saves 1.54-1.55 s, restart, live recovery 40.9 s); native-trade-7 with the 2D build | Works in multiplayer: native-trade-wine3d-u11 (2 Windows 3D clients under Wine: enrol, trade, back-out, restart, store intact) | |
 
+### Graphics handoff: building heights, windows at night, the message box (engine `graphics-handoff-20261012`)
+
+The owner's request of 2026-10-12: V29 and V32 finished before the integration, everything
+approved kept. Details, commits, merge notes and rollback: `docs/graphics-handoff.md`. Software
+OpenGL here.
+
+| Item | Linux | Windows (Wine) | Notes |
+| --- | --- | --- | --- |
+| Building heights (V29): Sootopolis's 11 towers, the Cove Lily Motel, the Battle Dome, Route 113's glass workshop | Visually renders: before/after (native-wip-20261012-2's build against the handoff's), the four places, both cameras | Not run (the same data: one generator for both builds) | 98 of 98 automatic models exact against their drawing; `HeightTests`. V45: the Battle Dome's curved ends. |
+| Windows at night (V32) | Visually renders: before/after at 22:00 - Slateport (2 places), Mauville's Game Corner (both cameras), Lilycove's department store, Sootopolis (2 places, both cameras at one), Verdanturf, Petalburg, the Battle Frontier's lounges | Visually renders: Lilycove and Slateport's market in the evening, both cameras, against native-wip-20261012-2's exe | 612 to 654 windows outdoors; of 260 recessed windows 2 dark (V44, not windows). |
+| The message box stays in 3D (V43, the UI session's U12) | Works in gameplay: Rustboro's Gym sign, its last line on screen while the game waits (twice); START > SAVE, the prompt with YES / NO; before: both missing | Not run | `scene_snapshot.c`. |
+| The Players menu over the 3D field (V42) | Works in multiplayer: native-trade-3d-handoff (2 Linux 3D clients of the handoff's build: trade screens over the 3D field, trade, back-out, restart, store check) | Works in multiplayer: native-trade-wine3d-handoff (2 clients of the handoff's Windows exe under Wine: the same) | Kept. |
+| Multiplayer with the handoff's build | Works in multiplayer: native-checkpoint-3d-15 (2 Linux 3D clients: enrol 1.45/1.61 s, saves 1.41-1.71 s, restart, live recovery 40.6 s, store intact) | Works in multiplayer: native-trade-wine3d-handoff | |
+| With the integration (trial merge of `7a98bd4a5` and the handoff, scratch, not a branch) | Visually renders (its TEST build; its GBA ROM byte-identical): 10 battles in 3D in towns, routes and caves (day and night); Sky Pillar's rubble standing on its top (both cameras); the Gym sign with the native UI on (its box) and off (the game's box) | Not run | Sky Pillar's battles drawn in 2D: the battle frame names the map's own layout, the field the switched one (V46); with the one-line fix in `battle_capture.c` (a scratch change on the trial) all four Sky Pillar battles drawn in 3D, the rubble standing round Rayquaza. |
+
 ## Decision pending - owner to confirm: personal vs shared wild spawns
 
 - Earlier owner decision (2026-10-09): visible wild spawns are **personal**, and
