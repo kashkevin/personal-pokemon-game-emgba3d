@@ -294,7 +294,9 @@ class WorldServer:
         from .wagers import Wagers
         if store is not None:
             world_path = store.path.with_name(store.path.name + ".shared-world.sqlite3")
-            self.shared_world = SharedWorld(world_path, store.metadata.world_id)
+            from .outbreaks import load_outbreak_settings
+            self.shared_world = SharedWorld(world_path, store.metadata.world_id, outbreak_settings=load_outbreak_settings(
+                store.path.with_name(store.path.name + ".outbreaks.json")))
             self.friendships = FriendshipStore(store.path.with_name(store.path.name + ".friendships.sqlite3"),
                                                store.metadata.world_id)
             self.wagers = Wagers(store.path.with_name(store.path.name + ".wagers.sqlite3"), store.metadata.world_id)
@@ -533,6 +535,7 @@ class WorldServer:
             # Admission has no await between checking and claiming the lease.
             self.sessions[session.player_id] = session
             self.shared_world.set_active_players(len(self.sessions))
+            self.shared_world.player_connected(session.player_id)
             welcome = {
                 "type": "welcome", "protocol": PROTOCOL_VERSION,
                 "build_id": self.config.build_id, "ruleset_id": self.config.ruleset_id,
@@ -1143,6 +1146,8 @@ class WorldServer:
         base = {"type": "world", "protocol": PROTOCOL_VERSION, "world_seq": self.world_seq,
                 "players": players, "clock": world.clock_view(), "event": world.event_view(),
                 "notice": world.notice_view()}
+        # Shared wild Pokemon (protocol 3): each game receives the slots of the
+        # map it stands on, with its own "mine"/"busy" view of every claim.
         self._last_clock_broadcast = asyncio.get_running_loop().time()
         for session in tuple(self.sessions.values()):
             # Each game receives only its own next wallet adjustment (wagers)
@@ -1153,8 +1158,13 @@ class WorldServer:
                     wallet = self.wagers.next_adjustment(session.player_id, session.presence.get("wallet_seq"))
                 except Exception:  # noqa: BLE001 - money waits; the world view still flows
                     wallet = None
+            try:
+                spawns = world.spawn_view(session.player_id, session.presence)
+            except Exception:  # noqa: BLE001 - a spawn fault never stops the world view
+                spawns = None
             session.outbox.put_world(encode_message({**base, "wallet": wallet,
-                                                     "teammate": self._teammate(session.player_id)}))
+                                                     "teammate": self._teammate(session.player_id),
+                                                     "spawns": spawns}))
 
     def _progression_level(self) -> int:
         """Average of each connected player's strongest party level."""
@@ -1203,6 +1213,12 @@ class WorldServer:
                 return
             if kind == "appearance_get":
                 self._world_reply(session, request, result={"appearance": world.appearance(session.player_id)})
+                return
+            if kind == "spawn_action":
+                outcome = world.spawn_action(session.player_id, request["action"], request["spawn_id"],
+                                             request["result"])
+                self._world_reply(session, request, result={"outcome": outcome, "seq": request["seq"]})
+                self._broadcast_world()
                 return
             if kind == "friendship_get":
                 friends = self.friendships.view_for(session.player_id, list(self.sessions))
@@ -1485,6 +1501,15 @@ class WorldServer:
                         "session_epoch": session.session_epoch, "nonce": session.ping_nonce,
                     })
             if self.shared_world.tick_events(len(self.sessions), self._progression_level):
+                changed = True
+            presences = {player_id: session.presence for player_id, session in self.sessions.items()
+                         if not session.closed}
+            try:
+                if self.shared_world.tick_spawns(presences, self._progression_level):
+                    changed = True
+            except Exception:  # noqa: BLE001 - shared spawns never stop the host loop
+                pass
+            if self.shared_world.tick_event_claim(presences):
                 changed = True
             # Online-together friendship time (small, daily capped).
             mono = time.monotonic()

@@ -84,6 +84,19 @@ class SharedWorldTests(unittest.TestCase):
             self.world._clock.seconds = hour * 3600
             self.assertEqual(self.world.time_of_day(), name)
 
+    def test_time_of_day_follows_the_games_hours(self):
+        # The engine's Gen 6 hours (include/constants/rtc.h): morning 4-10,
+        # day 11-17, evening 18-20, night 21-3. The host once started the
+        # evening (and the night weights of shared wild Pokemon) at 17.
+        game = {hour: "night" for hour in range(24)}
+        game.update({hour: "morning" for hour in range(4, 11)})
+        game.update({hour: "day" for hour in range(11, 18)})
+        game.update({hour: "evening" for hour in range(18, 21)})
+        for hour, name in game.items():
+            self.world._clock.seconds = 3 * 86400 + hour * 3600 + 1799
+            self.assertEqual(self.world.time_of_day(), name, hour)
+            self.assertEqual(self.world._night(), name in ("evening", "night"), hour)
+
     def test_world_identity_is_bound(self):
         self.world.close()
         with self.assertRaises(SharedWorldError):
@@ -139,6 +152,115 @@ class SharedWorldTests(unittest.TestCase):
         self.assertEqual(view["seconds_left"], BALANCE.event_duration_seconds)
         self.assertIn("near Route 101", self.world.notice_view()["text"])
 
+    def test_event_timer_pauses_while_nobody_is_online(self):
+        self.world.set_active_players(1)
+        event = self.world.spawn_event(progression_level=20, category="rare")
+        self.assertIsNotNone(event)
+        self.world.tick_events(1, lambda: 20)
+        self.clock.now += 60  # online: counts down
+        self.world.tick_events(1, lambda: 20)
+        left_online = self.world.event_view()["seconds_left"]
+        self.world.set_active_players(0)  # the last player leaves (server calls this at the moment)
+        self.clock.now += 3600  # an hour with nobody online
+        self.world.tick_events(0, lambda: 20)
+        self.world.tick_events(0, lambda: 20)
+        self.assertEqual(self.world.event_view()["seconds_left"], left_online)
+        self.world.set_active_players(1)
+        self.clock.now += 10
+        self.world.tick_events(1, lambda: 20)
+        self.assertEqual(self.world.event_view()["seconds_left"], left_online - 10)
+
+    def test_presence_transitions_between_ticks_are_counted_exactly(self):
+        # Phase 11 fix: the pause starts when the last player leaves and ends
+        # when one joins, not at the next tick.
+        self.world.set_active_players(1)
+        self.world.spawn_event(progression_level=20, category="rare")
+        start = self.world.event_view()["seconds_left"]
+        self.world.tick_events(1, lambda: 20)
+        self.clock.now += 5            # 5 s online
+        self.world.set_active_players(0)
+        self.clock.now += 5            # 5 s offline, then a tick sees nobody
+        self.world.tick_events(0, lambda: 20)
+        self.clock.now += 5            # 5 s more offline
+        self.world.set_active_players(1)
+        self.clock.now += 5            # 5 s online, then a tick sees one player
+        self.world.tick_events(1, lambda: 20)
+        self.assertEqual(self.world.event_view()["seconds_left"], start - 10)
+        self.assertAlmostEqual(self.world.active_seconds(), 10.0)
+
+    def test_tick_reporting_presence_without_set_active_players_still_pauses(self):
+        self.world.tick_events(1, lambda: 20)  # safety net starts active time here
+        self.world.spawn_event(progression_level=20, category="rare")
+        start = self.world.event_view()["seconds_left"]
+        self.clock.now += 30
+        self.world.tick_events(0, lambda: 20)  # nobody online from here
+        self.clock.now += 900
+        self.world.tick_events(0, lambda: 20)
+        self.assertEqual(self.world.event_view()["seconds_left"], start - 30)
+
+    def test_restart_keeps_remaining_time_and_scheduler_wait_with_nobody_online(self):
+        self.world.set_active_players(1)
+        self.world.tick_events(1, lambda: 20)
+        self.clock.now += 20
+        wait = self.world._next_event_at - self.world.active_seconds()
+        self.world.set_active_players(0)
+        self.world.close()
+        self.clock.now += 86400  # host down for a day: nothing ages
+        self.world = self.open()
+        self.assertAlmostEqual(self.world._next_event_at - self.world.active_seconds(), wait, places=3)
+        self.world.set_active_players(1)
+        self.clock.now += wait - 1
+        self.assertFalse(self.world.tick_events(1, lambda: 20))
+        self.clock.now += 2
+        self.assertTrue(self.world.tick_events(1, lambda: 20))
+        self.assertIsNotNone(self.world.event_view())
+
+    def test_restart_keeps_the_claim_so_nothing_is_caught_twice(self):
+        a, b = str(uuid4()), str(uuid4())
+        self.world.set_active_players(2)
+        event_id = self.world.spawn_event(progression_level=20, category="rare")["event_id"]
+        self.assertEqual(self.world.claim_event(a, event_id), "granted")
+        self.world.close()  # host restarts while A is in the battle
+        self.world = self.open()
+        self.assertEqual(self.world.event_view()["claimant"], a)
+        self.world.set_active_players(1)  # B is back first
+        self.assertEqual(self.world.claim_event(b, event_id), "busy")
+        self.assertEqual(self.world.event_result(a, event_id, "caught", "Alice"), "consumed")
+        self.assertEqual(self.world.claim_event(b, event_id), "gone")
+
+    def test_restored_claim_is_released_after_its_grace_in_active_time(self):
+        a, b = str(uuid4()), str(uuid4())
+        self.world.set_active_players(2)
+        event_id = self.world.spawn_event(progression_level=20, category="rare")["event_id"]
+        self.world.claim_event(a, event_id)
+        self.world.close()
+        self.world = self.open()
+        self.clock.now += 10 * BALANCE.event_claim_grace_seconds  # nobody online: grace waits
+        self.world.tick_events(0, lambda: 20)
+        self.assertEqual(self.world.claim_event(b, event_id), "busy")
+        self.world.set_active_players(1)
+        self.clock.now += BALANCE.event_claim_grace_seconds + 1
+        self.assertTrue(self.world.tick_events(1, lambda: 20))
+        self.assertEqual(self.world.claim_event(b, event_id), "granted")
+
+    def test_older_event_records_load_safely(self):
+        import json
+        record = {"event_id": 7, "category": "rare", "species": 359, "name": "ABSOL", "level": 30,
+                  "shiny": False, "mega": False, "held_item": 0, "perfect_ivs": 1, "map_group": 0,
+                  "map_number": 16, "x": 10, "y": 7, "place": "Route 101", "reminded": [],
+                  "expires": 123456789.0, "remaining": 100}
+        self.world.close()
+        import sqlite3
+        db = sqlite3.connect(str(self.path))
+        db.execute("INSERT INTO events VALUES (?, ?, 'active', NULL, 0)", (7, json.dumps(record)))
+        db.commit()
+        db.close()
+        self.world = self.open()
+        view = self.world.event_view()
+        self.assertEqual(view["event_id"], 7)
+        self.assertEqual(view["seconds_left"], 100)
+        self.assertIsNone(view["claimant"])
+
     def test_no_event_spawns_while_nobody_is_online(self):
         self.clock.now += BALANCE.event_first_delay[1] + 1
         self.assertFalse(self.world.tick_events(0, lambda: 12))
@@ -166,6 +288,7 @@ class SharedWorldTests(unittest.TestCase):
 
     def test_disconnected_claimant_releases_after_grace(self):
         a, b = str(uuid4()), str(uuid4())
+        self.world.set_active_players(1)  # B is still online, so the grace counts
         event_id = self.world.spawn_event(progression_level=20, category="rare")["event_id"]
         self.world.claim_event(a, event_id)
         self.world.player_disconnected(a)
@@ -174,27 +297,123 @@ class SharedWorldTests(unittest.TestCase):
         self.assertTrue(self.world.tick_events(1, lambda: 20))
         self.assertEqual(self.world.claim_event(b, event_id), "granted")
 
+    # Audit 2026-10-13 (KNOWN_ISSUES M16, M20)
+    def test_a_claimant_who_reconnects_in_its_grace_keeps_the_event(self):
+        a, b = str(uuid4()), str(uuid4())
+        self.world.set_active_players(1)
+        event_id = self.world.spawn_event(progression_level=20, category="rare")["event_id"]
+        self.world.claim_event(a, event_id)
+        self.world.player_disconnected(a)
+        self.clock.now += BALANCE.event_claim_grace_seconds - 5
+        self.world.player_connected(a)  # back in time; the battle goes on
+        self.clock.now += 5 * BALANCE.event_claim_grace_seconds  # still within the event's 15 minutes
+        self.world.tick_events(2, lambda: 20)
+        self.assertEqual(self.world.claim_event(b, event_id), "busy")
+        self.assertEqual(self.world.event_result(a, event_id, "caught", "Alice"), "consumed")
+
+    def test_a_claim_is_durable_at_once(self):
+        a, b = str(uuid4()), str(uuid4())
+        self.world.set_active_players(2)
+        event_id = self.world.spawn_event(progression_level=20, category="rare")["event_id"]
+        self.assertEqual(self.world.claim_event(a, event_id), "granted")
+        # The host crashes right after the claim (no close(), no 30 s persist).
+        crashed = self.open()
+        try:
+            self.assertEqual(crashed.event_view()["claimant"], a)
+            crashed.set_active_players(1)
+            self.assertEqual(crashed.claim_event(b, event_id), "busy")
+        finally:
+            crashed._db.close()
+            crashed._db = None
+
+    def test_a_late_catch_from_the_last_claimant_is_not_caught_again(self):
+        a, b = str(uuid4()), str(uuid4())
+        self.world.set_active_players(1)
+        event_id = self.world.spawn_event(progression_level=20, category="rare")["event_id"]
+        self.world.claim_event(a, event_id)
+        self.world.player_disconnected(a)
+        self.clock.now += BALANCE.event_claim_grace_seconds + 1
+        self.world.tick_events(1, lambda: 20)
+        self.assertIsNone(self.world.event_view()["claimant"])  # the grace ran out mid-battle
+        self.world.player_connected(a)
+        self.assertEqual(self.world.event_result(b, event_id, "caught", "Bob"), "not_claimant")
+        self.assertEqual(self.world.event_result(a, event_id, "caught", "Alice"), "consumed")
+        self.assertIsNone(self.world.event_view())
+        self.assertEqual(self.world.claim_event(b, event_id), "gone")
+
+    def test_a_late_catch_while_another_player_battles_it_is_refused(self):
+        a, b = str(uuid4()), str(uuid4())
+        self.world.set_active_players(1)
+        event_id = self.world.spawn_event(progression_level=20, category="rare")["event_id"]
+        self.world.claim_event(a, event_id)
+        self.world.player_disconnected(a)
+        self.clock.now += BALANCE.event_claim_grace_seconds + 1
+        self.world.tick_events(1, lambda: 20)
+        self.assertEqual(self.world.claim_event(b, event_id), "granted")
+        self.assertEqual(self.world.event_result(a, event_id, "caught", "Alice"), "not_claimant")
+        self.assertEqual(self.world.event_view()["claimant"], b)
+
+    def test_the_last_claimant_survives_a_restart(self):
+        a = str(uuid4())
+        self.world.set_active_players(1)
+        event_id = self.world.spawn_event(progression_level=20, category="rare")["event_id"]
+        self.world.claim_event(a, event_id)
+        self.assertEqual(self.world.event_result(a, event_id, "ran", "Alice"), "released")
+        self.world.close()
+        self.world = self.open()
+        self.assertIsNone(self.world.event_view()["claimant"])
+        self.assertEqual(self.world.event_result(a, event_id, "caught", "Alice"), "consumed")
+
+    def test_a_connected_claimant_on_another_map_lets_the_event_go(self):
+        a, b = str(uuid4()), str(uuid4())
+        self.world.set_active_players(2)
+        event = self.world.spawn_event(progression_level=20, category="rare")
+        event_id = event["event_id"]
+        here = {"map_group": event["map_group"], "map_number": event["map_number"]}
+        away = {"map_group": event["map_group"], "map_number": event["map_number"] + 1}
+        self.world.claim_event(a, event_id)
+        self.assertFalse(self.world.tick_event_claim({a: here, b: here}))
+        self.assertFalse(self.world.tick_event_claim({a: away, b: here}))  # the game was reset elsewhere
+        self.clock.now += BALANCE.event_claim_away_seconds - 1
+        self.assertFalse(self.world.tick_event_claim({a: away, b: here}))
+        self.assertEqual(self.world.claim_event(b, event_id), "busy")
+        self.clock.now += 2
+        self.assertTrue(self.world.tick_event_claim({a: away, b: here}))
+        self.assertEqual(self.world.claim_event(b, event_id), "granted")
+        # Coming back resets the count; a disconnected claimant is left to its grace.
+        self.assertFalse(self.world.tick_event_claim({b: away}))
+        self.clock.now += BALANCE.event_claim_away_seconds // 2
+        self.assertFalse(self.world.tick_event_claim({b: here}))
+        self.clock.now += BALANCE.event_claim_away_seconds
+        self.assertFalse(self.world.tick_event_claim({b: away}))
+        self.assertEqual(self.world.event_view()["claimant"], b)
+        self.clock.now += 10 * BALANCE.event_claim_away_seconds
+        self.assertFalse(self.world.tick_event_claim({}))
+        self.assertEqual(self.world.event_view()["claimant"], b)
+
     def test_event_expires_with_notice_and_survives_restart_with_remaining_time(self):
+        self.world.set_active_players(1)
         event_id = self.world.spawn_event(progression_level=40, category="legendary")["event_id"]
         self.clock.now += 300
         left = self.world.event_view()["seconds_left"]
-        self.world._save_event("active")
-        self.world.close()
+        self.world.close()  # close() saves the remaining time itself
         self.clock.now += 5000  # host offline: event time does not pass
         self.world = self.open()
         self.assertEqual(self.world.event_view()["event_id"], event_id)
         self.assertEqual(self.world.event_view()["seconds_left"], left)
+        self.world.set_active_players(1)
         self.clock.now += left + 1
         self.assertTrue(self.world.tick_events(1, lambda: 40))
         self.assertIsNone(self.world.event_view())
         self.assertIn("has disappeared", self.world.notice_view()["text"])
 
     def test_reminders_before_expiry(self):
+        self.world.set_active_players(1)
         self.world.spawn_event(progression_level=20, category="rare")
         self.world.notice_view()
         self.clock.now += BALANCE.notice_seconds + 1
         self.assertIsNone(self.world.notice_view())
-        self.clock.now = self.world._event["expires"] - 299
+        self.clock.now += self.world.event_view()["seconds_left"] - 299
         self.assertTrue(self.world.tick_events(1, lambda: 20))
         self.assertIn("left", self.world.notice_view()["text"])
 
@@ -285,3 +504,115 @@ class ProtocolTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SharedWorldSpawnTests(unittest.TestCase):
+    """Phase 3: the shared world owns the spawn boards, their active-time
+    clock and their persistence."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.path = Path(self.temp.name) / "world.sqlite3.shared-world.sqlite3"
+        self.clock = FakeClock()
+        self.world = self.open()
+        from emerald_multiplayer.spawn_director import SpawnDirector  # noqa: F401 - import check
+        tiles = self.world.spawn_director.habitat("0.16")
+        xs = sorted({x for x, _ in tiles})
+        ys = sorted({y for _, y in tiles})
+        self.spot = (xs[len(xs) // 2], ys[len(ys) // 2])
+
+    def tearDown(self):
+        self.world.close()
+        self.temp.cleanup()
+
+    def open(self):
+        return SharedWorld(self.path, WORLD, clock=self.clock, rng=random.Random(3), event_catalogue=CATALOGUE,
+                           locations=LOCATIONS, spawn_rng=random.Random(11))
+
+    def presences(self, *players):
+        return {player: {"map_group": 0, "map_number": 16, "x": self.spot[0] + i, "y": self.spot[1],
+                         "activity": "overworld"} for i, player in enumerate(players)}
+
+    def run_for(self, seconds, presences):
+        for _ in range(seconds):
+            self.clock.now += 1
+            self.world.tick_spawns(presences)
+
+    def test_nothing_spawns_or_ages_while_nobody_is_online(self):
+        self.assertFalse(self.world.tick_spawns(self.presences("a")))
+        self.assertEqual(self.world.spawn_boards.keys(), [])
+
+    def test_players_on_one_map_see_the_same_wild_pokemon(self):
+        a, b = str(uuid4()), str(uuid4())
+        self.world.set_active_players(2)
+        presences = self.presences(a, b)
+        self.run_for(30, presences)
+        view_a = self.world.spawn_view(a, presences[a])
+        view_b = self.world.spawn_view(b, presences[b])
+        self.assertGreater(len(view_a["slots"]), 0)
+        self.assertEqual(view_a, view_b)
+
+    def test_first_claim_wins_and_a_catch_is_durable_at_once(self):
+        a, b = str(uuid4()), str(uuid4())
+        self.world.set_active_players(2)
+        presences = self.presences(a, b)
+        self.run_for(5, presences)
+        spawn_id = self.world.spawn_view(a, presences[a])["slots"][0]["spawn_id"]
+        self.assertEqual(self.world.spawn_action(a, "claim", spawn_id, None), "granted")
+        self.assertEqual(self.world.spawn_action(b, "claim", spawn_id, None), "busy")
+        self.assertEqual(self.world.spawn_action(a, "result", spawn_id, "caught"), "consumed")
+        # A crash right after the catch (no close()): the record is already saved.
+        crashed = SharedWorld(self.path, WORLD, clock=self.clock, rng=random.Random(3), event_catalogue=CATALOGUE,
+                              locations=LOCATIONS, spawn_rng=random.Random(5))
+        try:
+            self.assertEqual(crashed.spawn_action(b, "claim", spawn_id, None), "gone")
+        finally:
+            crashed._db.close()
+            crashed._db = None
+
+    def test_restart_keeps_pokemon_their_remaining_time_and_claims(self):
+        a = str(uuid4())
+        self.world.set_active_players(1)
+        presences = self.presences(a)
+        self.run_for(10, presences)
+        view = self.world.spawn_view(a, presences[a])
+        spawn_id = view["slots"][0]["spawn_id"]
+        self.world.spawn_action(a, "claim", spawn_id, None)
+        self.world.set_active_players(0)
+        self.world.close()
+        self.clock.now += 86400  # the host is down for a day: nothing ages
+        self.world = self.open()
+        again = self.world.spawn_view(a, presences[a])
+        self.assertEqual([(s["spawn_id"], s["species"], s["personality"], s["x"], s["y"]) for s in again["slots"]],
+                         [(s["spawn_id"], s["species"], s["personality"], s["x"], s["y"]) for s in view["slots"]])
+        before = {s["spawn_id"]: s["seconds_left"] for s in view["slots"]}
+        for slot in again["slots"]:
+            self.assertEqual(slot["seconds_left"], before[slot["spawn_id"]])
+        self.assertTrue(next(s for s in again["slots"] if s["spawn_id"] == spawn_id)["mine"])
+
+    def test_zero_player_period_freezes_spawn_timers(self):
+        a = str(uuid4())
+        self.world.set_active_players(1)
+        presences = self.presences(a)
+        self.run_for(10, presences)
+        left = {s["spawn_id"]: s["seconds_left"] for s in self.world.spawn_view(a, presences[a])["slots"]}
+        self.world.set_active_players(0)
+        self.clock.now += 7200
+        self.world.tick_spawns({})
+        now = {s["spawn_id"]: s["seconds_left"] for s in self.world.spawn_view(a, presences[a])["slots"]}
+        self.assertEqual(now, left)
+
+    def test_disconnected_claimant_keeps_the_pokemon_and_reports_once(self):
+        a, b = str(uuid4()), str(uuid4())
+        self.world.set_active_players(2)
+        presences = self.presences(a, b)
+        self.run_for(5, presences)
+        spawn_id = self.world.spawn_view(a, presences[a])["slots"][0]["spawn_id"]
+        self.world.spawn_action(a, "claim", spawn_id, None)
+        self.world.player_disconnected(a)
+        self.world.set_active_players(1)
+        self.run_for(60, {b: presences[b]})
+        self.assertEqual(self.world.spawn_action(b, "claim", spawn_id, None), "busy")
+        self.world.player_connected(a)
+        self.assertEqual(self.world.spawn_action(a, "result", spawn_id, "caught"), "consumed")
+        self.assertEqual(self.world.spawn_action(a, "result", spawn_id, "caught"), "gone")

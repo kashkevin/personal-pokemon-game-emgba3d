@@ -19,7 +19,9 @@ DISPLAY=:99 /home/claude/venv312/bin/python -m pytest      # whole suite
 * Covers: protocol encoding, TLS transport, sessions and identity, presence,
   trading (offers, confirmation, effects, recovery), battles (admission,
   arbitration, journal, recovery), teams, world clock/events/claims, friendship and
-  Lucky Trades, wagers, co-op Gyms, saves and checkpoints, local reset, launcher.
+  Lucky Trades, wagers, co-op Gyms, saves and checkpoints, local reset, launcher, the
+  shared wild spawns and mass outbreaks (`test_shared_spawns.py`, `test_spawn_director.py`,
+  `test_shared_world.py`, `test_world_spawns_companion.py`, `test_outbreaks.py`).
 * **Result 2026-10-10, launcher migration** (`claude/native-pc` `4f4691e` plus these
   documents): 1388 tests collected, exit code 0 (no failures, no errors), about 9 min.
   With `-q` on the command line as well as in `pytest.ini` pytest prints no summary
@@ -47,6 +49,73 @@ re-armed one keeps running (N25).
 `1579e7fd8`, with the battle branch's crash fixes, XInput loaded at run time and the
 save-command query): 1063 checks and the bridge's 4186 checks, 0 failures.
 
+### U13 regression (engine `d389ca3443`)
+
+```sh
+make -f Makefile_pc NATIVE_LINUX=1 DIORAMA=1 check-line-break   # --selftest-line-break
+```
+
+The eight trainer defeat lines a little wider than the battle message box (the native UI
+session's scan: Edward, Maura, Melissa, Alberto, Lila's rematch page, Santiago, Mitchell, the
+secret base trainer type 4), as trainer A's and B's line through the real
+`BattleStringExpandPlaceholders`, plus a line that fits: 54 checks pass; without the guard of
+`ad3995ba64` the test crashes at Edward's line (2026-10-13). In the game (cloud harness, not
+committed): Psychic Edward and Triathlete Alyssa's two-trainer battle on Route 110, native 3D
+build, new menus on, won by mashing A: "You got P960 for winning!", back on Route 110, no crash.
+
+
+### Expansion Phases 2 and 11 (engine `51bfd74d41`, `41f3cc2d27`)
+
+```sh
+make -f Makefile_pc NATIVE_LINUX=1 DIORAMA=1 check-wild-weather   # --selftest-wild-weather
+make -f Makefile_pc NATIVE_LINUX=1 DIORAMA=1 check-clock          # --selftest-clock
+PYTHONPATH=src python scripts/multiplayer/check_engine_spawn_weights.py \
+    --game ../engine-graphics/pokeemerald-mp-diorama               # engine <-> host weights
+```
+
+`check-wild-weather` runs the randomized wild Pokémon's weather table through the game's own
+code on real map headers (Routes 101, 119, 111, Granite Cave 1F): the clear-weather weights;
+the owner's table for all 20 weathers x 312 families x 4 habitats x day and night; no weather
+underground (also as the same 400 Pokémon in rain and clear); the game's own roll
+(`MPWild_RandomizeSpecies`, weather from the weather engine, time of day from the clock)
+follows these weights for land, surfing, fishing and Rock Smash; the Battle Pike and Pyramid
+keep their own Pokémon. **2026-10-13**: 137 checks, 0 failed; a mutation (snow boosting Water,
+weather read underground) fails 7.
+
+`check_engine_spawn_weights.py` runs the game's `--dump-wild-weights` for every map of the
+shared spawn catalogue and compares the family and member tables, the land weights of each
+map for both times of day and all 20 weathers (923,520 values) and the clock's time of day for
+every hour with the host's `SpawnDirector` and `SharedWorld`. **2026-10-13**: 74 maps (the 31
+Kanto maps are not in this game), 3999 checks, 0 differences after the host fix of KNOWN_ISSUES
+G7 (before: hour 17 differed); deliberate host mutations (sandstorm without Rock, the old
+evening hour) are reported.
+
+`check-clock` drives the game's InitTimeBasedEvents/DoTimeBasedEvents and the world mailbox
+(the companion's record) through offline play, connecting with the world clock days ahead, a
+world day in two real hours, a real day while connected, the same day again, disconnecting
+and reconnecting to a clock behind (real time moved through the save's clock offset).
+**2026-10-13**: 45 checks, 0 failed: VAR_DAYS is always the real day, exactly one daily reset
+per real day, berries grow by the real minutes. With the Phase 11 branches of `src/clock.c`
+disabled 11 checks fail.
+
+### Expansion Phase 1: the permanent Exp. Share (engine `17e82d85ae`)
+
+```sh
+PYTHONPATH=src python scripts/multiplayer/native_exp_share_proof.py \
+    --game ../engine-graphics/pokeemerald-mp-diorama --save route101.sav \
+    --display :98 --output /private/multiplayer-proof/native-exp-share-N [--expect-no-share]
+```
+
+The native 3D game offline: the test save's lead (Wailord) walks up to an overworld wild
+Pokémon on Route 101 (found in the game's object table), wins with its first move; the party's
+experience and the battle's messages are read from memory. **2026-10-13**: native-exp-share-5
+passed (a wild Nidoran: Wailord +15, Gardevoir, not sent out and holding no Exp. Share, +7,
+"The rest of your team gained Exp. Points thanks to the Exp. Share!"); the same build with the
+change undone, `--expect-no-share`: native-exp-share-before-1 passed (Buneary: +30 and +0, no
+such message). Link battles: getexp gives nothing when BattleTypeAllowsExp is false (link, which
+covers PvP and co-op Gyms; Frontier; Safari; Battle Tower; Trainer Hill; e-Reader), and the
+link battle restores the personal party (`native_launcher_battle_proof.py` checks the party
+bytes); not re-run with this change.
 ## 3. GBA/native byte-layout parity
 
 ```sh
@@ -92,7 +161,27 @@ reference is reported as a failure).
 `make check` builds the expansion's test ROM and runs it headless in the bundled
 `tools/mgba/mgba-rom-test` (battle mechanics, Gen rules, Mega Evolution, abilities,
 items). It runs the GBA build, which shares all game logic with the native build.
-**Not run yet in this session** (scheduled for Milestone B).
+**Result 2026-10-13** (engine `claude/emeraldtogether-expansion` at `17e82d85ae`, 2 cores, log
+bounded and kept compressed): 5999 tests: 5491 passed, **45 failed**, 18 known failing (marked
+upstream), 15 assumptions failed, 421 to do, 9 expected failing; about 45 minutes.
+
+Triage against the base (`8c8c11ab2`, the unified game before the expansion work): the test ROM
+is built from the GBA objects plus `test/`; between the base and this commit `test/` is
+unchanged, no `TESTING` code changed, every engine change is `PORTABLE`-only or in PC-only files
+left out of the GBA build, and the GBA ROM is byte-identical (`f214735b...3387`) at every commit.
+So the test ROM's code is the base's and all 45 failures were there before the expansion work
+(the base itself was not run separately: no disk room for a second checkout). By origin:
+* 6 of the project's own tests (KNOWN_ISSUES G9): `test/multiplayer_battle_controller.c`
+  lines 39, 62, 95, 123, 156 (native controller validation) and `test/multiplayer_local_reset.c`
+  line 572 (Gen 6 personal shiny rolls in a static reset).
+* 39 upstream tests (KNOWN_ISSUES G10), mostly behaviour named for a later generation or
+  "Champions" rules under the project's GEN_6 profile (weather abilities "fail if overworld weather
+  is present (Gen9)", Sheer Cold Gen7+, Keen Eye/Illuminate Gen9+, Rapid Spin Gen 9+, Encore and
+  Mega Sol (Champions), Charge/Electromorphosis/Wind Power stacking), the experience of two
+  opponents (4156 vs 2771: the GEN_6 trainer multiplier x1.5), trainer slides and 2v1 messages,
+  Disguise/Air Balloon/Assurance, White Herb, Parting Shot, Sticky Web with Mirror Armor, Doodle,
+  Skill Swap, Chilly Reception, one AI score and one animation send-out. Not investigated one by
+  one here.
 
 ## 5. Native gameplay checks (scripted, Linux under Xvfb and Windows under Wine)
 
@@ -418,6 +507,71 @@ Continue (`scripts/multiplayer/native-launcher-multi-evidence.json`).
 | --- | --- | --- |
 | native-launcher-multi-1..9 | 4 Linux | Failed on the harness (timeouts, walks out of the grass, CPU with four games on two cores, a busy field during an enrollment walk) or on KNOWN_ISSUES M6 (fixed); multi-8 was stopped on purpose at 351 blocks with no failure |
 | native-launcher-multi-10 | 4 Linux, engine `1579e7fd8` | Pass in 152 min: 5545 routed blocks in 8391.6 s, seventeen party selections (three trainers sent out their sixth Pokemon, the host its second), team 1 won for all four, results screens, revision 2 for all four, normal close (exit 0 x4) twice, fresh Continue; 48316 key presses, no forced cleanup |
+
+Shared visible wild Pokémon (EmeraldTogether Phase 3; engine `a96cdf1c47`, app
+`8b7a689` and later): a real world server (in process), two real companions and two
+native games, each on its own X display with ordinary key presses (xdotool). The proof
+copies the test save and moves its strongest Pokémon to the front of the copy (the
+source save is never written). It reads what each game actually draws from the game's
+own spawn records ('g' frames: the spawn objects and their tiles) and compares them with
+the host's board.
+
+```sh
+PYTHONPATH=src python scripts/multiplayer/native_spawn_proof.py \
+    --game ../engine-graphics/pokeemerald-mp-diorama --rom ../engine-graphics/pokeemerald.gba \
+    --manifest manifest.json --save route101.sav --display :98 --display :97 \
+    --output <private>/multiplayer-proof/native-spawns-N --rejoin 1
+# --slow (default 1.5) stretches the waits for the 3D build on software OpenGL
+```
+
+Checks, in order: both games announce the spawn mailbox ('w') and the host enables
+shared spawns; both draw the host's Pokémon with the same spawn ids on the same tiles; a
+Pokémon the host walks is redrawn on its new tile by both; a shiny the host places in
+front of both players is drawn by both; both press A at the same moment: exactly one
+claim granted, the winner's game leaves the field for the battle, the other game's
+mailbox marks it busy and the game shows its message; the winner defeats it, the host
+removes it for everybody and neither game draws it any more; both still draw the same
+remaining Pokémon; with `--rejoin N` that client's companion restarts while its game
+runs, the game reconnects and announces its mailbox again, rejoins the host, and both
+games draw the same Pokémon again (`evidence.json` and screenshots in the output folder).
+
+| Run | Clients | Result |
+| --- | --- | --- |
+| native-spawns-1..5 | 2 Linux 3D | Run 1: both games crashed at boot (the spawn code ran before the save was loaded). Runs 2-5 failed on the harness (the players' turn, a full board for the shiny, the A press) and on an engine problem: the spawn objects were removed while the claim script locked the field. Both engine problems were fixed before the commit |
+| native-spawns-6 | 2 Linux 3D | The claim race passed (client 0 won); failed after the battle: the other game's message box stayed open (the harness now closes messages) |
+| native-spawns-7 | 2 Linux 3D | Every check up to the rejoin passed (client 1 won the race); the restarted companion refused the game's spawn record: KNOWN_ISSUES M8, fixed |
+| native-spawns-8 | 2 Linux 3D, engine `a96cdf1c47` | Pass: all 28 checks, including the rejoin |
+| native-spawns-9 | 2 Linux 3D, engine `de470ebc3d` (window and object-reserve fixes) | Pass: all 28 checks, including the rejoin; the games now also draw the host's Pokémon west and north of the players |
+| native-spawns-wine-1 | 2 Windows 3D exes of the package (`--wine`, one prefix each, `--slow 2.0`), engine `d389ca3443` | Pass: all 28 checks, including the rejoin |
+
+Multiplayer following Pokémon (EmeraldTogether Phase 5): `native_follower_proof.py`, the same
+set-up (the save's copy with its strongest Pokémon, Wailord, in front: it is also the follower).
+Checks: each game publishes its follower (species with its form, shiny and female flags,
+visible) and the host and the other game's inbound record carry exactly that; the players walk
+apart and both followers are drawn (screenshots); player 0 talks to player 1's follower, steps
+onto its tile (other players' objects do not block) and talks to player 1: nothing happens (no
+script, claim or battle; the game keeps running); player 1 claims a shared Pokémon the host
+places in front of it and battles it: player 0's game is told player 1 left the overworld and
+draws neither it nor its follower until it is back; every spawn a game draws is a host slot.
+
+```sh
+PYTHONPATH=src python scripts/multiplayer/native_follower_proof.py \
+    --game ../engine-graphics/pokeemerald-mp-diorama --rom ../engine-graphics/pokeemerald.gba \
+    --manifest manifest.json --save route101.sav --display :98 --display :97 \
+    --output <private>/multiplayer-proof/native-followers-N
+```
+
+| Run | Clients | Result |
+| --- | --- | --- |
+| native-followers-1..3 | 2 Linux 3D | Harness: the follower's flags were compared with a shininess computed from the save (the expansion also stores a shiny bit: the game's own flags are compared between the games now); a wild battle reports the player unavailable, not "battle"; the original lead's first move does not damage (the strongest-first copy is used now). Every follower check before the battle passed in run 3 |
+| native-followers-4 | 2 Linux 3D, with an extra guard in `field_control_avatar.c` | Pass |
+| native-followers-noguard-1 | 2 Linux 3D, the same without that guard | Pass: talking to other players' objects never reaches them (the position lookup skips them), so the guard was dropped |
+| native-followers-5 | 2 Linux 3D, engine `de470ebc3d` (final code) | Pass: all 16 checks |
+| native-followers-wine-1 | 2 Windows 3D exes of the package (`--wine`, one prefix each, `--slow 2.0`), engine `d389ca3443` | Pass: all 16 checks |
+
+Not covered: Windows clients (under Wine or on real hardware), two PCs over a network,
+3-4 players, a catch (the proof defeats the Pokémon; catching posts the same removing
+result), a disconnect during the battle.
 
 The Windows launcher package with a native runtime (no Windows computer here, so
 under Wine with a Windows Python; `docs/dependency-ledger.md` lists the exact

@@ -1,10 +1,13 @@
 """Host-owned shared-world state: the persistent accelerated world clock,
-customized trainer appearances, overworld notices and World Events.
+customized trainer appearances, overworld notices, World Events and the shared
+visible wild Pokemon (Phase 3: spawn_director.py, shared_spawns.py).
 
 Stored in ``<world.sqlite3>.shared-world.sqlite3`` beside the canonical world
 database. It is bound to the world id only (not to a ROM build), so a game
 update keeps the same clock, looks and event history. It never edits a save:
 World Event Pokemon are caught through the ordinary native capture code.
+
+Mass outbreaks (Phase 4: outbreaks.py) run on the same shared spawns.
 
 Owner decisions (Oct 9, 2026):
   * one shared world clock, running 12x real time (a world day every two real
@@ -33,6 +36,22 @@ DEFAULT_APPEARANCE = "0000000000000000"
 NOTICE_CHARS = 64  # two banner lines of at most 32 characters, joined by "|"
 LINE_CHARS = 32
 REMINDER_SECONDS = (600, 300, 60)
+# The game's own times of day (engine include/constants/rtc.h, OW_TIMES_OF_DAY =
+# GEN_6): while connected the game's clock is this world clock, and its wild
+# Pokemon use the night weights in the evening and at night, so the host's
+# shared spawns must use the same hours (scripts/multiplayer/
+# check_engine_spawn_weights.py compares them with the game).
+MORNING_HOURS, DAY_HOURS, EVENING_HOURS = range(4, 11), range(11, 18), range(18, 21)
+
+
+def time_of_day_for_hour(hour: int) -> str:
+    if hour in MORNING_HOURS:
+        return "morning"
+    if hour in DAY_HOURS:
+        return "day"
+    if hour in EVENING_HOURS:
+        return "evening"
+    return "night"
 _SCHEMA = (
     "CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
     "CREATE TABLE IF NOT EXISTS clock (id INTEGER PRIMARY KEY CHECK (id = 1), seconds INTEGER NOT NULL)",
@@ -73,12 +92,28 @@ class _Clock:
     running_since: float | None
 
 
+@dataclass
+class _ActiveTime:
+    """Seconds during which at least one player was connected (Phase 11).
+
+    Measured with the injected monotonic clock inside this process only. Every
+    timer deadline (World Events, claim grace, the event scheduler, shared
+    spawns) is kept in these units, so it stops exactly when the last player
+    leaves and resumes exactly when one returns. Absolute values are never
+    stored: saved records hold the remaining active duration instead, which
+    survives a host restart (a new process starts its own monotonic clock).
+    """
+    seconds: float = 0.0
+    running_since: float | None = None
+
+
 class SharedWorld:
     """Event-loop-owned; every mutation commits before returning."""
 
     def __init__(self, path: Path | str, world_id: str, *, clock: Callable[[], float] = time.monotonic,
                  rng: random.Random | None = None, event_catalogue: dict | None = None,
-                 locations: list | None = None):
+                 locations: list | None = None, spawn_catalogue: dict | None = None,
+                 spawn_rng: random.Random | None = None, spawn_tuning=None, outbreak_settings=None):
         self.path = Path(path)
         self.world_id = world_id
         self._now = clock
@@ -109,10 +144,23 @@ class SharedWorld:
         self.on_event_finished = None         # callback(participants, event_id) for friendship
         self.catalogue = event_catalogue if event_catalogue is not None else load_event_catalogue()
         self.locations = locations if locations is not None else self.catalogue.get("locations", [])
+        self._active_time = _ActiveTime()
         self._event: dict | None = None
         self._claim: dict | None = None
-        self._next_event_at = self._now() + self._rng.uniform(*BALANCE.event_first_delay)
+        # The player who held the event Pokemon last, and since when the
+        # connected claimant has been away from the event's map (active time).
+        self._last_claimant: str | None = None
+        self._claimant_away_since: float | None = None
+        saved_wait = self._kv("next_event_remaining", "")
+        try:
+            wait = max(0.0, float(saved_wait)) if saved_wait else None
+        except ValueError:
+            wait = None
+        if wait is None:
+            wait = self._rng.uniform(*BALANCE.event_first_delay)
+        self._next_event_at = self._active_now() + wait
         self._restore_event()
+        self._init_spawns(spawn_catalogue, spawn_rng, spawn_tuning, outbreak_settings)
 
     # ------------------------------------------------------------------ storage
     @contextmanager
@@ -137,8 +185,149 @@ class SharedWorld:
         if self._db is None:
             return
         self.persist_clock()
+        self.persist_timers()
         self._db.close()
         self._db = None
+
+    # ------------------------------------------------------------ active time
+    def _active_now(self) -> float:
+        value = self._active_time.seconds
+        if self._active_time.running_since is not None:
+            value += self._now() - self._active_time.running_since
+        return value
+
+    def active_seconds(self) -> float:
+        """Active (somebody online) seconds measured by this process."""
+        return self._active_now()
+
+    def persist_timers(self) -> None:
+        """Save every running deadline as a remaining active duration."""
+        if self._db is None:
+            return
+        with self._transaction():
+            self._set_kv("next_event_remaining", repr(max(0.0, self._next_event_at - self._active_now())))
+            self._save_spawns_locked()
+        if self._event is not None:
+            self._save_event("active")
+
+    # ------------------------------------------------------------ shared spawns
+    def _init_spawns(self, catalogue: dict | None, rng: random.Random | None, tuning, outbreak_settings) -> None:
+        from .outbreaks import DEFAULT_SETTINGS, Outbreaks
+        from .shared_spawns import SpawnBoards
+        from .spawn_director import DEFAULT_TUNING, SpawnDirector
+        if catalogue is None:
+            catalogue = load_spawn_catalogue()
+        self.spawns_enabled = bool(catalogue)
+        boards = None
+        saved = self._kv("spawns", "")
+        if saved and self.spawns_enabled:
+            try:
+                boards = SpawnBoards.from_state(json.loads(saved), self._active_now)
+            except (ValueError, KeyError, TypeError):
+                boards = None  # an unreadable record never blocks the world: start empty
+        if boards is None:
+            boards = SpawnBoards(self._active_now, int(self._kv("spawn_next_id", "1") or 1))
+        self.spawn_boards = boards
+        self.spawn_director = None
+        self.outbreaks = None
+        if not self.spawns_enabled:
+            return
+        rng = spawn_rng_or(rng)
+        self.spawn_director = SpawnDirector(catalogue, boards, rng=rng, clock=self._active_now,
+                                            tuning=tuning or DEFAULT_TUNING)
+        state = None
+        saved = self._kv("outbreaks", "")
+        if saved:
+            try:
+                state = json.loads(saved)
+            except ValueError:
+                state = None  # an unreadable record never blocks the world: schedule afresh
+        try:
+            self.outbreaks = Outbreaks(self.spawn_director, settings=outbreak_settings or DEFAULT_SETTINGS, rng=rng,
+                                       clock=self._active_now, notice=self.post_notice,
+                                       state=state if isinstance(state, dict) else None)
+        except (ValueError, KeyError, TypeError):
+            self.outbreaks = Outbreaks(self.spawn_director, settings=outbreak_settings or DEFAULT_SETTINGS, rng=rng,
+                                       clock=self._active_now, notice=self.post_notice)
+
+    def _save_spawns_locked(self) -> None:
+        """Inside a transaction: the boards and the outbreak scheduler, with
+        remaining durations only."""
+        if not getattr(self, "spawns_enabled", False):
+            return
+        self._set_kv("spawns", json.dumps(self.spawn_boards.to_state(), sort_keys=True, separators=(",", ":")))
+        self._set_kv("spawn_next_id", str(self.spawn_boards.next_id))
+        if self.outbreaks is not None:
+            self._set_kv("outbreaks", json.dumps(self.outbreaks.to_state(), sort_keys=True, separators=(",", ":")))
+
+    def save_spawns(self) -> None:
+        if self._db is None or not self.spawns_enabled:
+            return
+        with self._transaction():
+            self._save_spawns_locked()
+
+    def _night(self) -> bool:
+        return self.time_of_day() in ("evening", "night")
+
+    def spawn_outbreaks(self) -> dict[str, dict]:
+        """Map key -> the active mass outbreak (Phase 4, outbreaks.py)."""
+        return self.outbreaks.active() if self.outbreaks is not None else {}
+
+    def outbreak_view(self) -> dict | None:
+        return self.outbreaks.view() if self.outbreaks is not None else None
+
+    def tick_spawns(self, presences: dict[str, dict | None], progression: Callable[[], int] | None = None) -> bool:
+        """The outbreak scheduler, then one director step for every map with
+        players on it. Time only passes while somebody is online, so nothing
+        ages, starts or ends while the world is empty."""
+        if not self.spawns_enabled or self._active == 0:
+            return False
+        changed = False
+        live = {player: presence for player, presence in presences.items() if presence is not None}
+        if self.outbreaks is not None and self.outbreaks.tick(progression, night=self._night(), presences=live):
+            changed = True
+            self.save_spawns()  # an outbreak's start and end are durable at once
+        if self.spawn_director.update(presences, night=self._night(), outbreaks=self.spawn_outbreaks()):
+            changed = True
+        return changed
+
+    def spawn_view(self, player_id: str, presence: dict | None) -> dict | None:
+        if not self.spawns_enabled:
+            return None
+        return self.spawn_director.view(player_id, presence)
+
+    def spawn_action(self, player_id: str, action: str, spawn_id: int, result: str | None) -> str:
+        """A game claims, reports or releases a shared wild Pokemon."""
+        from .shared_spawns import CONSUMED, GONE, GRANTED
+        if not self.spawns_enabled:
+            return GONE
+        found = self.spawn_boards.find(spawn_id)
+        if found is None:
+            return GONE
+        board, _slot = found
+        if action == "claim":
+            outcome = board.claim(player_id, spawn_id)
+        elif action == "result":
+            outcome = board.result(player_id, spawn_id, result or "cancelled")
+        elif action == "release":
+            outcome = board.release(player_id, spawn_id)
+        else:
+            raise SharedWorldError("invalid_spawn_action", "unsupported shared spawn action")
+        if outcome in (GRANTED, CONSUMED):
+            # Ownership changes are durable at once: a host crash can neither
+            # resurrect a caught Pokemon nor forget who is battling one.
+            self.save_spawns()
+        return outcome
+
+    def player_connected(self, player_id: str) -> None:
+        if self._claim is not None and self._claim["player_id"] == player_id:
+            # The claimant is back within its grace period: it keeps the event
+            # Pokemon until it reports or walks away (the spawns do the same).
+            self._claim["released_at"] = None
+            self._claimant_away_since = None
+        if getattr(self, "spawns_enabled", False):
+            for board in self.spawn_boards.boards():
+                board.player_reconnected(player_id)
 
     # ------------------------------------------------------------------ clock
     def _seconds(self) -> float:
@@ -159,24 +348,27 @@ class SharedWorld:
         self._last_persist = self._now()
 
     def set_active_players(self, count: int) -> None:
-        """Run the clock only while somebody plays (owner choice)."""
+        """Run the clock only while somebody plays (owner choice).
+
+        Called by the server at the moment a session joins or leaves, so the
+        world clock and every timer pause and resume at the actual transition.
+        """
+        now = self._now()
         if count > 0 and self._clock.running_since is None:
-            self._clock.running_since = self._now()
+            self._clock.running_since = now
+            self._active_time.running_since = now
         elif count == 0 and self._clock.running_since is not None:
             self._clock.seconds = self._seconds()
             self._clock.running_since = None
+            if self._active_time.running_since is not None:
+                self._active_time.seconds += now - self._active_time.running_since
+                self._active_time.running_since = None
             self.persist_clock()
+            self.persist_timers()
         self._active = count
 
     def time_of_day(self) -> str:
-        hour = (self.world_seconds() // 3600) % 24
-        if 4 <= hour < 10:
-            return "morning"
-        if 10 <= hour < 17:
-            return "day"
-        if 17 <= hour < 20:
-            return "evening"
-        return "night"
+        return time_of_day_for_hour((self.world_seconds() // 3600) % 24)
 
     # ------------------------------------------------------------- appearance
     def appearance(self, player_id: str) -> str | None:
@@ -220,15 +412,45 @@ class SharedWorld:
         if row is None:
             return
         record = json.loads(row[1])
-        # Timers count real time only while the host runs; a restarted host
-        # resumes the remaining time instead of losing the event.
-        record["expires"] = self._now() + max(0.0, float(record.get("remaining", 0)))
+        # Timers count only while somebody is online; a restarted host resumes
+        # the remaining active time instead of losing the event. Older records
+        # carry only "remaining"; an absolute deadline from any earlier format
+        # is meaningless in a new process and is dropped.
+        record.pop("expires", None)
+        try:
+            remaining = max(0.0, float(record.pop("remaining", 0) or 0))
+        except (TypeError, ValueError):
+            remaining = 0.0
+        claim = record.pop("claim", None)
+        last = record.pop("last_claimant", None)
+        self._last_claimant = last if isinstance(last, str) else None
+        record["expires"] = self._active_now() + remaining
         self._event = record
+        if isinstance(claim, dict) and isinstance(claim.get("player_id"), str):
+            # Everyone was disconnected by the restart: the claimant keeps the
+            # Pokemon for a grace period (or what was left of it) so a battle in
+            # progress can still report its result and nothing is caught twice.
+            grace = claim.get("grace_remaining")
+            try:
+                grace = BALANCE.event_claim_grace_seconds if grace is None else max(0.0, float(grace))
+            except (TypeError, ValueError):
+                grace = BALANCE.event_claim_grace_seconds
+            self._claim = {"player_id": claim["player_id"], "event_id": record["event_id"],
+                           "released_at": self._active_now() + grace}
+            self._last_claimant = claim["player_id"]
 
     def _save_event(self, state: str, winner: str | None = None) -> None:
         event = self._event
+        active_now = self._active_now()
         stored = {key: value for key, value in event.items() if key != "expires"}
-        stored["remaining"] = max(0.0, event["expires"] - self._now())
+        stored["remaining"] = max(0.0, event["expires"] - active_now)
+        claim = self._claim
+        if state == "active" and claim is not None and claim.get("event_id") == event["event_id"]:
+            released_at = claim.get("released_at")
+            stored["claim"] = {"player_id": claim["player_id"],
+                               "grace_remaining": None if released_at is None else max(0.0, released_at - active_now)}
+        if state == "active" and self._last_claimant is not None:
+            stored["last_claimant"] = self._last_claimant
         with self._transaction():
             self._db.execute("""INSERT INTO events VALUES (?, ?, ?, ?, ?)
                 ON CONFLICT(event_id) DO UPDATE SET record=excluded.record, state=excluded.state, winner=excluded.winner""",
@@ -243,7 +465,7 @@ class SharedWorld:
             "shiny": event["shiny"], "mega": event["mega"], "map_group": event["map_group"],
             "map_number": event["map_number"], "x": event["x"], "y": event["y"],
             "held_item": event["held_item"], "perfect_ivs": event["perfect_ivs"],
-            "seconds_left": max(0, int(event["expires"] - self._now())),
+            "seconds_left": max(0, int(event["expires"] - self._active_now())),
             "claimant": None if self._claim is None else self._claim["player_id"],
         }
 
@@ -314,10 +536,12 @@ class SharedWorld:
             "held_item": int(entry.get("held_item", 0) or 0), "perfect_ivs": 3 if legendary else 1,
             "map_group": location["map_group"], "map_number": location["map_number"],
             "x": location["x"], "y": location["y"], "place": location["name"],
-            "expires": self._now() + BALANCE.event_duration_seconds,
+            "expires": self._active_now() + BALANCE.event_duration_seconds,
             "reminded": [],
         }
         self._claim = None
+        self._last_claimant = None
+        self._claimant_away_since = None
         self._participants = set()
         self._save_event("active")
         self._announce(self._event, BALANCE.event_duration_seconds)
@@ -325,7 +549,12 @@ class SharedWorld:
 
     def tick_events(self, connected: int, progression: Callable[[], int]) -> bool:
         """Advance timers; returns True when the shared view changed."""
-        now = self._now()
+        if (connected > 0) != (self._active > 0):
+            # Safety net for callers that report presence only here; the server
+            # also calls set_active_players at the exact join/leave moment.
+            self.set_active_players(connected)
+        wall = self._now()
+        now = self._active_now()  # Phase 11: deadlines count only while someone is online
         changed = False
         if self._event is not None and now >= self._event["expires"]:
             label = self._event_label(self._event)
@@ -351,10 +580,9 @@ class SharedWorld:
             if self.spawn_event(progression_level=progression()) is not None:
                 changed = True
             self._next_event_at = now + self._rng.uniform(*BALANCE.event_interval)
-        if now - self._last_persist >= 30:
+        if wall - self._last_persist >= 30:
             self.persist_clock()
-            if self._event is not None:
-                self._save_event("active")
+            self.persist_timers()
         return changed
 
     def claim_event(self, player_id: str, event_id: int) -> str:
@@ -363,8 +591,15 @@ class SharedWorld:
             return "gone"
         if self._claim is not None and self._claim["player_id"] != player_id:
             return "busy"
+        changed = self._claim is None or self._claim.get("released_at") is not None
         self._claim = {"player_id": player_id, "event_id": event_id, "released_at": None}
+        self._last_claimant = player_id
+        self._claimant_away_since = None
         self._participants.add(player_id)
+        if changed:
+            # Durable at once, like a shared spawn's claim: a host restart in
+            # the middle of the battle keeps it for this player.
+            self._save_event("active")
         return "granted"
 
     def _finish_participation(self, event_id: int) -> None:
@@ -379,7 +614,12 @@ class SharedWorld:
         event = self._event
         if event is None or event["event_id"] != event_id:
             return "gone"
-        if self._claim is None or self._claim["player_id"] != player_id:
+        # A late "caught": the claim lapsed (a long disconnect, a lost message)
+        # while the result was on its way and nobody holds the Pokemon now. The
+        # game has it already, so it is consumed for everybody instead of
+        # staying catchable a second time (KNOWN_ISSUES M16).
+        late = self._claim is None and player_id == self._last_claimant and result == "caught"
+        if not late and (self._claim is None or self._claim["player_id"] != player_id):
             return "not_claimant"
         if result == "caught":
             self._save_event("caught", player_id)
@@ -387,14 +627,62 @@ class SharedWorld:
             self.post_notice(_banner(f"{name} caught the", self._event_label(event) + "!"))
             self._finish_participation(event_id)
             self._event, self._claim = None, None
-            self._next_event_at = self._now() + self._rng.uniform(*BALANCE.event_interval)
+            self._next_event_at = self._active_now() + self._rng.uniform(*BALANCE.event_interval)
             return "consumed"
         self._claim = None
         return "released"
 
     def player_disconnected(self, player_id: str) -> None:
         if self._claim is not None and self._claim["player_id"] == player_id:
-            self._claim["released_at"] = self._now() + BALANCE.event_claim_grace_seconds
+            self._claim["released_at"] = self._active_now() + BALANCE.event_claim_grace_seconds
+
+    def tick_event_claim(self, presences: dict[str, dict | None]) -> bool:
+        """Let go of an event claim whose connected claimant left the event's map.
+
+        The game claims the event Pokemon when its player talks to it and
+        reports the battle's result; it never sends a release. A game that was
+        reset, crashed or restarted between the two (while its companion stayed
+        connected) left the claim held for the rest of the event, and everybody
+        else was told it was busy. The claim now ends after the claimant has
+        been on another map for ``event_claim_away_seconds`` of active time; a
+        result that comes later is still accepted (``event_result``).
+        Returns True when the shared view changed.
+        """
+        claim, event = self._claim, self._event
+        if claim is None or event is None or claim.get("released_at") is not None:
+            self._claimant_away_since = None
+            return False
+        presence = presences.get(claim["player_id"])
+        if presence is None:
+            return False  # disconnected: the grace period applies instead
+        if (presence.get("map_group"), presence.get("map_number")) == (event["map_group"], event["map_number"]):
+            self._claimant_away_since = None
+            return False
+        now = self._active_now()
+        if self._claimant_away_since is None:
+            self._claimant_away_since = now
+            return False
+        if now - self._claimant_away_since < BALANCE.event_claim_away_seconds:
+            return False
+        self._claim, self._claimant_away_since = None, None
+        self._save_event("active")
+        return True
+        if getattr(self, "spawns_enabled", False):
+            for board in self.spawn_boards.boards():
+                board.player_disconnected(player_id)
+
+
+def spawn_rng_or(rng: random.Random | None) -> random.Random:
+    return rng if rng is not None else random.Random()
+
+
+def load_spawn_catalogue() -> dict:
+    """Shared spawn data generated from the pinned engine (empty without it)."""
+    try:
+        from .shared_spawn_catalogue import CATALOGUE
+    except ImportError:  # a development checkout without the generated module
+        return {}
+    return CATALOGUE
 
 
 def load_event_catalogue() -> dict:

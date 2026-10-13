@@ -13,8 +13,10 @@ import uuid
 from typing import Any
 
 # Version 2 adds shared-world presence (followers, mounts), appearance,
-# the world clock, World Events and notices. Mixed versions refuse cleanly.
-PROTOCOL_VERSION = 2
+# the world clock, World Events and notices. Version 3 adds host-authoritative
+# shared wild Pokemon (the "spawns" world field, the "spawn_action" request and
+# the presence "weather"). Mixed versions refuse cleanly.
+PROTOCOL_VERSION = 3
 MAX_FRAME_BYTES = 16_384
 MAX_PLAYERS = 4
 MAX_COUNTER = 2_147_483_647
@@ -28,7 +30,7 @@ CHECKPOINT_TYPES = frozenset({
 ACTIVITIES = frozenset({"overworld", "menu", "battle", "transition", "unavailable"})
 MOVEMENT_MODES = frozenset({"walk", "run", "bike", "surf"})
 WORLD_PRESENCE_FIELDS = frozenset({"follower_species", "follower_flags", "mount_state", "mount_species", "mount_flags",
-                                   "wallet_seq"})
+                                   "wallet_seq", "weather"})
 _IDENTITY = re.compile(r"[A-Za-z0-9_.:-]{1,128}\Z")
 
 
@@ -198,6 +200,9 @@ def validate_presence(message: dict[str, Any], session_epoch: int) -> dict[str, 
     for name, high in (("follower_species", 1700), ("follower_flags", 7), ("mount_state", 1),
                        ("mount_species", 1700), ("mount_flags", 3), ("wallet_seq", 255)):
         result[name] = _integer(message.get(name, 0), name, 0, high)
+    # The overworld weather the game shows (shared spawns weigh species by it).
+    if "weather" in message:
+        result["weather"] = _integer(message["weather"], "weather", 0, 255)
     return result
 
 
