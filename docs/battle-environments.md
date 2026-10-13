@@ -14,6 +14,7 @@ prove it with screenshots of real battles, reviewed by eye.
 | `claude/battle-environments-graphics8` | `claude/battle-environments` merged with the overworld session's `d799c4a8a` (`graphics-wip-20261010-8`: detail objects, seventy more buildings, lit windows) | `6507a67ea` the merge, the objects drawn in battles and seen by the stage search; `c12f2f96a`, `4661fc8b5` the later battle-environment commits merged in; `69440aa02` the objects' art from the field's last steady frame; `9c1c6aef8` the review merged in (tools only) | The same work on the overworld's newest tip, with its object library in battles. Not merged anywhere. |
 | `claude/battle-environments-2` | `claude/battle-environments-graphics8` (`9c1c6aef8`) | Round 3 (below): `claude/native-pc-n37-fix` merged in (N37-N40), the weakest places, the secret bases, the review; candidate `49c47919e` (later commits: tools and the review only) | Round 3's candidate, on `d799c4a8a`; superseded by `-3`. Not merged anywhere. Checkpoint `battle3d-env-wip-20261012-1`. |
 | `claude/battle-environments-3` | `claude/battle-environments-2` merged with `c51769606` (`graphics-wip-20261012-1`, the overworld's newest tip) | Round 4 (below): the merge, one way of each; E11, E12; Birth Island's trees; candidate `5056f3ba3` (later commits: the review and the report tools) | **The integration candidate.** `c51769606` is its ancestor. Not merged anywhere. Checkpoint `battle3d-env-wip-20261012-2`. |
+| `claude/combined-dev` | `8e4604993` (`graphics-wip-20261012-2`, the overworld's newest tip) with `claude/battle-environments-3` merged in | `717504b88` the merge (no conflict); `5699d58b3` a battle on a switched layout stands in its 3D world (E13); `f86368c23` native multiplayer battles no longer freeze in the 3D build (E15, the EmeraldTogether integration's `bc7a3cfc7`); `397324ddf`, `1eaab97b4`, `22661c214` the survey tool, the report tool and the review (138 maps) | **The combined development branch** (the owner's request, 2026-10-12): the 3D battle environments in the newest 3D game. Checkpoint `combined-dev-20261012-1`; `docs/combined-dev.md`. |
 | `claude/native-pc-n37-fix` | `claude/native-pc` `1579e7fd8` | N37, N38, N39, N40 and their selftests | Native crash fixes (`PORTABLE` and the PC sound driver only). Not merged into `claude/native-pc`. |
 
 The merge candidate `e747ce106`, its checkpoint `battle3d-wip-20261010-4` and the pending
@@ -781,6 +782,38 @@ Nothing is merged here; each step is the owner's decision.
 6. After the merge: `make -f Makefile_pc check-diorama`, the four selftests above, the GBA
    ROM's hash, then a survey of a sample with the TEST build (`tools/battle_env/README.md`) and
    the pictures looked at against the report's.
+
+## The combined development branch (branch `claude/combined-dev`)
+
+The owner's request (2026-10-12): the completed 3D battle environments in the combined
+development game now, without waiting for the graphics-card benchmarks; the overworld's newest
+work and the battle crash fixes kept; no UI, sprite or Battle FX work. `docs/combined-dev.md` is
+the integration report; this is the battle environments' part of it.
+
+* **The branch:** the overworld's newest tip `8e4604993` (`graphics-wip-20261012-2`: real roofs,
+  windows and doors, cave floors at their levels, the layout a map's scripts switch to, terrain
+  drawn from indices) with `claude/battle-environments-3` merged in (no conflict). Checkpoint
+  `combined-dev-20261012-1`.
+* **E13 (found and fixed):** the overworld's 3D view now draws the layout the game shows; the
+  battle looked its world up by the map's own, so a battle on a switched layout was drawn in 2D
+  (Route 131 on every visit, Sky Pillar's floors, Shoal Cave at high tide, Route 111 without
+  the Mirage Tower, Sootopolis in the legends' battle, Route 130 with Mirage Island). Those
+  battles now stand in the layout the game shows (round 4 drew the map's own).
+* **E15 (taken from the EmeraldTogether integration):** every native multiplayer battle in the
+  3D build froze at its first frame (the backdrop read a link opponent's trainer class); that
+  session's one-line fix is on the branch.
+* **The survey:** 138 maps photographed again with the branch's TEST build (every cave, every
+  outdoor map, the sea floor, the League's rooms, the C rooms, Birth Island, Trick House 8), at
+  round 4's spots in round 4's battles, all in 3D, each looked at beside round 4's picture
+  (`combined` and `combined_notes` in `tools/battle_env/review.json`). 116 as round 4's;
+  changed: the switched layouts (E13), the overworld's cave levels (Shoal Cave's inner room has
+  its raised floor behind the battle: **C to B**; Meteor Falls and Victory Road stand on their
+  floors), thin lines along the Lavaridge relief that come with `9d63e60f5` (E14, the overworld
+  session's). **Classes now, all 214 reviewed maps: A 5, B 206, C 3, D 0**; the rooms not
+  photographed again keep round 4's class. Still C: the Battle Pyramid's top, the Trainer Hill's
+  roof, Shoal Cave's entrance (one sheet of shallow water, on the GBA too).
+* **Validation:** `docs/combined-dev.md` (builds, selftests, `check-diorama`, the GBA ROM, eight
+  fights won, the Windows game under Wine). Not verified on a graphics card.
 
 ## Performance
 

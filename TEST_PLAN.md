@@ -722,6 +722,38 @@ scratch folder):
    --hold .5 --gap .6` (two 3D clients); `offer-*.png` must show the trade screen over
    the 3D field, not the field alone.
 
+### 7g. The combined development branch (`claude/combined-dev`, checkpoint `combined-dev-20261012-1`)
+
+The overworld's `graphics-wip-20261012-2` with the battle environments' round 4;
+`docs/combined-dev.md`. After any merge of the two lines:
+
+1. The GBA ROM's hash; Linux 3D and 2D and Windows 3D builds; the four crash selftests
+   (`check-party-order`, `check-battle-names`, `check-cry-stop`, `check-shake-anim`) on the
+   3D and 2D builds; `check-game-sections`, `check-decompress`, `check-native`, `check-abi`,
+   `check-diorama`; the tool tests file by file (V2 and V4 fail upstream).
+2. A battle on a switched layout (E13): `tools/battle_env/survey.py --maps MAP_ROUTE131 --at
+   33,6 --spec wild:72:35` with the TEST build: `battle_3d` must name layout 319 (in 2D the
+   result's `battle_2d` says so); Route 111 four times (`--at 20,49`), both of the tower's
+   states.
+3. The survey on the sample the overworld's round can change (every cave, every outdoor map,
+   the sea floor, the League's rooms, the C rooms): each picture beside the last round's
+   (`envsurvey` comparison sheets), classes into `review.json` (`combined`); `void` above 0
+   where the last round had 0 is the first thing to look at (E14).
+4. The fights: the four two-trainer spots, Roxanne, Tate & Liza, the Multi with Steven, a wild
+   double, each to its end (`--autopilot --fight`); and a Leader's and the Champion's battle
+   against the last pictures (their backdrops, E15's guard).
+5. The Windows player exe under Wine: a wild battle in Granite Cave 1F (`winbattle97b.py`,
+   `WB_HOLD=1.5 WB_LIMIT=600` on a busy machine), the field in Route 119's long grass.
+6. Native multiplayer in the 3D build (E15): two 3D games through the launcher
+   (`native_launcher_battle_3d_proof.py` on `claude/emeraldtogether-integration`, or
+   `native_launcher_battle_proof.py` with the 3D game and light settings); needs the
+   two-trainer source saves.
+
+Results at `22661c214` (code `f86368c23`): 1-5 pass (138 maps all 3D, classes A 5, B 206,
+C 3, D 0; eight fights won); 6 not run on this branch (no source saves in the workspace; the
+fix passed it on the EmeraldTogether integration, runs 8-11). Software OpenGL; no graphics
+card.
+
 ## 8. CI
 
 Workflow files exist (`engine/.github/workflows/native-pc.yml`,

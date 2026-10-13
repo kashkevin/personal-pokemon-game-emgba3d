@@ -252,7 +252,7 @@ logs. Software OpenGL only so far.
 | Petalburg Woods battles in 3D (the woods drawn in 3D since graphics `6743bc1e5`) | Yes: wild Diglett on the forest path, shade light | Not run | Before, its battles were 2D (no 3D view there). |
 | Battle world at the chosen render size and antialiasing (third round) | Yes: 4x MSAA (Ultra) on the battle's world | Not run | Same render target as the field (`gl_target.h`). |
 
-### Battle environments (engine branches `claude/battle-environments`, `-graphics8`, `-2`, `-3`)
+### Battle environments (engine branches `claude/battle-environments`, `-graphics8`, `-2`, `-3`; in `claude/combined-dev`)
 
 Owner directive 2026-10-11 ("COMPLETE 3D BATTLE ENVIRONMENT OVERHAUL — ALL HOENN
 LOCATIONS"): every place a battle is fought audited, the flat ones made dimensional in the
@@ -269,7 +269,13 @@ overworld session's newest tip `c51769606` (`graphics-wip-20261012-1`, its ances
 fast-forward for `claude/native-graphics`), one way of each where both had done the same thing
 (the overworld's), the sea's level fixed after the merge (E12), the battle camera between game
 frames (E11), Birth Island's trees; every reviewed map photographed again. Classes now A 5, B 205,
-C 4, D 0. Software OpenGL only so far.
+C 4, D 0. Combined development branch (2026-10-12, `claude/combined-dev`, checkpoint
+`combined-dev-20261012-1`, `docs/combined-dev.md`): the overworld's newest tip `8e4604993`
+(`graphics-wip-20261012-2`) with round 4 merged in, the fix for what the two did together (E13:
+battles on switched layouts drawn in 2D) and the EmeraldTogether integration's fix for native
+multiplayer battles freezing in the 3D build (E15): the 3D battle environments in the newest 3D
+game, a Windows development build; 138 maps photographed again, classes now A 5, B 206, C 3,
+D 0. Software OpenGL only so far; no graphics-card frame rate verified.
 
 | Item | Linux | Windows (Wine) | Notes |
 | --- | --- | --- | --- |
