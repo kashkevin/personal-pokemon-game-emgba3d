@@ -10,8 +10,9 @@ the engine decides.
 
 Engine code: `src/native_ui/` and `include/native_ui/` (README there), built only with
 `Makefile_pc DIORAMA=1` (`ENABLE_NATIVE_UI`). The GBA ROM and the classic 2D native build
-compile none of it; the ROM stays byte-identical at every UI commit (`b37759ea…e79a` since
-the engine fix U10, `f214735b…3387` before it).
+compile none of it; the ROM stays byte-identical at every UI commit: `f214735b…3387`, the
+launcher's game file (`b37759ea…e79a` from the engine fix U10 until `31887d7d` made that fix
+native-only, as the EmeraldTogether integration keeps it).
 
 ## Branches and checkpoints
 
@@ -19,10 +20,12 @@ the engine fix U10, `f214735b…3387` before it).
 | --- | --- |
 | Engine branch | `claude/native-ui`, from `d799c4a8a` (`graphics-wip-20261010-8`) |
 | App branch (these docs) | `claude/native-ui`, from `4f1115e` (`claude/native-pc`) |
-| Trial with the 3D battles | `claude/native-ui-3dbattle-trial` = `claude/native-ui` + `claude/native-graphics-3d-battles-4` (`e747ce106`), test only, not for merging as is |
+| Trial with the 3D battles | `claude/native-ui-3dbattle-trial` = `claude/native-ui` + `claude/native-graphics-3d-battles-4` (`e747ce106`), test only, not for merging as is; last built at `7711e142` (`ui-native-wip-20261012-4`), replaced by the combined trial |
 | Trial over the newest overworld | `claude/native-ui-overworld-trial` = the overworld tip `c51769606` (`graphics-wip-20261012-1`) + `claude/native-ui`, a merge check only (two conflicts, resolved as the overworld session's note says); not shipped, not for merging as is |
 | Trial with the battle environments | `claude/native-ui-battleenv-trial` = `claude/battle-environments-2` (`719e16c78`, `battle3d-env-wip-20261012-1`) + `claude/native-ui`, a merge check only (two conflicts, resolved as the battle session's note says); not shipped, not for merging as is |
-| Trial with the character selection | `claude/native-ui-character-trial` = the character session's `claude/character-customization-ui-trial` (`20d016df`) + `claude/native-ui` (`6a344e2d` merges `035b263c`): merges with no conflicts; test only, not for merging as is |
+| Trial with the character selection | `claude/native-ui-character-trial` = the character session's `claude/character-customization-ui-trial` (`20d016df`) + `claude/native-ui` (`6a344e2d` merges `035b263c`, `513a8d33` `8f0a5790`, `7215a3a2` `31887d7d`): merges with no conflicts; test only, not for merging as is |
+| Trial with the combined 3D game | `claude/native-ui-combined-trial` = the battle session's `claude/combined-dev` (`22661c214`, `combined-dev-20261012-1`: the overworld's `8e4604993` with `claude/battle-environments-3`) + `claude/native-ui` (`f6af8127` merges `8f0a5790`, `a96882a9` `31887d7d`): two conflicts, both sides kept as before (below); test only, not for merging as is. It takes the 3D battles trial's place |
+| Into the EmeraldTogether game | `claude/emeraldtogether-integration` (`8706f8f6c`, `emeraldtogether-integration-20261012-3`, which merged `035b263c`) takes `claude/native-ui` `31887d7d` with no conflict (`git merge-tree`); nothing committed there |
 | Checkpoints | `claude-checkpoints\ui-native-wip-<date>-<n>` (bundles, a Windows test build, `COORDINATION.txt`) |
 
 Nothing is merged into `claude/native-graphics`, `claude/native-pc` or any other session's
@@ -39,7 +42,10 @@ kept as the battle session's note asks: in `gl_compositor.c` the UI's condition 
 battles' `else if (sTwoDOpacity > 0 ...)` and on the border, after the battles'
 `sDrewField3D = ...;`, and in `sdl2.c` `NativeUi_FilterKeys()` first, then the
 `DIORAMA_BATTLE_ENV_TEST` key filter (the merge check branch
-`claude/native-ui-battleenv-trial`). With the character selection
+`claude/native-ui-battleenv-trial`). With the combined development branch
+(`claude/combined-dev`, both of those tips) it merges with the same two files and five
+hunks, resolved the same way (`claude/native-ui-combined-trial`); under a full native
+screen its `sDrewField3D` is false (the 3D field is not drawn there since `aa3b40ab`). With the character selection
 (`claude/character-customization-ui-trial`, `20d016df`) it merges with no conflicts
 (`claude/native-ui-character-trial`): the UI finds the character session's header with
 `__has_include` (PC build only) and uses its own hooks for the native UI
@@ -141,7 +147,8 @@ Cloud computer (Linux, software OpenGL, a virtual display; the Windows build und
 | --- | --- |
 | GBA ROM identity at every UI commit (`2622871e`, `5f71c090`, `58f0194d`, `1364a05f`, `92bee637`, `ee3e1bc9`, `a794a52d`, `eb4842ee`) and the trial merges | byte-identical, `f214735b…3387` |
 | GBA ROM with the engine fix `a89294c5` (U10, not UI) | differs only in `start_menu.o` (.text +28 bytes; every other section the same size): `b37759ea…e79a` |
-| GBA ROM at the UI commits after it (built at `16de85f4`, which carries `b6a2e945`, at `14049f27`, `5b0a37a6`, `b4828995`, `f51084fd`, `59d60a4a`, `6d734278`, `dd6269de`, `2bd61f00`, `b6f0b698` and `da6d1397`) and on the 3D battles trial `6783586a`, `ebd981b9` and `7711e142`; at `035b263c` and on the character selection trial `6a344e2d` | byte-identical, `b37759ea…e79a` |
+| GBA ROM at the UI commits after it (built at `16de85f4`, which carries `b6a2e945`, at `14049f27`, `5b0a37a6`, `b4828995`, `f51084fd`, `59d60a4a`, `6d734278`, `dd6269de`, `2bd61f00`, `b6f0b698` and `da6d1397`) and on the 3D battles trial `6783586a`, `ebd981b9` and `7711e142`; at `035b263c` and on the character selection trial `6a344e2d`; at `aa3b40ab`, `03ae6c50`, `4e482a70`, `9c82340f` (the window hooks under `#line`) and on the character trial `513a8d33` | byte-identical, `b37759ea…e79a` |
+| GBA ROM with U10 native-only (`31887d7d`: `start_menu.c` as the EmeraldTogether integration has it), on the character trial `7215a3a2` and the combined trial `a96882a9` | byte-identical to the launcher's game file, `f214735b…3387` |
 | Linux and Windows (mingw) builds of `claude/native-ui` and of the trial | pass, no new warnings in the files touched |
 | Title, main menu, CONTINUE, field, pause, bag (Windows exe under Wine) | pass |
 | Bag: all five pockets with a filled test bag (items, Balls, TMs and an HM, Berries, Key Items), item details on 14 items incl. two Mega Stones, browsing by keys, arrows, wheel and the strip, back on the bag at the item shown | pass |
@@ -176,6 +183,8 @@ Cloud computer (Linux, software OpenGL, a virtual display; the Windows build und
 | Character selection trial `claude/native-ui-character-trial` (`6a344e2d`, Linux; built, no new warnings), a test save with 8 badges: the dressing room's roster (38 cards), RIGHT on CHARACTER (RED · FireRed/LeafGreen · 3 of 37: the mirror walking, the portrait), DOWN skipping the colour rows a character leaves out (to SAVE), clicks on cards (BRENDAN R/S outfit; the trainer, the colour rows back; MAY ORAS FRLG, the id in bytes 4 and 6), a click on PRESET (the editor's cursor walked to CHARACTER), the mirror's poses (Tab), SAVE by START and YES (the cursor walked to SAVE, A): the character on the field; the Trainer Card with Ethan's card picture whole and his walking sprite; the Pokédex SIZE page with Ethan's silhouette beside Mudkip; with a real local host the Players device (Ethan in the LCD's tones and on the session card) and "the host keeps your saved look" | pass |
 | `claude/native-ui` alone after `035b263c` (no character selection): the dressing room's colour rows by keys and mouse, the mirror's poses, B with changes and "Discard your changes?"; the Trainer Card's picture and walking sprite | pass |
 | The three Windows exes of `ui-native-wip-20261012-4` under Wine: the character trial (`6a344e2d`: the roster, LEAF by a click, saved, on the field and on the Trainer Card), `claude/native-ui` (a skin tone saved, on the field and the card), the 3D battles trial `7711e142` (title to the dressing room); `TRY-CHARACTERS-TRIAL.bat` under Wine's cmd (the menu with its hint; a dragged save copied to `play\` and the game started) | pass |
+| Combined trial `a96882a9` (Linux): Mauville Gym's 3D room with the pause menu over it, the bag (no 3D under it) and back to the 3D room, the options; Route 102 at night in 3D: Bug Catcher Rick's line in the new message box, the 3D battle with the HUD ("You are challenged by…", "Go! Gardevoir!", the commands, the bag and back with BAG's cursor, the moves with the Mega toggle, "Gardevoir used Psychic!") | pass |
+| The three Windows exes of `ui-native-wip-20261012-5` under Wine (stripped, as shipped): `claude/native-ui` `31887d7d` (Wally's tutorial from Petalburg: his line, the battle, "What will WALLY do?" with his cursor), the combined trial `a96882a9` (Route 102 in 3D, the 3D trainer battle's commands, the bag and back), the character trial `7215a3a2` (the dressing room's roster, RIGHT to LEAF); `TRY-COMBINED-TRIAL.bat` under Wine's cmd (the menu with D, E and F and the trial's hint; F copies `wally-tutorial.sav` to `play\` and starts the trial's game with it) | pass |
 | A 1v1 link battle with the real launcher (`scripts/multiplayer/native_launcher_battle_proof.py`: the real `LauncherWindow` and workers, a real local host, production enrollment, two native 3D games at `aa3b40ab` with the native UI on, ordinary keys): the challenge, its acceptance and Enter battle on the native Players screen, the battle on the native HUD in both games (Gardevoir against Gardevoir), the host's forced switch through the native party screen, `battle_finished` in both launchers, the same durable result, each full party back, "Recent battle results" on the native Players screen ("1v1 Loss #1", "Team 2 won"), both saved (revision 2), normal close `[0, 0]`, fresh Continue onto the same saves, the store's integrity check. Two test-only changes to a scratch copy of the proof for this run: keys held 0.6 s (the software-rendered 3D games draw slowly enough to miss a 0.15 s press; that first run failed there) and RIGHT instead of DOWN for the party's next Pokémon (the grid, see Input; the second run waited there) | pass |
 | Benchmark visit (title, main menu, field, pause, bag, party), UI on and off, Linux at 1280×720 Low and at 1920×1080 High (about 12 fps in the field: the game itself slows down), and the checkpoint's `ui-benchmark.bat` with the Windows exe under Wine | every phase reached, the expected screen up 100 % of each phase |
 
@@ -228,7 +237,7 @@ hitch cannot put it out of step. No frame-rate figure is claimed before those re
 | U7 | Frame times only from software OpenGL so far (see Performance). |
 | U8 | Opening and leaving the PC boxes crashed natively before this work (also with the UI off): this branch carries the fix commits of `claude/native-pc` (`99a4f186`, `bfa4303e`, cherry-picked unchanged). |
 | U9 | Not the UI's: a battle against two trainers at once aborts natively (KNOWN_ISSUES N37). The battle session's `claude/native-pc-n37-fix` (`1a26af882`, in `battle3d-env-wip-20261012-1`) fixes it; not in this branch. |
-| U10 | Not the UI's, fixed here: choosing STYLE or RIDE / GET OFF in the Player menu faded the screen to black for good (the start menu fades for every item not on its no-fade list; both stay in the field), with the old menus too, since `e726268e`. Fixed in `a89294c5` (both join the list, as PLAYERS); the same commit is on `claude/fix-player-menu-fade` (on `d799c4a8a`) for the multiplayer start menu's owners. It changes the GBA ROM (`start_menu.c` only). |
+| U10 | Not the UI's, fixed here: choosing STYLE or RIDE / GET OFF in the Player menu faded the screen to black for good (the start menu fades for every item not on its no-fade list; both stay in the field), with the old menus too, since `e726268e`. Fixed in `a89294c5` (both join the list, as PLAYERS); the same commit is on `claude/fix-player-menu-fade` (on `d799c4a8a`) for the multiplayer start menu's owners. It changed the GBA ROM (`start_menu.c` only) until `31887d7d` made it native-only (`MENU_STAYS_IN_FIELD` under `PORTABLE`, as the EmeraldTogether integration resolved it): the ROM is the launcher's again. |
 | U11 | Not the UI's (3D view): with the old menus (`PKMN_NATIVE_UI=0`) the Players menu's window never appears in the 3D build: while the menu pauses the field callbacks the view keeps showing the last field frame (the Start submenu). The new Players screen draws over it. For the overworld session. |
 | U12 | Not the UI's (3D view): the game's own field message box leaves the 3D view as soon as its line is fully printed: `scene_snapshot.c` takes `IsFieldMessageBoxHidden()` for the box being gone, but the field message task sets that when its printer finishes, while the box stays on BG0 until the script closes it; a line that waits for A can only be read while it types (this was the Mart's "Please come again!" that seemed to close by itself: it was still up, waiting for A). With the native UI the field's messages are drawn by the UI (`field_text`, `da6d1397`) and stay up; with `PKMN_NATIVE_UI=0`, or a field window the UI does not draw (a money box, a list), the game's box still goes. For the overworld session: keep the dialogue rect while window 0's frame is on screen (its tilemap), not only while it prints. Also (any build): a trainer battle's transition shows the 2D picture with the game's own box for its second. |
 
@@ -254,4 +263,5 @@ the end of their files; hooks in the middle of a file keep the GBA line numbers 
   `sprite.c`, `battle_controller_player.c`, `battle_controller_safari.c`, `battle_controller_wally.c`,
   `player_pc.c`,
   `battle_interface.c` (three one-line hooks noting what a healthbox shows).
-* Not UI: `start_menu.c` (U10's fix, two callbacks on the no-fade list).
+* Not UI: `start_menu.c` (U10's fix, two callbacks on the no-fade list, native-only:
+  the file as `claude/emeraldtogether-integration` has it).
