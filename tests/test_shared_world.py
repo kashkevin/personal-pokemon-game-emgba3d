@@ -147,13 +147,106 @@ class SharedWorldTests(unittest.TestCase):
         self.clock.now += 60  # online: counts down
         self.world.tick_events(1, lambda: 20)
         left_online = self.world.event_view()["seconds_left"]
+        self.world.set_active_players(0)  # the last player leaves (server calls this at the moment)
         self.clock.now += 3600  # an hour with nobody online
         self.world.tick_events(0, lambda: 20)
         self.world.tick_events(0, lambda: 20)
         self.assertEqual(self.world.event_view()["seconds_left"], left_online)
-        self.clock.now += 1
+        self.world.set_active_players(1)
+        self.clock.now += 10
         self.world.tick_events(1, lambda: 20)
-        self.assertLess(self.world.event_view()["seconds_left"], left_online)
+        self.assertEqual(self.world.event_view()["seconds_left"], left_online - 10)
+
+    def test_presence_transitions_between_ticks_are_counted_exactly(self):
+        # Phase 11 fix: the pause starts when the last player leaves and ends
+        # when one joins, not at the next tick.
+        self.world.set_active_players(1)
+        self.world.spawn_event(progression_level=20, category="rare")
+        start = self.world.event_view()["seconds_left"]
+        self.world.tick_events(1, lambda: 20)
+        self.clock.now += 5            # 5 s online
+        self.world.set_active_players(0)
+        self.clock.now += 5            # 5 s offline, then a tick sees nobody
+        self.world.tick_events(0, lambda: 20)
+        self.clock.now += 5            # 5 s more offline
+        self.world.set_active_players(1)
+        self.clock.now += 5            # 5 s online, then a tick sees one player
+        self.world.tick_events(1, lambda: 20)
+        self.assertEqual(self.world.event_view()["seconds_left"], start - 10)
+        self.assertAlmostEqual(self.world.active_seconds(), 10.0)
+
+    def test_tick_reporting_presence_without_set_active_players_still_pauses(self):
+        self.world.tick_events(1, lambda: 20)  # safety net starts active time here
+        self.world.spawn_event(progression_level=20, category="rare")
+        start = self.world.event_view()["seconds_left"]
+        self.clock.now += 30
+        self.world.tick_events(0, lambda: 20)  # nobody online from here
+        self.clock.now += 900
+        self.world.tick_events(0, lambda: 20)
+        self.assertEqual(self.world.event_view()["seconds_left"], start - 30)
+
+    def test_restart_keeps_remaining_time_and_scheduler_wait_with_nobody_online(self):
+        self.world.set_active_players(1)
+        self.world.tick_events(1, lambda: 20)
+        self.clock.now += 20
+        wait = self.world._next_event_at - self.world.active_seconds()
+        self.world.set_active_players(0)
+        self.world.close()
+        self.clock.now += 86400  # host down for a day: nothing ages
+        self.world = self.open()
+        self.assertAlmostEqual(self.world._next_event_at - self.world.active_seconds(), wait, places=3)
+        self.world.set_active_players(1)
+        self.clock.now += wait - 1
+        self.assertFalse(self.world.tick_events(1, lambda: 20))
+        self.clock.now += 2
+        self.assertTrue(self.world.tick_events(1, lambda: 20))
+        self.assertIsNotNone(self.world.event_view())
+
+    def test_restart_keeps_the_claim_so_nothing_is_caught_twice(self):
+        a, b = str(uuid4()), str(uuid4())
+        self.world.set_active_players(2)
+        event_id = self.world.spawn_event(progression_level=20, category="rare")["event_id"]
+        self.assertEqual(self.world.claim_event(a, event_id), "granted")
+        self.world.close()  # host restarts while A is in the battle
+        self.world = self.open()
+        self.assertEqual(self.world.event_view()["claimant"], a)
+        self.world.set_active_players(1)  # B is back first
+        self.assertEqual(self.world.claim_event(b, event_id), "busy")
+        self.assertEqual(self.world.event_result(a, event_id, "caught", "Alice"), "consumed")
+        self.assertEqual(self.world.claim_event(b, event_id), "gone")
+
+    def test_restored_claim_is_released_after_its_grace_in_active_time(self):
+        a, b = str(uuid4()), str(uuid4())
+        self.world.set_active_players(2)
+        event_id = self.world.spawn_event(progression_level=20, category="rare")["event_id"]
+        self.world.claim_event(a, event_id)
+        self.world.close()
+        self.world = self.open()
+        self.clock.now += 10 * BALANCE.event_claim_grace_seconds  # nobody online: grace waits
+        self.world.tick_events(0, lambda: 20)
+        self.assertEqual(self.world.claim_event(b, event_id), "busy")
+        self.world.set_active_players(1)
+        self.clock.now += BALANCE.event_claim_grace_seconds + 1
+        self.assertTrue(self.world.tick_events(1, lambda: 20))
+        self.assertEqual(self.world.claim_event(b, event_id), "granted")
+
+    def test_older_event_records_load_safely(self):
+        import json
+        record = {"event_id": 7, "category": "rare", "species": 359, "name": "ABSOL", "level": 30,
+                  "shiny": False, "mega": False, "held_item": 0, "perfect_ivs": 1, "map_group": 0,
+                  "map_number": 16, "x": 10, "y": 7, "place": "Route 101", "reminded": [],
+                  "expires": 123456789.0, "remaining": 100}
+        self.world.close()
+        import sqlite3
+        db = sqlite3.connect(str(self.path))
+        db.execute("INSERT INTO events VALUES (?, ?, 'active', NULL, 0)", (7, json.dumps(record)))
+        db.commit()
+        db.close()
+        self.world = self.open()
+        view = self.world.event_view()
+        self.assertEqual(view["event_id"], 7)
+        self.assertEqual(view["seconds_left"], 100)
+        self.assertIsNone(view["claimant"])
 
     def test_no_event_spawns_while_nobody_is_online(self):
         self.clock.now += BALANCE.event_first_delay[1] + 1
@@ -182,6 +275,7 @@ class SharedWorldTests(unittest.TestCase):
 
     def test_disconnected_claimant_releases_after_grace(self):
         a, b = str(uuid4()), str(uuid4())
+        self.world.set_active_players(1)  # B is still online, so the grace counts
         event_id = self.world.spawn_event(progression_level=20, category="rare")["event_id"]
         self.world.claim_event(a, event_id)
         self.world.player_disconnected(a)
@@ -191,26 +285,28 @@ class SharedWorldTests(unittest.TestCase):
         self.assertEqual(self.world.claim_event(b, event_id), "granted")
 
     def test_event_expires_with_notice_and_survives_restart_with_remaining_time(self):
+        self.world.set_active_players(1)
         event_id = self.world.spawn_event(progression_level=40, category="legendary")["event_id"]
         self.clock.now += 300
         left = self.world.event_view()["seconds_left"]
-        self.world._save_event("active")
-        self.world.close()
+        self.world.close()  # close() saves the remaining time itself
         self.clock.now += 5000  # host offline: event time does not pass
         self.world = self.open()
         self.assertEqual(self.world.event_view()["event_id"], event_id)
         self.assertEqual(self.world.event_view()["seconds_left"], left)
+        self.world.set_active_players(1)
         self.clock.now += left + 1
         self.assertTrue(self.world.tick_events(1, lambda: 40))
         self.assertIsNone(self.world.event_view())
         self.assertIn("has disappeared", self.world.notice_view()["text"])
 
     def test_reminders_before_expiry(self):
+        self.world.set_active_players(1)
         self.world.spawn_event(progression_level=20, category="rare")
         self.world.notice_view()
         self.clock.now += BALANCE.notice_seconds + 1
         self.assertIsNone(self.world.notice_view())
-        self.clock.now = self.world._event["expires"] - 299
+        self.clock.now += self.world.event_view()["seconds_left"] - 299
         self.assertTrue(self.world.tick_events(1, lambda: 20))
         self.assertIn("left", self.world.notice_view()["text"])
 

@@ -73,6 +73,21 @@ class _Clock:
     running_since: float | None
 
 
+@dataclass
+class _ActiveTime:
+    """Seconds during which at least one player was connected (Phase 11).
+
+    Measured with the injected monotonic clock inside this process only. Every
+    timer deadline (World Events, claim grace, the event scheduler, shared
+    spawns) is kept in these units, so it stops exactly when the last player
+    leaves and resumes exactly when one returns. Absolute values are never
+    stored: saved records hold the remaining active duration instead, which
+    survives a host restart (a new process starts its own monotonic clock).
+    """
+    seconds: float = 0.0
+    running_since: float | None = None
+
+
 class SharedWorld:
     """Event-loop-owned; every mutation commits before returning."""
 
@@ -109,10 +124,17 @@ class SharedWorld:
         self.on_event_finished = None         # callback(participants, event_id) for friendship
         self.catalogue = event_catalogue if event_catalogue is not None else load_event_catalogue()
         self.locations = locations if locations is not None else self.catalogue.get("locations", [])
+        self._active_time = _ActiveTime()
         self._event: dict | None = None
         self._claim: dict | None = None
-        self._next_event_at = self._now() + self._rng.uniform(*BALANCE.event_first_delay)
-        self._last_tick = None
+        saved_wait = self._kv("next_event_remaining", "")
+        try:
+            wait = max(0.0, float(saved_wait)) if saved_wait else None
+        except ValueError:
+            wait = None
+        if wait is None:
+            wait = self._rng.uniform(*BALANCE.event_first_delay)
+        self._next_event_at = self._active_now() + wait
         self._restore_event()
 
     # ------------------------------------------------------------------ storage
@@ -138,8 +160,29 @@ class SharedWorld:
         if self._db is None:
             return
         self.persist_clock()
+        self.persist_timers()
         self._db.close()
         self._db = None
+
+    # ------------------------------------------------------------ active time
+    def _active_now(self) -> float:
+        value = self._active_time.seconds
+        if self._active_time.running_since is not None:
+            value += self._now() - self._active_time.running_since
+        return value
+
+    def active_seconds(self) -> float:
+        """Active (somebody online) seconds measured by this process."""
+        return self._active_now()
+
+    def persist_timers(self) -> None:
+        """Save every running deadline as a remaining active duration."""
+        if self._db is None:
+            return
+        with self._transaction():
+            self._set_kv("next_event_remaining", repr(max(0.0, self._next_event_at - self._active_now())))
+        if self._event is not None:
+            self._save_event("active")
 
     # ------------------------------------------------------------------ clock
     def _seconds(self) -> float:
@@ -160,13 +203,23 @@ class SharedWorld:
         self._last_persist = self._now()
 
     def set_active_players(self, count: int) -> None:
-        """Run the clock only while somebody plays (owner choice)."""
+        """Run the clock only while somebody plays (owner choice).
+
+        Called by the server at the moment a session joins or leaves, so the
+        world clock and every timer pause and resume at the actual transition.
+        """
+        now = self._now()
         if count > 0 and self._clock.running_since is None:
-            self._clock.running_since = self._now()
+            self._clock.running_since = now
+            self._active_time.running_since = now
         elif count == 0 and self._clock.running_since is not None:
             self._clock.seconds = self._seconds()
             self._clock.running_since = None
+            if self._active_time.running_since is not None:
+                self._active_time.seconds += now - self._active_time.running_since
+                self._active_time.running_since = None
             self.persist_clock()
+            self.persist_timers()
         self._active = count
 
     def time_of_day(self) -> str:
@@ -221,15 +274,40 @@ class SharedWorld:
         if row is None:
             return
         record = json.loads(row[1])
-        # Timers count real time only while the host runs; a restarted host
-        # resumes the remaining time instead of losing the event.
-        record["expires"] = self._now() + max(0.0, float(record.get("remaining", 0)))
+        # Timers count only while somebody is online; a restarted host resumes
+        # the remaining active time instead of losing the event. Older records
+        # carry only "remaining"; an absolute deadline from any earlier format
+        # is meaningless in a new process and is dropped.
+        record.pop("expires", None)
+        try:
+            remaining = max(0.0, float(record.pop("remaining", 0) or 0))
+        except (TypeError, ValueError):
+            remaining = 0.0
+        claim = record.pop("claim", None)
+        record["expires"] = self._active_now() + remaining
         self._event = record
+        if isinstance(claim, dict) and isinstance(claim.get("player_id"), str):
+            # Everyone was disconnected by the restart: the claimant keeps the
+            # Pokemon for a grace period (or what was left of it) so a battle in
+            # progress can still report its result and nothing is caught twice.
+            grace = claim.get("grace_remaining")
+            try:
+                grace = BALANCE.event_claim_grace_seconds if grace is None else max(0.0, float(grace))
+            except (TypeError, ValueError):
+                grace = BALANCE.event_claim_grace_seconds
+            self._claim = {"player_id": claim["player_id"], "event_id": record["event_id"],
+                           "released_at": self._active_now() + grace}
 
     def _save_event(self, state: str, winner: str | None = None) -> None:
         event = self._event
+        active_now = self._active_now()
         stored = {key: value for key, value in event.items() if key != "expires"}
-        stored["remaining"] = max(0.0, event["expires"] - self._now())
+        stored["remaining"] = max(0.0, event["expires"] - active_now)
+        claim = self._claim
+        if state == "active" and claim is not None and claim.get("event_id") == event["event_id"]:
+            released_at = claim.get("released_at")
+            stored["claim"] = {"player_id": claim["player_id"],
+                               "grace_remaining": None if released_at is None else max(0.0, released_at - active_now)}
         with self._transaction():
             self._db.execute("""INSERT INTO events VALUES (?, ?, ?, ?, ?)
                 ON CONFLICT(event_id) DO UPDATE SET record=excluded.record, state=excluded.state, winner=excluded.winner""",
@@ -244,7 +322,7 @@ class SharedWorld:
             "shiny": event["shiny"], "mega": event["mega"], "map_group": event["map_group"],
             "map_number": event["map_number"], "x": event["x"], "y": event["y"],
             "held_item": event["held_item"], "perfect_ivs": event["perfect_ivs"],
-            "seconds_left": max(0, int(event["expires"] - self._now())),
+            "seconds_left": max(0, int(event["expires"] - self._active_now())),
             "claimant": None if self._claim is None else self._claim["player_id"],
         }
 
@@ -315,7 +393,7 @@ class SharedWorld:
             "held_item": int(entry.get("held_item", 0) or 0), "perfect_ivs": 3 if legendary else 1,
             "map_group": location["map_group"], "map_number": location["map_number"],
             "x": location["x"], "y": location["y"], "place": location["name"],
-            "expires": self._now() + BALANCE.event_duration_seconds,
+            "expires": self._active_now() + BALANCE.event_duration_seconds,
             "reminded": [],
         }
         self._claim = None
@@ -326,13 +404,13 @@ class SharedWorld:
 
     def tick_events(self, connected: int, progression: Callable[[], int]) -> bool:
         """Advance timers; returns True when the shared view changed."""
-        now = self._now()
+        if (connected > 0) != (self._active > 0):
+            # Safety net for callers that report presence only here; the server
+            # also calls set_active_players at the exact join/leave moment.
+            self.set_active_players(connected)
+        wall = self._now()
+        now = self._active_now()  # Phase 11: deadlines count only while someone is online
         changed = False
-        # Phase 11: event and spawn timers only run while someone is online.
-        # Time that passes with nobody connected is taken off every deadline.
-        if self._last_tick is not None and connected == 0:
-            self._pause_timers(now - self._last_tick)
-        self._last_tick = now
         if self._event is not None and now >= self._event["expires"]:
             label = self._event_label(self._event)
             self._save_event("expired")
@@ -357,20 +435,10 @@ class SharedWorld:
             if self.spawn_event(progression_level=progression()) is not None:
                 changed = True
             self._next_event_at = now + self._rng.uniform(*BALANCE.event_interval)
-        if now - self._last_persist >= 30:
+        if wall - self._last_persist >= 30:
             self.persist_clock()
-            if self._event is not None:
-                self._save_event("active")
+            self.persist_timers()
         return changed
-
-    def _pause_timers(self, elapsed: float) -> None:
-        if elapsed <= 0:
-            return
-        if self._event is not None:
-            self._event["expires"] += elapsed
-        if self._claim is not None and self._claim.get("released_at") is not None:
-            self._claim["released_at"] += elapsed
-        self._next_event_at += elapsed
 
     def claim_event(self, player_id: str, event_id: int) -> str:
         event = self._event
@@ -402,14 +470,14 @@ class SharedWorld:
             self.post_notice(_banner(f"{name} caught the", self._event_label(event) + "!"))
             self._finish_participation(event_id)
             self._event, self._claim = None, None
-            self._next_event_at = self._now() + self._rng.uniform(*BALANCE.event_interval)
+            self._next_event_at = self._active_now() + self._rng.uniform(*BALANCE.event_interval)
             return "consumed"
         self._claim = None
         return "released"
 
     def player_disconnected(self, player_id: str) -> None:
         if self._claim is not None and self._claim["player_id"] == player_id:
-            self._claim["released_at"] = self._now() + BALANCE.event_claim_grace_seconds
+            self._claim["released_at"] = self._active_now() + BALANCE.event_claim_grace_seconds
 
 
 def load_event_catalogue() -> dict:
