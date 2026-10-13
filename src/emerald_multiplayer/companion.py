@@ -36,6 +36,8 @@ from .save_window import validate_window_manifest, WINDOW_FRAME_SIZE
 
 BASELINE_RULESET = "baseline-rhh1.17.1-mailbox-v1"
 _UINT32 = 0xFFFFFFFF
+# A shared-world action the host never received is forwarded again after this long.
+_ACTION_RETRY_SECONDS = 1.0
 
 
 class TeamError(ValueError):
@@ -718,6 +720,10 @@ class Companion:
                     if not self.config.world_enabled or bridge.spawn_capable or packet != spawn_capability():
                         raise BridgeError("shared spawn capability differs from this companion")
                     bridge.spawn_capable = True
+                    # A new game (or the same one on a new bridge) announces the
+                    # mailbox: forward its current action again unless the host
+                    # has already answered it (the ack guard below; M19).
+                    self._spawn_action_sent = 0
                     self._publish_snapshot()
                     continue
                 if packet[:1] == b"g":
@@ -730,7 +736,8 @@ class Companion:
                         raise BridgeError("invalid shared spawn record") from error
                     self._local_spawn = local
                     action = local.action
-                    if action.seq != 0 and action.seq != self._spawn_action_sent and action.kind != 0:
+                    if (action.seq != 0 and action.kind != 0 and action.seq != self._spawn_action_sent
+                            and action.seq != self._spawn_action_ack):
                         self._spawn_action_sent = action.seq
                         self._spawn_spawn_action(action)
                     continue
@@ -743,7 +750,8 @@ class Companion:
                     except WorldMailboxError as error:
                         raise BridgeError("invalid shared-world state") from error
                     self._local_world = state
-                    if action.seq != 0 and action.seq != self._world_action_sent and action.kind != 0:
+                    if (action.seq != 0 and action.kind != 0 and action.seq != self._world_action_sent
+                            and action.seq != self._world_action_ack):
                         self._world_action_sent = action.seq
                         self._spawn_world_action(action)
                     continue
@@ -1661,14 +1669,18 @@ class Companion:
             return
 
         async def run():
-            try:
-                await self.world_rpc("world_action", action=kind, event_id=action.event_id,
-                                     result=result, seq=action.seq)
-            except Exception:  # noqa: BLE001 - the ROM times out and the host expires stale claims
-                pass
-            finally:
+            # Acknowledged only once the host has answered (a refusal is an
+            # answer). A claim or a battle result that never reached the host
+            # is sent again: the game keeps it posted until it is acknowledged,
+            # and the host applies a repeat once (KNOWN_ISSUES M16).
+            if await self._deliver_world_request("world_action", action=kind, event_id=action.event_id,
+                                                 result=result, seq=action.seq):
                 self._world_action_ack = action.seq
                 self._publish_snapshot()
+            else:
+                await asyncio.sleep(_ACTION_RETRY_SECONDS)
+                if self._world_action_sent == action.seq:
+                    self._world_action_sent = 0  # forwarded again from the game's next record
 
         task = asyncio.create_task(run(), name="companion-world-action")
         self._ipc_handlers.add(task)
@@ -1685,18 +1697,33 @@ class Companion:
             return
 
         async def run():
-            try:
-                await self.world_rpc("spawn_action", action=kind, spawn_id=action.spawn_id,
-                                     result=result, seq=action.seq)
-            except Exception:  # noqa: BLE001 - the game times out; the host releases stale claims
-                pass
-            finally:
+            # As _spawn_world_action: acknowledged only once the host answered;
+            # otherwise forwarded again (claims, results and releases are
+            # idempotent on the host: a repeated "caught" is "gone").
+            if await self._deliver_world_request("spawn_action", action=kind, spawn_id=action.spawn_id,
+                                                 result=result, seq=action.seq):
                 self._spawn_action_ack = action.seq
                 self._publish_snapshot()
+            else:
+                await asyncio.sleep(_ACTION_RETRY_SECONDS)
+                if self._spawn_action_sent == action.seq:
+                    self._spawn_action_sent = 0  # forwarded again from the game's next record
 
         task = asyncio.create_task(run(), name="companion-spawn-action")
         self._ipc_handlers.add(task)
         task.add_done_callback(self._ipc_handlers.discard)
+
+    async def _deliver_world_request(self, operation: str, **fields) -> bool:
+        """True once the host has answered the request (its refusal included);
+        False when it never arrived or its answer was lost (no session, a
+        timeout, a closed link), so the caller sends it again."""
+        try:
+            await self.world_rpc(operation, **fields)
+        except ProtocolError:
+            return True
+        except Exception:  # noqa: BLE001 - not delivered; retried
+            return False
+        return True
 
     def _spawn_appearance_save(self, seq: int) -> None:
         """The in-game STYLE editor saved a look: store it in the host profile."""

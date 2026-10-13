@@ -163,6 +163,51 @@ class SpawnCompanionTests(unittest.IsolatedAsyncioTestCase):
         await self.spawn_frame(0, lambda d: inbound_slots(d)[1] == 2
                                and not any(s["flags"] & (SLOT_MINE | SLOT_BUSY) for s in inbound_slots(d)[3]))
 
+    async def test_an_action_the_host_never_got_is_sent_again_and_acknowledged_once(self):
+        # Audit 2026-10-13, KNOWN_ISSUES M16: the companion acknowledged an
+        # action even when it never reached the host, so a caught Pokemon's
+        # result could be lost. Now only the host's answer acknowledges it.
+        x, y = self.spot()
+        await self.on_route101(0, x, y)
+        for _ in range(2):
+            self.tick_spawns()
+        frame = await self.spawn_frame(0, lambda d: len(inbound_slots(d)[3]) >= 1)
+        target = inbound_slots(frame)[3][0]
+        companion = self.companions[0]
+        real, calls = companion.world_rpc, []
+
+        async def flaky(operation, **fields):
+            calls.append(operation)
+            if len(calls) == 1:
+                raise ConnectionError("the link dropped")
+            return await real(operation, **fields)
+
+        companion.world_rpc = flaky
+        record = b"g" + SpawnLocal(SpawnAction(1, ACTION_CLAIM, 0, target["species"], target["spawn_id"], 0, 16),
+                                   0, 16, 3).pack()
+        await self.bridges[0].send(record)
+        await wait_until(lambda: calls, timeout=2)
+        await asyncio.sleep(0.2)
+        self.assertEqual(companion._spawn_action_ack, 0)  # not acknowledged
+
+        async def keep_posting():  # the game sends its record every 100 ms
+            while True:
+                await self.bridges[0].send(record)
+                await asyncio.sleep(0.1)
+
+        poster = asyncio.create_task(keep_posting())
+        try:
+            await self.spawn_frame(0, lambda d: inbound_slots(d)[1] == 1 and any(
+                s["spawn_id"] == target["spawn_id"] and s["flags"] & SLOT_MINE for s in inbound_slots(d)[3]),
+                timeout=6)
+            await asyncio.sleep(1.5)  # an answered action is never sent again
+            self.assertEqual(calls, ["spawn_action", "spawn_action"])
+            companion._spawn_action_sent = 0  # as after a new bridge's capability (M19)
+            await asyncio.sleep(0.5)
+            self.assertEqual(calls, ["spawn_action", "spawn_action"])
+        finally:
+            poster.cancel()
+
     async def test_spawn_record_before_capability_disconnects_the_bridge(self):
         await self.bridges[0].send(b"g" + SpawnLocal().pack())
         with self.assertRaises(ConnectionError):
