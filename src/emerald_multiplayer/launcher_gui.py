@@ -8,13 +8,14 @@ Release pins are compiled into the application entry point, never user input.
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import os
 from pathlib import Path
 import queue
 import re
 import threading
 
+from .graphics_mode import EXIT_GRAPHICS_UNAVAILABLE, GraphicsPreference, MODE_3D, probe_graphics
 from .launcher_session import GameInstallation, LauncherSession, SessionState
 from .network_diagnostics import ConnectionDetails
 from .player_runtime import RuntimeBundle
@@ -29,6 +30,10 @@ _TEXT = {
     "canonical_recovery": "Restoring your verified character…",
     "running": "Game running. Close the game window when you finish.",
     "game_closed": "Game closed. You can host or join again.",
+    "graphics_checking": "Checking that 3D graphics can start on this PC…",
+    "graphics_fallback": "Starting in Classic 2D this time. Your saved graphics mode is unchanged.",
+    "graphics_cancelled": "Nothing was started. Choose Classic 2D under Help > Game display, or try 3D again.",
+    "graphics_failed": "The game's graphics could not start, and the game said why. Your save is untouched. Start again and choose Launch in Classic 2D, or set Graphics mode to Classic 2D under Help > Game display.",
     "cancelled": "Startup cancelled. Private recovery data is retained.",
     "closing": "Closing the connection…",
     "wait_for_game": "Close the game window to finish. This launcher will then close.",
@@ -182,6 +187,7 @@ class LaunchRequest:
     selection: Path
     address: str = "127.0.0.1"
     internet: bool = False
+    graphics: str = "3d"  # which game to start: "3d" or "2d" (graphics_mode.py decides)
 
     def options(self):
         if self.mode not in {"host", "join"} or not isinstance(self.selection, Path):
@@ -223,6 +229,7 @@ class SessionWorker:
 
     def __init__(self, installation, private_root, *, factory=LauncherSession, importer=None):
         self.installation, self.private_root, self.factory = installation, private_root, factory
+        self._launch_installation = installation
         self.importer = importer
         self.importing = False
         self.checking_connection = False
@@ -258,11 +265,20 @@ class SessionWorker:
         with self._lock:
             return self._battle_recovery_pending or self._host_restart_pending or self._status_code in _RETAINS_GAME
 
+    def installation_for(self, graphics):
+        """The installation whose runtime bundle returns the chosen game; the ROM,
+        manifest and runtime pins are the same for both."""
+        if graphics == "2d":
+            return replace(self.installation, bundle=replace(self.installation.bundle, graphics="2d"))
+        return self.installation
+
     def start(self, request):
         options = request.options()
+        installation = self.installation_for(request.graphics)
         with self._lock:
             if self.busy:
                 return False
+            self._launch_installation = installation
             self._cancel_requested = False
             self._state = SessionState.NEW
             self._status_code = "new"
@@ -730,7 +746,7 @@ class SessionWorker:
                                    trade_recovery_available=self._trade_recovery_available))
 
     async def _session(self, options):
-        session = self.factory(self.installation, self.private_root, on_status=self._publish, **options)
+        session = self.factory(self._launch_installation, self.private_root, on_status=self._publish, **options)
         async with session.open():
             current = session.status
             if current.state != SessionState.READY:
@@ -760,6 +776,8 @@ class SessionWorker:
                     return "save_recovery_required"
                 if exit_code == 0 and session.status.code == "trade_recovery_reopen":
                     return "trade_recovery_reopen"
+                if exit_code == EXIT_GRAPHICS_UNAVAILABLE:
+                    return "graphics_failed"  # the game showed its own message first
                 return "game_closed" if exit_code == 0 else "session_failed"
             finally:
                 if not play.done():
@@ -847,6 +865,11 @@ class LauncherWindow:
         self.root, self.worker = root, worker
         from .launcher_display import DisplayPreferences
         self.display_preferences = DisplayPreferences(getattr(worker, "private_root", None))
+        from .launcher_graphics import GraphicsGate
+        self.graphics_preference = GraphicsPreference(getattr(worker, "private_root", None))
+        self.graphics_gate = GraphicsGate(
+            root, self.graphics_preference, lambda: self.worker.installation.bundle,
+            message=lambda code: self.message.set(status_text(code)), busy=lambda value: self._enable(not value))
         self.closing = False
         self.setup_window = None
         self.close_after_setup = False
@@ -1163,6 +1186,12 @@ class LauncherWindow:
             current = read_display_settings(path) if path is not None else None
         except (OSError, ValueError):
             current = None
+        from .launcher_graphics import graphics_page
+        bundle = getattr(getattr(self.worker, "installation", None), "bundle", None)
+        graphics_page(page, self.graphics_preference,
+                      has_classic=bool(getattr(bundle, "has_classic", lambda: False)()),
+                      running=lambda: bool(self.worker is not None and self.worker.busy),
+                      probe_now=self._test_3d_now)
         ttk.Label(page, text=("The 3D view is drawn at the resolution chosen here; menus and text boxes "
                               "stay sharp pixel art at any size. Used the next time the game starts. While "
                               "playing, F10 opens the same settings in the game."), wraplength=570,
@@ -1202,6 +1231,18 @@ class LauncherWindow:
         ttk.Button(page, text="Save display settings", command=save).pack(anchor="w", pady=(10, 4))
         ttk.Label(page, textvariable=feedback, wraplength=570, justify="left").pack(anchor="w")
 
+    def _test_3d_now(self):
+        """Settings page button: the same check a start makes, shown as text."""
+        from .graphics_mode import explain_failure
+        try:
+            executable = self.worker.installation.bundle.verify(MODE_3D)[0]
+        except Exception:
+            return "The package could not be checked here."
+        result = probe_graphics(executable)
+        if result.supported:
+            return "3D graphics can start on this PC" + (f" ({result.renderer})." if result.renderer else ".")
+        return explain_failure(result)
+
     def open_setup(self):
         if self.worker is None or self.worker.busy or self.setup_window is not None:
             return
@@ -1219,9 +1260,12 @@ class LauncherWindow:
                 self._destroy()
             else:
                 self._enable(True)
-        self._enable(False)
-        self.setup_window = SetupWindow(self.root, self.worker.installation, self.worker.private_root,
-            selected_world=selected.parent if selected else None, on_close=finished)
+        # First-time setup starts a game too, so it follows the same graphics choice.
+        def open_window(graphics):
+            self._enable(False)
+            self.setup_window = SetupWindow(self.root, self.worker.installation_for(graphics),
+                self.worker.private_root, selected_world=selected.parent if selected else None, on_close=finished)
+        self.graphics_gate.resolve(open_window, cancelled=lambda: self._enable(True))
 
     def start(self, mode):
         if self.worker is None or self.worker.busy:
@@ -1231,6 +1275,18 @@ class LauncherWindow:
             self.message.set(status_text("selection_required"))
             return
         request = LaunchRequest(mode, selected, self.address.get().strip(), self.internet.get())
+        try:
+            request.options()
+        except ValueError as error:
+            self.message.set(status_text(error.args[0] if error.args else "session_failed"))
+            return
+        # The 3D check (when 3D is wanted) comes before anything starts.
+        self.graphics_gate.resolve(lambda graphics: self._launch(replace(request, graphics=graphics)),
+                                   cancelled=lambda: self._enable(True))
+
+    def _launch(self, request):
+        if self.worker is None or self.worker.busy or self.closing:
+            return
         try:
             started = self.worker.start(request)
         except ValueError as error:

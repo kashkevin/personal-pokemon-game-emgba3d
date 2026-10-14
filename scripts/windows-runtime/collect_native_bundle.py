@@ -33,10 +33,18 @@ def sha(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
-def collect(game, sdl, rom, output, extra=()):
+def collect(game, sdl, rom, output, extra=(), classic_game=None):
+    """``classic_game``: the Classic 2D game (`Makefile_pc` without DIORAMA) of the same engine
+    build. The launcher's Graphics mode starts it instead of ``game`` when the player chooses 2D or
+    the 3D game cannot start; both share the save, the ROM pairing and the settings file."""
     game, sdl, rom, output = Path(game).resolve(), Path(sdl).resolve(), Path(rom).resolve(), Path(output).resolve()
     if not game.name.lower().endswith(".exe"):
         raise ValueError("the native game must be a Windows .exe")
+    if classic_game is not None:
+        classic_game = Path(classic_game).resolve()
+        if not classic_game.name.lower().endswith(".exe") or classic_game.name == game.name:
+            raise ValueError("the Classic 2D game must be a Windows .exe with its own name")
+        extra = (classic_game, *extra)
     if sdl.name != "SDL2.dll":
         raise ValueError("the SDL runtime must be SDL2.dll, the name the game loads")
     if any(Path(path).suffix.lower() == ".lua" for path in extra):
@@ -51,12 +59,18 @@ def collect(game, sdl, rom, output, extra=()):
     if len(files) > 32:
         raise ValueError("bundle exceeds the launcher manifest's file bound")
     manifest = dict(format=FORMAT, executable=game.name, rom_sha256=sha(rom), files=files)
+    if classic_game is not None:
+        manifest["classic_executable"] = classic_game.name
     (output / "runtime.json").write_text(json.dumps(manifest, sort_keys=True, indent=2) + "\n")
     pin = sha(output / "runtime.json")
     # The launcher's own check, as it will run before every start.
     executable, native = RuntimeBundle(output, pin).verify()
     if executable != output / game.name or native != NativeGame(manifest["rom_sha256"]):
         raise ValueError("the collected bundle does not verify as a native runtime")
+    if classic_game is not None:
+        classic, _ = RuntimeBundle(output, pin, graphics="2d").verify()
+        if classic != output / classic_game.name:
+            raise ValueError("the collected bundle does not verify its Classic 2D game")
     return dict(directory=str(output), manifest_sha256=pin, rom_sha256=manifest["rom_sha256"], files=len(files))
 
 
@@ -66,10 +80,11 @@ def main():
     parser.add_argument("--sdl", type=Path, required=True, help="SDL2.dll it was built against")
     parser.add_argument("--rom", type=Path, required=True, help="the GBA ROM of the same engine source")
     parser.add_argument("--output", type=Path, required=True, help="a new bundle directory")
+    parser.add_argument("--classic-game", type=Path, help="the Classic 2D game's .exe (same engine build)")
     parser.add_argument("--extra", type=Path, action="append", default=[],
                         help="another file to pin (e.g. emerald-trade-replay.exe); repeatable")
     args = parser.parse_args()
-    print(json.dumps(collect(args.game, args.sdl, args.rom, args.output, args.extra)))
+    print(json.dumps(collect(args.game, args.sdl, args.rom, args.output, args.extra, args.classic_game)))
 
 
 if __name__ == "__main__":
