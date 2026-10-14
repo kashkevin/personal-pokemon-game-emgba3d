@@ -183,6 +183,15 @@ So the test ROM's code is the base's and all 45 failures were there before the e
   Skill Swap, Chilly Reception, one AI score and one animation send-out. Not investigated one by
   one here.
 
+**Combined game, 2026-10-14** (engine `claude/emeraldtogether-combined` at `ef121fad20`, 1111 s): 6000
+tests (the new `test/battle/exp_two_opponents.c`), 5497 passed, 40 failed, 18 known failing, 15
+assumptions failed, 421 to do, 9 expected failing. The six project failures of 2026-10-13 were out
+of date (KNOWN_ISSUES G9); five pass after `fa0d9fd462`, the sixth's last stale line was fixed in
+`ee8d059a91` (`make check TESTS="Multiplayer"`: 133 of 133). The other 39 are the upstream list
+above; each passes when the test ROM is built with upstream's `GEN_LATEST GEN_9` (KNOWN_ISSUES G10;
+`include/config/general.h` restored byte for byte and its test objects removed afterwards), so all
+39 follow from the project's GEN_6 profile, which those tests do not pin.
+
 ## 5. Native gameplay checks (scripted, Linux under Xvfb and Windows under Wine)
 
 ```sh
@@ -982,6 +991,17 @@ preview 12 `0834bed2f1`, then the commits below), app `claude/emeraldtogether-co
    PvP) in revision 2 and after a fresh Continue.
 4. Two-trainer experience (KNOWN_ISSUES G14): `make check TESTS="Two opponents"`; before the fix
    the two fainting orders gave 4156 and 3043, after it 4156 both.
+5. The other proofs on the combined game (engine `ee8d059a91` code; 2026-10-14):
+
+   | Run | Build | Result |
+   | --- | --- | --- |
+   | native-exp-share-combined-2 | Linux 3D, Battle FX loaded | Pass: +22 / +11 and the Exp. Share message (run 1 was given an already reordered save) |
+   | native-trade-combined-1 | Linux 2D | Pass: offers, confirmation, trade applied, back-out, restart, store check |
+   | native-launcher-reconnect-combined-1 | Linux 2D | Pass: host loss, friend's progress kept, rejoin where it stood, saves |
+   | native-followers-combined-1 / -2 | Linux 3D | Run 1 failed: the Pokemon placed in front of player 1 not drawn within 45 s (KNOWN_ISSUES M26); run 2 passed; a control run with the expansion build (native-followers-expansion-control-1) passed |
+   | native-spawns-wine-combined-1 / -2 | The package's stripped exe, two Wine games | Run 1 (`--slow 2.0`, while the package was zipped) failed the same way (M26); run 2 (`--slow 3.0`) passed 28 of 28 |
+   | `make check` | GBA test ROM at `c98b38f26c` (code `ee8d059a91`), 1862 s | 6000 tests, 5498 passed, 39 failed (the upstream list, KNOWN_ISSUES G10), 18 known failing, 15 assumptions failed, 421 to do, 9 expected failing |
+   | App suite | `7000812` + docs | 1522 passed, 1 skipped (with `DISPLAY`; without a display the launcher GUI tests fail with TclError) |
 
 ## 8. CI
 
