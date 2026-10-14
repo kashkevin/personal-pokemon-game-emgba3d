@@ -752,7 +752,14 @@ async def launcher_proof(args, *, names, sources, party_counts, match, version, 
             record("actual-launcher-workers-ready", phase=phase, pids=[g.process.pid for g in games],
                    load_average=[round(v, 2) for v in os.getloadavg()])
             if phase == "battle-and-save":
-                await match(current, probes, games, host, harness.symbols, record)
+                outcome = await match(current, probes, games, host, harness.symbols, record)
+                if isinstance(outcome, dict) and "expected" in outcome:
+                    # A battle that changes parties (co-op experience): its own
+                    # game's new party is what the next save must hold.
+                    # (Owned serials never change with experience.)
+                    expected[:] = [dict(old, count=new["count"], box_crc=new["box_crc"])
+                                   for old, new in zip(expected, outcome["expected"])]
+                    record("expected-parties-after-the-match", parties=expected)
                 for player in players:
                     await harness.save(player, 2)
                 record("all-saved-after-the-battle", revision=2, players=harness.count)
