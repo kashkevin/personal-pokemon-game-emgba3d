@@ -59,6 +59,7 @@ jobs:
     outputs:
       engine_commit: ${{ steps.build.outputs.engine_commit }}
       rom_sha256: ${{ steps.build.outputs.rom_sha256 }}
+      exe_sha256: ${{ steps.build.outputs.exe_sha256 }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -104,6 +105,7 @@ jobs:
           commit="$(git rev-parse HEAD)"
           echo "engine_commit=$commit" >> "$GITHUB_OUTPUT"
           echo "rom_sha256=$rom_sha" >> "$GITHUB_OUTPUT"
+          echo "exe_sha256=$(sha256sum pokeemerald-mp-diorama.exe | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
           mkdir -p ../native-inputs
           cp pokeemerald-mp-diorama.exe pokedev.gba ../native-inputs/
           cp "$GITHUB_WORKSPACE/sdl/SDL2-${SDL_VERSION}/i686-w64-mingw32/bin/SDL2.dll" ../native-inputs/
@@ -211,8 +213,34 @@ jobs:
           audit = json.load(open(work + "/package-audit.json"))
           print(len(names), "archive members;", len(hashes), "hashed files; audit keys", sorted(audit))
           PY
-      - name: Start the frozen launcher and watch it stay up (smoke)
-        if: env.MODE == 'smoke'
+      - name: Verify the packaged game files
+        env:
+          ENGINE_EXE_SHA256: ${{ needs.engine.outputs.exe_sha256 }}
+        run: |
+          .venv/Scripts/python - <<'PY'
+          import hashlib, json, os, pathlib
+          dist = pathlib.Path(os.environ["WORK"]) / "launcher/dist/EmeraldTogether"
+          records = list(dist.rglob("runtime.json"))
+          assert len(records) == 1, records
+          runtime = records[0].parent
+          manifest = json.loads(records[0].read_text())
+          print("runtime:", runtime.relative_to(dist).as_posix(), manifest["format"], manifest["executable"], sorted(manifest["files"]))
+          assert manifest["format"] == "emerald-native-runtime-v1"
+          for name, digest in manifest["files"].items():
+              data = (runtime / name).read_bytes()
+              assert hashlib.sha256(data).hexdigest() == digest, name
+              print(f"  {name}: {len(data)} bytes, sha256 {digest}")
+          exe = (runtime / manifest["executable"]).read_bytes()
+          assert exe[:2] == b"MZ", "not a Windows executable"
+          if os.environ["MODE"] == "full":
+              assert len(exe) > 10_000_000, "game executable is implausibly small"
+              assert hashlib.sha256(exe).hexdigest() == os.environ["ENGINE_EXE_SHA256"], "packaged game differs from the engine job's build"
+              print("packaged game executable is the engine job's build")
+          assert (dist / "EmeraldTogether.exe").is_file()
+          for guide in ("README.txt", "QUICK-START.txt", "RELEASE-LIMITS.txt"):
+              assert (dist / guide).is_file(), guide
+          PY
+      - name: Start the frozen launcher and watch it stay up
         shell: pwsh
         run: |
           $exe = Join-Path $env:WORK "launcher\dist\EmeraldTogether\EmeraldTogether.exe"
@@ -226,6 +254,23 @@ jobs:
           $bmp.Save((Join-Path $env:WORK "launcher-screen.png"))
           Stop-Process -Id $p.Id -Force
           "launcher stayed up for 20 s (pid $($p.Id))"
+      - name: Start the packaged game on the runner (informational)
+        if: env.MODE == 'full'
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $dir = Get-ChildItem -Path (Join-Path $env:WORK "launcher/dist/EmeraldTogether") -Recurse -Filter pokeemerald-mp-diorama.exe | Select-Object -First 1
+          $p = Start-Process -FilePath $dir.FullName -WorkingDirectory $dir.DirectoryName -PassThru -RedirectStandardOutput (Join-Path $env:WORK "game-out.txt") -RedirectStandardError (Join-Path $env:WORK "game-err.txt")
+          Start-Sleep -Seconds 20
+          Get-Content (Join-Path $env:WORK "game-out.txt"), (Join-Path $env:WORK "game-err.txt") -ErrorAction SilentlyContinue | Select-Object -First 25
+          if ($p.HasExited) { throw "the game exited with code $($p.ExitCode) within 20 s (a hosted runner has no GPU; this is not the launcher check)" }
+          Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+          $b = [System.Windows.Forms.SystemInformation]::VirtualScreen
+          $bmp = New-Object System.Drawing.Bitmap $b.Width, $b.Height
+          [System.Drawing.Graphics]::FromImage($bmp).CopyFromScreen($b.Location, [System.Drawing.Point]::Empty, $b.Size)
+          $bmp.Save((Join-Path $env:WORK "game-screen.png"))
+          Stop-Process -Id $p.Id -Force
+          "the packaged game stayed up for 20 s"
       - name: Summary
         run: |
           {
@@ -244,6 +289,7 @@ jobs:
           name: EmeraldTogether-windows-${{ env.MODE }}
           path: |
             ${{ env.WORK }}/launcher-screen.png
+            ${{ env.WORK }}/game-screen.png
             ${{ env.WORK }}/launcher/EmeraldTogether.zip
             ${{ env.WORK }}/launcher/package-hashes.json
             ${{ env.WORK }}/launcher/package-audit.json
