@@ -1,0 +1,691 @@
+{
+  "passed": true,
+  "scope": "Two native games through the whole launcher: a co-op Gym battle and its experience.",
+  "game_sha256": "c875a03d5edd61d4ece1674c15167f87e97a4c81956344a0543cb9b87d997bbb",
+  "bundle": {
+    "directory": "/home/claude/proof/multiplayer-proof/native-launcher-coop-6/application/runtime",
+    "manifest_sha256": "8e836d43725e85981bcb8a3a1dba321a8d767c4065d27fc4259d7f75a13b9fa5",
+    "rom_sha256": "f214735b64e113fd10730eacca5764d757f2c93a3685230aa905af7a7cdd3387",
+    "files": 2
+  },
+  "wine": false,
+  "key_hold_seconds": 0.15,
+  "elf_sha256": null,
+  "build_id": "f214735b64e113fd10730eacca5764d757f2c93a3685230aa905af7a7cdd3387",
+  "sources": [
+    {
+      "path": "/home/claude/proof/multiplayer-proof/native-launcher-coop-6-fixtures/coop-a.sav",
+      "sha256": "91961d6884440ddcd2c149146e1c9c27cc4102ef3a34502c9559293065310bd3"
+    },
+    {
+      "path": "/home/claude/proof/multiplayer-proof/native-launcher-coop-6-fixtures/coop-b.sav",
+      "sha256": "b070bb339e49afc6b0d08c7129328f3741639165e05999511482f0bf16d969f6"
+    }
+  ],
+  "checks": [
+    {
+      "verified": "starts-in-littleroot",
+      "phase": "enrollment",
+      "slot": 0,
+      "position": [
+        0,
+        9,
+        6,
+        11
+      ]
+    },
+    {
+      "verified": "production-enrollment-closed-bootstrap",
+      "slot": 0,
+      "pid": 32220,
+      "returncode": 0
+    },
+    {
+      "verified": "starts-in-littleroot",
+      "phase": "enrollment",
+      "slot": 1,
+      "position": [
+        0,
+        9,
+        7,
+        17
+      ]
+    },
+    {
+      "verified": "production-enrollment-closed-bootstrap",
+      "slot": 1,
+      "pid": 32264,
+      "returncode": 0
+    },
+    {
+      "verified": "starts-in-littleroot",
+      "phase": "battle-and-save",
+      "slot": 0,
+      "position": [
+        0,
+        9,
+        6,
+        11
+      ]
+    },
+    {
+      "verified": "starts-in-littleroot",
+      "phase": "battle-and-save",
+      "slot": 1,
+      "position": [
+        0,
+        9,
+        7,
+        17
+      ]
+    },
+    {
+      "verified": "actual-launcher-workers-ready",
+      "phase": "battle-and-save",
+      "pids": [
+        32289,
+        32318
+      ],
+      "load_average": [
+        0.27,
+        0.8,
+        1.03
+      ]
+    },
+    {
+      "verified": "parties-before",
+      "parties": [
+        [
+          {
+            "slot": 0,
+            "species": 255,
+            "experience": 211060,
+            "moves": [
+              242,
+              45,
+              52,
+              98
+            ],
+            "level": 60,
+            "hp": 190,
+            "max_hp": 210
+          },
+          {
+            "slot": 1,
+            "species": 265,
+            "experience": 27,
+            "moves": [
+              33,
+              81,
+              0,
+              0
+            ],
+            "level": 3,
+            "hp": 15,
+            "max_hp": 15
+          }
+        ],
+        [
+          {
+            "slot": 0,
+            "species": 252,
+            "experience": 211060,
+            "moves": [
+              242,
+              43,
+              633,
+              0
+            ],
+            "level": 60,
+            "hp": 210,
+            "max_hp": 210
+          }
+        ]
+      ]
+    },
+    {
+      "verified": "ordinary-native-team-formed"
+    },
+    {
+      "verified": "host-issued-coop-gym-challenge",
+      "gym": 5,
+      "battle_id": "93a3baf0-5ac4-4bff-947f-4f9fa9ab6938"
+    },
+    {
+      "verified": "coop-challenge-accepted",
+      "players": [
+        "c0cbee83-dd11-4d35-925e-7d85147cedec",
+        "15693f0b-7da6-45ef-bb99-64f23753e3ae"
+      ]
+    },
+    {
+      "verified": "both-native-Enter-selected",
+      "battle_id": "93a3baf0-5ac4-4bff-947f-4f9fa9ab6938"
+    },
+    {
+      "verified": "coop-battle-progress",
+      "elapsed_seconds": 0.0,
+      "room": {
+        "state": "executing",
+        "error": null,
+        "pending": [
+          null,
+          null,
+          null,
+          null
+        ]
+      }
+    },
+    {
+      "verified": "coop-battle-progress",
+      "elapsed_seconds": 15.0,
+      "room": {
+        "state": "executing",
+        "error": null,
+        "pending": [
+          null,
+          43,
+          43,
+          43
+        ]
+      }
+    },
+    {
+      "verified": "coop-battle-progress",
+      "elapsed_seconds": 30.1,
+      "room": {
+        "state": "executing",
+        "error": null,
+        "pending": [
+          17,
+          17,
+          null,
+          null
+        ]
+      }
+    },
+    {
+      "verified": "coop-battle-progress",
+      "elapsed_seconds": 45.2,
+      "room": {
+        "state": "executing",
+        "error": null,
+        "pending": [
+          null,
+          null,
+          null,
+          15
+        ]
+      }
+    },
+    {
+      "verified": "coop-battle-progress",
+      "elapsed_seconds": 60.2,
+      "room": {
+        "state": "executing",
+        "error": null,
+        "pending": [
+          null,
+          null,
+          null,
+          null
+        ]
+      }
+    },
+    {
+      "verified": "coop-battle-progress",
+      "elapsed_seconds": 75.3,
+      "room": {
+        "state": "executing",
+        "error": null,
+        "pending": [
+          null,
+          null,
+          null,
+          null
+        ]
+      }
+    },
+    {
+      "verified": "coop-battle-progress",
+      "elapsed_seconds": 90.4,
+      "room": {
+        "state": "executing",
+        "error": null,
+        "pending": [
+          15,
+          null,
+          null,
+          null
+        ]
+      }
+    },
+    {
+      "verified": "coop-battle-progress",
+      "elapsed_seconds": 105.4,
+      "room": {
+        "state": "executing",
+        "error": null,
+        "pending": [
+          null,
+          null,
+          null,
+          null
+        ]
+      }
+    },
+    {
+      "verified": "coop-battle-progress",
+      "elapsed_seconds": 120.5,
+      "room": {
+        "state": "executing",
+        "error": null,
+        "pending": [
+          null,
+          null,
+          null,
+          38
+        ]
+      }
+    },
+    {
+      "verified": "coop-battle-progress",
+      "elapsed_seconds": 135.6,
+      "room": {
+        "state": "executing",
+        "error": null,
+        "pending": [
+          14,
+          null,
+          null,
+          null
+        ]
+      }
+    },
+    {
+      "verified": "coop-battle-progress",
+      "elapsed_seconds": 150.6,
+      "room": {
+        "state": "executing",
+        "error": null,
+        "pending": [
+          null,
+          null,
+          null,
+          21
+        ]
+      }
+    },
+    {
+      "verified": "coop-battle-progress",
+      "elapsed_seconds": 165.6,
+      "room": {
+        "state": "executing",
+        "error": null,
+        "pending": [
+          null,
+          null,
+          null,
+          44
+        ]
+      }
+    },
+    {
+      "verified": "coop-battle-progress",
+      "elapsed_seconds": 180.7,
+      "room": {
+        "state": "executing",
+        "error": null,
+        "pending": [
+          null,
+          null,
+          null,
+          null
+        ]
+      }
+    },
+    {
+      "verified": "coop-battle-progress",
+      "elapsed_seconds": 195.7,
+      "room": {
+        "state": "executing",
+        "error": null,
+        "pending": [
+          null,
+          null,
+          null,
+          null
+        ]
+      }
+    },
+    {
+      "verified": "coop-battle-progress",
+      "elapsed_seconds": 210.7,
+      "room": {
+        "state": "executing",
+        "error": null,
+        "pending": [
+          null,
+          null,
+          null,
+          null
+        ]
+      }
+    },
+    {
+      "verified": "coop-battle-progress",
+      "elapsed_seconds": 225.9,
+      "room": {
+        "state": "executing",
+        "error": null,
+        "pending": [
+          null,
+          null,
+          null,
+          2
+        ]
+      }
+    },
+    {
+      "verified": "coop-battle-progress",
+      "elapsed_seconds": 240.9,
+      "room": {
+        "state": "executing",
+        "error": null,
+        "pending": [
+          17,
+          17,
+          17,
+          null
+        ]
+      }
+    },
+    {
+      "verified": "coop-battle-progress",
+      "elapsed_seconds": 255.9,
+      "room": {
+        "state": "executing",
+        "error": null,
+        "pending": [
+          null,
+          null,
+          null,
+          null
+        ]
+      }
+    },
+    {
+      "verified": "coop-battle-finished",
+      "seconds": 269.6,
+      "result": null
+    },
+    {
+      "verified": "coop-award-finished",
+      "slot": 1,
+      "screens": [
+        "CB2_Overworld"
+      ]
+    },
+    {
+      "verified": "coop-award-finished",
+      "slot": 0,
+      "screens": [
+        "CB2_Overworld",
+        "CB2_EvolutionSceneUpdate",
+        "CB2_Overworld"
+      ]
+    },
+    {
+      "verified": "parties-after",
+      "parties": [
+        [
+          {
+            "slot": 0,
+            "species": 255,
+            "experience": 219445,
+            "moves": [
+              242,
+              45,
+              52,
+              98
+            ],
+            "level": 60,
+            "hp": 135,
+            "max_hp": 135
+          },
+          {
+            "slot": 1,
+            "species": 266,
+            "experience": 4145,
+            "moves": [
+              33,
+              81,
+              40,
+              450
+            ],
+            "level": 16,
+            "hp": 43,
+            "max_hp": 43
+          }
+        ],
+        [
+          {
+            "slot": 0,
+            "species": 252,
+            "experience": 219445,
+            "moves": [
+              242,
+              43,
+              633,
+              0
+            ],
+            "level": 60,
+            "hp": 137,
+            "max_hp": 137
+          }
+        ]
+      ]
+    },
+    {
+      "verified": "coop-experience",
+      "slot": 0,
+      "gains": [
+        8385,
+        4118
+      ],
+      "levels": [
+        [
+          60,
+          60
+        ],
+        [
+          3,
+          16
+        ]
+      ],
+      "species": [
+        [
+          255,
+          255
+        ],
+        [
+          265,
+          266
+        ]
+      ],
+      "screens": [
+        "CB2_Overworld",
+        "CB2_EvolutionSceneUpdate",
+        "CB2_Overworld"
+      ]
+    },
+    {
+      "verified": "coop-experience",
+      "slot": 1,
+      "gains": [
+        8385
+      ],
+      "levels": [
+        [
+          60,
+          60
+        ]
+      ],
+      "species": [
+        [
+          252,
+          252
+        ]
+      ],
+      "screens": [
+        "CB2_Overworld"
+      ]
+    },
+    {
+      "verified": "both-games-awarded-their-own-parties"
+    },
+    {
+      "verified": "expected-parties-after-the-match",
+      "parties": [
+        {
+          "count": 2,
+          "box_crc": "9f68cc68",
+          "serials": [
+            1,
+            2
+          ]
+        },
+        {
+          "count": 1,
+          "box_crc": "5d302ff9",
+          "serials": [
+            33
+          ]
+        }
+      ]
+    },
+    {
+      "verified": "all-saved-after-the-battle",
+      "revision": 2,
+      "players": 2
+    },
+    {
+      "verified": "ready_for_normal_close",
+      "phase": "battle-and-save",
+      "parties": [
+        {
+          "count": 2,
+          "box_crc": "9f68cc68"
+        },
+        {
+          "count": 1,
+          "box_crc": "5d302ff9"
+        }
+      ]
+    },
+    {
+      "verified": "normal-close",
+      "phase": "battle-and-save",
+      "exit_codes": [
+        0,
+        0
+      ]
+    },
+    {
+      "verified": "starts-in-littleroot",
+      "phase": "fresh-Continue",
+      "slot": 0,
+      "position": [
+        0,
+        9,
+        6,
+        11
+      ]
+    },
+    {
+      "verified": "starts-in-littleroot",
+      "phase": "fresh-Continue",
+      "slot": 1,
+      "position": [
+        0,
+        9,
+        7,
+        17
+      ]
+    },
+    {
+      "verified": "actual-launcher-workers-ready",
+      "phase": "fresh-Continue",
+      "pids": [
+        4037,
+        4066
+      ],
+      "load_average": [
+        0.58,
+        0.86,
+        1.01
+      ]
+    },
+    {
+      "verified": "ready_for_normal_close",
+      "phase": "fresh-Continue",
+      "parties": [
+        {
+          "count": 2,
+          "box_crc": "9f68cc68"
+        },
+        {
+          "count": 1,
+          "box_crc": "5d302ff9"
+        }
+      ]
+    },
+    {
+      "verified": "normal-close",
+      "phase": "fresh-Continue",
+      "exit_codes": [
+        0,
+        0
+      ]
+    },
+    {
+      "verified": "store integrity check passed; source saves unchanged"
+    }
+  ],
+  "inputs": 1052,
+  "forced_children": [],
+  "players": [
+    "Coop Host",
+    "Coop Friend"
+  ],
+  "expected_party_counts": [
+    2,
+    1
+  ],
+  "settings": "windowScale=2\n",
+  "environment": {
+    "SDL_FRAMEBUFFER_ACCELERATION": "0",
+    "PKMN_NATIVE_UI": "0"
+  },
+  "save_failures": [
+    {
+      "status": "connection_lost",
+      "exception": "LauncherSessionError('The authenticated host connection is unavailable.')",
+      "seconds": 608.9,
+      "after_check": "ready_for_normal_close",
+      "stack": [
+        "  File \"/usr/lib/python3.12/threading.py\", line 1030, in _bootstrap\n    self._bootstrap_inner()\n",
+        "  File \"/usr/lib/python3.12/threading.py\", line 1073, in _bootstrap_inner\n    self.run()\n",
+        "  File \"/usr/lib/python3.12/threading.py\", line 1010, in run\n    self._target(*self._args, **self._kwargs)\n",
+        "  File \"/home/claude/app-stability/src/emerald_multiplayer/launcher_gui.py\", line 814, in _run\n    code = asyncio.run(self._execute(options))\n",
+        "  File \"/usr/lib/python3.12/asyncio/runners.py\", line 194, in run\n    return runner.run(main)\n",
+        "  File \"/usr/lib/python3.12/asyncio/runners.py\", line 118, in run\n    return self._loop.run_until_complete(task)\n",
+        "  File \"/usr/lib/python3.12/asyncio/base_events.py\", line 674, in run_until_complete\n    self.run_forever()\n",
+        "  File \"/usr/lib/python3.12/asyncio/base_events.py\", line 641, in run_forever\n    self._run_once()\n",
+        "  File \"/usr/lib/python3.12/asyncio/base_events.py\", line 1987, in _run_once\n    handle._run()\n",
+        "  File \"/usr/lib/python3.12/asyncio/events.py\", line 88, in _run\n    self._context.run(self._callback, *self._args)\n",
+        "  File \"/home/claude/app-stability/src/emerald_multiplayer/launcher_session.py\", line 1288, in _schedule_autosave\n    self._fail_save(idle_disconnect=getattr(error, \"code\", None)\n"
+      ]
+    }
+  ]
+}

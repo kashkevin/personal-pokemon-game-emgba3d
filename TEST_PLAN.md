@@ -949,6 +949,40 @@ After merging a line into the combined game (`docs/emeraldtogether-unified.md`):
 5. The launcher package (`collect_native_bundle.py --extra battle-sprites.ebsp`, then
    `build_launcher.py` under Wine): starts under Wine, and "Check installed game files" passes.
 
+### 7i. The combined game: the expansion with preview 12 (`emeraldtogether-combined-20261014-1`, "Native 3D preview 13")
+
+Engine `claude/emeraldtogether-combined` (merge `22f4d7ae4d` of the expansion `1f136ee787` into
+preview 12 `0834bed2f1`, then the commits below), app `claude/emeraldtogether-combined-app`
+(merge `5dd48f3`). The GBA ROM stays `f214735b...3387` at every commit (checked after each).
+
+1. Everything in 7h, plus the expansion's checks (section 2): `check-line-break`,
+   `check-wild-weather`, `check-clock`, `check-mp-objects`, `check-spawn-claims`,
+   `check-coop-exp`, `check-coop-controller` (new: the co-op AI foes' controller blocks, 14
+   checks; 2 fail with the engine fix undone), on Linux (2D and 3D) and the Windows exe under Wine.
+2. Co-op battle experience (owner decision 2026-10-13):
+
+   ```sh
+   PYTHONPATH=src:scripts/multiplayer:scripts/windows-runtime \
+     python scripts/multiplayer/native_launcher_coop_proof.py \
+       --game ../engine-stability/pokeemerald-mp --rom pokeemerald.gba --manifest manifest.json \
+       --source-a menu-a.sav --source-b menu-b.sav --display :98 --display :97 \
+       --output /private/multiplayer-proof/native-launcher-coop-N
+   ```
+
+   | Run | Engine | Result |
+   | --- | --- | --- |
+   | native-launcher-coop-1 | `5a2e4f20c8` | Failed: both bridges refused the co-op phase (KNOWN_ISSUES M22) |
+   | native-launcher-coop-2..4 | `5a2e4f20c8` + M22, M23 fixes | Failed about 30 s into the battle: the master core refused its own AI block (M24; run 3-4 with a debug build: backtrace and block) |
+   | native-launcher-coop-5 | `8f0e5ef44f` | No error for 900 s, still battling at the harness's limit (leads' own first moves; M25) |
+   | native-launcher-coop-6 | `8f0e5ef44f`, Linux 2D | **Pass**: Norman and Caroline beaten; host Torchic +8385, Wurmple (not sent out) +4118, Lv. 3 to 16, evolved to Silcoon; friend Treecko +8385; both saved (revision 2), fresh Continue kept them, store check passed |
+
+3. PvP after the combine: `native_launcher_battle_proof.py` (section 6) run
+   combined-launcher-battle-1 (engine `8f0e5ef44f`, Linux 2D): **pass** - the 1v1 through the
+   Players menu, the same result on both, the parties unchanged by the battle (no experience in
+   PvP) in revision 2 and after a fresh Continue.
+4. Two-trainer experience (KNOWN_ISSUES G14): `make check TESTS="Two opponents"`; before the fix
+   the two fainting orders gave 4156 and 3043, after it 4156 both.
+
 ## 8. CI
 
 Workflow files exist (`engine/.github/workflows/native-pc.yml`,

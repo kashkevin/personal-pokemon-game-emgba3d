@@ -1,13 +1,15 @@
-# EmeraldTogether expansion: two-player Windows test (Phases 1-5)
+# EmeraldTogether: two-player Windows test (Native 3D preview 13)
 
 For the owner's PCs. What the cloud could not test: Windows on real hardware with a graphics
 card, two PCs over a network, and playing it by hand. Everything below was tested in the cloud
 with native Linux games and (where named) the Windows game under Wine; see `TEST_PLAN.md`.
 
-Package: the checkpoint folder `emeraldtogether-expansion-20261013-2` (launcher "Native 3D
-expansion preview 2", its README names the engine and app commits). It replaces
-`emeraldtogether-expansion-20261013-1` (whose launcher was also called "Native 3D preview 11",
-like the main session's Battle FX checkpoint; the two are different games).
+Package: the checkpoint folder `emeraldtogether-combined-20261014-1` (launcher "Native 3D
+preview 13": the expansion (shared wild Pokemon, outbreaks, followers, the permanent Exp. Share,
+co-op battle experience) together with preview 12 (Battle FX, the original Poke Ball animations,
+the new menus); its README names the engine and app commits). It replaces the expansion's
+preview 2 (`emeraldtogether-expansion-20261013-2`) and preview 12
+(`emeraldtogether-nativeui-20261013-1`); both stay as rollback points.
 
 ## Before you start
 
@@ -59,6 +61,14 @@ Note the time of anything unexpected and take a screenshot (Win+Shift+S).
    (Summary > the EXP. bar). No item is needed and there is no switch. Fainted Pokémon and eggs get
    none.
 
+8. **Route 110** (if you are there): beat Psychic Edward; his defeat line used to crash the game
+   (U13). *Expected:* no crash.
+9. **Two trainers at once** (two trainers who see you at the same moment, a 2-against-2 battle):
+   every Pokemon of both trainers gives experience (G14). *Expected:* an "Exp. Points" message
+   after each opposing Pokemon faints, also the second trainer's.
+10. **Battle FX and menus** (preview 12): any battle shows the HD move animations and the
+   original Poke Ball animations; START, the party, the bag and the Trainer Card open and close.
+
 ## B. Two players (A hosts, B joins)
 
 1. **Same Pokémon for both.** Stand near each other on a route with grass. Compare what you see
@@ -86,8 +96,15 @@ Note the time of anything unexpected and take a screenshot (Win+Shift+S).
    starts the launcher again and joins: within a few seconds the Pokémon is free again for
    everybody (B's game lets go of a Pokémon it is no longer battling). If B does not come back,
    it is free again after 10 minutes of play.
-8. **Battles between you** (PvP 1v1) and co-op Gym battles: no experience for anyone, as in
-   Emerald's own link battles (KNOWN_ISSUES G8 asks whether co-op Gyms should give some).
+8. **Battles between you and co-op Gyms.** *PvP 1v1:* no experience for anyone (as in
+   Emerald's link battles); both parties are exactly as before the battle. *Co-op Gym battle*
+   (owner decision 2026-10-13): Players > team up, stand together in a Gym, challenge it
+   together, fight to the end. *Expected:* after the battle each of you, in your own game, gets
+   "<Pokemon> gained N Exp. Points!" for your own Pokemon only: the ones that fought get the full
+   amount, the rest of your team half (Exp. Share), fainted ones and eggs none; level-ups, new
+   moves ("forget a move?") and evolutions follow, then the game saves as usual. Nothing is
+   given twice if you close and open the game again. The battle is slow to relay between the
+   two games (KNOWN_ISSUES M25): note how long a turn takes on your PCs.
 9. **Host restart.** A closes the host (everyone sees the host connection lost; follow the
    launcher's messages), opens it again and hosts; B joins again: the shared Pokémon and an
    outbreak continue.
