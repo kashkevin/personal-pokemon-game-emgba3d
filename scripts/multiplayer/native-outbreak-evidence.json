@@ -1,0 +1,576 @@
+{
+  "scope": "mass outbreaks: a real world server, real companions, two native clients",
+  "game_sha256": "2f76554b4509a41aaa763cf829689e4d234299b48492d28dc5ae91977f3df780",
+  "build_id": "f214735b64e113fd10730eacca5764d757f2c93a3685230aa905af7a7cdd3387",
+  "species": 265,
+  "checks": [
+    {
+      "verified": "native bridges authenticated to their companions"
+    },
+    {
+      "verified": "both native games announced the shared-spawn mailbox ('w')"
+    },
+    {
+      "verified": "companions joined the world server"
+    },
+    {
+      "verified": "both games are on Route 101's overworld",
+      "poses": [
+        [
+          0,
+          16,
+          10,
+          12,
+          1
+        ],
+        [
+          0,
+          16,
+          10,
+          12,
+          1
+        ]
+      ]
+    },
+    {
+      "verified": "the host made shared spawns active for both games (inbound 'enabled')"
+    },
+    {
+      "verified": "before the outbreak both games draw the host's Pokemon on the same tiles",
+      "host": {
+        "1": [
+          16,
+          11
+        ],
+        "2": [
+          14,
+          13
+        ],
+        "3": [
+          13,
+          13
+        ]
+      },
+      "kinds": {
+        "1": "normal:225",
+        "2": "normal:127",
+        "3": "normal:519"
+      },
+      "client_a": {
+        "3": [
+          13,
+          13
+        ],
+        "2": [
+          14,
+          13
+        ],
+        "1": [
+          16,
+          11
+        ]
+      },
+      "client_b": {
+        "3": [
+          13,
+          13
+        ],
+        "2": [
+          14,
+          13
+        ],
+        "1": [
+          16,
+          11
+        ]
+      },
+      "limit": 8
+    },
+    {
+      "verified": "the ROM's one-time hint toast came and went before the outbreak (pictures 01-hint-*)",
+      "toasts": [
+        [
+          1,
+          false
+        ],
+        [
+          1,
+          false
+        ]
+      ],
+      "pictures": [
+        {
+          "toast": 1,
+          "fill_pixels": 8216
+        },
+        {
+          "toast": 1,
+          "fill_pixels": 8216
+        }
+      ]
+    },
+    {
+      "verified": "the host started an outbreak on Route 101",
+      "outbreak": {
+        "outbreak_id": 1,
+        "species": 265,
+        "name": "WURMPLE",
+        "place": "ROUTE 101",
+        "map_group": 0,
+        "map_number": 16,
+        "seconds_left": 873
+      }
+    },
+    {
+      "verified": "the outbreak's notice reached both companions (the world notice the games show)",
+      "notices": [
+        "MASS OUTBREAK: WURMPLE!|ROUTE 101  14:33 left",
+        "MASS OUTBREAK: WURMPLE!|ROUTE 101  14:33 left"
+      ]
+    },
+    {
+      "verified": "both games show the outbreak notice toast (pictures 02-notice-*)",
+      "toasts": [
+        {
+          "toast": 2,
+          "fill_pixels": 8201
+        },
+        {
+          "toast": 2,
+          "fill_pixels": 8201
+        }
+      ]
+    },
+    {
+      "verified": "Route 101 allows 12 Pokemon and holds more than 8 during the outbreak",
+      "live": 9,
+      "kinds": {
+        "1": "normal:225",
+        "2": "normal:127",
+        "3": "normal:519",
+        "4": "normal:202",
+        "5": "normal:309",
+        "6": "normal:420",
+        "7": "normal:420",
+        "8": "normal:333",
+        "9": "outbreak:265"
+      }
+    },
+    {
+      "verified": "both games draw outbreak Pokemon: the same spawn ids on the host's tiles, none twice",
+      "host": {
+        "1": [
+          15,
+          13
+        ],
+        "2": [
+          13,
+          13
+        ],
+        "3": [
+          13,
+          9
+        ],
+        "4": [
+          11,
+          10
+        ],
+        "5": [
+          15,
+          14
+        ],
+        "6": [
+          14,
+          10
+        ],
+        "7": [
+          2,
+          16
+        ],
+        "8": [
+          15,
+          10
+        ],
+        "9": [
+          16,
+          13
+        ],
+        "10": [
+          15,
+          12
+        ],
+        "11": [
+          16,
+          11
+        ],
+        "12": [
+          12,
+          10
+        ]
+      },
+      "kinds": {
+        "1": "normal:225",
+        "2": "normal:127",
+        "3": "normal:519",
+        "4": "normal:202",
+        "5": "normal:309",
+        "6": "normal:420",
+        "7": "normal:420",
+        "8": "normal:333",
+        "9": "outbreak:265",
+        "10": "normal:434",
+        "11": "outbreak:265",
+        "12": "outbreak:265"
+      },
+      "client_a": {
+        "10": [
+          15,
+          12
+        ],
+        "2": [
+          13,
+          13
+        ],
+        "1": [
+          15,
+          13
+        ],
+        "4": [
+          11,
+          10
+        ],
+        "12": [
+          12,
+          10
+        ],
+        "6": [
+          14,
+          10
+        ],
+        "8": [
+          15,
+          10
+        ]
+      },
+      "client_b": {
+        "10": [
+          15,
+          12
+        ],
+        "2": [
+          13,
+          13
+        ],
+        "1": [
+          15,
+          13
+        ],
+        "4": [
+          11,
+          10
+        ],
+        "12": [
+          12,
+          10
+        ],
+        "6": [
+          14,
+          10
+        ],
+        "8": [
+          15,
+          10
+        ]
+      }
+    },
+    {
+      "verified": "during the outbreak",
+      "host": {
+        "1": [
+          14,
+          13
+        ],
+        "2": [
+          13,
+          13
+        ],
+        "3": [
+          13,
+          9
+        ],
+        "4": [
+          11,
+          10
+        ],
+        "5": [
+          15,
+          15
+        ],
+        "6": [
+          14,
+          10
+        ],
+        "7": [
+          3,
+          16
+        ],
+        "8": [
+          15,
+          11
+        ],
+        "9": [
+          15,
+          13
+        ],
+        "10": [
+          15,
+          12
+        ],
+        "11": [
+          16,
+          11
+        ],
+        "12": [
+          12,
+          11
+        ]
+      },
+      "kinds": {
+        "1": "normal:225",
+        "2": "normal:127",
+        "3": "normal:519",
+        "4": "normal:202",
+        "5": "normal:309",
+        "6": "normal:420",
+        "7": "normal:420",
+        "8": "normal:333",
+        "9": "outbreak:265",
+        "10": "normal:434",
+        "11": "outbreak:265",
+        "12": "outbreak:265"
+      },
+      "client_a": {
+        "10": [
+          15,
+          12
+        ],
+        "2": [
+          13,
+          13
+        ],
+        "1": [
+          14,
+          13
+        ],
+        "4": [
+          11,
+          10
+        ],
+        "12": [
+          12,
+          11
+        ],
+        "6": [
+          14,
+          10
+        ],
+        "8": [
+          15,
+          11
+        ]
+      },
+      "client_b": {
+        "10": [
+          15,
+          12
+        ],
+        "2": [
+          13,
+          13
+        ],
+        "1": [
+          14,
+          13
+        ],
+        "4": [
+          11,
+          10
+        ],
+        "12": [
+          12,
+          11
+        ],
+        "6": [
+          14,
+          10
+        ],
+        "8": [
+          15,
+          11
+        ]
+      }
+    },
+    {
+      "verified": "the outbreak's toast is gone in both games",
+      "toasts": [
+        [
+          2,
+          false
+        ],
+        [
+          2,
+          false
+        ]
+      ]
+    },
+    {
+      "verified": "the host ended the outbreak",
+      "ended": 1,
+      "live": 8,
+      "limit": 8,
+      "removed": [
+        1,
+        9,
+        11,
+        12
+      ]
+    },
+    {
+      "verified": "the end notice reached both companions",
+      "notices": [
+        "The WURMPLE outbreak|on ROUTE 101 has ended.",
+        "The WURMPLE outbreak|on ROUTE 101 has ended."
+      ]
+    },
+    {
+      "verified": "both games show the end notice toast (pictures 04-end-notice-*)",
+      "toasts": [
+        {
+          "toast": 3,
+          "fill_pixels": 8281
+        },
+        {
+          "toast": 3,
+          "fill_pixels": 8281
+        }
+      ]
+    },
+    {
+      "verified": "both games stopped drawing the removed Pokemon and draw the host's, none twice",
+      "host": {
+        "2": [
+          15,
+          13
+        ],
+        "3": [
+          13,
+          9
+        ],
+        "4": [
+          12,
+          12
+        ],
+        "5": [
+          14,
+          13
+        ],
+        "6": [
+          14,
+          9
+        ],
+        "7": [
+          5,
+          15
+        ],
+        "8": [
+          14,
+          10
+        ],
+        "10": [
+          15,
+          12
+        ]
+      },
+      "client_a": {
+        "10": [
+          15,
+          12
+        ],
+        "2": [
+          15,
+          13
+        ],
+        "5": [
+          14,
+          13
+        ],
+        "4": [
+          12,
+          12
+        ],
+        "3": [
+          13,
+          9
+        ],
+        "6": [
+          14,
+          9
+        ],
+        "8": [
+          14,
+          10
+        ]
+      },
+      "client_b": {
+        "10": [
+          15,
+          12
+        ],
+        "2": [
+          15,
+          13
+        ],
+        "5": [
+          14,
+          13
+        ],
+        "4": [
+          12,
+          12
+        ],
+        "3": [
+          13,
+          9
+        ],
+        "6": [
+          14,
+          9
+        ],
+        "8": [
+          14,
+          10
+        ]
+      },
+      "live": 8
+    },
+    {
+      "verified": "ten seconds later the board still holds at most 8",
+      "live": 8,
+      "limit": 8,
+      "kinds": {
+        "2": "normal:127",
+        "3": "normal:519",
+        "4": "normal:202",
+        "6": "normal:420",
+        "7": "normal:420",
+        "8": "normal:333",
+        "10": "normal:434",
+        "13": "normal:506"
+      }
+    },
+    {
+      "verified": "passed"
+    }
+  ],
+  "passed": true
+}
