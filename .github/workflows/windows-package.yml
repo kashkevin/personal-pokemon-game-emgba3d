@@ -1,0 +1,191 @@
+# Windows package: builds the native game from the private engine repository, then the
+# launcher with the repository's pinned wheels (build_launcher.py, PyInstaller 6.22.3).
+# Manual only: it needs the secrets listed in docs/windows-ci-packaging.md and produces
+# a private development-preview ZIP for the owner's own PC. Nothing here is published:
+# no release, no Pages, no cache of game data; artifacts are private to the repository.
+#
+# Not yet run on GitHub (written 2026-10-14 without a runner); see the document's
+# "What is verified" section.
+name: windows-package
+
+on:
+  workflow_dispatch:
+    inputs:
+      engine_ref:
+        description: Engine branch, tag or commit to build
+        default: claude/emeraldtogether-combined
+      version:
+        description: Version label shown in the launcher (blank = "Native 3D CI <run number>")
+        default: ""
+      runner:
+        description: windows-2022 (GitHub-hosted) or self-hosted (your own PC; private files stay on it)
+        type: choice
+        options: [windows-2022, self-hosted]
+        default: windows-2022
+      expected_rom_sha256:
+        description: Fail unless the built game ROM has this SHA-256 (blank = just report it)
+        default: ""
+
+permissions:
+  contents: read
+
+env:
+  SDL_VERSION: "2.30.7"
+  SDL_SHA256: 147c3dc03c9be6b23e625fd877421098e93487f1f55e0e1d4e3ce571e79b91c4
+  # The owner's Emerald USA/Europe revision 0 dump (docs/release-patch-creation.md); a public identity.
+  BASE_ROM_SHA256: a9dec84dfe7f62ab2220bafaef7479da0929d066ece16a6885f6226db19085af
+
+jobs:
+  engine:
+    name: Build the game (Linux cross-compile)
+    runs-on: ubuntu-24.04
+    outputs:
+      engine_commit: ${{ steps.build.outputs.engine_commit }}
+      rom_sha256: ${{ steps.build.outputs.rom_sha256 }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: app
+      - name: Check out the private engine
+        uses: actions/checkout@v4
+        with:
+          repository: kashkevin/personal-pokemon-game-emgba3d-engine
+          ref: ${{ inputs.engine_ref }}
+          token: ${{ secrets.ENGINE_REPO_TOKEN }}
+          path: engine
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Toolchain
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends build-essential libpng-dev \
+            gcc-arm-none-eabi binutils-arm-none-eabi libnewlib-arm-none-eabi mingw-w64
+          python -m venv .venv
+          .venv/bin/python -m pip install --require-hashes --only-binary=:all: \
+            -r app/requirements-host-provisioning.txt
+      - name: SDL2 for MinGW (pinned)
+        run: |
+          curl -fsSL -o sdl.tgz "https://github.com/libsdl-org/SDL/releases/download/release-${SDL_VERSION}/SDL2-devel-${SDL_VERSION}-mingw.tar.gz"
+          echo "${SDL_SHA256}  sdl.tgz" | sha256sum -c -
+          mkdir sdl && tar -xzf sdl.tgz -C sdl
+      - name: Build the GBA ROM and the Windows 3D game
+        id: build
+        working-directory: engine
+        run: |
+          make -j"$(nproc)" BUILD_NAME=dev
+          make -f Makefile_pc SDL_DIR="$GITHUB_WORKSPACE/sdl/SDL2-${SDL_VERSION}/i686-w64-mingw32" DIORAMA=1 -j"$(nproc)"
+          i686-w64-mingw32-strip --strip-all pokeemerald-mp-diorama.exe
+          rom_sha="$(sha256sum pokedev.gba | cut -d' ' -f1)"
+          if [ -n "${{ inputs.expected_rom_sha256 }}" ] && [ "$rom_sha" != "${{ inputs.expected_rom_sha256 }}" ]; then
+            echo "ROM sha256 $rom_sha differs from the expected pin" >&2; exit 1
+          fi
+          commit="$(git rev-parse HEAD)"
+          echo "engine_commit=$commit" >> "$GITHUB_OUTPUT"
+          echo "rom_sha256=$rom_sha" >> "$GITHUB_OUTPUT"
+          mkdir -p ../native-inputs
+          cp pokeemerald-mp-diorama.exe pokedev.gba ../native-inputs/
+          cp "$GITHUB_WORKSPACE/sdl/SDL2-${SDL_VERSION}/i686-w64-mingw32/bin/SDL2.dll" ../native-inputs/
+          PYTHONPATH="$GITHUB_WORKSPACE/app/src" "$GITHUB_WORKSPACE/.venv/bin/python" \
+            "$GITHUB_WORKSPACE/app/scripts/multiplayer/generate_manifest.py" \
+            --rom pokedev.gba --elf pokedev.elf --engine-commit "$commit" --output ../native-inputs/manifest.json
+      - name: Hand the build to the Windows job (private, one day)
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-inputs
+          path: native-inputs
+          retention-days: 1
+          if-no-files-found: error
+
+  package:
+    name: Build the launcher package (Windows)
+    needs: engine
+    runs-on: ${{ inputs.runner == 'self-hosted' && fromJSON('["self-hosted","windows"]') || 'windows-2022' }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Work folder outside the repository (a new one per run)
+        run: echo "WORK=$RUNNER_TEMP/emerald-${{ github.run_id }}-${{ github.run_attempt }}" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - name: Private virtual environment with the pinned, hashed wheels
+        run: |
+          python -m venv .venv
+          .venv/Scripts/python -m pip install --require-hashes --only-binary=:all: \
+            -r requirements-host-provisioning.txt -r scripts/windows-runtime/requirements-launcher-build.txt
+      - uses: actions/download-artifact@v4
+        with:
+          name: native-inputs
+          path: inputs
+      - name: Private inputs (optional; see docs/windows-ci-packaging.md)
+        env:
+          SPRITE_PACK_URL: ${{ secrets.SPRITE_PACK_URL }}
+          BASE_ROM_URL: ${{ secrets.BASE_ROM_URL }}
+          SPRITE_PACK_SHA256: ${{ vars.SPRITE_PACK_SHA256 }}
+          PRIVATE_INPUT_DIR: ${{ vars.PRIVATE_INPUT_DIR }}
+        run: |
+          fetch=scripts/windows-runtime/fetch_private_input.py
+          have_sprites=false; have_base=false
+          if [ -n "$SPRITE_PACK_SHA256" ]; then
+            set +e
+            .venv/Scripts/python "$fetch" --dest inputs/battle-sprites.ebsp --sha256 "$SPRITE_PACK_SHA256" \
+              --max-bytes 33554432 --local-dir "$PRIVATE_INPUT_DIR" --local-name battle-sprites.ebsp --url-env SPRITE_PACK_URL
+            rc=$?; set -e
+            [ $rc -eq 0 ] && have_sprites=true
+            [ $rc -ne 0 ] && [ $rc -ne 3 ] && exit $rc
+          fi
+          set +e
+          .venv/Scripts/python "$fetch" --dest inputs/base-emerald.gba --sha256 "$BASE_ROM_SHA256" \
+            --max-bytes 33554432 --local-dir "$PRIVATE_INPUT_DIR" --local-name base-emerald.gba --url-env BASE_ROM_URL
+          rc=$?; set -e
+          [ $rc -eq 0 ] && have_base=true
+          [ $rc -ne 0 ] && [ $rc -ne 3 ] && exit $rc
+          echo "HAVE_SPRITES=$have_sprites" >> "$GITHUB_ENV"
+          echo "HAVE_BASE=$have_base" >> "$GITHUB_ENV"
+      - name: Collect the native runtime bundle
+        run: |
+          extra=()
+          [ "$HAVE_SPRITES" = true ] && extra=(--extra inputs/battle-sprites.ebsp)
+          .venv/Scripts/python scripts/windows-runtime/collect_native_bundle.py \
+            --game inputs/pokeemerald-mp-diorama.exe --sdl inputs/SDL2.dll --rom inputs/pokedev.gba \
+            --output "$WORK/runtime" "${extra[@]}" | tee "$WORK.bundle.json"
+      - name: Build the launcher package (development preview)
+        run: |
+          pin() { .venv/Scripts/python -c "import hashlib,sys;print(hashlib.sha256(open(sys.argv[1],'rb').read()).hexdigest())" "$1"; }
+          version="${{ inputs.version }}"; [ -n "$version" ] || version="Native 3D CI ${{ github.run_number }}"
+          patch=()
+          [ "$HAVE_BASE" = true ] && patch=(--base inputs/base-emerald.gba --base-sha256 "$BASE_ROM_SHA256" --create-patch)
+          .venv/Scripts/python scripts/windows-runtime/build_launcher.py \
+            --rom inputs/pokedev.gba --manifest inputs/manifest.json --runtime "$WORK/runtime" \
+            --rom-sha256 "$(pin inputs/pokedev.gba)" --manifest-sha256 "$(pin inputs/manifest.json)" \
+            --runtime-sha256 "$(pin "$WORK/runtime/runtime.json")" \
+            --version "$version" --development-preview "${patch[@]}" \
+            --output "$WORK/launcher" < /dev/null 2>&1 | cat
+      - name: Summary
+        run: |
+          {
+            echo "### Windows package"
+            echo "- Engine commit: \`${{ needs.engine.outputs.engine_commit }}\`"
+            echo "- Game ROM sha256: \`${{ needs.engine.outputs.rom_sha256 }}\`"
+            echo "- Sprite pack in the runtime: $HAVE_SPRITES"
+            echo "- Import of the owner's own game enabled: $HAVE_BASE"
+            echo "- Archive sha256: \`$(.venv/Scripts/python -c "import hashlib,sys;print(hashlib.sha256(open(sys.argv[1],'rb').read()).hexdigest())" "$WORK/launcher/EmeraldTogether.zip")\`"
+            echo "- Private development preview; clean-PC, gameplay and network acceptance are separate."
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload the package (private to this repository, 7 days)
+        uses: actions/upload-artifact@v4
+        with:
+          name: EmeraldTogether-windows
+          path: |
+            ${{ env.WORK }}/launcher/EmeraldTogether.zip
+            ${{ env.WORK }}/launcher/package-hashes.json
+            ${{ env.WORK }}/launcher/package-audit.json
+            ${{ env.WORK }}/launcher/build.log
+          retention-days: 7
+          if-no-files-found: error
+      - name: Remove private inputs from the runner
+        if: always()
+        run: rm -rf inputs "$WORK"

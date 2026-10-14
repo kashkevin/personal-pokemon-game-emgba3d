@@ -37,6 +37,11 @@ Nothing in either repository contains credentials, tokens or keys (scanned 2026-
 
 ## What a fresh clone needs installed
 
+**Automated 2026-10-14:** `scripts/cloud/setup-env.sh` (run by the SessionStart hook in
+`.claude/`) installs everything in this table except Wine, WinPython and PyInstaller; the Windows
+launcher package is built by `.github/workflows/windows-package.yml` instead. See
+[windows-ci-packaging.md](windows-ci-packaging.md).
+
 | Need | Used by | Source |
 | --- | --- | --- |
 | `arm-none-eabi-gcc` (devkitARM or a system cross compiler), `make`, `gcc` (32-bit able: `gcc-multilib`), `python3` | GBA build, tools | distro packages / devkitPro |
