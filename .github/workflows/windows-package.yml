@@ -81,6 +81,9 @@ jobs:
           python -m venv .venv
           .venv/bin/python -m pip install --require-hashes --only-binary=:all: \
             -r app/requirements-host-provisioning.txt
+          # The engine's build tools (graphics, Diorama rules, ABI checks) import Pillow, NumPy and pyelftools.
+          python -m venv .tools
+          .tools/bin/python -m pip install --only-binary=:all: -r app/requirements-dev.txt
       - name: SDL2 for MinGW (pinned)
         run: |
           curl -fsSL -o sdl.tgz "https://github.com/libsdl-org/SDL/releases/download/release-${SDL_VERSION}/SDL2-devel-${SDL_VERSION}-mingw.tar.gz"
@@ -90,6 +93,7 @@ jobs:
         id: build
         working-directory: engine
         run: |
+          export PATH="$GITHUB_WORKSPACE/.tools/bin:$PATH"
           make -j"$(nproc)" BUILD_NAME=dev
           make -f Makefile_pc SDL_DIR="$GITHUB_WORKSPACE/sdl/SDL2-${SDL_VERSION}/i686-w64-mingw32" DIORAMA=1 -j"$(nproc)"
           i686-w64-mingw32-strip --strip-all pokeemerald-mp-diorama.exe
