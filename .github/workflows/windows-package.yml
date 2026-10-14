@@ -1,18 +1,27 @@
-# Windows package: builds the native game from the private engine repository, then the
-# launcher with the repository's pinned wheels (build_launcher.py, PyInstaller 6.22.3).
-# Manual only: it needs the secrets listed in docs/windows-ci-packaging.md and produces
-# a private development-preview ZIP for the owner's own PC. Nothing here is published:
-# no release, no Pages, no cache of game data; artifacts are private to the repository.
+# Windows package: builds the launcher with the repository's pinned wheels
+# (build_launcher.py, PyInstaller 6.22.3) on a Windows runner.
 #
-# Not yet run on GitHub (written 2026-10-14 without a runner); see the document's
-# "What is verified" section.
+#   smoke (default; also runs on a push that touches the packaging files): synthetic,
+#          asset-free inputs (scripts/windows-runtime/make_smoke_inputs.py). Needs no engine,
+#          secrets, ROM or sprite pack; proves collect_native_bundle, build_launcher,
+#          PyInstaller, the package audit and that the frozen launcher starts.
+#   full   (manual): builds the game from the private engine first, then the same steps with
+#          the real game. Needs the secrets listed in docs/windows-ci-packaging.md.
+#
+# Nothing here is published: no release, no Pages, no cache of game data; artifacts are
+# private to the repository.
 name: windows-package
 
 on:
   workflow_dispatch:
     inputs:
+      mode:
+        description: smoke (synthetic inputs, no secrets) or full (the real game from the private engine)
+        type: choice
+        options: [smoke, full]
+        default: smoke
       engine_ref:
-        description: Engine branch, tag or commit to build
+        description: "full: engine branch, tag or commit to build"
         default: claude/emeraldtogether-combined
       version:
         description: Version label shown in the launcher (blank = "Native 3D CI <run number>")
@@ -23,8 +32,15 @@ on:
         options: [windows-2022, self-hosted]
         default: windows-2022
       expected_rom_sha256:
-        description: Fail unless the built game ROM has this SHA-256 (blank = just report it)
+        description: "full: fail unless the built game ROM has this SHA-256 (blank = just report it)"
         default: ""
+  push:
+    paths:
+      - .github/workflows/windows-package.yml
+      - scripts/windows-runtime/**
+      - requirements-host-provisioning.txt
+      - src/emerald_multiplayer/launcher*.py
+      - src/emerald_multiplayer/player_runtime.py
 
 permissions:
   contents: read
@@ -38,6 +54,7 @@ env:
 jobs:
   engine:
     name: Build the game (Linux cross-compile)
+    if: ${{ (inputs.mode || 'smoke') == 'full' }}
     runs-on: ubuntu-24.04
     outputs:
       engine_commit: ${{ steps.build.outputs.engine_commit }}
@@ -100,10 +117,13 @@ jobs:
   package:
     name: Build the launcher package (Windows)
     needs: engine
+    if: ${{ !cancelled() && (needs.engine.result == 'success' || needs.engine.result == 'skipped') }}
     runs-on: ${{ inputs.runner == 'self-hosted' && fromJSON('["self-hosted","windows"]') || 'windows-2022' }}
     defaults:
       run:
         shell: bash
+    env:
+      MODE: ${{ inputs.mode || 'smoke' }}
     steps:
       - name: Work folder outside the repository (a new one per run)
         run: echo "WORK=$RUNNER_TEMP/emerald-${{ github.run_id }}-${{ github.run_attempt }}" >> "$GITHUB_ENV"
@@ -116,11 +136,20 @@ jobs:
           python -m venv .venv
           .venv/Scripts/python -m pip install --require-hashes --only-binary=:all: \
             -r requirements-host-provisioning.txt -r scripts/windows-runtime/requirements-launcher-build.txt
+      - name: Smoke inputs (synthetic, no game data)
+        if: env.MODE == 'smoke'
+        run: |
+          .venv/Scripts/python scripts/windows-runtime/make_smoke_inputs.py \
+            --exe "$(.venv/Scripts/python -c 'import sys;print(sys.base_prefix + "/python.exe")')" --output inputs
+          echo "HAVE_SPRITES=false" >> "$GITHUB_ENV"
+          echo "HAVE_BASE=false" >> "$GITHUB_ENV"
       - uses: actions/download-artifact@v4
+        if: env.MODE == 'full'
         with:
           name: native-inputs
           path: inputs
       - name: Private inputs (optional; see docs/windows-ci-packaging.md)
+        if: env.MODE == 'full'
         env:
           SPRITE_PACK_URL: ${{ secrets.SPRITE_PACK_URL }}
           BASE_ROM_URL: ${{ secrets.BASE_ROM_URL }}
@@ -156,6 +185,7 @@ jobs:
         run: |
           pin() { .venv/Scripts/python -c "import hashlib,sys;print(hashlib.sha256(open(sys.argv[1],'rb').read()).hexdigest())" "$1"; }
           version="${{ inputs.version }}"; [ -n "$version" ] || version="Native 3D CI ${{ github.run_number }}"
+          [ "$MODE" = smoke ] && version="Smoke test ${{ github.run_number }}"
           patch=()
           [ "$HAVE_BASE" = true ] && patch=(--base inputs/base-emerald.gba --base-sha256 "$BASE_ROM_SHA256" --create-patch)
           .venv/Scripts/python scripts/windows-runtime/build_launcher.py \
@@ -164,10 +194,39 @@ jobs:
             --runtime-sha256 "$(pin "$WORK/runtime/runtime.json")" \
             --version "$version" --development-preview "${patch[@]}" \
             --output "$WORK/launcher" < /dev/null 2>&1 | cat
+      - name: Check the package contents
+        run: |
+          .venv/Scripts/python - <<'PY'
+          import json, os, zipfile
+          work = os.environ["WORK"] + "/launcher"
+          names = zipfile.ZipFile(work + "/EmeraldTogether.zip").namelist()
+          assert any(n.endswith("EmeraldTogether/EmeraldTogether.exe") or n == "EmeraldTogether/EmeraldTogether.exe" for n in names), names[:20]
+          bad = [n for n in names if n.lower().endswith((".gba", ".sav", ".sqlite3", ".db", ".pem", ".key"))]
+          assert not bad, bad
+          hashes = json.load(open(work + "/package-hashes.json"))
+          audit = json.load(open(work + "/package-audit.json"))
+          print(len(names), "archive members;", len(hashes), "hashed files; audit keys", sorted(audit))
+          PY
+      - name: Start the frozen launcher and watch it stay up (smoke)
+        if: env.MODE == 'smoke'
+        shell: pwsh
+        run: |
+          $exe = Join-Path $env:WORK "launcher\dist\EmeraldTogether\EmeraldTogether.exe"
+          $p = Start-Process -FilePath $exe -PassThru
+          Start-Sleep -Seconds 20
+          if ($p.HasExited) { throw "EmeraldTogether.exe exited early with code $($p.ExitCode)" }
+          Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+          $b = [System.Windows.Forms.SystemInformation]::VirtualScreen
+          $bmp = New-Object System.Drawing.Bitmap $b.Width, $b.Height
+          [System.Drawing.Graphics]::FromImage($bmp).CopyFromScreen($b.Location, [System.Drawing.Point]::Empty, $b.Size)
+          $bmp.Save((Join-Path $env:WORK "launcher-screen.png"))
+          Stop-Process -Id $p.Id -Force
+          "launcher stayed up for 20 s (pid $($p.Id))"
       - name: Summary
         run: |
           {
             echo "### Windows package"
+            echo "- Mode: $MODE"
             echo "- Engine commit: \`${{ needs.engine.outputs.engine_commit }}\`"
             echo "- Game ROM sha256: \`${{ needs.engine.outputs.rom_sha256 }}\`"
             echo "- Sprite pack in the runtime: $HAVE_SPRITES"
@@ -178,14 +237,15 @@ jobs:
       - name: Upload the package (private to this repository, 7 days)
         uses: actions/upload-artifact@v4
         with:
-          name: EmeraldTogether-windows
+          name: EmeraldTogether-windows-${{ env.MODE }}
           path: |
+            ${{ env.WORK }}/launcher-screen.png
             ${{ env.WORK }}/launcher/EmeraldTogether.zip
             ${{ env.WORK }}/launcher/package-hashes.json
             ${{ env.WORK }}/launcher/package-audit.json
             ${{ env.WORK }}/launcher/build.log
           retention-days: 7
-          if-no-files-found: error
+          if-no-files-found: warn
       - name: Remove private inputs from the runner
         if: always()
         run: rm -rf inputs "$WORK"

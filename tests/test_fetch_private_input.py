@@ -69,3 +69,21 @@ def test_https_download_is_verified_and_masked(tmp_path, monkeypatch, capsys):
 def test_a_bad_pin_is_rejected(tmp_path, monkeypatch):
     monkeypatch.setattr(sys, "argv", ["x", "--dest", str(tmp_path / "o"), "--sha256", "abc", "--max-bytes", "1"])
     assert helper.main() == 1
+
+
+def test_smoke_inputs_pass_the_launchers_own_checks(tmp_path):
+    """The synthetic inputs must go through collect_native_bundle (which runs the launcher's runtime check)."""
+    def load(name):
+        module_spec = importlib.util.spec_from_file_location(name, SCRIPT.with_name(name + ".py"))
+        module = importlib.util.module_from_spec(module_spec)
+        module_spec.loader.exec_module(module)
+        return module
+
+    smoke, collect = load("make_smoke_inputs"), load("collect_native_bundle")
+    fake_exe = tmp_path / "fake.exe"
+    fake_exe.write_bytes(b"MZ not a program")
+    made = smoke.make(fake_exe, tmp_path / "inputs")
+    inputs = tmp_path / "inputs"
+    bundle = collect.collect(inputs / "pokeemerald-mp-diorama.exe", inputs / "SDL2.dll", inputs / "pokedev.gba",
+                             tmp_path / "runtime")
+    assert bundle["rom_sha256"] == made["rom_sha256"] and bundle["files"] == 2

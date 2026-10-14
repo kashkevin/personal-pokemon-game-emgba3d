@@ -1,0 +1,14 @@
+# Temporary probe: can this repository's workflows use the private engine repository's
+# actions (and so read its files) with the built-in token alone, no personal access token?
+name: engine-access-probe
+on:
+  workflow_dispatch:
+  push:
+    paths: [.github/workflows/engine-access-probe.yml]
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: kashkevin/personal-pokemon-game-emgba3d-engine/.github/actions/probe@claude/cloud-setup-engine
