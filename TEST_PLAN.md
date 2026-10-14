@@ -556,6 +556,34 @@ games draw the same Pokémon again (`evidence.json` and screenshots in the outpu
 | native-spawns-9 | 2 Linux 3D, engine `de470ebc3d` (window and object-reserve fixes) | Pass: all 28 checks, including the rejoin; the games now also draw the host's Pokémon west and north of the players |
 | native-spawns-wine-1 | 2 Windows 3D exes of the package (`--wine`, one prefix each, `--slow 2.0`), engine `d389ca3443` | Pass: all 28 checks, including the rejoin |
 
+Mass outbreaks (EmeraldTogether Phase 4) in a game: `native_outbreak_proof.py`, the same set-up
+(two native games on Route 101, a real host and companions; the save is copied as is). The host
+starts an outbreak on Route 101 with the scheduler's own `Outbreaks.start` (map and species named:
+Wurmple), later ends it with `Outbreaks.end`.
+
+```sh
+PYTHONPATH=src python scripts/multiplayer/native_outbreak_proof.py \
+    --game ../engine-stability/pokeemerald-mp-diorama --rom ../engine-stability/pokeemerald.gba \
+    --manifest manifest.json --save route101.sav --display :98 --display :97 \
+    --output <private>/multiplayer-proof/native-outbreak-N
+```
+
+Checks: both games draw the host's Pokémon alike before it (at most 8); the ROM's one-time hint
+toast comes and goes first (it is a notice too); the outbreak notice reaches both companions
+and shows on both screens (the games run with `PKMN_NATIVE_UI_LOG=1`: the native UI logs each
+time its notice toast comes up, the proof screenshots that moment and checks the toast's fill
+colour); Route 101 allows 12 and fills past 8, with outbreak Pokémon; both games draw outbreak
+Pokémon with the same spawn ids on the host's tiles, none twice; after the start's toast has
+gone, the end: its notice on both screens, the board back to at most 8 (`SpawnBoard.trim`: open
+outbreak Pokémon first, oldest first), the removed ones gone from both games, the rest drawn
+alike, and still at most 8 ten seconds later.
+
+| Run | Build | Result |
+| --- | --- | --- |
+| native-outbreak-1 | Linux 3D, engine `f8dbffa88a` | Host and spawn checks passed; the notice was only checked at the companions (the screenshots show the map-name pop-up still up: on software OpenGL it lasts half a minute after loading, and the game waits for it) |
+| native-outbreak-2..4 | Linux 3D | Failed on the proof's own notice check (a corner of the window instead of the native UI's canvas; a notice arriving while another is up replaces the text in the same toast; the toast slides in over its first frames) |
+| native-outbreak-5 | Linux 3D, engine `f8dbffa88a` | **Pass**: the hint, "MASS OUTBREAK: WURMPLE! ROUTE 101 14:33 left" and "The WURMPLE outbreak on ROUTE 101 has ended." on both screens; the board 12 (3 of the 4 new ones Wurmple), back to 8 (4 removed: the 3 open Wurmple and the oldest), both games alike (`scripts/multiplayer/native-outbreak-evidence.json`) |
+
 Multiplayer following Pokémon (EmeraldTogether Phase 5): `native_follower_proof.py`, the same
 set-up (the save's copy with its strongest Pokémon, Wailord, in front: it is also the follower).
 Checks: each game publishes its follower (species with its form, shiny and female flags,
@@ -1005,6 +1033,34 @@ preview 12 `0834bed2f1`, then the commits below), app `claude/emeraldtogether-co
    | native-spawns-wine-combined-1 / -2 | The package's stripped exe, two Wine games | Run 1 (`--slow 2.0`, while the package was zipped) failed the same way (M26); run 2 (`--slow 3.0`) passed 28 of 28 |
    | `make check` | GBA test ROM at `c98b38f26c` (code `ee8d059a91`), 1862 s | 6000 tests, 5498 passed, 39 failed (the upstream list, KNOWN_ISSUES G10), 18 known failing, 15 assumptions failed, 421 to do, 9 expected failing |
    | App suite | `7000812` + docs | 1522 passed, 1 skipped (with `DISPLAY`; without a display the launcher GUI tests fail with TclError) |
+
+### 7j. Preview 14 (`emeraldtogether-combined-20261014-2`): the stability pass
+
+Engine `claude/emeraldtogether-combined` `f8dbffa88a` (M26 `11fe0ada6a`, Ally Switch `a70687a2da`,
+the carried-out line `f8dbffa88a`), app `claude/emeraldtogether-combined-app`. Only what changed was
+tested again (`TEST_LEDGER.md` has every reuse with its evidence).
+
+1. Ally Switch without a partner (KNOWN_ISSUES N41), test build
+   (`make -f Makefile_pc NATIVE_LINUX=1 DIORAMA=1 CC="gcc -DDIORAMA_BATTLE_ENV_TEST -DBATTLEFX_TEST"
+   TARGET=pokeemerald-mp-diorama-bfxtest OBJ_DIR=build/pc-linux-diorama-bfxtest`):
+   `tools/battlefx/gallery.sh OUT route101.sav wild:263:30 MOVE_ALLY_SWITCH`: before the fix exit 139
+   three times out of three; after it exit 0, parity 211/211. With a partner
+   (`wild2:384:50:249:50`, `PKMN_TEST_PARTY=321:50,249:50`): three runs, 211/211 each.
+2. The carried-out line beside large Pokémon (KNOWN_ISSUES S8): the same double battle with Bite,
+   Slam, Dig, Dragon Dance, Charge and Acid Armor (`PKMN_BATTLE_SPRITES_PACK=` the pack, or a
+   missing file for the GBA pictures), then
+   `python3 tools/battle_env/carried_edges.py [--picture X0,Y0,X1,Y1] OUT/out/*.png` (exit 1 when a
+   margin row is one flat colour). Before: 4 of 21 shots (pack), 2 of 21 (GBA pictures). After:
+   0 of 21 (pack) and 0 of 21 (GBA pictures) at 640x360, 0 of 12 at 960x540 (both), 0 of 12 at
+   1264x711 (`--picture 272,231,992,711`; the picture at 3x). Battle FX parity exact in every run.
+   Frame times on software OpenGL: the same build varies by about 10 % between runs (34.6 and
+   30.9 frames a second for the same seven animations; 36.3 before the fix): no difference
+   measurable here.
+3. The package's stripped Windows exe under Wine: `--selftest-spawn-claims`, `--selftest-mp-objects`
+   exit 0; `native_spawn_proof.py --wine` run native-spawns-wine-p14-1: 28 of 28, with the rejoin
+   and the claim winner's battle (the sprite pack loaded).
+4. Mass outbreaks in a game (above): native-outbreak-5 passed.
+5. The launcher under Wine: "Native 3D preview 14", "Check installed game files": match.
 
 ## 8. CI
 

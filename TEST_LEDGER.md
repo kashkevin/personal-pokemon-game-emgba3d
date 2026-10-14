@@ -15,7 +15,44 @@ launcher proof: 5-20 minutes), write down why, whether it already ran, and what 
 Environments: **L** cloud Linux (software OpenGL), **W** the Windows exe under Wine in the cloud,
 **PC** the owner's Windows PC. Nothing has run on PC hardware except file checks.
 
-## Current game: Native 3D preview 13 (`emeraldtogether-combined-20261014-1`)
+## Current game: Native 3D preview 14 (`emeraldtogether-combined-20261014-2`)
+
+Engine `claude/emeraldtogether-combined` `f8dbffa88a` (the game exe; later commits are documents),
+app `claude/emeraldtogether-combined-app` (launcher code unchanged since preview 13's `00bf8d6`:
+the commits since are documents and proof scripts).
+
+What preview 14 changed against preview 13's game code (`git diff --stat ee8d059a91 f8dbffa88a`):
+`src/multiplayer_spawns.c` (M26, PC only) and its self-test; `src/battle_anim_effects_1.c` (Ally
+Switch, PORTABLE only); `src/platform/gba_easy_draw.c`, `src/platform/battle_sprites.c`,
+`include/platform/battle_sprites.h` (the carried-out line, PC only); `tools/battle_env/carried_edges.py`.
+The GBA ROM is byte-identical, so the GBA test ROM's code did not change either. No save, mailbox,
+battle packet, bridge, host, launcher, native UI or Battle FX code changed.
+
+| Test | Build / commit | Env | Last result (date) | Evidence | Changes since that matter | Action |
+| --- | --- | --- | --- | --- | --- | --- |
+| GBA ROM sha256 f214735b...3387 | `a70687a2da`, `f8dbffa88a` | L | Pass (2026-10-14) | `CHECKPOINTS.md` ROM guard | - | Rerun after any engine change |
+| `check_gba_lines.py` | `src/battle_anim_effects_1.c` at `a70687a2da` | L | Pass, 0 moved (2026-10-14) | commit message | - | Rerun after any GBA-file change |
+| GBA test suite, full (`make check`) | `c98b38f26c` (code `ee8d059a91`) | L | 6000: 5498 pass, 39 = the upstream list (2026-10-14) | `proof/combined/gba-tests-3/` | none: the changes are PC only (PORTABLE / `src/platform`), the test ROM is built without them | PREVIOUSLY PASSED - EVIDENCE REUSED |
+| GBA project tests (`TESTS="Multiplayer"`), G14 test | `ee8d059a91`, `ef121fad20` | L | Pass (2026-10-14) | TEST_PLAN 4, 7i | none (as above) | PREVIOUSLY PASSED - EVIDENCE REUSED |
+| `check-native`, `check-abi` | `ee8d059a91` | L | Pass (2026-10-14) | `proof/combined/selftests-linux-2.txt` | none: neither compiles the changed files; `BattleSpriteBgCopy` is no ABI type | PREVIOUSLY PASSED - EVIDENCE REUSED |
+| `check-decompress`, `check-party-order`, `check-battle-names`, `check-cry-stop`, `check-shake-anim`, `check-line-break`, `check-wild-weather`, `check-clock`, `check-coop-exp`, `check-coop-controller`, `check-game-sections`, `check-diorama` | `ee8d059a91` | L, W | Pass (2026-10-14) | `proof/combined/selftests-linux-2.txt`, `selftests-wine-2.txt` | none in the code they test (`check-diorama` compiles neither `gba_easy_draw.c` nor `battle_sprites.c`) | PREVIOUSLY PASSED - EVIDENCE REUSED |
+| `check-spawn-claims` (23) | `11fe0ada6a` L; the package exe W | L, W | Pass (2026-10-14; Wine: exit 0) | commit `11fe0ada6a`; `scratchpad/winrun/wine-spawn-claims-p14.log` | M26 | Ran (changed code) |
+| `check-mp-objects` (21) | `ee8d059a91` L; the package exe W | L, W | Pass (2026-10-14; Wine: exit 0) | as above | M26 touches the spawn objects' room | Ran on the package exe |
+| Ally Switch gallery, no partner and with one | `a70687a2da` test build | L | Pass: before 3/3 exit 139, after exit 0, 211/211; with a partner 3 runs 211/211 (2026-10-14) | `proof/stability/allyswitch-*` | the fix | Ran (fixed bug) |
+| Carried-out line (`carried_edges.py` on gallery shots) | `f8dbffa88a` test build | L | Pass: before 4/21 and 2/21; after 0/21, 0/21, 0/12 (960x540, both), 0/12 (1264x711) (2026-10-14) | `proof/stability/darkline-*` | the fix | Ran (fixed bug) |
+| Battle FX galleries (621 moves, 651 animations) | Battle FX session's build | L | Pass (2026-10-13) | `battlefx-int-wip-20261013-1` report | Battle FX code and data unchanged; every gallery run after the renderer fix (42 animations, 7 runs) had parity exact | PREVIOUSLY PASSED - EVIDENCE REUSED |
+| Mass outbreaks in a game (`native_outbreak_proof.py`) | `f8dbffa88a` 3D | L | Pass: native-outbreak-5 (2026-10-14; runs 1-4 failed on the proof's own notice check) | `scripts/multiplayer/native-outbreak-evidence.json` | - | Ran (never executed before) |
+| Shared spawns, shiny, claim race, battle, rejoin (`native_spawn_proof.py --wine`) | the package's stripped exe (`44ecf36f...`) | W | Pass 28/28: native-spawns-wine-p14-1 (2026-10-14) | `proof/multiplayer-proof/native-spawns-wine-p14-1` | M26; the renderer change (the winner's battle is 3D, sprite pack loaded) | Ran (changed code, the shipped exe) |
+| Multiplayer followers (`native_follower_proof.py`) | `11fe0ada6a` 3D | L | Pass: native-followers-m26-1 (2026-10-14) | same folder | none since (the later changes are battle-only) | PREVIOUSLY PASSED - EVIDENCE REUSED |
+| Co-op Gym battle + EXP, 1v1 PvP, trade, host loss and rejoin, Exp. Share | `8f0e5ef44f` / `ee8d059a91` | L | Pass (2026-10-13/14) | preview 13 rows below | none in their code: battle-only renderer and animation changes are PC presentation (the controller, link and save paths are unchanged) | PREVIOUSLY PASSED - EVIDENCE REUSED |
+| App suite (pytest) | app `00bf8d6` | L | 1522 pass, 1 skipped (2026-10-14) | `proof/combined/app-suite-3.log` | no app library code changed (documents, proof scripts) | PREVIOUSLY PASSED - EVIDENCE REUSED |
+| Package launcher check ("Check installed game files") | preview 14 launcher (`025f52dd...`) | W | Pass: "Installed game and runtime match this package's pins" (2026-10-14) | checkpoint `evidence/1` | - | Ran (new package) |
+| Package files on the PC (1036 files, SHA256SUMS) | preview 14 | PC (file check only) | see `CHECKPOINTS.md` | checkpoint `EmeraldTogether-SHA256SUMS.txt` | - | Ran for this package |
+| 2v2 PvP, four games (`native_launcher_multi_proof.py`) | `1579e7fd8` (older) | L | Pass: native-launcher-multi-10 (2026-10-10) | TEST_PLAN 6 | the combine and the co-op validator (`8f0e5ef44f`) | Still to rerun before a release (152 min); not needed for this preview's changes |
+| UBSan build (`SANITIZE=1`) | - | - | Not run on the combined game | - | - | Run (never executed on this code) |
+| Real GPU frame rates, Windows itself, two PCs, controller, audio | - | PC | Never run | `docs/expansion-windows-test.md` | - | Owner |
+
+## Previous: Native 3D preview 13 (`emeraldtogether-combined-20261014-1`)
 
 Engine `claude/emeraldtogether-combined` `c98b38f26c` (game code `ee8d059a91`; later commits are
 documents), app `claude/emeraldtogether-combined-app` `00bf8d6`. Evidence paths are in the cloud
