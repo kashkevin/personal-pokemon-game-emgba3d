@@ -75,13 +75,43 @@ the hash before accepting a file and refuses anything else):
    deletes it; the link is masked in logs. The file does pass through GitHub's runner.
 3. **Never** commit them, put them in a release, or attach them to an issue.
 
+### Smoke mode (proved on GitHub, 2026-10-14)
+
+`mode = smoke` (the default, and what a push touching the packaging files runs) needs no engine,
+secrets, ROM or sprite pack. `scripts/windows-runtime/make_smoke_inputs.py` writes stand-ins (a copy of
+Python's own `python.exe` named like the game, a placeholder `SDL2.dll`, a few KiB of text as the
+"ROM" and a manifest the companion's `verify_rom_manifest` accepts), then the real
+`collect_native_bundle.py` and `build_launcher.py --development-preview` run on `windows-2022`.
+
+Run 38643201252 (commit `286318a`, success, 70 s): CPython 3.14.8; all wheels installed with
+`--require-hashes --only-binary=:all:` (PyInstaller 6.22.3); bundle collected and its launcher check
+passed; package built (129 files, import disabled), package audit passed (tree 284 members, archive
+345), no ROM/save/database/key in the archive; `EmeraldTogether.exe` stayed running for 20 s
+(a modal error dialog would also keep it running; the run saves a screenshot in the artifact
+for that reason); 21 MB artifact `EmeraldTogether-windows-smoke` uploaded.
+
+### Reaching the private engine without a personal access token
+
+Tested: with only the built-in `GITHUB_TOKEN`, a workflow in the app repository **cannot** use
+the engine repository (`Unable to resolve action ... repository not found`). The Claude GitHub App's
+credentials are not available to workflows. Options, narrowest first:
+
+1. **Engine repo setting "Accessible from repositories owned by the user"** (Settings → Actions →
+   General → Access). No secret and no expiry: a composite action stored in the engine repository
+   can then be used by the app repository's workflows, and the runner downloads the engine files
+   with it. Costs: the `uses:` reference must be a fixed branch/tag/SHA (not an input), and the
+   engine commit is the reference, not a hash read from a checkout. Not adopted yet because it can't
+   be turned on or tested from a cloud session.
+2. A read-only **deploy key** on the engine repository (one repository, read only, no expiry,
+   revocable).
+3. A **fine-grained token** limited to the engine, *Contents: read*, with an expiry date (what the
+   workflow uses now: secret `ENGINE_REPO_TOKEN`).
+4. An own GitHub App with `actions/create-github-app-token` (one-hour tokens), the most setup.
+
 ### What is verified
 
-* actionlint passes on the workflow.
-* Run on Linux with the real engine build: strip, `generate_manifest.py` (ROM
-  `f214735b…3387`), `collect_native_bundle.py` (its own launcher check passed).
-* `tests/test_fetch_private_input.py` (hash, size bound, https only, masking) and
-  `tests/test_scripts_compile.py`: 8 passed.
-* **Not verified**: the Windows job (PyInstaller on a Windows runner, `build_launcher.py`, the
-  `--create-patch` path with a real dump), the cross-repository checkout with the token, and any
-  play of the resulting ZIP. Expect the first run to need small fixes.
+* actionlint passes; smoke mode ran green on a Windows runner (above).
+* On Linux with the real engine build: strip, `generate_manifest.py`, `collect_native_bundle.py`.
+* `tests/test_fetch_private_input.py` and `tests/test_scripts_compile.py`: 9 passed.
+* **Not verified**: the `full` mode (engine job on Ubuntu, cross-repository checkout, the artifact hand-over,
+  the `--create-patch` path with a real dump, the sprite pack), and any play of a real ZIP.

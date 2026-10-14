@@ -227,8 +227,8 @@ jobs:
           {
             echo "### Windows package"
             echo "- Mode: $MODE"
-            echo "- Engine commit: \`${{ needs.engine.outputs.engine_commit }}\`"
-            echo "- Game ROM sha256: \`${{ needs.engine.outputs.rom_sha256 }}\`"
+            [ "$MODE" = full ] && echo "- Engine commit: \`${{ needs.engine.outputs.engine_commit }}\`"
+            [ "$MODE" = full ] && echo "- Game ROM sha256: \`${{ needs.engine.outputs.rom_sha256 }}\`"
             echo "- Sprite pack in the runtime: $HAVE_SPRITES"
             echo "- Import of the owner's own game enabled: $HAVE_BASE"
             echo "- Archive sha256: \`$(.venv/Scripts/python -c "import hashlib,sys;print(hashlib.sha256(open(sys.argv[1],'rb').read()).hexdigest())" "$WORK/launcher/EmeraldTogether.zip")\`"
