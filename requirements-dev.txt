@@ -1,0 +1,11 @@
+# Development environment for the host, companion, launcher tests and the engine's Python tools.
+# These are the versions the cloud sessions used (Linux x64, Python 3.12). Install into a private
+# virtual environment:  python3.12 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
+# The shipped launcher's own runtime pins stay in requirements-host-provisioning.txt (hashes).
+cryptography==50.0.2
+cffi==2.1.1
+pycparser==3.1
+pytest==9.1.1
+pillow==10.2.0
+numpy==2.5.3
+pyelftools==0.33
