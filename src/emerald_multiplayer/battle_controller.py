@@ -11,7 +11,7 @@ from pathlib import Path
 import struct
 
 from .battle_mailbox import BattleMailboxError, _integer
-from .native_battle import PHASE, battler_count_for_phase, battler_owner, player_count_for_phase
+from .native_battle import COOP_PHASE, PHASE, battler_count_for_phase, battler_owner, player_count_for_phase
 
 MASTER_LENGTHS = {
     0: 4, 4: 4, 5: 4, 6: 2, 7: 4, 8: 4, 9: 4, 10: 4,
@@ -206,6 +206,14 @@ class ControllerValidator:
         if command == 50: return p[1] in (1, 2, 3) and not any(p[2:6])
         return True
 
+    def _ai_target(self, battler, action, choice):
+        """Co-op Gym: the master's AI foes (battlers 1 and 3) answer a move
+        action with their default Struggle target, an opposing player battler,
+        in the high byte (AI_TrySwitchOrUseItem). Trainers send 0."""
+        target = choice >> 8
+        return (self._mode == COOP_PHASE and battler & 1 and action == 0 and not choice & ~0xFF00
+                and target < self._count and not target & 1)
+
     def validate(self, data, source):
         """Check a whole block without advancing pending requests/completions."""
         _integer(source, 0, self._cores-1, "authenticated controller source")
@@ -238,7 +246,7 @@ class ControllerValidator:
                 elif command == 32:
                     choice = _word(p, 2)
                     if pending == 17:
-                        valid = (p[1] <= 3 or p[1] in (13, 14)) and not choice
+                        valid = (p[1] <= 3 or p[1] in (13, 14)) and (not choice or self._ai_target(battler, p[1], choice))
                     elif pending == 19:
                         choice_mask = 0x1FF if self._mode == PHASE else 0x3FF
                         valid = p[1] == 10 and (choice == 0xFFFF or (not choice & ~choice_mask and choice & 0x7F < 4))

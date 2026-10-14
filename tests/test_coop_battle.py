@@ -67,6 +67,36 @@ class CoopControllerTests(unittest.TestCase):
             v.accept(wire(mon_reply(), role=1, battler=battler), 0)
             v.accept(done(0, battler), 0).accept(done(1, battler), 1)
 
+    def action_reply(self, battler, source, action, choice, mode=COOP_PHASE):
+        lengths = [None] * 721
+        lengths[7], lengths[8], lengths[9] = 10, 250, 256
+        v = ControllerValidator(tuple(lengths), mode=mode)
+        v.accept(wire(bytes((17, 0, 0, 0)), battler=battler), 0)
+        try:
+            v.validate(wire(struct.pack("<BBI", 32, action, choice), role=1, battler=battler), source)
+        except BattleMailboxError:
+            return False
+        return True
+
+    def test_ai_foes_move_action_carries_its_default_target(self):
+        # The two-player launcher proof's refused block (2026-10-13): Norman's
+        # partner (battler 3, run by the master's AI) chose a move action with
+        # its default Struggle target, the opposing player battler 2.
+        self.assertTrue(self.action_reply(3, 0, 0, 2 << 8))
+        self.assertTrue(self.action_reply(1, 0, 0, 0 << 8))
+        self.assertTrue(self.action_reply(1, 0, 0, 2 << 8))
+        for choice in (1 << 8, 3 << 8, 4 << 8, (2 << 8) | 1, 0x80, 0x10200):
+            with self.subTest(choice=hex(choice)):
+                self.assertFalse(self.action_reply(3, 0, 0, choice))
+        self.assertFalse(self.action_reply(3, 0, 2, 2 << 8))  # a target only with a move action
+        self.assertFalse(self.action_reply(3, 1, 0, 2 << 8))  # only the master answers for a foe
+        # Trainers' own battlers still send no target, in co-op and full Multi.
+        self.assertTrue(self.action_reply(2, 1, 0, 0))
+        self.assertFalse(self.action_reply(2, 1, 0, 1 << 8))
+        self.assertFalse(self.action_reply(0, 0, 0, 1 << 8))
+        self.assertFalse(self.action_reply(3, 3, 0, 2 << 8, mode=MULTI_PHASE))
+        self.assertTrue(self.action_reply(3, 3, 0, 0, mode=MULTI_PHASE))
+
     def test_no_third_or_fourth_core(self):
         v = self.validator()
         with self.assertRaises(BattleMailboxError):
