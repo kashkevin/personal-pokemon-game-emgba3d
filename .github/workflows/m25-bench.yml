@@ -1,0 +1,22 @@
+# M25 diagnostic: cost of a native-battle RPC's durable writes on a Windows and a Linux runner.
+# Measures only; builds nothing and uses no secrets or game files.
+name: m25-bench
+on:
+  workflow_dispatch:
+  push:
+    paths: [scripts/diagnostics/**, .github/workflows/m25-bench.yml]
+permissions:
+  contents: read
+jobs:
+  bench:
+    strategy:
+      matrix:
+        os: [windows-2022, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Durable write cost (runner temp folder)
+        run: python scripts/diagnostics/m25_durable_write_bench.py "${{ runner.temp }}"
