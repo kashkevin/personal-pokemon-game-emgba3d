@@ -30,6 +30,7 @@ Main documents (keep them current; merge, never overwrite blindly):
 | `FEATURE_STATUS.md` | Per-feature status with evidence (six fixed labels) |
 | `DEVELOPMENT_ROADMAP.md` | The main checklist, in dependency order |
 | `TEST_PLAN.md` | How to run every test, what each proves, current results |
+| `TEST_LEDGER.md` | Last result of every test per build; reuse unchanged passes, rerun only what changed |
 | `KNOWN_ISSUES.md` | Confirmed bugs with severity, reproduction, status |
 | `CHECKPOINTS.md` | Known-good versions and rollback points |
 

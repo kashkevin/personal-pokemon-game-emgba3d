@@ -4,6 +4,9 @@ How to run each test layer, what it proves, and the latest recorded result. Neve
 mark gameplay as working from compilation or fixtures alone; actual-game checks are
 listed separately.
 
+Which result is current for which build, and what to reuse instead of rerunning:
+`TEST_LEDGER.md` (the owner's incremental-validation rule, 2026-10-14).
+
 ## 1. Python host and companion (app repo)
 
 ```sh
