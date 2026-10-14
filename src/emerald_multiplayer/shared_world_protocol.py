@@ -207,9 +207,16 @@ def validate_world_request(message: Any, session_epoch: int) -> dict:
         _uuid(message["battle_id"], "battle_id")
         _int(message["amount"], "wager amount", 0, 999_999)
     elif kind == "gym_coop":
-        if set(message) != {"type", "session_epoch", "request_id", "gym"}:
+        # The requesting game's native core (incarnation and runtime_id), as a
+        # battle invite carries it: the request is the challenger's consent, and
+        # native admission needs that consent bound to its original core.
+        base = {"type", "session_epoch", "request_id", "gym"}
+        if set(message) not in (base, base | {"incarnation", "runtime_id"}):
             raise ProtocolError("invalid_fields", "co-op Gym request has unexpected fields")
         _int(message["gym"], "co-op Gym", 1, 8)
+        if "incarnation" in message:
+            _int(message["incarnation"], "native incarnation", 1, 0xFFFFFFFF)
+            _uuid(message["runtime_id"], "native runtime")
     elif kind == "wallet_applied":
         if set(message) != {"type", "session_epoch", "request_id", "seq", "amount"}:
             raise ProtocolError("invalid_fields", "wallet receipt has unexpected fields")

@@ -1795,6 +1795,15 @@ class Companion:
         from .shared_world_protocol import validate_world_request
         if not self.connected or self._remote_writer is None or self.session_epoch is None:
             raise ConnectionError("no shared-world session")
+        if (operation == "gym_coop" and self.config.battle_resume_abi_version == 1
+                and self.config.battle_abi_version == 3 and self._bridge is not None
+                and self._bridge.battle_capable):
+            # The co-op request is the challenger's consent: bind it to this
+            # game's original native core, exactly as battle_challenge_rpc does
+            # for an invite (the host captures it for native admission).
+            if getattr(self, "_live_battle_runtime_id", None) is None:
+                self._live_battle_runtime_id = str(uuid4())
+            fields = {**fields, "incarnation": self.battle_incarnation, "runtime_id": self._live_battle_runtime_id}
         request_id = str(uuid4())
         request = dict(type=operation, session_epoch=self.session_epoch, request_id=request_id, **fields)
         validate_world_request(request, self.session_epoch)

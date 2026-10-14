@@ -1203,7 +1203,7 @@ class WorldServer:
                 self._world_reply(session, request, result=self._wager_request(session, request))
                 return
             if kind == "gym_coop":
-                self._world_reply(session, request, result=self._gym_coop_request(session, request["gym"]))
+                self._world_reply(session, request, result=self._gym_coop_request(session, request["gym"], request))
                 return
             if kind == "wallet_applied":
                 credits = self.wagers.applied(session.player_id, request["seq"], request["amount"])
@@ -1264,8 +1264,15 @@ class WorldServer:
         session = self.sessions.get(mate) if mate is not None else None
         return mate if session is not None and not session.closed else None
 
-    def _gym_coop_request(self, session, gym) -> dict:
-        """A Gym script asked to challenge the Leader with this player's teammate."""
+    def _gym_coop_request(self, session, gym, request=None) -> dict:
+        """A Gym script asked to challenge the Leader with this player's teammate.
+
+        The request is the challenger's consent. With resumable native battles
+        that consent is bound to the requesting game's original core, as a
+        battle invite's is (`admission.capture`); without it the challenger's
+        Enter battle was later refused ("provisional core differs from durable
+        accepted consent") and no co-op battle could start (combined game audit,
+        2026-10-13)."""
         from .shared_world import SharedWorldError, _banner
         actor = session.player_id
 
@@ -1283,9 +1290,16 @@ class WorldServer:
         if (here is None or there is None or there.get("activity") == "unavailable"
                 or (here["map_group"], here["map_number"]) != (there["map_group"], there["map_number"])):
             refuse("teammate_away", "your teammate must be in this Gym", "Your teammate must be here")
+        capture = self.battle_execution is not None and self.battle_execution.resume_enabled
+        if capture and (request is None or "runtime_id" not in request):
+            refuse("battle_original_core_required", "the co-op request needs the requesting game's native core",
+                   "Update your game files")
         try:
             self._assert_battle_available(actor, teammate)
             view = self.battle_desk.invite_coop(actor, session.session_epoch, teammate, gym, str(uuid4()))
+            if capture:
+                self.battle_execution.admission.capture(actor, session.session_epoch,
+                                                        dict(request, battle_id=view["battle_id"]))
         except (BattleError, StorageError, ProtocolError) as error:
             refuse(error.code, error.message, "Finish other battles first")
         leader = self._GYM_LEADERS.get(gym, "the LEADER")

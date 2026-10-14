@@ -336,6 +336,43 @@ class CoopGymRequestTests(WorldServerTests):
         reply = await self.world_rpc(1, "gym_coop", gym=1)
         self.assertEqual(reply["type"], "world_error")
 
+    async def test_the_challengers_request_binds_its_original_native_core(self):
+        # Combined game audit 2026-10-13: with resumable native battles the
+        # challenger's Enter was refused ("provisional core differs from durable
+        # accepted consent") because the co-op request never captured its core.
+        captured = []
+
+        class Admission:
+            def capture(self, actor, lease, request):
+                captured.append((actor, lease, dict(request)))
+
+        class Execution:
+            resume_enabled = True
+            admission = Admission()
+
+        original = self.server.battle_execution
+        self.server.battle_execution = Execution()
+        try:
+            await self.coop_request_with_core(captured)
+        finally:
+            self.server.battle_execution = original
+
+    async def coop_request_with_core(self, captured):
+        await self.form_team()
+        await self.presence(0, x=5, map_number=3)
+        await self.presence(1, x=6, map_number=3)
+        reply = await self.world_rpc(0, "gym_coop", gym=1)
+        self.assertEqual(reply["code"], "battle_original_core_required")  # an older game: no core
+        self.assertEqual(captured, [])
+        runtime = str(uuid4())
+        reply = await self.world_rpc(0, "gym_coop", gym=1, incarnation=3, runtime_id=runtime)
+        self.assertEqual(reply["type"], "world_result", reply)
+        self.assertEqual(len(captured), 1)
+        actor, lease, request = captured[0]
+        self.assertEqual((actor, lease), self.actor(0))
+        self.assertEqual((request["battle_id"], request["incarnation"], request["runtime_id"], request["gym"]),
+                         (reply["result"]["battle_id"], 3, runtime, 1))
+
 
 if __name__ == "__main__":
     unittest.main()

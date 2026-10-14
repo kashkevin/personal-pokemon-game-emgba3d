@@ -451,6 +451,7 @@ class ProtocolTests(unittest.TestCase):
             self.request("wager_set", battle_id=battle, amount=5000),
             self.request("wager_accept", battle_id=battle, amount=5000),
             self.request("wallet_applied", seq=1, amount=0), self.request("gym_coop", gym=8),
+            self.request("gym_coop", gym=8, incarnation=1, runtime_id=str(uuid4())),
         ]
         for message in valid:
             with self.subTest(message=message["type"]):
@@ -466,6 +467,9 @@ class ProtocolTests(unittest.TestCase):
             self.request("wallet_applied", seq=1, amount=-1),
             self.request("gym_coop", gym=0), self.request("gym_coop", gym=9),
             self.request("gym_coop", gym=1, extra=True),
+            self.request("gym_coop", gym=1, incarnation=1),
+            self.request("gym_coop", gym=1, incarnation=0, runtime_id=str(uuid4())),
+            self.request("gym_coop", gym=1, incarnation=1, runtime_id="not-a-uuid"),
             self.request("teleport"),
             {**self.request("appearance_get"), "session_epoch": 4},
         ]
