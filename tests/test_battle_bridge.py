@@ -68,6 +68,27 @@ assert(closes==1 and stopped and #console.errors==1)
 assert(range(0x02003018,244)==string.rep("\\0",244))
 ''')
 
+    def native_fixture(self):
+        """The native battle ABI 3 (singles, full Multi, co-op Gym)."""
+        script = self.fixture()
+        script = script.replace("EMERALD_BRIDGE.battle_abi=1;", "EMERALD_BRIDGE.battle_abi=3;", 1)
+        script = script.replace('loadBytes(0x080000c8,string.pack("<I4",1))', 'loadBytes(0x080000c8,string.pack("<I4",3))', 1)
+        return script.replace('string.pack("<I4I2I2I4I4I4I4",0x31424D45,1,512', 'string.pack("<I4I2I2I4I4I4I4",0x31424D45,3,512', 1)
+
+    def test_native_phases_reach_the_channel_co_op_included(self):
+        # Co-op Gym battles (native phase 4, two cores) were refused here, so
+        # no co-op battle could start (combined game audit, 2026-10-13).
+        for phase in (2, 3, 4):
+            payload = control(phase=phase)
+            with self.subTest(phase=phase):
+                self.run_lua(self.native_fixture() + self.command(payload) + f'''
+assert(range(0x0200301c,240)==unhex("{payload.hex()}"))
+assert(closes==0 and #console.errors==0)
+''')
+        self.run_lua(self.native_fixture() + self.command(control(phase=5)) + '''
+assert(closes==1 and stopped)
+''')
+
     def test_stale_response_is_ignored_then_correlated_reply_is_forwarded(self):
         script = self.fixture() + self.command(control())
         script += self.response(control(epoch=6, data=bytes(64)))

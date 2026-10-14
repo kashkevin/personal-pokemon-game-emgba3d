@@ -469,7 +469,10 @@ local function battleControl(payload, command)
         or status > 10 or source > 3 or reserved ~= 0
         or length > 192 or data:sub(length + 1) ~= string.rep("\0", 192 - length)
         or crc32(data:sub(1, length)) ~= crc then return nil end
-    local native = ((cfg.battle_abi == 2 or cfg.battle_abi == 3) and phase == 2) or (cfg.battle_abi == 3 and phase == 3)
+    -- Native phases: 2 singles, 3 full Multi (four cores), 4 co-op Gym (two
+    -- cores). Phase 4 was missing, so every co-op command was refused.
+    local native = ((cfg.battle_abi == 2 or cfg.battle_abi == 3) and phase == 2)
+        or (cfg.battle_abi == 3 and (phase == 3 or phase == 4))
     local count = phase == 3 and 4 or 2
     if not native and (phase ~= 1 or opcode > 9 or kind > 1) then return nil end
     if native and (source >= count or opcode == 3 or opcode == 7 or opcode == 8 or kind == 1 or kind > 8) then return nil end
