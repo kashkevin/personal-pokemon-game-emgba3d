@@ -265,3 +265,18 @@ show it is not needed to avoid timeouts: load runs off the event loop, replay yi
 far below the 5 s RPC deadline, and projected recovery of a 110k-event journal is about 5-7 s load (worker) plus
 about 20 s replay (waiting clients keep getting answers). Open risk, documented: the journal's hard bound
 (500k events / 256 MB) would end a battle about four times longer than the full-six run.
+
+## O4 — Multiplayer validation (simulated, not network)
+
+Everything below is **simulated**: real host, server and client code over real loopback TCP with synthetic native
+cores (app), or the engine's own battle code in its test ROM / self-tests. **No real game on a real network was run.**
+
+| Area | Evidence (this session) |
+| --- | --- |
+| 2-player co-op and PvP battles, four-player 2v2 (start-up, relay, release) | app battle/recovery group and full app suite **1550 passed, 118 skipped** |
+| 2v2 turn sync, targeting, controller ownership, switch order, completion barriers | engine GBA test ROM `make check TESTS="Multiplayer"`: **133 of 133** |
+| Disconnect / host restart / reconnect recovery, incl. four cores interrupted at a deadline KEEP during idle steps, an uncertain RELEASE, a v1 journal from the old router | `test_battle_recovery.py` (new and existing) pass |
+| Co-op EXP once per defeated Pokémon, never in PvP, parity with the battle's EXP path | `--selftest-coop-exp` 26/26, `--selftest-coop-controller` 14/14 |
+| Save integrity after recovery | recovery tests check canonical revision, freed reservations and SQLite integrity |
+
+Not covered: a real network, real Windows PCs, a full-six interrupted battle on real cores (needs the owner's parties).
