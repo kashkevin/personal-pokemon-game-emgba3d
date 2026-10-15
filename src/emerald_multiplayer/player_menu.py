@@ -166,7 +166,7 @@ class PlayerMenu:
                 raise PlayerMenuError("session_changed")
         world_nav = getattr(self.companion, "world_nav", None)
         self._nav = world_nav() if callable(world_nav) else None
-        if self._page[0] in ("frontier", "league", "hall"):
+        if self._page[0] in ("frontier", "league", "hall", "shop"):
             frontier_rpc = getattr(self.companion, "frontier_rpc", None)
             self._frontier = None
             if callable(frontier_rpc) and getattr(self.companion.config, "world_enabled", False):
@@ -430,7 +430,7 @@ class PlayerMenu:
                     else:
                         actions.append(("You accepted this wager", "", ()))
             actions.append(("Back to challenge", "battles", ()))
-        elif page in ("world", "world_players", "world_player", "world_outbreak", "world_event", "base", "frontier", "league", "hall", "coop", "habitat"):
+        elif page in ("world", "world_players", "world_player", "world_outbreak", "world_event", "base", "frontier", "league", "hall", "shop", "coop", "habitat"):
             return self._show(*self._render_world(page, target))
         elif page == "championship":
             return self._show(*self._championship.render())
@@ -633,9 +633,33 @@ class PlayerMenu:
         names = [TRAINER_NAMES.get(t, "Trainer") for t in (ladder.trainer_a, ladder.trainer_b)]
         return f"Co-op: {names[0]} & {names[1]}"
 
-    def _render_ladder(self, page):
+    def _render_shop(self, view, page_no):
+        """The Battle Points shop (frontier_rewards.SHOP): points are taken from the save first, then the item is given."""
+        bp = view.get("bp") or {}
+        actions, shop = [], bp.get("shop") or []
+        purchase = bp.get("purchase")
+        balance = bp.get("balance")
+        status = self._notice or ("Your BP: " + ("?" if balance is None else str(balance)) + " (saved game)")
+        if purchase is not None and purchase["state"] in ("debit", "granting", "refunding"):
+            status = self._notice or "Waiting for your game..."
+        per_page = 4
+        pages = max(1, (len(shop) + per_page - 1) // per_page)
+        page_no = page_no if type(page_no) is int and 0 <= page_no < pages else 0
+        for entry in shop[page_no * per_page:(page_no + 1) * per_page]:
+            actions.append((f"{entry['name'][:15]} {entry['price']}BP", "shop_buy", (entry["slot"],)))
+        if pages > 1:
+            actions.append((f"More items ({page_no + 1}/{pages})", "shop", ((page_no + 1) % pages,)))
+        if purchase is not None and not self._notice and purchase["state"] in ("done", "refused", "refunded"):
+            status = {"done": "Bought " + purchase["name"][:18], "refused": "Not enough BP in the game",
+                      "refunded": "Bag full: BP returned"}[purchase["state"]]
+        actions.append(("Back to the Frontier", "frontier", ()))
+        return "BP Shop", status, actions
+
+    def _render_ladder(self, page, target=None):
         """The cooperative Battle Frontier (frontier.py) and the Pokemon League: team rounds against pairs of trainers."""
         view, actor, actions = self._frontier, self.companion.config.player_id, []
+        if page == "shop" and view is not None:
+            return self._render_shop(view, target)
         league = page in ("league", "hall")
         title = "Pokemon League" if league else "Battle Frontier"
         if view is None:
@@ -686,7 +710,8 @@ class PlayerMenu:
                 if nxt is not None:
                     actions.append((nxt["label"] if league else ("Brain: " if nxt["brain"] else "vs ") + nxt["label"], "", ()))
                     actions.append((f"Prize ${nxt['prize']:,}, own levels" if league
-                                    else f"Lv{nxt['level']}  prize ${nxt['prize']:,}", "", ()))
+                                    else (f"Lv{nxt['level']} ${nxt['prize']:,} +{nxt['bp']}BP" if "bp" in nxt
+                                          else f"Lv{nxt['level']}  prize ${nxt['prize']:,}"), "", ()))
                 if run["battle_id"] is not None:
                     actions.append(("Battle: open Challenges", "battles", ()))
                 else:
@@ -695,7 +720,11 @@ class PlayerMenu:
         if league:
             actions.append((f"Cleared {hall.get('clears', 0)}x", "hall", ()))
         else:
-            actions.append((f"Best {record['best_streak']}  runs {record['runs']}", "", ()))
+            bp_view = view.get("bp")
+            if bp_view is not None and bp_view.get("shop"):
+                actions.append((f"BP shop  best {record['best_streak']}", "shop", (0,)))
+            else:
+                actions.append((f"Best {record['best_streak']}  runs {record['runs']}", "", ()))
         actions.append(("Back", "coop", ()))
         return title, status, actions
 
@@ -769,8 +798,8 @@ class PlayerMenu:
             if nav.get("rule"):
                 actions.append(("Entry rule: " + nav["rule"], "", ()))
             actions.append(("Back to World", "world", ()))
-        elif page in ("frontier", "league", "hall"):
-            title, status, actions = self._render_ladder(page)
+        elif page in ("frontier", "league", "hall", "shop"):
+            title, status, actions = self._render_ladder(page, target)
         else:
             title = "My Secret Base"
             base = self._base
@@ -839,6 +868,14 @@ class PlayerMenu:
                 else:
                     self._card_binding = None
                 self._page = ("hunts", 0) if op == "hunts_refresh" else ("hunt_filters", None)
+            elif op == "shop_buy":
+                from .protocol import ProtocolError
+                try:
+                    self._frontier = await self.companion.frontier_rpc("shop_buy", slot=args[0])
+                    self._notice = "Order sent to your game"
+                except ProtocolError as error:
+                    self._notice = error.message[:31]
+                self._page = ("shop", 0)
             elif op in ("ladder_propose", "ladder_accept", "ladder_cancel", "ladder_retire", "ladder_battle"):
                 from .protocol import ProtocolError
                 try:
@@ -857,7 +894,7 @@ class PlayerMenu:
                     self._notice = "Could not change it"
                 self._page = ("base", None)
             elif op in ("home", "world", "world_players", "world_player", "world_outbreak", "world_event", "base", "frontier",
-                        "league", "hall", "coop", "habitat", "team", "battles", "player", "results", "result", "result_filters", "trade", "card", "card_battles", "card_championships", "card_shared", "card_progress", "hunts", "hunt", "hunt_filters", "hunt_totals"):
+                        "league", "hall", "shop", "coop", "habitat", "team", "battles", "player", "results", "result", "result_filters", "trade", "card", "card_battles", "card_championships", "card_shared", "card_progress", "hunts", "hunt", "hunt_filters", "hunt_totals"):
                 if op == "results" and self._page[0] not in {"results", "result", "result_filters"}:
                     self._results_binding = None
                 self._page = (op, args[0] if args else None)

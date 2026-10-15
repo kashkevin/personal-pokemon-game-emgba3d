@@ -9,7 +9,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from uuid import uuid4
 
-from emerald_multiplayer import coop_code
+from emerald_multiplayer import coop_code, frontier_rewards, rewards
+from emerald_multiplayer.rewards import decode, is_reward_word
 from emerald_multiplayer.frontier import (
     LEAGUE, LEAGUE_FIRST_CLEAR_BONUS, LEAGUE_PRIZES, league_plan, league_prize,
     BRAINS, FrontierBook, FrontierError, POOLS, SET_LENGTH, TRAINER_NAMES, level_for, plan, prize_for, set_of)
@@ -373,7 +374,11 @@ class ServiceTests(unittest.TestCase):
         self.fixture.desk._history.pop(battle_id, None)
 
     def wallet(self, player):
-        return [w for w in self.server.wagers.pending_for(player)]
+        """The player's money adjustments (Battle Points and items travel on the same stream: see rewards())."""
+        return [w for w in self.server.wagers.pending_for(player) if not is_reward_word(w["delta"])]
+
+    def rewards(self, player):
+        return [(decode(w["delta"]), w["battle_id"]) for w in self.server.wagers.pending_for(player) if is_reward_word(w["delta"])]
 
     def test_a_team_proposes_accepts_and_the_first_round_is_planned_from_their_party(self):
         view = self.call(self.sa, "propose")
@@ -552,6 +557,177 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(view["record"]["best_streak"], 3)
         self.assertEqual(len(self.wallet(self.a)), 3)
 
+    # ------------------------------------------------------ Battle Points, items and the shop (Update 16)
+    def play_round(self):
+        battle_id = self.round()
+        self.finish(battle_id, 1)
+        self.call(self.sa, "status")
+        return battle_id
+
+    def receipt(self, player, ref, amount):
+        """The player's game reports having applied the wallet adjustment queued under ``ref``."""
+        entry = self.server.wagers.entry(player, ref)
+        self.server.wagers.applied(player, entry["seq"], amount)
+
+    def test_a_cleared_round_sends_each_player_their_battle_points_exactly_once(self):
+        self.begin()
+        battle_id = self.play_round()
+        bp = frontier_rewards.bp_for(1, first_time=True)
+        for player in (self.a, self.b):
+            self.assertEqual(self.rewards(player), [(( rewards.KIND_BP, bp), f"{battle_id}:bp")])
+        for _ in range(4):
+            self.service.reconcile()
+            self.call(self.sb, "status")
+        for player in (self.a, self.b):
+            self.assertEqual(len(self.rewards(player)), 1)
+        self.assertEqual(self.world.frontier.bp_ledger(self.a)["earned"], 0)          # not before the game says it landed
+        self.receipt(self.a, f"{battle_id}:bp", bp)
+        self.service.reconcile(); self.service.reconcile()
+        self.assertEqual(self.world.frontier.bp_ledger(self.a)["earned"], bp)         # once, even though reconciled twice
+        self.assertEqual(self.world.frontier.bp_ledger(self.b)["earned"], 0)          # b's game has not reported yet
+        self.assertEqual(self.call(self.sa, "status")["bp"]["earned"], bp)
+
+    def test_battle_points_that_did_not_land_are_not_counted(self):
+        self.begin()
+        battle_id = self.play_round()
+        self.receipt(self.a, f"{battle_id}:bp", 0)             # the save was at the 9999 cap
+        self.service.reconcile()
+        self.assertEqual(self.world.frontier.bp_ledger(self.a)["earned"], 0)
+        self.assertEqual([r["state"] for r in self.world.frontier.rewards_of(battle_id) if r["player_id"] == self.a], ["undelivered"])
+
+    def test_a_brain_round_adds_one_item_prize_but_only_the_first_time_a_player_clears_it(self):
+        self.begin()
+        run = self.world.frontier.run_of(self.a)
+        brains = []
+        for round_no in range(1, SET_LENGTH + 1):
+            battle_id = self.play_round()
+            if round_no == SET_LENGTH:
+                brains.append(battle_id)
+        items = [r for r in self.world.frontier.rewards_of(brains[0]) if r["kind"] == "item"]
+        self.assertEqual(len(items), 2)                                                 # one for each player
+        item, quantity = frontier_rewards.SET_ITEMS[0]
+        self.assertEqual({r["payload"] for r in items}, {(item << 8) | quantity})
+        for player in (self.a, self.b):
+            kinds = [decode_word[0][0] for decode_word in self.rewards(player)]
+            self.assertEqual(kinds.count(rewards.KIND_ITEM), 1)
+        # the same Brain round again (a later run): no second item, only (halved) Battle Points
+        self.call(self.sa, "retire")
+        self.begin()
+        for round_no in range(1, SET_LENGTH + 1):
+            self.play_round()
+        again = [r for r in self.world.frontier.rewards_of(self.world.frontier.run_of(self.a) and
+                 next(a["battle_id"] for a in self._attempts() if a["round"] == SET_LENGTH and a["battle_id"] != brains[0]))]
+        self.assertFalse([r for r in again if r["kind"] == "item"])
+
+    def _attempts(self):
+        rows = self.world.frontier._db.execute("SELECT battle_id, round FROM frontier_attempts WHERE state='won'").fetchall()
+        return [{"battle_id": r[0], "round": r[1]} for r in rows]
+
+    def test_battle_points_survive_a_crash_between_settling_and_sending(self):
+        self.begin()
+        battle_id = self.round()
+        self.finish(battle_id, 1)
+        self.world.frontier.settle(battle_id, 1)                  # settled; nothing paid, nothing sent
+        self.assertEqual([r["state"] for r in self.world.frontier.rewards_of(battle_id)], ["queued", "queued"])
+        self.server.wagers.grant_reward(self.a, rewards.KIND_BP, 1, f"{battle_id}:bp")   # died right after the first grant
+        self.service.reconcile(); self.service.reconcile()
+        for player in (self.a, self.b):
+            self.assertEqual(len(self.rewards(player)), 1)
+        self.assertTrue(all(r["state"] == "sent" for r in self.world.frontier.rewards_of(battle_id)))
+
+    def test_a_league_run_pays_no_battle_points(self):
+        for player in self.players[:2]:
+            self.service.badges = lambda p: 8
+        self.service.check_league = lambda p: None
+        self.call(self.sa, "propose", mode="league")
+        self.call(self.sb, "accept")
+        battle_id = self.round()
+        self.finish(battle_id, 1)
+        self.call(self.sa, "status")
+        self.assertEqual(self.rewards(self.a), [])
+        self.assertEqual(self.world.frontier.rewards_of(battle_id), [])
+
+    def buy(self, slot, bp=100):
+        self.service.battle_points = lambda player: bp
+        return self.call(self.sa, "shop_buy", slot=slot)
+
+    def test_a_purchase_debits_first_and_grants_the_item_only_after_the_points_were_taken(self):
+        slot = next(i for i, e in enumerate(frontier_rewards.SHOP) if e.item == frontier_rewards.ITEM_LEFTOVERS)
+        entry = frontier_rewards.SHOP[slot]
+        self.buy(slot)
+        purchase = self.world.frontier.open_purchase(self.a)
+        self.assertEqual(purchase["state"], "debit")
+        self.assertEqual(self.rewards(self.a), [((rewards.KIND_BP_DEBIT, entry.price), f"shop:{purchase['purchase_id']}:debit")])
+        self.service.reconcile()
+        self.assertEqual(len(self.rewards(self.a)), 1)                      # no item before the receipt
+        self.receipt(self.a, f"shop:{purchase['purchase_id']}:debit", entry.price)
+        self.service.reconcile(); self.service.reconcile()
+        words = [w[0] for w in self.rewards(self.a)]
+        self.assertEqual(words, [(rewards.KIND_BP_DEBIT, entry.price), (rewards.KIND_ITEM, rewards.item_payload(entry.item, 1))])
+        self.assertEqual(self.world.frontier.purchase(purchase["purchase_id"])["state"], "granting")
+        self.receipt(self.a, f"shop:{purchase['purchase_id']}:item", 1)
+        self.service.reconcile()
+        self.assertEqual(self.world.frontier.purchase(purchase["purchase_id"])["state"], "done")
+        self.assertEqual(self.world.frontier.bp_ledger(self.a)["spent"], entry.price)
+        self.assertIsNone(self.world.frontier.open_purchase(self.a))
+        self.buy(slot)                                                        # the next one can start
+
+    def test_a_save_with_fewer_points_than_the_host_believed_gets_its_points_back_and_no_item(self):
+        self.buy(0)
+        purchase = self.world.frontier.open_purchase(self.a)
+        price = frontier_rewards.SHOP[0].price
+        self.receipt(self.a, f"shop:{purchase['purchase_id']}:debit", price - 6)       # the game only had 10
+        self.service.reconcile(); self.service.reconcile()
+        self.assertEqual(self.world.frontier.purchase(purchase["purchase_id"])["state"], "refused")
+        kinds = [w[0] for w in self.rewards(self.a)]
+        self.assertEqual(kinds, [(rewards.KIND_BP_DEBIT, price), (rewards.KIND_BP, price - 6)])   # refund, never an item
+        self.buy(0)                                                                     # not stuck
+
+    def test_a_game_with_no_points_buys_nothing(self):
+        self.buy(0)
+        purchase = self.world.frontier.open_purchase(self.a)
+        self.receipt(self.a, f"shop:{purchase['purchase_id']}:debit", 0)
+        self.service.reconcile()
+        self.assertEqual(self.world.frontier.purchase(purchase["purchase_id"])["state"], "refused")
+        self.assertEqual(len(self.rewards(self.a)), 1)                          # only the debit that moved nothing
+
+    def test_a_bag_that_could_not_hold_the_item_is_refunded(self):
+        self.buy(0)
+        purchase = self.world.frontier.open_purchase(self.a)
+        price = frontier_rewards.SHOP[0].price
+        pid = purchase["purchase_id"]
+        self.receipt(self.a, f"shop:{pid}:debit", price)
+        self.service.reconcile()
+        self.receipt(self.a, f"shop:{pid}:item", 0)                             # bag and PC were full
+        self.service.reconcile(); self.service.reconcile()
+        self.assertEqual(self.world.frontier.purchase(pid)["state"], "refunded")
+        self.assertEqual(self.rewards(self.a)[-1][0], (rewards.KIND_BP, price))
+        self.assertEqual(self.world.frontier.bp_ledger(self.a)["spent"], 0)
+
+    def test_one_open_purchase_at_a_time_and_bad_requests_are_refused(self):
+        self.buy(0)
+        with self.assertRaises(SharedWorldError) as caught:
+            self.buy(1)
+        self.assertEqual(caught.exception.code, "purchase_open")
+        for slot in (-1, len(frontier_rewards.SHOP), True, "0"):
+            with self.subTest(slot=slot), self.assertRaises(SharedWorldError):
+                self.call(self.sb, "shop_buy", slot=slot)
+        self.service.battle_points = lambda player: 3
+        with self.assertRaises(SharedWorldError) as caught:
+            self.call(self.sb, "shop_buy", slot=0)
+        self.assertEqual(caught.exception.code, "not_enough_bp")
+
+    def test_the_purchase_survives_a_restart_and_a_repeated_receipt_changes_nothing(self):
+        self.buy(0)
+        pid = self.world.frontier.open_purchase(self.a)["purchase_id"]
+        price = frontier_rewards.SHOP[0].price
+        self.receipt(self.a, f"shop:{pid}:debit", price)
+        self.receipt(self.a, f"shop:{pid}:debit", price)                           # the game re-sends its last receipt
+        self.service = FrontierService(self.server)                                # a restarted host
+        for _ in range(3):
+            self.service.reconcile()
+        self.assertEqual(sum(1 for w in self.rewards(self.a) if w[0][0] == rewards.KIND_ITEM), 1)
+
     def test_declining_a_proposal_and_a_teammate_who_left(self):
         self.call(self.sa, "propose")
         self.assertEqual(self.call(self.sb, "cancel")["run"]["state"], "ended")
@@ -591,8 +767,10 @@ class MenuTests(unittest.IsolatedAsyncioTestCase):
             async def battle_challenge_rpc(self, operation, **fields):
                 return {"result": []}
 
-            async def frontier_rpc(self, op="status", mode=None):
+            async def frontier_rpc(self, op="status", mode=None, slot=None):
                 outer.calls.append(op if mode is None else f"{op}:{mode}")
+                if slot is not None:
+                    outer.calls.append(f"{op}@{slot}")
                 if outer.refuse and op != "status":
                     raise outer.ProtocolError("too_many", outer.refuse)
                 return outer.advance(op, mode)
@@ -654,6 +832,41 @@ class MenuTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Battle: open Challenges", self.labels)
         self.assertNotIn("Retire (keep streak)", self.labels)                     # not during a battle
         self.assertTrue(all(len(label) <= 25 for label in self.labels))
+
+    async def test_the_battle_points_shop_pages_and_an_order(self):
+        shop = [dict(slot=i, name=n, price=p, quantity=1) for i, (n, p) in enumerate(
+            [("Protein", 16), ("Iron", 16), ("Calcium", 16), ("Zinc", 16), ("Carbos", 16), ("Leftovers", 48)])]
+        self.state["bp"] = dict(balance=40, earned=12, spent=0, shop=shop, purchase=None)
+        await self.open()
+        self.assertEqual(self.labels, ["Start a Frontier run", "BP shop  best 4", "Back"])
+        await self.click("BP shop  best 4")
+        self.assertEqual(self.menu.screen.title, "BP Shop")
+        self.assertEqual(self.menu.screen.status, "Your BP: 40 (saved game)")
+        self.assertEqual(self.labels, ["Protein 16BP", "Iron 16BP", "Calcium 16BP", "Zinc 16BP", "More items (1/2)",
+                                       "Back to the Frontier"])
+        await self.click("More items (1/2)")
+        self.assertEqual(self.labels, ["Carbos 16BP", "Leftovers 48BP", "More items (2/2)", "Back to the Frontier"])
+        await self.click("Leftovers 48BP")
+        self.assertIn("shop_buy@5", self.calls)
+        self.assertEqual(self.menu.screen.status, "Order sent to your game")
+        self.state["bp"]["purchase"] = dict(state="debit", name="Leftovers", price=48, quantity=1)
+        self.menu._notice = None
+        await self.menu.refresh()
+        self.assertEqual(self.menu.screen.status, "Waiting for your game...")
+        self.state["bp"]["purchase"] = dict(state="done", name="Leftovers", price=48, quantity=1)
+        await self.menu.refresh()
+        self.assertEqual(self.menu.screen.status, "Bought Leftovers")
+        await self.click("Back to the Frontier")
+        self.assertEqual(self.menu.screen.title, "Battle Frontier")
+
+    async def test_a_refused_order_is_shown(self):
+        self.state["bp"] = dict(balance=2, earned=0, spent=0, purchase=None,
+                                shop=[dict(slot=0, name="Protein", price=16, quantity=1)])
+        await self.open()
+        await self.click("BP shop  best 4")
+        self.refuse = "Protein costs 16 BP; you have 2"
+        await self.click("Protein 16BP")
+        self.assertEqual(self.menu.screen.status, "Protein costs 16 BP; you have 2")
 
     async def test_an_invitation_can_be_joined_or_declined(self):
         self.state["run"] = dict(run_id="r", mode="frontier", state="forming", players=["b", "a"], names=["Bob", "Alice"], consent=["b"],

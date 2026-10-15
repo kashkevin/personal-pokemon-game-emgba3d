@@ -27,6 +27,7 @@ import time
 from pathlib import Path
 from typing import Callable
 
+from . import rewards
 from .balance import BALANCE
 
 SCOPE = "pvp-wagers-v1"
@@ -234,6 +235,27 @@ class Wagers:
                                 (player, ref)).fetchone() is not None:
                 return None
             return self._queue(player, amount, ref)
+
+    def grant_reward(self, player: str, kind: int, payload: int, ref: str) -> int | None:
+        """Queue a Battle Frontier reward (rewards.py: Battle Points, an item, or a shop's Battle Points debit) for ``player``
+        once per (player, ref): a repeat returns None and queues nothing. Returns the wallet sequence."""
+        if not isinstance(ref, str) or not ref:
+            raise WagerError("invalid_reward", "a reward needs a reference")
+        try:
+            word = rewards.encode(kind, payload)
+        except rewards.RewardError as error:
+            raise WagerError("invalid_reward", str(error)) from error
+        with self._transaction():
+            if self._db.execute("SELECT 1 FROM wallet WHERE player_id=? AND battle_id=?", (player, ref)).fetchone() is not None:
+                return None
+            return self._queue(player, word, ref)
+
+    def entry(self, player: str, ref: str) -> dict | None:
+        """The wallet adjustment queued for (player, ref): its sequence, delta and what the game reported moving (None
+        until it reports)."""
+        row = self._db.execute("SELECT seq, delta, applied FROM wallet WHERE player_id=? AND battle_id=? ORDER BY seq LIMIT 1",
+                               (player, ref)).fetchone()
+        return None if row is None else {"seq": row[0], "delta": row[1], "applied": row[2]}
 
     def _full_seq(self, player: str, low: int) -> int:
         """The save's sequence from its low byte (the host knows every issued seq)."""

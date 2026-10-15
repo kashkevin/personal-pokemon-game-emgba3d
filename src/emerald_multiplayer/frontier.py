@@ -31,7 +31,7 @@ import random
 import time
 from typing import Callable
 
-from . import coop_code
+from . import coop_code, frontier_rewards
 
 SET_LENGTH = 7
 MAX_PRIZE = 999_999
@@ -151,6 +151,17 @@ SCHEMA = (
     "CREATE INDEX IF NOT EXISTS frontier_attempts_run ON frontier_attempts (run_id, round)",
     # Every closed co-op battle's outcome (1 won, 2 lost, 3 drawn), written before the battle is closed.
     "CREATE TABLE IF NOT EXISTS coop_results (battle_id TEXT PRIMARY KEY, outcome INTEGER NOT NULL, players TEXT NOT NULL)",
+    # Battle Points and item prizes of a cleared round, written in the same transaction that settles the round (so they exist
+    # exactly once). state: queued (not yet in the wallet) -> sent (in the player's wallet stream) -> delivered / undelivered.
+    """CREATE TABLE IF NOT EXISTS frontier_rewards (
+        battle_id TEXT NOT NULL, player_id TEXT NOT NULL, kind TEXT NOT NULL, payload INTEGER NOT NULL,
+        state TEXT NOT NULL, applied INTEGER, PRIMARY KEY (battle_id, player_id, kind))""",
+    # What the host paid and what the shop took, per player (the balance itself is in the save).
+    "CREATE TABLE IF NOT EXISTS frontier_bp (player_id TEXT PRIMARY KEY, earned INTEGER NOT NULL, spent INTEGER NOT NULL)",
+    # A Battle Points shop purchase: debit -> granting -> done (or refused / refunded). Each step is a wallet adjustment.
+    """CREATE TABLE IF NOT EXISTS frontier_purchases (
+        purchase_id TEXT PRIMARY KEY, player_id TEXT NOT NULL, item INTEGER NOT NULL, quantity INTEGER NOT NULL,
+        price INTEGER NOT NULL, state TEXT NOT NULL, created REAL NOT NULL)""",
     """CREATE TABLE IF NOT EXISTS frontier_records (
         player_id TEXT PRIMARY KEY, best_streak INTEGER NOT NULL, runs INTEGER NOT NULL, rounds INTEGER NOT NULL,
         earned INTEGER NOT NULL)""",
@@ -369,6 +380,7 @@ class FrontierBook:
                     else:
                         first = attempt["round"] > self.record(player)["best_streak"]
                         prizes[player] = prize_for(attempt["level"], attempt["round"], first_time=first)
+                        self._queue_rewards(battle_id, player, attempt["round"], first)
                     if league:
                         self._league_progress(player, attempt["round"], cleared=final)
                     else:
@@ -389,6 +401,102 @@ class FrontierBook:
                 for player in run["players"]:
                     self._bump(player, runs=1)
         return self.attempt(battle_id)
+
+    # ---------------------------------------------------------- BP and items
+    def _queue_rewards(self, battle_id: str, player: str, round_no: int, first: bool) -> None:
+        """Inside settle()'s transaction: this round's Battle Points and (a Brain round, first time) item prize."""
+        bp = frontier_rewards.bp_for(round_no, first_time=first)
+        self._db.execute("INSERT OR IGNORE INTO frontier_rewards VALUES (?, ?, 'bp', ?, 'queued', NULL)",
+                         (battle_id, player, bp))
+        item = frontier_rewards.item_for(round_no, first_time=first)
+        if item is not None:
+            self._db.execute("INSERT OR IGNORE INTO frontier_rewards VALUES (?, ?, 'item', ?, 'queued', NULL)",
+                             (battle_id, player, (item[0] << 8) | item[1]))
+
+    def rewards_of(self, battle_id: str) -> list[dict]:
+        rows = self._db.execute("SELECT battle_id, player_id, kind, payload, state, applied FROM frontier_rewards "
+                                "WHERE battle_id=? ORDER BY player_id, kind", (battle_id,)).fetchall()
+        return [self._reward(r) for r in rows]
+
+    @staticmethod
+    def _reward(r) -> dict:
+        return {"battle_id": r[0], "player_id": r[1], "kind": r[2], "payload": r[3], "state": r[4], "applied": r[5]}
+
+    def rewards_in_flight(self) -> list[dict]:
+        """Rewards sent to a wallet whose delivery receipt is still awaited."""
+        rows = self._db.execute("SELECT battle_id, player_id, kind, payload, state, applied FROM frontier_rewards "
+                                "WHERE state='sent'").fetchall()
+        return [self._reward(r) for r in rows]
+
+    def reward_sent(self, battle_id: str, player: str, kind: str) -> None:
+        with self._transaction():
+            self._db.execute("UPDATE frontier_rewards SET state='sent' WHERE battle_id=? AND player_id=? AND kind=? "
+                             "AND state='queued'", (battle_id, player, kind))
+
+    def reward_result(self, battle_id: str, player: str, kind: str, applied: int) -> bool:
+        """Record what the game reported for a sent reward, once. Battle Points that landed enter the ledger."""
+        with self._transaction():
+            row = self._db.execute("SELECT state FROM frontier_rewards WHERE battle_id=? AND player_id=? AND kind=?",
+                                   (battle_id, player, kind)).fetchone()
+            if row is None or row[0] != "sent":
+                return False
+            self._db.execute("UPDATE frontier_rewards SET state=?, applied=? WHERE battle_id=? AND player_id=? AND kind=?",
+                             ("delivered" if applied else "undelivered", applied, battle_id, player, kind))
+            if kind == "bp" and applied:
+                self._bp_bump(player, earned=applied)
+        return True
+
+    def bp_ledger(self, player: str) -> dict:
+        row = self._db.execute("SELECT earned, spent FROM frontier_bp WHERE player_id=?", (player,)).fetchone()
+        return {"earned": row[0], "spent": row[1]} if row else {"earned": 0, "spent": 0}
+
+    def _bp_bump(self, player: str, *, earned: int = 0, spent: int = 0) -> None:
+        current = self.bp_ledger(player)
+        self._db.execute("""INSERT INTO frontier_bp VALUES (?, ?, ?) ON CONFLICT(player_id) DO UPDATE SET
+            earned=excluded.earned, spent=excluded.spent""", (player, current["earned"] + earned, current["spent"] + spent))
+
+    # -- the Battle Points shop: one open purchase per player; every step is a wallet adjustment keyed by the purchase
+    def open_purchase(self, player: str) -> dict | None:
+        row = self._db.execute("SELECT purchase_id, player_id, item, quantity, price, state, created FROM frontier_purchases "
+                               "WHERE player_id=? AND state IN ('debit', 'granting', 'refunding') ORDER BY created LIMIT 1",
+                               (player,)).fetchone()
+        return None if row is None else self._purchase(row)
+
+    @staticmethod
+    def _purchase(r) -> dict:
+        return {"purchase_id": r[0], "player_id": r[1], "item": r[2], "quantity": r[3], "price": r[4], "state": r[5],
+                "created": r[6]}
+
+    def purchase(self, purchase_id: str) -> dict | None:
+        row = self._db.execute("SELECT purchase_id, player_id, item, quantity, price, state, created FROM frontier_purchases "
+                               "WHERE purchase_id=?", (purchase_id,)).fetchone()
+        return None if row is None else self._purchase(row)
+
+    def last_purchase(self, player: str) -> dict | None:
+        row = self._db.execute("SELECT purchase_id, player_id, item, quantity, price, state, created FROM frontier_purchases "
+                               "WHERE player_id=? ORDER BY created DESC LIMIT 1", (player,)).fetchone()
+        return None if row is None else self._purchase(row)
+
+    def open_purchases(self) -> list[dict]:
+        rows = self._db.execute("SELECT purchase_id, player_id, item, quantity, price, state, created FROM frontier_purchases "
+                                "WHERE state IN ('debit', 'granting', 'refunding')").fetchall()
+        return [self._purchase(r) for r in rows]
+
+    def start_purchase(self, purchase_id: str, player: str, item: int, quantity: int, price: int) -> dict:
+        if self.open_purchase(player) is not None:
+            raise FrontierError("purchase_open", "finish the open purchase first")
+        with self._transaction():
+            self._db.execute("INSERT INTO frontier_purchases VALUES (?, ?, ?, ?, ?, 'debit', ?)",
+                             (purchase_id, player, item, quantity, price, self._now()))
+        return self.purchase(purchase_id)
+
+    def set_purchase(self, purchase_id: str, state: str, *, spent: int = 0) -> None:
+        with self._transaction():
+            self._db.execute("UPDATE frontier_purchases SET state=? WHERE purchase_id=?", (state, purchase_id))
+            if spent:
+                row = self._db.execute("SELECT player_id FROM frontier_purchases WHERE purchase_id=?", (purchase_id,)).fetchone()
+                if row is not None:
+                    self._bp_bump(row[0], spent=spent)
 
     def _league_progress(self, player: str, round_no: int, *, cleared: bool) -> None:
         current, now = self.league_record(player), self._now()

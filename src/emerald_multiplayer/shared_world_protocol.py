@@ -16,7 +16,7 @@ _HEX16 = re.compile(r"[0-9a-f]{16}\Z")
 _BASE_HEX = re.compile(r"[0-9a-f]{320}\Z")
 _EVENT_FIELDS = {"event_id", "species", "level", "shiny", "mega", "map_group", "map_number", "x", "y",
                  "held_item", "perfect_ivs", "seconds_left", "claimant"}
-FRONTIER_OPS = frozenset({"status", "propose", "accept", "cancel", "retire", "battle"})
+FRONTIER_OPS = frozenset({"status", "propose", "accept", "cancel", "retire", "battle", "shop_buy"})
 SPAWN_ACTIONS = frozenset({"claim", "result", "release"})
 SPAWN_RESULTS = frozenset({"caught", "defeated", "ran", "lost", "cancelled"})
 SPAWN_KINDS = frozenset({"normal", "outbreak"})
@@ -136,9 +136,9 @@ def validate_wallet(value: Any) -> dict | None:
     if type(value) is not dict or set(value) != {"seq", "delta"}:
         raise ProtocolError("invalid_server_message", "invalid wallet adjustment")
     _int(value["seq"], "wallet sequence", 1, 0xFFFF)
-    _int(value["delta"], "wallet delta", -999_999, 999_999)
-    if value["delta"] == 0:
-        raise ProtocolError("invalid_server_message", "a wallet adjustment moves money")
+    from .rewards import valid_wallet_delta
+    if type(value["delta"]) is not int or not valid_wallet_delta(value["delta"]):
+        raise ProtocolError("invalid_server_message", "a wallet adjustment moves money, Battle Points or an item")
     return value
 
 
@@ -205,7 +205,7 @@ def validate_world_request(message: Any, session_epoch: int) -> dict:
             raise ProtocolError("invalid_field", "secret base must be 320 lower-case hex digits")
     elif kind == "frontier":
         base = {"type", "session_epoch", "request_id", "op"}
-        if set(message) not in (base, base | {"incarnation", "runtime_id"}, base | {"mode"}):
+        if set(message) not in (base, base | {"incarnation", "runtime_id"}, base | {"mode"}, base | {"slot"}):
             raise ProtocolError("invalid_fields", "Frontier request has unexpected fields")
         if message["op"] not in FRONTIER_OPS:
             raise ProtocolError("invalid_field", "unsupported Frontier operation")
@@ -214,6 +214,12 @@ def validate_world_request(message: Any, session_epoch: int) -> dict:
             _uuid(message["runtime_id"], "native runtime")
         if "mode" in message and (message["op"] != "propose" or message["mode"] not in ("frontier", "league")):
             raise ProtocolError("invalid_field", "unsupported Frontier mode")
+        if "slot" in message:
+            if message["op"] != "shop_buy":
+                raise ProtocolError("invalid_field", "only a purchase names a shop slot")
+            _int(message["slot"], "shop slot", 0, 31)
+        elif message["op"] == "shop_buy":
+            raise ProtocolError("invalid_field", "a purchase names a shop slot")
     elif kind == "base_visibility":
         if set(message) != {"type", "session_epoch", "request_id", "mode"}:
             raise ProtocolError("invalid_fields", "secret base visibility has unexpected fields")

@@ -10,6 +10,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import struct
 
+from .rewards import decode, is_reward_word
+
 WORLD_ABI_VERSION = 1
 WORLD_MAGIC = 0x31574D45
 WORLD_MAILBOX_SIZE = 256
@@ -215,7 +217,10 @@ class WorldInbound:
         _bound(self.action_ack, 0, _UINT32, "action ack")
         _bound(self.notice_id, 0, _UINT32, "notice id")
         _bound(self.wallet_seq, 0, 0xFFFF, "wallet sequence")
-        _bound(self.wallet_delta, -MAX_MONEY, MAX_MONEY, "wallet delta")
+        if not is_reward_word(self.wallet_delta):   # money, or a Frontier reward (Battle Points / an item), rewards.py
+            _bound(self.wallet_delta, -MAX_MONEY, MAX_MONEY, "wallet delta")
+        elif decode(self.wallet_delta) is None:
+            raise WorldMailboxError("wallet delta is not a valid reward")
         if (self.wallet_seq == 0) != (self.wallet_delta == 0):
             raise WorldMailboxError("a wallet adjustment needs both a sequence and a nonzero delta")
         _bound(self.teammate_token, 0, 4, "teammate token")

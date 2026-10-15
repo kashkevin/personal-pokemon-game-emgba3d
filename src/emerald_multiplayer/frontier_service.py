@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from uuid import uuid4
 
-from . import coop_code
+from . import coop_code, frontier_rewards, rewards
 from .frontier import (FrontierBook, FrontierError, LEAGUE, LEAGUE_FIRST_CLEAR_BONUS, Plan, TRAINER_NAMES,
                        league_plan, league_prize, plan, prize_for, set_of)
 from .protocol import ProtocolError
@@ -18,6 +18,8 @@ PARTY_LIMIT_DEFAULT = 3
 MIN_PARTY = 1
 # The Pokemon League opens with all eight badges, as in the game (flags in the saved game, checked against the engine by
 # --selftest-ladder: flags at 0x1270 of the first save block, badge 1 = flag 0x867).
+# The player's Battle Points: SaveBlock2.frontier.battlePoints (a u16, offset 0xEB8 of the second save block).
+BATTLE_POINTS_OFFSET = 0xEB8
 FLAGS_OFFSET = 0x1270
 BADGE_FLAGS = tuple(range(0x867, 0x86F))
 
@@ -96,7 +98,7 @@ class FrontierService:
         self.reconcile()
         run = book.run_of(player)
         record = book.record(player)
-        out = {"record": record, "party_limit": self.party_limit, "run": None,
+        out = {"bp": self.bp_view(player), "record": record, "party_limit": self.party_limit, "run": None,
                "league": {**book.league_record(player), "rounds": len(LEAGUE),
                           "hall": [{"names": e["names"], "entry": e["entry"]} for e in book.hall_of_fame(3)]}}
         if run is None:
@@ -129,7 +131,99 @@ class FrontierService:
         p = plan(run["seed"], run["round"], base)
         first = run["round"] > min(book.record(x)["best_streak"] for x in run["players"])
         return {"round": p.round, "level": p.level, "label": p.label, "brain": p.brain, "set": set_of(p.round) + 1,
-                "prize": prize_for(p.level, p.round, first_time=first)}
+                "prize": prize_for(p.level, p.round, first_time=first),
+                "bp": frontier_rewards.bp_for(p.round, first_time=first),
+                "item": (lambda it: None if it is None else {"name": frontier_rewards.ITEM_NAMES.get(it[0], "item"),
+                                                             "quantity": it[1]})(frontier_rewards.item_for(p.round, first_time=first))}
+
+    # ------------------------------------------------- Battle Points and the shop
+    def battle_points(self, player) -> int | None:
+        """The Battle Points in the player's last saved game (None when there is no readable save)."""
+        from .flash import FlashError, inspect_flash
+        server = self.server
+        session = server.sessions.get(player)
+        if session is None or session.closed or server.store is None:
+            return None
+        checkpoint = server.store.read_checkpoint(player, session.session_epoch)
+        if checkpoint is None:
+            return None
+        try:
+            block2 = inspect_flash(checkpoint.payload, save_profile=checkpoint.save_profile).save_block2
+        except FlashError:
+            return None
+        return min(int.from_bytes(block2[BATTLE_POINTS_OFFSET:BATTLE_POINTS_OFFSET + 2], "little"), rewards.MAX_BP)
+
+    def bp_view(self, player) -> dict:
+        ledger = self.book.bp_ledger(player)
+        purchase = self.book.last_purchase(player)
+        item = None
+        if purchase is not None:
+            item = {"state": purchase["state"], "name": frontier_rewards.ITEM_NAMES.get(purchase["item"], "item"),
+                    "price": purchase["price"], "quantity": purchase["quantity"]}
+        return {"balance": self.battle_points(player), "earned": ledger["earned"], "spent": ledger["spent"],
+                "shop": [{"slot": i, "name": entry.name, "price": entry.price, "quantity": entry.quantity}
+                         for i, entry in enumerate(frontier_rewards.SHOP)],
+                "purchase": item}
+
+    def _shop_buy(self, session, request) -> None:
+        actor = session.player_id
+        slot = request.get("slot")
+        if type(slot) is not int or not 0 <= slot < len(frontier_rewards.SHOP):
+            raise FrontierError("no_such_item", "the shop does not sell that")
+        entry = frontier_rewards.SHOP[slot]
+        if self.book.open_purchase(actor) is not None:
+            raise FrontierError("purchase_open", "your last purchase is not finished")
+        known = self.battle_points(actor)
+        if known is not None and known < entry.price:
+            raise FrontierError("not_enough_bp", f"{entry.name} costs {entry.price} BP; you have {known}")
+        wagers = getattr(self.server, "wagers", None)
+        if wagers is None:
+            raise FrontierError("no_wallet", "this host has no wallet")
+        purchase_id = str(uuid4())
+        self.book.start_purchase(purchase_id, actor, entry.item, entry.quantity, entry.price)
+        wagers.grant_reward(actor, rewards.KIND_BP_DEBIT, entry.price, f"shop:{purchase_id}:debit")
+
+    def _advance_purchases(self) -> None:
+        """Move every open purchase one step along: the game's receipt for the debit decides whether the item is granted."""
+        wagers = getattr(self.server, "wagers", None)
+        if wagers is None:
+            return
+        book = self.book
+        for purchase in book.open_purchases():
+            pid, player = purchase["purchase_id"], purchase["player_id"]
+            if purchase["state"] == "debit":
+                entry = wagers.entry(player, f"shop:{pid}:debit")
+                if entry is None or entry["applied"] is None:
+                    continue
+                paid = entry["applied"]
+                if paid >= purchase["price"]:
+                    wagers.grant_reward(player, rewards.KIND_ITEM,
+                                        rewards.item_payload(purchase["item"], purchase["quantity"]), f"shop:{pid}:item")
+                    book.set_purchase(pid, "granting", spent=purchase["price"])
+                elif paid > 0:      # the save had fewer points than the host believed: give back what was taken
+                    wagers.grant_reward(player, rewards.KIND_BP, paid, f"shop:{pid}:refund")
+                    book.set_purchase(pid, "refused")
+                else:
+                    book.set_purchase(pid, "refused")
+            elif purchase["state"] == "granting":
+                entry = wagers.entry(player, f"shop:{pid}:item")
+                if entry is None or entry["applied"] is None:
+                    continue
+                if entry["applied"] >= purchase["quantity"]:
+                    book.set_purchase(pid, "done")
+                else:               # the bag and the PC were full: the points come back
+                    wagers.grant_reward(player, rewards.KIND_BP, purchase["price"], f"shop:{pid}:refund")
+                    book.set_purchase(pid, "refunded", spent=-purchase["price"])
+
+    def _collect_rewards(self) -> None:
+        """Record what each game reported for the Battle Points and items it was sent."""
+        wagers = getattr(self.server, "wagers", None)
+        if wagers is None:
+            return
+        for reward in self.book.rewards_in_flight():
+            entry = wagers.entry(reward["player_id"], f"{reward['battle_id']}:{reward['kind']}")
+            if entry is not None and entry["applied"] is not None:
+                self.book.reward_result(reward["battle_id"], reward["player_id"], reward["kind"], entry["applied"])
 
     # ------------------------------------------------------------ requests
     def request(self, session, request) -> dict:
@@ -146,6 +240,8 @@ class FrontierService:
                 self._cancel(session, op)
             elif op == "battle":
                 self._battle(session, request)
+            elif op == "shop_buy":
+                self._shop_buy(session, request)
         except FrontierError as error:
             from .shared_world import SharedWorldError
             raise SharedWorldError(error.code, error.message) from error
@@ -271,6 +367,8 @@ class FrontierService:
         for run in book.cleared_without_hall():     # a crash between clearing the League and entering the Hall
             self._enter_hall(run)
         self.pay()
+        self._collect_rewards()
+        self._advance_purchases()
 
     def _settled_notice(self, attempt):
         run = self.book.run(attempt["run_id"])
@@ -279,7 +377,11 @@ class FrontierService:
             self._notice("HALL OF FAME!", "You cleared the POKEMON LEAGUE!", run["players"])
         elif attempt["state"] == "won":
             top = max(attempt["prizes"].values()) if attempt["prizes"] else 0
-            self._notice(f"ROUND {attempt['round']} CLEARED!", f"Prize up to ${top:,}", run["players"])
+            extras = self.book.rewards_of(attempt["battle_id"])
+            bp = max((r["payload"] for r in extras if r["kind"] == "bp"), default=0)
+            item = next((r for r in extras if r["kind"] == "item"), None)
+            tail = (f" +{bp}BP" if bp else "") + (f" +{frontier_rewards.describe('item', item['payload'])}" if item else "")
+            self._notice(f"ROUND {attempt['round']} CLEARED!", (f"Prize up to ${top:,}" + tail)[:32], run["players"])
         elif attempt["state"] == "lost":
             self._notice("FRONTIER RUN OVER", f"Streak {run['streak']} - well fought!", run["players"])
 
@@ -303,6 +405,13 @@ class FrontierService:
         for attempt in self.book.unpaid():
             for player, amount in attempt["prizes"].items():
                 wagers.grant(player, amount, attempt["battle_id"])
+            for reward in self.book.rewards_of(attempt["battle_id"]):
+                if reward["state"] != "queued":
+                    continue
+                # Battle Points and items go through the same numbered wallet stream, once per (player, battle, kind).
+                kind = rewards.KIND_BP if reward["kind"] == "bp" else rewards.KIND_ITEM
+                wagers.grant_reward(reward["player_id"], kind, reward["payload"], f"{reward['battle_id']}:{reward['kind']}")
+                self.book.reward_sent(reward["battle_id"], reward["player_id"], reward["kind"])
             self.book.mark_paid(attempt["battle_id"])
             paid = True
         if paid:

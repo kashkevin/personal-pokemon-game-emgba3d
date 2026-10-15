@@ -1986,10 +1986,11 @@ class Companion:
             raise ProtocolError("invalid_server_message", "invalid habitat view")
         return result
 
-    async def frontier_rpc(self, op: str = "status", mode: str | None = None) -> dict:
+    async def frontier_rpc(self, op: str = "status", mode: str | None = None, slot: int | None = None) -> dict:
         """The cooperative Battle Frontier (frontier_service.py): read it, or propose / accept / cancel / retire a run
         or ask for the next round's battle. Refusals arrive as ProtocolError with the host's reason."""
-        result = await self.world_rpc("frontier", op=op, **({} if mode is None else {"mode": mode}))
+        extra = ({} if mode is None else {"mode": mode}) | ({} if slot is None else {"slot": slot})
+        result = await self.world_rpc("frontier", op=op, **extra)
         run, record = result.get("run"), result.get("record")
         if (type(record) is not dict or type(result.get("party_limit")) is not int
                 or (run is not None and (type(run) is not dict or run.get("state") not in ("forming", "active", "ended")
