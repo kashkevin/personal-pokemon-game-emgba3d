@@ -529,3 +529,17 @@ the ROM editor's tables, with a test. Everything else partial is a documented ow
 ticket path, subset-party selection and item/BP prizes (new engine channels), per-form Mega ledger and unofficial Mega adaptations,
 free-form character creation, graphical PokéNav markers, eggs/mail in trades (kept refused), 1v1v1v1. No feature was relabelled
 "complete" without a run; native/hardware verification items stay in `FEATURE_STATUS.md`.
+
+## Update 14 — Integration and release candidate (O7)
+
+* **Private Windows build:** GitHub Actions run **38692719289** (`windows-package`, mode full, ref `claude/dev-update8-14` at app
+  `7f3ca84035`, engine `claude/dev-update8-14-engine` at `c56e76a668`, ROM sha256 pinned to `f214735b…3387`): success. Engine job built the
+  GBA ROM, the Windows 3D game and the Classic 2D game (the ROM hash check passed); the Windows job built the launcher, audited the
+  package, started the frozen launcher and ran the graphics-mode check on the packaged games. Artifact `EmeraldTogether-windows-full`
+  (ID 11953413779, sha256 `c0844963…700a0d`, 63 MB, expires 2026-10-22). Private to the repository; **bios.c licensing is unresolved: not
+  cleared for distribution.**
+* **Cloud evidence:** app suite 1662 passed, 0 failed (121 skipped; the 24 launcher-GUI tests need Python 3.12 with tkinter, run
+  separately: 85 passed); engine `check-native` all suites 0 failures; `--selftest-secret-base` 36, `--selftest-ladder` 20; GBA ROM rebuilt
+  after the Gen 6 switch change: sha256 unchanged. The GBA test-ROM suite was **not rerun**: the only shared-source change is a
+  `#ifdef PORTABLE` in `include/config/battle.h`, so the GBA/test-ROM code is identical (previous result: 5504 pass, 39 = expected list).
+* **Not verified on hardware:** everything in `docs/windows-test-update8-14.md` and `docs/windows-test-update2-7.md`.
