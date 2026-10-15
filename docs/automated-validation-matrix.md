@@ -38,6 +38,10 @@ GBA ROM `pokedev.gba` built from this engine: sha256 `f214735b…3387` (byte-ide
 | Dormant legendary events (new) | `test_event_conditions` 15 (mutation-checked) | Waiting for one in a game. |
 | Championship entry rules (new) | `test_frontier_rules` 11 incl. real saved parties from the battle fixture | A real Championship. |
 | Breeding and eggs | GBA tests listed above | Hatching one on a PC. |
+| Battle Frontier / Pokémon League (Updates 8, 10) | `test_frontier` 43 (rules, book incl. restart, service against the real battle desk and real saved parties, menus, protocol), `test_coop_battle` (ladder code reaches the game); engine `--selftest-ladder` 20 (all 862 trainers build and scale) | Playing a ladder on two PCs; disconnect during a round on a real network. |
+| Legendary catch ownership (Update 11) | `test_event_catch` 11, `test_shared_world` | Two real games racing a catch. |
+| Secret Base defender team, PokéNav habitat page (Update 12) | engine `--selftest-secret-base` 36; `test_secret_bases` 32 incl. real encounter tables | Meeting the team in a visited base; how the page looks. |
+| Gen 6 rules (Update 13) | `check-native` (compiles the PC build with the new switches); `test_appearance_names` | A thunderstorm and a trainer battle in the game. |
 
 ## What none of this proves
 
