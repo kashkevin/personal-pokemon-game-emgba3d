@@ -146,6 +146,20 @@ class WorldCompanionTests(unittest.IsolatedAsyncioTestCase):
         player = self.companions[index].config.player_id
         await wait_until(lambda: (self.server.sessions[player].presence or {}).get("x") == x, timeout=3)
 
+    async def test_the_outbreak_place_reaches_the_games_reserved_bytes(self):
+        world = self.server.shared_world
+        key = sorted(world.spawn_director.catalogue["maps"])[0]
+        group, number = (int(part) for part in key.split("."))
+        data = await self.bridges[0].world(lambda d: d[192:200] == bytes(8))
+        world.outbreaks.start(30, map_key=key, species=263)
+        data = await self.bridges[0].world(lambda d: d[192] == 1)          # the Town Map draws it from here
+        self.assertEqual(data[192:200], bytes([1, group, number, 0, 0, 0, 0, 0]))
+        data = await self.bridges[1].world(lambda d: d[192] == 1)
+        self.assertEqual((data[193], data[194]), (group, number))
+        world.outbreaks.end()
+        data = await self.bridges[0].world(lambda d: d[192] == 0)
+        self.assertEqual(data[192:], bytes(16))
+
     async def test_clock_peers_followers_and_teammate_free_inbound(self):
         await self.present(0, 5, WorldState(25, 4, 0, 0, 0, bytes(8), 0))
         await self.present(1, 6, WorldState(6, 5, 1, 254, 1, bytes(8), 9))

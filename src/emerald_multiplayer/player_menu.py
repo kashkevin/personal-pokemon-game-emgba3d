@@ -301,6 +301,14 @@ class PlayerMenu:
     def _name(self, player):
         return self._players.get(player, "Disconnected player")
 
+    # The colours the game gives other players' icons on the PokeNav map, by their place in the roster
+    # (engine src/region_map.c sSlotLight). Your own icon is the game's own, in its usual colours.
+    MARKER_COLOURS = ("Blue", "Yellow", "Purple", "Orange")
+
+    def _marker(self, player):
+        order = list(self._players)
+        return self.MARKER_COLOURS[order.index(player)] if player in order and order.index(player) < 4 else None
+
     def _render(self):
         actor = self.companion.config.player_id
         page, target = self._page
@@ -791,7 +799,7 @@ class PlayerMenu:
             actions.append(("My Secret Base", "base", ()))
             actions.append(("Frontier and League", "coop", ()))
         elif page == "world_players":
-            title, status = "Players and weather", "Where everyone is"
+            title, status = "Players and weather", "Also on the PokeNav map"
             for player in nav["players"][:4]:
                 actions.append((f"{self._name(player['player_id'])[:9]} - {player['place']}", "world_player",
                                 (player["player_id"],)))
@@ -802,6 +810,11 @@ class PlayerMenu:
             if player is not None:
                 actions.extend((line, "", ()) for line in wrap(player["place"], 25)[:2])
                 actions.append(("Weather: " + (player["weather"] or "unknown"), "", ()))
+                colour = self._marker(target)
+                if target == actor:
+                    actions.append(("Map icon: your own", "", ()))
+                elif colour is not None:
+                    actions.append((f"Map icon: {colour}", "", ()))
             actions.append(("Back to players", "world_players", ()))
         elif page in ("world_outbreak", "world_event"):
             entry = nav["outbreak" if page == "world_outbreak" else "event"]
@@ -814,6 +827,8 @@ class PlayerMenu:
                 if entry.get("waiting"):
                     actions.extend((line, "", ()) for line in wrap(entry["waiting"], 25)[:2])
                 actions.extend((line, "", ()) for line in wrap("Near " + entry["place"], 25)[:2])
+                if page == "world_outbreak" or not entry.get("waiting"):   # a dormant event is not on the map
+                    actions.append(("Marked on the PokeNav map", "", ()))
             actions.append(("Back to World", "world", ()))
         elif page == "habitat":
             title = "This area"

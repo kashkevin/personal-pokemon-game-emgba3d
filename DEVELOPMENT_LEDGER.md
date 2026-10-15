@@ -596,3 +596,17 @@ receipted by `wallet_applied`. **Evidence (simulated):** engine `--selftest-catc
 `test_event_catch`, `test_rewards`, `test_world_server` (contested catch over the wire: B keeps, A is told to release, repeated reports queue nothing
 new, receipt recorded). **Not verified:** a real two-PC race, a real save losing the copy; a traded/evolved copy and saves without a record are left
 alone by design. Save bytes are not rewritten directly; the engine uses its normal party/box functions while running.
+
+## Update 18 — Graphical PokéNav map
+
+`docs/graphical-pokenav-map.md`. The original Town Map (PokéNav, fly map, Pokémon Center wall map) now draws the other players (the game's own
+Brendan/May icon with its accent colours swapped for a per-slot ramp, derived from the game's palette at run time), the visible World Event (the
+original red Battle Frontier outline) and the mass outbreak (the original pink fly dot); SELECT jumps the cursor marker to marker; markers follow the
+zoomed map and refresh every ~1.5 s. **No protocol change for players:** poses already reach the game; the outbreak's map is new (host `nav.outbreak.map`
+→ companion `WorldInbound.outbreak` → the world mailbox's reserved bytes, ABI size unchanged, older engines ignore it). Engine code is PC-only
+(`src/region_map.c`); release GBA ROM **f214735b…3387 unchanged**. Remote map ids are bounds-checked against a committed per-group map count table that
+`tools/pc_port/map_group_counts.py --check` compares with the header. **How it was checked:** a new development aid (`PKMN_DEBUG_SCENE`, `PKMN_DEBUG_KEYS`,
+`PKMN_DEBUG_SHOTS`, `include/platform/debug_scene.h`) opens a screen headlessly, presses scripted keys and writes PNGs, so the rendered screens could be
+looked at (this is how the earlier "needs a visual-verification session" blocker was removed). While building it a harness bug was found and fixed (an
+uncleared scanline-effect task killed the PokéNav's own task), not a game bug. **Not verified:** real Windows, 3D window, real players. **Missing art** is
+listed exactly in the doc (event glyph, outbreak glyph, number badges, SELECT help-bar string, cave marker style).

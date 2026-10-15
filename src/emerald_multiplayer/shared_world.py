@@ -428,7 +428,8 @@ class SharedWorld:
         outbreak = self.outbreak_view()
         if outbreak is not None:
             outbreak = {"name": outbreak["name"][:40], "place": outbreak["place"][:40],
-                        "seconds_left": outbreak["seconds_left"]}
+                        "seconds_left": outbreak["seconds_left"],
+                        "map": [outbreak["map_group"], outbreak["map_number"]]}   # the graphical map marks it
         status = self.event_status()
         event = None if status is None else {key: value for key, value in status.items()
                                              if key != "waiting" or value is not None}

@@ -211,6 +211,7 @@ class WorldInbound:
     wallet_seq: int = 0     # this player's next wallet adjustment (0 = none)
     wallet_delta: int = 0   # money to add (positive) or collect (negative)
     teammate_token: int = 0  # peer token of the host-formed teammate (0 = none)
+    outbreak: tuple | None = None  # (map group, map number) of the running outbreak, for the Town Map marker
 
     def __post_init__(self):
         _bound(self.world_seconds, 0, _UINT32, "world seconds")
@@ -224,6 +225,11 @@ class WorldInbound:
         if (self.wallet_seq == 0) != (self.wallet_delta == 0):
             raise WorldMailboxError("a wallet adjustment needs both a sequence and a nonzero delta")
         _bound(self.teammate_token, 0, 4, "teammate token")
+        if self.outbreak is not None:
+            if not isinstance(self.outbreak, tuple) or len(self.outbreak) != 2:
+                raise WorldMailboxError("an outbreak is a (map group, map number) pair")
+            _bound(self.outbreak[0], 0, 255, "outbreak map group")
+            _bound(self.outbreak[1], 0, 255, "outbreak map number")
         if self.teammate_token and self.teammate_token not in [token for token, _ in self.peers]:
             raise WorldMailboxError("the teammate must be one of the published peers")
         _appearance(self.self_appearance)
@@ -243,6 +249,8 @@ class WorldInbound:
         data += struct.pack("<I", self.notice_id) + _notice_bytes(self.notice_text)
         assert len(data) == WALLET_OFFSET
         data += struct.pack("<IiI", self.wallet_seq, self.wallet_delta, self.teammate_token)
+        # The engine's reserved bytes: the outbreak's place (valid, group, number, 0, species unused).
+        data += struct.pack("<BBBBH2x", 1, *self.outbreak, 0, 0) if self.outbreak is not None else bytes(8)
         data += bytes(WORLD_INBOUND_SIZE - len(data))
         assert len(data) == WORLD_INBOUND_SIZE
         return data

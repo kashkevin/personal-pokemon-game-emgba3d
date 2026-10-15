@@ -315,8 +315,14 @@ def validate_extras(value: Any) -> dict | None:
         if entry is None:
             continue
         if type(entry) is not dict or set(entry) not in ({"name", "place", "seconds_left"},
-                                                         {"name", "place", "seconds_left", "waiting"}):
+                                                         {"name", "place", "seconds_left", "waiting"},
+                                                         {"name", "place", "seconds_left", "map"}):
             raise ProtocolError("invalid_server_message", f"invalid PokeNav {key}")
+        if "map" in entry:
+            where = entry["map"]
+            if (key != "outbreak" or type(where) is not list or len(where) != 2
+                    or any(type(part) is not int or not 0 <= part <= 255 for part in where)):
+                raise ProtocolError("invalid_server_message", f"invalid PokeNav {key} map")
         if "waiting" in entry:
             _short_text(entry["waiting"], "PokeNav waiting")
         _short_text(entry["name"], "PokeNav name")

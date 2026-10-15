@@ -626,10 +626,15 @@ class Companion:
         teammate = next((index + 1 for index, player in enumerate(self._players)
                          if player["player_id"] == self._world_teammate
                          and player["player_id"] != self.config.player_id and player["presence"] is not None), 0)
+        outbreak = None
+        nav = (self._world_extras or {}).get("nav") or {}
+        if (nav.get("outbreak") or {}).get("map") is not None:
+            outbreak = tuple(nav["outbreak"]["map"])
         return WorldInbound(clock_valid=clock is not None, events_enabled=True, world_seconds=seconds & 0xFFFFFFFF,
                             action_ack=self._world_action_ack, self_appearance=appearance, peers=tuple(peers),
                             event=event, notice_id=notice_id, notice_text=notice_text,
-                            wallet_seq=wallet["seq"], wallet_delta=wallet["delta"], teammate_token=teammate)
+                            wallet_seq=wallet["seq"], wallet_delta=wallet["delta"], teammate_token=teammate,
+                            outbreak=outbreak)
 
     async def _snapshot_loop(self) -> None:
         while True:

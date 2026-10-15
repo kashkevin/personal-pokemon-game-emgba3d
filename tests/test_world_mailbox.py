@@ -116,6 +116,15 @@ class InboundTests(unittest.TestCase):
         self.assertEqual(struct.unpack_from("<IiI", data, WALLET_OFFSET), (12, -5000, 2))
         self.assertEqual(data[192:], bytes(16))
 
+    def test_the_outbreak_place_is_in_the_engines_reserved_bytes(self):
+        data = self.inbound(outbreak=(0, 29)).pack()
+        self.assertEqual(data[192:200], bytes([1, 0, 29, 0, 0, 0, 0, 0]))   # valid, group, number (the Town Map marker)
+        self.assertEqual(data[200:], bytes(8))
+        self.assertEqual(self.inbound(outbreak=None).pack()[192:], bytes(16))
+        for bad in ((0,), (256, 1), (0, -1), [0, 29], "x", (0, 29, 1)):
+            with self.subTest(bad=bad), self.assertRaises(WorldMailboxError):
+                self.inbound(outbreak=bad)
+
     def test_notice_is_printable_ascii_and_bounded(self):
         data = self.inbound(notice_text="café\nline" + "x" * 80).pack()
         text = data[116:180]

@@ -36,3 +36,16 @@ Real-PC checks that are not done yet. Everything here was only simulated.
 - [ ] A player with only that one Pokémon in the party is **not** left without a party (the release waits).
 - [ ] Trade or evolve the second copy before reconnecting: nothing is removed, and the host log says why.
 - [ ] Reconnect repeatedly: the release happens once, not twice.
+
+## D. NEW: graphical PokéNav map (two or more PCs)
+Everything here was only looked at in a headless Linux build; none of it is verified on Windows.
+- [ ] Both PCs in the overworld on different routes. Open the PokéNav (Start > PokéNav > HOENN MAP). Your own icon is where you stand; the other player appears as a **coloured** copy of the trainer icon (Blue, Yellow, Purple or Orange) on the right route.
+- [ ] PLAYERS > World and my base > Players and weather > that player: "Map icon: <colour>" matches the colour you see.
+- [ ] Press **SELECT**: the cursor jumps to the other player and the name box shows their place; pressing it again goes to the next marker and then back.
+- [ ] Walk the other player to another town while your map stays open: the marker follows within about two seconds.
+- [ ] A in the map zooms in; markers sit on the right squares and scroll with the map; A again returns.
+- [ ] Put the other player inside a Pokémon Center: the marker is on that town's square.
+- [ ] While a World Event is on the map (awake), a flashing red square marks it; while a mass outbreak runs, a flashing pink dot marks its route. Both go away when the event/outbreak ends.
+- [ ] The Pokémon Center wall map and the fly map show the same markers; leaving and re-entering the map shows no leftover or missing icons.
+- [ ] 3D (Diorama) window: the map looks the same as in the 2D window.
+- [ ] Four players on the same square: all four icons can be seen (fanned out).

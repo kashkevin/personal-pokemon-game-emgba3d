@@ -203,6 +203,14 @@ class ProtocolTests(unittest.TestCase):
         good = {"bases": [{"owner": "a", "slot": 1, "record": make_base().hex()}], "nav": nav}
         self.assertIs(validate_extras(good), good)
         self.assertIsNone(validate_extras(None))
+        located = {**nav, "outbreak": {"name": "WURMPLE", "place": "ROUTE 101", "seconds_left": 90, "map": [0, 16]}}
+        self.assertEqual(validate_extras({**good, "nav": located})["nav"]["outbreak"]["map"], [0, 16])
+        for bad_map in ([0], [0, 256], [-1, 3], (0, 16), "0.16", [0, True]):
+            with self.assertRaises(ProtocolError, msg=repr(bad_map)):
+                validate_extras({**good, "nav": {**nav, "outbreak": {**located["outbreak"], "map": bad_map}}})
+        with self.assertRaises(ProtocolError):   # only the outbreak is placed on the map
+            validate_extras({**good, "nav": {**nav, "outbreak": None,
+                                             "event": {"name": "x", "place": "y", "seconds_left": 5, "map": [0, 16]}}})
         for bad in ({**good, "bases": [{"owner": "a", "slot": 4, "record": make_base().hex()}]},
                     {**good, "bases": [{"owner": "a", "slot": 1, "record": "00"}]},
                     {**good, "nav": {**nav, "outbreak": {"name": "x", "place": "y", "seconds_left": -1}}},
@@ -225,6 +233,11 @@ class NavViewTests(unittest.TestCase):
                 self.assertEqual(nav["players"][0]["place"], world._place_name(0, 16))
                 self.assertEqual(nav["players"][1], {"player_id": "c", "place": "Area 99-98", "weather": None})
                 self.assertEqual((nav["outbreak"], nav["event"]), (None, None))
+                validate_extras({"bases": [], "nav": nav})
+                key = sorted(world.spawn_director.catalogue["maps"])[0]
+                world.outbreaks.start(30, map_key=key, species=263)
+                nav = world.nav_view({})
+                self.assertEqual(nav["outbreak"]["map"], [int(part) for part in key.split(".")])   # the Town Map marker
                 validate_extras({"bases": [], "nav": nav})
             finally:
                 world.close()
@@ -312,13 +325,16 @@ class MenuTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.labels(menu), ["Alice - ROUTE 101", "Bob - LITTLEROOT TOWN"])
         await self.click(menu, "Alice - ROUTE 101")
         self.assertIn("Weather: Rain", self.labels(menu))
+        self.assertIn("Map icon: your own", self.labels(menu))
         await self.click(menu, "Back to players")
         await self.click(menu, "Bob - LITTLEROOT TOWN")
         self.assertIn("Weather: unknown", self.labels(menu))
+        self.assertIn("Map icon: Yellow", self.labels(menu))   # the colour the PokeNav map gives roster slot 1
         menu._page = ("world", None)
         await menu.refresh()
         await self.click(menu, "Outbreak: WURMPLE")
         self.assertEqual(menu.screen.status, "2m 05s left")
+        self.assertIn("Marked on the PokeNav map", self.labels(menu))
         self.assertTrue(all(len(r.label) <= 25 for r in menu.screen.rows))
 
     async def test_habitat_page_shows_host_tables_or_admits_no_data(self):

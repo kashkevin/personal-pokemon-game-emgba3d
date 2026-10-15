@@ -28,9 +28,8 @@ The pages are host-driven menu pages (≤ 6 rows) reached from Players > World a
 | My Secret Base | visibility cycle |
 | Frontier and League | Frontier / League hub, entry rule |
 
-### Graphical map: not delivered
+### Graphical map (Update 18)
 
-A map graphic with other players' markers needs new sprites in the original Town Map (`region_map.c`) and a visual check. Without
-the ability to look at the rendered screen, and with risk to the original Town Map and GBA byte-identity, it was **not built**. Player
-locations are provided as text instead (Players and weather). Recorded for the owner: a graphical marker overlay is feasible later
-but needs a visual-verification session on a real window.
+Delivered: see [graphical-pokenav-map.md](graphical-pokenav-map.md). The original Town Map now shows the other players, the World Event
+and the outbreak, with SELECT jumping between them; the text pages above remain as the fallback. (The earlier "not delivered" note
+here is superseded: the screen could be looked at once the engine gained a headless debug scene.)
