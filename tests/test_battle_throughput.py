@@ -14,7 +14,7 @@ import os
 import time
 import unittest
 
-from emerald_multiplayer import battle_session
+from emerald_multiplayer import battle_execution, battle_session
 from emerald_multiplayer.native_battle import Opcode
 import test_battle_execution as fixture  # the module only: its test classes must not be collected twice
 
@@ -41,6 +41,9 @@ class RelayThroughputTests(unittest.IsolatedAsyncioTestCase):
         if os.environ.get("BATTLE_BENCH_OLD_POLL"):      # before M25: a fixed 10 ms client poll
             self.addCleanup(setattr, battle_session, "IDLE_POLL_MIN", battle_session.IDLE_POLL_MIN)
             battle_session.IDLE_POLL_MIN = battle_session.IDLE_POLL_MAX
+        if os.environ.get("BATTLE_BENCH_KEEP_EVERY_STEP"):  # before the deadline-based KEEP
+            self.addCleanup(setattr, battle_execution, "KEEP_BELOW_FRAMES", battle_execution.KEEP_BELOW_FRAMES)
+            battle_execution.KEEP_BELOW_FRAMES = 601
 
         async def counted(model, command):
             counts[Opcode(command.opcode).name] += 1
@@ -91,10 +94,12 @@ class RelayThroughputTests(unittest.IsolatedAsyncioTestCase):
     async def test_two_player_start_up_without_game_delay(self):
         elapsed, counts = await self.measure(0)
         self.report("2 players, instant core", elapsed, counts)
-        # M25 regression bound: the same 96 native commands as before (KEEP stays one per step,
-        # see DEVELOPMENT_LEDGER.md for the throttling attempt that broke recovery); the time is a
-        # loose ceiling for slow machines (about 2.1 s before the M25 changes, about 1.5 s after).
-        self.assertEqual(sum(counts.values()), 96)
+        # M25 regression bound: 76 native commands (96 while KEEP went out on every step; start-up
+        # moves a block every step, and an accepted block command already refreshes the watchdog);
+        # the time is a loose ceiling for slow machines.
+        if not os.environ.get("BATTLE_BENCH_KEEP_EVERY_STEP"):
+            self.assertEqual(sum(counts.values()), 76)
+            self.assertEqual(counts["KEEP"], 0)
         self.assertLess(elapsed, 4.0)
 
     async def test_two_player_start_up_with_the_games_frame_delay(self):
@@ -104,4 +109,17 @@ class RelayThroughputTests(unittest.IsolatedAsyncioTestCase):
     async def test_four_player_start_up_with_the_games_frame_delay(self):
         elapsed, counts = await self.measure(FRAME, multi=True)
         self.report(f"4 players, {FRAME * 1000:.0f} ms game delay", elapsed, counts)
-        self.assertEqual(sum(counts.values()), 264)
+        if not os.environ.get("BATTLE_BENCH_KEEP_EVERY_STEP"):
+            self.assertEqual(sum(counts.values()), 224)   # 264 with a KEEP on every step
+
+    async def test_waiting_for_the_players_sends_a_keep_only_when_the_watchdog_needs_it(self):
+        # After START the cores wait 60 queries for their players (no outbound block): most of a
+        # real battle. The watchdog (600 frames, 40 per query here) needs a KEEP every 4th step,
+        # not every step, and it never runs out (an expired core fails the battle).
+        self.addCleanup(setattr, fixture.NativeFixture, "IDLE_QUERIES", 0)
+        fixture.NativeFixture.IDLE_QUERIES = 60
+        elapsed, counts = await self.measure(FRAME)
+        self.report(f"2 players waiting 60 steps, {FRAME * 1000:.0f} ms game delay", elapsed, counts)
+        if not os.environ.get("BATTLE_BENCH_KEEP_EVERY_STEP"):
+            self.assertLessEqual(counts["KEEP"], counts["QUERY"] // 3)
+            self.assertGreater(counts["KEEP"], 0)

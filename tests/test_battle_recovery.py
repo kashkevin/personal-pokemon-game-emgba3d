@@ -12,6 +12,7 @@ import struct
 import threading
 from types import SimpleNamespace
 import unittest
+import unittest.mock
 from unittest.mock import Mock, patch
 from uuid import UUID, uuid4
 
@@ -567,6 +568,33 @@ class BattleRecoveryNetworkTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_uncertain_successful_release_reconciles_without_replaying_gameplay(self):
         await self._interrupt(Opcode.RELEASE)
+        await self._recover(2)
+
+    async def test_interrupted_at_a_deadline_keep_while_players_wait_replays_the_same_keep_decisions(self):
+        # The router now sends KEEP only when a core's watchdog needs it (battle_execution
+        # KEEP_BELOW_FRAMES). Interrupt four cores at the first such KEEP, after idle steps that
+        # skipped it, and recover: replay must make exactly the journal's KEEP/skip decisions.
+        self.addCleanup(setattr, RetainedFixture, "IDLE_QUERIES", 0)
+        RetainedFixture.IDLE_QUERIES = 12
+        await self._interrupt(Opcode.KEEP, multi=True)
+        journal = self.root/"execution"/(self.battle_id+".events.jsonl")
+        events = [json.loads(line)["value"] for line in journal.read_text().splitlines()[1:]]
+        opcodes = [decode_control(event["control_b64"]).opcode for event in events if event.get("kind") == "command"]
+        self.assertGreater(opcodes.count(Opcode.QUERY), 4 * opcodes.count(Opcode.KEEP))  # most steps skipped it
+        await self._recover(4)
+
+    async def test_a_journal_written_before_the_keep_change_recovers_with_a_keep_every_step(self):
+        # A battle interrupted under the old router (format v1: KEEP on every step) must replay
+        # with that policy after the upgrade, or its commands would differ from its own journal.
+        from emerald_multiplayer import battle_execution_journal as route_journal
+        with unittest.mock.patch.object(route_journal, "FORMAT", route_journal.LEGACY_FORMATS[0]):
+            await self._interrupt(Opcode.RELEASE)
+        journal = self.root/"execution"/(self.battle_id+".events.jsonl")
+        header = json.loads(journal.read_text().splitlines()[0])["value"]
+        self.assertEqual(header["format"], "native-battle-route-events-v1")
+        events = [json.loads(line)["value"] for line in journal.read_text().splitlines()[1:]]
+        opcodes = [decode_control(event["control_b64"]).opcode for event in events if event.get("kind") == "command"]
+        self.assertEqual(opcodes.count(Opcode.KEEP), opcodes.count(Opcode.QUERY))  # the old policy
         await self._recover(2)
 
     async def test_original_unexecuted_first_bind_is_completed_only_after_all_reconnect(self):

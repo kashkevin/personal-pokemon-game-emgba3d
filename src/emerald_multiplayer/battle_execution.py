@@ -22,6 +22,16 @@ from .battle_roster import validate_auxiliary_startup
 from .live_checkpoint import _atomic, _json_bytes
 from .native_battle import Kind, NativeControl, NativeQuery, Opcode
 
+# KEEP refreshes a core's native watchdog (MULTIPLAYER_BATTLE_DEADLINE, 600 frames) and the desk's
+# host deadline. Every accepted mutating command refreshes the native watchdog too; QUERY does not,
+# and reports the frames left. So a slot gets KEEP when its last query showed fewer than
+# KEEP_BELOW_FRAMES frames left (at least 8 s of the 10 s budget remain for the next step), or when
+# KEEP_EVERY_STEPS steps passed without one (the desk's 180 s host deadline during long transfers).
+# Both inputs are journaled responses and step counts, never wall time, so recovery replays the same
+# commands: a wall-clock throttle (tried first) made replay diverge from the journal.
+KEEP_BELOW_FRAMES = 480
+KEEP_EVERY_STEPS = 32
+
 
 async def _independent(*commands):
     """Settle every issued mailbox command before advancing or failing a batch."""
@@ -292,6 +302,7 @@ class _NativeRoute:
         self.pending, self.receipts = [None] * self.count, {}
         self.running = False
         self.started = False
+        self.steps_since_keep = [0] * self.count
 
     def call(self, method, slot, *args, **kwargs):
         return getattr(self.desk, method)(self.b.players[slot], self.b.leases[slot],
@@ -402,9 +413,17 @@ class _NativeRoute:
             if not self.running and self.next_kind == [8] * self.count:
                 self.desk.authorize_running(self.b.battle_id, self.b.generation)
                 self.running = True
-        # Every step refreshes the held native deadline. No local gameplay
-        # controller, diagnostic core API or injected native outcome is used.
-        await _independent(*(self.rpc(slot, Opcode.KEEP) for slot in range(self.count)))
+        # Refresh the held native deadline where it is needed (see KEEP_BELOW_FRAMES). No local
+        # gameplay controller, diagnostic core API or injected native outcome is used.
+        journal = self.room.journal
+        every_step = journal is not None and journal.keeps_every_step
+        keep = [slot for slot, q in enumerate(queries)
+                if every_step or q.remaining_frames < KEEP_BELOW_FRAMES
+                or self.steps_since_keep[slot] + 1 >= KEEP_EVERY_STEPS]
+        for slot in range(self.count):
+            self.steps_since_keep[slot] = 0 if slot in keep else self.steps_since_keep[slot] + 1
+        if keep:
+            await _independent(*(self.rpc(slot, Opcode.KEEP) for slot in keep))
         return queries
 
     async def run(self):

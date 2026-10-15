@@ -20,7 +20,11 @@ from .protocol import MAX_COUNTER
 from .native_battle import NativeBinding, Opcode
 from .native_battle_resume import ResumeAuthorization, ResumeQuery
 
-FORMAT = "native-battle-route-events-v1"
+# v2 (2026-10-15): the router sends KEEP only when the native deadline needs it (battle_execution
+# KEEP_BELOW_FRAMES / KEEP_EVERY_STEPS). v1 journals were written by a router that sent KEEP on every
+# step; recovery must replay a journal with the policy that wrote it, so the format names the policy.
+FORMAT = "native-battle-route-events-v2"
+LEGACY_FORMATS = ("native-battle-route-events-v1",)
 MAX_LINE = 16384
 MAX_BYTES = 256 * 1024 * 1024
 MAX_EVENTS = 500000
@@ -45,6 +49,7 @@ class RouteJournal:
         self.lineage = [self.leases]
         self.renewal_epoch = 0
         self.renewal_digest = None
+        self.format = FORMAT
         if create:
             flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
             fd = os.open(self.path, flags, 0o600)
@@ -127,8 +132,10 @@ class RouteJournal:
                         raise ValueError("route evidence checksum or encoding changed")
                     value = row["value"]
                     if not self.events:
-                        if value != dict(kind="header", format=FORMAT, value=self.header):
+                        if (type(value) is not dict or value.get("format") not in (FORMAT,) + LEGACY_FORMATS
+                                or value != dict(kind="header", format=value["format"], value=self.header)):
                             raise ValueError("route evidence belongs to another immutable battle")
+                        self.format = value["format"]
                     else:
                         self._validate_event(value, apply=True)
                     self.events.append(value)
@@ -249,6 +256,11 @@ class RouteJournal:
             self.renewal_epoch = value["epoch"]
             self.pending = {actor: (ident, self._renew_control(actor, command, self.leases))
                             for actor, (ident, command) in self.pending.items()}
+
+    @property
+    def keeps_every_step(self):
+        """A v1 journal's router sent KEEP on every step; replaying it needs the same."""
+        return self.format in LEGACY_FORMATS
 
     def append(self, kind, actor, dispatch_id, control):
         self._append(dict(kind=kind, actor=actor, dispatch_id=dispatch_id, control_b64=encode_control(control)))

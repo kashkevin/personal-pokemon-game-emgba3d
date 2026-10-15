@@ -61,6 +61,9 @@ class ReplayDesk(BattleDesk):
             raise BattleError("battle_replay_mismatch", "replay changed its logical original actor")
         return self.checkpoints[actor]
 
+    def _auth_lease(self, actor, lease):
+        self._auth(actor, lease)  # the logical original actor, never the store's current lease
+
     def refresh(self):
         pass  # Historical elapsed wall time cannot alter a verified replay.
 

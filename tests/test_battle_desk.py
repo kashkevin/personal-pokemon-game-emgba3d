@@ -406,3 +406,54 @@ class BattleDeskTests(unittest.TestCase):
 
 
 if __name__ == "__main__":unittest.main()
+
+
+class LeaseCheckTests(BattleDeskTests):
+    """M25: _get checks the lease with _auth_lease (no payload read); it must refuse exactly what _auth refuses."""
+
+    def outcome(self, check, actor, lease):
+        try:
+            check(actor, lease)
+        except Exception as error:   # the type and code are what callers see
+            return type(error).__name__, getattr(error, "code", None)
+        return None
+
+    def test_lease_check_refuses_exactly_what_the_full_check_refuses(self):
+        actor, lease = self.actor(0)
+        other, other_lease = self.actor(1)
+        cases = [(actor, lease), (actor, lease + 1), (actor, lease - 1 or 99), (other, lease), (other, other_lease),
+                 ("not-a-uuid", lease), (actor, 0), (actor, True), (str(uuid4()), lease)]
+        for case in cases:
+            with self.subTest(case=case):
+                self.assertEqual(self.outcome(self.desk._auth_lease, *case), self.outcome(self.desk._auth, *case))
+        # A disconnected player (the server's connected lease changed) and a released store lease.
+        self.leases[actor] = lease + 7
+        self.assertEqual(self.outcome(self.desk._auth_lease, actor, lease), ("BattleError", "stale_lease"))
+        self.assertEqual(self.outcome(self.desk._auth_lease, actor, lease), self.outcome(self.desk._auth, actor, lease))
+        self.leases[actor] = lease
+        self.store.release_lease(actor, lease)
+        self.assertEqual(self.outcome(self.desk._auth_lease, actor, lease), self.outcome(self.desk._auth, actor, lease))
+        self.assertIsNotNone(self.outcome(self.desk._auth_lease, actor, lease))
+
+    def test_a_new_server_boot_invalidates_the_old_lease_for_both(self):
+        actor, lease = self.actor(0)
+        self.store.begin_server_boot()
+        self.assertIsNotNone(self.outcome(self.desk._auth_lease, actor, lease))
+        self.assertEqual(self.outcome(self.desk._auth_lease, actor, lease), self.outcome(self.desk._auth, actor, lease))
+
+    def test_get_uses_the_light_check_and_still_refuses_a_stale_lease(self):
+        reads = []
+        original = self.store.read_checkpoint
+        self.store.read_checkpoint = lambda *a, **k: reads.append(a) or original(*a, **k)
+        try:
+            self.desk._get(*self.actor(0), self.battle_id, self.generation)
+        finally:
+            self.store.read_checkpoint = original
+        self.assertEqual(reads, [])          # no payload read on the per-RPC path
+        actor, lease = self.actor(0)
+        with self.assertRaises(Exception):
+            self.desk._get(actor, lease + 1, self.battle_id, self.generation)
+
+
+for _name in [n for n in dir(BattleDeskTests) if n.startswith("test_")]:
+    setattr(LeaseCheckTests, _name, None)

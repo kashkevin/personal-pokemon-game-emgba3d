@@ -122,6 +122,21 @@ class BattleDesk:
             raise BattleError("stale_lease", "actor is not the current connected player")
         return checkpoint
 
+    def _auth_lease(self, actor, lease):
+        """``_auth`` for callers that discard the checkpoint (``_get``, on every battle RPC): the same
+        field checks, the same store lease check (``_require_lease``, so a lease of an earlier server
+        boot or a released lease is refused exactly as before) and the same binding check of the latest
+        row, then the same connected-lease check, without reading and re-hashing the save payload.
+        Readers of the payload still verify it. Subclasses whose ``_auth`` has other semantics (the
+        recovery ReplayDesk) override this too."""
+        try:
+            _uuid(actor, "actor"); _integer(lease, 1, MAX_COUNTER, "actor lease")
+        except BattleMailboxError as error:
+            raise BattleError("invalid_field", str(error)) from error
+        self.store.checkpoint_head(actor, lease)
+        if self.lease_for(actor) != lease:
+            raise BattleError("stale_lease", "actor is not the current connected player")
+
     @staticmethod
     def _id(value, name):
         try:
@@ -187,7 +202,7 @@ class BattleDesk:
         self._id(battle_id, "battle ID")
         if generation is not None:
             self._id(generation, "generation")
-        self._auth(actor, lease)
+        self._auth_lease(actor, lease)
         self.refresh()
         battle = self._active.get(battle_id) or self._history.get(battle_id)
         if battle is None:

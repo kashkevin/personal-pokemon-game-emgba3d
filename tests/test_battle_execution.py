@@ -26,9 +26,19 @@ from test_battle_arbitration import wait_until
 
 
 class NativeFixture:
-    """A synthetic mailbox lifecycle, deliberately not a battle simulator."""
+    """A synthetic mailbox lifecycle, deliberately not a battle simulator.
+
+    It models the native watchdog as the game does (multiplayer_battle.c): every accepted mutating
+    command refreshes it to 600 frames, QUERY reports the frames left without refreshing it, and a
+    core whose watchdog runs out reports itself expired. FRAMES_PER_QUERY is the game time that passes
+    from one query to the next."""
+    FRAMES_PER_QUERY = 40
+    IDLE_QUERIES = 0   # after START, this many queries see no outbound block (players choosing)
+
     def __init__(self, battle, slot):
         self.battle, self.slot = battle, slot
+        self.frames_left = 600
+        self.idle_left = self.IDLE_QUERIES
         self.sequence = 0
         self.prepared = self.started = self.released = False
         self.out_index, self.offset = 0, 0
@@ -41,32 +51,40 @@ class NativeFixture:
             roster.party[:200], roster.party[200:400], roster.party[400:], battle.rng]
 
     def query(self):
-        outbound = self.prepared and self.out_index < 6
+        outbound = self.prepared and self.out_index < 6 and not (self.started and self.idle_left)
         restored = self.started and self.out_index == 6 and all(
             self.received.get(p) == (6, 16) for p in range(len(self.battle.players)) if p != self.slot)
         flags = (0 if self.released else 1) | (8 if self.prepared and not self.released else 0)
         flags |= 16 if self.started and not self.released else 0
         flags |= 32 if restored and not self.released else 0
         flags |= 4 if outbound else 0
+        expired = self.frames_left == 0 and not self.released
+        flags |= 2 if expired else 0
         data = self.blocks[self.out_index] if outbound else b""
         return struct.pack("<I16sBBBB10I", flags, UUID(self.battle.generation).bytes,
             len(self.battle.players), self.slot, self.battle.mode, 0,
             self.sequence, self.out_index + 1 if outbound else 0,
             self.out_index + 2 if outbound else 0, len(data), zlib.crc32(data) if data else 0,
-            self.offset if outbound else 0, 0, 600 if not self.released else 0,
+            self.offset if outbound else 0, 0, self.frames_left if not self.released else 0,
             self.battle.roster[self.slot].revision if self.prepared and not self.released else 0,
             2 if restored and not self.released else 0)
 
     async def rpc(self, command):
         command.validate_command()
         if command.opcode == Opcode.QUERY:
-            return replace(command, data=self.query())
+            data = self.query()
+            self.frames_left = max(0, self.frames_left - self.FRAMES_PER_QUERY)
+            if self.started and self.idle_left:
+                self.idle_left -= 1
+            return replace(command, data=data)
         if command.sequence != self.sequence + 1:
             raise AssertionError("native mutation sequence changed")
         if command.opcode == Opcode.RECEIVE and self.busy_once:
             self.busy_once = False
             return replace(command, status=1, data=b"")
         self.sequence += 1
+        if self.frames_left:
+            self.frames_left = 600   # an accepted command refreshes the watchdog; an expired core stays expired
         data = b""
         if command.opcode == Opcode.PREPARE:
             self.prepared = True
