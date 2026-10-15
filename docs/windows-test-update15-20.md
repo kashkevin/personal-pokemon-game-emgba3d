@@ -26,3 +26,13 @@ Each player needs a saved party of **more than 3 Pokémon** for the team-selecti
 - [ ] **BP shop**: buy a Protein (16 BP) with enough BP: BP drop by 16, the item appears; with too few BP the order is refused ("costs 16 BP"); with a full bag and a full PC the BP come back. One order at a time; close the game right after ordering and reopen it: the order completes once.
 - [ ] A teammate who is offline when a round is cleared gets their BP and item the next time they connect (not twice).
 - [ ] Spend the same BP at the real Battle Frontier Exchange Service Corner (if you have reached the Frontier): the numbers agree.
+
+## C. NEW: legendary catch consistency (two PCs; start a legendary World Event)
+Real-PC checks that are not done yet. Everything here was only simulated.
+- [ ] Let both players battle the same legendary. Make one player's claim lapse (close that player's game for over a minute during the battle, then reopen it) so both can finish the battle. Both catch it.
+- [ ] Exactly **one** player keeps the Pokémon. The other sees the message "X caught it first" and the second copy leaves their party/box after their game reconnects. No other Pokémon is removed or changed.
+- [ ] The kept Pokémon keeps its shiny colour, level and held Mega Stone.
+- [ ] Restart the host after the first report and before the second player reports: the same player still wins.
+- [ ] A player with only that one Pokémon in the party is **not** left without a party (the release waits).
+- [ ] Trade or evolve the second copy before reconnecting: nothing is removed, and the host log says why.
+- [ ] Reconnect repeatedly: the release happens once, not twice.

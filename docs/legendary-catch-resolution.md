@@ -24,7 +24,30 @@ event on restart. A dormant (not yet woken) event cannot be claimed or caught.
 * Friendship credit for the shared event is unchanged. Shiny status and the Mega Stone are as the event was created and are only
   *recorded* here; the catching game applies them (engine `PrepareEventBattle`/`RevertCaughtBattleForm`, unchanged).
 
-## Limits (not hidden)
-The host cannot take a Pokémon out of a save. If two games each finish the battle before either has reported, both saves hold a
-copy, but only the first report is the recorded owner and gets the event's friendship credit. The old rule (a late catch is refused
-while someone else battles) was replaced because it left exactly that duplicate for the player who had already caught it.
+## Reconciliation of the losing copy (Update 17)
+
+**Status: built; host side and engine side tested in the cloud only (simulated). Not verified on a real PC or network.**
+
+The Update 11 limit (two saves each holding a copy) is now closed by a verdict that travels back to the games.
+
+1. **The game records the catch in its own save.** When a World Event battle ends in a catch, the engine stores a *catch record*
+   in five previously unused script variables (`VAR_MP_CATCH_*`): the event, the party/box slot, species, personality and trainer
+   id of the Pokémon. It survives saving and quitting, and it is re-reported to the host until a verdict arrives.
+2. **The host decides once.** The first valid report wins (rule above). The host stores a `catch_verdict` per event in
+   `event_verdicts`, so a restart repeats the same answer: the winner gets *keep*, every other claimant who reports "caught" gets
+   *release*. A report that arrives after the event expired is still resolved (retroactive winner) rather than creating two owners.
+3. **The verdict rides the existing private wallet stream** as a numbered reward word (kind 4 = keep, kind 5 = release, payload =
+   the event's catch number), so it is delivered exactly once per player, survives disconnects (the player re-asks with its wallet
+   number) and is acknowledged with `wallet_applied`. Repeated reports queue nothing new.
+4. **Applying "release".** The engine finds the recorded Pokémon by *species + personality + trainer id* (not by slot alone), and
+   removes only that Pokémon. If it is no longer there (traded, evolved, already released) nothing is removed. It never releases the
+   last Pokémon in the party. Other Pokémon are never touched. "Keep" just clears the record.
+5. **Shiny and event details** stay on the winner's Pokémon, as before; the host also records them in `event_resolutions`.
+
+### Limits (not hidden)
+* A Pokémon that was traded away or evolved before the verdict arrives cannot be recognised and is left alone (the duplicate stays).
+* Saves made before this update have no catch record and ignore verdicts; their duplicates are not reconciled.
+* The record needs the player's game to be running to learn the verdict; a player who never reconnects keeps the copy until they do.
+* No arbitrary save bytes are rewritten: the engine acts through its normal party/box functions while the game is running.
+* Everything above is exercised by simulated tests (engine native self-test `--selftest-catch-reconcile`, app unit and wire tests),
+  not by real Windows play.

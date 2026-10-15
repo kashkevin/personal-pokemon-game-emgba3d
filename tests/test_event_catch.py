@@ -125,14 +125,59 @@ class CatchTests(unittest.TestCase):
         # a past claimant who ran can still win by a late catch
         self.assertEqual(self.world.event_result(self.a, event, "caught", "Alice"), "consumed")
 
-    def test_a_catch_reported_after_the_event_ended_is_logged_and_creates_no_second_owner(self):
+    def test_a_catch_reported_after_the_event_ended_still_decides_the_owner_by_the_first_claimant_report(self):
         event = self.spawn()
         self.world.claim_event(self.a, event)
         self.clock.now += BALANCE.event_duration_seconds + 5
-        self.assertTrue(self.world.tick_events(2, lambda: 30))        # it expired
+        self.assertTrue(self.world.tick_events(2, lambda: 30))        # it expired with A's battle unreported
+        self.assertEqual(self.world.event_result(self.a, event, "caught", "Alice"), "consumed")
+        self.assertEqual(self.world.reports(event), [(self.a, "winner_after_expiry")])
+        self.assertEqual([r["winner"] for r in self.world.resolutions()], [self.a])
+        self.assertEqual(self.world.catch_verdict(event, self.a), "keep")
+
+    def test_two_claimants_who_both_caught_it_after_it_expired_end_with_one_owner(self):
+        event = self.spawn()
+        self.world.claim_event(self.a, event)
+        self.lapse(self.a)
+        self.world.claim_event(self.b, event)
+        self.clock.now += BALANCE.event_duration_seconds + 5
+        self.world.tick_events(2, lambda: 30)
+        self.assertEqual(self.world.event_result(self.b, event, "caught", "Bob"), "consumed")     # B reports first
         self.assertEqual(self.world.event_result(self.a, event, "caught", "Alice"), "gone")
-        self.assertEqual(self.world.reports(event), [(self.a, "expired")])
-        self.assertEqual(self.world.resolutions(), [])
+        self.assertEqual(self.world.resolutions()[0]["winner"], self.b)
+        self.assertEqual((self.world.catch_verdict(event, self.b), self.world.catch_verdict(event, self.a)), ("keep", "release"))
+
+    def test_a_trainer_who_never_claimed_it_is_never_told_to_release_anything(self):
+        event = self.spawn()
+        self.world.claim_event(self.a, event)
+        self.world.event_result(self.a, event, "caught", "Alice")
+        self.assertEqual(self.world.event_result(self.c, event, "caught", "Cy"), "gone")
+        self.assertEqual(self.world.catch_verdict(event, self.c), "keep")                  # no proof it is a duplicate
+
+    def test_the_verdict_is_decided_once_for_ever_and_survives_a_restart(self):
+        event = self.spawn()
+        self.world.claim_event(self.a, event)
+        self.lapse(self.a)
+        self.world.claim_event(self.b, event)
+        self.world.event_result(self.b, event, "caught", "Bob")
+        self.world.event_result(self.a, event, "caught", "Alice")
+        self.assertEqual(self.world.catch_verdict(event, self.a), "release")
+        for _ in range(3):
+            self.assertEqual(self.world.catch_verdict(event, self.a), "release")
+        self.world.close()
+        self.world = self.open()                                                              # the host restarts
+        self.assertEqual(self.world.catch_verdict(event, self.a), "release")
+        self.assertEqual(self.world.catch_verdict(event, self.b), "keep")
+        rows = sqlite3.connect(self.path).execute("SELECT player_id, verdict FROM event_verdicts ORDER BY player_id").fetchall()
+        self.assertEqual(sorted(rows), sorted([(self.a, "release"), (self.b, "keep")]))
+
+    def test_the_winner_is_always_told_to_keep_even_when_asked_again_late(self):
+        event = self.spawn()
+        self.world.claim_event(self.a, event)
+        self.world.event_result(self.a, event, "caught", "Alice")
+        self.assertEqual(self.world.catch_verdict(event, self.a), "keep")
+        self.clock.now += 10_000
+        self.assertEqual(self.world.catch_verdict(event, self.a), "keep")
 
     def test_the_ledger_survives_a_restart_and_a_stopped_host_closes_a_decided_event(self):
         event = self.spawn()

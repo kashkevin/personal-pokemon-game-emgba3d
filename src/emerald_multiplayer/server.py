@@ -1304,6 +1304,8 @@ class WorldServer:
                 outcome = world.event_result(session.player_id, request["event_id"], request["result"],
                                              session.display_name)
                 self._record_activity("event_together", session.player_id, request["event_id"])
+                if request["result"] == "caught":
+                    self._catch_verdict(session, request["event_id"])
             else:
                 outcome = world.event_result(session.player_id, request["event_id"], "cancelled",
                                              session.display_name)
@@ -1311,6 +1313,24 @@ class WorldServer:
             self._broadcast_world()
         except (SharedWorldError, WagerError) as error:
             self._world_reply(session, request, error=error)
+
+    def _catch_verdict(self, session, event_id: int) -> None:
+        """Tell the game that reported a World Event catch what to do with its copy (Update 17): keep it, or release the
+        duplicate when another trainer's report came first. Delivered on the numbered wallet stream, so it applies once per
+        save, is re-sent after a reconnect, and survives a host restart (the verdict itself is stored)."""
+        wagers = getattr(self, "wagers", None)
+        if wagers is None:
+            return
+        from . import rewards
+        verdict = self.shared_world.catch_verdict(event_id, session.player_id)
+        kind = rewards.KIND_CATCH_RELEASE if verdict == "release" else rewards.KIND_CATCH_KEEP
+        queued = wagers.grant_reward(session.player_id, kind, rewards.catch_number(event_id), f"catch:{event_id}")
+        if queued is not None and verdict == "release":
+            from .shared_world import _banner
+            resolution = self.shared_world._resolution(event_id)
+            name = self._player_name(resolution["winner"]).upper()[:14] if resolution else "SOMEONE"
+            self.shared_world.post_notice(_banner(f"{name} caught it first!", "Your copy was released."),
+                                          to=[session.player_id])
 
     def _secret_base_request(self, session, request) -> dict:
         """A game published its base, or the player chose who may see it (Phase 6)."""

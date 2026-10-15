@@ -70,6 +70,10 @@ _SCHEMA = (
         event_id INTEGER PRIMARY KEY, winner TEXT NOT NULL, seq INTEGER NOT NULL, resolved REAL NOT NULL,
         species INTEGER NOT NULL, level INTEGER NOT NULL, shiny INTEGER NOT NULL, mega INTEGER NOT NULL,
         held_item INTEGER NOT NULL, category TEXT, claimants TEXT NOT NULL)""",
+    # What each reporting game was told about its catch, decided once (Update 17): keep it, or release the duplicate.
+    """CREATE TABLE IF NOT EXISTS event_verdicts (
+        event_id INTEGER NOT NULL, player_id TEXT NOT NULL, verdict TEXT NOT NULL, decided REAL NOT NULL,
+        PRIMARY KEY (event_id, player_id))""",
     # Every "caught" report the host received for an event, accepted or not (the audit trail).
     """CREATE TABLE IF NOT EXISTS event_reports (
         report_id INTEGER PRIMARY KEY AUTOINCREMENT, event_id INTEGER NOT NULL, player_id TEXT NOT NULL,
@@ -765,6 +769,37 @@ class SharedWorld:
         return [(r[0], r[1]) for r in self._db.execute(
             "SELECT player_id, verdict FROM event_reports WHERE event_id=? ORDER BY report_id", (event_id,))]
 
+    def _stored_event(self, event_id: int) -> dict | None:
+        """An event that already ended (expired or caught), as it was saved."""
+        row = self._db.execute("SELECT record, state FROM events WHERE event_id=?", (event_id,)).fetchone()
+        if row is None or row[1] == "active":
+            return None
+        record = json.loads(row[0])
+        record["event_id"] = event_id
+        return record
+
+    def _mark_event_closed(self, event_id: int, stored: dict, winner: str) -> None:
+        with self._transaction():
+            self._db.execute("UPDATE events SET state='caught', winner=? WHERE event_id=?", (winner, event_id))
+
+    def catch_verdict(self, event_id: int, player_id: str) -> str:
+        """What a game that reported a catch of this event must do with its copy: ``release`` it when another trainer's report
+        came first (that trainer is the recorded owner, and this one claimed the event too, so the copy is a duplicate),
+        otherwise ``keep`` it. Decided once and kept: a repeat of the question gets the same answer, across restarts."""
+        row = self._db.execute("SELECT verdict FROM event_verdicts WHERE event_id=? AND player_id=?",
+                               (event_id, player_id)).fetchone()
+        if row is not None:
+            return row[0]
+        resolution = self._resolution(event_id)
+        verdict = "keep"
+        if resolution is not None and resolution["winner"] != player_id and player_id in resolution["claimants"]:
+            verdict = "release"
+        with self._transaction():
+            self._db.execute("INSERT OR IGNORE INTO event_verdicts VALUES (?, ?, ?, ?)",
+                             (event_id, player_id, verdict, time.time()))
+        return self._db.execute("SELECT verdict FROM event_verdicts WHERE event_id=? AND player_id=?",
+                                (event_id, player_id)).fetchone()[0]
+
     def _resolve(self, event: dict, winner: str) -> None:
         """Record the owner of the Pokemon, durably, once."""
         seq = self._db.execute("SELECT COALESCE(MAX(seq), 0) + 1 FROM event_resolutions").fetchone()[0]
@@ -820,7 +855,15 @@ class SharedWorld:
         event = self._event
         if event is None or event["event_id"] != event_id:
             if result == "caught":
-                self._log_report(event_id, player_id, "expired")   # the game has it; nobody else can, no duplicate
+                stored = self._stored_event(event_id)
+                if stored is not None and player_id in stored.get("claimants", ()):
+                    # The event ended before anybody reported (a long disconnect). Its first valid report still decides: a
+                    # claimant's game really has the Pokemon, and a second claimant's game may too (Update 17).
+                    self._resolve(stored, player_id)
+                    self._log_report(event_id, player_id, "winner_after_expiry")
+                    self._mark_event_closed(event_id, stored, player_id)
+                    return "consumed"
+                self._log_report(event_id, player_id, "expired")   # never claimed it: nothing is recorded
             return "gone"
         holder = self._claim["player_id"] if self._claim is not None else None
         if result == "caught":

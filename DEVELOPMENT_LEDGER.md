@@ -584,3 +584,15 @@ listed), `--selftest-rewards` 18, `--selftest-coop-exp` 32, `--selftest-ladder` 
 `test_coop_battle`, menu tests. Changed behaviour: a party over the limit is no longer refused (it brings its first `party_limit`).
 **Not verified:** a real round with a reduced party on a PC, BP/items landing in a real save, the new pages on screen. Pre-existing 3 two-opponent
 test failures (Gen 6 list) are unchanged.
+
+## Update 17 — Legendary catch consistency
+
+`docs/legendary-catch-resolution.md`. **Engine:** a World Event catch is recorded in the save (five unused `VAR_MP_CATCH_*` variables: event, slot,
+species, personality, trainer id) and re-reported to the host until a verdict arrives; the verdict (keep = kind 4, release = kind 5, payload = catch
+number) comes through the existing numbered wallet stream, so it is delivered once and survives disconnects. Release finds the exact Pokémon by
+species + personality + trainer id, never the last party member, never anything else; keep clears the record. **Host:** one `catch_verdict` per event in
+`event_verdicts` (restart-safe), a retroactive winner when the second report arrives after the event expired, verdicts queued once per player and
+receipted by `wallet_applied`. **Evidence (simulated):** engine `--selftest-catch-reconcile`, `--selftest-rewards`, `check-native` bridge checks; app
+`test_event_catch`, `test_rewards`, `test_world_server` (contested catch over the wire: B keeps, A is told to release, repeated reports queue nothing
+new, receipt recorded). **Not verified:** a real two-PC race, a real save losing the copy; a traded/evolved copy and saves without a record are left
+alone by design. Save bytes are not rewritten directly; the engine uses its normal party/box functions while running.

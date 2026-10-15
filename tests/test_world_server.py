@@ -163,6 +163,44 @@ class WorldFrameTests(WorldServerTests):
         await self.world(2, lambda w: w["event"] is None)
 
 
+    async def test_a_contested_world_event_catch_gives_the_second_reporter_a_release_verdict_over_the_wire(self):
+        from emerald_multiplayer import rewards
+        world = self.server.shared_world
+        world.locations = [{"name": "Route 101", "map_group": 0, "map_number": 16, "x": 9, "y": 9,
+                            "min_level": 0, "themes": []}]
+        world._condition_chance = 0.0                           # no weather/time condition: claimable at once
+        event = world.spawn_event(progression_level=10, category="legendary")
+        self.assertIsNotNone(event)
+        event_id = event["event_id"]
+        self.server._broadcast_world()
+        await self.world(0, lambda w: w["event"] is not None)
+        a, b = self.pid(0), self.pid(1)
+        self.assertEqual((await self.world_rpc(0, "world_action", action="claim", event_id=event_id, result=None, seq=1))
+                         ["result"]["outcome"], "granted")
+        world._claim = None                                    # A's claim lapsed (a long disconnect) while A kept battling
+        self.assertEqual((await self.world_rpc(1, "world_action", action="claim", event_id=event_id, result=None, seq=1))
+                         ["result"]["outcome"], "granted")
+        caught_b = await self.world_rpc(1, "world_action", action="result", event_id=event_id, result="caught", seq=2)
+        self.assertEqual(caught_b["result"]["outcome"], "consumed")                       # B's report came first
+        caught_a = await self.world_rpc(0, "world_action", action="result", event_id=event_id, result="caught", seq=2)
+        self.assertEqual(caught_a["result"]["outcome"], "gone")
+        number = rewards.catch_number(event_id)
+        await self.presence(0, x=7, wallet_seq=0)              # the game says which wallet number it has reached
+        await self.presence(1, x=8, wallet_seq=0)
+        frame_a = await self.world(0, lambda w: w.get("wallet") is not None)
+        frame_b = await self.world(1, lambda w: w.get("wallet") is not None)
+        self.assertEqual(rewards.decode(frame_a["wallet"]["delta"]), (rewards.KIND_CATCH_RELEASE, number))
+        self.assertEqual(rewards.decode(frame_b["wallet"]["delta"]), (rewards.KIND_CATCH_KEEP, number))
+        # the game keeps reporting until it hears; nothing is queued twice
+        await self.world_rpc(0, "world_action", action="result", event_id=event_id, result="caught", seq=3)
+        self.assertEqual(len(self.server.wagers.pending_for(a)), 1)
+        self.assertEqual(len(self.server.wagers.pending_for(b)), 1)
+        # the game applies it and reports what it did
+        applied = await self.world_rpc(0, "wallet_applied", seq=frame_a["wallet"]["seq"], amount=1)
+        self.assertEqual(applied["result"]["seq"], frame_a["wallet"]["seq"])
+        self.assertEqual(self.server.wagers.entry(a, f"catch:{event_id}")["applied"], 1)
+
+
 class WagerNetworkTests(WorldServerTests):
     async def asyncSetUp(self):
         await super().asyncSetUp()
