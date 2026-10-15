@@ -41,6 +41,7 @@ on:
       - requirements-host-provisioning.txt
       - src/emerald_multiplayer/launcher*.py
       - src/emerald_multiplayer/player_runtime.py
+      - src/emerald_multiplayer/graphics_mode.py
 
 permissions:
   contents: read
@@ -60,6 +61,7 @@ jobs:
       engine_commit: ${{ steps.build.outputs.engine_commit }}
       rom_sha256: ${{ steps.build.outputs.rom_sha256 }}
       exe_sha256: ${{ steps.build.outputs.exe_sha256 }}
+      classic_exe_sha256: ${{ steps.build.outputs.classic_exe_sha256 }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -90,7 +92,7 @@ jobs:
           curl -fsSL -o sdl.tgz "https://github.com/libsdl-org/SDL/releases/download/release-${SDL_VERSION}/SDL2-devel-${SDL_VERSION}-mingw.tar.gz"
           echo "${SDL_SHA256}  sdl.tgz" | sha256sum -c -
           mkdir sdl && tar -xzf sdl.tgz -C sdl
-      - name: Build the GBA ROM and the Windows 3D game
+      - name: Build the GBA ROM, the Windows 3D game and the Classic 2D game
         id: build
         working-directory: engine
         run: |
@@ -98,6 +100,9 @@ jobs:
           make -j"$(nproc)" BUILD_NAME=dev
           make -f Makefile_pc SDL_DIR="$GITHUB_WORKSPACE/sdl/SDL2-${SDL_VERSION}/i686-w64-mingw32" DIORAMA=1 -j"$(nproc)"
           i686-w64-mingw32-strip --strip-all pokeemerald-mp-diorama.exe
+          # The Classic 2D game: the same engine without DIORAMA=1 (Graphics mode in the launcher).
+          make -f Makefile_pc SDL_DIR="$GITHUB_WORKSPACE/sdl/SDL2-${SDL_VERSION}/i686-w64-mingw32" -j"$(nproc)"
+          i686-w64-mingw32-strip --strip-all pokeemerald-mp.exe
           rom_sha="$(sha256sum pokedev.gba | cut -d' ' -f1)"
           if [ -n "${{ inputs.expected_rom_sha256 }}" ] && [ "$rom_sha" != "${{ inputs.expected_rom_sha256 }}" ]; then
             echo "ROM sha256 $rom_sha differs from the expected pin" >&2; exit 1
@@ -106,8 +111,9 @@ jobs:
           echo "engine_commit=$commit" >> "$GITHUB_OUTPUT"
           echo "rom_sha256=$rom_sha" >> "$GITHUB_OUTPUT"
           echo "exe_sha256=$(sha256sum pokeemerald-mp-diorama.exe | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+          echo "classic_exe_sha256=$(sha256sum pokeemerald-mp.exe | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
           mkdir -p ../native-inputs
-          cp pokeemerald-mp-diorama.exe pokedev.gba ../native-inputs/
+          cp pokeemerald-mp-diorama.exe pokeemerald-mp.exe pokedev.gba ../native-inputs/
           cp "$GITHUB_WORKSPACE/sdl/SDL2-${SDL_VERSION}/i686-w64-mingw32/bin/SDL2.dll" ../native-inputs/
           PYTHONPATH="$GITHUB_WORKSPACE/app/src" "$GITHUB_WORKSPACE/.venv/bin/python" \
             "$GITHUB_WORKSPACE/app/scripts/multiplayer/generate_manifest.py" \
@@ -185,7 +191,8 @@ jobs:
           extra=()
           [ "$HAVE_SPRITES" = true ] && extra=(--extra inputs/battle-sprites.ebsp)
           .venv/Scripts/python scripts/windows-runtime/collect_native_bundle.py \
-            --game inputs/pokeemerald-mp-diorama.exe --sdl inputs/SDL2.dll --rom inputs/pokedev.gba \
+            --game inputs/pokeemerald-mp-diorama.exe --classic-game inputs/pokeemerald-mp.exe \
+            --sdl inputs/SDL2.dll --rom inputs/pokedev.gba \
             --output "$WORK/runtime" "${extra[@]}" | tee "$WORK.bundle.json"
       - name: Build the launcher package (development preview)
         run: |
@@ -216,6 +223,7 @@ jobs:
       - name: Verify the packaged game files
         env:
           ENGINE_EXE_SHA256: ${{ needs.engine.outputs.exe_sha256 }}
+          ENGINE_CLASSIC_EXE_SHA256: ${{ needs.engine.outputs.classic_exe_sha256 }}
         run: |
           .venv/Scripts/python - <<'PY'
           import hashlib, json, os, pathlib
@@ -232,10 +240,18 @@ jobs:
               print(f"  {name}: {len(data)} bytes, sha256 {digest}")
           exe = (runtime / manifest["executable"]).read_bytes()
           assert exe[:2] == b"MZ", "not a Windows executable"
+          classic_name = manifest.get("classic_executable")
+          assert classic_name in manifest["files"], "the package pins no Classic 2D game"
+          classic = (runtime / classic_name).read_bytes()
+          assert classic[:2] == b"MZ" and classic_name != manifest["executable"]
+          print("  Classic 2D game:", classic_name, len(classic), "bytes")
           if os.environ["MODE"] == "full":
               assert len(exe) > 10_000_000, "game executable is implausibly small"
               assert hashlib.sha256(exe).hexdigest() == os.environ["ENGINE_EXE_SHA256"], "packaged game differs from the engine job's build"
               print("packaged game executable is the engine job's build")
+              assert hashlib.sha256(classic).hexdigest() == os.environ["ENGINE_CLASSIC_EXE_SHA256"], "packaged Classic 2D game differs from the engine job's build"
+              assert len(classic) > 5_000_000, "Classic 2D executable is implausibly small"
+              print("packaged Classic 2D executable is the engine job's build")
           assert (dist / "EmeraldTogether.exe").is_file()
           for guide in ("README.txt", "QUICK-START.txt", "RELEASE-LIMITS.txt"):
               assert (dist / guide).is_file(), guide
@@ -254,23 +270,11 @@ jobs:
           $bmp.Save((Join-Path $env:WORK "launcher-screen.png"))
           Stop-Process -Id $p.Id -Force
           "launcher stayed up for 20 s (pid $($p.Id))"
-      - name: Start the packaged game on the runner (informational)
+      - name: Graphics mode check on the real packaged games (full)
         if: env.MODE == 'full'
-        continue-on-error: true
-        shell: pwsh
         run: |
-          $dir = Get-ChildItem -Path (Join-Path $env:WORK "launcher/dist/EmeraldTogether") -Recurse -Filter pokeemerald-mp-diorama.exe | Select-Object -First 1
-          $p = Start-Process -FilePath $dir.FullName -WorkingDirectory $dir.DirectoryName -PassThru -RedirectStandardOutput (Join-Path $env:WORK "game-out.txt") -RedirectStandardError (Join-Path $env:WORK "game-err.txt")
-          Start-Sleep -Seconds 20
-          Get-Content (Join-Path $env:WORK "game-out.txt"), (Join-Path $env:WORK "game-err.txt") -ErrorAction SilentlyContinue | Select-Object -First 25
-          if ($p.HasExited) { throw "the game exited with code $($p.ExitCode) within 20 s (a hosted runner has no GPU; this is not the launcher check)" }
-          Add-Type -AssemblyName System.Windows.Forms, System.Drawing
-          $b = [System.Windows.Forms.SystemInformation]::VirtualScreen
-          $bmp = New-Object System.Drawing.Bitmap $b.Width, $b.Height
-          [System.Drawing.Graphics]::FromImage($bmp).CopyFromScreen($b.Location, [System.Drawing.Point]::Empty, $b.Size)
-          $bmp.Save((Join-Path $env:WORK "game-screen.png"))
-          Stop-Process -Id $p.Id -Force
-          "the packaged game stayed up for 20 s"
+          runtime="$(.venv/Scripts/python -c "import pathlib,os;print(next(pathlib.Path(os.environ['WORK'],'launcher/dist/EmeraldTogether').rglob('runtime.json')).parent)")"
+          .venv/Scripts/python scripts/windows-runtime/ci_graphics_check.py "$runtime" "$WORK/graphics-check"
       - name: Summary
         run: |
           {
@@ -289,7 +293,7 @@ jobs:
           name: EmeraldTogether-windows-${{ env.MODE }}
           path: |
             ${{ env.WORK }}/launcher-screen.png
-            ${{ env.WORK }}/game-screen.png
+            ${{ env.WORK }}/graphics-check/graphics-check.json
             ${{ env.WORK }}/launcher/EmeraldTogether.zip
             ${{ env.WORK }}/launcher/package-hashes.json
             ${{ env.WORK }}/launcher/package-audit.json

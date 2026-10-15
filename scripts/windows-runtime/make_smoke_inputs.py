@@ -6,6 +6,7 @@ build_launcher.py, PyInstaller, the package audit, starting the frozen launcher)
 proven on any runner without the private engine, ROM, base dump or sprite pack:
 
   pokeemerald-mp-diorama.exe   a copy of the given executable (CI passes python.exe)
+  pokeemerald-mp.exe           another copy: the Classic 2D game's stand-in
   SDL2.dll                     placeholder bytes
   pokedev.gba                  a few KiB of text; the launcher only hashes it
   manifest.json                identity of that file in the real manifest format
@@ -34,6 +35,7 @@ FIXTURE = (b"EMERALD TOGETHER CI SMOKE FIXTURE - NOT A GAME - NO COPYRIGHTED DAT
 def make(exe: Path, output: Path) -> dict:
     output.mkdir(parents=True, exist_ok=False)
     shutil.copyfile(exe, output / "pokeemerald-mp-diorama.exe")
+    shutil.copyfile(exe, output / "pokeemerald-mp.exe")  # stands in for the Classic 2D game
     (output / "SDL2.dll").write_bytes(b"smoke-test placeholder, not SDL\n")
     (output / "pokedev.gba").write_bytes(FIXTURE)
     manifest = dict(abi_version=ABI_VERSION, mailbox_size=MAILBOX_SIZE, mailbox_address=0x02000000,

@@ -107,6 +107,10 @@ class NativeGame:
 class RuntimeBundle:
     directory: Path
     manifest_sha256: str
+    # Which of the bundle's games verify() returns: "3d" (the main game, the 3D
+    # Diorama game in a package that has both) or "2d" (Classic 2D). The
+    # launcher's Graphics mode picks it per start (graphics_mode.py).
+    graphics: str = "3d"
 
     def is_native(self):
         """Display only (help text, labels): whether runtime.json names the native PC game.
@@ -117,8 +121,24 @@ class RuntimeBundle:
         except (OSError, ValueError, AttributeError, PlayerRuntimeError):
             return False
 
-    def verify(self):
-        """Recheck the pinned bundle immediately before each process launch."""
+    def has_classic(self):
+        """Display only (the launcher's Graphics mode): whether runtime.json names a
+        Classic 2D game. Every launch still runs verify()."""
+        try:
+            raw = _read(Path(self.directory) / "runtime.json", 16384)
+            return json.loads(raw).get("classic_executable") is not None
+        except (OSError, ValueError, AttributeError, PlayerRuntimeError):
+            return False
+
+    def verify(self, graphics=None):
+        """Recheck the pinned bundle immediately before each process launch.
+
+        ``graphics`` picks which pinned game comes back: "3d" is the bundle's
+        main game (the 3D Diorama game in a package that has both), "2d" its
+        Classic 2D game. Everything in the bundle is verified either way."""
+        graphics = self.graphics if graphics is None else graphics
+        if graphics not in ("3d", "2d"):
+            raise PlayerRuntimeError("runtime_manifest", "unknown graphics mode")
         if not isinstance(self.manifest_sha256, str) or not _HASH.fullmatch(self.manifest_sha256):
             raise PlayerRuntimeError("runtime_hash", "launcher must supply its pinned runtime manifest hash")
         root = Path(self.directory).resolve(strict=True)
@@ -131,7 +151,9 @@ class RuntimeBundle:
                 raise ValueError()
             native = manifest.get("format") == _NATIVE_RUNTIME
             if native:
-                if (set(manifest) != {"format", "executable", "rom_sha256", "files"}
+                # "classic_executable" (optional) is the Classic 2D game of the same engine build.
+                if (set(manifest) not in ({"format", "executable", "rom_sha256", "files"},
+                                          {"format", "executable", "rom_sha256", "files", "classic_executable"})
                         or not isinstance(manifest["rom_sha256"], str) or not _HASH.fullmatch(manifest["rom_sha256"])):
                     raise ValueError()
             elif set(manifest) != {"format", "executable", "bridge", "files"} or manifest["format"] != _WINDOWS_RUNTIME:
@@ -146,6 +168,10 @@ class RuntimeBundle:
                 raise ValueError()
             executable = manifest["executable"]
             if executable not in files or not executable.lower().endswith(".exe"):
+                raise ValueError()
+            classic = manifest.get("classic_executable")
+            if classic is not None and (classic not in files or not classic.lower().endswith(".exe")
+                                        or classic == executable or not native):
                 raise ValueError()
             if native:
                 # Nothing for an emulator to run: the game is its own bridge.
@@ -167,6 +193,10 @@ class RuntimeBundle:
                 raise PlayerRuntimeError("runtime_path", "runtime component must be a regular file inside its bundle")
             if hashlib.sha256(_read(path, _MAX_FILE)).hexdigest() != digest:
                 raise PlayerRuntimeError("runtime_hash", "runtime component differs from its pinned hash")
+        if graphics == "2d":
+            if classic is None:
+                raise PlayerRuntimeError("classic_unavailable", "this package has no Classic 2D game")
+            executable = classic
         if native:
             return root / executable, NativeGame(manifest["rom_sha256"])
         return root / executable, (root / bridge).read_text(encoding="utf-8")
