@@ -64,6 +64,15 @@ _SCHEMA = (
         event_id INTEGER PRIMARY KEY, record TEXT NOT NULL, state TEXT NOT NULL,
         winner TEXT, created REAL NOT NULL)""",
     "CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
+    # The owner of every World Event Pokemon, decided once by the host (the first valid reported catch wins).
+    """CREATE TABLE IF NOT EXISTS event_resolutions (
+        event_id INTEGER PRIMARY KEY, winner TEXT NOT NULL, seq INTEGER NOT NULL, resolved REAL NOT NULL,
+        species INTEGER NOT NULL, level INTEGER NOT NULL, shiny INTEGER NOT NULL, mega INTEGER NOT NULL,
+        held_item INTEGER NOT NULL, category TEXT, claimants TEXT NOT NULL)""",
+    # Every "caught" report the host received for an event, accepted or not (the audit trail).
+    """CREATE TABLE IF NOT EXISTS event_reports (
+        report_id INTEGER PRIMARY KEY AUTOINCREMENT, event_id INTEGER NOT NULL, player_id TEXT NOT NULL,
+        verdict TEXT NOT NULL, at REAL NOT NULL)""",
     *_BASE_SCHEMA,
     *_FRONTIER_SCHEMA,
 )
@@ -473,6 +482,13 @@ class SharedWorld:
         last = record.pop("last_claimant", None)
         self._last_claimant = last if isinstance(last, str) else None
         record["expires"] = self._active_now() + remaining
+        if self._resolution(record["event_id"]) is not None:
+            # The host stopped between deciding who caught it and closing the event: it is closed now.
+            winner = self._resolution(record["event_id"])["winner"]
+            self._event = record
+            self._save_event("caught", winner)
+            self._event = None
+            return
         self._event = record
         if isinstance(claim, dict) and isinstance(claim.get("player_id"), str):
             # Everyone was disconnected by the restart: the claimant keeps the
@@ -693,9 +709,42 @@ class SharedWorld:
             self.persist_timers()
         return changed
 
+    # ------------------------------------------------------- catch resolution
+    def _resolution(self, event_id: int) -> dict | None:
+        row = self._db.execute("SELECT event_id, winner, seq, resolved, species, level, shiny, mega, held_item, category, "
+                               "claimants FROM event_resolutions WHERE event_id=?", (event_id,)).fetchone()
+        if row is None:
+            return None
+        return {"event_id": row[0], "winner": row[1], "seq": row[2], "resolved": row[3], "species": row[4],
+                "level": row[5], "shiny": bool(row[6]), "mega": bool(row[7]), "held_item": row[8], "category": row[9],
+                "claimants": json.loads(row[10])}
+
+    def resolutions(self, limit: int = 20) -> list[dict]:
+        """The resolved catches, newest first (the ledger of who owns what)."""
+        rows = self._db.execute("SELECT event_id FROM event_resolutions ORDER BY seq DESC LIMIT ?", (limit,)).fetchall()
+        return [self._resolution(row[0]) for row in rows]
+
+    def _log_report(self, event_id: int, player_id: str, verdict: str) -> None:
+        with self._transaction():
+            self._db.execute("INSERT INTO event_reports (event_id, player_id, verdict, at) VALUES (?, ?, ?, ?)",
+                             (event_id, player_id, verdict, time.time()))
+
+    def reports(self, event_id: int) -> list[tuple[str, str]]:
+        return [(r[0], r[1]) for r in self._db.execute(
+            "SELECT player_id, verdict FROM event_reports WHERE event_id=? ORDER BY report_id", (event_id,))]
+
+    def _resolve(self, event: dict, winner: str) -> None:
+        """Record the owner of the Pokemon, durably, once."""
+        seq = self._db.execute("SELECT COALESCE(MAX(seq), 0) + 1 FROM event_resolutions").fetchone()[0]
+        with self._transaction():
+            self._db.execute("INSERT INTO event_resolutions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                             (event["event_id"], winner, seq, time.time(), event["species"], event["level"],
+                              int(bool(event["shiny"])), int(bool(event["mega"])), event["held_item"],
+                              event.get("category"), json.dumps(event.get("claimants", []))))
+
     def claim_event(self, player_id: str, event_id: int) -> str:
         event = self._event
-        if event is None or event["event_id"] != event_id or self._dormant(event):
+        if event is None or event["event_id"] != event_id or self._dormant(event) or self._resolution(event_id):
             return "gone"
         if self._claim is not None and self._claim["player_id"] != player_id:
             return "busy"
@@ -704,6 +753,10 @@ class SharedWorld:
         self._last_claimant = player_id
         self._claimant_away_since = None
         self._participants.add(player_id)
+        claimants = event.setdefault("claimants", [])
+        if player_id not in claimants:
+            claimants.append(player_id)
+            changed = True
         if changed:
             # Durable at once, like a shared spawn's claim: a host restart in
             # the middle of the battle keeps it for this player.
@@ -719,24 +772,42 @@ class SharedWorld:
                 pass
 
     def event_result(self, player_id: str, event_id: int, result: str, display_name: str) -> str:
+        """A game reports how its battle with the event Pokemon ended.
+
+        Catch ownership (expansion Phase 11): the **first valid reported catch wins**, decided here, in the order reports
+        arrive, whoever holds the claim at that moment. A report is valid when its sender claimed this event (so a game that
+        lost its claim to a disconnect, and caught the Pokemon anyway, still counts if it reports first). The winner is
+        recorded durably before anything else changes; a replay of the winner's report is answered the same ("consumed");
+        every other report finds it "gone". Nothing here can give one event two owners.
+        """
+        prior = self._resolution(event_id)
+        if prior is not None:
+            if result == "caught":
+                self._log_report(event_id, player_id, "replay" if prior["winner"] == player_id else "late")
+            return "consumed" if result == "caught" and prior["winner"] == player_id else "gone"
         event = self._event
         if event is None or event["event_id"] != event_id:
+            if result == "caught":
+                self._log_report(event_id, player_id, "expired")   # the game has it; nobody else can, no duplicate
             return "gone"
-        # A late "caught": the claim lapsed (a long disconnect, a lost message)
-        # while the result was on its way and nobody holds the Pokemon now. The
-        # game has it already, so it is consumed for everybody instead of
-        # staying catchable a second time (KNOWN_ISSUES M16).
-        late = self._claim is None and player_id == self._last_claimant and result == "caught"
-        if not late and (self._claim is None or self._claim["player_id"] != player_id):
-            return "not_claimant"
+        holder = self._claim["player_id"] if self._claim is not None else None
         if result == "caught":
+            if player_id != holder and player_id not in event.get("claimants", ()):
+                self._log_report(event_id, player_id, "never_claimed")
+                return "not_claimant"
+            self._resolve(event, player_id)
+            self._log_report(event_id, player_id, "winner")
             self._save_event("caught", player_id)
             name = _ascii(display_name).upper()[:16] or "A TRAINER"
             self.post_notice(_banner(f"{name} caught the", self._event_label(event) + "!"))
+            if holder is not None and holder != player_id:
+                self.post_notice(_banner(f"{name} caught it first!", "Your battle ends here."), to=[holder])
             self._finish_participation(event_id)
             self._event, self._claim = None, None
             self._next_event_at = self._active_now() + self._rng.uniform(*self._events.interval)
             return "consumed"
+        if holder != player_id:
+            return "not_claimant"
         self._claim = None
         return "released"
 

@@ -341,7 +341,9 @@ class SharedWorldTests(unittest.TestCase):
         self.assertIsNone(self.world.event_view())
         self.assertEqual(self.world.claim_event(b, event_id), "gone")
 
-    def test_a_late_catch_while_another_player_battles_it_is_refused(self):
+    def test_a_late_catch_while_another_player_battles_it_is_accepted_if_it_is_the_first_report(self):
+        # Update 11 (owner default, replaces the old "refused" rule): the first valid reported catch wins, whoever holds
+        # the claim; the other battler finds the Pokemon gone. The full matrix is in test_event_catch.py.
         a, b = str(uuid4()), str(uuid4())
         self.world.set_active_players(1)
         event_id = self.world.spawn_event(progression_level=20, category="rare")["event_id"]
@@ -350,8 +352,9 @@ class SharedWorldTests(unittest.TestCase):
         self.clock.now += BALANCE.event_claim_grace_seconds + 1
         self.world.tick_events(1, lambda: 20)
         self.assertEqual(self.world.claim_event(b, event_id), "granted")
-        self.assertEqual(self.world.event_result(a, event_id, "caught", "Alice"), "not_claimant")
-        self.assertEqual(self.world.event_view()["claimant"], b)
+        self.assertEqual(self.world.event_result(a, event_id, "caught", "Alice"), "consumed")
+        self.assertIsNone(self.world.event_view())
+        self.assertEqual(self.world.event_result(b, event_id, "caught", "Bob"), "gone")
 
     def test_the_last_claimant_survives_a_restart(self):
         a = str(uuid4())

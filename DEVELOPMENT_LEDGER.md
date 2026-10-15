@@ -500,3 +500,12 @@ of Fame (`hall_of_fame`, entered once, recovered after a crash), world-file upgr
 (Frontier and League hub, League, Hall of Fame). Evidence: `test_frontier.py` **43** (League book 6, badges 1, service 3 incl. three real
 desk battles to a clear, menu 2). Not touched: the story, the Elite Four rooms, anyone's save flags. Endgame audit: no further
 specification exists; nothing invented.
+
+## Update 11 — Legendary catch ownership
+
+`docs/legendary-catch-resolution.md`. Rule: the first valid reported catch wins, in host arrival order; valid = the sender claimed
+that event (claimants persisted with the event). Durable ledger `event_resolutions` (winner, sequence, species, level, shiny, mega,
+held item, claimants) written before the event closes, `event_reports` audit trail, replay-safe (winner's replays "consumed", others
+"gone"), restart-safe (a decided event is closed on restart), loser notified, dormant events untouchable, existing probabilities and
+dormant behaviour unchanged. Evidence: `test_event_catch.py` 11; `test_shared_world.py` late-catch test rewritten to the new rule
+(the old rule's refusal is the behaviour that was replaced); app suites for shared world/events/server pass.
