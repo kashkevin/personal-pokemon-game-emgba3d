@@ -88,6 +88,8 @@ class PlayerMenu:
         self._notice = ""
         self.handoff = None
         self._trades = None
+        self._nav = None          # the host's PokeNav-style world view (Phase 7)
+        self._base = None         # the player's base sharing choice (Phase 6)
         self._card = None
         self._card_binding = None
         self._card_notice = ""
@@ -160,6 +162,17 @@ class PlayerMenu:
                 self._wager = None
             if self._session() != binding:
                 raise PlayerMenuError("session_changed")
+        world_nav = getattr(self.companion, "world_nav", None)
+        self._nav = world_nav() if callable(world_nav) else None
+        if self._page[0] == "base" and self._base is None:
+            base_rpc = getattr(self.companion, "secret_base_rpc", None)
+            if callable(base_rpc) and getattr(self.companion.config, "world_enabled", False):
+                try:
+                    self._base = await base_rpc()
+                except Exception:  # noqa: BLE001 - older hosts have no secret bases
+                    self._base = None
+                if self._session() != binding:
+                    raise PlayerMenuError("session_changed")
         self._trades = None
         if (callable(getattr(self.companion, "_native_menu_handoff", None))
                 and getattr(self.companion.config, "menu_abi_version", 1) == 2
@@ -388,6 +401,8 @@ class PlayerMenu:
                     else:
                         actions.append(("You accepted this wager", "", ()))
             actions.append(("Back to challenge", "battles", ()))
+        elif page in ("world", "world_players", "world_player", "world_outbreak", "world_event", "base"):
+            return self._show(*self._render_world(page, target))
         elif page == "championship":
             return self._show(*self._championship.render())
         elif page == "records":
@@ -569,8 +584,69 @@ class PlayerMenu:
                 # Completed history remains authenticated and readable when
                 # new native battle admission is disabled (normal launcher).
                 actions.append(("Battles and records", "battles", ()))
-            actions.append(("Pending trade", "trade", ()) if self._trades else ("Your Trainer Card", "card", (actor,)))
+            last = ("Pending trade", "trade", ()) if self._trades else ("Your Trainer Card", "card", (actor,))
+            world = ("World and my base", "world", ())
+            room = 6 - len(actions)
+            if room >= 2:
+                actions.extend((world, last))
+            elif room == 1:
+                actions.append(last if self._trades else world)  # a full lobby: the Trainer Card is under Challenges
         return self._show(title, status, actions)
+
+    def _render_world(self, page, target):
+        """The PokeNav-style World pages (expansion Phase 7) and the player's own
+        secret base sharing (Phase 6). Everything shown is the host's live view."""
+        nav, actor = self._nav, self.companion.config.player_id
+        actions = []
+        if nav is None:
+            return "World", "The host has no world view", [("Back", "home", ())]
+        if page == "world":
+            title, status = "PokeNav: World", self._notice or "Live view from the host"
+            actions.append(("Players and weather", "world_players", ()))
+            outbreak, event = nav["outbreak"], nav["event"]
+            actions.append((("Outbreak: " + outbreak["name"]) if outbreak else "Outbreak: none",
+                            "world_outbreak" if outbreak else "", ()))
+            actions.append((("Event: " + event["name"]) if event else "World Event: none",
+                            "world_event" if event else "", ()))
+            actions.append(("My Secret Base", "base", ()))
+            if nav.get("rule"):
+                actions.append(("Rule: " + nav["rule"], "", ()))
+        elif page == "world_players":
+            title, status = "Players and weather", "Where everyone is"
+            for player in nav["players"][:4]:
+                actions.append((f"{self._name(player['player_id'])[:9]} - {player['place']}", "world_player",
+                                (player["player_id"],)))
+        elif page == "world_player":
+            player = next((p for p in nav["players"] if p["player_id"] == target), None)
+            title = self._name(target)
+            status = "Not online" if player is None else "Position and weather"
+            if player is not None:
+                actions.extend((line, "", ()) for line in wrap(player["place"], 25)[:2])
+                actions.append(("Weather: " + (player["weather"] or "unknown"), "", ()))
+            actions.append(("Back to players", "world_players", ()))
+        elif page in ("world_outbreak", "world_event"):
+            entry = nav["outbreak" if page == "world_outbreak" else "event"]
+            title = "Mass outbreak" if page == "world_outbreak" else "World Event"
+            if entry is None:
+                status = "Nothing right now"
+            else:
+                status = f"{entry['seconds_left'] // 60}m {entry['seconds_left'] % 60:02d}s left"
+                actions.extend((line, "", ()) for line in wrap(entry["name"], 25)[:2])
+                actions.extend((line, "", ()) for line in wrap("Near " + entry["place"], 25)[:2])
+            actions.append(("Back to World", "world", ()))
+        else:
+            title = "My Secret Base"
+            base = self._base
+            if base is None:
+                status = self._notice or "Host has no secret bases"
+            else:
+                status = self._notice or ("Shared with the host" if base["published"] else "Make a base in the game")
+                label = {"everyone": "Everyone", "team": "Teammate", "nobody": "Nobody"}[base["visibility"]]
+                actions.append(("Visible to: " + label, "base_cycle", (base["visibility"],)))
+                actions.append(("Others keep a copy in", "", ()))
+                actions.append(("their save to visit it", "", ()))
+            actions.append(("Back to World", "world", ()))
+        return title, status, actions
 
     async def choose(self, revision, action):
         async with self._lock:
@@ -626,10 +702,20 @@ class PlayerMenu:
                 else:
                     self._card_binding = None
                 self._page = ("hunts", 0) if op == "hunts_refresh" else ("hunt_filters", None)
-            elif op in ("home", "team", "battles", "player", "results", "result", "result_filters", "trade", "card", "card_battles", "card_championships", "card_shared", "card_progress", "hunts", "hunt", "hunt_filters", "hunt_totals"):
+            elif op == "base_cycle":
+                choices = ("everyone", "team", "nobody")
+                try:
+                    self._base = await self.companion.secret_base_rpc(choices[(choices.index(args[0]) + 1) % 3])
+                except Exception:  # noqa: BLE001 - the host decides; show that it did not change
+                    self._notice = "Could not change it"
+                self._page = ("base", None)
+            elif op in ("home", "world", "world_players", "world_player", "world_outbreak", "world_event", "base",
+                        "team", "battles", "player", "results", "result", "result_filters", "trade", "card", "card_battles", "card_championships", "card_shared", "card_progress", "hunts", "hunt", "hunt_filters", "hunt_totals"):
                 if op == "results" and self._page[0] not in {"results", "result", "result_filters"}:
                     self._results_binding = None
                 self._page = (op, args[0] if args else None)
+                if op == "base":
+                    self._base = None  # read afresh from the host
                 if op == "card":
                     self._card_binding = None
             elif op == "card_refresh":

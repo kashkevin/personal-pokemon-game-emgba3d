@@ -333,10 +333,12 @@ def validate_welcome(message: dict[str, Any], config: CompanionConfig) -> dict[s
 
 
 def validate_world(message: dict[str, Any], config: CompanionConfig, session_epoch: int) -> list[dict[str, Any]]:
-    _fields(message, {"type", "protocol", "world_seq", "players", "clock", "event", "notice", "wallet", "teammate",
-                      "spawns"}, "world")
-    from .shared_world_protocol import (validate_clock, validate_event, validate_notice, validate_appearance_hex,
-                                        validate_spawns, validate_teammate, validate_wallet)
+    names = {"type", "protocol", "world_seq", "players", "clock", "event", "notice", "wallet", "teammate", "spawns"}
+    # "extras" (secret bases and the PokeNav view) is the one optional field: older hosts omit it.
+    _fields(message, names | ({"extras"} if "extras" in message else set()), "world")
+    from .shared_world_protocol import (validate_clock, validate_event, validate_extras, validate_notice,
+                                        validate_appearance_hex, validate_spawns, validate_teammate, validate_wallet)
+    validate_extras(message.get("extras"))
     validate_spawns(message["spawns"])
     validate_clock(message["clock"])
     validate_event(message["event"])
@@ -389,6 +391,7 @@ class BridgeSession:
     battle_capable: bool = False
     battle_looks_capable: bool = False
     spawn_capable: bool = False
+    extras_capable: bool = False
     menu_session: Any = None
     reset_session: Any = None
 
@@ -455,6 +458,19 @@ class Companion:
         self._local_spawn = None
         self._spawn_action_sent = 0
         self._spawn_action_ack = 0
+        # Secret Bases and the PokeNav view (the native game's EMX1 mailbox, Phase 6/7).
+        self._world_extras: dict | None = None
+        self._extras_local = None            # the game's latest own-base record
+        self._extras_base_ack = 0            # the game's base sequence the host has stored
+        self._extras_acked_epoch = None      # ... in this host session
+        self._extras_task: asyncio.Task | None = None
+        self._extras_records: list[tuple[int, bytes]] = []
+        self._extras_cursor = 0
+        self._extras_passes = 0
+        self._extras_advanced = 0.0
+        self._extras_record_seq = 0
+        self._extras_current = (0, bytes(160))
+        self._extras_sent: bytes | None = None
 
     @property
     def ipc_address(self) -> tuple[str, int]:
@@ -511,6 +527,11 @@ class Companion:
                 self._bridge.outbox.put_world(b"N" + self.world_inbound().pack())
                 if self._bridge.spawn_capable:
                     self._bridge.outbox.put_spawns(b"n" + self.spawn_inbound().pack())
+                if self._bridge.extras_capable:
+                    packet = b"y" + self.extras_inbound().pack()
+                    if packet != self._extras_sent:
+                        self._extras_sent = packet
+                        self._bridge.outbox.put_extras(packet)
 
     def spawn_inbound(self):
         """The EMV1 inbound record: the host's shared wild Pokemon of this
@@ -520,6 +541,41 @@ class Companion:
         enabled = self.connected and self._roster_signature is not None
         return SpawnInbound.from_view(self._world_spawns if enabled else None, enabled=enabled,
                                       action_ack=self._spawn_action_ack)
+
+    _EXTRAS_PASSES = 4          # each base is offered this many times (the game applies it idempotently)
+    _EXTRAS_INTERVAL = 0.25     # seconds between two offered records
+
+    def extras_inbound(self):
+        """The EMX1 inbound record: one of the host's secret bases for this player
+        (or a withdrawal). The game applies a record once per record number and
+        a repeat of an unchanged base is a no-op, so the host's list is offered a
+        few times over, one record at a time, rather than acknowledged per record."""
+        from .extras_mailbox import ExtrasInbound
+        enabled = self.connected and self._roster_signature is not None and self._world_extras is not None
+        if not enabled:
+            self._extras_records, self._extras_passes = [], 0
+            return ExtrasInbound(enabled=False, base_ack=self._extras_base_ack)
+        records = [(item["slot"], bytes.fromhex(item["record"])) for item in self._world_extras["bases"]]
+        if records != self._extras_records:
+            self._extras_records, self._extras_cursor, self._extras_passes = records, 0, self._EXTRAS_PASSES
+            self._extras_advanced = 0.0
+        now = time.monotonic()
+        if self._extras_passes and records and now - self._extras_advanced >= self._EXTRAS_INTERVAL:
+            slot, record = records[self._extras_cursor]
+            self._extras_record_seq = self._extras_record_seq % _UINT32 + 1
+            self._extras_current = (slot, record)
+            self._extras_advanced = now
+            self._extras_cursor += 1
+            if self._extras_cursor >= len(records):
+                self._extras_cursor, self._extras_passes = 0, self._extras_passes - 1
+        slot, record = self._extras_current
+        return ExtrasInbound(enabled=True, base_ack=self._extras_base_ack,
+                             record_seq=self._extras_record_seq if self._extras_record_seq else 0,
+                             source_slot=slot, base=record)
+
+    def _offer_bases_again(self) -> None:
+        self._extras_passes = self._EXTRAS_PASSES
+        self._extras_advanced = 0.0
 
     def world_inbound(self):
         """The EMW1 inbound record matching the current presence snapshot."""
@@ -725,6 +781,27 @@ class Companion:
                     # has already answered it (the ack guard below; M19).
                     self._spawn_action_sent = 0
                     self._publish_snapshot()
+                    continue
+                if packet[:1] == b"e":
+                    # The native PC game announces its secret-base mailbox
+                    # (extras_mailbox.py); mgba.lua never does.
+                    from .extras_mailbox import capability_packet as extras_capability
+                    if not self.config.world_enabled or bridge.extras_capable or packet != extras_capability():
+                        raise BridgeError("secret base capability differs from this companion")
+                    bridge.extras_capable = True
+                    self._offer_bases_again()
+                    self._extras_sent = None
+                    self._publish_snapshot()
+                    continue
+                if packet[:1] == b"x":
+                    from .extras_mailbox import ExtrasLocal, ExtrasMailboxError
+                    if not bridge.extras_capable or len(packet) != 169:
+                        raise BridgeError("secret base record precedes its capability")
+                    try:
+                        self._extras_local = ExtrasLocal.unpack(packet[1:])
+                    except ExtrasMailboxError as error:
+                        raise BridgeError("invalid secret base record") from error
+                    self._start_base_publish()
                     continue
                 if packet[:1] == b"g":
                     from .spawn_mailbox import SpawnLocal, SpawnMailboxError
@@ -1140,6 +1217,8 @@ class Companion:
         self._world_pending.clear()
         self._world_clock = self._world_event = self._world_notice = self._world_wallet = None
         self._world_teammate = None
+        self._world_extras = None
+        self._extras_acked_epoch = None
         self._players = []
         self._peer_history.clear()
         self._roster_signature = None
@@ -1643,6 +1722,10 @@ class Companion:
         self._world_wallet = message["wallet"]
         self._world_teammate = message["teammate"]
         self._world_spawns = message["spawns"]
+        self._world_extras = message.get("extras")
+        if (self._extras_local is not None and self._extras_acked_epoch != self.session_epoch
+                and (self._extras_task is None or self._extras_task.done())):
+            self._start_base_publish()  # a new host session has not stored this game's base yet
         if message["notice"] is not None:
             self._world_notice = message["notice"]
         self._publish_snapshot()
@@ -1685,6 +1768,49 @@ class Companion:
         task = asyncio.create_task(run(), name="companion-world-action")
         self._ipc_handlers.add(task)
         task.add_done_callback(self._ipc_handlers.discard)
+
+    def _start_base_publish(self) -> None:
+        """Tell the host about the game's own base (or that it has none), until it answers."""
+        if self._extras_task is not None and not self._extras_task.done():
+            return  # the running task always sends the latest record
+
+        async def run():
+            while self._extras_local is not None and self.connected:
+                local, epoch = self._extras_local, self.session_epoch
+                if local.base_seq == self._extras_base_ack and epoch == self._extras_acked_epoch:
+                    return
+                from .extras_mailbox import validate_base, ExtrasMailboxError
+                base = None
+                if local.has_base:
+                    try:
+                        base = validate_base(local.base).hex()
+                    except ExtrasMailboxError:
+                        base = None  # an invalid base is not shared (the game keeps playing with it)
+                if await self._deliver_world_request("base_publish", seq=local.base_seq, base=base):
+                    self._extras_base_ack, self._extras_acked_epoch = local.base_seq, epoch
+                    self._publish_snapshot()
+                    if self._extras_local is local:
+                        return
+                else:
+                    await asyncio.sleep(_ACTION_RETRY_SECONDS)
+
+        task = self._extras_task = asyncio.create_task(run(), name="companion-secret-base")
+        self._ipc_handlers.add(task)
+        task.add_done_callback(self._ipc_handlers.discard)
+
+    def world_nav(self) -> dict | None:
+        """The host's PokeNav view (players' places and weather, outbreak, World Event)."""
+        extras = self._world_extras
+        return None if extras is None or not self.connected else extras["nav"]
+
+    async def secret_base_rpc(self, mode: str | None = None) -> dict:
+        """The player's base sharing: read it, or choose everyone / team / nobody."""
+        result = await self.world_rpc("base_get" if mode is None else "base_visibility",
+                                      **({} if mode is None else {"mode": mode}))
+        if (type(result) is not dict or type(result.get("published")) is not bool
+                or result.get("visibility") not in ("everyone", "team", "nobody")):
+            raise ProtocolError("invalid_server_message", "invalid secret base view")
+        return {"published": result["published"], "visibility": result["visibility"]}
 
     def _spawn_spawn_action(self, action) -> None:
         """The game claimed, reported or released a shared wild Pokemon."""

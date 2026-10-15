@@ -392,11 +392,14 @@ class Championships:
             admission.unentered_terminal(match["battle_id"], revoke=True)
         self._reconcile(connection, view, desk, results, reservations, admission)
 
-    def handle(self, actor, request, *, roster, desk, results, invite, reservations=None, admission=None):
+    def handle(self, actor, request, *, roster, desk, results, invite, reservations=None, admission=None,
+               eligibility=None):
         """Outer server authenticates the current lease before this call.
 
         invite is a synchronous trusted callback using the original actor/core.
         It is called only after an exact intent has committed to this sidecar.
+        ``eligibility`` (optional, the host's Frontier rules) takes the players who
+        are entering and raises ProtocolError when a party may not.
         """
         validate_championship_request(request)
         operation = request["operation"]
@@ -428,6 +431,8 @@ class Championships:
                     if set(request["players"]) != set(roster):
                         raise ProtocolError("championship_roster_changed", "All four proposed players must still be connected")
                     players = list(request["players"])
+                    if eligibility is not None:
+                        eligibility(players)
                     view = dict(championship_id=request["championship_id"], generation=str(uuid4()), sender=actor,
                         players=players, names=[roster[player] for player in players], state="proposed",
                         consent=[actor], cancel_consent=[], champion=None,
@@ -444,6 +449,8 @@ class Championships:
                 view = self._target(connection, request, actor)
                 self._reconcile(connection, view, desk, results, reservations, admission)
                 if operation == "accept" and view["state"] == "proposed":
+                    if eligibility is not None and actor not in view["consent"]:
+                        eligibility([actor])
                     view["consent"] = sorted(set(view["consent"]) | {actor})
                     if set(view["consent"]) == set(view["players"]):
                         view["state"] = "active"

@@ -9,10 +9,11 @@ from .protocol import MAX_COUNTER, ProtocolError
 
 WORLD_TYPES = frozenset({"world_action", "appearance_get", "appearance_set", "friendship_get",
                          "wager_get", "wager_set", "wager_accept", "wager_decline", "wallet_applied",
-                         "gym_coop", "spawn_action"})
+                         "gym_coop", "spawn_action", "base_publish", "base_visibility", "base_get"})
 ACTIONS = frozenset({"claim", "result", "release"})
 RESULTS = frozenset({"caught", "defeated", "ran", "lost", "cancelled"})
 _HEX16 = re.compile(r"[0-9a-f]{16}\Z")
+_BASE_HEX = re.compile(r"[0-9a-f]{320}\Z")
 _EVENT_FIELDS = {"event_id", "species", "level", "shiny", "mega", "map_group", "map_number", "x", "y",
                  "held_item", "perfect_ivs", "seconds_left", "claimant"}
 SPAWN_ACTIONS = frozenset({"claim", "result", "release"})
@@ -194,7 +195,19 @@ def validate_world_request(message: Any, session_epoch: int) -> dict:
                 raise ProtocolError("invalid_field", "unsupported spawn result")
         elif message["result"] is not None:
             raise ProtocolError("invalid_field", "only results carry an outcome")
-    elif kind in ("appearance_get", "friendship_get"):
+    elif kind == "base_publish":
+        if set(message) != {"type", "session_epoch", "request_id", "seq", "base"}:
+            raise ProtocolError("invalid_fields", "secret base publication has unexpected fields")
+        _int(message["seq"], "base sequence", 1, 0xFFFFFFFF)
+        if message["base"] is not None and (type(message["base"]) is not str
+                                            or _BASE_HEX.fullmatch(message["base"]) is None):
+            raise ProtocolError("invalid_field", "secret base must be 320 lower-case hex digits")
+    elif kind == "base_visibility":
+        if set(message) != {"type", "session_epoch", "request_id", "mode"}:
+            raise ProtocolError("invalid_fields", "secret base visibility has unexpected fields")
+        if message["mode"] not in ("everyone", "team", "nobody"):
+            raise ProtocolError("invalid_field", "unsupported secret base visibility")
+    elif kind in ("appearance_get", "friendship_get", "base_get"):
         if set(message) != {"type", "session_epoch", "request_id"}:
             raise ProtocolError("invalid_fields", "shared-world read has unexpected fields")
     elif kind in ("wager_get", "wager_decline"):
@@ -228,6 +241,56 @@ def validate_world_request(message: Any, session_epoch: int) -> dict:
         if validate_appearance_hex(message["appearance"]) is None:
             raise ProtocolError("invalid_field", "appearance is required")
     return message
+
+
+def _short_text(value: Any, name: str, limit: int = 40) -> str:
+    if type(value) is not str or not 0 < len(value) <= limit or any(not 32 <= ord(c) <= 126 for c in value):
+        raise ProtocolError("invalid_server_message", f"invalid {name}")
+    return value
+
+
+def validate_extras(value: Any) -> dict | None:
+    """The host's secret bases for this player and the PokeNav world view
+    (Phases 6 and 7). Absent from older hosts."""
+    if value is None:
+        return None
+    if type(value) is not dict or set(value) != {"bases", "nav"}:
+        raise ProtocolError("invalid_server_message", "invalid world extras")
+    bases = value["bases"]
+    if type(bases) is not list or len(bases) > 6:
+        raise ProtocolError("invalid_server_message", "too many secret bases")
+    for item in bases:
+        if type(item) is not dict or set(item) != {"owner", "slot", "record"}:
+            raise ProtocolError("invalid_server_message", "invalid secret base")
+        _short_text(item["owner"], "secret base owner", 128)
+        _int(item["slot"], "secret base slot", 0, 3)
+        if type(item["record"]) is not str or _BASE_HEX.fullmatch(item["record"]) is None:
+            raise ProtocolError("invalid_server_message", "invalid secret base record")
+    nav = value["nav"]
+    if type(nav) is not dict or set(nav) not in ({"players", "outbreak", "event"},
+                                                 {"players", "outbreak", "event", "rule"}):
+        raise ProtocolError("invalid_server_message", "invalid PokeNav view")
+    if type(nav["players"]) is not list or len(nav["players"]) > 4:
+        raise ProtocolError("invalid_server_message", "invalid PokeNav players")
+    for player in nav["players"]:
+        if type(player) is not dict or set(player) != {"player_id", "place", "weather"}:
+            raise ProtocolError("invalid_server_message", "invalid PokeNav player")
+        _short_text(player["player_id"], "PokeNav player", 128)
+        _short_text(player["place"], "PokeNav place")
+        if player["weather"] is not None:
+            _short_text(player["weather"], "PokeNav weather", 20)
+    if nav.get("rule") is not None:
+        _short_text(nav["rule"], "Frontier rule", 20)
+    for key in ("outbreak", "event"):
+        entry = nav[key]
+        if entry is None:
+            continue
+        if type(entry) is not dict or set(entry) != {"name", "place", "seconds_left"}:
+            raise ProtocolError("invalid_server_message", f"invalid PokeNav {key}")
+        _short_text(entry["name"], "PokeNav name")
+        _short_text(entry["place"], "PokeNav place")
+        _int(entry["seconds_left"], "PokeNav time", 0, 86_400)
+    return value
 
 
 def validate_world_reply(message: Any) -> dict:

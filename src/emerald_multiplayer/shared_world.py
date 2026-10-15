@@ -52,6 +52,8 @@ def time_of_day_for_hour(hour: int) -> str:
     if hour in EVENING_HOURS:
         return "evening"
     return "night"
+from .secret_bases import SCHEMA as _BASE_SCHEMA, SecretBaseBook
+
 _SCHEMA = (
     "CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
     "CREATE TABLE IF NOT EXISTS clock (id INTEGER PRIMARY KEY CHECK (id = 1), seconds INTEGER NOT NULL)",
@@ -60,6 +62,7 @@ _SCHEMA = (
         event_id INTEGER PRIMARY KEY, record TEXT NOT NULL, state TEXT NOT NULL,
         winner TEXT, created REAL NOT NULL)""",
     "CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
+    *_BASE_SCHEMA,
 )
 
 
@@ -134,6 +137,7 @@ class SharedWorld:
                 self._db.execute("INSERT INTO clock VALUES (1, ?)", (BALANCE.clock_start_seconds,))
         seconds = self._db.execute("SELECT seconds FROM clock WHERE id=1").fetchone()[0]
         self._clock = _Clock(float(seconds), None)
+        self.bases = SecretBaseBook(self._db, self._transaction)
         self._last_persist = self._now()
         self._active = 0
         self._notice_id = int(self._kv("notice_id", "0"))
@@ -369,6 +373,44 @@ class SharedWorld:
 
     def time_of_day(self) -> str:
         return time_of_day_for_hour((self.world_seconds() // 3600) % 24)
+
+    # ------------------------------------------------------- PokeNav world view
+    _WEATHER_LABELS = {"WEATHER_SUNNY": "Clear", "WEATHER_SUNNY_CLOUDS": "Clouds", "WEATHER_RAIN": "Rain",
+                       "WEATHER_DOWNPOUR": "Downpour", "WEATHER_RAIN_THUNDERSTORM": "Thunderstorm",
+                       "WEATHER_SNOW": "Snow", "WEATHER_DROUGHT": "Sun", "WEATHER_SANDSTORM": "Sandstorm",
+                       "WEATHER_FOG": "Fog", "WEATHER_FOG_HORIZONTAL": "Fog", "WEATHER_FOG_DIAGONAL": "Fog",
+                       "WEATHER_VOLCANIC_ASH": "Ash", "WEATHER_SHADE": "Overcast", "WEATHER_ABNORMAL": "Strange"}
+
+    def _place_name(self, group: int, number: int) -> str:
+        director = getattr(self, "spawn_director", None)
+        entry = director.map_entry(f"{group}.{number}") if director is not None else None
+        name = entry.get("name") if entry else None
+        return name[:40] if isinstance(name, str) and name else f"Area {group}-{number}"
+
+    def nav_view(self, presences: dict[str, dict | None]) -> dict:
+        """What the PokeNav-style World pages show (Phase 7): where each online
+        player is and the weather there, the running outbreak and World Event."""
+        director = getattr(self, "spawn_director", None)
+        players = []
+        for player_id, presence in sorted(presences.items()):
+            if presence is None:
+                continue
+            code = presence.get("weather")
+            name = director._weather_names.get(code) if director is not None and type(code) is int else None
+            label = None if name is None else self._WEATHER_LABELS.get(name, name.removeprefix("WEATHER_").title())
+            players.append({"player_id": player_id,
+                            "place": self._place_name(presence["map_group"], presence["map_number"]),
+                            "weather": label})
+        outbreak = self.outbreak_view()
+        if outbreak is not None:
+            outbreak = {"name": outbreak["name"][:40], "place": outbreak["place"][:40],
+                        "seconds_left": outbreak["seconds_left"]}
+        event = self.event_view()
+        if event is not None:
+            event = {"name": self._event_label(self._event)[:40],
+                     "place": str(self._event.get("place", "SOMEWHERE"))[:40],
+                     "seconds_left": event["seconds_left"]}
+        return {"players": players[:4], "outbreak": outbreak, "event": event}
 
     # ------------------------------------------------------------- appearance
     def appearance(self, player_id: str) -> str | None:

@@ -298,3 +298,75 @@ GitHub Actions run **38672941750** (workflow `windows-package`, full mode), app 
 * Contains: graphics-mode switching, keybinds, M25 relay and recovery changes, EXP/clock/M27 work.
 * Not in it: the sprite pack, the import of the owner's own game (no base dump in CI). Not shown: a real GPU, real
   input on a real PC, real network play.
+
+# Update 2-7 queue (autonomous, started 2026-10-15)
+
+Branches: app `claude/dev-update2-7` (from `claude/dev-integration` 7714054), engine `claude/dev-update2-7-engine`
+(from `claude/dev-integration-engine` cab2fd41). Real-PC testing is postponed by the owner; every "tested" below is
+**simulated** (engine self-tests, unit tests, real host + companion + scripted bridges over loopback) unless it says
+otherwise. The GBA ROM must stay `f214735b…3387`.
+
+## Update 2 — Secret Bases and PokéNav
+
+**Audit.** Upstream single-player secret bases work in the native game (24 locations; `secretBases[0]` own, `[1..19]`
+visitors; record mixing needs a link cable). Nothing multiplayer existed (expansion-checklist rows 6-7 "NOT STARTED").
+Specs: those two one-line rows only; owner decision 7 asks for rules, so the defaults below are mine, flagged.
+
+**Design (reuses the game's own base code; no new GBA UI, no save-layout change).**
+* Engine (native PC only): `MultiplayerSecretBase_GetOwn/Receive` in `secret_base.c` (the only places a record crosses
+  the save boundary; Receive applies the original's `TrySaveFriendsSecretBase` rules, keeps the player's registry
+  decision, never replaces the player's own base, handles a withdrawal record and refuses malformed ones).
+  `multiplayer_extras.[ch]` = EMX1 mailbox (384 bytes), bridge frames `e` (capability), `x` (own base), `y` (inbound).
+  `multiplayer_extras.c` is excluded from the GBA build like `multiplayer_spawns.c`.
+* App: `extras_mailbox.py` (codec/validation/tombstone), `secret_bases.py` (host book in the world SQLite file:
+  durable, per-owner visibility everyone/team/nobody, withdrawal records), world message gains optional `extras`
+  (`bases` for this player + `nav` PokéNav view), requests `base_publish/base_visibility/base_get`, companion publishes the
+  game's base (retries until the host answers; re-sends in a new host session) and offers the host's list to the
+  game a few times (the game applies idempotently), Players menu "World and my base" (PokéNav-style pages: players'
+  places + weather, running outbreak, World Event, My Secret Base visibility).
+* Phase 7 scope delivered: positions, weather by route (per player), outbreaks, event locations as host-driven pages.
+  Not delivered (needs new GBA/PC UI art, escalation-level work): graphical full map and habitat lists.
+
+**Evidence.** Engine `--selftest-secret-base` **24/24**; `check-native` (bridge test **4293 checks, 0 failures**),
+`check-abi` (172 types), `check-spawn-claims` 23/23, `check-mp-objects` 21/21, `check-keybinds` 21/21,
+`check-coop-exp` 26/26; GBA ROM rebuilt = `f214735b…3387` (first attempt differed because the empty
+`multiplayer_extras.c` object was linked; excluded, then identical). App: `tests/test_secret_bases.py` **26 passed**
+(codec, host book incl. persistence/old-file upgrade, protocol, PokéNav view, menu pages, real host + two companions with
+scripted bridges: base reaches the other game, follows redecorating, withdrawal on nobody/removal, ack, invalid base
+refused, publication retried, mailbox off when the host goes away).
+
+**Known limits (documented, not hidden).** Never observed in a running game on two PCs. A visitor's base whose
+location equals the player's own is not shown (original rule: own base wins). A base hidden or removed while a
+visitor's companion was offline stays in that visitor's save until the owner changes it again. Owner-base
+decoration edits reach others when the record next changes (the game republishes on any change). No NPC base
+teams (checklist said "NPC teams"): not built, the owner's party is the base's trainer as in the original.
+
+## Update 3 — Battle Frontier modes and breeding
+
+**Audit (what exists).** No Battle Frontier multiplayer code exists besides the host's four-player **Championship**
+(`championship.py`, durable single-elimination bracket over native 1v1 battles; strongly tested in
+`test_championship_recovery*.py`, never played by humans), 1v1 / 2v2 team battles with wagers, co-op Gym battles, win/loss
+records and streaks on the Trainer Card. The vanilla Frontier facilities are unchanged (FEATURE_STATUS: "vanilla Battle
+Frontier only"). Frontier EXP stays excluded by the base game (owner decision 6 open).
+
+**Built.** `frontier_rules.py` — Frontier-style *entry rules* for Championships, **off unless the host creates
+`<world>.frontier.json`**: rotating (one rule per world day) or fixed Open / Species Clause / Item Clause / Level 50 /
+Level 30 / No Legendaries, checked against each player's last saved party (eggs ignored) at proposal and at consent;
+a refusal names the player and the reason in the Championship page ("Bob: Over level 50"); the PokéNav World page shows
+today's rule. No battle mechanic changes (Gen 6 rules untouched). Tests `tests/test_frontier_rules.py` (11).
+
+**Not built, with the reason (needs a decision or deeper work).**
+* *Co-op survival* (a team facing a streak of trainers): would reuse the co-op Gym battle (mode 4), but that battle is
+  started by a Gym script in the game; a host-started trainer streak needs a native "start trainer battle" hook that
+  can only be validated in a running two-PC game. Recorded for escalation, not attempted blind.
+* *Level scaling* (Frontier Level 50 = scale up/down): the rules only admit or refuse; scaling needs engine battle code.
+* *Rewards / Battle Points / streak records for Championships*: new currency and record fields = owner decisions.
+
+**Breeding and eggs (audit + evidence, no code change needed).** The Day Care is the expansion's, under
+`GEN_LATEST = GEN_6`: egg cycle 257 steps, level-1 hatchlings, Destiny Knot / power items, Ball and ability inheritance as
+Gen 6. Upstream's daycare tests run on the GBA test ROM here: `(Daycare)` 12/12, `GetChildNature` 11/11, `InheritIVs`
+5/5, `InheritPokeball` 7/7, `InheritAbility` 3/3. New engine test `test/egg_hatch.c` (4 tests, all pass): 257 steps per
+cycle, which egg is due, no hatching without eggs, Flame Body/Magma Armor take two cycles. Multiplayer: eggs are
+refused in trades (`trade_eligibility.py`), ignored by Frontier rules, and a saved party with eggs is a valid
+checkpoint. Not built: a host-side Day Care/hatch-progress page (reading the last checkpoint would show stale numbers)
+and a native Day Care UI (new screens); save compatibility is untouched.

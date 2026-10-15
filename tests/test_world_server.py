@@ -119,7 +119,7 @@ class WorldFrameTests(WorldServerTests):
     async def test_every_frame_has_clock_event_notice_and_private_wallet_and_teammate(self):
         world = await self.world(0, lambda w: len(w["players"]) == 4)
         self.assertEqual(set(world), {"type", "protocol", "world_seq", "players", "clock", "event",
-                                      "notice", "wallet", "teammate", "spawns"})
+                                      "notice", "wallet", "teammate", "spawns", "extras"})
         self.assertTrue(world["clock"]["running"])
         self.assertIsNone(world["wallet"])
         self.assertIsNone(world["teammate"])

@@ -71,6 +71,8 @@ class ChampionshipMenu:
             if error.code in {"invalid_field", "invalid_fields", "championship_unsupported", "championship_disabled", "battle_disabled"}:
                 self._supported = False
                 self._notice = "Host has no Championship support"
+            elif error.code == "championship_ineligible":
+                self._notice = str(error)[:31]  # "Name: Over level 50" (frontier_rules.py)
             else:
                 self._notice = {
                     "player_offline": "A participant disconnected",

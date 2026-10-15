@@ -260,6 +260,9 @@ class WorldServer:
         self.battle_execution = None
         self._battle_results = None
         self._championships = None
+        from .frontier_rules import FrontierSettings
+        self._frontier = (FrontierSettings.load(store.path.with_name(store.path.name + ".frontier.json"))
+                          if store is not None else FrontierSettings())
         from .battle_reservations import BattleReservations
         self._battle_reservations = (BattleReservations(store)
             if store is not None and store.battle_reservations_enabled else None)
@@ -761,10 +764,36 @@ class WorldServer:
         extension = self._championships.handle(session.player_id, request["championship"],
             roster=roster, desk=desk, results=self._battle_results, invite=invite,
             reservations=self._battle_reservations,
-            admission=self.battle_execution.admission if self.battle_execution is not None else None)
+            admission=self.battle_execution.admission if self.battle_execution is not None else None,
+            eligibility=self._frontier_eligibility if self._frontier.enabled else None)
         pending = [] if desk is None else [challenge_view(view) for view in
             desk.pending(session.player_id, session.session_epoch)]
         self._battle_reply(session, request, result=pending, championship=extension)
+
+    def _frontier_rule(self):
+        """The Frontier rule in force now (None when the host has not enabled them)."""
+        settings = self._frontier
+        return settings.rule_at(self.shared_world.world_seconds()) if settings.enabled else None
+
+    def _frontier_eligibility(self, players):
+        """Refuse a Championship entry whose last saved party breaks today's rule."""
+        from .flash import FlashError, inspect_flash
+        from .frontier_rules import check_party, party_members
+        rule = self._frontier_rule()
+        for player in players:
+            session = self.sessions.get(player)
+            if session is None or session.closed:
+                raise ProtocolError("championship_roster_changed", "All four proposed players must still be connected")
+            checkpoint = self.store.read_checkpoint(player, session.session_epoch)
+            if checkpoint is None:
+                raise ProtocolError("championship_ineligible", f"{session.display_name[:8]}: no saved party")
+            try:
+                members = party_members(inspect_flash(checkpoint.payload, save_profile=checkpoint.save_profile).save_block1)
+            except FlashError as error:
+                raise ProtocolError("championship_ineligible", f"{session.display_name[:8]}: save unreadable") from error
+            reason = check_party(rule, members)
+            if reason is not None:
+                raise ProtocolError("championship_ineligible", f"{session.display_name[:8]}: {reason}")
 
     def _battle_challenge(self, session, request):
         # Public consent never authorizes BIND/START, supplies native receipts,
@@ -1149,6 +1178,17 @@ class WorldServer:
         # Shared wild Pokemon (protocol 3): each game receives the slots of the
         # map it stands on, with its own "mine"/"busy" view of every claim.
         self._last_clock_broadcast = asyncio.get_running_loop().time()
+        roster = [player["player_id"] for player in players]
+        try:
+            nav = world.nav_view({s.player_id: s.presence for s in self.sessions.values() if not s.closed})
+        except Exception:  # noqa: BLE001 - the PokeNav view never stops the world view
+            nav = {"players": [], "outbreak": None, "event": None}
+        try:
+            from .frontier_rules import RULE_NAMES
+            rule = self._frontier_rule()
+            nav["rule"] = None if rule is None else RULE_NAMES[rule]
+        except Exception:  # noqa: BLE001 - the rule label is advisory
+            nav["rule"] = None
         for session in tuple(self.sessions.values()):
             # Each game receives only its own next wallet adjustment (wagers)
             # and its own host-formed teammate (co-op Gym offers).
@@ -1162,9 +1202,13 @@ class WorldServer:
                 spawns = world.spawn_view(session.player_id, session.presence)
             except Exception:  # noqa: BLE001 - a spawn fault never stops the world view
                 spawns = None
-            session.outbox.put_world(encode_message({**base, "wallet": wallet,
-                                                     "teammate": self._teammate(session.player_id),
-                                                     "spawns": spawns}))
+            teammate = self._teammate(session.player_id)
+            try:
+                bases = world.bases.view_for(session.player_id, teammate, roster)
+            except Exception:  # noqa: BLE001 - secret bases never stop the world view
+                bases = []
+            session.outbox.put_world(encode_message({**base, "wallet": wallet, "teammate": teammate,
+                                                     "spawns": spawns, "extras": {"bases": bases, "nav": nav}}))
 
     def _progression_level(self) -> int:
         """Average of each connected player's strongest party level."""
@@ -1220,6 +1264,9 @@ class WorldServer:
                 self._world_reply(session, request, result={"outcome": outcome, "seq": request["seq"]})
                 self._broadcast_world()
                 return
+            if kind in ("base_publish", "base_visibility", "base_get"):
+                self._world_reply(session, request, result=self._secret_base_request(session, request))
+                return
             if kind == "friendship_get":
                 friends = self.friendships.view_for(session.player_id, list(self.sessions))
                 self._world_reply(session, request, result={"friends": friends})
@@ -1243,6 +1290,26 @@ class WorldServer:
             self._broadcast_world()
         except (SharedWorldError, WagerError) as error:
             self._world_reply(session, request, error=error)
+
+    def _secret_base_request(self, session, request) -> dict:
+        """A game published its base, or the player chose who may see it (Phase 6)."""
+        from .secret_bases import SecretBaseError
+        from .shared_world import SharedWorldError
+        book, kind = self.shared_world.bases, request["type"]
+        try:
+            if kind == "base_publish":
+                changed = book.publish(session.player_id, request["base"])
+                result = {"seq": request["seq"]}
+            elif kind == "base_visibility":
+                changed = book.set_visibility(session.player_id, request["mode"])
+                result = book.state(session.player_id)
+            else:
+                return book.state(session.player_id)
+        except SecretBaseError as error:
+            raise SharedWorldError(error.code, error.message) from error
+        if changed:
+            self._broadcast_world()
+        return result
 
     # ------------------------------------------------------------- co-op Gyms
     _GYM_LEADERS = {1: "ROXANNE", 2: "BRAWLY", 3: "WATTSON", 4: "FLANNERY", 5: "NORMAN",
