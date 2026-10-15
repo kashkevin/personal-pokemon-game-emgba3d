@@ -398,7 +398,8 @@ class PlayerMenu:
                     actions.append(("Championship", "championship", ()))
             else:
                 status = self._notice or ("New battles disabled on host" if self._battles is None else "No pending challenges")
-                if self._battles is not None and len(self._players) == 4 and actor in self._players:
+                if (self._battles is not None and len(self._players) == 4 and actor in self._players
+                        and getattr(self.companion.config, "battle_ffa_enabled", True)):
                     actions.append(("Free-for-all 1v1v1v1", "battle_ffa", tuple(p for p in self._players if p != actor)))
                 actions.append(("Recent battle results", "results", (0,)))
                 actions.append(("Full record archives", "records", ()))

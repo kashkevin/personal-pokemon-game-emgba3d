@@ -88,6 +88,13 @@ class PlayerMenuNetworkTests(unittest.IsolatedAsyncioTestCase):
         menus = [PlayerMenu(c) for c in self.companions]
         await menus[0].refresh()
         await self.click(menus[0], "Challenges")
+        self.assertFalse(self.companions[0].config.battle_ffa_enabled)     # the fixture ROM has no free-for-all marker
+        self.assertNotIn("Free-for-all 1v1v1v1", [row.label for row in menus[0].screen.rows])
+        for companion in self.companions:
+            object.__setattr__(companion.config, "battle_ffa_enabled", True)
+        await menus[0].refresh()
+        if "Challenges" in [row.label for row in menus[0].screen.rows]:
+            await self.click(menus[0], "Challenges")
         screen = await self.click(menus[0], "Free-for-all 1v1v1v1")
         self.assertEqual(screen.title, "1v1v1v1 free-for-all")
         labels = [row.label for row in screen.rows]

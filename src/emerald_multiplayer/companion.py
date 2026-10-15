@@ -185,6 +185,7 @@ class CompanionConfig:
     trade_effect_choice_abi_version: int = field(init=False, default=0)
     presence_animation_abi_version: int = field(init=False, default=0)
     battle_enabled: bool = field(init=False, default=False)
+    battle_ffa_enabled: bool = field(init=False, default=False)   # the ROM can run the four-player free-for-all (phase 5)
     battle_abi_version: int = field(init=False, default=0)
     battle_resume_abi_version: int = field(init=False, default=0)
     battle_admission_cleanup_abi_version: int = field(init=False, default=0)
@@ -218,6 +219,8 @@ class CompanionConfig:
         object.__setattr__(self, "presence_animation_abi_version", manifest.get("presence_animation_abi_version", 0))
         object.__setattr__(self, "battle_enabled", manifest.get("battle_abi_version") in (1, 2, 3))
         object.__setattr__(self, "battle_abi_version", manifest.get("battle_abi_version", 0))
+        object.__setattr__(self, "battle_ffa_enabled", manifest.get("battle_ffa_abi_version") == 1
+                           and manifest.get("battle_abi_version") == 3)
         object.__setattr__(self, "battle_resume_abi_version", manifest.get("battle_resume_abi_version", 0))
         object.__setattr__(self, "battle_admission_cleanup_abi_version", manifest.get("battle_admission_cleanup_abi_version", 0))
         object.__setattr__(self, "menu_enabled", manifest.get("menu_abi_version") in (1, 2))

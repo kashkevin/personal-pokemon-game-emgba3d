@@ -202,7 +202,8 @@ class BattlePanelController:
                 if duos:
                     add("Review 2v2 between current teams", "preview_multi", duos)
                 others = [(p, n) for p, n in roster.items() if p != actor]
-                for trio in list(itertools.combinations(others, 3))[:6]:
+                ffa_capable = getattr(self.session.companion.config, "battle_ffa_enabled", True)
+                for trio in (list(itertools.combinations(others, 3))[:6] if ffa_capable else ()):
                     add("Review 1v1v1v1 free-for-all with " + ", ".join(n for _, n in trio), "preview_ffa",
                         tuple(x for pair in trio for x in pair))
             else:
