@@ -298,8 +298,10 @@ class WorldServer:
         if store is not None:
             world_path = store.path.with_name(store.path.name + ".shared-world.sqlite3")
             from .outbreaks import load_outbreak_settings
+            from .event_settings import load_event_settings
             self.shared_world = SharedWorld(world_path, store.metadata.world_id, outbreak_settings=load_outbreak_settings(
-                store.path.with_name(store.path.name + ".outbreaks.json")))
+                store.path.with_name(store.path.name + ".outbreaks.json")),
+                event_settings=load_event_settings(store.path.with_name(store.path.name + ".events.json")))
             self.friendships = FriendshipStore(store.path.with_name(store.path.name + ".friendships.sqlite3"),
                                                store.metadata.world_id)
             self.wagers = Wagers(store.path.with_name(store.path.name + ".wagers.sqlite3"), store.metadata.world_id)

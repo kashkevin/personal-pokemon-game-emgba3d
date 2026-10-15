@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import json
 import random
 import tempfile
 import unittest
@@ -9,6 +10,7 @@ from uuid import uuid4
 
 from emerald_multiplayer import event_conditions as ec
 from emerald_multiplayer.balance import BALANCE
+from emerald_multiplayer.event_settings import DEFAULT_EVENT_SETTINGS, EventSettings, load_event_settings
 from emerald_multiplayer.shared_world import SharedWorld
 from emerald_multiplayer.shared_world_protocol import validate_extras
 
@@ -184,6 +186,51 @@ class DormantEventTests(unittest.TestCase):
         self.world = self.open(chance=0.0)
         self.spawn()
         self.assertIsNotNone(self.world.event_view())
+
+
+class EventSettingsTests(unittest.TestCase):
+    def load(self, value):
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        path = Path(folder.name) / "world.events.json"
+        path.write_text(value if isinstance(value, str) else json.dumps(value), encoding="utf-8")
+        return load_event_settings(path)
+
+    def test_absent_file_is_the_defaults(self):
+        self.assertIs(load_event_settings("/nonexistent/world.events.json"), DEFAULT_EVENT_SETTINGS)
+        self.assertEqual(DEFAULT_EVENT_SETTINGS.duration, BALANCE.event_duration_seconds)
+
+    def test_a_quick_test_file(self):
+        settings = self.load({"first_delay": [60, 60], "interval": [300, 400], "duration": 600,
+                              "condition_chance": 1, "category_weights": {"legendary": 100}})
+        self.assertEqual((settings.first_delay, settings.interval, settings.duration), ((60, 60), (300, 400), 600))
+        self.assertEqual(settings.category_weights, {"legendary": 100})
+
+    def test_mistakes_name_the_file_and_stop_the_host(self):
+        for bad in ("[]", {"surprise": 1}, {"first_delay": [10]}, {"first_delay": [9, 3]}, {"duration": 5},
+                    {"condition_chance": 2}, {"category_weights": {"nope": 1}}, {"category_weights": {"rare": 0}},
+                    {"interval": "soon"}):
+            with self.assertRaises(ValueError, msg=bad) as caught:
+                self.load(bad)
+            self.assertIn("world.events.json", str(caught.exception))
+
+    def test_a_world_follows_its_settings(self):
+        with tempfile.TemporaryDirectory() as folder:
+            settings = EventSettings(first_delay=(60, 60), interval=(300, 300), duration=120, condition_chance=1.0,
+                                     category_weights={"legendary": 1})
+            clock = FakeClock()
+            world = SharedWorld(Path(folder) / "w.sqlite3", WORLD, clock=clock, rng=random.Random(1),
+                                event_catalogue=CATALOGUE, locations=LOCATIONS, event_settings=settings)
+            try:
+                world.set_active_players(1)
+                self.assertFalse(world.tick_events(1, lambda: 40))
+                clock.now += 61
+                self.assertTrue(world.tick_events(1, lambda: 40))            # the first event after 60 s
+                self.assertIsNone(world.event_view())                         # always dormant here
+                self.assertEqual(world.event_status()["waiting"], "Wakes in a sandstorm")
+                self.assertLessEqual(world.event_status()["seconds_left"], 120)
+            finally:
+                world.close()
 
 
 if __name__ == "__main__":

@@ -118,7 +118,7 @@ class SharedWorld:
                  rng: random.Random | None = None, event_catalogue: dict | None = None,
                  locations: list | None = None, spawn_catalogue: dict | None = None,
                  spawn_rng: random.Random | None = None, spawn_tuning=None, outbreak_settings=None,
-                 event_condition_chance: float | None = None):
+                 event_condition_chance: float | None = None, event_settings=None):
         self.path = Path(path)
         self.world_id = world_id
         self._now = clock
@@ -140,7 +140,9 @@ class SharedWorld:
         seconds = self._db.execute("SELECT seconds FROM clock WHERE id=1").fetchone()[0]
         self._clock = _Clock(float(seconds), None)
         self.bases = SecretBaseBook(self._db, self._transaction)
-        self._condition_chance = BALANCE.event_condition_chance if event_condition_chance is None else event_condition_chance
+        from .event_settings import DEFAULT_EVENT_SETTINGS
+        self._events = event_settings if event_settings is not None else DEFAULT_EVENT_SETTINGS
+        self._condition_chance = self._events.condition_chance if event_condition_chance is None else event_condition_chance
         self._last_persist = self._now()
         self._active = 0
         self._notice_id = int(self._kv("notice_id", "0"))
@@ -164,7 +166,7 @@ class SharedWorld:
         except ValueError:
             wait = None
         if wait is None:
-            wait = self._rng.uniform(*BALANCE.event_first_delay)
+            wait = self._rng.uniform(*self._events.first_delay)
         self._next_event_at = self._active_now() + wait
         self._restore_event()
         self._init_spawns(spawn_catalogue, spawn_rng, spawn_tuning, outbreak_settings)
@@ -603,7 +605,7 @@ class SharedWorld:
         catalogue = self.catalogue
         if not self.locations:
             return None
-        weights = BALANCE.event_category_weights
+        weights = self._events.category_weights
         if category is None:
             choices = [name for name, weight in weights.items() if catalogue.get(name)]
             if not choices:
@@ -631,7 +633,7 @@ class SharedWorld:
             "held_item": int(entry.get("held_item", 0) or 0), "perfect_ivs": 3 if legendary else 1,
             "map_group": location["map_group"], "map_number": location["map_number"],
             "x": location["x"], "y": location["y"], "place": location["name"],
-            "expires": self._active_now() + BALANCE.event_duration_seconds,
+            "expires": self._active_now() + self._events.duration,
             "reminded": [],
         }
         self._claim = None
@@ -645,7 +647,7 @@ class SharedWorld:
         if self._dormant():
             self._announce_dormant(self._event)
         else:
-            self._announce(self._event, BALANCE.event_duration_seconds)
+            self._announce(self._event, self._events.duration)
         return self._full_event_view()
 
     def tick_events(self, connected: int, progression: Callable[[], int]) -> bool:
@@ -665,7 +667,7 @@ class SharedWorld:
             self._event, self._claim = None, None
             self.post_notice(_banner("The legend slipped away", "before it woke...") if slept
                              else _banner(f"The {label}", "has disappeared..."))
-            self._next_event_at = now + self._rng.uniform(*BALANCE.event_interval)
+            self._next_event_at = now + self._rng.uniform(*self._events.interval)
             changed = True
         if self._event is not None and not self._dormant():
             left = self._event["expires"] - now
@@ -682,7 +684,7 @@ class SharedWorld:
         if self._event is None and connected > 0 and now >= self._next_event_at:
             if self.spawn_event(progression_level=progression()) is not None:
                 changed = True
-            self._next_event_at = now + self._rng.uniform(*BALANCE.event_interval)
+            self._next_event_at = now + self._rng.uniform(*self._events.interval)
         if wall - self._last_persist >= 30:
             self.persist_clock()
             self.persist_timers()
@@ -730,7 +732,7 @@ class SharedWorld:
             self.post_notice(_banner(f"{name} caught the", self._event_label(event) + "!"))
             self._finish_participation(event_id)
             self._event, self._claim = None, None
-            self._next_event_at = self._active_now() + self._rng.uniform(*BALANCE.event_interval)
+            self._next_event_at = self._active_now() + self._rng.uniform(*self._events.interval)
             return "consumed"
         self._claim = None
         return "released"

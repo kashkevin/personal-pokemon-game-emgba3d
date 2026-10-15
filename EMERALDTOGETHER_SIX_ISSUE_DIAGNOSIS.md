@@ -244,7 +244,7 @@ Issue 1 first. Windows hardware for the last step.
 
 ### Status
 The **package builds and verifies on a real Windows runner**. The 3D game exe **does not start on a machine
-with only basic OpenGL**, and **gamepads are not supported on PC**. Everything needing real hardware is
+with only basic OpenGL**, and **non-XInput gamepads are not supported on PC** (XInput pads are, untested; see D3). Everything needing real hardware is
 untested.
 
 ### Evidence (Confirmed, GitHub Actions, this session)
@@ -265,6 +265,11 @@ All five `python-tests` runs (full app suite, clean Linux, Python 3.12) passed o
   a GPU driver, VMs, remote-desktop sessions, very old integrated graphics.
 * **D3: no gamepad on the PC build.** `SDL_INIT_GAMECONTROLLER` and the controller events are compiled only
   under `__ANDROID__` (`sdl2.c:400, 409-415, 2322+`). FEATURE_STATUS says "Not yet"; it is not implemented.
+  **Correction (2026-10-15, Update 5 audit):** this overstated it. The Windows build *does* read an XInput pad
+  (`GetXInputKeys`, loaded at run time; D-pad/left stick, A/X/Start/Back/shoulders, right trigger = fast forward),
+  so Xbox-style pads should work on Windows; what is missing is SDL game-controller support for non-XInput pads
+  (DualShock, Switch Pro) and any gamepad on Linux, and no pad has ever been tried. The mapping is now a unit-tested
+  pure function (engine `platform/gamepad.c`, `test_gamepad.c`, 28,216 checks).
 
 ### Not verified (needs physical hardware; nothing claimed)
 Real GPU frame rates (targets of 60 to 200+ fps are unmeasured), DPI scaling and exclusive fullscreen (V21),
