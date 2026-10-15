@@ -435,3 +435,24 @@ See `docs/automated-validation-matrix.md` (what each area is covered by, and wha
 (28,216 checks on the controller mapping, which had none), the secret-base mailbox deferral self-test (29 checks), the reconnect and
 pacing tests, `(EggHatch)` and Mega multi-battle GBA tests. Full runs: app 1598 passed, 0 failed; GBA ROM suite 5504 passed,
 39 expected failures, 0 new. **No hardware claim is made anywhere.**
+
+## Update 7 — Optimization, bios.c review, private Windows build (O6)
+
+**Optimization:** none was justified. The remaining performance items are GPU-bound and unmeasurable without a graphics card
+(V3, V25, V30, V39) or were done in Update 1 (M25). Cost of this queue's new host code measured: `extras_inbound()+pack()` 8.5 µs
+per publish with six bases; the engine's per-frame work is one 160-byte copy and compare. No code was changed for speed.
+
+**bios.c:** reviewed, not resolved, not changed: `docs/bios-licensing-review.md`. Every artifact is private; nothing was published.
+
+**Final runs (before the build):** app suite under xvfb **1605 passed, 118 skipped, 0 failed**; engine native checks all pass on the
+Linux 2D and 3D binaries; both Windows executables cross-compile; GBA test ROM 5504 passed, 39 expected failures, 0 new; GBA ROM
+sha256 `f214735b…3387` unchanged.
+
+**Windows build:** GitHub Actions run **38684352610** (workflow `windows-package`, full mode, `expected_rom_sha256` = `f214735b…3387`,
+so the job would have failed on any change), app `claude/dev-update2-7` at `90f21544d2`, engine `claude/dev-update2-7-engine` at
+`a18e2e96b1`. Both jobs succeeded: GBA ROM, Windows 3D game and Classic 2D game built; launcher built, package audited, game files
+verified, frozen launcher stayed up, graphics-mode check on the packaged games passed.
+* Private artifact **EmeraldTogether-windows-full** (ID 11949872388, 63 MB, expires 2026-10-22):
+  https://github.com/kashkevin/personal-pokemon-game-emgba3d/actions/runs/38684352610/artifacts/11949872388
+* Not in it: the sprite pack, the owner's own game (imported on the player's PC), any save.
+* Not shown: any real PC, GPU, audio, controller or network. Test list: `docs/windows-test-update2-7.md`.
