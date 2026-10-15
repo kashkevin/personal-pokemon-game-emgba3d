@@ -618,3 +618,9 @@ listed exactly in the doc (event glyph, outbreak glyph, number badges, SELECT he
 unchanged. Both native builds (2D and 3D) booted headless from cold with scripted keys to Birch's introduction (new debug scene). **Defects confirmed and
 fixed:** (1) `FEATURE_STATUS.md` still said the Windows .exe was not built; (2) a Town Map marker could be drawn in the wrong colours if every sprite palette bank
 was taken (now skipped). No other defect was confirmed; owner-decision and cosmetic items stay in `KNOWN_ISSUES.md`. Every area still needs its real-PC pass.
+
+## Update 20 — Final Windows integration
+
+* **Run 38723716523** (`windows-package`, full, app `03a7326`, engine `998164d0`): **failed** in the engine job: the new `src/platform/debug_scene.c` included `<SDL.h>`
+  (found on Linux, not on the Windows cross-compile, which has `SDL2/SDL.h`). Real defect, fixed in engine `676afe0c` (`#include <SDL2/SDL.h>`). Both Windows executables
+  (2D and 3D) were then cross-compiled locally with the pinned SDL2 MinGW release to catch any second error before spending another CI run.
