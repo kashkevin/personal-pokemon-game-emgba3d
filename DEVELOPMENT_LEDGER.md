@@ -9,6 +9,8 @@ Branches (nothing merged into the combined branches; no force-pushes):
 | Repo | Branch | Based on |
 | --- | --- | --- |
 | App | `claude/dev-m25-stability` | `claude/admiring-bohr-dpxzuy` (diagnosis, packaging) |
+| App, integration (Opus session) | `claude/dev-integration` = dev-m25-stability + `claude/graphics-mode-selector` | merge commit `a5d8fa4` |
+| Engine, integration (Opus session) | `claude/dev-integration-engine` = dev-stability-engine + `claude/graphics-mode-engine` | merge commit `2e3e9d49` |
 | Engine | `claude/dev-stability-engine` (created at P3; pushed) | `claude/cloud-setup-engine` |
 | Graphics mode (separate work, not duplicated here) | app `claude/graphics-mode-selector`, engine `claude/graphics-mode-engine` | CI run 38655648745 pending when this ledger began |
 
@@ -192,3 +194,74 @@ Secret Bases, expanded PokéNav, co-op Frontier and breeding are missing and eac
 legendary events are partial (G3 and the dynamics); character customization is partial; followers and shared spawns
 are implemented. Small partial, left open on purpose: G1 (post-Gen-6 move in an evolution trade) is rare in a Gen 6
 game and is listed as an owner decision rather than changed.
+
+---
+
+# Opus session (2026-10-15): Windows build, M25 finish, journals, validation
+
+## O1 — The Windows build
+
+* Run 38669384604 (`claude/dev-m25-stability` + `claude/dev-stability-engine`) could not answer the owner's
+  questions by construction: those branches do **not** contain the graphics-mode work (no Classic 2D build, no
+  fallback check). So the two lines of work were merged on new integration branches (above); conflicts were
+  small (a `.PHONY` list, two independent helpers in `sdl2.c`, two independent methods in `launcher_gui.py`).
+  Engine `check-native`, `check-keybinds`, `check-clock`, `check-graphics-mode`; app launcher/graphics/controls
+  tests: pass.
+* The first full integration run, **38670082036, failed**: `keybinds.c` included `<SDL_keycode.h>`, which exists
+  only on the Linux include path. The keybinds work from the Sonnet session had never been built for Windows. Fixed
+  as `<SDL2/SDL_keycode.h>` (engine `cab2fd41` on integration, cherry-picked to dev-stability as `bf2887f7`);
+  both Windows executables (2D and 3D) were then built locally with the pinned SDL2 MinGW before re-running CI.
+  Run 38669384604 has the same defect and is superseded.
+
+## O2 — M25: the two reverted levers, root causes, safe versions (app `e843ae4`)
+
+**Why the KEEP throttle broke recovery (root cause).** Recovery does not restore a snapshot: `RouteReplay` re-runs
+the same `_NativeRoute` code against the journal and requires every command to equal the recorded one
+(`battle_replay_mismatch`). A KEEP throttled by wall-clock time is not a function of the journal, so the fast
+replay issued a different command stream from the live run. **Safe version:** a slot gets KEEP when its last
+QUERY reported fewer than 480 of the 600 watchdog frames (QUERY never refreshes the watchdog; every accepted
+mutating command does, per the engine's `multiplayer_battle.c`), or after 32 steps without one (keeps the desk's
+180 s host deadline fresh during long transfers). Both inputs are journaled responses and step counts. Because an
+interrupted battle from the old router must still replay with the old policy, the route journal format is now
+`...-v2`; a v1 journal replays with a KEEP on every step. Proven necessary: replaying a v1 journal with the new
+policy makes recovery fail (mutation run).
+
+**Why the lease-only `_get` broke recovery (root cause).** The recovery `ReplayDesk` overrides `_auth` to check the
+battle's *logical original* actor; a shortcut that bypassed `_auth` made replay consult the store's current lease
+for retired leases. **Safe version:** `_auth_lease` keeps the field checks, the store lease check
+(`_require_lease`: boot epoch and released leases), the binding check and the connected-lease check, but does not
+read and hash the save payload; `ReplayDesk` overrides it with its own semantics. A test asserts it refuses exactly
+what `_auth` refuses (stale, released, other boot, other player, malformed) and that `_get` no longer reads payloads.
+
+**Measured** (synthetic relay, same machine, medians of 3; start-of-session baseline in brackets):
+
+| Case | Before (both reverted) | After |
+| --- | --- | --- |
+| 2p start-up, instant core | 1.97 s, 96 commands | 1.10 s, 76 (−44 %) |
+| 2p start-up, 16 ms/command | 3.33 s | 2.37 s (−29 %) |
+| 4p start-up, 16 ms/command | 6.81 s, 264 commands | 4.89 s, 224 (−28 %) |
+| 2p, players choosing for 60 steps | 7.0 s, 336 commands, 140 KEEP | 4.75 s, 220, 24 KEEP (−32 %; journal −35 %) |
+
+The synthetic core now models the watchdog (it expires when not refreshed), so these runs also prove the KEEP rule
+keeps the cores alive. Battle/recovery group: 192 passed, 1 skipped; new tests: interrupt at a deadline KEEP and
+recover; a v1 journal recovers with the old policy; lease-check equivalence.
+
+## O3 — Oversized battle journals (app `7dd528a`)
+
+**Measured first, with production polling (50 ms):** for a 6,206-event, 3.7 MB four-player journal, load 0.6 s (in
+a worker thread since an earlier session), **router replay 2.45 s**, event-loop stall ~150-190 ms, not growing with
+size. Replay, not load, was the larger cost. Cause: the router's 1 ms sleep per step (for live cores) also ran for
+every *historical* step. Now a replay only yields to the event loop: **2.45 → 1.15-1.25 s (−50 %)**, commands
+unchanged; regression test asserts no replayed step waits.
+
+**Event counts:** the deadline-based KEEP (O2) removes most KEEP command/response pairs from idle steps (−35 % events
+in the 60-step waiting case). For the failed full-six run's journal (110k events, about 5.5k blocks), blocks
+dominate, so the expected reduction there is smaller (estimate about −20 %, not measured on a real game).
+
+**Snapshots/compaction: not implemented, on evidence.** Recovery's correctness argument is that the same router code
+re-derives every command from authenticated history; a snapshot would have to serialize the router, the desk's
+receipts and the controller validator exactly and be proven equivalent, a new protocol surface. The measurements
+show it is not needed to avoid timeouts: load runs off the event loop, replay yields every step with flat stalls
+far below the 5 s RPC deadline, and projected recovery of a 110k-event journal is about 5-7 s load (worker) plus
+about 20 s replay (waiting clients keep getting answers). Open risk, documented: the journal's hard bound
+(500k events / 256 MB) would end a battle about four times longer than the full-six run.
