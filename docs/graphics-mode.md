@@ -83,3 +83,25 @@ the real check says so, the real Classic 2D exe starts. It says nothing about re
 drivers, DPI scaling, exclusive fullscreen, audio devices or controllers; those still need a person at a
 real PC. The *success* path of the 3D check was exercised on Linux with Mesa's software renderer (also
 not a real GPU), and the real-driver-limit case with Mesa forced to OpenGL 2.1.
+
+## Evidence
+
+GitHub Actions run 38655648745 (workflow `windows-package`, branch `claude/graphics-mode-selector`, app commit
+`f622f01`, engine `claude/graphics-mode-engine` commit `730aba1e`, full mode, windows-2022 runner). Both jobs
+succeeded; the graphics step printed **16 of 16 checks passed**:
+
+* 3D check on the VM: `supported=False, reason='functions', detail='glActiveTexture is missing',
+  renderer='GDI Generic', version='1.1.0'` (a definite answer, not a hang or crash).
+* Decision: unsupported 3D means the player is asked first; the explanation names Classic 2D and says the
+  save is unchanged. "Launch in Classic 2D" selects the pinned 2D game; the saved preference stays 3D; a
+  manual 2D choice never runs the 3D check.
+* The real Classic 2D game passes its own check (`direct3d`) and stays running for 20 s.
+* The real 3D game with unsupported graphics exits **78** with the explanation (it does not close silently
+  or crash) and creates no save or settings file; forced renderer failure behaves the same for both games.
+* Classic 2D keeps the 3D view's settings lines.
+* Package: both game executables are the engine job's builds (sha256 `69ab8fd5…ba20` 3D, `48ca6c6c…54f7` 2D);
+  the frozen launcher stayed up for 20 s.
+
+Not shown by this run: a real GPU with a vendor driver, audio, controllers, fullscreen/DPI behaviour, the
+success path of the 3D game on Windows, and any gameplay or network behaviour. The VM has no sound device
+(`WASAPI can't find requested audio endpoint`) and no sprite pack or base ROM.
