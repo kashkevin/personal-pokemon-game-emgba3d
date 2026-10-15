@@ -7,7 +7,7 @@ below was decided or built by assumption; each row says what is waiting and a re
 
 | # | Decision | Why it is open | Recommendation |
 | --- | --- | --- | --- |
-| 1 | **`src/platform/bios.c` licensing (N8)** | Contains code derived from VBA-M (GPL-2.0+) and mGBA (MPL-2.0); KNOWN_ISSUES says to replace it "before giving the build to anyone". The package is now built for other people. This is a licensing judgment, not legal advice. | Replace it with a clean-room implementation from public hardware documentation (GBATEK) before sharing; keep it private until then. |
+| 1 | **`src/platform/bios.c` licensing (N8)** | Contains code derived from VBA-M (GPL-2.0+) and mGBA (MPL-2.0); KNOWN_ISSUES says to replace it "before giving the build to anyone". **Reviewed in Update 7 (`docs/bios-licensing-review.md`): still unresolved, nothing changed.** This is a licensing judgment, not legal advice. | Keep every build private. Before any handover, have the 12 functions rewritten by someone who has not copied VBA-M/mGBA code, from GBATEK, validated by `check-decompress` and new tests (details and caveats in the review). |
 | 2 | **Where the base game dump comes from for CI** | The full Windows package builds without the dump, but the *import of the owner's own game* is disabled without it (sha256 `a9dec84d…85af`). | Keep importing on the player's own PC (current design). For CI, a self-hosted runner or a private secret URL; never commit the dump. |
 | 3 | **Whether to ship the Classic 2D game in every package** | The graphics-mode fallback needs the second executable (about 35 MB on top of 90 MB). | Yes: it is the only fallback when a PC's OpenGL is too old. |
 
