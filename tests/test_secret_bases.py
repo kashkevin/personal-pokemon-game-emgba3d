@@ -322,7 +322,7 @@ class MenuTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.labels(menu), ["Players and weather", "Outbreak: WURMPLE", "World Event: none",
                                              "This area's wild Pokemon", "My Secret Base", "Frontier and League"])
         await self.click(menu, "Players and weather")
-        self.assertEqual(self.labels(menu), ["Alice - ROUTE 101", "Bob - LITTLEROOT TOWN"])
+        self.assertEqual(self.labels(menu), ["Alice - ROUTE 101", "Bob - LITTLEROOT TOWN", "Share my location: ON"])
         await self.click(menu, "Alice - ROUTE 101")
         self.assertIn("Weather: Rain", self.labels(menu))
         self.assertIn("Map icon: your own", self.labels(menu))

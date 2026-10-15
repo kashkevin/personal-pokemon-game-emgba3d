@@ -803,6 +803,11 @@ class PlayerMenu:
             for player in nav["players"][:4]:
                 actions.append((f"{self._name(player['player_id'])[:9]} - {player['place']}", "world_player",
                                 (player["player_id"],)))
+            # PokeNav privacy (Update 24): the player's own choice, kept in their profile; on by default.
+            sharing = getattr(self.companion, "share_location", True)
+            actions.append(("Share my location: " + ("ON" if sharing else "OFF"), "privacy_toggle", ()))
+            if not sharing:
+                status = self._notice or "Others see Location hidden"
         elif page == "world_player":
             player = next((p for p in nav["players"] if p["player_id"] == target), None)
             title = self._name(target)
@@ -1018,6 +1023,12 @@ class PlayerMenu:
                 await self.companion.battle_challenge_rpc(op.removeprefix("battle_"), **fields)
             elif op == "wager":
                 self._page = ("wager", args[0])
+            elif op == "privacy_toggle":
+                try:
+                    self.companion.set_share_location(not getattr(self.companion, "share_location", True))
+                except OSError:
+                    self._notice = "Could not save the choice"
+                self._page = ("world_players", None)
             elif op == "wager_amount":
                 index = WAGER_CHOICES.index(self._wager_amount) if self._wager_amount in WAGER_CHOICES else 0
                 self._wager_amount = WAGER_CHOICES[(index + 1) % len(WAGER_CHOICES)]

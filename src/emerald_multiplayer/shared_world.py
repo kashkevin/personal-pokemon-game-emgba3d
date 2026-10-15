@@ -52,7 +52,7 @@ def time_of_day_for_hour(hour: int) -> str:
     if hour in EVENING_HOURS:
         return "evening"
     return "night"
-from . import event_conditions
+from . import event_conditions, privacy
 from .frontier import SCHEMA as _FRONTIER_SCHEMA, FrontierBook
 from .ffa_results import SCHEMA as _FFA_SCHEMA, FfaBook
 from .secret_bases import SCHEMA as _BASE_SCHEMA, SecretBaseBook
@@ -418,6 +418,9 @@ class SharedWorld:
         players = []
         for player_id, presence in sorted(presences.items()):
             if presence is None:
+                continue
+            if privacy.is_redacted(presence):   # the player hides where they are (Update 24)
+                players.append({"player_id": player_id, "place": privacy.HIDDEN_PLACE, "weather": None})
                 continue
             code = presence.get("weather")
             name = director._weather_names.get(code) if director is not None and type(code) is int else None

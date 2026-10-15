@@ -29,7 +29,7 @@ CHECKPOINT_TYPES = frozenset({
 })
 ACTIVITIES = frozenset({"overworld", "menu", "battle", "transition", "unavailable"})
 MOVEMENT_MODES = frozenset({"walk", "run", "bike", "surf"})
-WORLD_PRESENCE_FIELDS = frozenset({"follower_species", "follower_flags", "mount_state", "mount_species", "mount_flags",
+WORLD_PRESENCE_FIELDS = frozenset({"share_location", "follower_species", "follower_flags", "mount_state", "mount_species", "mount_flags",
                                    "wallet_seq", "weather"})
 _IDENTITY = re.compile(r"[A-Za-z0-9_.:-]{1,128}\Z")
 
@@ -203,6 +203,12 @@ def validate_presence(message: dict[str, Any], session_epoch: int) -> dict[str, 
     # The overworld weather the game shows (shared spawns weigh species by it).
     if "weather" in message:
         result["weather"] = _integer(message["weather"], "weather", 0, 255)
+    # The player's PokeNav privacy choice (Update 24, docs/pokenav-privacy.md): only ever sent when location sharing is off;
+    # absent means sharing (the default, and what every older game does).
+    if "share_location" in message:
+        if message["share_location"] is not False:
+            raise ProtocolError("invalid_field", "share_location is only sent as false")
+        result["share_location"] = False
     return result
 
 

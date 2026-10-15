@@ -21,6 +21,7 @@ from uuid import uuid4
 
 from .battle_desk import BattleDesk, BattleError
 from .shared_world_protocol import WORLD_TYPES, validate_world_request
+from . import privacy
 from .protocol import (
     CHECKPOINT_TYPES, MAX_COUNTER, MAX_FRAME_BYTES, MAX_PLAYERS, PROTOCOL_VERSION, ProtocolError,
     encode_message, read_message, validate_heartbeat, validate_hello,
@@ -1190,6 +1191,7 @@ class WorldServer:
         base = {"type": "world", "protocol": PROTOCOL_VERSION, "world_seq": self.world_seq,
                 "players": players, "clock": world.clock_view(), "event": world.event_view(),
                 "notice": world.notice_view()}
+        hiding = any(privacy.is_hidden(player["presence"]) for player in players)
         # Shared wild Pokemon (protocol 3): each game receives the slots of the
         # map it stands on, with its own "mine"/"busy" view of every claim.
         self._last_clock_broadcast = asyncio.get_running_loop().time()
@@ -1205,6 +1207,19 @@ class WorldServer:
         except Exception:  # noqa: BLE001 - the rule label is advisory
             nav["rule"] = None
         for session in tuple(self.sessions.values()):
+            view, view_nav = base, nav
+            if hiding:
+                # PokeNav privacy (Update 24): this viewer's copy of the world view, with every other player's place
+                # that asked to be hidden taken out of it (privacy.py).
+                viewer = session.presence
+                view = {**base, "players": [
+                    {**player, "presence": privacy.redact(player["presence"], viewer, own=player["player_id"] == session.player_id)}
+                    for player in players]}
+                try:
+                    view_nav = {**world.nav_view({p["player_id"]: p["presence"] for p in view["players"]}),
+                                "rule": nav.get("rule")}
+                except Exception:  # noqa: BLE001 - the PokeNav view never stops the world view
+                    view_nav = {"players": [], "outbreak": None, "event": None, "rule": None}
             # Each game receives only its own next wallet adjustment (wagers)
             # and its own host-formed teammate (co-op Gym offers).
             wallet = None
@@ -1222,8 +1237,8 @@ class WorldServer:
                 bases = world.bases.view_for(session.player_id, teammate, roster)
             except Exception:  # noqa: BLE001 - secret bases never stop the world view
                 bases = []
-            session.outbox.put_world(encode_message({**base, "wallet": wallet, "teammate": teammate,
-                                                     "spawns": spawns, "extras": {"bases": bases, "nav": nav}}))
+            session.outbox.put_world(encode_message({**view, "wallet": wallet, "teammate": teammate,
+                                                     "spawns": spawns, "extras": {"bases": bases, "nav": view_nav}}))
 
     def _progression_level(self) -> int:
         """Average of each connected player's strongest party level."""

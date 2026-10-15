@@ -46,8 +46,10 @@ independent consents, roster/retry conflicts, win/draw/invalid outcomes, publica
 `tests/test_battle_challenge_network.py`, `tests/test_player_menu.py`.
 
 ## Known limits (honest list)
-* **Visuals reuse the doubles layout.** The third foe is drawn in the partner slot; the party-summary balls of the right-flank
-  positions are skipped; battle text says "The opposing …" for all foes. It is playable but not a polished four-trainer screen.
+* **Visuals (Update 21, `docs/four-player-battle-ui.md`):** the layout is the doubles layout with the second player's Pokémon facing you,
+  trainer names on every healthbox / name tag, "BOB's Gardevoir …" in the battle text, FOE-only target plates and an OUT tag for an
+  eliminated trainer. Looked at in a headless simulation only. Classic 2D target selection has no names (only the blinking sprite);
+  the party-summary balls of the right-flank positions are skipped.
 * **No forfeit.** A trainer who wants out must lose or disconnect (recovery rules then apply).
 * **Not verified on a real display or a real network** (only simulated native receipts and the GBA test ROM).
 * The 3D diorama and the 2D renderer use the same position model; neither was exercised with a live four-player session here.

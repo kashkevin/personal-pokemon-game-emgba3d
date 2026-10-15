@@ -384,6 +384,9 @@ class LauncherSession:
             config = replace(config, server_host=self._host_route)
             await self._start_host_service(host)
         self._companion = Companion(config)
+        from . import privacy
+        self._companion.share_location = privacy.load(self._profile_directory)
+        self._companion._privacy_directory = self._profile_directory
         if (self._manifest.get("battle_execution_abi_version") == 1
                 or self._manifest.get("menu_abi_version") == 2):
             self._companion._native_menu_handoff = self._native_menu_handoff

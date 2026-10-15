@@ -404,6 +404,9 @@ class Companion:
         self.config = config
         self._server_tls_context = config.server_tls.build_context() if config.server_tls is not None else None
         self.connected = False
+        # PokeNav privacy (Update 24, privacy.py): TRUE shares this player's place with the others (the default).
+        self.share_location = True
+        self._privacy_directory = None
         self.session_epoch: int | None = None
         self.last_error: str | None = None
         self._ipc_server: asyncio.Server | None = None
@@ -1348,6 +1351,13 @@ class Companion:
             if self._remote_writer is writer:
                 self._remote_writer = None
 
+    def set_share_location(self, share: bool) -> None:
+        """The player's choice from PokeNav > World > Players: the next presence says it; the choice is kept in the profile."""
+        from . import privacy
+        self.share_location = bool(share)
+        if self._privacy_directory is not None:
+            privacy.save(self._privacy_directory, self.share_location)
+
     async def _send_presence(self, writer: asyncio.StreamWriter) -> None:
         while True:
             pose = self._local_pose
@@ -1358,6 +1368,8 @@ class Companion:
                     fields.update(self._local_world.network_fields())
                 if self.config.world_enabled and self._local_spawn is not None:
                     fields["weather"] = self._local_spawn.weather
+                if not self.share_location:
+                    fields["share_location"] = False    # the host keeps this player's place from the others
                 source_signature = (self._bridge_incarnation, pose.map_epoch, pose.map_group, pose.map_number)
                 pose_signature = (source_signature, pose.frame, tuple(fields.values()))
                 if pose_signature != self._sent_pose_signature:
