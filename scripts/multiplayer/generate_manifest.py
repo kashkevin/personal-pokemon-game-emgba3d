@@ -12,7 +12,8 @@ import zlib
 RULESET = "baseline-rhh1.17.1-mailbox-v1"
 
 
-def generate(rom: Path, elf: Path, nm: str, engine_commit: str, *, trade_effect_prepare=False, trade_effect_save=False, trade_effect_choice=False) -> dict:
+def generate(rom: Path, elf: Path, nm: str, engine_commit: str, *, trade_effect_prepare=False, trade_effect_save=False, trade_effect_choice=False,
+             native_symbols: str = "") -> dict:
     if not re.fullmatch(r"[0-9a-f]{40}", engine_commit):
         raise ValueError("engine_commit must be the exact Git commit")
     symbols = subprocess.check_output([nm, "--print-size", "--defined-only", str(elf)], text=True)
@@ -170,12 +171,14 @@ def generate(rom: Path, elf: Path, nm: str, engine_commit: str, *, trade_effect_
             raise ValueError("co-op Gym battles require one four-byte marker and the native battle channel")
         manifest.update(battle_coop_abi_version=1, battle_coop_abi_address=int(coop[0][0], 16))
         validate_battle_manifest(manifest, rom)
-    ffa = re.findall(r"^([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+[Rr]\s+gMultiplayerBattleFfaAbiVersion$", symbols, re.M)
+    # The four-player free-for-all exists in the native PC game only (the GBA ROM stays byte-identical), so its marker is read
+    # from the symbols of the PC executable (`nm` of the unstripped exe), not from the GBA ELF.
+    ffa = re.findall(r"^([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+[RrDd]\s+_?gMultiplayerBattleFfaAbiVersion$", symbols + native_symbols, re.M)
     if ffa:
         from emerald_multiplayer.battle_manifest import validate_battle_manifest
         if len(ffa) != 1 or int(ffa[0][1], 16) != 4 or not battle:
             raise ValueError("free-for-all battles require one four-byte marker and the native battle channel")
-        manifest.update(battle_ffa_abi_version=1, battle_ffa_abi_address=int(ffa[0][0], 16))
+        manifest.update(battle_ffa_abi_version=1)
         validate_battle_manifest(manifest, rom)
     objects = re.findall(r"^([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+[BDbd]\s+gObjectEvents$", symbols, re.M)
     reset = re.findall(r"^([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+[Rr]\s+gMultiplayerResetAbiVersion$", symbols, re.M)
@@ -303,6 +306,8 @@ def main() -> None:
     parser.add_argument("--elf", type=Path, required=True)
     parser.add_argument("--engine-commit", required=True)
     parser.add_argument("--nm", default="arm-none-eabi-nm")
+    parser.add_argument("--native-symbols", type=Path, default=None,
+                        help="`nm --print-size --defined-only` of the unstripped native PC executable (advertises PC-only battle features)")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--trade-effect-prepare", action="store_true",
                         help="opt into internal held record preparation; does not enable effect publication")
@@ -313,7 +318,8 @@ def main() -> None:
     args = parser.parse_args()
     manifest = generate(args.rom, args.elf, args.nm, args.engine_commit,
                         trade_effect_prepare=args.trade_effect_prepare, trade_effect_save=args.trade_effect_save,
-                        trade_effect_choice=args.trade_effect_choice)
+                        trade_effect_choice=args.trade_effect_choice,
+                        native_symbols=args.native_symbols.read_text() if args.native_symbols else "")
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     print(f"Verified mailbox manifest: {args.output}; ROM {manifest['rom_sha256']}")

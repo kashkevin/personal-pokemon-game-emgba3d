@@ -1,5 +1,6 @@
 """ELF-derived diagnostic channel metadata; these fixtures are not game ROMs."""
 import unittest
+from unittest.mock import patch
 
 from emerald_multiplayer.battle_manifest import BATTLE_FIELDS, validate_battle_manifest
 import test_save_manifest as fixtures
@@ -151,30 +152,26 @@ class CoopAndWorldManifestTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.generate(self.base + self.coop)  # no native battle channel
 
-    def test_free_for_all_marker_requires_abi3_channel_and_exact_rom_value(self):
+    def generate_native(self, extra, native):
+        with patch.object(fixtures.generator.subprocess, "check_output", return_value=self.symbols + extra):
+            return fixtures.generator.generate(self.rom, self.elf, "fixture-nm", "b" * 40, native_symbols=native)
+
+    def test_free_for_all_marker_comes_from_the_native_executable_and_needs_the_abi3_channel(self):
         from emerald_multiplayer.battle_manifest import FFA_FIELDS
-        with self.rom.open("r+b") as rom:
-            rom.seek(212)
-            rom.write(b"\x01\0\0\0")  # 212: free-for-all marker
-        ffa = "080000d4 00000004 R gMultiplayerBattleFfaAbiVersion\n"
-        generated = self.generate(self.base + self.battle + ffa)
-        self.assertEqual({key: generated[key] for key in FFA_FIELDS},
-                         {"battle_ffa_abi_version": 1, "battle_ffa_abi_address": 0x080000D4})
+        native = "00bd2770 00000004 R gMultiplayerBattleFfaAbiVersion\n"
+        plain = self.generate(self.base + self.battle)
+        generated = self.generate_native(self.base + self.battle, native)
+        self.assertFalse(FFA_FIELDS & set(plain))                   # the GBA ELF alone never advertises it
+        self.assertEqual({key: generated[key] for key in FFA_FIELDS}, {"battle_ffa_abi_version": 1})
         self.assertTrue(validate_battle_manifest(generated, self.rom))
-        for changes in ({"battle_ffa_abi_version": 2}, {"battle_ffa_abi_address": 0x080000D6},
-                        {"battle_ffa_abi_address": 0x080000C8}, {"battle_abi_version": 2}):
+        for changes in ({"battle_ffa_abi_version": 2}, {"battle_ffa_abi_version": True}, {"battle_abi_version": 2}):
             with self.subTest(changes=changes), self.assertRaises(ValueError):
                 validate_battle_manifest({**generated, **changes}, self.rom)
-        partial = dict(generated)
-        del partial["battle_ffa_abi_address"]
         with self.assertRaises(ValueError):
-            validate_battle_manifest(partial, self.rom)
-        with self.assertRaises(ValueError):
-            self.generate(self.base + ffa)  # no native battle channel
-        with self.rom.open("r+b") as rom:
-            rom.seek(212); rom.write(b"\x02\0\0\0")
-        with self.assertRaises(ValueError):
-            validate_battle_manifest(generated, self.rom)   # the ROM disagrees with the manifest
+            self.generate_native(self.base, native)                  # a marker without the native battle channel
+        for bad in ("00bd2770 00000008 R gMultiplayerBattleFfaAbiVersion\n", native + native):
+            with self.assertRaises(ValueError):
+                self.generate_native(self.base + self.battle, bad)
 
     def test_world_marker_and_mailbox_are_generated_and_verified(self):
         from emerald_multiplayer.world_mailbox import validate_world_manifest

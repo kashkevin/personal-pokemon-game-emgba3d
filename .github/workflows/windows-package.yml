@@ -99,6 +99,8 @@ jobs:
           export PATH="$GITHUB_WORKSPACE/.tools/bin:$PATH"
           make -j"$(nproc)" BUILD_NAME=dev
           make -f Makefile_pc SDL_DIR="$GITHUB_WORKSPACE/sdl/SDL2-${SDL_VERSION}/i686-w64-mingw32" DIORAMA=1 -j"$(nproc)"
+          # PC-only battle features (the free-for-all) advertise themselves in the native game, not in the GBA ROM.
+          i686-w64-mingw32-nm --print-size --defined-only pokeemerald-mp-diorama.exe > native-symbols.txt
           i686-w64-mingw32-strip --strip-all pokeemerald-mp-diorama.exe
           # The Classic 2D game: the same engine without DIORAMA=1 (Graphics mode in the launcher).
           make -f Makefile_pc SDL_DIR="$GITHUB_WORKSPACE/sdl/SDL2-${SDL_VERSION}/i686-w64-mingw32" -j"$(nproc)"
@@ -117,7 +119,7 @@ jobs:
           cp "$GITHUB_WORKSPACE/sdl/SDL2-${SDL_VERSION}/i686-w64-mingw32/bin/SDL2.dll" ../native-inputs/
           PYTHONPATH="$GITHUB_WORKSPACE/app/src" "$GITHUB_WORKSPACE/.venv/bin/python" \
             "$GITHUB_WORKSPACE/app/scripts/multiplayer/generate_manifest.py" \
-            --rom pokedev.gba --elf pokedev.elf --engine-commit "$commit" --output ../native-inputs/manifest.json
+            --rom pokedev.gba --elf pokedev.elf --engine-commit "$commit" --native-symbols native-symbols.txt --output ../native-inputs/manifest.json
       - name: Hand the build to the Windows job (private, one day)
         uses: actions/upload-artifact@v4
         with:

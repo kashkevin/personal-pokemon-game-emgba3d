@@ -543,3 +543,25 @@ free-form character creation, graphical PokéNav markers, eggs/mail in trades (k
   after the Gen 6 switch change: sha256 unchanged. The GBA test-ROM suite was **not rerun**: the only shared-source change is a
   `#ifdef PORTABLE` in `include/config/battle.h`, so the GBA/test-ROM code is identical (previous result: 5504 pass, 39 = expected list).
 * **Not verified on hardware:** everything in `docs/windows-test-update8-14.md` and `docs/windows-test-update2-7.md`.
+
+## Update 15 — True four-player free-for-all (1v1v1v1)
+
+Branches `claude/dev-update15-20` (app) and `claude/dev-update15-20-engine` (engine). **Design (`docs/free-for-all.md`):** not four 1v1s, not
+a renamed 2v2, not a simulator: the engine's own battle code with a fourth *side model*. `GetBattlerSide()` answers the rules side (the
+battler itself in a free-for-all), `GetBattlerPositionSide()` the screen column; `NUM_BATTLE_LOGIC_SIDES` = 4 for the side arrays;
+`IsPartnerAlive`/`GetPartnerBattler` know nobody has an ally; targets, spread counts, Intimidate/Download/Trace, screens, hazards, Court
+Change, Helping Hand/Ally Switch/Follow Me, Symbiosis/Friend Guard, the win check (`battle_ffa.c`: eliminated = party fainted, last
+trainer wins, simultaneous = draw) and the winner byte in the end-of-battle controller block are free-for-all aware; everything is
+behind `MP_FFA_ENABLED` (PC build and test ROM only). Native phase 5 (`MP_BATTLE_PHASE_FFA`) reuses the four-core full-Multi
+infrastructure; the result is the winner's slot + 1 or 5 (draw), identical on every core, each core checking its own local result against it.
+Host: `BattleDesk.invite_ffa` (mode 5, own consent domain), protocol op, controller validator, binding/query outcome words, manifest
+marker read from the **native exe** (the GBA ROM stays byte-identical), `ffa_results` durable book (idempotent), no wager, friendships,
+in-game menu and launcher entries (offered only when the ROM advertises it).
+**Evidence:** GBA test ROM 25 new FFA tests + native four-core startup test; full suite 6031 tests, 5529 pass, 39 failed = the 39 expected, 0
+new; PC selftests (coop-controller 22, ladder 20, secret-base 36, check-native); app tests listed in the validation matrix. **Release GBA ROM
+sha256 f214735b…3387 unchanged** — this needed work: inline helpers as macros in the GBA form, `battle_ffa.c` kept out of the release link
+(an empty object reordered the linker's veneers), `#line` markers; verified by relinking the baseline objects and by per-function
+disassembly comparison. **A regression found and fixed on the way:** `BattleSideHasTwoTrainers` returned FALSE for a free-for-all
+which broke the party-index setup in the 25 tests (they had passed before the native-phase commit).
+**Not verified:** four real PCs, the screen layout (doubles layout reused, third foe in the partner slot), a real disconnect mid-battle.
+The 3 `2v1`/two-opponent test failures also fail on the Update 14 head (they are among the 39 listed Gen 6 failures).

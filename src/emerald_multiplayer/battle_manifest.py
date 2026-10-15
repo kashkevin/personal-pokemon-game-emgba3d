@@ -8,7 +8,7 @@ EXECUTION_FIELDS = frozenset({"battle_execution_abi_version", "battle_string_tab
 RESUME_FIELDS = frozenset({"battle_resume_abi_version", "battle_resume_abi_address"})
 ADMISSION_CLEANUP_FIELDS = frozenset({"battle_admission_cleanup_abi_version", "battle_admission_cleanup_abi_address"})
 COOP_FIELDS = frozenset({"battle_coop_abi_version", "battle_coop_abi_address"})
-FFA_FIELDS = frozenset({"battle_ffa_abi_version", "battle_ffa_abi_address"})
+FFA_FIELDS = frozenset({"battle_ffa_abi_version"})   # advertised by the native PC game (not the GBA ROM, which stays byte-identical)
 
 
 def validate_battle_manifest(manifest, rom_path=None):
@@ -109,16 +109,9 @@ def validate_battle_manifest(manifest, rom_path=None):
                 if source.read(4) != b"\x01\0\0\0":
                     raise ValueError("co-op Gym marker disagrees with the verified ROM")
     if FFA_FIELDS.intersection(manifest):
-        # Free-for-all phase 5: four independent trainers on four sides.
-        if (not FFA_FIELDS.issubset(manifest) or manifest["battle_abi_version"] != 3
-                or type(manifest["battle_ffa_abi_version"]) is not int or manifest["battle_ffa_abi_version"] != 1):
+        # Free-for-all phase 5 is built into the native PC game only; the GBA ROM carries no marker for it, so there
+        # is no address to verify, only the ABI generation and the native ABI3 channel it rides on.
+        if (manifest["battle_abi_version"] != 3 or type(manifest["battle_ffa_abi_version"]) is not int
+                or manifest["battle_ffa_abi_version"] != 1):
             raise ValueError("free-for-all metadata requires its ABI1 marker and the native ABI3 channel")
-        address = manifest["battle_ffa_abi_address"]
-        if type(address) is not int or address % 4 or not 0x08000000 <= address <= 0x08000000 + size - 4:
-            raise ValueError("free-for-all marker lies outside its exact ROM")
-        if rom_path is not None:
-            with Path(rom_path).open("rb") as source:
-                source.seek(address - 0x08000000)
-                if source.read(4) != b"\x01\0\0\0":
-                    raise ValueError("free-for-all marker disagrees with the verified ROM")
     return True

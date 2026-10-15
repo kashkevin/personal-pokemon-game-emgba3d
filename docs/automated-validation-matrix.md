@@ -31,6 +31,7 @@ GBA ROM `pokedev.gba` built from this engine: sha256 `f214735b…3387` (byte-ide
 | Wild spawns, outbreaks, events, weather | `check-spawn-claims`, `check-wild-weather`, `test_outbreaks`, `test_shared_world`, `test_event_conditions` (**new**), `test_world_spawns_companion` | Watching them in two games. |
 | Co-op battles and rewards (EXP, Exp. Share) | `check-coop-exp` (26), `check-coop-controller` (14), `test_coop_battle`, GBA tests `(Exp)`-related, `Multiplayer` group | A real co-op Gym fight on two PCs. |
 | 4-player / 2v2 | `test_battle_multi_desk`, `test_native_multi`, GBA `Multi battle` tests (incl. **new** Mega), four-player recovery tests | Four PCs. |
+| 1v1v1v1 free-for-all (Update 15) | Engine rules in the GBA test ROM: `test/battle/ffa/*` **25 tests** (every trainer a foe, any foe targetable, spread moves, Reflect/hazards/Court Change per side, Intimidate on three, weather shared, Roar, Imprison, Helping Hand fails, replacement, elimination, last-trainer win, simultaneous draw), `test/multiplayer_battle.c` four-core FFA startup (all four local slots); PC `--selftest-coop-controller` 22 (FFA owners, targets, winner byte); app `test_battle_ffa_desk` 17, `test_native_ffa` 18 (envelope, controller, roster, journal, admission), `test_battle_protocol`/`controller`/`manifest`/`challenge_network`/`player_menu` additions, `FfaBook` | Four real PCs; the doubles-layout screen; a real disconnect mid-battle. |
 | Trading and saving | `test_live_trade`, `test_trade_desk`, `test_trade_eligibility`, `test_autosave`, `test_emergency_save`, `test_checkpoint_server` | Trading between two real saves. |
 | Disconnect / reconnect / host restart | `test_battle_recovery(_session)`, `test_native_battle_resume`, `test_journal_load`, `test_companion_live`, **new** `test_secret_bases` reconnect test, shared-world restart tests | Pulling a real network cable. |
 | Secret Bases (new) | engine `--selftest-secret-base` 24; bridge frames in `test_mp_bridge` (4293); app `test_secret_bases` 27 incl. a real host with two companions | Entering a friend's base in the game. |
@@ -42,6 +43,16 @@ GBA ROM `pokedev.gba` built from this engine: sha256 `f214735b…3387` (byte-ide
 | Legendary catch ownership (Update 11) | `test_event_catch` 11, `test_shared_world` | Two real games racing a catch. |
 | Secret Base defender team, PokéNav habitat page (Update 12) | engine `--selftest-secret-base` 36; `test_secret_bases` 32 incl. real encounter tables | Meeting the team in a visited base; how the page looks. |
 | Gen 6 rules (Update 13) | `check-native` (compiles the PC build with the new switches); `test_appearance_names` | A thunderstorm and a trainer battle in the game. |
+
+## Update 15 (free-for-all) runs, 2026-10-15
+
+| Suite | Result |
+| --- | --- |
+| GBA test ROM, full `make check` at engine `b7f82bda` (the commit before the native phase) | 6031 tests: **5529 passed (5504 + 25 new FFA tests)**, 39 failed = exactly the 39 expected Gen 6 failures (`docs/gba-test-expected-failures.txt`), 0 new |
+| GBA test ROM, targeted re-run at the final Update 15 engine head: `test/battle/ffa`, `test/multiplayer*`, `exp.c`, `battle_message.c` | 197 passed, 3 failed = the 3 listed Gen 6 failures (the same 3 fail on the Update 14 head `c56e76a6`, checked in a clean worktree) |
+| Release GBA ROM | rebuilt after every change: sha256 **`f214735b…3387`, byte-identical** (needed: macro forms of the helpers, `battle_ffa.c` excluded from the release link because even an empty object reorders the linker's veneers, `#line` markers) |
+| PC `check-native`, `--selftest-ladder` 20, `--selftest-secret-base` 36, `--selftest-coop-controller` 22 | all pass |
+| App suite, `xvfb-run pytest tests` (venv, Python 3.13) | all pass except the 24 Tk tests (run in the Python 3.12 + tkinter venv: all pass) and one timing test run under heavy machine load (re-run alone: see ledger) |
 
 ## What none of this proves
 
