@@ -9,7 +9,7 @@ Branches (nothing merged into the combined branches; no force-pushes):
 | Repo | Branch | Based on |
 | --- | --- | --- |
 | App | `claude/dev-m25-stability` | `claude/admiring-bohr-dpxzuy` (diagnosis, packaging) |
-| Engine | `claude/dev-stability-engine` (created when the first engine change lands) | `claude/cloud-setup-engine` |
+| Engine | `claude/dev-stability-engine` (created at P3; pushed) | `claude/cloud-setup-engine` |
 | Graphics mode (separate work, not duplicated here) | app `claude/graphics-mode-selector`, engine `claude/graphics-mode-engine` | CI run 38655648745 pending when this ledger began |
 
 ## Queue
@@ -18,7 +18,7 @@ Branches (nothing merged into the combined branches; no force-pushes):
 | --- | --- | --- |
 | P1 | M25 multiplayer battle performance | done for what is safe (−12 % to −28 %); two further levers need Opus (see entry) |
 | P2 | Four-player 2v2 and recovery (journal growth) | done for what is safe (reload −47 %); journal-format reduction and the full-six proof need Opus / owner data (see entry) |
-| P3 | Co-op EXP / Exp. Share verification | queued |
+| P3 | Co-op EXP / Exp. Share verification | verified; parity test added; no confirmed bug; persistence and farming are owner decisions |
 | P4 | Stability: clock self-test, UBSan coverage, M27, GEN_6 test review | queued |
 | K | Customizable keybinds (inspected: **does not exist**, implement) | queued |
 | P5 | Incomplete features audit and partial completions | queued |
@@ -108,3 +108,38 @@ Not a real game: a real run is the only proof that a full-six interrupted battle
   real PCs.
 * Turn order and targeting are covered by the engine's 66 focused tests (`docs/native-full-multi.md`); the engine
   suite is run at the P4 milestone.
+
+## P3 — Co-op EXP and the permanent Exp. Share
+
+**Result: verified by test and code reading; no confirmed bug; one test added; nothing in the game changed.**
+
+Engine commit `8176fc07` on `claude/dev-stability-engine` (test only, `src/platform/native_selftest.c`).
+
+* **Parity with the battle's own EXP path (new).** `MultiplayerCoop_ExpReward` repeats `Cmd_getexp` states 1-2.
+  The old self-test compared it with a hand-written Gen 6 calculation that skipped Lucky Egg, traded, Exp. Charm
+  and the level cap. The new check runs the multiplier chain through the **real** `ApplyExperienceMultipliers` and
+  `GetSoftLevelCapExpValue` for 6 getter variants (plain, traded, Lucky Egg, past evolution level, four hearts,
+  all together) x Exp. Charm in the bag x 5 foes (Lv. 1 to 100) x faced/shared: **120 of 120 equal**. Mutation
+  check: changing the Lucky Egg multiplier in `MultiplayerCoop_ExpReward` from 150 to 140 makes it fail (100 of
+  120), then restored. `--selftest-coop-exp`: **26 checks, 0 failed** (24 before). Limit: it replicates the
+  first-stage arithmetic of `Cmd_getexp` (a state machine tied to battle controllers); it is not the whole
+  state machine. The project's configuration is Gen 6 (`GEN_LATEST` is `GEN_6`), so the Gen 5/7+ "scaled EXP"
+  branch is compiled out and not exercised.
+* **Reviewed, no defect:** PvP awards nothing (link battles refuse EXP in `BattleTypeAllowsExp`; the self-test also
+  checks that a non-co-op result records and awards nothing); the award is consumed once (`pending` cleared before
+  `ApplyCoopExp`), and ending the same battle again finds nothing; the teammate's party is never touched; Eggs,
+  fainted and Lv. 100 Pokémon behave per the self-test.
+* **Not a bug, by design (documented in the source):** the pending award lives only in memory, so a reset in the
+  few seconds between the battle's end and the award script loses it and never doubles it. Persisting it needs a
+  save-layout change, which affects every save and the ABI check. **Owner decision** (accept the loss window, or
+  approve a save field).
+* **Rematch/farming (owner decision, not changed):** a Leader's co-op battle can be offered only by a player who has
+  not beaten that Leader (`HasTrainerBeenFought`), and a win flags the Leader for the players' own games. So EXP is
+  repeatable (a) by losing again and again after knocking out foes (a loss still awards the knocked-out foes), and
+  (b) in a 3-4 player group, while someone who has not beaten that Leader still asks a helper who has (the helper
+  keeps EXP and prize money). Like wild battles, this is bounded farming, not a duplicate award.
+* **Cosmetic report from the diagnosis not changed:** the Exp. Share key item says "turned off" while the share is
+  permanent (`item_use.c`). The item exists only in the FRLG maps that Emerald never loads, so a player cannot reach
+  it; no change.
+* **Not covered anywhere:** co-op NPC and Frontier rewards do not exist (rules are P5 owner decisions); a kill
+  between result and award on a real game was not run; all eight Gyms' scripted awards on a real game were not run.
