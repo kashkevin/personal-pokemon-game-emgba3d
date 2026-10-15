@@ -19,9 +19,9 @@ Branches (nothing merged into the combined branches; no force-pushes):
 | P1 | M25 multiplayer battle performance | done for what is safe (−12 % to −28 %); two further levers need Opus (see entry) |
 | P2 | Four-player 2v2 and recovery (journal growth) | done for what is safe (reload −47 %); journal-format reduction and the full-six proof need Opus / owner data (see entry) |
 | P3 | Co-op EXP / Exp. Share verification | verified; parity test added; no confirmed bug; persistence and farming are owner decisions |
-| P4 | Stability: clock self-test, UBSan coverage, M27, GEN_6 test review | queued |
-| K | Customizable keybinds (inspected: **does not exist**, implement) | queued |
-| P5 | Incomplete features audit and partial completions | queued |
+| P4 | Stability: clock self-test, UBSan coverage, M27, GEN_6 test review | clock, sanitizers and M27 done; GEN_6 review in progress (see entry) |
+| K | Customizable keybinds (inspected: **did not exist**, built from scratch) | done and tested; not tried on a real PC |
+| P5 | Incomplete features audit and partial completions | audited; status refreshed; owner decisions listed; no new mechanics built |
 
 ## P1 — M25 multiplayer battle performance
 
@@ -143,3 +143,48 @@ Engine commit `8176fc07` on `claude/dev-stability-engine` (test only, `src/platf
   it; no change.
 * **Not covered anywhere:** co-op NPC and Frontier rewards do not exist (rules are P5 owner decisions); a kill
   between result and award on a real game was not run; all eight Gyms' scripted awards on a real game were not run.
+
+## P4 — Stability and polish
+
+Engine commits on `claude/dev-stability-engine`: `2f8b35ef` (clock), `e1594d51` (M27).
+
+* **D2, the midnight-dependent clock self-test: fixed.** Reproduced first (`TZ` giving 23:51 local: 3 of 58 failed,
+  exactly as the diagnosis said). The test now pins its start to noon of the player's day. 58/58 in six time zones;
+  `make check-clock` runs four zones six hours apart, so one is always near midnight.
+* **Sanitizers.** UBSan build (`SANITIZE=1`) of the current source: the 11 self-tests that finish (battle-names, clock,
+  coop-controller, coop-exp incl. the new parity check, cry-stop, line-break, mp-objects, party-order, shake-anim,
+  spawn-claims, wild-weather) **0 reports**. `--selftest-decompress` under UBSan again hit the time limit (1500 s this
+  time, exit 124): slowness, not a finding, as before. **First AddressSanitizer run** (`SANITIZE=address`): the same 11
+  self-tests, **0 errors**. Limit unchanged: no existing headless driver plays trainer battles or move animations, so
+  those paths (where N37-N40 were found) are still covered only by playing. Extending that needs a scripted battle
+  driver in the engine (new tooling), not a flag; not started.
+* **M27: done as PC-only wording** ("START menu: PLAYER, then STYLE"). The GBA text is unchanged; `#line` markers keep
+  line numbers; the GBA ROM `pokedev.gba` was rebuilt after this and the keybinds work and is still sha256
+  `f214735b...3387`.
+* **GEN_6 test failures:** see below (filled when the GBA test run finished).
+
+## K — Customizable keybinds (built from scratch)
+
+Inspection first: the keys were fixed `#define`s in the engine's `sdl2.c`; no settings page, no file lines, no
+rebinding. Gamepad code exists (Windows XInput, Android) and was left alone. Everything is in `docs/keybinds.md`.
+
+* Engine commit `962b9fa3` (+ cleanup): pure module `keybinds.[ch]`, `key.*` lines in the settings file (only changed
+  bindings written), conflicts with swap, F1-F12/Esc reserved, damaged files stay playable, Ctrl+R/Ctrl+P chords kept,
+  F10 **Controls** page in the 3D game, prompts show the bound keys.
+* App commit `02726d1`: launcher Help > **Game keys** tab, `game_controls.py`.
+* **Evidence:** engine `test_keybinds` 24,154 checks (incl. 2,000 randomly damaged files), Controls-page model tests
+  (308 checks in that binary), `--selftest-keybinds` 21 checks through the real event loop, `check-native` and
+  `check-abi` pass, `check-diorama` passes, the GBA ROM is byte-identical; app `test_game_controls.py` (18 tests) and
+  a launcher GUI test; **full app suite 1506 passed, 118 skipped** (2026-10-15).
+* **Not verified:** a real keyboard on a real PC, any Windows run (the Windows executables are built by CI; this branch
+  has not been through it yet), the on-screen look of the Controls page (drawn by the renderer; no screenshot taken).
+
+## P5 — Incomplete features
+
+No new mechanic was built (the brief says finish partials, do not invent). Done: `FEATURE_STATUS.md` brought up to
+date (customization row was stale; rebinding row added), and every open design question gathered into
+`docs/owner-decisions.md` with a recommendation. The audit itself is unchanged from the diagnosis (section 5):
+Secret Bases, expanded PokéNav, co-op Frontier and breeding are missing and each needs rules from the owner first;
+legendary events are partial (G3 and the dynamics); character customization is partial; followers and shared spawns
+are implemented. Small partial, left open on purpose: G1 (post-Gen-6 move in an evolution trade) is rare in a Gen 6
+game and is listed as an owner decision rather than changed.
