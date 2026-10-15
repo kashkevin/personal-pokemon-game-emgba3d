@@ -280,3 +280,21 @@ cores (app), or the engine's own battle code in its test ROM / self-tests. **No 
 | Save integrity after recovery | recovery tests check canonical revision, freed reservations and SQLite integrity |
 
 Not covered: a real network, real Windows PCs, a full-six interrupted battle on real cores (needs the owner's parties).
+
+## O5 — Integration and delivery: Windows package built and checked
+
+GitHub Actions run **38672941750** (workflow `windows-package`, full mode), app `claude/dev-integration` at `7dd528a`
+(everything after it is ledger text), engine `claude/dev-integration-engine` at `cab2fd41`. Both jobs succeeded.
+
+* Built: GBA ROM (sha256 `f214735b…3387`, unchanged), Windows **3D game** `pokeemerald-mp-diorama.exe`
+  (`505ec4d6…206f`) and **Classic 2D game** `pokeemerald-mp.exe` (`b56bb71f…020f`); both verified in the package as the
+  engine job's own builds.
+* Launcher package built, contents and game files verified, frozen launcher stayed up 20 s.
+* Graphics fallback on the real packaged games: **16 of 16** (the VM's GDI OpenGL 1.1 cannot run 3D: definite answer,
+  the player is asked, Classic 2D starts and runs 20 s, a failed 3D start exits 78 with an explanation and writes
+  no save, the preference is not forced to 2D, 2D keeps the 3D settings lines).
+* Private artifact **EmeraldTogether-windows-full** (ID 11945612108, 63 MB, 7 days):
+  https://github.com/kashkevin/personal-pokemon-game-emgba3d/actions/runs/38672941750/artifacts/11945612108
+* Contains: graphics-mode switching, keybinds, M25 relay and recovery changes, EXP/clock/M27 work.
+* Not in it: the sprite pack, the import of the owner's own game (no base dump in CI). Not shown: a real GPU, real
+  input on a real PC, real network play.
