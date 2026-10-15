@@ -624,3 +624,10 @@ was taken (now skipped). No other defect was confirmed; owner-decision and cosme
 * **Run 38723716523** (`windows-package`, full, app `03a7326`, engine `998164d0`): **failed** in the engine job: the new `src/platform/debug_scene.c` included `<SDL.h>`
   (found on Linux, not on the Windows cross-compile, which has `SDL2/SDL.h`). Real defect, fixed in engine `676afe0c` (`#include <SDL2/SDL.h>`). Both Windows executables
   (2D and 3D) were then cross-compiled locally with the pinned SDL2 MinGW release to catch any second error before spending another CI run.
+* **Run 38726808703** (`windows-package`, full, app `62bab63`, engine `676afe0c` on `claude/dev-update15-20-engine`, `expected_rom_sha256` = `f214735b…3387`): **success**. Engine job
+  built the GBA ROM (hash check against the pinned value passed), the Windows 3D game and the Classic 2D game (about 17 min); the Windows job built the launcher with the
+  pinned wheels, audited the package, verified the packaged game files, started the frozen launcher and ran the graphics-mode check on the real packaged games.
+  Private artifact **EmeraldTogether-windows-full** (ID 11969537177, 63 MB, sha256 `fff7bbbf…e93610`, expires 2026-10-22):
+  https://github.com/kashkevin/personal-pokemon-game-emgba3d/actions/runs/38726808703 . Private to the repository; **bios.c licensing unresolved: not cleared for distribution.**
+  Existing-save compatibility: the GBA ROM is byte-identical and the save layout is untouched (the catch record uses five previously unused script variables; the
+  host's new books are new tables; older saves without a record simply ignore catch verdicts). Not run on a real PC.

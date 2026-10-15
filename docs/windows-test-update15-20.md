@@ -1,5 +1,7 @@
 # EmeraldTogether: Windows test checklist for the Update 15-20 build
 
+**Build to test:** GitHub Actions run 38726808703 (private artifact `EmeraldTogether-windows-full`, ID 11969537177, expires 2026-10-22; app `62bab63`, engine `676afe0c`; GBA ROM sha256 f214735b…3387). Nothing in it has been run on a real PC.
+
 Adds to `docs/windows-test-update8-14.md` and `docs/windows-test-update2-7.md`. **Nothing below has been run on a real PC.** The
 features were tested only by unit tests, engine self-tests, the GBA test ROM and a real host with scripted game bridges
 (`DEVELOPMENT_LEDGER.md` Updates 15-20, `docs/automated-validation-matrix.md`). bios.c licensing is unresolved: this build is for the
