@@ -40,11 +40,11 @@ unchanged.
 
 ## Persistence checks relevant to rewards (no defect found)
 BP, streaks and purchases are in the shared-world database (tables are additive; Update 23 compat tests), paid exactly once per
-cleared round and per player across reconnects and host restarts (`tests/test_frontier.py`: 788-line suite incl. restart and
+cleared round and per player across reconnects and host restarts (`tests/test_frontier.py`: incl. restart and
 repeated-receipt tests); co-op Frontier uses one run per pair.
 
 ## Legendary catch ownership
 Rule and reconciliation unchanged (`docs/legendary-catch-resolution.md`): first valid reported catch wins; the loser's copy is
 removed only if it is still exactly that Pokémon (species + personality + trainer id), never the last party member; traded, evolved
 or released copies are left alone; every verdict and report is logged durably (`event_resolutions`, `event_reports`,
-`event_verdicts`). Compatibility with a database from before the verdicts: `tests/test_save_compatibility`/`test_save_compat.py`.
+`event_verdicts`). Compatibility with a database from before the verdicts: `tests/test_save_compat.py`.
