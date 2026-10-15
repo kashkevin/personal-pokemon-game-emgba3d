@@ -518,3 +518,14 @@ area's wild Pokemon" page backed by `SharedWorld.habitat_view` (real `spawn_dire
 time/time-of-day and the Frontier entry rule, new world request `habitat_get`. Evidence: `test_secret_bases.py` (+3 incl. real-table
 habitat view, protocol, menu). Graphical Town Map markers: **not built** (see doc). Visibility default Everyone with Teammate/Nobody was
 already in place and is unchanged. GBA ROM untouched (PC-only files).
+
+## Update 13 — Remaining feature audit
+
+Audit of `FEATURE_STATUS.md`, code (`TODO/FIXME/placeholder/NotImplemented` scan of app and engine PC code: none outside
+legitimate text-placeholder machinery) and the Gen 6 profile. Completed: (1) **Gen 6 fidelity**: PC build sets `B_RUN_TRAINER_BATTLE`
+(running from trainer battles, a Gen 9 rule — would also have offered "Run" in co-op ladder/Gym battles) and `B_THUNDERSTORM_TERRAIN`
+(Gen 8) to FALSE under `PORTABLE`; the GBA build is untouched, so its ROM hash is unchanged. (2) `appearance.py` colour names corrected to
+the ROM editor's tables, with a test. Everything else partial is a documented owner decision or needs real play: static-legendary
+ticket path, subset-party selection and item/BP prizes (new engine channels), per-form Mega ledger and unofficial Mega adaptations,
+free-form character creation, graphical PokéNav markers, eggs/mail in trades (kept refused), 1v1v1v1. No feature was relabelled
+"complete" without a run; native/hardware verification items stay in `FEATURE_STATUS.md`.

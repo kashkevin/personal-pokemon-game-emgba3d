@@ -14,11 +14,13 @@ state (walk, run, bike, surf, fish, ride...) keeps its complete animations.
 """
 from __future__ import annotations
 
-SKIN_TONES = ("Light", "Fair", "Tan", "Olive", "Brown", "Dark")
-HAIR_COLORS = ("Black", "Dark Brown", "Brown", "Auburn", "Red", "Blonde", "Platinum", "Silver",
-               "Blue", "Green", "Purple", "Pink")
-CLOTHING_COLORS = ("Red", "Orange", "Yellow", "Lime", "Green", "Teal", "Cyan", "Sky",
-                   "Blue", "Navy", "Purple", "Magenta", "Pink", "White", "Gray", "Black")
+# Names as the game's own editor shows them (eng:src/multiplayer_appearance.c sSkinNames / sHairNames / sClothNames);
+# index 0 of each is the default trainer's own colour.
+SKIN_TONES = ("Default", "Fair", "Light", "Tan", "Brown", "Deep")
+HAIR_COLORS = ("Default", "Black", "Dark Brown", "Brown", "Auburn", "Red", "Orange", "Blonde", "Platinum", "Gray",
+               "Blue", "Green")
+CLOTHING_COLORS = ("Default", "Orange", "Yellow", "Lime", "Green", "Teal", "Sky", "Blue", "Navy", "Purple", "Pink",
+                   "White", "Gray", "Black", "Brown", "Maroon")
 LIMITS = (1, len(SKIN_TONES) - 1, len(HAIR_COLORS) - 1, 15, 15, 15, 15, 0)
 DEFAULT = bytes(8)
 
