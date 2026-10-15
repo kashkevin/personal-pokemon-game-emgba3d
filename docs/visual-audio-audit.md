@@ -15,7 +15,7 @@ folder, not in Git (no game art in the repositories).
 
 ## 3D diorama: sweep of 29 maps (towns, cities, routes, sea routes, desert, ash route, underwater)
 Result: **29 of 29 drawn by the 3D renderer, 0 crashes, 0 blank frames** (Rustboro, Slateport, Lilycove, Fortree, Mossdeep, Sootopolis,
-Ever Grande, Oldale, Dewford, Lavaridge, Fallarbor, Verdanturf, Pacifidlog, Routes 102 104 105 106 110 111 113 115 119 120 123 124 126 128 131 134,
+Ever Grande, Oldale, Dewford, Lavaridge, Fallarbor, Verdanturf, Pacifidlog, Routes 102 104 105 106 110 111 113 119 120 123 124 126 128 131 134,
 Underwater 124). Looked at as a contact sheet: terrain, buildings with roofs, water, trees, grass, shadows, the player and NPCs present
 everywhere; no missing models or untextured areas seen at that size. **Not examined:** interiors, caves, the other 800-odd maps, night, weather
 effects in motion, long play sessions (the sweep tool exists; each 3D map takes about a minute on this 4-core machine).
