@@ -481,3 +481,11 @@ Design and rules: `docs/battle-frontier.md`. Built on the existing native co-op 
   (ladder code reaches the game; a failed publication keeps the battle open for the exact retry).
 * **Not built:** choosing a subset of a larger party inside the battle (native protocol change; Opus-level), items/BP prizes
   (no delivery channel). See `docs/battle-frontier.md`.
+
+## Update 9 — Four-player free-for-all (1v1v1v1): not implemented, documented
+
+Audit of the engine (`docs/free-for-all-feasibility.md`): `NUM_BATTLE_SIDES = 2`, a battler's side is its position's parity;
+237 `GetBattlerSide`, 143 `B_SIDE_*`, 234 per-side state (`gSideStatuses/gSideTimers`), 82 ally/opponent predicates; binary
+`B_OUTCOME_*`; two-column controllers/UI/3D stage; the native protocol, canonical rosters, journal and replay describe 1v1, 2v2 or
+co-op only. Four independent trainers in one battle need four sides throughout: an architecture project (needs Opus-level design
+and real multi-PC testing). Per the brief, no unstable approximation and no fake of four 1v1 matches was built; work continued.
