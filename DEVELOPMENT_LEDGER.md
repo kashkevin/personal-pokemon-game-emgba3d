@@ -397,3 +397,41 @@ decision 10 open), customization (roster + palette editor; scope is owner decisi
 battle modes (1v1, 2v2, co-op Gym; **1v1v1v1 not built**: needs a battle-engine mode that does not exist), animation/UI
 integration (native UI pages for Players and Controls). Multiplayer Pokémon League and "expanded endgame systems" have no
 specification beyond their names; not started.
+
+## Update 5 — Integration and regression pass
+
+Everything from Updates 2-4 sits on `claude/dev-update2-7` (app) and `claude/dev-update2-7-engine` (engine), both made from the
+Update 1 integration heads, nothing rebased or rewritten.
+
+**Compatibility, by evidence:**
+* *Update 1 fixes (M25 relay, deadline KEEP, journal v2, recovery):* app suite 1598 passed / 0 failed includes the battle recovery,
+  throughput and journal tests; no file of those systems was changed (only `shared_world`, `server` world broadcast,
+  `companion` bridge handling, `player_menu`, `championship` (an optional hook), `bridge_protocol` (one more replaceable snapshot)).
+* *3D / Classic 2D switching:* `check-graphics-mode` all PASS; both Windows executables and both Linux binaries build.
+* *Keybinds:* `check-keybinds` 21, `test_keybinds` 176, launcher Game keys tests pass.
+* *EXP Share / co-op rewards:* `check-coop-exp` 26, `check-coop-controller` 14.
+* *Existing saves:* no save structure changed (`check-abi` 172 types identical on GBA and PC; Secret Bases use the original `secretBases[20]`
+  array and its original rules; no new save fields). The GBA ROM is byte-identical `f214735b…3387`.
+* *Multiplayer recovery:* battle recovery tests above; a new reconnect test (a reconnected companion gives a new host session its secret base again).
+* *Windows launcher:* built by the CI job in Update 7 (below); locally the frozen-launcher tests pass.
+
+**Regressions found and fixed during the pass (all caused by this queue's own changes, none in earlier work):**
+1. Adding `multiplayer_extras.c` linked an empty object into the GBA ROM and changed its hash; excluded from the GBA build like
+   `multiplayer_spawns.c` (hash identical again).
+2. The world-message tests pinned the exact key set; the optional `extras` field is added to them (`test_world_server`,
+   `test_checkpoint_server`).
+3. A menu row was longer than 25 characters ("Visible to: My teammate only"); shortened (found by the new menu test).
+4. Applying a visitor's base while the player was inside a base or a menu could move a slot the game had cached: the game now
+   applies only in the calm overworld outside secret bases, and the companion re-offers the host's list every 15 s.
+5. A test race in the new reconnect test (the ack arrives after the host stored the base): the test now waits for it.
+
+Environment note: 7 Tk GUI tests error with "no $DISPLAY" without a display; with `xvfb-run` the whole suite passes.
+Correction: the six-issue diagnosis said "no gamepad on PC"; Windows reads an XInput pad (see its D3 correction).
+
+## Update 6 — Automated validation and the manual checklist
+
+See `docs/automated-validation-matrix.md` (what each area is covered by, and what none of it proves) and
+`docs/windows-test-update2-7.md` (the manual Windows checklist). New automated coverage in this update: `test_gamepad`
+(28,216 checks on the controller mapping, which had none), the secret-base mailbox deferral self-test (29 checks), the reconnect and
+pacing tests, `(EggHatch)` and Mega multi-battle GBA tests. Full runs: app 1598 passed, 0 failed; GBA ROM suite 5504 passed,
+39 expected failures, 0 new. **No hardware claim is made anywhere.**
