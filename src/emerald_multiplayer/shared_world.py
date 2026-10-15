@@ -425,7 +425,36 @@ class SharedWorld:
         status = self.event_status()
         event = None if status is None else {key: value for key, value in status.items()
                                              if key != "waiting" or value is not None}
-        return {"players": players[:4], "outbreak": outbreak, "event": event}
+        seconds = self.world_seconds()
+        return {"players": players[:4], "outbreak": outbreak, "event": event,
+                "time": f"{seconds // 3600 % 24:02d}:{seconds // 60 % 60:02d}", "tod": self.time_of_day()}
+
+    def habitat_view(self, presence: dict | None) -> dict:
+        """The PokeNav "this area" page (Phase 7): what the host's own encounter tables say about the map a player stands on
+        (the same tables the shared wild Pokemon use, which scripts/multiplayer/check_engine_spawn_weights.py compares with
+        the game). Nothing here is invented: an area without wild-Pokemon data says so."""
+        director = getattr(self, "spawn_director", None)
+        if presence is None or director is None:
+            return {"known": False, "place": "Unknown area"}
+        group, number = presence["map_group"], presence["map_number"]
+        key = f"{group}.{number}"
+        entry = director.map_entry(key)
+        place = self._place_name(group, number)
+        if not entry or not getattr(self, "spawns_enabled", False):
+            return {"known": False, "place": place}
+        levels = [value for pair in entry["levels"] for value in pair if value]
+        low, high = (min(levels), max(levels)) if levels else (0, 0)
+        code = presence.get("weather")
+        weather = director._weather_names.get(code) if type(code) is int else None
+        if weather is None:
+            weather = entry.get("weather")
+        weights = director.species_weights(key, high or 1, self._night(), weather)
+        top = sorted(weights, key=lambda item: (-item[1], item[0]))[:3]
+        common = [director.species_name(director.stage_at(index, high or 1)).title()[:20] for index, _ in top]
+        favors = [name.removeprefix("TYPE_").title() for name in entry.get("boost", ())][:3]
+        label = self._WEATHER_LABELS.get(weather, (weather or "").removeprefix("WEATHER_").title()) if weather else None
+        return {"known": True, "place": place, "levels": [low, high], "common": common, "favors": favors,
+                "time": self.time_of_day(), "weather": label or None}
 
     # ------------------------------------------------------------- appearance
     def appearance(self, player_id: str) -> str | None:

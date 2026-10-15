@@ -230,6 +230,39 @@ class NavViewTests(unittest.TestCase):
                 world.close()
 
 
+class HabitatViewTests(unittest.TestCase):
+    def test_habitat_view_uses_the_real_encounter_tables_and_never_invents(self):
+        with tempfile.TemporaryDirectory() as folder:
+            world = SharedWorld(Path(folder) / "w.sqlite3", "world")
+            try:
+                view = world.habitat_view({"map_group": 0, "map_number": 16, "weather": None})
+                self.assertTrue(view["known"], view)
+                director = world.spawn_director
+                entry = director.map_entry("0.16")
+                self.assertEqual(view["place"], world._place_name(0, 16))
+                self.assertLessEqual(view["levels"][0], view["levels"][1])
+                self.assertTrue(1 <= len(view["common"]) <= 3)
+                known = {director.species_name(director.stage_at(index, view["levels"][1])).title()[:20]
+                         for index, _ in director.species_weights("0.16", view["levels"][1], world._night(), entry.get("weather"))}
+                self.assertTrue(set(view["common"]) <= known)
+                self.assertIn(view["time"], ("morning", "day", "evening", "night"))
+                # an area with no table, and no presence at all, admit it instead of guessing
+                self.assertEqual(world.habitat_view({"map_group": 99, "map_number": 98}),
+                                 {"known": False, "place": "Area 99-98"})
+                self.assertEqual(world.habitat_view(None), {"known": False, "place": "Unknown area"})
+            finally:
+                world.close()
+
+    def test_habitat_request_is_a_read_and_nav_time_is_validated(self):
+        ok = {"session_epoch": 3, "request_id": "11111111-1111-4111-8111-111111111111"}
+        self.assertEqual(validate_world_request({**ok, "type": "habitat_get"}, 3)["type"], "habitat_get")
+        nav = {"players": [], "outbreak": None, "event": None, "time": "14:05", "tod": "day", "rule": "Lv50"}
+        validate_extras({"bases": [], "nav": nav})
+        for bad in ({**nav, "time": "25:61x"}, {**nav, "tod": 5}, {**nav, "rule": "\x01"}):
+            with self.assertRaises(ProtocolError):
+                validate_extras({"bases": [], "nav": bad})
+
+
 class FakeMenuCompanion:
     def __init__(self, visibility="everyone"):
         self.config = SimpleNamespace(player_id="a", world_enabled=True, menu_abi_version=1, trade_enabled=False)
@@ -239,6 +272,11 @@ class FakeMenuCompanion:
                                 {"player_id": "b", "place": "LITTLEROOT TOWN", "weather": None}],
                     "outbreak": {"name": "WURMPLE", "place": "ROUTE 102", "seconds_left": 125}, "event": None}
         self.visibility, self.calls = visibility, []
+        self.habitat = {"known": True, "place": "ROUTE 101", "levels": [2, 3], "common": ["Zigzagoon", "Poochyena", "Wurmple"],
+                        "favors": ["Normal"], "time": "14:05", "weather": "Rain"}
+
+    async def habitat_rpc(self):
+        return self.habitat
 
     def world_nav(self):
         return self.nav
@@ -269,7 +307,7 @@ class MenuTests(unittest.IsolatedAsyncioTestCase):
         await menu.refresh()
         await self.click(menu, "World and my base")
         self.assertEqual(self.labels(menu), ["Players and weather", "Outbreak: WURMPLE", "World Event: none",
-                                             "My Secret Base", "Frontier and League"])
+                                             "This area's wild Pokemon", "My Secret Base", "Frontier and League"])
         await self.click(menu, "Players and weather")
         self.assertEqual(self.labels(menu), ["Alice - ROUTE 101", "Bob - LITTLEROOT TOWN"])
         await self.click(menu, "Alice - ROUTE 101")
@@ -282,6 +320,23 @@ class MenuTests(unittest.IsolatedAsyncioTestCase):
         await self.click(menu, "Outbreak: WURMPLE")
         self.assertEqual(menu.screen.status, "2m 05s left")
         self.assertTrue(all(len(r.label) <= 25 for r in menu.screen.rows))
+
+    async def test_habitat_page_shows_host_tables_or_admits_no_data(self):
+        companion = FakeMenuCompanion()
+        menu = PlayerMenu(companion)
+        await menu.refresh()
+        await self.click(menu, "World and my base")
+        await self.click(menu, "This area's wild Pokemon")
+        self.assertEqual(menu.screen.title, "This area")
+        self.assertEqual(menu.screen.status, "ROUTE 101 Lv2-3")
+        self.assertEqual(self.labels(menu), ["Common: Zigzagoon", "Then: Poochyena", "Then: Wurmple", "Favors: Normal",
+                                             "Now: 14:05, Rain", "Back to World"])
+        self.assertTrue(all(len(r.label) <= 25 for r in menu.screen.rows))
+        await self.click(menu, "Back to World")
+        companion.habitat = {"known": False, "place": "Area 99-98"}
+        await self.click(menu, "This area's wild Pokemon")
+        self.assertEqual(menu.screen.status, "No wild Pokemon data")
+        self.assertEqual(self.labels(menu), ["Area 99-98", "Back to World"])
 
     async def test_my_secret_base_cycles_who_can_see_it(self):
         companion = FakeMenuCompanion()

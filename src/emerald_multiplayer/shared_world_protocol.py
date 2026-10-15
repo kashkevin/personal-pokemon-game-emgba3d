@@ -9,7 +9,7 @@ from .protocol import MAX_COUNTER, ProtocolError
 
 WORLD_TYPES = frozenset({"world_action", "appearance_get", "appearance_set", "friendship_get",
                          "wager_get", "wager_set", "wager_accept", "wager_decline", "wallet_applied",
-                         "gym_coop", "spawn_action", "base_publish", "base_visibility", "base_get", "frontier"})
+                         "gym_coop", "spawn_action", "base_publish", "base_visibility", "base_get", "frontier", "habitat_get"})
 ACTIONS = frozenset({"claim", "result", "release"})
 RESULTS = frozenset({"caught", "defeated", "ran", "lost", "cancelled"})
 _HEX16 = re.compile(r"[0-9a-f]{16}\Z")
@@ -219,7 +219,7 @@ def validate_world_request(message: Any, session_epoch: int) -> dict:
             raise ProtocolError("invalid_fields", "secret base visibility has unexpected fields")
         if message["mode"] not in ("everyone", "team", "nobody"):
             raise ProtocolError("invalid_field", "unsupported secret base visibility")
-    elif kind in ("appearance_get", "friendship_get", "base_get"):
+    elif kind in ("appearance_get", "friendship_get", "base_get", "habitat_get"):
         if set(message) != {"type", "session_epoch", "request_id"}:
             raise ProtocolError("invalid_fields", "shared-world read has unexpected fields")
     elif kind in ("wager_get", "wager_decline"):
@@ -279,8 +279,8 @@ def validate_extras(value: Any) -> dict | None:
         if type(item["record"]) is not str or _BASE_HEX.fullmatch(item["record"]) is None:
             raise ProtocolError("invalid_server_message", "invalid secret base record")
     nav = value["nav"]
-    if type(nav) is not dict or set(nav) not in ({"players", "outbreak", "event"},
-                                                 {"players", "outbreak", "event", "rule"}):
+    base_keys = {"players", "outbreak", "event"}
+    if type(nav) is not dict or not base_keys <= set(nav) <= base_keys | {"rule", "time", "tod"}:
         raise ProtocolError("invalid_server_message", "invalid PokeNav view")
     if type(nav["players"]) is not list or len(nav["players"]) > 4:
         raise ProtocolError("invalid_server_message", "invalid PokeNav players")
@@ -291,6 +291,11 @@ def validate_extras(value: Any) -> dict | None:
         _short_text(player["place"], "PokeNav place")
         if player["weather"] is not None:
             _short_text(player["weather"], "PokeNav weather", 20)
+    if nav.get("time") is not None:
+        if not isinstance(nav["time"], str) or re.fullmatch(r"\d\d:\d\d", nav["time"]) is None:
+            raise ProtocolError("invalid_server_message", "invalid PokeNav time")
+    if nav.get("tod") is not None:
+        _short_text(nav["tod"], "PokeNav time of day", 10)
     if nav.get("rule") is not None:
         _short_text(nav["rule"], "Frontier rule", 20)
     for key in ("outbreak", "event"):

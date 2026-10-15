@@ -90,6 +90,7 @@ class PlayerMenu:
         self._trades = None
         self._nav = None          # the host's PokeNav-style world view (Phase 7)
         self._base = None         # the player's base sharing choice (Phase 6)
+        self._habitat = None      # the host's wild-Pokemon view of the player's current map (Phase 7)
         self._frontier = None     # the cooperative Battle Frontier's view (Phase 8)
         self._card = None
         self._card_binding = None
@@ -173,6 +174,16 @@ class PlayerMenu:
                     self._frontier = await frontier_rpc()
                 except Exception:  # noqa: BLE001 - older hosts have no Frontier
                     self._frontier = None
+                if self._session() != binding:
+                    raise PlayerMenuError("session_changed")
+        if self._page[0] == "habitat":
+            habitat_rpc = getattr(self.companion, "habitat_rpc", None)
+            self._habitat = None
+            if callable(habitat_rpc) and getattr(self.companion.config, "world_enabled", False):
+                try:
+                    self._habitat = await habitat_rpc()
+                except Exception:  # noqa: BLE001 - older hosts have no habitat view
+                    self._habitat = None
                 if self._session() != binding:
                     raise PlayerMenuError("session_changed")
         if self._page[0] == "base" and self._base is None:
@@ -412,7 +423,7 @@ class PlayerMenu:
                     else:
                         actions.append(("You accepted this wager", "", ()))
             actions.append(("Back to challenge", "battles", ()))
-        elif page in ("world", "world_players", "world_player", "world_outbreak", "world_event", "base", "frontier", "league", "hall", "coop"):
+        elif page in ("world", "world_players", "world_player", "world_outbreak", "world_event", "base", "frontier", "league", "hall", "coop", "habitat"):
             return self._show(*self._render_world(page, target))
         elif page == "championship":
             return self._show(*self._championship.render())
@@ -689,17 +700,18 @@ class PlayerMenu:
         if nav is None:
             return "World", "The host has no world view", [("Back", "home", ())]
         if page == "world":
-            title, status = "PokeNav: World", self._notice or "Live view from the host"
+            title = "PokeNav: World"
+            status = self._notice or (f"{nav['time']} {nav['tod']}  online {len(self._players)}/4" if nav.get("time")
+                                      else "Live view from the host")
             actions.append(("Players and weather", "world_players", ()))
             outbreak, event = nav["outbreak"], nav["event"]
             actions.append((("Outbreak: " + outbreak["name"]) if outbreak else "Outbreak: none",
                             "world_outbreak" if outbreak else "", ()))
             actions.append((("Event: " + event["name"]) if event else "World Event: none",
                             "world_event" if event else "", ()))
+            actions.append(("This area's wild Pokemon", "habitat", ()))
             actions.append(("My Secret Base", "base", ()))
             actions.append(("Frontier and League", "coop", ()))
-            if nav.get("rule"):
-                actions.append(("Rule: " + nav["rule"], "", ()))
         elif page == "world_players":
             title, status = "Players and weather", "Where everyone is"
             for player in nav["players"][:4]:
@@ -725,9 +737,31 @@ class PlayerMenu:
                     actions.extend((line, "", ()) for line in wrap(entry["waiting"], 25)[:2])
                 actions.extend((line, "", ()) for line in wrap("Near " + entry["place"], 25)[:2])
             actions.append(("Back to World", "world", ()))
+        elif page == "habitat":
+            title = "This area"
+            view = self._habitat
+            if view is None:
+                status = self._notice or "Host has no area data"
+            elif not view["known"]:
+                status = self._notice or "No wild Pokemon data"
+                actions.extend((line, "", ()) for line in wrap(view["place"], 25)[:2])
+            else:
+                low, high = view["levels"]
+                status = self._notice or f"{view['place'][:20]} " + (f"Lv{low}" if low == high else f"Lv{low}-{high}")
+                for index, name in enumerate(view["common"][:3]):
+                    actions.append((("Common: " if index == 0 else "Then: ") + name[:15], "", ()))
+                if not view["common"]:
+                    actions.append(("No common species", "", ()))
+                if view["favors"] and len(actions) < 4:
+                    actions.append(("Favors: " + ", ".join(view["favors"][:2]), "", ()))
+                actions.append(("Now: " + view["time"] + (", " + view["weather"] if view["weather"] else ""), "", ()))
+            actions.append(("Back to World", "world", ()))
         elif page == "coop":
             title, status = "Frontier and League", self._notice or "Fight together as a team"
-            actions = [("Battle Frontier", "frontier", ()), ("Pokemon League", "league", ()), ("Back to World", "world", ())]
+            actions = [("Battle Frontier", "frontier", ()), ("Pokemon League", "league", ())]
+            if nav.get("rule"):
+                actions.append(("Entry rule: " + nav["rule"], "", ()))
+            actions.append(("Back to World", "world", ()))
         elif page in ("frontier", "league", "hall"):
             title, status, actions = self._render_ladder(page)
         else:
@@ -816,7 +850,7 @@ class PlayerMenu:
                     self._notice = "Could not change it"
                 self._page = ("base", None)
             elif op in ("home", "world", "world_players", "world_player", "world_outbreak", "world_event", "base", "frontier",
-                        "league", "hall", "coop", "team", "battles", "player", "results", "result", "result_filters", "trade", "card", "card_battles", "card_championships", "card_shared", "card_progress", "hunts", "hunt", "hunt_filters", "hunt_totals"):
+                        "league", "hall", "coop", "habitat", "team", "battles", "player", "results", "result", "result_filters", "trade", "card", "card_battles", "card_championships", "card_shared", "card_progress", "hunts", "hunt", "hunt_filters", "hunt_totals"):
                 if op == "results" and self._page[0] not in {"results", "result", "result_filters"}:
                     self._results_binding = None
                 self._page = (op, args[0] if args else None)

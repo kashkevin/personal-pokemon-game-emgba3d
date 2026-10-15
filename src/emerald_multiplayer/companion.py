@@ -1976,6 +1976,13 @@ class Companion:
                 raise ProtocolError("invalid_server_message", "invalid friendship view")
         return friends
 
+    async def habitat_rpc(self) -> dict:
+        """What the host knows about the wild Pokemon of the map this player stands on (shared_world.habitat_view)."""
+        result = await self.world_rpc("habitat_get")
+        if type(result) is not dict or type(result.get("known")) is not bool or type(result.get("place")) is not str:
+            raise ProtocolError("invalid_server_message", "invalid habitat view")
+        return result
+
     async def frontier_rpc(self, op: str = "status", mode: str | None = None) -> dict:
         """The cooperative Battle Frontier (frontier_service.py): read it, or propose / accept / cancel / retire a run
         or ask for the next round's battle. Refusals arrive as ProtocolError with the host's reason."""

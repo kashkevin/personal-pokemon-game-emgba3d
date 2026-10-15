@@ -1277,6 +1277,9 @@ class WorldServer:
                 self._world_reply(session, request, result={"outcome": outcome, "seq": request["seq"]})
                 self._broadcast_world()
                 return
+            if kind == "habitat_get":
+                self._world_reply(session, request, result=world.habitat_view(session.presence))
+                return
             if kind == "frontier":
                 self._world_reply(session, request, result=self.frontier.request(session, request))
                 return

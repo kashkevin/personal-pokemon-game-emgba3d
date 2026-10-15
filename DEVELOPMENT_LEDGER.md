@@ -509,3 +509,12 @@ held item, claimants) written before the event closes, `event_reports` audit tra
 "gone"), restart-safe (a decided event is closed on restart), loser notified, dormant events untouchable, existing probabilities and
 dormant behaviour unchanged. Evidence: `test_event_catch.py` 11; `test_shared_world.py` late-catch test rewritten to the new rule
 (the old rule's refusal is the behaviour that was replaced); app suites for shared world/events/server pass.
+
+## Update 12 — Secret Bases and PokéNav completion
+
+`docs/secret-bases-and-pokenav.md`. Engine: the own base's party is refreshed (`SetPlayerSecretBaseParty`) in the calm overworld so
+published bases carry the owner's real team as NPC defenders; `--selftest-secret-base` **36/36** (7 new). Host/app: PokéNav "This
+area's wild Pokemon" page backed by `SharedWorld.habitat_view` (real `spawn_director` tables; unknown areas say so), nav now carries host
+time/time-of-day and the Frontier entry rule, new world request `habitat_get`. Evidence: `test_secret_bases.py` (+3 incl. real-table
+habitat view, protocol, menu). Graphical Town Map markers: **not built** (see doc). Visibility default Everyone with Teammate/Nobody was
+already in place and is unchanged. GBA ROM untouched (PC-only files).
