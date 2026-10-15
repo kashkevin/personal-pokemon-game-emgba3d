@@ -56,7 +56,9 @@ reserved bytes (`WorldInbound.outbreak`), the colour lines in the Players menu.
   the flashing red event outline and pink outbreak dot at the right places; SELECT jumping through all five markers with the name
   box following; zoom in, scrolling (markers move with the map, off-screen ones hidden) and back out; four players on one square;
   a player moving and another arriving while the map was open. (Screenshots are not committed: they are the game's art.)
-* **Not tested:** real Windows, the 3D (Diorama) window, a real host with real players, a controller.
+* The 3D (Diorama) Linux build compiles with the change and its game picture for the PokéNav screen (the same 240x160 picture the 3D window
+  shows for menus) came out identical in content; the 3D window itself was not looked at.
+* **Not tested:** real Windows, the 3D (Diorama) window as a user sees it, a real host with real players, a controller.
 
 ## Art still missing (exactly)
 Nothing blocks the feature, but these would make it better and cannot be made from the game's own art:
