@@ -1592,6 +1592,8 @@ class WorldServer:
                 pass
             if self.shared_world.tick_event_claim(presences):
                 changed = True
+            if self.shared_world.tick_event_conditions(presences):
+                changed = True
             # Online-together friendship time (small, daily capped).
             mono = time.monotonic()
             if mono - self._last_friendship_tick >= 60:

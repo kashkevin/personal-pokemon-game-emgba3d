@@ -370,3 +370,30 @@ cycle, which egg is due, no hatching without eggs, Flame Body/Magma Armor take t
 refused in trades (`trade_eligibility.py`), ignored by Frontier rules, and a saved party with eggs is a valid
 checkpoint. Not built: a host-side Day Care/hatch-progress page (reading the last checkpoint would show stale numbers)
 and a native Day Care UI (new screens); save compatibility is untouched.
+
+## Update 4 — Legendary events and remaining gameplay
+
+**Audit.** World Events already provide: legendary / mythical / mega-legendary / mega / rare categories (catalogue of 38 + 16 +
+9 + 75 + 88), shiny rolls (1/64), host-scheduled spawns on 80 locations, announcements and reminders, first-catch-wins claims with
+grace, durable restarts, catch ownership (consumed for everyone after the first reported catch), friendship credit for
+shared events, Mega events (Mega form shown, base form stored, own stone held) and a 60,000 shop for 82 Mega Stones after the Mega
+Ring. Not built before: weather / night / cooperative conditions. Static personal legendaries: 25 reset descriptors, no ticket
+source (owner decision 11).
+
+**Built: dormant legendary events (host only, no engine change).** `event_conditions.py` + `shared_world.py`: a legendary-class
+event may start dormant (default 60%): two banners announce that something stirs near a place and when it wakes; the games are
+shown nothing and a claim answers "gone"; the connected players' presence (time of day, reported weather, players on the
+event's map) wakes it once, latched, with a 5-minute minimum; reminders are suppressed and expiry says only that the legend slipped
+away; the PokéNav World page shows "Something stirs / Wakes in the rain" without naming the species; state survives host restarts.
+Tests: `tests/test_event_conditions.py` (11) plus the existing `test_shared_world.py` (chance pinned to 0 there), mutation-checked.
+
+**Engine evidence for Mega / multi battles.** `make check TESTS="Mega"`: 19 of 20 pass; the one failure
+(`mega_sol.c:149`, Snow Defense boost, a Gen 9 rule) is in the checked-in expected-failure list. New
+`test/battle/form_change/mega_evolution_multi.c` (2 tests, pass): in a link multi battle both trainers of one side can Mega
+Evolve in the same turn and an opposing trainer can too (the 2v2 "one Mega per trainer" case that FEATURE_STATUS said was untested).
+
+**Audited, unchanged (see FEATURE_STATUS for each):** followers (tested natively in the cloud in Phase 5), trading (G1 owner
+decision 10 open), customization (roster + palette editor; scope is owner decision 12), shared world / spawns / outbreaks (tested),
+battle modes (1v1, 2v2, co-op Gym; **1v1v1v1 not built**: needs a battle-engine mode that does not exist), animation/UI
+integration (native UI pages for Players and Controls). Multiplayer Pokémon League and "expanded endgame systems" have no
+specification beyond their names; not started.

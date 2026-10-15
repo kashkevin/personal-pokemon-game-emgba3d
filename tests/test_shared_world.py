@@ -50,7 +50,7 @@ class SharedWorldTests(unittest.TestCase):
 
     def open(self, world_id=WORLD, seed=7):
         return SharedWorld(self.path, world_id, clock=self.clock, rng=random.Random(seed),
-                           event_catalogue=CATALOGUE, locations=LOCATIONS)
+                           event_catalogue=CATALOGUE, locations=LOCATIONS, event_condition_chance=0.0)
 
     # --------------------------------------------------------------- clock
     def test_clock_runs_twelve_times_real_time_only_while_players_are_online(self):

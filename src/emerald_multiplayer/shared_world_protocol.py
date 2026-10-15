@@ -285,8 +285,11 @@ def validate_extras(value: Any) -> dict | None:
         entry = nav[key]
         if entry is None:
             continue
-        if type(entry) is not dict or set(entry) != {"name", "place", "seconds_left"}:
+        if type(entry) is not dict or set(entry) not in ({"name", "place", "seconds_left"},
+                                                         {"name", "place", "seconds_left", "waiting"}):
             raise ProtocolError("invalid_server_message", f"invalid PokeNav {key}")
+        if "waiting" in entry:
+            _short_text(entry["waiting"], "PokeNav waiting")
         _short_text(entry["name"], "PokeNav name")
         _short_text(entry["place"], "PokeNav place")
         _int(entry["seconds_left"], "PokeNav time", 0, 86_400)

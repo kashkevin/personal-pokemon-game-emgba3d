@@ -33,6 +33,7 @@ class Balance:
     event_level_max: int = 70
     event_claim_grace_seconds: int = 120
     event_claim_away_seconds: int = 60   # a connected claimant on another map lets it go
+    event_condition_chance: float = 0.6  # a legendary event starts dormant (event_conditions.py)
 
     # Player friendship (pairs). Points per meaningful shared activity.
     friendship_levels: tuple = ("New Friends", "Good Friends", "Great Friends", "Ultra Friends", "Best Friends")

@@ -52,6 +52,7 @@ def time_of_day_for_hour(hour: int) -> str:
     if hour in EVENING_HOURS:
         return "evening"
     return "night"
+from . import event_conditions
 from .secret_bases import SCHEMA as _BASE_SCHEMA, SecretBaseBook
 
 _SCHEMA = (
@@ -116,7 +117,8 @@ class SharedWorld:
     def __init__(self, path: Path | str, world_id: str, *, clock: Callable[[], float] = time.monotonic,
                  rng: random.Random | None = None, event_catalogue: dict | None = None,
                  locations: list | None = None, spawn_catalogue: dict | None = None,
-                 spawn_rng: random.Random | None = None, spawn_tuning=None, outbreak_settings=None):
+                 spawn_rng: random.Random | None = None, spawn_tuning=None, outbreak_settings=None,
+                 event_condition_chance: float | None = None):
         self.path = Path(path)
         self.world_id = world_id
         self._now = clock
@@ -138,6 +140,7 @@ class SharedWorld:
         seconds = self._db.execute("SELECT seconds FROM clock WHERE id=1").fetchone()[0]
         self._clock = _Clock(float(seconds), None)
         self.bases = SecretBaseBook(self._db, self._transaction)
+        self._condition_chance = BALANCE.event_condition_chance if event_condition_chance is None else event_condition_chance
         self._last_persist = self._now()
         self._active = 0
         self._notice_id = int(self._kv("notice_id", "0"))
@@ -405,11 +408,9 @@ class SharedWorld:
         if outbreak is not None:
             outbreak = {"name": outbreak["name"][:40], "place": outbreak["place"][:40],
                         "seconds_left": outbreak["seconds_left"]}
-        event = self.event_view()
-        if event is not None:
-            event = {"name": self._event_label(self._event)[:40],
-                     "place": str(self._event.get("place", "SOMEWHERE"))[:40],
-                     "seconds_left": event["seconds_left"]}
+        status = self.event_status()
+        event = None if status is None else {key: value for key, value in status.items()
+                                             if key != "waiting" or value is not None}
         return {"players": players[:4], "outbreak": outbreak, "event": event}
 
     # ------------------------------------------------------------- appearance
@@ -498,10 +499,19 @@ class SharedWorld:
                 ON CONFLICT(event_id) DO UPDATE SET record=excluded.record, state=excluded.state, winner=excluded.winner""",
                 (event["event_id"], json.dumps(stored, sort_keys=True), state, winner, time.time()))
 
+    def _dormant(self, event: dict | None = None) -> bool:
+        event = self._event if event is None else event
+        return event is not None and event.get("awake") is False
+
     def event_view(self) -> dict | None:
+        """The event the games draw: none while a dormant event waits for its condition."""
         event = self._event
-        if event is None:
+        if event is None or self._dormant(event):
             return None
+        return self._full_event_view()
+
+    def _full_event_view(self) -> dict:
+        event = self._event
         return {
             "event_id": event["event_id"], "species": event["species"], "level": event["level"],
             "shiny": event["shiny"], "mega": event["mega"], "map_group": event["map_group"],
@@ -521,6 +531,49 @@ class SharedWorld:
         label = self._event_label(event)
         first = f"WORLD EVENT! {label}" if len(label) <= LINE_CHARS - 13 else f"{label} appeared!"
         self.post_notice(_banner(first, f"near {event['place']}  {_clock_text(seconds_left)} left"))
+
+    def _announce_dormant(self, event: dict) -> None:
+        self.post_notice(_banner("Something stirs near", event["place"]))
+        self.post_notice(_banner("It wakes " + event_conditions.label(event["condition"]), "See PokeNav: World"))
+
+    def event_status(self) -> dict | None:
+        """What the PokeNav World page may say: a dormant event hides its species."""
+        event = self._event
+        if event is None:
+            return None
+        left = max(0, int(event["expires"] - self._active_now()))
+        if self._dormant(event):
+            return {"name": "Something stirs", "place": event["place"][:40], "seconds_left": left,
+                    "waiting": "Wakes " + event_conditions.label(event["condition"])}
+        return {"name": self._event_label(event)[:40], "place": str(event.get("place", "SOMEWHERE"))[:40],
+                "seconds_left": left, "waiting": None}
+
+    def tick_event_conditions(self, presences: dict[str, dict | None]) -> bool:
+        """Wake a dormant event when its condition is met by the connected players."""
+        event = self._event
+        if event is None or not self._dormant(event):
+            return False
+        from .spawn_director import PRESENT_ACTIVITIES
+        director = getattr(self, "spawn_director", None)
+        names = set()
+        on_map = 0
+        for presence in presences.values():
+            if presence is None or presence.get("activity") not in PRESENT_ACTIVITIES:
+                continue
+            code = presence.get("weather")
+            if director is not None and type(code) is int and code in director._weather_names:
+                names.add(director._weather_names[code])
+            if (presence.get("map_group"), presence.get("map_number")) == (event["map_group"], event["map_number"]):
+                on_map += 1
+        if not event_conditions.is_met(event["condition"], time_of_day=self.time_of_day(),
+                                       weather_names=names, players_on_map=on_map):
+            return False
+        now = self._active_now()
+        event["awake"] = True
+        event["expires"] = max(event["expires"], now + event_conditions.WAKE_GRACE_SECONDS)
+        self._save_event("active")
+        self._announce(event, event["expires"] - now)
+        return True
 
     def _choose_location(self, progression_level: int, types: list[str]) -> dict | None:
         reachable = [loc for loc in self.locations if int(loc.get("min_level", 0)) <= progression_level]
@@ -585,9 +638,15 @@ class SharedWorld:
         self._last_claimant = None
         self._claimant_away_since = None
         self._participants = set()
+        if legendary and self._condition_chance > 0 and self._rng.random() < self._condition_chance:
+            self._event["condition"] = event_conditions.condition_for_types(entry.get("types", ()))
+            self._event["awake"] = False
         self._save_event("active")
-        self._announce(self._event, BALANCE.event_duration_seconds)
-        return self.event_view()
+        if self._dormant():
+            self._announce_dormant(self._event)
+        else:
+            self._announce(self._event, BALANCE.event_duration_seconds)
+        return self._full_event_view()
 
     def tick_events(self, connected: int, progression: Callable[[], int]) -> bool:
         """Advance timers; returns True when the shared view changed."""
@@ -600,13 +659,15 @@ class SharedWorld:
         changed = False
         if self._event is not None and now >= self._event["expires"]:
             label = self._event_label(self._event)
+            slept = self._dormant()
             self._save_event("expired")
             self._finish_participation(self._event["event_id"])
             self._event, self._claim = None, None
-            self.post_notice(_banner(f"The {label}", "has disappeared..."))
+            self.post_notice(_banner("The legend slipped away", "before it woke...") if slept
+                             else _banner(f"The {label}", "has disappeared..."))
             self._next_event_at = now + self._rng.uniform(*BALANCE.event_interval)
             changed = True
-        if self._event is not None:
+        if self._event is not None and not self._dormant():
             left = self._event["expires"] - now
             reminded = self._event.setdefault("reminded", [])
             for mark in REMINDER_SECONDS:
@@ -629,7 +690,7 @@ class SharedWorld:
 
     def claim_event(self, player_id: str, event_id: int) -> str:
         event = self._event
-        if event is None or event["event_id"] != event_id:
+        if event is None or event["event_id"] != event_id or self._dormant(event):
             return "gone"
         if self._claim is not None and self._claim["player_id"] != player_id:
             return "busy"

@@ -632,6 +632,8 @@ class PlayerMenu:
             else:
                 status = f"{entry['seconds_left'] // 60}m {entry['seconds_left'] % 60:02d}s left"
                 actions.extend((line, "", ()) for line in wrap(entry["name"], 25)[:2])
+                if entry.get("waiting"):
+                    actions.extend((line, "", ()) for line in wrap(entry["waiting"], 25)[:2])
                 actions.extend((line, "", ()) for line in wrap("Near " + entry["place"], 25)[:2])
             actions.append(("Back to World", "world", ()))
         else:
