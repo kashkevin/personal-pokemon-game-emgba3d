@@ -16,6 +16,7 @@ from .battle_mailbox import (
     BattleBinding, BattleMailboxError, Status, _CONTROL, _QUERY,
     _enum, _integer, _uuid, uuid_text,
 )
+from .coop_code import valid_code
 from .protocol import MAX_COUNTER
 
 ABI_VERSION = 2
@@ -161,7 +162,8 @@ class Preparation:
             _integer(getattr(self, name), 0, _U32, name)
         if type(self.rng) is not bytes or len(self.rng) != 16 or not any(self.rng):
             raise BattleMailboxError("preparation needs one nonzero 16-byte issued RNG state")
-        _integer(self.gym, 0, COOP_GYM_COUNT, "co-op Gym")
+        if self.gym and not valid_code(self.gym):
+            raise BattleMailboxError("unknown co-op battle code")
 
     def pack(self):
         return _PREPARE.pack(self.checkpoint_revision, self.native_counter,
@@ -172,8 +174,8 @@ class Preparation:
         if type(data) is not bytes or len(data) != 36:
             raise BattleMailboxError("native preparation needs exactly 36 bytes")
         revision, counter, trainer, crc, rng, flags = _PREPARE.unpack(data)
-        if flags > COOP_GYM_COUNT:
-            raise BattleMailboxError("preparation flags carry only a co-op Gym index")
+        if flags and not valid_code(flags):
+            raise BattleMailboxError("preparation flags carry only a co-op battle code")
         return cls(revision, counter, trainer, crc, rng, flags)
 
 

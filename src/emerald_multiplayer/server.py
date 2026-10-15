@@ -260,6 +260,7 @@ class WorldServer:
         self.battle_execution = None
         self._battle_results = None
         self._championships = None
+        self._last_frontier_tick = 0.0
         from .frontier_rules import FrontierSettings
         self._frontier = (FrontierSettings.load(store.path.with_name(store.path.name + ".frontier.json"))
                           if store is not None else FrontierSettings())
@@ -317,6 +318,7 @@ class WorldServer:
             self.trade_effects.on_commit = self._on_trade_committed
         if self.battle_desk is not None:
             self.battle_desk.on_closed = self._on_battle_closed
+            self.battle_desk.on_publish = self._on_battle_publish
             self.battle_desk.on_aborted = self._on_battle_aborted
             self.battle_desk.start_gate = self._wager_gate
         self._last_friendship_tick = time.monotonic()
@@ -771,6 +773,15 @@ class WorldServer:
         pending = [] if desk is None else [challenge_view(view) for view in
             desk.pending(session.player_id, session.session_epoch)]
         self._battle_reply(session, request, result=pending, championship=extension)
+
+    @property
+    def frontier(self):
+        """The cooperative Battle Frontier's host service (frontier_service.py)."""
+        service = getattr(self, "_frontier_service", None)
+        if service is None:
+            from .frontier_service import FrontierService
+            service = self._frontier_service = FrontierService(self, party_limit=self._frontier.party_limit)
+        return service
 
     def _frontier_rule(self):
         """The Frontier rule in force now (None when the host has not enabled them)."""
@@ -1266,6 +1277,9 @@ class WorldServer:
                 self._world_reply(session, request, result={"outcome": outcome, "seq": request["seq"]})
                 self._broadcast_world()
                 return
+            if kind == "frontier":
+                self._world_reply(session, request, result=self.frontier.request(session, request))
+                return
             if kind in ("base_publish", "base_visibility", "base_get"):
                 self._world_reply(session, request, result=self._secret_base_request(session, request))
                 return
@@ -1512,8 +1526,19 @@ class WorldServer:
         self._friendship_notices([change])
         self._broadcast_world()
 
+    def _on_battle_publish(self, battle) -> None:
+        """Before a co-op battle closes: its outcome becomes durable (the PvP archive does not hold co-op battles)."""
+        outcome = next(iter(battle.finished.values()), None)
+        if outcome is not None:
+            self.shared_world.frontier.record_result(battle.battle_id, outcome, battle.players)
+
     def _on_battle_closed(self, battle) -> None:
         players = list(battle.players)
+        if battle.mode == 4:
+            try:
+                self.frontier.reconcile()   # a Frontier round's result settles once (frontier_service.py)
+            except Exception:  # noqa: BLE001 - progress is reconciled again at the next read or tick
+                pass
         outcome = next(iter(battle.finished.values()), None)
         if outcome is not None:
             try:
@@ -1596,6 +1621,12 @@ class WorldServer:
                 changed = True
             if self.shared_world.tick_event_conditions(presences):
                 changed = True
+            if self.battle_desk is not None and time.monotonic() - self._last_frontier_tick >= 5:
+                self._last_frontier_tick = time.monotonic()
+                try:
+                    self.frontier.reconcile()
+                except Exception:  # noqa: BLE001 - never stops the host loop
+                    pass
             # Online-together friendship time (small, daily capped).
             mono = time.monotonic()
             if mono - self._last_friendship_tick >= 60:

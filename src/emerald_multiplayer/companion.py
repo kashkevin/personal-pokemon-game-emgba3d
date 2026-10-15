@@ -1925,7 +1925,8 @@ class Companion:
         from .shared_world_protocol import validate_world_request
         if not self.connected or self._remote_writer is None or self.session_epoch is None:
             raise ConnectionError("no shared-world session")
-        if (operation == "gym_coop" and self.config.battle_resume_abi_version == 1
+        if ((operation == "gym_coop" or (operation == "frontier" and fields.get("op") == "battle"))
+                and self.config.battle_resume_abi_version == 1
                 and self.config.battle_abi_version == 3 and self._bridge is not None
                 and self._bridge.battle_capable):
             # The co-op request is the challenger's consent: bind it to this
@@ -1974,6 +1975,17 @@ class Companion:
                     or type(view["points"]) is not int or type(view["lucky_friends"]) is not bool):
                 raise ProtocolError("invalid_server_message", "invalid friendship view")
         return friends
+
+    async def frontier_rpc(self, op: str = "status") -> dict:
+        """The cooperative Battle Frontier (frontier_service.py): read it, or propose / accept / cancel / retire a run
+        or ask for the next round's battle. Refusals arrive as ProtocolError with the host's reason."""
+        result = await self.world_rpc("frontier", op=op)
+        run, record = result.get("run"), result.get("record")
+        if (type(record) is not dict or type(result.get("party_limit")) is not int
+                or (run is not None and (type(run) is not dict or run.get("state") not in ("forming", "active", "ended")
+                                         or type(run.get("round")) is not int or type(run.get("streak")) is not int))):
+            raise ProtocolError("invalid_server_message", "invalid Frontier view")
+        return result
 
     async def appearance_rpc(self, appearance: bytes | None = None) -> bytes | None:
         """Read or replace this player's customized trainer look on the host."""

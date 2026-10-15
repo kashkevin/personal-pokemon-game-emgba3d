@@ -9,6 +9,7 @@ import unittest
 from uuid import uuid4
 
 from emerald_multiplayer.battle_controller import ControllerValidator
+from emerald_multiplayer import coop_code
 from emerald_multiplayer.battle_mailbox import BattleMailboxError
 from emerald_multiplayer.native_battle import (
     COOP_PHASE, MULTI_PHASE, PHASE, NativeBinding, Preparation, battler_count_for_phase, battler_owner,
@@ -154,6 +155,74 @@ class CoopDeskTests(unittest.TestCase):
         self.assert_code("invalid_battle", self.desk.invite_coop, *self.actor(1),
                          self.players[1].player_id, 1, str(uuid4()))
         self.assert_code("battle_offer_changed", self.call, "accept", 2, "0" * 64)
+
+    def test_the_outcome_is_published_to_the_host_before_the_battle_closes(self):
+        published = []
+        self.desk.on_publish = lambda battle: published.append(
+            (battle.battle_id, next(iter(battle.finished.values())), battle.state, battle.mode, battle.gym))
+        code = coop_code.encode(261, 262, 50)
+        self.coop(gym=code)
+        self.call("accept", 2, self.view["fingerprint"])
+        for index in (0, 2):
+            self.call("register", index, 100 + index)
+        for index in (0, 2):
+            binding = self.call("authorize_bind", index)
+            request = self.control(index, fixture.Opcode.BIND, 1, data=binding.pack())
+            self.call("bound", index, request, replace(request, data=self.query(index, 1)))
+            preparation = self.call("preparation", index)
+            self.assertEqual(preparation.gym, code)                                  # a ladder code reaches the game
+            self.assertEqual(Preparation.unpack(preparation.pack()).gym, code)
+            request = self.control(index, fixture.Opcode.PREPARE, 2, data=preparation.pack())
+            self.call("prepared", index, request, replace(request, data=self.query(index, 2, 9, revision=1)),
+                      self.descriptor(index).trainer_descriptor)
+        self.desk.authorize_start(self.battle_id, self.generation)
+        for index in (0, 2):
+            self.start(index)
+            self.parts(index)
+        self.desk.authorize_running(self.battle_id, self.generation)
+        for index in (0, 2):
+            self.finish(index, outcome=1)
+        self.assertEqual(published, [])                                              # not before every release
+        self.release(0)
+        self.assertEqual(published, [])
+        self.release(2)
+        self.assertEqual(published, [(self.battle_id, 1, "release_authorized", 4, code)])   # exactly once, then closed
+
+    def test_a_failed_publication_keeps_the_battle_open_for_the_exact_retry(self):
+        calls = []
+
+        def flaky(battle):
+            calls.append(1)
+            if len(calls) == 1:
+                raise OSError("disk full")
+
+        self.desk.on_publish = flaky
+        self.coop(gym=3)
+        self.call("accept", 2, self.view["fingerprint"])
+        for index in (0, 2):
+            self.call("register", index, 100 + index)
+        for index in (0, 2):
+            binding = self.call("authorize_bind", index)
+            request = self.control(index, fixture.Opcode.BIND, 1, data=binding.pack())
+            self.call("bound", index, request, replace(request, data=self.query(index, 1)))
+            preparation = self.call("preparation", index)
+            request = self.control(index, fixture.Opcode.PREPARE, 2, data=preparation.pack())
+            self.call("prepared", index, request, replace(request, data=self.query(index, 2, 9, revision=1)),
+                      self.descriptor(index).trainer_descriptor)
+        self.desk.authorize_start(self.battle_id, self.generation)
+        for index in (0, 2):
+            self.start(index)
+            self.parts(index)
+        self.desk.authorize_running(self.battle_id, self.generation)
+        for index in (0, 2):
+            self.finish(index, outcome=1)
+        self.release(0)
+        with self.assertRaises(OSError):
+            self.release(2)
+        self.assertNotEqual(self.desk._active[self.battle_id].state, "closed")
+        result, _, _ = self.release(2)                                               # the same RELEASE, retried
+        self.assertEqual(result["state"], "closed")
+        self.assertEqual(len(calls), 2)
 
     def test_preparation_binding_and_full_lifecycle_without_results_archive(self):
         self.coop(gym=3)

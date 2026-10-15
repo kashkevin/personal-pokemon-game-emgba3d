@@ -16,7 +16,10 @@ they change no battle mechanic (Gen 6 rules are untouched). Eggs never count.
 Which rule applies follows the world's clock: one entry of `rotation` per
 `day_seconds` of world time, or `fixed` always. File format (all keys optional):
 
-  {"enabled": true, "rotation": ["open", "level_50", ...], "day_seconds": 86400, "fixed": "level_50"}
+  {"enabled": true, "rotation": ["open", "level_50", ...], "day_seconds": 86400, "fixed": "level_50", "party_limit": 3}
+
+`enabled`, `rotation`, `day_seconds` and `fixed` are the Championship entry rules (off unless the file says otherwise);
+`party_limit` is the cooperative Battle Frontier's bring limit (frontier_service.py) and applies with or without them.
 """
 from __future__ import annotations
 
@@ -93,6 +96,7 @@ class FrontierSettings:
     rotation: tuple[str, ...] = DEFAULT_ROTATION
     day_seconds: int = 86_400
     fixed: str | None = None
+    party_limit: int = 3   # the cooperative Frontier: most Pokemon a trainer may bring (1-6)
 
     @classmethod
     def load(cls, path) -> "FrontierSettings":
@@ -103,7 +107,7 @@ class FrontierSettings:
             raw = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError) as error:
             raise FrontierRuleError(f"{path.name} is not valid JSON") from error
-        if not isinstance(raw, dict) or set(raw) - {"enabled", "rotation", "day_seconds", "fixed"}:
+        if not isinstance(raw, dict) or set(raw) - {"enabled", "rotation", "day_seconds", "fixed", "party_limit"}:
             raise FrontierRuleError(f"{path.name} has unknown settings")
         rotation = tuple(raw.get("rotation", DEFAULT_ROTATION))
         fixed = raw.get("fixed")
@@ -111,7 +115,12 @@ class FrontierSettings:
         if (type(raw.get("enabled", True)) is not bool or not rotation or any(r not in RULE_NAMES for r in rotation)
                 or (fixed is not None and fixed not in RULE_NAMES) or type(day) is not int or not 60 <= day <= 31 * 86_400):
             raise FrontierRuleError(f"{path.name} has an invalid Frontier setting")
-        return cls(raw.get("enabled", True), rotation, day, fixed)
+        limit = raw.get("party_limit", 3)
+        if type(limit) is not int or not 1 <= limit <= 6:
+            raise FrontierRuleError(f"{path.name} has an invalid Frontier setting")
+        # A file that only sets the bring limit does not switch the Championship entry rules on.
+        enabled = raw.get("enabled", set(raw) != {"party_limit"})
+        return cls(enabled, rotation, day, fixed, limit)
 
     def rule_at(self, world_seconds: int) -> str:
         if self.fixed is not None:

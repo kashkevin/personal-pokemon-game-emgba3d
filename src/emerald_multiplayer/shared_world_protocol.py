@@ -9,13 +9,14 @@ from .protocol import MAX_COUNTER, ProtocolError
 
 WORLD_TYPES = frozenset({"world_action", "appearance_get", "appearance_set", "friendship_get",
                          "wager_get", "wager_set", "wager_accept", "wager_decline", "wallet_applied",
-                         "gym_coop", "spawn_action", "base_publish", "base_visibility", "base_get"})
+                         "gym_coop", "spawn_action", "base_publish", "base_visibility", "base_get", "frontier"})
 ACTIONS = frozenset({"claim", "result", "release"})
 RESULTS = frozenset({"caught", "defeated", "ran", "lost", "cancelled"})
 _HEX16 = re.compile(r"[0-9a-f]{16}\Z")
 _BASE_HEX = re.compile(r"[0-9a-f]{320}\Z")
 _EVENT_FIELDS = {"event_id", "species", "level", "shiny", "mega", "map_group", "map_number", "x", "y",
                  "held_item", "perfect_ivs", "seconds_left", "claimant"}
+FRONTIER_OPS = frozenset({"status", "propose", "accept", "cancel", "retire", "battle"})
 SPAWN_ACTIONS = frozenset({"claim", "result", "release"})
 SPAWN_RESULTS = frozenset({"caught", "defeated", "ran", "lost", "cancelled"})
 SPAWN_KINDS = frozenset({"normal", "outbreak"})
@@ -202,6 +203,15 @@ def validate_world_request(message: Any, session_epoch: int) -> dict:
         if message["base"] is not None and (type(message["base"]) is not str
                                             or _BASE_HEX.fullmatch(message["base"]) is None):
             raise ProtocolError("invalid_field", "secret base must be 320 lower-case hex digits")
+    elif kind == "frontier":
+        base = {"type", "session_epoch", "request_id", "op"}
+        if set(message) not in (base, base | {"incarnation", "runtime_id"}):
+            raise ProtocolError("invalid_fields", "Frontier request has unexpected fields")
+        if message["op"] not in FRONTIER_OPS:
+            raise ProtocolError("invalid_field", "unsupported Frontier operation")
+        if "incarnation" in message:
+            _int(message["incarnation"], "native incarnation", 1, 0xFFFFFFFF)
+            _uuid(message["runtime_id"], "native runtime")
     elif kind == "base_visibility":
         if set(message) != {"type", "session_epoch", "request_id", "mode"}:
             raise ProtocolError("invalid_fields", "secret base visibility has unexpected fields")

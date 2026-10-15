@@ -456,3 +456,28 @@ verified, frozen launcher stayed up, graphics-mode check on the packaged games p
   https://github.com/kashkevin/personal-pokemon-game-emgba3d/actions/runs/38684352610/artifacts/11949872388
 * Not in it: the sprite pack, the owner's own game (imported on the player's PC), any save.
 * Not shown: any real PC, GPU, audio, controller or network. Test list: `docs/windows-test-update2-7.md`.
+
+
+# Update 8-14 queue (autonomous, started 2026-10-15)
+
+Branches: app `claude/dev-update8-14` (from `claude/dev-update2-7` 053be90), engine `claude/dev-update8-14-engine`
+(from `claude/dev-update2-7-engine` a18e2e96). Same rules as before: every "tested" is simulated unless it says otherwise; the
+GBA ROM must stay `f214735b…3387`.
+
+## Update 8 — Cooperative Battle Frontier
+
+Design and rules: `docs/battle-frontier.md`. Built on the existing native co-op battle instead of a new battle mode.
+* **Engine (PC only, GBA ROM identical):** `multiplayer_ladder.[ch]`. The 32-bit code of a co-op battle names two opposing
+  trainers, a level and whether experience is awarded (a Gym is still 1..8). The opposing parties are cut to three each and
+  scaled exactly; the result script shows the outcome. `--selftest-ladder` **18/18**: all 862 trainers build a party and
+  scale to the level with full HP; codes round-trip; bad codes are refused; Gym codes keep their meaning. Hooks in shared
+  files are PORTABLE-wrapped with `#line` markers (`multiplayer_coop.c`, `multiplayer_battle.c`).
+* **App:** `coop_code.py` (code, validators widened in `native_battle`, `battle_desk`, `battle_protocol`), `frontier.py` (ladder,
+  levels, prizes, durable book), `frontier_service.py` (team/party rules, issue, reconcile, payment), `Wagers.grant`,
+  `BattleDesk.on_publish` (durable co-op outcome before closure), world request `frontier`, companion `frontier_rpc`, Players
+  menu pages, optional `party_limit` in `<world>.frontier.json`.
+* **Evidence:** `test_frontier.py` 31 (rules, book incl. restart, service against the real desk and real saved parties, menu,
+  protocol path; mutation-checked: removing settle idempotence or grant idempotence fails 4 tests), `test_coop_battle.py` +2
+  (ladder code reaches the game; a failed publication keeps the battle open for the exact retry).
+* **Not built:** choosing a subset of a larger party inside the battle (native protocol change; Opus-level), items/BP prizes
+  (no delivery channel). See `docs/battle-frontier.md`.

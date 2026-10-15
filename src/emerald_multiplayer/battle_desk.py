@@ -18,6 +18,7 @@ from uuid import uuid4
 
 from .battle_mailbox import BattleMailboxError, _integer, _uuid
 from .battle_roster import CanonicalBattler
+from .coop_code import valid_code
 from .native_battle import Kind, NativeBinding, NativeControl, NativeQuery, Opcode
 from .ownership_storage import OwnershipCheckpointStore
 from .protocol import MAX_COUNTER
@@ -93,6 +94,7 @@ class BattleDesk:
                 raise ValueError("battle history must match this exact world and release")
         self.results = results
         self.on_closed = None  # host friendship bookkeeping after a closed battle
+        self.on_publish = None  # co-op (PvE) result, made durable by the host before the battle is closed (Frontier)
         self.on_aborted = None  # host wager bookkeeping after an abort
         self.start_gate = None  # host wager check before the first START
         self.timeout, self.clock = float(timeout), clock
@@ -288,8 +290,8 @@ class BattleDesk:
         self._id(teammate, "teammate"); self._id(battle_id, "battle ID")
         if actor == teammate:
             raise BattleError("invalid_battle", "a co-op Gym battle needs two different trainers")
-        if type(gym) is not int or isinstance(gym, bool) or not 1 <= gym <= 8:
-            raise BattleError("invalid_battle", "unknown co-op Gym")
+        if not valid_code(gym):
+            raise BattleError("invalid_battle", "unknown co-op battle")
         self._auth(actor, lease)
         return self._invite(actor, lease, (actor, teammate), battle_id, mode=4, gym=gym)
 
@@ -692,6 +694,11 @@ class BattleDesk:
                     for raw in receipts[(player, opcode)]:
                         material.extend(raw)
             self.results._append_closed(summary, hashlib.sha256(material).hexdigest())
+        if battle.mode == 4 and callable(self.on_publish):
+            # A co-op battle's result is not in the PvP archive. The host keeps it (idempotently, by battle ID) *before*
+            # the reservation closes, so a crash can never leave a closed battle whose outcome nobody recorded; if this
+            # raises the exact RELEASE receipt is retried, as for the archive above.
+            self.on_publish(battle)
         self.reservations._finish(battle, "closed", actor, request, response)
         if callable(self.on_closed):
             try:

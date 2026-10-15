@@ -224,6 +224,17 @@ class Wagers:
                          (player, seq, delta, battle_id, credit_to, self._now()))
         return seq
 
+    def grant(self, player: str, amount: int, ref: str) -> int | None:
+        """Queue a prize of ``amount`` for ``player``, once per (player, ref): a repeated call (a retried settlement, a
+        restart between paying and recording it) returns None and queues nothing. Returns the wallet sequence."""
+        if type(amount) is not int or not 1 <= amount <= MAX_MONEY or not isinstance(ref, str) or not ref:
+            raise WagerError("invalid_prize", "a prize is 1 to 999,999")
+        with self._transaction():
+            if self._db.execute("SELECT 1 FROM wallet WHERE player_id=? AND battle_id=? AND delta>0",
+                                (player, ref)).fetchone() is not None:
+                return None
+            return self._queue(player, amount, ref)
+
     def _full_seq(self, player: str, low: int) -> int:
         """The save's sequence from its low byte (the host knows every issued seq)."""
         last = self._last_seq(player)

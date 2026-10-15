@@ -269,7 +269,7 @@ class MenuTests(unittest.IsolatedAsyncioTestCase):
         await menu.refresh()
         await self.click(menu, "World and my base")
         self.assertEqual(self.labels(menu), ["Players and weather", "Outbreak: WURMPLE", "World Event: none",
-                                             "My Secret Base"])
+                                             "My Secret Base", "Battle Frontier"])
         await self.click(menu, "Players and weather")
         self.assertEqual(self.labels(menu), ["Alice - ROUTE 101", "Bob - LITTLEROOT TOWN"])
         await self.click(menu, "Alice - ROUTE 101")

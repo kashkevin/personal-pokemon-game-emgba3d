@@ -53,6 +53,7 @@ def time_of_day_for_hour(hour: int) -> str:
         return "evening"
     return "night"
 from . import event_conditions
+from .frontier import SCHEMA as _FRONTIER_SCHEMA, FrontierBook
 from .secret_bases import SCHEMA as _BASE_SCHEMA, SecretBaseBook
 
 _SCHEMA = (
@@ -64,6 +65,7 @@ _SCHEMA = (
         winner TEXT, created REAL NOT NULL)""",
     "CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
     *_BASE_SCHEMA,
+    *_FRONTIER_SCHEMA,
 )
 
 
@@ -140,6 +142,7 @@ class SharedWorld:
         seconds = self._db.execute("SELECT seconds FROM clock WHERE id=1").fetchone()[0]
         self._clock = _Clock(float(seconds), None)
         self.bases = SecretBaseBook(self._db, self._transaction)
+        self.frontier = FrontierBook(self._db, self._transaction, clock=time.time)
         from .event_settings import DEFAULT_EVENT_SETTINGS
         self._events = event_settings if event_settings is not None else DEFAULT_EVENT_SETTINGS
         self._condition_chance = self._events.condition_chance if event_condition_chance is None else event_condition_chance

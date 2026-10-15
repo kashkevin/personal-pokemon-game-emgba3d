@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import re
 
+from .coop_code import valid_code
 from .protocol import MAX_COUNTER, PROTOCOL_VERSION, ProtocolError, _fields, _integer
 from .team_protocol import _uuid
 
@@ -162,7 +163,8 @@ def _view(value, actor):
     if value["scope"] != SCOPE or type(value["mode"]) is not int or value["mode"] not in (2, 3, 4):
         raise ProtocolError("invalid_server_message", "unsupported battle challenge format")
     if coop:
-        _integer(value["gym"], "co-op Gym", 1, 8)
+        if not valid_code(value["gym"]):
+            raise ProtocolError("invalid_server_message", "invalid co-op battle code")
     count = 4 if value["mode"] == 3 else 2
     players = value["players"]
     if type(players) is not list or len(players) != count:
