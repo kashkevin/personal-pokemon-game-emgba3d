@@ -46,7 +46,8 @@ class ShopItem(NamedTuple):
         return ITEM_NAMES.get(self.item, f"Item {self.item}")
 
 
-# The Battle Points shop, priced like the game's Exchange Service Corners (vitamins 16 BP; held items 32-64 BP).
+# The Battle Points shop. NOT the game's Exchange Service Corner prices (vitamins 1 BP there, Quick Claw 48, King's Rock and
+# Focus Band 64, Leftovers 48, Choice Band 64); see docs/balance-and-controls-review.md. Prices are the owner's to set.
 SHOP = (
     ShopItem(ITEM_PROTEIN, 1, 16), ShopItem(ITEM_IRON, 1, 16), ShopItem(ITEM_CALCIUM, 1, 16), ShopItem(ITEM_ZINC, 1, 16),
     ShopItem(ITEM_CARBOS, 1, 16), ShopItem(ITEM_HP_UP, 1, 16), ShopItem(ITEM_QUICK_CLAW, 1, 32),

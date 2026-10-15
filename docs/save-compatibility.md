@@ -7,7 +7,7 @@ hash proves nothing about saves and is not used as evidence. No real save from a
 | Store | Format | Changed since U14? | Evidence |
 |---|---|---|---|
 | Checkpoint store (`world.sqlite3`: each player's save, leases, trade/battle extensions) | SQLite, `user_version` capabilities | `storage.py`, `trade_storage.py`, `ownership_storage.py` **byte-identical** to U14 | `git diff e2a40d7..HEAD` empty for the three files |
-| Shared world (`*.shared-world.sqlite3`: events, catch resolutions, frontier, league, bases) | SQLite, `CREATE TABLE IF NOT EXISTS` | additive only: `event_verdicts`, `frontier_rewards`, `frontier_bp`, `frontier_purchases`, `frontier_bring`, `ffa_*` | `tests/test_save_compat.py` (6 tests) on a database written by the U14 code |
+| Shared world (`*.shared-world.sqlite3`: events, catch resolutions, frontier, league, bases) | SQLite, `CREATE TABLE IF NOT EXISTS` | additive only: `event_verdicts`, `frontier_rewards`, `frontier_bp`, `frontier_purchases`, `frontier_bring`, `ffa_results` | `tests/test_save_compat.py` (6 tests) on a database written by the U14 code |
 | Launcher profile files | JSON with strict formats | `launcher-settings.json` untouched; the privacy choice is a **new separate file** so a newer file never breaks an older launcher | `tests/test_privacy.py` |
 | The game's own save (flash) | the GBA layout | **no layout change**: the catch record uses five previously unused script variables; engine `abi_layout.py` and `check-abi` pass | engine `make check-abi` |
 
