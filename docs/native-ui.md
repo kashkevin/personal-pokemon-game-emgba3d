@@ -112,7 +112,7 @@ picture; the mart, the Game Corner and the PC draw their own lines.
 * Mouse: click a row, button, tab or prompt; right click is the screen's "back" (B); the
   wheel scrolls lists and browses. A click moves the engine's own cursor with the engine's
   own presses (one edge a frame) and then presses A, so every rule stays the engine's.
-* Controller (XInput on Windows): the game's mapping (A = A, X = B, Back = SELECT, LB / RB
+* Controller (XInput on Windows): the game's mapping (A = A, X = B, and since Update 24 the right face button B = B too, Back = SELECT, LB / RB
   = L / R, START); **Y** opens the details view (the game does not use Y).
 * Prompts show the keys of the device used last (keyboard caps or pad buttons).
 * The party screen's arrows follow the design's two-column grid (RIGHT: the second

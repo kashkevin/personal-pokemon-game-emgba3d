@@ -6,7 +6,7 @@ simulation (unit tests, selftests, reading the engine's own data); no real play.
 ## Confirmed defects (fixed)
 1. **Xbox B did nothing.** `GAMEPAD_B` was defined but never mapped; only the left face button (X) was the GBA B. A player
    pressing the usual Cancel/Back button on an Xbox pad got no response in menus. Now both X and B are the GBA B (engine
-   `src/platform/gamepad.c`; 9 new checks of the whole pad table in `--selftest-keybinds`: 30 checks, 0 failed).
+   `src/platform/gamepad.c`; an older unit test had pinned "B: no game button" as the oracle, so this is a **deliberate change of a pinned behaviour**: revert it if you prefer the old layout; 9 new checks of the whole pad table in `--selftest-keybinds`: 30 checks, 0 failed).
 2. **Documentation error:** `frontier_rewards.py` and `owner-decisions.md` said the host's BP shop is "priced like the game's Exchange
    Service Corners". It is not (table below). The numbers are unchanged; the text now states them.
 

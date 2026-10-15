@@ -49,3 +49,12 @@ below was decided or built by assumption; each row says what is waiting and a re
 | 17 | **Graphical PokéNav map with player markers** | Built in Update 18 with the game's own art only (`docs/graphical-pokenav-map.md`). Your calls: (a) the borrowed event/outbreak markers versus new art (list of missing art in the doc); (b) whether other players' places should be hideable (today everyone connected is visible, as in the text page); (c) whether SELECT needs a help-bar hint. |
 | 19 | **Update 20 build** | Private Windows package built by GitHub Actions only; bios.c licensing still unresolved, so nothing is cleared for distribution. |
 | 18 | **Gen 6 purity of expansion switches** | PC build now turns off Gen 9 running from trainer battles and Gen 8 thunderstorm terrain. Kept on: extrapolated move flags and X-item cross-use. Say if you want those off too. |
+
+## Added by Updates 21-25
+| # | Decision | State |
+|---|---|---|
+| 21 | **Xbox B as Cancel.** Update 24 made the right face button (B) a GBA B too (it did nothing; X was the only B). One line in `gamepad.c` and its test oracle to revert. | Built; your call |
+| 22 | **3D vehicles.** Trucks (Littleroot at the start), Cable Car, S.S. Tidal, Seagallop, Rayquaza are drawn from several sprite pieces: the 3D view falls back to 2D while one is on screen. Build a composite texture (moderate work) or accept. | Open |
+| 23 | **Loudness.** The audio audit showed music about -18 dBFS peak at full volume; the make-up gain went from 2 to 4 (+6 dB, no clipping measured). Needs your ears. | Built; your call |
+| 24 | **BP shop prices** differ from the game's Exchange Service Corner (vitamins 16 vs 1 BP; Quick Claw 32 vs 48; King's Rock and Focus Band 32 vs 64) and BP rates look generous (39 BP for 21 rounds). `docs/balance-and-controls-review.md`. | Open |
+| 25 | **Location privacy** is in the PokeNav Players page (default ON, per character). A launcher checkbox was not built. A hidden player is still visible to the host's operator and to players on the same map. | Built |

@@ -631,3 +631,42 @@ was taken (now skipped). No other defect was confirmed; owner-decision and cosme
   https://github.com/kashkevin/personal-pokemon-game-emgba3d/actions/runs/38726808703 . Private to the repository; **bios.c licensing unresolved: not cleared for distribution.**
   Existing-save compatibility: the GBA ROM is byte-identical and the save layout is untouched (the catch record uses five previously unused script variables; the
   host's new books are new tables; older saves without a record simply ignore catch verdicts). Not run on a real PC.
+
+## Update 21 — Four-player battle visual polish
+
+`docs/four-player-battle-ui.md`. Engine branch `claude/dev-update21-25-engine`. The free-for-all screen now draws the second player's Pokémon facing
+you, names every Pokémon's trainer (2D: in the healthbox; 3D: a coloured name tag on each box and `NAME - OUT` for an eliminated trainer),
+prefixes battle text ("BOB's Gardevoir used Swift!"), and the 3D target page shows FOE plates (nobody is an ally). Looked at through a new
+headless four-player preview (`PKMN_DEBUG_SCENE=ffa`: real battle engine, computer trainers) in 2D and 3D: intro, menus, target selection,
+moves, status, faints, elimination; the same four Pokémon as a 2v2 for a regression look (unchanged). Findings on the way (scene artefacts, not
+game bugs): computer trainers Dynamaxed/Terastallized, disobedience at level 50; one real engine fix for the preview path (the opponent
+controller waited on its own flags in a free-for-all). `tools/pc_port/ffa_visual_check.py` + `tests/visual/ffa_signatures.json` (numbers only) is the visual
+regression check. Two FFA test expectations changed to the new text; **FFA test ROM subset 25 of 25**. Release ROM **f214735b…3387 unchanged**.
+Not seen on a real monitor or over a real network.
+
+## Update 22 — Visual and audio audit
+
+`docs/visual-audio-audit.md`. New tools: field scene, `visual_audit.py` sweep, audio scene. **3D sweep: 29 of 29 maps drawn in 3D, none blank or crashed**; Low and
+Medium quality presets looked at (closes V22); **confirmed limitation:** objects drawn from several sprite pieces (Littleroot's moving trucks, Cable Car, S.S. Tidal,
+Seagallop, Rayquaza) make the 3D view fall back to 2D while on screen (owner decision). **Audio:** all 558 song numbers through the mixer: no crash, no clipping, no stuck
+song (80 numbers are unused slots); **music peaked near -18 dBFS: make-up gain raised 2 → 4** (needs real ears). Simulation only.
+
+## Update 23 — Reliability and save compatibility
+
+`docs/save-compatibility.md`. Databases written by the Update 14 code (fixtures made by `tools/compat`, data only) open with the current code: the three checkpoint
+store modules are byte-identical since Update 14; the shared world only gains tables; catches, resolutions and open claims survive; verdicts are exactly-once; 30 reopen cycles change
+nothing; the committed fixtures are never modified (tests copy them first). `tests/test_save_compat.py` 6 tests. No duplicate-reward, wrong-owner, lost-progress or growth defect was
+found; the existing suites for rewards, restarts, journals and recovery all pass. Not covered: old journals/saves from real runs.
+
+## Update 24 — Balance, privacy, controls
+
+`docs/pokenav-privacy.md`, `docs/balance-and-controls-review.md`. **PokeNav location privacy**: Players page toggle, default ON, per character; the host redacts a hidden player from every
+other viewer (presence as map 255.255 without weather, PokeNav text "Location hidden", no Town Map marker, Players screens/Trainer Card say so); same-map viewers still see them;
+failing closed on an unreadable setting file; 9 tests incl. four real connections. **Controls:** Xbox B did nothing → now Cancel (the engine's pad test oracle updated: 28,217
+checks, 0 failures); rebinding self-test 30/30. **Balance:** documentation error about shop prices corrected; recommendations (not changes) listed separately.
+
+## Update 25 — Final integration
+
+Branches `claude/dev-update21-25` (app) and `claude/dev-update21-25-engine` (engine). Local: release ROM hash unchanged (f214735b…3387, rebuilt after every Update 21-24 engine change);
+GBA test ROM full run **5532 passed, 39 failed = the expected list, 0 new** (6034 total, 9 expected-failing); PC selftests (22 targets) 0 failures; ABI parity 172 types; app suite
+all passing (one timing test, `test_two_player_start_up_without_game_delay`, failed once at 4.97 s against 4.0 s while the GBA suite loaded all four cores, and passed on its own).
