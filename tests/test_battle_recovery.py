@@ -9,6 +9,7 @@ import os
 from dataclasses import replace
 from pathlib import Path
 import struct
+import sys
 import threading
 from types import SimpleNamespace
 import unittest
@@ -582,6 +583,26 @@ class BattleRecoveryNetworkTests(unittest.IsolatedAsyncioTestCase):
         opcodes = [decode_control(event["control_b64"]).opcode for event in events if event.get("kind") == "command"]
         self.assertGreater(opcodes.count(Opcode.QUERY), 4 * opcodes.count(Opcode.KEEP))  # most steps skipped it
         await self._recover(4)
+
+    async def test_replaying_history_does_not_wait_between_historical_steps(self):
+        # A live route sleeps 1 ms per step for the cores; a replay of recorded responses must not
+        # (it doubled the recovery time of a long battle and let waiting clients' polls interleave
+        # with every historical step).
+        self.addCleanup(setattr, RetainedFixture, "IDLE_QUERIES", 0)
+        RetainedFixture.IDLE_QUERIES = 40
+        await self._interrupt(Opcode.RELEASE, multi=True)
+        real_sleep, waits = asyncio.sleep, []
+        async def sleep(delay, result=None):
+            caller = sys._getframe(1)
+            if caller.f_code.co_filename.endswith("battle_execution.py"):
+                replay = getattr(caller.f_locals.get("self"), "service", None)
+                waits.append((delay, getattr(replay, "replaying", False)))
+            return await real_sleep(delay, result)
+        with patch.object(asyncio, "sleep", sleep):
+            await self._recover(4)
+        replayed = [delay for delay, replaying in waits if replaying]
+        self.assertGreater(len(replayed), 40)                  # the idle history was replayed
+        self.assertEqual(set(replayed), {0})                   # without waiting
 
     async def test_a_journal_written_before_the_keep_change_recovers_with_a_keep_every_step(self):
         # A battle interrupted under the old router (format v1: KEEP on every step) must replay

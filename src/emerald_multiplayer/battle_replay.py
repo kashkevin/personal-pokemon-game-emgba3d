@@ -95,6 +95,11 @@ class RouteReplay:
         self.route = self.room.route = _NativeRoute(self, self.room)
         self.task = None
 
+    @property
+    def replaying(self):
+        """True while the route consumes durable history (before activation goes live)."""
+        return not self.live.is_set()
+
     def logical(self, actor, command):
         return self.journal._renew_control(actor, command, self.journal.header["leases"])
 

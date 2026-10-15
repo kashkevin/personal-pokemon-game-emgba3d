@@ -447,4 +447,8 @@ class _NativeRoute:
                     await self.rpc(slot, Opcode.RELEASE, data=struct.pack("<II",
                         self.b.roster[slot].party_crc32, queries[slot].outcome))
                 return
-            await asyncio.sleep(.001)
+            # A live route gives the cores a moment; a replay of durable history has nothing to wait
+            # for (its responses are recorded), so it only yields to the event loop. Commands do not
+            # depend on this, so replay stays identical; recovery of a long battle no longer pays
+            # 1 ms plus every waiting client's poll per historical step.
+            await asyncio.sleep(0 if getattr(self.service, "replaying", False) else .001)
