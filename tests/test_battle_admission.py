@@ -40,7 +40,7 @@ class CompanionBattleAdmissionTests(unittest.IsolatedAsyncioTestCase):
             owned_flash(grant,(("party:0",grant.start),),personalities=(7,)),
             self.store.build_id,self.store.ruleset_id,OWNERSHIP_PROFILE)
         mode = getattr(self, "native_phase", 2)
-        count = 4 if mode == 3 else 2
+        count = 4 if mode in (3, 5) else 2
         players = tuple(sorted((actor, *(str(uuid4()) for _ in range(count-1)))))
         local = players.index(actor)
         leases = tuple(self.c.session_epoch if p == actor else self.c.session_epoch+1 for p in players)
