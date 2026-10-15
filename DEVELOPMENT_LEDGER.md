@@ -565,3 +565,22 @@ disassembly comparison. **A regression found and fixed on the way:** `BattleSide
 which broke the party-index setup in the 25 tests (they had passed before the native-phase commit).
 **Not verified:** four real PCs, the screen layout (doubles layout reused, third foe in the partner slot), a real disconnect mid-battle.
 The 3 `2v1`/two-opponent test failures also fail on the Update 14 head (they are among the 39 listed Gen 6 failures).
+
+## Update 16 — Complete Battle Frontier
+
+`docs/battle-frontier.md`. **Team selection from a larger party:** the host stores each player's selection (`frontier_bring`), validates it against the
+latest save and puts it in the battle: `invite_coop(brings=)`, the consent fingerprint, `CanonicalBattler.bring/battle_party/adopting`, the durable
+reservation (`brings`) and the replay desk, so a restart or a recovery replays the identical team. Native protocol change (documented, contained): the
+co-op preparation carries `0x80 | slot mask` in the **last byte of its seed**; the game clears it before seeding (every core still seeds
+identically), validates it (`BringSelectionValid`), saves the original party as before, reduces the live party to the chosen Pokemon in saved order
+(`ApplyBringSelection`), compares the reduced party's CRC at start and restores the original six exactly at the end; co-op experience maps battle slots
+back to saved slots. `MP_BRING_ENABLED` (PC build and test ROM only): release GBA ROM **f214735b…3387 unchanged** (checked after each engine change).
+**Battle Points and items:** the wager wallet stream (numbered, exactly-once per save, receipts say what landed) carries reward words (`rewards.py`;
+engine `MultiplayerWorld_ApplyRewardWord`): BP into the save's own `frontier.battlePoints` (cap 9999), items into the bag else the PC. BP per cleared
+round, a first-clear item per Brain round, ledger and delivery states in `frontier_rewards`/`frontier_bp`, settled in the same transaction as the round
+(exactly once), re-sent after a crash. **BP shop** (`frontier_purchases`): debit first, item only after the game reports the points taken, refunds for
+partial points or a full bag, one open purchase per player. **Evidence:** engine GBA test ROM (co-op team-selection tests; targeted re-run 197 pass + 3
+listed), `--selftest-rewards` 18, `--selftest-coop-exp` 32, `--selftest-ladder` 20, `check-native` 4305 bridge checks; app `test_frontier`, `test_rewards`,
+`test_coop_battle`, menu tests. Changed behaviour: a party over the limit is no longer refused (it brings its first `party_limit`).
+**Not verified:** a real round with a reduced party on a PC, BP/items landing in a real save, the new pages on screen. Pre-existing 3 two-opponent
+test failures (Gen 6 list) are unchanged.
