@@ -19,7 +19,7 @@ Branches (nothing merged into the combined branches; no force-pushes):
 | P1 | M25 multiplayer battle performance | done for what is safe (−12 % to −28 %); two further levers need Opus (see entry) |
 | P2 | Four-player 2v2 and recovery (journal growth) | done for what is safe (reload −47 %); journal-format reduction and the full-six proof need Opus / owner data (see entry) |
 | P3 | Co-op EXP / Exp. Share verification | verified; parity test added; no confirmed bug; persistence and farming are owner decisions |
-| P4 | Stability: clock self-test, UBSan coverage, M27, GEN_6 test review | clock, sanitizers and M27 done; GEN_6 review in progress (see entry) |
+| P4 | Stability: clock self-test, UBSan coverage, M27, GEN_6 test review | done (clock, sanitizers, M27, GEN_6 review); battle/animation sanitizer coverage still needs a driver |
 | K | Customizable keybinds (inspected: **did not exist**, built from scratch) | done and tested; not tried on a real PC |
 | P5 | Incomplete features audit and partial completions | audited; status refreshed; owner decisions listed; no new mechanics built |
 
@@ -161,7 +161,11 @@ Engine commits on `claude/dev-stability-engine`: `2f8b35ef` (clock), `e1594d51` 
 * **M27: done as PC-only wording** ("START menu: PLAYER, then STYLE"). The GBA text is unchanged; `#line` markers keep
   line numbers; the GBA ROM `pokedev.gba` was rebuilt after this and the keybinds work and is still sha256
   `f214735b...3387`.
-* **GEN_6 test failures:** see below (filled when the GBA test run finished).
+* **GEN_6 test failures (review done):** `make check` re-run (6000 tests, 5498 passed, **39 failed**, 15 assumption skips; the same
+  39 as before). **No genuine bug found**: each follows from the Gen 6 profile (details and the "known" vs "title only"
+  basis per group in `docs/gba-test-failures.md`); whether each Gen 6 result equals the real Gen 6 games is not verified for
+  the "title only" groups. New: a checked-in expected list (`docs/gba-test-expected-failures.txt`) and
+  `scripts/diagnostics/check_gba_test_failures.py` that fails on any failure outside it (test: `tests/test_gba_test_failures.py`).
 
 ## K — Customizable keybinds (built from scratch)
 

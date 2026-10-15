@@ -1,0 +1,40 @@
+# Upstream GBA tests that fail under the project's Gen 6 profile (docs/gba-test-failures.md).
+test/battle/ability/delta_stream.c: Delta Stream fails if overworld weather is present (Gen9)
+test/battle/ability/desolate_land.c: Desolate Land fails if overworld weather is present (Gen9)
+test/battle/ability/electromorphosis.c: Electromorphosis sets up Charge when hit by any move 1/2
+test/battle/ability/electromorphosis.c: Electromorphosis triggers on each multistrike hit but Charge does not stack
+test/battle/ability/flower_veil.c: Flower Veil does not prevent self-inflicted stat drops - abilities
+test/battle/ability/keen_eye.c: Keen Eye, Gen9+ Illuminate & Minds Eye prevent accuracy stage reduction from moves 2/3 (2/2)
+test/battle/ability/mega_sol.c: Mega Sol ignores Snow's Ice-type Defense boost
+test/battle/ability/primordial_sea.c: Primordial Sea fails if overworld weather is present (Gen9)
+test/battle/ability/wind_power.c: Wind Power sets up Charge for opponent when hit by a wind move 2/2
+test/battle/ability/wind_power.c: Wind Power sets up Charge for player when hit by a wind move 2/2
+test/battle/ai/check_bad_move.c: AI will not try to lower opposing stats if target is protected by it's ability 4/7
+test/battle/battle_message.c: Battle Message: STRINGID_INTROMSG, STRINGID_INTROSENDOUT, STRINGID_RETURNMON, and STRINGID_SWITCHINMON (2v1)
+test/battle/battle_message.c: Battle Message: STRINGID_INTROMSG, STRINGID_INTROSENDOUT, STRINGID_RETURNMON, and STRINGID_SWITCHINMON (AI 2v1)
+test/battle/exp.c: Both opponent's Pokemon give experience in battle against two opponents
+test/battle/hold_effect/air_balloon.c: Air Balloon pops when Disguise is broken 1/2
+test/battle/hold_effect/white_herb.c: White Herb wont have time to activate if Magician steals it
+test/battle/hold_effect/white_herb.c: White Herb wont have time to activate if it is knocked off or stolen by Thief 1/2
+test/battle/move_animations/all_anims.c: Move Animations work 4 25/222
+test/battle/move_effect/assurance.c: Assurance doubles in power if Disguise has been broken
+test/battle/move_effect/charge.c: Charge's effect does not stack with Electromorphosis or Wind Power 1/2
+test/battle/move_effect/chilly_reception.c: Chilly Reception fails if it can't switch the user out or change the weather
+test/battle/move_effect/chilly_reception.c: Chilly Reception switches the user out even if it can't change the weather
+test/battle/move_effect/doodle.c: Doodle fails if ally's ability can't be suppressed 2/15
+test/battle/move_effect/encore.c: Encore uses the priority of the Encored move on the turn the target is Encored instead of the selected move (Champions)
+test/battle/move_effect/ohko.c: Sheer Cold doesn't affect Ice-type Pokémon (Gen7+)
+test/battle/move_effect/ohko.c: Sheer Cold's accuracy decreasaes by 10% if the user is not Ice type (2/2)
+test/battle/move_effect/parting_shot.c: Parting Shot: Magic Bounce bounces it and switches the target out and original user doesn't switch out
+test/battle/move_effect/parting_shot.c: Parting Shot: Magic Coat bounces it and switches the target out and original user doesn't switch out
+test/battle/move_effect/parting_shot.c: Parting Shot: Soundproof and Good as Gold block Parting Shot 1/2
+test/battle/move_effect/rapid_spin.c: Rapid Spin doesn't blow away Wrap, hazards or raise Speed when Sheer Force boosted (Gen 9+)
+test/battle/move_effect/skill_swap.c: Skill Swap fails if user or target has an ability that can't be swapped 4/27
+test/battle/move_effect/sticky_web.c: Sticky Web has correct interactions with Mirror Armor - no one has their Speed lowered if the set upper fainted 1/2
+test/battle/move_effect/sticky_web.c: Sticky Web has correct interactions with Mirror Armor - no one has their Speed lowered if the set upper switched 1/2
+test/battle/spread_moves.c: Spread Moves: AOE move vs Eiscue and Mimikyu (Based on vanilla games)
+test/battle/status1/paralysis.c: Thunder Wave prints an avoided attack message when it misses
+test/battle/trainer_slides.c: Trainer Slide: Doubles: Opponent Mon Unaffected
+test/battle/trainer_slides.c: Trainer Slide: Doubles: Self Mon Unaffected
+test/battle/trainer_slides.c: Trainer Slide: Singles: Opponent Mon Unaffected
+test/battle/trainer_slides.c: Trainer Slide: Singles: Self Mon Unaffected
