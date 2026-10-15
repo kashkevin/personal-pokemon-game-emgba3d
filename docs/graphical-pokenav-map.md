@@ -18,7 +18,7 @@ markers are borrowed art (see "Art still missing").
 
 ## Using it
 * **D-pad** moves the map cursor as always (keyboard arrows or the game's keys; the game's own keybinds and controller apply).
-* **SELECT** (full view) jumps the cursor from marker to marker: each other player in roster order, then the World Event, then
+* **SELECT** (the backslash key by default, rebindable in the launcher's Keys tab; Back on a controller) (full view) jumps the cursor from marker to marker: each other player in roster order, then the World Event, then
   the outbreak. The map's name box then shows where it landed (for example ROUTE 110, LILYCOVE CITY).
 * **A** zooms in and out as before; the markers follow the zoomed map and scroll with it. Markers off screen are hidden.
 * The markers refresh about every 1.5 s while the map is open: players moving, coming or leaving are redrawn.

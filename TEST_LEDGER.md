@@ -101,3 +101,20 @@ preview 12's evidence for those is reused.
 | UBSan build (`SANITIZE=1`) | - | - | Not run on the combined game | - | - | Run (never executed on this code) |
 | Real GPU frame rates (`run-benchmark.bat`) | - | PC | Never run | - | - | Owner |
 | Windows itself, two PCs, controller, audio | - | PC | Never run | `docs/expansion-windows-test.md` | - | Owner |
+
+## Updates 15-19 (cloud, engine `claude/dev-update15-20-engine`, app `claude/dev-update15-20`)
+
+| Test | Build / head | Where | Last result | Evidence | Changed since | Rerun? |
+| --- | --- | --- | --- | --- | --- | --- |
+| GBA test ROM, full `make check` | engine `68ca2f02` | cloud | 5532 passed, 39 failed = the expected list (0 new), 6034 total, 1389 s (2026-10-15) | `docs/final-pc-audit.md` | only PC-only code (`src/region_map.c`) | Rerun at the final head (Update 20) |
+| App suite (`pytest tests`, Python 3.12 + tkinter) | app `ed7c621` + audit edits | cloud | 1756 passed, 50 skipped, 0 failed | same | docs only | Rerun at the final head |
+| Engine native self-tests (`check-native` + 20 selftest targets) | engine `998164d0` | cloud | all 0 failures (see the audit table) | same | - | Rerun at the final head |
+| `--selftest-pokenav-map` | engine `998164d0` | cloud | 8/8 | `docs/graphical-pokenav-map.md` | - | Reuse |
+| `--selftest-catch-reconcile` | engine `998164d0` | cloud | 11/11 | `docs/legendary-catch-resolution.md` | - | Reuse |
+| `--selftest-rewards` | engine `998164d0` | cloud | 18/18 | `docs/battle-frontier.md` | - | Reuse |
+| Town Map markers, rendered pictures looked at (debug scene) | engine `68ca2f02` | cloud, headless | markers, SELECT jump, zoom, scroll, live refresh seen | `docs/graphical-pokenav-map.md` | one palette guard (`998164d0`) | Reuse; real windows are the owner's |
+| 2D and 3D game, headless cold boot to Birch's introduction | engine `998164d0` | cloud, headless | no crash, correct pictures | `docs/final-pc-audit.md` | - | Reuse |
+| 1v1v1v1 free-for-all on four real PCs | - | PC | Never run | `docs/windows-test-update15-20.md` A | - | Owner |
+| Battle Frontier BP/items/team selection on PCs | - | PC | Never run | same, B | - | Owner |
+| Legendary catch race on two PCs | - | PC | Never run | same, C | - | Owner |
+| Graphical PokéNav map on Windows / 3D window | - | PC | Never run | same, D | - | Owner |

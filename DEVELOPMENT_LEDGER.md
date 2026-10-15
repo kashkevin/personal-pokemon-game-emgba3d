@@ -610,3 +610,11 @@ zoomed map and refresh every ~1.5 s. **No protocol change for players:** poses a
 looked at (this is how the earlier "needs a visual-verification session" blocker was removed). While building it a harness bug was found and fixed (an
 uncleared scanline-effect task killed the PokéNav's own task), not a game bug. **Not verified:** real Windows, 3D window, real players. **Missing art** is
 listed exactly in the doc (event glyph, outbreak glyph, number badges, SELECT help-bar string, cave marker style).
+
+## Update 19 — Final PC feature audit
+
+`docs/final-pc-audit.md`. Re-ran everything that exists: app suite **1756 passed, 50 skipped, 0 failed**; engine `check-native` and 20 selftest targets all
+0 failures; `abi_layout.py` 172 types OK; GBA test ROM full `make check` **5532 passed, 39 failed = the expected list, 0 new** (1389 s); release GBA ROM hash
+unchanged. Both native builds (2D and 3D) booted headless from cold with scripted keys to Birch's introduction (new debug scene). **Defects confirmed and
+fixed:** (1) `FEATURE_STATUS.md` still said the Windows .exe was not built; (2) a Town Map marker could be drawn in the wrong colours if every sprite palette bank
+was taken (now skipped). No other defect was confirmed; owner-decision and cosmetic items stay in `KNOWN_ISSUES.md`. Every area still needs its real-PC pass.
