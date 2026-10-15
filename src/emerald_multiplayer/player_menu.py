@@ -166,7 +166,7 @@ class PlayerMenu:
                 raise PlayerMenuError("session_changed")
         world_nav = getattr(self.companion, "world_nav", None)
         self._nav = world_nav() if callable(world_nav) else None
-        if self._page[0] in ("frontier", "league", "hall", "shop"):
+        if self._page[0] in ("frontier", "league", "hall", "shop", "team_pick", "extras"):
             frontier_rpc = getattr(self.companion, "frontier_rpc", None)
             self._frontier = None
             if callable(frontier_rpc) and getattr(self.companion.config, "world_enabled", False):
@@ -430,7 +430,7 @@ class PlayerMenu:
                     else:
                         actions.append(("You accepted this wager", "", ()))
             actions.append(("Back to challenge", "battles", ()))
-        elif page in ("world", "world_players", "world_player", "world_outbreak", "world_event", "base", "frontier", "league", "hall", "shop", "coop", "habitat"):
+        elif page in ("world", "world_players", "world_player", "world_outbreak", "world_event", "base", "frontier", "league", "hall", "shop", "team_pick", "extras", "coop", "habitat"):
             return self._show(*self._render_world(page, target))
         elif page == "championship":
             return self._show(*self._championship.render())
@@ -652,14 +652,56 @@ class PlayerMenu:
         if purchase is not None and not self._notice and purchase["state"] in ("done", "refused", "refunded"):
             status = {"done": "Bought " + purchase["name"][:18], "refused": "Not enough BP in the game",
                       "refunded": "Bag full: BP returned"}[purchase["state"]]
-        actions.append(("Back to the Frontier", "frontier", ()))
+        actions.append(("Back", "extras", ()))
         return "BP Shop", status, actions
+
+    def _render_extras(self, view):
+        """The Frontier's team selection and Battle Points shop (one page keeps the main page within six rows)."""
+        team, bp, record = view.get("team"), view.get("bp") or {}, view["record"]
+        actions = []
+        if team is not None:
+            names = ", ".join(slot["name"] for slot in team["slots"] if slot["selected"])
+            actions.append(("Team: " + (names or "none")[:19], "team_pick", (0,)))
+        if bp.get("shop"):
+            balance = bp.get("balance")
+            actions.append((f"BP shop ({'?' if balance is None else balance} BP)", "shop", (0,)))
+        actions.append((f"Best {record['best_streak']}  runs {record['runs']}  BP +{bp.get('earned', 0)}", "", ()))
+        actions.append(("Back to the Frontier", "frontier", ()))
+        return "Team and BP shop", self._notice or "Choose who fights, spend BP", actions
+
+    def _render_team(self, view, page_no):
+        """Choose which saved Pokemon fight: tap one to bring it (a full team gives up its first member)."""
+        team = view.get("team")
+        if team is None:
+            return "Your team", self._notice or "No saved party yet", [("Back", "extras", ())]
+        slots, limit = team["slots"], team["limit"]
+        per_page = 4
+        pages = max(1, (len(slots) + per_page - 1) // per_page)
+        page_no = page_no if type(page_no) is int and 0 <= page_no < pages else 0
+        actions = []
+        for slot in slots[page_no * per_page:(page_no + 1) * per_page]:
+            if slot["egg"]:
+                actions.append(("Egg (cannot fight)", "", ()))
+                continue
+            mark = "*" if slot["selected"] else "-"
+            actions.append((f"{mark} {slot['name'][:11]} L{slot['level']}" + ("" if slot["able"] else " (fnt)"),
+                            "team_toggle", (slot["slot"], page_no)))
+        if pages > 1:
+            actions.append((f"More ({page_no + 1}/{pages})", "team_pick", ((page_no + 1) % pages,)))
+        actions.append(("Back", "extras", ()))
+        count = sum(1 for slot in slots if slot["selected"])
+        status = self._notice or (f"Bring up to {limit}: {count} chosen" + (" (auto)" if team["auto"] else ""))
+        return "Your team", status, actions
 
     def _render_ladder(self, page, target=None):
         """The cooperative Battle Frontier (frontier.py) and the Pokemon League: team rounds against pairs of trainers."""
         view, actor, actions = self._frontier, self.companion.config.player_id, []
         if page == "shop" and view is not None:
             return self._render_shop(view, target)
+        if page == "team_pick" and view is not None:
+            return self._render_team(view, target)
+        if page == "extras" and view is not None:
+            return self._render_extras(view)
         league = page in ("league", "hall")
         title = "Pokemon League" if league else "Battle Frontier"
         if view is None:
@@ -721,8 +763,8 @@ class PlayerMenu:
             actions.append((f"Cleared {hall.get('clears', 0)}x", "hall", ()))
         else:
             bp_view = view.get("bp")
-            if bp_view is not None and bp_view.get("shop"):
-                actions.append((f"BP shop  best {record['best_streak']}", "shop", (0,)))
+            if view.get("team") is not None or (bp_view is not None and bp_view.get("shop")):
+                actions.append((f"Team, BP shop  best {record['best_streak']}"[:25], "extras", ()))
             else:
                 actions.append((f"Best {record['best_streak']}  runs {record['runs']}", "", ()))
         actions.append(("Back", "coop", ()))
@@ -798,7 +840,7 @@ class PlayerMenu:
             if nav.get("rule"):
                 actions.append(("Entry rule: " + nav["rule"], "", ()))
             actions.append(("Back to World", "world", ()))
-        elif page in ("frontier", "league", "hall", "shop"):
+        elif page in ("frontier", "league", "hall", "shop", "team_pick", "extras"):
             title, status, actions = self._render_ladder(page, target)
         else:
             title = "My Secret Base"
@@ -868,6 +910,25 @@ class PlayerMenu:
                 else:
                     self._card_binding = None
                 self._page = ("hunts", 0) if op == "hunts_refresh" else ("hunt_filters", None)
+            elif op == "team_toggle":
+                from .protocol import ProtocolError
+                try:
+                    team = (self._frontier or {}).get("team") or {"slots": [], "limit": 0}
+                    chosen = [slot["slot"] for slot in team["slots"] if slot["selected"]]
+                    wanted = args[0]
+                    if wanted in chosen:
+                        if len(chosen) == 1:
+                            raise ProtocolError("invalid_team", "Bring at least one Pokemon")
+                        chosen.remove(wanted)
+                    else:
+                        if len(chosen) >= team["limit"] > 0:
+                            chosen.pop(0)
+                        chosen.append(wanted)
+                    self._frontier = await self.companion.frontier_rpc("bring", mask=sum(1 << slot for slot in chosen))
+                    self._notice = None
+                except ProtocolError as error:
+                    self._notice = error.message[:31]
+                self._page = ("team_pick", args[1])
             elif op == "shop_buy":
                 from .protocol import ProtocolError
                 try:
@@ -894,7 +955,7 @@ class PlayerMenu:
                     self._notice = "Could not change it"
                 self._page = ("base", None)
             elif op in ("home", "world", "world_players", "world_player", "world_outbreak", "world_event", "base", "frontier",
-                        "league", "hall", "shop", "coop", "habitat", "team", "battles", "player", "results", "result", "result_filters", "trade", "card", "card_battles", "card_championships", "card_shared", "card_progress", "hunts", "hunt", "hunt_filters", "hunt_totals"):
+                        "league", "hall", "shop", "team_pick", "extras", "coop", "habitat", "team", "battles", "player", "results", "result", "result_filters", "trade", "card", "card_battles", "card_championships", "card_shared", "card_progress", "hunts", "hunt", "hunt_filters", "hunt_totals"):
                 if op == "results" and self._page[0] not in {"results", "result", "result_filters"}:
                     self._results_binding = None
                 self._page = (op, args[0] if args else None)

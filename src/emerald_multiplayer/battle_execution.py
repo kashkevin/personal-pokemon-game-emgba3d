@@ -370,7 +370,7 @@ class _NativeRoute:
                 else:
                     self.call("verify_startup", source, kind, q.outbound_sequence, data)
             elif kind in (Kind.START_HEADER, Kind.RNG):
-                validate_auxiliary_startup(kind, data, issued_rng=self.b.rng)
+                validate_auxiliary_startup(kind, data, issued_rng=roster.issued_rng(self.b.rng))
             else:
                 self.validator.accept(data, source)
             self.pending[source] = dict(sequence=q.outbound_sequence, kind=kind,

@@ -162,6 +162,8 @@ SCHEMA = (
     """CREATE TABLE IF NOT EXISTS frontier_purchases (
         purchase_id TEXT PRIMARY KEY, player_id TEXT NOT NULL, item INTEGER NOT NULL, quantity INTEGER NOT NULL,
         price INTEGER NOT NULL, state TEXT NOT NULL, created REAL NOT NULL)""",
+    # Each player's team selection for co-op ladder battles: bit n = saved party slot n (validated against the live save when used).
+    "CREATE TABLE IF NOT EXISTS frontier_bring (player_id TEXT PRIMARY KEY, mask INTEGER NOT NULL, updated REAL NOT NULL)",
     """CREATE TABLE IF NOT EXISTS frontier_records (
         player_id TEXT PRIMARY KEY, best_streak INTEGER NOT NULL, runs INTEGER NOT NULL, rounds INTEGER NOT NULL,
         earned INTEGER NOT NULL)""",
@@ -454,6 +456,21 @@ class FrontierBook:
         current = self.bp_ledger(player)
         self._db.execute("""INSERT INTO frontier_bp VALUES (?, ?, ?) ON CONFLICT(player_id) DO UPDATE SET
             earned=excluded.earned, spent=excluded.spent""", (player, current["earned"] + earned, current["spent"] + spent))
+
+    def bring(self, player: str) -> int:
+        row = self._db.execute("SELECT mask FROM frontier_bring WHERE player_id=?", (player,)).fetchone()
+        return row[0] if row else 0
+
+    def set_bring(self, player: str, mask: int) -> None:
+        """Keep the player's team selection (0 forgets it: the host then picks the default)."""
+        if type(mask) is not int or isinstance(mask, bool) or not 0 <= mask <= 0x3F:
+            raise FrontierError("invalid_team", "a team is slots 1 to 6")
+        with self._transaction():
+            if mask == 0:
+                self._db.execute("DELETE FROM frontier_bring WHERE player_id=?", (player,))
+            else:
+                self._db.execute("""INSERT INTO frontier_bring VALUES (?, ?, ?) ON CONFLICT(player_id) DO UPDATE SET
+                    mask=excluded.mask, updated=excluded.updated""", (player, mask, self._now()))
 
     # -- the Battle Points shop: one open purchase per player; every step is a wallet adjustment keyed by the purchase
     def open_purchase(self, player: str) -> dict | None:

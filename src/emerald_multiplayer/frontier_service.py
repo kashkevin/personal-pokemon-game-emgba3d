@@ -80,14 +80,82 @@ class FrontierService:
         if self.badges(player) < len(BADGE_FLAGS):
             raise FrontierError("badges", f"{self.server._player_name(player)[:10]} needs all 8 badges")
 
+    def _party(self, player):
+        """(raw saved party, its count, every slot) of the player's last saved game."""
+        from .flash import FlashError, inspect_flash
+        from .frontier_rules import party_bytes, party_slots
+        server = self.server
+        session = server.sessions.get(player)
+        if session is None or session.closed:
+            raise FrontierError("player_away", "your teammate is not connected")
+        checkpoint = server.store.read_checkpoint(player, session.session_epoch) if server.store is not None else None
+        if checkpoint is None:
+            raise FrontierError("no_save", f"{session.display_name[:10]} has no saved party yet")
+        try:
+            block1 = inspect_flash(checkpoint.payload, save_profile=checkpoint.save_profile).save_block1
+        except FlashError as error:
+            raise FrontierError("bad_save", f"{session.display_name[:10]}'s save cannot be read") from error
+        data, count = party_bytes(block1)
+        return data, count, party_slots(block1)
+
+    def team(self, player):
+        """The Pokemon this player brings: (mask, members, automatic).
+
+        ``mask`` is the team selection the native battle takes (bit n = saved slot n), or 0 for the whole saved party (a
+        party of at most ``party_limit`` Pokemon needs no selection). A selection the player made is used while it is still
+        valid for their latest save; otherwise the first ``party_limit`` Pokemon in party order (one able to fight) go."""
+        from .battle_roster import valid_bring
+        data, count, slots = self._party(player)
+        usable = [slot for slot in slots if not slot.egg]
+        if len(usable) < MIN_PARTY:
+            raise FrontierError("no_pokemon", f"{self.server._player_name(player)[:10]} has no Pokemon to bring")
+        chosen = self.book.bring(player)
+        if chosen and valid_bring(chosen, data, count) and bin(chosen).count("1") <= self.party_limit:
+            mask, auto = chosen, False
+        elif len(usable) <= self.party_limit:
+            mask, auto = 0, True
+        else:
+            picks = usable[:self.party_limit]
+            if not any(slot.hp for slot in picks):
+                able = next((slot for slot in usable[self.party_limit:] if slot.hp), None)
+                if able is not None:
+                    picks = picks[:-1] + [able]
+            mask, auto = sum(1 << slot.slot for slot in picks), True
+        members = [slot for slot in usable if not mask or mask >> slot.slot & 1]
+        return mask, members, auto
+
     def check_party(self, player) -> list:
-        members = self._members(player)
-        name = self.server._player_name(player)[:10]
-        if len(members) < MIN_PARTY:
-            raise FrontierError("no_pokemon", f"{name} has no Pokemon to bring")
-        if len(members) > self.party_limit:
-            raise FrontierError("too_many", f"{name}: bring at most {self.party_limit} Pokemon")
-        return members
+        """The Pokemon the player brings (raises when there is none to bring)."""
+        return self.team(player)[1]
+
+    def team_view(self, player) -> dict | None:
+        from .species_labels import NAMES
+        try:
+            data, count, slots = self._party(player)
+            mask, members, auto = self.team(player)
+        except FrontierError:
+            return None
+        chosen = {slot.slot for slot in members}
+        return {"limit": self.party_limit, "auto": auto,
+                "slots": [{"slot": slot.slot, "name": NAMES[slot.species] if 0 < slot.species < len(NAMES) else "Pokemon",
+                           "level": slot.level, "egg": slot.egg, "able": slot.hp > 0,
+                           "selected": slot.slot in chosen} for slot in slots]}
+
+    def _bring(self, session, request) -> None:
+        from .battle_roster import valid_bring
+        actor, mask = session.player_id, request.get("mask")
+        if type(mask) is not int or isinstance(mask, bool) or not 0 <= mask <= 0x3F:
+            raise FrontierError("invalid_team", "a team is slots 1 to 6")
+        data, count, slots = self._party(actor)
+        if mask:
+            if not valid_bring(mask, data, count):
+                raise FrontierError("invalid_team", "bring Pokemon that exist, are not Eggs and one that can fight")
+            if bin(mask).count("1") > self.party_limit:
+                raise FrontierError("too_many", f"bring at most {self.party_limit} Pokemon")
+        run = self.book.run_of(actor)
+        if run is not None and self.book.open_attempt(run["run_id"]) is not None:
+            raise FrontierError("battle_open", "change your team between rounds")
+        self.book.set_bring(actor, mask)
 
     def base_level(self, players) -> int:
         return min(levels_of_party(self.check_party(player)) for player in players)
@@ -98,7 +166,7 @@ class FrontierService:
         self.reconcile()
         run = book.run_of(player)
         record = book.record(player)
-        out = {"bp": self.bp_view(player), "record": record, "party_limit": self.party_limit, "run": None,
+        out = {"team": self.team_view(player), "bp": self.bp_view(player), "record": record, "party_limit": self.party_limit, "run": None,
                "league": {**book.league_record(player), "rounds": len(LEAGUE),
                           "hall": [{"names": e["names"], "entry": e["entry"]} for e in book.hall_of_fame(3)]}}
         if run is None:
@@ -242,6 +310,8 @@ class FrontierService:
                 self._battle(session, request)
             elif op == "shop_buy":
                 self._shop_buy(session, request)
+            elif op == "bring":
+                self._bring(session, request)
         except FrontierError as error:
             from .shared_world import SharedWorldError
             raise SharedWorldError(error.code, error.message) from error
@@ -319,7 +389,9 @@ class FrontierService:
         self.book.issue(run["run_id"], battle_id, p)      # the intent is durable before anybody is invited
         try:
             server._assert_battle_available(actor, teammate)
-            view = server.battle_desk.invite_coop(actor, session.session_epoch, teammate, p.code, battle_id)
+            brings = {player: mask for player in (actor, teammate) if (mask := self.team(player)[0])}
+            view = server.battle_desk.invite_coop(actor, session.session_epoch, teammate, p.code, battle_id,
+                                                  brings=brings or None)
             if capture:
                 fields = {k: v for k, v in request.items() if k in ("incarnation", "runtime_id")}
                 server.battle_execution.admission.capture(actor, session.session_epoch, dict(fields, battle_id=battle_id))

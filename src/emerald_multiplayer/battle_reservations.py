@@ -155,9 +155,13 @@ class BattleReservations:
             if type(raw) is not str or len(raw) > MAX_RECORD_BYTES:
                 raise ValueError()
             record = json.loads(raw)
-            if (type(record) is not dict or set(record) != {"scope", "world_id", "build_id", "ruleset_id",
+            if (type(record) is not dict or set(record) - {"brings"} != {"scope", "world_id", "build_id", "ruleset_id",
                     "save_profile", "server_epoch", "view", "leases", "incarnations", "rng"}
                     or record["scope"] != SCOPE or raw != _json(record)):
+                raise ValueError()
+            if "brings" in record and (type(record["brings"]) is not list or len(record["brings"]) != 2
+                                       or any(type(m) is not int or not 0 <= m <= 0x3F for m in record["brings"])
+                                       or not any(record["brings"]) or record["view"].get("mode") != 4):
                 raise ValueError()
             metadata = self.store._validate_metadata()
             for key in ("world_id", "build_id", "ruleset_id", "save_profile"):
@@ -281,6 +285,8 @@ class BattleReservations:
                 ruleset_id=self.store.ruleset_id, save_profile=self.store.save_profile,
                 server_epoch=metadata["server_epoch"], view=view, leases=list(battle.leases),
                 incarnations=[battle.incarnations[p] for p in battle.players], rng=battle.rng.hex())
+            if any(r.bring for r in battle.roster):
+                record["brings"] = [r.bring for r in battle.roster]   # co-op team selection, retained for exact recovery
             for p, lease, cp in zip(battle.players, battle.leases, view["checkpoints"]):
                 player = self.store._require_lease(p, lease)
                 if player["latest_revision"] != cp["revision"]:

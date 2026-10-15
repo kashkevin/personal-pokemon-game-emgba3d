@@ -15,6 +15,9 @@ from emerald_multiplayer.native_battle import (
     COOP_PHASE, MULTI_PHASE, PHASE, NativeBinding, Preparation, battler_count_for_phase, battler_owner,
     player_count_for_phase, supports_native_phase,
 )
+import json
+
+from emerald_multiplayer.battle_roster import bring_party, valid_bring
 import test_battle_desk as fixture
 from test_battle_controller import mon_reply, wire
 
@@ -29,7 +32,7 @@ class CoopPhaseTests(unittest.TestCase):
         self.assertEqual([battler_owner(MULTI_PHASE, b) for b in range(4)], [0, 1, 2, 3])
         self.assertTrue(supports_native_phase(3, COOP_PHASE))
         self.assertFalse(supports_native_phase(2, COOP_PHASE))
-        for phase in (1, 5, True):
+        for phase in (1, 6, True):
             with self.subTest(phase=phase), self.assertRaises(BattleMailboxError):
                 player_count_for_phase(phase)
 
@@ -142,6 +145,81 @@ class CoopDeskTests(unittest.TestCase):
             self.assertEqual(struct.unpack_from("<H", descriptor.trainer_descriptor, 20)[0], 0x2211)
         accepted = self.call("accept", 2, view["fingerprint"])
         self.assertEqual(accepted["state"], "accepted")
+
+    def coop_with_team(self, brings, gym=1):
+        self.call("cancel", 0)
+        self.battle_id = str(uuid4())
+        self.view = self.desk.invite_coop(*self.actor(0), self.players[2].player_id, gym, self.battle_id, brings=brings)
+        self.generation = self.view["generation"]
+        return self.view
+
+    def test_a_team_selection_reaches_the_roster_the_preparation_and_the_startup_check(self):
+        a, c = self.players[0].player_id, self.players[2].player_id
+        view = self.coop_with_team({a: 0b10})
+        first, second = self.descriptor(0), self.descriptor(2)
+        self.assertEqual((first.bring, second.bring), (2, 0))
+        self.assertEqual(first.battle_party, bring_party(first.party, 2))
+        self.assertEqual(first.battle_party[:100], first.party[100:200])               # the second saved Pokemon leads
+        self.assertEqual(first.battle_party[100:], bytes(500))                        # the rest of the six slots are empty
+        self.assertEqual(second.battle_party, second.party)
+        rng = bytes(range(1, 17))
+        prepared = first.preparation(rng, 1)
+        self.assertEqual(prepared.rng[:15], rng[:15])
+        self.assertEqual(prepared.rng[15], 0x82)                                        # flag | slot mask
+        self.assertEqual(second.preparation(rng, 1).rng[15], 0)                         # no selection: the whole party
+        self.assertEqual(first.issued_rng(rng), rng[:15] + b"\0")                       # every core seeds the same
+        self.assertEqual(second.issued_rng(rng), first.issued_rng(rng))
+        self.assertEqual(first.adopting(prepared).bring, 2)                             # the companion adopts the host's choice
+        self.assertEqual(first.adopting(second.preparation(rng, 1)).bring, 0)
+        for byte in (0x82 | 0x40, 0x02, 0x80, 0x80 | 0x3F, 0xA0):
+            with self.assertRaises(BattleMailboxError):                                 # a stale or foreign selection
+                first.adopting(replace(prepared, rng=rng[:15] + bytes([byte])))
+        # the game sends the selected team: it must match, the whole saved party must not
+        for kind in range(3):
+            first.verify_startup(fixture.Kind.PARTY_0 + kind, first.battle_party[kind * 200:kind * 200 + 200])
+        with self.assertRaises(BattleMailboxError):
+            first.verify_startup(fixture.Kind.PARTY_0, first.party[:200])
+        self.assertTrue(view["state"] == "invited")
+
+    def test_the_consent_names_the_exact_teams_and_a_retry_with_another_team_conflicts(self):
+        a, c = self.players[0].player_id, self.players[2].player_id
+        first = self.coop_with_team({a: 0b01})
+        self.assertEqual(self.desk.invite_coop(*self.actor(0), c, 1, self.battle_id, brings={a: 0b01}), first)
+        for other in ({a: 0b10}, {}, {c: 0b01}, {a: 0b01, c: 0b01}):
+            self.assert_code("request_conflict", self.desk.invite_coop, *self.actor(0), c, 1, self.battle_id, brings=other)
+        second = self.coop_with_team({a: 0b10})
+        self.assertNotEqual(first["fingerprint"], second["fingerprint"])
+
+    def test_an_invalid_selection_is_refused_before_anything_is_reserved(self):
+        a, c = self.players[0].player_id, self.players[2].player_id
+        self.call("cancel", 0)
+        for brings in ({a: 0}, {a: 0x40}, {a: True}, {a: "1"}, {self.players[1].player_id: 1}):
+            with self.subTest(brings=brings):
+                self.assert_code("invalid_battle", self.desk.invite_coop, *self.actor(0), c, 1, str(uuid4()), brings=brings)
+        # the fixture's saved parties hold two Pokemon: slot 3 does not exist
+        self.assert_code("checkpoint_required", self.desk.invite_coop, *self.actor(0), c, 1, str(uuid4()), brings={a: 0b1000})
+        self.assertEqual(self.desk._active, {})
+
+    def test_the_reservation_retains_the_teams_for_exact_recovery(self):
+        a, c = self.players[0].player_id, self.players[2].player_id
+        view = self.coop_with_team({c: 0b10})
+        self.call("accept", 2, view["fingerprint"])
+        for index in (0, 2):
+            self.call("register", index, 100 + index)
+        self.call("authorize_bind", 0)
+        row = self.store._connection.execute("SELECT record FROM battle_reservations WHERE battle_id=?", (self.battle_id,)).fetchone()
+        record = json.loads(row["record"])
+        self.assertEqual(record["brings"], [0, 2])
+        self.assertEqual(self.desk.reservations._read(self.store._connection.execute(
+            "SELECT * FROM battle_reservations WHERE battle_id=?", (self.battle_id,)).fetchone())["brings"], [0, 2])
+
+    def test_valid_bring_rules(self):
+        d = self.descriptor(0)
+        self.assertTrue(valid_bring(0b01, d.party, 2) and valid_bring(0b11, d.party, 2) and valid_bring(0b10, d.party, 2))
+        for mask in (0, 0b100, 0x40, 0x3F + 1, True, None):
+            self.assertFalse(valid_bring(mask, d.party, 2), mask)
+        self.assertFalse(valid_bring(0b11, d.party, 1))             # slot 1 is beyond the party count
+        self.assertFalse(valid_bring(0b01, d.party[:-1], 2))        # not a 600-byte party
 
     def test_consent_names_the_exact_gym(self):
         first = self.coop(gym=1)

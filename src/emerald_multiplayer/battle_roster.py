@@ -4,14 +4,14 @@ The ROM transports its exact protected original six-slot party at startup.
 Temporary native form changes and battle mutations must never be substituted
 for these bytes when proving that both trainers use their acknowledged saves.
 """
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 import hashlib
 import struct
 import zlib
 
 from .battle_mailbox import BattleMailboxError, _integer, _uuid
 from .flash import SAVED_PARTY_OFFSET, inspect_flash
-from .native_battle import Kind, Preparation, PHASE, MULTI_PHASE, FFA_PHASE, player_count_for_phase
+from .native_battle import COOP_PHASE, Kind, Preparation, PHASE, MULTI_PHASE, FFA_PHASE, player_count_for_phase
 from .ownership import OWNERSHIP_PROFILE, inspect_ownership
 from .protocol import MAX_COUNTER
 from .storage import Checkpoint
@@ -43,6 +43,31 @@ def validate_auxiliary_startup(kind, data, *, issued_rng):
         raise BattleMailboxError("startup kind is not header/RNG")
 
 
+POKEMON_SIZE = 100
+BRING_FLAG = 0x80          # the last byte of a co-op preparation's seed: 0x80 | slot mask, or 0 for the whole party
+
+
+def valid_bring(mask, party: bytes, party_count: int) -> bool:
+    """A team selection (bit n = saved party slot n) the game will accept: existing, non-Egg Pokemon, one able to fight."""
+    if type(mask) is not int or isinstance(mask, bool) or not 1 <= mask <= 0x3F or len(party) != 6 * POKEMON_SIZE:
+        return False
+    able = False
+    for slot in range(6):
+        if not mask >> slot & 1:
+            continue
+        mon = party[slot * POKEMON_SIZE:(slot + 1) * POKEMON_SIZE]
+        if slot >= party_count or not mon[19] & 2 or mon[19] & 4:      # hasSpecies / isEgg
+            return False
+        able = able or struct.unpack_from("<H", mon, 86)[0] > 0
+    return able
+
+
+def bring_party(party: bytes, mask: int) -> bytes:
+    """The battle party for a selection: the chosen Pokemon in saved order, the other slots empty (as the game builds it)."""
+    chosen = [party[slot * POKEMON_SIZE:(slot + 1) * POKEMON_SIZE] for slot in range(6) if mask >> slot & 1]
+    return b"".join(chosen) + bytes(POKEMON_SIZE * (6 - len(chosen)))
+
+
 @dataclass(frozen=True)
 class CanonicalBattler:
     world_id: str
@@ -57,9 +82,10 @@ class CanonicalBattler:
     party: bytes = field(repr=False)
     trainer_descriptor: bytes = field(repr=False)
     mode: int = PHASE
+    bring: int = 0     # co-op team selection (valid_bring); 0 = the whole saved party
 
     @classmethod
-    def from_checkpoint(cls, checkpoint, *, world_id, build_id, ruleset_id, source_slot, mode=PHASE):
+    def from_checkpoint(cls, checkpoint, *, world_id, build_id, ruleset_id, source_slot, mode=PHASE, bring=0):
         """Validate immutable canonical bytes; current lease/head checks are separate."""
         if not isinstance(checkpoint, Checkpoint):
             raise BattleMailboxError("battle roster needs an acknowledged checkpoint")
@@ -91,14 +117,40 @@ class CanonicalBattler:
         # LINKTYPE_MULTI_BATTLE only for four linked trainers; singles and
         # co-op Gym battles (two linked trainers) use LINKTYPE_BATTLE.
         struct.pack_into("<IHH", trainer, 20, 0x2255 if mode in (MULTI_PHASE, FFA_PHASE) else 0x2211, source_slot, 2)
+        if bring and (mode != COOP_PHASE or not valid_bring(bring, party, metadata.party_count)):
+            raise BattleMailboxError("team selection is not valid for this party")
         return cls(world_id, checkpoint.player_id, checkpoint.revision, checkpoint.sha256,
             source_slot, metadata.counter, metadata.trainer_id, metadata.party_count,
-            zlib.crc32(party), party, bytes(trainer), mode)
+            zlib.crc32(party), party, bytes(trainer), mode, bring)
+
+    @property
+    def battle_party(self) -> bytes:
+        """The party the battle really uses: the saved party, or the selection of it (co-op team selection)."""
+        return bring_party(self.party, self.bring) if self.bring else self.party
+
+    def issued_rng(self, rng):
+        """The seed every core installs. A co-op preparation's last byte carries the team selection, not the seed."""
+        return rng[:15] + b"\0" if self.mode == COOP_PHASE else rng
 
     def preparation(self, rng, gym=0):
-        """``gym`` is the co-op Gym index for phase 4 (zero otherwise)."""
+        """``gym`` is the co-op Gym index for phase 4 (zero otherwise). A co-op preparation carries the team selection in
+        the last byte of its seed (the game reads and clears it; nothing else uses that byte)."""
+        if self.mode == COOP_PHASE:
+            rng = rng[:15] + bytes([BRING_FLAG | self.bring if self.bring else 0])
         return Preparation(self.revision, self.native_counter, self.trainer_id,
                            self.party_crc32, rng, gym)
+
+    def adopting(self, preparation):
+        """This party with the team selection a (host-issued) co-op preparation carries, when it is valid for it."""
+        if self.mode != COOP_PHASE:
+            return self
+        byte = preparation.rng[15]
+        if byte == 0:
+            return replace(self, bring=0)
+        mask = byte & 0x3F
+        if not byte & BRING_FLAG or byte & 0x40 or not valid_bring(mask, self.party, self.party_count):
+            raise BattleMailboxError("native preparation carries an invalid team selection")
+        return replace(self, bring=mask)
 
     def verify_startup(self, kind, data):
         """Compare a complete trainer/party block, including unused party tails.
@@ -112,7 +164,7 @@ class CanonicalBattler:
             expected = self.trainer_descriptor
         elif kind in (Kind.PARTY_0, Kind.PARTY_1, Kind.PARTY_2):
             offset = (kind-Kind.PARTY_0)*200
-            expected = self.party[offset:offset+200]
+            expected = self.battle_party[offset:offset+200]
         else:
             raise BattleMailboxError("block kind has no canonical trainer/party comparison")
         if data != expected:

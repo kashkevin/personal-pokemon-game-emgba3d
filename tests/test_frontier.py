@@ -392,18 +392,84 @@ class ServiceTests(unittest.TestCase):
         self.assertGreaterEqual(run["next"]["level"], 5)
         self.assertEqual(self.call(self.sa, "status")["party_limit"], 3)
 
-    def test_a_player_without_a_team_cannot_start_and_a_big_party_is_refused(self):
+    def test_a_player_without_a_team_cannot_start(self):
         lone = SimpleNamespace(player_id=self.players[2], display_name="Lone", closed=False,
                                session_epoch=self.fixture.leases[self.players[2]])
         self.teams[self.players[2]] = None
         with self.assertRaises(SharedWorldError) as caught:
             self.call(lone, "propose")
         self.assertEqual(caught.exception.code, "no_teammate")
-        self.service.party_limit = 1                                                # the fixture's saved parties hold 2
-        with self.assertRaises(SharedWorldError) as caught:
-            self.call(self.sa, "propose")
-        self.assertEqual(caught.exception.code, "too_many")
         self.assertIsNone(self.call(self.sa, "status")["run"])
+
+    # ----------------------------------------------- team selection from a larger party (Update 16)
+    def selected(self, session):
+        return [slot["slot"] for slot in self.call(session, "status")["team"]["slots"] if slot["selected"]]
+
+    def test_a_party_over_the_limit_is_no_longer_refused_it_brings_its_first_pokemon_by_default(self):
+        self.service.party_limit = 1                                                # the fixture's saved parties hold 2
+        self.begin()
+        team = self.call(self.sa, "status")["team"]
+        self.assertTrue(team["auto"])
+        self.assertEqual((team["limit"], self.selected(self.sa)), (1, [0]))
+        battle_id = self.round()
+        roster = self.fixture.desk._active[battle_id].roster
+        self.assertEqual([r.bring for r in roster], [1, 1])                         # slot 0 of each saved party
+        self.assertEqual([r.battle_party[:100] for r in roster], [r.party[:100] for r in roster])
+        self.assertEqual(roster[0].battle_party[100:], bytes(500))
+
+    def test_a_party_within_the_limit_needs_no_selection_and_the_battle_is_unchanged(self):
+        self.begin()
+        self.assertEqual(self.selected(self.sa), [0, 1])
+        roster = self.fixture.desk._active[self.round()].roster
+        self.assertEqual([r.bring for r in roster], [0, 0])
+        self.assertEqual([r.battle_party for r in roster], [r.party for r in roster])
+
+    def test_a_chosen_team_is_used_for_the_level_the_battle_and_the_next_rounds(self):
+        self.service.party_limit = 1
+        self.begin()
+        self.call(self.sa, "bring", mask=0b10)                                       # b's second Pokemon... a's, not b's
+        self.assertEqual(self.selected(self.sa), [1])
+        self.assertFalse(self.call(self.sa, "status")["team"]["auto"])
+        self.assertEqual(self.selected(self.sb), [0])                                # the teammate keeps the default
+        battle_id = self.round()
+        roster = self.fixture.desk._active[battle_id].roster
+        self.assertEqual([r.bring for r in roster], [2, 1])
+        self.assertEqual(roster[0].battle_party[:100], roster[0].party[100:200])
+        self.finish(battle_id, 1)
+        self.call(self.sa, "status")
+        self.assertEqual(self.selected(self.sa), [1])                                # still chosen after the round
+        self.call(self.sa, "bring", mask=0)
+        self.assertTrue(self.call(self.sa, "status")["team"]["auto"])                # cleared: the default again
+
+    def test_a_bad_selection_is_refused_and_changes_nothing(self):
+        self.service.party_limit = 1
+        self.begin()
+        for mask, code in ((0b100, "invalid_team"), (0b11, "too_many"), (0x40, "invalid_team"), (-1, "invalid_team"),
+                           (True, "invalid_team"), ("1", "invalid_team")):
+            with self.subTest(mask=mask), self.assertRaises(SharedWorldError) as caught:
+                self.call(self.sa, "bring", mask=mask)
+            self.assertEqual(caught.exception.code, code)
+        self.assertEqual(self.world.frontier.bring(self.a), 0)
+        battle_id = self.round()
+        with self.assertRaises(SharedWorldError) as caught:                          # not while a battle waits
+            self.call(self.sa, "bring", mask=0b10)
+        self.assertEqual(caught.exception.code, "battle_open")
+
+    def test_a_selection_that_the_save_no_longer_supports_falls_back_to_the_default(self):
+        self.service.party_limit = 1
+        self.begin()
+        self.world.frontier.set_bring(self.a, 0b100000)                              # slot 6 does not exist in the saved party
+        self.assertEqual(self.selected(self.sa), [0])
+        self.assertTrue(self.call(self.sa, "status")["team"]["auto"])
+
+    def test_the_selection_is_individual_and_survives_a_restart(self):
+        self.service.party_limit = 1
+        self.begin()
+        self.call(self.sa, "bring", mask=0b10)
+        self.service = FrontierService(self.server, party_limit=1)
+        self.assertEqual(self.selected(self.sa), [1])
+        self.assertEqual(self.selected(self.sb), [0])
+        self.assertEqual(self.world.frontier.bring(self.b), 0)
 
     def test_a_round_is_a_real_coop_challenge_on_the_desk_and_only_one_at_a_time(self):
         self.begin()
@@ -767,10 +833,16 @@ class MenuTests(unittest.IsolatedAsyncioTestCase):
             async def battle_challenge_rpc(self, operation, **fields):
                 return {"result": []}
 
-            async def frontier_rpc(self, op="status", mode=None, slot=None):
+            async def frontier_rpc(self, op="status", mode=None, slot=None, mask=None):
                 outer.calls.append(op if mode is None else f"{op}:{mode}")
                 if slot is not None:
                     outer.calls.append(f"{op}@{slot}")
+                if mask is not None:
+                    outer.calls.append(f"{op}@{mask}")
+                    if outer.refuse is None and "team" in outer.state:          # the host keeps the selection
+                        for entry in outer.state["team"]["slots"]:
+                            entry["selected"] = bool(mask >> entry["slot"] & 1)
+                        outer.state["team"]["auto"] = mask == 0
                 if outer.refuse and op != "status":
                     raise outer.ProtocolError("too_many", outer.refuse)
                 return outer.advance(op, mode)
@@ -833,19 +905,28 @@ class MenuTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("Retire (keep streak)", self.labels)                     # not during a battle
         self.assertTrue(all(len(label) <= 25 for label in self.labels))
 
-    async def test_the_battle_points_shop_pages_and_an_order(self):
+    def shop_state(self, balance=40):
         shop = [dict(slot=i, name=n, price=p, quantity=1) for i, (n, p) in enumerate(
             [("Protein", 16), ("Iron", 16), ("Calcium", 16), ("Zinc", 16), ("Carbos", 16), ("Leftovers", 48)])]
-        self.state["bp"] = dict(balance=40, earned=12, spent=0, shop=shop, purchase=None)
+        self.state["bp"] = dict(balance=balance, earned=12, spent=0, shop=shop, purchase=None)
+
+    def team_state(self, selected=(0,), limit=3, count=6, auto=True):
+        names = ["Mudkip", "Wurmple", "Zigzagoon", "Taillow", "Ralts", "Seedot"]
+        self.state["team"] = dict(limit=limit, auto=auto, slots=[
+            dict(slot=i, name=names[i], level=10 + i, egg=False, able=True, selected=i in selected) for i in range(count)])
+
+    async def test_the_battle_points_shop_pages_and_an_order(self):
+        self.shop_state()
         await self.open()
-        self.assertEqual(self.labels, ["Start a Frontier run", "BP shop  best 4", "Back"])
-        await self.click("BP shop  best 4")
+        self.assertEqual(self.labels, ["Start a Frontier run", "Team, BP shop  best 4", "Back"])
+        await self.click("Team, BP shop  best 4")
+        self.assertEqual(self.menu.screen.title, "Team and BP shop")
+        await self.click("BP shop (40 BP)")
         self.assertEqual(self.menu.screen.title, "BP Shop")
         self.assertEqual(self.menu.screen.status, "Your BP: 40 (saved game)")
-        self.assertEqual(self.labels, ["Protein 16BP", "Iron 16BP", "Calcium 16BP", "Zinc 16BP", "More items (1/2)",
-                                       "Back to the Frontier"])
+        self.assertEqual(self.labels, ["Protein 16BP", "Iron 16BP", "Calcium 16BP", "Zinc 16BP", "More items (1/2)", "Back"])
         await self.click("More items (1/2)")
-        self.assertEqual(self.labels, ["Carbos 16BP", "Leftovers 48BP", "More items (2/2)", "Back to the Frontier"])
+        self.assertEqual(self.labels, ["Carbos 16BP", "Leftovers 48BP", "More items (2/2)", "Back"])
         await self.click("Leftovers 48BP")
         self.assertIn("shop_buy@5", self.calls)
         self.assertEqual(self.menu.screen.status, "Order sent to your game")
@@ -856,6 +937,7 @@ class MenuTests(unittest.IsolatedAsyncioTestCase):
         self.state["bp"]["purchase"] = dict(state="done", name="Leftovers", price=48, quantity=1)
         await self.menu.refresh()
         self.assertEqual(self.menu.screen.status, "Bought Leftovers")
+        await self.click("Back")
         await self.click("Back to the Frontier")
         self.assertEqual(self.menu.screen.title, "Battle Frontier")
 
@@ -863,10 +945,53 @@ class MenuTests(unittest.IsolatedAsyncioTestCase):
         self.state["bp"] = dict(balance=2, earned=0, spent=0, purchase=None,
                                 shop=[dict(slot=0, name="Protein", price=16, quantity=1)])
         await self.open()
-        await self.click("BP shop  best 4")
+        await self.click("Team, BP shop  best 4")
+        await self.click("BP shop (2 BP)")
         self.refuse = "Protein costs 16 BP; you have 2"
         await self.click("Protein 16BP")
         self.assertEqual(self.menu.screen.status, "Protein costs 16 BP; you have 2")
+
+    async def test_the_team_page_selects_swaps_and_refuses(self):
+        self.team_state(selected=(0,), limit=2)
+        self.state["bp"] = dict(balance=None, earned=0, spent=0, purchase=None, shop=[])
+        await self.open()
+        await self.click("Team, BP shop  best 4")
+        self.assertEqual(self.menu.screen.rows[0].label, "Team: Mudkip")
+        await self.click("Team: Mudkip")
+        self.assertEqual(self.menu.screen.title, "Your team")
+        self.assertEqual(self.menu.screen.status, "Bring up to 2: 1 chosen (auto)")
+        self.assertEqual(self.labels, ["* Mudkip L10", "- Wurmple L11", "- Zigzagoon L12", "- Taillow L13", "More (1/2)", "Back"])
+        await self.click("- Wurmple L11")                                            # adds: 0 and 1 -> mask 3
+        self.assertIn("bring@3", self.calls)
+        await self.click("- Zigzagoon L12")                                          # a full team gives up its first
+        self.assertIn("bring@6", self.calls)
+        await self.click("More (1/2)")
+        self.assertEqual(self.labels, ["- Ralts L14", "- Seedot L15", "More (2/2)", "Back"])
+        await self.click("- Seedot L15")
+        self.assertIn("bring@36", self.calls)
+
+    async def test_the_last_chosen_pokemon_cannot_be_dropped_and_a_refusal_is_shown(self):
+        self.team_state(selected=(1,), limit=3, count=2, auto=False)
+        self.state["bp"] = dict(balance=None, earned=0, spent=0, purchase=None, shop=[])
+        await self.open()
+        await self.click("Team, BP shop  best 4")
+        await self.click("Team: Wurmple")
+        await self.click("* Wurmple L11")
+        self.assertEqual(self.menu.screen.status, "Bring at least one Pokemon")
+        self.assertNotIn("bring@0", self.calls)
+        self.refuse = "bring at most 3 Pokemon"
+        await self.click("- Mudkip L10")
+        self.assertEqual(self.menu.screen.status, "bring at most 3 Pokemon")
+
+    async def test_an_egg_cannot_be_chosen(self):
+        self.team_state(selected=(0,), count=2)
+        self.state["team"]["slots"][1].update(egg=True, name="Egg", selected=False)
+        self.state["bp"] = dict(balance=None, earned=0, spent=0, purchase=None, shop=[])
+        await self.open()
+        await self.click("Team, BP shop  best 4")
+        await self.click("Team: Mudkip")
+        self.assertEqual(self.labels, ["* Mudkip L10", "Egg (cannot fight)", "Back"])
+        self.assertEqual(self.menu.screen.rows[1].action, 0)
 
     async def test_an_invitation_can_be_joined_or_declined(self):
         self.state["run"] = dict(run_id="r", mode="frontier", state="forming", players=["b", "a"], names=["Bob", "Alice"], consent=["b"],

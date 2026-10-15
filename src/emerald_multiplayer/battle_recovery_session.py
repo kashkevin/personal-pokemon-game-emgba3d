@@ -498,7 +498,7 @@ class NativeBattleRecoverySession:
                 preparation = Preparation.unpack(command.data)
                 # Only a co-op Gym binding carries a Gym index (fixed at consent).
                 gym = preparation.gym if self.binding is not None and self.binding.mode == COOP_PHASE else 0
-                if preparation != self.roster.preparation(preparation.rng, gym):
+                if preparation != self.roster.adopting(preparation).preparation(preparation.rng, gym):
                     raise BattleJournalError("canonical_head_mismatch", "resumed native preparation changed the canonical party")
 
     async def _terminal(self, view):

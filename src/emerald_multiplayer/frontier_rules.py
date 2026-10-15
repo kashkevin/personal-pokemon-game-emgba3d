@@ -50,6 +50,40 @@ class PartyMember:
     item: int
 
 
+@dataclass(frozen=True)
+class PartySlot:
+    slot: int
+    species: int
+    level: int
+    egg: bool
+    hp: int
+
+
+def party_slots(save_block1: bytes) -> list[PartySlot]:
+    """Every Pokemon of a validated saved party with its slot (0-5), Eggs included (read-only)."""
+    count = save_block1[SAVED_PARTY_COUNT_OFFSET]
+    slots = []
+    for slot in range(min(count, 6)):
+        mon = save_block1[SAVED_PARTY_OFFSET + slot * POKEMON_SIZE:SAVED_PARTY_OFFSET + (slot + 1) * POKEMON_SIZE]
+        personality, ot_id = struct.unpack_from("<II", mon)
+        egg = bool(mon[19] & 4)
+        species = 0
+        if not egg:
+            key = personality ^ ot_id
+            words = struct.unpack_from("<12I", mon, 32)
+            growth = struct.pack("<3I", *(word ^ key for word in words[
+                _GROWTH_SUBSTRUCT_OFFSETS[personality % 24] * 3:_GROWTH_SUBSTRUCT_OFFSETS[personality % 24] * 3 + 3]))
+            species = struct.unpack_from("<H", growth)[0] & 0x7FF
+        slots.append(PartySlot(slot, species, mon[84], egg, struct.unpack_from("<H", mon, 86)[0]))
+    return slots
+
+
+def party_bytes(save_block1: bytes) -> tuple[bytes, int]:
+    """The raw 600-byte saved party and its count."""
+    return (bytes(save_block1[SAVED_PARTY_OFFSET:SAVED_PARTY_OFFSET + 6 * POKEMON_SIZE]),
+            save_block1[SAVED_PARTY_COUNT_OFFSET])
+
+
 def party_members(save_block1: bytes) -> list[PartyMember]:
     """The non-egg Pokemon of a validated saved party (flash.inspect_flash has
     already checked checksums and occupancy; this only reads, never writes)."""

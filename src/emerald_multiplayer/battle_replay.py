@@ -37,13 +37,15 @@ class ReplayDesk(BattleDesk):
         self.reservations = _ReadOnlyReservations(record)
         self.checkpoints = {}
         roster = []
+        brings = record.get("brings") or [0] * len(players)
         for slot, (actor, current, pinned) in enumerate(zip(players, current_leases, view["checkpoints"])):
             cp = original._auth(actor, current)
             if cp is None or (cp.revision, cp.sha256) != (pinned["revision"], pinned["sha256"]):
                 raise BattleError("canonical_head_mismatch", "retained battle checkpoint changed")
             self.checkpoints[actor] = cp
             battler = CanonicalBattler.from_checkpoint(cp, world_id=record["world_id"],
-                build_id=record["build_id"], ruleset_id=record["ruleset_id"], source_slot=slot, mode=view["mode"])
+                build_id=record["build_id"], ruleset_id=record["ruleset_id"], source_slot=slot, mode=view["mode"],
+                bring=brings[slot])
             if battler.party_count != pinned["party_count"]:
                 raise BattleError("canonical_head_mismatch", "retained party count changed")
             roster.append(battler)

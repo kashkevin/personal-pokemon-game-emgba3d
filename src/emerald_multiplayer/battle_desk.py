@@ -300,7 +300,7 @@ class BattleDesk:
             raise BattleError("invalid_battle", "a free-for-all requires four distinct trainers")
         return self._invite(actor, lease, (actor, *sorted(opponents)), battle_id, mode=5)
 
-    def invite_coop(self, actor, lease, teammate, gym, battle_id):
+    def invite_coop(self, actor, lease, teammate, gym, battle_id, brings=None):
         """Two teammates against a Gym Leader and partner (both AI on slot 0).
 
         The requesting trainer is slot 0, the master core that runs both AI
@@ -313,13 +313,17 @@ class BattleDesk:
         if not valid_code(gym):
             raise BattleError("invalid_battle", "unknown co-op battle")
         self._auth(actor, lease)
-        return self._invite(actor, lease, (actor, teammate), battle_id, mode=4, gym=gym)
+        brings = {} if brings is None else dict(brings)
+        if set(brings) - {actor, teammate} or any(type(m) is not int or not 1 <= m <= 0x3F for m in brings.values()):
+            raise BattleError("invalid_battle", "a team selection names a trainer of the battle and slots 0-5")
+        return self._invite(actor, lease, (actor, teammate), battle_id, mode=4, gym=gym, brings=brings)
 
-    def _invite(self, actor, lease, players, battle_id, *, mode, gym=0):
+    def _invite(self, actor, lease, players, battle_id, *, mode, gym=0, brings=None):
         self._auth(actor, lease); self.refresh()
         existing = self._active.get(battle_id) or self._history.get(battle_id)
         if existing is not None:
-            if existing.sender != actor or existing.players != players or existing.mode != mode or existing.gym != gym:
+            if (existing.sender != actor or existing.players != players or existing.mode != mode or existing.gym != gym
+                    or tuple(r.bring for r in existing.roster) != tuple((brings or {}).get(p, 0) for p in players)):
                 raise BattleError("request_conflict", "battle ID belongs to another challenge")
             return self._view(existing)
         if self.results is not None and self.results.contains(battle_id):
@@ -344,9 +348,10 @@ class BattleDesk:
             try:
                 descriptor = CanonicalBattler.from_checkpoint(checkpoint,
                     world_id=self.store.metadata.world_id, build_id=self.store.build_id,
-                    ruleset_id=self.store.ruleset_id, source_slot=slot, mode=mode)
+                    ruleset_id=self.store.ruleset_id, source_slot=slot, mode=mode, bring=(brings or {}).get(player, 0))
             except ValueError as error:
-                raise BattleError("checkpoint_required", "all trainers need a valid owned canonical party") from error
+                raise BattleError("checkpoint_required", "all trainers need a valid owned canonical party"
+                                  + (" and a team selection that is still valid" if brings else "")) from error
             leases.append(current_lease); roster.append(descriptor)
         generation, rng = str(uuid4()), secrets.token_bytes(16)
         if not any(rng):
@@ -355,6 +360,7 @@ class BattleDesk:
             [[p, l, r.revision, r.checkpoint_sha256] for p, l, r in zip(players, leases, roster)], rng.hex()]
         if mode == 4:
             material.append(gym)  # consent names the exact Gym (Leader and partner)
+            material.append([r.bring for r in roster])   # ... and the exact team each trainer brings
         domain = {2: b"EM-NATIVE-SINGLES-CONSENT-1\0", 3: b"EM-NATIVE-FULL-MULTI-CONSENT-1\0",
                   4: b"EM-NATIVE-COOP-GYM-CONSENT-1\0", 5: b"EM-NATIVE-FFA-CONSENT-1\0"}[mode]
         fingerprint = hashlib.sha256(domain +
