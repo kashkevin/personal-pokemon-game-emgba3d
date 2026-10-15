@@ -407,6 +407,83 @@ class WidgetTests(unittest.TestCase):
         for child in set(self.root.winfo_children()) - before:
             child.destroy()
 
+    def test_game_keys_tab_rebinds_and_saves_the_native_games_keys(self):
+        import tkinter as tk
+        from tkinter import ttk
+        from types import SimpleNamespace
+        from emerald_multiplayer.game_controls import DEFAULTS, read_controls
+
+        private = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, private)
+        settings = private / "game-settings.cfg"
+        settings.write_text("volume=7\nkey.b=E\n")
+        window = LauncherWindow(self.root)
+        bundle = SimpleNamespace(is_native=lambda: True)
+        window.worker = SimpleNamespace(installation=SimpleNamespace(bundle=bundle), importer=None,
+                                        private_root=private, busy=True)
+        before = set(self.root.winfo_children())
+        self.root.deiconify()   # the help window is transient for the root: a key press needs it on screen
+        window.show_help()
+        self.root.update()
+        widgets = []
+        def walk(widget):
+            widgets.append(widget)
+            for child in widget.winfo_children():
+                walk(child)
+        for child in set(self.root.winfo_children()) - before:
+            walk(child)
+        notebook = next(w for w in widgets if isinstance(w, ttk.Notebook))
+        self.assertIn("Game keys", [notebook.tab(tab, "text") for tab in notebook.tabs()])
+        def button(text):
+            return next(w for w in widgets if isinstance(w, ttk.Button) and str(w.cget("text")) == text)
+        def label(text):
+            return next(w for w in widgets if isinstance(w, ttk.Label) and str(w.cget("text")).startswith(text))
+        def feedback():
+            return " ".join(str(w.cget("text")) or self.root.getvar(str(w.cget("textvariable")))
+                            for w in widgets if isinstance(w, ttk.Label) and str(w.cget("textvariable")))
+        keys_tab = next(tab for tab in notebook.tabs() if notebook.tab(tab, "text") == "Game keys")
+        notebook.select(keys_tab)   # a key press reaches only a window that is on screen
+        self.root.update()
+        def press(keysym):
+            capture = button("Press a key...")
+            capture.focus_force()
+            self.root.update()
+            capture.event_generate("<KeyPress>", keysym=keysym)
+            self.root.update()
+        # The current keys are shown: the defaults, and B from the file (with its default beside it).
+        shown = sorted(str(w.cget("text")) for w in widgets if isinstance(w, ttk.Button))
+        self.assertIn("Z", shown)
+        self.assertIn("E", shown)
+        self.assertTrue(any(str(w.cget("text")) == "default: X" for w in widgets if isinstance(w, ttk.Label)))
+        # Rebind A: click, then press a key.
+        button("Z").invoke()
+        press("q")
+        self.assertIn("A button is now Q", feedback())
+        # A wants E, which B has: a conflict the player settles; nothing changes until then.
+        button("Q").invoke()
+        press("e")
+        self.assertIn("already the key for B button", feedback())
+        button("Keep things as they were").invoke()
+        self.assertIn("E", [str(w.cget("text")) for w in widgets if isinstance(w, ttk.Button)])
+        # Reserved keys are refused and the page keeps waiting.
+        button("Q").invoke()
+        press("F10")
+        self.assertIn("can't be a game button", feedback())
+        press("Escape")
+        button("Save controls").invoke()   # a game is running: nothing is written
+        self.assertEqual(settings.read_text(), "volume=7\nkey.b=E\n")
+        window.worker.busy = False
+        button("Save controls").invoke()
+        saved = read_controls(settings)
+        self.assertEqual((saved["a"], saved["b"]), ("Q", "E"))
+        self.assertTrue(settings.read_text().startswith("volume=7\n"))
+        button("Restore default keys").invoke()
+        button("Save controls").invoke()
+        self.assertEqual(read_controls(settings), DEFAULTS)
+        self.assertEqual(settings.read_text(), "volume=7\n")
+        for child in set(self.root.winfo_children()) - before:
+            child.destroy()
+
     def test_dpi_awareness_only_on_windows(self):
         from unittest.mock import patch
         from emerald_multiplayer import launcher_gui

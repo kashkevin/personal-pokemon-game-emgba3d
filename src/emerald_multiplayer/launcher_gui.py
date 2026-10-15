@@ -1105,10 +1105,11 @@ class LauncherWindow:
         native = bool(installation is not None and installation.bundle.is_native())
         keys = (("Default keyboard controls (PC game, no emulator)\n"
             "Arrows: move · Z: A/confirm · X: B/back\nEnter: Start/menu · Backslash (\\): Select · A/S: L/R\n"
-            "F10: display & graphics settings (resolution, display mode, quality) · F11: fullscreen\n"
+            "F10: display & graphics settings (resolution, display mode, quality) and Controls · F11: fullscreen\n"
             "F4: 3D or classic view · F7: camera (Adventure or Diorama) · F8: trees · F9: photo mode · F12: picture\n"
             "Mouse wheel or -/=: zoom · comma/period: tilt\n"
-            "Ctrl+R: the A+B+Select+Start chord (Local Soft Reset only, see below). Click the game window before using the keyboard.\n\n")
+            "Ctrl+R: the A+B+Select+Start chord (Local Soft Reset only, see below). Click the game window before using the keyboard.\n"
+            "You can change the game's keyboard keys on the Game keys tab here, or on the Controls page of the game's F10 menu (3D game). The gamepad is not affected.\n\n")
             if native else ("Default keyboard controls\n"
             "Arrows: move · X: A/confirm · Z: B/back\nEnter: Start/menu · Backspace: Select · A/S: L/R\n"
             "Click the game window before using the keyboard. Existing custom mGBA mappings may override these defaults.\n\n"))
@@ -1136,6 +1137,9 @@ class LauncherWindow:
             container = ttk.Frame(tabs)
             tabs.add(container, text="Game display")
             self._game_display_page(scrollable_frame(container))
+            container = ttk.Frame(tabs)
+            tabs.add(container, text="Game keys")
+            self._game_controls_page(scrollable_frame(container))
         options = ttk.Frame(body)
         options.pack(fill="x", pady=(10, 0))
         ttk.Label(options, text="Launcher text size").pack(side="left")
@@ -1201,6 +1205,93 @@ class LauncherWindow:
             feedback.set("Saved. The game uses these the next time it starts.")
         ttk.Button(page, text="Save display settings", command=save).pack(anchor="w", pady=(10, 4))
         ttk.Label(page, textvariable=feedback, wraplength=570, justify="left").pack(anchor="w")
+
+    def _game_controls_page(self, page):
+        """The native game's keyboard keys (game-settings.cfg ``key.*`` lines; the 3D game's F10 menu
+        has a Controls page for the same bindings). Used the next time the game starts."""
+        import tkinter as tk
+        from tkinter import ttk
+        from .game_controls import ACTIONS, DEFAULTS, ControlsEditor, key_label, read_controls, write_controls
+        from .player_runtime import SETTINGS_NAME
+        private = getattr(self.worker, "private_root", None)
+        path = Path(private) / SETTINGS_NAME if private is not None else None
+        try:
+            editor = ControlsEditor(read_controls(path) if path is not None else None)
+        except (OSError, ValueError):
+            editor = None
+        ttk.Label(page, text=("Choose the keyboard key for each game button. Click a key, then press the new "
+                              "one; Esc cancels. F1-F12 and Esc are kept for the menus and cannot be game "
+                              "buttons, so the settings can always be reached. Menus in the game and this "
+                              "launcher keep working whatever you choose; a gamepad is not affected. Used the "
+                              "next time the game starts."), wraplength=570, justify="left").pack(anchor="w", pady=(0, 10))
+        if editor is None:
+            ttk.Label(page, text="The game settings file cannot be read here.").pack(anchor="w")
+            return
+        grid = ttk.Frame(page)
+        grid.pack(anchor="w")
+        buttons, defaults = {}, {}
+        feedback = tk.StringVar()
+        choices = ttk.Frame(page)
+
+        def refresh():
+            for action, button in buttons.items():
+                waiting = editor.capturing == action
+                button.configure(text="Press a key..." if waiting else key_label(editor.bindings[action]))
+                defaults[action].configure(text="" if editor.bindings[action] == DEFAULTS[action]
+                                           else "default: " + key_label(DEFAULTS[action]))
+            feedback.set(editor.message)
+            if editor.pending is not None:
+                choices.pack(anchor="w", pady=(6, 0))
+            else:
+                choices.pack_forget()
+
+        def capture(action):
+            editor.start_capture(action)
+            refresh()
+            buttons[action].focus_set()
+
+        def key_pressed(event):
+            if editor.press(event.keysym):
+                refresh()
+            return "break"
+
+        for row, (action, label, _) in enumerate(ACTIONS):
+            ttk.Label(grid, text=label).grid(row=row, column=0, sticky="w", padx=(0, 12), pady=3)
+            button = ttk.Button(grid, text="", width=16, command=lambda action=action: capture(action))
+            button.grid(row=row, column=1, sticky="w", pady=3)
+            button.bind("<KeyPress>", key_pressed)
+            buttons[action] = button
+            defaults[action] = ttk.Label(grid, text="")
+            defaults[action].grid(row=row, column=2, sticky="w", padx=8)
+        ttk.Button(choices, text="Swap the two keys", command=lambda: (editor.confirm_swap(), refresh())).pack(side="left")
+        ttk.Button(choices, text="Keep things as they were", command=lambda: (editor.cancel(), refresh())).pack(side="left", padx=8)
+        ttk.Label(page, textvariable=feedback, wraplength=570, justify="left").pack(anchor="w", pady=(8, 0))
+        actions = ttk.Frame(page)
+        actions.pack(anchor="w", pady=(8, 4))
+
+        def restore():
+            editor.restore_defaults()
+            refresh()
+
+        def save():
+            if self.worker is None or self.worker.busy:
+                editor.message = "Close the game first: it keeps these settings in the same file while it runs."
+                refresh()
+                return
+            try:
+                write_controls(path, editor.bindings)
+            except (OSError, ValueError):
+                editor.message = "The game settings file could not be written; nothing changed."
+                refresh()
+                return
+            editor.mark_saved()
+            editor.message = "Saved. The game uses these keys the next time it starts."
+            refresh()
+        ttk.Button(actions, text="Restore default keys", command=restore).pack(side="left")
+        ttk.Button(actions, text="Save controls", command=save).pack(side="left", padx=8)
+        page.controls_editor = editor     # for tests
+        page.controls_buttons = buttons
+        refresh()
 
     def open_setup(self):
         if self.worker is None or self.worker.busy or self.setup_window is not None:

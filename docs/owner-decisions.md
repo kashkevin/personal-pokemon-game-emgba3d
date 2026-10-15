@@ -1,0 +1,40 @@
+# Decisions only the owner can make
+
+Collected 2026-10-15 from the autonomous work queue (`DEVELOPMENT_LEDGER.md`) and the six-issue diagnosis. Nothing
+below was decided or built by assumption; each row says what is waiting and a recommendation. Recommendations are not decisions.
+
+## Needed before anyone else plays the Windows build
+
+| # | Decision | Why it is open | Recommendation |
+| --- | --- | --- | --- |
+| 1 | **`src/platform/bios.c` licensing (N8)** | Contains code derived from VBA-M (GPL-2.0+) and mGBA (MPL-2.0); KNOWN_ISSUES says to replace it "before giving the build to anyone". The package is now built for other people. This is a licensing judgment, not legal advice. | Replace it with a clean-room implementation from public hardware documentation (GBATEK) before sharing; keep it private until then. |
+| 2 | **Where the base game dump comes from for CI** | The full Windows package builds without the dump, but the *import of the owner's own game* is disabled without it (sha256 `a9dec84d…85af`). | Keep importing on the player's own PC (current design). For CI, a self-hosted runner or a private secret URL; never commit the dump. |
+| 3 | **Whether to ship the Classic 2D game in every package** | The graphics-mode fallback needs the second executable (about 35 MB on top of 90 MB). | Yes: it is the only fallback when a PC's OpenGL is too old. |
+
+## Gameplay rules left open
+
+| # | Decision | Detail |
+| --- | --- | --- |
+| 4 | **Co-op Gym EXP: farming** | The offer is blocked only for a player who already fought that Leader. EXP (and, for helpers, prize money) can repeat by losing again after knocking out foes, and in groups of three or four while someone who has not beaten the Leader asks a helper who has. Recommendation: accept it like wild-battle farming, or award EXP only on a first win per player. |
+| 5 | **Co-op EXP persistence** | The pending award is memory only and is lost (never doubled) if the game resets in the few seconds before the award script. A fix needs a save-layout change that touches every save. Recommendation: accept the window. |
+| 6 | **Co-op Frontier / Frontier EXP** | Frontier battles are excluded from EXP by the base game. No co-op Frontier exists (only the Championship, never played). Rules, rewards and EXP need your design. |
+| 7 | **Secret Bases** | Nothing multiplayer exists. Needs rules for visits, permissions, decoration sync and what saves keep. |
+| 8 | **Dynamic legendary events** | Weather, night and cooperative-objective conditions are not built; G3 (two claimants for one event Pokémon after a long absence) is open. Needs the conditions and the tie-break rule. |
+| 9 | **Day counters on the world clock (G13)** | The daily reset and berries follow real time; the Pacifidlog TM gift, Mossdeep's weekly events and match-call rematch timers still run 12x as fast while connected. Keep (world time) or move onto real time? |
+| 10 | **Post-Gen-6 moves in trades (G1)** | Your decision was that they trade unchanged; the code still refuses an evolution trade that must choose a move for such a Pokémon. In a Gen 6 game a Pokémon cannot normally know one, so it is rare; say whether it is worth the fix. |
+| 11 | **Personal static legendaries: ticket path** | 25 reset descriptors exist but no ticket source is granted. Where do tickets come from? |
+| 12 | **Character customization scope** | A roster of selectable characters and a palette editor exist; free-form hair/clothing mixing and creation at game start do not. Is the roster enough? |
+
+## Test and polish policy
+
+| # | Decision | Detail |
+| --- | --- | --- |
+| 13 | **The 39 upstream GBA test failures (GEN_6 profile)** | All pass under upstream's `GEN_LATEST GEN_9`; they differ because this game runs Gen 6 rules. Pin the tests to Gen 9, mark them expected failures, or leave them listed? Recommendation: keep a checked-in expected-failure list so a new failure is noticed (see the ledger). |
+| 14 | **M27 wording** | Done as PC-only text ("START menu: PLAYER, then STYLE"); the GBA text is unchanged. Say if you prefer an arrow glyph added to the banner font instead. |
+
+## Needs your PC or your data
+
+* Real-hardware play on Windows: the 3D game with a real GPU, audio, fullscreen and DPI, the rebinding page with a real keyboard, the graphics-mode fallback on an old GPU.
+* The full-six interrupted-battle recovery proof (your four private source parties, about two hours).
+* Two real PCs over a real network (M25's real-game gain, 2v2).
+* The sprite pack (`SPRITE_PACK_SHA256`) for the packaged battle sprites.
