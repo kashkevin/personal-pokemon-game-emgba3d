@@ -170,8 +170,9 @@ class BattleDesk:
                         # Still retain both captured network lease fences above.
                         if player in battle.released:
                             continue
-                        head = self.store.read_checkpoint(player, lease)
-                        if head is None or (head.revision, head.sha256) != (frozen.revision, frozen.checkpoint_sha256):
+                        # Metadata only: this runs on every RPC and only compares the head.
+                        head = self.store.checkpoint_head(player, lease)
+                        if head is None or head != (frozen.revision, frozen.checkpoint_sha256):
                             reason = "canonical_changed"
                             break
                 except StorageError:

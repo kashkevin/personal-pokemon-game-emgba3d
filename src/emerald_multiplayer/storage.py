@@ -467,6 +467,24 @@ class CheckpointStore:
                 "SELECT * FROM checkpoints WHERE player_id = ? AND revision = ?", (player_id, wanted)).fetchone()
             return self._checkpoint(row) if row is not None else None
 
+    def checkpoint_head(self, player_id: str, lease_epoch: int) -> tuple[int, str] | None:
+        """(revision, sha256) of the player's latest checkpoint under the same lease check as
+        read_checkpoint, but without reading or re-hashing the payload: for callers that only
+        compare a head with a frozen one (a battle's per-RPC canonical-change check, M25). The
+        stored hash was verified when the checkpoint was written and is verified again by every
+        reader of the payload and by integrity_check."""
+        _player_id(player_id)
+        _counter(lease_epoch, "lease_epoch", 1)
+        with self._transaction():
+            player = self._require_lease(player_id, lease_epoch)
+            row = self._connection.execute(
+                "SELECT revision, sha256, build_id, ruleset_id, save_profile FROM checkpoints "
+                "WHERE player_id = ? AND revision = ?", (player_id, player["latest_revision"])).fetchone()
+            if row is None:
+                return None
+            self._bindings(row["build_id"], row["ruleset_id"], row["save_profile"])
+            return row["revision"], row["sha256"]
+
     def commit_checkpoint(self, player_id: str, lease_epoch: int, request_id: str,
                           expected_revision: int, payload: bytes, build_id: str,
                           ruleset_id: str, save_profile: str) -> Checkpoint:

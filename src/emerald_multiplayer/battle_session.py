@@ -23,6 +23,11 @@ from .native_battle import NativeBinding, NativeControl, Opcode, Preparation
 from .storage import Checkpoint
 
 
+# Client poll interval for the next native command: 1 ms after activity, doubling to 10 ms when idle.
+IDLE_POLL_MIN = .001
+IDLE_POLL_MAX = .01
+
+
 @dataclass(frozen=True)
 class RenewedBattleSession:
     world_id: str
@@ -187,6 +192,7 @@ class NativeBattleSession:
                     raise BattleJournalError("canonical_head_mismatch", "party changed after challenge consent")
                 binding = None
                 admission_sha256 = None
+                idle_polls = 0
                 while True:
                     if self.journal._session() != captured:
                         raise BattleJournalError("battle_recovery_required", "retain the original held battle core")
@@ -213,8 +219,13 @@ class NativeBattleSession:
                     if view["state"] in ("aborted", "recovery_required"):
                         raise BattleJournalError("battle_recovery_required", "battle remains held for recovery")
                     if view["command_b64"] is None:
-                        await asyncio.sleep(.01)
+                        # The host issues the next command within a millisecond or two of a
+                        # receipt (M25): poll fast right after one, back off to the old
+                        # 10 ms while the host is really waiting (other players, the game).
+                        await asyncio.sleep(min(IDLE_POLL_MAX, IDLE_POLL_MIN * 2 ** min(idle_polls, 4)))
+                        idle_polls += 1
                         continue
+                    idle_polls = 0
                     command = decode_control(view["command_b64"])
                     dispatch_id = view["command_id"]
                     if view["state"] == "admitting":
