@@ -27,19 +27,23 @@ MULTI_PHASE = 3
 # against a Gym Leader and partner run by the master core's AI.
 COOP_PHASE = 4
 COOP_GYM_COUNT = 8
+# Four-player free-for-all phase (ABI3 + the ROM's free-for-all marker): the four-core full Multi with every trainer on
+# a side of their own. Its result is the winner (slot + 1) or a draw (FFA_DRAW); see docs/free-for-all.md.
+FFA_PHASE = 5
+FFA_DRAW = 5
 _U32 = 0xFFFFFFFF
 _PREPARE = struct.Struct("<IIII16sI")
 
 
 def player_count_for_phase(phase):
     """Trainers (cores) in a native phase."""
-    _integer(phase, PHASE, COOP_PHASE, "native phase")
-    return 4 if phase == MULTI_PHASE else 2
+    _integer(phase, PHASE, FFA_PHASE, "native phase")
+    return 4 if phase in (MULTI_PHASE, FFA_PHASE) else 2
 
 
 def battler_count_for_phase(phase):
     """Battlers on the field: both double phases have four."""
-    _integer(phase, PHASE, COOP_PHASE, "native phase")
+    _integer(phase, PHASE, FFA_PHASE, "native phase")
     return 2 if phase == PHASE else 4
 
 
@@ -52,7 +56,7 @@ def battler_owner(phase, battler):
 
 def supports_native_phase(abi, phase):
     return (type(abi) is int and type(phase) is int
-            and ((abi == 2 and phase == 2) or (abi == 3 and phase in (2, 3, COOP_PHASE))))
+            and ((abi == 2 and phase == 2) or (abi == 3 and phase in (2, 3, COOP_PHASE, FFA_PHASE))))
 
 
 class Opcode(IntEnum):
@@ -130,9 +134,9 @@ class NativeBinding:
 
     @classmethod
     def unpack(cls, data):
-        if (type(data) is not bytes or len(data) != 116 or data[114] not in (PHASE, MULTI_PHASE, COOP_PHASE)
+        if (type(data) is not bytes or len(data) != 116 or data[114] not in (PHASE, MULTI_PHASE, COOP_PHASE, FFA_PHASE)
                 or data[115] not in (0, 1)):
-            raise BattleMailboxError("native binding requires exactly 116 phase2/3/4 bytes")
+            raise BattleMailboxError("native binding requires exactly 116 phase2/3/4/5 bytes")
         shape = BattleBinding.unpack(data[:114] + b"\x01\0")
         return cls(shape.generation, shape.players, shape.leases,
                    shape.incarnations, shape.local_slot, data[114], bool(data[115]))
@@ -246,7 +250,7 @@ class NativeQuery:
             return cls(flags, uuid_text(generation), count, local, mode, *words)
         if (reserved or flags & ~127 or count != expected_count or local >= count
                 or not any(generation) or not seq or received & ~((1 << count)-1) or remaining > 600
-                or revision > MAX_COUNTER or outcome not in (0, 1, 2, 3)
+                or revision > MAX_COUNTER or outcome not in ((0, 1, 2, 3, 4, 5) if mode == FFA_PHASE else (0, 1, 2, 3))
                 or (flags & 2 and (not flags & 1 or remaining))
                 or (not flags & 1 and (remaining or flags & ~1 or received or size))
                 or (flags & 64 and flags & 3 != 3)
@@ -375,7 +379,7 @@ class NativeControl:
             from .native_battle_resume import Retirement
             Retirement.unpack(self.data)
         elif self.opcode == Opcode.RELEASE:
-            if struct.unpack_from("<I", self.data, 4)[0] not in (1, 2, 3):
+            if struct.unpack_from("<I", self.data, 4)[0] not in ((1, 2, 3, 4, 5) if self.phase == FFA_PHASE else (1, 2, 3)):
                 raise BattleMailboxError("release needs a normalized win/loss/draw outcome")
         elif self.opcode == Opcode.ACK_OUT:
             mask = (1 << player_count_for_phase(self.phase))-1

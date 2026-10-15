@@ -11,7 +11,7 @@ from .coop_code import valid_code
 from .protocol import MAX_COUNTER, PROTOCOL_VERSION, ProtocolError, _fields, _integer
 from .team_protocol import _uuid
 
-BATTLE_OPERATIONS = frozenset({"invite", "invite_multi", "accept", "claim", "cancel", "cancel_admission", "admission_handoff", "status", "pending", "history", "waiting", "execute", "resume"})
+BATTLE_OPERATIONS = frozenset({"invite", "invite_multi", "invite_ffa", "accept", "claim", "cancel", "cancel_admission", "admission_handoff", "status", "pending", "history", "waiting", "execute", "resume"})
 BATTLE_TYPES = frozenset("battle_" + op for op in BATTLE_OPERATIONS)
 STATES = frozenset({"invited", "accepted", "prepared", "starting", "running", "finishing",
                     "release_authorized", "closed", "aborting", "aborted", "recovery_required"})
@@ -37,6 +37,7 @@ def validate_battle_request(message, epoch):
     extra = {
         "invite": {"peer", "battle_id"},
         "invite_multi": {"teammate", "opponents", "battle_id"},
+        "invite_ffa": {"opponents", "battle_id"},
         "accept": {"battle_id", "generation", "fingerprint"},
         "claim": {"battle_id", "generation", "incarnation", "runtime_id"},
         "cancel": {"battle_id", "generation"},
@@ -80,7 +81,7 @@ def validate_battle_request(message, epoch):
     if operation in ("execute", "resume") and "admission_sha256" in message:
         extra = extra | {"admission_sha256"}
     identity_fields = {"incarnation", "runtime_id"}
-    if operation in ("claim", "cancel_admission", "admission_handoff") or ((operation in ("invite", "invite_multi", "accept") or championship_match) and identity_fields.intersection(message)):
+    if operation in ("claim", "cancel_admission", "admission_handoff") or ((operation in ("invite", "invite_multi", "invite_ffa", "accept") or championship_match) and identity_fields.intersection(message)):
         extra = extra | identity_fields
         _integer(message.get("incarnation"), "incarnation", 1, 0xFFFFFFFF)
         _uuid(message.get("runtime_id"), "runtime_id")
@@ -119,7 +120,15 @@ def validate_battle_request(message, epoch):
                 cancellation.admission.runtime_id) != (message["battle_id"], message["incarnation"],
                 message["generation"], message["runtime_id"]) or receipt.session_epoch > epoch):
             raise ProtocolError("identity_mismatch", "handoff changed its original admission or lease")
-    if "opponents" in extra:
+    if "opponents" in extra and operation == "invite_ffa":
+        opponents = message["opponents"]
+        if type(opponents) is not list or len(opponents) != 3:
+            raise ProtocolError("invalid_field", "a free-for-all requires three other trainers")
+        for opponent in opponents:
+            _uuid(opponent, "opponent")
+        if len(set(opponents)) != 3:
+            raise ProtocolError("invalid_field", "free-for-all participants must be distinct")
+    elif "opponents" in extra:
         opponents = message["opponents"]
         if type(opponents) is not list or len(opponents) != 2:
             raise ProtocolError("invalid_field", "Multi requires two opposing players")
@@ -160,12 +169,12 @@ def _view(value, actor):
     for key in ("battle_id", "generation", "sender"):
         _uuid(value[key], key)
     _digest(value["fingerprint"])
-    if value["scope"] != SCOPE or type(value["mode"]) is not int or value["mode"] not in (2, 3, 4):
+    if value["scope"] != SCOPE or type(value["mode"]) is not int or value["mode"] not in (2, 3, 4, 5):
         raise ProtocolError("invalid_server_message", "unsupported battle challenge format")
     if coop:
         if not valid_code(value["gym"]):
             raise ProtocolError("invalid_server_message", "invalid co-op battle code")
-    count = 4 if value["mode"] == 3 else 2
+    count = 4 if value["mode"] in (3, 5) else 2
     players = value["players"]
     if type(players) is not list or len(players) != count:
         raise ProtocolError("invalid_server_message", "incorrect battle participant count")
@@ -184,7 +193,8 @@ def _view(value, actor):
     if len(consent) != len(set(consent)) or not set(consent) <= set(players):
         raise ProtocolError("identity_mismatch", "foreign or repeated battle consent")
     outcome = value["outcome"]
-    if outcome is not None and (type(outcome) is not int or outcome not in (1, 2, 3)):
+    # A free-for-all names its winner (slot + 1, 1-4) or a draw (5); every other format has a team result 1-3.
+    if outcome is not None and (type(outcome) is not int or outcome not in ((1, 2, 3, 4, 5) if value["mode"] == 5 else (1, 2, 3))):
         raise ProtocolError("invalid_server_message", "invalid battle outcome")
     checkpoints = value["checkpoints"]
     if type(checkpoints) is not list or len(checkpoints) != count:
@@ -328,6 +338,10 @@ def validate_battle_reply(message, actor, world_id, epoch, request=None):
             for key in ("generation", "fingerprint"):
                 if key in request and result[key] != request[key]:
                     raise ProtocolError("identity_mismatch", "battle reply changed the accepted challenge")
+            if op == "invite_ffa":
+                if (result["sender"] != actor or set(result["players"]) != {actor, *request["opponents"]}
+                        or result["mode"] != 5 or result["players"][0] != actor):
+                    raise ProtocolError("identity_mismatch", "free-for-all invitation changed its participants")
             if op in ("invite", "invite_multi"):
                 expected = {actor, request["peer"]} if op == "invite" else {actor, request["teammate"], *request["opponents"]}
                 if result["sender"] != actor or set(result["players"]) != expected or result["mode"] != (2 if op == "invite" else 3):

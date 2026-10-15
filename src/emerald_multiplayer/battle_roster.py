@@ -11,7 +11,7 @@ import zlib
 
 from .battle_mailbox import BattleMailboxError, _integer, _uuid
 from .flash import SAVED_PARTY_OFFSET, inspect_flash
-from .native_battle import Kind, Preparation, PHASE, MULTI_PHASE, player_count_for_phase
+from .native_battle import Kind, Preparation, PHASE, MULTI_PHASE, FFA_PHASE, player_count_for_phase
 from .ownership import OWNERSHIP_PROFILE, inspect_ownership
 from .protocol import MAX_COUNTER
 from .storage import Checkpoint
@@ -90,7 +90,7 @@ class CanonicalBattler:
         trainer[19] = metadata.gender
         # LINKTYPE_MULTI_BATTLE only for four linked trainers; singles and
         # co-op Gym battles (two linked trainers) use LINKTYPE_BATTLE.
-        struct.pack_into("<IHH", trainer, 20, 0x2255 if mode == MULTI_PHASE else 0x2211, source_slot, 2)
+        struct.pack_into("<IHH", trainer, 20, 0x2255 if mode in (MULTI_PHASE, FFA_PHASE) else 0x2211, source_slot, 2)
         return cls(world_id, checkpoint.player_id, checkpoint.revision, checkpoint.sha256,
             source_slot, metadata.counter, metadata.trainer_id, metadata.party_count,
             zlib.crc32(party), party, bytes(trainer), mode)

@@ -54,6 +54,7 @@ def time_of_day_for_hour(hour: int) -> str:
     return "night"
 from . import event_conditions
 from .frontier import SCHEMA as _FRONTIER_SCHEMA, FrontierBook
+from .ffa_results import SCHEMA as _FFA_SCHEMA, FfaBook
 from .secret_bases import SCHEMA as _BASE_SCHEMA, SecretBaseBook
 
 _SCHEMA = (
@@ -75,6 +76,7 @@ _SCHEMA = (
         verdict TEXT NOT NULL, at REAL NOT NULL)""",
     *_BASE_SCHEMA,
     *_FRONTIER_SCHEMA,
+    *_FFA_SCHEMA,
 )
 
 
@@ -152,6 +154,7 @@ class SharedWorld:
         self._clock = _Clock(float(seconds), None)
         self.bases = SecretBaseBook(self._db, self._transaction)
         self.frontier = FrontierBook(self._db, self._transaction, clock=time.time)
+        self.ffa = FfaBook(self._db, self._transaction, clock=time.time)
         from .event_settings import DEFAULT_EVENT_SETTINGS
         self._events = event_settings if event_settings is not None else DEFAULT_EVENT_SETTINGS
         self._condition_chance = self._events.condition_chance if event_condition_chance is None else event_condition_chance

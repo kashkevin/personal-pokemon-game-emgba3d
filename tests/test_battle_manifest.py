@@ -151,6 +151,31 @@ class CoopAndWorldManifestTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.generate(self.base + self.coop)  # no native battle channel
 
+    def test_free_for_all_marker_requires_abi3_channel_and_exact_rom_value(self):
+        from emerald_multiplayer.battle_manifest import FFA_FIELDS
+        with self.rom.open("r+b") as rom:
+            rom.seek(212)
+            rom.write(b"\x01\0\0\0")  # 212: free-for-all marker
+        ffa = "080000d4 00000004 R gMultiplayerBattleFfaAbiVersion\n"
+        generated = self.generate(self.base + self.battle + ffa)
+        self.assertEqual({key: generated[key] for key in FFA_FIELDS},
+                         {"battle_ffa_abi_version": 1, "battle_ffa_abi_address": 0x080000D4})
+        self.assertTrue(validate_battle_manifest(generated, self.rom))
+        for changes in ({"battle_ffa_abi_version": 2}, {"battle_ffa_abi_address": 0x080000D6},
+                        {"battle_ffa_abi_address": 0x080000C8}, {"battle_abi_version": 2}):
+            with self.subTest(changes=changes), self.assertRaises(ValueError):
+                validate_battle_manifest({**generated, **changes}, self.rom)
+        partial = dict(generated)
+        del partial["battle_ffa_abi_address"]
+        with self.assertRaises(ValueError):
+            validate_battle_manifest(partial, self.rom)
+        with self.assertRaises(ValueError):
+            self.generate(self.base + ffa)  # no native battle channel
+        with self.rom.open("r+b") as rom:
+            rom.seek(212); rom.write(b"\x02\0\0\0")
+        with self.assertRaises(ValueError):
+            validate_battle_manifest(generated, self.rom)   # the ROM disagrees with the manifest
+
     def test_world_marker_and_mailbox_are_generated_and_verified(self):
         from emerald_multiplayer.world_mailbox import validate_world_manifest
         generated = self.generate(self.base + self.battle + self.world)

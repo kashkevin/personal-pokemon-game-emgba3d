@@ -354,13 +354,17 @@ class PlayerMenu:
             title = "Challenges"
             if self._battles:
                 battle = self._battles[0]
-                title = {2: "1v1 challenge", 3: "2v2 full-party challenge",
+                title = {2: "1v1 challenge", 3: "2v2 full-party challenge", 5: "1v1v1v1 free-for-all",
                          4: self._coop_title(battle.get("gym"))}.get(battle["mode"], "Challenge")
                 status = self._notice or f"Accepted: {len(battle['consent'])}/{len(battle['players'])}"
                 parties = {cp["player_id"]: cp["party_count"] for cp in battle["checkpoints"]}
                 if battle["mode"] in (2, 4):
                     for cp in battle["checkpoints"]:
                         actions.append((f"{self._name(cp['player_id'])[:18]} ({cp['party_count']})", "", ()))
+                elif battle["mode"] == 5:
+                    # Four independent trainers: two rows of two keep room for the consent rows (no wager, no teams).
+                    for pair in (battle["players"][:2], battle["players"][2:]):
+                        actions.append((" / ".join(f"{self._name(p)[:8]}({parties.get(p, 0)})" for p in pair), "", ()))
                 else:
                     # Two team rows keep room for the consent and wager rows.
                     for team in (battle["players"][::2], battle["players"][1::2]):
@@ -368,7 +372,7 @@ class PlayerMenu:
                 params = (battle["battle_id"], battle["generation"])
                 wager = self._wager["wager"] if self._wager is not None else None
                 wager_ready = wager is None or set(wager["accepted"]) == set(wager["players"])
-                if battle["state"] in _OPEN_BATTLE_STATES and self._wager is not None:
+                if battle["state"] in _OPEN_BATTLE_STATES and self._wager is not None and battle["mode"] != 5:
                     if wager is None:
                         label = "Wager: none (set one)"
                     else:
@@ -394,6 +398,8 @@ class PlayerMenu:
                     actions.append(("Championship", "championship", ()))
             else:
                 status = self._notice or ("New battles disabled on host" if self._battles is None else "No pending challenges")
+                if self._battles is not None and len(self._players) == 4 and actor in self._players:
+                    actions.append(("Free-for-all 1v1v1v1", "battle_ffa", tuple(p for p in self._players if p != actor)))
                 actions.append(("Recent battle results", "results", (0,)))
                 actions.append(("Full record archives", "records", ()))
                 actions.append(("Your Trainer Card", "card", (actor,)))
@@ -888,6 +894,9 @@ class PlayerMenu:
                 self._page = ("battles", None)
             elif op == "battle_multi":
                 await self.companion.battle_challenge_rpc("invite_multi", teammate=args[0], opponents=list(args[1:]), battle_id=str(uuid4()))
+                self._page = ("battles", None)
+            elif op == "battle_ffa":
+                await self.companion.battle_challenge_rpc("invite_ffa", opponents=list(args), battle_id=str(uuid4()))
                 self._page = ("battles", None)
             elif op in ("battle_accept", "battle_cancel"):
                 fields = dict(battle_id=args[0], generation=args[1])

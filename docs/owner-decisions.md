@@ -44,7 +44,7 @@ below was decided or built by assumption; each row says what is waiting and a re
 
 | # | Decision | Detail |
 | --- | --- | --- |
-| 15 | **Four-player free-for-all (1v1v1v1)** | Not built: the engine is two-sided in about 700 places (`docs/free-for-all-feasibility.md`). It is a separate architecture project. Is it worth funding, and with real four-PC testing? |
+| 15 | **Four-player free-for-all (1v1v1v1) — built in Update 15** | Built with defaults you may change (`docs/free-for-all.md`): a hazard move lands only on the side of the trainer it was aimed at and Court Change swaps with that trainer's side; Follow Me/Rage Powder/Helping Hand/Ally Switch do nothing; no running or forfeit; a simultaneous last faint is a draw; no EXP and no wager; the host keeps a win/draw/loss record only. Visuals reuse the doubles layout (polish would need new four-position art/layout work). Say which rules to change. |
 | 16 | **Legendary catch ownership** | Rule implemented as you specified (first valid reported catch wins, host order). Limit: the host cannot remove a Pokémon from a save, so two games that both finished a catch before either reported could both hold a copy (`docs/legendary-catch-resolution.md`). |
 | 17 | **Graphical PokéNav map with player markers** | Not built (needs Town Map sprites and a visual check); text locations and a habitat page exist. |
 | 18 | **Gen 6 purity of expansion switches** | PC build now turns off Gen 9 running from trainer battles and Gen 8 thunderstorm terrain. Kept on: extrapolated move flags and X-item cross-use. Say if you want those off too. |

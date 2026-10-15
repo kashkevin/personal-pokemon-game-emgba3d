@@ -84,6 +84,26 @@ class PlayerMenuNetworkTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(all(row.action == 0 for row in screen.rows[:2]))
         self.assertEqual(screen.rows[2].label, "Back to matching results")
 
+    async def test_free_for_all_is_offered_to_all_four_and_each_trainer_accepts_for_themselves(self):
+        menus = [PlayerMenu(c) for c in self.companions]
+        await menus[0].refresh()
+        await self.click(menus[0], "Challenges")
+        screen = await self.click(menus[0], "Free-for-all 1v1v1v1")
+        self.assertEqual(screen.title, "1v1v1v1 free-for-all")
+        labels = [row.label for row in screen.rows]
+        self.assertFalse([label for label in labels if label.startswith("Wager")])    # no wager in a free-for-all
+        self.assertIn("Cancel challenge", labels)
+        self.assertNotIn("Accept challenge", labels)                                   # the challenger's consent is given
+        for i in (1, 2, 3):
+            await menus[i].refresh()
+            screen = await self.click(menus[i], "Pending challenge")
+            self.assertEqual(screen.title, "1v1v1v1 free-for-all")
+            self.assertIn("Accept challenge", [row.label for row in screen.rows])
+            await self.click(menus[i], "Accept challenge")
+        pending = await self.companions[0].battle_challenge_rpc("pending")
+        self.assertEqual(pending["result"][0]["state"], "accepted")
+        self.assertEqual(pending["result"][0]["mode"], 5)
+
     async def test_history_stays_reachable_when_new_battles_are_disabled(self):
         fixture = fixtures.BattleChallengeNetworkTests
         self.rpc = fixture.rpc.__get__(self)

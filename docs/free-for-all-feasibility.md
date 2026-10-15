@@ -1,5 +1,8 @@
 # 1v1v1v1 free-for-all: feasibility (Update 9)
 
+> **Superseded by Update 15: the four-side engine mode was built and tested, see `docs/free-for-all.md`.** What follows is the
+> Update 9 audit that sized the work, kept as the record of why it was a separate architecture project.
+
 **Result: not implemented. The existing battle engine cannot run four independent trainers in one battle without a
 battle-engine redesign, and an approximation would be unsafe.** Nothing was faked: no sequence of 1v1 matches stands in for it.
 

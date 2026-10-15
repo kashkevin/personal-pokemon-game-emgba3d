@@ -134,6 +134,43 @@ class BattleChallengeNetworkTests(unittest.IsolatedAsyncioTestCase):
         for i in range(4):
             self.assertEqual(await self.rpc(i, "pending"), [accepted])
 
+    async def test_free_for_all_four_independent_consents_and_no_team(self):
+        view = await self.rpc(0, "invite_ffa", opponents=[p.player_id for p in self.players[1:]], battle_id=str(uuid4()))
+        self.assertEqual(view["mode"], 5)
+        self.assertEqual(view["players"][0], self.players[0].player_id)
+        for i in (1, 2):
+            self.assertEqual((await self.accept(i, view))["state"], "invited")   # nobody's consent is inherited
+        accepted = await self.accept(3, view)
+        self.assertEqual(accepted["state"], "accepted")
+        self.assertEqual(len(accepted["consent"]), 4)
+        for i in range(4):
+            self.assertEqual(await self.rpc(i, "pending"), [accepted])
+        # a free-for-all has no wager and an exact retry names the same battle
+        repeat = await self.rpc(0, "invite_ffa", opponents=[p.player_id for p in reversed(self.players[1:])],
+                                battle_id=view["battle_id"])
+        self.assertEqual(repeat["fingerprint"], view["fingerprint"])
+
+    async def test_free_for_all_rosters_are_refused(self):
+        ids = [p.player_id for p in self.players]
+        for opponents in (ids[1:3], [ids[1], ids[1], ids[2]], [ids[0], ids[2], ids[3]]):
+            with self.assertRaises(Exception):
+                await self.rpc(0, "invite_ffa", opponents=opponents, battle_id=str(uuid4()))
+
+    async def test_free_for_all_result_is_kept_once_by_the_host_and_never_wagered(self):
+        ids = [p.player_id for p in self.players]
+        battle = type("Battle", (), dict(battle_id=str(uuid4()), mode=5, players=tuple(ids), finished={ids[0]: 3}))()
+        self.server._on_battle_publish(battle)
+        self.server._on_battle_publish(battle)                            # a retried publication is idempotent
+        found = self.server.shared_world.ffa.result(battle.battle_id)
+        self.assertEqual((found["outcome"], found["winner"]), (3, ids[2]))
+        self.assertEqual(self.server.shared_world.ffa.record_of(ids[2])["won"], 1)
+        self.assertEqual(self.server.shared_world.ffa.record_of(ids[0])["lost"], 1)
+        self.assertIsNone(self.server.shared_world.frontier.coop_result(battle.battle_id))
+        self.server._on_battle_closed(battle)                              # friendships between every pair, no wager
+        for i, x in enumerate(ids):
+            for y in ids[i + 1:]:
+                self.assertGreater(self.server.friendships.pair(x, y)["points"], 0)
+
     async def test_wrong_participant_and_changed_fingerprint_refused(self):
         view = await self.invite()
         await self.error("battle_not_participant", 2, "status", battle_id=view["battle_id"])

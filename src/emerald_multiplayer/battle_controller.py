@@ -11,7 +11,7 @@ from pathlib import Path
 import struct
 
 from .battle_mailbox import BattleMailboxError, _integer
-from .native_battle import COOP_PHASE, PHASE, battler_count_for_phase, battler_owner, player_count_for_phase
+from .native_battle import COOP_PHASE, FFA_PHASE, PHASE, battler_count_for_phase, battler_owner, player_count_for_phase
 
 MASTER_LENGTHS = {
     0: 4, 4: 4, 5: 4, 6: 2, 7: 4, 8: 4, 9: 4, 10: 4,
@@ -203,7 +203,10 @@ class ControllerValidator:
         if command == 47: return p[1] < 65 and _animation_valid(p[4:12])
         if command == 48: return p[1] <= 2 and not any(p[2:4])
         if command == 49: return p[1] <= 2
-        if command == 50: return p[1] in (1, 2, 3) and not any(p[2:6])
+        if command == 50:
+            # Free-for-all: byte 2 names the winner's battler (255: a draw) and each core works out its own result from it.
+            winner_ok = (p[2] < self._count or p[2] == 255) if self._mode == FFA_PHASE else not p[2]
+            return p[1] in (1, 2, 3) and winner_ok and not any(p[3:6])
         return True
 
     def _ai_target(self, battler, action, choice):

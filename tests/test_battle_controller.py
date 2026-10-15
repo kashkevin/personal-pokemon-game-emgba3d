@@ -5,6 +5,7 @@ import unittest
 
 from emerald_multiplayer.battle_controller import ControllerValidator, read_string_lengths
 from emerald_multiplayer.battle_mailbox import BattleMailboxError
+from emerald_multiplayer.native_battle import COOP_PHASE, FFA_PHASE, MULTI_PHASE
 
 
 def wire(payload, *, role=0, battler=0, attacker=0, target=1, absent=0, effect=0):
@@ -41,6 +42,49 @@ def mon_reply():
     struct.pack_into("<H", p, 50, 20)
     p[54], p[68] = 255, 255
     return bytes(p)
+
+
+def ffa_validator(mode=FFA_PHASE):
+    lengths = [None]*721
+    lengths[7], lengths[8], lengths[9] = 10, 250, 256
+    return ControllerValidator(tuple(lengths), mode=mode)
+
+
+class FreeForAllControllerTests(unittest.TestCase):
+    """Four battlers, four owners; the end-of-battle command carries the winner (the engine's FFA result)."""
+
+    def end(self, outcome, winner):
+        return wire(bytes((50, outcome, winner, 0, 0, 0)))
+
+    def test_every_battler_has_its_own_owner_and_only_the_owner_replies(self):
+        for battler in range(4):
+            v = ffa_validator()
+            v.accept(wire(bytes((0, 0, 0, 0)), battler=battler), 0)
+            with self.assertRaises(BattleMailboxError):
+                v.accept(wire(mon_reply(), role=1, battler=battler), (battler + 1) % 4)
+            v.accept(wire(mon_reply(), role=1, battler=battler), battler)
+            for source in range(4):
+                v.accept(done(source, battler), source)
+            self.assertEqual(v.pending, (None, None, None, None))
+
+    def test_the_end_command_names_a_winning_battler_or_a_draw(self):
+        for winner in (0, 1, 2, 3, 255):
+            with self.subTest(winner=winner):
+                ffa_validator().accept(self.end(1, winner), 0)
+        for winner in (4, 5, 254):
+            with self.subTest(winner=winner), self.assertRaises(BattleMailboxError):
+                ffa_validator().accept(self.end(1, winner), 0)
+
+    def test_other_formats_still_refuse_a_winner_byte(self):
+        for mode in (MULTI_PHASE, COOP_PHASE):
+            with self.subTest(mode=mode):
+                ffa_validator(mode).accept(self.end(1, 0), 0)
+                with self.assertRaises(BattleMailboxError):
+                    ffa_validator(mode).accept(self.end(1, 2), 0)
+
+    def test_nobody_but_the_master_may_end_the_battle(self):
+        with self.assertRaises(BattleMailboxError):
+            ffa_validator().accept(self.end(2, 1), 1)
 
 
 class NativeControllerTests(unittest.TestCase):

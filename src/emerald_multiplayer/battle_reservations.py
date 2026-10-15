@@ -128,12 +128,12 @@ def validate_waiting(value, actor):
     if (type(value) is not dict or set(value) != {"scope", "battle_id", "generation", "mode",
             "players", "state", "resume_supported"} or value["scope"] != SCOPE
             or value["state"] != "waiting" or value["resume_supported"] is not False
-            or type(value["mode"]) is not int or value["mode"] not in (2, 3, 4)):
+            or type(value["mode"]) is not int or value["mode"] not in (2, 3, 4, 5)):
         raise ProtocolError("invalid_server_message", "invalid durable battle waiting status")
     try:
         _player_id(value["battle_id"]); _player_id(value["generation"])
         players = value["players"]
-        if type(players) is not list or len(players) != (4 if value["mode"] == 3 else 2):
+        if type(players) is not list or len(players) != (4 if value["mode"] in (3, 5) else 2):
             raise ValueError()
         for player in players:
             _player_id(player)

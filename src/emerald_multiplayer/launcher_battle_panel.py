@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 from copy import deepcopy
+import itertools
 from dataclasses import dataclass
 from uuid import uuid4
 
@@ -100,13 +101,19 @@ class BattlePanelController:
             if not self.session.can_manage_players:
                 raise BattlePanelError("not_ready")
             roster, actor = self._roster(), self.session.companion.config.player_id
-            if operation in {"preview_single", "preview_multi"}:
+            if operation in {"preview_single", "preview_multi", "preview_ffa"}:
                 if self._pending:
                     raise BattlePanelError("stale")
                 if operation == "preview_single":
                     if roster.get(args[0]) != args[1]:
                         raise BattlePanelError("roster_changed")
                     self._preview = dict(mode=2, players=[actor, args[0]], names=[roster[actor], roster[args[0]]],
+                                         battle_id=str(uuid4()), teams=None)
+                elif operation == "preview_ffa":
+                    rivals = args[::2]
+                    if len(set(rivals)) != 3 or actor in rivals or any(roster.get(p) != n for p, n in zip(args[::2], args[1::2])):
+                        raise BattlePanelError("roster_changed")
+                    self._preview = dict(mode=5, players=[actor, *rivals], names=[roster[actor], *args[1::2]],
                                          battle_id=str(uuid4()), teams=None)
                 else:
                     if self._duos() != args:
@@ -123,6 +130,8 @@ class BattlePanelController:
                     raise BattlePanelError("roster_changed")
                 if p["mode"] == 2:
                     rpc, fields = "invite", dict(peer=p["players"][1], battle_id=p["battle_id"])
+                elif p["mode"] == 5:
+                    rpc, fields = "invite_ffa", dict(opponents=p["players"][1:], battle_id=p["battle_id"])
                 else:
                     rpc, fields = "invite_multi", dict(teammate=p["players"][1], opponents=p["players"][2:], battle_id=p["battle_id"])
                 self._preview = None
@@ -192,6 +201,10 @@ class BattlePanelController:
                 duos = self._duos()
                 if duos:
                     add("Review 2v2 between current teams", "preview_multi", duos)
+                others = [(p, n) for p, n in roster.items() if p != actor]
+                for trio in list(itertools.combinations(others, 3))[:6]:
+                    add("Review 1v1v1v1 free-for-all with " + ", ".join(n for _, n in trio), "preview_ffa",
+                        tuple(x for pair in trio for x in pair))
             else:
                 view = self._pending[0]
                 if view["state"] == "invited" and not view["bound"] and not view["started"]:
@@ -241,7 +254,7 @@ class BattlePanel:
         ttk.Label(self.frame, textvariable=self.details, wraplength=560, justify="left").pack(anchor="w", pady=8)
         self.actions = ttk.Frame(self.frame)
         self.actions.pack(fill="x")
-        ttk.Label(self.frame, text="Proposals use the current host-saved parties. Save now first if you want recent field progress included. 2v2 uses both current teams with independent full parties, up to six Pokémon per Trainer. Accepting never presses Enter or controls battle moves. No wagers, rewards or automatic forfeits are added.", wraplength=560).pack(anchor="w", pady=12)
+        ttk.Label(self.frame, text="Proposals use the current host-saved parties. Save now first if you want recent field progress included. 2v2 uses both current teams with independent full parties, up to six Pokémon per Trainer. Accepting never presses Enter or controls battle moves. No wagers, rewards, experience or automatic forfeits are added; a free-for-all (1v1v1v1) has every Trainer against every other.", wraplength=560).pack(anchor="w", pady=12)
 
     def refresh(self):
         self._request()
@@ -274,8 +287,8 @@ class BattlePanel:
         preview, pending = snapshot["preview"], snapshot["pending"]
         if preview:
             names = preview["names"]
-            sides = names if preview["mode"] == 2 else (" + ".join(names[:2]), " + ".join(names[2:]))
-            self.details.set(("1v1" if preview["mode"] == 2 else "2v2 full parties") + " proposal\n" + " vs ".join(sides)
+            sides = names if preview["mode"] in (2, 5) else (" + ".join(names[:2]), " + ".join(names[2:]))
+            self.details.set({2: "1v1", 5: "1v1v1v1 free-for-all (everyone against everyone)"}.get(preview["mode"], "2v2 full parties") + " proposal\n" + " vs ".join(sides)
                 + "\nParty counts are confirmed by the host when the proposal is created.")
         elif pending:
             view = pending[0]
@@ -283,11 +296,12 @@ class BattlePanel:
             parties = {p["player_id"]: p["party_count"] for p in view["checkpoints"]}
             lines = []
             coop = view["mode"] == 4  # both trainers together against a Gym Leader and partner
+            ffa = view["mode"] == 5   # four independent trainers: no sides at all
             for index, player in enumerate(view["players"]):
-                lines.append((f"Team: " if coop else f"Side {index % 2 + 1}: ") + names.get(player, 'Offline Trainer')
+                lines.append((f"Team: " if coop else f"Trainer {index + 1}: " if ffa else f"Side {index % 2 + 1}: ") + names.get(player, 'Offline Trainer')
                     + (" (you)" if player == actor else "") + f" · {parties[player]} Pokémon · "
                     + ("accepted" if player in view["consent"] else "awaiting consent"))
-            label = "Team Gym battle" if coop else ("1v1" if view["mode"] == 2 else "2v2 full parties")
+            label = "Team Gym battle" if coop else "1v1v1v1 free-for-all" if ffa else ("1v1" if view["mode"] == 2 else "2v2 full parties")
             self.details.set(label + " · " + view["state"]
                 + "\n" + "\n".join(lines) + "\n" + ("Everyone accepted: use the original game’s Players menu to Enter." if view["state"] == "accepted" else "Refresh to see new consent; no automatic polling."))
         else:

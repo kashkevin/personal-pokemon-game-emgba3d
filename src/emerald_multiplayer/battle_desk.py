@@ -236,7 +236,7 @@ class BattleDesk:
     @staticmethod
     def _view(battle):
         scope = {2: "session-local-native-singles-development", 3: "session-local-native-full-multi-development",
-                 4: "session-local-native-coop-gym"}[battle.mode]
+                 4: "session-local-native-coop-gym", 5: "session-local-native-free-for-all"}[battle.mode]
         view = dict(scope=scope, battle_id=battle.battle_id,
             generation=battle.generation, sender=battle.sender, state=battle.state, reason=battle.reason,
             players=list(battle.players), fingerprint=battle.fingerprint,
@@ -254,6 +254,9 @@ class BattleDesk:
         elif battle.mode == 4:
             # Both trainers share one side against the Gym's two AI trainers.
             view.update(mode=4, gym=battle.gym, teams=[list(battle.players)])
+        elif battle.mode == 5:
+            # Four independent trainers: every trainer is a "team" of one.
+            view.update(mode=5, teams=[[p] for p in battle.players])
         return view
 
     def invite(self, actor, lease, peer, battle_id):
@@ -279,6 +282,23 @@ class BattleDesk:
             raise BattleError("invalid_battle", "Multi requires four distinct trainers")
         own, other = sorted((actor, teammate)), sorted(opponents)
         return self._invite(actor, lease, (own[0], other[0], own[1], other[1]), battle_id, mode=3)
+
+    def invite_ffa(self, actor, lease, opponents, battle_id):
+        """Four independent trainers in one shared battle (1v1v1v1).
+
+        The challenger is slot 0, the master core that runs the battle's rules; the three others follow in a fixed
+        (sorted) order so an exact retry names the same roster. Nobody's consent is inherited and nobody is anybody's
+        partner. Every trainer must accept the exact fingerprint independently.
+        """
+        self._auth(actor, lease)
+        self._id(battle_id, "battle ID")
+        if type(opponents) is not tuple or len(opponents) != 3:
+            raise BattleError("invalid_battle", "a free-for-all requires exactly three other trainers")
+        for player in opponents:
+            self._id(player, "opponent")
+        if len({actor, *opponents}) != 4:
+            raise BattleError("invalid_battle", "a free-for-all requires four distinct trainers")
+        return self._invite(actor, lease, (actor, *sorted(opponents)), battle_id, mode=5)
 
     def invite_coop(self, actor, lease, teammate, gym, battle_id):
         """Two teammates against a Gym Leader and partner (both AI on slot 0).
@@ -336,7 +356,7 @@ class BattleDesk:
         if mode == 4:
             material.append(gym)  # consent names the exact Gym (Leader and partner)
         domain = {2: b"EM-NATIVE-SINGLES-CONSENT-1\0", 3: b"EM-NATIVE-FULL-MULTI-CONSENT-1\0",
-                  4: b"EM-NATIVE-COOP-GYM-CONSENT-1\0"}[mode]
+                  4: b"EM-NATIVE-COOP-GYM-CONSENT-1\0", 5: b"EM-NATIVE-FFA-CONSENT-1\0"}[mode]
         fingerprint = hashlib.sha256(domain +
             json.dumps(material, separators=(",", ":")).encode("ascii")).hexdigest()
         battle = _Battle(battle_id, generation, actor, players, tuple(leases),
@@ -614,7 +634,7 @@ class BattleDesk:
         duplicate = self._receipt(battle, actor, request, response, Opcode.QUERY)
         descriptor = battle.roster[battle.players.index(actor)]
         query = NativeQuery.unpack(response.data)
-        if (type(outcome) is not int or outcome not in (1, 2, 3)
+        if (type(outcome) is not int or outcome not in ((1, 2, 3, 4, 5) if battle.mode == 5 else (1, 2, 3))
                 or type(party_count) is not int or party_count != descriptor.party_count
                 or type(party) is not bytes or party != descriptor.party
                 or query.generation != battle.generation or not query.restored or not query.started
@@ -681,7 +701,7 @@ class BattleDesk:
         """Shared durable publication after live or exact replay validation."""
         # The archive holds PvP results (player cards, Championships). A co-op
         # Gym battle is PvE: its closure is the reservation's durable record.
-        if self.results is not None and battle.mode != 4:
+        if self.results is not None and battle.mode not in (4, 5):
             view = self._view(battle)
             summary = {key: view[key] for key in ("battle_id", "generation", "sender", "players",
                 "fingerprint", "outcome", "checkpoints")}
@@ -694,7 +714,7 @@ class BattleDesk:
                     for raw in receipts[(player, opcode)]:
                         material.extend(raw)
             self.results._append_closed(summary, hashlib.sha256(material).hexdigest())
-        if battle.mode == 4 and callable(self.on_publish):
+        if battle.mode in (4, 5) and callable(self.on_publish):
             # A co-op battle's result is not in the PvP archive. The host keeps it (idempotently, by battle ID) *before*
             # the reservation closes, so a crash can never leave a closed battle whose outcome nobody recorded; if this
             # raises the exact RELEASE receipt is retried, as for the archive above.

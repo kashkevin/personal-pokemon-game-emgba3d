@@ -1497,7 +1497,7 @@ class Companion:
         consent_core = None
         championship_match = (operation == "pending" and type(fields.get("championship")) is dict
                               and fields["championship"].get("operation") == "match")
-        if (operation in {"invite", "invite_multi", "accept"} or championship_match) and self.config.battle_resume_abi_version == 1:
+        if (operation in {"invite", "invite_multi", "invite_ffa", "accept"} or championship_match) and self.config.battle_resume_abi_version == 1:
             if self.config.battle_abi_version != 3 or self._bridge is None or not self._bridge.battle_capable:
                 raise ValueError("resumable consent requires the current verified native core")
             if getattr(self, "_live_battle_runtime_id", None) is None:

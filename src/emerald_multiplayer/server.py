@@ -881,20 +881,22 @@ class WorldServer:
             raise ProtocolError("battle_disabled", "this development world has not enabled battle challenges")
         desk, actor = self.battle_desk, (session.player_id, session.session_epoch)
         capture_original = (self.battle_execution is not None and self.battle_execution.resume_enabled
-                            and operation in ("invite", "invite_multi", "accept"))
+                            and operation in ("invite", "invite_multi", "invite_ffa", "accept"))
         if capture_original:
             self.battle_execution.admission.require_identity(request)
         if operation == "pending":
             result = [challenge_view(view) for view in desk.pending(*actor)]
         else:
             battle_id = request["battle_id"]
-            if (operation in ("invite", "invite_multi") and self._championships is not None
+            if (operation in ("invite", "invite_multi", "invite_ffa") and self._championships is not None
                     and self._championships.claims_battle(battle_id)):
                 raise ProtocolError("championship_match_owned", "Use the Championship page for this reserved match")
             if operation == "invite":
                 view = desk.invite(*actor, request["peer"], battle_id)
             elif operation == "invite_multi":
                 view = desk.invite_multi(*actor, request["teammate"], tuple(request["opponents"]), battle_id)
+            elif operation == "invite_ffa":
+                view = desk.invite_ffa(*actor, tuple(request["opponents"]), battle_id)
             elif operation == "status":
                 view = desk.status(*actor, battle_id)
             elif operation == "accept":
@@ -1427,6 +1429,8 @@ class WorldServer:
             raise WagerError("championship_match", "Championship matches have no wagers")
         if battle.mode == 4:
             raise WagerError("coop_gym", "Gym battles together have no wagers")
+        if battle.mode == 5:
+            raise WagerError("free_for_all", "free-for-all battles have no wagers")
         battle_id, players = battle.battle_id, list(battle.players)
         open_states = ("invited", "accepted", "prepared")
         if kind != "wager_get" and battle.state not in open_states:
@@ -1533,7 +1537,10 @@ class WorldServer:
         """Before a co-op battle closes: its outcome becomes durable (the PvP archive does not hold co-op battles)."""
         outcome = next(iter(battle.finished.values()), None)
         if outcome is not None:
-            self.shared_world.frontier.record_result(battle.battle_id, outcome, battle.players)
+            if battle.mode == 5:
+                self.shared_world.ffa.record(battle.battle_id, outcome, battle.players)   # four-player free-for-all
+            else:
+                self.shared_world.frontier.record_result(battle.battle_id, outcome, battle.players)
 
     def _on_battle_closed(self, battle) -> None:
         players = list(battle.players)
@@ -1543,7 +1550,7 @@ class WorldServer:
             except Exception:  # noqa: BLE001 - progress is reconciled again at the next read or tick
                 pass
         outcome = next(iter(battle.finished.values()), None)
-        if outcome is not None:
+        if outcome is not None and battle.mode != 5:   # a free-for-all has no wager
             try:
                 self._settle_wager(battle, outcome)
             except Exception:  # noqa: BLE001 - a wager never changes the battle record
@@ -1561,6 +1568,11 @@ class WorldServer:
             for x in teams[0]:
                 for y in teams[1]:
                     changes.append(self.friendships.record_pair(kind, x, y, battle.battle_id))
+        elif battle.mode == 5:
+            # Four independent trainers: everyone fought everyone.
+            for i, x in enumerate(players):
+                for y in players[i + 1:]:
+                    changes.append(self.friendships.record_pair("battle_against", x, y, battle.battle_id))
         elif len(players) == 2:
             kind = "championship" if championship else "battle_against"
             changes.append(self.friendships.record_pair(kind, players[0], players[1], battle.battle_id))

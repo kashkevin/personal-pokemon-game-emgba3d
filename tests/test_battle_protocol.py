@@ -37,6 +37,7 @@ def request(op, **fields):
     extra = dict(
         invite=dict(peer=PEER, battle_id=BATTLE),
         invite_multi=dict(teammate=THIRD, opponents=[PEER, FOURTH], battle_id=BATTLE),
+        invite_ffa=dict(opponents=[PEER, THIRD, FOURTH], battle_id=BATTLE),
         accept=dict(battle_id=BATTLE, generation=GENERATION, fingerprint="a" * 64),
         claim=dict(battle_id=BATTLE, generation=GENERATION, incarnation=1, runtime_id=REQUEST),
         cancel=dict(battle_id=BATTLE, generation=GENERATION),
@@ -80,7 +81,7 @@ def reply(op):
         from emerald_multiplayer.battle_execution_protocol import decode_control
         result = handoff_view(decode_control(handoff_receipt(), response=True))
     else:
-        result = [] if op in ("history", "waiting") else ([view()] if op == "pending" else view(3 if op == "invite_multi" else 2))
+        result = [] if op in ("history", "waiting") else ([view()] if op == "pending" else view({"invite_multi": 3, "invite_ffa": 5}.get(op, 2)))
     return dict(type="battle_result", protocol=PROTOCOL_VERSION, session_epoch=7, request_id=REQUEST,
         operation=op, world_id=WORLD, player_id=ACTOR,
         result=result)
@@ -158,6 +159,36 @@ class BattleProtocolTests(unittest.TestCase):
         for opponents in ([PEER], [PEER, PEER], [THIRD, PEER], (PEER, FOURTH), [PEER, {}]):
             with self.subTest(opponents=opponents), self.assertRaises(ProtocolError):
                 validate_battle_request(request("invite_multi", opponents=opponents), 7)
+
+    def test_bad_free_for_all_rosters(self):
+        for opponents in ([PEER], [PEER, THIRD], [PEER, PEER, THIRD], [PEER, THIRD, FOURTH, ACTOR], [PEER, THIRD, {}]):
+            with self.subTest(opponents=opponents), self.assertRaises(ProtocolError):
+                validate_battle_request(request("invite_ffa", opponents=opponents), 7)
+
+    def test_free_for_all_reply_names_exactly_the_invited_four_and_the_challenger_first(self):
+        req = request("invite_ffa")
+        result = reply("invite_ffa")
+        self.assertEqual(result["result"]["mode"], 5)
+        self.assertEqual(self.check(result, req), result)
+        swapped = reply("invite_ffa")
+        swapped["result"]["players"][0], swapped["result"]["players"][1] = PEER, ACTOR
+        for slot, cp in enumerate(swapped["result"]["checkpoints"]):
+            cp["player_id"] = swapped["result"]["players"][slot]
+        with self.assertRaises(ProtocolError): self.check(swapped, req)
+        other = reply("invite_ffa")
+        other["result"]["players"][3] = str(uuid4())
+        other["result"]["checkpoints"][3]["player_id"] = other["result"]["players"][3]
+        with self.assertRaises(ProtocolError): self.check(other, req)
+
+    def test_free_for_all_outcome_is_a_winner_slot_or_a_draw(self):
+        for outcome in (1, 2, 3, 4, 5):
+            result = reply("status"); result["result"] = view(5) | dict(outcome=outcome)
+            self.check(result)
+        for outcome in (0, 6, True):
+            result = reply("status"); result["result"] = view(5) | dict(outcome=outcome)
+            with self.subTest(outcome=outcome), self.assertRaises(ProtocolError): self.check(result)
+        result = reply("status"); result["result"].update(outcome=4)   # four is not a result of a two-trainer battle
+        with self.assertRaises(ProtocolError): self.check(result)
 
     def test_reply_correlation_and_identity_cannot_change(self):
         for key, value in dict(request_id=str(uuid4()), player_id=PEER, world_id=str(uuid4()),
