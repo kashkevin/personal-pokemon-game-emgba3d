@@ -544,6 +544,8 @@ class Companion:
 
     _EXTRAS_PASSES = 4          # each base is offered this many times (the game applies it idempotently)
     _EXTRAS_INTERVAL = 0.25     # seconds between two offered records
+    _EXTRAS_REFRESH = 15.0      # then the list is offered once more this often (the game applies a base only
+                                # in the calm overworld outside secret bases, so an offer may have to wait)
 
     def extras_inbound(self):
         """The EMX1 inbound record: one of the host's secret bases for this player
@@ -560,6 +562,8 @@ class Companion:
             self._extras_records, self._extras_cursor, self._extras_passes = records, 0, self._EXTRAS_PASSES
             self._extras_advanced = 0.0
         now = time.monotonic()
+        if not self._extras_passes and records and now - self._extras_advanced >= self._EXTRAS_REFRESH:
+            self._extras_cursor, self._extras_passes = 0, 1
         if self._extras_passes and records and now - self._extras_advanced >= self._EXTRAS_INTERVAL:
             slot, record = records[self._extras_cursor]
             self._extras_record_seq = self._extras_record_seq % _UINT32 + 1

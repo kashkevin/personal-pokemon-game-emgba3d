@@ -315,6 +315,54 @@ class MenuTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("World and my base", self.labels(menu))
 
 
+class OfferPacingTests(unittest.TestCase):
+    """The companion offers the host's list a few times, then again every so often."""
+
+    def setUp(self):
+        from emerald_multiplayer.companion import Companion
+        self.c = Companion.__new__(Companion)
+        c = self.c
+        c.connected, c._roster_signature = True, ((1, 1),)
+        c._extras_records, c._extras_cursor, c._extras_passes = [], 0, 0
+        c._extras_advanced, c._extras_record_seq, c._extras_base_ack = 0.0, 0, 0
+        c._extras_current = (0, bytes(160))
+        c._world_extras = {"bases": [{"owner": "a", "slot": 1, "record": make_base(owner=1).hex()},
+                                     {"owner": "b", "slot": 2, "record": make_base(location=21, owner=2).hex()}],
+                           "nav": {}}
+
+    def seqs(self, times):
+        from unittest import mock
+        out = []
+        for moment in times:
+            with mock.patch("emerald_multiplayer.companion.time.monotonic", return_value=moment):
+                inbound = self.c.extras_inbound()
+            out.append((inbound.record_seq, inbound.source_slot))
+        return out
+
+    def test_every_record_is_offered_in_turn_then_the_list_repeats_then_it_rests_and_comes_back(self):
+        step = self.c._EXTRAS_INTERVAL + 0.01
+        first = self.seqs([100 + i * step for i in range(2 * self.c._EXTRAS_PASSES + 4)])
+        offered = [seq for seq, _ in first]
+        self.assertEqual(offered[:4], [1, 2, 3, 4])                          # a new record number each offer
+        self.assertEqual([slot for _, slot in first[:4]], [1, 2, 1, 2])      # the two bases alternate
+        self.assertEqual(max(offered), 2 * self.c._EXTRAS_PASSES)             # then it rests
+        self.assertEqual(offered[-1], offered[-2])
+        # Much later, one more pass is offered.
+        later = self.seqs([100 + self.c._EXTRAS_REFRESH + 60 + i * step for i in range(3)])
+        self.assertEqual([seq for seq, _ in later], [2 * self.c._EXTRAS_PASSES + 1, 2 * self.c._EXTRAS_PASSES + 2,
+                                                      2 * self.c._EXTRAS_PASSES + 2])
+
+    def test_a_changed_list_is_offered_at_once_and_a_dropped_connection_stops_offering(self):
+        self.seqs([100])
+        self.c._world_extras["bases"].pop()
+        seq, slot = self.seqs([100.001])[0]
+        self.assertEqual((seq, slot), (2, 1))
+        self.c.connected = False
+        inbound = self.c.extras_inbound()
+        self.assertFalse(inbound.enabled)
+        self.assertEqual(self.c._extras_passes, 0)
+
+
 def bases_of(frame):
     return struct.unpack_from("<IIIB3x", frame, 0), frame[16:176]
 
@@ -408,7 +456,7 @@ class SecretBaseCompanionTests(unittest.IsolatedAsyncioTestCase):
         companion._remote_writer.close()                       # the link drops; the companion reconnects by itself
         await wait_until(lambda: companion.connected and companion.session_epoch != epoch, timeout=8)
         await wait_until(lambda: self.book().state(a)["published"], timeout=8)
-        self.assertEqual(companion._extras_acked_epoch, companion.session_epoch)
+        await wait_until(lambda: companion._extras_acked_epoch == companion.session_epoch, timeout=8)
 
     async def test_extras_records_before_the_capability_disconnect_the_bridge(self):
         await self.bridges[0].send(b"x" + struct.pack("<IB3x", 1, 0) + bytes(160))
