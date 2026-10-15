@@ -398,6 +398,18 @@ class SecretBaseCompanionTests(unittest.IsolatedAsyncioTestCase):
         await wait_until(lambda: self.book().state(a)["published"], timeout=6)
         self.assertEqual(calls[:2], ["base_publish", "base_publish"])
 
+    async def test_a_reconnected_companion_gives_the_new_host_session_the_base_again(self):
+        companion, a = self.companions[0], self.companions[0].config.player_id
+        await self.announce(0, make_base(), seq=21)
+        await wait_until(lambda: self.book().state(a)["published"], timeout=4)
+        await wait_until(lambda: companion._extras_base_ack == 21 and companion._extras_acked_epoch == companion.session_epoch)
+        epoch = companion.session_epoch
+        self.book().publish(a, None)                           # the host forgot it (as after losing its file)
+        companion._remote_writer.close()                       # the link drops; the companion reconnects by itself
+        await wait_until(lambda: companion.connected and companion.session_epoch != epoch, timeout=8)
+        await wait_until(lambda: self.book().state(a)["published"], timeout=8)
+        self.assertEqual(companion._extras_acked_epoch, companion.session_epoch)
+
     async def test_extras_records_before_the_capability_disconnect_the_bridge(self):
         await self.bridges[0].send(b"x" + struct.pack("<IB3x", 1, 0) + bytes(160))
         with self.assertRaises(ConnectionError):
