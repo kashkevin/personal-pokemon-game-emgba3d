@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import IntEnum
+from functools import lru_cache
 import struct
 from uuid import UUID
 import zlib
@@ -84,20 +85,43 @@ def _integer(value, low, high, name):
         raise BattleMailboxError(f"{name} is outside its integer bounds")
 
 
+_ENUM_VALUES = {}
+
+
 def _enum(value, enum, name):
-    if isinstance(value, bool) or not isinstance(value, int) or value not in tuple(enum):
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise BattleMailboxError(f"unsupported {name}")
+    values = _ENUM_VALUES.get(enum)
+    if values is None:  # Same membership as tuple(enum), without rebuilding it for every field.
+        values = _ENUM_VALUES[enum] = frozenset(int(member) for member in enum)
+    if value not in values:
         raise BattleMailboxError(f"unsupported {name}")
 
 
-def _uuid(value, name):
+@lru_cache(maxsize=4096)
+def _packed_uuid(value):
+    """The 16 bytes of one nonzero canonical UUID string, else None. A battle repeats one ID
+    on every control it carries, so the answer is cached (a long route journal has ~10^5)."""
     try:
-        valid = (type(value) is str and len(value) == 36 and str(UUID(value)) == value
-                 and UUID(value).int != 0)
+        parsed = UUID(value)
+        if len(value) == 36 and str(parsed) == value and parsed.int != 0:
+            return parsed.bytes
     except (ValueError, TypeError, AttributeError):
-        valid = False
-    if not valid:
+        pass
+    return None
+
+
+@lru_cache(maxsize=4096)
+def uuid_text(raw):
+    """Canonical text of 16 UUID bytes (cached like :func:`_packed_uuid`)."""
+    return str(UUID(bytes=raw))
+
+
+def _uuid(value, name):
+    packed = _packed_uuid(value) if type(value) is str else None
+    if packed is None:
         raise BattleMailboxError(f"{name} must be a nonzero canonical UUID")
-    return UUID(value).bytes
+    return packed
 
 
 @dataclass(frozen=True)

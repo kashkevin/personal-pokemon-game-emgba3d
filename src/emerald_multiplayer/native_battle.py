@@ -14,7 +14,7 @@ import zlib
 
 from .battle_mailbox import (
     BattleBinding, BattleMailboxError, Status, _CONTROL, _QUERY,
-    _enum, _integer, _uuid,
+    _enum, _integer, _uuid, uuid_text,
 )
 from .protocol import MAX_COUNTER
 
@@ -231,17 +231,17 @@ class NativeQuery:
             if (flags != 1025 or reserved or count != expected_count or local >= count
                     or not any(generation) or any(words[1:])):
                 raise BattleMailboxError("admission cleanup query contains unrelated native state")
-            return cls(flags, str(UUID(bytes=generation)), count, local, mode, *words)
+            return cls(flags, uuid_text(generation), count, local, mode, *words)
         if flags & (256 | 512):
             if (flags not in (257, 513) or reserved or count != expected_count or local >= count
                     or not any(generation) or not seq or any(words[1:])):
                 raise BattleMailboxError("terminal field handoff query contains unrelated native state")
-            return cls(flags, str(UUID(bytes=generation)), count, local, mode, *words)
+            return cls(flags, uuid_text(generation), count, local, mode, *words)
         if flags & 128:
             if (flags != 129 or reserved or count != expected_count or local >= count
                     or not any(generation) or seq == 0xFFFFFFFF or any(words[1:])):
                 raise BattleMailboxError("provisional admission query contains unrelated native state")
-            return cls(flags, str(UUID(bytes=generation)), count, local, mode, *words)
+            return cls(flags, uuid_text(generation), count, local, mode, *words)
         if (reserved or flags & ~127 or count != expected_count or local >= count
                 or not any(generation) or not seq or received & ~((1 << count)-1) or remaining > 600
                 or revision > MAX_COUNTER or outcome not in (0, 1, 2, 3)
@@ -259,7 +259,7 @@ class NativeQuery:
                 raise BattleMailboxError("native query outbound cursor is inconsistent")
         elif out_seq or kind or crc or cursor or flags & 4:
             raise BattleMailboxError("empty native outbound descriptor is inconsistent")
-        return cls(flags, str(UUID(bytes=generation)), count, local, mode, *words)
+        return cls(flags, uuid_text(generation), count, local, mode, *words)
 
 
 @dataclass(frozen=True)
@@ -294,7 +294,7 @@ class NativeControl:
             raise BattleMailboxError("native control payload exceeds its byte bound")
 
     def pack(self):
-        return _CONTROL.pack(self.incarnation, self.session_epoch, UUID(self.battle_id).bytes,
+        return _CONTROL.pack(self.incarnation, self.session_epoch, _uuid(self.battle_id, "battle ID"),
             self.sequence, self.block_sequence, self.offset, self.total_size,
             self.opcode, self.status, self.phase, self.source_slot, self.kind, 0,
             len(self.data), zlib.crc32(self.data), self.data + bytes(192-len(self.data)))
@@ -306,7 +306,7 @@ class NativeControl:
         inc, lease, battle, seq, block, offset, size, op, status, phase, source, kind, reserved, length, crc, payload = _CONTROL.unpack(data)
         if reserved or length > 192 or any(payload[length:]) or zlib.crc32(payload[:length]) != crc:
             raise BattleMailboxError("native control reserved field, tail, length or CRC is invalid")
-        return cls(inc, lease, str(UUID(bytes=battle)), seq, op, block, offset,
+        return cls(inc, lease, uuid_text(battle), seq, op, block, offset,
                    size, phase, source, kind, status, payload[:length])
 
     def _validate_block(self):

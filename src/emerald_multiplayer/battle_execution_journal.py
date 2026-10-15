@@ -76,9 +76,13 @@ class RouteJournal:
 
     @staticmethod
     def _record(sequence, previous, value):
-        body = _json_bytes(dict(sequence=sequence, previous=previous, value=value))
-        digest = hashlib.sha256(body).hexdigest()
-        raw = _json_bytes(dict(sequence=sequence, previous=previous, value=value, sha256=digest))
+        # Byte-identical to encoding dict(sequence, previous, value[, sha256]) with the canonical
+        # sorted-key encoder (keys sort as previous < sequence < sha256 < value), but the large
+        # value is encoded once instead of twice: loading a long journal does this per event.
+        previous_json, value_json = _json_bytes(previous)[:-1], _json_bytes(value)[:-1]
+        prefix = b'{"previous":' + previous_json + b',"sequence":' + str(sequence).encode()
+        digest = hashlib.sha256(prefix + b',"value":' + value_json + b"}\n").hexdigest()
+        raw = prefix + b',"sha256":"' + digest.encode() + b'","value":' + value_json + b"}\n"
         if len(raw) > MAX_LINE:
             raise BattleJournalError("battle_journal_limit", "native route event exceeds its byte bound")
         return raw, digest
