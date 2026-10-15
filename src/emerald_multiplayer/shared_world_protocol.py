@@ -205,13 +205,15 @@ def validate_world_request(message: Any, session_epoch: int) -> dict:
             raise ProtocolError("invalid_field", "secret base must be 320 lower-case hex digits")
     elif kind == "frontier":
         base = {"type", "session_epoch", "request_id", "op"}
-        if set(message) not in (base, base | {"incarnation", "runtime_id"}):
+        if set(message) not in (base, base | {"incarnation", "runtime_id"}, base | {"mode"}):
             raise ProtocolError("invalid_fields", "Frontier request has unexpected fields")
         if message["op"] not in FRONTIER_OPS:
             raise ProtocolError("invalid_field", "unsupported Frontier operation")
         if "incarnation" in message:
             _int(message["incarnation"], "native incarnation", 1, 0xFFFFFFFF)
             _uuid(message["runtime_id"], "native runtime")
+        if "mode" in message and (message["op"] != "propose" or message["mode"] not in ("frontier", "league")):
+            raise ProtocolError("invalid_field", "unsupported Frontier mode")
     elif kind == "base_visibility":
         if set(message) != {"type", "session_epoch", "request_id", "mode"}:
             raise ProtocolError("invalid_fields", "secret base visibility has unexpected fields")

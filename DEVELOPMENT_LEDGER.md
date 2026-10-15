@@ -489,3 +489,14 @@ Audit of the engine (`docs/free-for-all-feasibility.md`): `NUM_BATTLE_SIDES = 2`
 `B_OUTCOME_*`; two-column controllers/UI/3D stage; the native protocol, canonical rosters, journal and replay describe 1v1, 2v2 or
 co-op only. Four independent trainers in one battle need four sides throughout: an architecture project (needs Opus-level design
 and real multi-PC testing). Per the brief, no unstable approximation and no fake of four 1v1 matches was built; work continued.
+
+## Update 10 — Cooperative Pokémon League
+
+`docs/pokemon-league.md`. Built on the Frontier ladder machinery with `mode='league'`: three co-op rounds (Sidney & Phoebe, Glacia &
+Drake, Wallace & Steven) at the trainers' own levels (battle code level 0; engine `--selftest-ladder` now **20/20**, adds level 0
+and the host's reading of the save layout: flags 0x1270, badges 0x867-0x86E), 8 badges for both players, per-player durable
+records (`league_records`), prizes with a first-clear bonus once per player, experience only while someone is a first-timer, Hall
+of Fame (`hall_of_fame`, entered once, recovered after a crash), world-file upgrade for runs from before the League, menu pages
+(Frontier and League hub, League, Hall of Fame). Evidence: `test_frontier.py` **43** (League book 6, badges 1, service 3 incl. three real
+desk battles to a clear, menu 2). Not touched: the story, the Elite Four rooms, anyone's save flags. Endgame audit: no further
+specification exists; nothing invented.

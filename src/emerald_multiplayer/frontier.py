@@ -1,4 +1,6 @@
-"""The cooperative Battle Frontier (expansion Phase 8): a survival ladder for a team of two.
+"""The cooperative Battle Frontier (expansion Phase 8) and Pokemon League (Phase 10): ladders for a team of two.
+
+The League is the same machinery with a fixed ladder: the Elite Four and the Champion as three co-op rounds (see LEAGUE).
 
 A team of two (host-formed) takes on rounds of real native co-op battles against pairs of in-game trainers (the engine's
 co-op battle, `multiplayer_ladder.c`): the same battle, synchronisation and recovery as a co-op Gym. The host owns everything
@@ -66,7 +68,7 @@ class Plan:
 
     @property
     def label(self) -> str:
-        return " & ".join(TRAINER_NAMES[t] for t in self.trainers)
+        return " & ".join(TRAINER_NAMES.get(t, "Trainer") for t in self.trainers)
 
 
 def set_of(round_no: int) -> int:
@@ -98,6 +100,19 @@ def plan(seed: int, round_no: int, base_level: int, *, exp: bool = False) -> Pla
     return Plan(round_no, coop_code.encode(a, b, level, exp), level, (a, b), round_no % SET_LENGTH == 0)
 
 
+def league_plan(round_no: int, *, exp: bool = False) -> Plan:
+    """A League round: the Elite Four or the Champion at their own levels (battle-code level 0)."""
+    if type(round_no) is not int or not 1 <= round_no <= len(LEAGUE):
+        raise FrontierError("invalid_round", "the League has three rounds")
+    a, b, _ = LEAGUE[round_no - 1]
+    return Plan(round_no, coop_code.encode(a, b, 0, exp), 0, (a, b), round_no == len(LEAGUE))
+
+
+def league_prize(round_no: int, *, first_time: bool) -> int:
+    amount = LEAGUE_PRIZES[round_no - 1]
+    return amount if first_time else max(1, amount // REPEAT_PRIZE_DIVISOR)
+
+
 def prize_for(level: int, round_no: int, *, first_time: bool) -> int:
     """Money for clearing a round: scales with the level and the set, tripled for a Brain, a tenth when repeated."""
     amount = level * 25 * (2 + set_of(round_no)) // 2
@@ -108,11 +123,28 @@ def prize_for(level: int, round_no: int, *, first_time: bool) -> int:
     return max(1, min(MAX_PRIZE, amount))
 
 
+# The Pokemon League as co-op rounds (Elite Four, then the Champion): each entry is (first trainer, second trainer, name).
+# The trainers keep their own levels (level 0 in the battle code); each brings three Pokemon, like Emerald's Multi battles.
+LEAGUE = (
+    (261, 262, "Elite 4 Sidney & Phoebe"),
+    (263, 264, "Elite 4 Glacia & Drake"),
+    (335, 804, "Champion Wallace & Steven"),
+)
+LEAGUE_PRIZES = (4000, 6000, 12000)       # money to each player per round
+LEAGUE_FIRST_CLEAR_BONUS = 20000          # to each player the first time they clear the League
+MODES = ("frontier", "league")
+
 SCHEMA = (
     """CREATE TABLE IF NOT EXISTS frontier_runs (
         run_id TEXT PRIMARY KEY, players TEXT NOT NULL, state TEXT NOT NULL, consent TEXT NOT NULL,
         round INTEGER NOT NULL, streak INTEGER NOT NULL, seed INTEGER NOT NULL, created REAL NOT NULL,
-        updated REAL NOT NULL, ended_reason TEXT)""",
+        updated REAL NOT NULL, ended_reason TEXT, mode TEXT NOT NULL DEFAULT 'frontier')""",
+    """CREATE TABLE IF NOT EXISTS league_records (
+        player_id TEXT PRIMARY KEY, clears INTEGER NOT NULL, best_round INTEGER NOT NULL, first_clear REAL,
+        last_clear REAL)""",
+    """CREATE TABLE IF NOT EXISTS hall_of_fame (
+        entry_id INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT NOT NULL UNIQUE, players TEXT NOT NULL,
+        names TEXT NOT NULL, party TEXT NOT NULL, cleared REAL NOT NULL)""",
     """CREATE TABLE IF NOT EXISTS frontier_attempts (
         battle_id TEXT PRIMARY KEY, run_id TEXT NOT NULL, round INTEGER NOT NULL, code INTEGER NOT NULL,
         level INTEGER NOT NULL, state TEXT NOT NULL, prizes TEXT, paid INTEGER NOT NULL DEFAULT 0, created REAL NOT NULL)""",
@@ -130,14 +162,19 @@ class FrontierBook:
 
     def __init__(self, db, transaction, clock: Callable[[], float] = time.time):
         self._db, self._transaction, self._now = db, transaction, clock
+        columns = {row[1] for row in self._db.execute("PRAGMA table_info(frontier_runs)")}
+        if "mode" not in columns:   # a world file from before the League
+            with self._transaction():
+                self._db.execute("ALTER TABLE frontier_runs ADD COLUMN mode TEXT NOT NULL DEFAULT 'frontier'")
 
     # ------------------------------------------------------------------ reads
     @staticmethod
     def _run(row) -> dict:
         return {"run_id": row[0], "players": json.loads(row[1]), "state": row[2], "consent": json.loads(row[3]),
-                "round": row[4], "streak": row[5], "seed": row[6], "ended_reason": row[9]}
+                "round": row[4], "streak": row[5], "seed": row[6], "ended_reason": row[9], "mode": row[10]}
 
-    _RUN = "SELECT run_id, players, state, consent, round, streak, seed, created, updated, ended_reason FROM frontier_runs"
+    _RUN = ("SELECT run_id, players, state, consent, round, streak, seed, created, updated, ended_reason, mode "
+            "FROM frontier_runs")
 
     def run(self, run_id: str) -> dict | None:
         row = self._db.execute(self._RUN + " WHERE run_id=?", (run_id,)).fetchone()
@@ -185,6 +222,34 @@ class FrontierBook:
         return {"best_streak": row[0], "runs": row[1], "rounds": row[2], "earned": row[3]} if row else \
             {"best_streak": 0, "runs": 0, "rounds": 0, "earned": 0}
 
+    def league_record(self, player: str) -> dict:
+        row = self._db.execute("SELECT clears, best_round, first_clear, last_clear FROM league_records WHERE player_id=?",
+                               (player,)).fetchone()
+        return {"clears": row[0], "best_round": row[1], "first_clear": row[2], "last_clear": row[3]} if row else \
+            {"clears": 0, "best_round": 0, "first_clear": None, "last_clear": None}
+
+    def hall_of_fame(self, limit: int = 5) -> list[dict]:
+        rows = self._db.execute("SELECT entry_id, run_id, players, names, party, cleared FROM hall_of_fame "
+                                "ORDER BY entry_id DESC LIMIT ?", (limit,)).fetchall()
+        return [{"entry": r[0], "run_id": r[1], "players": json.loads(r[2]), "names": json.loads(r[3]),
+                 "party": json.loads(r[4]), "cleared": r[5]} for r in rows]
+
+    def cleared_without_hall(self) -> list[dict]:
+        rows = self._db.execute(self._RUN + " WHERE mode='league' AND ended_reason='cleared' AND run_id NOT IN "
+                                "(SELECT run_id FROM hall_of_fame)").fetchall()
+        return [self._run(row) for row in rows]
+
+    def add_hall_of_fame(self, run_id: str, names: list[str], party: list) -> bool:
+        """Enter a cleared League run once (a repeated call changes nothing). `party`: the team's species and levels."""
+        run = self.run(run_id)
+        if run is None or run["mode"] != "league" or run["ended_reason"] != "cleared":
+            raise FrontierError("not_cleared", "only a cleared League run enters the Hall of Fame")
+        with self._transaction():
+            cursor = self._db.execute("INSERT OR IGNORE INTO hall_of_fame (run_id, players, names, party, cleared) "
+                                      "VALUES (?, ?, ?, ?, ?)",
+                                      (run_id, json.dumps(run["players"]), json.dumps(names), json.dumps(party), self._now()))
+        return cursor.rowcount == 1
+
     def _bump(self, player: str, *, best: int = 0, runs: int = 0, rounds: int = 0, earned: int = 0) -> None:
         current = self.record(player)
         self._db.execute("""INSERT INTO frontier_records VALUES (?, ?, ?, ?, ?) ON CONFLICT(player_id) DO UPDATE SET
@@ -206,12 +271,14 @@ class FrontierBook:
         return None if row is None else row[0]
 
     # ------------------------------------------------------------------ runs
-    def propose(self, run_id: str, proposer: str, partner: str, seed: int) -> dict:
+    def propose(self, run_id: str, proposer: str, partner: str, seed: int, mode: str = "frontier") -> dict:
+        if mode not in MODES:
+            raise FrontierError("invalid_mode", "unknown ladder")
         if proposer == partner:
             raise FrontierError("no_teammate", "the Frontier is for a team of two")
         existing = self.run(run_id)
         if existing is not None:
-            if existing["players"] != [proposer, partner]:
+            if existing["players"] != [proposer, partner] or existing["mode"] != mode:
                 raise FrontierError("run_conflict", "that run belongs to another team")
             return existing
         for player in (proposer, partner):
@@ -220,8 +287,8 @@ class FrontierBook:
                 raise FrontierError("run_busy", "finish or retire the current Frontier run first")
         now = self._now()
         with self._transaction():
-            self._db.execute("INSERT INTO frontier_runs VALUES (?, ?, 'forming', ?, 1, 0, ?, ?, ?, NULL)",
-                             (run_id, json.dumps([proposer, partner]), json.dumps([proposer]), seed, now, now))
+            self._db.execute("INSERT INTO frontier_runs VALUES (?, ?, 'forming', ?, 1, 0, ?, ?, ?, NULL, ?)",
+                             (run_id, json.dumps([proposer, partner]), json.dumps([proposer]), seed, now, now, mode))
         return self.run(run_id)
 
     def accept(self, run_id: str, player: str) -> dict:
@@ -287,17 +354,34 @@ class FrontierBook:
         if attempt is None or attempt["state"] != "issued":
             return None
         run = self.run(attempt["run_id"])
+        league = run["mode"] == "league"
+        final = league and attempt["round"] >= len(LEAGUE)
         with self._transaction():
             if outcome == 1:
                 prizes = {}
                 for player in run["players"]:
-                    first = attempt["round"] > self.record(player)["best_streak"]
-                    prizes[player] = prize_for(attempt["level"], attempt["round"], first_time=first)
-                    self._bump(player, best=attempt["round"], rounds=1)
+                    if league:
+                        first = attempt["round"] > self.league_record(player)["best_round"]
+                        amount = league_prize(attempt["round"], first_time=first)
+                        if final and self.league_record(player)["clears"] == 0:
+                            amount += LEAGUE_FIRST_CLEAR_BONUS
+                        prizes[player] = min(MAX_PRIZE, amount)
+                    else:
+                        first = attempt["round"] > self.record(player)["best_streak"]
+                        prizes[player] = prize_for(attempt["level"], attempt["round"], first_time=first)
+                    if league:
+                        self._league_progress(player, attempt["round"], cleared=final)
+                    else:
+                        self._bump(player, best=attempt["round"], rounds=1)
                 self._db.execute("UPDATE frontier_attempts SET state='won', prizes=? WHERE battle_id=?",
                                  (json.dumps(prizes), battle_id))
                 self._db.execute("UPDATE frontier_runs SET streak=?, round=?, updated=? WHERE run_id=?",
                                  (attempt["round"], attempt["round"] + 1, self._now(), run["run_id"]))
+                if final:
+                    self._db.execute("UPDATE frontier_runs SET state='ended', ended_reason='cleared' WHERE run_id=?",
+                                     (run["run_id"],))
+                    for player in run["players"]:
+                        self._bump(player, runs=1)
             else:
                 self._db.execute("UPDATE frontier_attempts SET state='lost' WHERE battle_id=?", (battle_id,))
                 self._db.execute("UPDATE frontier_runs SET state='ended', ended_reason=?, updated=? WHERE run_id=?",
@@ -305,6 +389,15 @@ class FrontierBook:
                 for player in run["players"]:
                     self._bump(player, runs=1)
         return self.attempt(battle_id)
+
+    def _league_progress(self, player: str, round_no: int, *, cleared: bool) -> None:
+        current, now = self.league_record(player), self._now()
+        self._db.execute("""INSERT INTO league_records VALUES (?, ?, ?, ?, ?) ON CONFLICT(player_id) DO UPDATE SET
+            clears=excluded.clears, best_round=excluded.best_round, first_clear=excluded.first_clear,
+            last_clear=excluded.last_clear""",
+                         (player, current["clears"] + (1 if cleared else 0), max(current["best_round"], round_no),
+                          current["first_clear"] if current["first_clear"] is not None or not cleared else now,
+                          now if cleared else current["last_clear"]))
 
     def mark_paid(self, battle_id: str) -> None:
         attempt = self.attempt(battle_id)

@@ -165,7 +165,7 @@ class PlayerMenu:
                 raise PlayerMenuError("session_changed")
         world_nav = getattr(self.companion, "world_nav", None)
         self._nav = world_nav() if callable(world_nav) else None
-        if self._page[0] == "frontier":
+        if self._page[0] in ("frontier", "league", "hall"):
             frontier_rpc = getattr(self.companion, "frontier_rpc", None)
             self._frontier = None
             if callable(frontier_rpc) and getattr(self.companion.config, "world_enabled", False):
@@ -412,7 +412,7 @@ class PlayerMenu:
                     else:
                         actions.append(("You accepted this wager", "", ()))
             actions.append(("Back to challenge", "battles", ()))
-        elif page in ("world", "world_players", "world_player", "world_outbreak", "world_event", "base", "frontier"):
+        elif page in ("world", "world_players", "world_player", "world_outbreak", "world_event", "base", "frontier", "league", "hall", "coop"):
             return self._show(*self._render_world(page, target))
         elif page == "championship":
             return self._show(*self._championship.render())
@@ -615,44 +615,70 @@ class PlayerMenu:
         names = [TRAINER_NAMES.get(t, "Trainer") for t in (ladder.trainer_a, ladder.trainer_b)]
         return f"Co-op: {names[0]} & {names[1]}"
 
-    def _render_frontier(self):
-        """The cooperative Battle Frontier: team survival rounds against pairs of trainers (frontier.py)."""
+    def _render_ladder(self, page):
+        """The cooperative Battle Frontier (frontier.py) and the Pokemon League: team rounds against pairs of trainers."""
         view, actor, actions = self._frontier, self.companion.config.player_id, []
-        title = "Battle Frontier"
+        league = page in ("league", "hall")
+        title = "Pokemon League" if league else "Battle Frontier"
         if view is None:
-            return title, self._notice or "The host has no Frontier", [("Back", "world", ())]
-        run, record = view["run"], view["record"]
-        limit = view["party_limit"]
+            return title, self._notice or "The host has no " + ("League" if league else "Frontier"), [("Back", "coop", ())]
+        mode = "league" if league else "frontier"
+        run, record, hall = view["run"], view["record"], view.get("league", {})
+        if page == "hall":
+            title = "Hall of Fame"
+            entries = hall.get("hall") or []
+            for entry in entries:
+                actions.append((f"#{entry['entry']} " + " & ".join(entry["names"]), "", ()))
+            if not entries:
+                actions.append(("Nobody has cleared it yet", "", ()))
+            actions.append(("Back to the League", "league", ()))
+            return title, self._notice or "Teams that cleared it", actions
+        if run is not None and run["state"] != "ended" and run["mode"] != mode:
+            other = "League" if run["mode"] == "league" else "Frontier"
+            return title, self._notice or f"A {other} run is active", [(f"Open the {other}", run["mode"], ()),
+                                                                          ("Back", "coop", ())]
+        if run is not None and run["mode"] != mode:
+            run = None
         if run is None or run["state"] == "ended":
-            status = self._notice or f"Bring up to {limit} Pokemon and save"
+            if league:
+                status = self._notice or "All 8 badges, 1-%d Pokemon" % view["party_limit"]
+            else:
+                status = self._notice or f"Bring up to {view['party_limit']} Pokemon and save"
             if run is not None:
-                reason = {"defeated": "Beaten", "draw": "Draw", "retired": "Retired", "declined": "Declined"}.get(
-                    run["ended_reason"], "Over")
-                actions.append((f"Last: {reason}, streak {run['streak']}", "", ()))
-            actions.append(("Start a Frontier run", "frontier_propose", ()))
+                reason = {"defeated": "Beaten", "draw": "Draw", "retired": "Retired", "declined": "Declined",
+                          "cleared": "CLEARED"}.get(run["ended_reason"], "Over")
+                actions.append((f"Last: {reason}, round {run['streak']}" if league else
+                                f"Last: {reason}, streak {run['streak']}", "", ()))
+            actions.append(("Challenge the League" if league else "Start a Frontier run", "ladder_propose", (mode,)))
         else:
             others = [n for p, n in zip(run["players"], run["names"]) if p != actor]
             partner = others[0] if others else "teammate"
             if run["state"] == "forming":
                 if actor in run["consent"]:
                     status = self._notice or "Waiting for " + partner
-                    actions.append(("Cancel the invitation", "frontier_cancel", ()))
+                    actions.append(("Cancel the invitation", "ladder_cancel", ()))
                 else:
                     status = self._notice or partner + " invites you"
-                    actions.extend((("Join the Frontier run", "frontier_accept", ()), ("Decline", "frontier_cancel", ())))
+                    actions.extend((("Join the " + ("League run" if league else "Frontier run"), "ladder_accept", ()),
+                                    ("Decline", "ladder_cancel", ())))
             else:
-                status = self._notice or f"Round {run['round']}  streak {run['streak']}"
+                status = self._notice or (f"Round {run['round']} of {hall.get('rounds', 3)}" if league
+                                          else f"Round {run['round']}  streak {run['streak']}")
                 nxt = run["next"]
                 if nxt is not None:
-                    actions.append((("Brain: " if nxt["brain"] else "vs ") + nxt["label"], "", ()))
-                    actions.append((f"Lv{nxt['level']}  prize ${nxt['prize']:,}", "", ()))
+                    actions.append((nxt["label"] if league else ("Brain: " if nxt["brain"] else "vs ") + nxt["label"], "", ()))
+                    actions.append((f"Prize ${nxt['prize']:,}, own levels" if league
+                                    else f"Lv{nxt['level']}  prize ${nxt['prize']:,}", "", ()))
                 if run["battle_id"] is not None:
                     actions.append(("Battle: open Challenges", "battles", ()))
                 else:
-                    actions.append((f"Start round {run['round']}", "frontier_battle", ()))
-                    actions.append(("Retire (keep streak)", "frontier_retire", ()))
-        actions.append((f"Best {record['best_streak']}  runs {record['runs']}", "", ()))
-        actions.append(("Back to World", "world", ()))
+                    actions.append((f"Start round {run['round']}", "ladder_battle", ()))
+                    actions.append(("Retire" + ("" if league else " (keep streak)"), "ladder_retire", ()))
+        if league:
+            actions.append((f"Cleared {hall.get('clears', 0)}x", "hall", ()))
+        else:
+            actions.append((f"Best {record['best_streak']}  runs {record['runs']}", "", ()))
+        actions.append(("Back", "coop", ()))
         return title, status, actions
 
     def _render_world(self, page, target):
@@ -671,7 +697,7 @@ class PlayerMenu:
             actions.append((("Event: " + event["name"]) if event else "World Event: none",
                             "world_event" if event else "", ()))
             actions.append(("My Secret Base", "base", ()))
-            actions.append(("Battle Frontier", "frontier", ()))
+            actions.append(("Frontier and League", "coop", ()))
             if nav.get("rule"):
                 actions.append(("Rule: " + nav["rule"], "", ()))
         elif page == "world_players":
@@ -699,8 +725,11 @@ class PlayerMenu:
                     actions.extend((line, "", ()) for line in wrap(entry["waiting"], 25)[:2])
                 actions.extend((line, "", ()) for line in wrap("Near " + entry["place"], 25)[:2])
             actions.append(("Back to World", "world", ()))
-        elif page == "frontier":
-            title, status, actions = self._render_frontier()
+        elif page == "coop":
+            title, status = "Frontier and League", self._notice or "Fight together as a team"
+            actions = [("Battle Frontier", "frontier", ()), ("Pokemon League", "league", ()), ("Back to World", "world", ())]
+        elif page in ("frontier", "league", "hall"):
+            title, status, actions = self._render_ladder(page)
         else:
             title = "My Secret Base"
             base = self._base
@@ -769,14 +798,16 @@ class PlayerMenu:
                 else:
                     self._card_binding = None
                 self._page = ("hunts", 0) if op == "hunts_refresh" else ("hunt_filters", None)
-            elif op in ("frontier_propose", "frontier_accept", "frontier_cancel", "frontier_retire", "frontier_battle"):
+            elif op in ("ladder_propose", "ladder_accept", "ladder_cancel", "ladder_retire", "ladder_battle"):
                 from .protocol import ProtocolError
                 try:
-                    self._frontier = await self.companion.frontier_rpc(op.removeprefix("frontier_"))
-                    self._page = ("battles", None) if op == "frontier_battle" else ("frontier", None)
+                    if op == "ladder_propose":
+                        self._frontier = await self.companion.frontier_rpc("propose", args[0])
+                    else:
+                        self._frontier = await self.companion.frontier_rpc(op.removeprefix("ladder_"))
+                    self._page = ("battles", None) if op == "ladder_battle" else self._page
                 except ProtocolError as error:
                     self._notice = error.message[:31]
-                    self._page = ("frontier", None)
             elif op == "base_cycle":
                 choices = ("everyone", "team", "nobody")
                 try:
@@ -785,7 +816,7 @@ class PlayerMenu:
                     self._notice = "Could not change it"
                 self._page = ("base", None)
             elif op in ("home", "world", "world_players", "world_player", "world_outbreak", "world_event", "base", "frontier",
-                        "team", "battles", "player", "results", "result", "result_filters", "trade", "card", "card_battles", "card_championships", "card_shared", "card_progress", "hunts", "hunt", "hunt_filters", "hunt_totals"):
+                        "league", "hall", "coop", "team", "battles", "player", "results", "result", "result_filters", "trade", "card", "card_battles", "card_championships", "card_shared", "card_progress", "hunts", "hunt", "hunt_filters", "hunt_totals"):
                 if op == "results" and self._page[0] not in {"results", "result", "result_filters"}:
                     self._results_binding = None
                 self._page = (op, args[0] if args else None)

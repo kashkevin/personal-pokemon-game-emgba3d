@@ -4,7 +4,7 @@ A co-op Gym battle is code 1..8. A *ladder* battle (Battle Frontier, Pokemon Lea
 two trainers at a chosen level:
 
   bit 31 ladder   bit 30 experience is awarded   bits 20-29 first trainer   bits 10-19 second trainer
-  bits 7-9 zero   bits 0-6 opposing level 1..100
+  bits 7-9 zero   bits 0-6 opposing level 1..100, or 0: the trainers keep their own levels (the Pokemon League)
 """
 from __future__ import annotations
 
@@ -39,7 +39,7 @@ def decode(code: int) -> Ladder | None:
     if code & 0x380:
         return None
     a, b, level = (code >> 20) & 0x3FF, (code >> 10) & 0x3FF, code & 0x7F
-    if not (1 <= a < TRAINER_COUNT and 1 <= b < TRAINER_COUNT and a != b and 1 <= level <= MAX_LEVEL):
+    if not (1 <= a < TRAINER_COUNT and 1 <= b < TRAINER_COUNT and a != b and 0 <= level <= MAX_LEVEL):
         return None
     return Ladder(a, b, level, bool(code & EXP_FLAG))
 

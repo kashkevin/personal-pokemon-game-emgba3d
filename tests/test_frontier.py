@@ -11,8 +11,9 @@ from uuid import uuid4
 
 from emerald_multiplayer import coop_code
 from emerald_multiplayer.frontier import (
+    LEAGUE, LEAGUE_FIRST_CLEAR_BONUS, LEAGUE_PRIZES, league_plan, league_prize,
     BRAINS, FrontierBook, FrontierError, POOLS, SET_LENGTH, TRAINER_NAMES, level_for, plan, prize_for, set_of)
-from emerald_multiplayer.frontier_service import FrontierService
+from emerald_multiplayer.frontier_service import FrontierService, count_badges, BADGE_FLAGS, FLAGS_OFFSET
 from emerald_multiplayer.shared_world import SharedWorld, SharedWorldError
 from emerald_multiplayer.wagers import Wagers
 import test_battle_desk as fixtures
@@ -26,9 +27,10 @@ class PureRuleTests(unittest.TestCase):
         self.assertEqual(coop_code.decode(code), coop_code.Ladder(261, 262, 57, True))
         self.assertTrue(coop_code.valid_code(code) and coop_code.valid_code(1) and coop_code.valid_code(8))
         for bad in (0, 9, -1, 5.0, True, coop_code.LADDER_FLAG, 0x7FFFFFFF, code | 0x80, code | 0x100,
-                    coop_code.encode(261, 262, 57) & ~0x7F, 1 << 32):
+                    1 << 32):
             self.assertFalse(coop_code.valid_code(bad), bad)
-        for args in ((0, 262, 50), (261, 261, 50), (261, 863, 50), (261, 262, 0), (261, 262, 101)):
+        self.assertEqual(coop_code.decode(coop_code.encode(261, 262, 0)).level, 0)          # 0: the trainers' own levels
+        for args in ((0, 262, 50), (261, 261, 50), (261, 863, 50), (261, 262, 101), (261, 262, -1)):
             with self.assertRaises(ValueError):
                 coop_code.encode(*args)
 
@@ -195,6 +197,129 @@ class BookTests(unittest.TestCase):
         self.assertEqual(book.unpaid(), [])
 
 
+class LeagueBookTests(unittest.TestCase):
+    """The Pokemon League on the same book: three co-op rounds, individual progress, a Hall of Fame."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.path = Path(self.temp.name) / "w.sqlite3"
+        self.world = SharedWorld(self.path, WORLD)
+        self.addCleanup(lambda: self.world.close())
+        self.book = self.world.frontier
+
+    def run_league(self, run_id, a, b, outcomes, prefix=None):
+        prefix = prefix or run_id
+        self.book.propose(run_id, a, b, 1, "league")
+        self.book.accept(run_id, b)
+        settled = []
+        for i, outcome in enumerate(outcomes, 1):
+            run = self.book.run(run_id)
+            self.book.issue(run_id, f"{prefix}-{i}", league_plan(run["round"]))
+            settled.append(self.book.settle(f"{prefix}-{i}", outcome))
+        return settled
+
+    def test_the_ladder_is_the_elite_four_then_the_champion_at_their_own_levels(self):
+        self.assertEqual([r[:2] for r in LEAGUE], [(261, 262), (263, 264), (335, 804)])
+        for i in (1, 2, 3):
+            code = coop_code.decode(league_plan(i).code)
+            self.assertEqual((code.trainer_a, code.trainer_b, code.level), LEAGUE[i - 1][:2] + (0,))
+        self.assertTrue(league_plan(3).brain and not league_plan(1).brain)
+        with self.assertRaises(FrontierError):
+            league_plan(4)
+        self.assertTrue(all(len(name) <= 25 for _, _, name in LEAGUE))
+
+    def test_clearing_it_pays_each_round_and_a_first_clear_bonus_once_per_player(self):
+        settled = self.run_league("L1", "pa", "pb", [1, 1, 1])
+        self.assertEqual([s["prizes"]["pa"] for s in settled], [LEAGUE_PRIZES[0], LEAGUE_PRIZES[1],
+                                                                 LEAGUE_PRIZES[2] + LEAGUE_FIRST_CLEAR_BONUS])
+        run = self.book.run("L1")
+        self.assertEqual((run["state"], run["ended_reason"], run["streak"]), ("ended", "cleared", 3))
+        for player in ("pa", "pb"):
+            record = self.book.league_record(player)
+            self.assertEqual((record["clears"], record["best_round"]), (1, 3))
+            self.assertIsNotNone(record["first_clear"])
+            self.assertEqual(self.book.record(player)["runs"], 1)
+        # A second clear by the same pair pays a tenth and no bonus.
+        again = self.run_league("L2", "pa", "pb", [1, 1, 1])
+        self.assertEqual([s["prizes"]["pa"] for s in again], [league_prize(r, first_time=False) for r in (1, 2, 3)])
+        self.assertEqual(self.book.league_record("pa")["clears"], 2)
+
+    def test_progress_is_individual_a_newcomer_still_earns_their_own_first_time_prizes(self):
+        self.run_league("L1", "pa", "pb", [1, 1, 1])
+        mixed = self.run_league("L2", "pa", "pc", [1, 1, 1])          # pa is a veteran helping pc
+        self.assertEqual(mixed[0]["prizes"]["pa"], league_prize(1, first_time=False))
+        self.assertEqual(mixed[0]["prizes"]["pc"], league_prize(1, first_time=True))
+        self.assertEqual(mixed[2]["prizes"]["pc"], LEAGUE_PRIZES[2] + LEAGUE_FIRST_CLEAR_BONUS)
+        self.assertEqual(mixed[2]["prizes"]["pa"], league_prize(3, first_time=False))
+        self.assertEqual([self.book.league_record(p)["clears"] for p in ("pa", "pb", "pc")], [2, 1, 1])
+
+    def test_a_defeat_ends_the_run_and_keeps_the_rounds_beaten_and_the_next_try_starts_over(self):
+        lost = self.run_league("L1", "pa", "pb", [1, 2])
+        self.assertEqual(lost[1]["state"], "lost")
+        run = self.book.run("L1")
+        self.assertEqual((run["state"], run["ended_reason"], run["streak"]), ("ended", "defeated", 1))
+        self.assertEqual(self.book.league_record("pa"), {**self.book.league_record("pa"), "clears": 0, "best_round": 1})
+        self.book.propose("L2", "pa", "pb", 2, "league")
+        self.assertEqual(self.book.run("L2")["round"], 1)
+        self.book.accept("L2", "pb")
+        self.book.issue("L2", "x", league_plan(1))
+        # round 1 again pays a tenth: it was cleared before
+        self.assertEqual(self.book.settle("x", 1)["prizes"]["pa"], league_prize(1, first_time=False))
+
+    def test_the_hall_of_fame_enters_a_cleared_run_exactly_once_and_survives_a_restart(self):
+        self.run_league("L1", "pa", "pb", [1, 1, 1])
+        party = [{"name": "Alice", "mons": [[25, 50]]}, {"name": "Bob", "mons": [[6, 52], [9, 51]]}]
+        self.assertTrue(self.book.add_hall_of_fame("L1", ["Alice", "Bob"], party))
+        self.assertFalse(self.book.add_hall_of_fame("L1", ["Alice", "Bob"], party))
+        self.assertEqual(self.book.cleared_without_hall(), [])
+        self.run_league("L2", "pa", "pb", [1, 1, 1])
+        self.assertEqual([r["run_id"] for r in self.book.cleared_without_hall()], ["L2"])
+        with self.assertRaises(FrontierError):
+            self.book.propose("F1", "pa", "pb", 1)
+            self.book.accept("F1", "pb")
+            self.book.add_hall_of_fame("F1", [], [])                                  # not a cleared League run
+        self.world.close()
+        again = SharedWorld(self.path, WORLD)
+        self.addCleanup(again.close)
+        hall = again.frontier.hall_of_fame()
+        self.assertEqual([e["run_id"] for e in hall], ["L1"])
+        self.assertEqual(hall[0]["party"], party)
+        self.assertEqual(again.frontier.league_record("pb")["clears"], 2)
+
+    def test_a_world_file_from_before_the_league_is_upgraded_in_place(self):
+        import sqlite3
+        self.world.close()
+        db = sqlite3.connect(self.path)
+        db.execute("DROP TABLE frontier_runs")
+        db.execute("""CREATE TABLE frontier_runs (run_id TEXT PRIMARY KEY, players TEXT NOT NULL, state TEXT NOT NULL,
+            consent TEXT NOT NULL, round INTEGER NOT NULL, streak INTEGER NOT NULL, seed INTEGER NOT NULL,
+            created REAL NOT NULL, updated REAL NOT NULL, ended_reason TEXT)""")
+        db.execute("INSERT INTO frontier_runs VALUES ('old', '[\"pa\", \"pb\"]', 'active', '[\"pa\", \"pb\"]', 4, 3, 9, 0, 0, NULL)")
+        db.commit()
+        db.close()
+        again = SharedWorld(self.path, WORLD)
+        self.addCleanup(again.close)
+        run = again.frontier.run("old")
+        self.assertEqual((run["mode"], run["round"], run["streak"]), ("frontier", 4, 3))
+
+
+class BadgeTests(unittest.TestCase):
+    def test_badges_are_read_from_the_games_flags(self):
+        block = bytearray(0x4000)
+        self.assertEqual(count_badges(bytes(block)), 0)
+        for flag in BADGE_FLAGS[:5]:
+            block[FLAGS_OFFSET + flag // 8] |= 1 << flag % 8
+        self.assertEqual(count_badges(bytes(block)), 5)
+        for flag in BADGE_FLAGS:
+            block[FLAGS_OFFSET + flag // 8] |= 1 << flag % 8
+        self.assertEqual(count_badges(bytes(block)), 8)
+        other = bytearray(0x4000)                      # the neighbouring system flags are not badges
+        for flag in (0x864, 0x866, 0x86F):
+            other[FLAGS_OFFSET + flag // 8] |= 1 << flag % 8
+        self.assertEqual(count_badges(bytes(other)), 0)
+
+
 class FakeResults:
     pass
 
@@ -359,6 +484,64 @@ class ServiceTests(unittest.TestCase):
         with self.assertRaises(FrontierError):
             self.world.frontier.record_result("y", 4, ["a"])
 
+    def league_service(self, badges=8):
+        self.service.badges = lambda player: badges
+        return self.service
+
+    def test_the_league_needs_every_badge_from_both_players(self):
+        self.league_service(badges=7)
+        with self.assertRaises(SharedWorldError) as caught:
+            self.call(self.sa, "propose", mode="league")
+        self.assertEqual(caught.exception.code, "badges")
+        self.league_service(badges=8)
+        self.assertEqual(self.call(self.sa, "propose", mode="league")["run"]["mode"], "league")
+        self.service.badges = lambda player: 8 if player == self.a else 6                # the partner has fewer
+        with self.assertRaises(SharedWorldError) as caught:
+            self.call(self.sb, "accept")
+        self.assertEqual(caught.exception.code, "badges")
+
+    def test_a_league_run_is_three_real_coop_battles_with_the_trainers_own_levels(self):
+        self.league_service()
+        self.call(self.sa, "propose", mode="league")
+        view = self.call(self.sb, "accept")
+        self.assertEqual(view["run"]["next"]["label"], "Elite 4 Sidney & Phoebe")
+        self.assertEqual(view["run"]["next"]["level"], 0)
+        self.assertEqual(view["league"]["rounds"], 3)
+        battle_id = self.round()
+        native = self.fixture.desk._active[battle_id]
+        decoded = coop_code.decode(native.gym)
+        self.assertEqual((native.mode, decoded.trainer_a, decoded.trainer_b, decoded.level, decoded.exp),
+                         (4, 261, 262, 0, True))                    # first clear: experience is awarded
+        self.finish(battle_id, 1)
+        self.assertEqual(self.call(self.sa, "status")["run"]["round"], 2)
+        self.finish(self.round(), 1)
+        champion = self.round()
+        self.assertEqual(coop_code.decode(self.fixture.desk._active[champion].gym).trainer_a, 335)
+        self.finish(champion, 1)
+        view = self.call(self.sa, "status")
+        self.assertEqual((view["run"]["state"], view["run"]["ended_reason"]), ("ended", "cleared"))
+        self.assertEqual(view["league"]["clears"], 1)
+        self.assertEqual([e["names"] for e in view["league"]["hall"]], [["Trainer 0", "Trainer 1"]])
+        wallet = [w["delta"] for w in self.wallet(self.a)]
+        self.assertEqual(wallet, [LEAGUE_PRIZES[0], LEAGUE_PRIZES[1], LEAGUE_PRIZES[2] + LEAGUE_FIRST_CLEAR_BONUS])
+        for _ in range(4):                                               # reconnects and restarts change nothing
+            self.service.reconcile()
+            self.call(self.sb, "status")
+        self.assertEqual([w["delta"] for w in self.wallet(self.a)], wallet)
+        self.assertEqual(len(self.world.frontier.hall_of_fame()), 1)
+        # a second clear: veterans earn no experience and a tenth of the prize
+        self.call(self.sa, "propose", mode="league")
+        self.call(self.sb, "accept")
+        again = self.round()
+        self.assertFalse(coop_code.decode(self.fixture.desk._active[again].gym).exp)
+
+    def test_a_ladder_run_blocks_the_other_ladder_for_the_same_team(self):
+        self.league_service()
+        self.begin()                                                       # a Frontier run
+        with self.assertRaises(SharedWorldError) as caught:
+            self.call(self.sa, "propose", mode="league")
+        self.assertEqual(caught.exception.code, "run_busy")
+
     def test_the_streak_climbs_and_retiring_keeps_it(self):
         self.begin()
         for expected in (1, 2, 3):
@@ -389,7 +572,8 @@ class MenuTests(unittest.IsolatedAsyncioTestCase):
         self.ProtocolError = ProtocolError
         self.calls, self.refuse = [], None
         record = {"best_streak": 4, "runs": 2, "rounds": 7, "earned": 9000}
-        self.state = {"record": record, "party_limit": 3, "run": None}
+        self.state = {"record": record, "party_limit": 3, "run": None,
+                      "league": dict(clears=0, best_round=0, rounds=3, first_clear=None, last_clear=None, hall=[])}
         self.nav = {"players": [], "outbreak": None, "event": None}
         outer = self
 
@@ -407,20 +591,21 @@ class MenuTests(unittest.IsolatedAsyncioTestCase):
             async def battle_challenge_rpc(self, operation, **fields):
                 return {"result": []}
 
-            async def frontier_rpc(self, op="status"):
-                outer.calls.append(op)
+            async def frontier_rpc(self, op="status", mode=None):
+                outer.calls.append(op if mode is None else f"{op}:{mode}")
                 if outer.refuse and op != "status":
                     raise outer.ProtocolError("too_many", outer.refuse)
-                return outer.advance(op)
+                return outer.advance(op, mode)
 
         self.menu_cls = __import__("emerald_multiplayer.player_menu", fromlist=["PlayerMenu"]).PlayerMenu
         self.menu = self.menu_cls(Companion())
 
-    def advance(self, op):
+    def advance(self, op, mode=None):
         run = self.state["run"]
         if op == "propose":
-            self.state["run"] = dict(run_id="r", state="forming", players=["a", "b"], names=["Alice", "Bob"],
-                                     consent=["a"], round=1, streak=0, ended_reason=None, battle_id=None, next=None)
+            self.state["run"] = dict(run_id="r", mode=mode or "frontier", state="forming", players=["a", "b"],
+                                     names=["Alice", "Bob"], consent=["a"], round=1, streak=0, ended_reason=None,
+                                     battle_id=None, next=None)
         elif op == "accept":
             run.update(state="active", consent=["a", "b"], next=dict(round=1, level=42, label="Roxanne & Brawly",
                                                                      brain=False, set=1, prize=1050))
@@ -440,13 +625,14 @@ class MenuTests(unittest.IsolatedAsyncioTestCase):
     async def open(self):
         await self.menu.refresh()
         await self.click("World and my base")
+        await self.click("Frontier and League")
         await self.click("Battle Frontier")
 
     async def test_the_pages_follow_a_run_from_invitation_to_retirement(self):
         await self.open()
         self.assertEqual(self.menu.screen.title, "Battle Frontier")
         self.assertIn("Bring up to 3 Pokemon", self.menu.screen.status)
-        self.assertEqual(self.labels, ["Start a Frontier run", "Best 4  runs 2", "Back to World"])
+        self.assertEqual(self.labels, ["Start a Frontier run", "Best 4  runs 2", "Back"])
         await self.click("Start a Frontier run")
         self.assertEqual(self.menu.screen.status, "Waiting for Bob")
         self.assertIn("Cancel the invitation", self.labels)
@@ -463,13 +649,14 @@ class MenuTests(unittest.IsolatedAsyncioTestCase):
         self.menu._page = ("home", None)
         await self.menu.refresh()
         await self.click("World and my base")
+        await self.click("Frontier and League")
         await self.click("Battle Frontier")
         self.assertIn("Battle: open Challenges", self.labels)
         self.assertNotIn("Retire (keep streak)", self.labels)                     # not during a battle
         self.assertTrue(all(len(label) <= 25 for label in self.labels))
 
     async def test_an_invitation_can_be_joined_or_declined(self):
-        self.state["run"] = dict(run_id="r", state="forming", players=["b", "a"], names=["Bob", "Alice"], consent=["b"],
+        self.state["run"] = dict(run_id="r", mode="frontier", state="forming", players=["b", "a"], names=["Bob", "Alice"], consent=["b"],
                                  round=1, streak=0, ended_reason=None, battle_id=None, next=None)
         await self.open()
         self.assertEqual(self.menu.screen.status, "Bob invites you")
@@ -480,7 +667,7 @@ class MenuTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Last: Retired, streak 0", self.labels)
 
     async def test_a_brain_round_is_named_and_a_refusal_is_shown_not_hidden(self):
-        self.state["run"] = dict(run_id="r", state="active", players=["a", "b"], names=["Alice", "Bob"],
+        self.state["run"] = dict(run_id="r", mode="frontier", state="active", players=["a", "b"], names=["Alice", "Bob"],
                                  consent=["a", "b"], round=7, streak=6, ended_reason=None, battle_id=None,
                                  next=dict(round=7, level=60, label="Tucker & Spenser", brain=True, set=1, prize=4000))
         await self.open()
@@ -489,6 +676,43 @@ class MenuTests(unittest.IsolatedAsyncioTestCase):
         await self.click("Start round 7")
         self.assertEqual(self.menu.screen.status, "Alice: bring at most 3 Pokemon")
         self.assertEqual(self.menu.screen.title, "Battle Frontier")
+
+    async def test_the_league_pages_and_the_hall_of_fame(self):
+        await self.menu.refresh()
+        await self.click("World and my base")
+        await self.click("Frontier and League")
+        self.assertEqual(self.labels, ["Battle Frontier", "Pokemon League", "Back to World"])
+        await self.click("Pokemon League")
+        self.assertEqual(self.menu.screen.title, "Pokemon League")
+        self.assertEqual(self.menu.screen.status, "All 8 badges, 1-3 Pokemon")
+        await self.click("Challenge the League")
+        self.assertIn("propose:league", self.calls)
+        self.assertEqual(self.menu.screen.status, "Waiting for Bob")
+        self.state["run"].update(state="active", consent=["a", "b"], next=dict(
+            round=1, level=0, label="Elite 4 Sidney & Phoebe", brain=False, set=1, prize=4000))
+        await self.menu.refresh()
+        self.assertEqual(self.menu.screen.status, "Round 1 of 3")
+        self.assertEqual(self.labels[:3], ["Elite 4 Sidney & Phoebe", "Prize $4,000, own levels", "Start round 1"])
+        self.assertTrue(all(len(label) <= 25 for label in self.labels))
+        self.state["league"] = dict(clears=2, best_round=3, rounds=3, first_clear=1.0, last_clear=2.0,
+                                    hall=[dict(entry=2, names=["Alice", "Bob"]), dict(entry=1, names=["Cy", "Di"])])
+        self.state["run"].update(state="ended", ended_reason="cleared", streak=3)
+        await self.menu.refresh()
+        self.assertIn("Last: CLEARED, round 3", self.labels)
+        self.assertIn("Cleared 2x", self.labels)
+        await self.click("Cleared 2x")
+        self.assertEqual(self.menu.screen.title, "Hall of Fame")
+        self.assertEqual(self.labels[:2], ["#2 Alice & Bob", "#1 Cy & Di"])
+
+    async def test_a_run_of_the_other_ladder_is_pointed_out_not_hidden(self):
+        self.state["run"] = dict(run_id="r", mode="league", state="active", players=["a", "b"], names=["Alice", "Bob"],
+                                 consent=["a", "b"], round=2, streak=1, ended_reason=None, battle_id=None, next=None)
+        await self.menu.refresh()
+        await self.click("World and my base")
+        await self.click("Frontier and League")
+        await self.click("Battle Frontier")
+        self.assertEqual(self.menu.screen.status, "A League run is active")
+        self.assertIn("Open the League", self.labels)
 
     def test_a_ladder_battle_has_a_readable_title(self):
         title = self.menu_cls._coop_title
