@@ -88,6 +88,10 @@ class Slot:
     # claim lapsed (a long disconnect, a lost message) is still accepted from
     # this player while nobody else holds the Pokemon (KNOWN_ISSUES M16).
     last_claimant: str | None = None
+    # Update 29: the host rolls the random Legendary/Mythical chance once, when the Pokemon is first claimed. A release,
+    # a reconnect or another player's claim never rolls it again.
+    legend_rolled: bool = False
+    legend: bool = False   # it was turned into a Legendary/Mythical at its claim
 
 
 @dataclass
@@ -332,7 +336,7 @@ class SpawnBoard:
                 "personality": slot.personality, "shiny": slot.shiny, "form": slot.form, "kind": slot.kind,
                 "x": slot.x, "y": slot.y, "facing": slot.facing, "move_seq": slot.move_seq,
                 "state": slot.state, "claimant": slot.claimant, "last_claimant": slot.last_claimant,
-                "remaining": max(0.0, slot.expires_at - now), "age": max(0.0, now - slot.created_at),
+                "legend_rolled": slot.legend_rolled, "legend": slot.legend, "remaining": max(0.0, slot.expires_at - now), "age": max(0.0, now - slot.created_at),
                 "grace_remaining": None if slot.grace_until is None else max(0.0, slot.grace_until - now),
             })
         return {"version": STATE_VERSION, "map_key": self.map_key, "outbreak_active": self.outbreak_active,
@@ -365,7 +369,8 @@ class SpawnBoard:
                 form=int(item.get("form", 0)), move_seq=int(item.get("move_seq", 0)) & 0xFF,
                 state=CLAIMED if claimed else OPEN, claimant=claimant if claimed else None,
                 grace_until=now + grace if claimed else None,
-                last_claimant=item.get("last_claimant") if isinstance(item.get("last_claimant"), str) else None)
+                last_claimant=item.get("last_claimant") if isinstance(item.get("last_claimant"), str) else None,
+                legend_rolled=bool(item.get("legend_rolled", False)), legend=bool(item.get("legend", False)))
             if slot.kind not in (KIND_NORMAL, KIND_OUTBREAK) or slot.facing not in DIRECTIONS:
                 raise ValueError("invalid spawn slot in saved state")
             board.slots[slot.spawn_id] = slot

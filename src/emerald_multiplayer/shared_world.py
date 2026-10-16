@@ -334,6 +334,8 @@ class SharedWorld:
             return GONE
         board, _slot = found
         if action == "claim":
+            if self.spawn_director is not None:
+                self.spawn_director.roll_legend_on_claim(board, spawn_id, night=self._night())
             outcome = board.claim(player_id, spawn_id)
         elif action == "result":
             outcome = board.result(player_id, spawn_id, result or "cancelled")

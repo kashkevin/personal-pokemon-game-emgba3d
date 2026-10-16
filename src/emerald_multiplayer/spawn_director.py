@@ -21,6 +21,7 @@ from dataclasses import dataclass
 import random
 from typing import Callable
 
+from . import legend_rules
 from .shared_spawns import (
     DIRECTIONS, KIND_NORMAL, KIND_OUTBREAK, OPEN, STEP, SpawnBoard, SpawnBoards,
 )
@@ -102,6 +103,9 @@ class SpawnDirector:
             families.append((tier, habitat, time, {type1, type2}, members))
         self._families = families
         self._tier_weight = catalogue["tier_weights"]
+        # Update 29: families found only inside the Safari Zone (never shared, so never picked for a shared spawn)
+        self._safari_only = frozenset(catalogue.get("safari_only", ()))
+        self._map_weather: dict[str, str | None] = {}
 
     # ------------------------------------------------------------ catalogue
     def map_entry(self, map_key: str) -> dict | None:
@@ -147,7 +151,7 @@ class SpawnDirector:
             main, secondary, heavy = WEATHER_TYPES[weather]
         out = []
         for index, (tier, family_habitat, time, types, _members) in enumerate(self._families):
-            if not family_habitat & habitat:
+            if not family_habitat & habitat or index in self._safari_only:
                 continue
             weight = (tier_weights or self._tier_weight).get(tier, 0)
             if tier_weights is not None and weight == 0:
@@ -217,6 +221,28 @@ class SpawnDirector:
             return None
         return self.rng.choice(near)
 
+    # ------------------------------------------------------------ Legendary / Mythical (Update 29)
+    def roll_legend_on_claim(self, board: SpawnBoard, spawn_id: int, *, night: bool) -> bool:
+        """The random Legendary/Mythical chance of one shared encounter: exactly 1 in 6000, once per Pokemon, made by the
+        host when it is first claimed. On a hit the slot becomes a Legendary/Mythical of the map (habitat rules of
+        legend_rules.py) at the level and with the shiny status the slot already has. True when the slot changed."""
+        slot = board.get(spawn_id)
+        if slot is None or slot.legend_rolled or slot.state != OPEN:
+            return False
+        slot.legend_rolled = True
+        if not legend_rules.roll_hits(self.rng):
+            return False
+        entry = self.map_entry(board.map_key) or {}
+        tags = legend_rules.area_tags(entry.get("mapsec", ""), entry.get("map_type", ""),
+                                      self._map_weather.get(board.map_key, entry.get("weather")))
+        species = legend_rules.pick(self.rng, tags, night)
+        if species is None:
+            return False
+        slot.species = species
+        slot.form = 0
+        slot.legend = True
+        return True
+
     # ------------------------------------------------------------ update
     @staticmethod
     def present_players(presences: dict[str, dict]) -> dict[str, list[dict]]:
@@ -257,6 +283,7 @@ class SpawnDirector:
             if self.map_entry(map_key) is None:
                 continue
             board = self.boards.board(map_key)
+            self._map_weather[map_key] = self.weather_for(map_key, players)
             outbreak = outbreaks.get(map_key)
             board.set_outbreak(outbreak is not None)
             if board.trim():  # an outbreak ended: back to 8, claimed ones kept

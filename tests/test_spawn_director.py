@@ -138,7 +138,7 @@ class FillTests(DirectorTestCase):
 class WeightTests(DirectorTestCase):
     def family_index(self, *types):
         for index, (first, count, tier, habitat, time, type1, type2) in enumerate(CATALOGUE["families"]):
-            if {type1, type2} == set(types) and habitat & 1 and time == 0:
+            if {type1, type2} == set(types) and habitat & 1 and time == 0 and index not in CATALOGUE.get("safari_only", ()):
                 return index, tier
         self.skipTest(f"no land family of type {types}")
 
