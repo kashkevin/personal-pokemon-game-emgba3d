@@ -206,6 +206,10 @@ real networks, real UI clicking on Windows. "Tested" above means automated simul
 ## 10. Integration status
 
 **Not integrated.** Per the owner's rule, Update 31 merges only after Updates 29 and 30 are on both
-default branches. At this session: U29 is an unmerged branch; U30 does not exist on the app remote; the
+default branches. At the end of this session the app default branch had moved to `ad254d0` (U29 now
+on it; U30 still absent from the app remote). A trial merge of this branch onto `ad254d0` in a throwaway
+worktree conflicted only in `DEVELOPMENT_LEDGER.md` and `FEATURE_STATUS.md` (both updates append rows;
+keep both), and the combined app suite gave 1940 passed, the same 4 pre-existing failures, 51 skipped. The
+trial was discarded; nothing was merged. At the start of the session U29 was an unmerged branch. The
 engine repository and CI are not reachable from this session. The U31 app branch is preserved; the
 engine half (§7) has not been started because the engine source cannot be read or modified here.
