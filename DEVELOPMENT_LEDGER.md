@@ -683,3 +683,10 @@ reproduced in 3D through Birch's bag): a completed fade-to-black counted as a st
 in the doc. Regression tools: `battle_end_check.py` (wild, trainer; fails without the fix), `party_menu_check.py` (AddressSanitizer, 3D and 2D), `first_battle_check.py`
 (`make -f Makefile_pc NATIVE_LINUX=1 DIORAMA=1 check-update26`). Local: GBA ROM hash unchanged, 22 PC selftest targets and `check-diorama` pass, save-compat and privacy tests pass.
 Simulation only; not run on a real PC.
+
+**Update 26 integrated.** Fast-forwarded into the default branches (no conflicts, no force-push): engine `claude/emeraldtogether-combined` = `903e63b8`, app `claude/emeraldtogether-combined-app` = `8849155`
+(code identical to the verified fix branches). Run **38852544799** (`windows-package`, full, app `8849155`, engine pinned to `903e63b8`, `expected_rom_sha256` `f214735b…3387`): **success**; engine job 14 min,
+Windows job: package content audit (190 archive members, 130 hashed files), packaged game files = the engine job's build (3D `pokeemerald-mp-diorama.exe` sha256 `50fdede8…653a`, Classic 2D `pokeemerald-mp.exe` sha256
+`05441f21…e50f7`), frozen `EmeraldTogether.exe` stayed up 20 s, graphics-mode check 16/16 (the runner has no GPU, so 3D correctly reported unsupported and exited 78 with an explanation; Classic 2D ran). Private artifact
+**EmeraldTogether-windows-full** (ID 12026995145, 63,187,822 bytes, zip sha256 `7c62de6e…79df`, expires 2026-10-23). No sprite pack, no game ROM in it (`HAVE_SPRITES false`, `HAVE_BASE false`: the player imports their own game).
+An earlier attempt (run 38850387860) failed in 0 s because its version label contained parentheses (the launcher accepts letters, digits, space . _ - only); nothing else changed. **bios.c licensing unresolved: not cleared for distribution. Not run on a real PC.**
