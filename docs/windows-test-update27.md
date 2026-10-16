@@ -32,5 +32,5 @@ Which build is running: the launcher's version label reads **Update 27 app <hash
 - [ ] Two players: a 1v1 and a 2v2; four players: the free-for-all (this is the only one never run even in a simulation with a map: look for effects on the wrong player's Pokemon).
 
 ## E. Performance
-- [ ] Quality: Settings > Graphics (or `battlefx\settings.cfg` `quality=`): Low, Medium, High, Auto: effects visible at every level; the game keeps 60 frames a second or drops to the original effects, not to a slide show.
+- [ ] Quality: `battlefx\settings.cfg` `quality=` (auto, full, medium, low, gba): effects visible at every level; the game keeps 60 frames a second or drops to the original effects, not to a slide show.
 - [ ] A long battle (ten turns): the frame rate does not fall; the Task Manager's memory for the game stays flat.
