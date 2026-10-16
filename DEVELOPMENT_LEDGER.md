@@ -690,3 +690,16 @@ Windows job: package content audit (190 archive members, 130 hashed files), pack
 `05441f21…e50f7`), frozen `EmeraldTogether.exe` stayed up 20 s, graphics-mode check 16/16 (the runner has no GPU, so 3D correctly reported unsupported and exited 78 with an explanation; Classic 2D ran). Private artifact
 **EmeraldTogether-windows-full** (ID 12026995145, 63,187,822 bytes, zip sha256 `7c62de6e…79df`, expires 2026-10-23). No sprite pack, no game ROM in it (`HAVE_SPRITES false`, `HAVE_BASE false`: the player imports their own game).
 An earlier attempt (run 38850387860) failed in 0 s because its version label contained parentheses (the launcher accepts letters, digits, space . _ - only); nothing else changed. **bios.c licensing unresolved: not cleared for distribution. Not run on a real PC.**
+
+## Update 27 — Battle FX audit
+
+`docs/battle-fx-audit-update27.md`, `docs/battle-fx-audit/matrix.md` (959 rows), `docs/windows-test-update27.md`. Engine `claude/dev-update27-battlefx-engine`, app `claude/dev-update27-battlefx`.
+**Audit** (cloud simulation, software OpenGL, no GPU): 847 moves (621 HD by Battle FX, 226 the game's own animation in the 3D view; Z/Max moves not reachable), 81 battle animations: 959 of 959 animations
+triggered and ended, 652 of 652 HD move rows and 76 of 76 HD battle animations exact against the core's replay, none failed/stuck/crashed, no effect left after its animation, memory flat over 170 animations; Classic 2D
+45 of 46 sampled moves drew (Recover fails at full HP); fought battles (shiny, Mega Evolution, doubles) 50 of 50 exact. **Defect fixed:** a black block over the player's Pokemon behind about 36 move backgrounds
+(`gba_easy_draw.c`: rows 112-160 of a move's background mirrored): 36 flagged before, 2 (dark by design) after; regression `tools/battlefx/bg_check.sh`. Not exercised: real GPU, FFA in the overworld, Z/Dynamax.
+**Integrated** (fast-forward, no conflicts, no force-push): engine `claude/emeraldtogether-combined` = `1da670975e9ee3aa55790c7269f0295515e7a3ae`, app `claude/emeraldtogether-combined-app` = `afc382e` (+ this note).
+Checks: GBA ROM hash unchanged (`f214735b…3387`); 22 PC selftest targets 0 failures; `check-diorama` pass; Update 26's `first_battle_check` and `battle_end_check` pass on the new build; app suite passes (the 24 GUI tests need
+tkinter: pass under a Python that has it). **Run 38915559897** (`windows-package`, full, app `afc382e`, engine pinned `1da67097`, label "Update 27 app afc382e engine 1da67097"): success; packaged 3D `pokeemerald-mp-diorama.exe` sha256
+`6172e11a…5725` and Classic 2D `pokeemerald-mp.exe` `7486101a…9df3` equal the engine job's build; launcher stayed up 20 s; graphics-mode check 16/16 (the runner has no GPU: 3D unsupported, as designed). Artifact
+**EmeraldTogether-windows-full** ID 12052684712, 63,192,983 bytes, zip sha256 `5f25173b…f469`, expires 2026-10-23; no ROM, no sprite pack. The Update 26 artifact (12026995145) is untouched. bios.c licensing unresolved. Not run on a real PC.
