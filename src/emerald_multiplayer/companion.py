@@ -202,6 +202,7 @@ class CompanionConfig:
     emergency_save_enabled: bool = field(init=False, default=False)
     emergency_save_abi_version: int = field(init=False, default=0)
     world_enabled: bool = field(init=False, default=False)
+    rival_abi_version: int = field(init=False, default=0)
 
     def __post_init__(self) -> None:
         rom_path, manifest_path = Path(self.rom_path).resolve(), Path(self.manifest_path).resolve()
@@ -237,6 +238,9 @@ class CompanionConfig:
         object.__setattr__(self, "emergency_save_abi_version", manifest.get("emergency_save_abi_version", 0))
         from .world_mailbox import validate_world_manifest
         object.__setattr__(self, "world_enabled", validate_world_manifest(manifest))
+        # Update 31: an engine that reads the rival record in the world mailbox says so in its manifest.
+        object.__setattr__(self, "rival_abi_version", manifest.get("rival_abi_version", 0)
+                           if self.world_enabled and manifest.get("rival_abi_version") == 1 else 0)
         if type(self.development_battle_channel) is not bool:
             raise ValueError("development_battle_channel must be a boolean")
         if self.development_battle_channel and (not self.battle_enabled or self.server_credential is None):
@@ -466,6 +470,7 @@ class Companion:
         self._spawn_action_ack = 0
         # Secret Bases and the PokeNav view (the native game's EMX1 mailbox, Phase 6/7).
         self._world_extras: dict | None = None
+        self._world_rival = None  # Update 31: world_mailbox.RivalRecord from the host's rival summary
         self._extras_local = None            # the game's latest own-base record
         self._extras_base_ack = 0            # the game's base sequence the host has stored
         self._extras_acked_epoch = None      # ... in this host session
@@ -637,7 +642,8 @@ class Companion:
                             action_ack=self._world_action_ack, self_appearance=appearance, peers=tuple(peers),
                             event=event, notice_id=notice_id, notice_text=notice_text,
                             wallet_seq=wallet["seq"], wallet_delta=wallet["delta"], teammate_token=teammate,
-                            outbreak=outbreak)
+                            outbreak=outbreak,
+                            rival=self._world_rival if self.config.rival_abi_version == 1 else None)
 
     async def _snapshot_loop(self) -> None:
         while True:
@@ -1233,6 +1239,7 @@ class Companion:
         self._world_clock = self._world_event = self._world_notice = self._world_wallet = None
         self._world_teammate = None
         self._world_extras = None
+        self._world_rival = None
         self._extras_acked_epoch = None
         self._players = []
         self._peer_history.clear()
@@ -1337,6 +1344,8 @@ class Companion:
                 asyncio.create_task(self._read_world(reader, writer), name="companion-world-reader"),
                 asyncio.create_task(self._send_presence(writer), name="companion-presence-sender"),
             ]
+            if self.config.rival_abi_version == 1:
+                tasks.append(asyncio.create_task(self._poll_rival(), name="companion-rival-status"))
             done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
             for task in done:
                 await task
@@ -1386,6 +1395,26 @@ class Companion:
                     self._sent_source_signature = source_signature
                     self._sent_pose_signature = pose_signature
             await asyncio.sleep(self.config.pose_interval)
+
+    RIVAL_POLL_SECONDS = 1.5
+
+    async def _poll_rival(self) -> None:
+        """Update 31: keep the host's rival summary for the world mailbox (engines with rival_abi_version 1).
+
+        Read-only status requests, one at a time, every 1.5 s; a host without rival
+        checkpoints answers once with an error and the poller stops (no retry storm).
+        """
+        from .world_mailbox import RivalRecord
+        while True:
+            try:
+                reply = await self.battle_challenge_rpc("pending", rival=dict(version=1, operation="status"))
+                self._world_rival = RivalRecord.from_reply(reply["rival"], self.config.player_id)
+            except BattleChallengeError:
+                self._world_rival = None
+                return
+            except (ConnectionError, OSError, asyncio.TimeoutError, ValueError):
+                self._world_rival = None
+            await asyncio.sleep(self.RIVAL_POLL_SECONDS)
 
     async def _read_world(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         while True:
@@ -1509,14 +1538,15 @@ class Companion:
             raise ConnectionError("no authenticated ownership battle session")
         if set(fields) & {"type", "session_epoch"}:
             raise ValueError("battle envelope fields cannot be overridden")
-        if operation == "pending" and "championship" in fields:
+        if operation == "pending" and ("championship" in fields or "rival" in fields):
             pending_path = getattr(self, "_live_battle_pending_path", None)
             if pending_path is not None:
                 from .battle_admission_cleanup import publish_cleanup_handoffs
                 await publish_cleanup_handoffs(self, Path(pending_path).parent)
         consent_core = None
-        championship_match = (operation == "pending" and type(fields.get("championship")) is dict
-                              and fields["championship"].get("operation") == "match")
+        championship_match = (operation == "pending" and any(
+            type(fields.get(extension)) is dict and fields[extension].get("operation") == "match"
+            for extension in ("championship", "rival")))
         if (operation in {"invite", "invite_multi", "invite_ffa", "accept"} or championship_match) and self.config.battle_resume_abi_version == 1:
             if self.config.battle_abi_version != 3 or self._bridge is None or not self._bridge.battle_capable:
                 raise ValueError("resumable consent requires the current verified native core")

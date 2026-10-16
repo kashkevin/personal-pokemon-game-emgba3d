@@ -97,6 +97,8 @@ class PlayerMenu:
         self._card_notice = ""
         from .championship_menu import ChampionshipMenu
         self._championship = ChampionshipMenu(companion)
+        from .rival_menu import RivalMenu
+        self._rival = RivalMenu(companion)
         from .record_menu import NativeRecordMenu
         self._record_menu = NativeRecordMenu(companion)
 
@@ -120,6 +122,7 @@ class PlayerMenu:
             self._players, self._team, self._battles = {}, None, None
             self._card, self._card_binding = None, None
             self._championship.reset()
+            self._rival.reset()
             self._record_menu.reset()
             return self._show("Players", "Connection lost", [])
         if binding != self._binding:
@@ -127,6 +130,7 @@ class PlayerMenu:
             self._notice = ""
             self._card, self._card_binding = None, None
             self._championship.reset()
+            self._rival.reset()
             self._record_menu.reset()
         self._binding = binding
         # Immutable value copies; the companion owns and validates the roster.
@@ -241,6 +245,16 @@ class PlayerMenu:
             try:
                 await self._championship.refresh()
             except ChampionshipMenuError as error:
+                raise PlayerMenuError(error.code) from error
+            if self._session() != binding:
+                self._actions.clear()
+                self._signature = None
+                raise PlayerMenuError("session_changed")
+        if self._page[0] == "rival":
+            from .rival_menu import RivalMenuError
+            try:
+                await self._rival.refresh()
+            except RivalMenuError as error:
                 raise PlayerMenuError(error.code) from error
             if self._session() != binding:
                 self._actions.clear()
@@ -413,6 +427,7 @@ class PlayerMenu:
                 actions.append(("Full record archives", "records", ()))
                 actions.append(("Your Trainer Card", "card", (actor,)))
                 actions.append(("Championship", "championship", ()))
+                actions.append(("Rival checkpoints", "rival", ()))
         elif page == "wager":
             title = "Battle wager"
             battle = next((b for b in self._battles or () if b["battle_id"] == target), None)
@@ -442,6 +457,12 @@ class PlayerMenu:
             return self._show(*self._render_world(page, target))
         elif page == "championship":
             return self._show(*self._championship.render())
+        elif page == "rival":
+            from .rival_menu import RivalMenuError
+            try:
+                return self._show(*self._rival.render())
+            except RivalMenuError as error:
+                raise PlayerMenuError(error.code) from error
         elif page == "records":
             return self._show(*self._record_menu.render())
         elif page in ("card", "card_battles", "card_championships", "card_shared", "card_progress", "hunts", "hunt", "hunt_filters", "hunt_totals"):
@@ -623,6 +644,9 @@ class PlayerMenu:
                 actions.append(("Battles and records", "battles", ()))
             last = ("Pending trade", "trade", ()) if self._trades else ("Your Trainer Card", "card", (actor,))
             world = ("World and my base", "world", ())
+            if self._rival.local_checkpoint() is not None and len(actions) < 6:
+                # Standing at a rival checkpoint: its page is the most relevant one (Update 31).
+                actions.append(("Rival checkpoint", "rival", ()))
             room = 6 - len(actions)
             if room >= 2:
                 actions.extend((world, last))
@@ -894,6 +918,17 @@ class PlayerMenu:
             if op == "championship":
                 self._championship.open()
                 self._page = ("championship", None)
+            elif op == "rival":
+                self._rival.open()
+                self._page = ("rival", None)
+            elif op.startswith("rival_"):
+                from .rival_menu import RivalMenuError
+                try:
+                    to_battle = await self._rival.choose(op, args)
+                except RivalMenuError as error:
+                    raise PlayerMenuError(error.code) from error
+                if to_battle:
+                    self._page = ("battles", None)
             elif op == "records":
                 self._record_menu.open(*args)
                 self._page = ("records", None)

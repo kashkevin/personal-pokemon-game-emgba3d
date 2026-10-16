@@ -53,8 +53,16 @@ def validate_battle_request(message, epoch):
         validate_championship_request(message["championship"])
         extra = extra | {"championship"}
         championship_match = message["championship"]["operation"] == "match"
+    if operation == "pending" and "rival" in message:
+        if "championship" in message:
+            raise ProtocolError("invalid_fields", "request one battle pending extension at a time")
+        from .rival_protocol import validate_rival_request
+        validate_rival_request(message["rival"])
+        extra = extra | {"rival"}
+        # A rival match is issued by its requesting trainer, exactly like a Championship match.
+        championship_match = message["rival"]["operation"] == "match"
     if operation == "pending" and "admission_handoff_version" in message:
-        if "championship" in message or type(message["admission_handoff_version"]) is not int or message["admission_handoff_version"] != 1:
+        if "championship" in message or "rival" in message or type(message["admission_handoff_version"]) is not int or message["admission_handoff_version"] != 1:
             raise ProtocolError("admission_handoff_unsupported", "unsupported admission handoff capability query")
         extra = extra | {"admission_handoff_version"}
     card_fields = {"player_card_version", "card_player"}
@@ -89,7 +97,7 @@ def validate_battle_request(message, epoch):
     if operation in ("execute", "resume") and provisional_fields.intersection(message):
         extra = extra | provisional_fields
     _fields(message, {"type", "request_id", "session_epoch"} | extra)
-    for key in extra - {"opponents", "fingerprint", "incarnation", "response_b64", "response_id", "response_stage", "admission_sha256", "admission_b64", "admission_receipt_b64", "cleanup_receipt_b64", "cleanup_ready_b64", "handoff_receipt_b64", "admission_handoff_version", "player_card_version", "championship", "battle_archive", "reset_history", "trade_archive"}:
+    for key in extra - {"opponents", "fingerprint", "incarnation", "response_b64", "response_id", "response_stage", "admission_sha256", "admission_b64", "admission_receipt_b64", "cleanup_receipt_b64", "cleanup_ready_b64", "handoff_receipt_b64", "admission_handoff_version", "player_card_version", "championship", "rival", "battle_archive", "reset_history", "trade_archive"}:
         _uuid(message[key], key)
     if operation == "execute":
         from .battle_execution_protocol import validate_execution_request
@@ -231,10 +239,11 @@ def validate_battle_reply(message, actor, world_id, epoch, request=None):
         card_fields = {"player_card_version", "player_card"}
         has_card = bool(card_fields.intersection(message))
         has_championship = "championship" in message
+        has_rival = "rival" in message
         has_handoff = "admission_handoff_version" in message
         history_extensions = {"battle_archive", "reset_history", "trade_archive"}.intersection(message)
         _fields(message, common | {"result"} | (card_fields if has_card else set())
-                | ({"championship"} if has_championship else set())
+                | ({"championship"} if has_championship else set()) | ({"rival"} if has_rival else set())
                 | ({"admission_handoff_version"} if has_handoff else set()) | history_extensions)
         if history_extensions:
             if op != "history" or len(history_extensions) != 1 or has_card:
@@ -250,7 +259,12 @@ def validate_battle_reply(message, actor, world_id, epoch, request=None):
             else:
                 from .trade_archive import validate_trade_archive_reply
                 validate_trade_archive_reply(message[key], actor, requested)
-        if has_handoff and (op != "pending" or has_championship
+        if has_rival:
+            from .rival_protocol import validate_rival_reply
+            if op != "pending" or has_championship:
+                raise ProtocolError("invalid_server_message", "invalid rival checkpoint response extension")
+            validate_rival_reply(message["rival"], actor)
+        if has_handoff and (op != "pending" or has_championship or has_rival
                 or type(message["admission_handoff_version"]) is not int or message["admission_handoff_version"] != 1):
             raise ProtocolError("invalid_server_message", "invalid admission handoff capability")
         if has_championship:
@@ -319,6 +333,12 @@ def validate_battle_reply(message, actor, world_id, epoch, request=None):
             if requested:
                 from .championship_protocol import validate_championship_reply
                 validate_championship_reply(message["championship"], actor, request["championship"])
+            requested = "rival" in request
+            if requested != ("rival" in message):
+                raise ProtocolError("invalid_server_message", "rival checkpoint extension was omitted or unsolicited")
+            if requested:
+                from .rival_protocol import validate_rival_reply
+                validate_rival_reply(message["rival"], actor, request["rival"])
         if message["type"] == "battle_result" and op == "history":
             extensions = {"battle_archive", "reset_history", "trade_archive"}
             if extensions.intersection(message) != extensions.intersection(request):

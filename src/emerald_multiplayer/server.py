@@ -261,6 +261,7 @@ class WorldServer:
         self.battle_execution = None
         self._battle_results = None
         self._championships = None
+        self._rivals = None  # Update 31: world-level rival checkpoints (rival_checkpoints.py)
         self._last_frontier_tick = 0.0
         from .frontier_rules import FrontierSettings
         self._frontier = (FrontierSettings.load(store.path.with_name(store.path.name + ".frontier.json"))
@@ -278,13 +279,18 @@ class WorldServer:
         if isinstance(store, OwnershipCheckpointStore):
             archive_path = store.path.with_name(store.path.name + ".battle-results.sqlite3")
             championship_path = store.path.with_name(store.path.name + ".championships.sqlite3")
-            if development_battles or archive_path.exists() or championship_path.exists():
+            rival_path = store.path.with_name(store.path.name + ".rival-checkpoints.sqlite3")
+            if development_battles or archive_path.exists() or championship_path.exists() or rival_path.exists():
                 from .battle_results import BattleResults
                 self._battle_results = BattleResults(archive_path, world_id=store.metadata.world_id,
                     build_id=store.build_id, ruleset_id=store.ruleset_id)
             if development_battles or championship_path.exists():
                 from .championship import Championships
                 self._championships = Championships(championship_path, world_id=store.metadata.world_id,
+                    build_id=store.build_id, ruleset_id=store.ruleset_id)
+            if development_battles or rival_path.exists():
+                from .rival_checkpoints import RivalCheckpoints
+                self._rivals = RivalCheckpoints(rival_path, world_id=store.metadata.world_id,
                     build_id=store.build_id, ruleset_id=store.ruleset_id)
         if development_battles:
             from .ownership_storage import OwnershipCheckpointStore
@@ -730,7 +736,7 @@ class WorldServer:
         self._team_reply(session, request, result=result)
 
     def _battle_reply(self, session, request, *, error=None, result=None, player_card=None, championship=None,
-                      admission_handoff_version=None, history_extensions=None):
+                      admission_handoff_version=None, history_extensions=None, rival=None):
         assert self._world_metadata is not None
         self._control(session, dict(
             type="battle_error" if error is not None else "battle_result",
@@ -739,6 +745,7 @@ class WorldServer:
             world_id=self._world_metadata.world_id, player_id=session.player_id,
             **({"player_card_version": player_card["version"], "player_card": player_card} if player_card is not None and error is None else {}),
             **({"championship": championship} if championship is not None and error is None else {}),
+            **({"rival": rival} if rival is not None and error is None else {}),
             **({"admission_handoff_version": admission_handoff_version}
                if admission_handoff_version is not None and error is None else {}),
             **(history_extensions if history_extensions is not None and error is None else {}),
@@ -774,6 +781,68 @@ class WorldServer:
         pending = [] if desk is None else [challenge_view(view) for view in
             desk.pending(session.player_id, session.session_epoch)]
         self._battle_reply(session, request, result=pending, championship=extension)
+
+    def _rival_challenge(self, session, request):
+        """Update 31 rival checkpoints over the authenticated battle pending RPC."""
+        if self._rivals is None:
+            raise ProtocolError("rival_disabled", "This host has not enabled rival checkpoints")
+        self.store.read_checkpoint(session.player_id, session.session_epoch)
+        if self._connected_lease(session.player_id) != session.session_epoch:
+            raise ProtocolError("stale_lease", "Rival checkpoints require the current authenticated player")
+        desk = self.battle_desk
+        capture_original = self.battle_execution is not None and self.battle_execution.resume_enabled
+        if capture_original and request["rival"]["operation"] == "match":
+            self.battle_execution.admission.require_identity(request)
+        actor, epoch = session.player_id, session.session_epoch
+
+        def invite(match, battle_id):
+            if desk is None:
+                raise ProtocolError("battle_disabled", "This host has disabled new battle challenges")
+            if match.mode == 2:
+                desk.invite(actor, epoch, next(player for player in match.players if player != actor), battle_id)
+            else:
+                own = next(team for team in match.teams if actor in team)
+                other = next(team for team in match.teams if actor not in team)
+                desk.invite_multi(actor, epoch, next(player for player in own if player != actor), tuple(other), battle_id)
+            if capture_original:
+                self.battle_execution.admission.capture(actor, epoch, dict(request, battle_id=battle_id))
+
+        roster = {player: self.sessions[player].display_name for player in self._team_roster()}
+        extension = self._rivals.handle(actor, request["rival"], roster=roster,
+            presences={player: self.sessions[player].presence for player in roster},
+            strengths=self._party_strength, usable=self._party_usable, desk=desk, results=self._battle_results,
+            invite=invite, reservations=self._battle_reservations,
+            admission=self.battle_execution.admission if self.battle_execution is not None else None)
+        pending = [] if desk is None else [challenge_view(view) for view in desk.pending(actor, epoch)]
+        self._battle_reply(session, request, result=pending, rival=extension)
+
+    def _saved_party(self, player):
+        """(level, current HP, is egg) of each saved party Pokemon; [] when unreadable."""
+        from .flash import POKEMON_SIZE, SAVED_PARTY_OFFSET, inspect_flash
+        session = self.sessions.get(player)
+        if session is None or session.closed:
+            return []
+        try:
+            checkpoint = self.store.read_checkpoint(player, session.session_epoch)
+            if checkpoint is None:
+                return []
+            snapshot = inspect_flash(checkpoint.payload, save_profile=checkpoint.save_profile)
+            party = []
+            for index in range(min(snapshot.metadata.party_count, 6)):
+                mon = snapshot.save_block1[SAVED_PARTY_OFFSET + index * POKEMON_SIZE:][:POKEMON_SIZE]
+                if mon[19] & 2:  # occupied
+                    party.append((mon[84], int.from_bytes(mon[86:88], "little"), bool(mon[19] & 4)))
+            return party
+        except Exception:  # noqa: BLE001 - an unreadable save simply has no usable party
+            return []
+
+    def _party_strength(self, player):
+        """The highest level in the last saved party (the rival 2v2 team balance)."""
+        return max((level for level, _hp, egg in self._saved_party(player) if not egg), default=0)
+
+    def _party_usable(self, player):
+        """Whether the last saved party has a Pokemon that can battle (not an Egg, HP above 0)."""
+        return any(hp > 0 and not egg for _level, hp, egg in self._saved_party(player))
 
     @property
     def frontier(self):
@@ -821,6 +890,9 @@ class WorldServer:
             return
         if operation == "pending" and "championship" in request:
             self._championship_challenge(session, request)
+            return
+        if operation == "pending" and "rival" in request:
+            self._rival_challenge(session, request)
             return
         if operation in ("cancel_admission", "admission_handoff"):
             if self.battle_execution is None or not self.battle_execution.resume_enabled:
@@ -892,6 +964,9 @@ class WorldServer:
             if (operation in ("invite", "invite_multi", "invite_ffa") and self._championships is not None
                     and self._championships.claims_battle(battle_id)):
                 raise ProtocolError("championship_match_owned", "Use the Championship page for this reserved match")
+            if (operation in ("invite", "invite_multi", "invite_ffa") and self._rivals is not None
+                    and self._rivals.claims_battle(battle_id)):
+                raise ProtocolError("rival_match_owned", "Use the rival checkpoint page for this reserved match")
             if operation == "invite":
                 view = desk.invite(*actor, request["peer"], battle_id)
             elif operation == "invite_multi":
@@ -1462,6 +1537,8 @@ class WorldServer:
             raise WagerError("no_battle", "that challenge is no longer pending")
         if self._championships is not None and self._championships.claims_battle(battle.battle_id):
             raise WagerError("championship_match", "Championship matches have no wagers")
+        if self._rivals is not None and self._rivals.claims_battle(battle.battle_id):
+            raise WagerError("rival_match", "Rival checkpoint battles have no wagers")
         if battle.mode == 4:
             raise WagerError("coop_gym", "Gym battles together have no wagers")
         if battle.mode == 5:

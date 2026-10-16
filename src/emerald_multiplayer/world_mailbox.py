@@ -51,6 +51,10 @@ ACTION_KINDS = {ACTION_CLAIM: "claim", ACTION_RESULT: "result", ACTION_RELEASE: 
                 ACTION_APPEARANCE: "appearance", ACTION_WALLET: "wallet", ACTION_COOP_GYM: "coop_gym"}
 MAX_MONEY = 999_999
 WALLET_OFFSET = 180  # inbound: u32 wallet seq, s32 wallet delta, u32 teammate token
+RIVAL_OFFSET = 200  # inbound (Update 31, only for engines advertising rival_abi_version 1): RivalRecord
+RIVAL_ABI_VERSION = 1
+RIVAL_VALID, RIVAL_PRESENT, RIVAL_MY_MATCH = 1, 2, 4
+RIVAL_STATES = {"open": 1, "countdown": 2, "battling": 3, "completed": 4}
 
 RESULT_NAMES = {1: "caught", 2: "defeated", 3: "ran", 4: "lost", 5: "cancelled"}
 
@@ -192,6 +196,51 @@ class WorldEventView:
                            self.perfect_ivs, bytes(11))
 
 
+@dataclass(frozen=True)
+class RivalRecord:
+    """Eight bytes: flags, completed mask, cleared mask, here (1..5, 0 none), here state, 3 zero.
+
+    Bit i of a mask is checkpoint i+1 in story order (rival_catalogue.IDS). ``completed`` is the
+    world's checkpoint completion; ``cleared`` is this player's own pass (battle, catch-up or solo).
+    The engine blocks an armed trigger line only when neither bit is set (gate_blocks) and gives
+    the original scene's personal rewards from its own scripts, guarded by its own save flags.
+    """
+    completed: int = 0
+    cleared: int = 0
+    here: int = 0
+    state: int = 0
+    present: bool = False
+    my_match: bool = False
+
+    def __post_init__(self):
+        _bound(self.completed, 0, 31, "rival completed mask")
+        _bound(self.cleared, 0, 31, "rival cleared mask")
+        _bound(self.here, 0, 5, "rival checkpoint")
+        _bound(self.state, 0, 4, "rival state")
+        if (self.here == 0) != (self.state == 0) or type(self.present) is not bool or type(self.my_match) is not bool:
+            raise WorldMailboxError("a rival state needs its checkpoint")
+        if (self.present or self.my_match) and not self.here:
+            raise WorldMailboxError("rival presence needs a checkpoint")
+
+    def pack(self) -> bytes:
+        flags = RIVAL_VALID | (RIVAL_PRESENT if self.present else 0) | (RIVAL_MY_MATCH if self.my_match else 0)
+        return struct.pack("<BBBBB3x", flags, self.completed, self.cleared, self.here, self.state)
+
+    @classmethod
+    def from_reply(cls, reply: dict, actor: str) -> "RivalRecord":
+        """From a validated rival reply (rival_protocol.validate_rival_reply)."""
+        from .rival_catalogue import IDS
+        completed = sum(1 << i for i, row in enumerate(reply["checkpoints"]) if row["completed"])
+        cleared = sum(1 << i for i, row in enumerate(reply["checkpoints"]) if row["cleared"])
+        here = reply["here"]
+        if here is None:
+            return cls(completed, cleared)
+        mine = any(actor in sum(match["teams"], []) and match["state"] in {"ready", "invited"}
+                   for match in (here["session"] or {"matches": ()})["matches"])
+        return cls(completed, cleared, IDS.index(here["checkpoint_id"]) + 1, RIVAL_STATES[here["state"]],
+                   any(row["player_id"] == actor for row in here["present"]), here["state"] == "battling" and mine)
+
+
 def _notice_bytes(text: str) -> bytes:
     data = "".join(c if 32 <= ord(c) < 127 else " " for c in (text or ""))[:NOTICE_CHARS].encode("ascii")
     return data + bytes(NOTICE_CHARS - len(data))
@@ -212,6 +261,7 @@ class WorldInbound:
     wallet_delta: int = 0   # money to add (positive) or collect (negative)
     teammate_token: int = 0  # peer token of the host-formed teammate (0 = none)
     outbreak: tuple | None = None  # (map group, map number) of the running outbreak, for the Town Map marker
+    rival: RivalRecord | None = None  # Update 31; None (all zero) unless the engine advertises rival_abi_version 1
 
     def __post_init__(self):
         _bound(self.world_seconds, 0, _UINT32, "world seconds")
@@ -233,6 +283,8 @@ class WorldInbound:
         if self.teammate_token and self.teammate_token not in [token for token, _ in self.peers]:
             raise WorldMailboxError("the teammate must be one of the published peers")
         _appearance(self.self_appearance)
+        if self.rival is not None and not isinstance(self.rival, RivalRecord):
+            raise WorldMailboxError("the rival record must be a RivalRecord")
         if not isinstance(self.peers, tuple) or len(self.peers) > 3:
             raise WorldMailboxError("at most three world peers")
         tokens = [token for token, _ in self.peers]
@@ -251,6 +303,8 @@ class WorldInbound:
         data += struct.pack("<IiI", self.wallet_seq, self.wallet_delta, self.teammate_token)
         # The engine's reserved bytes: the outbreak's place (valid, group, number, 0, species unused).
         data += struct.pack("<BBBBH2x", 1, *self.outbreak, 0, 0) if self.outbreak is not None else bytes(8)
+        assert len(data) == RIVAL_OFFSET
+        data += self.rival.pack() if self.rival is not None else bytes(8)
         data += bytes(WORLD_INBOUND_SIZE - len(data))
         assert len(data) == WORLD_INBOUND_SIZE
         return data
