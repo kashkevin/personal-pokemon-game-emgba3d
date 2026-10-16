@@ -460,8 +460,8 @@ summary disagrees with a source, the source wins and this file should be correct
 | Friendship | New/Good/Great/Ultra/Best Friends at 0/30/120/300/600 points; points: trade 15, battle together 12, battle against 6, Championship 10, event together 10, Gym together 20, session together 2 (per 30 min together); cap 60 points per pair per real day | [bal] |
 | Lucky | Lucky trade chance 5/8/12/20/30% by friendship level; Lucky IV floor 12 (never lowered, max 31); Lucky Friends chance 10% per eligible Best Friends interaction, 12 h cooldown | [bal] [eng-bal] |
 | Wagers | 100 to 100,000 in-game money | [bal] |
-| Shiny odds and Charm | personal roll 1/4096 (Gen 6); the Charm adds 2 rolls, 3/4096 in total; the Charm costs 9,000 Game Corner coins (coins cap at 9,999) and is guaranteed | [eng-bal] |
-| Mega Stones | 60,000 each, sold by the Mauville City Poké Mart dealer once the player has the Mega Ring (given by Flannery with the 4th badge) | [eng-bal] |
+| Shiny odds and Charm | personal roll 1/4096 (Gen 6); the Charm adds 2 rolls (1/1365.7), the Safari Zone 1 (1/2048.3, with the Charm 1/1024.4); the Charm costs 100,000 Game Corner coins (Update 29; the Coin Case holds up to 999,999) and is guaranteed | [eng-bal] |
+| Mega Stones | 30,000-100,000 Game Corner coins each by Mega form (Update 29), sold by the Mauville City Poké Mart dealer once the player has the Mega Ring (25,000 coins at the Game Corner prize counter) | [eng-bal] |
 
 The code cites `docs/balance-defaults.md` as the written copy of these values; that file
 does not exist [audit]. This section is the written record until it does.
