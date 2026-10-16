@@ -19,19 +19,21 @@ keyboard, and not run on a Windows machine.**
 
 ## Actions (the engine's order)
 
+*Update 30 removed the player-facing 2x speed (the "Fast forward (hold)" key, default Space, and the controller's right trigger); an old `key.fastforward` line in a settings file is ignored, and the launcher drops it the next time it writes the file.*
+
 | Action | Default | Action | Default |
 | --- | --- | --- | --- |
 | A button | Z | Up | Up arrow |
 | B button | X | Down | Down arrow |
 | Start | Enter | Left | Left arrow |
 | Select | \ | Right | Right arrow |
-| L button | A | Fast forward (hold) | Space |
+| L button | A | | |
 | R button | S | | |
 
 ## The file
 
 `game-settings.cfg` (the launcher's file; `pokeemerald.cfg` beside a hand-started game) gets one line per
-**changed** action: `key.a=Q`, `key.fastforward=Left Shift`. The value is SDL's key name (the game reads it with
+**changed** action: `key.a=Q`, `key.b=Left Shift`. The value is SDL's key name (the game reads it with
 `SDL_GetKeyFromName`; case does not matter). No line means the default, so **restoring the defaults removes the
 lines**. Other lines are kept by the launcher. A hand-edited file that binds one key twice stays playable: the
 later action goes back to its default, and if that is taken too, every action does. Unknown names and reserved
@@ -71,7 +73,7 @@ this task.
   randomly damaged files that must always yield conflict-free usable keys) and the Controls-page model tests in
   `test_display_settings` (308 checks).
 * `check-keybinds` (`--selftest-keybinds`): 21 checks through the real event loop with synthetic key events: the
-  defaults, a settings file's bindings, the old key doing nothing, Esc never a button, fast forward on another key,
+  defaults, a settings file's bindings, the old key doing nothing, Esc never a button, an old `key.fastforward` line binding nothing,
   the Ctrl+R chord, and write-back of only the changed lines.
 * App `tests/test_game_controls.py` (file lines, conflicts, reserved keys, the Tk-to-SDL key mapping, the editor)
   and `tests/test_launcher_gui.py::test_game_keys_tab_rebinds_and_saves_the_native_games_keys`.

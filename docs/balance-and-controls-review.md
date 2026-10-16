@@ -15,7 +15,7 @@ simulation (unit tests, selftests, reading the engine's own data); no real play.
   trip, defaults when lines are missing) passes; menus never follow the bindings (their own arrows/Enter/Esc), F10 and the launcher's
   *Restore defaults* always recover a bad binding. Keyboard-only play needs nothing but a keyboard (every game and menu action is a key).
 * Pad (Windows XInput / SDL controller): A→A, **B→B (new)**, X→B, Start, Back→Select, shoulders→L/R, d-pad and left stick→directions,
-  Y→details, right trigger→fast forward. A pad is always combined with the keyboard, so rebinding never disables a pad.
+  Y→details (the right trigger was fast forward until Update 30 removed it). A pad is always combined with the keyboard, so rebinding never disables a pad.
 * Not verified: a real pad on a real Windows machine; rebinding the pad (not a feature).
 
 ## Battle Points and the shop (balance review; recommendations, not changes)

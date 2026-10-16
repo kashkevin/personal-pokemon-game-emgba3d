@@ -20,17 +20,25 @@ class ControlsFileTests(unittest.TestCase):
 
     def test_defaults_are_the_keys_of_every_earlier_build(self):
         self.assertEqual(gc.DEFAULTS, dict(a="Z", b="X", start="Return", select="\\", l="A", r="S", up="Up",
-                                           down="Down", left="Left", right="Right", fastforward="Space"))
+                                           down="Down", left="Left", right="Right"))
         self.assertEqual(len(set(gc.DEFAULTS.values())), len(gc.ACTIONS))
 
     def test_round_trip_writes_only_what_differs_and_keeps_other_lines(self):
         self.path.write_text("volume=7\nresolution=1920x1080\nkey.a=Q\nkey.future=ignored\n")
-        bindings = dict(gc.DEFAULTS, b="E", fastforward="Left Shift", a="Z")
+        bindings = dict(gc.DEFAULTS, b="E", l="Left Shift", a="Z")
         gc.write_controls(self.path, bindings)
         lines = self.path.read_text().splitlines()
         self.assertEqual(lines, ["volume=7", "resolution=1920x1080", "key.future=ignored",
-                                 "key.b=E", "key.fastforward=Left Shift"])   # key.a=Q replaced; Z is the default
+                                 "key.b=E", "key.l=Left Shift"])   # key.a=Q replaced; Z is the default
         self.assertEqual(gc.read_controls(self.path), bindings)
+
+    def test_the_removed_fast_forward_line_is_ignored_and_dropped(self):
+        # Update 30 removed the 2x speed: an old file may still carry its key line
+        self.path.write_text("volume=7\nkey.fastforward=Tab\nkey.a=Q\n")
+        self.assertEqual(gc.read_controls(self.path), dict(gc.DEFAULTS, a="Q"))
+        self.assertNotIn("fastforward", gc.ACTION_IDS)
+        gc.write_controls(self.path, dict(gc.DEFAULTS, a="Q"))
+        self.assertEqual(self.path.read_text().splitlines(), ["volume=7", "key.a=Q"])
 
     def test_restoring_the_defaults_leaves_no_key_lines(self):
         gc.write_controls(self.path, dict(gc.DEFAULTS, a="Q", b="E"))
@@ -58,7 +66,7 @@ class ControlsFileTests(unittest.TestCase):
         self.assertEqual(gc.read_controls(self.path), gc.DEFAULTS)
         self.path.write_text("key.a=X\nkey.b=Z\n")                      # a deliberate swap is kept
         self.assertEqual((gc.read_controls(self.path)["a"], gc.read_controls(self.path)["b"]), ("X", "Z"))
-        for text in ("key.a=Q\nkey.b=Q\nkey.start=Q\n", "key.up=Left\n", "key.fastforward=A\nkey.l=A\n"):
+        for text in ("key.a=Q\nkey.b=Q\nkey.start=Q\n", "key.up=Left\n", "key.l=A\nkey.r=A\n"):
             self.path.write_text(text)
             self.assertEqual(len(set(gc.read_controls(self.path).values())), len(gc.ACTIONS))
 

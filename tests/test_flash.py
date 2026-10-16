@@ -201,7 +201,7 @@ class FlashTests(unittest.TestCase):
                         _rewrite(data, 0, 4, 3664, b"\1"),
                         _rewrite(data, 0, 13, 2400, b"\1"),
                         _rewrite(data, 0, 0, 3972, b"\1"),
-                        _rewrite(data, 0, 7, 3968, b"\1")):
+                        _rewrite(data, 0, 9, 3968, b"\1")):   # SaveBlock3 byte 1044 is past the egg queue (ends at 1012)
             with self.subTest(case=hashlib.sha256(changed).hexdigest()), self.assertRaisesRegex(FlashError, "padding"):
                 inspect_flash(changed)
         # SaveBlock3's four real bytes are not covered by upstream checksum.
@@ -209,6 +209,47 @@ class FlashTests(unittest.TestCase):
         value = inspect_flash(changed)
         self.assertEqual(value.save_block3, b"\1\2\3\4")
         self.assertNotEqual(value.state_sha256, inspect_flash(data).state_sha256)
+
+    # ---- Update 30: the Day Care egg queue lives in SaveBlock3 after the 600-byte ownership profile (bytes 600..1011)
+    @staticmethod
+    def _egg_queue(count: int = 2, *, tamper=None) -> bytes:
+        import zlib
+        eggs = bytearray(5 * 80)
+        for index in range(count):
+            mon = bytearray(_mon(species=172 + index, personality=0x1000 + index)[:80])
+            mon[19] = 2 | 4          # has species, is an Egg
+            eggs[index * 80:(index + 1) * 80] = mon
+        body = struct.pack("<IBBH", 0x45474751, 1, count, 0) + bytes(eggs)
+        if tamper is not None:
+            body = tamper(bytearray(body))
+        return body + struct.pack("<I", zlib.crc32(body))
+
+    @staticmethod
+    def _put_block3(data: bytes, offset: int, payload: bytes) -> bytes:
+        for position in range(len(payload)):
+            absolute = offset + position
+            data = _rewrite(data, 0, absolute // 116, 3968 + absolute % 116, payload[position:position + 1], recompute=False)
+        return data
+
+    def test_egg_queue_is_accepted_when_sealed_and_refused_when_not(self):
+        data = make_flash()
+        self.assertEqual(inspect_flash(data).save_block3, b"\0\0\0\0")             # a save from before: zeros mean no Eggs
+        good = self._put_block3(data, 600, self._egg_queue(2))
+        inspect_flash(good)                                                    # two waiting Eggs
+        inspect_flash(self._put_block3(data, 600, self._egg_queue(5)))         # a full queue
+        inspect_flash(self._put_block3(data, 600, self._egg_queue(0)))         # sealed and empty
+        # legacy (presence) layout may carry it too, and the ownership profile bytes stay exactly the profile
+        self.assertEqual(len(inspect_flash(good).save_block3), 4)
+        for name, changed in (
+            ("count above five", self._put_block3(data, 600, self._egg_queue(2, tamper=lambda b: (b.__setitem__(5, 6), b)[1]))),
+            ("crc", self._put_block3(data, 600, self._egg_queue(2)[:-1] + b"\0")),
+            ("a stray byte after the queue", self._put_block3(good, 1012, b"\1")),
+            ("an unused slot with data", self._put_block3(data, 600, self._egg_queue(1, tamper=lambda b: (b.__setitem__(8 + 80 * 3, 1), b)[1]))),
+            ("a byte between the profile and the queue", self._put_block3(data, 100, b"\1")),
+            ("not an Egg", self._put_block3(data, 600, self._egg_queue(1, tamper=lambda b: (b.__setitem__(8 + 19, 2), b)[1]))),
+        ):
+            with self.subTest(case=name), self.assertRaises(FlashError):
+                inspect_flash(changed)
 
     def test_map_and_count_bounds_even_when_sector_checksum_is_recomputed(self):
         data = make_flash()

@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from datetime import date
 import hashlib
 import struct
+import zlib
 
 LAYOUT_ID = "rhh-1.17.1-bb1093-presence-v1"
 OWNERSHIP_LAYOUT_ID = "rhh-1.17.1-bb1093-ownership-v1"
@@ -31,6 +32,13 @@ SAVE_BLOCK_1_SIZE = 15568
 SAVE_BLOCK_2_SIZE = 3884
 SAVE_BLOCK_3_SIZE = 4
 OWNERSHIP_SAVE_BLOCK_3_SIZE = 600
+# Update 30: the PC game's SaveBlock3 carries the Day Care egg queue after the 600-byte ownership profile (the profile itself is
+# unchanged): magic "QGGE", version, count, five whole Egg boxed Pokemon, CRC-32. All zeros (a save from before) means no Eggs.
+EGG_QUEUE_OFFSET = OWNERSHIP_SAVE_BLOCK_3_SIZE
+EGG_QUEUE_CAPACITY = 5
+EGG_QUEUE_SIZE = 4 + 1 + 1 + 2 + EGG_QUEUE_CAPACITY * 80 + 4
+EGG_QUEUE_MAGIC = 0x45474751
+SAVE_BLOCK_3_FULL_SIZE = EGG_QUEUE_OFFSET + EGG_QUEUE_SIZE
 STORAGE_SIZE = 34144
 PARTY_SIZE = 6
 POKEMON_SIZE = 100
@@ -194,8 +202,8 @@ def _inspect_bank(flash: bytes, bank_index: int, save_profile: str = LAYOUT_ID) 
             raise FlashError("save bank section checksum mismatch")
         if any(sector[size:SECTOR_DATA_SIZE]):
             raise FlashError("save section padding does not match the pinned layout")
-        block3_limit = OWNERSHIP_SAVE_BLOCK_3_SIZE if save_profile == OWNERSHIP_LAYOUT_ID else SAVE_BLOCK_3_SIZE
-        chunk_used = max(0, min(block3_limit - section_id * 116, 116))
+        # Both profiles may carry the egg queue (offset 600): bytes below it are checked as a whole after the bank is assembled.
+        chunk_used = max(0, min(SAVE_BLOCK_3_FULL_SIZE - section_id * 116, 116))
         if any(sector[SECTOR_DATA_SIZE + chunk_used:4084]):
             raise FlashError("SaveBlock3 padding does not match the pinned layout")
         sections[section_id] = sector
@@ -207,13 +215,39 @@ def _inspect_bank(flash: bytes, bank_index: int, save_profile: str = LAYOUT_ID) 
     if counter % 2 != bank_index:
         raise FlashError("save counter parity does not match its bank")
     size = SAVE_BLOCK_3_SIZE
+    full_block3 = b"".join(sector[3968:4084] for sector in sections)[:SAVE_BLOCK_3_FULL_SIZE]  # type: ignore[index]
+    _check_egg_queue(full_block3[EGG_QUEUE_OFFSET:])
+    if save_profile != OWNERSHIP_LAYOUT_ID and any(full_block3[SAVE_BLOCK_3_SIZE:EGG_QUEUE_OFFSET]):
+        raise FlashError("SaveBlock3 padding does not match the pinned layout")
     if save_profile == OWNERSHIP_LAYOUT_ID:
-        block3 = b"".join(sector[3968:4084] for sector in sections)[:OWNERSHIP_SAVE_BLOCK_3_SIZE]  # type: ignore[index]
+        block3 = full_block3[:OWNERSHIP_SAVE_BLOCK_3_SIZE]
         if any(block3[SAVE_BLOCK_3_SIZE:]):
             from .ownership import _parse_metadata
             _parse_metadata(block3)
             size = OWNERSHIP_SAVE_BLOCK_3_SIZE
     return _Bank(bank_index, counter, next(iter(rotations)), tuple(sections), size)  # type: ignore[arg-type]
+
+
+def _check_egg_queue(queue: bytes) -> None:
+    """The Day Care egg queue (Update 30): zeros, or a sealed list of whole Eggs. Never repaired, only refused."""
+    if len(queue) != EGG_QUEUE_SIZE:
+        raise FlashError("the egg queue has the wrong size")
+    if not any(queue):
+        return
+    magic, version, count, reserved = struct.unpack_from("<IBBH", queue)
+    crc = struct.unpack_from("<I", queue, EGG_QUEUE_SIZE - 4)[0]
+    if (magic != EGG_QUEUE_MAGIC or version != 1 or count > EGG_QUEUE_CAPACITY or reserved != 0
+            or crc != zlib.crc32(queue[:EGG_QUEUE_SIZE - 4])):
+        raise FlashError("the egg queue is damaged or unsupported")
+    for index in range(EGG_QUEUE_CAPACITY):
+        egg = queue[8 + index * BOX_POKEMON_SIZE:8 + (index + 1) * BOX_POKEMON_SIZE]
+        if index >= count:
+            if any(egg):
+                raise FlashError("an unused egg queue slot is not empty")
+            continue
+        _box_species(egg, f"waiting egg {index}")
+        if not egg[19] & 2 or not egg[19] & 4:
+            raise FlashError(f"waiting egg {index} is not an Egg")
 
 
 def _inspect_special_sectors(flash: bytes) -> None:

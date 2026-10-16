@@ -1,7 +1,7 @@
 """The native PC game's keyboard bindings in the launcher's game settings file.
 
 The game (engine ``src/platform/keybinds.c``) reads and writes ``key.<action>=<SDL key name>`` lines
-of the same ``game-settings.cfg`` that holds the display settings: ``key.a=Z``, ``key.fastforward=Space``.
+of the same ``game-settings.cfg`` that holds the display settings: ``key.a=Z``, ``key.start=Return``.
 A binding is written only when it differs from the default, so "restore defaults" is simply no lines.
 The launcher changes them only while no game is running and keeps every other line exactly as the
 game wrote it. While playing, the 3D game's F10 menu has a Controls page for the same bindings.
@@ -20,7 +20,8 @@ from pathlib import Path
 MAX_FILE_BYTES = 65536
 
 # (id, the line's name, what the screens call it, the default key's SDL name). The order is the
-# engine's (keybinds.c): the first ten are GBA buttons, the last is held for the speed-up.
+# engine's (keybinds.c): all ten are GBA buttons. (There was an eleventh, "fast forward", until Update 30 removed the
+# 2x speed: an old file's key.fastforward line is dropped the next time the launcher writes the file.)
 ACTIONS = (
     ("a", "A button", "Z"),
     ("b", "B button", "X"),
@@ -32,8 +33,8 @@ ACTIONS = (
     ("down", "Down", "Down"),
     ("left", "Left", "Left"),
     ("right", "Right", "Right"),
-    ("fastforward", "Fast forward (hold)", "Space"),
 )
+REMOVED_ACTION_IDS = ("fastforward",)
 ACTION_IDS = tuple(action[0] for action in ACTIONS)
 LABELS = {action[0]: action[1] for action in ACTIONS}
 DEFAULTS = {action[0]: action[2] for action in ACTIONS}
@@ -124,6 +125,12 @@ def _line_action(line):
     return key[4:] if key.startswith("key.") and key[4:] in ACTION_IDS and "=" in line else None
 
 
+def _line_removed(line):
+    """A line of an action that no longer exists (the old fast-forward key): dropped when the file is written."""
+    key = line.partition("=")[0].lower()
+    return key.startswith("key.") and key[4:] in REMOVED_ACTION_IDS and "=" in line
+
+
 def resolve(bindings):
     """The engine's rule for a file that binds one key twice (``Keybinds_Finish``): the later action
     goes back to its default; if that is taken too, everything goes back to the defaults."""
@@ -168,7 +175,7 @@ def write_controls(path, bindings):
     (temporary file, then replace). ``bindings`` must be complete and conflict-free."""
     validate(bindings)
     path = Path(path)
-    kept = [line for line in _lines(path) if _line_action(line) is None]
+    kept = [line for line in _lines(path) if _line_action(line) is None and not _line_removed(line)]
     changed = [f"key.{action}={canonical_key(bindings[action])}" for action in ACTION_IDS
                if canonical_key(bindings[action]) != DEFAULTS[action]]
     data = ("\n".join(kept + changed) + "\n").encode("utf-8") if kept or changed else b""
