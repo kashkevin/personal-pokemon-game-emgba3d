@@ -703,3 +703,18 @@ Checks: GBA ROM hash unchanged (`f214735b…3387`); 22 PC selftest targets 0 fai
 tkinter: pass under a Python that has it). **Run 38915559897** (`windows-package`, full, app `afc382e`, engine pinned `1da67097`, label "Update 27 app afc382e engine 1da67097"): success; packaged 3D `pokeemerald-mp-diorama.exe` sha256
 `6172e11a…5725` and Classic 2D `pokeemerald-mp.exe` `7486101a…9df3` equal the engine job's build; launcher stayed up 20 s; graphics-mode check 16/16 (the runner has no GPU: 3D unsupported, as designed). Artifact
 **EmeraldTogether-windows-full** ID 12052684712, 63,192,983 bytes, zip sha256 `5f25173b…f469`, expires 2026-10-23; no ROM, no sprite pack. The Update 26 artifact (12026995145) is untouched. bios.c licensing unresolved. Not run on a real PC.
+
+## Update 28 — dialogue bug 5 and the unified main menu
+
+`docs/update28-dialogue-and-menu.md`, screenshots in `docs/update28-screenshots/`. Engine `claude/dev-update28-engine`, app `claude/dev-update28`.
+**Bug 5** (dialogue stays after A; two or three more presses): script, text printer and drawn text agree in every traced run (3D and Classic 2D); the cause measured is the input path:
+the window loop gave the game the keys *held at the frame boundary*, so a tap that began and ended between two frames was lost. With real SDL key events pushed by a thread
+(`PKMN_DEBUG_TAPS`, 60 taps) the 3D build lost 34 of 60 taps of 15 ms and 20 of 60 of 30 ms (Classic 6 and 1) on the software display; after the fix none in either. Fix:
+`src/platform/key_queue.c` (every change queued in order, one step per game frame; Windows pad polled between frames); the 3D message box also starts the next page when the printer leaves
+its wait at a `\p`. Dialogue text, speed and scripts unchanged; GBA ROM hash unchanged. Checks: `test_key_queue.c`, `--selftest-keybinds` (+6), `input_tap_check.py`, `dialogue_check.py`
+(boy, rescue; 3D and 2D). **Feature 6:** one launcher window: Continue Adventure, My Worlds, Host Multiplayer, Join Friend, Settings, Exit Game; setup pages embedded
+(`SetupWindow(container=)`), no pop-up; Back to the menu refused while a game runs; Continue uses `launcher-recent.json` (no credentials); worlds listed read-only; audio settings added;
+Internet host asks first and says port forwarding is the host's job, no relay; join is by invitation file only (no invite codes, no discovery). No protocol/server/world/save change.
+Local checks: GBA ROM `f214735b…3387`; 22 PC selftest targets, `check-diorama`, Update 26's `battle_end_check`, `first_battle_check` (now takes its pictures at game frames: it failed on a
+fast 4-core run and passed on one core before that change), `party_menu_check`; MinGW objects of the changed files compile; app suite exit 0 (49 skipped: 48 need Lua 5.3+, 1 needs private
+save paths; skips are not passes); Tk GUI tests under xvfb. Simulation only; nothing run on a real PC or network.
