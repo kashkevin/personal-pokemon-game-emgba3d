@@ -718,3 +718,8 @@ Internet host asks first and says port forwarding is the host's job, no relay; j
 Local checks: GBA ROM `f214735b…3387`; 22 PC selftest targets, `check-diorama`, Update 26's `battle_end_check`, `first_battle_check` (now takes its pictures at game frames: it failed on a
 fast 4-core run and passed on one core before that change), `party_menu_check`; MinGW objects of the changed files compile; app suite exit 0 (49 skipped: 48 need Lua 5.3+, 1 needs private
 save paths; skips are not passes); Tk GUI tests under xvfb. Simulation only; nothing run on a real PC or network.
+
+**Update 28 integrated.** Fast-forwarded into the default branches (no conflicts, no force-push): engine `claude/emeraldtogether-combined` = `5aaf2ba2e082995022bf0db3d3b43e1c2ec5ef1b`, app `claude/emeraldtogether-combined-app` = `544c889` (+ this note).
+Run **38945766332** (`windows-package`, full, app `544c889`, engine pinned `5aaf2ba2`, `expected_rom_sha256` `f214735b…3387`): success; engine job 22 min; Windows job: package audit (190 archive members, 130 hashed files, no .gba/.sav/.sqlite3/.pem/.key),
+packaged 3D `pokeemerald-mp-diorama.exe` sha256 `c8b2bc5c…28ac` and Classic 2D `pokeemerald-mp.exe` `334df799…dadf8` equal the engine job's build, frozen `EmeraldTogether.exe` stayed up 20 s (its screenshot is in the artifact), graphics-mode check 16/16 (the runner has no GPU: 3D reported unsupported, as designed).
+Artifact **EmeraldTogether-windows-full** ID 12067368786, 63,225,464 bytes, zip sha256 `efd90f79…1a79`, expires 2026-10-23; no ROM, no sprite pack. Earlier artifacts (12026995145, 12052684712) untouched. The frozen menu's pages were not clicked through on Windows. bios.c licensing unresolved.
