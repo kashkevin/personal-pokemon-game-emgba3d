@@ -318,10 +318,11 @@ class WidgetTests(unittest.TestCase):
 
     def test_footer_is_visible_at_default_and_shorter_actual_tk_sizes(self):
         window = LauncherWindow(self.root)
+        window.show_view("session")   # Update 28: the recovery actions live on the page of the running game
         window.message.set(status_text("trade_recovery_close"))
         window.restart_host_button.pack(side="left", padx=(12, 0))
         self.root.deiconify()
-        for size in ("740x810", "660x730"):
+        for size in ("800x780", "700x680"):
             self.root.geometry(size); self.root.update(); self.root.update_idletasks()
             left, top = self.root.winfo_rootx(), self.root.winfo_rooty()
             width, height = self.root.winfo_width(), self.root.winfo_height()

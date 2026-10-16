@@ -123,3 +123,35 @@ def write_display_settings(path, *, resolution, mode, quality):
         os.fsync(target.fileno())
     os.replace(temporary, path)
     return read_display_settings(path)
+
+
+# ---- Audio: the game's own volume= and cryVolume= lines (0 to 10 each; the game's F10 menu changes the same ones)
+DEFAULT_VOLUME = 10
+DEFAULT_CRY_VOLUME = 5
+
+
+def read_audio_settings(path):
+    """(music/effects volume, Pokemon cry volume), each 0-10; the game's defaults where the file says nothing."""
+    values = dict(volume=DEFAULT_VOLUME, cry_volume=DEFAULT_CRY_VOLUME)
+    for line in _lines(path):
+        key, _, value = line.strip().partition("=")
+        if key in ("volume", "cryVolume") and value.isdigit() and int(value) <= 10:
+            values["volume" if key == "volume" else "cry_volume"] = int(value)
+    return values
+
+
+def write_audio_settings(path, *, volume, cry_volume):
+    """Write the two volumes; every other line of the file stays as the game wrote it. Atomic."""
+    if (type(volume) is not int or type(cry_volume) is not int or not 0 <= volume <= 10 or not 0 <= cry_volume <= 10):
+        raise ValueError("invalid audio settings")
+    path = Path(path)
+    kept = [line for line in _lines(path) if not line.strip().startswith(("volume=", "cryVolume="))]
+    data = ("\n".join(kept + [f"volume={volume}", f"cryVolume={cry_volume}"]) + "\n").encode("utf-8")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(path.name + ".tmp")
+    with temporary.open("wb") as target:
+        target.write(data)
+        target.flush()
+        os.fsync(target.fileno())
+    os.replace(temporary, path)
+    return read_audio_settings(path)

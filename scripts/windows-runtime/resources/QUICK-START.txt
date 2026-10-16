@@ -14,9 +14,28 @@ candidate 9 for worlds created with that release. Installing the new game does
 not convert or repin an old world or rewrite its Pokemon. Use a new world and
 newly prepared characters for this candidate. See RELEASE-LIMITS.txt.
 
+The main menu
+
+Emerald Together opens on one menu in one window:
+  Continue Adventure   starts the world or invitation you played last, with the
+                       same address and choices (it says what it will start)
+  My Worlds            your worlds; create one, set up the characters in it,
+                       or choose one to host
+  Host Multiplayer     start one of your worlds for up to three friends
+  Join Friend          open your friend's invitation file and join
+  Settings             3D or Classic 2D, resolution and quality, sound, the game's
+                       keys, game files (import / check) and launcher text size
+  Exit Game            close the launcher
+Mouse, or Up/Down + Enter, or the first letter of a choice; Esc goes back.
+Joining is by invitation file only: this version has no invite codes and no
+automatic discovery of games. The menu does not read a game controller; the
+controller works in the game once it opens.
+Back to the main menu is available when no game is running. While a game runs
+its page shows saving and recovery; close the game window first.
+
 Install your own game once
 
-1. In an import-enabled package, choose "Import my game…" and select your
+1. In an import-enabled package, open Settings, Game files, choose "Import my game…" (first launch: the top menu choice, "Set Up Your Game", opens it) and select your
    matching original Emerald .gba dump or ZIP containing exactly one .gba.
    Archives are read in memory; your original dump/archive is not changed.
 2. Wait for "Game installed". The launcher validates the original, patch and
@@ -30,7 +49,7 @@ Install your own game once
 
 Create the host world
 
-1. Choose "Set up a world or character…", then "I'm hosting".
+1. Choose My Worlds, then "Create a new world…" (the "I'm hosting" page).
 2. Enter the host name and up to three friends' names. Choose the numeric
    address friends will reach and the game port before creating the world.
    127.0.0.1 works only on this PC. For friends on your home network, use the
@@ -79,11 +98,13 @@ Prepare a character on either player's PC
 
 Host and join
 
-Host: close setup, choose the world on the Host Game tab, enter this PC's
-local address, and choose Host Game. Leave the host running while friends play.
+Host: from the main menu choose Host Multiplayer, pick the world, enter this PC's
+local address ("Use this PC's network address" fills it in) and choose Host Game.
+Leave the host running while friends play. Next time, Continue Adventure does this
+in one step.
 
-Friend: open the same release, choose Join Game, select your own invitation,
-then choose Join Game. "Check connection" checks the invited encrypted
+Friend: open the same release, choose Join Friend, select your own invitation (recent
+ones are listed), then choose Join Game. "Check connection" checks the invited encrypted
 endpoint; it does not log you in or prove an Internet gameplay session.
 
 For Internet hosting, the invitation needs the host's public numeric address.

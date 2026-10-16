@@ -23,7 +23,17 @@ from .server import is_local_address
 
 
 _TEXT = {
-    "idle": "Choose Host Game or Join Game to begin.",
+    "idle": "Choose Continue Adventure, or open My Worlds, Host Multiplayer or Join Friend.",
+    "back_busy": "Close the game window first (or wait for the startup to finish), then return to the main menu.",
+    "game_not_installed": "Your game is not installed on this PC yet. Open Settings, Game files, and choose Import my game.",
+    "game_found": "The game files are in place. Check installed game files verifies them against this release.",
+    "continue_none": "There is nothing to continue yet. Create or choose a world in My Worlds, or join a friend.",
+    "continue_missing": "The world or invitation you last played could not be found. Choose one in My Worlds or Join Friend.",
+    "exit_busy": "A game or startup is still running. Closing now asks it to stop; its save and recovery files are kept. Close anyway?",
+    "internet_confirm": "Internet connections let anyone with your invitation and your public address reach this PC. Your router must forward the game's TCP port to it, and your firewall must allow it; this launcher does not set those up and there is no relay server. Host with Internet connections turned on?",
+    "lan_found": "Filled in this PC's network address. Friends on your network use it in their invitations.",
+    "lan_found_many": "Filled in one of this PC's network addresses (the likeliest). Change it if friends use a different network.",
+    "lan_none": "No network address was found. Connect to your network, or type this PC's address.",
     "installation": "Checking your installed game…",
     "authentication": "Connecting to the host…",
     "ready": "Your character is ready.",
@@ -43,7 +53,7 @@ _TEXT = {
     "selection_required": "Choose your world or friend invitation first.",
     "address_invalid": "Enter this PC’s local IPv4 or IPv6 address, such as 192.168.1.20.",
     "private_storage": "Your private application folder could not be opened.",
-    "enrollment_required": "This character needs first-time setup. Open Set up a world or character to enroll it.",
+    "enrollment_required": "This character needs first-time setup. Open My Worlds, then Set up characters, to enroll it.",
     "pending_battle": "An interrupted battle needs recovery before this character can open.",
     "battle_recovery_unavailable": "The host could not check interrupted battles. Use the matching host version before opening this character.",
     "recovery_required": "Your character needs recovery before the game can open. Its private files have been retained.",
@@ -104,7 +114,7 @@ _TEXT = {
     "settings_unavailable": "Your character's autosave setting could not be saved or read.",
     "settings_busy": "Finishing the previous settings change…",
     "importing": "Checking your own game dump and installing this release…",
-    "imported": "Game installed. Choose Host Game or Join Game.",
+    "imported": "Game installed. Choose Continue Adventure, or open My Worlds.",
     "import_unavailable": "Game import is unavailable: this development package has no release patch.",
     "wait_for_import": "Finishing the game import before closing…",
     "import_file": "The selected game dump or installed patch could not be read.",
@@ -870,6 +880,11 @@ class LauncherWindow:
         self.graphics_gate = GraphicsGate(
             root, self.graphics_preference, lambda: self.worker.installation.bundle,
             message=lambda code: self.message.set(status_text(code)), busy=lambda value: self._enable(not value))
+        from .launcher_recent import RecentStore
+        self.recent = RecentStore(getattr(worker, "private_root", None))
+        self.worlds = []
+        self._scanning = False
+        self._scan_results = queue.Queue()
         self.closing = False
         self.setup_window = None
         self.close_after_setup = False
@@ -877,90 +892,214 @@ class LauncherWindow:
         self.connection_details = {"host": None, "join": None}
         self.detail_labels, self.detail_feedback, self.copy_buttons = {}, {}, {}
         self.controls = []
+        self.version = version
         root.title("Emerald Together")
-        root.minsize(660, 730)
-        root.geometry("740x810")
+        root.minsize(700, 680)
+        root.geometry("800x780")
         root.protocol("WM_DELETE_WINDOW", self.close)
         root.report_callback_exception = lambda *_: self.message.set(status_text("session_failed"))
-        body = ttk.Frame(root, padding=24)
-        body.pack(fill="both", expand=True)
-        ttk.Label(body, text="Emerald Together", font=("Segoe UI", 25, "bold")).pack(anchor="w")
-        ttk.Label(body, text="Your world. Up to four players.", font=("Segoe UI", 11)).pack(anchor="w", pady=(2, 6))
-        ttk.Label(body, text=version + " · Private multiplayer preview", foreground="#52635c").pack(anchor="w", pady=(0, 18))
-        self.import_button = ttk.Button(body, text="Import my game…", command=self.import_game)
-        self.import_button.pack(anchor="w", pady=(0, 6))
-        self.installation_button = ttk.Button(body, text="Check installed game files", command=self.check_installation)
-        self.installation_button.pack(anchor="w", pady=(0, 6))
-        self.controls.append(self.installation_button)
-        if getattr(worker, "importer", None) is None:
-            self.import_button.configure(state="disabled")
-            ttk.Label(body, text=status_text("import_unavailable"), wraplength=640).pack(anchor="w", pady=(0, 12))
-        else:
-            ttk.Label(body, text="Select your own game dump once to install this release.",
-                      wraplength=640).pack(anchor="w", pady=(0, 12))
-        self.setup_button = ttk.Button(body, text="Set up a world or character…", command=self.open_setup)
-        self.setup_button.pack(anchor="w", pady=(0, 12))
-        self.controls.append(self.setup_button)
-        # Reserve the status/actions before the expandable notebook. Individual
-        # pages already scroll; their requested height must not hide recovery.
-        footer = ttk.Frame(body)
-        footer.pack(side="bottom", fill="x")
-        tabs = ttk.Notebook(body)
-        tabs.pack(fill="both", expand=True)
-        self.tabs = tabs
+        from .launcher_display import scrollable_frame
+        from .launcher_menu import ConfirmBar, MainMenu, PageHeader, apply_theme
+        apply_theme(root)
+        self.message = tk.StringVar(value=status_text("idle" if worker else "package_missing"))
+        # One status line under every page: what the launcher is doing, or why it refused.
+        bottom = ttk.Frame(root)
+        bottom.pack(side="bottom", fill="x")
+        ttk.Separator(bottom).pack(fill="x")
+        self.status_label = ttk.Label(bottom, textvariable=self.message, wraplength=730, padding=(24, 8))
+        self.status_label.pack(fill="x", anchor="w")
+        self.stack = ttk.Frame(root)
+        self.stack.pack(fill="both", expand=True)
+        self.views, self.page_headers = {}, {}
+        self.current_view = "home"
+
+        def view(name, title):
+            frame = ttk.Frame(self.stack)
+            frame.place(relx=0, rely=0, relwidth=1, relheight=1)
+            self.views[name] = frame
+            self.page_headers[name] = PageHeader(frame, title, self.go_home)
+            return frame
+
+        # ---- Main menu
+        self.menu = MainMenu(self.stack, {
+            "continue": self.continue_adventure, "worlds": lambda: self.show_view("worlds"), "host": lambda: self.show_view("host"),
+            "join": lambda: self.show_view("join"), "settings": lambda: self.show_view("settings"), "exit": self.exit_game},
+            version=version)
+        self.menu.frame.place(relx=0, rely=0, relwidth=1, relheight=1)
+        self.views["home"] = self.menu.frame
+
+        # ---- My Worlds
+        worlds = view("worlds", "My Worlds")
+        page = ttk.Frame(worlds, padding=(24, 16))
+        page.pack(fill="both", expand=True)
+        ttk.Label(page, text=("Each world holds up to four characters: the host's and three friends'. Choose one to host or set up, "
+                              "or create a new one. Worlds and characters stay on this PC; nothing here deletes or changes them."),
+                  wraplength=700, style="Muted.TLabel").pack(anchor="w", pady=(0, 10))
+        columns = ("players", "status")
+        tree = ttk.Treeview(page, columns=columns, height=7, selectmode="browse")
+        tree.heading("#0", text="World")
+        tree.heading("players", text="Players")
+        tree.heading("status", text="Status / last played")
+        tree.column("#0", width=300)
+        tree.column("players", width=70, anchor="center")
+        tree.column("status", width=250)
+        tree.pack(fill="x")
+        tree.bind("<<TreeviewSelect>>", lambda _: self._world_selected())
+        tree.bind("<Double-1>", lambda _: self.host_selected_world())
+        self.world_tree = tree
+        self.world_empty = ttk.Label(page, text="", wraplength=700, style="Muted.TLabel")
+        self.world_empty.pack(anchor="w", pady=(6, 8))
+        row = ttk.Frame(page)
+        row.pack(fill="x", pady=(4, 0))
+        self.world_host_button = ttk.Button(row, text="Host this world", style="Accent.TButton", command=self.host_selected_world,
+                                            state="disabled")
+        self.world_host_button.pack(side="left")
+        self.world_setup_button = ttk.Button(row, text="Set up characters…", state="disabled",
+                                             command=lambda: self.open_setup(world=self._selected_world()))
+        self.world_setup_button.pack(side="left", padx=8)
+        self.world_new_button = ttk.Button(row, text="Create a new world…", command=lambda: self.open_setup(role="host"))
+        self.world_new_button.pack(side="left")
+        self.setup_button = self.world_new_button
+        self.controls.append(self.world_new_button)
+        row = ttk.Frame(page)
+        row.pack(fill="x", pady=(8, 0))
+        self.world_friend_button = ttk.Button(row, text="Prepare a character to join a friend…", command=lambda: self.open_setup(role="friend"))
+        self.world_friend_button.pack(side="left")
+        self.controls.append(self.world_friend_button)
+        browse_world = ttk.Button(row, text="Choose a world file…", command=lambda: self.browse("host", then="worlds"))
+        browse_world.pack(side="left", padx=8)
+        self.controls.append(browse_world)
+        ttk.Button(row, text="Refresh", command=self._rescan_worlds).pack(side="left")
+        ttk.Label(page, wraplength=700, style="Muted.TLabel", text=(
+            "New characters are made in the game itself (New Game, choose a starter, Save), then the host approves them. "
+            "Setup walks you through each step and keeps your original saves untouched.")).pack(anchor="w", pady=(16, 0))
+        self.setup_view = view("setup", "World & character setup")
+        self.setup_host = ttk.Frame(self.setup_view)
+        self.setup_host.pack(fill="both", expand=True)
+
+        # ---- Host Multiplayer and Join Friend
         self.address = tk.StringVar(value="127.0.0.1")
         self.internet = tk.BooleanVar(value=False)
         for mode, title, description in (
-            ("host", "Host Game", "Open your existing private world on this PC."),
-            ("join", "Join Game", "Open the personal invitation your host gave you."),
+            ("host", "Host Multiplayer", "Start one of your worlds on this PC. Friends join it with their own invitation files."),
+            ("join", "Join Friend", "Open the personal invitation file your host gave you, then join their world."),
         ):
-            container = ttk.Frame(tabs)
-            tabs.add(container, text=title)
-            canvas = tk.Canvas(container, highlightthickness=0, height=290)
-            scrollbar = ttk.Scrollbar(container, orient="vertical", command=canvas.yview)
-            scrollbar.pack(side="right", fill="y")
-            canvas.pack(side="left", fill="both", expand=True)
-            canvas.configure(yscrollcommand=scrollbar.set)
-            page = ttk.Frame(canvas, padding=20)
-            item = canvas.create_window((0, 0), window=page, anchor="nw")
-            page.bind("<Configure>", lambda _, c=canvas: c.configure(scrollregion=c.bbox("all")))
-            canvas.bind("<Configure>", lambda event, c=canvas, i=item: c.itemconfigure(i, width=event.width))
-            ttk.Label(page, text=description, wraplength=570).pack(anchor="w", pady=(0, 14))
+            frame = view(mode, title)
+            container = ttk.Frame(frame)
+            container.pack(fill="both", expand=True)
+            page = scrollable_frame(container, padding=24)
+            ttk.Label(page, text=description, wraplength=700).pack(anchor="w", pady=(0, 12))
             label = tk.StringVar(value="No world selected" if mode == "host" else "No invitation selected")
             setattr(self, mode + "_label", label)
-            browse = ttk.Button(page, text="Choose world…" if mode == "host" else "Choose invitation…",
-                                command=lambda m=mode: self.browse(m))
-            browse.pack(anchor="w")
-            self.controls.append(browse)
-            ttk.Label(page, textvariable=label, wraplength=570).pack(anchor="w", pady=(7, 16))
             if mode == "host":
+                ttk.Label(page, text="World").pack(anchor="w")
+                self.host_choice = tk.StringVar()
+                chooser = ttk.Combobox(page, textvariable=self.host_choice, state="readonly", width=58, values=())
+                chooser.pack(anchor="w", pady=(4, 4))
+                chooser.bind("<<ComboboxSelected>>", lambda _: self._host_choice_changed())
+                self.host_chooser = chooser
+                self.controls.append(chooser)
+                browse = ttk.Button(page, text="Choose a world file…", command=lambda: self.browse("host"))
+                browse.pack(anchor="w")
+                self.controls.append(browse)
+                ttk.Label(page, textvariable=label, wraplength=700, style="Muted.TLabel").pack(anchor="w", pady=(6, 14))
                 ttk.Label(page, text="Host address on this PC").pack(anchor="w")
-                address = ttk.Entry(page, textvariable=self.address, width=32)
-                address.pack(anchor="w", pady=(4, 5))
+                addr_row = ttk.Frame(page)
+                addr_row.pack(anchor="w", pady=(4, 5))
+                address = ttk.Entry(addr_row, textvariable=self.address, width=32)
+                address.pack(side="left")
                 self.controls.append(address)
-                ttk.Label(page, text="Use your Wi-Fi address for friends on your network.\n127.0.0.1 is for this PC only.",
-                          wraplength=570).pack(anchor="w")
+                lan = ttk.Button(addr_row, text="Use this PC's network address", command=self.use_lan_address)
+                lan.pack(side="left", padx=8)
+                self.controls.append(lan)
+                ttk.Label(page, text="Use your Wi-Fi/LAN address for friends on your network.\n127.0.0.1 is for this PC only (playing alone).",
+                          wraplength=700, style="Muted.TLabel").pack(anchor="w")
                 internet = ttk.Checkbutton(page, text="Allow Internet connections", variable=self.internet)
                 internet.pack(anchor="w", pady=(10, 0))
                 self.controls.append(internet)
+                ttk.Label(page, wraplength=700, style="Muted.TLabel", text=(
+                    "Internet play needs your router to forward the game's TCP port to this PC and your firewall to allow it, and the "
+                    "invitation must carry your public address. This launcher does not set up port forwarding and there is no relay "
+                    "server: friends outside your network cannot connect until you do that.")).pack(anchor="w", pady=(2, 0))
+                self.host_confirm = ConfirmBar(page)
             else:
-                ttk.Label(page, text="Your invitation supplies the host and your character.\nKeep it private; each friend has a separate invitation.",
-                          wraplength=570).pack(anchor="w", pady=(0, 15))
+                browse = ttk.Button(page, text="Choose invitation…", command=lambda: self.browse("join"))
+                browse.pack(anchor="w")
+                self.controls.append(browse)
+                ttk.Label(page, textvariable=label, wraplength=700, style="Muted.TLabel").pack(anchor="w", pady=(6, 8))
+                ttk.Label(page, text="Recent invitations").pack(anchor="w")
+                self.recent_choice = tk.StringVar()
+                recent = ttk.Combobox(page, textvariable=self.recent_choice, state="readonly", width=58, values=())
+                recent.pack(anchor="w", pady=(4, 8))
+                recent.bind("<<ComboboxSelected>>", lambda _: self._recent_invitation_changed())
+                self.recent_chooser = recent
+                self.controls.append(recent)
+                ttk.Label(page, wraplength=700, style="Muted.TLabel", text=(
+                    "Your invitation file supplies the host's address and your character. Keep it private; each friend has their own. "
+                    "This version joins by invitation file only: there are no invite codes and no automatic discovery of games.")).pack(anchor="w", pady=(0, 10))
                 probe = ttk.Button(page, text="Check connection", command=self.check_connection)
                 probe.pack(anchor="w", pady=(0, 4))
                 self.controls.append(probe)
-            action = ttk.Button(page, text=title, command=lambda m=mode: self.start(m))
+            action = ttk.Button(page, text="Host Game" if mode == "host" else "Join Game", style="Accent.TButton",
+                                command=(self.begin_host if mode == "host" else lambda: self.start("join")))
             action.pack(anchor="w", pady=(16, 0))
+            setattr(self, mode + "_button", action)
             self.controls.append(action)
             details = tk.StringVar(value="Connection details will appear after checking the invitation or opening the host world.")
             self.detail_labels[mode] = details
-            ttk.Label(page, textvariable=details, wraplength=600).pack(anchor="w", pady=(12, 4))
+            ttk.Label(page, textvariable=details, wraplength=700).pack(anchor="w", pady=(12, 4))
             copy_button = ttk.Button(page, text="Copy connection details", state="disabled",
                                      command=lambda m=mode: self.copy_connection_details(m))
             copy_button.pack(anchor="w")
             self.copy_buttons[mode] = copy_button
             self.detail_feedback[mode] = tk.StringVar()
-            ttk.Label(page, textvariable=self.detail_feedback[mode], wraplength=600).pack(anchor="w", pady=(4, 0))
+            ttk.Label(page, textvariable=self.detail_feedback[mode], wraplength=700).pack(anchor="w", pady=(4, 0))
+
+        # ---- Settings
+        settings = view("settings", "Settings")
+        self.settings_tabs = ttk.Notebook(settings)
+        self.settings_tabs.pack(fill="both", expand=True, padx=16, pady=12)
+        self.settings_pages = {}
+        for key, text in (("display", "Display & graphics"), ("audio", "Audio"), ("keys", "Game keys"), ("files", "Game files"),
+                          ("launcher", "Launcher")):
+            holder = ttk.Frame(self.settings_tabs)
+            self.settings_tabs.add(holder, text=text)
+            self.settings_pages[key] = holder
+        files = scrollable_frame(self.settings_pages["files"], padding=24)
+        ttk.Label(files, text="Install your own game once", style="Heading.TLabel").pack(anchor="w", pady=(0, 6))
+        self.import_button = ttk.Button(files, text="Import my game…", command=self.import_game)
+        self.import_button.pack(anchor="w", pady=(0, 6))
+        self.installation_button = ttk.Button(files, text="Check installed game files", command=self.check_installation)
+        self.installation_button.pack(anchor="w", pady=(0, 6))
+        self.controls.append(self.installation_button)
+        if getattr(worker, "importer", None) is None:
+            self.import_button.configure(state="disabled")
+            ttk.Label(files, text=status_text("import_unavailable"), wraplength=680).pack(anchor="w", pady=(0, 12))
+        else:
+            ttk.Label(files, text="Select your own game dump once to install this release.", wraplength=680).pack(anchor="w", pady=(0, 12))
+        self.game_state = tk.StringVar()
+        ttk.Label(files, textvariable=self.game_state, wraplength=680, style="Muted.TLabel").pack(anchor="w")
+        launcher = scrollable_frame(self.settings_pages["launcher"], padding=24)
+        ttk.Label(launcher, text="Launcher text size", style="Heading.TLabel").pack(anchor="w", pady=(0, 6))
+        size = tk.StringVar(value=self.display_preferences.value["text_size"])
+        choice = ttk.Combobox(launcher, textvariable=size, values=("Standard", "Larger", "Largest"), state="readonly", width=12)
+        choice.pack(anchor="w")
+        size_feedback = tk.StringVar()
+        choice.bind("<<ComboboxSelected>>", lambda _: size_feedback.set(
+            "Saved locally." if self.set_text_size(size.get()) else "Applied for this window; existing preference file retained."))
+        ttk.Label(launcher, textvariable=size_feedback).pack(anchor="w", pady=(4, 12))
+        ttk.Button(launcher, text="Controls & connection help", command=self.show_help).pack(anchor="w")
+
+        # ---- The running game: status, saving and recovery (the earlier launcher window's lower half)
+        session = view("session", "Your game")
+        self.session_view = session
+        body = ttk.Frame(session, padding=(24, 12))
+        body.pack(fill="both", expand=True)
+        footer = ttk.Frame(body)
+        footer.pack(side="bottom", fill="x")
+        tabs = ttk.Notebook(body)
+        tabs.pack(fill="both", expand=True)
+        self.tabs = tabs
         from .launcher_player_panel import PlayerPanel
         player_page = ttk.Frame(tabs, padding=20)
         tabs.add(player_page, text="Trainer Card & Players")
@@ -981,16 +1120,13 @@ class LauncherWindow:
         championship_page = ttk.Frame(tabs, padding=8)
         tabs.add(championship_page, text="Championship")
         self.championship_panel = ChampionshipPanel(championship_page, worker)
-        self.message = tk.StringVar(value=status_text("idle" if worker else "package_missing"))
-        ttk.Separator(footer).pack(fill="x", pady=(18, 12))
+        ttk.Separator(footer).pack(fill="x", pady=(10, 8))
         self.connection_state = tk.StringVar(value="Host connection: not connected")
         self.checkpoint_state = tk.StringVar(value="Host checkpoint: not yet opened")
         ttk.Label(footer, textvariable=self.connection_state).pack(anchor="w")
         ttk.Label(footer, textvariable=self.checkpoint_state).pack(anchor="w", pady=(0, 6))
-        self.status_label = ttk.Label(footer, textvariable=self.message, wraplength=610)
-        self.status_label.pack(fill="x", anchor="w")
         actions = ttk.Frame(footer)
-        actions.pack(fill="x", pady=(10, 0))
+        actions.pack(fill="x", pady=(4, 0))
         self.save_button = ttk.Button(actions, text="Save now", command=self.save_now, state="disabled")
         self.save_button.pack(side="left")
         self.autosave_value = tk.BooleanVar(value=True)
@@ -1018,20 +1154,297 @@ class LauncherWindow:
         self.cancel = ttk.Button(actions, text="Cancel startup", command=self.cancel_startup, state="disabled")
         self.cancel.pack(side="right")
         ttk.Button(footer, text="Controls & connection help", command=self.show_help).pack(anchor="e", pady=(8, 0))
+
         self._apply_text_size(self.display_preferences.value["text_size"])
         root.bind("<F1>", lambda _: self.show_help())
+        root.bind("<Escape>", lambda _: self._escape())
         root.bind("<Control-plus>", lambda _: self.change_text_size(1))
         root.bind("<Control-equal>", lambda _: self.change_text_size(1))
         root.bind("<Control-minus>", lambda _: self.change_text_size(-1))
         root.bind("<Control-0>", lambda _: self.set_text_size("Standard"))
         if worker is None:
             self._enable(False)
+        self.show_view("home")
         self._poll_id = root.after(80, self.poll)
+
+    # ------------------------------------------------------------------ the main menu's pages
+
+    def _can_leave(self):
+        """Back to the main menu: never while a game or a startup is running, a setup is open, or the window is closing."""
+        return not self.closing and self.setup_window is None and not (self.worker is not None and self.worker.busy)
+
+    def _update_back_buttons(self):
+        for header in self.page_headers.values():
+            header.set_back_enabled(self._can_leave())
+
+    def show_view(self, name):
+        if name not in self.views:
+            raise ValueError(name)
+        self.current_view = name
+        self.views[name].tkraise()
+        if name == "home":
+            self._refresh_home()
+            self.menu.focus_first()
+        elif name in {"worlds", "host"}:
+            self._refresh_world_lists()
+            self._rescan_worlds()
+        elif name == "join":
+            self._refresh_recent_invitations()
+        elif name == "settings":
+            self._refresh_settings()
+        self._update_back_buttons()
+
+    def go_home(self):
+        if not self._can_leave():
+            if self.worker is not None and self.worker.busy:
+                self.message.set(status_text("back_busy"))
+            return
+        self.show_view("home")
+
+    def _escape(self):
+        if self.current_view == "home":
+            if self.menu.confirm.visible:
+                self.menu.confirm.cancel()
+            return
+        if self.current_view == "host" and self.host_confirm.visible:
+            self.host_confirm.cancel()
+            return
+        if self.current_view == "setup":
+            return      # leaving setup goes through its own button, which finishes or cancels what it is doing
+        self.go_home()
+
+    def _game_installed(self):
+        installation = getattr(self.worker, "installation", None)
+        rom = getattr(installation, "rom_path", None)
+        try:
+            return rom is not None and Path(rom).is_file()
+        except OSError:
+            return False
+
+    def _refresh_home(self):
+        from .launcher_recent import continue_target, describe_age
+        import time
+        card = self.menu.cards["continue"]
+        banner = None
+        if self.worker is None:
+            banner = status_text("package_missing")
+        elif not self._game_installed():
+            banner = status_text("game_not_installed")
+        target, reason = continue_target(self.recent)
+        if self.worker is not None and not self._game_installed():
+            # First launch: the one thing to do is install your own game, so the top choice takes you there
+            card.set("Set Up Your Game", "Your game is not installed on this PC yet. Import your own game once, then play.", True)
+        elif banner is not None or target is None:
+            subtitle = {"none": "Nothing to continue yet. Create or choose a world in My Worlds, or join a friend.",
+                        "missing": "The world or invitation you last played has moved or been deleted. Choose one in My Worlds."
+                        }.get(reason, "")
+            if banner is not None and reason == "":
+                subtitle = ""
+            card.set("Continue Adventure", subtitle or "Install your game first (Settings, Game files).", False)
+        else:
+            when = describe_age(target.played, time.time())
+            if target.mode == "host":
+                entry = next((w for w in self.worlds if w.host_json == target.selection), None)
+                name = entry.title if entry is not None else "your last world"
+                card.set("Continue Adventure", f"Host {name} · last played {when}", True)
+            else:
+                card.set("Continue Adventure", f"Rejoin {target.selection.stem} · last played {when}", True)
+        self.menu.show_banner(banner)
+        self.game_state.set(status_text("game_found") if self._game_installed() else status_text("game_not_installed"))
+
+    def _refresh_settings(self):
+        from .launcher_display import scrollable_frame
+        installation = getattr(self.worker, "installation", None)
+        native = bool(installation is not None and getattr(getattr(installation, "bundle", None), "is_native", lambda: False)())
+        for key in ("display", "audio", "keys"):
+            holder = self.settings_pages[key]
+            for child in holder.winfo_children():
+                child.destroy()
+            tab = str(holder)
+            self.settings_tabs.tab(tab, state="normal" if native else "hidden")
+            if native:
+                page = scrollable_frame(holder, padding=24)
+                {"display": self._game_display_page, "audio": self._game_audio_page, "keys": self._game_controls_page}[key](page)
+        self.game_state.set(status_text("game_found") if self._game_installed() else status_text("game_not_installed"))
+
+    # --- worlds
+
+    def _rescan_worlds(self):
+        """List the worlds on this PC in the background (opening one checks its database and certificate)."""
+        if self.worker is None or self._scanning or self.closing or self.worker.busy:
+            return
+        self._scanning = True
+        installation, private = self.worker.installation, self.worker.private_root
+        results = self._scan_results
+
+        def run():
+            from .launcher_worlds import scan_worlds
+            try:
+                results.put(scan_worlds(installation, private))
+            except Exception:
+                results.put(None)
+        threading.Thread(target=run, name="world-scan", daemon=True).start()
+
+    def _apply_worlds(self, entries):
+        self._scanning = False
+        if entries is None:
+            return
+        self.worlds = entries
+        self._refresh_world_lists()
+        if self.current_view == "home":
+            self._refresh_home()
+
+    def _world_label(self, entry):
+        from .launcher_recent import describe_age
+        import time
+        played = self.recent.world_played(entry.directory)
+        extra = {"ready": "", "invalid": "needs attention: cannot be opened",
+                 "needs_game": "install the game to check it"}[entry.status]
+        text = extra or ("played " + describe_age(played, time.time()) if played is not None else "not played yet")
+        return text
+
+    def _refresh_world_lists(self):
+        tree = self.world_tree
+        tree.delete(*tree.get_children())
+        for index, entry in enumerate(self.worlds):
+            tree.insert("", "end", iid=str(index), text=entry.title, values=(entry.players or "–", self._world_label(entry)))
+        self.world_empty.configure(text="" if self.worlds else "No worlds on this PC yet. Choose Create a new world to start one, "
+                                   "or Join Friend if a friend hosts.")
+        titles = []
+        for entry in self.worlds:
+            title = entry.title
+            if titles.count(title) or any(other.title == title for other in self.worlds if other is not entry):
+                title += f" ({entry.directory.name[:6]})"
+            titles.append(title)
+        self.host_chooser.configure(values=titles)
+        selected = self.selection["host"]
+        match = next((i for i, w in enumerate(self.worlds) if w.host_json == selected), None)
+        if match is None and selected is None and self.worlds:
+            last = self.recent.last
+            preferred = next((i for i, w in enumerate(self.worlds) if last is not None and last.mode == "host" and w.host_json == last.selection), None)
+            match = preferred if preferred is not None else (0 if len(self.worlds) == 1 else None)
+            if match is not None:
+                self.selection["host"] = self.worlds[match].host_json
+                self.host_label.set("World selected")
+        if match is not None:
+            self.host_choice.set(titles[match])
+        elif selected is None:
+            self.host_choice.set("")
+        self._world_selected()
+
+    def _selected_world(self):
+        chosen = self.world_tree.selection()
+        if chosen and chosen[0].isdigit() and int(chosen[0]) < len(self.worlds):
+            return self.worlds[int(chosen[0])]
+        return None
+
+    def _world_selected(self):
+        entry = self._selected_world()
+        idle = self.worker is not None and not self.worker.busy
+        self.world_host_button.configure(state="normal" if entry is not None and entry.status == "ready" and idle else "disabled")
+        self.world_setup_button.configure(state="normal" if entry is not None and entry.status == "ready" and idle else "disabled")
+
+    def host_selected_world(self):
+        entry = self._selected_world()
+        if entry is None or entry.status != "ready" or self.worker is None or self.worker.busy:
+            return
+        self._select_host_world(entry)
+        self.show_view("host")
+
+    def _select_host_world(self, entry):
+        self.selection["host"] = entry.host_json
+        self.connection_details["host"] = None
+        self.copy_buttons["host"].configure(state="disabled")
+        self.detail_feedback["host"].set("")
+        self.detail_labels["host"].set("Connection details appear after opening this host world.")
+        self.host_label.set("World selected")
+        index = self.worlds.index(entry) if entry in self.worlds else None
+        if index is not None:
+            self.host_chooser.current(index)
+
+    def _host_choice_changed(self):
+        index = self.host_chooser.current()
+        if 0 <= index < len(self.worlds):
+            self._select_host_world(self.worlds[index])
+
+    def _refresh_recent_invitations(self):
+        paths = [path for path in self.recent.invitations if path.is_file()]
+        self._recent_paths = paths
+        self.recent_chooser.configure(values=[path.stem for path in paths])
+        selected = self.selection["join"]
+        if selected in paths:
+            self.recent_choice.set(selected.stem)
+
+    def _recent_invitation_changed(self):
+        index = self.recent_chooser.current()
+        paths = getattr(self, "_recent_paths", [])
+        if 0 <= index < len(paths):
+            self.choose_selection("join", paths[index])
+
+    def use_lan_address(self):
+        from .launcher_worlds import lan_addresses
+        found = lan_addresses()
+        if found:
+            self.address.set(found[0])
+            self.message.set(status_text("lan_found") if len(found) == 1 else status_text("lan_found_many"))
+        else:
+            self.message.set(status_text("lan_none"))
+
+    # --- the menu's choices
+
+    def continue_adventure(self):
+        """Start the session that was started last, with the same choices (the same checks as choosing it by hand)."""
+        from .launcher_recent import continue_target
+        if self.worker is None or self.worker.busy:
+            return
+        if not self._game_installed():
+            self.message.set(status_text("game_not_installed"))
+            self.show_view("settings")
+            self.settings_tabs.select(str(self.settings_pages["files"]))
+            return
+        target, reason = continue_target(self.recent)
+        if target is None:
+            self.message.set(status_text("continue_missing" if reason == "missing" else "continue_none"))
+            return
+        self.selection[target.mode] = target.selection
+        if target.mode == "host":
+            self.address.set(target.address)
+            self.internet.set(target.internet)
+        self.start(target.mode)
+
+    def exit_game(self):
+        if self.worker is not None and self.worker.busy:
+            self.menu.confirm.ask(status_text("exit_busy"), self.close, yes="Close anyway")
+            return
+        self.close()
+
+    def begin_host(self):
+        """Start hosting; turning on Internet connections asks first, because it exposes the host to the Internet."""
+        if self.worker is None or self.worker.busy:
+            return
+        if self.internet.get() and self.selection["host"] is not None:
+            self.host_confirm.ask(status_text("internet_confirm"), lambda: self.start("host"), yes="Host with Internet connections")
+            return
+        self.start("host")
+
+    def choose_selection(self, mode, path):
+        self.selection[mode] = Path(path)
+        self.connection_details[mode] = None
+        self.copy_buttons[mode].configure(state="disabled")
+        self.detail_feedback[mode].set("")
+        self.detail_labels[mode].set("Checking invitation…" if mode == "join" else "Connection details appear after opening this host world.")
+        # File contents, complete paths and credentials never appear here.
+        getattr(self, mode + "_label").set("World selected" if mode == "host" else "Invitation selected")
+        if mode == "join" and self.worker is not None and self.worker.start_probe(Path(path), inspect_only=True):
+            self._enable(False)
+            self.message.set(status_text("checking_invitation"))
 
     def _enable(self, enabled):
         for control in self.controls:
             control.configure(state="normal" if enabled else "disabled")
         self.import_button.configure(state="normal" if enabled and getattr(self.worker, "importer", None) else "disabled")
+        self._world_selected()
+        self._update_back_buttons()
 
     def import_game(self):
         from tkinter import filedialog
@@ -1044,7 +1457,7 @@ class LauncherWindow:
             self.cancel.configure(state="disabled")
             self.message.set(status_text("importing"))
 
-    def browse(self, mode):
+    def browse(self, mode, then=None):
         from tkinter import filedialog
         if self.worker is None or self.worker.busy:
             return
@@ -1052,16 +1465,16 @@ class LauncherWindow:
             title="Choose your private world" if mode == "host" else "Choose your friend invitation",
             filetypes=[("World record" if mode == "host" else "Friend invitation", "*.json")])
         if path:
-            self.selection[mode] = Path(path)
-            self.connection_details[mode] = None
-            self.copy_buttons[mode].configure(state="disabled")
-            self.detail_feedback[mode].set("")
-            self.detail_labels[mode].set("Checking invitation…" if mode == "join" else "Connection details appear after opening this host world.")
-            # File contents, complete paths and credentials never appear here.
-            getattr(self, mode + "_label").set("World selected" if mode == "host" else "Invitation selected")
-            if mode == "join" and self.worker.start_probe(Path(path), inspect_only=True):
-                self._enable(False)
-                self.message.set(status_text("checking_invitation"))
+            self.choose_selection(mode, path)
+            if mode == "host":
+                match = next((i for i, w in enumerate(self.worlds) if w.host_json == Path(path)), None)
+                if match is not None:
+                    self.host_chooser.current(match)
+                else:
+                    self.host_choice.set("")
+                    self.host_label.set("World file selected")
+            if then == "worlds" and mode == "host":
+                self.show_view("host")
 
     def _show_connection_details(self, mode, details):
         if not isinstance(details, ConnectionDetails):
@@ -1235,6 +1648,50 @@ class LauncherWindow:
         ttk.Button(page, text="Save display settings", command=save).pack(anchor="w", pady=(10, 4))
         ttk.Label(page, textvariable=feedback, wraplength=570, justify="left").pack(anchor="w")
 
+    def _game_audio_page(self, page):
+        """The native game's volume and Pokemon cry volume (game-settings.cfg ``volume=`` and ``cryVolume=``; the game's F10
+        menu changes the same two while playing)."""
+        import tkinter as tk
+        from tkinter import ttk
+        from .game_display_settings import read_audio_settings, write_audio_settings
+        from .player_runtime import SETTINGS_NAME
+        private = getattr(self.worker, "private_root", None)
+        path = Path(private) / SETTINGS_NAME if private is not None else None
+        try:
+            current = read_audio_settings(path) if path is not None else None
+        except (OSError, ValueError):
+            current = None
+        ttk.Label(page, text="Sound", style="Heading.TLabel").pack(anchor="w", pady=(0, 6))
+        if current is None:
+            ttk.Label(page, text="The game settings file cannot be read here.").pack(anchor="w")
+            return
+        feedback = tk.StringVar()
+        scales = {}
+        grid = ttk.Frame(page)
+        grid.pack(anchor="w")
+        for row, (label, key) in enumerate((("Game volume (music and effects)", "volume"), ("Pokemon cry volume", "cry_volume"))):
+            ttk.Label(grid, text=label).grid(row=row, column=0, sticky="w", padx=(0, 12), pady=6)
+            variable = tk.IntVar(value=current[key])
+            ttk.Scale(grid, from_=0, to=10, orient="horizontal", length=240, variable=variable,
+                      command=lambda value, v=variable: v.set(round(float(value)))).grid(row=row, column=1, pady=6)
+            ttk.Label(grid, textvariable=variable, width=3).grid(row=row, column=2)
+            scales[key] = variable
+
+        def save():
+            if self.worker is None or self.worker.busy:
+                feedback.set("Close the game first: it keeps these settings in the same file while it runs.")
+                return
+            try:
+                write_audio_settings(path, volume=int(scales["volume"].get()), cry_volume=int(scales["cry_volume"].get()))
+            except (OSError, ValueError):
+                feedback.set("The game settings file could not be written; nothing changed.")
+                return
+            feedback.set("Saved. The game uses these volumes the next time it starts (in the game, F10 changes them live).")
+        ttk.Button(page, text="Save audio settings", command=save).pack(anchor="w", pady=(10, 4))
+        ttk.Label(page, textvariable=feedback, wraplength=570, justify="left").pack(anchor="w")
+        page.audio_scales = scales    # for tests
+        page.audio_save = save
+
     def _game_controls_page(self, page):
         """The native game's keyboard keys (game-settings.cfg ``key.*`` lines; the 3D game's F10 menu
         has a Controls page for the same bindings). Used the next time the game starts."""
@@ -1334,11 +1791,14 @@ class LauncherWindow:
             return "3D graphics can start on this PC" + (f" ({result.renderer})." if result.renderer else ".")
         return explain_failure(result)
 
-    def open_setup(self):
+    def open_setup(self, role=None, world=None):
+        """World and character setup, inside this window: the same pages, worker and checks as before."""
         if self.worker is None or self.worker.busy or self.setup_window is not None:
             return
         from .launcher_setup_gui import SetupWindow
-        selected = self.selection["host"]
+        selected = world.directory if world is not None else (self.selection["host"].parent if self.selection["host"] else None)
+        if world is None and role is not None:
+            selected = None
         def finished(world_directory):
             self.setup_window = None
             if world_directory is not None:
@@ -1351,11 +1811,13 @@ class LauncherWindow:
                 self._destroy()
             else:
                 self._enable(True)
+                self.show_view("worlds")
         # First-time setup starts a game too, so it follows the same graphics choice.
         def open_window(graphics):
             self._enable(False)
+            self.show_view("setup")
             self.setup_window = SetupWindow(self.root, self.worker.installation_for(graphics),
-                self.worker.private_root, selected_world=selected.parent if selected else None, on_close=finished)
+                self.worker.private_root, selected_world=selected, on_close=finished, container=self.setup_host, start_role=role)
         self.graphics_gate.resolve(open_window, cancelled=lambda: self._enable(True))
 
     def start(self, mode):
@@ -1384,6 +1846,9 @@ class LauncherWindow:
             self.message.set(status_text(error.args[0] if error.args else "session_failed"))
             return
         if started:
+            # Remembered for Continue Adventure (a path, the address and times only; never a credential)
+            self.recent.record_session(request.mode, request.selection, request.address, request.internet)
+            self.show_view("session")
             self.connection_state.set("Host connection: connecting")
             self.checkpoint_state.set("Host checkpoint: checking this character")
             self._enable(False)
@@ -1562,6 +2027,7 @@ class LauncherWindow:
                     self.recover_battle_button.configure(state="disabled")
                     self.cancel_battle_entry_button.configure(state="disabled")
                     self.message.set(status_text(event.code))
+                    self._rescan_worlds()
                 elif self.closing and event.code in _RETAINS_GAME:
                     self.closing = False
                     self.championship_panel.set_closing(False)
@@ -1592,6 +2058,12 @@ class LauncherWindow:
                                            "battle_recovered", "admission_canceled"}) else "disabled")
                     if event.state in {"running", "finished"}:
                         self.cancel.configure(state="disabled")
+        while True:
+            try:
+                scanned = self._scan_results.get_nowait()
+            except queue.Empty:
+                break
+            self._apply_worlds(scanned)
         self._poll_id = self.root.after(80, self.poll)
 
 

@@ -56,7 +56,17 @@ The isolated Windows worker and copied native record/save-block replay
 have passed scoped checks. Those checks do not qualify the complete visible
 trading experience or recovery in a new Windows package.
 
-Host Game / Join Game and character setup
+Main menu, Host Game / Join Game and character setup
+
+The launcher opens on one main menu (Continue Adventure, My Worlds, Host Multiplayer,
+Join Friend, Settings, Exit Game). It is a front end: starting a game, the checks
+before it, hosting, joining, saving and recovery are the same code as before. Joining
+is by invitation file only; there are no invite codes, no relay server and no
+automatic discovery. Internet hosting still needs your own router port forward and
+firewall rule. The menu is mouse and keyboard; it does not read a game controller.
+It was checked by automated tests and screenshots on a simulated display only; a
+real-PC walk-through of every menu path, and a real LAN or Internet join, are
+still pending.
 
 The launcher provides local world creation, named character accounts, separate
 friend invitations and one-time own-game import when the package includes its

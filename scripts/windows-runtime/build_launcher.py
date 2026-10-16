@@ -230,7 +230,8 @@ def build(args):
     (resources / "README.txt").write_text(
         "Emerald Together - " + release.version + "\n\n"
         + ("Private development preview: " if development else "Importable private release candidate: ")
-        + "Host Game / Join Game, local character setup,\n"
+        + "a main menu (Continue Adventure, My Worlds, Host Multiplayer, Join Friend,\n"
+        "Settings), local character setup,\n"
         "autosave every 5 minutes (on by default), and launcher Save now.\n"
         "Your character's autosave toggle is remembered on this PC.\n"
         "Read QUICK-START.txt and RELEASE-LIMITS.txt before playing.\n"

@@ -3,7 +3,9 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from emerald_multiplayer.game_display_settings import read_display_settings, write_display_settings
+from emerald_multiplayer.game_display_settings import (
+    read_audio_settings, read_display_settings, write_audio_settings, write_display_settings,
+)
 
 
 class GameDisplaySettingsTests(unittest.TestCase):
@@ -86,6 +88,37 @@ class GameDisplaySettingsTests(unittest.TestCase):
         self.path.write_bytes(b"x" * 70000)
         with self.assertRaises(ValueError):
             read_display_settings(self.path)
+
+
+class AudioSettingsTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.path = Path(self.temp.name) / "game-settings.cfg"
+
+    def test_the_games_own_defaults_without_a_file(self):
+        self.assertEqual(read_audio_settings(self.path), dict(volume=10, cry_volume=5))
+
+    def test_what_the_game_wrote_is_read_and_junk_is_ignored(self):
+        self.path.write_text("volume=7\ncryVolume=eleven\n")
+        self.assertEqual(read_audio_settings(self.path), dict(volume=7, cry_volume=5))
+        self.path.write_text("volume=11\ncryVolume=3\n")
+        self.assertEqual(read_audio_settings(self.path), dict(volume=10, cry_volume=3))
+
+    def test_writing_keeps_every_other_line_and_replaces_only_the_two_volumes(self):
+        self.path.write_text("border=1\nvolume=10\nkey.a=Q\ncryVolume=5\nresolution=1920x1080\n")
+        self.assertEqual(write_audio_settings(self.path, volume=4, cry_volume=0), dict(volume=4, cry_volume=0))
+        lines = self.path.read_text().splitlines()
+        self.assertEqual(lines[:3], ["border=1", "key.a=Q", "resolution=1920x1080"])
+        self.assertEqual(sorted(lines[3:]), ["cryVolume=0", "volume=4"])
+
+    def test_out_of_range_values_are_refused_and_nothing_is_written(self):
+        self.path.write_text("volume=7\n")
+        for options in (dict(volume=11, cry_volume=1), dict(volume=-1, cry_volume=1), dict(volume=1.5, cry_volume=1),
+                        dict(volume=True, cry_volume=1) if False else dict(volume="5", cry_volume=1)):
+            with self.assertRaises(ValueError):
+                write_audio_settings(self.path, **options)
+        self.assertEqual(self.path.read_text(), "volume=7\n")
 
 
 if __name__ == "__main__":

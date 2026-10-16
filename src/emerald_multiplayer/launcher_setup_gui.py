@@ -18,7 +18,7 @@ MESSAGES = {
     "exported": "Friend invitation saved. Give this file only to that friend.",
     "ready": "In the game window, Continue to a safe place outside menus and battles. Then finish enrollment here.",
     "not_ready": "The game is still busy. Reach a safe place outside menus and battles, then press Finish enrollment again.",
-    "enrolled": "Character enrolled. Close setup and use Host Game or Join Game.",
+    "enrolled": "Character enrolled. Go back to My Worlds, then use Host Multiplayer or Join Friend.",
     "closing": "Closing setup and retaining private recovery files…",
     "cancelled": "Setup closed. Original source saves were retained.",
     "selection": "Choose the world and original character save first.",
@@ -237,16 +237,24 @@ class SetupWorker:
 
 
 class SetupWindow:
-    def __init__(self, parent, installation, private_root, *, selected_world=None, on_close=None, worker=None):
+    def __init__(self, parent, installation, private_root, *, selected_world=None, on_close=None, worker=None,
+                 container=None, start_role=None):
+        """A pop-up window by default. With ``container`` (a frame of the main menu's window) the same pages are built inside
+        it instead: one window for the whole launcher, and the same worker, checks and messages. ``start_role`` ("host" or
+        "friend") opens the matching page directly."""
         import tkinter as tk
         from tkinter import ttk
-        self.root = tk.Toplevel(parent)
-        self.root.title("Set up Emerald Together")
-        self.root.geometry("760x750")
-        self.root.minsize(740, 720)
-        self.root.transient(parent)
-        self.root.grab_set()
-        self.root.protocol("WM_DELETE_WINDOW", self.close)
+        self.embedded = container is not None
+        if self.embedded:
+            self.root = container
+        else:
+            self.root = tk.Toplevel(parent)
+            self.root.title("Set up Emerald Together")
+            self.root.geometry("760x750")
+            self.root.minsize(740, 720)
+            self.root.transient(parent)
+            self.root.grab_set()
+            self.root.protocol("WM_DELETE_WINDOW", self.close)
         self.worker = worker or SetupWorker(installation, private_root)
         self.on_close, self.closing = on_close, False
         self.world_directory, self.source_path = None, None
@@ -254,7 +262,7 @@ class SetupWindow:
         self.exported_details = None
         self.account_slots = {}
         self.controls = []
-        body = ttk.Frame(self.root, padding=20)
+        body = self.body = ttk.Frame(self.root, padding=20)
         body.pack(fill="both", expand=True)
         ttk.Label(body, text="World & character setup", font=("Segoe UI", 20, "bold")).pack(anchor="w")
         ttk.Label(body, text="Prepare your own character. The host approves enrollment and gives each friend a private invitation.",
@@ -283,7 +291,7 @@ class SetupWindow:
             button = ttk.Button(start, text=title, command=lambda r=role: self.begin_role(r))
             button.pack(anchor="w", pady=(0, 22))
             self.controls.append(button)
-        ttk.Label(start, text="Already enrolled? Close setup and use Host Game or Join Game. Do not export or re-enroll an owned multiplayer save.",
+        ttk.Label(start, text="Already enrolled? Go back to the main menu and use Host Multiplayer or Join Friend. Do not export or re-enroll an owned multiplayer save.",
                   wraplength=650).pack(anchor="w")
         self.names = []
         for index, label in enumerate(("Host name", "Friend 1 name (optional)", "Friend 2 name (optional)", "Friend 3 name (optional)")):
@@ -396,10 +404,13 @@ class SetupWindow:
         self.status = tk.StringVar(value=message("idle"))
         ttk.Separator(footer).pack(fill="x", pady=12)
         ttk.Label(footer, textvariable=self.status, wraplength=700).pack(fill="x")
-        ttk.Button(footer, text="Close setup", command=self.close).pack(anchor="e", pady=(10, 0))
+        ttk.Button(footer, text="Back to My Worlds" if self.embedded else "Close setup", command=self.close).pack(anchor="e", pady=(10, 0))
         self.update_role()
-        self.root.report_callback_exception = lambda *_: self.status.set(message("setup_failed"))
+        if not self.embedded:
+            self.root.report_callback_exception = lambda *_: self.status.set(message("setup_failed"))
         self.poll_id = self.root.after(80, self.poll)
+        if start_role in ("host", "friend"):
+            self.begin_role(start_role)
         if selected_world is not None:
             tabs.select(character_page)
             self.start("inspect", world_directory=selected_world)
@@ -564,8 +575,11 @@ class SetupWindow:
 
     def destroy(self):
         self.root.after_cancel(self.poll_id)
-        self.root.grab_release()
-        self.root.destroy()
+        if self.embedded:
+            self.body.destroy()
+        else:
+            self.root.grab_release()
+            self.root.destroy()
         if self.on_close:
             self.on_close(self.world_directory)
 

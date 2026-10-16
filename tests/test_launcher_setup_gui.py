@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 import threading
 from types import SimpleNamespace
+import time
 import unittest
 
 from emerald_multiplayer.launcher_setup_gui import SetupEvent, SetupWorker, SetupWindow, TRADE_POLICIES
@@ -209,6 +210,75 @@ class SetupWidgetTests(unittest.TestCase):
         self.window.enroll()
         self.assertTrue(self.controller.opened.wait(2))
         self.assertEqual(self.controller.options["expected_source_sha256"], "c" * 64)
+
+
+class EmbeddedSetupTests(unittest.TestCase):
+    """Update 28: the same setup pages inside the launcher's one window (no pop-up)."""
+
+    def setUp(self):
+        import tkinter as tk
+        from tkinter import ttk
+        self.root = tk.Tk()
+        self.root.withdraw()
+        self.container = ttk.Frame(self.root)
+        self.container.pack(fill="both", expand=True)
+        self.controller = Controller()
+        self.worker = SetupWorker(object(), Path("private"), controller=self.controller)
+        self.closed = []
+        self.addCleanup(self.cleanup)
+
+    def cleanup(self):
+        self.controller.cleanup.set()
+        self.worker.cancel()
+        if self.worker.thread:
+            self.worker.thread.join(3)
+        self.root.destroy()
+
+    def make(self, **options):
+        return SetupWindow(self.root, object(), Path("private"), worker=self.worker, container=self.container,
+                           on_close=self.closed.append, **options)
+
+    def toplevels(self):
+        return [w for w in self.root.winfo_children() if w.winfo_class() == "Toplevel"]
+
+    def test_the_pages_are_built_inside_the_container_and_no_window_opens(self):
+        window = self.make()
+        self.assertTrue(window.embedded)
+        self.assertEqual(self.toplevels(), [])
+        self.assertIs(window.body.master, self.container)
+        self.assertIn("Create world", [window.tabs.tab(tab, "text") for tab in window.tabs.tabs()])
+
+    def test_a_role_opens_its_page_directly(self):
+        window = self.make(start_role="host")
+        self.assertEqual(window.role.get(), "host")
+        self.assertEqual(window.tabs.select(), str(window.create_page))
+        window.destroy()
+        window = self.make(start_role="friend")
+        self.assertEqual(window.role.get(), "friend")
+        self.assertEqual(window.tabs.select(), str(window.character_page))
+
+    def test_closing_removes_the_pages_keeps_the_container_and_reports_the_world(self):
+        window = self.make()
+        window.world_directory = Path("world")
+        window.close()
+        self.assertEqual(self.closed, [Path("world")])
+        self.assertEqual(self.container.winfo_children(), [])
+        self.assertTrue(self.container.winfo_exists())
+
+    def test_closing_while_busy_cancels_and_closes_when_the_worker_finishes(self):
+        window = self.make()
+        self.controller.cleanup.clear()
+        self.worker.start("enroll")
+        self.assertTrue(self.controller.opened.wait(2))
+        window.close()
+        self.assertTrue(window.closing)
+        self.assertEqual(self.closed, [])
+        self.controller.cleanup.set()
+        end = time.time() + 3
+        while not self.closed and time.time() < end:
+            self.root.update()
+            time.sleep(0.01)
+        self.assertEqual(len(self.closed), 1)
 
 
 if __name__ == "__main__":

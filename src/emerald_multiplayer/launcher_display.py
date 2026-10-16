@@ -75,7 +75,8 @@ def scrollable_frame(parent, *, padding=12):
     from tkinter import ttk
     container = ttk.Frame(parent)
     container.pack(fill="both", expand=True)
-    canvas = tk.Canvas(container, highlightthickness=0)
+    background = ttk.Style(parent).lookup("TFrame", "background") or None
+    canvas = tk.Canvas(container, highlightthickness=0, **({"background": background} if background else {}))
     bar = ttk.Scrollbar(container, orient="vertical", command=canvas.yview)
     bar.pack(side="right", fill="y")
     canvas.pack(side="left", fill="both", expand=True)
