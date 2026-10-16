@@ -1165,6 +1165,7 @@ class LauncherWindow:
         if worker is None:
             self._enable(False)
         self.show_view("home")
+        self._rescan_worlds()      # so Continue Adventure can name the world it will start
         self._poll_id = root.after(80, self.poll)
 
     # ------------------------------------------------------------------ the main menu's pages
@@ -1187,7 +1188,7 @@ class LauncherWindow:
             self.menu.focus_first()
         elif name in {"worlds", "host"}:
             self._refresh_world_lists()
-            self._rescan_worlds()
+            self._rescan_worlds(force=False)
         elif name == "join":
             self._refresh_recent_invitations()
         elif name == "settings":
@@ -1269,12 +1270,20 @@ class LauncherWindow:
 
     # --- worlds
 
-    def _rescan_worlds(self):
-        """List the worlds on this PC in the background (opening one checks its database and certificate)."""
+    def _rescan_worlds(self, force=True):
+        """List the worlds on this PC in the background (opening one checks its database and certificate, and the installed
+        game is verified once per scan). Visiting a page rescans at most every 10 seconds; Refresh and a finished game or
+        setup rescan at once."""
+        import time
         if self.worker is None or self._scanning or self.closing or self.worker.busy:
             return
+        if not force and time.monotonic() - getattr(self, "_last_scan", -1e9) < 10:
+            return
+        installation, private = getattr(self.worker, "installation", None), getattr(self.worker, "private_root", None)
+        if installation is None or private is None:
+            return
+        self._last_scan = time.monotonic()
         self._scanning = True
-        installation, private = self.worker.installation, self.worker.private_root
         results = self._scan_results
 
         def run():

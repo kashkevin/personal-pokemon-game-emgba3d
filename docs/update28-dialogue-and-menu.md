@@ -58,7 +58,14 @@ Birch's rescue call) was run in the 3D and the Classic 2D builds.
   in 3D.
 * `tools/pc_port/dialogue_check.py` (3D and Classic 2D, scripts `boy` and `rescue`: all 60 taps seen, the script runs to its end,
   and the 3D box never keeps the old page after A at a page break).
-* Not changed and re-checked: GBA ROM hash, 22 PC selftest targets, `check-diorama`.
+* Not changed and re-checked: GBA ROM hash (`pokeemerald.gba` rebuilt: `f214735b…3387`), the 22 PC selftest targets (0 failures;
+  `check-native` includes the new `test_key_queue`), `check-diorama`, and Update 26's `battle_end_check` (wild, trainer),
+  `first_battle_check` and `party_menu_check` (AddressSanitizer). The i686 MinGW objects of `sdl2.c`, `key_queue.c`,
+  `debug_scene.c`, `text.c` and `script.c` compile (the Windows pad branch cannot be run here).
+* `first_battle_check` failed once on this update's first run with 0% and 34% lit scenery: its three pictures were taken at
+  *presented* frame numbers, and a machine that presents faster than the one the numbers came from reached them while the game
+  was still at the starter screen (the same build passed pinned to one core). It is not the key queue (the script's keys do not
+  pass through it). The check now takes its pictures at *game* frames (`PKMN_DEBUG_GLSHOTS_GAME=1`) and passes on 4 cores and 1.
 * Not verified: real keyboards (key-repeat settings, other keyboard layouts), real frame times, controller buttons (the pad uses the
   same queue on Windows, which cannot be run here), and dialogue in multiplayer interactions beyond what the existing multiplayer
   suites cover (the queue sits below them).
