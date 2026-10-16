@@ -672,3 +672,14 @@ GBA test ROM full run **5532 passed, 39 failed = the expected list, 0 new** (603
 all passing (one timing test, `test_two_player_start_up_without_game_delay`, failed once at 4.97 s against 4.0 s while the GBA suite loaded all four cores, and passed on its own).
 
 * **Run 38757166230** (`windows-package`, full, app `1446354`, engine `677821af` on `claude/dev-update21-25-engine`, `expected_rom_sha256` = `f214735b…3387`): **success** (engine job 24 min; Windows job: launcher package, content audit, packaged-game file check, frozen launcher start, graphics-mode check on the real packaged 3D and 2D games all green). Private artifact **EmeraldTogether-windows-full** (ID 11984854602, 63 MB, sha256 `dbe291b2…6fd1`, expires 2026-10-22): https://github.com/kashkevin/personal-pokemon-game-emgba3d/actions/runs/38757166230 . **bios.c licensing unresolved: not cleared for distribution.** Not run on a real PC.
+
+## Update 26 — three bugs from the first real Windows test
+
+`docs/update26-bug-fixes.md`. Engine `claude/dev-update26-fixes-engine`, app `claude/dev-update26-fixes`. **Bug 1** (old GBA UI over the 3D view at the end of a battle): the native battle
+screen let go when the battle's data was freed while the engine was still in the battle callback during the end fade; it now stays up (`ui_battle.c`). **Bug 2** (crash leaving the
+Pokemon menu, found with AddressSanitizer, not reproduced as a crash): the party-menu state read an action list one frame before it was built (uninitialised field-move index);
+also a far-scenery colour read past a tileset and a stack-use-after-return in the weather-sprite test; `crash.log` now names the native screen. **Bug 3** (black first battle,
+reproduced in 3D through Birch's bag): a completed fade-to-black counted as a steady field. **Bug 4** (battle UI over entrance animations): not reproduced, no code change; findings
+in the doc. Regression tools: `battle_end_check.py` (wild, trainer; fails without the fix), `party_menu_check.py` (AddressSanitizer, 3D and 2D), `first_battle_check.py`
+(`make -f Makefile_pc NATIVE_LINUX=1 DIORAMA=1 check-update26`). Local: GBA ROM hash unchanged, 22 PC selftest targets and `check-diorama` pass, save-compat and privacy tests pass.
+Simulation only; not run on a real PC.
