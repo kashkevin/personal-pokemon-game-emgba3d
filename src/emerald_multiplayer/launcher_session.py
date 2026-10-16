@@ -169,7 +169,7 @@ class LauncherSession:
     def __init__(self, installation, private_directory, *, world_directory=None,
                  invitation_path=None, bind_address=None, host_route=None,
                  public=False, development_trades=False, connection_timeout=10,
-                 on_status=None):
+                 on_status=None, server_route=None, allow_enrollment=True):
         if (not isinstance(installation, GameInstallation)
                 or (world_directory is None) == (invitation_path is None)
                 or type(public) is not bool or type(development_trades) is not bool
@@ -185,12 +185,25 @@ class LauncherSession:
                 raise LauncherSessionError("invalid_configuration")
         elif bind_address is not None or host_route is not None or public or development_trades:
             raise LauncherSessionError("invalid_configuration")
+        if type(allow_enrollment) is not bool or (not allow_enrollment and world_directory is None):
+            raise LauncherSessionError("invalid_configuration")
+        if server_route is not None:
+            # Join only: where to connect now (a saved server's current address). The invitation's world, account, credential
+            # and pinned certificate decide who the server must be; the route is only where to knock.
+            from .invite_code import valid_port
+            from .secure_transport import is_numeric_unicast_address
+            if (invitation_path is None or type(server_route) is not tuple or len(server_route) != 2
+                    or type(server_route[0]) is not str or not is_numeric_unicast_address(server_route[0])
+                    or not valid_port(server_route[1])):
+                raise LauncherSessionError("invalid_configuration")
         self.installation = installation
         self.private_root = Path(private_directory).resolve()
         self._world_directory = world_directory
         self._invitation_path = invitation_path
         self._bind_address = bind_address
         self._host_route = host_route or bind_address
+        self._server_route = server_route
+        self._allow_enrollment = allow_enrollment
         self._public = public
         self._development_trades = development_trades
         self._timeout = connection_timeout
@@ -378,6 +391,8 @@ class LauncherSession:
         self._connection_details = ConnectionDetails.from_identity(host if host is not None else identity)
         if self._manifest.get("battle_execution_abi_version") == 1:
             config = replace(config, development_battle_channel=True)
+        if host is None and self._server_route is not None:
+            config = replace(config, server_host=self._server_route[0], server_port=self._server_route[1])
         if host is not None:
             # Advertised WAN address remains in invitations. The local host
             # route changes only the socket destination, preserving its TLS pin.
@@ -427,7 +442,7 @@ class LauncherSession:
                        and self._store.battle_reservations_enabled)
         from .trade_native_replay import host_trade_effect_options
         effects = host_trade_effect_options(self.installation, self._store, self._manifest)
-        self._server = WorldServer(ServerConfig(host.build_id, host.ruleset_id),
+        self._server = WorldServer(ServerConfig(host.build_id, host.ruleset_id, allow_enrollment=self._allow_enrollment),
             store=self._store, development_trades=self._development_trades or ordinary_trades,
             development_teams=battles, development_battles=battles, **effects)
         if battles:

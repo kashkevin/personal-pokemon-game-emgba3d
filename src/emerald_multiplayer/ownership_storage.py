@@ -174,6 +174,10 @@ class OwnershipCheckpointStore(CheckpointStore):
                     (player_id, source_sha, source_payload, LAYOUT_ID, source.metadata.trainer_id, inventory, _digest(inventory)))
         return Enrollment(player_id, source_sha, _digest(inventory), len(records))
 
+    def has_enrollment(self, player_id: str) -> bool:
+        """Whether an approved source is recorded for this account (read only)."""
+        return self._connection.execute("SELECT 1 FROM ownership_enrollments WHERE player_id = ?", (player_id,)).fetchone() is not None
+
     def _enrollment(self, player_id: str):
         row = self._connection.execute("SELECT * FROM ownership_enrollments WHERE player_id = ?", (player_id,)).fetchone()
         if row is None:

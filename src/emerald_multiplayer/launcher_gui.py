@@ -198,16 +198,19 @@ class LaunchRequest:
     address: str = "127.0.0.1"
     internet: bool = False
     graphics: str = "3d"  # which game to start: "3d" or "2d" (graphics_mode.py decides)
+    route: tuple | None = None  # join only: (numeric address, port) to connect to instead of the invitation's own
+    allow_enrollment: bool = True  # host only: whether friends may create their character over the network
 
     def options(self):
         if self.mode not in {"host", "join"} or not isinstance(self.selection, Path):
             raise ValueError("selection_required")
         if self.mode == "join":
-            return {"invitation_path": self.selection}
+            return {"invitation_path": self.selection, **({"server_route": self.route} if self.route is not None else {})}
         if not is_local_address(self.address, allow_lan=True) or type(self.internet) is not bool:
             raise ValueError("address_invalid")
         return dict(world_directory=self.selection.parent, bind_address=self.address,
-                    host_route=self.address, public=self.internet)
+                    host_route=self.address, public=self.internet,
+                    **({} if self.allow_enrollment else {"allow_enrollment": False}))
 
 
 @dataclass(frozen=True)

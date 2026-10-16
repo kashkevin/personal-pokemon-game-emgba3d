@@ -265,6 +265,13 @@ jobs:
           $p = Start-Process -FilePath $exe -PassThru
           Start-Sleep -Seconds 20
           if ($p.HasExited) { throw "EmeraldTogether.exe exited early with code $($p.ExitCode)" }
+          # Update 30: in the full package the first thing on screen is the in-game menu, i.e. the packaged game's own executable
+          # running --shell (the earlier launcher window is only the fallback when that cannot start).
+          $shell = @(Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like "*--shell*" -and $_.ParentProcessId -eq $p.Id })
+          if ($env:MODE -eq "full") {
+            if ($shell.Count -ne 1) { throw "expected exactly one in-game menu process (game executable --shell) under EmeraldTogether.exe, found $($shell.Count)" }
+            "in-game menu process: $($shell[0].Name) (pid $($shell[0].ProcessId))"
+          } else { "smoke package: menu processes found: $($shell.Count)" }
           Add-Type -AssemblyName System.Windows.Forms, System.Drawing
           $b = [System.Windows.Forms.SystemInformation]::VirtualScreen
           $bmp = New-Object System.Drawing.Bitmap $b.Width, $b.Height
@@ -277,6 +284,11 @@ jobs:
         run: |
           runtime="$(.venv/Scripts/python -c "import pathlib,os;print(next(pathlib.Path(os.environ['WORK'],'launcher/dist/EmeraldTogether').rglob('runtime.json')).parent)")"
           .venv/Scripts/python scripts/windows-runtime/ci_graphics_check.py "$runtime" "$WORK/graphics-check"
+      - name: In-game menu check on the real packaged games (full)
+        if: env.MODE == 'full'
+        run: |
+          runtime="$(.venv/Scripts/python -c "import pathlib,os;print(next(pathlib.Path(os.environ['WORK'],'launcher/dist/EmeraldTogether').rglob('runtime.json')).parent)")"
+          .venv/Scripts/python scripts/windows-runtime/ci_shell_check.py "$runtime" "$WORK/shell-check"
       - name: Summary
         run: |
           {
@@ -296,6 +308,9 @@ jobs:
           path: |
             ${{ env.WORK }}/launcher-screen.png
             ${{ env.WORK }}/graphics-check/graphics-check.json
+            ${{ env.WORK }}/shell-check/shell-check.json
+            ${{ env.WORK }}/shell-check/3d/menu.png
+            ${{ env.WORK }}/shell-check/2d/menu.png
             ${{ env.WORK }}/launcher/EmeraldTogether.zip
             ${{ env.WORK }}/launcher/package-hashes.json
             ${{ env.WORK }}/launcher/package-audit.json

@@ -184,13 +184,15 @@ pool appeared; Route 105 surfing 3M: 465 (expected 500 +- 22), 9 of 9 pool speci
 
 ## 5. Shiny odds and the Shiny Charm (part 5)
 
-Every wild Pokemon gets independent 1/4096 rolls: 1 normally, **+2 with the Shiny Charm** (the engine's Gen 6 Charm), **+1 inside the Safari Zone** (new). The odds are exactly
-`1 - (4095/4096)^rolls`:
+> **Update 30 changed the Charm's odds.** This section is the Update 29 design (the Charm as two extra rolls, 1 in 1365.7). Update 30 retuned the normal-wild Charm to **1 in 2500**
+> (one extra roll that happens 41848/65536 of the time); Safari (1 in 2048) and Safari + Charm (1 in 1024) are unchanged. Current numbers and measurements: [update30-gameplay.md](update30-gameplay.md).
+
+Every wild Pokemon gets independent 1/4096 rolls: 1 normally, **+1 inside the Safari Zone**, and the Shiny Charm adds (Update 30) one more roll with probability 41848/65536 in an ordinary area and two more inside the Safari Zone:
 
 | Case | Rolls | Odds | Measured (20,000,000 each) |
 |---|---:|---|---|
 | normal | 1 | 1 in 4096 | 1 in 4131 (4,841 of 4,883 +- 70) |
-| Shiny Charm | 3 | 1 in 1365.7 | 1 in 1370 (14,595 of 14,645 +- 121) |
+| Shiny Charm | 1 + a 63.9 % extra | 1 in 2500 | 1 in 2482 (8,058 of 8,000 +- 89) |
 | Safari Zone | 2 | 1 in 2048.3 | 1 in 2042 (9,794 of 9,764 +- 99) |
 | Safari Zone + Charm | 4 | 1 in 1024.4 | 1 in 1020 (19,611 of 19,524 +- 140) |
 
@@ -316,9 +318,9 @@ on leaving; the rest waits in reserve, and the save is not touched until you lea
   pick which spawn to walk to by its species. A hit turns the slot into a Legendary/Mythical of that map's habitat pool at the level and with the shiny status the slot already had. The roll is made once per
   Pokemon (`legend_rolled` is saved with the slot): a release, a disconnect and reconnect, another player's claim or a host restart never rolls it again. Four players claiming their own spawns each roll once; nothing is
   multiplied by the number of players. The pool, area tags and weather tags are the game's own (`scripts/multiplayer/check_legend_pool.py` compares the host's pool with the game's for 2,516 map/weather/time combinations: 0 differences).
-* **Shiny Charm on a shared spawn:** the host rolls the spawn's shiny status once (1/4096) when it appears. The claimant's Charm adds two extra rolls, made in the claimant's game from a hash of the
-  spawn's id and personality (`MultiplayerSpawns_CharmMakesShiny`): exactly 8191/4096^2, and the same Pokemon always gives the same answer, so releasing and claiming it again, reconnecting, or two
-  players with Charms can reroll nothing. A player without the Charm gets only the host's roll. 20,000,000 Pokemon: 9,901 extra shinies (expected 9,764 +- 99); total 1 in 1365.7 with the host's roll.
+* **Shiny Charm on a shared spawn:** the host rolls the spawn's shiny status once (1/4096) when it appears. The claimant's Charm adds an extra chance (Update 30: 669574/2^32, so that with the host's roll the total is 1 in 2500; Update 29 had 8191/4096^2), made in the claimant's game from a hash of the
+  spawn's id and personality (`MultiplayerSpawns_CharmMakesShiny`), and the same Pokemon always gives the same answer, so releasing and claiming it again, reconnecting, or two
+  players with Charms can reroll nothing. A player without the Charm gets only the host's roll. 20,000,000 Pokemon (Update 30 measurement): 3,135 extra shinies (expected 3,118 +- 56); total 1 in 2500.0 with the host's roll.
 * **Safari-only families** are never chosen for a shared spawn; the parity check (`check_engine_spawn_weights.py`: 923,520 weights, 0 differences) covers it.
 * **Persistence and compatibility:** shared slots, worlds and saves keep their formats (older spawn state loads with `legend_rolled` false); no protocol change; the wallet is save-compatible both ways as above.
 

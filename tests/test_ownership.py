@@ -232,11 +232,17 @@ class OwnershipTests(unittest.TestCase):
         opaque = _change_record(_change_record(data, 12, b"\x01" * 16), 12, b"\x01" * 16, bank=1)
         self.assertEqual(self.parse(opaque).world_id, str(uuid.UUID(bytes=b"\x01" * 16)))
 
-    def test_padding_outside_600_is_rejected(self):
+    def test_padding_outside_the_profile_and_the_egg_queue_is_rejected(self):
+        # Update 30: bytes 600..1011 of SaveBlock3 are the Day Care egg queue (flash.py); what follows them is still padding.
         data = bytearray(make_ownership_flash())
-        offset = _sector_offset(data, 0, 5) + 3968 + 20
-        data[offset] = 1  # 5*116+20 = first byte after logical 600.
+        offset = _sector_offset(data, 0, 8) + 3968 + 84
+        data[offset] = 1  # 8*116+84 = 1012: the first byte after the queue.
         with self.assertRaisesRegex(FlashError, "padding"):
+            self.parse(bytes(data))
+        # A stray byte where the queue lives is refused as a damaged queue, not read as an egg.
+        data = bytearray(make_ownership_flash())
+        data[_sector_offset(data, 0, 5) + 3968 + 20] = 1  # 5*116+20 = 600: the queue's magic is not there.
+        with self.assertRaisesRegex(FlashError, "egg queue"):
             self.parse(bytes(data))
 
     def test_retirement_intents_and_invalid_journals(self):

@@ -56,30 +56,30 @@ The isolated Windows worker and copied native record/save-block replay
 have passed scoped checks. Those checks do not qualify the complete visible
 trading experience or recovery in a new Windows package.
 
-Main menu, Host Game / Join Game and character setup
+Main menu, Host Server / Join Server and characters
 
-The launcher opens on one main menu (Continue Adventure, My Worlds, Host Multiplayer,
-Join Friend, Settings, Exit Game). It is a front end: starting a game, the checks
-before it, hosting, joining, saving and recovery are the same code as before. Joining
-is by invitation file only; there are no invite codes, no relay server and no
-automatic discovery. Internet hosting still needs your own router port forward and
-firewall rule. The menu is mouse and keyboard; it does not read a game controller.
-It was checked by automated tests and screenshots on a simulated display only; a
-real-PC walk-through of every menu path, and a real LAN or Internet join, are
-still pending.
+The program opens on the main menu inside the game's own window (Continue Adventure, New Game, Host Server, Join Server,
+Settings, Exit). It is a front end: starting a game, the checks before it, hosting, joining, saving and recovery are the same
+code as before. A friend joins with an invite code (a password for that account: give each friend only their own) or an
+invitation file; there is no relay server, no automatic discovery, no UPnP and no NAT traversal. Internet hosting still
+needs the host's own router port forward and firewall rule. First-time characters are created with the game's normal New
+Game and registered automatically (a friend's with the host's server over the world connection; the host can turn that off).
+The menu is mouse and keyboard; a controller's D-pad, A and B are handled but untested. It was checked by automated tests
+and screenshots on a simulated display and, in CI, on a Windows runner without a graphics card; a real-PC walk-through of
+every menu path, the real New Game and enrollment sequence, and a real LAN or Internet join are still pending. The menu
+window and the game are two windows of the same program; the earlier launcher window is a fallback
+("EmeraldTogether.exe --classic-launcher").
 
-The launcher provides local world creation, named character accounts, separate
-friend invitations and one-time own-game import when the package includes its
-verified patch. Initial character approval remains local to the host PC and
-requires ordinary New Game, starter selection, native Save and explicit host
-enrollment. An existing world can use the explicit, backed-up feature upgrade
-only with its original game identity; setup cannot repin it to another release.
-Keep each friend's private invitation separate from the shared application ZIP.
-Friends can prepare a normal New Game character on their own PC and explicitly
-export a verified unassigned .sav copy for host approval. Export is a local
-file copy, not enrollment or automatic file transmission. Changed, owned,
-active-launcher and invalid sources are refused, and existing destinations
-are never replaced. The host still approves the exact selected bytes locally.
+The program provides local world creation, named character accounts, separate friend invites and one-time own-game
+import when the package includes its verified patch. A character still starts as the game's ordinary New Game (name,
+starter, native Save) and is enrolled by the unchanged first-enrollment path: the host's own PC approves the host's
+character; a friend's source is sent over the world connection and the host's server checks and records it for the
+authenticated account (it must be a valid new save with no owner identities, not another account's source; the host can
+turn this off per world). That is not a registration of strangers: only an account with its own invite can do it. An
+existing world can use the explicit, backed-up feature upgrade only with its original game identity; setup cannot repin
+it to another release. Keep each friend's invite private and separate from the shared application ZIP. The earlier
+file-export path (a friend exports a verified unassigned .sav for the host to approve) remains in the fallback launcher
+window. Changed, owned and invalid sources are refused, and existing destinations are never replaced.
 
 Saving and recovery
 

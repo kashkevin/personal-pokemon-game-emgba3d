@@ -202,7 +202,7 @@ def build(args):
         pinned_copy(path, frozen_source / path.name, source_hashes[path.name])
     entry = output / "EmeraldTogether.pyw"
     entry.write_text("from pathlib import Path\nimport sys\n"
-        "from emerald_multiplayer.launcher_gui import LauncherRelease, main\n"
+        "from emerald_multiplayer.launcher_gui import LauncherRelease\nfrom emerald_multiplayer.shell_app import main\n"
         "from emerald_multiplayer.game_import import ImportRelease\n"
         f"release = {release!r}\nimport_release = {import_release!r}\n"
         "main(release, Path(sys._MEIPASS), import_release)\n", encoding="utf-8")
@@ -230,9 +230,10 @@ def build(args):
     (resources / "README.txt").write_text(
         "Emerald Together - " + release.version + "\n\n"
         + ("Private development preview: " if development else "Importable private release candidate: ")
-        + "a main menu (Continue Adventure, My Worlds, Host Multiplayer, Join Friend,\n"
-        "Settings), local character setup,\n"
-        "autosave every 5 minutes (on by default), and launcher Save now.\n"
+        + "the main menu in the game's own window (Continue Adventure, New Game,\n"
+        "Host Server, Join Server, Settings, Exit), saved worlds and servers that\n"
+        "load your own character automatically, autosave every 5 minutes (on by\n"
+        "default) and Save now in the session window.\n"
         "Your character's autosave toggle is remembered on this PC.\n"
         "Read QUICK-START.txt and RELEASE-LIMITS.txt before playing.\n"
         + ("\nThe game is the native PC game " + runtime_manifest["executable"] + " (no emulator,\n"

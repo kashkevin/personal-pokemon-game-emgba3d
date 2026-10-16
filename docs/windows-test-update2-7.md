@@ -22,11 +22,11 @@ package has no game data: import your own game once (**Set up a world or charact
 
 ## 1. Controls and sound (**REGRESSION**, never tried on a real PC)
 
-- [ ] Launcher **Help > Game keys**: rebind A to Q, save, start the game: Q is A; the default Z no longer is. Restore defaults.
+- [ ] Main menu **Settings > Controls** (Update 30; it was Launcher Help > Game keys): choose A, press Q, start a game: Q is A; the default Z no longer is. Restore defaults.
 - [ ] In the 3D game F10 > **Controls**: rebind, a conflict asks to swap, Esc and F1-F12 are refused, the on-screen prompts show the new key.
-- [ ] Fast forward key (default Space, hold): the game speeds up while held, sound pauses, then returns to normal.
+- [ ] There is **no** fast-forward any more (Update 30): Space and the right trigger do nothing special, and no Controls page row offers one.
 - [ ] **Controller:** an Xbox-style pad (XInput): D-pad/left stick move, A = A, left face button (X) = B, Start, Back =
-      Select, shoulders = L/R, right trigger = fast forward, Y = details view in menus. A PlayStation/Switch pad is **not**
+      Select, shoulders = L/R, Y = details view in menus (the right trigger no longer speeds the game up). A PlayStation/Switch pad is **not**
       supported (write down what happens; do not expect it to work).
 - [ ] **Sound:** music and cries play in the overworld and in battle, no crackling; changing windows or minimising and returning keeps sound.
 

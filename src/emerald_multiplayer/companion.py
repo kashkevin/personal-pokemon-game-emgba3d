@@ -420,6 +420,7 @@ class Companion:
         self._checkpoint_pending: dict[str, tuple[str, int, asyncio.Future]] = {}
         self._trade_pending: dict[str, tuple[dict, asyncio.Future]] = {}
         self._team_pending: dict[str, tuple[dict, asyncio.Future]] = {}
+        self._enrollment_pending: dict[str, tuple[dict, asyncio.Future]] = {}
         self._challenge_pending: dict[str, tuple[dict, asyncio.Future]] = {}
         self._reset_pending: dict[str, tuple[dict, asyncio.Future]] = {}
         self._save_pending: dict[int, tuple[Any, asyncio.Future]] = {}
@@ -1218,6 +1219,10 @@ class Companion:
             if not future.done():
                 future.set_exception(ConnectionError("team connection lost; query membership after reconnect"))
         self._team_pending.clear()
+        for _, future in self._enrollment_pending.values():
+            if not future.done():
+                future.set_exception(ConnectionError("enrollment connection lost; ask for the account's state after reconnect"))
+        self._enrollment_pending.clear()
         for _, future in self._challenge_pending.values():
             if not future.done():
                 future.set_exception(ConnectionError("battle connection lost; query the challenge after reconnect"))
@@ -1401,6 +1406,8 @@ class Companion:
                 self._receive_checkpoint(message)
             elif message.get("type") in {"team_result", "team_error"}:
                 self._receive_team(message)
+            elif message.get("type") in {"enrollment_result", "enrollment_error"}:
+                self._receive_enrollment(message)
             elif message.get("type") in {"trade_result", "trade_error"}:
                 self._receive_trade(message)
             elif message.get("type") in {"reset_result", "reset_error"}:
@@ -1443,6 +1450,47 @@ class Companion:
             self._team_pending.pop(request_id, None)
             if not future.done():
                 future.cancel()
+
+    async def enrollment_rpc(self, operation, *, request_id=None, timeout=10.0, **fields):
+        """A friend's first-time enrollment over the world connection (enrollment_protocol.py)."""
+        from .enrollment_protocol import validate_enrollment_request
+        from .ownership_protocol import OWNERSHIP_PROFILE
+        if (type(timeout) not in (int, float) or not math.isfinite(timeout) or not 0 < timeout <= 60
+                or operation not in {"status", "begin", "chunk", "commit"}):
+            raise ValueError("unsupported enrollment operation")
+        if (not self.connected or self.world_id is None or self._remote_writer is None
+                or self.config.server_credential is None or self.save_profile != OWNERSHIP_PROFILE):
+            raise ConnectionError("no authenticated enrollment session")
+        if set(fields) & {"type", "session_epoch", "request_id"}:
+            raise ValueError("enrollment envelope fields cannot be overridden")
+        request_id = str(uuid4()) if request_id is None else request_id
+        request = dict(type="enrollment_" + operation, session_epoch=self.session_epoch, request_id=request_id, **fields)
+        validate_enrollment_request(request, self.session_epoch)
+        if request_id in self._enrollment_pending or len(self._enrollment_pending) >= 4:
+            raise ValueError("enrollment request is pending or capacity is exhausted")
+        future = asyncio.get_running_loop().create_future()
+        self._enrollment_pending[request_id] = (request, future)
+        try:
+            await self._send_remote(self._remote_writer, request)
+            return await asyncio.wait_for(future, timeout)
+        finally:
+            self._enrollment_pending.pop(request_id, None)
+            if not future.done():
+                future.cancel()
+
+    def _receive_enrollment(self, message):
+        pending = self._enrollment_pending.get(message.get("request_id"))
+        if pending is None:
+            return
+        request, future = pending
+        if (message.get("session_epoch") != self.session_epoch or message.get("operation") != request["type"].removeprefix("enrollment_")):
+            raise ProtocolError("invalid_server_message", "enrollment reply does not match its request")
+        if not future.done():
+            if message["type"] == "enrollment_error":
+                from .enrollment_protocol import EnrollmentRemoteError
+                future.set_exception(EnrollmentRemoteError(str(message.get("code")), str(message.get("message"))))
+            else:
+                future.set_result(message)
 
     def _receive_team(self, message):
         from .team_protocol import validate_team_reply

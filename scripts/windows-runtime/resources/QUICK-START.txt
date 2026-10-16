@@ -14,128 +14,112 @@ candidate 9 for worlds created with that release. Installing the new game does
 not convert or repin an old world or rewrite its Pokemon. Use a new world and
 newly prepared characters for this candidate. See RELEASE-LIMITS.txt.
 
-The main menu
+The main menu (Update 30)
 
-Emerald Together opens on one menu in one window:
-  Continue Adventure   starts the world or invitation you played last, with the
-                       same address and choices (it says what it will start)
-  My Worlds            your worlds; create one, set up the characters in it,
-                       or choose one to host
-  Host Multiplayer     start one of your worlds for up to three friends
-  Join Friend          open your friend's invitation file and join
-  Settings             3D or Classic 2D, resolution and quality, sound, the game's
-                       keys, game files (import / check) and launcher text size
-  Exit Game            close the launcher
-Mouse, or Up/Down + Enter, or the first letter of a choice; Esc goes back.
-Joining is by invitation file only: this version has no invite codes and no
-automatic discovery of games. The menu does not read a game controller; the
-controller works in the game once it opens.
-Back to the main menu is available when no game is running. While a game runs
-its page shows saving and recovery; close the game window first.
+Emerald Together opens on its menu inside the game's own window. There is no separate
+setup program or launcher window:
+  Continue Adventure   resumes the adventure you played last (a world you host or a server
+                       you joined) and loads your character; it says what it will start
+  New Game             a new private adventure on this PC with a new character; if you
+                       already have one it asks first and never touches the old ones
+  Host Server          your saved worlds, and Create New Server World
+  Join Server          your saved servers, and Join New Server (with an invite code)
+  Settings             Native 3D or Classic 2D, display, sound, keys, the characters on
+                       this PC, multiplayer, game files (check / import)
+  Exit
+Mouse, or Up/Down + Enter, Tab, Esc to go back, Ctrl+V to paste, F11 fullscreen. A game
+controller's D-pad, A and B should work in the menu (not tested on a real controller).
+The game opens in its own window; the menu window stays beside it as a small session
+window with Save now, the autosave switch, the recovery actions and, for a host, Server
+Information. If the menu window cannot open on a PC, the earlier launcher window opens
+instead; "EmeraldTogether.exe --classic-launcher" opens that window on request (it uses the same
+worlds, characters and invitations).
 
 Install your own game once
 
-1. In an import-enabled package, open Settings, Game files, choose "Import my game…" (first launch: the top menu choice, "Set Up Your Game", opens it) and select your
-   matching original Emerald .gba dump or ZIP containing exactly one .gba.
-   Archives are read in memory; your original dump/archive is not changed.
-2. Wait for "Game installed". The launcher validates the original, patch and
-   reconstructed game against this release's exact hashes before publishing
-   its private copy. An existing different installation is never overwritten.
-3. "Check installed game files" verifies the ROM, manifest and runtime pins
-   without starting a game. File verification does not establish gameplay,
-   network acceptance or import availability in an import-disabled preview.
-4. Every friend's PC repeats this import with their own matching dump and
-   the same release package. Never include the game or saves in the shared ZIP.
+1. In an import-enabled package, open Settings, Game files and enter the path of your matching
+   original Emerald .gba dump (or a ZIP containing exactly one .gba). Archives are read in
+   memory; your original is not changed.
+2. Wait for "Game installed". The installer validates the original, patch and reconstructed
+   game against this release's exact hashes before publishing its private copy. An existing
+   different installation is never overwritten.
+3. Game files also verifies the installed ROM, manifest and runtime pins without starting a
+   game. File verification does not establish gameplay or network acceptance.
+4. Every friend's PC repeats this import with their own matching dump and the same release
+   package. Never include the game or saves in the shared ZIP.
 
-Create the host world
+Host a world
 
-1. Choose My Worlds, then "Create a new world…" (the "I'm hosting" page).
-2. Enter the host name and up to three friends' names. Choose the numeric
-   address friends will reach and the game port before creating the world.
-   127.0.0.1 works only on this PC. For friends on your home network, use the
-   host PC's local network address. The default game port is 8765.
-3. If this release offers native trade effects, explicitly choose the world's
-   trade friendship rule. Read the two choices before creating the world;
-   setup does not pick one for you, and it becomes permanent for this world.
-4. Choose "Create private world". Keep the host world on the host PC.
+1. Host Server, Create New Server World: a world name, your name, a port, the network (this PC
+   only, or one of this PC's local addresses), Internet access (off unless you turn it on;
+   it asks first), an optional public address or host name, and - once - the trade friendship
+   rule (the game build requires you to choose; it is permanent for the world).
+2. The world is created with its own saved characters, Pokemon, PC and progress, and four
+   accounts: yours and three for friends. Creating a world never changes another world.
+3. The first time, Host This World lets you create your character with the game's normal New
+   Game: choose a name and starter, SAVE in the game and close it; the game opens once more -
+   choose CONTINUE - and closes by itself when your character is registered; then your
+   adventure starts. From then on Host Server, your world, Host This World (or Continue
+   Adventure) loads your character with nothing to select or import.
+4. Server Information shows the port, this PC's local addresses and any public address you
+   typed, and says plainly what is not done for you (see Host and join below).
 
-Upgrade features in an existing same-release world
+Invite your friends
 
-Close every character, host session and game first. In setup, select the exact
-host world on the character tab, then open "Upgrade world features". Select and
-approve its trade friendship rule and the backed-up upgrade. The action retains
-verified backups, adds supported personal-attempt tracking and initializes
-missing older handler values to each species' Gen 6 base while preserving known
-values. An already chosen rule cannot be changed here. This does not convert an
-older world's game build, resolve unfinished trades/battles or replace saves.
-Use it only when this exact installed release supports the displayed upgrade.
+In the world's page choose "Invite codes for friends": each friend account has its own code,
+copied to your clipboard. A code is a password for that account: send each friend only their own,
+privately. The code holds no certificate or key; the friend's game checks the server's
+certificate against the one fingerprint in the code.
 
-Prepare a character on either player's PC
+Join a friend
 
-1. A friend chooses "I'm joining a friend" in setup. The host can also use
-   "Set up character". Choose "Create a new character…", or select an
-   existing original character save that has no multiplayer ownership.
-2. For a new character, play ordinary New Game, choose a starter, use the
-   game's normal Save menu, then close the game using its title-bar Close.
-   The launcher selects the saved character after validating it.
-   Follow the starter selector in that exact game build. In a build with the
-   eighteen-starter selector, Up/Down or L/R changes region; Left/Right picks
-   one of three starters and A previews/confirms it. Older builds differ.
-3. A friend on another PC chooses "Export character for host approval…" and
-   saves a new .sav copy. Give only that copy to the host yourself; this launcher
-   does not send files. The original is preserved. No host world or credentials
-   are needed on the friend's PC to prepare and export this character.
-4. On the host PC, choose "I am the host", select the character copy, then
-   choose the host world and the correct named Host/Friend account. Check the box
-   approving that exact character save, then "Approve and open character".
-   A source that changes after selection is refused; reselect and review it.
-5. Continue in the game to a safe field location outside menus and battles.
-   Return to setup and choose "I'm in the world — finish enrollment".
-6. Repeat for each friend. Choose each friend's slot and export that friend's
-   invitation. Give each person only their own invitation. This preview
-   performs initial character approval locally on the host PC. Once enrolled,
-   play through Host/Join; do not keep playing or merge the unassigned backup.
+Join Server, Join New Server: paste the code (Ctrl+V). The address and port in it are filled in;
+change them if the host told you another. The game checks that the server is reachable and is
+that world, saves it as a shortcut and joins. The first time, you create your character the same
+way as above (it is registered on the host's world; the host can turn that off). After that,
+Join Server, your saved server, Join - or Continue Adventure - loads your own character.
+Your character is tied to that world and your account in it, not to the server's name or
+address: if the host's address changes, edit the saved server's address and nothing else changes.
+Removing a saved server removes only the shortcut; your character stays and pasting the same
+code brings you back to it. If the host is offline you are told so and offered Try again; nothing
+is created or reset.
+
+Characters and old saves
+
+Settings, Characters lists every character on this PC with its world and state. Worlds, characters
+and invitations from earlier versions are found automatically and left exactly as they are; a
+copy of launcher-recent.json is kept in the "shell" folder first. Anything that could not be
+matched without guessing is listed there and left alone.
 
 Host and join
 
-Host: from the main menu choose Host Multiplayer, pick the world, enter this PC's
-local address ("Use this PC's network address" fills it in) and choose Host Game.
-Leave the host running while friends play. Next time, Continue Adventure does this
-in one step.
-
-Friend: open the same release, choose Join Friend, select your own invitation (recent
-ones are listed), then choose Join Game. "Check connection" checks the invited encrypted
-endpoint; it does not log you in or prove an Internet gameplay session.
-
-For Internet hosting, the invitation needs the host's public numeric address.
-The host still enters its local address on the Host Game tab, enables
-"Allow Internet connections", and forwards the chosen TCP port on the router
-to that PC. The current build does not configure the router or firewall.
-Separate-PC LAN and outside-network gameplay acceptance are still pending.
+LAN: friends on the host's network use the host's local address (Server Information shows it).
+Internet: the friend needs the host's public address, and the host must forward the chosen TCP
+port on the router to the host PC and allow it in the firewall. Emerald Together does not set
+this up for you and has no relay server, no UPnP and no automatic discovery. Separate-PC LAN and
+outside-network gameplay acceptance are still pending.
 
 Save and finish a session
 
-"Autosave every 5 minutes" is on by default. It waits for a safe field location
-outside menus and battles, then saves to the reachable host. You can untick it
-in the launcher; that choice is remembered for this character and world on
-this PC. Turning it off does not interrupt a save already in progress.
+"Autosave every 5 minutes" is on by default. It waits for a safe field location outside menus
+and battles, then saves to the world. You can switch it off in the session window; that choice is
+remembered for this character and world on this PC. Turning it off does not interrupt a save
+already in progress.
 
-During multiplayer play, return to a safe field location and press "Save now"
-in the launcher. Keep the game open until "Character saved to the host" appears.
-Save now also works when autosave is off. If the game is busy, leave its menu
-or battle and press Save now again. The game's ordinary Save menu does not
-confirm that progress reached the host.
-After a successful save, close the game through its title-bar Close button,
-then close the launcher. Keep private recovery files and follow the displayed
-recovery message. If it tells you to keep the game open, leave both windows open.
-Closing the game does not itself save progress to the host.
+During multiplayer play, return to a safe field location and press "Save now" in the session
+window. Keep the game open until "Character saved to the host" appears. Save now also works
+when autosave is off. If the game is busy, leave its menu or battle and press Save now again.
+The game's ordinary Save menu does not confirm that progress reached the host.
+After a successful save, close the game through its title-bar Close button. Keep private recovery
+files and follow the displayed recovery message. If it tells you to keep the game open, leave
+both windows open. Closing the game does not itself save progress to the host.
 
-If the host reports an unresolved multiplayer battle, the launcher blocks a
+If the host reports an unresolved multiplayer battle, the program blocks a
 fresh game session. Keep the original game open and retain the recovery files.
 Restore the host connection and choose "Recover battle" in every original
-player's launcher. The match waits for all of its original players.
+player's session window. The match waits for all of its original players.
 
-If the host service stopped but its original game and launcher are still open,
+If the host service stopped but its original game and its session window are still open,
 the host can choose "Restart host service" when that action becomes available.
 After it succeeds, the host and every original participant choose "Recover
 battle". Restarting the service alone does not resume the match. An exited game
@@ -144,12 +128,12 @@ or host application cannot recover its waiting battle through this button.
 If the host disconnects during normal exploration or an ordinary save, the
 launcher attempts to preserve that exact save locally for rejoining. Wait for
 its status before closing. A confirmed preserved save can be reconciled through
-Host Game or Join Game after the host returns. An unsafe or uncertain operation
+Host This World or Join after the host returns. An unsafe or uncertain operation
 may keep the game held without a completed save; do not close it while the
 launcher asks you to keep it open.
 
 If the host disconnects during a trade, keep both original game windows and
-launchers open. The surviving host uses "Restart host service" when offered.
+session windows open. The surviving host uses "Restart host service" when offered.
 Each player then uses "Resolve interrupted trade" and reads its confirmation:
 it may cancel an unfinished trade or retain an already committed result. Wait
 for the verified message that says closing is safe, then close the game
@@ -160,19 +144,17 @@ exited game/whole PC. Do not discard journals or copy a backup over the characte
 
 Trainer Cards and hunt records
 
-Open the launcher's Trainer Card & Players tab and choose Refresh while your
-character is connected. Records shows completed 1v1/2v2 results and win streaks,
-committed trades and saved party/storage counts. Hunts shows recorded personal
-attempts when the world's durable hunt ledger is enabled; attempts do not alter
-shiny odds. Records are snapshots, not unsaved live progress. The in-game Players
-menu also has Your Trainer Card and connected players' public battle cards.
+Use the game's own Players menu (START > PLAYER > PLAYERS): Your Trainer Card, connected players' public battle
+cards, challenges, trades and records. Hunts shows recorded personal attempts when the world's durable hunt ledger is
+enabled; attempts do not alter shiny odds. Records are snapshots, not unsaved live progress. The earlier launcher
+window's Trainer Card & Players, Challenges, Archive, Local Reset and Championship tabs are still available through
+"EmeraldTogether.exe --classic-launcher".
 
-Host/Join connection details
+Connection details
 
-Choose an invitation to see its host address and port. Copy connection details
-copies public support information only. Your friend still needs their own
-private invitation file; those details alone do not grant character access.
-Controls & Help explains the existing keys and recovery actions.
+Server Information (a host's world page or session window) shows the address and port. Copying the address copies
+support information only. A friend still needs their own invite code; the address alone grants no character access.
+Settings in the menu and the game's F10 menu explain the existing keys and recovery actions.
 
 Default game controls
 

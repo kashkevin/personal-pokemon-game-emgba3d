@@ -30,6 +30,7 @@ from .protocol import (
 from .storage import StorageError
 from .secure_transport import ServerTlsConfig, is_numeric_unicast_address
 from .trade_protocol import TRADE_TYPES, validate_trade_common, validate_trade_request
+from .enrollment_protocol import ENROLLMENT_TYPES, validate_enrollment_common, validate_enrollment_request
 from .team_protocol import TEAM_TYPES, validate_team_common, validate_team_request
 from .battle_protocol import BATTLE_TYPES, challenge_view, validate_battle_common, validate_battle_request
 from .reset_protocol import RESET_TYPES, validate_reset_common, validate_reset_request
@@ -67,6 +68,7 @@ class ServerConfig:
     monitor_interval: float = 0.1
     reliable_limit: int = 8
     checkpoint_upload_timeout: float = 30.0
+    allow_enrollment: bool = True   # friends may send their New Game save to enroll themselves (enrollment_protocol.py)
 
     def __post_init__(self) -> None:
         validate_identity(self.build_id, "build_id")
@@ -82,6 +84,8 @@ class ServerConfig:
             raise ValueError("heartbeat_interval must be shorter than idle_timeout")
         if type(self.reliable_limit) is not int or not 1 <= self.reliable_limit <= 64:
             raise ValueError("reliable_limit must be between 1 and 64")
+        if type(self.allow_enrollment) is not bool:
+            raise ValueError("allow_enrollment must be a boolean")
 
 
 class OutboundFull(Exception):
@@ -167,12 +171,14 @@ class PlayerSession:
     close_reason: str | None = None
     writer_task: asyncio.Task[None] | None = field(default=None, repr=False)
     upload: CheckpointUpload | None = field(default=None, repr=False)
+    enrollment_upload: CheckpointUpload | None = field(default=None, repr=False)
 
     def close(self, reason: str) -> None:
         if not self.closed:
             self.closed = True
             self.close_reason = reason
             self.upload = None
+            self.enrollment_upload = None
             self.outbox.close()
             self.writer.close()
 
@@ -676,6 +682,14 @@ class WorldServer:
                 self._trade(session, request)
             except (ProtocolError, StorageError) as error:
                 self._trade_reply(session, message, error=error)
+        elif isinstance(kind, str) and kind in ENROLLMENT_TYPES and self.store is not None:
+            validate_enrollment_common(message, session.session_epoch)
+            try:
+                request = validate_enrollment_request(message, session.session_epoch)
+                session.last_seen = now
+                self._enrollment(session, request, now)
+            except (ProtocolError, StorageError) as error:
+                self._enrollment_reply(session, message, error=error)
         elif isinstance(kind, str) and kind in CHECKPOINT_TYPES and self.store is not None:
             # Invalid lease/correlation fields cannot safely receive an RPC reply.
             validate_checkpoint_common(message, session.session_epoch)
@@ -687,6 +701,72 @@ class WorldServer:
                 self._checkpoint_error(session, message, error.code, error.message)
         else:
             raise ProtocolError("invalid_type", "message type is unsupported")
+
+    def _enrollment_reply(self, session, request, *, error=None, **fields):
+        base = dict(protocol=PROTOCOL_VERSION, session_epoch=session.session_epoch, request_id=request["request_id"],
+                    operation=request["type"].removeprefix("enrollment_"))
+        if error is not None:
+            self._control(session, dict(base, type="enrollment_error", code=error.code, message=error.message))
+        else:
+            self._control(session, dict(base, type="enrollment_result", **fields))
+
+    def _enrollment(self, session, request, now):
+        """A friend enrolls their own New Game save (enrollment_protocol.py). Everything is decided here, on the host."""
+        from .ownership_storage import OwnershipCheckpointStore
+        store = self.store
+        if not isinstance(store, OwnershipCheckpointStore):
+            raise ProtocolError("enrollment_unsupported", "this world cannot enroll characters over the network")
+        if not self.config.allow_enrollment:
+            raise ProtocolError("enrollment_disabled", "the host has turned off creating new characters over the network")
+        kind = request["type"]
+        head = store.read_checkpoint(session.player_id, session.session_epoch)
+        enrolled = store.has_enrollment(session.player_id)
+        state = "checkpointed" if head is not None else "enrolled" if enrolled else "open"
+        if kind == "enrollment_status":
+            self._enrollment_reply(session, request, state=state)
+            return
+        if head is not None:
+            raise ProtocolError("already_enrolled", "this account already has a character")
+        if kind == "enrollment_begin":
+            upload_id = request["request_id"]
+            if session.enrollment_upload is not None and session.enrollment_upload.upload_id != upload_id:
+                raise ProtocolError("upload_active", "this player already has an enrollment upload in progress")
+            if session.enrollment_upload is None:
+                from .flash import LAYOUT_ID
+                session.enrollment_upload = CheckpointUpload(upload_id, 0, request["size"], request["sha256"], LAYOUT_ID, now)
+            elif (session.enrollment_upload.size, session.enrollment_upload.sha256) != (request["size"], request["sha256"]):
+                raise ProtocolError("request_conflict", "upload ID was reused with a different fingerprint")
+            session.enrollment_upload.last_activity = now
+            self._enrollment_reply(session, request, state=state, upload_id=upload_id,
+                                   next_offset=len(session.enrollment_upload.data))
+            return
+        upload = session.enrollment_upload
+        if upload is None or upload.upload_id != request["upload_id"]:
+            raise ProtocolError("upload_not_found", "no enrollment upload is open")
+        if kind == "enrollment_chunk":
+            offset, data = request["offset"], request["data"]
+            end = offset + len(data)
+            if end > upload.size:
+                raise ProtocolError("invalid_checkpoint_offset", "chunk exceeds the declared size")
+            if offset == len(upload.data):
+                upload.data.extend(data)
+            elif not (end <= len(upload.data) and upload.data[offset:end] == data):
+                raise ProtocolError("checkpoint_offset_conflict", "chunks must be sequential or exact duplicates")
+            upload.last_activity = now
+            self._enrollment_reply(session, request, state=state, upload_id=upload.upload_id, next_offset=len(upload.data))
+            return
+        # enrollment_commit
+        if (request["size"], request["sha256"]) != (upload.size, upload.sha256):
+            raise ProtocolError("request_conflict", "commit fingerprint differs from the begun upload")
+        if len(upload.data) != upload.size:
+            raise ProtocolError("upload_incomplete", "the enrollment upload is incomplete")
+        payload = bytes(upload.data)
+        session.enrollment_upload = None
+        if hashlib.sha256(payload).hexdigest() != upload.sha256:
+            raise ProtocolError("checkpoint_hash_mismatch", "uploaded bytes do not match their declared SHA256")
+        enrollment = store.enroll_player(session.player_id, payload)
+        self._enrollment_reply(session, request, state="enrolled", upload_id=upload.upload_id,
+                               source_sha256=enrollment.source_sha256)
 
     @staticmethod
     def _checkpoint_metadata(checkpoint: Checkpoint | None) -> dict[str, Any] | None:
@@ -1644,6 +1724,9 @@ class WorldServer:
                     continue
                 if session.upload is not None and now - session.upload.last_activity >= self.config.checkpoint_upload_timeout:
                     session.upload = None
+                if (session.enrollment_upload is not None
+                        and now - session.enrollment_upload.last_activity >= self.config.checkpoint_upload_timeout):
+                    session.enrollment_upload = None
                 if now - session.last_seen >= self.config.idle_timeout:
                     session.close("heartbeat_timeout")
                     continue
