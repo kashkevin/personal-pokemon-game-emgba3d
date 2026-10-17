@@ -784,11 +784,14 @@ class RandomisedInvariantTests(unittest.TestCase):
         coverage = dict(completed=0, canceled=0, formats=set(), catch_up=0, solo=0, void=0)
         actions = (["move"] * 12 + ["vote"] * 30 + ["tick"] * 14 + ["match"] * 18 + ["native"] * 12
                    + ["online"] * 5 + ["continue"] * 6 + ["restart"] * 3 + ["gather"] * 3)
-        for seed in range(24):
+        # RIVAL_SOAK_SEEDS / RIVAL_SOAK_STEPS lengthen the walk for a soak run (defaults: 24 seeds of 260 steps).
+        import os
+        seeds, steps = int(os.environ.get("RIVAL_SOAK_SEEDS", 24)), int(os.environ.get("RIVAL_SOAK_STEPS", 260))
+        for seed in range(seeds):
             rng = random.Random(seed)
             h = Harness(self, 4)
             try:
-                for _ in range(260):
+                for _ in range(steps):
                     p = rng.randrange(4)
                     player = h.players[p]
                     action = rng.choice(actions)
