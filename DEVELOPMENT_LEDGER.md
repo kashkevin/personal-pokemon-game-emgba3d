@@ -759,7 +759,7 @@ host enabling it from its manifest's `rival_abi_version`, the manifest marker, S
 **Checks:** `--selftest-rival` 24/0; `rival_check.py` 21/21; app `test_rival_environment.py` 14 new; focused battle + rival suites pass; trial integration
 U29 + U30 + U31 2072 passed, 4 failed (U31-1, a missing fixture: regenerated locally from the Update 14 code all 6 `test_save_compat.py` tests pass), 9 skipped;
 MinGW objects of every changed file compile (2D and 3D flags); the 27 other PC selftest targets 0 failures (`species_data_check.py` lists the six
-PORTABLE map-script hooks as reviewed exceptions; species fingerprints unchanged); 3D `first_battle_check` and `battle_end_check` (wild) ok. Final engine
+PORTABLE map-script hooks as reviewed exceptions; species fingerprints unchanged); 3D `first_battle_check` and `battle_end_check` (wild, trainer) ok; `economy_check.py` 0 failed and `dialogue_check.py` ok in 3D and Classic 2D. Final engine
 head `7140c6bc`. **Not performed:** Windows CI (not reachable), a real multiplayer rival battle between game
 cores, real PCs, GPU, network. bios.c licensing unresolved; no ROM or sprite pack is distributed.
 

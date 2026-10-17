@@ -38,7 +38,8 @@ Environments: **L** cloud Linux (software OpenGL), **W** the Windows exe under W
 | App suite, trial integration U29 + U30 + U31 | app `claude/integration-u29-u30-u31-app` | L | 2072 passed, 4 failed (U31-1 fixture only), 9 skipped (Lua 5.3 installed this session, so the Lua subtests ran) | session log | - | After the owner's integration decision |
 | `test_save_compat.py` with the Update 14 fixture regenerated locally (not committed) | app `ad254d0` | L | 6 passed: the 4 baseline failures are the missing fixture only | session log | - | Once the fixture question is decided |
 | Every other PC selftest target (`check-native` … `check-graphics-mode`, 27 targets) | engine `7140c6bc` | L | 0 failures (`check-species-data` after listing Update 31's six PORTABLE map-script hooks as reviewed exceptions, as Update 29 did; 1571 species fingerprints equal) | session log | - | - |
-| Update 26 `first_battle_check` (3D), `battle_end_check --kind wild` (3D) | engine `22ce029d` Linux 3D build | L | ok, ok | session log | - | - |
+| Update 26 `first_battle_check` (3D), `battle_end_check --kind wild` / `--kind trainer` (3D) | engine `22ce029d` Linux 3D build | L | ok, ok, ok | session log | - | - |
+| Update 29 `economy_check.py` (3D + Classic 2D), Update 28 `dialogue_check.py` (boy, rescue; 3D + Classic 2D) | engine `22ce029d` | L | 0 failed; all ok (60/60 taps seen) | session log | - | - |
 | Windows CI (`windows-package`) | - | W | Not run by this session (Actions not reachable) | - | - | **Owner / a session with Actions access** |
 
 ## Current game: Native 3D preview 14 (`emeraldtogether-combined-20261014-2`)
