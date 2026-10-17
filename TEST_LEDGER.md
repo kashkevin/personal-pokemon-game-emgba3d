@@ -15,6 +15,15 @@ launcher proof: 5-20 minutes), write down why, whether it already ran, and what 
 Environments: **L** cloud Linux (software OpenGL), **W** the Windows exe under Wine in the cloud,
 **PC** the owner's Windows PC. Nothing has run on PC hardware except file checks.
 
+## Update 31 (cloud, app `claude/dev-update31-rival` on U28 `a912f07`; engine not accessible)
+
+| Test | Build / head | Where | Last result | Evidence | Changed since | Rerun? |
+| --- | --- | --- | --- | --- | --- | --- |
+| App suite, untouched U28 baseline (`pytest`, Python 3.12 + tkinter, xvfb) | app `a912f07` | L | 1827 passed, 4 failed (pre-existing U31-1), 50 skipped (Lua 5.3 subtests, private paths) | session log | - | Reuse as the baseline |
+| App suite with Update 31 | app `claude/dev-update31-rival` | L | 1924 passed (97 new), 4 failed (the same pre-existing U31-1), 51 skipped (+1: engine re-derivation, passes with a checkout) | session log | - | Rerun after merging U29/U30 |
+| `check_rival_catalogue.py --engine` on upstream expansion 1.17.1 | `bb1093a7c` | L | OK (5 checkpoints, intro table constants) | `docs/update31-rival-checkpoints.md` | - | **Run against the private engine** |
+| Rival checkpoints on real PCs | - | PC | Never run | `docs/windows-test-update31.md` | - | Owner |
+
 ## Current game: Native 3D preview 14 (`emeraldtogether-combined-20261014-2`)
 
 Engine `claude/emeraldtogether-combined` `f8dbffa88a` (the game exe; later commits are documents),

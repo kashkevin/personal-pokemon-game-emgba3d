@@ -739,3 +739,18 @@ Checks: 26 PC selftest targets incl. the new `check-legend`/`check-shiny`/`check
 `ffa_visual_check`; new `economy_check.py` (14 scenarios through the real prize counter, dealer and coin counter scripts, 28 of 28 in 3D and Classic 2D); MinGW objects of every changed file compile (also the 3D native-UI screens); app suite exit 0 (1,847 passed, 50 skipped: 49 Lua 5.3+ or private save paths; skips are not passes).
 **Not performed:** real PC/GPU, real LAN/Internet play, the look of the native Game Corner and shop screens with six-digit coins, the Slot Machine and Roulette played to the end with a large wallet (the stake logic is unit-tested), the slot machine's real payout rate (coin income by gambling is not measured), walking into the Safari Zone from the Game Corner.
 bios.c licensing unresolved.
+
+## Update 31 — multiplayer rival checkpoints (in development, not integrated)
+
+`docs/update31-rival-checkpoints.md`, `docs/update31/intro-post-state.json`, `docs/windows-test-update31.md`. App branch `claude/dev-update31-rival`
+from the integrated U28 default branch `a912f07`; developed in parallel with Updates 29/30 on the owner's instruction. **Verified before starting:** the app
+default branch holds U28; U29 is an unmerged branch (`ad254d0`); no U30 exists on the app remote; the engine repository and GitHub Actions are **not reachable**
+from this session (credential scoped to the app repository), so no engine change, engine pin or CI run was made. **Audit** (upstream expansion 1.17.1, the engine's
+base): five May/Brendan battle checkpoints (Route 103, Rustboro/Route 104, Route 110, Route 119, Lilycove) with maps, triggers, flags, rewards and gates, and the
+original introduction's post-state; both re-derivable by `scripts/multiplayer/check_rival_catalogue.py --engine <checkout>`. **App implementation:** world sidecar
+`<world>.rival-checkpoints.sqlite3` (completion once per world, personal passes, committed battle intents before the Desk call), Start Now / Wait lobby with a
+grace and countdown, formats over the existing native battles (1v1; three players: round robin of 1v1s; four: balanced 2v2), completion only from released
+results, catch-up and solo passes, interruption policy (no completion from a timeout or disconnect; held battles wait for native recovery; bystanders are never
+stranded), the `rival` extension of `battle_pending`, the Players-menu rival page, and a capability-gated EMW1 `RivalRecord` for the engine. Shared files changed
+minimally: `server.py`, `battle_protocol.py`, `companion.py`, `world_mailbox.py`, `player_menu.py`. **Not done (engine):** intro replacement, NPC rival removal,
+barriers, per-player rewards on a pass, canonical rival battle background, cutscenes. Simulation only; nothing ran on a real PC, core, GPU or network.

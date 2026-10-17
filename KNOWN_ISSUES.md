@@ -182,3 +182,11 @@ Decided 2026-10-13 (was pending): ordinary visible wild Pokémon are **shared** 
 the game is connected to a world (host-authoritative, 8 per map, 12 during outbreaks);
 fully offline play keeps the personal ones. See FEATURE_STATUS and the engine's
 `docs/shared-spawn-architecture.md`.
+
+## Update 31 session (2026-10-16, app branch `claude/dev-update31-rival`)
+
+| ID | Severity | Issue | Status |
+| --- | --- | --- | --- |
+| U31-1 | Medium | `tests/test_save_compat.py::SharedWorldFromUpdate14` (4 tests) fail on a fresh clone of the U28 default branch: `tests/fixtures/compat/shared_world_u14/` holds only `README.txt`; its database is excluded by `.gitignore` (`*.sqlite3`). Not caused by Update 31 (fails identically on untouched `a912f07`). | Open: regenerate with `tools/compat/make_shared_world_fixture.py` from an Update 14 checkout and commit it with a `.gitignore` exception (owner decision: fixture databases in Git). |
+| U31-2 | Info | The engine repository and GitHub Actions were not reachable from this cloud session (credential scoped to the app repository). | Open: the engine half of Update 31 (`docs/update31-rival-checkpoints.md` section 7) and the Windows CI run need a session with engine access. |
+| U31-3 | Info | A rival PvP battle is a link battle; upstream link battles draw the Frontier arena (the project's native singles path the building arena), not the route background of the original NPC rival battle. The environment also changes mechanics (Camouflage, Nature Power, Secret Power), so it must be identical on every core. | Open (engine): use each checkpoint's canonical environment (`PLAIN`) carried in the battle preparation. |
