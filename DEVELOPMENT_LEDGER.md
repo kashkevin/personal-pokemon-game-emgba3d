@@ -824,5 +824,5 @@ owner dump reached the job (`fetch_private_input.py` exit 3 only when nothing is
 Reproduced from source in the session: manifest, native bundle, audit, `build_launcher.py --preflight-only` as CI runs it and with a synthetic stand-in
 base and `--create-patch` (BPS reconstructs the game), the packaged importer end to end, `ci_graphics_check.py` under Wine (17/17 with 3D forced
 unsupported, 12/12 supported) and `ci_shell_check.py` on the native Linux builds (Wine cannot read the menu picture back, U31-14). New
-`tests/test_shell_game_files.py`. Node.js 20 warnings: `claude/fix-ci-node24-actions` moves the official actions to their node24 majors (merged here).
+`tests/test_shell_game_files.py`. Node.js 20 warnings: a commit moving the official actions to their node24 majors is prepared as a patch (the session token lacks the `workflow` scope GitHub requires to push workflow files).
 App suite 2100 passed, 0 failed, 1 skipped (private save paths). No launcher, runtime or engine input changed since the packaged commit `f70e315`. Section 9 of `docs/update31-final-integration.md`.

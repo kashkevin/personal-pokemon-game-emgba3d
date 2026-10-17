@@ -161,13 +161,16 @@ New tests: `tests/test_shell_game_files.py` (the menu of an import-disabled pack
 Settings, Game files says this package cannot install them, nothing started or created; with import, a wrong file is refused and the
 player's own file installs and verifies).
 
-**Node.js 20 warnings.** Branch `claude/fix-ci-node24-actions` (merged here) moves every official action to the first major that declares
-`node24` (checked in each tag's `action.yml`): `checkout@v5`, `setup-python@v6`, `upload-artifact@v6`, `download-artifact@v7` (v6 still
-declares node20). Inputs unchanged; download by name still extracts into `path`. Needs runner 2.327.1+ (GitHub-hosted runners have it).
-Pushing it triggers the `windows-package` smoke run (path filter), which is the check of the new majors.
+**Node.js 20 warnings (prepared, not pushed).** Commit `be3dd99` on the local branch `claude/fix-ci-node24-actions` (from the default
+`3cf6a32`) moves every official action to the first major that declares `node24` (checked in each tag's `action.yml`): `checkout@v5`,
+`setup-python@v6`, `upload-artifact@v6`, `download-artifact@v7` (v6 still declares node20); inputs unchanged, download by name still
+extracts into `path`; needs runner 2.327.1+ (GitHub-hosted runners have it; noted in `docs/windows-ci-packaging.md`). GitHub refused the push:
+the session's token has no `workflow` scope, which any change under `.github/workflows/` needs. It is therefore **not** in this branch; the
+owner applies `0001-ci-node24-actions.patch` (`git am`), or edits the four `uses:` versions in the web editor. The warnings do not affect
+results today (GitHub runs these actions on Node 24 already).
 
 App suite on this head: 2100 passed, 0 failed, 1 skipped (private save paths), with the real engine binary and checkout set.
 
-Between `f70e315` (the commit CI packaged) and this head only the workflows, `docs/windows-ci-packaging.md` and the new test changed: no
+Between `f70e315` (the commit CI packaged) and this head only documents and the new test changed: no
 launcher, runtime or engine input of the package changed, so run 39013735925's package result stands for this head.
 
