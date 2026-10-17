@@ -835,3 +835,20 @@ engine first: `claude/emeraldtogether-combined` `d3f4e4f730` → `e4252d4de3`, t
 `check-abi`, `check-rival` 26/0, `check-rewards` 18/0 on the merged default; ROM `f214735b…3387`. The Node.js 24 action change is not merged: the
 session token cannot push workflow files (U31-16); the patch is rebased onto the merged default and applies cleanly.
 
+
+## Real-PC gameplay repairs (2026-10-17; branches `claude/fix-windows-gameplay-engine` / `-app`)
+
+`docs/windows-gameplay-repairs-20261017.md`. The owner's first real-PC session after the Update 31 merge reported ten problems, then asked
+for one owner per piece of interface and a resolution check. **Fixed (engine, all PC-only, ROM `f214735b…3387` unchanged):** Route 101's
+Zigzagoon left by the streamlined intro (intro sets `FLAG_HIDE_ROUTE_101_ZIGZAGOON`, existing characters repaired); people and items popping
+in mid-screen in 3D; lit windows, shadows and silhouettes left on faded screens; the Pokemon Center's modelled room taken apart by a PC turning
+on; battle back pictures cut in mid-air (row 112 at the HUD panel's top); tall grass drawn twice and battle grass jumping; the bag's 0.27 s
+pocket delay; the pause menu's LINK status (SETUP / CONNECTING / NOT CONNECTED / HOSTING / CONNECTED / LINK LOST); the character-setup game
+crashing at boot when the companion was already connected (`Multiplayer_Tick` before the save existed); the setup game starting at 12:00;
+the native interface's battle plate missing at window heights under 720 and at 3840x1080 (shapes wider than the atlas, now tiled).
+**Fixed (app):** `--link-role` / `--setup` for the game's link status; setup errors keep their codes (`game_failed`, `game_closed`), the
+menu records the crash report in `shell/last-error.txt` and restarts an abandoned pre-grant enrollment attempt (kept in
+`abandoned-enrollments/`) instead of refusing forever; new worlds start at 12:00 noon. **Checked:** the UI-ownership sweep (no native/game
+overlap), the resolution matrix (6 sizes, 6 scenes, before/after under Wine), the setup flow end to end with the real game and app code.
+**Open:** the clock's rate (owner: "one-hour interval" - 24x or 1x is one value, not guessed), seven large composite sprites still force
+boxed 2D (P7), real PC/GPU verification.

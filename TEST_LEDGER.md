@@ -72,6 +72,24 @@ Environments: **L** cloud Linux (software OpenGL), **W** the Windows exe under W
 | Engine after the merge: `check-abi`, `check-rival`, `check-rewards` | engine default `e4252d4` | L | OK (172 types); 26/0; 18/0 | session log | - | - |
 | All tested binaries current with `e4252d4` | engine | L | `make -q` 0 for Linux 2D, 3D, ASan, Windows 2D, Windows 3D; GBA ROM `f214735b…3387` | session log | - | - |
 
+## Real-PC gameplay repairs (2026-10-17; engine `claude/fix-windows-gameplay-engine`, app `claude/fix-windows-gameplay-app`)
+
+`docs/windows-gameplay-repairs-20261017.md`. Environments as above; **W** here is Wine 9.0 with Mesa llvmpipe on Xvfb.
+
+| Test | Build / head | Where | Last result | Evidence | Changed since | Rerun? |
+| --- | --- | --- | --- | --- | --- | --- |
+| `gameplay_repair_check.py` (fade at 21:00, battle grass, PC room, bag timing, link status x3, setup clock) | engine repair head | L | ok: 7 faded-out frames black, grass 0.7 %, room 0.7 %, pocket switch 2 frames, 3 link cases; fails on the pre-repair build | session log | - | - |
+| `--selftest-catch-reconcile` case 7 (connected tick before the save exists) | engine repair head | L, W | 12 checks, 0 failed; without the guard: SIGSEGV | session log | - | - |
+| `--selftest-rival` (Route 101 Zigzagoon +5) | engine repair head | L, W | 31/0 (L); exit 0 (W) | session log | - | - |
+| Engine regression: builds 3D, 2D, ASan, BFX; GBA ROM; `check_gba_lines --base e4252d4 --changed` (4 files); `check-diorama` (`test_props` 7991); `first_battle_check`; `battle_end_check` wild, trainer; `rival_check`; `save_safety_check`; `bg_check`; party menu ASan; 28 self-test targets; economy and dialogue (2D) | engine repair head | L | all pass: builds ok; ROM `f214735b…3387`; 4 files, 0 moved lines; check-diorama ok (`test_props` 7991); first battle ok; battle end wild 22 / trainer 21 state changes ok; `rival_check` 25/25; `save_safety_check --app --load 3D` 11/11 (the U31 run also loaded with the Update 30 build: 12; without `--app` its validator case reports "no validator"); `bg_check` 12 animations, 0 black blocks; party menu ASan ok; 28 self-test targets exit 0 (`check-rival` 31/0, `check-catch-reconcile` 12/0, `check-clock` 58/0); economy 0 failed; dialogue ok | session log | - | - |
+| GBA ROM sha256 | engine repair head | L | `f214735b…3387` (unchanged) | session log | - | - |
+| Windows executables (mingw, 2D and 3D) under Wine: 21 self-test targets (2D) + rival, catch-reconcile (3D) | engine repair head | W | all exit 0 | session log | - | - |
+| Character setup end to end (real Linux game, real app code: `create_world`, `create_character`, LauncherSession) | both repair heads | L | crash at boot before the engine fix; after: enrolled; with the enrollment game killed by SIGSEGV: `game_failed`, then "Continue" -> enrolled (attempt kept), then hosting: running, connected, is host, LINK HOSTING | `repro_resume.py` log | - | - |
+| Resolution matrix: 1280x720, 1920x1080, 1024x768, 2560x1080, 1264x711, 3840x1080 x overworld, Pokemon Center, PC storage, wild battle, trainer battle; battle animation at 1280x720, 1920x1080, 1264x711 | Update 31 exe vs repair exe | W | before: plate missing at 1264x711 and 3840x1080, back pictures cut in mid-air at every size, PC room broken, grass striped; after: all fixed | `windows-gameplay-repairs-matrix/` (session outputs) | - | - |
+| UI-ownership sweep (`PKMN_DIORAMA_UI_OWNER`): person, sign, item ball, nurse, PC + storage, mart, start menu, door, wild and trainer battle | engine repair head | L | no LEAK; transient game-window frames have 0 visible pixels | session log | - | - |
+| App suite (`pytest tests`, real engine binary and checkout) | app repair head + engine repair head | L | 2109 passed, 0 failed, 1 skipped (private save paths), 2110 test cases | junit | - | - |
+| Real PC: walk, doors at night, PC, battles at several window sizes, bag, hosting/joining LINK, a new world's setup at noon | - | PC | Never run | `docs/windows-gameplay-repairs-20261017.md` "Still to check" | - | Owner |
+
 ## Current game: Native 3D preview 14 (`emeraldtogether-combined-20261014-2`)
 
 Engine `claude/emeraldtogether-combined` `f8dbffa88a` (the game exe; later commits are documents),
