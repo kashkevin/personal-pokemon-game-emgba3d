@@ -14,6 +14,7 @@
     {"name": "FLAG_SYS_POKEMON_GET", "from": "Route101_EventScript_BirchsBag"},
     {"name": "FLAG_RESCUED_BIRCH", "from": "Route101_EventScript_BirchsBag"},
     {"name": "FLAG_HIDE_ROUTE_101_BIRCH_ZIGZAGOON_BATTLE", "from": "Route101_EventScript_BirchsBag"},
+    {"name": "FLAG_HIDE_ROUTE_101_ZIGZAGOON", "from": "Route101_EventScript_BirchsBag (removeobject LOCALID_ROUTE101_ZIGZAGOON)"},
     {"name": "FLAG_HIDE_ROUTE_101_BIRCH_STARTERS_BAG", "from": "Route101_EventScript_BirchsBag"},
     {"name": "FLAG_SET_WALL_CLOCK", "from": "PlayersHouse_2F_EventScript_WallClock (the engine must initialise the clock as StartWallClock would; the native build uses the host clock)"},
     {"name": "FLAG_HIDE_LITTLEROOT_TOWN_PLAYERS_HOUSE_VIGOROTH_1", "from": "PlayersHouse_2F_EventScript_WallClock"},

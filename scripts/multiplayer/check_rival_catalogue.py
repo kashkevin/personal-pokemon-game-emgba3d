@@ -209,7 +209,33 @@ def check(engine):
                         "vars", "items", "respawn", "must_not_be_set"):
             for entry in table.get(section, []):
                 known(entry["name"] if type(entry) is dict else entry)
+        problems += _removed_objects_covered(engine, table)
     return problems, report
+
+
+def _removed_objects_covered(engine, table):
+    """Every object an original script of the table removes (removeobject sets that object's hide flag, so a scene that
+    skips the script must set it) has its flag in the table's set lists. A missing one leaves that object on the field
+    with no scene behind it (the Route 101 Zigzagoon, 2026-10-17)."""
+    granted = {entry["name"] if type(entry) is dict else entry
+               for section in ("set_flags", "set_flags_male_player", "set_flags_female_player")
+               for entry in table.get(section, [])}
+    labels = {entry["from"].split()[0] for entry in table.get("set_flags", []) if type(entry) is dict}
+    problems = []
+    for scripts in sorted((engine / "data/maps").glob("*/scripts.inc")):
+        text = scripts.read_text()
+        blocks = dict(re.findall(r"^(\w+)::\n(.*?)(?=^\w+::|\Z)", text, re.M | re.S))
+        found = labels & set(blocks)
+        if not found:
+            continue
+        objects = json.loads((scripts.parent / "map.json").read_text()).get("object_events", [])
+        flags = {entry.get("local_id"): entry.get("flag") for entry in objects if entry.get("local_id")}
+        for label in sorted(found):
+            for local_id in re.findall(r"^\tremoveobject (\w+)", blocks[label], re.M):
+                flag = flags.get(local_id)
+                if flag and flag != "0" and flag not in granted:
+                    problems.append(f"intro post-state: {label} removes {local_id}, but {flag} is not set")
+    return problems
 
 
 def main(argv=None):

@@ -97,6 +97,12 @@ class IntroTableTests(unittest.TestCase):
         self.assertIn("FLAG_SYS_POKEMON_GET", self.names("set_flags"))
         self.assertIn("FLAG_RESCUED_BIRCH", self.names("set_flags"))
 
+    def test_route101_rescue_scene_is_put_away_whole(self):
+        # Birch's bag script hides Birch (setflag) and the Zigzagoon (removeobject): both, or a Zigzagoon stays on Route 101.
+        sets = set(self.names("set_flags"))
+        self.assertTrue({"FLAG_HIDE_ROUTE_101_BIRCH_ZIGZAGOON_BATTLE", "FLAG_HIDE_ROUTE_101_ZIGZAGOON",
+                         "FLAG_HIDE_ROUTE_101_BIRCH_STARTERS_BAG"} <= sets)
+
     def test_earned_items_and_later_story_are_never_granted(self):
         granted = set(self.names("set_flags", "set_flags_male_player", "set_flags_female_player"))
         self.assertFalse(granted & set(INTRO["must_not_be_set"]))
