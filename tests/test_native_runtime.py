@@ -151,6 +151,23 @@ class NativePlayerRuntimeTests(unittest.IsolatedAsyncioTestCase):
         with MirrorLease(self.save):
             pass
 
+    async def test_hosting_runtime_tells_the_game_its_role(self):
+        for role in ("host", "join"):
+            runtime = PlayerRuntime(self.c, self.bundle, self.root / "private", self.save, launch_root=self.launches,
+                                    role=role)
+            self.arguments.clear()
+            with patch("emerald_multiplayer.player_runtime.asyncio.create_subprocess_exec", self.spawn):
+                async with runtime.open() as game:
+                    args, _ = self.arguments[0]
+                    # An argument (older games ignore it); the bridge file keeps only what every game reads.
+                    self.assertEqual(args[-2:], ("--link-role", role))
+                    self.assertEqual(Path(args[4]).read_text(), f"port=8870\ntoken={TOKEN}\n")
+                    game.process.terminate()
+                    await game.wait()
+        for bad in ("HOST", "server", "", "host --bridge x"):
+            with self.subTest(role=bad), self.assertRaises(PlayerRuntimeError):
+                PlayerRuntime(self.c, self.bundle, self.root / "private", self.save, launch_root=self.launches, role=bad)
+
     async def test_native_game_of_another_rom_build_never_starts(self):
         (self.root / "other").mkdir()
         bundle = write_native_bundle(self.root / "other", "cd" * 32)
@@ -200,9 +217,10 @@ class NativeDraftTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(await game.wait(), 0)
                 self.runtime.finish()
         args, options = self.calls[0]
-        self.assertEqual(args[1::2], ("--save", "--config"))
+        self.assertEqual(args[1:5:2], ("--save", "--config"))
         self.assertEqual(args[2], str(self.runtime.save_path))
         self.assertEqual(Path(args[4]), (self.root / "private").resolve() / SETTINGS_NAME)
+        self.assertEqual(args[5:], ("--setup",))   # the game shows "character setup, offline", not "not linked"
         self.assertNotIn("--bridge", args)
         self.assertFalse((self.runtime.directory / "draft.lua").exists())
 

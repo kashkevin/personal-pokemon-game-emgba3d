@@ -243,7 +243,7 @@ async def _finish_even_if_cancelled(task):
 
 @asynccontextmanager
 async def _open_child(companion, bundle, directory, save_path, build, manifest,
-                      check_session, startup=None, *, launch_root=None):
+                      check_session, startup=None, *, launch_root=None, role=None):
     """Private process owner. Caller must retain its admission gate/save lease.
 
     This helper grants no character admission and performs no save replacement.
@@ -271,6 +271,10 @@ async def _open_child(companion, bundle, directory, save_path, build, manifest,
         _atomic(script, configure_native(manifest, token, port).encode())
         arguments = (str(executable), "--save", str(save_path), "--bridge", str(script),
                      "--config", str(settings))
+        if role is not None:
+            # The game's own link status (the pause menu's HOSTING / CONNECTED). An argument, not a bridge-file line:
+            # a game older than this ignores unknown arguments but refuses unknown bridge lines.
+            arguments += ("--link-role", role)
     else:
         _atomic(script, configure(manifest, token, port, bridge).encode())
         arguments = (str(executable), "--multiplayer-script", str(script),
@@ -306,8 +310,12 @@ class PlayerRuntime:
     This class does not select an offline-play policy or imply a final save.
     """
 
-    def __init__(self, companion, bundle, private_directory, save_path, *, launch_root=None):
+    def __init__(self, companion, bundle, private_directory, save_path, *, launch_root=None, role=None):
+        """``role``: "host" or "join", shown by the native game's link status (``--link-role``)."""
+        if role not in (None, "host", "join"):
+            raise PlayerRuntimeError("invalid_role", "the game's link role is host or join")
         self.companion, self.bundle = companion, bundle
+        self.role = role
         self.directory = Path(private_directory).resolve()
         self.save_path = Path(save_path).resolve()
         self.launch_root = Path(launch_root).resolve() if launch_root is not None else None
@@ -337,7 +345,7 @@ class PlayerRuntime:
                 # authenticated lease immediately before and after creation.
                 async with _open_child(c, self.bundle, self.directory, self.save_path,
                                        build, manifest, check_session, startup,
-                                       launch_root=self.launch_root) as game:
+                                       launch_root=self.launch_root, role=self.role) as game:
                     yield game
         finally:
             self._active = False

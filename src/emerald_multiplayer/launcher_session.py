@@ -421,7 +421,8 @@ class LauncherSession:
         self._binding = self._signature()
         self._runtime = PlayerRuntime(self._companion, game.bundle, self._profile_directory,
                                       self._profile_directory / "character.sav",
-                                      launch_root=self.private_root / "launches")
+                                      launch_root=self.private_root / "launches",
+                                      role="host" if self._world_directory is not None else "join")
         self._open = True
         await self.readiness()
 

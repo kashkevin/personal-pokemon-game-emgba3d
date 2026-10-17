@@ -105,7 +105,10 @@ class DraftRuntime:
                 executable = self._verify()
                 _check_native_paths(executable, rom_path, self.save_path, self.directory, script, self.settings_path)
                 if self._native:
-                    arguments = (str(executable), "--save", str(self.save_path), "--config", str(self.settings_path))
+                    # --setup: the game says so in its link status (character setup, offline: save and close),
+                    # not "not linked" as a game started for single play would (older games ignore it).
+                    arguments = (str(executable), "--save", str(self.save_path), "--config", str(self.settings_path),
+                                 "--setup")
                 else:
                     arguments = (str(executable), "--multiplayer-script", str(script),
                                  "--multiplayer-save", str(self.save_path), str(rom_path))
