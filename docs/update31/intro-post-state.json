@@ -1,0 +1,75 @@
+{
+  "format": "emeraldtogether-intro-post-state-v1",
+  "source": "pokeemerald-expansion 1.17.1 (bb1093a7c) scripts, read 2026-10-16; re-check against the private engine with scripts/multiplayer/check_rival_catalogue.py --engine <checkout>",
+  "meaning": "The save state the ORIGINAL game reaches at the end of LittlerootTown_ProfessorBirchsLab_EventScript_AgreeToSeeRival (starter received, Birch asks the player to go and see the rival on Route 103). The streamlined new-character flow applies these deltas after the engine's normal NewGameInitData (which already gives the money, the PC Potion and resets map flags) and after the existing character-selection, naming and 18-starter screens. Nothing later than this point is granted.",
+  "order": [
+    "NewGameInitData (unchanged: money, PC Potion, ResetAllMapFlags)",
+    "existing character selection (appearance / avatar gender)",
+    "existing trainer-name entry",
+    "existing 18-starter selection (special ChooseStarter: writes VAR_STARTER_MON role and VAR_MULTIPLAYER_STARTER_CHOICE, gives the level-5 starter through ScriptGiveMon)",
+    "the deltas below",
+    "warp to the spawn tile; save once"
+  ],
+  "set_flags": [
+    {"name": "FLAG_SYS_POKEMON_GET", "from": "Route101_EventScript_BirchsBag"},
+    {"name": "FLAG_RESCUED_BIRCH", "from": "Route101_EventScript_BirchsBag"},
+    {"name": "FLAG_HIDE_ROUTE_101_BIRCH_ZIGZAGOON_BATTLE", "from": "Route101_EventScript_BirchsBag"},
+    {"name": "FLAG_HIDE_ROUTE_101_BIRCH_STARTERS_BAG", "from": "Route101_EventScript_BirchsBag"},
+    {"name": "FLAG_SET_WALL_CLOCK", "from": "PlayersHouse_2F_EventScript_WallClock (the engine must initialise the clock as StartWallClock would; the native build uses the host clock)"},
+    {"name": "FLAG_HIDE_LITTLEROOT_TOWN_PLAYERS_HOUSE_VIGOROTH_1", "from": "PlayersHouse_2F_EventScript_WallClock"},
+    {"name": "FLAG_HIDE_LITTLEROOT_TOWN_PLAYERS_HOUSE_VIGOROTH_2", "from": "PlayersHouse_2F_EventScript_WallClock"},
+    {"name": "FLAG_SYS_TV_HOME", "from": "PlayersHouse_1F_EventScript_WatchGymBroadcast"},
+    {"name": "FLAG_MET_RIVAL_MOM", "from": "<Own>House_1F_EventScript_YoureNewNeighbor"},
+    {"name": "FLAG_HIDE_LITTLEROOT_TOWN_MOM_OUTSIDE", "from": "LittlerootTown_EventScript_GoInsideWithMom"}
+  ],
+  "set_flags_male_player": [
+    "FLAG_HIDE_LITTLEROOT_TOWN_MAYS_HOUSE_MOM", "FLAG_HIDE_LITTLEROOT_TOWN_MAYS_HOUSE_TRUCK",
+    "FLAG_HIDE_LITTLEROOT_TOWN_BRENDANS_HOUSE_RIVAL_MOM", "FLAG_HIDE_LITTLEROOT_TOWN_BRENDANS_HOUSE_RIVAL_SIBLING",
+    "FLAG_HIDE_LITTLEROOT_TOWN_BRENDANS_HOUSE_2F_POKE_BALL", "FLAG_HIDE_LITTLEROOT_TOWN_BRENDANS_HOUSE_TRUCK",
+    "FLAG_HIDE_LITTLEROOT_TOWN_MAYS_HOUSE_MAY", "FLAG_HIDE_LITTLEROOT_TOWN_MAYS_HOUSE_2F_POKE_BALL",
+    "FLAG_HIDE_LITTLEROOT_TOWN_MAYS_HOUSE_RIVAL_BEDROOM"
+  ],
+  "set_flags_female_player": [
+    "FLAG_HIDE_LITTLEROOT_TOWN_BRENDANS_HOUSE_MOM", "FLAG_HIDE_LITTLEROOT_TOWN_BRENDANS_HOUSE_TRUCK",
+    "FLAG_HIDE_LITTLEROOT_TOWN_MAYS_HOUSE_RIVAL_MOM", "FLAG_HIDE_LITTLEROOT_TOWN_MAYS_HOUSE_RIVAL_SIBLING",
+    "FLAG_HIDE_LITTLEROOT_TOWN_MAYS_HOUSE_2F_POKE_BALL", "FLAG_HIDE_LITTLEROOT_TOWN_MAYS_HOUSE_TRUCK",
+    "FLAG_HIDE_LITTLEROOT_TOWN_BRENDANS_HOUSE_BRENDAN", "FLAG_HIDE_LITTLEROOT_TOWN_BRENDANS_HOUSE_2F_POKE_BALL",
+    "FLAG_HIDE_LITTLEROOT_TOWN_BRENDANS_HOUSE_RIVAL_BEDROOM"
+  ],
+  "clear_flags": [
+    {"name": "FLAG_HIDE_MAP_NAME_POPUP", "from": "every intro scene clears it at its end"},
+    {"name": "FLAG_HIDE_LITTLEROOT_TOWN_BIRCHS_LAB_BIRCH", "from": "Route101_EventScript_BirchsBag"},
+    {"name": "FLAG_HIDE_LITTLEROOT_TOWN_FAT_MAN", "from": "LittlerootTown_EventScript_GoInsideWithMom"},
+    {"name": "FLAG_HIDE_ROUTE_101_BOY", "from": "LittlerootTown_ProfessorBirchsLab_EventScript_AgreeToSeeRival"}
+  ],
+  "vars": [
+    {"name": "VAR_LITTLEROOT_INTRO_STATE", "value": 7, "from": "PlayersHouse_1F_EventScript_SetWatchedBroadcast"},
+    {"name": "VAR_LITTLEROOT_RIVAL_STATE", "value": 3, "from": "met the rival"},
+    {"name": "VAR_LITTLEROOT_TOWN_STATE", "value": 2, "from": "LittlerootTown_EventScript_GoSaveBirch"},
+    {"name": "VAR_ROUTE101_STATE", "value": 3, "from": "Route101_EventScript_BirchsBag"},
+    {"name": "VAR_BIRCH_LAB_STATE", "value": 3, "from": "LittlerootTown_ProfessorBirchsLab_EventScript_AgreeToSeeRival"},
+    {"name": "VAR_LITTLEROOT_HOUSES_STATE_BRENDAN", "value": "male 1, female 2"},
+    {"name": "VAR_LITTLEROOT_HOUSES_STATE_MAY", "value": "male 2, female 1"}
+  ],
+  "items": [],
+  "items_note": "The original introduction gives no items: the starter comes from Birch's bag, the money and the PC Potion from NewGameInitData. The Pokedex and 5 Poke Balls (lab, after Route 103) and the Running Shoes (Mom, armed by VAR_LITTLEROOT_TOWN_STATE 3, set with the Pokedex) are EARNED later and must not be granted.",
+  "respawn": [
+    {"name": "HEAL_LOCATION_LITTLEROOT_TOWN_BRENDANS_HOUSE_2F", "when": "male player"},
+    {"name": "HEAL_LOCATION_LITTLEROOT_TOWN_MAYS_HOUSE_2F", "when": "female player"}
+  ],
+  "spawn": {
+    "map": "MAP_LITTLEROOT_TOWN",
+    "male": {"x": 5, "y": 9, "facing": "down", "note": "the tile south of the player's house door (5,8); MB_NORMAL, collision 0"},
+    "female": {"x": 14, "y": 9, "facing": "down", "note": "the tile south of the player's house door (14,8); MB_NORMAL, collision 0"}
+  },
+  "starter": {
+    "level": 5,
+    "met_location": "MAPSEC_ROUTE_101 (keep the original's summary text; ScriptGiveMon uses the current map, so the engine must set it explicitly when the flow runs elsewhere)",
+    "nickname": "optional: the original offers YES/NO in the lab (Common_EventScript_NameReceivedPartyMon); reuse the existing naming screen if offered"
+  },
+  "must_not_be_set": [
+    "FLAG_SYS_POKEDEX_GET", "FLAG_RECEIVED_POKEDEX_FROM_BIRCH", "FLAG_ADVENTURE_STARTED",
+    "FLAG_RECEIVED_RUNNING_SHOES", "FLAG_SYS_B_DASH", "FLAG_DEFEATED_RIVAL_ROUTE103"
+  ],
+  "existing_characters": "Never applied to a save that already has FLAG_SYS_POKEMON_GET or VAR_BIRCH_LAB_STATE >= 2 (an existing or partly played character); such saves keep their own state. Whether a character is new to a world is decided by the Update 30 character-loading system, not here."
+}

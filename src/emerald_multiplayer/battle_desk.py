@@ -19,6 +19,7 @@ from uuid import uuid4
 from .battle_mailbox import BattleMailboxError, _integer, _uuid
 from .battle_roster import CanonicalBattler
 from .coop_code import valid_code
+from .rival_catalogue import valid_preparation_word
 from .native_battle import Kind, NativeBinding, NativeControl, NativeQuery, Opcode
 from .ownership_storage import OwnershipCheckpointStore
 from .protocol import MAX_COUNTER
@@ -46,6 +47,7 @@ class _Battle:
     deadline: float
     mode: int = 2
     gym: int = 0  # co-op Gym index (mode 4 only)
+    environment: int = 0  # rival checkpoint battle (modes 2 and 3): its preparation word; 0 for any other battle
     resumable: bool = False
     lease_lineage: tuple = ()
     renewal_digest: str | None = None
@@ -257,16 +259,19 @@ class BattleDesk:
         elif battle.mode == 5:
             # Four independent trainers: every trainer is a "team" of one.
             view.update(mode=5, teams=[[p] for p in battle.players])
+        if battle.environment:
+            view["environment"] = battle.environment  # Update 31: every core prepares the checkpoint's battle environment
         return view
 
-    def invite(self, actor, lease, peer, battle_id):
+    def invite(self, actor, lease, peer, battle_id, environment=0):
+        """``environment``: a rival checkpoint battle's preparation word (Update 31), else 0."""
         self._id(peer, "peer"); self._id(battle_id, "battle ID")
         if actor == peer:
             raise BattleError("invalid_battle", "singles require two different trainers")
         self._auth(actor, lease)
-        return self._invite(actor, lease, tuple(sorted((actor, peer))), battle_id, mode=2)
+        return self._invite(actor, lease, tuple(sorted((actor, peer))), battle_id, mode=2, environment=environment)
 
-    def invite_multi(self, actor, lease, teammate, opponents, battle_id):
+    def invite_multi(self, actor, lease, teammate, opponents, battle_id, environment=0):
         """Propose two explicit duos; no teammate's consent is inherited.
 
         This is a battle roster, not a persistent TeamDesk membership change.
@@ -281,7 +286,7 @@ class BattleDesk:
         if len({actor, teammate, *opponents}) != 4:
             raise BattleError("invalid_battle", "Multi requires four distinct trainers")
         own, other = sorted((actor, teammate)), sorted(opponents)
-        return self._invite(actor, lease, (own[0], other[0], own[1], other[1]), battle_id, mode=3)
+        return self._invite(actor, lease, (own[0], other[0], own[1], other[1]), battle_id, mode=3, environment=environment)
 
     def invite_ffa(self, actor, lease, opponents, battle_id):
         """Four independent trainers in one shared battle (1v1v1v1).
@@ -318,11 +323,14 @@ class BattleDesk:
             raise BattleError("invalid_battle", "a team selection names a trainer of the battle and slots 0-5")
         return self._invite(actor, lease, (actor, teammate), battle_id, mode=4, gym=gym, brings=brings)
 
-    def _invite(self, actor, lease, players, battle_id, *, mode, gym=0, brings=None):
+    def _invite(self, actor, lease, players, battle_id, *, mode, gym=0, brings=None, environment=0):
+        if environment and (mode not in (2, 3) or not valid_preparation_word(environment)):
+            raise BattleError("invalid_battle", "unknown rival checkpoint battle")
         self._auth(actor, lease); self.refresh()
         existing = self._active.get(battle_id) or self._history.get(battle_id)
         if existing is not None:
             if (existing.sender != actor or existing.players != players or existing.mode != mode or existing.gym != gym
+                    or existing.environment != environment
                     or tuple(r.bring for r in existing.roster) != tuple((brings or {}).get(p, 0) for p in players)):
                 raise BattleError("request_conflict", "battle ID belongs to another challenge")
             return self._view(existing)
@@ -361,12 +369,15 @@ class BattleDesk:
         if mode == 4:
             material.append(gym)  # consent names the exact Gym (Leader and partner)
             material.append([r.bring for r in roster])   # ... and the exact team each trainer brings
+        if environment:
+            material.append(["rival", environment])  # consent names the rival checkpoint battle and its environment
         domain = {2: b"EM-NATIVE-SINGLES-CONSENT-1\0", 3: b"EM-NATIVE-FULL-MULTI-CONSENT-1\0",
                   4: b"EM-NATIVE-COOP-GYM-CONSENT-1\0", 5: b"EM-NATIVE-FFA-CONSENT-1\0"}[mode]
         fingerprint = hashlib.sha256(domain +
             json.dumps(material, separators=(",", ":")).encode("ascii")).hexdigest()
         battle = _Battle(battle_id, generation, actor, players, tuple(leases),
-            tuple(roster), rng, fingerprint, self._now()+self.timeout, mode=mode, gym=gym, consent={actor})
+            tuple(roster), rng, fingerprint, self._now()+self.timeout, mode=mode, gym=gym, environment=environment,
+            consent={actor})
         self._active[battle_id] = battle
         return self._view(battle)
 
@@ -437,7 +448,7 @@ class BattleDesk:
         battle = self._get(actor, lease, battle_id, generation)
         if actor not in battle.bound or battle.state not in ("accepted", "prepared"):
             raise BattleError("battle_state", "native binding must be acknowledged before preparation")
-        return battle.roster[battle.players.index(actor)].preparation(battle.rng, battle.gym)
+        return battle.roster[battle.players.index(actor)].preparation(battle.rng, battle.gym or battle.environment)
 
     def _receipt(self, battle, actor, request, response, opcode, *, once=True):
         try:
@@ -523,7 +534,7 @@ class BattleDesk:
         descriptor = battle.roster[battle.players.index(actor)]
         try:
             descriptor.verify_startup(Kind.TRAINER, trainer)
-            if request.data != descriptor.preparation(battle.rng, battle.gym).pack():
+            if request.data != descriptor.preparation(battle.rng, battle.gym or battle.environment).pack():
                 raise BattleMailboxError("native preparation changes the canonical checkpoint or issued RNG")
         except BattleMailboxError as error:
             if not duplicate:
