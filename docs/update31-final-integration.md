@@ -1,4 +1,4 @@
-# Update 31 — final integration onto the verified Update 30 game (2026-10-17)
+# Update 31 — final integration onto the verified Update 30 game (2026-10-17; merged the same day)
 
 Isolated branches, **not merged** into the default branches (that needs the owner's explicit approval):
 
@@ -179,4 +179,24 @@ App suite on this head: 2100 passed, 0 failed, 1 skipped (private save paths), w
 
 Between `f70e315` (the commit CI packaged) and this head only documents and the new test changed: no
 launcher, runtime or engine input of the package changed, so run 39013735925's package result stands for this head.
+
+## 10. Merge into the default branches (2026-10-17, owner-approved)
+
+| Repo | Default branch | Before | After | How |
+| --- | --- | --- | --- | --- |
+| Engine (first) | `claude/emeraldtogether-combined` | `d3f4e4f730` (Update 30) | `e4252d4de3` | fast-forward push, no force; 7 commits, 0 files deleted |
+| App | `claude/emeraldtogether-combined-app` | `3cf6a32` (Update 30) | `662eccb`, then this record | fast-forward push, no force; 0 files deleted, no workflow file in the range |
+
+Both defaults were exactly the verified Update 30 heads at fetch time. The integration branches, `claude/dev-update31-*`, `claude/fix-*`, all
+earlier branches and all tags stay; tag `emeraldtogether-update31-20261017` marks the merged pair. Engine revision: the app's `windows-package`
+workflow builds the engine branch named by `engine_ref` (default `claude/emeraldtogether-combined`, now `e4252d4`); a run that must be exact
+passes the commit itself.
+
+After the merge: app suite on a clean checkout of the merged default with the merged engine 2100 passed, 0 failed, 1 skipped; engine
+`check-abi` OK, `check-rival` 26/0, `check-rewards` 18/0 on the merged default; ROM `f214735b…3387`; the merged engine tree is identical to the
+tested `e4252d4`, and the merged app's code and tests are identical to the commit whose suite ran before the merge.
+
+Not merged: the Node.js 24 action versions (U31-16). GitHub refuses workflow-file pushes from the session's token (no `workflow` scope);
+`0001-ci-node24-actions.patch` is rebased onto the merged default and applies cleanly (`git am`, then push with an account that may change
+workflows, or edit the four `uses:` lines in GitHub's web editor).
 

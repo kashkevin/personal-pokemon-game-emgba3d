@@ -795,7 +795,7 @@ PORTABLE map-script hooks as reviewed exceptions; species fingerprints unchanged
 head `7140c6bc`. **Not performed:** Windows CI (not reachable), a real multiplayer rival battle between game
 cores, real PCs, GPU, network. bios.c licensing unresolved; no ROM or sprite pack is distributed.
 
-## Update 31 — final integration onto the verified Update 30 game (2026-10-17; isolated branches, not merged)
+## Update 31 — final integration onto the verified Update 30 game (2026-10-17; merged into the default branches the same day)
 
 `docs/update31-final-integration.md`. App `claude/integration-u31-final-app` = default `3cf6a32` (Update 30 integrated) + `claude/fix-compat-fixture` +
 `claude/fix-tk-thread-start` + `claude/dev-update31-rival`; engine `claude/integration-u31-final-engine` = default `d3f4e4f7` (Update 30 integrated) +
@@ -826,3 +826,12 @@ base and `--create-patch` (BPS reconstructs the game), the packaged importer end
 unsupported, 12/12 supported) and `ci_shell_check.py` on the native Linux builds (Wine cannot read the menu picture back, U31-14). New
 `tests/test_shell_game_files.py`. Node.js 20 warnings: a commit moving the official actions to their node24 majors is prepared as a patch (the session token lacks the `workflow` scope GitHub requires to push workflow files).
 App suite 2100 passed, 0 failed, 1 skipped (private save paths). No launcher, runtime or engine input changed since the packaged commit `f70e315`. Section 9 of `docs/update31-final-integration.md`.
+
+**Merged (2026-10-17, owner-approved).** Both default branches were exactly at the verified Update 30 heads, so both merges were fast-forwards,
+engine first: `claude/emeraldtogether-combined` `d3f4e4f730` → `e4252d4de3`, then `claude/emeraldtogether-combined-app` `3cf6a32` → `662eccb`
+(then this record). No force push, no file deleted in either range, integration branches and all tags kept; new tag
+`emeraldtogether-update31-20261017` on both. The app's CI builds the engine's default branch unless `engine_ref` names a commit, so it now builds
+`e4252d4`. After the merge: app suite on a clean checkout of the merged default with the merged engine 2100 passed, 0 failed, 1 skipped; engine
+`check-abi`, `check-rival` 26/0, `check-rewards` 18/0 on the merged default; ROM `f214735b…3387`. The Node.js 24 action change is not merged: the
+session token cannot push workflow files (U31-16); the patch is rebased onto the merged default and applies cleanly.
+

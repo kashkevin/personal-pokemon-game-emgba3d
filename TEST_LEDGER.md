@@ -68,6 +68,8 @@ Environments: **L** cloud Linux (software OpenGL), **W** the Windows exe under W
 | `check-battlefx-bg` with the `BFX_TEST=1` build | engine `e4252d4` | L | 12 animations captured, 0 with a black block (without that build the check reports 0 captures and passes vacuously) | session log | - | - |
 | `check-update26`: `battle_end_check` wild / trainer, `first_battle_check` | engine `e4252d4` (3D) | L | ok / ok / ok | session log | - | - |
 | `party_menu_check.py` | engine `e4252d4`, AddressSanitizer 2D build | L | ok (entered, inspected, left twice; no memory error); the 3D ASan build was not made | session log | - | - |
+| App suite after the merge (clean checkout of the merged default `662eccb`, engine default `e4252d4`, real binary and checkout set) | app default | L | 2100 passed, 0 failed, 1 skipped (private save paths); a first attempt lost its X server mid-run (11 Tk tests "couldn't connect to display"), rerun with a fresh Xvfb | junit | - | - |
+| Engine after the merge: `check-abi`, `check-rival`, `check-rewards` | engine default `e4252d4` | L | OK (172 types); 26/0; 18/0 | session log | - | - |
 | All tested binaries current with `e4252d4` | engine | L | `make -q` 0 for Linux 2D, 3D, ASan, Windows 2D, Windows 3D; GBA ROM `f214735b…3387` | session log | - | - |
 
 ## Current game: Native 3D preview 14 (`emeraldtogether-combined-20261014-2`)
