@@ -754,3 +754,26 @@ results, catch-up and solo passes, interruption policy (no completion from a tim
 stranded), the `rival` extension of `battle_pending`, the Players-menu rival page, and a capability-gated EMW1 `RivalRecord` for the engine. Shared files changed
 minimally: `server.py`, `battle_protocol.py`, `companion.py`, `world_mailbox.py`, `player_menu.py`. **Not done (engine):** intro replacement, NPC rival removal,
 barriers, per-player rewards on a pass, canonical rival battle background, cutscenes. Simulation only; nothing ran on a real PC, core, GPU or network.
+
+## Update 31 — engine half (engine session, 2026-10-17; not integrated)
+
+Engine `claude/dev-update31-rival-engine` (`429c5211`, on the U30 engine branch `8b8bb92a`, which contains U29), app `claude/dev-update31-rival`
+(`312518a` + docs). **Verified first:** both repositories readable and pushable (development branches); GitHub Actions not reachable (no `gh`, no token,
+private pages refused); app default `ad254d0` and engine default `8ea2b8c9` hold Update 29; Update 30 exists only on `claude/dev-update30` (app `f2e6b97`)
+and `claude/dev-update30-gameplay` (engine `8b8bb92a`), with no ledger entry or recorded CI run; `check_rival_catalogue.py --engine` OK on the real engine.
+**Engine:** `src/multiplayer_rival.c` + `data/scripts/mp_rival.inc` (PC only): `RivalRecord` from the world mailbox snapshot, `gMultiplayerRivalAbiVersion`;
+original May/Brendan objects away and their five battle scenes replaced only in multiplayer (offline and with older hosts the original scenes play);
+Route 110 / Route 119 trigger lines stop a northbound player per `gate_blocks` (exclamation, message, step back, Players menu); personal effects of a pass
+once, guarded by the save's own state (Route 103 lab state; Rustboro Match Call; Dowsing Machine; HM02 Fly, `FLAG_RECEIVED_HM_FLY` and Scott's scene, which
+the first audit had missed; Lilycove); battle cue and banners; the rival battle's environment from `MP_RIVAL_PREP_WORD` in the native preparation on every
+core (PLAIN; background and Camouflage / Nature Power / Secret Power alike); the streamlined introduction in `CB2_NewGame` (Birch's gender/name, the
+18-starter screen, the audited post-state, Littleroot at the own door, one save: what Update 30's first-time character creation expects). Fixed during the
+port: a pass-through coordinate trigger re-fired every frame and held the player (U31-4). GBA ROM byte-identical (`f214735b…3387`; `multiplayer_rival.c`
+kept out of the GBA link like the other PC-only modules, which was needed: an empty object reordered the linker's interworking veneers).
+**App:** the environment word through `BattleDesk` (consent fingerprint, view, both preparations, durable record, replay), the companion's checks, the
+host enabling it from its manifest's `rival_abi_version`, the manifest marker, Scott in the catalogue, a stricter catalogue checker.
+**Checks:** `--selftest-rival` 24/0; `rival_check.py` 21/21; app `test_rival_environment.py` 14 new; focused battle + rival suites pass; trial integration
+U29 + U30 + U31 2072 passed, 4 failed (U31-1, a missing fixture: regenerated locally from the Update 14 code all 6 `test_save_compat.py` tests pass), 9 skipped;
+MinGW objects of every changed file compile (2D and 3D flags). **Not performed:** Windows CI (not reachable), a real multiplayer rival battle between game
+cores, real PCs, GPU, network. bios.c licensing unresolved; no ROM or sprite pack is distributed.
+

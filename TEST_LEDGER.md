@@ -24,6 +24,21 @@ Environments: **L** cloud Linux (software OpenGL), **W** the Windows exe under W
 | `check_rival_catalogue.py --engine` on upstream expansion 1.17.1 | `bb1093a7c` | L | OK (5 checkpoints, intro table constants) | `docs/update31-rival-checkpoints.md` | - | **Run against the private engine** |
 | Rival checkpoints on real PCs | - | PC | Never run | `docs/windows-test-update31.md` | - | Owner |
 
+## Update 31 engine session (cloud, engine `claude/dev-update31-rival-engine` on U30 `8b8bb92a`; app `claude/dev-update31-rival`)
+
+| Test | Build / head | Where | Last result | Evidence | Changed since | Rerun? |
+| --- | --- | --- | --- | --- | --- | --- |
+| `check_rival_catalogue.py --engine` on the real engine | engine `8ea2b8c9` (U29), `8b8bb92a` (U30), U31 engine branch | L | OK on all three; on the ported engine also the environment enum index, the preparation tag, the checkpoint numbering and every rival script's multiplayer hook (a removed hook is reported) | session log | - | After engine map-script changes |
+| `make -f Makefile_pc NATIVE_LINUX=1 check-rival` (`--selftest-rival`) | U31 engine branch | L | 24 checks, 0 failed | `build/pc-linux/selftest-rival.log` | - | After `multiplayer_rival.c` changes |
+| `tools/pc_port/rival_check.py` (headless, real scripts, simulated host record) | U31 engine branch, Classic 2D build | L | 21 scenarios: 21 passed (the two intro scenarios after a test-side correction; see the ledger) | session log | - | After rival/intro changes |
+| GBA ROM | U31 engine branch | L | `f214735b…3387` byte-identical; `check_gba_lines.py --base HEAD` 0 moved lines in 8 files | session log | - | Every engine change |
+| MinGW (Windows) objects of every changed C file, Classic 2D and 3D flags | U31 engine branch | L | compile; no new warnings (3 pre-existing in `sdl2.c`) | session log | - | - |
+| App `tests/test_rival_environment.py` | app `312518a` | L | 14 passed | session log | - | - |
+| App focused battle + rival suites (23 files) | app `312518a`, engine checkout set | L | all passed (incl. the catalogue re-derivation against the ported engine) | session log | - | - |
+| App suite, trial integration U29 + U30 + U31 | app `claude/integration-u29-u30-u31-app` | L | 2072 passed, 4 failed (U31-1 fixture only), 9 skipped (Lua 5.3 installed this session, so the Lua subtests ran) | session log | - | After the owner's integration decision |
+| `test_save_compat.py` with the Update 14 fixture regenerated locally (not committed) | app `ad254d0` | L | 6 passed: the 4 baseline failures are the missing fixture only | session log | - | Once the fixture question is decided |
+| Windows CI (`windows-package`) | - | W | Not run by this session (Actions not reachable) | - | - | **Owner / a session with Actions access** |
+
 ## Current game: Native 3D preview 14 (`emeraldtogether-combined-20261014-2`)
 
 Engine `claude/emeraldtogether-combined` `f8dbffa88a` (the game exe; later commits are documents),
