@@ -130,3 +130,44 @@ stripped files will differ): `pokeemerald-mp.exe` sha256 `9401cc3b…bfc8`, `pok
 The game executables contain the game's graphics and music, so no copy was placed outside the private repository's CI; the private artifact is the
 workflow's `EmeraldTogether-windows-full`.
 
+## 9. Final build verification (owner's CI run 39013735925, then this session)
+
+Reported by the owner (the run page and its artifact are not readable from the cloud session, U31-11): `mode = full`, engine `e4252d4`,
+ROM pin `f214735b…3387` matched, package built, graphics check 16/16 (3D unsupported on the hosted VM: no `glActiveTexture` in Windows'
+OpenGL 1.1; Classic 2D supported), sprite pack absent, "Import of the owner's own game enabled: false", two Node.js 20 warnings.
+
+**Why import is disabled (not a packaging bug).** `HAVE_BASE` becomes true only when `fetch_private_input.py` obtains
+`inputs/base-emerald.gba` matching the pinned `BASE_ROM_SHA256` from the secret `BASE_ROM_URL` or `PRIVATE_INPUT_DIR` on a self-hosted runner.
+Its exit status is 3 only when neither is supplied; a supplied but wrong or unreachable file exits 1 and fails the job. The job succeeded, so no
+dump was supplied, and `build_launcher.py --development-preview` correctly built an import-disabled package. That package opens the in-game menu
+but cannot start a game until `%LOCALAPPDATA%\PokemonPrivate\launcher\games\<ROM SHA-256>\game.gba` exists (installed by hand, or by Import my
+game in a package built with the dump); `docs/windows-ci-packaging.md` already says so. The package never contains a ROM either way; the game
+executables themselves contain game data, so every native package stays private. To enable import, supply the dump as described in
+`docs/windows-ci-packaging.md` (self-hosted runner first, or an expiring private link as `BASE_ROM_URL`) and rerun.
+
+**Reproduced from source in the session** (`/tmp`, outside the repository; the real engine build, stripped as CI does):
+generate_manifest (ROM `f214735b…3387`), `collect_native_bundle.py` (runtime = 3D game, Classic 2D game, `SDL2.dll`; the ROM pinned by hash
+only), `audit_tree` (4 files, no archive, nothing refused), `build_launcher.py --preflight-only` exactly as CI calls it (development preview,
+import disabled; a non-preview native package is refused), the same with a synthetic 16 MiB stand-in base and `--create-patch` (import enabled;
+the 33,554,461-byte BPS reconstructs the 32 MiB game; a wrong base pin is refused), and the packaged importer: before import the launcher's
+installation check fails, a different file is refused, the stand-in installs `games/<sha>/game.gba` byte-equal to the build and the check then
+passes. No real Emerald dump was used or needed.
+`ci_graphics_check.py` on the Windows executables under Wine (the runtime entries are wrappers that start the real `.exe`):
+17/17 with 3D forced unsupported (`MESA_GL_VERSION_OVERRIDE=1.1`; reason `context`, exit 78 with the message, no save; Classic 2D chosen, runs
+20 s), 12/12 with 3D supported (llvmpipe). `ci_shell_check.py` passes on the native Linux 3D and 2D builds of the same commit (header green,
+keys, select, resize); under Wine the menu draws correctly on screen (X11 capture) but the game's own in-window picture reads back black,
+a Wine read-back limit (on real Windows the CI check passed).
+New tests: `tests/test_shell_game_files.py` (the menu of an import-disabled package: warning, New Game blocked with "Game files needed",
+Settings, Game files says this package cannot install them, nothing started or created; with import, a wrong file is refused and the
+player's own file installs and verifies).
+
+**Node.js 20 warnings.** Branch `claude/fix-ci-node24-actions` (merged here) moves every official action to the first major that declares
+`node24` (checked in each tag's `action.yml`): `checkout@v5`, `setup-python@v6`, `upload-artifact@v6`, `download-artifact@v7` (v6 still
+declares node20). Inputs unchanged; download by name still extracts into `path`. Needs runner 2.327.1+ (GitHub-hosted runners have it).
+Pushing it triggers the `windows-package` smoke run (path filter), which is the check of the new majors.
+
+App suite on this head: 2100 passed, 0 failed, 1 skipped (private save paths), with the real engine binary and checkout set.
+
+Between `f70e315` (the commit CI packaged) and this head only the workflows, `docs/windows-ci-packaging.md` and the new test changed: no
+launcher, runtime or engine input of the package changed, so run 39013735925's package result stands for this head.
+

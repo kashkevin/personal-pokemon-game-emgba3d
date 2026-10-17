@@ -817,3 +817,12 @@ byte-identical after every change. **Not performed:** the Windows CI run of the 
 section 8 of the document), any real PC, GPU, controller or network; the launcher package (PyInstaller runs on the Windows runner only). bios.c licensing
 unresolved; no ROM or sprite pack in any output.
 
+
+**Final build verification (2026-10-17, same branches).** Owner's run 39013735925 (full, engine `e4252d4`, ROM pin matched) succeeded as reported:
+package built, graphics check 16/16 (3D unsupported on the hosted VM, Classic 2D supported), import disabled, no sprite pack. Import is disabled because no
+owner dump reached the job (`fetch_private_input.py` exit 3 only when nothing is supplied; a wrong file would have failed the job): by design (U31-13).
+Reproduced from source in the session: manifest, native bundle, audit, `build_launcher.py --preflight-only` as CI runs it and with a synthetic stand-in
+base and `--create-patch` (BPS reconstructs the game), the packaged importer end to end, `ci_graphics_check.py` under Wine (17/17 with 3D forced
+unsupported, 12/12 supported) and `ci_shell_check.py` on the native Linux builds (Wine cannot read the menu picture back, U31-14). New
+`tests/test_shell_game_files.py`. Node.js 20 warnings: `claude/fix-ci-node24-actions` moves the official actions to their node24 majors (merged here).
+App suite 2100 passed, 0 failed, 1 skipped (private save paths). No launcher, runtime or engine input changed since the packaged commit `f70e315`. Section 9 of `docs/update31-final-integration.md`.

@@ -46,7 +46,7 @@ Environments: **L** cloud Linux (software OpenGL), **W** the Windows exe under W
 
 | Test | Build / head | Where | Last result | Evidence | Changed since | Rerun? |
 | --- | --- | --- | --- | --- | --- | --- |
-| App suite (per-test timeout, real engine binary and checkout set) | app integration | L | 2098 passed, 0 failed, 1 skipped (private save paths) | session log | docs only | After code changes |
+| App suite (per-test timeout, real engine binary and checkout set) | app integration `6bdb0a5` (+ docs) | L | 2100 passed, 0 failed, 1 skipped (private save paths); was 2098/0/1 at `f70e315` | session log, junit | - | After code changes |
 | App suite, Update 30 default + fixture fix | `3cf6a32` + `97e97a4` | L | 1975 passed, 0 failed, 8 skipped (7 shell-window tests then passed against the real U30 binary) | session log | - | - |
 | `test_save_compat.py` (SQL fixture) | `claude/fix-compat-fixture` | L | 8 passed, 0 skipped; all 8 fail without the SQL; reproduction fails on a changed value | session log | - | - |
 | Rival random walk soak (`RIVAL_SOAK_SEEDS=200 RIVAL_SOAK_STEPS=600`) | app integration | L | passed (77 s) | session log | - | - |
@@ -58,6 +58,11 @@ Environments: **L** cloud Linux (software OpenGL), **W** the Windows exe under W
 | Windows `.exe` under Wine 9.0: 17 self-test targets; `rival_check.py` | engine integration | W (Wine, cloud) | 0 failures; 25/25 and 9/9 on the final build | session log | - | - |
 | GBA test ROM `make check` | engine integration | L | 6034 tests, 5532 passed, 39 failed = the 39 expected (0 new) | session log | - | After shared-code changes |
 | Windows CI (`windows-package` full) | - | W | **Not run** (Actions unreachable from the session) | - | - | **Owner** |
+| Windows CI (`windows-package` full), run 39013735925 | app `f70e315`, engine `e4252d4` | W (GitHub `windows-2022`) | Success as reported by the owner: package built, graphics check 16/16 (3D unsupported, Classic 2D supported), import disabled (no dump supplied), no sprite pack | owner's report (page not readable from the session) | workflows, one test, docs | After launcher/runtime/engine changes |
+| Package inputs reproduced (manifest, `collect_native_bundle`, `audit_tree`, `build_launcher --preflight-only` without and with a stand-in base, importer end to end) | engine `e4252d4` build, app integration | L | all pass; BPS 33,554,461 bytes reconstructs `f214735b…3387` | session log, section 9 | - | - |
+| `ci_graphics_check.py` on the Windows `.exe` | engine `e4252d4` | W (Wine 9.0, cloud) | 17/17 (3D forced unsupported), 12/12 (3D supported, llvmpipe) | session log | - | - |
+| `ci_shell_check.py` | engine `e4252d4` | L (native Linux 3D + 2D) / Wine | Linux pass (both); Wine: keys/select/resize pass, picture black (U31-14) | session log | - | - |
+| `tests/test_shell_game_files.py` | app integration | L | 2 passed | session log | - | - |
 
 ## Current game: Native 3D preview 14 (`emeraldtogether-combined-20261014-2`)
 
