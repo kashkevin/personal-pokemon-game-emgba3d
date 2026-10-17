@@ -279,6 +279,8 @@ class BattleReservations:
                 sha256=r.checkpoint_sha256, party_count=r.party_count) for r in battle.roster])
         if battle.mode == 4:
             view["gym"] = battle.gym  # retained for exact co-op Gym recovery
+        if battle.environment:
+            view["environment"] = battle.environment  # retained for exact rival checkpoint battle recovery (Update 31)
         with self.store._transaction():
             metadata = self.store._require_boot()
             record = dict(scope=SCOPE, world_id=metadata["world_id"], build_id=self.store.build_id,

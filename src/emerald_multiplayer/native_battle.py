@@ -17,6 +17,7 @@ from .battle_mailbox import (
     _enum, _integer, _uuid, uuid_text,
 )
 from .coop_code import valid_code
+from .rival_catalogue import valid_preparation_word
 from .protocol import MAX_COUNTER
 
 ABI_VERSION = 2
@@ -158,7 +159,7 @@ class Preparation:
     trainer_id: int
     party_crc32: int
     rng: bytes
-    gym: int = 0  # co-op Gym index (1..8); zero for PvP phases
+    gym: int = 0  # co-op battle code (phase 4); for PvP zero, or a rival checkpoint's word (rival_catalogue.preparation_word)
 
     def __post_init__(self):
         _integer(self.checkpoint_revision, 1, MAX_COUNTER, "checkpoint revision")
@@ -166,7 +167,7 @@ class Preparation:
             _integer(getattr(self, name), 0, _U32, name)
         if type(self.rng) is not bytes or len(self.rng) != 16 or not any(self.rng):
             raise BattleMailboxError("preparation needs one nonzero 16-byte issued RNG state")
-        if self.gym and not valid_code(self.gym):
+        if self.gym and not valid_code(self.gym) and not valid_preparation_word(self.gym):
             raise BattleMailboxError("unknown co-op battle code")
 
     def pack(self):
@@ -178,8 +179,8 @@ class Preparation:
         if type(data) is not bytes or len(data) != 36:
             raise BattleMailboxError("native preparation needs exactly 36 bytes")
         revision, counter, trainer, crc, rng, flags = _PREPARE.unpack(data)
-        if flags and not valid_code(flags):
-            raise BattleMailboxError("preparation flags carry only a co-op battle code")
+        if flags and not valid_code(flags) and not valid_preparation_word(flags):
+            raise BattleMailboxError("preparation flags carry only a co-op battle code or a rival checkpoint")
         return cls(revision, counter, trainer, crc, rng, flags)
 
 

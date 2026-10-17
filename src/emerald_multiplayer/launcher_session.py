@@ -436,6 +436,8 @@ class LauncherSession:
                 table_address=self._manifest["battle_string_table_address"])
             self._server.enable_battle_execution(lengths, host.directory / "native-battle-execution",
                 resume_enabled=self._manifest.get("battle_resume_abi_version") == 1)
+            if self._manifest.get("rival_abi_version") == 1:
+                self._server.enable_rival_battle_environment()  # Update 31: rival battles use the checkpoint's environment
         await self._server.start(self._bind_address, host.port, allow_lan=True,
                                  public=self._public, tls=host.server_tls)
 

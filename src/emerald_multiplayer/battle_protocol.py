@@ -8,6 +8,7 @@ from __future__ import annotations
 import re
 
 from .coop_code import valid_code
+from .rival_catalogue import valid_preparation_word
 from .protocol import MAX_COUNTER, PROTOCOL_VERSION, ProtocolError, _fields, _integer
 from .team_protocol import _uuid
 
@@ -164,6 +165,8 @@ def challenge_view(view):
         checkpoints=[dict(cp) for cp in view["checkpoints"]])
     if mode == 4:
         result["gym"] = view["gym"]  # co-op Gym: which Leader and partner
+    if view.get("environment"):
+        result["environment"] = view["environment"]  # Update 31: a rival checkpoint battle and its battle environment
     return result
 
 
@@ -171,9 +174,10 @@ def _view(value, actor):
     if type(value) is not dict:
         raise ProtocolError("invalid_server_message", "invalid battle challenge")
     coop = value.get("mode") == 4
+    rival = "environment" in value and value.get("mode") in (2, 3)
     _fields(value, {"scope", "battle_id", "generation", "sender", "mode", "state",
                     "reason", "players", "fingerprint", "consent", "outcome", "checkpoints"}
-            | ({"gym"} if coop else set()))
+            | ({"gym"} if coop else set()) | ({"environment"} if rival else set()))
     for key in ("battle_id", "generation", "sender"):
         _uuid(value[key], key)
     _digest(value["fingerprint"])
@@ -182,6 +186,8 @@ def _view(value, actor):
     if coop:
         if not valid_code(value["gym"]):
             raise ProtocolError("invalid_server_message", "invalid co-op battle code")
+    if rival and not valid_preparation_word(value["environment"]):
+        raise ProtocolError("invalid_server_message", "invalid rival checkpoint battle")
     count = 4 if value["mode"] in (3, 5) else 2
     players = value["players"]
     if type(players) is not list or len(players) != count:

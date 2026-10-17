@@ -4,6 +4,10 @@ Branch `claude/dev-update31-rival` (app), based on the integrated Update 28 defa
 `claude/emeraldtogether-combined-app` = `a912f07`. Development started in parallel with Updates 29
 and 30 on the owner's instruction; **nothing is merged** (see "Integration status").
 
+**Engine half (second session, 2026-10-17):** engine branch `claude/dev-update31-rival-engine`, based on the Update 30 engine
+branch `claude/dev-update30-gameplay` (`8b8bb92a`, which contains Update 29). Sections 6 and 7 were implemented there; see
+section 11 for what was built, how it was checked and what is still open.
+
 Evidence labels follow `AGENTS.md`: *Researched / Implemented / Tested (simulated) / Working / Fully
 verified*. Nothing here ran on a real Windows PC, a GPU, a real game core or a real network.
 
@@ -135,7 +139,7 @@ Interruption policy (deterministic):
 | A held battle never resolves (a participant never returns) | bystanders get **Continue on my own** after 120 s; the held battle's own players stay with the native recovery |
 | Host leaves | session ends; committed completions/passes are on disk. **No host migration** exists in this architecture (`docs/technical-foundation.md`) and none is claimed. |
 
-## 6. Streamlined new-character introduction (engine work — specified, not implemented)
+## 6. Streamlined new-character introduction (engine work — implemented in the engine session, §11)
 
 The post-intro state is in `docs/update31/intro-post-state.json`: the state the original game reaches
 when Birch asks the player to go to Route 103 (`VAR_BIRCH_LAB_STATE` 3), the exact flags/vars to set and
@@ -149,7 +153,7 @@ the deltas → warp → one save. Applied only to a save without `FLAG_SYS_POKEM
 `VAR_BIRCH_LAB_STATE` < 2. Whether a character is new to a world is decided by Update 30's character
 loading, which is why this part waits for U30.
 
-## 7. Engine work still required (the engine repository was not accessible)
+## 7. Engine work as specified by the first session (all items implemented in the engine session, §11)
 
 1. **Run `check_rival_catalogue.py --engine <engine checkout>`**; fix the catalogue if the fork differs.
 2. **Manifest `rival_abi_version` = 1** and read `RivalRecord` (EMW1 inbound 200..207: flags
@@ -213,3 +217,62 @@ keep both), and the combined app suite gave 1940 passed, the same 4 pre-existing
 trial was discarded; nothing was merged. At the start of the session U29 was an unmerged branch. The
 engine repository and CI are not reachable from this session. The U31 app branch is preserved; the
 engine half (§7) has not been started because the engine source cannot be read or modified here.
+
+## 11. Engine session (2026-10-17): the engine half
+
+### 11.1 Verified before starting
+
+| Item | Result |
+| --- | --- |
+| Both repositories | readable, all branches fetched, histories inspected; push verified by pushing the development branches below |
+| GitHub Actions | **not reachable**: no `gh`, no API token in the session, the unauthenticated API is rate-limited and the private repository pages refuse access. No CI run was started or read by this session. |
+| App default branch | `claude/emeraldtogether-combined-app` = `ad254d0` (Update 29 integrated) |
+| Engine default branch | `claude/emeraldtogether-combined` = `8ea2b8c9` (Update 29 integrated) |
+| Update 30 | exists on both remotes, **not integrated**: app `claude/dev-update30` (`f2e6b97`, 2 commits on `ad254d0`), engine `claude/dev-update30-gameplay` (`8b8bb92a`, 3 commits on `8ea2b8c9`). No ledger entry and no recorded CI run were found for it. |
+| `check_rival_catalogue.py --engine` | **OK on the real engine** (U29 default `8ea2b8c9` and U30 `8b8bb92a`): the fork's maps, triggers, objects, constants and backgrounds equal upstream 1.17.1's |
+| Baseline GBA ROM | U30 engine builds `pokedev.gba` = `f214735b…3387` (the documented hash) |
+
+Audit correction found in the engine: the original Route 119 scene goes on with **Scott** (`addvar VAR_SCOTT_STATE, 1`);
+the catalogue now lists it, and the multiplayer reward scene plays Scott's arrival.
+
+### 11.2 What the engine does now (`include/multiplayer_rival.h`, `src/multiplayer_rival.c`, `data/scripts/mp_rival.inc`)
+
+All of it is native PC only (`#ifdef PORTABLE` / `.ifdef PORTABLE`, `#line` kept, `multiplayer_rival.c` filtered out of the
+GBA link like the other PC-only modules); **the GBA ROM stays byte-identical** (`f214735b…3387`).
+
+| §7 item | Implementation |
+| --- | --- |
+| 1. catalogue check | passes; the checker now also verifies the battle environment's enum index and, on a ported engine, the preparation tag, the checkpoint numbering and that every original rival scene asks the multiplayer layer first |
+| 2. `rival_abi_version` 1, `RivalRecord` | `gMultiplayerRivalAbiVersion` (PC executable symbol; `generate_manifest.py` reads it from the native symbols like the free-for-all marker and writes `rival_abi_version: 1`); the record is copied with the world mailbox's inbound snapshot (`reserved[8..15]`) and validated byte by byte. Multiplayer mode = connected and a valid record seen on this connection; masks are only ever OR-ed (completion is permanent); with no record for 10 s of field time the host is treated as one without rival checkpoints and the original scenes play. |
+| 3. NPC rivals, barriers | the original rival objects of Route 103, Rustboro, Route 104, Route 110 (+ bike), Route 119 (+ bike) and Lilycove stay away in multiplayer (spawn filter; an object already on screen is removed without touching its save flag); every original rival script asks `MultiplayerRival_ScriptMode` first and plays unchanged only in the original mode. The Route 110 and Route 119 trigger lines stop a **northbound** player when `gate_blocks` says so (exclamation, message, one step back, the Players menu opens on its Rival checkpoint row); going back, walking along the line, inside buildings and elsewhere are never stopped; a save that passed the scene itself is never stopped. |
+| 4. personal effects | on the player's own pass (`cleared`) and only while the save's own prerequisite holds: Route 103 (`VAR_BIRCH_LAB_STATE` 4 etc.; Birch's lab then gives the Pokedex and Poke Balls itself), Rustboro/Route 104 (Match Call registration, states 8/2), Route 110 (Dowsing Machine, `VAR_ROUTE110_STATE` 1), Route 119 (HM02 Fly, `FLAG_RECEIVED_HM_FLY`, `VAR_ROUTE119_STATE` 1, Scott, `VAR_SCOTT_STATE` + 1), Lilycove (the rival goes home). The trigger lines give theirs on the line; the others when the player is on the checkpoint's map. A world completion without the player's own pass shows a banner ("Continue the story") and gives nothing. |
+| 5. battle environment | the host puts `MP_RIVAL_PREP_WORD` ('R' 'V', checkpoint 1..5, environment) into the native preparation's flags word; the engine accepts it for PvP battles only, and `battle_main.c` / `battle_bg.c` then use that environment on every core (PLAIN for all five) instead of the link arena / `BUILDING`. Background, Camouflage, Nature Power and Secret Power therefore agree on every core; the Diorama 3D battle keeps drawing the field. |
+| 6. cutscenes | gate scene and reward scenes are local scripts with nothing waiting on the network (no lock can be left behind by a disconnect); when the checkpoint's lobby starts its countdown, every player there (their real avatars, drawn with their own looks by the presence layer) gets the trainer-spotted mark with the original sound and a banner; banners for "your battle is ready" and for completion; Scott's original arrival on Route 119. |
+| 7. streamlined intro | `CB2_NewGame` (PC): after Birch's existing gender/name choice and `NewGameInitData`, the existing 18-starter screen, then the post-state of `docs/update31/intro-post-state.json`, the starter at level 5 met on Route 101, the respawn at the player's house, the spawn in front of the player's own door, a nickname offer, and one save. This is the New Game Update 30's character creation (`DraftRuntime`) already expects: a closed save with a starter. `PKMN_ORIGINAL_INTRO=1` keeps the original introduction (development only). |
+
+Found and fixed during the port: a coordinate trigger whose script neither moves the player nor changes its variable fires
+again on every frame (the original scenes always do one of the two), which held a player on the line indefinitely. Every
+multiplayer path that lets the player pass now ends with one step on (north/south) or a lock/release (east/west).
+
+### 11.3 App changes for the engine port
+
+`rival_catalogue.py` (Scott; `ENVIRONMENT_IDS`, `preparation_word`), `native_battle.Preparation` (accepts a rival word),
+`battle_desk.py` (`invite`/`invite_multi(environment=)`, part of the consent fingerprint, the view and both preparations),
+`battle_protocol.py` (the `environment` field of a mode 2/3 challenge), `battle_session.py` / `battle_recovery_session.py`
+(the companion checks the same preparation), `battle_reservations.py` / `battle_replay.py` (kept for exact recovery),
+`server.py` (`enable_rival_battle_environment`, used by `launcher_session.py` when the installed manifest says
+`rival_abi_version` 1; every player of a world runs the same build), `generate_manifest.py` (the marker).
+
+### 11.4 Tests
+
+| Test | Result |
+| --- | --- |
+| engine `make -f Makefile_pc NATIVE_LINUX=1 check-rival` (`--selftest-rival`) | 24 checks, 0 failed: the 160-case mode truth table against `gate_blocks` (2 blocking cases), malformed records, preparation words, object hiding, the intro post-state for both genders |
+| engine `tools/pc_port/rival_check.py` (real scripts, headless, simulated host record) | see the ledger for the final count: gates, rewards once, catch-up, going back, walking along a line, Rustboro's open line, NPC objects away / present offline, the original NPC battle offline, PLAIN vs GRASS battle environment, the intro for both genders |
+| app `tests/test_rival_environment.py` | 14 new tests: words, codec, real Desk singles and 2v2 with the word in every preparation and the durable record, consent, refusals, the companion validator, the server's enabled/disabled host, the manifest marker |
+| GBA ROM | `f214735b…3387`, byte-identical; `check_gba_lines.py` 0 moved lines in the 8 changed GBA-compiled files |
+
+Not exercised: a real game core in a real multiplayer rival battle (the environment word was tested through the Desk with
+simulated receipts and through a real local battle with the word injected), two or more real PCs, Windows, a GPU, the
+Players menu opening on a real host, the 3D build's look of the new scenes.
+

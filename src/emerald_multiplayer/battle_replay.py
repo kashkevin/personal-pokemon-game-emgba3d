@@ -51,7 +51,8 @@ class ReplayDesk(BattleDesk):
             roster.append(battler)
         self.battle = _Battle(view["battle_id"], view["generation"], view["sender"], players, leases,
             tuple(roster), bytes.fromhex(record["rng"]), view["fingerprint"], self._now()+self.timeout,
-            mode=view["mode"], gym=view.get("gym", 0), resumable=True, state="accepted", consent=set(players),
+            mode=view["mode"], gym=view.get("gym", 0), environment=view.get("environment", 0), resumable=True,
+            state="accepted", consent=set(players),
             incarnations=dict(zip(players, record["incarnations"])),
             lease_lineage=tuple(journal.lineage) if journal.renewal_epoch else (),
             renewal_digest=journal.renewal_digest)

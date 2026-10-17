@@ -129,7 +129,8 @@ CHECKPOINTS = (
         trainers=_trainers("ROUTE_119"),
         prerequisites=("VAR_ROUTE119_STATE == 0",),
         cleared_when=("VAR_ROUTE119_STATE >= 1", "FLAG_RECEIVED_HM_FLY set"),
-        completion_effects=("giveitem ITEM_HM_FLY", "setflag FLAG_RECEIVED_HM_FLY", "setvar VAR_ROUTE119_STATE, 1"),
+        completion_effects=("giveitem ITEM_HM_FLY", "setflag FLAG_RECEIVED_HM_FLY", "setvar VAR_ROUTE119_STATE, 1",
+                            "addvar VAR_SCOTT_STATE, 1 (Scott arrives after the rival leaves)"),
         personal_rewards=("ITEM_HM_FLY",),
         unlocks="the path on to Fortree City, and HM02 Fly",
         battle_environments=("BATTLE_ENVIRONMENT_PLAIN",), canonical_environment="BATTLE_ENVIRONMENT_PLAIN",
@@ -152,6 +153,25 @@ CHECKPOINTS = (
 
 BY_ID = {checkpoint.checkpoint_id: checkpoint for checkpoint in CHECKPOINTS}
 IDS = tuple(BY_ID)
+
+# The engine's enum BattleEnvironments index of each canonical environment (include/constants/battle.h;
+# check_rival_catalogue.py re-reads it from the engine).
+ENVIRONMENT_IDS = {"BATTLE_ENVIRONMENT_PLAIN": 9}
+
+# A rival battle's native preparation carries 'R' 'V', the checkpoint's story number (1..5) and its canonical
+# environment in the u32 the co-op battles use for their code (engine include/constants/multiplayer_rival.h
+# MP_RIVAL_PREP_WORD). Every core then draws the same background and resolves the environment-dependent moves alike.
+PREPARATION_TAG = 0x52560000
+
+
+def preparation_word(checkpoint_id):
+    checkpoint = BY_ID[checkpoint_id]
+    return PREPARATION_TAG | (checkpoint.order << 8) | ENVIRONMENT_IDS[checkpoint.canonical_environment]
+
+
+def valid_preparation_word(word):
+    return (type(word) is int and not isinstance(word, bool)
+            and any(word == preparation_word(checkpoint_id) for checkpoint_id in IDS))
 
 
 def checkpoint_at(map_group, map_number):

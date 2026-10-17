@@ -262,6 +262,9 @@ class WorldServer:
         self._battle_results = None
         self._championships = None
         self._rivals = None  # Update 31: world-level rival checkpoints (rival_checkpoints.py)
+        # Update 31: rival battles name their checkpoint's battle environment in the native preparation, only when the
+        # host's installed game says every core of this world's build reads it (manifest rival_abi_version 1).
+        self._rival_battle_environment = False
         self._last_frontier_tick = 0.0
         from .frontier_rules import FrontierSettings
         self._frontier = (FrontierSettings.load(store.path.with_name(store.path.name + ".frontier.json"))
@@ -358,6 +361,15 @@ class WorldServer:
         from .battle_execution import BattleExecutionService
         self.battle_execution = BattleExecutionService(self.battle_desk, string_lengths, directory,
                                                        resume_enabled=resume_enabled)
+
+    def enable_rival_battle_environment(self):
+        """Application-only: the installed, hash-verified game reads a rival battle's environment (rival_abi_version 1).
+
+        Every player of a world runs the same build (hello build_id), so the host's own manifest speaks for every core.
+        """
+        if self._server is not None:
+            raise ValueError("configure rival battles before starting the host")
+        self._rival_battle_environment = True
 
     def _preflight_battle_bind(self, players, leases) -> None:
         assert self.store is not None
@@ -798,12 +810,16 @@ class WorldServer:
         def invite(match, battle_id):
             if desk is None:
                 raise ProtocolError("battle_disabled", "This host has disabled new battle challenges")
+            from .rival_catalogue import preparation_word
+            environment = preparation_word(request["rival"]["checkpoint_id"]) if self._rival_battle_environment else 0
             if match.mode == 2:
-                desk.invite(actor, epoch, next(player for player in match.players if player != actor), battle_id)
+                desk.invite(actor, epoch, next(player for player in match.players if player != actor), battle_id,
+                            environment=environment)
             else:
                 own = next(team for team in match.teams if actor in team)
                 other = next(team for team in match.teams if actor not in team)
-                desk.invite_multi(actor, epoch, next(player for player in own if player != actor), tuple(other), battle_id)
+                desk.invite_multi(actor, epoch, next(player for player in own if player != actor), tuple(other), battle_id,
+                                  environment=environment)
             if capture_original:
                 self.battle_execution.admission.capture(actor, epoch, dict(request, battle_id=battle_id))
 

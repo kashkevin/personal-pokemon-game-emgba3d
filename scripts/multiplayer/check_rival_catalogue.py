@@ -16,7 +16,12 @@ checkpoint in ``rival_catalogue.CHECKPOINTS``:
   rival's trainer class has no special background), for talk triggers on the
   four tiles beside the object;
 * the intro post-state table (docs/update31/intro-post-state.json): every
-  flag/var/item/heal location named exists in the checkout.
+  flag/var/item/heal location named exists in the checkout;
+* the enum index of each canonical battle environment (ENVIRONMENT_IDS), which
+  the rival battle's preparation word carries;
+* for an engine with the Update 31 port (include/constants/multiplayer_rival.h):
+  the preparation tag, the checkpoint order, and that every original rival
+  scene script asks the multiplayer layer first (under PORTABLE).
 
 Exit status 0 when every check passes. Run it against the private engine
 before porting the multiplayer scenes, since the fork may differ from upstream.
@@ -33,7 +38,7 @@ import sys
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 
-from emerald_multiplayer.rival_catalogue import CHECKPOINTS  # noqa: E402
+from emerald_multiplayer.rival_catalogue import CHECKPOINTS, ENVIRONMENT_IDS, PREPARATION_TAG  # noqa: E402
 
 INTRO_TABLE = ROOT / "docs" / "update31" / "intro-post-state.json"
 NUM_METATILES_IN_PRIMARY = 512
@@ -168,6 +173,36 @@ def check(engine):
                             f"catalogue says {sorted(checkpoint.battle_environments)} / {checkpoint.canonical_environment}")
         report.append(dict(checkpoint=checkpoint.checkpoint_id, maps=sorted(checkpoint.maps),
                            environments=sorted(environments)))
+    battle_h = (engine / "include/constants/battle.h").read_text()
+    body = re.search(r"enum BattleEnvironments\s*\{(.*?)\}", battle_h, re.S)
+    order = re.findall(r"^\s*(BATTLE_ENVIRONMENT_[A-Z0-9_]+)\s*,", body.group(1), re.M) if body else []
+    for name, index in ENVIRONMENT_IDS.items():
+        if name not in order or order.index(name) != index:
+            problems.append(f"{name} is enum index {order.index(name) if name in order else None}, catalogue says {index}")
+    port = engine / "include/constants/multiplayer_rival.h"
+    if port.exists():
+        text = port.read_text()
+        tag = re.search(r"#define MP_RIVAL_PREP_TAG\s+(0x[0-9A-Fa-f]+)", text)
+        if not tag or int(tag.group(1), 16) != PREPARATION_TAG:
+            problems.append("the engine's MP_RIVAL_PREP_TAG differs from rival_catalogue.PREPARATION_TAG")
+        macro = {"route103": "ROUTE103", "rustboro": "RUSTBORO", "route110": "ROUTE110", "route119": "ROUTE119", "lilycove": "LILYCOVE"}
+        for checkpoint in CHECKPOINTS:
+            number = re.search(r"#define MP_RIVAL_%s\s+(\d+)" % macro[checkpoint.checkpoint_id], text)
+            if not number or int(number.group(1)) != checkpoint.order - 1:
+                problems.append(f"{checkpoint.checkpoint_id}: engine checkpoint number differs from the story order")
+            for trigger in checkpoint.triggers:
+                script = (engine / "data/maps" / folders[trigger.map] / "scripts.inc").read_text()
+                blocks = dict(re.findall(r"^(\w+)::\n(.*?)(?=^\w+::|\Z)", script, re.M | re.S))
+                stem = trigger.script.split("..")[0]
+                entries = [label for label in blocks if label == stem
+                           or (stem[-1].isdigit() and re.fullmatch(re.escape(stem.rstrip("0123456789")) + r"\d+", label))]
+                for label in entries or [stem]:
+                    # the check sits in the entry point or in the scene it goes to first
+                    seen, block = label, blocks.get(label, "")
+                    jump = re.search(r"^\tgoto (\w+)", block, re.M)
+                    reached = block + (blocks.get(jump.group(1), "") if jump else "")
+                    if "MP_RIVAL_%s" % macro[checkpoint.checkpoint_id] not in reached:
+                        problems.append(f"{checkpoint.checkpoint_id}: {seen} does not ask the multiplayer layer first")
     if INTRO_TABLE.exists():
         table = json.loads(INTRO_TABLE.read_text())
         for section in ("set_flags", "set_flags_male_player", "set_flags_female_player", "clear_flags",

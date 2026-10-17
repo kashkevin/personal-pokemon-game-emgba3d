@@ -226,6 +226,13 @@ def generate(rom: Path, elf: Path, nm: str, engine_commit: str, *, trade_effect_
                         world_mailbox_address=int(world_channel[0][0], 16),
                         world_mailbox_size=int(world_channel[0][1], 16))
         validate_world_manifest(manifest, rom)
+    # Update 31: rival checkpoints (the RivalRecord in the world mailbox, a rival battle's environment in its preparation)
+    # exist in the native PC game only, so the marker comes from the PC executable's symbols, like the free-for-all's.
+    rival = re.findall(r"^([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+[RrDd]\s+_?gMultiplayerRivalAbiVersion$", symbols + native_symbols, re.M)
+    if rival:
+        if len(rival) != 1 or int(rival[0][1], 16) != 4 or not world:
+            raise ValueError("rival checkpoints require one four-byte marker and the shared world mailbox")
+        manifest.update(rival_abi_version=1)
     if len(objects) == 1:
         obj_address, obj_size = (int(value, 16) for value in objects[0])
         # Read-only test metadata for the pinned engine's 0x24-byte objects.
