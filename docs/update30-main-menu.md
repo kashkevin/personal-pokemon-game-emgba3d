@@ -202,3 +202,8 @@ existing fixture). They are not multi-PC tests.
 A real GPU and real DPI scaling of the menu; a game controller in the menu; two physical PCs on a LAN; Internet play through a router; the real
 New Game → enrollment sequence with the real game on Windows (the cloud tests use a placeholder game and the save-mailbox fixture);
 clipboard behaviour of the player's chat client; IPv6; the package on a clean PC. The manual checklist is in the final report.
+
+## Packaging note: a game executable that does not start a menu
+
+The first CI smoke runs of this update failed at "Start the frozen launcher and watch it stay up": the smoke package's stand-in game executable ends at once, and `ShellProcess` treated a closed pipe as "ready", so `EmeraldTogether.exe` returned with code 0
+and nothing on screen. `ShellProcess` now counts a window as started only when it printed `ready` (tests: `ShellProcessStartTests`); anything else (a stub, a broken build, no display) falls back to the earlier launcher window, as designed.

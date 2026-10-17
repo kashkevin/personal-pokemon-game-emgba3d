@@ -144,10 +144,11 @@ class ShellProcess:
         self.token = 0
         self._screen = None
         self.ready = threading.Event()
+        self.announced = False          # the window said "ready" (a program that just ends has not started a menu)
         self.error = None
         self._reader = threading.Thread(target=self._read, name="shell-menu-reader", daemon=True)
         self._reader.start()
-        if not self.ready.wait(20) or self.error is not None:
+        if not self.ready.wait(20) or self.error is not None or not self.announced:
             self.close()
             raise ShellClosed(self.error or "the menu window did not start")
 
@@ -156,6 +157,7 @@ class ShellProcess:
             for raw in iter(self.process.stdout.readline, b""):
                 line = raw.decode("utf-8", "replace").rstrip("\r\n")
                 if line.startswith("ready\t"):
+                    self.announced = True
                     self.ready.set()
                 elif line.startswith("error\t"):
                     self.error = line.split("\t", 2)[-1]

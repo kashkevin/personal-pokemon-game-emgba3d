@@ -455,3 +455,24 @@ class HostSettingsAndSessionTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ShellProcessStartTests(unittest.TestCase):
+    """A game executable that ends without announcing a menu (a smoke-test stub, a broken build) must not count as a started menu,
+    so the packaged entry falls back to the earlier launcher instead of exiting with nothing on screen."""
+
+    def test_program_that_just_ends_is_not_a_menu(self):
+        import sys
+        from emerald_multiplayer.shell_protocol import ShellClosed, ShellProcess
+        with self.assertRaises(ShellClosed):
+            ShellProcess([sys.executable, "-c", "pass"])
+
+    def test_program_that_announces_ready_is_accepted(self):
+        import sys
+        from emerald_multiplayer.shell_protocol import ShellProcess
+        shell = ShellProcess([sys.executable, "-c",
+                              "import sys,time; sys.stdout.write('ready\\tx\\n'); sys.stdout.flush(); time.sleep(5)"])
+        try:
+            self.assertTrue(shell.announced)
+        finally:
+            shell.close()
