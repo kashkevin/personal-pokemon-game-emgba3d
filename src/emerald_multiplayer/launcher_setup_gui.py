@@ -7,6 +7,7 @@ from pathlib import Path
 import queue
 import threading
 
+from .tk_threads import start_thread
 from .network_diagnostics import ConnectionDetails, inspect_invitation, route_scope
 
 
@@ -112,7 +113,7 @@ class SetupWorker:
             self.cancelled = self.ready = False
             self.thread = threading.Thread(target=self._run, args=(operation, options), daemon=False,
                                            name="emerald-host-setup")
-            self.thread.start()
+            start_thread(self.thread)
         return True
 
     def finish(self):
