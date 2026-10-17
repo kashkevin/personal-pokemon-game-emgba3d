@@ -202,10 +202,20 @@ class RemoteEnrollmentTests(unittest.IsolatedAsyncioTestCase):
                 await runtime._game.process.wait()
                 with self.assertRaises(CreationError) as caught:
                     await finish_when_ready(runtime, interval=0.01)
-        self.assertEqual(caught.exception.code, "game_closed")
+        # Killed, not closed by the player: "closed unexpectedly", never "you closed it" (finish_when_ready's _closed).
+        self.assertEqual(caught.exception.code, "game_failed")
         # The approved source stays recorded for a retry; no character exists yet.
         self.assertEqual(len(self.enrolled_sources()), 1)
         self.assertFalse((self.profile(1) / "enrollment-completed.json").exists())
+        # The retry (the menu's "Continue setting up my character"): the friend's server takes the same source again,
+        # the abandoned attempt is kept aside and the character is enrolled.
+        with companion_patch, spawn_patch:
+            async with self.context() as runtime:
+                result = await finish_when_ready(runtime, interval=0.01)
+                self.assertEqual(result.metadata["revision"], 1)
+        self.assertTrue((self.profile(1) / "enrollment-completed.json").exists())
+        self.assertEqual(len(list((self.profile(1) / "abandoned-enrollments").iterdir())), 1)
+        self.assertEqual(len(self.enrolled_sources()), 1)
 
     async def test_an_unavailable_server_is_a_clear_error_and_creates_nothing(self):
         companion_patch, spawn_patch = self.patches()
@@ -239,6 +249,35 @@ class RemoteEnrollmentDisabledTests(RemoteEnrollmentTests):
     test_finish_when_ready_waits_for_the_safe_place_then_enrolls_once = None
     test_a_game_closed_before_the_safe_place_stops_with_its_own_message = None
     test_an_unavailable_server_is_a_clear_error_and_creates_nothing = None
+
+
+class GameEndTests(unittest.IsolatedAsyncioTestCase):
+    """How the enrollment game's end is reported: closed by the player (exit code 0) or not (a crash)."""
+
+    def runtime(self, returncode, enroll=None):
+        async def refuse():
+            raise enroll
+        return SimpleNamespace(_game=SimpleNamespace(process=SimpleNamespace(returncode=returncode)),
+                               companion=SimpleNamespace(_bridge=object()), enroll=refuse)
+
+    async def test_closed_by_the_player_or_crashed(self):
+        for returncode, code in ((0, "game_closed"), (139, "game_failed"), (-11, "game_failed"), (3221225477, "game_failed")):
+            with self.subTest(returncode=returncode), self.assertRaises(CreationError) as caught:
+                await finish_when_ready(self.runtime(returncode), interval=0.01)
+            self.assertEqual(caught.exception.code, code)
+
+    async def test_the_runtime_noticing_first_reports_the_same(self):
+        from emerald_multiplayer.enrollment_runtime import EnrollmentRuntimeError
+        for returncode, code in ((0, "game_closed"), (1, "game_failed")):
+            runtime = self.runtime(None, EnrollmentRuntimeError("game_closed", "first enrollment requires its active game"))
+
+            async def enroll(runtime=runtime, returncode=returncode):
+                runtime._game.process.returncode = returncode
+                raise EnrollmentRuntimeError("game_closed", "first enrollment requires its active bootstrap game")
+            runtime.enroll = enroll
+            with self.subTest(returncode=returncode), self.assertRaises(CreationError) as caught:
+                await finish_when_ready(runtime, interval=0.01)
+            self.assertEqual(caught.exception.code, code)
 
 
 class CreateCharacterTests(unittest.IsolatedAsyncioTestCase):

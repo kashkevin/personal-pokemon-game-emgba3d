@@ -269,6 +269,80 @@ class LauncherSetupTests(unittest.IsolatedAsyncioTestCase):
         with self.host.open_store() as store:
             store.begin_server_boot()
 
+    async def test_the_games_end_keeps_its_own_code_through_setup(self):
+        """A crash of the enrollment game is reported as such, not flattened to setup_failed (the owner's report,
+        2026-10-17: "Setting up your character could not finish" for a game that had crashed)."""
+        from emerald_multiplayer.character_creation import CreationError
+        for code in ("game_failed", "game_closed"):
+            companion_patch, spawn_patch = self.fixture()
+            with companion_patch, spawn_patch, self.subTest(code=code):
+                with self.assertRaises(LauncherSetupError) as caught:
+                    async with self.context(restart_abandoned=True):
+                        raise CreationError(code)
+                self.assertEqual(caught.exception.code, code)
+
+    async def abandon(self):
+        """One attempt whose game ends before the safe place (the body leaves without enrolling)."""
+        from emerald_multiplayer.character_creation import CreationError
+        companion_patch, spawn_patch = self.fixture()
+        with companion_patch, spawn_patch:
+            with self.assertRaises(LauncherSetupError):
+                async with self.context():
+                    raise CreationError("game_failed")
+        self.assertTrue((self.profile() / "pending-enrollment.json").exists())
+        return {p.name: p.read_bytes() for p in self.profile().iterdir()
+                if p.is_file() and p.name != "character.sav.mirror.lock"}
+
+    async def test_an_abandoned_attempt_restarts_when_asked_and_its_files_are_kept(self):
+        before = await self.abandon()
+        # Not asked (the launcher's explicit setup): unchanged, the attempt waits for recovery.
+        with self.assertRaises(LauncherSetupError) as caught:
+            async with self.context():
+                self.fail("restarted without being asked")
+        self.assertEqual(caught.exception.code, "recovery_required")
+        # Asked (the in-game menu's "Continue setting up my character"): set aside, then a whole new enrollment.
+        companion_patch, spawn_patch = self.fixture()
+        with companion_patch, spawn_patch:
+            async with self.context(restart_abandoned=True) as runtime:
+                result = await runtime.enroll()
+                self.assertEqual(result.metadata["revision"], 1)
+        self.assertEqual(self.states[-1].code, "enrolled")
+        self.assertFalse((self.profile() / "pending-enrollment.json").exists())
+        self.assertTrue((self.profile() / "enrollment-completed.json").exists())
+        kept = list((self.profile() / "abandoned-enrollments").iterdir())
+        self.assertEqual(len(kept), 1)
+        self.assertEqual({p.name: p.read_bytes() for p in kept[0].iterdir()},
+                         {name: data for name, data in before.items() if not name.startswith("host-")})
+        self.assertEqual(self.source.read_bytes(), self.original)
+        with self.host.open_store() as store:
+            self.assertEqual(store._connection.execute("SELECT count(*) FROM checkpoints").fetchone()[0], 1)
+
+    async def test_an_attempt_that_went_further_is_never_restarted(self):
+        await self.abandon()
+        for name, data in (("0" * 8 + "-0000-4000-8000-" + "0" * 12 + ".grant.json", b"{}"),
+                           ("pending-export.json", b"{}"), ("unknown.bin", b"?")):
+            extra = self.profile() / name
+            extra.write_bytes(data)
+            listing = sorted(p.name for p in self.profile().iterdir())
+            companion_patch, spawn_patch = self.fixture()
+            with companion_patch, spawn_patch, self.subTest(extra=name):
+                with self.assertRaises(LauncherSetupError) as caught:
+                    async with self.context(restart_abandoned=True):
+                        self.fail("restarted an attempt that went further")
+                self.assertEqual(caught.exception.code, "recovery_required")
+                self.assertEqual(sorted(p.name for p in self.profile().iterdir()), listing)
+                self.assertFalse((self.profile() / "abandoned-enrollments").exists())
+            extra.unlink()
+        # Another source's intent is not this attempt either.
+        pending = self.profile() / "pending-enrollment.json"
+        original = pending.read_bytes()
+        pending.write_bytes(original.replace(original[-20:-4], b"0" * 16))
+        with self.assertRaises(LauncherSetupError) as caught:
+            async with self.context(restart_abandoned=True):
+                self.fail("restarted a different attempt")
+        self.assertEqual(caught.exception.code, "recovery_required")
+        self.assertFalse((self.profile() / "abandoned-enrollments").exists())
+
     async def test_observer_and_context_errors_cannot_disclose_private_details(self):
         secret = self.host.accounts[0].credential.hex()
         def observer(status):

@@ -46,6 +46,9 @@ _MESSAGES = {
     "connection_timeout": "The host did not authenticate this character before the timeout.",
     "connection_lost": "The authenticated host connection is unavailable.",
     "session_changed": "The authenticated character session changed; setup has stopped.",
+    # The enrollment game's own end, kept through host_enrollment so the player's message says what happened.
+    "game_closed": "The game was closed before the character was registered; the approved source is retained.",
+    "game_failed": "The game closed unexpectedly before the character was registered; the approved source is retained.",
     "setup_failed": "Character setup could not complete; private recovery files are retained.",
 }
 
@@ -189,8 +192,11 @@ def export_friend_invitation(installation, world_directory, slot, destination):
 async def host_enrollment(installation, private_root, *, world_directory, slot,
                           source_path, bind_address="127.0.0.1", host_route=None,
                           public=False, connection_timeout=10, on_status=None,
-                          expected_source_sha256=None):
+                          expected_source_sha256=None, restart_abandoned=False):
     """Approve a selected source and yield a running EnrollmentRuntime.
+
+    ``restart_abandoned`` (the in-game menu's character setup): an earlier attempt of the same source whose game ended
+    before the first safe place is kept aside and started again (EnrollmentRuntime).
 
     Call only after explicit host approval. The player uses ordinary Continue
     and the caller explicitly awaits runtime.enroll() at a safe field point.
@@ -278,7 +284,8 @@ async def host_enrollment(installation, private_root, *, world_directory, slot,
         except TimeoutError:
             raise LauncherSetupError("connection_timeout") from None
         runtime = EnrollmentRuntime(companion, installation.bundle, private,
-                                    private / "character.sav", approval, launch_root=launch_root)
+                                    private / "character.sav", approval, launch_root=launch_root,
+                                    restart_abandoned=restart_abandoned)
         async with runtime.open():
             publish("running", "continue_then_enroll")
             yield runtime

@@ -140,6 +140,67 @@ class HostServerTests(unittest.TestCase):
         self.assertEqual(len(worker2.requests), 1)
         self.assertEqual(worker2.requests[0].selection, entry.folder / "host.json")
 
+    def test_a_game_crash_during_setup_says_so_records_the_crash_report_and_the_next_try_continues(self):
+        """The owner's report (2026-10-17): the game crashed after the New Game was saved, and the menu said only "could not
+        finish". The player is told the game closed unexpectedly and that the character was kept; last-error.txt has the
+        failed launch's crash report; choosing the world again continues from the saved New Game."""
+        import hashlib
+        from types import SimpleNamespace
+        from emerald_multiplayer.character_creation import CreationError
+        world = World(self)
+        app = self.make_world(world)
+        entry = app.registry.entries()[0]
+        host_id = entry.accounts[0][1]
+        source = world.private / "drafts" / "d1" / "character.sav"
+        source.parent.mkdir(parents=True)
+        source.write_bytes(b"the player's New Game")
+        made = SimpleNamespace(source_path=source, sha256=hashlib.sha256(source.read_bytes()).hexdigest(), party_count=1)
+
+        async def crashing(installation, private_root, *, role, draft=None, on_status=None, on_draft=None, **options):
+            on_draft(made)
+            launch = Path(private_root) / "launches" / "l1"
+            launch.mkdir(parents=True)
+            (launch / "crash.log").write_text("pokeemerald-mp crash report\nfault address 0x0 in VarGet\n")
+            (launch / "runtime.log").write_text("The game crashed; details were written to crash.log\n")
+            (launch / "bridge.txt").write_text("port=1\ntoken=" + "ab" * 32 + "\n")
+            raise CreationError("game_failed")
+        seen = {}
+
+        def message(screen):
+            seen["text"] = " ".join(screen.notes)
+            return BACK
+
+        def behaviour(request):
+            return "game_closed" if character_state(world.private, entry.world_id, host_id) == "ready" else "enrollment_required"
+        driver = Driver(("main", select("host")), ("host_list", select(entry.world_id)), ("world", select("host")),
+                        ("create_character", select("go")), ("message", message), ("host_list", BACK), main_exit())
+        app2, _ = world.app(driver, worker=FakeWorker(behaviour), creator=crashing)
+        app2.run()
+        self.assertTrue(driver.done(), driver.steps)
+        self.assertIn("closed unexpectedly", seen["text"])
+        self.assertNotIn("could not finish", seen["text"])
+        self.assertIn("was kept", seen["text"])
+        self.assertIn("last-error.txt", seen["text"])
+        report = (world.private / "shell" / "last-error.txt").read_text()
+        self.assertIn("CreationError: The game closed unexpectedly", report)
+        self.assertIn("fault address 0x0 in VarGet", report)
+        self.assertIn("details were written to crash.log", report)
+        self.assertNotIn("ab" * 32, report)                                       # never the launch token
+        # The next try: the saved New Game is offered and used; no second New Game.
+        calls = []
+
+        def offered(screen):
+            seen["again"] = " ".join(screen.notes)
+            return select("go")
+        driver = Driver(("main", select("host")), ("host_list", select(entry.world_id)), ("world", select("host")),
+                        ("create_character", offered), ("host_list", BACK), main_exit())
+        app3, _ = world.app(driver, worker=FakeWorker(behaviour), creator=fake_creator(calls))
+        app3.run()
+        self.assertTrue(driver.done(), driver.steps)
+        self.assertIn("did not finish", seen["again"])
+        self.assertEqual(calls[0]["draft"].sha256, made.sha256)
+        self.assertEqual(character_state(world.private, entry.world_id, host_id), "ready")
+
     def test_a_restart_never_resets_a_world(self):
         world = World(self)
         app = self.make_world(world)

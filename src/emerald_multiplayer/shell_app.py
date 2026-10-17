@@ -215,15 +215,38 @@ class ShellApp:
         except ShellClosed:
             return 0
 
-    def _record_error(self, error):
-        """The traceback of an unexpected failure, for whoever has to look at it (no credentials are ever in these messages)."""
+    def _record_error(self, error, *, game=False):
+        """The traceback of an unexpected failure, for whoever has to look at it (no credentials are ever in these messages).
+        ``game``: also the newest game launch's crash report and output (the launch folder, crash.log, the end of runtime.log;
+        never bridge.txt, which holds the launch token)."""
         import traceback
         try:
+            text = "".join(traceback.format_exception(error))[-8000:]
+            if game:
+                text += self._last_launch_report()
             folder = self.private_root / "shell"
             folder.mkdir(parents=True, exist_ok=True, mode=0o700)
-            (folder / "last-error.txt").write_text("".join(traceback.format_exception(error))[-8000:], encoding="utf-8")
+            (folder / "last-error.txt").write_text(text, encoding="utf-8")
         except OSError:
             pass
+
+    def _last_launch_report(self):
+        try:
+            launches = [p for p in (self.private_root / "launches").iterdir() if p.is_dir()]
+        except OSError:
+            return "\nGame launch: none found.\n"
+        if not launches:
+            return "\nGame launch: none found.\n"
+        folder = max(launches, key=lambda p: p.stat().st_mtime)
+        parts = [f"\nGame launch folder: {folder}\n"]
+        for name, limit in (("crash.log", 6000), ("runtime.log", 3000)):
+            try:
+                body = (folder / name).read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                parts.append(f"{name}: none\n")
+                continue
+            parts.append(f"--- {name} (last {limit} characters) ---\n{body[-limit:]}\n")
+        return "".join(parts)
 
     # ------------------------------------------------------------------ main menu
 
@@ -847,10 +870,15 @@ class ShellApp:
             return False
         if job.error is not None:
             self.last_error = job.error
+            self._record_error(job.error, game=True)
             text = message_for(job.error) if isinstance(job.error, CreationError) else \
                 "Setting up your character could not finish. Your files were kept; try again."
-            self.message("Your character is not set up yet", text)
-            self.notice = ("error", text)
+            if holder.get("draft") is not None or draft is not None:
+                # The New Game was saved: the next try starts from it (the "Continue setting up my character" choice).
+                text += "\nThe character you made was kept: choose the world again to continue setting it up."
+            self.message("Your character is not set up yet",
+                         text + "\nDetails were written to shell/last-error.txt in your private folder.")
+            self.notice = ("error", text.split("\n")[0])
             return False
         self.links.set_stage(world_id, player_id, "enrolled")
         return True

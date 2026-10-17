@@ -63,6 +63,7 @@ MESSAGES = {
     "starter_required": "Choose a starter and save through the game’s menu before enrollment.",
     "game_running": "Save through the game’s menu and close the game window first.",
     "game_failed": "The draft game did not close normally. Its private files were retained.",
+    "game_closed": "The game was closed before the character was registered. Its private files were retained.",
     "draft_failed": "New-character preparation could not finish. Its private files were retained.",
 }
 

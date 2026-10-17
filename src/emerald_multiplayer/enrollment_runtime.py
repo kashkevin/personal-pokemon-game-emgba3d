@@ -10,7 +10,9 @@ import asyncio
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 import hashlib
+import os
 from pathlib import Path
+import time
 
 from .battle_journal import path_present
 from .checkpoint_client import CheckpointClient
@@ -79,8 +81,16 @@ class EnrollmentRuntime:
     rollback follows an uncertain export; recover() resolves closed evidence.
     """
 
-    def __init__(self, companion, bundle, private_directory, save_path, approval, *, launch_root=None):
+    ABANDONED = "abandoned-enrollments"
+
+    def __init__(self, companion, bundle, private_directory, save_path, approval, *, launch_root=None,
+                 restart_abandoned=False):
+        """``restart_abandoned``: an earlier attempt of this exact approval that ended before its game reached the first
+        safe place (the game crashed or was closed: no grant, export, trade or battle journal, and the server has no
+        character) is set aside into ``abandoned-enrollments/`` - kept, never deleted - and enrollment starts again from
+        the approved source. Without it such an attempt stays "recovery_required" (the launcher's explicit setup)."""
         self.companion, self.bundle, self.approval = companion, bundle, approval
+        self.restart_abandoned = restart_abandoned is True
         self.directory = Path(private_directory).resolve()
         self.save_path = Path(save_path).resolve()
         self.launch_root = Path(launch_root).resolve() if launch_root is not None else None
@@ -122,6 +132,50 @@ class EnrollmentRuntime:
         if any(path_present(path) for path in paths):
             raise EnrollmentRuntimeError("recovery_required", "existing enrollment, save or journal requires closed recovery")
 
+    def _abandoned_attempt(self, gate):
+        """Whether the profile holds only an abandoned attempt of this exact approval (see ``restart_abandoned``): its own
+        intent, byte for byte; its source copy (or none yet); the game's copy of the source (or none); the save lease's
+        lock and the pinned host certificate. Anything else - a grant, an export, a trade, a battle, a checkpoint sidecar,
+        a completion receipt, an unknown file - means the attempt went further, and closed recovery decides."""
+        if not self.restart_abandoned or not path_present(self.pending_path):
+            return False
+        if any(path_present(path) for path in (gate.export_path, gate.trade_path, self.receipt_path)):
+            return False
+        allowed = {self.pending_path.name, self.source_copy.name, self.save_path.name,
+                   self.save_path.name + ".mirror.lock", self.ABANDONED}
+        for entry in self.directory.iterdir():
+            if entry.name not in allowed and not (entry.name.startswith("host-") and entry.name.endswith(".pem")):
+                return False
+        try:
+            with self.pending_path.open("rb") as source:
+                if source.read(4097) != _json_bytes(self._intent()):
+                    return False
+            if path_present(self.source_copy) and _source_bytes(self.source_copy) != self.approval.payload:
+                return False
+        except (OSError, ValueError):
+            return False
+        return True
+
+    def _set_aside_attempt(self):
+        """Move the abandoned attempt into abandoned-enrollments/<UTC time>/: the game's copy, then the source copy, then
+        the intent last, so an interruption part-way leaves an attempt this same check accepts again."""
+        root = self.directory / self.ABANDONED
+        stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+        for n in range(100):
+            folder = root / (stamp if n == 0 else f"{stamp}-{n}")
+            try:
+                folder.mkdir(mode=0o700, parents=True)
+                break
+            except FileExistsError:
+                continue
+        else:
+            raise EnrollmentRuntimeError("recovery_required", "no place to keep the abandoned enrollment attempt")
+        for path in (self.save_path, self.source_copy, self.pending_path):
+            if path_present(path):
+                os.replace(path, folder / path.name)
+        _sync_directory(folder)
+        _sync_directory(self.directory)
+
     async def _drain_enrollment(self):
         if self._task is not None and self._task is not asyncio.current_task() and not self._task.done():
             self._task.cancel()
@@ -156,6 +210,17 @@ class EnrollmentRuntime:
                 async with c.live_checkpoint_lock:
                     session = self._session = self._identity(gate)
                     gate._closed(session)
+                    if self._abandoned_attempt(gate):
+                        c._live_save_owner = asyncio.current_task()
+                        try:
+                            head = await CheckpointClient(c).info()
+                            gate._closed(session)
+                            pending = await c.trade_rpc("pending")
+                            gate._closed(session)
+                        finally:
+                            c._live_save_owner = None
+                        if head is None and not pending["recoveries"]:
+                            self._set_aside_attempt()
                     self._clear_initial_paths(gate)
                     if _source_bytes(self.approval.source_path) != self.approval.payload:
                         raise EnrollmentRuntimeError("source_changed", "the approved original source changed before copying")

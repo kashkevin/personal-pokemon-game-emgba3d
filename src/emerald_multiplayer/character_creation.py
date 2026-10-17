@@ -51,6 +51,7 @@ MESSAGES = {
     "save_required": "Save in the game (START menu, SAVE) before closing it.",
     "game_failed": "The game closed unexpectedly while creating your character. Try again.",
     "installation_changed": "The installed game could not be verified.",
+    "recovery_required": "An earlier setup of this character got further than it can safely restart; its files were kept.",
     "setup_failed": "Setting up your character could not finish. Your files were kept; try again.",
 }
 
@@ -155,8 +156,9 @@ async def remote_enrollment(installation, private_root, *, invitation_path, rout
         sha256 = await submit_source(companion, payload)
         approval = EnrollmentApproval(companion.world_id, config.player_id, config.build_id, config.ruleset_id, sha256,
                                       Path(source_path).resolve(strict=True), payload)
+        # The menu's "Continue setting up my character" after a game that crashed or was closed before the safe place.
         runtime = EnrollmentRuntime(companion, installation.bundle, private, private / "character.sav", approval,
-                                    launch_root=launch_root)
+                                    launch_root=launch_root, restart_abandoned=True)
         async with runtime.open():
             publish("running")
             yield runtime
@@ -176,12 +178,19 @@ async def remote_enrollment(installation, private_root, *, invitation_path, rout
                 raise asyncio.CancelledError()
 
 
+def _closed(game):
+    """A game that ended before the safe place: closed by the player (exit code 0) or not (a crash, a kill): "game_failed",
+    so the player is not told to have closed a game that crashed (the owner's report, 2026-10-17)."""
+    code = None if game is None else game.process.returncode
+    return CreationError("game_closed" if code == 0 else "game_failed")
+
+
 async def finish_when_ready(runtime, *, interval=1.5, on_waiting=None):
     """Enroll at the first safe place. Until then the game's own refusal ("not ready") is the answer and nothing has started."""
     while True:
         game = getattr(runtime, "_game", None)
         if game is not None and game.process.returncode is not None:
-            raise CreationError("game_closed")
+            raise _closed(game)
         if getattr(runtime.companion, "_bridge", None) is None:
             if on_waiting is not None:
                 on_waiting()
@@ -197,7 +206,7 @@ async def finish_when_ready(runtime, *, interval=1.5, on_waiting=None):
             await asyncio.sleep(interval)
         except EnrollmentRuntimeError as error:
             if error.code == "game_closed":
-                raise CreationError("game_closed") from None
+                raise _closed(getattr(runtime, "_game", None)) from None
             raise
 
 
@@ -219,7 +228,7 @@ async def create_character(installation, private_root, *, role, world_directory=
             raise CreationError("setup_failed")
         context = host_enrollment(installation, private_root, world_directory=world_directory, slot=0,
                                   source_path=draft.source_path, bind_address="127.0.0.1", host_route="127.0.0.1",
-                                  expected_source_sha256=draft.sha256)
+                                  expected_source_sha256=draft.sha256, restart_abandoned=True)
     else:
         if invitation_path is None or route_host is None or route_port is None:
             raise CreationError("setup_failed")
