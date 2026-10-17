@@ -100,3 +100,10 @@ real multi-hour step counts; shiny rates beyond the sample sizes above; trading 
 
 Wild encounter, Legendary and Safari statistics (`--selftest-legend`), the coin economy (`--selftest-coins`, `economy_check.py`), the species data integrity (`species_data_check.py` against the baseline) and the GBA ROM hash
 are part of the final regression recorded in the delivery report.
+
+## 9. A shop crash found by the regression, and its fix
+
+The final regression's `economy_check.py` (Mart dealer scenario) crashed intermittently (3D 2 of 3 runs, Classic 2 of 8). Diagnosed with gdb watchpoints on `gSprites[0]`: the Mart buy menu (`BuyMenuDrawObjectEvents`, `src/shop.c`) draws every object event in the clerk's
+7×5 viewport and starts a *facing* animation (index 0–3) on it. An **inanimate** object (Birch's bag in the debug scene's Mauville map; a sign or ball in other maps) has the one-entry `sAnimTable_Inanimate`, so index 2 reads past the table and `BeginAnim` dereferences
+garbage. It is vanilla code (the table is at the same place in the GBA game; the original Marts have no inanimate object in view), which is why it only showed when a debug scene put one in front of the dealer, and why it flaked: the object's facing byte differed per run. The fix is PC-only
+(`#ifdef PORTABLE`, `#line` marker kept, `check_gba_lines.py` 0 moved lines, GBA ROM still `f214735b…3387`): an inanimate object always gets animation 0. After it the economy check passed 28 of 28 in both builds in both complete repeat runs made after the fix (before it: 2 of 3 failed); the final-regression run at the combined revision repeats it.

@@ -34,7 +34,7 @@ from .saved_servers import InvitationConflict, SavedServers, invitation_path, st
 from .server_check import probe_route
 from .shell_migration import migrate
 from .shell_protocol import Done, Screen, ShellClosed
-from .shell_store import JsonStore, text_ok
+from .shell_store import JsonStore, StoreUnavailable, text_ok
 from .shell_tasks import BackgroundJob
 from .world_registry import LOOPBACK, WorldRegistry, WorldRegistryError, free_port, valid_world_name
 
@@ -197,10 +197,33 @@ class ShellApp:
                 self.notice = ("warn", f"{count} item{'s' if count != 1 else ''} from the earlier launcher could not be matched "
                                        "safely and were left untouched. See Settings, Characters.")
             while True:
-                if self.main_menu() == "exit":
-                    return 0
+                try:
+                    if self.main_menu() == "exit":
+                        return 0
+                except ShellClosed:
+                    raise
+                except StoreUnavailable:
+                    self.message("A record needs attention",
+                                 "One of the menu's records is damaged and has no usable backup, so nothing was saved.\n"
+                                 "Nothing was changed or deleted. Restore the file from your backup or ask for help.")
+                except Exception as error:                              # noqa: BLE001 - a bug never closes the menu under a player
+                    self.last_error = error
+                    self._record_error(error)
+                    self.message("Something went wrong",
+                                 "That action could not finish. Nothing was deleted or reset.\n"
+                                 "Details were written to shell/last-error.txt in your private folder.")
         except ShellClosed:
             return 0
+
+    def _record_error(self, error):
+        """The traceback of an unexpected failure, for whoever has to look at it (no credentials are ever in these messages)."""
+        import traceback
+        try:
+            folder = self.private_root / "shell"
+            folder.mkdir(parents=True, exist_ok=True, mode=0o700)
+            (folder / "last-error.txt").write_text("".join(traceback.format_exception(error))[-8000:], encoding="utf-8")
+        except OSError:
+            pass
 
     # ------------------------------------------------------------------ main menu
 

@@ -118,3 +118,9 @@ preview 12's evidence for those is reused.
 | Battle Frontier BP/items/team selection on PCs | - | PC | Never run | same, B | - | Owner |
 | Legendary catch race on two PCs | - | PC | Never run | same, C | - | Owner |
 | Graphical PokéNav map on Windows / 3D window | - | PC | Never run | same, D | - | Owner |
+| App suite at Update 30 (`pytest tests`, Python 3.12 + tkinter, xvfb) | app `claude/dev-update30` + engine `d3f4e4f7` | cloud | 1929 passed, 118 skipped, 0 failed, 425 s (2026-10-17) | `docs/update30-main-menu.md` | - | Rerun at the final integrated head |
+| `--selftest-breeding` (63 checks), `--selftest-shiny` (12) | engine `d3f4e4f7` | cloud | 0 failed | `docs/update30-gameplay.md` | - | Reuse |
+| `economy_check.py` (28 scenarios, 3D and Classic) after the Mart viewport fix | engine `d3f4e4f7` | cloud | 0 failed in two complete runs (before the fix 2 of 3 runs failed) | `docs/update30-gameplay.md` section 9 | - | Rerun at the final head |
+| In-game main menu, saved servers, world/character linking (20 end-to-end addendum tests) | app `claude/dev-update30` | cloud, simulated (scripted shell, real TLS server on loopback, temporary profiles) | all pass | `docs/update30-main-menu.md` | - | Rerun at the final head |
+| Main menu, host/join with saved servers on two or more real PCs | - | PC | Never run | `docs/update30-main-menu.md` (checklist) | - | Owner |
+

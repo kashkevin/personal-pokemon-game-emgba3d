@@ -2,6 +2,11 @@
 
 This project targets a private adventure for one to four players total using Emerald as its foundation, with independent exploration and saves, Gen 1–6 Pokémon, Gen 6 mechanics including Fairy, 18 starters, and all eligible officially released Mega Evolutions, including later additions.
 
+**Update 30 (latest):** `EmeraldTogether.exe` now opens its [main menu inside the game's own window](docs/update30-main-menu.md)
+(Continue Adventure, New Game, Host Server, Join Server, Settings, Exit): saved worlds and saved servers, invite codes, and each world account's character loads
+automatically, with no separate setup program. Also new: [shiny odds, breeding, a five-egg Day Care, egg shiny rules and the removal of 2x speed](docs/update30-gameplay.md).
+All of it was verified in the cloud only (virtual display, no GPU, one machine standing in for several PCs); the real-PC checklist is in the delivery report.
+
 **Implementation and targeted testing are active.** The latest
 [visual/world amendment](docs/project-update-maximum-visuals-visible-wild-riding-time.txt)
 resumes testing and adds the staged fake-2.5D, visible encounter, follower,

@@ -5,6 +5,20 @@ standing in for several PCs (separate private folders) and a placeholder child p
 real-PC, real-GPU, real-network or real-controller result. The Windows CI run (see the final report) adds the menu window on real
 Windows with a software renderer; it still has no GPU, no second PC and no controller.
 
+## What existed, and what was reused (the audit that came first)
+
+Before this update `EmeraldTogether.exe` was a Tk launcher window (Update 28): Continue Adventure, My Worlds, Host Multiplayer, Join Friend,
+Settings, Exit, with the game opened by `SessionWorker` -> `LauncherSession` -> `PlayerRuntime`, worlds created by `launcher_setup.create_world`,
+characters made by `DraftRuntime` and enrolled only on the host's PC (`host_enrollment`, a friend exported a `.sav` file by hand), joining by
+invitation file, and a last-session record (`launcher-recent.json`). Per-account character folders `players/<world_id>/<player_id>/` already existed.
+
+**Reused unchanged:** the whole session stack (`SessionWorker`, `LauncherSession`, `PlayerRuntime`, cold-start recovery, autosave, battle/trade/host
+recovery), `HostWorld`/`create_world`, `DraftRuntime`, `EnrollmentRuntime`, the checkpoint store and ownership, the invitation format, the graphics-mode
+decision and 3D probe, the display/audio/controls settings modules, the game importer, the launcher's status texts, the Windows packaging.
+**Replaced as the normal path:** the Tk windows (kept as the fallback and for `--classic-launcher`). **New:** the menu window in the engine
+(`pokeemerald-mp --shell`), `shell_app.py` and its stores, invite codes, the saved-server and world records, the character links, the migration, the server check, and the
+server-side/enrolment messages that let a friend create a character without sending a file. **No duplicate launcher was built:** the menu *is* the launcher's front end.
+
 ## What the player sees
 
 `EmeraldTogether.exe` opens the menu **in the game's own window**: the packaged game executable started with `--shell` (the
@@ -156,6 +170,32 @@ synchronisation or battle timing changed. Details in [update30-gameplay.md](upda
 | engine `tools/pc_port/tests/test_shell_protocol.c` | the line protocol's split and escapes |
 
 Skipped tests are reported as skipped (the window tests skip when the engine binary or Xvfb is missing); they are never counted as passes.
+
+## The mandatory scenarios and the tests that run them
+
+| Scenario | Test(s) |
+|---|---|
+| EmeraldTogether opens the in-game menu | `test_shell_app.MainMenuTests`, `test_shell_window` (the real window), Windows CI `ci_shell_check.py` and the frozen-launcher process check |
+| no separate setup window | `test_the_menu_never_opens_a_launcher_window`, the CI check that the game's own `--shell` process is the child of `EmeraldTogether.exe` |
+| create a host world | `HostServerTests.test_create_new_server_world_…` |
+| first-time character creation | `HostServerTests.test_first_time_host_…`, `test_shell_e2e` (real enrollment), `test_character_creation` |
+| rehost resumes the saved character | `…test_first_time_host_…` (second part), `test_shell_e2e` step 6 |
+| a second world; switching worlds | `…test_a_second_world_is_independent_…` |
+| two players join | `test_shell_join.test_two_friends_…`, `test_shell_e2e` |
+| each creates a character | `test_shell_e2e`, `test_character_creation.test_each_friend_…` |
+| reconnect auto-loads the right character | `test_shell_join.test_next_time_…`, `test_shell_e2e` step 5 |
+| separate Pokémon / PC / eggs / inventory / progress | `test_personal_storage_isolation`, `test_shell_e2e` (three sources, three checkpoints, each naming its own account) |
+| one player in two worlds | `test_shell_join.test_one_player_on_one_pc_in_two_worlds_…` |
+| server address change keeps the world ID | `test_shell_join.OfflineAndEditTests.test_a_changed_host_address_…`, `test_shell_records` |
+| offline server: message and retry, nothing created | `test_a_server_that_is_down_…`, `test_shell_e2e.test_no_character_is_created_while_the_server_is_down_…` |
+| a wrong world at the address is refused by identity | `test_a_wrong_server_at_the_address_…` |
+| removing a shortcut keeps the character | `test_removing_the_shortcut_…` |
+| old saves usable after migration | `test_shell_migration` |
+| no duplicate characters or Pokémon | `test_shell_e2e` (one enrollment per account), `test_character_creation.test_the_same_source_…` |
+| no regression in Classic 2D / 3D / battles / starter / custom UI | the engine regression and the app suite recorded in the delivery report |
+
+All of these are **simulations on one machine** (separate private folders stand in for separate PCs; the game is a placeholder process and the save mailbox the
+existing fixture). They are not multi-PC tests.
 
 ## Not verified (needs a real PC or people)
 

@@ -300,6 +300,22 @@ class NewGameAndSettingsTests(unittest.TestCase):
         app.run()
         self.assertEqual((shell / "servers.json").read_text(), "{ this is not json")
 
+    def test_an_unexpected_failure_shows_a_message_keeps_the_menu_alive_and_records_it(self):
+        world = World(self)
+        app, _ = world.app(Driver(("main", select("settings")), ("message", BACK), ("main", select("exit"))))
+        original = app.settings_menu
+
+        def broken():
+            raise RuntimeError("boom")
+        app.settings_menu = broken
+        driver = Driver(("main", select("settings")), ("message", lambda s: self.assertIn("Nothing was deleted", " ".join(s.notes)) or BACK),
+                        ("main", select("exit")))
+        app.ui.responder = driver
+        self.assertEqual(app.run(), 0)
+        self.assertTrue(driver.done(), driver.steps)
+        self.assertIn("boom", (world.private / "shell" / "last-error.txt").read_text())
+        app.settings_menu = original
+
     def test_the_menu_never_opens_a_launcher_window(self):
         import subprocess
         import sys
@@ -307,6 +323,134 @@ class NewGameAndSettingsTests(unittest.TestCase):
                 "sys.exit(1 if 'tkinter' in sys.modules else 0)")
         done = subprocess.run([sys.executable, "-c", code], cwd=Path(__file__).resolve().parents[1])
         self.assertEqual(done.returncode, 0, "the in-game menu must not load the launcher's window toolkit")
+
+
+class HostSettingsAndSessionTests(unittest.TestCase):
+    def world_with(self, world, **changes):
+        driver = Driver(*create_world_steps("Kevin's world", "Kevin"), ("world", BACK), ("host_list", BACK), main_exit())
+        app, _ = world.app(driver, lan=lambda: ["192.168.1.20"])
+        app.run()
+        entry = app.registry.entries()[0]
+        if changes:
+            app.registry.configure(entry.world_id, **changes)
+        return app, app.registry.get(entry.world_id)
+
+    def test_network_settings_change_where_the_world_listens_and_never_invent_an_address(self):
+        world = World(self)
+        app, entry = self.world_with(world)
+        self.assertEqual((entry.bind_address, entry.internet, entry.address, entry.enrollment), ("192.168.1.20", False, "", True))
+        steps = [("main", select("host")), ("host_list", select(entry.world_id)), ("world", select("network")),
+                 ("network", select("bind")), ("choose", select("127.0.0.1")),
+                 ("network", select("internet")), ("confirm", select("yes")),
+                 ("network", select("address")), ("ask_text", select("ok", value="not a valid host!")),
+                 ("network", lambda s: self.assertIn("not a usable address", s.status[1]) or select("address")),
+                 ("ask_text", select("ok", value="friends.example.org")),
+                 ("network", select("enrollment")),
+                 ("network", lambda s: self.assertIn("next time", s.status[1]) or BACK),
+                 ("world", BACK), ("host_list", BACK), main_exit()]
+        driver = Driver(*steps)
+        app2, _ = world.app(driver, lan=lambda: ["192.168.1.20"])
+        app2.run()
+        self.assertTrue(driver.done(), driver.steps)
+        entry = app2.registry.get(entry.world_id)
+        self.assertEqual((entry.bind_address, entry.internet, entry.address, entry.enrollment), ("127.0.0.1", True, "friends.example.org", False))
+        # The next start carries exactly those choices to the session (and lets the host turn network enrollment off).
+        worker = FakeWorker(lambda request: "game_closed")
+        make_character(world.private, entry.world_id, entry.accounts[0][1])
+        driver = Driver(("main", select("host")), ("host_list", select(entry.world_id)), ("world", select("host")), ("host_list", BACK), main_exit())
+        app3, _ = world.app(driver, worker=worker, lan=lambda: ["192.168.1.20"])
+        app3.run()
+        (request,) = worker.requests
+        self.assertEqual((request.address, request.internet, request.allow_enrollment), ("127.0.0.1", True, False))
+
+    def test_a_changed_local_address_is_noticed_and_the_host_told(self):
+        world = World(self)
+        app, entry = self.world_with(world, bind_address="192.168.1.99")
+        worker = FakeWorker(lambda request: "game_closed")
+        driver = Driver(("main", select("host")), ("host_list", select(entry.world_id)), ("world", select("host")),
+                        ("host_list", BACK), main_exit())
+        app2, _ = world.app(driver, worker=worker, lan=lambda: ["10.0.0.7"])
+        app2.run()
+        self.assertEqual(worker.requests[0].address, "10.0.0.7")                      # the address this PC has now
+        self.assertEqual(app2.registry.get(entry.world_id).bind_address, "10.0.0.7")
+
+    def test_invite_codes_are_copied_for_the_right_account_and_say_when_they_cannot_be_reached(self):
+        world = World(self)
+        app, entry = self.world_with(world)
+        notes = []
+        steps = [("main", select("host")), ("host_list", select(entry.world_id)), ("world", select("codes")),
+                 ("codes", lambda s: notes.append(" ".join(s.notes)) or select("slot2")),
+                 ("codes", lambda s: notes.append(s.status[1]) or BACK), ("world", BACK), ("host_list", BACK), main_exit()]
+        driver = Driver(*steps)
+        app2, ui = world.app(driver, lan=lambda: ["192.168.1.20"])
+        app2.run()
+        self.assertTrue(driver.done(), driver.steps)
+        code = decode_invite(ui.copied[-1])
+        self.assertEqual((code.player_id, code.slot, code.world_id, code.display_name),
+                         (entry.accounts[2][1], 2, entry.world_id, "Player 3"))
+        self.assertEqual((code.address, code.port), ("192.168.1.20", entry.port))
+        self.assertIn("copied", notes[1])
+        self.assertIn("password", notes[0])
+
+    def test_a_world_that_only_listens_on_this_pc_warns_before_a_code_is_sent(self):
+        world = World(self)
+        app, entry = self.world_with(world, bind_address="127.0.0.1")
+        seen = []
+        steps = [("main", select("host")), ("host_list", select(entry.world_id)), ("world", select("codes")),
+                 ("codes", lambda s: seen.append(" ".join(s.notes)) or BACK), ("world", BACK), ("host_list", BACK), main_exit()]
+        app2, _ = world.app(Driver(*steps), lan=lambda: ["192.168.1.20"])
+        app2.run()
+        self.assertIn("listens on this PC only", seen[0])
+
+    def test_the_session_window_saves_toggles_autosave_and_shows_server_information_while_hosting(self):
+        import queue
+        from emerald_multiplayer.launcher_gui import UiEvent
+
+        world = World(self)
+        app, entry = self.world_with(world)
+        make_character(world.private, entry.world_id, entry.accounts[0][1])
+
+        class Manual(FakeWorker):
+            def start(self, request):
+                self.requests.append(request)
+                self.events.put(UiEvent("status", "running", "running", True, save_available=True, is_host=True, connected=True))
+                return True
+
+        worker = Manual()
+        script = iter([select("save"), select("autosave"), select("info"), BACK, None])
+        seen = {}
+
+        def responder(screen, waiting=False):
+            if screen.id == "session":
+                seen.setdefault("rows", [i.id for i in screen.items])
+                answer = next(script)
+                if answer is None:
+                    worker.events.put(UiEvent("complete", "game_closed"))
+                return answer
+            if screen.id == "server_info":
+                seen["info"] = " ".join(screen.notes)
+                seen["status"] = screen.status
+                return BACK
+            return {"main": select("host") if not seen.get("hosted") else select("exit"),
+                    "host_list": select(entry.world_id) if not seen.get("hosted") else BACK,
+                    "world": select("host")}.get(screen.id) or self.fail(f"unexpected {screen.id}")
+
+        def wrapped(screen, waiting=False):
+            if screen.id == "world":
+                seen["hosted"] = True
+            return responder(screen, waiting)
+        from emerald_multiplayer.shell_protocol import ScriptedShell
+        from emerald_multiplayer.shell_app import ShellApp
+        ui = ScriptedShell(wrapped)
+        app3 = ShellApp(world.installation, world.private, ui, worker=worker, lan=lambda: ["192.168.1.20"], graphics_gate=lambda: "3d", version="t")
+        app3.run()
+        self.assertEqual(worker.saves, 1)
+        self.assertEqual(worker.autosave, [False])
+        self.assertIn("save", seen["rows"])
+        self.assertIn("info", seen["rows"])
+        self.assertIn("Hosting now on 192.168.1.20", seen["status"][1])
+        self.assertIn("does not open ports", seen["info"])
+        self.assertEqual(ui.windows[-1][:2], app3.menu_window)                      # the menu window is restored when the session ends
 
 
 if __name__ == "__main__":
