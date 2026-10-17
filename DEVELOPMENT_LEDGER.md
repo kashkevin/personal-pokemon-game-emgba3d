@@ -783,9 +783,9 @@ cores, real PCs, GPU, network. bios.c licensing unresolved; no ROM or sprite pac
 
 App `claude/integration-u29-u30-u31-app`: the app default branch `ad254d0` (Update 29), Update 30 `claude/dev-update30` (`f2e6b97`, a fast-forward),
 then Update 31 `claude/dev-update31-rival` (merge; only `DEVELOPMENT_LEDGER.md` and `FEATURE_STATUS.md` conflicted: both sides kept, Update 29's newer
-Mega Stones row kept over Update 31's stale copy of it). **Engine pin for this integration:** `claude/integration-u29-u30-u31-engine` = `22ce029dd0`
+Mega Stones row kept over Update 31's stale copy of it). **Engine pin for this integration:** `claude/integration-u29-u30-u31-engine` = `7140c6bcc3`
 (the Update 31 engine branch: engine default `8ea2b8c9` (U29) + Update 30 `8b8bb92a` + Update 31; linear, no merge needed), GBA ROM `f214735b…3387`.
-A `windows-package` full run for this pairing is `engine_ref=22ce029dd0`, `expected_rom_sha256=f214735b64e113fd10730eacca5764d757f2c93a3685230aa905af7a7cdd3387`.
+A `windows-package` full run for this pairing is `engine_ref=7140c6bcc3`, `expected_rom_sha256=f214735b64e113fd10730eacca5764d757f2c93a3685230aa905af7a7cdd3387`.
 App suite on this branch: 2072 passed, 4 failed (U31-1, the missing Update 14 fixture), 9 skipped. Update 30 itself has no ledger entry or recorded CI run on
 its branches; this integration therefore also carries Update 30 untested on Windows. Nothing here is merged into `claude/emeraldtogether-combined-app` or
 `claude/emeraldtogether-combined`; that needs the owner's approval.
