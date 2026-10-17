@@ -76,6 +76,9 @@ def check(executable, folder, failures, name):
         if answer != "shot\tok":
             failures.append(f"{name}: the menu picture could not be taken ({answer})")
             return result
+        if not picture.is_file():
+            failures.append(f"{name}: the menu picture was not written ({picture})")
+            return result
         width, height, header = png_pixel(picture, 20, 20)
         result.update(width=width, height=height, header_pixel=header)
         if header != (0x0E, 0x5A, 0x3F):
@@ -100,8 +103,11 @@ def check(executable, folder, failures, name):
         shell.window(560, 420, 40, 40)
         time.sleep(0.8)
         small = folder / "session.png"
-        if shell.request(f"shot\t{small}") != "shot\tok" or png_pixel(small, 5, 5)[:2] != (560, 420):
-            failures.append(f"{name}: the window did not become the small session window")
+        sized = None
+        if shell.request(f"shot\t{escape(small)}") == "shot\tok" and small.is_file():
+            sized = png_pixel(small, 5, 5)[:2]
+        if sized != (560, 420):
+            failures.append(f"{name}: the window did not become the small session window ({sized})")
         result["ok"] = not failures
     finally:
         shell.close()
