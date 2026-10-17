@@ -63,6 +63,12 @@ Environments: **L** cloud Linux (software OpenGL), **W** the Windows exe under W
 | `ci_graphics_check.py` on the Windows `.exe` | engine `e4252d4` | W (Wine 9.0, cloud) | 17/17 (3D forced unsupported), 12/12 (3D supported, llvmpipe) | session log | - | - |
 | `ci_shell_check.py` | engine `e4252d4` | L (native Linux 3D + 2D) / Wine | Linux pass (both); Wine: keys/select/resize pass, picture black (U31-14) | session log | - | - |
 | `tests/test_shell_game_files.py` | app integration | L | 2 passed | session log | - | - |
+| `check-diorama` (renderer unit tests, compositor goldens 18,318 metatiles) | engine `e4252d4` | L | pass | session log | - | - |
+| `check-diorama-tools` (each file run; `make` stops at the first failing file) | engine `e4252d4` | L | `test_compile_rules` 23/24 and `test_rules_parity` 0/1 = the known upstream V31 / V2 (same values); the other 12 files all pass | session log | - | Reuse (known failures) |
+| `check-battlefx-bg` with the `BFX_TEST=1` build | engine `e4252d4` | L | 12 animations captured, 0 with a black block (without that build the check reports 0 captures and passes vacuously) | session log | - | - |
+| `check-update26`: `battle_end_check` wild / trainer, `first_battle_check` | engine `e4252d4` (3D) | L | ok / ok / ok | session log | - | - |
+| `party_menu_check.py` | engine `e4252d4`, AddressSanitizer 2D build | L | ok (entered, inspected, left twice; no memory error); the 3D ASan build was not made | session log | - | - |
+| All tested binaries current with `e4252d4` | engine | L | `make -q` 0 for Linux 2D, 3D, ASan, Windows 2D, Windows 3D; GBA ROM `f214735b…3387` | session log | - | - |
 
 ## Current game: Native 3D preview 14 (`emeraldtogether-combined-20261014-2`)
 

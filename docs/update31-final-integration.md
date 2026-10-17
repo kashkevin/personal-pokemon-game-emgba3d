@@ -169,6 +169,12 @@ the session's token has no `workflow` scope, which any change under `.github/wor
 owner applies `0001-ci-node24-actions.patch` (`git am`), or edits the four `uses:` versions in the web editor. The warnings do not affect
 results today (GitHub runs these actions on Node 24 already).
 
+3D and renderer targets on the final engine head (not in the earlier 28-target run): `check-diorama` pass (compositor goldens 18,318
+metatiles); `check-diorama-tools` run file by file: 12 of 14 files pass, `test_compile_rules` 23/24 and `test_rules_parity` 0/1 are the known
+upstream failures V31 / V2 with the same values (Update 31 changes no layout, metatile or rule code; only map scripts); `check-battlefx-bg` with
+the `BFX_TEST=1` test build: 12 animations captured, none with a black block; `check-update26`: wild and trainer `battle_end_check` and
+`first_battle_check` ok; `party_menu_check` on the AddressSanitizer 2D build ok. Every tested binary is current with `e4252d4` (`make -q`).
+
 App suite on this head: 2100 passed, 0 failed, 1 skipped (private save paths), with the real engine binary and checkout set.
 
 Between `f70e315` (the commit CI packaged) and this head only documents and the new test changed: no
