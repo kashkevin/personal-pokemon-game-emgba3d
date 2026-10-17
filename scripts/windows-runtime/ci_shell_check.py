@@ -21,7 +21,7 @@ import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 from emerald_multiplayer.player_runtime import RuntimeBundle  # noqa: E402
-from emerald_multiplayer.shell_protocol import Screen, ShellClosed, ShellProcess, parse_event  # noqa: E402
+from emerald_multiplayer.shell_protocol import Screen, ShellClosed, ShellProcess, escape, parse_event  # noqa: E402
 
 
 def png_pixel(path, x, y):
@@ -72,7 +72,7 @@ def check(executable, folder, failures, name):
         shell.send(*screen.lines(token))
         time.sleep(1.5)
         picture = folder / "menu.png"
-        answer = shell.request(f"shot\t{picture}")
+        answer = shell.request(f"shot\t{escape(picture)}")   # a Windows path holds backslashes, which the protocol unescapes
         if answer != "shot\tok":
             failures.append(f"{name}: the menu picture could not be taken ({answer})")
             return result
