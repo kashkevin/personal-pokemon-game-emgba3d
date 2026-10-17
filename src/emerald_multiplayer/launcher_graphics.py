@@ -12,6 +12,7 @@ from __future__ import annotations
 import queue
 import threading
 
+from .tk_threads import start_thread
 from .graphics_mode import (EXIT_GRAPHICS_UNAVAILABLE, MODE_2D, MODE_3D, MODE_LABELS, MODES,
                             GraphicsPreference, choose_launch, explain_failure, probe_graphics)
 
@@ -102,8 +103,8 @@ class GraphicsGate:
         self.busy(True)
         self.message("graphics_checking")
         results = queue.SimpleQueue()
-        threading.Thread(target=lambda: results.put(self.probe(executable)),
-                         name="emerald-graphics-check", daemon=True).start()
+        start_thread(threading.Thread(target=lambda: results.put(self.probe(executable)),
+                         name="emerald-graphics-check", daemon=True))
         self.root.after(self.poll_ms, lambda: self._poll(results, proceed, cancelled, has_classic))
 
     def _poll(self, results, proceed, cancelled, has_classic):

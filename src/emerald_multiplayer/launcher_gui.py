@@ -15,6 +15,7 @@ import queue
 import re
 import threading
 
+from .tk_threads import start_thread
 from .graphics_mode import EXIT_GRAPHICS_UNAVAILABLE, GraphicsPreference, MODE_3D, probe_graphics
 from .launcher_session import GameInstallation, LauncherSession, SessionState
 from .network_diagnostics import ConnectionDetails
@@ -298,7 +299,7 @@ class SessionWorker:
             self._is_host = request.mode == "host"
             self._thread = threading.Thread(target=self._run, args=(options,),
                                             name="emerald-launcher-session", daemon=False)
-            self._thread.start()
+            start_thread(self._thread)
         return True
 
     def start_import(self, source):
@@ -309,7 +310,7 @@ class SessionWorker:
             self._state = SessionState.RUNNING
             self._thread = threading.Thread(target=self._run_import, args=(source,),
                                             name="emerald-game-import", daemon=False)
-            self._thread.start()
+            start_thread(self._thread)
         return True
 
     def _run_import(self, source):
@@ -332,7 +333,7 @@ class SessionWorker:
             self._state = SessionState.RUNNING
             self._thread = threading.Thread(target=self._run_probe, args=(invitation, inspect_only),
                                             name="emerald-connection-check", daemon=False)
-            self._thread.start()
+            start_thread(self._thread)
         return True
 
     def _run_probe(self, invitation, inspect_only=False):
@@ -366,7 +367,7 @@ class SessionWorker:
             self.checking_installation = True
             self._thread = threading.Thread(target=self._run_installation_check,
                                             name="emerald-installation-check", daemon=False)
-            self._thread.start()
+            start_thread(self._thread)
             return True
 
     def _run_installation_check(self):
@@ -1295,7 +1296,7 @@ class LauncherWindow:
                 results.put(scan_worlds(installation, private))
             except Exception:
                 results.put(None)
-        threading.Thread(target=run, name="world-scan", daemon=True).start()
+        start_thread(threading.Thread(target=run, name="world-scan", daemon=True))
 
     def _apply_worlds(self, entries):
         self._scanning = False
