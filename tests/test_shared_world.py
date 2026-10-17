@@ -56,6 +56,8 @@ class SharedWorldTests(unittest.TestCase):
     def test_clock_runs_twelve_times_real_time_only_while_players_are_online(self):
         start = self.world.world_seconds()
         self.assertEqual(start, BALANCE.clock_start_seconds)
+        self.assertEqual(start, 12 * 3600)                    # a new world starts at 12:00 noon (owner, 2026-10-17)
+        self.assertEqual(self.world.time_of_day(), "day")
         self.clock.now += 100
         self.assertEqual(self.world.world_seconds(), start)  # nobody online: paused
         self.world.set_active_players(2)
@@ -78,6 +80,16 @@ class SharedWorldTests(unittest.TestCase):
         self.world.close()
         self.world = self.open()
         self.assertEqual(self.world.world_seconds(), expected)
+
+    def test_an_existing_worlds_clock_is_never_moved_to_the_new_start(self):
+        # A world made when new worlds began at 08:00 keeps its own time: only a world without a clock gets the start.
+        import sqlite3
+        self.world.close()
+        db = sqlite3.connect(str(self.path), isolation_level=None)
+        db.execute("UPDATE clock SET seconds=? WHERE id=1", (8 * 3600 + 5,))
+        db.close()
+        self.world = self.open()
+        self.assertEqual(self.world.world_seconds(), 8 * 3600 + 5)
 
     def test_time_of_day_buckets(self):
         for hour, name in ((5, "morning"), (12, "day"), (18, "evening"), (22, "night"), (2, "night")):

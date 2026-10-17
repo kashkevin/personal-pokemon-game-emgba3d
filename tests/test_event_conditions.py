@@ -153,10 +153,10 @@ class DormantEventTests(unittest.TestCase):
         self.world.close()
         self.world = SharedWorld(self.path, WORLD, clock=self.clock, rng=random.Random(3), event_catalogue=catalogue,
                                  locations=LOCATIONS, event_condition_chance=1.0)
-        self.spawn()                                             # the world starts at 08:00
+        self.spawn()                                             # the world starts at 12:00 noon
         self.assertEqual(self.world.event_status()["waiting"], "Wakes at night")
         self.assertFalse(self.world.tick_event_conditions({}))
-        # 08:00 -> night is 12+ world hours = 1+ real hours at x12; the event itself would expire first, so
+        # 12:00 -> night is 9+ world hours = 45+ real minutes at x12; the event itself would expire first, so
         # the clock is moved without time passing for the event (nobody was counted).
         self.world._clock.seconds = 23 * 3600
         self.world._clock.running_since = None

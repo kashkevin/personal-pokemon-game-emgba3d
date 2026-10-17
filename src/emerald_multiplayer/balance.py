@@ -14,7 +14,9 @@ from dataclasses import dataclass, field
 class Balance:
     # Shared world clock: one world day per two real hours, paused when empty.
     clock_rate: int = 12
-    clock_start_seconds: int = 8 * 3600  # world day 0 begins at 08:00
+    # A new world's day 0 begins at 12:00 noon (owner, 2026-10-17; it was 08:00). Only new worlds: a world's clock is
+    # stored with it (shared_world.py) and never reset.
+    clock_start_seconds: int = 12 * 3600
 
     # Overworld notices stay available this long for players returning to the field.
     notice_seconds: int = 8
