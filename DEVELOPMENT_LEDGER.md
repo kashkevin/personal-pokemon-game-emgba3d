@@ -809,7 +809,7 @@ now committed as deterministic SQL text, built by the tests, reproducible from `
 over-read (U31-8) and two `gObjectEvents[OBJECT_EVENTS_COUNT]` reads (U31-9), all three pre-existing and found by AddressSanitizer, fixed PC-only.
 **Tests:** app suite 2098 passed, 0 failed, 1 skipped (private save paths); rival random-walk soak 200 x 600 steps; 27 engine self-test targets 0 failures
 (`check-rival` 26/0 with a 200,000-record fuzz and the follower check); economy and dialogue checks (3D + 2D) pass; `rival_check.py` 25/25 native and
-under AddressSanitizer (only the documented benign N23 / U31-10 reads remain); `save_safety_check.py` 11/11 (Update 30 and 3D builds load the new save,
+under AddressSanitizer (only the documented benign N23 / U31-10 reads remain); `save_safety_check.py` 12/12 (Update 30 and 3D builds load the new save,
 random kills, malformed config, kill mid-write / before rename / short write keep the previous save byte for byte); Update 26 3D `first_battle_check` and
 `battle_end_check` (wild, trainer) ok; the cross-compiled Windows executables under Wine 9.0: 17 self-test targets 0 failures, `rival_check.py` 25/25 + 9/9 on
 the final build, the 3D executable starts its renderer; GBA test ROM 6034 tests, 5532 passed, 39 failed = the 39 expected, 0 new. GBA ROM

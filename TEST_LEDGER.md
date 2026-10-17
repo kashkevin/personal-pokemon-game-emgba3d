@@ -53,7 +53,7 @@ Environments: **L** cloud Linux (software OpenGL), **W** the Windows exe under W
 | Engine self-test targets (27) | engine integration | L | 0 failures (`check-rival` 26/0) | session log | - | After engine changes |
 | `economy_check.py`, `dialogue_check.py` (3D + 2D) | engine integration | L | 0 failed; ok | session log | - | - |
 | `rival_check.py` (25 scenarios) | engine integration | L / ASan | 25/25 native; 25/25 AddressSanitizer (only N23 and U31-10 reads) | session log | - | - |
-| `save_safety_check.py` (11 checks) | engine integration | L | 11/11 | session log | - | - |
+| `save_safety_check.py` (12 checks) | engine integration | L | 12/12 | session log | - | - |
 | 3D `first_battle_check`, `battle_end_check` wild / trainer | engine integration | L | ok / ok / ok | session log | - | - |
 | Windows `.exe` under Wine 9.0: 17 self-test targets; `rival_check.py` | engine integration | W (Wine, cloud) | 0 failures; 25/25 and 9/9 on the final build | session log | - | - |
 | GBA test ROM `make check` | engine integration | L | 6034 tests, 5532 passed, 39 failed = the 39 expected (0 new) | session log | - | After shared-code changes |

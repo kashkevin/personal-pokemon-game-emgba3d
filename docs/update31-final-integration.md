@@ -87,7 +87,7 @@ found by AddressSanitizer; none was observed as a crash in a normal build.
 | Engine: all 27 PC self-test targets on the integration (incl. `check-rival` 25/0 with a 200,000-record fuzz, `check-species-data`) | 0 failures |
 | Engine: `economy_check.py` (3D + 2D), `dialogue_check.py` (3D + 2D) | 0 failed / ok |
 | Engine: `rival_check.py`, 25 scenarios (gates, rewards once, catch-up, going back, along the line, Rustboro, NPC objects, offline original, PLAIN vs GRASS, disconnect during a reward and a gate, a pass or completion arriving while waiting, intro both genders) | native 2D: 25/25 (24 + 1 after a test-script fix); final binary: 25/25 |
-| Engine: `save_safety_check.py` | 11/11 (section 6) |
+| Engine: `save_safety_check.py` | 12/12 (twice: before and after the U31-8/9 fixes) (section 6) |
 | GBA ROM, `check_gba_lines.py` | `f214735b…3387` byte-identical after every engine change; 0 moved lines in the 10 changed GBA-compiled files |
 | AddressSanitizer build: `--selftest-rival` and `rival_check.py` (final code, `halt_on_error=0`) | 26/0; **25/25**; remaining reports only the documented benign reads N23 (smol decoder) and U31-10 (Mega indicator palette); the follower read (U31-8) and the `gObjectEvents` reads (U31-9) found earlier in this session are fixed |
 | Windows Classic 2D `.exe` under Wine 9.0: 17 self-test targets (rival, party-order, battle-names, keybinds, clock, mp-objects, spawn-claims, secret-base, rewards, catch-reconcile, ladder, coop-exp, coop-controller, shiny, coins, wild-weather, breeding) | 0 failures |
