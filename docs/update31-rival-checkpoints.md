@@ -209,6 +209,8 @@ real networks, real UI clicking on Windows. "Tested" above means automated simul
 
 ## 10. Integration status
 
+**Final integration (2026-10-17):** integrated with the verified Update 30 game on `claude/integration-u31-final-app` / `claude/integration-u31-final-engine` (not merged into the default branches); results, fixes and the manual Windows CI run are in [update31-final-integration.md](update31-final-integration.md). The paragraph below records the earlier trial.
+
 **Not integrated.** Per the owner's rule, Update 31 merges only after Updates 29 and 30 are on both
 default branches. At the end of this session the app default branch had moved to `ad254d0` (U29 now
 on it; U30 still absent from the app remote). A trial merge of this branch onto `ad254d0` in a throwaway

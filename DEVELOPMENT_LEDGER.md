@@ -795,3 +795,25 @@ PORTABLE map-script hooks as reviewed exceptions; species fingerprints unchanged
 head `7140c6bc`. **Not performed:** Windows CI (not reachable), a real multiplayer rival battle between game
 cores, real PCs, GPU, network. bios.c licensing unresolved; no ROM or sprite pack is distributed.
 
+## Update 31 — final integration onto the verified Update 30 game (2026-10-17; isolated branches, not merged)
+
+`docs/update31-final-integration.md`. App `claude/integration-u31-final-app` = default `3cf6a32` (Update 30 integrated) + `claude/fix-compat-fixture` +
+`claude/fix-tk-thread-start` + `claude/dev-update31-rival`; engine `claude/integration-u31-final-engine` = default `d3f4e4f7` (Update 30 integrated) +
+`claude/dev-update31-rival-engine` + integration fixes and tests. **Update 30 verified:** integrated in both defaults by fast-forward, ledger entry present
+(reported Windows run 39001328774 success; not inspectable from the cloud session, whose git credential the GitHub API refuses); ROM `f214735b…3387`;
+U30 self-tests and its 7 real shell-window tests pass; app suite on U30 + the fixture fix 1975 passed, 0 failed. **Data:** no game data or required asset is
+missing (a clean build reproduces the pinned ROM); excluded on purpose: the owner's Emerald dump and the optional sprite pack. The one missing file was a
+test fixture: the Update 14 shared-world database (synthetic records, no save/ROM/credential), skipped by the `*.sqlite3` ignore rule when it was added;
+now committed as deterministic SQL text, built by the tests, reproducible from `e2a40d7` byte for byte. **Fixed:** the app suite's permanent hang in
+`test_launcher_menu` (tkinter GC deadlock at `Thread.start()`, U31-6); the Windows debug harness (`SDL_getenv` static buffer, U31-7); a follower animation
+over-read (U31-8) and two `gObjectEvents[OBJECT_EVENTS_COUNT]` reads (U31-9), all three pre-existing and found by AddressSanitizer, fixed PC-only.
+**Tests:** app suite 2098 passed, 0 failed, 1 skipped (private save paths); rival random-walk soak 200 x 600 steps; 27 engine self-test targets 0 failures
+(`check-rival` 26/0 with a 200,000-record fuzz and the follower check); economy and dialogue checks (3D + 2D) pass; `rival_check.py` 25/25 native and
+under AddressSanitizer (only the documented benign N23 / U31-10 reads remain); `save_safety_check.py` 11/11 (Update 30 and 3D builds load the new save,
+random kills, malformed config, kill mid-write / before rename / short write keep the previous save byte for byte); Update 26 3D `first_battle_check` and
+`battle_end_check` (wild, trainer) ok; the cross-compiled Windows executables under Wine 9.0: 17 self-test targets 0 failures, `rival_check.py` 25/25 + 9/9 on
+the final build, the 3D executable starts its renderer; GBA test ROM 6034 tests, 5532 passed, 39 failed = the 39 expected, 0 new. GBA ROM
+byte-identical after every change. **Not performed:** the Windows CI run of the pair (owner:
+section 8 of the document), any real PC, GPU, controller or network; the launcher package (PyInstaller runs on the Windows runner only). bios.c licensing
+unresolved; no ROM or sprite pack in any output.
+

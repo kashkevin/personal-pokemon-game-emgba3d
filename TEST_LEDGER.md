@@ -42,6 +42,23 @@ Environments: **L** cloud Linux (software OpenGL), **W** the Windows exe under W
 | Update 29 `economy_check.py` (3D + Classic 2D), Update 28 `dialogue_check.py` (boy, rescue; 3D + Classic 2D) | engine `22ce029d` | L | 0 failed; all ok (60/60 taps seen) | session log | - | - |
 | Windows CI (`windows-package`) | - | W | Not run by this session (Actions not reachable) | - | - | **Owner / a session with Actions access** |
 
+## Update 31 final integration (cloud; app `claude/integration-u31-final-app`, engine `claude/integration-u31-final-engine`)
+
+| Test | Build / head | Where | Last result | Evidence | Changed since | Rerun? |
+| --- | --- | --- | --- | --- | --- | --- |
+| App suite (per-test timeout, real engine binary and checkout set) | app integration | L | 2098 passed, 0 failed, 1 skipped (private save paths) | session log | docs only | After code changes |
+| App suite, Update 30 default + fixture fix | `3cf6a32` + `97e97a4` | L | 1975 passed, 0 failed, 8 skipped (7 shell-window tests then passed against the real U30 binary) | session log | - | - |
+| `test_save_compat.py` (SQL fixture) | `claude/fix-compat-fixture` | L | 8 passed, 0 skipped; all 8 fail without the SQL; reproduction fails on a changed value | session log | - | - |
+| Rival random walk soak (`RIVAL_SOAK_SEEDS=200 RIVAL_SOAK_STEPS=600`) | app integration | L | passed (77 s) | session log | - | - |
+| Engine self-test targets (27) | engine integration | L | 0 failures (`check-rival` 26/0) | session log | - | After engine changes |
+| `economy_check.py`, `dialogue_check.py` (3D + 2D) | engine integration | L | 0 failed; ok | session log | - | - |
+| `rival_check.py` (25 scenarios) | engine integration | L / ASan | 25/25 native; 25/25 AddressSanitizer (only N23 and U31-10 reads) | session log | - | - |
+| `save_safety_check.py` (11 checks) | engine integration | L | 11/11 | session log | - | - |
+| 3D `first_battle_check`, `battle_end_check` wild / trainer | engine integration | L | ok / ok / ok | session log | - | - |
+| Windows `.exe` under Wine 9.0: 17 self-test targets; `rival_check.py` | engine integration | W (Wine, cloud) | 0 failures; 25/25 and 9/9 on the final build | session log | - | - |
+| GBA test ROM `make check` | engine integration | L | 6034 tests, 5532 passed, 39 failed = the 39 expected (0 new) | session log | - | After shared-code changes |
+| Windows CI (`windows-package` full) | - | W | **Not run** (Actions unreachable from the session) | - | - | **Owner** |
+
 ## Current game: Native 3D preview 14 (`emeraldtogether-combined-20261014-2`)
 
 Engine `claude/emeraldtogether-combined` `f8dbffa88a` (the game exe; later commits are documents),
