@@ -119,8 +119,14 @@ GPU, display scaling, controllers; the launcher package (PyInstaller runs only o
 ## 8. Windows CI (manual, owner)
 
 Actions → `windows-package` → Run workflow, on branch `claude/integration-u31-final-app`:
-`mode = full`, `engine_ref = <engine integration head>`, `version = Update 31 integration`,
+`mode = full`, `engine_ref = e4252d4de389675995340e79e5fe3ae872b136e0` (the engine integration head), `version = Update 31 integration`,
 `runner = windows-2022`, `expected_rom_sha256 = f214735b64e113fd10730eacca5764d757f2c93a3685230aa905af7a7cdd3387`.
 Success criteria: both jobs green; the package audit lists no `.gba/.sav/.sqlite3/.pem/.key`; the packaged
 `pokeemerald-mp-diorama.exe` / `pokeemerald-mp.exe` hashes equal the engine job's; the frozen `EmeraldTogether.exe` stays up;
 graphics-mode check 16/16; the in-game menu check passes on both executables. Artifact: `EmeraldTogether-windows-full`.
+
+Reference build of that engine commit in the cloud session (Ubuntu 24.04, i686-w64-mingw32 GCC 13-win32, SDL 2.30.7; unstripped, so the CI's
+stripped files will differ): `pokeemerald-mp.exe` sha256 `9401cc3b…bfc8`, `pokeemerald-mp-diorama.exe` `1df02edf…f4cf1`, `pokedev.gba` `f214735b…3387`.
+The game executables contain the game's graphics and music, so no copy was placed outside the private repository's CI; the private artifact is the
+workflow's `EmeraldTogether-windows-full`.
+
