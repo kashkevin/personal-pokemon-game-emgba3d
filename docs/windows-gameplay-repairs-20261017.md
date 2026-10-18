@@ -6,6 +6,20 @@ app `claude/fix-windows-gameplay-app`, engine `claude/fix-windows-gameplay-engin
 (app `a9c7ca3`, engine `e4252d4`). Every change is PC-only (`PORTABLE` / Diorama / native interface code); the GBA ROM
 stays `f214735b…3387`.
 
+**Integration (final, 2026-10-18).** Engine default `claude/emeraldtogether-combined`: `e4252d4` -> `0493b77b79` (first
+round, 2026-10-17) -> `cf7cba7676` (vehicles, 2026-10-18), fast-forwards. App default `claude/emeraldtogether-combined-app`:
+`a9c7ca3` -> the tested repair branch `claude/fix-windows-gameplay-app` (fast-forward; the commit adding this note and its
+descendants). Rollback tags: `rollback-before-gameplay-repairs-20261017` (engine `e4252d4`, app `a9c7ca3`) and
+`rollback-before-vehicle-fixes-20261018` (engine `0493b77b79`). The first round's app merge was blocked by the session's
+permissions (2026-10-17) and finished here; until then the engine default ran with the Update 31 app (compatible: the new launch
+arguments are optional). No force push, no workflow file changed.
+
+**Windows package.** The cloud session cannot start or read GitHub Actions (the API answers 403). Owner: Actions ->
+`windows-package` -> Run workflow: branch `claude/emeraldtogether-combined-app`, mode `full`, `engine_ref` `cf7cba7676fa951e9789433895f729446681b6a2` (the engine
+default branch is that commit), version blank (or a label), runner `windows-2022`, `expected_rom_sha256`
+`f214735b64e113fd10730eacca5764d757f2c93a3685230aa905af7a7cdd3387`. Not built or checked by CI yet. The Node.js 24 action change
+(U31-16) is still the owner's patch; `bios.c` licensing is a separate open question.
+
 How the problems were found: the engine's debug scene (`PKMN_DEBUG_SCENE=field`, `PKMN_DEBUG_HERE`, scripted keys,
 `PKMN_DEBUG_GLSHOTS` window captures, game-frame timed) on the Linux 3D and Classic 2D builds of the same source under
 Xvfb (Mesa llvmpipe), compared frame by frame. No real GPU was available; see "Still to check on the PC".
@@ -149,10 +163,58 @@ first scenes are at noon rather than at whatever the PC's clock says (engine `Si
 introduction sets the save's clock offset to 0 from what it read, so the character's own clock offline is still the PC's).
 Checked: the setup game reads 12:00 at game frame 300 (`gameplay_repair_check.py`).
 
-Not changed - needs the owner: the rate. The request mentions a "one-hour interval" design. The game runs one world day per two
-real hours (one world hour per five real minutes). If one world day per real hour is meant, it is one value (`clock_rate = 24`
-in `balance.py`; the engine follows the host's seconds); if real time is meant, `clock_rate = 1`. Not guessed, because it changes
-time-based evolutions, tides, the Pacifidlog/Mossdeep calendars and match-call timers.
+Rate (owner-confirmed after the first report): **12x** - 1 real minute = 12 world minutes, 5 real minutes = 1 world hour,
+10 real minutes = 2 world hours, a whole day and night = 2 real hours while the clock runs. `BALANCE.clock_rate = 12` (unchanged).
+There is one clock: the host's `SharedWorld` keeps the world seconds and persists them; each companion forwards them to its game
+(extrapolating at most 5 s at the same rate between records); the engine shows exactly those seconds (`RtcCalcLocalTime`:
+`MultiplayerWorld_GetSeconds`) - it has no rate of its own. Offline the game's clock is the PC's; the daily reset and berries
+follow real time (Phase 11).
+
+Checked (final): `test_shared_world` simulates a whole day from noon (injected clock): +12 world minutes per real minute, +1 hour
+per 5 real minutes, the game's own hours in order (day 13-17, evening 18-20, night 21-3, morning 4-10, day), noon again after 2
+real hours; the clock pauses with nobody online, survives a host restart, an existing world's clock is never moved to the new
+start, and damaged clock data (negative, text, fractional, beyond the 32 bits the game adds its day origin to) is repaired to
+noon with the bad value kept in `metadata.clock_repaired_from` (a valid clock is never touched). `test_world_companion`: both
+players' games get the host's time, marked valid. `check-clock` (58 checks): offline, connected, a world day in two real hours,
+disconnected, reconnected. End to end (real Linux game, new world, hosting): the pause menu read **12:05 PM, LINK HOSTING**
+(`hosting-new-world-noon.png`). Lighting at 06:00, 12:00, 19:00, 22:00 in Classic 2D and 3D: dawn, day, evening, night in both
+(the same game time drives both; the 3D view adds its own light on top). The streamlined introduction sets the clock itself
+(`FLAG_SET_WALL_CLOCK`, the offset from the time it shows); no bedroom clock scene is needed (`rival_check` intro cases).
+
+## 11. The large vehicles (3D falling back to 2D)
+
+The seven named in the first report, checked one by one in this Emerald build:
+
+| Vehicle | How the GBA draws it | Before | After |
+| --- | --- | --- | --- |
+| Moving truck (Littleroot, 2) | 48x48 in 12 OAM parts | refused: whole view boxed 2D | 3D (one card) |
+| S.S. Tidal (Slateport, Lilycove, Southern/Faraway/Birth Island, Navel Rock, Battle Frontier) | 96x40 in 15 parts | refused: 2D | 3D; sails off in 3D |
+| Submarine's shadow (Slateport harbour, Aqua Hideout B2F) | 88x32 in parts | refused: 2D | 3D; the escape scene in 3D |
+| Cable Car (both stations) | one 64x64 part, centred | already 3D | 3D (unchanged) |
+| Rayquaza (Sky Pillar still and awake, Sootopolis) | one 64x64 part, centred | already 3D | 3D (unchanged) |
+| Seagallop | FRLG graphics: not compiled into this Emerald game | - | its table (one centred part) is the supported path |
+| S.S. Anne | FRLG graphics: not compiled into this Emerald game | - | 128x64, off-centre: covered by the same path (unit test) |
+
+Root cause (one for all): the 3D view drew every object as one OAM frame of the sprite's own shape and refused a sprite whose
+subsprite table is anything but that frame cut in strips; one refused object on the GBA's screen made the object pass fail and
+the whole field fell back to the 2D picture while the vehicle was in view.
+
+Fix (engine `62f086c0f1`, PC only): the parts are assembled into one picture (each part's tiles from the current frame image, or
+VRAM for a sheet, put where the GBA puts the part about the sprite's centre, the first part in front), laid out as one OAM frame of
+that size (up to 128x64; the frame buffer grew from 2048 to 4096 bytes), drawn as one card standing where the picture is
+(an off-centre picture is shifted), mirrored as a whole for a flipped sprite, animated and moved as any object; the parts' OAM
+entries count as the field's, never as interface under a text box. No vehicle is hidden, blanked or replaced; scripts are untouched.
+Classic 2D is untouched (its executable is byte-identical to before this change).
+
+Checked: `test_sprite_frame` (the four composite sizes, flips, refusals, frame keys, placement); `gameplay_repair_check.py` 12
+vehicle scenes - each vehicle on the field, nothing refused, 3D throughout, the submarine's escape played to its end
+(`VAR_SLATEPORT_HARBOR_STATE` 2) and the S.S. Tidal's departure from Southern Island to Lilycove; before/after under Wine with the
+Update 31 exe and the new exe at 1280x720, 1920x1080, 2560x1080 and borderless fullscreen (3840x2160): before, every vehicle
+"refused (unsupported sprite)" and boxed 2D; after, none refused, 3D (`vehicles-before-after.jpg`).
+
+The Cable Car *ride* (talking to the attendant) is a separate full-screen GBA cutscene (`cable_car.c`: its own backgrounds and
+sprites, no map), shown as the GBA picture like every other cutscene; it is not the 3D view falling back and it plays to its end
+in the 3D game. A 3D ride would be new work.
 
 ## 10. Resolution
 
@@ -200,7 +262,19 @@ setup arguments), `test_launcher_setup` (codes kept, abandoned attempts restarte
 (exit codes, a friend's retry), `test_shell_app` (the crash message, the crash report, the next try), `test_shared_world` (noon
 start, existing worlds kept).
 
+Second round (vehicles, clock, integration): `test_sprite_frame` composite vehicles; `gameplay_repair_check.py` 12 vehicle
+scenes; `test_shared_world` (a simulated 12x day from noon; damaged clock data repaired); `test_world_companion` (one shared
+time); `test_character_creation` (a crash mid-request is the game's end); the grass check's patch moved off the HUD. Results:
+TEST_LEDGER.md, section "Vehicles in 3D, the confirmed 12x clock, final integration".
+
 ## Still to check on the PC (real GPU, real window)
+
+- Vehicles in 3D: Littleroot's moving trucks (a new character does not see them: the introduction hides them), the S.S. Tidal
+  at Slateport and Lilycove (after the Elite Four) and its departures, the submarine leaving Slateport's harbour, the Cable Car
+  stations and ride, Rayquaza on Sky Pillar and in Sootopolis - the view should stay 3D, the vehicle whole and sharp, in
+  front of what it is in front of; try a small window, a wide window and fullscreen.
+- The clock: from a new world's noon, about 5 real minutes per game hour; evening near 18:00 (30 real minutes), night at
+  21:00 (45 minutes); two players should see the same time; close and reopen the host: the time continues.
 
 - Walk Littleroot -> Route 101 -> Oldale -> Route 103 and Route 102 in 3D: people, items and trainers should be on the ground
   before you reach them (they now appear near the top of the picture at the latest); no flashes at map edges.

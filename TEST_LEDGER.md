@@ -90,6 +90,21 @@ Environments: **L** cloud Linux (software OpenGL), **W** the Windows exe under W
 | App suite (`pytest tests`, real engine binary and checkout) | app repair head + engine repair head | L | 2109 passed, 0 failed, 1 skipped (private save paths), 2110 test cases | junit | - | - |
 | Real PC: walk, doors at night, PC, battles at several window sizes, bag, hosting/joining LINK, a new world's setup at noon | - | PC | Never run | `docs/windows-gameplay-repairs-20261017.md` "Still to check" | - | Owner |
 
+## Vehicles in 3D, the confirmed 12x clock, final integration (2026-10-18; engine `claude/fix-windows-gameplay-engine`, app `claude/fix-windows-gameplay-app`)
+
+| Test | Build / head | Where | Last result | Evidence | Changed since | Rerun? |
+| --- | --- | --- | --- | --- | --- | --- |
+| `test_sprite_frame` composite vehicles (truck 48x48, S.S. Tidal 96x40, submarine 88x32, S.S. Anne 128x64 off-centre) | engine `cf7cba7676` | L | pass (in `check-diorama`, exit 0) | session log | - | - |
+| `gameplay_repair_check.py` incl. 12 vehicle scenes (trucks; S.S. Tidal x3; submarine x2; Cable Car; Rayquaza x3; the submarine's escape to its end; the S.S. Tidal's departure to Lilycove) | engine `cf7cba7676` | L | ok: no object refused, 3D throughout (before the fix: truck, ferry, submarine "refused (unsupported sprite)", view 2D) | session log | - | - |
+| Vehicles before/after (Update 31 exe vs repair exe) at 1280x720, 1920x1080, 2560x1080, borderless fullscreen 3840x2160 | Windows exes | W | before: refused, boxed 2D in every case; after: none refused, 3D | `vehicles-before-after.jpg` | - | - |
+| Cable Car ride (Route 112 -> Mt. Chimney) | engine `cf7cba7676` | L | the cutscene plays, arrival scene, `VAR_CABLE_CAR_STATION_STATE` 1 -> 0, the station in 3D again | session log | - | - |
+| Clock: `test_shared_world` (simulated whole day from noon at 12x, hours in order; damaged data repaired, valid kept; pause; restart), `test_world_companion` (both players get the host's time) | app `70536a5` | L | pass | junit | - | - |
+| Clock end to end: new world, character setup, hosting (real Linux game, app code) | both heads | L | pause menu 12:05 PM, LINK HOSTING; setup crash -> `game_failed`; continue -> enrolled | `hosting-new-world-noon.png` | - | - |
+| Lighting 06/12/19/22 h, Classic 2D and 3D | engine `cf7cba7676` | L | dawn, day, evening, night in both | session pictures | - | - |
+| Windows executables under Wine: 21 self-test targets (2D) + rival, catch-reconcile (3D) | engine `cf7cba7676` | W | 23 exit 0 | session log | - | - |
+| App suite (`pytest tests`, real engine binary and checkout) | app `43680a9` + engine `cf7cba7676` | L | 2114 passed, 0 failed, 1 skipped (private save paths), 2115 test cases | junit | - | - |
+| Engine regression (builds 3D/2D/ASan/BFX, ROM, GBA lines, check-diorama, gameplay repair, first battle, battle end, rival, save safety, bg, party ASan, 28 self-test targets, economy, dialogue) | engine `cf7cba7676` | L | all pass: builds ok; ROM `f214735b…3387`; 4 files, 0 moved GBA lines; check-diorama exit 0 (`test_props` 7991); gameplay repair ok (grass 0.0 %, 12 vehicle scenes); first battle ok; battle end wild 22 / trainer 21 ok; `rival_check` 25/25; `save_safety_check --app --load 3D` 11/11; `bg_check` 12, 0 black; party menu ASan ok; 28 self-test targets exit 0 (`check-rival` 31, `check-clock` 58, `check-catch-reconcile` 12); economy 0 failed; dialogue ok | session log | - | - |
+
 ## Current game: Native 3D preview 14 (`emeraldtogether-combined-20261014-2`)
 
 Engine `claude/emeraldtogether-combined` `f8dbffa88a` (the game exe; later commits are documents),

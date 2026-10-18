@@ -852,3 +852,13 @@ menu records the crash report in `shell/last-error.txt` and restarts an abandone
 overlap), the resolution matrix (6 sizes, 6 scenes, before/after under Wine), the setup flow end to end with the real game and app code.
 **Open:** the clock's rate (owner: "one-hour interval" - 24x or 1x is one value, not guessed), seven large composite sprites still force
 boxed 2D (P7), real PC/GPU verification.
+
+**Second round and integration (2026-10-18).** The first round's engine half was merged on 2026-10-17 (`0493b77b79`); the app
+merge record was refused by the session's permissions, so the app default stayed at `a9c7ca3`. This round: **vehicles** - the
+moving trucks, the S.S. Tidal and the submarine's shadow were drawn by the GBA as several OAM parts, refused by the 3D view, and
+one refused object took the whole view back to 2D; they are now assembled into one picture and drawn as one card (engine
+`62f086c0f1`; the Cable Car and Rayquaza were already 3D, the Seagallop and S.S. Anne are FRLG-only); **clock** - the owner
+confirmed 12x and noon; damaged stored clocks are repaired (app `70536a5`); **setup** - a crash mid-request is reported as the
+game's end (app `43680a9`). Tests: engine regression all pass, app suite 2114 / 0 / 1, 23 Wine self-tests, 12 vehicle scenes,
+vehicle and resolution matrices before/after. Integrated by fast-forward: engine `0493b77b79` -> `cf7cba7676`, app `a9c7ca3` ->
+the repair branch. Windows CI: not started (no Actions access from the session); inputs in the report.
