@@ -145,9 +145,9 @@ class TradeCheckpointStore(OwnershipCheckpointStore):
         self._assert_effect_mutations()
         return super()._assert_no_battle_reservation(*players)
 
-    def enroll_player(self, player_id, source_payload):
+    def enroll_player(self, player_id, source_payload, *, replace_unconsumed=False):
         self._assert_effect_mutations()
-        return super().enroll_player(player_id, source_payload)
+        return super().enroll_player(player_id, source_payload, replace_unconsumed=replace_unconsumed)
 
     def _ensure_applied(self, player_id: str) -> None:
         if self._connection.execute("SELECT 1 FROM trade_recovery WHERE player_id = ? AND acknowledged = 0", (player_id,)).fetchone():
@@ -212,10 +212,13 @@ class TradeCheckpointStore(OwnershipCheckpointStore):
             from .trade_friendship_migration import FriendshipHistoryLedger
             FriendshipHistoryLedger(self)._append_group(sequence)
 
-    def _owned(self, player_id: str, payload: bytes):
-        enrollment = self._enrollment(player_id)
+    def _owned(self, player_id: str, payload: bytes, revision: int | None = None):
+        from .character_transfers import source_for
+        if revision is None:
+            revision = self._connection.execute("SELECT latest_revision FROM players WHERE player_id = ?", (player_id,)).fetchone()[0] + 1
+        generation = source_for(self, player_id, revision)
         try:
-            owned = inspect_ownership(inspect_flash(payload, expected_trainer_id=enrollment["trainer_id"], save_profile=self.save_profile))
+            owned = inspect_ownership(inspect_flash(payload, expected_trainer_id=generation.trainer_id, save_profile=self.save_profile))
         except FlashError as error:
             raise StorageError("invalid_ownership", "trade checkpoint contains invalid ownership state") from error
         if (owned.world_id, owned.player_id) != (self._validate_metadata()["world_id"], player_id):
@@ -237,7 +240,7 @@ class TradeCheckpointStore(OwnershipCheckpointStore):
         return TradeResult(row["sequence"], row["transaction_id"], *checkpoints, row["fingerprint"])
 
     def _check_preimage_ledger(self, checkpoint: Checkpoint) -> None:
-        owned = self._owned(checkpoint.player_id, checkpoint.payload)
+        owned = self._owned(checkpoint.player_id, checkpoint.payload, checkpoint.revision)
         actual = [tuple(r) for r in self._connection.execute(
             "SELECT serial, location, personality, ot_id, species, content_sha256 FROM ownership_memberships WHERE player_id = ? AND revision = ? ORDER BY serial",
             (checkpoint.player_id, checkpoint.revision))]
@@ -377,7 +380,11 @@ class TradeCheckpointStore(OwnershipCheckpointStore):
                     history = self._connection.execute("SELECT history FROM pokemon_friendship_history WHERE player_id=? AND revision=? AND serial=?",
                         (cp.player_id, cp.revision, plan["history"]["serial"])).fetchone()
                     require(history is not None and json.loads(history[0])["value"] == plan["history"], "native authority used stale handler history")
-            owned = [self._owned(s.player_id, s.payload) for s in sides]
+            from .character_transfers import source_for
+            for s in sides:
+                if source_for(self, s.player_id, s.expected_revision + 1).base_revision == s.expected_revision > 0:
+                    raise StorageError("transfer_pending", "a character coming back must save once before trading")
+            owned = [self._owned(s.player_id, s.payload, s.expected_revision + 1) for s in sides]
             sequence = self._group("trade")
             checkpoints = []
             for s in sides:
@@ -515,6 +522,7 @@ class TradeCheckpointStore(OwnershipCheckpointStore):
             raise StorageError("storage_corrupt", "trade/ownership history is invalid") from error
 
     def _audit_history(self, corrupt):
+        from .character_transfers import source_for
         allocator = self._connection.execute("SELECT * FROM ownership_allocator").fetchall()
         if len(allocator) != 1 or allocator[0]["singleton"] != 1:
             corrupt("ownership allocator is missing")
@@ -558,13 +566,14 @@ class TradeCheckpointStore(OwnershipCheckpointStore):
                 cp = checkpoints[key]
                 if cp["expected_revision"] != previous.get(cp["player_id"], (0, set()))[0]:
                     corrupt("global checkpoint ordering is inconsistent")
-                parsed = self._owned(cp["player_id"], cp["payload"])
+                parsed = self._owned(cp["player_id"], cp["payload"], cp["revision"])
                 manifest = self._connection.execute("SELECT manifest_sha256 FROM ownership_commits WHERE player_id = ? AND revision = ?", key).fetchone()
                 records = [tuple(r) for r in self._connection.execute("SELECT serial, location, personality, ot_id, species, content_sha256 FROM ownership_memberships WHERE player_id = ? AND revision = ? ORDER BY serial", key)]
                 expected = [(r.serial, r.location, r.personality, r.ot_id, r.species, r.content_sha256) for r in sorted(parsed.records, key=lambda r: r.serial)]
                 if manifest is None or manifest[0] != parsed.manifest_sha256 or records != expected:
                     corrupt("ownership membership or manifest differs from its immutable payload")
-                if cp["revision"] == 1 and _inventory(parsed.records) != self._enrollment(cp["player_id"])["inventory_json"]:
+                generation = source_for(self, cp["player_id"], cp["revision"])
+                if generation.base_revision == cp["revision"] - 1 and _inventory(parsed.records) != generation.inventory_json:
                     corrupt("first checkpoint differs from enrollment")
                 cps.append(cp); owned.append(parsed)
             trade = self._connection.execute("SELECT * FROM trade_transactions WHERE sequence = ?", (expected_sequence,)).fetchone()
@@ -600,9 +609,15 @@ class TradeCheckpointStore(OwnershipCheckpointStore):
                 old = previous.get(player, (0, set()))[1]
                 current = {r.serial for r in parsed.records}
                 retired = {r.serial: r.reason for r in parsed.retirements}
+                generation = source_for(self, player, revision)
+                boundary = generation.base_revision > 0 and generation.base_revision == revision - 1
+                if boundary and (paired or retired):
+                    corrupt("a transferred character's first checkpoint is not an ordinary save")
                 events = []
                 for record in parsed.records:
                     serial = record.serial
+                    if boundary and serial in state:
+                        corrupt("a transferred character reused an identity of this world")
                     if paired and serial == sides[1-i].serial:
                         origin = state[serial]
                         if (origin[3], origin[4]) != (record.personality, record.ot_id):
@@ -628,6 +643,9 @@ class TradeCheckpointStore(OwnershipCheckpointStore):
                         corrupt("trade removed an unrelated identity")
                     events.append((sides[i].serial, "transfer_out", None, trade["transaction_id"]))
                 else:
+                    if boundary:
+                        from .character_transfers import RETIRE_LEFT_WORLD
+                        retired = {serial: RETIRE_LEFT_WORLD for serial in missing}
                     if not missing <= retired.keys():
                         corrupt("missing identity lacks explicit retirement")
                     for serial, reason in retired.items():
@@ -642,6 +660,8 @@ class TradeCheckpointStore(OwnershipCheckpointStore):
                 if actual != sorted(events):
                     corrupt("ownership events differ from their checkpoint transition")
                 previous[player] = (revision, current)
+        from .character_transfers import audit_transfers
+        audit_transfers(self, corrupt)
         if seen != checkpoints.keys() or self._connection.execute("SELECT COUNT(*) FROM trade_transactions").fetchone()[0] != len(trade_ids):
             corrupt("checkpoint or trade is missing from global history")
         actual_state = {r["serial"]: [r[k] for k in ("player_id", "birth_player_id", "grant_id", "personality", "ot_id", "status", "birth_revision", "last_revision", "retirement_reason")]

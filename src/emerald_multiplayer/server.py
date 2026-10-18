@@ -1337,6 +1337,11 @@ class WorldServer:
         previous = self.store.read_checkpoint(session.player_id, session.session_epoch)
         try:
             trainer_id = inspect_flash(previous.payload, save_profile=self.store.save_profile).metadata.trainer_id if previous is not None else None
+            if trainer_id is not None and getattr(self.store, "character_transfers_enabled", False):
+                from .character_transfers import pending_source
+                pending = pending_source(self.store, session.player_id)
+                if pending is not None and pending[0] == "transfer":
+                    trainer_id = None      # a character coming back: the store checks it against its transferred save
             snapshot = inspect_flash(payload, expected_trainer_id=trainer_id, save_profile=self.store.save_profile)
         except FlashError as error:
             session.upload = None

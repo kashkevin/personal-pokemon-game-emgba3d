@@ -140,7 +140,7 @@ class OwnershipCheckpointStore(CheckpointStore):
     def _initialize_extra_schema(self) -> None:
         self._connection.execute("INSERT INTO ownership_allocator VALUES (1, 1)")
 
-    def enroll_player(self, player_id: str, source_payload: bytes) -> Enrollment:
+    def enroll_player(self, player_id: str, source_payload: bytes, *, replace_unconsumed: bool = False) -> Enrollment:
         """Offline host authorization of one unchanged, wholly unassigned source.
 
         The first owned checkpoint must preserve all boxed content and locations;
@@ -164,7 +164,17 @@ class OwnershipCheckpointStore(CheckpointStore):
             prior = self._connection.execute("SELECT * FROM ownership_enrollments WHERE player_id = ?", (player_id,)).fetchone()
             if prior is not None:
                 if prior["source_sha256"] != source_sha or prior["source_payload"] != source_payload:
-                    raise StorageError("enrollment_conflict", "this player already has a different enrollment source")
+                    # A first source no checkpoint has followed yet may be replaced when the caller asks (the menu's retry
+                    # with another or newer character after an attempt that never finished): nothing was built on it.
+                    if not replace_unconsumed or player["latest_revision"]:
+                        raise StorageError("enrollment_conflict", "this player already has a different enrollment source")
+                    if self._connection.execute("SELECT 1 FROM ownership_enrollments WHERE source_sha256 = ? AND player_id != ?",
+                                                (source_sha, player_id)).fetchone():
+                        raise StorageError("source_already_enrolled", "that exact source character is already enrolled")
+                    self._connection.execute(
+                        "UPDATE ownership_enrollments SET source_sha256 = ?, source_payload = ?, source_profile = ?, trainer_id = ?, "
+                        "inventory_json = ?, inventory_sha256 = ? WHERE player_id = ?",
+                        (source_sha, source_payload, LAYOUT_ID, source.metadata.trainer_id, inventory, _digest(inventory), player_id))
             else:
                 if player["latest_revision"]:
                     raise StorageError("enrollment_conflict", "a checkpointed player cannot enroll another source")
@@ -224,9 +234,12 @@ class OwnershipCheckpointStore(CheckpointStore):
         return row if row is not None and serial < row["end_exclusive"] else None
 
     def _prepare_checkpoint(self, player, revision: int, payload: bytes):
-        enrollment = self._enrollment(player["player_id"])
+        from .character_transfers import RETIRE_LEFT_WORLD, source_for
+        generation = source_for(self, player["player_id"], revision)
+        # The first checkpoint after a transfer starts the account's next generation (character_transfers.py).
+        boundary = generation.base_revision > 0 and generation.base_revision == revision - 1
         try:
-            parsed = inspect_flash(payload, expected_trainer_id=enrollment["trainer_id"], save_profile=self.save_profile)
+            parsed = inspect_flash(payload, expected_trainer_id=generation.trainer_id, save_profile=self.save_profile)
             owned = inspect_ownership(parsed)
         except FlashError as error:
             raise StorageError("invalid_ownership", "checkpoint has invalid ownership metadata or Pokémon") from error
@@ -246,11 +259,15 @@ class OwnershipCheckpointStore(CheckpointStore):
             "SELECT * FROM ownership_memberships WHERE player_id = ? AND revision = ?", (player["player_id"], revision - 1))}
         current = {record.serial: record for record in owned.records}
         retired = {entry.serial: entry.reason for entry in owned.retirements}
-        if revision == 1 and _inventory(owned.records) != enrollment["inventory_json"]:
+        if generation.base_revision == revision - 1 and _inventory(owned.records) != generation.inventory_json:
             raise StorageError("enrollment_inventory_mismatch", "first ownership checkpoint changed its enrolled Pokémon inventory")
+        if boundary and retired:
+            raise StorageError("invalid_retirement", "a transferred character starts with no retirements")
         additions = {}
         for serial, record in current.items():
             row = self._connection.execute("SELECT * FROM ownership_instances WHERE serial = ?", (serial,)).fetchone()
+            if row is not None and boundary:
+                raise StorageError("ownership_conflict", "a transferred character's Pokémon need new identities of this world")
             if row is not None:
                 if row["player_id"] != player["player_id"]:
                     raise StorageError("foreign_ownership", "a Pokémon is owned by another player")
@@ -275,6 +292,10 @@ class OwnershipCheckpointStore(CheckpointStore):
                     raise StorageError("allocation_mismatch", "a Pokémon identity exceeds its consumed allocation cursor")
                 additions[serial] = allocated["grant_id"]
         missing = set(prior) - set(current)
+        if boundary:
+            # Every Pokémon of the earlier generation leaves the world with the character's old save.
+            retired = {serial: RETIRE_LEFT_WORLD for serial in missing}
+            return owned, prior, additions, missing, retired
         if not missing <= set(retired):
             raise StorageError("retirement_required", "missing Pokémon require explicit release or NPC exchange entries")
         for serial, reason in retired.items():

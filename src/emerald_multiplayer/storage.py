@@ -224,6 +224,8 @@ class CheckpointStore:
                         capabilities.append((HISTORY_VERSION, HISTORY_SCHEMA))
                         from .trade_effect_storage import EXTENSION_VERSION as EFFECT_VERSION, EFFECT_SCHEMA
                         capabilities.append((EFFECT_VERSION, EFFECT_SCHEMA))
+                        from .character_transfers import EXTENSION_VERSION as TRANSFER_VERSION, TRANSFER_SCHEMA
+                        capabilities.append((TRANSFER_VERSION, TRANSFER_SCHEMA))
                     for mask in range(1, 1 << len(capabilities)):
                         selected = [item for index, item in enumerate(capabilities) if mask & (1 << index)]
                         if extension == sum(item[0] for item in selected):
@@ -297,6 +299,10 @@ class CheckpointStore:
     @property
     def trade_effects_enabled(self) -> bool:
         return "trade_effect_commits" in self._schema
+
+    @property
+    def character_transfers_enabled(self) -> bool:
+        return "ownership_transfers" in self._schema
 
     def _assert_no_battle_reservation(self, *players) -> None:
         """Called inside the owning store transaction, including direct APIs."""
