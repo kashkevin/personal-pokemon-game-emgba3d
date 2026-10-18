@@ -26,7 +26,7 @@ from .invitations import Invitation
 from .launcher_settings import AUTOSAVE_INTERVAL, LauncherSettings
 from .network_diagnostics import ConnectionDetails
 from .player_runtime import PlayerRuntime, RuntimeBundle, _finish_even_if_cancelled
-from .server import ServerConfig, WorldServer, is_local_address
+from .server import WILDCARD, ServerConfig, WorldServer, is_local_address
 
 
 _MESSAGES = {
@@ -57,7 +57,16 @@ _MESSAGES = {
     "trade_recovered": "Your committed trade was recovered and its saved result is loaded.",
     "trade_aborted_recovered": "The interrupted trade was canceled; your verified pre-trade character is loaded.",
     "mirror_active": "Another game or controller owns this character's save.",
-    "connection_timeout": "The host did not authenticate this session before the timeout.",
+    "connection_timeout": "The game could not connect to the host before the time limit.",
+    "version_mismatch": "The host runs a different game version.",
+    "wrong_world": "The server at this address is not the world of this invitation; nothing was sent to it.",
+    "rejected_public_exposure_disabled": "The host's world accepts only players on the host's own network.",
+    "rejected_player_already_connected": "This character is already connected to the world.",
+    "rejected_invalid_credentials": "The host did not accept this invitation's sign-in.",
+    "rejected_enrollment_disabled": "The host has turned off creating new characters over the network.",
+    "rejected_server_full": "The world is full.",
+    "rejected_busy": "The host is busy setting up other connections.",
+    "rejected": "The host refused this connection.",
     "connection_lost": "The authenticated host connection is unavailable.",
     "session_changed": "The authenticated session changed; reopen after verified recovery.",
     "session_active": "This launcher session is already open or has already closed.",
@@ -81,12 +90,18 @@ _MESSAGES = {
 
 
 class LauncherSessionError(ValueError):
-    def __init__(self, code):
+    """``code`` is the stable session code; ``reason`` (a connection_diagnostics code) says why a connection could not be made,
+    when that is known (for example connection_timeout with reason "refused")."""
+
+    def __init__(self, code, reason=None):
         self.code = code if code in _MESSAGES else "session_failed"
+        self.reason = reason if type(reason) is str and len(reason) <= 64 else None
         super().__init__(_MESSAGES[self.code])
 
 
 def _safe_error(error):
+    if isinstance(error, LauncherSessionError):
+        return LauncherSessionError(error.code, error.reason)
     code = getattr(error, "code", None)
     if code == "trade_disabled":
         code = "trade_recovery_unavailable"
@@ -155,6 +170,9 @@ class SessionStatus:
     championship_available: bool = False
     player_actions_available: bool = False
     trade_recovery_available: bool = False
+    detail: str | None = None          # connection_diagnostics code behind a connection failure (refused, timeout, ...)
+    router: object | None = None       # host: port_mapping.MappingResult of automatic router setup (None: not attempted)
+    relay: object | None = None        # host: relay.RelayAgentStatus of the world's relay connection (None: no relay)
 
 
 class LauncherSession:
@@ -169,21 +187,30 @@ class LauncherSession:
     def __init__(self, installation, private_directory, *, world_directory=None,
                  invitation_path=None, bind_address=None, host_route=None,
                  public=False, development_trades=False, connection_timeout=10,
-                 on_status=None, server_route=None, allow_enrollment=True):
+                 on_status=None, server_route=None, allow_enrollment=True, overlay=False, network=None,
+                 port_mapper_factory=None):
         if (not isinstance(installation, GameInstallation)
                 or (world_directory is None) == (invitation_path is None)
-                or type(public) is not bool or type(development_trades) is not bool
+                or type(public) is not bool or type(development_trades) is not bool or type(overlay) is not bool
                 or type(connection_timeout) not in (int, float)
                 or not math.isfinite(connection_timeout) or not 0 < connection_timeout <= 60
                 or on_status is not None and not callable(on_status)):
             raise LauncherSessionError("invalid_configuration")
         if world_directory is not None:
+            # "0.0.0.0" (every IPv4 interface) only for a world open to the Internet or hosted on a VPN/overlay address; the
+            # host's own game then needs a specific route (loopback by default).
+            wildcard = bind_address == WILDCARD and (public or overlay)
+            if wildcard and host_route is None:
+                host_route = "127.0.0.1"
             if (type(bind_address) is not str
                     or host_route is not None and type(host_route) is not str
-                    or not is_local_address(bind_address, allow_lan=True)
+                    or not (wildcard or is_local_address(bind_address, allow_lan=True))
                     or not is_local_address(host_route or bind_address, allow_lan=True)):
                 raise LauncherSessionError("invalid_configuration")
-        elif bind_address is not None or host_route is not None or public or development_trades:
+            from .network_settings import WorldNetwork
+            if network is not None and not isinstance(network, WorldNetwork):
+                raise LauncherSessionError("invalid_configuration")
+        elif bind_address is not None or host_route is not None or public or development_trades or overlay or network is not None:
             raise LauncherSessionError("invalid_configuration")
         if type(allow_enrollment) is not bool or (not allow_enrollment and world_directory is None):
             raise LauncherSessionError("invalid_configuration")
@@ -205,6 +232,11 @@ class LauncherSession:
         self._server_route = server_route
         self._allow_enrollment = allow_enrollment
         self._public = public
+        self._overlay = overlay
+        self._network = network          # network_settings.WorldNetwork; None: read this world's saved settings at start
+        self._port_mapper_factory = port_mapper_factory
+        self._port_mapper = self._router_task = self._router = None
+        self._relay_agent = self._relay_status = None
         self._development_trades = development_trades
         self._timeout = connection_timeout
         self._on_status = on_status
@@ -304,7 +336,7 @@ class LauncherSession:
     @property
     def status(self):
         current = self._signature()
-        value = replace(self._status, connected=current is not None,
+        value = replace(self._status, connected=current is not None, router=self._router, relay=self._relay_status,
                         autosave_enabled=self.autosave_enabled,
                         battle_recovery_available=self.can_recover_battle,
                         admission_cleanup_available=self.can_cancel_battle_entry,
@@ -351,8 +383,11 @@ class LauncherSession:
             return replace(value, state=state, code=code)
         return value
 
-    def _publish(self, state, code, *, revision=None, exit_code=None):
-        self._status = SessionStatus(state, code, revision=revision, exit_code=exit_code)
+    def _publish(self, state, code, *, revision=None, exit_code=None, detail=None):
+        self._status = SessionStatus(state, code, revision=revision, exit_code=exit_code, detail=detail)
+        self._emit()
+
+    def _emit(self):
         if self._on_status is not None:
             try:
                 result = self._on_status(self.status)
@@ -379,6 +414,12 @@ class LauncherSession:
             host = HostWorld.open(self._world_directory, game.rom_path, game.manifest_path)
             self._host_world = host
             world_id, player_id = host.world_id, host.accounts[0].player_id
+            if self._network is None:
+                from .network_settings import NetworkSettings, WorldNetwork
+                try:
+                    self._network = NetworkSettings(self.private_root).get(world_id)
+                except Exception:                                      # noqa: BLE001 - unreadable settings: the defaults
+                    self._network = WorldNetwork()
         else:
             host = None
             identity = Invitation.load(self._invitation_path)
@@ -398,6 +439,7 @@ class LauncherSession:
             # route changes only the socket destination, preserving its TLS pin.
             config = replace(config, server_host=self._host_route)
             await self._start_host_service(host)
+            await self._start_reachability(host)
         self._companion = Companion(config)
         from . import privacy
         self._companion.share_location = privacy.load(self._profile_directory)
@@ -412,12 +454,7 @@ class LauncherSession:
             self._companion._native_menu_abandon_battle_preparation = self._native_menu_abandon_battle_preparation
         self._publish(SessionState.CONNECTING, "authentication")
         await self._companion.start()
-        try:
-            async with asyncio.timeout(self._timeout):
-                while not self._companion.connected:
-                    await asyncio.sleep(.025)
-        except TimeoutError:
-            raise LauncherSessionError("connection_timeout") from None
+        await self._await_authentication()
         self._binding = self._signature()
         self._runtime = PlayerRuntime(self._companion, game.bundle, self._profile_directory,
                                       self._profile_directory / "character.sav",
@@ -425,6 +462,24 @@ class LauncherSession:
                                       role="host" if self._world_directory is not None else "join")
         self._open = True
         await self.readiness()
+
+    async def _await_authentication(self):
+        """Wait for the companion's completed hello/welcome (``connected`` is set only after the server's welcome was validated).
+        A permanent refusal ends the wait with its own code at once; a refusal that may clear by itself (this character's stale
+        session, a full world) is reported with its own code when time runs out; anything else is connection_timeout with the
+        last failure as its reason."""
+        companion = self._companion
+        try:
+            async with asyncio.timeout(self._timeout):
+                while not companion.connected:
+                    if companion.stopped is not None:
+                        raise LauncherSessionError(companion.stopped, companion.stopped)
+                    await asyncio.sleep(.025)
+        except TimeoutError:
+            failure = companion.failure
+            if failure in _MESSAGES and failure.startswith("rejected"):
+                raise LauncherSessionError(failure, failure) from None
+            raise LauncherSessionError("connection_timeout", failure) from None
 
     async def _start_host_service(self, host):
         """The session owns the real service/store on its original event loop."""
@@ -455,7 +510,60 @@ class LauncherSession:
             if self._manifest.get("rival_abi_version") == 1:
                 self._server.enable_rival_battle_environment()  # Update 31: rival battles use the checkpoint's environment
         await self._server.start(self._bind_address, host.port, allow_lan=True,
-                                 public=self._public, tls=host.server_tls)
+                                 public=self._public, tls=host.server_tls, wildcard=self._bind_address == WILDCARD,
+                                 relay=self._network is not None and self._network.relay_enabled)
+
+    async def _start_reachability(self, host):
+        """Automatic router setup (only while the world allows Internet connections and the host did not turn it off) and the
+        world's relay connection. Both run in the background and report through ``status.router`` / ``status.relay``; neither
+        can stop hosting."""
+        network = self._network
+        if self._public and network.router_setup:
+            from .port_mapping import PortMapper
+            factory = self._port_mapper_factory or PortMapper
+            self._port_mapper = factory(host.port, description="EmeraldTogether " + host.world_id[:8],
+                                        on_change=self._router_changed)
+            self._router = self._port_mapper.result
+            self._router_task = asyncio.create_task(self._port_mapper.start(), name="launcher-router-setup")
+        if network.relay is not None:
+            from .relay import RelayHostAgent
+
+            def target():
+                return self._server.relay_address
+            self._relay_agent = RelayHostAgent(network.relay_address, network.relay_port, host.world_id, network.relay_secret,
+                                               target, on_status=self._relay_changed)
+            self._relay_status = self._relay_agent.status
+            await self._relay_agent.start()
+
+    def _router_changed(self, result):
+        self._router = result
+        self._emit()
+
+    def _relay_changed(self, status):
+        self._relay_status = status
+        self._emit()
+
+    async def _stop_reachability(self):
+        agent, self._relay_agent = self._relay_agent, None
+        if agent is not None:
+            try:
+                await agent.close()
+            except Exception:                                          # noqa: BLE001 - closing continues
+                pass
+        task, self._router_task = self._router_task, None
+        if task is not None and not task.done():
+            # Let a mapping in progress finish so it can be removed; a router that does not answer is not waited for long
+            # (an unremoved mapping expires with its lease).
+            await asyncio.wait({task}, timeout=3)
+            if not task.done():
+                task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+        mapper, self._port_mapper = self._port_mapper, None
+        if mapper is not None:
+            try:
+                await mapper.close()
+            except Exception:                                          # noqa: BLE001
+                pass
 
     async def _close_host_service(self):
         # Retain an owner if its shutdown raises, so retry/final cleanup can
@@ -1626,6 +1734,7 @@ class LauncherSession:
             await asyncio.gather(self._play_task, return_exceptions=True)
         if self._host_restart_task is not None:
             await asyncio.gather(self._host_restart_task, return_exceptions=True)
+        await self._stop_reachability()
         try:
             if self._companion is not None:
                 await self._companion.close()
@@ -1651,7 +1760,7 @@ class LauncherSession:
             except Exception as error:
                 failed = True
                 safe = _safe_error(error)
-                self._publish(SessionState.FAILED, safe.code)
+                self._publish(SessionState.FAILED, safe.code, detail=safe.reason)
                 raise safe from None
             yield self
         finally:

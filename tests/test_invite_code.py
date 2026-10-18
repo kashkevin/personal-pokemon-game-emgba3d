@@ -1,10 +1,14 @@
 """Invite codes: a friend's world account as one short, checksummed piece of text, and the certificate pinned by it."""
 import asyncio
+import base64
 import hashlib
+import struct
+import zlib
 from pathlib import Path
 import socket
 import tempfile
 import unittest
+import unittest.mock
 
 from emerald_multiplayer.invitations import Invitation
 from emerald_multiplayer.invite_code import (
@@ -120,6 +124,68 @@ class InviteCodeTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(InviteCodeError) as caught:
             await fetch_certificate("127.0.0.1", self.port, self.invitation.certificate_sha256, self.invitation.world_id, timeout=1)
         self.assertEqual(caught.exception.code, "certificate_unavailable")
+        # The error says why: nothing listens there (not a generic "could not be reached").
+        self.assertEqual(caught.exception.reason, "refused")
+        self.assertIn("Nothing is accepting connections", str(caught.exception))
+
+    async def test_a_host_name_that_cannot_be_looked_up_carries_dns_failed(self):
+        def fail(*args, **kwargs):
+            raise socket.gaierror(socket.EAI_NONAME, "unknown")
+        with unittest.mock.patch("emerald_multiplayer.invite_code.socket.getaddrinfo", fail):
+            with self.assertRaises(InviteCodeError) as caught:
+                resolve_address("no-such-host.invalid", 7777)
+        self.assertEqual((caught.exception.code, caught.exception.reason), ("certificate_unavailable", "dns_failed"))
+        self.assertIn("could not be found", str(caught.exception))
+
+    @staticmethod
+    def raw(text):
+        compact = text[4:].replace("-", "")
+        return base64.b32decode(compact + "=" * (-len(compact) % 8))
+
+    @staticmethod
+    def forge(raw):
+        body = raw[:-4]
+        data = body + struct.pack(">I", zlib.crc32(body))
+        return "ET1-" + base64.b32encode(data).decode("ascii").rstrip("=")
+
+    def test_a_code_without_a_relay_stays_version_1_so_older_games_still_read_it(self):
+        text = encode_invite(self.invitation, "93.184.216.34", 7777)
+        self.assertEqual(self.raw(text)[:2], bytes([1, 0]))
+        self.assertIsNone(decode_invite(text).relay)
+
+    def test_a_relay_endpoint_makes_a_version_2_code_and_round_trips(self):
+        for relay in (("relay.example.net", 7780), ("81.2.69.160", 443), ("100.101.102.103", 7780)):
+            with self.subTest(relay=relay):
+                text = encode_invite(self.invitation, "93.184.216.34", 7777, relay=relay)
+                self.assertEqual(self.raw(text)[:2], bytes([2, 1]))
+                code = decode_invite(text)
+                self.assertEqual(code.relay, relay)
+                self.assertEqual((code.address, code.port, code.credential), ("93.184.216.34", 7777, self.invitation.credential))
+        for relay in (("0.0.0.0", 7780), ("bad host", 7780), ("relay.example.net", 0), ("relay.example.net",)):
+            with self.subTest(relay=relay), self.assertRaises(InviteCodeError):
+                encode_invite(self.invitation, relay=relay)
+
+    def test_version_errors_say_newer_or_older_correctly(self):
+        raw = bytearray(self.raw(encode_invite(self.invitation)))
+        raw[0] = 3
+        with self.assertRaises(InviteCodeError) as caught:
+            decode_invite(self.forge(bytes(raw)))
+        self.assertEqual(caught.exception.code, "invite_version")
+        self.assertIn("newer version", str(caught.exception))
+        raw[0] = 0
+        with self.assertRaises(InviteCodeError) as caught:
+            decode_invite(self.forge(bytes(raw)))
+        self.assertEqual(caught.exception.code, "invite_version_old")
+        self.assertIn("older version", str(caught.exception))
+        self.assertNotIn("newer", str(caught.exception))
+        raw[0], raw[1] = 2, 0x80                      # a flag this version does not know: made by a newer game
+        with self.assertRaises(InviteCodeError) as caught:
+            decode_invite(self.forge(bytes(raw)))
+        self.assertEqual(caught.exception.code, "invite_version")
+        raw[0], raw[1] = 2, 1                         # says it has a relay but carries none
+        with self.assertRaises(InviteCodeError) as caught:
+            decode_invite(self.forge(bytes(raw)))
+        self.assertEqual(caught.exception.code, "invite_malformed")
 
 
 if __name__ == "__main__":

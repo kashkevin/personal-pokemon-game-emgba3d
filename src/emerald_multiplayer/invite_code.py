@@ -6,6 +6,11 @@ host's private channel has to carry: the world and account identities, the accou
 the game build, and where to connect (an address the host chose, a numeric address or a host name, and the port). It is about 270
 characters, so it can be pasted from a chat message, and it ends in a checksum that catches a mistyped character.
 
+Version 1 codes carry only that. A version 2 code also names a relay (``relay.py``: an address and port a friend can use when the
+host cannot be reached directly); it is written only when the host set up a relay, so codes without one stay version 1 and older
+games keep reading them. The relay changes only where the friend's game knocks: the TLS pin and the credential are checked end to
+end exactly as on a direct connection.
+
 **A code is a credential.** Whoever holds it can sign in as that account, exactly as with an invitation file; give each friend their
 own and send it only to them. A code does not contain the host's certificate or private key and cannot be used to open or hack the
 world without the credential. Nothing here opens a connection to the network except ``fetch_certificate``, which sends no data: it
@@ -31,21 +36,28 @@ from .ownership import OWNERSHIP_PROFILE
 from .secure_transport import is_numeric_unicast_address
 
 PREFIX = "ET1-"
-VERSION = 1
+VERSION = 2                 # the newest version this game reads and writes (1: direct only; 2: optional relay endpoint)
+_FLAG_RELAY = 0x01
 RULESETS = (BASELINE_RULESET, GEN6_DEFAULTS_RULESET)
 MAX_CODE_TEXT = 1024
 _HOST_NAME = re.compile(r"(?=.{1,253}$)([A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)(\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*")
 
 
 class InviteCodeError(ValueError):
-    def __init__(self, code, message):
+    """``code`` is the stable invite code error; ``reason`` (a connection_diagnostics code) says why a server could not be
+    checked, when that is known."""
+
+    def __init__(self, code, message, reason=None):
         self.code = code
+        self.reason = reason
         super().__init__(message)
 
 
 MESSAGES = {
     "invite_malformed": "That invite code is not complete or has a mistyped character. Copy it again from the host.",
-    "invite_version": "That invite code was made by a newer version. Update the game.",
+    "invite_version": "That invite code was made by a newer version of EmeraldTogether. Update the game to use it.",
+    "invite_version_old": "That invite code was made by an older version of EmeraldTogether that this one cannot read. Ask the host "
+                          "for a new code.",
     "invite_build": "That invite is for a different game version than the one installed here.",
     "invite_address": "The server address in the invite is not usable.",
     "certificate_mismatch": "The server at that address is not the world this invite belongs to.",
@@ -80,6 +92,7 @@ class InviteCode:
     certificate_sha256: str
     address: str
     port: int
+    relay: tuple | None = None      # (address, port) of a relay, or None for a direct-only code
 
     def __post_init__(self):
         from .shell_store import is_uuid
@@ -91,23 +104,33 @@ class InviteCode:
             raise InviteCodeError("invite_malformed", MESSAGES["invite_malformed"])
         if not valid_address(self.address) or not valid_port(self.port):
             raise InviteCodeError("invite_address", MESSAGES["invite_address"])
+        if self.relay is not None and (type(self.relay) is not tuple or len(self.relay) != 2 or not valid_address(self.relay[0])
+                                       or not valid_port(self.relay[1])):
+            raise InviteCodeError("invite_address", MESSAGES["invite_address"])
 
 
-def encode_invite(invitation, address=None, port=None):
-    """The code for a friend invitation. ``address``/``port`` override where the invitation points (the host's chosen address)."""
+def encode_invite(invitation, address=None, port=None, *, relay=None):
+    """The code for a friend invitation. ``address``/``port`` override where the invitation points (the host's chosen address);
+    ``relay`` = (address, port) adds the world's relay (a version 2 code)."""
     if not isinstance(invitation, Invitation) or invitation.role != "friend":
         raise InviteCodeError("invite_malformed", MESSAGES["invite_malformed"])
     address = invitation.endpoint if address is None else address
     port = invitation.port if port is None else port
+    if relay is not None:
+        relay = tuple(relay) if type(relay) in (tuple, list) else relay
     code = InviteCode(invitation.slot, invitation.world_id, invitation.player_id, invitation.display_name, invitation.credential,
-                      invitation.build_id, invitation.ruleset_id, invitation.certificate_sha256, address, port)
+                      invitation.build_id, invitation.ruleset_id, invitation.certificate_sha256, address, port, relay)
     from uuid import UUID
     host = address.encode("ascii")
     name = code.display_name.encode("utf-8")
-    body = (struct.pack(">BBBBH", VERSION, 0, code.slot, RULESETS.index(code.ruleset_id), code.port)
+    version, flags, tail = 1, 0, b""
+    if code.relay is not None:
+        relay_host = code.relay[0].encode("ascii")
+        version, flags, tail = 2, _FLAG_RELAY, bytes([len(relay_host)]) + relay_host + struct.pack(">H", code.relay[1])
+    body = (struct.pack(">BBBBH", version, flags, code.slot, RULESETS.index(code.ruleset_id), code.port)
             + UUID(code.world_id).bytes + UUID(code.player_id).bytes + code.credential
             + bytes.fromhex(code.build_id) + bytes.fromhex(code.certificate_sha256)
-            + bytes([len(host)]) + host + bytes([len(name)]) + name)
+            + bytes([len(host)]) + host + bytes([len(name)]) + name + tail)
     raw = body + struct.pack(">I", zlib.crc32(body))
     text = base64.b32encode(raw).decode("ascii").rstrip("=")
     return PREFIX + "-".join(text[i:i + 5] for i in range(0, len(text), 5))
@@ -127,9 +150,13 @@ def decode_invite(text):
         raise InviteCodeError("invite_malformed", MESSAGES["invite_malformed"]) from None
     if len(raw) < 6 + 16 + 16 + 32 + 32 + 32 + 2 + 4 or zlib.crc32(raw[:-4]) != struct.unpack(">I", raw[-4:])[0]:
         raise InviteCodeError("invite_malformed", MESSAGES["invite_malformed"])
-    version, _flags, slot, ruleset, port = struct.unpack(">BBBBH", raw[:6])
-    if version != VERSION:
+    version, flags, slot, ruleset, port = struct.unpack(">BBBBH", raw[:6])
+    if version > VERSION or (version == 2 and flags & ~_FLAG_RELAY):
         raise InviteCodeError("invite_version", MESSAGES["invite_version"])
+    if version < 1:
+        raise InviteCodeError("invite_version_old", MESSAGES["invite_version_old"])
+    if version == 1 and flags:
+        raise InviteCodeError("invite_malformed", MESSAGES["invite_malformed"])
     if ruleset >= len(RULESETS):
         raise InviteCodeError("invite_malformed", MESSAGES["invite_malformed"])
     from uuid import UUID
@@ -147,11 +174,27 @@ def decode_invite(text):
         name_length = raw[at]
         name = raw[at + 1:at + 1 + name_length].decode("utf-8")
         at += 1 + name_length
+        relay = None
+        if flags & _FLAG_RELAY:
+            relay_length = raw[at]
+            relay_host = raw[at + 1:at + 1 + relay_length].decode("ascii")
+            at += 1 + relay_length
+            if len(raw) - 4 - at < 2:
+                raise ValueError("truncated relay")
+            relay = (relay_host, struct.unpack(">H", raw[at:at + 2])[0])
+            at += 2
         if at != len(raw) - 4:
             raise ValueError("trailing bytes")
-    except (ValueError, IndexError, UnicodeError):
+    except (ValueError, IndexError, UnicodeError, struct.error):
         raise InviteCodeError("invite_malformed", MESSAGES["invite_malformed"]) from None
-    return InviteCode(slot, world, player, name, credential, build, RULESETS[ruleset], pin, host, port)
+    return InviteCode(slot, world, player, name, credential, build, RULESETS[ruleset], pin, host, port, relay)
+
+
+def _unavailable(reason, port=None):
+    """certificate_unavailable with the real reason: its own plain-English sentence and the diagnostics code."""
+    from .connection_diagnostics import describe
+    explanation = describe(reason, port=port)
+    return InviteCodeError("certificate_unavailable", f"{explanation.title}. {explanation.message}", reason)
 
 
 def resolve_address(address, port, *, timeout=5.0):
@@ -168,7 +211,7 @@ def resolve_address(address, port, *, timeout=5.0):
         socket.setdefaulttimeout(timeout)
         infos = socket.getaddrinfo(address, port, type=socket.SOCK_STREAM)
     except OSError:
-        raise InviteCodeError("certificate_unavailable", MESSAGES["certificate_unavailable"]) from None
+        raise _unavailable("dns_failed", port) from None
     finally:
         socket.setdefaulttimeout(previous)
     for info in sorted(infos, key=lambda item: item[0] != socket.AF_INET):   # IPv4 first
@@ -178,30 +221,27 @@ def resolve_address(address, port, *, timeout=5.0):
     raise InviteCodeError("invite_address", MESSAGES["invite_address"])
 
 
-async def fetch_certificate(address, port, pin, world_id, *, timeout=5.0):
-    """The host certificate (PEM) of the server at address:port, accepted only if its SHA-256 is ``pin`` and it is valid for
-    ``world_id``. Sends no data; the connection is dropped after the handshake."""
-    numeric = await asyncio.get_running_loop().run_in_executor(None, lambda: resolve_address(address, port))
-    context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-    context.minimum_version = ssl.TLSVersion.TLSv1_2
-    context.check_hostname = False
-    context.verify_mode = ssl.CERT_NONE   # nothing is trusted yet: the pin decides below
+async def fetch_certificate(address, port, pin, world_id, *, timeout=5.0, relay=None):
+    """The host certificate (PEM) of the server at address:port (or of the world's room on ``relay`` = (address, port)), accepted
+    only if its SHA-256 is ``pin`` and it is valid for ``world_id``. Sends no data; the connection is dropped after the handshake.
+    A failure to reach the server raises certificate_unavailable whose ``reason`` and message say why (connection_diagnostics)."""
+    from .connection_diagnostics import classify, close_quietly, open_tls, peer_certificate, pinning_context
     writer = None
     try:
         async with asyncio.timeout(timeout):
-            _, writer = await asyncio.open_connection(numeric, port, ssl=context, server_hostname=numeric,
-                                                      ssl_handshake_timeout=min(timeout, 5), ssl_shutdown_timeout=1)
-        der = writer.get_extra_info("ssl_object").getpeercert(binary_form=True)
-    except (OSError, TimeoutError, ssl.SSLError):
-        raise InviteCodeError("certificate_unavailable", MESSAGES["certificate_unavailable"]) from None
+            if relay is None:
+                numeric = await asyncio.get_running_loop().run_in_executor(None, lambda: resolve_address(address, port))
+                _, writer = await open_tls(numeric, port, pinning_context(), handshake_timeout=min(timeout, 5))
+            else:
+                _, writer = await open_tls(None, port, pinning_context(), relay=tuple(relay), room=world_id,
+                                           handshake_timeout=min(timeout, 5))
+        der = peer_certificate(writer)
+    except InviteCodeError:
+        raise
+    except (OSError, TimeoutError, ssl.SSLError, ValueError, asyncio.IncompleteReadError) as error:
+        raise _unavailable(classify(error)[0], port) from None
     finally:
-        if writer is not None:
-            writer.close()
-            try:
-                async with asyncio.timeout(2):
-                    await writer.wait_closed()
-            except (OSError, TimeoutError):
-                pass
+        await close_quietly(writer)
     if not der or hashlib.sha256(der).hexdigest() != pin:
         raise InviteCodeError("certificate_mismatch", MESSAGES["certificate_mismatch"])
     pem = ssl.DER_cert_to_PEM_cert(der)
@@ -226,5 +266,5 @@ def redeem(code, certificate_pem, *, endpoint=None):
         raise InviteCodeError("invite_malformed", MESSAGES["invite_malformed"]) from None
 
 
-__all__ = ["InviteCode", "InviteCodeError", "MESSAGES", "decode_invite", "encode_invite", "fetch_certificate", "redeem",
+__all__ = ["InviteCode", "InviteCodeError", "MESSAGES", "VERSION", "decode_invite", "encode_invite", "fetch_certificate", "redeem",
            "resolve_address", "valid_address", "valid_port", "INVITATION_FORMAT"]

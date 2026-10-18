@@ -31,6 +31,7 @@ from .protocol import (
 )
 from .server import is_local_address
 from .secure_transport import ClientTlsConfig, is_numeric_unicast_address
+from . import connection_diagnostics as _diagnostics
 from .battle_manifest import validate_battle_manifest
 from .save_window import validate_window_manifest, WINDOW_FRAME_SIZE
 
@@ -38,6 +39,22 @@ BASELINE_RULESET = "baseline-rhh1.17.1-mailbox-v1"
 _UINT32 = 0xFFFFFFFF
 # A shared-world action the host never received is forwarded again after this long.
 _ACTION_RETRY_SECONDS = 1.0
+
+
+class ServerRejected(ProtocolError):
+    """The world server answered the hello with an error message. ``server_code`` is its code and ``reason`` the
+    connection_diagnostics code a person is shown (rejected_public_exposure_disabled, version_mismatch, ...)."""
+
+    def __init__(self, server_code: Any) -> None:
+        super().__init__("server_rejected", "server rejected this client")
+        self.server_code = server_code if type(server_code) is str and 0 < len(server_code) <= 64 else "unknown"
+        self.reason = _diagnostics.rejection_code(self.server_code)
+
+
+def _identity_error(code: str, message: str, reason: str) -> ProtocolError:
+    error = ProtocolError(code, message)
+    error.reason = reason
+    return error
 
 
 class TeamError(ValueError):
@@ -168,6 +185,9 @@ class CompanionConfig:
     snapshot_interval: float = 0.1
     reconnect_delay: float = 0.25
     handshake_timeout: float = 3.0
+    # TCP connect + TLS handshake (+ the relay's answer) for one attempt: the same budget as the menu's connection check, so a
+    # route the check reached is not given up by the game sooner (connection_diagnostics.DEFAULT_TIMEOUT).
+    connect_timeout: float = _diagnostics.DEFAULT_TIMEOUT
     remote_timeout: float = 20.0
     send_timeout: float = 1.0
     server_credential: bytes | None = field(default=None, repr=False)
@@ -175,6 +195,9 @@ class CompanionConfig:
     public_server: bool = False
     expected_world_id: str | None = None
     development_battle_channel: bool = False
+    # A relay route (relay.py): connect to the relay and ask for the expected world's room; TLS and the pin stay end to end.
+    relay_host: str | None = None
+    relay_port: int | None = None
     build_id: str = field(init=False)
     ruleset_id: str = field(init=False, default=BASELINE_RULESET)
     save_enabled: bool = field(init=False, default=False)
@@ -278,9 +301,14 @@ class CompanionConfig:
             value = getattr(self, name)
             if type(value) is not int or not low <= value <= 65535:
                 raise ValueError(f"{name} is outside its port bounds")
+        if self.relay_host is not None or self.relay_port is not None:
+            from .relay import valid_endpoint
+            if (not valid_endpoint(self.relay_host, self.relay_port) or self.server_tls is None
+                    or self.server_credential is None or self.expected_world_id is None):
+                raise ValueError("a relay route requires a valid relay address, pinned TLS, a credential and the expected world")
         for name in (
             "pause_timeout", "pose_interval", "snapshot_interval", "reconnect_delay",
-            "handshake_timeout", "remote_timeout", "send_timeout",
+            "handshake_timeout", "remote_timeout", "send_timeout", "connect_timeout",
         ):
             value = getattr(self, name)
             if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value <= 0:
@@ -308,7 +336,7 @@ def validate_welcome(message: dict[str, Any], config: CompanionConfig) -> dict[s
     durable = {"world_id", "server_epoch", "save_profile", "checkpoint_enabled"}
     if isinstance(message, dict) and set(message) == names | durable:
         if config.server_credential is None or message["checkpoint_enabled"] is not True:
-            raise ProtocolError("identity_mismatch", "durable world requires a player credential")
+            raise _identity_error("identity_mismatch", "durable world requires a player credential", "wrong_world")
         try:
             if str(UUID(message["world_id"])) != message["world_id"]:
                 raise ValueError()
@@ -319,14 +347,14 @@ def validate_welcome(message: dict[str, Any], config: CompanionConfig) -> dict[s
             raise ProtocolError("invalid_server_message", "invalid save profile")
         names |= durable
     elif config.server_credential is not None:
-        raise ProtocolError("identity_mismatch", "authenticated client requires a durable world")
+        raise _identity_error("identity_mismatch", "authenticated client requires a durable world", "wrong_world")
     _fields(message, names, "welcome")
     if message["build_id"] != config.build_id or message["ruleset_id"] != config.ruleset_id:
-        raise ProtocolError("identity_mismatch", "server build/ruleset is incompatible")
+        raise _identity_error("identity_mismatch", "server build/ruleset is incompatible", "version_mismatch")
     if message["player_id"] != config.player_id:
-        raise ProtocolError("identity_mismatch", "server assigned another player identity")
+        raise _identity_error("identity_mismatch", "server assigned another player identity", "wrong_world")
     if config.expected_world_id is not None and message.get("world_id") != config.expected_world_id:
-        raise ProtocolError("identity_mismatch", "server world differs from the expected durable world")
+        raise _identity_error("identity_mismatch", "server world differs from the expected durable world", "wrong_world")
     if type(message["max_players"]) is not int or message["max_players"] != MAX_PLAYERS:
         raise ProtocolError("invalid_server_message", "server player limit is incompatible")
     _integer(message["session_epoch"], 1, MAX_COUNTER, "session_epoch")
@@ -413,6 +441,13 @@ class Companion:
         self._privacy_directory = None
         self.session_epoch: int | None = None
         self.last_error: str | None = None
+        # Why the last connection attempt failed, as a connection_diagnostics code (refused, timeout, version_mismatch,
+        # rejected_public_exposure_disabled, relay_host_offline, ...), and ``failure_detail`` naming the exception.
+        self.failure: str | None = None
+        self.failure_detail: str = ""
+        # Set when a permanent refusal during the handshake (wrong world, other game version, bad credential, a world closed to
+        # this network) ended the reconnect loop: retrying cannot help until a person acts.
+        self.stopped: str | None = None
         self._ipc_server: asyncio.Server | None = None
         self._remote_task: asyncio.Task[None] | None = None
         self._snapshot_task: asyncio.Task[None] | None = None
@@ -440,6 +475,7 @@ class Companion:
         self._emergency_controller = None
         self._emergency_authority = None
         self._reconnect_blocked = False
+        self._handshaking = False
         self._battle_recovery_authority = None
         self._local_pose: Pose | None = None
         self._last_pose_time = 0.0
@@ -1251,6 +1287,20 @@ class Companion:
         self._roster_signature = None
         self._publish_snapshot()
 
+    def _note_failure(self, error: BaseException, *, handshake: bool) -> None:
+        """Record why an attempt failed. A permanent refusal during the handshake stops reconnection (``stopped``); anything
+        transient, and anything after a completed handshake, keeps the existing reconnect behaviour."""
+        code, detail = _diagnostics.classify(error)
+        self.failure, self.failure_detail = code, detail
+        if handshake and code in _diagnostics.PERMANENT:
+            self.stopped = code
+
+    def _retry_delay(self) -> float:
+        # A refusal that clears by itself (a stale session of this player, a full world) is retried calmly, not hammered.
+        if self.failure in _diagnostics.HELD:
+            return min(max(self.config.reconnect_delay * 4, self.config.reconnect_delay), 2.0)
+        return self.config.reconnect_delay
+
     async def _remote_loop(self) -> None:
         while not self._closing:
             if self._reconnect_blocked:
@@ -1259,10 +1309,13 @@ class Companion:
                 await self._remote_once()
             except (ProtocolError, ConnectionError, OSError, asyncio.TimeoutError) as error:
                 self.last_error = error.code if isinstance(error, ProtocolError) else type(error).__name__
+                self._note_failure(error, handshake=self._handshaking)
             finally:
                 self._disconnect_remote()
+            if self.stopped is not None:
+                return
             if not self._closing:
-                await asyncio.sleep(self.config.reconnect_delay)
+                await asyncio.sleep(self._retry_delay())
 
     async def reconnect_retained_battle(self, recovery):
         """One explicit authenticated reconnect for the exact retained core.
@@ -1290,6 +1343,7 @@ class Companion:
                 await self._remote_once(battle_recovery=recovery, ready=ready)
             except (ProtocolError, ConnectionError, OSError, asyncio.TimeoutError, ValueError) as error:
                 self.last_error = getattr(error, "code", type(error).__name__)
+                self._note_failure(error, handshake=False)
                 if not ready.done():
                     ready.set_exception(error)
             finally:
@@ -1302,6 +1356,7 @@ class Companion:
     async def _remote_once(self, *, battle_recovery=None, ready=None) -> None:
         writer: asyncio.StreamWriter | None = None
         tasks: list[asyncio.Task] = []
+        self._handshaking = True
         try:
             tls = self.config.server_tls
             tls_options = {} if tls is None else {
@@ -1309,9 +1364,16 @@ class Companion:
                 "ssl_handshake_timeout": tls.handshake_timeout,
                 "ssl_shutdown_timeout": tls.shutdown_timeout,
             }
-            connect_timeout = min(self.config.handshake_timeout, tls.handshake_timeout) if tls else self.config.handshake_timeout
-            reader, writer = await asyncio.wait_for(asyncio.open_connection(
-                self.config.server_host, self.config.server_port, limit=16_388, **tls_options), connect_timeout)
+            if self.config.relay_host is not None:
+                from .relay import open_relay_connection
+                reader, writer = await asyncio.wait_for(open_relay_connection(
+                    self.config.relay_host, self.config.relay_port, self.config.expected_world_id, ssl=self._server_tls_context,
+                    server_hostname=self.config.server_host, ssl_handshake_timeout=tls.handshake_timeout, limit=16_388,
+                    connect_timeout=self.config.connect_timeout, pair_timeout=self.config.connect_timeout),
+                    self.config.connect_timeout + tls.handshake_timeout)
+            else:
+                reader, writer = await asyncio.wait_for(asyncio.open_connection(
+                    self.config.server_host, self.config.server_port, limit=16_388, **tls_options), self.config.connect_timeout)
             if tls is not None:
                 # Verify after TLS chain validation and before constructing or
                 # sending hello, which may contain the player's credential.
@@ -1327,10 +1389,17 @@ class Companion:
             await self._send_remote(writer, hello)
             welcome = await asyncio.wait_for(read_message(reader), self.config.handshake_timeout)
             if welcome is None:
-                raise ConnectionError("server closed before welcome")
+                closed = ConnectionError("server closed before welcome")
+                closed.reason = "rejected"
+                raise closed
             if welcome.get("type") == "error":
-                raise ProtocolError("server_rejected", "server rejected this client")
-            welcome = validate_welcome(welcome, self.config)
+                raise ServerRejected(welcome.get("code"))
+            try:
+                welcome = validate_welcome(welcome, self.config)
+            except ProtocolError as error:
+                if getattr(error, "reason", None) is None:
+                    error.reason = "version_mismatch"    # a welcome this game cannot read comes from another game version
+                raise
             if battle_recovery is not None:
                 battle_recovery._accept_welcome(welcome)
             self.session_epoch = welcome["session_epoch"]
@@ -1338,7 +1407,9 @@ class Companion:
             self.server_epoch = welcome.get("server_epoch")
             self.save_profile = welcome.get("save_profile")
             self.connected = True
+            self._handshaking = False
             self.last_error = None
+            self.failure, self.failure_detail = None, ""
             self._network_seq = self._network_map_epoch = 0
             self._sent_pose_signature = self._sent_source_signature = None
             self._last_world_seq = 0

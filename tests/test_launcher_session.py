@@ -426,6 +426,90 @@ class LauncherSessionTests(unittest.IsolatedAsyncioTestCase):
             self.assertIsNone(session._store)
             self.assertEqual(session.status.state, SessionState.FAILED)
 
+    async def test_internet_world_listens_on_every_interface_and_the_host_game_uses_loopback(self):
+        from emerald_multiplayer.network_settings import WorldNetwork
+        session = self.session(bind_address="0.0.0.0", host_route=None, public=True, network=WorldNetwork(router_setup=False))
+        async with session.open():
+            self.assertEqual(session.status.state, SessionState.READY)
+            self.assertEqual(session._server.address[0], "0.0.0.0")
+            self.assertEqual(session.companion.config.server_host, "127.0.0.1")
+            self.assertTrue(session.status.connected)
+
+    async def test_internet_hosting_sets_up_the_router_reports_it_and_removes_it(self):
+        from emerald_multiplayer.network_settings import WorldNetwork
+        from emerald_multiplayer.port_mapping import PortMapper
+        from test_port_mapping import FakeGateway, silent_udp_port
+        gateway = FakeGateway()
+        self.addCleanup(gateway.close)
+        statuses = []
+
+        def factory(port, **options):
+            return PortMapper(port, ssdp_target=gateway.ssdp_target, gateway="127.0.0.1", natpmp_port=silent_udp_port(),
+                              budget=2.0, **options)
+        session = self.session(bind_address="0.0.0.0", host_route=None, public=True, network=WorldNetwork(),
+                               port_mapper_factory=factory, on_status=statuses.append)
+        async with session.open():
+            self.assertEqual(session.status.state, SessionState.READY)
+            async with asyncio.timeout(10):
+                while session.status.router is None or session.status.router.code == "checking":
+                    await asyncio.sleep(.02)
+            router = session.status.router
+            self.assertEqual((router.code, router.method, router.external_address, router.external_port),
+                             ("mapped", "upnp", "81.2.69.160", self.host.port))
+            self.assertTrue(any(status.router is not None and status.router.code == "mapped" for status in statuses))
+            self.assertIsNone(session.status.relay)
+        self.assertEqual(len(gateway.actions("DeletePortMapping")), 1)
+        json.dumps([asdict(status) for status in statuses])          # still plain, credential-free status data
+
+    async def test_a_router_without_automatic_setup_never_blocks_hosting(self):
+        from emerald_multiplayer.network_settings import WorldNetwork
+        from emerald_multiplayer.port_mapping import PortMapper
+        from test_port_mapping import silent_udp_port
+
+        def factory(port, **options):
+            return PortMapper(port, ssdp_target=("127.0.0.1", silent_udp_port()), gateway="127.0.0.1",
+                              natpmp_port=silent_udp_port(), budget=1.0, **options)
+        session = self.session(bind_address="0.0.0.0", host_route=None, public=True, network=WorldNetwork(),
+                               port_mapper_factory=factory)
+        async with session.open():
+            self.assertEqual(session.status.state, SessionState.READY)        # hosting did not wait for the router
+            async with asyncio.timeout(10):
+                while session.status.router.code == "checking":
+                    await asyncio.sleep(.02)
+            self.assertEqual(session.status.router.code, "no_router_support")
+            self.assertTrue(session._server.is_serving)
+        # Without Internet access the router is never touched.
+        local = self.session(network=WorldNetwork(), port_mapper_factory=factory)
+        async with local.open():
+            self.assertIsNone(local.status.router)
+
+    async def test_host_and_friend_sessions_meet_through_a_relay(self):
+        import secrets as random
+        from emerald_multiplayer.network_settings import WorldNetwork, save_join_route
+        from emerald_multiplayer.relay import RelayServer
+        relay = RelayServer()
+        await relay.start("127.0.0.1", 0)
+        self.addAsyncCleanup(relay.close)
+        network = WorldNetwork(router_setup=False, relay_enabled=True, relay_address="127.0.0.1", relay_port=relay.address[1],
+                               relay_secret=random.token_bytes(32))
+        host = self.session(network=network)
+        async with host.open():
+            async with asyncio.timeout(10):
+                while host.status.relay is None or not host.status.relay.ready:
+                    await asyncio.sleep(.02)
+            friend_id = self.host.accounts[1].player_id
+            save_join_route(self.private, self.host.world_id, friend_id, ("127.0.0.1", relay.address[1]))
+            friend = self.friend()
+            async with friend.open():
+                self.assertEqual(friend.status.state, SessionState.READY)
+                self.assertEqual(friend.companion.config.relay_host, "127.0.0.1")
+                self.assertEqual(relay.rooms[self.host.world_id].pipes, 1)       # the friend came through the relay
+                self.assertIn(friend_id, host._server.sessions)
+                async with asyncio.timeout(5):
+                    while host.status.relay.friends != 1:
+                        await asyncio.sleep(.02)
+        self.assertIsNone(host._relay_agent)
+
     async def test_unavailable_host_times_out_without_starting_a_game(self):
         session = self.friend(connection_timeout=.15)
         with self.assertRaises(LauncherSessionError) as caught:

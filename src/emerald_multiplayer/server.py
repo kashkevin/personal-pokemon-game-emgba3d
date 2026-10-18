@@ -38,13 +38,17 @@ from .reset_protocol import RESET_TYPES, validate_reset_common, validate_reset_r
 if TYPE_CHECKING:
     from .storage import Checkpoint, CheckpointStore, WorldMetadata
 
+# A world open to the local network also accepts 100.64.0.0/10. Overlay VPNs (Tailscale and similar) number their members there
+# and admit only devices their owner authorised, which is the same trust as the home network. The address is not what admits a
+# player: the TLS host identity and the player's credential still decide that. Other public addresses still need Internet access.
 _LAN_NETWORKS = tuple(ipaddress.ip_network(network) for network in (
-    "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "fc00::/7",
+    "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "fc00::/7", "100.64.0.0/10",
 ))
+WILDCARD = "0.0.0.0"
 
 
 def is_local_address(value: str, allow_lan: bool = False) -> bool:
-    """Allow loopback, plus explicit RFC1918/ULA addresses for LAN testing."""
+    """Allow loopback, plus explicit RFC1918/ULA/overlay (100.64.0.0/10) addresses when the world is open to the network."""
     try:
         address = ipaddress.ip_address(value)
     except ValueError:
@@ -349,6 +353,15 @@ class WorldServer:
         self._allow_lan = False
         self._public_transport = False
         self._closing = False
+        self._relay_server: asyncio.Server | None = None
+
+    @property
+    def relay_address(self) -> tuple[str, int]:
+        """Where the host's relay agent delivers relayed connections (loopback; only with ``start(relay=True)``)."""
+        if self._relay_server is None or not self._relay_server.sockets:
+            raise RuntimeError("relayed connections are not enabled")
+        address = self._relay_server.sockets[0].getsockname()
+        return address[0], address[1]
 
     @property
     def address(self) -> tuple[str, int]:
@@ -429,17 +442,27 @@ class WorldServer:
                 and self._monitor_task is not None and not self._monitor_task.done())
 
     async def start(self, host: str = "127.0.0.1", port: int = 8765, *, allow_lan: bool = False,
-                    tls: ServerTlsConfig | None = None, public: bool = False) -> None:
+                    tls: ServerTlsConfig | None = None, public: bool = False, wildcard: bool = False,
+                    relay: bool = False) -> None:
+        """Listen on ``host:port``. ``wildcard=True`` with host "0.0.0.0" listens on every IPv4 interface (router forwards and VPN
+        adapters reach it); like ``public`` it requires TLS and a durable authenticated store, and the peer filter is unchanged:
+        local network and overlay peers with ``allow_lan``, any unicast peer only with ``public``. ``relay=True`` adds a
+        loopback-only listener (``relay_address``) for connections the host's relay agent carries; they are TLS-authenticated
+        exactly like direct ones."""
         if self._server is not None:
             raise RuntimeError("server is already started")
-        if type(allow_lan) is not bool or type(public) is not bool:
+        if type(allow_lan) is not bool or type(public) is not bool or type(wildcard) is not bool or type(relay) is not bool:
             raise ValueError("transport opt-ins must be booleans")
         if tls is not None and not isinstance(tls, ServerTlsConfig):
             raise ValueError("TLS requires a ServerTlsConfig")
-        if public:
+        if public or wildcard or relay:
             from .storage import CheckpointStore
             if tls is None or not isinstance(self.store, CheckpointStore):
-                raise ValueError("public transport requires TLS and a durable authenticated store")
+                raise ValueError("public, wildcard and relayed transport require TLS and a durable authenticated store")
+        if wildcard:
+            if host != WILDCARD or not (public or allow_lan):
+                raise ValueError("a wildcard listener is the IPv4 any-address and needs the world open to the network")
+        elif public:
             if not is_numeric_unicast_address(host):
                 raise ValueError("public transport requires a specific numeric unicast bind address")
         elif not is_local_address(host, allow_lan):
@@ -456,6 +479,15 @@ class WorldServer:
         # Bind first so a failed bind cannot fence a currently serving world.
         listener = await asyncio.start_server(self._accept, host, port, limit=MAX_FRAME_BYTES + 4,
                                              start_serving=False, **tls_options)
+        relay_listener = None
+        if relay:
+            try:
+                relay_listener = await asyncio.start_server(self._accept_relayed, "127.0.0.1", 0, limit=MAX_FRAME_BYTES + 4,
+                                                            start_serving=False, **tls_options)
+            except BaseException:
+                listener.close()
+                await listener.wait_closed()
+                raise
         try:
             if self.store is not None:
                 self._world_metadata = self.store.begin_server_boot()
@@ -465,10 +497,17 @@ class WorldServer:
                 await self.trade_effects.start()
             self._server = listener
             await listener.start_serving()
+            if relay_listener is not None:
+                self._relay_server = relay_listener
+                await relay_listener.start_serving()
         except BaseException:
             self._server = None
+            self._relay_server = None
             listener.close()
             await listener.wait_closed()
+            if relay_listener is not None:
+                relay_listener.close()
+                await relay_listener.wait_closed()
             if self.trade_effects is not None:
                 await self.trade_effects.close()
             raise
@@ -486,6 +525,9 @@ class WorldServer:
         if self.battle_execution is not None:
             await self.battle_execution.close()
         listening_server = self._server
+        relay_server, self._relay_server = self._relay_server, None
+        if relay_server is not None:
+            relay_server.close()
         if self._server is not None:
             self._server.close()
             self._server = None
@@ -508,6 +550,8 @@ class WorldServer:
         # Closing them above must precede this await to avoid shutdown deadlock.
         if listening_server is not None:
             await listening_server.wait_closed()
+        if relay_server is not None:
+            await relay_server.wait_closed()
         self.shared_world.close()
         self.friendships.close()
         self.wagers.close()
@@ -519,7 +563,24 @@ class WorldServer:
         except (ConnectionError, OSError, asyncio.TimeoutError):
             pass
 
-    async def _accept(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+    def peer_allowed(self, address: str | None, *, relayed: bool = False) -> bool:
+        """Who may open a connection (TLS and the player's credential are still required afterwards).
+
+        Direct: loopback always; the local network and overlay VPNs (RFC1918, ULA, 100.64.0.0/10) when the world is open to the
+        network; any unicast address only when the world allows Internet connections. Relayed: only the host's own relay agent
+        on loopback, and only while relayed connections are enabled (the listener exists only then)."""
+        if address is None:
+            return False
+        if relayed:
+            return self._relay_server is not None and is_local_address(address)
+        if self._public_transport:
+            return is_numeric_unicast_address(address)
+        return is_local_address(address, self._allow_lan)
+
+    async def _accept_relayed(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        await self._accept(reader, writer, relayed=True)
+
+    async def _accept(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter, *, relayed: bool = False) -> None:
         task = asyncio.current_task()
         assert task is not None
         self._handlers.add(task)
@@ -529,9 +590,7 @@ class WorldServer:
             peer = writer.get_extra_info("peername")
             if self._closing:
                 return
-            peer_allowed = (is_numeric_unicast_address(peer[0]) if self._public_transport
-                            else is_local_address(peer[0], self._allow_lan)) if peer else False
-            if not peer_allowed:
+            if not self.peer_allowed(peer[0] if peer else None, relayed=relayed):
                 await self._reject(writer, "public_exposure_disabled", "this prototype permits local/LAN development only")
                 return
             # Bound pre-hello sockets as well as the admitted player count.
