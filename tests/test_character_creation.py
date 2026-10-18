@@ -28,7 +28,8 @@ from test_ownership_storage import owned_flash, source_flash
 from test_player_runtime import write_bundle
 
 
-class RemoteEnrollmentTests(unittest.IsolatedAsyncioTestCase):
+class RemoteEnrollmentFixture(unittest.IsolatedAsyncioTestCase):
+    """A host world with two friend invitations and a running WorldServer (no tests of its own; reused by test_character_play)."""
     allow = True
 
     async def asyncSetUp(self):
@@ -118,6 +119,9 @@ class RemoteEnrollmentTests(unittest.IsolatedAsyncioTestCase):
     def enrolled_sources(self):
         return {row[0]: row[1] for row in self.store._connection.execute("SELECT player_id, source_sha256 FROM ownership_enrollments")}
 
+
+
+class RemoteEnrollmentTests(RemoteEnrollmentFixture):
     async def test_a_friend_enrolls_their_own_new_game_over_the_connection(self):
         companion_patch, spawn_patch = self.patches()
         with companion_patch, spawn_patch:

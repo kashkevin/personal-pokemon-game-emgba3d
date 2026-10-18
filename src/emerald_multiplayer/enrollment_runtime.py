@@ -27,6 +27,7 @@ from .trade_storage import TradeCheckpointStore
 
 
 PREVIOUS = "previous-saves"
+UNSAFE_TO_SET_ASIDE = ("pending-trade.json", "pending-battle.json", "pending-battle-admission.json", "pending-emergency.json")
 
 
 def set_aside_previous_saves(directory):
@@ -37,6 +38,11 @@ def set_aside_previous_saves(directory):
     directory = Path(directory)
     if not directory.is_dir():
         return None
+    # An interrupted trade, battle or emergency save of the earlier character is finished first (play once in this world
+    # with the character that was there, or use recovery); its evidence is never moved out of the way.
+    for marker in UNSAFE_TO_SET_ASIDE:
+        if path_present(directory / marker):
+            raise EnrollmentRuntimeError("recovery_required", "an interrupted trade, battle or save of this account must finish first")
     keep = {"invitation.json", PREVIOUS}
     moving = [entry for entry in directory.iterdir()
               if entry.name not in keep and not (entry.name.startswith("host-") and entry.name.endswith(".pem"))

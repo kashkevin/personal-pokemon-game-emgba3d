@@ -147,6 +147,7 @@ class CheckpointUpload:
     save_profile: str
     last_activity: float
     data: bytearray = field(default_factory=bytearray, repr=False)
+    mode: str = "enroll"           # enrollment uploads: "enroll" or "transfer" (character_transfers.py)
 
     def matches(self, message: dict[str, Any]) -> bool:
         return all(getattr(self, name) == message[name] for name in (
@@ -750,7 +751,8 @@ class WorldServer:
                                    pending=pending[0] if pending else None, pending_sha256=pending[2] if pending else None,
                                    wallet_seq=wallet, transfers=transfers)
             return
-        mode = request.get("mode", "enroll")
+        # Chunks carry no mode: they belong to the upload its begin opened (and the commit must name the same mode).
+        mode = request.get("mode", "enroll") if kind != "enrollment_chunk" else getattr(session.enrollment_upload, "mode", "enroll")
         if mode == "enroll" and head is not None:
             raise ProtocolError("already_enrolled", "this account already has a character")
         if mode == "transfer":
@@ -765,6 +767,9 @@ class WorldServer:
             if session.enrollment_upload is None:
                 from .flash import LAYOUT_ID
                 session.enrollment_upload = CheckpointUpload(upload_id, 0, request["size"], request["sha256"], LAYOUT_ID, now)
+                session.enrollment_upload.mode = mode
+            elif getattr(session.enrollment_upload, "mode", "enroll") != mode:
+                raise ProtocolError("request_conflict", "upload ID was reused with a different mode")
             elif (session.enrollment_upload.size, session.enrollment_upload.sha256) != (request["size"], request["sha256"]):
                 raise ProtocolError("request_conflict", "upload ID was reused with a different fingerprint")
             session.enrollment_upload.last_activity = now
@@ -787,6 +792,8 @@ class WorldServer:
             self._enrollment_reply(session, request, state=state, upload_id=upload.upload_id, next_offset=len(upload.data))
             return
         # enrollment_commit
+        if getattr(upload, "mode", "enroll") != mode:
+            raise ProtocolError("request_conflict", "commit mode differs from the begun upload")
         if (request["size"], request["sha256"]) != (upload.size, upload.sha256):
             raise ProtocolError("request_conflict", "commit fingerprint differs from the begun upload")
         if len(upload.data) != upload.size:

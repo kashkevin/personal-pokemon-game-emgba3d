@@ -53,6 +53,14 @@ MESSAGES = {
     "installation_changed": "The installed game could not be verified.",
     "recovery_required": "An earlier setup of this character got further than it can safely restart; its files were kept.",
     "setup_failed": "Setting up your character could not finish. Your files were kept; try again.",
+    "pokemon_owned_here": "One of this character's Pokémon already belongs to another trainer in this world (a copy of a Pokémon "
+                          "traded away here), so the host's world refused it. Your character was not changed.",
+    "transfer_unsupported": "The host's EmeraldTogether is older than yours and cannot take characters coming back. "
+                            "Ask the host to install the same version.",
+    "trade_recovery_required": "A trade of this account in the host's world is not finished. Play once in that world to "
+                               "finish it, then try again.",
+    "battle_reserved": "A battle of this account in the host's world is not finished yet. Try again in a moment.",
+    "unreadable_character": "This character's save could not be read. Restore an earlier version in Characters.",
 }
 
 
@@ -80,42 +88,58 @@ async def create_draft(installation, private_root, *, on_status=None):
         raise CreationError(error.code) from None
 
 
-async def submit_source(companion, payload):
-    """Send a friend's source to the host's server and return its SHA-256 once the server has recorded it for this account."""
+async def submit_source(companion, payload, *, mode="enroll", reply=None):
+    """Send a friend's source to the host's server and return its SHA-256 once the server has recorded it for this account.
+    ``mode`` "transfer": the account already has a character and this is the character coming back (character_transfers);
+    ``reply`` receives the server's final answer (its base revision for a transfer)."""
     sha256 = hashlib.sha256(payload).hexdigest()
+    extra = {"mode": "transfer"} if mode == "transfer" else {}
     try:
         status = await companion.enrollment_rpc("status")
-        if status["state"] == "checkpointed":
+        if status["state"] == "checkpointed" and mode != "transfer":
             raise CreationError("already_enrolled")
-        begin = await companion.enrollment_rpc("begin", size=len(payload), sha256=sha256)
+        if mode == "transfer" and not status.get("transfers"):
+            raise CreationError("transfer_unsupported")
+        begin = await companion.enrollment_rpc("begin", size=len(payload), sha256=sha256, **extra)
         upload_id, offset = begin["upload_id"], begin["next_offset"]
         if not 0 <= offset <= len(payload):
             raise CreationError("setup_failed")
         while offset < len(payload):
             chunk = payload[offset:offset + CHECKPOINT_CHUNK_BYTES]
-            reply = await companion.enrollment_rpc("chunk", upload_id=upload_id, offset=offset,
+            answer = await companion.enrollment_rpc("chunk", upload_id=upload_id, offset=offset,
                                                    data_b64=base64.b64encode(chunk).decode("ascii"))
-            if reply["next_offset"] != offset + len(chunk):
+            if answer["next_offset"] != offset + len(chunk):
                 raise CreationError("setup_failed")
             offset += len(chunk)
-        done = await companion.enrollment_rpc("commit", upload_id=upload_id, size=len(payload), sha256=sha256)
+        done = await companion.enrollment_rpc("commit", upload_id=upload_id, size=len(payload), sha256=sha256, **extra)
     except EnrollmentRemoteError as error:
-        code = {"source_already_enrolled": "source_already_enrolled", "enrollment_conflict": "enrollment_conflict",
-                "invalid_enrollment": "invalid_enrollment", "enrollment_disabled": "enrollment_disabled",
-                "already_enrolled": "already_enrolled"}.get(error.code, "setup_failed")
+        code = error.code if error.code in ("source_already_enrolled", "enrollment_conflict", "invalid_enrollment",
+                                            "enrollment_disabled", "already_enrolled", "pokemon_owned_here",
+                                            "transfer_unsupported", "trade_recovery_required", "battle_reserved",
+                                            "invalid_fields") else "setup_failed"
+        if code == "invalid_fields":
+            code = "transfer_unsupported"     # an older host does not know returning characters
         raise CreationError(code) from None
     except (ConnectionError, TimeoutError):
         raise CreationError("connection_lost") from None
-    if done["state"] != "enrolled" or done.get("source_sha256") != sha256:
+    expected = "transferred" if mode == "transfer" else "enrolled"
+    if done["state"] != expected or done.get("source_sha256") != sha256:
         raise CreationError("setup_failed")
+    if reply is not None:
+        reply.update(done)
     return sha256
 
 
 @asynccontextmanager
-async def remote_enrollment(installation, private_root, *, invitation_path, route_host, route_port, source_path,
-                            connection_timeout=10, on_status=None):
+async def remote_enrollment(installation, private_root, *, invitation_path, route_host, route_port, source_path=None,
+                            connection_timeout=10, on_status=None, character_payload=None, mode="enroll"):
     """The friend's counterpart of ``launcher_setup.host_enrollment``: connect with the account's own invitation, have the host's
-    server record the source, and yield an open ``EnrollmentRuntime``. ``route_host`` is a numeric address (already resolved)."""
+    server record the source, and yield an open ``EnrollmentRuntime``. ``route_host`` is a numeric address (already resolved).
+
+    ``character_payload`` (a universal character's latest save, any world): after connecting, the server says whether this
+    account already has a character here; the save is detached from its old world with this world's wallet sequence
+    (``character_transfer``), kept beside the account as ``outgoing-character.sav`` and registered: as the account's first
+    character, or as the character coming back (``mode`` is then chosen by the server's answer)."""
     companion = None
 
     def publish(phase):
@@ -142,7 +166,7 @@ async def remote_enrollment(installation, private_root, *, invitation_path, rout
         config = invitation.companion_config(installation.rom_path, installation.manifest_path, token=secrets.token_bytes(32),
                                              private_directory=private, ipc_port=0)
         config = replace(config, server_host=route_host, server_port=route_port)
-        payload = _source_bytes(source_path)
+        payload = _source_bytes(source_path) if source_path is not None else None
         companion = Companion(config)
         publish("connecting")
         await companion.start()
@@ -153,9 +177,37 @@ async def remote_enrollment(installation, private_root, *, invitation_path, rout
         except TimeoutError:
             raise CreationError("connection_timeout") from None
         publish("approving")
-        sha256 = await submit_source(companion, payload)
+        if character_payload is not None:
+            from .character_transfer import TransferError, detach_from_world
+            from .live_checkpoint import _atomic
+            try:
+                status = await companion.enrollment_rpc("status")
+            except EnrollmentRemoteError:
+                raise CreationError("setup_failed") from None
+            except (ConnectionError, TimeoutError):
+                raise CreationError("connection_lost") from None
+            mode = "transfer" if status.get("state") == "checkpointed" else "enroll"
+            wallet = status.get("wallet_seq", 0)
+            try:
+                detached = detach_from_world(character_payload, wallet_seq=wallet if type(wallet) is int and 0 <= wallet <= 0xFFFF else 0)
+            except TransferError:
+                raise CreationError("unreadable_character") from None
+            private.mkdir(mode=0o700, parents=True, exist_ok=True)
+            source_path = private.parent / f".{private.name}.outgoing-character.sav"
+            _atomic(source_path, detached.payload)
+            payload = detached.payload
+        if payload is None:
+            raise CreationError("setup_failed")
+        reply = {}
+        sha256 = await submit_source(companion, payload, mode=mode, reply=reply)
+        base_revision = reply.get("base_revision", 0) if mode == "transfer" else 0
+        if mode == "transfer":
+            from .enrollment_runtime import set_aside_previous_saves
+            if type(base_revision) is not int or base_revision < 1:
+                raise CreationError("setup_failed")
+            set_aside_previous_saves(private)
         approval = EnrollmentApproval(companion.world_id, config.player_id, config.build_id, config.ruleset_id, sha256,
-                                      Path(source_path).resolve(strict=True), payload)
+                                      Path(source_path).resolve(strict=True), payload, base_revision=base_revision)
         # The menu's "Continue setting up my character" after a game that crashed or was closed before the safe place.
         runtime = EnrollmentRuntime(companion, installation.bundle, private, private / "character.sav", approval,
                                     launch_root=launch_root, restart_abandoned=True)
@@ -167,8 +219,8 @@ async def remote_enrollment(installation, private_root, *, invitation_path, rout
     except CreationError:
         raise
     except EnrollmentRuntimeError as error:
-        raise CreationError("source_already_enrolled" if error.code == "source_already_enrolled" else
-                            "already_enrolled" if error.code == "already_enrolled" else "setup_failed") from None
+        raise CreationError(error.code if error.code in ("source_already_enrolled", "already_enrolled", "recovery_required")
+                            else "setup_failed") from None
     except Exception as error:                                        # noqa: BLE001 - mapped to a stable, safe code
         raise CreationError("setup_failed") from error
     finally:

@@ -309,9 +309,11 @@ async def host_enrollment(installation, private_root, *, world_directory, slot,
             raise LauncherSetupError("world_active") from None
         publish("approving", "source_approval")
         if mode == "transfer":
-            from .enrollment_runtime import approve_transfer_source
+            from .enrollment_runtime import approve_transfer_source, set_aside_previous_saves
             approval = approve_transfer_source(store, account.player_id, source_path,
                                                expected_source_sha256=expected_source_sha256)
+            # The account's earlier saves here are kept in previous-saves/; the character coming back starts clean.
+            set_aside_previous_saves(private)
         else:
             approval = approve_enrollment_source(store, account.player_id, source_path,
                                                  expected_source_sha256=expected_source_sha256,
