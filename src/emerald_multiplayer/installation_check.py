@@ -15,8 +15,9 @@ The problem codes are stable identifiers for the menu:
   sdl_missing, sdl_changed                        SDL2.dll
   sprites_missing, sprites_changed                the battle picture pack (*.ebsp)
   game_facts_missing, game_facts_changed          game-facts.json (stands in for the GBA ROM)
+  battle_effects_missing, battle_effects_changed  a 3D battle effects file (runtime\\battlefx, runtime.json "data")
   runtime_file_missing, runtime_file_changed      any other pinned game file
-  runtime_unlisted                                an unknown program or library in the game folder
+  runtime_unlisted                                an unknown program, library or script in the game folder
   rom_missing, rom_changed                        the player's own game.gba (packages without facts)
   path_unsupported                                the installation path is too long for the game
   unverified                                      anything else the full check refused
@@ -89,6 +90,8 @@ _KINDS = {
     "game_facts": ("the game identity file", "It records which exact game build this package contains, "
                    "so your worlds, invitations and saves match it."),
     "runtime_file": ("a game file", "It is one of the files this package was built with."),
+    "battle_effects": ("a 3D battle effects file", "The battlefx folder draws the moves' effects in 3D battles, and "
+                       "EmeraldTogether checks every one of its files before starting the game."),
 }
 
 
@@ -122,7 +125,7 @@ _FIXED = {
                                "checked."),
     "runtime_unlisted": ("An unknown program file is in the game folder",
                          "{names} {verb} in the game's folder but {verb_not} part of this package. EmeraldTogether does not "
-                         "start the game next to unknown programs or libraries."),
+                         "start the game next to unknown programs, libraries or scripts."),
     "path_unsupported": ("The installation folder's path is too long",
                          "Windows limits how long a file path the game can use, and this installation's folder (or "
                          "your Windows user folder) is too deep. Install EmeraldTogether in its default folder, "
@@ -195,6 +198,7 @@ def _kind(name, record):
 
 def _check(installation, importer):
     from .companion import verify_rom_manifest
+    from .player_runtime import data_parts, unlisted_data
     problems = []
     manifest_ok = False
     try:
@@ -236,11 +240,27 @@ def _check(installation, importer):
                 actual = None
             if actual != digest:
                 problems.append(_file_problem(kind, "changed", name))
+        data = record.get("data", {})
+        data = data if isinstance(data, dict) else {}
+        for key, digest in sorted(data.items()):
+            try:
+                actual = _sha(root.joinpath(*data_parts(key)))
+            except FileNotFoundError:
+                problems.append(_file_problem("battle_effects", "missing", key))
+                continue
+            except (OSError, ValueError):
+                actual = None
+            if actual != digest:
+                problems.append(_file_problem("battle_effects", "changed", key))
         try:
             unlisted = sorted(child.name for child in root.iterdir()
                               if child.suffix.lower() in {".exe", ".dll", ".lua"} and child.name not in files)
         except OSError:
             unlisted = []
+        try:
+            unlisted += unlisted_data(root, data)
+        except (OSError, ValueError):
+            pass                                                     # the full check below refuses it
         if unlisted:
             many = len(unlisted) > 1
             problems.append(_fixed("runtime_unlisted", names=", ".join(unlisted),

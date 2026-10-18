@@ -216,6 +216,31 @@ class PackagedInstallationTests(unittest.TestCase):
                 (runtime / name).write_bytes(original)
                 self.assertTrue(check_installation(installation).ok)
 
+    def test_battle_effects_files_are_named(self):
+        installation = self.package.installation()
+        effects = self.package.runtime / "battlefx"
+        for name, state in (("bfx_core.js", "missing"), ("shaders/card.frag", "changed")):
+            with self.subTest(name=name):
+                key = "battlefx/" + name
+                original = (effects / name).read_bytes()
+                if state == "missing":
+                    (effects / name).unlink()
+                else:
+                    (effects / name).write_bytes(original + b"\0")
+                with self.assertRaises(PlayerRuntimeError) as caught:
+                    installation.verify()
+                self.assertEqual(caught.exception.code, "runtime_hash")
+                problem = self.assert_problem(check_installation(installation), "battle_effects_" + state, key)
+                self.assertIn("3D battles", problem.message)
+                (effects / name).write_bytes(original)
+                self.assertTrue(check_installation(installation).ok)
+        (effects / "inject.js").write_text("// not part of the package\n")
+        with self.assertRaises(PlayerRuntimeError) as caught:
+            installation.verify()
+        self.assertEqual(caught.exception.code, "runtime_unlisted")
+        self.assertIn("battlefx/inject.js",
+                      self.assert_problem(check_installation(installation), "runtime_unlisted").message)
+
     def test_tampered_or_missing_manifest(self):
         installation = self.package.installation()
         manifest = self.package.application / "game-manifest.json"

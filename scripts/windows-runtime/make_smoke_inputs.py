@@ -11,6 +11,7 @@ ROM, base dump or sprite pack:
   SDL2.dll                     placeholder bytes
   pokedev.gba                  a few KiB of text; only its game facts enter the package
   manifest.json                identity of that file in the real manifest format
+  battlefx/                    stand-ins for the 3D battle effects folder (a few lines of text)
 
 The manifest passes the companion's own verify_rom_manifest. The result is a package that
 cannot play anything; it proves the pipeline only.
@@ -43,6 +44,12 @@ def make(exe: Path, output: Path) -> dict:
                     rom_sha256=hashlib.sha256(FIXTURE).hexdigest(), rom_crc32=f"{zlib.crc32(FIXTURE) & 0xFFFFFFFF:08x}",
                     rom_size=len(FIXTURE), ruleset_id=BASELINE_RULESET, engine_commit="smoke-test")
     (output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    effects = output / "battlefx"
+    (effects / "shaders").mkdir(parents=True)
+    (effects / "bfx_core.js").write_text("// smoke-test placeholder, not the effect core\n", encoding="utf-8")
+    (effects / "bfx_moves.json").write_text("{}\n", encoding="utf-8")
+    (effects / "settings.cfg").write_text("# smoke-test placeholder\n", encoding="utf-8")
+    (effects / "shaders/card.frag").write_text("// smoke-test placeholder\n", encoding="utf-8")
     from emerald_multiplayer.companion import verify_rom_manifest
     verify_rom_manifest(output / "pokedev.gba", output / "manifest.json")
     return dict(directory=str(output), rom_sha256=manifest["rom_sha256"])

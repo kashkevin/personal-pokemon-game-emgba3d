@@ -8,12 +8,16 @@ same engine source (`player_runtime.NativeGame`, KNOWN_ISSUES M1). With
 capability markers and battle-message lengths, recorded after a full check of
 the ROM against that manifest, so a player's PC needs no game.gba (the native
 game never reads one). Optional extra files (the host's `emerald-trade-replay.exe`
-and its DLLs) are pinned with them. No ROM, save or player data is copied.
+and its DLLs) are pinned with them. With --battle-effects (the engine's battlefx/
+folder) the 3D battle effects go into runtime/battlefx/, every file pinned in
+runtime.json "data"; the game reads them beside its executable, and without them
+every move plays its GBA animation. No ROM, save or player data is copied.
 Private: the executable contains game data.
 
     python scripts/windows-runtime/collect_native_bundle.py \\
         --game ../engine-graphics/pokeemerald-mp-diorama.exe --sdl SDL2.dll \\
-        --rom ../engine/pokedev.gba --manifest manifest.json --output runtime
+        --rom ../engine/pokedev.gba --manifest manifest.json \\
+        --battle-effects ../engine-graphics/battlefx --output runtime
 
 Prints the directory and the runtime.json pin (the release record's runtime_sha256).
 """
@@ -29,21 +33,48 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 from emerald_multiplayer.companion import verify_rom_manifest  # noqa: E402
 from emerald_multiplayer.game_facts import FILE_NAME as FACTS, write_facts  # noqa: E402
-from emerald_multiplayer.player_runtime import NativeGame, RuntimeBundle  # noqa: E402
+from emerald_multiplayer.player_runtime import NativeGame, RuntimeBundle, data_parts  # noqa: E402
 
 FORMAT = "emerald-native-runtime-v1"
+EFFECTS = "battlefx"
+# The files the game cannot play its 3D battle effects without (engine src/diorama/battlefx/bfx_game.c).
+EFFECTS_REQUIRED = ("bfx_core.js", "bfx_moves.json", "settings.cfg")
 
 
 def sha(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
-def collect(game, sdl, rom, output, extra=(), classic_game=None, manifest=None):
+def copy_battle_effects(source, output):
+    """Copy the engine's battlefx/ folder to ``output``/battlefx; return runtime.json "data" for it."""
+    source = Path(source).resolve(strict=True)
+    if not source.is_dir():
+        raise ValueError("--battle-effects must be the engine's battlefx folder")
+    missing = [name for name in EFFECTS_REQUIRED if not (source / name).is_file()]
+    if missing:
+        raise ValueError(f"the battle effects folder lacks {', '.join(missing)}")
+    data = {}
+    for path in sorted(source.rglob("*")):
+        if path.is_symlink():
+            raise ValueError(f"the battle effects folder contains a link: {path}")
+        if not path.is_file():
+            continue
+        key = "/".join((EFFECTS, *path.relative_to(source).parts))
+        data_parts(key)                     # the launcher's own rules: name, depth, never a program
+        target = output.joinpath(*key.split("/"))
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(path, target)
+        data[key] = sha(target)
+    return data
+
+
+def collect(game, sdl, rom, output, extra=(), classic_game=None, manifest=None, battle_effects=None):
     """``classic_game``: the Classic 2D game (`Makefile_pc` without DIORAMA) of the same engine
     build. The launcher's Graphics mode starts it instead of ``game`` when the player chooses 2D or
     the 3D game cannot start; both share the save, the ROM pairing and the settings file.
     ``manifest``: the game manifest of ``rom``; the bundle then pins the game facts recorded from
-    both (runtime.json "game_facts"), which a package needs to run without a game.gba."""
+    both (runtime.json "game_facts"), which a package needs to run without a game.gba.
+    ``battle_effects``: the engine's battlefx/ folder (3D battle effects), pinned in runtime.json "data"."""
     game, sdl, rom, output = Path(game).resolve(), Path(sdl).resolve(), Path(rom).resolve(), Path(output).resolve()
     if not game.name.lower().endswith(".exe"):
         raise ValueError("the native game must be a Windows .exe")
@@ -67,6 +98,7 @@ def collect(game, sdl, rom, output, extra=(), classic_game=None, manifest=None):
     if manifest is not None:
         # Fully verifies the ROM against the manifest first (companion.verify_rom_manifest).
         write_facts(rom, manifest, output / FACTS)
+    data = copy_battle_effects(battle_effects, output) if battle_effects is not None else None
     files = {path.name: sha(path) for path in sorted(output.iterdir()) if path.is_file()}
     if len(files) > 32:
         raise ValueError("bundle exceeds the launcher manifest's file bound")
@@ -76,6 +108,8 @@ def collect(game, sdl, rom, output, extra=(), classic_game=None, manifest=None):
         manifest["classic_executable"] = classic_game.name
     if game_manifest is not None:
         manifest["game_facts"] = FACTS
+    if data is not None:
+        manifest["data"] = data
     (output / "runtime.json").write_text(json.dumps(manifest, sort_keys=True, indent=2) + "\n")
     pin = sha(output / "runtime.json")
     # The launcher's own check, as it will run before every start.
@@ -92,7 +126,7 @@ def collect(game, sdl, rom, output, extra=(), classic_game=None, manifest=None):
         if classic != output / classic_game.name:
             raise ValueError("the collected bundle does not verify its Classic 2D game")
     return dict(directory=str(output), manifest_sha256=pin, rom_sha256=manifest["rom_sha256"], files=len(files),
-                game_facts=game_manifest is not None)
+                game_facts=game_manifest is not None, battle_effects=len(data) if data is not None else 0)
 
 
 def main():
@@ -106,8 +140,11 @@ def main():
     parser.add_argument("--classic-game", type=Path, help="the Classic 2D game's .exe (same engine build)")
     parser.add_argument("--extra", type=Path, action="append", default=[],
                         help="another file to pin (e.g. emerald-trade-replay.exe); repeatable")
+    parser.add_argument("--battle-effects", type=Path,
+                        help="the engine's battlefx folder: the 3D battle effects (runtime/battlefx, pinned)")
     args = parser.parse_args()
-    print(json.dumps(collect(args.game, args.sdl, args.rom, args.output, args.extra, args.classic_game, args.manifest)))
+    print(json.dumps(collect(args.game, args.sdl, args.rom, args.output, args.extra, args.classic_game, args.manifest,
+                             args.battle_effects)))
 
 
 if __name__ == "__main__":

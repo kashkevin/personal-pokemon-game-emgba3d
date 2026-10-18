@@ -20,16 +20,30 @@ from test_cold_start import ClosedCompanion
 from test_companion import make_files
 from test_host_world import make_trade_files
 from test_ownership_storage import source_flash
+from test_player_runtime import write_bundle as write_emulator_bundle
 
 TOKEN = bytes(range(32)).hex()
 
 
-def write_native_bundle(root, rom_sha256, *, mutate=None, extra=()):
+BATTLE_EFFECTS = {"battlefx/bfx_core.js": b"// effect core fixture\n", "battlefx/bfx_moves.json": b"{}",
+                  "battlefx/shaders/card.frag": b"void main() {}\n"}
+
+
+def write_battle_effects(root, files=BATTLE_EFFECTS):
+    for key, content in files.items():
+        (root / key).parent.mkdir(parents=True, exist_ok=True)
+        (root / key).write_bytes(content)
+    return {key: hashlib.sha256(content).hexdigest() for key, content in files.items()}
+
+
+def write_native_bundle(root, rom_sha256, *, mutate=None, extra=(), data=None):
     (root / "pokeemerald-mp.exe").write_bytes(b"test fixture, never executed")
     (root / "SDL2.dll").write_bytes(b"test dependency")
     names = ["pokeemerald-mp.exe", "SDL2.dll", *extra]
     manifest = dict(format="emerald-native-runtime-v1", executable="pokeemerald-mp.exe", rom_sha256=rom_sha256,
                     files={name: hashlib.sha256((root / name).read_bytes()).hexdigest() for name in names})
+    if data is not None:
+        manifest["data"] = data
     if mutate:
         mutate(manifest)
     raw = json.dumps(manifest).encode()
@@ -94,6 +108,81 @@ class NativeBundleTests(unittest.TestCase):
             with self.subTest(mutate=mutate):
                 with self.assertRaises(PlayerRuntimeError):
                     write_native_bundle(self.root, self.rom, mutate=mutate).verify()
+
+
+class BattleEffectsDataTests(unittest.TestCase):
+    """runtime.json "data": the 3D battle effects (engine battlefx/) beside the game, pinned file by file."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.rom = "ab" * 32
+
+    def bundle(self, **options):
+        return write_native_bundle(self.root, self.rom, data=write_battle_effects(self.root), **options)
+
+    def test_pinned_battle_effects_verify(self):
+        executable, game = self.bundle().verify()
+        self.assertEqual((executable, game), (self.root / "pokeemerald-mp.exe", NativeGame(self.rom)))
+
+    def test_missing_or_changed_effect_file_refused(self):
+        bundle = self.bundle()
+        (self.root / "battlefx/shaders/card.frag").write_bytes(b"changed")
+        with self.assertRaisesRegex(PlayerRuntimeError, "pinned hash") as caught:
+            bundle.verify()
+        self.assertEqual(caught.exception.code, "runtime_hash")
+        (self.root / "battlefx/shaders/card.frag").unlink()
+        with self.assertRaisesRegex(PlayerRuntimeError, "missing") as caught:
+            bundle.verify()
+        self.assertEqual(caught.exception.code, "runtime_hash")
+
+    def test_unlisted_script_or_program_in_the_effects_folder_refused(self):
+        for name in ("battlefx/other.js", "battlefx/shaders/helper.DLL", "battlefx/x.exe", "battlefx/hook.lua"):
+            with self.subTest(name=name):
+                bundle = self.bundle()
+                (self.root / name).write_bytes(b"not listed")
+                with self.assertRaisesRegex(PlayerRuntimeError, "unlisted") as caught:
+                    bundle.verify()
+                self.assertEqual(caught.exception.code, "runtime_unlisted")
+                (self.root / name).unlink()
+        # An unlisted picture or note (e.g. a thumbnail cache) is never read by the game and does not block it.
+        (self.root / "battlefx/Thumbs.db.txt").write_bytes(b"ignored")
+        self.bundle().verify()
+
+    def test_link_inside_the_effects_folder_refused(self):
+        bundle = self.bundle()
+        outside = self.root.parent / (self.root.name + "-outside")
+        outside.mkdir()
+        self.addCleanup(lambda: (outside / "card.frag").unlink(missing_ok=True) or outside.rmdir())
+        (outside / "card.frag").write_bytes(BATTLE_EFFECTS["battlefx/shaders/card.frag"])
+        (self.root / "battlefx/shaders/card.frag").unlink()
+        try:
+            (self.root / "battlefx/shaders/card.frag").symlink_to(outside / "card.frag")
+        except OSError:
+            self.skipTest("symbolic links unavailable")
+        with self.assertRaises(PlayerRuntimeError) as caught:
+            bundle.verify()
+        self.assertEqual(caught.exception.code, "runtime_path")
+
+    def test_malformed_data_records_refused(self):
+        digest = "cd" * 32
+        records = [
+            {}, [], {"battlefx/../SDL2.dll": digest}, {"other/file.txt": digest}, {"battlefx": digest},
+            {"battlefx/a/b/c/d.txt": digest}, {"battlefx/x.dll": digest}, {"battlefx/run.EXE": digest},
+            {"battlefx/a.": digest}, {"battlefx/.hidden": digest}, {"battlefx\\a.txt": digest},
+            {"battlefx/a.txt": digest, "BATTLEFX/A.TXT": digest}, {"battlefx/a.txt": "CD" * 32},
+            {f"battlefx/{index}.txt": digest for index in range(65)},
+        ]
+        for data in records:
+            with self.subTest(data=str(data)[:60]):
+                with self.assertRaisesRegex(PlayerRuntimeError, "bounded format"):
+                    write_native_bundle(self.root, self.rom, data=data).verify()
+
+    def test_data_only_in_a_native_bundle(self):
+        bundle = write_emulator_bundle(self.root, mutate=lambda m: m.update(data={"battlefx/a.txt": "cd" * 32}))
+        with self.assertRaisesRegex(PlayerRuntimeError, "bounded format"):
+            bundle.verify()
 
 
 class NativePlayerRuntimeTests(unittest.IsolatedAsyncioTestCase):

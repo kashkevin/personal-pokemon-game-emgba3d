@@ -130,6 +130,8 @@ jobs:
           mkdir -p ../native-inputs
           cp pokeemerald-mp-diorama.exe pokeemerald-mp.exe pokedev.gba ../native-inputs/
           cp "$GITHUB_WORKSPACE/sdl/SDL2-${SDL_VERSION}/i686-w64-mingw32/bin/SDL2.dll" ../native-inputs/
+          # The 3D battle effects the game reads beside its executable (without them every move plays its GBA animation).
+          cp -r battlefx ../native-inputs/battlefx
           PYTHONPATH="$GITHUB_WORKSPACE/app/src" "$GITHUB_WORKSPACE/.venv/bin/python" \
             "$GITHUB_WORKSPACE/app/scripts/multiplayer/generate_manifest.py" \
             --rom pokedev.gba --elf pokedev.elf --engine-commit "$commit" --native-symbols native-symbols.txt --output ../native-inputs/manifest.json
@@ -206,9 +208,11 @@ jobs:
           extra=()
           [ "$HAVE_SPRITES" = true ] && extra=(--extra inputs/battle-sprites.ebsp)
           # --manifest pins game-facts.json (recorded after a full check of the ROM): the package then needs no game.gba.
+          # --battle-effects pins the engine's battlefx folder (runtime/battlefx, runtime.json "data").
           .venv/Scripts/python scripts/windows-runtime/collect_native_bundle.py \
             --game inputs/pokeemerald-mp-diorama.exe --classic-game inputs/pokeemerald-mp.exe \
             --sdl inputs/SDL2.dll --rom inputs/pokedev.gba --manifest inputs/manifest.json \
+            --battle-effects inputs/battlefx \
             --output "$WORK/runtime" "${extra[@]}" | tee "$WORK.bundle.json"
       - name: Inno Setup compiler (preinstalled on windows-2022; pinned Chocolatey install otherwise)
         run: |
@@ -292,6 +296,16 @@ jobs:
               assert hashlib.sha256(classic).hexdigest() == os.environ["ENGINE_CLASSIC_EXE_SHA256"], "packaged Classic 2D game differs from the engine job's build"
               assert len(classic) > 5_000_000, "Classic 2D executable is implausibly small"
               print("packaged Classic 2D executable is the engine job's build")
+          # The 3D battle effects beside the game (runtime/battlefx), each file pinned in runtime.json "data".
+          data = manifest.get("data", {})
+          for required in ("battlefx/bfx_core.js", "battlefx/bfx_moves.json", "battlefx/settings.cfg"):
+              assert required in data, f"the package has no {required}: every move would play its GBA animation"
+          for key, digest in data.items():
+              assert hashlib.sha256((runtime / key).read_bytes()).hexdigest() == digest, key
+          if os.environ["MODE"] == "full":
+              assert len(data) >= 20 and (runtime / "battlefx/bfx_core.js").stat().st_size > 1_000_000, \
+                  "the battle effects are not the engine's battlefx folder"
+          print("battle effects:", len(data), "files pinned,", sum((runtime / key).stat().st_size for key in data), "bytes")
           assert (dist / "EmeraldTogether.exe").is_file()
           for guide in ("README.txt", "QUICK-START.txt", "RELEASE-LIMITS.txt", "HOSTING.txt"):
               assert (dist / guide).is_file(), guide

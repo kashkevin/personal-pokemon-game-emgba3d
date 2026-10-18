@@ -1,7 +1,8 @@
 """A packaged installation the way the Windows package lays it out, built from synthetic inputs.
 
 ``Package`` writes the application folder PyInstaller produces (``_internal``: game-manifest.json
-and runtime\\ with the native games, SDL2.dll, a battle picture pack and the pinned game facts) with
+and runtime\\ with the native games, SDL2.dll, a battle picture pack, the pinned game facts and a
+battlefx\\ folder of 3D battle effects) with
 the same tool the CI uses (scripts/windows-runtime/collect_native_bundle.py), plus a private folder
 that has no game.gba. The fixture bytes are not a game; they test identity and integrity only.
 """
@@ -24,7 +25,7 @@ def sha(path):
 
 
 class Package:
-    def __init__(self, root, *, rom=None, manifest=None, facts=True, sprites=True):
+    def __init__(self, root, *, rom=None, manifest=None, facts=True, sprites=True, battle_effects=True):
         self.root = Path(root)
         inputs = self.root / "inputs"
         inputs.mkdir(parents=True)
@@ -38,6 +39,12 @@ class Package:
         if sprites:
             (inputs / "battle-sprites.ebsp").write_bytes(b"synthetic battle picture pack")
             extra.append(inputs / "battle-sprites.ebsp")
+        effects = None
+        if battle_effects:
+            effects = inputs / "battlefx"
+            (effects / "shaders").mkdir(parents=True)
+            for name in ("bfx_core.js", "bfx_moves.json", "settings.cfg", "shaders/card.frag"):
+                (effects / name).write_bytes(b"synthetic battle effects file " + name.encode())
         # The PyInstaller onedir: EmeraldTogether.exe beside _internal (sys._MEIPASS).
         self.application = self.root / "EmeraldTogether" / "_internal"
         self.application.mkdir(parents=True)
@@ -45,7 +52,7 @@ class Package:
         collect_native_bundle.collect(inputs / "pokeemerald-mp-diorama.exe", inputs / "SDL2.dll", self.rom,
                                       self.application / "runtime", extra,
                                       classic_game=inputs / "pokeemerald-mp.exe",
-                                      manifest=self.manifest if facts else None)
+                                      manifest=self.manifest if facts else None, battle_effects=effects)
         self.private = self.root / "LocalAppData" / "PokemonPrivate" / "launcher"
         self.private.mkdir(parents=True)
         self.release = LauncherRelease("Test 1", sha(self.rom), sha(self.application / "game-manifest.json"),

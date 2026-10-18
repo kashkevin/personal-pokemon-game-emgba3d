@@ -207,7 +207,8 @@ def build(args):
                                     release.manifest_sha256, RuntimeBundle(args.runtime, release.runtime_sha256))
     installation.verify()
     runtime_manifest = json.loads((args.runtime / "runtime.json").read_bytes())
-    audit_files(args.runtime / name for name in runtime_manifest["files"])
+    audit_files([*(args.runtime / name for name in runtime_manifest["files"]),
+                 *(args.runtime / key for key in runtime_manifest.get("data", {}))])
     game_manifest = json.loads(bounded_bytes(args.manifest, 131072))
     development = getattr(args, "development_preview", False)
     # The native PC game (collect_native_bundle.py) replaces mGBA and its Lua
@@ -284,6 +285,9 @@ def build(args):
     record = json.loads((resources / "runtime/runtime.json").read_bytes())
     for name, digest in record["files"].items():
         pinned_copy(args.runtime / name, resources / "runtime" / name, digest)
+    for key, digest in record.get("data", {}).items():
+        # The 3D battle effects (runtime/battlefx); the launcher verifies each before every start.
+        pinned_copy(args.runtime / key, resources / "runtime" / key, digest)
     # Verify the collected tree as well as its source. Arbitrary neighboring
     # files in a private runtime directory never enter the download.
     RuntimeBundle(resources / "runtime", release.runtime_sha256).verify()

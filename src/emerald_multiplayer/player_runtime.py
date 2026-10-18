@@ -6,7 +6,9 @@ the manifest pins every executable and DLL in its bundle, and either the Lua
 bridge mGBA runs (emerald-windows-runtime-v1) or, for the native game with its
 own bridge, the ROM build it pairs with (emerald-native-runtime-v1). A native
 bundle may also pin its game facts (runtime.json "game_facts", game_facts.py),
-which stand in for the GBA ROM: the native game never reads a ROM.
+which stand in for the GBA ROM: the native game never reads a ROM. It may also
+pin data folders the game reads beside its executable (runtime.json "data",
+DATA_DIRECTORIES: the 3D battle effects), file by file.
 """
 from __future__ import annotations
 
@@ -35,7 +37,15 @@ _LAUNCH_ID_PLACEHOLDER = "00000000-0000-0000-0000-000000000000"
 _WINDOWS_RUNTIME = "emerald-windows-runtime-v1"
 _NATIVE_RUNTIME = "emerald-native-runtime-v1"
 _NATIVE_REQUIRED = frozenset({"format", "executable", "rom_sha256", "files"})
-_NATIVE_OPTIONAL = frozenset({"classic_executable", "game_facts"})
+_NATIVE_OPTIONAL = frozenset({"classic_executable", "game_facts", "data"})
+# Folders the native game reads beside its executable (SDL_GetBasePath()): battlefx/ holds the 3D battle effects
+# (engine battlefx/; without it every move plays its GBA animation). runtime.json "data" pins each file in them as
+# "battlefx/<path>": sha256. Programs never live there, and an unlisted script in one is refused.
+DATA_DIRECTORIES = frozenset({"battlefx"})
+_MAX_DATA = 64
+_MAX_DATA_ENTRIES = 1024
+_PROGRAM = frozenset({".exe", ".dll", ".lua"})
+_DATA_CODE = _PROGRAM | {".js"}
 # The native bundle's pinned game facts (game_facts.FILE_NAME), named by runtime.json "game_facts".
 GAME_FACTS_NAME = "game-facts.json"
 # The native game's settings (window, sound, the 3D view's look): one file
@@ -90,6 +100,18 @@ def _read(path, maximum):
     if len(data) > maximum:
         raise PlayerRuntimeError("runtime_size", "runtime component exceeds its size limit")
     return data
+
+
+def data_parts(key):
+    """The path components of a runtime.json "data" key ("battlefx/shaders/card.frag"); ValueError otherwise."""
+    if not isinstance(key, str):
+        raise ValueError("data key")
+    parts = key.split("/")
+    if (not 2 <= len(parts) <= 4 or parts[0] not in DATA_DIRECTORIES
+            or any(not _NAME.fullmatch(part) or part.endswith(".") for part in parts)
+            or Path(parts[-1]).suffix.lower() in _PROGRAM):
+        raise ValueError("data key")
+    return parts
 
 
 def _unique(pairs):
@@ -203,6 +225,15 @@ class RuntimeBundle:
             facts = manifest.get("game_facts")
             if facts is not None and (facts != GAME_FACTS_NAME or facts not in files):
                 raise ValueError()
+            data = manifest.get("data", {})
+            if "data" in manifest and (not native or not isinstance(data, dict) or not 1 <= len(data) <= _MAX_DATA):
+                raise ValueError()
+            for key, digest in data.items():
+                data_parts(key)
+                if not isinstance(digest, str) or not _HASH.fullmatch(digest):
+                    raise ValueError()
+            if len({key.casefold() for key in data}) != len(data):
+                raise ValueError()
             if native:
                 # Nothing for an emulator to run: the game is its own bridge.
                 if any(name.lower().endswith(".lua") for name in files):
@@ -223,6 +254,7 @@ class RuntimeBundle:
                 raise PlayerRuntimeError("runtime_path", "runtime component must be a regular file inside its bundle")
             if hashlib.sha256(_read(path, _MAX_FILE)).hexdigest() != digest:
                 raise PlayerRuntimeError("runtime_hash", "runtime component differs from its pinned hash")
+        _verify_data(root, data)
         if graphics == "2d":
             if classic is None:
                 raise PlayerRuntimeError("classic_unavailable", "this package has no Classic 2D game")
@@ -230,6 +262,39 @@ class RuntimeBundle:
         if native:
             return root / executable, NativeGame(manifest["rom_sha256"])
         return root / executable, (root / bridge).read_text(encoding="utf-8")
+
+
+def _verify_data(root, data):
+    """Each pinned data file is a regular file at exactly its path (no link or junction on the way), with its
+    hash; the data folders hold no unlisted program or script."""
+    for key, digest in data.items():
+        path = root.joinpath(*data_parts(key))
+        try:
+            if path.is_symlink() or path.resolve(strict=True) != path or not path.is_file():
+                raise PlayerRuntimeError("runtime_path", "game data must be a regular file inside its bundle")
+            content = _read(path, _MAX_FILE)
+        except OSError:
+            raise PlayerRuntimeError("runtime_hash", "a pinned game data file is missing") from None
+        if hashlib.sha256(content).hexdigest() != digest:
+            raise PlayerRuntimeError("runtime_hash", "game data differs from its pinned hash")
+    if unlisted_data(root, data):
+        raise PlayerRuntimeError("runtime_unlisted", "a game data folder contains an unlisted program or script")
+
+
+def unlisted_data(root, data):
+    """Programs and scripts in the bundle's data folders that runtime.json "data" does not pin (sorted relative
+    paths). A link anywhere in them, or an unbounded folder, is refused outright."""
+    root, listed, found = Path(root), {key.casefold() for key in data}, []
+    for directory in sorted({data_parts(key)[0] for key in data}):
+        for count, child in enumerate((root / directory).rglob("*"), 1):
+            if count > _MAX_DATA_ENTRIES:
+                raise PlayerRuntimeError("runtime_unlisted", "a game data folder holds too many files")
+            if child.is_symlink():
+                raise PlayerRuntimeError("runtime_path", "a game data folder contains a link")
+            name = child.relative_to(root).as_posix()
+            if child.suffix.lower() in _DATA_CODE and name.casefold() not in listed:
+                found.append(name)
+    return sorted(found)
 
 
 @dataclass(frozen=True)

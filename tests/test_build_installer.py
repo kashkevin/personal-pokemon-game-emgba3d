@@ -82,7 +82,8 @@ def smoke_inputs(root, *, facts=True):
     make_smoke_inputs.make(stand_in, inputs)
     collect_native_bundle.collect(inputs / "pokeemerald-mp-diorama.exe", inputs / "SDL2.dll", inputs / "pokedev.gba",
                                   root / "runtime", classic_game=inputs / "pokeemerald-mp.exe",
-                                  manifest=inputs / "manifest.json" if facts else None)
+                                  manifest=inputs / "manifest.json" if facts else None,
+                                  battle_effects=inputs / "battlefx")
     return inputs, root / "runtime"
 
 
@@ -132,6 +133,18 @@ class BuildOutputsTests(unittest.TestCase):
         provenance = json.loads((self.package / "_internal" / "package-provenance.json").read_text())
         self.assertTrue(provenance["game_facts"])
         self.assertFalse(provenance["needs_game_file"])
+
+    def test_the_package_carries_the_pinned_battle_effects(self):
+        # Without runtime/battlefx the game plays every move's GBA animation (the Windows packages before this one).
+        hashes = json.loads((self.output / "package-hashes.json").read_text())
+        names = zipfile.ZipFile(self.output / "EmeraldTogether.zip").namelist()
+        record = json.loads((self.package / "_internal/runtime/runtime.json").read_text())
+        self.assertEqual(sorted(record["data"]), ["battlefx/bfx_core.js", "battlefx/bfx_moves.json",
+                                                  "battlefx/settings.cfg", "battlefx/shaders/card.frag"])
+        for key, digest in record["data"].items():
+            self.assertEqual(sha(self.package / "_internal/runtime" / key), digest)
+            self.assertIn("_internal/runtime/" + key, hashes)
+            self.assertIn("EmeraldTogether/_internal/runtime/" + key, names)
 
     def test_the_installed_package_verifies_without_a_game_file(self):
         release = LauncherRelease(VERSION, self.args.rom_sha256, self.args.manifest_sha256, self.args.runtime_sha256)
