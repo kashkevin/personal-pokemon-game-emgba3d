@@ -736,15 +736,28 @@ class WorldServer:
             raise ProtocolError("enrollment_unsupported", "this world cannot enroll characters over the network")
         if not self.config.allow_enrollment:
             raise ProtocolError("enrollment_disabled", "the host has turned off creating new characters over the network")
+        from .character_transfers import pending_source, transfer_player
         kind = request["type"]
         head = store.read_checkpoint(session.player_id, session.session_epoch)
         enrolled = store.has_enrollment(session.player_id)
         state = "checkpointed" if head is not None else "enrolled" if enrolled else "open"
+        transfers = bool(getattr(store, "character_transfers_enabled", False))
         if kind == "enrollment_status":
-            self._enrollment_reply(session, request, state=state)
+            pending = pending_source(store, session.player_id)
+            wagers = getattr(self, "wagers", None)
+            wallet = wagers.applied_seq(session.player_id) if wagers is not None and hasattr(wagers, "applied_seq") else 0
+            self._enrollment_reply(session, request, state=state, revision=head.revision if head is not None else 0,
+                                   pending=pending[0] if pending else None, pending_sha256=pending[2] if pending else None,
+                                   wallet_seq=wallet, transfers=transfers)
             return
-        if head is not None:
+        mode = request.get("mode", "enroll")
+        if mode == "enroll" and head is not None:
             raise ProtocolError("already_enrolled", "this account already has a character")
+        if mode == "transfer":
+            if not transfers:
+                raise ProtocolError("transfer_unsupported", "the host's world cannot take a character back yet; the host must update")
+            if head is None:
+                raise ProtocolError("enrollment_required", "this account has no character yet; enroll it instead")
         if kind == "enrollment_begin":
             upload_id = request["request_id"]
             if session.enrollment_upload is not None and session.enrollment_upload.upload_id != upload_id:
@@ -782,7 +795,13 @@ class WorldServer:
         session.enrollment_upload = None
         if hashlib.sha256(payload).hexdigest() != upload.sha256:
             raise ProtocolError("checkpoint_hash_mismatch", "uploaded bytes do not match their declared SHA256")
-        enrollment = store.enroll_player(session.player_id, payload)
+        if mode == "transfer":
+            transfer = transfer_player(store, session.player_id, payload)
+            self._enrollment_reply(session, request, state="transferred", upload_id=upload.upload_id,
+                                   source_sha256=transfer.source_sha256, base_revision=transfer.base_revision)
+            return
+        # A first source that never reached its first checkpoint is replaced by a retry (another or a newer character).
+        enrollment = store.enroll_player(session.player_id, payload, replace_unconsumed=True)
         self._enrollment_reply(session, request, state="enrolled", upload_id=upload.upload_id,
                                source_sha256=enrollment.source_sha256)
 

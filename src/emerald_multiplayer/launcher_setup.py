@@ -50,6 +50,10 @@ _MESSAGES = {
     "game_closed": "The game was closed before the character was registered; the approved source is retained.",
     "game_failed": "The game closed unexpectedly before the character was registered; the approved source is retained.",
     "setup_failed": "Character setup could not complete; private recovery files are retained.",
+    # A universal character coming back to a world (character_transfers.py).
+    "pokemon_owned_here": "A Pokémon of this character belongs to another trainer in this world, so it cannot come in.",
+    "transfer_pending": "This character must save once in the world before trading.",
+    "transfer_unsupported": "This world has not been prepared for characters coming back yet.",
 }
 
 
@@ -123,6 +127,36 @@ def create_world(installation, private_root, *, player_names, endpoint, port, tr
         raise _error(error) from None
 
 
+def prepare_world_for_returning_characters(installation, world_directory):
+    """Closed-world action, once per world: add the character transfer table (character_transfers.py) after a verified
+    backup beside the world. Returns True when it changed the world, False when it was already prepared."""
+    from .character_transfers import enable_character_transfers
+    from .storage import _ExclusiveFileLock
+    try:
+        _installation(installation)
+        host = HostWorld.open(world_directory, installation.rom_path, installation.manifest_path)
+        with host.open_store() as store:
+            if getattr(store, "character_transfers_enabled", False):
+                return False
+            owner = _ExclusiveFileLock(store.path.with_name(store.path.name + ".owner.lock"))
+            try:
+                owner.acquire()
+            except OSError:
+                raise LauncherSetupError("world_active") from None
+            store._owner_lock = owner
+            try:
+                if store._connection.execute("SELECT 1 FROM players WHERE lease_epoch IS NOT NULL").fetchone():
+                    raise LauncherSetupError("world_active")
+                return enable_character_transfers(store, host.directory / (str(uuid4()) + ".before-character-transfers.sqlite3"))
+            finally:
+                store._owner_lock = None
+                owner.release()
+    except LauncherSetupError:
+        raise
+    except Exception as error:
+        raise _error(error) from None
+
+
 def upgrade_world_features(installation, world_directory, *, trade_effect_policy):
     """Explicit closed-world action; each extension retains a verified backup.
 
@@ -192,11 +226,13 @@ def export_friend_invitation(installation, world_directory, slot, destination):
 async def host_enrollment(installation, private_root, *, world_directory, slot,
                           source_path, bind_address="127.0.0.1", host_route=None,
                           public=False, connection_timeout=10, on_status=None,
-                          expected_source_sha256=None, restart_abandoned=False):
+                          expected_source_sha256=None, restart_abandoned=False, mode="enroll"):
     """Approve a selected source and yield a running EnrollmentRuntime.
 
     ``restart_abandoned`` (the in-game menu's character setup): an earlier attempt of the same source whose game ended
-    before the first safe place is kept aside and started again (EnrollmentRuntime).
+    before the first safe place is kept aside and started again (EnrollmentRuntime); a first source that never reached its
+    first checkpoint is replaced by this one. ``mode`` "transfer": the account already has saves here and the source is the
+    character coming back with progress made elsewhere (character_transfers.py).
 
     Call only after explicit host approval. The player uses ordinary Continue
     and the caller explicitly awaits runtime.enroll() at a safe field point.
@@ -272,8 +308,14 @@ async def host_enrollment(installation, private_root, *, world_directory, slot,
         except OSError:
             raise LauncherSetupError("world_active") from None
         publish("approving", "source_approval")
-        approval = approve_enrollment_source(store, account.player_id, source_path,
-                                             expected_source_sha256=expected_source_sha256)
+        if mode == "transfer":
+            from .enrollment_runtime import approve_transfer_source
+            approval = approve_transfer_source(store, account.player_id, source_path,
+                                               expected_source_sha256=expected_source_sha256)
+        else:
+            approval = approve_enrollment_source(store, account.player_id, source_path,
+                                                 expected_source_sha256=expected_source_sha256,
+                                                 replace_unconsumed=restart_abandoned)
         companion = Companion(config)
         publish("connecting", "authentication")
         await companion.start()

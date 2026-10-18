@@ -62,7 +62,9 @@ class HostWorldTests(unittest.TestCase):
         original = directory_hashes(host.directory)
         with host.open_store() as store:
             self.assertEqual((store.metadata.server_epoch, store.metadata.session_epoch), (0, 0))
-            self.assertEqual(store._connection.execute("PRAGMA user_version").fetchone()[0], 3)
+            # Schema 3 plus the character transfer extension (3200) every new world gets (character_transfers.py).
+            self.assertEqual(store._connection.execute("PRAGMA user_version").fetchone()[0], 3 + 3200)
+            self.assertTrue(store.character_transfers_enabled)
             self.assertEqual(store._connection.execute("SELECT count(*) FROM checkpoints").fetchone()[0], 0)
             for account in host.accounts:
                 self.assertEqual(store.authenticate(account.player_id, account.credential).display_name, account.display_name)

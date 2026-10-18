@@ -141,6 +141,9 @@ class HostWorld:
             if manifest.get("reset_abi_version") in (1, 2):
                 from .reset_attempts import enable_reset_attempts
                 enable_reset_attempts(store, root / "before-personal-attempts.sqlite3")
+            # Universal characters (character_transfers.py): every new world can take its characters back.
+            from .character_transfers import enable_character_transfers
+            enable_character_transfers(store, root / "before-character-transfers.sqlite3")
             if effects:
                 from .trade_friendship_migration import enable_friendship_history
                 from .trade_effect_storage import enable_trade_effects

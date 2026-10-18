@@ -274,14 +274,16 @@ class LiveCheckpointCoordinator:
         return await self._checkpoint(expected_revision=expected_revision, enroll=False,
                                       expected_session=expected_session)
 
-    async def enroll(self, *, expected_session=None) -> LiveExportResult:
+    async def enroll(self, *, expected_session=None, base_revision=0) -> LiveExportResult:
         """Explicit first enrollment after the host provisions the legacy source.
 
-        This neither rebinds an existing world nor adopts a server revision.
+        This neither rebinds an existing world nor adopts a server revision. ``base_revision`` > 0 is a character coming back
+        (character_transfers.py): the server recorded its detached save as the account's next source after that revision.
         """
-        return await self._checkpoint(expected_revision=0, enroll=True, expected_session=expected_session)
+        return await self._checkpoint(expected_revision=base_revision, enroll=True, expected_session=expected_session,
+                                      transfer=base_revision > 0)
 
-    async def _prepare_ownership(self, session, base, *, enroll):
+    async def _prepare_ownership(self, session, base, *, enroll, transfer=False):
         from .ownership import OWNERSHIP_PROFILE
         from .ownership_client import parse_status, grant_bytes
         c = self.companion
@@ -291,7 +293,7 @@ class LiveCheckpointCoordinator:
             return
         if not getattr(c.config, "ownership_enabled", False):
             raise LiveSaveError("ownership_unavailable", "the verified ROM has no ownership capability")
-        if enroll and base:
+        if enroll and base and not transfer:
             raise LiveSaveError("already_enrolled", "an existing canonical character cannot be enrolled again")
         status = parse_status((await self._command(session, str(uuid4()), base, Opcode.QUERY_OWNERSHIP)).data)
         if status.enrolled and (status.world_id, status.player_id) != (session[0], c.config.player_id):
@@ -323,7 +325,8 @@ class LiveCheckpointCoordinator:
             status = assigned
         return status
 
-    async def _checkpoint(self, *, expected_revision: int | None, enroll: bool, expected_session=None) -> LiveExportResult:
+    async def _checkpoint(self, *, expected_revision: int | None, enroll: bool, expected_session=None,
+                          transfer: bool = False) -> LiveExportResult:
         """Save against the local revision verified by the launcher.
 
         Reading the server's head cannot establish an older running game's
@@ -348,7 +351,7 @@ class LiveCheckpointCoordinator:
                 raise LiveSaveError("counter_exhausted", "checkpoint revisions are exhausted")
             try:
                 await self._bind(session)
-                await self._prepare_ownership(session, base, enroll=enroll)
+                await self._prepare_ownership(session, base, enroll=enroll, transfer=transfer)
             except LiveSaveError as error:
                 # Only definite admission refusals may be retried by a timer.
                 # No export was started by this lifecycle at this point.

@@ -263,6 +263,12 @@ class Wagers:
         candidate = last - ((last - low) & 0xFF)
         return max(0, candidate)
 
+    def applied_seq(self, player: str) -> int:
+        """The highest wallet sequence this player's save reported applying here (0: none). A character entering this world
+        with a save from elsewhere starts from it, so queued adjustments after it are delivered once (character_transfer)."""
+        row = self._db.execute("SELECT seq FROM wallet_base WHERE player_id=?", (player,)).fetchone()
+        return row[0] if row else 0
+
     def next_adjustment(self, player: str, save_seq_low: int | None) -> dict | None:
         """The adjustment this player's game should apply next (or None)."""
         if save_seq_low is None:

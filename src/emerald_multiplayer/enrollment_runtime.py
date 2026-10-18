@@ -26,6 +26,42 @@ from .player_runtime import NativeGame, _finish_even_if_cancelled, _open_child, 
 from .trade_storage import TradeCheckpointStore
 
 
+PREVIOUS = "previous-saves"
+
+
+def set_aside_previous_saves(directory):
+    """Before a character comes back to an account that already has saves here (character_transfers.py), move the
+    account's earlier files - its save, receipts, grants, journals - into ``previous-saves/<UTC time>/``: kept, never
+    deleted. The invitation, the pinned host certificates and earlier set-asides stay where they are. Returns the folder,
+    or None when there was nothing to move."""
+    directory = Path(directory)
+    if not directory.is_dir():
+        return None
+    keep = {"invitation.json", PREVIOUS}
+    moving = [entry for entry in directory.iterdir()
+              if entry.name not in keep and not (entry.name.startswith("host-") and entry.name.endswith(".pem"))
+              and not entry.name.endswith(".mirror.lock")]
+    if not moving:
+        return None
+    stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+    root = directory / PREVIOUS
+    for n in range(100):
+        folder = root / (stamp if n == 0 else f"{stamp}-{n}")
+        try:
+            folder.mkdir(mode=0o700, parents=True)
+            break
+        except FileExistsError:
+            continue
+    else:
+        raise EnrollmentRuntimeError("recovery_required", "no place to keep the earlier saves")
+    # The save goes last, so an interrupted move still leaves the newest save where the account expects it.
+    for entry in sorted(moving, key=lambda path: path.name == "character.sav"):
+        os.replace(entry, folder / entry.name)
+    _sync_directory(folder)
+    _sync_directory(directory)
+    return folder
+
+
 class EnrollmentRuntimeError(ValueError):
     def __init__(self, code, message):
         self.code = code
@@ -55,10 +91,12 @@ class EnrollmentApproval:
     source_sha256: str
     source_path: Path = field(repr=False)
     payload: bytes = field(repr=False)
+    base_revision: int = 0          # > 0: a character coming back after this revision (character_transfers.py)
 
 
-def approve_enrollment_source(store, player_id, source_path, *, expected_source_sha256=None):
-    """Explicit local-host mutation: authorize exact source provenance once."""
+def approve_enrollment_source(store, player_id, source_path, *, expected_source_sha256=None, replace_unconsumed=False):
+    """Explicit local-host mutation: authorize exact source provenance once (``replace_unconsumed``: a first source no
+    checkpoint followed may be replaced by this one)."""
     if not isinstance(store, TradeCheckpointStore):
         raise EnrollmentRuntimeError("unsupported_world", "first enrollment requires a schema-3 host world")
     path = Path(source_path).resolve(strict=True)
@@ -66,9 +104,23 @@ def approve_enrollment_source(store, player_id, source_path, *, expected_source_
     if (expected_source_sha256 is not None
             and hashlib.sha256(payload).hexdigest() != expected_source_sha256):
         raise EnrollmentRuntimeError("source_changed", "the selected source changed before host approval")
-    enrollment = store.enroll_player(player_id, payload)
+    enrollment = store.enroll_player(player_id, payload, replace_unconsumed=replace_unconsumed)
     return EnrollmentApproval(store.metadata.world_id, player_id, store.build_id,
                               store.ruleset_id, enrollment.source_sha256, path, payload)
+
+
+def approve_transfer_source(store, player_id, source_path, *, expected_source_sha256=None):
+    """The local host's counterpart of a friend's transfer: a character coming back to an account with saves here."""
+    from .character_transfers import transfer_player
+    if not isinstance(store, TradeCheckpointStore):
+        raise EnrollmentRuntimeError("unsupported_world", "a returning character requires a schema-3 host world")
+    path = Path(source_path).resolve(strict=True)
+    payload = _source_bytes(path)
+    if expected_source_sha256 is not None and hashlib.sha256(payload).hexdigest() != expected_source_sha256:
+        raise EnrollmentRuntimeError("source_changed", "the selected source changed before host approval")
+    transfer = transfer_player(store, player_id, payload)
+    return EnrollmentApproval(store.metadata.world_id, player_id, store.build_id, store.ruleset_id, transfer.source_sha256,
+                              path, payload, base_revision=transfer.base_revision)
 
 
 class EnrollmentRuntime:
@@ -122,9 +174,12 @@ class EnrollmentRuntime:
 
     def _intent(self):
         a = self.approval
-        return dict(format="emerald-first-enrollment-v1", world_id=a.world_id,
-                    player_id=a.player_id, build_id=a.build_id, ruleset_id=a.ruleset_id,
-                    save_profile=OWNERSHIP_PROFILE, source_sha256=a.source_sha256)
+        intent = dict(format="emerald-first-enrollment-v1", world_id=a.world_id,
+                      player_id=a.player_id, build_id=a.build_id, ruleset_id=a.ruleset_id,
+                      save_profile=OWNERSHIP_PROFILE, source_sha256=a.source_sha256)
+        if a.base_revision:
+            intent["base_revision"] = a.base_revision
+        return intent
 
     def _clear_initial_paths(self, gate):
         paths = [gate.export_path, gate.trade_path, self.pending_path, self.source_copy,
@@ -141,8 +196,10 @@ class EnrollmentRuntime:
             return False
         if any(path_present(path) for path in (gate.export_path, gate.trade_path, self.receipt_path)):
             return False
+        # The friend's own invitation (saved_servers.INVITATION_NAME) and the earlier saves a character coming back set
+        # aside (PREVIOUS) are the account's, not the attempt's.
         allowed = {self.pending_path.name, self.source_copy.name, self.save_path.name,
-                   self.save_path.name + ".mirror.lock", self.ABANDONED}
+                   self.save_path.name + ".mirror.lock", self.ABANDONED, "invitation.json", PREVIOUS}
         for entry in self.directory.iterdir():
             if entry.name not in allowed and not (entry.name.startswith("host-") and entry.name.endswith(".pem")):
                 return False
@@ -219,7 +276,7 @@ class EnrollmentRuntime:
                             gate._closed(session)
                         finally:
                             c._live_save_owner = None
-                        if head is None and not pending["recoveries"]:
+                        if (head["revision"] if head is not None else 0) == self.approval.base_revision and not pending["recoveries"]:
                             self._set_aside_attempt()
                     self._clear_initial_paths(gate)
                     if _source_bytes(self.approval.source_path) != self.approval.payload:
@@ -228,8 +285,10 @@ class EnrollmentRuntime:
                     try:
                         head = await CheckpointClient(c).info()
                         gate._closed(session)
-                        if head is not None:
-                            raise EnrollmentRuntimeError("already_enrolled", "use normal recovery for an existing canonical character")
+                        if (head["revision"] if head is not None else 0) != self.approval.base_revision:
+                            if not self.approval.base_revision:
+                                raise EnrollmentRuntimeError("already_enrolled", "use normal recovery for an existing canonical character")
+                            raise EnrollmentRuntimeError("revision_conflict", "the account changed since the character came back")
                         pending = await c.trade_rpc("pending")
                         gate._closed(session)
                         if pending["recoveries"]:
@@ -269,9 +328,9 @@ class EnrollmentRuntime:
         native_session = coordinator._session()
         self._task, self._attempted = asyncio.current_task(), True
         try:
-            result = await coordinator.enroll(expected_session=native_session)
+            result = await coordinator.enroll(expected_session=native_session, base_revision=self.approval.base_revision)
             self._check_session()
-            if result.metadata["revision"] != 1:
+            if result.metadata["revision"] != self.approval.base_revision + 1:
                 raise EnrollmentRuntimeError("revision_conflict", "first enrollment did not establish revision one")
             stop = asyncio.create_task(_stop(self._game.process))
             _, cancelled = await _finish_even_if_cancelled(stop)

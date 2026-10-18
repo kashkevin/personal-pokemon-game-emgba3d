@@ -6,7 +6,10 @@ friend's account in the host's world, its save is sent here, once, and the serve
 everything; the friend's PC only supplies the bytes:
 
 * the sender is the authenticated account of this session (its credential was checked at hello); it can only enroll itself;
-* the account must have no canonical character yet, and no different source recorded (a retry of the same source is fine);
+* the account must have no canonical character yet; a different source recorded by an attempt that never finished is replaced
+  (a retry with the same or another character);
+* an account that already has a character takes a *transfer* instead (``mode`` "transfer"): the character coming back with
+  progress made in another world becomes the account's next source (``character_transfers``);
 * the bytes must be a complete, valid legacy save with no assigned ownership identifiers (``flash.inspect_flash`` and
   ``extract_source_inventory`` run on the server) and must not be the source of another account;
 * the world's host can turn this off (``ServerConfig.allow_enrollment``), after which only the host's own PC can enroll.
@@ -47,7 +50,12 @@ def validate_enrollment_request(message: Any, session_epoch: int) -> dict[str, A
         "enrollment_chunk": {"upload_id", "offset", "data_b64"},
         "enrollment_commit": fingerprint | {"upload_id"},
     }
-    _fields(message, {"type", "request_id", "session_epoch"} | extras[kind])
+    # ``mode`` (begin/commit): "enroll" (the account's first character, the default) or "transfer" (a character coming back
+    # with progress made elsewhere: character_transfers.py). Older peers never send it.
+    optional = {"mode"} if kind in ("enrollment_begin", "enrollment_commit") else set()
+    _fields(message, {"type", "request_id", "session_epoch"} | extras[kind], optional)
+    if "mode" in message and message["mode"] not in ("enroll", "transfer"):
+        raise ProtocolError("invalid_field", "enrollment mode is enroll or transfer")
     result = dict(message)
     if "upload_id" in message:
         _request_uuid(message["upload_id"], "upload_id")
