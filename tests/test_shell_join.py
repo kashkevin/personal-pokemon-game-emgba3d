@@ -1,14 +1,15 @@
-"""Join Server from the in-game menu against a real server: invite codes, saved servers, automatic character loading."""
-from pathlib import Path
+"""Join Friend from the in-game menu against a real server (real TLS, real world identity): invite codes, saved servers,
+and the player's one universal character entering friends' worlds without a New Game."""
 import unittest
 
+from emerald_multiplayer.character_library import CharacterLibrary
 from emerald_multiplayer.character_links import character_state, profile_directory
 from emerald_multiplayer.host_world import HostWorld
 from emerald_multiplayer.invitations import Invitation
 from emerald_multiplayer.invite_code import encode_invite
 from emerald_multiplayer.saved_servers import invitation_path
-from shell_fixture import BACK, Driver, FakeWorker, ServerThread, World, choose_label, label_id, labels, select
-from test_shell_app import create_world_steps, fake_creator, main_exit, make_character
+from shell_fixture import BACK, Driver, FakeWorker, ServerThread, World, fake_drafter, fake_register, label_id, select
+from test_shell_app import create_world_steps, library_character, main_exit
 
 LOOPBACK_LAN = lambda: ["127.0.0.1"]
 
@@ -18,59 +19,85 @@ class JoinFixture(unittest.TestCase):
 
     def setUp(self):
         self.world = World(self)
-        driver = Driver(*create_world_steps("Kevin's world", "Kevin"), ("world", BACK), ("host_list", BACK), main_exit())
-        app, _ = self.world.app(driver, lan=LOOPBACK_LAN)
-        app.run()
-        self.entry = app.registry.entries()[0]
+        self.entry = self.host_world_named("Kevin's world")
         self.host_world = HostWorld.open(self.entry.folder, self.world.rom, self.world.manifest)
         self.server = ServerThread(self, self.world.installation, self.host_world)
         self.port = self.entry.port
 
-    def code(self, slot):
-        return encode_invite(self.host_world.invitation(slot), "127.0.0.1", self.port)
+    def host_world_named(self, name, host="Kevin"):
+        if not CharacterLibrary(self.world.private).all():
+            library_character(self.world)
+        driver = Driver(*create_world_steps(name, host), ("world", BACK), ("host_list", BACK), main_exit())
+        app, _ = self.world.app(driver, lan=LOOPBACK_LAN)
+        app.run()
+        self.assertTrue(driver.done(), driver.steps)
+        return next(entry for entry in app.registry.entries() if entry.name == name)
 
-    def friend(self, name="friend-pc"):
-        return self.world.peer(name)
+    def code(self, slot, host_world=None, port=None):
+        return encode_invite((host_world or self.host_world).invitation(slot), "127.0.0.1", port or self.port)
+
+    def friend(self, name="friend-pc", *, character=True):
+        pc = self.world.peer(name)
+        if character:
+            library_character(pc, personality=31)
+        return pc
 
     def join_steps(self, code, *, then=()):
         return [("main", select("join")), ("join_list", select("new")),
                 ("join_new", select("join", code=code, name="", address="", port=""))] + list(then)
 
+    def account(self, slot=1):
+        return self.entry.accounts[slot][1]
+
 
 class JoinNewServerTests(JoinFixture):
-    def test_pasting_an_invite_code_saves_the_server_and_links_the_account_for_good(self):
+    def test_pasting_an_invite_code_saves_the_server_and_brings_the_character_in_once(self):
         pc = self.friend()
-        calls = []
-        worker = FakeWorker(lambda request: "game_closed" if character_state(pc.private, *self.ids(pc)) == "ready" else "enrollment_required")
-        self.ids = lambda pc: (self.entry.world_id, self.entry.accounts[1][1])
-        driver = Driver(*self.join_steps(self.code(1), then=[("create_character", select("go")), ("join_list", BACK), main_exit()]))
-        app, _ = pc.app(driver, worker=worker, creator=fake_creator(calls), lan=LOOPBACK_LAN)
+        registrations, worker = [], FakeWorker(lambda request: "game_closed")
+        driver = Driver(*self.join_steps(self.code(1), then=[
+            ("bring_character", lambda s: self.assertIn("first visit", " ".join(s.notes)) or select("go")),
+            ("join_list", BACK), main_exit()]))
+        app, _ = pc.app(driver, worker=worker, register=fake_register(registrations), lan=LOOPBACK_LAN)
         app.run()
         self.assertTrue(driver.done(), driver.steps)
         (server,) = app.servers.all()
-        self.assertEqual((server["world_id"], server["player_id"], server["slot"]), (self.entry.world_id, self.entry.accounts[1][1], 1))
+        self.assertEqual((server["world_id"], server["player_id"], server["slot"]), (self.entry.world_id, self.account(), 1))
         self.assertEqual((server["address"], server["port"]), ("127.0.0.1", self.port))
-        # The private invitation copy lives in the character's own folder; the credential never enters the shortcut file.
-        copy = invitation_path(pc.private, self.entry.world_id, self.entry.accounts[1][1])
-        self.assertTrue(copy.is_file())
+        # The private invitation copy lives in the account's own folder; the credential never enters the shortcut file.
+        copy = invitation_path(pc.private, self.entry.world_id, self.account())
         self.assertEqual(Invitation.load(copy).credential, self.host_world.invitation(1).credential)
         shell_files = b"".join(p.read_bytes() for p in (pc.private / "shell").glob("*.json"))
         self.assertNotIn(self.host_world.invitation(1).credential.hex().encode(), shell_files)
-        link = app.links.get(self.entry.world_id, self.entry.accounts[1][1])
-        self.assertEqual((link["role"], link["stage"], link["display_name"]), ("friend", "enrolled", "Player 2"))
-        self.assertEqual([c["role"] for c in calls], ["friend"])
-        self.assertEqual(len(worker.requests), 2)
-        request = worker.requests[0]
+        (registration,) = registrations
+        self.assertEqual((registration["role"], registration["world_id"], registration["player_id"]),
+                         ("friend", self.entry.world_id, self.account()))
+        self.assertEqual((registration["options"]["invitation_path"], registration["options"]["route_port"]), (copy, self.port))
+        (request,) = worker.requests
         self.assertEqual((request.mode, request.selection, request.route), ("join", copy, ("127.0.0.1", self.port)))
+        link = app.links.get(self.entry.world_id, self.account())
+        self.assertEqual((link["role"], link["stage"], link["display_name"]), ("friend", "enrolled", "Player 2"))
+        (character,) = app.library.all()
+        self.assertEqual((character.world_id, character.player_id), (self.entry.world_id, self.account()))
 
-    def test_next_time_continue_and_join_server_load_the_same_character_with_nothing_to_select(self):
+    def test_a_new_player_creates_one_character_then_joins_with_it(self):
+        pc = self.friend(character=False)
+        drafts, registrations = [], []
+        driver = Driver(*self.join_steps(self.code(1), then=[
+            ("confirm", lambda s: self.assertIn("one character everywhere", " ".join(s.notes)) or select("yes")),
+            ("create_character", select("go")), ("bring_character", select("go")), ("join_list", BACK), main_exit()]))
+        app, _ = pc.app(driver, drafter=fake_drafter(drafts), register=fake_register(registrations), lan=LOOPBACK_LAN)
+        app.run()
+        self.assertTrue(driver.done(), driver.steps)
+        self.assertEqual(drafts, ["draft"])
+        (character,) = app.library.all()
+        self.assertEqual([r["character_id"] for r in registrations], [character.character_id])
+
+    def test_next_time_continue_and_join_friend_play_the_same_character_with_nothing_to_create_or_register(self):
         pc = self.friend()
-        worker = FakeWorker(lambda request: "game_closed" if character_state(pc.private, self.entry.world_id, self.entry.accounts[1][1]) == "ready"
-                            else "enrollment_required")
-        driver = Driver(*self.join_steps(self.code(1), then=[("create_character", select("go")), ("join_list", BACK), main_exit()]))
-        pc.app(driver, worker=worker, creator=fake_creator([]), lan=LOOPBACK_LAN)[0].run()
-        calls = []
-        worker2 = FakeWorker(lambda request: "game_closed")
+        driver = Driver(*self.join_steps(self.code(1), then=[("bring_character", select("go")), ("join_list", BACK), main_exit()]))
+        pc.app(driver, lan=LOOPBACK_LAN)[0].run()
+        self.assertTrue(driver.done(), driver.steps)
+        drafts, registrations, worker = [], [], FakeWorker(lambda request: "game_closed")
         seen = {}
 
         def main(screen):
@@ -80,64 +107,50 @@ class JoinNewServerTests(JoinFixture):
         driver = Driver(("main", main), ("main", select("join")),
                         ("join_list", lambda s: select(label_id(s, "Player 2's server"))), ("server", select("join")),
                         ("join_list", BACK), main_exit())
-        app, _ = pc.app(driver, worker=worker2, creator=fake_creator(calls), lan=LOOPBACK_LAN)
+        app, _ = pc.app(driver, worker=worker, drafter=fake_drafter(drafts), register=fake_register(registrations), lan=LOOPBACK_LAN)
         app.run()
         self.assertTrue(driver.done(), driver.steps)
         self.assertNotIn("d", seen["row"][0])
         self.assertIn("Player 2's server", seen["row"][1])
-        self.assertEqual(calls, [])                                                    # no creation, no import, no selecting
-        self.assertEqual([r.mode for r in worker2.requests], ["join", "join"])
-        self.assertEqual({r.selection for r in worker2.requests},
-                         {invitation_path(pc.private, self.entry.world_id, self.entry.accounts[1][1])})
+        self.assertEqual((drafts, registrations), ([], []))                     # no creation, no registration, no selecting
+        self.assertEqual([r.mode for r in worker.requests], ["join", "join"])
+        self.assertEqual({r.selection for r in worker.requests}, {invitation_path(pc.private, self.entry.world_id, self.account())})
 
-    def test_two_friends_each_get_their_own_account_and_their_own_character(self):
+    def test_two_friends_each_get_their_own_account_with_their_own_character(self):
         results = {}
         for slot in (1, 2):
             pc = self.friend(f"pc-{slot}")
-            account = self.entry.accounts[slot][1]
-            worker = FakeWorker(lambda request, pc=pc, account=account: "game_closed" if character_state(
-                pc.private, self.entry.world_id, account) == "ready" else "enrollment_required")
-            driver = Driver(*self.join_steps(self.code(slot), then=[("create_character", select("go")), ("join_list", BACK), main_exit()]))
-            app, _ = pc.app(driver, worker=worker, creator=fake_creator([]), lan=LOOPBACK_LAN)
+            driver = Driver(*self.join_steps(self.code(slot), then=[("bring_character", select("go")), ("join_list", BACK), main_exit()]))
+            app, _ = pc.app(driver, lan=LOOPBACK_LAN)
             app.run()
+            self.assertTrue(driver.done(), driver.steps)
             results[slot] = (pc, app)
-        a, b = results[1][1].links.all(), results[2][1].links.all()
-        self.assertEqual(len(a), 1)
-        self.assertEqual(len(b), 1)
-        self.assertNotEqual(a[0]["player_id"], b[0]["player_id"])
-        self.assertEqual(a[0]["world_id"], b[0]["world_id"])
         for slot in (1, 2):
-            pc, _ = results[slot]
-            save = profile_directory(pc.private, self.entry.world_id, self.entry.accounts[slot][1]) / "character.sav"
-            self.assertIn(self.entry.accounts[slot][1].encode(), save.read_bytes())   # each save was made for its own account
-        # The other friend's account has no character on this PC at all.
-        self.assertEqual(character_state(results[1][0].private, self.entry.world_id, self.entry.accounts[2][1]), "none")
+            pc, app = results[slot]
+            (character,) = app.library.all()
+            self.assertEqual((character.world_id, character.player_id), (self.entry.world_id, self.account(slot)))
+            self.assertEqual(character_state(pc.private, self.entry.world_id, self.account(slot)), "ready")
+        # The other friend's account has nothing on this PC at all.
+        self.assertEqual(character_state(results[1][0].private, self.entry.world_id, self.account(2)), "none")
 
-    def test_one_player_on_one_pc_in_two_worlds_has_two_separate_characters(self):
-        # A second world on the same host PC, served too; the friend joins both from one PC.
-        driver = Driver(*create_world_steps("Second world", "Kevin"), ("world", BACK), ("host_list", BACK), main_exit())
-        app, _ = self.world.app(driver, lan=LOOPBACK_LAN)
-        app.run()
-        second = next(e for e in app.registry.entries() if e.name == "Second world")
+    def test_one_character_enters_two_friends_worlds_and_stays_one_character(self):
+        second = self.host_world_named("Second world")
         second_world = HostWorld.open(second.folder, self.world.rom, self.world.manifest)
         ServerThread(self, self.world.installation, second_world)
         pc = self.friend()
-        worker = FakeWorker(lambda request: "game_closed")
+        registrations, worker = [], FakeWorker(lambda request: "game_closed")
         steps = []
         for host_world, entry in ((self.host_world, self.entry), (second_world, second)):
-            code = encode_invite(host_world.invitation(1), "127.0.0.1", entry.port)
-            steps += [("main", select("join")), ("join_list", select("new")),
-                      ("join_new", select("join", code=code, name="", address="", port="")),
-                      ("join_list", BACK)]
+            steps += self.join_steps(self.code(1, host_world, entry.port), then=[("bring_character", select("go")), ("join_list", BACK)])
         driver = Driver(*steps, main_exit())
-        app2, _ = pc.app(driver, worker=worker, creator=fake_creator([]), lan=LOOPBACK_LAN)
-        app2.run()
+        app, _ = pc.app(driver, worker=worker, register=fake_register(registrations), lan=LOOPBACK_LAN)
+        app.run()
         self.assertTrue(driver.done(), driver.steps)
-        servers = app2.servers.all()
-        self.assertEqual(len(servers), 2)
+        servers = app.servers.all()
         self.assertEqual(len({(s["world_id"], s["player_id"]) for s in servers}), 2)
-        folders = {profile_directory(pc.private, s["world_id"], s["player_id"]) for s in servers}
-        self.assertEqual(len(folders), 2)
+        self.assertEqual(len(app.library.all()), 1)
+        self.assertEqual(len({r["character_id"] for r in registrations}), 1)
+        self.assertEqual({r["world_id"] for r in registrations}, {self.entry.world_id, second.world_id})
         self.assertEqual({r.selection for r in worker.requests}, {invitation_path(pc.private, s["world_id"], s["player_id"]) for s in servers})
 
     def test_bad_codes_say_what_is_wrong_and_change_nothing(self):
@@ -149,15 +162,17 @@ class JoinNewServerTests(JoinFixture):
             messages.append(screen.status[1])
             return BACK
         driver = Driver(("main", select("join")), ("join_list", select("new")),
-                        ("join_new", select("join", code="", name="", address="", port="")), ("join_new", select("join", code="ET1-AAAA-BBBB", name="", address="", port="")),
+                        ("join_new", select("join", code="", name="", address="", port="")),
+                        ("join_new", select("join", code="ET1-AAAA-BBBB", name="", address="", port="")),
                         ("join_new", select("join", code=good[:-6] + "AAAAAA", name="", address="", port="")),
                         ("join_new", select("join", code=good, name="", address="256.1.1.1", port="")),
                         ("join_new", select("join", code=good, name="", address="", port="70000")),
                         ("join_new", capture), ("join_list", BACK), main_exit())
-        app, _ = pc.app(driver, lan=LOOPBACK_LAN)
+        registrations = []
+        app, _ = pc.app(driver, register=fake_register(registrations), lan=LOOPBACK_LAN)
         app.run()
         self.assertTrue(driver.done(), driver.steps)
-        self.assertEqual(app.servers.all(), [])
+        self.assertEqual((app.servers.all(), registrations), ([], []))
         self.assertFalse((pc.private / "players").exists())
         self.assertTrue(all(messages))
 
@@ -166,8 +181,8 @@ class JoinNewServerTests(JoinFixture):
         path = self.world.root / "friend.json"
         self.host_world.export_invitation(1, path)
         worker = FakeWorker(lambda request: "game_closed")
-        driver = Driver(*self.join_steps(str(path), then=[("join_list", BACK), main_exit()]))
-        app, _ = pc.app(driver, worker=worker, creator=fake_creator([]), lan=LOOPBACK_LAN)
+        driver = Driver(*self.join_steps(str(path), then=[("bring_character", select("go")), ("join_list", BACK), main_exit()]))
+        app, _ = pc.app(driver, worker=worker, lan=LOOPBACK_LAN)
         # The file points at the address chosen at world creation (127.0.0.1 here), so it reaches the test server.
         app.run()
         self.assertTrue(driver.done(), driver.steps)
@@ -176,101 +191,104 @@ class JoinNewServerTests(JoinFixture):
 
 
 class OfflineAndEditTests(JoinFixture):
-    def join_once(self, pc, worker):
-        driver = Driver(*self.join_steps(self.code(1), then=[("join_list", BACK), main_exit()]))
-        app, _ = pc.app(driver, worker=worker, creator=fake_creator([]), lan=LOOPBACK_LAN)
+    def join_once(self, pc):
+        driver = Driver(*self.join_steps(self.code(1), then=[("bring_character", select("go")), ("join_list", BACK), main_exit()]))
+        app, _ = pc.app(driver, lan=LOOPBACK_LAN)
         app.run()
+        self.assertTrue(driver.done(), driver.steps)
         return app
 
-    def test_a_server_that_is_down_gives_a_clear_message_and_creates_nothing_then_retry_works(self):
+    def saved(self, pc):
+        return pc.app(Driver(), lan=LOOPBACK_LAN)[0].servers.all()[0]
+
+    def test_a_server_that_is_down_says_so_starts_nothing_and_retry_works_once_it_is_back(self):
         pc = self.friend()
-        self.join_once(pc, FakeWorker(lambda request: "game_closed"))
-        # Take the server down: the saved server cannot be reached.
+        self.join_once(pc)
         self.server.stop()
-        before = {p: p.read_bytes() for p in (pc.private / "players").rglob("*") if p.is_file()}
-        worker = FakeWorker(lambda request: "game_closed")
-        seen = []
+        saves = lambda: {p: p.read_bytes() for p in pc.private.rglob("*") if p.is_file() and (p.suffix == ".sav" or "players" in p.parts)}
+        before = saves()
+        seen, revived = [], []
 
         def offline(screen):
             seen.append(" ".join(screen.notes))
             return select("retry")
-        self.assertFalse(worker.requests)
-        # Bring it back during the second retry.
-        revived = []
 
         def second_offline(screen):
             seen.append(" ".join(screen.notes))
             revived.append(ServerThread(self, self.world.installation, HostWorld.open(self.entry.folder, self.world.rom, self.world.manifest)))
             return select("retry")
+        registrations, worker = [], FakeWorker(lambda request: "game_closed")
         driver = Driver(("main", select("join")), ("join_list", lambda s: select(label_id(s, "Player 2's server"))),
                         ("server", select("join")), ("offline", offline), ("offline", second_offline),
                         ("join_list", BACK), main_exit())
-        app, _ = pc.app(driver, worker=worker, creator=fake_creator([]), lan=LOOPBACK_LAN)
+        app, _ = pc.app(driver, worker=worker, register=fake_register(registrations), lan=LOOPBACK_LAN)
         app.run()
         self.assertTrue(driver.done(), driver.steps)
         self.assertTrue(all("Nothing was created or reset" in text for text in seen))
-        self.assertEqual(len(worker.requests), 1)                                       # started only once the server answered
-        after = {p: p.read_bytes() for p in (pc.private / "players").rglob("*") if p.is_file()}
-        self.assertEqual(before, after)                                                  # no character created, reset or rewritten
+        self.assertEqual(len(worker.requests), 1)                                   # started only once the server answered
+        self.assertEqual(registrations, [])                                         # the character was already there
+        self.assertTrue(before == saves())                                          # no character created, reset or rewritten
+
+    def test_a_down_server_never_falls_back_to_solo_or_creates_a_character(self):
+        pc = self.friend()
+        self.server.stop()
+        registrations, worker = [], FakeWorker(lambda request: "game_closed")
+        seen = []
+        driver = Driver(*self.join_steps(self.code(1), then=[("join_new", lambda s: seen.append(s.status) or BACK),
+                                                             ("join_list", BACK), main_exit()]))
+        app, _ = pc.app(driver, worker=worker, register=fake_register(registrations), lan=LOOPBACK_LAN)
+        app.run()
+        self.assertTrue(driver.done(), driver.steps)
+        self.assertEqual(seen[0][0], "error")
+        self.assertIn("could not be reached", seen[0][1])
+        self.assertEqual((worker.requests, registrations, app.servers.all(), app.registry.entries()), ([], [], [], []))
 
     def test_a_wrong_server_at_the_address_is_refused_by_world_identity_not_by_address(self):
         pc = self.friend()
-        self.join_once(pc, FakeWorker(lambda request: "game_closed"))
+        self.join_once(pc)
         self.server.stop()
-        # A different world answers at the same address and port.
-        driver = Driver(*create_world_steps("Impostor", "Mallory"), ("world", BACK), ("host_list", BACK), main_exit())
-        app, _ = self.world.app(driver, lan=LOOPBACK_LAN)
-        app.run()
-        impostor_entry = next(e for e in app.registry.entries() if e.name == "Impostor")
-        impostor = HostWorld.open(impostor_entry.folder, self.world.rom, self.world.manifest)
-        # Serve the impostor on the saved server's port by editing the saved server to the impostor's port.
-        ServerThread(self, self.world.installation, impostor)
-        server = next(iter(SavedServersOf(pc)))
+        impostor_entry = self.host_world_named("Impostor", "Mallory")
+        ServerThread(self, self.world.installation, HostWorld.open(impostor_entry.folder, self.world.rom, self.world.manifest))
+        server = self.saved(pc)
+        pc.app(Driver(), lan=LOOPBACK_LAN)[0].servers.edit(server["id"], port=impostor_entry.port)
         messages = []
 
         def refused(screen):
             messages.append(" ".join(screen.notes))
             return select("back")
-        app2, _ = pc.app(Driver(), lan=LOOPBACK_LAN)
-        app2.servers.edit(server["id"], port=impostor_entry.port)
-        worker = FakeWorker(lambda request: "game_closed")
+        registrations, worker = [], FakeWorker(lambda request: "game_closed")
         driver = Driver(("main", select("join")), ("join_list", lambda s: select(label_id(s, "Player 2's server"))),
                         ("server", select("join")), ("offline", refused), ("join_list", BACK), main_exit())
-        app3, _ = pc.app(driver, worker=worker, creator=fake_creator([]), lan=LOOPBACK_LAN)
-        app3.run()
+        app, _ = pc.app(driver, worker=worker, register=fake_register(registrations), lan=LOOPBACK_LAN)
+        app.run()
         self.assertTrue(driver.done(), driver.steps)
         self.assertIn("not this world", messages[0])
-        self.assertEqual(worker.requests, [])
+        self.assertEqual((worker.requests, registrations), ([], []))
 
-    def test_a_changed_host_address_is_followed_by_editing_the_shortcut_and_the_character_stays_linked(self):
+    def test_a_changed_host_address_is_followed_by_editing_the_shortcut_and_the_character_stays(self):
         pc = self.friend()
-        self.join_once(pc, FakeWorker(lambda request: "game_closed"))
-        app0, _ = pc.app(Driver(), lan=LOOPBACK_LAN)
-        server = app0.servers.all()[0]
-        app0.servers.edit(server["id"], port=self.port + 1 if self.port < 65535 else self.port - 1)    # the old address no longer works
-        worker = FakeWorker(lambda request: "game_closed")
-        port = str(self.port)
+        self.join_once(pc)
+        server = self.saved(pc)
+        pc.app(Driver(), lan=LOOPBACK_LAN)[0].servers.edit(server["id"], port=self.port + 1 if self.port < 65535 else self.port - 1)
+        registrations, worker = [], FakeWorker(lambda request: "game_closed")
         driver = Driver(("main", select("join")), ("join_list", lambda s: select(label_id(s, "Player 2's server"))),
                         ("server", select("join")), ("offline", select("edit")),
-                        ("edit_server", select("save", name="Kevin at home", address="127.0.0.1", port=port)),
+                        ("edit_server", select("save", name="Kevin at home", address="127.0.0.1", port=str(self.port))),
                         ("join_list", BACK), main_exit())
         # After the edit is saved the join is tried again at once and succeeds.
-        app, _ = pc.app(driver, worker=worker, creator=fake_creator([]), lan=LOOPBACK_LAN)
+        app, _ = pc.app(driver, worker=worker, register=fake_register(registrations), lan=LOOPBACK_LAN)
         app.run()
         self.assertTrue(driver.done(), driver.steps)
         edited = app.servers.get(server["id"])
         self.assertEqual((edited["id"], edited["world_id"], edited["player_id"]), (server["id"], server["world_id"], server["player_id"]))
         self.assertEqual((edited["name"], edited["address"], edited["port"]), ("Kevin at home", "127.0.0.1", self.port))
-        self.assertEqual(len(worker.requests), 1)
-        self.assertEqual(worker.requests[0].selection,
-                         invitation_path(pc.private, server["world_id"], server["player_id"]))      # the same character
+        self.assertEqual((len(worker.requests), registrations), (1, []))
+        self.assertEqual(worker.requests[0].selection, invitation_path(pc.private, server["world_id"], server["player_id"]))
 
     def test_removing_the_shortcut_keeps_the_character_and_the_same_code_brings_it_back(self):
         pc = self.friend()
-        self.join_once(pc, FakeWorker(lambda request: "game_closed"))
-        account = self.entry.accounts[1][1]
-        make_character(pc.private, self.entry.world_id, account)
-        save = profile_directory(pc.private, self.entry.world_id, account) / "character.sav"
+        self.join_once(pc)
+        save = profile_directory(pc.private, self.entry.world_id, self.account()) / "character.sav"
         original = save.read_bytes()
         driver = Driver(("main", select("join")), ("join_list", lambda s: select(label_id(s, "Player 2's server"))),
                         ("server", select("remove")), ("confirm", select("yes")), ("join_list", BACK), main_exit())
@@ -279,23 +297,17 @@ class OfflineAndEditTests(JoinFixture):
         self.assertTrue(driver.done(), driver.steps)
         self.assertEqual(app.servers.all(), [])
         self.assertEqual(save.read_bytes(), original)
-        self.assertEqual(character_state(pc.private, self.entry.world_id, account), "ready")
-        self.assertIsNotNone(app.links.get(self.entry.world_id, account))
-        # The same code again: back in the same character, no creation.
-        calls = []
-        worker = FakeWorker(lambda request: "game_closed")
+        self.assertEqual(len(app.library.all()), 1)
+        # The same code again: back in with the same character, nothing created or registered.
+        drafts, registrations, worker = [], [], FakeWorker(lambda request: "game_closed")
         driver = Driver(*self.join_steps(self.code(1), then=[("join_list", BACK), main_exit()]))
-        app2, _ = pc.app(driver, worker=worker, creator=fake_creator(calls), lan=LOOPBACK_LAN)
+        app2, _ = pc.app(driver, worker=worker, drafter=fake_drafter(drafts), register=fake_register(registrations), lan=LOOPBACK_LAN)
         app2.run()
-        self.assertEqual(calls, [])
+        self.assertTrue(driver.done(), driver.steps)
+        self.assertEqual((drafts, registrations), ([], []))
         self.assertEqual(len(app2.servers.all()), 1)
-        self.assertEqual(worker.requests[0].selection, invitation_path(pc.private, self.entry.world_id, account))
+        self.assertEqual(worker.requests[0].selection, invitation_path(pc.private, self.entry.world_id, self.account()))
         self.assertEqual(save.read_bytes(), original)
-
-
-def SavedServersOf(pc):
-    from emerald_multiplayer.saved_servers import SavedServers
-    return SavedServers(pc.private / "shell").all()
 
 
 if __name__ == "__main__":

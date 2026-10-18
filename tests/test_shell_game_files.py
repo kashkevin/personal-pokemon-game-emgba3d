@@ -39,7 +39,7 @@ class GameFilesTests(unittest.TestCase):
 
         def main(screen):
             seen["status"] = screen.status
-            return select("new")
+            return select("solo")
 
         def files_row(screen):
             seen["files"] = row(screen, "files").detail
@@ -56,7 +56,7 @@ class GameFilesTests(unittest.TestCase):
         self.assertEqual(app.run(), 0)
         self.assertTrue(driver.done(), driver.steps)
         self.assertEqual(seen["status"][0], "warn")
-        self.assertIn("not installed yet", seen["status"][1])
+        self.assertIn("not ready", seen["status"][1])
         self.assertEqual(seen["new_game"], "Game files needed")
         self.assertEqual(seen["files"], "not installed")
         self.assertIn("cannot install them", seen["files_message"])

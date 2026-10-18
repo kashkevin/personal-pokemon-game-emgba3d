@@ -36,6 +36,45 @@ def free_port():
         return probe.getsockname()[1]
 
 
+def fake_drafter(calls, personality=7):
+    """The game's New Game: a valid new-character save in drafts/ (what DraftRuntime leaves after the player saved)."""
+    async def drafter(installation, private_root, *, on_status=None):
+        from uuid import uuid4
+        from test_ownership_storage import source_flash
+        calls.append("draft")
+        if on_status:
+            on_status("draft_running")
+        folder = Path(private_root) / "drafts" / str(uuid4())
+        folder.mkdir(parents=True)
+        path = folder / "character.sav"
+        path.write_bytes(source_flash(personalities=(personality + len(calls),)))
+        return SimpleNamespace(source_path=path, sha256=hashlib.sha256(path.read_bytes()).hexdigest(), party_count=1)
+    return drafter
+
+
+def fake_register(calls, *, error=None):
+    """Bringing a character into a world account: the account's save becomes an ownership save of that world (what the real
+    registration leaves, character_play.register_character), and the character's latest save is that one."""
+    async def register(installation, private_root, library, character, *, role, world_id, player_id, on_status=None, **options):
+        from uuid import uuid4
+        from emerald_multiplayer.character_links import profile_directory
+        from emerald_multiplayer.character_play import record_after_session
+        from emerald_multiplayer.ownership_storage import AllocationGrant
+        from test_ownership_storage import owned_flash
+        calls.append(dict(role=role, world_id=world_id, player_id=player_id, character_id=character.character_id, options=options))
+        if error is not None:
+            raise error
+        if on_status:
+            on_status("choose_continue")
+        folder = profile_directory(private_root, world_id, player_id)
+        folder.mkdir(parents=True, exist_ok=True)
+        grant = AllocationGrant(world_id, player_id, str(uuid4()), 1, 33, 1, 1, 0)
+        (folder / "character.sav").write_bytes(owned_flash(grant, personalities=(7,)))
+        (folder / "enrollment-completed.json").write_text("{}")
+        return record_after_session(private_root, library, character.character_id, world_id, player_id)
+    return register
+
+
 class Driver:
     """A strict script: each step is (screen id, answer). An answer is ('select', id[, fields]) / ('back',) or a function of the screen."""
 
@@ -121,11 +160,10 @@ class World:
         other.private = self.root / name
         return other
 
-    def app(self, driver, *, worker=None, creator=None, lan=lambda: ["192.168.1.20"], clock=None, **options):
+    def app(self, driver, *, worker=None, register=None, drafter=None, lan=lambda: ["192.168.1.20"], clock=None, **options):
         ui = ScriptedShell(driver)
-        kwargs = dict(worker=worker or FakeWorker(), lan=lan, graphics_gate=lambda: "3d", version="test")
-        if creator is not None:
-            kwargs["creator"] = creator
+        kwargs = dict(worker=worker or FakeWorker(), lan=lan, graphics_gate=lambda: "3d", version="test",
+                      register=register or fake_register([]), drafter=drafter or fake_drafter([]))
         if clock is not None:
             kwargs["clock"] = clock
         kwargs.update(options)

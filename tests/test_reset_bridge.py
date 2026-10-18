@@ -11,6 +11,7 @@ import unittest
 from uuid import uuid4
 import zlib
 from emerald_multiplayer.reset_mailbox import CAPABILITY, ResetRequest, capability
+from emerald_multiplayer.character_transfers import EXTENSION_VERSION as TRANSFERS
 from emerald_multiplayer.reset_attempts import enable_reset_attempts
 from emerald_multiplayer.bridge_protocol import encode_packet, read_packet
 from emerald_multiplayer.companion import Companion
@@ -47,12 +48,12 @@ class ResetProvisioningTests(unittest.TestCase):
                          reset_mailbox_address=0x02023000, reset_mailbox_size=128)
             manifest.write_text(json.dumps(value))
             with HostWorld.open(old.directory, rom, manifest).open_store() as store:
-                self.assertEqual(store._schema_version, 3)
+                self.assertEqual(store._schema_version, 3 + TRANSFERS)       # every new world takes its characters back
                 self.assertFalse(store.battle_reservations_enabled)
                 self.assertFalse(store.reset_attempts_enabled)
             fresh = HostWorld.create(root/"new", rom, manifest, player_names=["Host"], endpoint="127.0.0.1", port=8765)
             with fresh.open_store() as store:
-                self.assertEqual(store._schema_version, 303)
+                self.assertEqual(store._schema_version, 303 + TRANSFERS)
                 self.assertTrue(store.battle_reservations_enabled and store.reset_attempts_enabled)
             for filename, version in (("before-battle-reservations.sqlite3", 3), ("before-personal-attempts.sqlite3", 103)):
                 with TradeCheckpointStore(fresh.directory/filename, fresh.build_id, fresh.ruleset_id) as backup:
@@ -73,12 +74,12 @@ class ResetProvisioningTests(unittest.TestCase):
             reopened=HostWorld.open(old.directory,rom,manifest)
             with reopened.open_store() as store:
                 self.assertFalse(store.reset_attempts_enabled)
-                self.assertEqual(store._schema_version,3)
+                self.assertEqual(store._schema_version,3+TRANSFERS)
             self.assertFalse((old.directory/"before-personal-attempts.sqlite3").exists())
             new=HostWorld.create(root/"new",rom,manifest,player_names=["Host","Friend"],endpoint="127.0.0.1",port=8765)
             with new.open_store() as store:
                 self.assertTrue(store.reset_attempts_enabled)
-                self.assertEqual(store._schema_version,203)
+                self.assertEqual(store._schema_version,203+TRANSFERS)
             with TradeCheckpointStore(new.directory/"before-personal-attempts.sqlite3",new.build_id,new.ruleset_id) as backup:
                 self.assertFalse(backup.reset_attempts_enabled)
                 self.assertEqual(backup.metadata.world_id,new.world_id)

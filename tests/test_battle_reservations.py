@@ -8,6 +8,7 @@ from unittest.mock import patch
 from uuid import uuid4
 
 from emerald_multiplayer.battle_desk import BattleDesk
+from emerald_multiplayer.character_transfers import EXTENSION_VERSION as TRANSFERS
 from emerald_multiplayer.battle_protocol import validate_battle_reply
 from emerald_multiplayer.battle_reservations import (
     BattleReservations, SCOPE, enable_battle_reservations, validate_waiting,
@@ -62,7 +63,7 @@ class ReservationMigrationTests(unittest.TestCase):
             reopened=HostWorld.open(host.directory,rom,manifest)
             self.assertEqual(reopened,host)
             with reopened.open_store() as store:
-                self.assertEqual(store._schema_version,103)
+                self.assertEqual(store._schema_version,103+TRANSFERS)   # a new world takes its characters back too
                 self.assertEqual(store.metadata.world_id,host.world_id)
                 WorldServer(ServerConfig(host.build_id,host.ruleset_id),store=store)
 

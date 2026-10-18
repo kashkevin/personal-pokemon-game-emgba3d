@@ -237,6 +237,23 @@ class WorldRegistry:
                 return
         raise KeyError("no such world")
 
+    def remove(self, world_id):
+        """Delete a world from this PC after the player confirmed: its folder moves to ``worlds-deleted/<UTC time>-<folder>``
+        (kept, never destroyed) and the registry forgets it. Returns the new folder."""
+        import os
+        worlds = [dict(item) for item in self._store.record["worlds"]]
+        record = next((item for item in worlds if item["world_id"] == world_id), None)
+        if record is None:
+            raise KeyError("no such world")
+        source = self.worlds_directory / record["folder"]
+        target_root = self.private_root / "worlds-deleted"
+        target_root.mkdir(mode=0o700, parents=True, exist_ok=True)
+        target = target_root / (time.strftime("%Y%m%dT%H%M%SZ", time.gmtime(self.clock())) + "-" + record["folder"])
+        if source.exists():
+            os.replace(source, target)
+        self._write([item for item in worlds if item["world_id"] != world_id])
+        return target
+
     def touch_hosted(self, world_id):
         worlds = [dict(item) for item in self._store.record["worlds"]]
         for item in worlds:

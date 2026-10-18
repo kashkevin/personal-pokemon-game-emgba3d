@@ -1,29 +1,41 @@
-"""The EmeraldTogether main menu, inside the game's own window (Update 30).
+"""The EmeraldTogether main menu, inside the game's own window.
 
 ``EmeraldTogether.exe`` opens ``pokeemerald-mp --shell`` - the game's executable showing only its menu - and this module decides what
-every screen says and does: Continue Adventure, New Game, Host Server, Join Server, Settings, Exit. There is no separate setup program,
-launcher window or second setup step: choosing a saved world or a saved server starts it, and the character that belongs to that
-world account loads by itself.
+every screen says and does:
 
-Identity. A world is identified by its stable world ID and an account in it by its stable player ID (both fixed when the host creates
-the world). A character lives in ``players/<world_id>/<player_id>/``; a saved server is a shortcut to an account (address, port and
-those two IDs). Names, addresses and ports can change or be edited without ever making a different character: removing a shortcut only
-removes the shortcut.
+* **Continue Adventure** - the last world played, with the character played there;
+* **Solo** - play by yourself in one of your worlds (or a new one);
+* **Host World** - open one of your worlds to friends (invite codes, server information, network settings);
+* **Join Friend** - a friend's world, from an invite code or a saved server;
+* **Characters** - your trainers: create one (the game's New Game, once), choose which one plays, back up, restore an earlier
+  version, recover an unfinished one from an earlier version, delete (moved aside, never destroyed);
+* **Settings** and **Exit**.
+
+Characters are universal (the owner's decision, 2026-10-18): the same trainer plays Solo, hosts, and joins friends, and its
+Pokémon, levels, items and progress go with it (``character_library``, ``character_play``, ``character_transfer``). Entering a
+world never needs another New Game: the first time a character enters a world (or comes back after playing elsewhere) its own
+save is registered there - the game opens once, the player chooses CONTINUE, and it closes by itself when the world has saved
+the character. Nothing a player has made is overwritten or deleted without their explicit confirmation; earlier saves are kept.
+
+Identity. A world is identified by its stable world ID and an account in it by its stable player ID. A saved server is a
+shortcut to an account (address, port and those two IDs); names, addresses and ports can change without making a different
+account, and removing a shortcut only removes the shortcut.
 
 The checks the earlier launcher made all still run - the installed game's pins, the host world's certificate and database, the
-authenticated connection, closed-game recovery - because the same ``SessionWorker`` and ``LauncherSession`` start the game; this module
-only replaces the windows around them.
+authenticated connection, closed-game recovery - because the same ``SessionWorker`` and ``LauncherSession`` start the game.
 """
 from __future__ import annotations
 
 import asyncio
 from dataclasses import replace
-import hashlib
 from pathlib import Path
 import time
 
-from .character_creation import CreationError, create_character, message_for
+from .character_creation import CreationError, create_draft, message_for
+from .character_library import CharacterLibrary, LibraryError
 from .character_links import CharacterLinks, character_state, profile_directory
+from .character_migration import migrate_characters, recover_draft, recoverable_drafts
+from .character_play import needs_registration, record_after_session, register_character, sync_from_worlds
 from .graphics_mode import MODE_2D, MODE_3D, MODE_LABELS, GraphicsPreference, choose_launch, explain_failure, probe_graphics
 from .invitations import Invitation, InvitationError
 from .invite_code import (InviteCodeError, decode_invite, encode_invite, fetch_certificate, redeem, resolve_address, valid_address,
@@ -34,7 +46,7 @@ from .saved_servers import InvitationConflict, SavedServers, invitation_path, st
 from .server_check import probe_route
 from .shell_migration import migrate
 from .shell_protocol import Done, Screen, ShellClosed
-from .shell_store import JsonStore, StoreUnavailable, text_ok
+from .shell_store import JsonStore, StoreUnavailable, is_uuid, text_ok, time_ok
 from .shell_tasks import BackgroundJob
 from .world_registry import LOOPBACK, WorldRegistry, WorldRegistryError, free_port, valid_world_name
 
@@ -45,12 +57,37 @@ TRADE_RULES = {
 SESSION_WINDOW = (560, 420)
 MENU_WINDOW = (1280, 720)
 PREFS_FORMAT = "emerald-shell-preferences-v1"
+LAST_FORMAT = "emerald-shell-last-session-v1"
+SAFE = "Nothing was deleted, and your character's latest save is safe (Characters)."
+DETAILS = "Details for troubleshooting were written to shell/last-error.txt in your private folder."
+REGISTER_TEXTS = {
+    "connecting": "Connecting to the world...",
+    "approving": "The world is taking in your character...",
+    "running": "Your game opens on your character.\nChoose CONTINUE. It closes by itself once the world has saved your character.",
+    "choose_continue": "Your game opens on your character.\nChoose CONTINUE. It closes by itself once the world has saved your character.",
+    "waiting_safe_place": "Waiting for you to stand in the field (outside menus and battles).\nChoose CONTINUE if you have not yet.",
+    "enrolled": "Your character is in this world.",
+}
 
 
 def _prefs_validate(record):
     if set(record) != {"format", "trade_rule"} or not (record["trade_rule"] is None or record["trade_rule"] in TRADE_RULES):
         raise ValueError("invalid preferences")
     return record
+
+
+def _last_validate(record):
+    if set(record) != {"format", "kind", "world_id", "server_id", "character_id", "when"}:
+        raise ValueError("invalid last session")
+    if record["kind"] not in (None, "solo", "host", "join") or not (record["world_id"] is None or is_uuid(record["world_id"])) \
+            or not (record["character_id"] is None or is_uuid(record["character_id"])) \
+            or not (record["server_id"] is None or type(record["server_id"]) is str) or not (record["when"] is None or time_ok(record["when"])):
+        raise ValueError("invalid last session")
+    return record
+
+
+def _empty_last():
+    return {"format": LAST_FORMAT, "kind": None, "world_id": None, "server_id": None, "character_id": None, "when": None}
 
 
 def _ago(then, now):
@@ -67,7 +104,8 @@ def _ago(then, now):
 class ShellApp:
     """One menu session. ``ui`` shows screens (``ShellProcess`` or ``ScriptedShell``); everything else is injectable for tests."""
 
-    def __init__(self, installation, private_root, ui, *, version="Development preview", worker=None, creator=create_character,
+    def __init__(self, installation, private_root, ui, *, version="Development preview", worker=None,
+                 register=register_character, drafter=create_draft,
                  resolver=resolve_address, fetcher=fetch_certificate, prober=probe_route, lan=lan_addresses, graphics=None,
                  graphics_gate=None, importer=None, clock=time.time, session_window=SESSION_WINDOW, menu_window=MENU_WINDOW):
         self.installation = installation
@@ -75,7 +113,8 @@ class ShellApp:
         self.ui = ui
         self.version = version
         self.worker = worker
-        self.creator, self.resolver, self.fetcher, self.prober, self.lan = creator, resolver, fetcher, prober, lan
+        self.register, self.drafter = register, drafter
+        self.resolver, self.fetcher, self.prober, self.lan = resolver, fetcher, prober, lan
         self.graphics = graphics if graphics is not None else GraphicsPreference(self.private_root)
         self.graphics_gate = graphics_gate or self._graphics_gate
         self.importer = importer
@@ -85,11 +124,14 @@ class ShellApp:
         self.registry = WorldRegistry(self.private_root, shell, clock=clock)
         self.links = CharacterLinks(shell, clock=clock)
         self.servers = SavedServers(shell, clock=clock)
+        self.library = CharacterLibrary(self.private_root, clock=clock)
         self.prefs = JsonStore(shell / "preferences.json", PREFS_FORMAT, lambda: {"format": PREFS_FORMAT, "trade_rule": None},
                                _prefs_validate, clock=clock)
+        self.last = JsonStore(shell / "last-session.json", LAST_FORMAT, _empty_last, _last_validate, clock=clock)
         self.notice = None
         self.hosting = {}                  # world id -> (bind address, port) while that world is being hosted
         self.migration = None
+        self.library_migration = None
         self.game_ok = None
         self.last_error = None             # the last background failure, for diagnostics (never shown to the player)
 
@@ -185,17 +227,28 @@ class ShellApp:
             self.window(self.menu_window)
             self.migration = migrate(self.private_root, self.registry, self.links, self.servers, clock=self.clock)
             for store, label in ((self.registry._store, "worlds"), (self.servers._store, "saved servers"),
-                                 (self.links._store, "characters")):
+                                 (self.links._store, "characters"), (self.library._index, "characters")):
                 if not store.available:
                     self.message("A record needs attention",
                                  f"The list of {label} on this PC could not be read, and no backup was usable.\n"
                                  "Nothing was changed or deleted. Close EmeraldTogether and restore the file from your backup,\n"
                                  "or ask for help before continuing.", "error", back="Continue anyway")
+            try:
+                self.library_migration = migrate_characters(self.private_root, self.library, self.links)
+                synced = sync_from_worlds(self.private_root, self.library)
+            except (OSError, LibraryError, StoreUnavailable) as error:
+                self._record_error(error)
+                self.library_migration, synced = None, []
+            if self.library_migration is not None and self.library_migration.imported:
+                names = ", ".join(sorted({name for name, _ in self.library_migration.imported}))
+                self.notice = ("ok", f"Your characters from the earlier version are ready: {names}.")
+            elif synced:
+                self.notice = ("ok", "Your latest progress was picked up: " + ", ".join(synced) + ".")
             self.game_ok = self._game_installed()
             if self.migration.problems:
                 count = len(self.migration.problems)
                 self.notice = ("warn", f"{count} item{'s' if count != 1 else ''} from the earlier launcher could not be matched "
-                                       "safely and were left untouched. See Settings, Characters.")
+                                       "safely and were left untouched. See Characters.")
             while True:
                 try:
                     if self.main_menu() == "exit":
@@ -210,8 +263,7 @@ class ShellApp:
                     self.last_error = error
                     self._record_error(error)
                     self.message("Something went wrong",
-                                 "That action could not finish. Nothing was deleted or reset.\n"
-                                 "Details were written to shell/last-error.txt in your private folder.")
+                                 "That action could not finish. Nothing was deleted or reset.\n" + DETAILS)
         except ShellClosed:
             return 0
 
@@ -251,49 +303,81 @@ class ShellApp:
     # ------------------------------------------------------------------ main menu
 
     def _continue_target(self):
-        """(label, detail, action) for the most recently played adventure, or None."""
+        """(label, detail, action) for the last world played, or None."""
+        record = self.last.record
+        if record["kind"] is None:
+            return self._continue_from_links()
+        character = self.library.get(record["character_id"]) if record["character_id"] else None
+        if character is None:
+            return None
+        if record["kind"] in ("solo", "host"):
+            entry = self.registry.get(record["world_id"]) if record["world_id"] else None
+            if entry is None:
+                return None
+            return (record["when"], record["kind"], entry, character)
+        server = self.servers.get(record["server_id"]) if record["server_id"] else None
+        if server is None:
+            return None
+        return (record["when"], "join", server, character)
+
+    def _continue_from_links(self):
+        """Before this version kept a last-session record: the most recently played world account whose character is in
+        the library (what the earlier menu's Continue Adventure offered)."""
         best = None
         for link in self.links.all():
-            if link["last_played"] is None or link["stage"] != "enrolled" and character_state(
-                    self.private_root, link["world_id"], link["player_id"]) == "none":
+            binding = self.library.binding(link["world_id"], link["player_id"]) if link["last_played"] is not None else None
+            character = self.library.get(binding[0]) if binding else None
+            if character is None:
                 continue
             if link["role"] == "host":
                 entry = self.registry.get(link["world_id"])
                 if entry is None:
                     continue
-                candidate = (link["last_played"], "host", entry, link)
+                candidate = (link["last_played"], "solo" if entry.kind == "adventure" and entry.bind_address == LOOPBACK else "host",
+                             entry, character)
             else:
                 server = self.servers.for_account(link["world_id"], link["player_id"])
                 if server is None:
                     continue
-                candidate = (link["last_played"], "join", server, link)
+                candidate = (link["last_played"], "join", server, character)
             if best is None or candidate[0] > best[0]:
                 best = candidate
         return best
 
+    def _remember(self, kind, character, *, world_id=None, server_id=None):
+        try:
+            self.last.save({"format": LAST_FORMAT, "kind": kind, "world_id": world_id, "server_id": server_id,
+                            "character_id": character.character_id, "when": self.clock()})
+        except (StoreUnavailable, ValueError):
+            pass
+
     def main_menu(self):
         while True:
+            character = self.library.active()
             target = self._continue_target()
-            screen = Screen("main", "Main menu", f"EmeraldTogether {self.version}")
+            sub = f"Playing as {character.name}" if character else "Start by creating your character"
+            screen = Screen("main", "Main menu", f"EmeraldTogether {self.version} - {sub}")
             if target is None:
-                screen.row("continue", "Continue Adventure", "no adventure yet", "d")
+                screen.row("continue", "Continue Adventure", "nothing played yet", "d")
             else:
                 when = _ago(target[0], self.clock())
-                if target[1] == "host":
-                    detail = f"{target[2].name} - {target[3]['display_name']} - {when}"
-                else:
-                    detail = f"{target[2]['name']} - {target[3]['display_name']} - {when}"
-                screen.row("continue", "Continue Adventure", detail, "s")
+                place = target[2].name if target[1] != "join" else target[2]["name"]
+                how = {"solo": "Solo", "host": "hosting", "join": "with friends"}[target[1]]
+                screen.row("continue", "Continue Adventure", f"{place} - {target[3].name} - {how} - {when}", "s")
             worlds = len(self.registry.entries(default_bind=self._default_bind()))
-            screen.row("new", "New Game", "start a new adventure")
-            screen.row("host", "Host Server", f"{worlds} world{'s' if worlds != 1 else ''}")
-            screen.row("join", "Join Server", f"{len(self.servers.all())} saved")
+            screen.row("solo", "Solo", "play by yourself" + (f" - {worlds} world{'s' if worlds != 1 else ''}" if worlds else ""))
+            screen.row("host", "Host World", "play with friends in one of your worlds")
+            screen.row("join", "Join Friend", f"{len(self.servers.all())} saved")
+            screen.row("characters", "Characters", character.name if character else "create your character",
+                       "" if character else ("s" if target is None else ""))
             screen.row("settings", "Settings")
             screen.row("exit", "Exit")
             if not self.game_ok:
-                screen.set_status("warn", "Your game files are not installed yet. Open Settings, Game files.")
+                screen.set_status("warn", "Your game files are not ready. Open Settings, Game files.")
             elif self.notice:
                 screen.set_status(*self.notice)
+            elif character is None:
+                screen.set_status("info", "Create your character once (Characters). It plays Solo and with friends.")
             self.notice = None
             event = self.ui.show(screen)
             choice = event.id if event.kind == "select" else "exit" if event.kind == "back" else ""
@@ -301,12 +385,14 @@ class ShellApp:
                 return "exit"
             elif choice == "continue" and target is not None:
                 self._continue(target)
-            elif choice == "new":
-                self.new_game()
+            elif choice == "solo":
+                self.solo_menu()
             elif choice == "host":
                 self.host_menu()
             elif choice == "join":
                 self.join_menu()
+            elif choice == "characters":
+                self.characters_menu()
             elif choice == "settings":
                 self.settings_menu()
 
@@ -314,36 +400,255 @@ class ShellApp:
         addresses = self.lan()
         return addresses[0] if addresses else LOOPBACK
 
-    # ------------------------------------------------------------------ Continue / New Game
-
     def _continue(self, target):
-        _, kind, subject, link = target
-        if kind == "host":
-            self._host_world(subject)
-        else:
+        _, kind, subject, character = target
+        if self.library.active() is None or self.library.active().character_id != character.character_id:
+            try:
+                self.library.set_active(character.character_id)
+            except (LibraryError, StoreUnavailable):
+                pass
+        if kind == "join":
             self._join_server(subject)
+        else:
+            self._enter_own_world(subject, solo=kind == "solo")
 
-    def new_game(self):
+    # ------------------------------------------------------------------ characters
+
+    def _require_character(self):
+        """The active character, or None after offering to create one."""
+        character = self.library.active()
+        if character is not None:
+            return character
         if not self._need_game():
-            return
-        existing = [entry for entry in self.registry.entries(default_bind=self._default_bind()) if entry.kind == "adventure"]
-        has_character = any(link["stage"] == "enrolled" for link in self.links.all())
-        if has_character or existing:
-            if not self.confirm("Start a new adventure?",
-                                "Your current adventures stay exactly as they are: nothing is overwritten or deleted.\n"
-                                "Continue Adventure keeps resuming the one you played last, and you can open any of\n"
-                                "them again from Host Server.", "Start a new adventure"):
+            return None
+        if self.confirm("Create your character first",
+                        "You play with one character everywhere: Solo, in your worlds with friends, and in friends' worlds.\n"
+                        "Its Pokemon, levels, items and progress go with it. Create it now? (about two minutes in the game)",
+                        "Create my character", "Back"):
+            return self.create_character_flow()
+        return None
+
+    def create_character_flow(self):
+        """The game's New Game, once: name, look, starter, Save, close. Returns the new character (now active) or None."""
+        if not self._need_game():
+            return None
+        screen = Screen("create_character", "Create a character")
+        screen.note("1. The game opens on a New Game. Choose your name, look and starter Pokemon.")
+        screen.note("2. Save the game (START menu, SAVE), then close the game window.")
+        screen.note("3. Your character is ready: it plays Solo, hosts your worlds and joins your friends.")
+        screen.note("This happens on this PC only; no world or connection is needed.")
+        screen.row("go", "Create my character", "", "as")
+        screen.button("back", "Back")
+        event = self.ui.show(screen)
+        if event.kind == "back" or event.id != "go":
+            return None
+        texts = {"draft_running": "Create your trainer in the game window.\nWhen you are done, SAVE (START menu) and close the game."}
+
+        async def make(job):
+            return await self.drafter(self.installation, self.private_root, on_status=job.progress)
+
+        self.window(self.session_window)
+        try:
+            job = self.run_job(make, "Creating your character", texts["draft_running"], texts=texts)
+        finally:
+            self.window(self.menu_window)
+        if job is None:
+            self.notice = ("warn", "Character creation was cancelled. Nothing was created.")
+            return None
+        if job.error is not None:
+            self._explain("Your character was not created", job.error, game=True,
+                          safe="Nothing was changed. You can try again from Characters.")
+            return None
+        try:
+            payload = Path(job.result.source_path).read_bytes()
+            character = self.library.create(payload, origin="new_game")
+            self.library.set_active(character.character_id)
+        except (OSError, LibraryError, StoreUnavailable) as error:
+            self._explain("Your character could not be kept", error,
+                          safe="The game's save is still in the drafts folder; Characters, Recover a character finds it.")
+            return None
+        self.notice = ("ok", f"{character.name} is ready. Choose Solo, Host World or Join Friend to play.")
+        return character
+
+    def characters_menu(self):
+        while True:
+            characters = self.library.all()
+            active = self.library.active()
+            screen = Screen("characters", "Characters",
+                            "One character plays everywhere: Solo, your worlds with friends, and friends' worlds.")
+            screen.row("create", "Create a new character", "the game's New Game, once", "a" if not characters else "")
+            for character in characters:
+                where = "never played in a world yet" if character.world_id is None else f"last played {_ago(character.last_played, self.clock())}"
+                mark = "playing - " if active is not None and character.character_id == active.character_id else ""
+                screen.row("c:" + character.character_id, character.name, f"{mark}{where}", "2" + ("s" if mark else ""))
+            drafts = recoverable_drafts(self.private_root, self.library)
+            if drafts:
+                screen.row("recover", "Recover a character", f"{len(drafts)} from earlier attempts")
+            for folder, reason in self.library.damaged.items():
+                screen.row("damaged:" + folder, f"A character folder could not be read ({reason})", "left untouched", "2d")
+            problems = list(self.migration.problems if self.migration is not None else [])
+            problems += [f"{Path(path).parent.name}: {reason}" for path, reason in
+                         (self.library_migration.problems if self.library_migration is not None else [])]
+            if problems:
+                screen.note("Some items from the earlier version could not be matched safely. Left untouched (nothing was deleted):")
+                for problem in problems[:4]:
+                    screen.note("- " + problem)
+            screen.button("back", "Back")
+            if self.notice:
+                screen.set_status(*self.notice)
+                self.notice = None
+            event = self.ui.show(screen)
+            if event.kind == "back" or event.id == "back":
                 return
-        rule = self._trade_rule()
-        if rule is False:
+            if event.id == "create":
+                self.create_character_flow()
+            elif event.id == "recover":
+                self._recover_menu(drafts)
+            elif event.id.startswith("c:"):
+                character = self.library.get(event.id[2:])
+                if character is not None:
+                    self.character_menu(character)
+
+    def _recover_menu(self, drafts):
+        options = [(str(i), draft.trainer_name, time.strftime("%Y-%m-%d %H:%M", time.localtime(draft.modified)))
+                   for i, draft in enumerate(drafts)]
+        picked = self.choose("Recover a character", options,
+                             notes=["Characters created in earlier attempts that never finished setting up.",
+                                    "Choose one to keep it as a character. The original files stay where they are."])
+        if picked is None:
             return
-        names = {entry.name.casefold() for entry in self.registry.entries(default_bind=self._default_bind())}
-        number = 1
-        while f"adventure {number}" in names:
-            number += 1
-        entry = self._create_world(f"Adventure {number}", "Player", rule, bind=LOOPBACK, kind="adventure")
-        if entry is not None:
-            self._host_world(entry)
+        try:
+            character = recover_draft(self.library, drafts[int(picked)])
+        except (OSError, LibraryError, StoreUnavailable) as error:
+            self._explain("That character could not be recovered", error, safe="Nothing was changed.")
+            return
+        self.notice = ("ok", f"{character.name} was recovered. Choose it to play as it.")
+
+    def character_menu(self, character):
+        while True:
+            character = self.library.get(character.character_id)
+            if character is None:
+                return
+            active = self.library.active()
+            playing = active is not None and active.character_id == character.character_id
+            where = "has not entered a world yet" if character.world_id is None else f"last played {_ago(character.last_played, self.clock())}"
+            screen = Screen("character", character.name, f"Trainer ID {character.trainer_id & 0xFFFF:05d} - {where}")
+            if not playing:
+                screen.row("play", "Play as this character", "", "as")
+            else:
+                screen.note("This is the character you play as.")
+            screen.row("rename", "Rename")
+            screen.row("backup", "Back up now", "keeps a copy of the current save")
+            history = self.library.history(character)
+            screen.row("restore", "Restore an earlier version", f"{len(history)} kept" if history else "none yet", "" if history else "d")
+            screen.row("delete", "Delete this character", "asks first", "w")
+            screen.note(f"Folder: {character.folder}")
+            screen.button("back", "Back")
+            if self.notice:
+                screen.set_status(*self.notice)
+                self.notice = None
+            event = self.ui.show(screen)
+            if event.kind == "back" or event.id == "back":
+                return
+            try:
+                if event.id == "play":
+                    self.library.set_active(character.character_id)
+                    self.notice = ("ok", f"You now play as {character.name}.")
+                elif event.id == "rename":
+                    name = self._ask_text("Rename", "The name shown in this menu (the trainer's name in the game does not change).",
+                                          character.name, "Name", flags="l24")
+                    if name:
+                        self.library.rename(character.character_id, name)
+                elif event.id == "backup":
+                    self.library.backup_now(character)
+                    self.notice = ("ok", "A copy of the current save was kept.")
+                elif event.id == "restore" and history:
+                    options = [(str(i), path.name[:16].replace("T", " "), "backup" if "backup" in path.name else "") for i, path in enumerate(history[:20])]
+                    picked = self.choose("Restore an earlier version", options,
+                                         notes=["The current save is kept too, so you can switch back.",
+                                                "The next time this character enters a world, this version goes in."])
+                    if picked is not None and self.confirm("Restore this version?", "The current save is kept in the list of earlier versions.",
+                                                           "Restore"):
+                        self.library.restore(character, history[int(picked)])
+                        self.notice = ("ok", "Restored. The next world you enter gets this version.")
+                elif event.id == "delete":
+                    if self.confirm(f"Delete {character.name}?",
+                                    f"{character.name} disappears from this menu. Its saves are moved to the characters-deleted folder\n"
+                                    "in your private folder, not destroyed. Its progress stays in the worlds it played in.",
+                                    f"Delete {character.name}", warn=True):
+                        self.library.delete(character.character_id)
+                        self.notice = ("ok", f"{character.name} was moved to characters-deleted.")
+                        return
+            except (OSError, LibraryError, StoreUnavailable) as error:
+                self.notice = ("error", f"That did not work: {error}")
+
+    def _explain(self, title, error, *, safe=SAFE, game=False):
+        """A plain message for a failed action: what failed, why if known, whether the player's things are safe. The traceback
+        goes to shell/last-error.txt, never on screen."""
+        self.last_error = error
+        self._record_error(error, game=game)
+        if isinstance(error, CreationError):
+            reason = message_for(error)
+        elif isinstance(error, LibraryError):
+            reason = str(error).capitalize() + "."
+        else:
+            reason = "It could not finish."
+        self.message(title, reason + "\n\n" + safe + "\n" + DETAILS)
+        self.notice = ("error", title + ".")
+
+    def _registered(self, character, world_name, world_id, player_id, *, role, entry=None, server=None, route=None):
+        """Make sure this world account holds ``character``'s latest progress (registering it when needed). True when ready."""
+        plan = needs_registration(self.private_root, self.library, character, world_id, player_id)
+        if not plan.register:
+            return True
+        screen = Screen("bring_character", f"{character.name} enters {world_name}")
+        if plan.reason == "new_here":
+            screen.note(f"This is {character.name}'s first visit to {world_name}. Their Pokemon, items and progress come with them.")
+        elif plan.reason == "coming_back":
+            screen.note(f"{character.name} has played somewhere else since the last visit here. Their latest progress comes with them;")
+            screen.note("their earlier save in this world is kept.")
+        else:
+            screen.note(f"Another character used this place in {world_name} before. {character.name} takes it over;")
+            screen.note("the other character keeps all of their progress in Characters.")
+        screen.note("The game opens once: choose CONTINUE. It closes by itself when the world has saved your character.")
+        screen.row("go", "Continue", "", "as")
+        screen.button("back", "Back")
+        event = self.ui.show(screen)
+        if event.kind == "back" or event.id != "go":
+            return False
+        if role == "host":
+            options = dict(world_directory=entry.folder)
+        else:
+            options = dict(invitation_path=invitation_path(self.private_root, world_id, player_id), route_host=route[0], route_port=route[1])
+
+        async def enter(job):
+            return await self.register(self.installation, self.private_root, self.library, character, role=role, world_id=world_id,
+                                       player_id=player_id, on_status=job.progress, **options)
+
+        self.window(self.session_window)
+        try:
+            job = self.run_job(enter, f"{character.name} enters {world_name}", REGISTER_TEXTS["choose_continue"], texts=REGISTER_TEXTS)
+        finally:
+            self.window(self.menu_window)
+        if job is None:
+            self.notice = ("warn", "Cancelled. Your character was not changed; try again whenever you like.")
+            return False
+        if job.error is not None:
+            self._explain(f"{character.name} could not enter {world_name}", job.error, game=True)
+            return False
+        return True
+
+    def _after_session(self, character, world_id, player_id, outcome):
+        """After a game in a world: the character's latest save is that world's (its previous save stays in its history)."""
+        try:
+            updated = record_after_session(self.private_root, self.library, character.character_id, world_id, player_id)
+        except (OSError, LibraryError, StoreUnavailable) as error:
+            self._record_error(error)
+            self.notice = ("warn", "Your progress is saved in the world, but your character list could not be updated. "
+                                   "It updates the next time you start EmeraldTogether.")
+            return
+        if updated is not None and outcome == "game_closed":
+            self.notice = ("ok", f"Game closed. {character.name}'s progress is saved (as of your last save).")
 
     def _need_game(self):
         if self._game_installed():
@@ -496,7 +801,7 @@ class ShellApp:
                         if needs_rule:
                             self.prefs.save({"format": PREFS_FORMAT, "trade_rule": rule})
                         self.notice = ("ok", f"World '{entry.name}' created.")
-                        self.world_menu(entry)
+                        self.world_menu(entry, hosting=True)
                         return
 
     def _trade_rule_change(self, current):
@@ -533,19 +838,84 @@ class ShellApp:
         answer = event.fields.get("value", "").strip()
         return answer if answer or allow_empty else None
 
-    # ------------------------------------------------------------------ Host Server
+    # ------------------------------------------------------------------ Solo and Host World (the player's own worlds)
 
-    def host_menu(self):
+    def _world_detail(self, entry):
+        when = entry.last_hosted
+        return f"{len(entry.accounts)} places - port {entry.port} - {'played ' + _ago(when, self.clock()) if when else 'never played'}"
+
+    def solo_menu(self):
+        character = self._require_character()
+        if character is None:
+            return
         while True:
             entries = self.registry.entries(default_bind=self._default_bind())
-            screen = Screen("host_list", "Host Server", "Choose a saved world, or create a new one.")
-            screen.row("create", "Create New Server World", "a new world with its own characters", "a")
+            screen = Screen("solo", "Solo", f"Play by yourself as {character.name}. Choose a world, or start a new one.")
+            screen.row("new", "New world", "a fresh world from the beginning of the story", "a" if not entries else "")
             for entry in entries:
-                host_id = entry.accounts[0][1]
-                state = character_state(self.private_root, entry.world_id, host_id)
-                detail = (f"{entry.host_name} - {len(entry.accounts)} players - port {entry.port} - "
-                          f"{'hosted ' + _ago(entry.last_hosted, self.clock()) if entry.last_hosted else 'never hosted'}")
-                screen.row(entry.world_id, entry.name, detail, "2")
+                screen.row(entry.world_id, entry.name, self._world_detail(entry), "2")
+            if entries:
+                screen.row("manage", "Manage worlds", "rename, delete, network settings")
+            for folder, reason in self.registry.damaged.items():
+                screen.row("damaged:" + folder, f"Unusable world folder ({reason})", "left untouched", "2d")
+            screen.button("back", "Back")
+            if self.notice:
+                screen.set_status(*self.notice)
+                self.notice = None
+            event = self.ui.show(screen)
+            if event.kind == "back" or event.id == "back":
+                return
+            if event.id == "new":
+                entry = self._new_solo_world(character)
+                if entry is not None and self._enter_own_world(entry, solo=True):
+                    return
+            elif event.id == "manage":
+                self.manage_worlds()
+            else:
+                entry = next((item for item in entries if item.world_id == event.id), None)
+                if entry is not None and self._enter_own_world(entry, solo=True):
+                    return
+
+    def _new_solo_world(self, character):
+        if not self._need_game():
+            return None
+        rule = self._trade_rule()
+        if rule is False:
+            return None
+        names = {entry.name.casefold() for entry in self.registry.entries(default_bind=self._default_bind())}
+        number = 1
+        while f"world {number}" in names:
+            number += 1
+        name = self._ask_text("New world", "A name for your new world (you can rename it later).", f"World {number}", "World name",
+                              flags="l32s")
+        if not name:
+            return None
+        if not valid_world_name(name) or self.registry.name_taken(name):
+            self.notice = ("error", "Choose another name (up to 32 characters, not used by another of your worlds).")
+            return None
+        return self._create_world(name, character.name[:24], rule, bind=LOOPBACK, kind="adventure")
+
+    def manage_worlds(self):
+        while True:
+            entries = self.registry.entries(default_bind=self._default_bind())
+            options = [(entry.world_id, entry.name, self._world_detail(entry)) for entry in entries]
+            picked = self.choose("Manage worlds", options, notes=["Your worlds on this PC. Friends' worlds are in Join Friend."])
+            if picked is None:
+                return
+            entry = next((item for item in entries if item.world_id == picked), None)
+            if entry is not None:
+                self.world_menu(entry)
+
+    def host_menu(self):
+        character = self._require_character()
+        if character is None:
+            return
+        while True:
+            entries = self.registry.entries(default_bind=self._default_bind())
+            screen = Screen("host_list", "Host World", f"Open one of your worlds to friends. You play as {character.name}.")
+            screen.row("create", "Create a new world", "with its own story progress and up to three friends", "a" if not entries else "")
+            for entry in entries:
+                screen.row(entry.world_id, entry.name, self._world_detail(entry), "2")
             for folder, reason in self.registry.damaged.items():
                 screen.row("damaged:" + folder, f"Unusable world folder ({reason})", "left untouched", "2d")
             screen.button("back", "Back")
@@ -560,27 +930,32 @@ class ShellApp:
             else:
                 entry = next((item for item in entries if item.world_id == event.id), None)
                 if entry is not None:
-                    self.world_menu(entry)
+                    self.world_menu(entry, hosting=True)
 
-    def world_menu(self, entry):
+    def world_menu(self, entry, hosting=False):
         while True:
             entry = self.registry.get(entry.world_id) or entry
-            host_id = entry.accounts[0][1]
-            state = character_state(self.private_root, entry.world_id, host_id)
-            who = {"ready": "your saved character loads automatically", "none": "you create your character first",
-                   "interrupted": "your first-time setup was interrupted"}[state]
-            screen = Screen("world", entry.name, f"{entry.host_name} - port {entry.port} - {who}")
-            screen.row("host", "Host This World", "", "as")
-            screen.row("info", "Server Information")
+            screen = Screen("world", entry.name, self._world_detail(entry))
+            if hosting:
+                screen.row("host", "Host this world now", "friends can join while you play", "as")
+                screen.row("solo", "Play it Solo instead")
+            else:
+                screen.row("solo", "Play Solo", "", "as")
+                screen.row("host", "Host it for friends")
             screen.row("codes", "Invite codes for friends")
+            screen.row("info", "Server information")
             screen.row("network", "Network settings")
             screen.row("rename", "Rename world")
+            screen.row("delete", "Delete world", "asks first", "w")
             screen.button("back", "Back")
+            if self.notice:
+                screen.set_status(*self.notice)
+                self.notice = None
             event = self.ui.show(screen)
             if event.kind == "back" or event.id == "back":
                 return
-            if event.id == "host":
-                self._host_world(entry)
+            if event.id in ("host", "solo"):
+                self._enter_own_world(entry, solo=event.id == "solo")
                 return
             elif event.id == "info":
                 self.server_information(entry)
@@ -599,6 +974,67 @@ class ShellApp:
                     else:
                         self.registry.configure(entry.world_id, name=name)
                         self.links.rename_world(entry.world_id, name)
+            elif event.id == "delete":
+                if entry.world_id in self.hosting:
+                    self.notice = ("error", "Stop hosting this world first.")
+                elif self.confirm(f"Delete {entry.name}?",
+                                  f"{entry.name} disappears from your worlds, and friends can no longer join it.\n"
+                                  "Its folder is moved to worlds-deleted in your private folder, not destroyed.\n"
+                                  "Your characters keep their latest progress (Characters).", f"Delete {entry.name}", warn=True):
+                    try:
+                        self.registry.remove(entry.world_id)
+                    except (OSError, KeyError, StoreUnavailable) as error:
+                        self._explain("The world could not be deleted", error, safe="Nothing was changed.")
+                        continue
+                    self.notice = ("ok", f"{entry.name} was moved to worlds-deleted.")
+                    return
+
+    def _enter_own_world(self, entry, *, solo):
+        """Play one of the player's own worlds with the active character: Solo (this PC only) or hosted for friends.
+        Returns whether the game ran (False when the player backed out or was told why it could not start)."""
+        if not self._need_game():
+            return False
+        character = self._require_character()
+        if character is None:
+            return False
+        host_id = entry.accounts[0][1]
+        if not solo:
+            job = self.run_job(lambda job: asyncio.get_running_loop().run_in_executor(None, lambda: self._prepare(entry)),
+                               "Getting the world ready", "Preparing the world for this version (a backup is made first).")
+            if job is None:
+                return False
+            if job.error is not None:
+                self._explain(f"{entry.name} could not be prepared", job.error, safe="The world was not changed.")
+                return False
+        if not self._registered(character, entry.name, entry.world_id, host_id, role="host", entry=entry):
+            return False
+        note = None
+        if solo:
+            bind = LOOPBACK
+        else:
+            bind, note = self._bind_for(entry)
+        from .launcher_gui import LaunchRequest
+        request = LaunchRequest("host", entry.folder / "host.json", bind, bool(entry.internet and not solo),
+                                allow_enrollment=bool(entry.enrollment and not solo))
+        for attempt in range(2):
+            outcome = self._play(request, entry.name, character.name, world_id=entry.world_id, player_id=host_id,
+                                 hosting=None if solo else (entry.world_id, bind, entry.port), note=note)
+            if outcome != "enrollment_required":
+                break
+            # The world has no character for this account (an older world, or a restored backup): register and start again.
+            if not self._registered(character, entry.name, entry.world_id, host_id, role="host", entry=entry):
+                return False
+        self._after_session(character, entry.world_id, host_id, outcome)
+        try:
+            self.registry.touch_hosted(entry.world_id)
+        except (KeyError, StoreUnavailable):
+            pass
+        self._remember("solo" if solo else "host", character, world_id=entry.world_id)
+        return True
+
+    def _prepare(self, entry):
+        from .launcher_setup import prepare_world_for_returning_characters
+        return prepare_world_for_returning_characters(self.installation, entry.folder)
 
     def _bind_for(self, entry):
         """The address to listen on now. A local-network address that is no longer this PC's is replaced (and the host told)."""
@@ -611,24 +1047,6 @@ class ShellApp:
             return addresses[0], f"This PC's network address changed from {bind} to {addresses[0]}. Friends' saved servers need the new one."
         self.registry.configure(entry.world_id, bind_address=LOOPBACK)
         return LOOPBACK, "No network connection was found, so the world is hosted on this PC only."
-
-    def _host_world(self, entry):
-        """Host Server -> this world: its host character loads by itself; a first-time host creates one."""
-        if not self._need_game():
-            return
-        host_id = entry.accounts[0][1]
-        self.links.ensure(entry.world_id, host_id, "host", 0, entry.name, entry.accounts[0][2])
-        bind, note = self._bind_for(entry)
-        from .launcher_gui import LaunchRequest
-        request = LaunchRequest("host", entry.folder / "host.json", bind, entry.internet, allow_enrollment=entry.enrollment)
-        for attempt in range(2):
-            outcome = self._play(request, entry.name, entry.accounts[0][2], world_id=entry.world_id, player_id=host_id,
-                                 hosting=(entry.world_id, bind, entry.port), note=note)
-            if outcome != "enrollment_required":
-                return
-            if not self._create_character("host", entry, host_id):
-                return
-        return
 
     # ------------------------------------------------------------------ the session (the game runs in its own window)
 
@@ -790,99 +1208,6 @@ class ShellApp:
             self.notice = ("error" if outcome not in ("cancelled", "graphics_failed") else "warn", status_text(outcome))
         return outcome
 
-    # ------------------------------------------------------------------ first-time character creation
-
-    def _create_character(self, role, subject, player_id, *, server=None):
-        """The player's New Game, then automatic approval and enrollment. Returns True when the character exists."""
-        link = self.links.get(subject.world_id if role == "host" else server["world_id"], player_id)
-        draft = None
-        if link and link["stage"] == "draft" and link["draft"]:
-            from types import SimpleNamespace
-            source = Path(link["draft"]["source"])
-            if source.is_file():
-                draft = SimpleNamespace(source_path=source, sha256=link["draft"]["sha256"], party_count=1)
-                try:
-                    if hashlib.sha256(source.read_bytes()).hexdigest() != draft.sha256:
-                        draft = None
-                except OSError:
-                    draft = None
-        world_id = subject.world_id if role == "host" else server["world_id"]
-        screen = Screen("create_character", "Create your character")
-        if draft is not None:
-            screen.note("You already created a character here but its setup did not finish.")
-            screen.note("Continue setting it up: your game opens, choose CONTINUE, and your adventure begins.")
-            screen.row("go", "Continue setting up my character", "", "as")
-            screen.row("new", "Create a different character instead", "the earlier one is kept in your private folder")
-        else:
-            screen.note("This is your first time in this world, so you create your character with the game's normal New Game.")
-            screen.note("1. Your game opens: choose your name and your starter Pokemon, then SAVE (START menu) and close the game.")
-            screen.note("2. It opens once more: choose CONTINUE. It closes by itself when your character is registered.")
-            screen.note("3. Your adventure starts. You are never asked to find or import a file.")
-            screen.row("go", "Create my character", "", "as")
-        screen.button("back", "Back")
-        event = self.ui.show(screen)
-        if event.kind == "back" or event.id == "back":
-            return False
-        if event.id == "new":
-            draft = None
-        texts = {
-            "draft_running": "Create your trainer in the game window.\nWhen you are done, SAVE in the game (START menu) and close the game.",
-            "draft_ready": "Your character is saved. Getting ready to register it.",
-            "connecting": "Connecting to the world...",
-            "approving": "Registering your character with the world...",
-            "running": "Your game opens on your new character.\nChoose CONTINUE. It closes by itself once your character is registered.",
-            "choose_continue": "Your game opens on your new character.\nChoose CONTINUE. It closes by itself once your character is registered.",
-            "waiting_safe_place": "Waiting for you to reach a safe place in the game (outside menus and battles).\nChoose CONTINUE if you have not yet.",
-            "enrolled": "Your character is registered.",
-        }
-        if role == "host":
-            options = dict(world_directory=subject.folder)
-        else:
-            invitation = invitation_path(self.private_root, server["world_id"], server["player_id"])
-            try:
-                host = self.resolver(server["address"], server["port"])
-            except Exception as error:                                 # noqa: BLE001
-                self.message("Could not find the server", getattr(error, "args", ["The address could not be resolved."])[0])
-                return False
-            options = dict(invitation_path=invitation, route_host=host, route_port=server["port"])
-        holder = {}
-
-        async def make(job):
-            def on_status(code):
-                job.progress(code)
-
-            def on_draft(result):
-                holder["draft"] = result
-                try:
-                    self.links.set_stage(world_id, player_id, "draft", {"source": str(result.source_path), "sha256": result.sha256})
-                except Exception:                                       # noqa: BLE001
-                    pass
-            return await self.creator(self.installation, self.private_root, role=role, draft=draft, on_status=on_status,
-                                      on_draft=on_draft, **options)
-
-        self.window(self.session_window)
-        try:
-            job = self.run_job(make, "Creating your character", texts["draft_running"], texts=texts)
-        finally:
-            self.window(self.menu_window)
-        if job is None:
-            self.notice = ("warn", "Character setup was cancelled. Nothing was lost; you can continue it from the same place.")
-            return False
-        if job.error is not None:
-            self.last_error = job.error
-            self._record_error(job.error, game=True)
-            text = message_for(job.error) if isinstance(job.error, CreationError) else \
-                "Setting up your character could not finish. Your files were kept; try again."
-            if holder.get("draft") is not None or draft is not None:
-                # The New Game was saved: the next try starts from it (the "Continue setting up my character" choice).
-                text += "\nThe character you made was kept: choose the world again to continue setting it up."
-            self.message("Your character is not set up yet",
-                         text + "\nDetails were written to shell/last-error.txt in your private folder.")
-            self.notice = ("error", text.split("\n")[0])
-            return False
-        self.links.set_stage(world_id, player_id, "enrolled")
-        return True
-
     # ------------------------------------------------------------------ Server Information, invite codes, network
 
     def _addresses_for(self, entry):
@@ -1011,17 +1336,16 @@ class ShellApp:
                     else:
                         self.registry.configure(entry.world_id, address=text)
 
-    # ------------------------------------------------------------------ Join Server
+    # ------------------------------------------------------------------ Join Friend
 
     def join_menu(self):
         while True:
             servers = self.servers.all()
-            screen = Screen("join_list", "Join Server", "Choose a saved server, or add a new one with an invite code.")
-            screen.row("new", "Join New Server", "with an invite code", "a")
+            screen = Screen("join_list", "Join Friend", "Choose a friend's world you joined before, or join a new one with an invite code.")
+            screen.row("new", "Join with an invite code", "your host sends you one", "a" if not servers else "")
             for server in servers:
-                state = character_state(self.private_root, server["world_id"], server["player_id"])
-                who = {"ready": "your character", "none": "no character yet", "interrupted": "setup interrupted"}[state]
-                screen.row(server["id"], server["name"], f"{server['address']}:{server['port']} - {server['display_name']} - {who}", "2")
+                when = "played " + _ago(server["last_joined"], self.clock()) if server["last_joined"] else "not played yet"
+                screen.row(server["id"], server["name"], f"{server['address']}:{server['port']} - {when}", "2")
             screen.button("back", "Back")
             if self.notice:
                 screen.set_status(*self.notice)
@@ -1041,13 +1365,12 @@ class ShellApp:
             server = self.servers.get(server["id"])
             if server is None:
                 return
-            state = character_state(self.private_root, server["world_id"], server["player_id"])
-            who = {"ready": "your saved character loads automatically", "none": "you create your character on first join",
-                   "interrupted": "your first-time setup was interrupted"}[state]
-            screen = Screen("server", server["name"], f"{server['address']}:{server['port']} - {server['display_name']} - {who}")
+            character = self.library.active()
+            who = f"you play as {character.name}" if character else "create your character first"
+            screen = Screen("server", server["name"], f"{server['address']}:{server['port']} - {who}")
             screen.row("join", "Join", "", "as")
-            screen.row("edit", "Edit name or address")
-            screen.row("remove", "Remove this shortcut", "your character is kept", "w")
+            screen.row("edit", "Edit name or address", "if the host's address changed")
+            screen.row("remove", "Remove from this list", "your characters are not touched", "w")
             screen.button("back", "Back")
             event = self.ui.show(screen)
             if event.kind == "back" or event.id == "back":
@@ -1058,12 +1381,11 @@ class ShellApp:
             elif event.id == "edit":
                 self.edit_server(server)
             elif event.id == "remove":
-                if self.confirm("Remove this saved server?",
-                                f"Only the shortcut '{server['name']}' is removed.\n"
-                                f"Your character '{server['display_name']}' and everything in it stay on this PC. Paste the same invite\n"
-                                "code again (Join New Server) and you are back in the same character.", "Remove the shortcut", warn=True):
+                if self.confirm(f"Remove {server['name']} from the list?",
+                                f"Only this entry is removed. Your characters and their progress are not touched.\n"
+                                "To join this world again later, paste the host's invite code again.", "Remove", warn=True):
                     self.servers.remove(server["id"])
-                    self.notice = ("ok", "Shortcut removed. Your character was kept.")
+                    self.notice = ("ok", "Removed from the list. Your characters were not touched.")
                     return
 
     def edit_server(self, server):
@@ -1098,7 +1420,7 @@ class ShellApp:
         values = dict(code="", name="", address="", port="")
         status = None
         while True:
-            screen = Screen("join_new", "Join New Server", "Paste the invite code your host sent you (Ctrl+V).")
+            screen = Screen("join_new", "Join with an invite code", "Paste the invite code your host sent you (Ctrl+V).")
             screen.field("code", "Invite code", values["code"], "m")
             screen.field("name", "Name for this server (optional)", values["name"], "l48")
             screen.field("address", "Address (optional: the code has one)", values["address"], "l253")
@@ -1185,17 +1507,21 @@ class ShellApp:
         return job.result
 
     def _join_server(self, server):
-        """Join a saved server: verify it is that world, start the session; the character loads by itself (or is created once)."""
+        """Join a saved server with the active character: verify it is that world, bring the character in if needed, play."""
         if not self._need_game():
+            return
+        character = self._require_character()
+        if character is None:
             return
         path = invitation_path(self.private_root, server["world_id"], server["player_id"])
         try:
-            invitation = Invitation.load(path)
+            Invitation.load(path)
         except (OSError, InvitationError, ValueError):
             self.message("This saved server needs its invite code again",
-                         "The private invite for this account could not be read. Your character is untouched.\n"
-                         "Paste the invite code your host sent (Join New Server) and you are back in the same character.")
+                         "The private invite for this account could not be read. Nothing was changed.\n"
+                         "Paste the invite code your host sent (Join Friend, Join with an invite code).")
             return
+        invitation = Invitation.load(path)
         while True:
             async def check(job):
                 job.progress("resolving")
@@ -1221,15 +1547,22 @@ class ShellApp:
                 server = self.servers.get(server["id"]) or server
                 continue
             return
+        route = (numeric, server["port"])
+        if not self._registered(character, server["name"], server["world_id"], server["player_id"], role="friend", server=server,
+                                route=route):
+            return
         from .launcher_gui import LaunchRequest
-        request = LaunchRequest("join", path, route=(numeric, server["port"]))
+        request = LaunchRequest("join", path, route=route)
         for attempt in range(2):
-            outcome = self._play(request, server["name"], server["display_name"], world_id=server["world_id"],
-                                 player_id=server["player_id"])
+            outcome = self._play(request, server["name"], character.name, world_id=server["world_id"], player_id=server["player_id"])
             if outcome != "enrollment_required":
+                break
+            # The host's world has no character for this account (a restored world): bring the character in again.
+            if not self._registered(character, server["name"], server["world_id"], server["player_id"], role="friend",
+                                    server=server, route=route):
                 return
-            if not self._create_character("friend", None, server["player_id"], server=server):
-                return
+        self._after_session(character, server["world_id"], server["player_id"], outcome)
+        self._remember("join", character, world_id=server["world_id"], server_id=server["id"])
 
     def _offline_choice(self, server, reason):
         screen = Screen("offline", f"Can't join {server['name']}")
@@ -1253,7 +1586,7 @@ class ShellApp:
             screen.row("display", "Display: window and quality")
             screen.row("audio", "Audio volumes")
             screen.row("controls", "Controls", "keyboard keys")
-            screen.row("characters", "Characters on this PC")
+            screen.row("characters", "Characters", "create, choose, back up, restore")
             screen.row("multiplayer", "Multiplayer")
             screen.row("files", "Game files", "installed and verified" if self.game_ok else "not installed", "w" if not self.game_ok else "")
             screen.button("back", "Back")
@@ -1272,7 +1605,7 @@ class ShellApp:
             elif event.id == "controls":
                 self._controls_info()
             elif event.id == "characters":
-                self._characters_screen()
+                self.characters_menu()
             elif event.id == "multiplayer":
                 self._multiplayer_settings()
             elif event.id == "files":
@@ -1389,29 +1722,10 @@ class ShellApp:
                 notice = ("error", "The game settings file could not be written. Nothing changed.")
                 bindings = gc.read_controls(path)
 
-    def _characters_screen(self):
-        screen = Screen("characters", "Characters on this PC", "Each belongs to one account in one world. Files are kept in your private folder.")
-        links = sorted(self.links.all(), key=lambda link: (link["world_name"].casefold(), link["slot"]))
-        if not links:
-            screen.note("No characters yet.")
-        for link in links:
-            state = character_state(self.private_root, link["world_id"], link["player_id"])
-            label = {"ready": "ready", "none": "not created yet", "interrupted": "setup interrupted"}[state]
-            screen.row(link["world_id"] + link["player_id"], f"{link['display_name']} in {link['world_name']}",
-                       f"{'host' if link['role'] == 'host' else 'friend'} - {label}", "d")
-        screen.note("Folder: " + str(self.private_root / "players"))
-        if self.migration is not None and self.migration.problems:
-            screen.note("Left untouched because they could not be matched without guessing:")
-            for problem in self.migration.problems[:6]:
-                screen.note("  - " + problem)
-            screen.note("Paste the invite code or the invitation file's path in Join Server, Join New Server to link them.")
-        screen.button("back", "Back")
-        self.ui.show(screen)
-
     def _multiplayer_settings(self):
         screen = Screen("multiplayer", "Multiplayer")
-        screen.note("Network settings are per world (Host Server, choose a world, Network settings).")
-        screen.note("Saved servers are edited in Join Server. Autosave and Save now are in the session window while you play.")
+        screen.note("Network settings are per world (Host World, choose a world, Network settings).")
+        screen.note("Friends' worlds are edited in Join Friend. Autosave and Save now are in the session window while you play.")
         rule = self.prefs.record["trade_rule"]
         screen.row("rule", "Trade friendship rule for new worlds", TRADE_RULES[rule][0] if rule else "not chosen yet")
         screen.button("back", "Back")

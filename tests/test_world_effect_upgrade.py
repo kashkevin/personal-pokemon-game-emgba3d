@@ -10,6 +10,7 @@ from uuid import uuid4
 import zlib
 
 from emerald_multiplayer.companion import verify_rom_manifest
+from emerald_multiplayer.character_transfers import EXTENSION_VERSION as TRANSFERS
 from emerald_multiplayer.host_world import HostWorld, HostWorldError
 from emerald_multiplayer.launcher_session import GameInstallation
 from emerald_multiplayer.launcher_setup import LauncherSetupError, upgrade_world_features
@@ -118,7 +119,7 @@ class WorldEffectUpgradeTests(unittest.TestCase):
             with self.subTest(policy=policy):
                 host = self.create(name="new-" + str(i), policy=policy)
                 original = self.backup_hashes(host)
-                self.assertEqual(len(original), 3)  # reset, history, then native effects
+                self.assertEqual(len(original), 4)  # reset, character transfers, history, then native effects
                 with host.open_store() as store:
                     self.assertTrue(store.friendship_history_enabled)
                     self.assertTrue(store.trade_effects_enabled)
@@ -140,8 +141,9 @@ class WorldEffectUpgradeTests(unittest.TestCase):
         with host.open_store() as store:
             self.assertFalse(store.friendship_history_enabled)
             self.assertFalse(store.trade_effects_enabled)
-            self.assertEqual(store._connection.execute("PRAGMA user_version").fetchone()[0], 3)
-        self.assertEqual(self.backup_hashes(host), {})
+            # Every new world takes its characters back (character_transfers.py); nothing else is added.
+            self.assertEqual(store._connection.execute("PRAGMA user_version").fetchone()[0], 3 + TRANSFERS)
+        self.assertEqual(set(self.backup_hashes(host)), {"before-character-transfers.sqlite3"})
         with self.assertRaises(HostWorldError) as caught:
             self.create(name="legacy-refused", legacy=True, policy=POLICIES[0])
         self.assertEqual(caught.exception.code, "trade_effect_policy_required")
@@ -162,8 +164,9 @@ class WorldEffectUpgradeTests(unittest.TestCase):
             before_rows = self.original_rows(store)
             before_metadata = store.metadata
         descriptor = (host.directory / "host.json").read_bytes()
+        created = self.backup_hashes(host)                 # the new world's own (character transfers, before any play)
         self.assertEqual(self.upgrade(host), host.directory)
-        backups = self.backup_hashes(host)
+        backups = {name: value for name, value in self.backup_hashes(host).items() if name not in created}
         self.assertEqual(len(backups), 3)
         with host.open_store() as store:
             self.assertEqual(self.original_rows(store, before_rows), before_rows)
@@ -180,7 +183,7 @@ class WorldEffectUpgradeTests(unittest.TestCase):
                                       host.save_profile) as backup:
                 backup.integrity_check()
                 self.assertEqual(self.original_rows(backup, before_rows), before_rows)
-        self.assertEqual(self.backup_hashes(host), backups)
+        self.assertEqual(self.backup_hashes(host), {**created, **backups})
         self.assertEqual((host.directory / "host.json").read_bytes(), descriptor)
 
     def test_upgrade_rejects_missing_policy_or_non_replay_manifest_without_changes(self):
