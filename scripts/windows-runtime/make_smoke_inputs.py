@@ -1,14 +1,15 @@
 """Synthetic, asset-free inputs for the packaging smoke test.
 
-Writes the four files the real pipeline takes from the engine build, but with stand-ins
+Writes the files the real pipeline takes from the engine build, but with stand-ins
 that contain no game data, so the Windows packaging steps (collect_native_bundle.py,
-build_launcher.py, PyInstaller, the package audit, starting the frozen launcher) can be
-proven on any runner without the private engine, ROM, base dump or sprite pack:
+build_launcher.py, PyInstaller, the package audit, the Inno Setup installer, starting the
+frozen and the installed launcher) can be proven on any runner without the private engine,
+ROM, base dump or sprite pack:
 
   pokeemerald-mp-diorama.exe   a copy of the given executable (CI passes python.exe)
   pokeemerald-mp.exe           another copy: the Classic 2D game's stand-in
   SDL2.dll                     placeholder bytes
-  pokedev.gba                  a few KiB of text; the launcher only hashes it
+  pokedev.gba                  a few KiB of text; only its game facts enter the package
   manifest.json                identity of that file in the real manifest format
 
 The manifest passes the companion's own verify_rom_manifest. The result is a package that

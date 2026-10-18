@@ -1,9 +1,16 @@
 """Build a private Windows onedir launcher from explicit trusted release pins.
 
 No ROM, invitation, world database or player save is copied into the package.
+A native-game package runs without any game.gba: its runtime bundle pins the
+game facts recorded from the ROM (collect_native_bundle.py --manifest,
+game_facts.py), and this build verifies them as well as the ROM itself.
 Normal packaging requires a verified import patch and production game gates.
 An explicit --development-preview keeps the earlier private, import-disabled
 candidate workflow available. Base dumps may be raw GBA or bounded single-GBA ZIP.
+
+With --installer the finished folder is also packed by Inno Setup
+(installer/EmeraldTogether.iss) into EmeraldTogether-Setup-<version>.exe, and
+player/ receives exactly what a friend downloads: that Setup file and QUICK-START.txt.
 """
 from __future__ import annotations
 
@@ -13,6 +20,7 @@ import importlib.metadata
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -26,6 +34,9 @@ from emerald_multiplayer.launcher_gui import LauncherRelease
 from package_audit import audit_files, audit_tree
 
 PYINSTALLER = "6.22.3"
+INSTALLER_SCRIPT = Path(__file__).resolve().parent / "installer" / "EmeraldTogether.iss"
+# Everything the package folder holds beside _internal; the installer and the player guide use them.
+GUIDES = ("README.txt", "QUICK-START.txt", "RELEASE-LIMITS.txt")
 
 # QUICK-START.txt lists the emulator runtime's keys. The native PC game has its
 # own (engine src/platform/sdl2.c), so a native package gets them instead.
@@ -75,6 +86,79 @@ def quick_start_text(template, native):
     return template.replace(old, new)
 
 
+def readme_text(release, runtime_manifest, native, development, import_enabled):
+    """README.txt beside EmeraldTogether.exe: what this package is, honestly, in a few lines."""
+    lines = [f"Emerald Together - {release.version}", ""]
+    lines.append(("Private development preview" if development else "Private release candidate")
+                 + ": the main menu in the game's own window (Continue Adventure,")
+    lines += ["New Game, Host Server, Join Server, Settings, Exit), saved worlds and servers that",
+              "load your own character automatically, autosave every 5 minutes (on by default) and",
+              "Save now in the session window.",
+              "Read QUICK-START.txt (how to play) and RELEASE-LIMITS.txt (what this build is) first.", ""]
+    if native:
+        lines += [f"The game is the native PC game {runtime_manifest['executable']} (no emulator). Everything it",
+                  "needs is in this installation; no game.gba or other file has to be added. The game's",
+                  "graphics, music and text are compiled into its program files, so this package is a",
+                  "private build for friends who own Pokemon Emerald: do not publish it, upload it",
+                  "publicly or give it to anyone else.", ""]
+    elif import_enabled:
+        lines += ["Settings, Game files installs the game from your own matching Pokemon Emerald dump.", ""]
+    else:
+        lines += ["Game import is unavailable: this development package has no release patch.", ""]
+    lines += ["Your saves, characters and worlds are stored in %LOCALAPPDATA%\\PokemonPrivate, not in this",
+              "folder. Repairing, updating or uninstalling EmeraldTogether keeps them.",
+              "If a file is missing or changed, run the EmeraldTogether Setup file again: it repairs the",
+              "installation. Settings, Game files checks the installed files.", "",
+              "This package contains no game ROM, player save, invitation or world database.",
+              "Do not send your personal invite code or invitation to another player.",
+              "See _internal/package-provenance.json and _internal/notices for exact components.", "",
+              "Release identity (SHA-256):",
+              f"Game build: {release.rom_sha256}",
+              f"Game manifest: {release.manifest_sha256}",
+              f"Runtime manifest: {release.runtime_sha256}"]
+    return "\n".join(lines) + "\n"
+
+
+def setup_version(version):
+    """The version label as it appears in the Setup file's name (no spaces or other awkward characters)."""
+    value = re.sub(r"[^A-Za-z0-9._-]+", "-", version).strip("-.")
+    return value or "preview"
+
+
+def setup_name(version):
+    return f"EmeraldTogether-Setup-{setup_version(version)}.exe"
+
+
+def installer_command(iscc, version, package, destination):
+    """The Inno Setup compiler call for the finished package folder (see installer/EmeraldTogether.iss)."""
+    return [str(iscc), "/Qp", f"/DAppVersion={version}", f"/DSetupVersion={setup_version(version)}",
+            f"/DPackageDir={package}", f"/O{destination}", str(INSTALLER_SCRIPT)]
+
+
+def build_installer(iscc, version, package, output):
+    """Pack ``package`` into installer/EmeraldTogether-Setup-<version>.exe and fill player/ with the
+    player-facing download: the Setup file and the package's QUICK-START.txt, nothing else."""
+    destination = output / "installer"
+    destination.mkdir()
+    command = installer_command(iscc, version, package, destination)
+    with (output / "installer.log").open("w", encoding="utf-8") as log:
+        subprocess.run(command, check=True, stdout=log, stderr=subprocess.STDOUT, cwd=output)
+    setup = destination / setup_name(version)
+    produced = sorted(path.name for path in destination.iterdir())
+    if produced != [setup.name] or setup.stat().st_size == 0:
+        raise ValueError("the installer build did not produce exactly " + setup.name)
+    audit_files([setup])
+    player = output / "player"
+    player.mkdir()
+    pinned_copy(setup, player / setup.name, sha(setup))
+    pinned_copy(package / "QUICK-START.txt", player / "QUICK-START.txt", sha(package / "QUICK-START.txt"))
+    record = dict(format="emerald-installer-v1", version=version, setup=setup.name, setup_sha256=sha(setup),
+                  setup_bytes=setup.stat().st_size, script_sha256=sha(INSTALLER_SCRIPT),
+                  player_files=sorted(path.name for path in player.iterdir()))
+    (output / "installer.json").write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
+    return record
+
+
 def collect_notices(destination):
     notices = destination / "notices"
     notices.mkdir()
@@ -111,6 +195,11 @@ def build(args):
     if output == PROJECT or output.is_relative_to(PROJECT) or output.exists():
         raise ValueError("output must be a new private directory outside the repository")
     release = LauncherRelease(args.version, args.rom_sha256, args.manifest_sha256, args.runtime_sha256)
+    if getattr(args, "installer", False) and not getattr(args, "preflight_only", False):
+        iscc = getattr(args, "iscc", None) or shutil.which("iscc")
+        if iscc is None or not Path(iscc).is_file():
+            raise ValueError("--installer needs Inno Setup's compiler: install Inno Setup 6.3 or later or pass --iscc")
+        args.iscc = Path(iscc)
     from emerald_multiplayer.launcher_session import GameInstallation
     from emerald_multiplayer.player_runtime import RuntimeBundle
     installation = GameInstallation(args.rom, args.manifest, release.rom_sha256,
@@ -125,6 +214,16 @@ def build(args):
     # today runs a headless mGBA core (roadmap B4), so a native package is a
     # private development preview until a native replay exists.
     native = runtime_manifest.get("format") == "emerald-native-runtime-v1"
+    if native:
+        # A friend's PC has no game.gba: the package's pinned game facts stand in for it. Check them
+        # the way the installed launcher will, and that they give the same build as the ROM itself.
+        facts = runtime_manifest.get("game_facts")
+        if facts is None:
+            raise ValueError("a native package needs its game facts: collect the runtime with "
+                             "collect_native_bundle.py --manifest")
+        packaged = GameInstallation(args.runtime / facts, args.manifest, release.rom_sha256,
+                                    release.manifest_sha256, RuntimeBundle(args.runtime, release.runtime_sha256))
+        packaged.verify()
     if native and not development:
         raise ValueError("a native-game package is a --development-preview until the native trade replay worker exists")
     if not development:
@@ -207,7 +306,7 @@ def build(args):
         f"release = {release!r}\nimport_release = {import_release!r}\n"
         "main(release, Path(sys._MEIPASS), import_release)\n", encoding="utf-8")
     guide_hashes = {}
-    for name in ("QUICK-START.txt", "RELEASE-LIMITS.txt"):
+    for name in GUIDES[1:]:
         source = Path(__file__).resolve().parent / "resources" / name
         guide_hashes[name] = sha(source)
         pinned_copy(source, resources / name, guide_hashes[name])
@@ -219,6 +318,7 @@ def build(args):
         runtime_format=runtime_manifest.get("format"), game_executable=runtime_manifest.get("executable"),
         python=sys.version, dependencies=versions, rom_sha256=release.rom_sha256,
         manifest_sha256=release.manifest_sha256, runtime_sha256=release.runtime_sha256,
+        game_facts=runtime_manifest.get("game_facts") is not None, needs_game_file=not native,
         import_enabled=import_release is not None, development_preview=development, source_sha256=source_hashes,
         import_release=(dict(source_sha256=import_release.source_sha256,
             source_size=import_release.source_size, patch_sha256=import_release.patch_sha256,
@@ -227,28 +327,8 @@ def build(args):
         guide_sha256=guide_hashes,
         qualification="private executable only; clean-machine, gameplay and network acceptance remain separate")
     (resources / "package-provenance.json").write_text(json.dumps(provenance, indent=2) + "\n")
-    (resources / "README.txt").write_text(
-        "Emerald Together - " + release.version + "\n\n"
-        + ("Private development preview: " if development else "Importable private release candidate: ")
-        + "the main menu in the game's own window (Continue Adventure, New Game,\n"
-        "Host Server, Join Server, Settings, Exit), saved worlds and servers that\n"
-        "load your own character automatically, autosave every 5 minutes (on by\n"
-        "default) and Save now in the session window.\n"
-        "Your character's autosave toggle is remembered on this PC.\n"
-        "Read QUICK-START.txt and RELEASE-LIMITS.txt before playing.\n"
-        + ("\nThe game is the native PC game " + runtime_manifest["executable"] + " (no emulator,\n"
-           "no mGBA). It contains game data, so this package is for your own PC only.\n"
-           "The launcher still checks the matching game file (game.gba of the same build)\n"
-           "before every start; install it separately (see the checkpoint README).\n\n" if native else "")
-        + ("Use Import my game to select your own matching dump.\n" if import_release else
-           "Game import is unavailable: this development package has no release patch.\n")
-        + "It contains no game ROM, player save, invitation or world database.\n"
-        "Do not send your personal invitation to another player.\n"
-        "See _internal/package-provenance.json and notices for exact components.\n\n"
-        "Release identity (SHA-256):\n"
-        f"Game: {release.rom_sha256}\n"
-        f"Game manifest: {release.manifest_sha256}\n"
-        f"Runtime manifest: {release.runtime_sha256}\n", encoding="utf-8")
+    (resources / "README.txt").write_text(readme_text(release, runtime_manifest, native, development,
+                                                      import_release is not None), encoding="utf-8")
     command = [sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean", "--noupx",
         "--onedir", "--windowed", "--name", "EmeraldTogether", "--paths", str(frozen_source.parent),
         "--distpath", str(output / "dist"), "--workpath", str(output / "work"),
@@ -258,7 +338,7 @@ def build(args):
     package = output / "dist/EmeraldTogether"
     # Put the readable entry instructions beside the executable as well as in
     # the frozen resource tree; friends need not discover PyInstaller internals.
-    for name in ("README.txt", "QUICK-START.txt", "RELEASE-LIMITS.txt"):
+    for name in GUIDES:
         pinned_copy(resources / name, package / name, sha(resources / name))
     files = {}
     package_audit = {"tree": audit_tree(package)}
@@ -270,9 +350,13 @@ def build(args):
     archive = Path(shutil.make_archive(str(output / "EmeraldTogether"), "zip", root_dir=output / "dist"))
     package_audit["archive"] = audit_files([archive])
     (output / "package-audit.json").write_text(json.dumps(package_audit, sort_keys=True, indent=2) + "\n")
+    installer = None
+    if getattr(args, "installer", False):
+        installer = build_installer(getattr(args, "iscc", None) or "iscc", release.version, package, output)
     print(json.dumps(dict(package=str(package), files=len(files), import_enabled=import_release is not None,
+                         game_facts=runtime_manifest.get("game_facts") is not None,
                          executable_sha256=files["EmeraldTogether.exe"], archive_sha256=sha(archive),
-                         package_audit=package_audit)))
+                         installer=installer, package_audit=package_audit)))
 
 
 def main():
@@ -290,6 +374,10 @@ def main():
                         help="explicit private candidate; permits missing import patch or production-only ROM capabilities")
     parser.add_argument("--preflight-only", action="store_true",
                         help="verify exact inputs and reconstruct BPS in memory; create no output and run no build or game")
+    parser.add_argument("--installer", action="store_true",
+                        help="also build EmeraldTogether-Setup-<version>.exe with Inno Setup (installer/EmeraldTogether.iss)")
+    parser.add_argument("--iscc", type=Path,
+                        help="the Inno Setup compiler (default: iscc on PATH, as on GitHub's windows-2022 runners)")
     build(parser.parse_args())
 
 
