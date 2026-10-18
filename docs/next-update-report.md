@@ -124,9 +124,9 @@ locally (PyInstaller and Inno Setup run on Windows).
 | Run | Mode | Commit | Result |
 | --- | --- | --- | --- |
 | [39162293580](https://github.com/kashkevin/personal-pokemon-game-emgba3d/actions/runs/39162293580) | smoke (synthetic game) | app `76a27ca` | success: installer built; fresh-runner silent install, file check, start, repair, uninstall passed |
-| [39162322062](https://github.com/kashkevin/personal-pokemon-game-emgba3d/actions/runs/39162322062) | full (real game from engine `6cd8af0f`, expected ROM `f214735b…3387`) | app `76a27ca` | see section H (result recorded there) |
+| [39162322062](https://github.com/kashkevin/personal-pokemon-game-emgba3d/actions/runs/39162322062) | full (real game from engine `6cd8af0f`, expected ROM `f214735b…3387`) | app `76a27ca` | success: game built (ROM `f214735b…3387` verified), package audit, packaged game files verified, frozen menu starts, graphics-mode and in-game menu checks on the real packaged games, installer built; fresh-runner silent install, file check, start, repair, uninstall passed |
 
-Where to get it: the run page, **Artifacts**, `EmeraldTogether-Windows-Installer` (full run): it holds exactly
+Where to get it: [run 39162322062](https://github.com/kashkevin/personal-pokemon-game-emgba3d/actions/runs/39162322062), **Artifacts**, `EmeraldTogether-Windows-Installer` (53.8 MB zip, expires 2026-10-25; artifact digest `sha256:a24d09dd…addf3`): it holds exactly
 `EmeraldTogether-Setup-<version>.exe` and `QUICK-START.txt`. Artifacts are private to the repository and kept 7 days; they
 are not a public release (no GitHub Release was made). The developer artifact `EmeraldTogether-windows-full` holds the ZIP,
 hashes, audit and reports. The package contains no ROM, save or database; the game program has the game's content
@@ -180,13 +180,13 @@ each "PC", real servers and TLS on loopback, the game process a placeholder chil
 fixture; **CI** = GitHub's Windows runner (no GPU); **runtime** = the real native game run here (Linux build, software
 OpenGL). No test ran against a real user's save folder.
 
-App suite at the integrated head: see section H for the final count. Focused groups: shell/menu 61 + character 27
+App suite at the final head `955851d`: **2234 passed, 0 failed**, 119 skipped (the mGBA bridge's Lua subtests: no Lua 5.3 in this container; one private-save-path test), 2605 subtests passed. Focused groups: shell/menu 61 + character 27
 (including the end-to-end and relay runs); networking 131 + 142 subtests; installation 44 + 18 subtests; trial merge
 226 + 191 subtests.
 
 | # | Scenario | Automated | Runtime / CI | Cross-machine |
 | --- | --- | --- | --- | --- |
-| 1 | Fresh Windows installation | `test_build_installer`, `test_ci_installer_check` (simulated Inno Setup) | CI install-check job on a fresh windows-2022 runner: silent install, file hashes, start, uninstall (smoke run passed; full run: section H) | not performed on a real PC |
+| 1 | Fresh Windows installation | `test_build_installer`, `test_ci_installer_check` (simulated Inno Setup) | CI install-check job on a fresh windows-2022 runner with the real game: silent install, file hashes, start, uninstall (runs 39162293580 smoke and 39162322062 full: passed) | not performed on a real PC |
 | 2 | Existing installation upgrade | `test_shell_migration` (earlier launcher data, byte-identical), `test_character_library` migration | CI: repair/upgrade in place over an installed copy (stray DLL removed, deleted file restored), sentinel data kept | not performed on a real PC |
 | 3 | First character creation | `test_shell_app` (first start, one New Game ever), `test_shell_e2e` (simulated New Game, real registration) | runtime: setup-mode title and main menu screenshots show the new instructions | the real New Game sequence by a player: **not performed** |
 | 4 | Solo save and reload | `test_shell_app` (Solo, then Continue Adventure on the next start), `test_shell_e2e` Solo round trip | - | not performed |
@@ -236,7 +236,7 @@ App suite at the integrated head: see section H for the final count. Focused gro
 
 | Repo | Branch | Head | Based on | State |
 | --- | --- | --- | --- | --- |
-| App | `claude/admiring-bohr-dpxzuy` | see `git log` (reports committed after `76a27ca`) | `27c43c7` (default) | pushed; fast-forward of the default possible |
+| App | `claude/admiring-bohr-dpxzuy` | `955851d` + this record | `27c43c7` (default) | pushed; fast-forward of the default possible; suite 2234/0; CI full run 39162322062 green |
 | App (merged into the above) | `claude/nu-network` | `6597062` | `27c43c7` | merged at `af038bd` |
 | App (merged into the above) | `claude/nu-install` | `45703cb` | `27c43c7` | merged at `9cef3eb` |
 | Engine | `claude/nu-engine` | `6cd8af0f` | `cf7cba76` (default) | pushed; fast-forward of the default possible |

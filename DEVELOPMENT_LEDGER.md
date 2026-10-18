@@ -881,7 +881,10 @@ uncommitted pieces were tested (131 + 142 subtests) and committed (`6597062`).
 
 **Evidence.** App suite at `214da09`: 2232 passed, 0 failed, 119 skipped (Lua 5.3 subtests, private paths). Windows CI
 smoke run 39162293580: installer built, fresh-runner install/start/repair/uninstall passed. Full run 39162322062 (real
-game from `6cd8af0f`, expected ROM `f214735b…3387`): result in the next paragraph. Native Linux build with the engine
+game from `6cd8af0f`, expected ROM `f214735b…3387`): success on every job (ROM verified; graphics-mode and in-game
+menu checks on the real packaged games; installer built; fresh-runner install/start/repair/uninstall passed);
+player artifact `EmeraldTogether-Windows-Installer` (expires 2026-10-25). Final app suite at `955851d`: 2234 passed,
+0 failed, 119 skipped. Native Linux build with the engine
 change: setup-mode title and main menu screenshots.
 
 **Not verified.** Real PCs: the in-game New Game and registration, two PCs, two Internet connections, real routers,

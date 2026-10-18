@@ -225,7 +225,8 @@ preview 12's evidence for those is reused.
 | Networking: diagnostics, rejections, reachability, port mapping (fake IGD/NAT-PMP), relay, sessions via relay | `claude/nu-network` `6597062` and merged | L | 131 passed + 142 subtests | `docs/networking.md` | - | Reuse |
 | Installation: game facts, check_installation, installer build (stand-ins), CI check logic | `claude/nu-install` `45703cb` and merged | L | 44 passed + 18 subtests | `docs/windows-installation.md` | - | Reuse |
 | Windows package, smoke (synthetic game): installer build + fresh-runner silent install, files, start, repair, uninstall | app `76a27ca` | CI windows-2022 | success (run 39162293580) | run page | - | Reuse |
-| Windows package, full (real game, engine `6cd8af0f`, ROM `f214735b...3387`) | app `76a27ca` | CI windows-2022 | see DEVELOPMENT_LEDGER (run 39162322062) | run page | - | - |
+| Windows package, full (real game, engine `6cd8af0f`, ROM `f214735b...3387`) | app `76a27ca` | CI windows-2022 | success (run 39162322062): ROM verified, graphics and menu checks on the packaged games, installer, fresh-runner install/start/repair/uninstall | run page | docs only | Reuse |
+| App suite, final head | app `955851d` | L | 2234 passed, 0 failed, 119 skipped (Lua 5.3 subtests, private paths), 2605 subtests | session log | - | Reuse |
 | Engine native Linux build with the setup-text change | engine `6cd8af0f` | L | builds; title and main menu screenshots in setup mode show the new text | session scratch | - | Reuse |
 | Two PCs, one network / two Internet connections / real router / Tailscale / relay on a real machine | - | PC | **Never run** | procedure: report G | - | Owner |
 
