@@ -233,14 +233,20 @@ class OfflineAndEditTests(JoinFixture):
         pc = self.friend()
         self.server.stop()
         registrations, worker = [], FakeWorker(lambda request: "game_closed")
-        seen = []
-        driver = Driver(*self.join_steps(self.code(1), then=[("join_new", lambda s: seen.append(s.status) or BACK),
-                                                             ("join_list", BACK), main_exit()]))
+        seen, notes = [], []
+        driver = Driver(*self.join_steps(self.code(1), then=[
+            ("offline", lambda s: notes.append(" ".join(s.notes)) or select("retry")),
+            ("offline", lambda s: notes.append(" ".join(s.notes)) or select("back")),
+            ("join_new", lambda s: seen.append(s.status) or BACK), ("join_list", BACK), main_exit()]))
         app, _ = pc.app(driver, worker=worker, register=fake_register(registrations), lan=LOOPBACK_LAN)
         app.run()
         self.assertTrue(driver.done(), driver.steps)
+        # The real cause, in plain words, with what each side can do; then the form again, with nothing saved.
+        self.assertIn("Nothing is accepting connections there", notes[0])
+        self.assertIn("Host: Host the world", notes[0])
+        self.assertIn("Nothing was created or reset", notes[1])
         self.assertEqual(seen[0][0], "error")
-        self.assertIn("could not be reached", seen[0][1])
+        self.assertIn("Nothing was saved or created", seen[0][1])
         self.assertEqual((worker.requests, registrations, app.servers.all(), app.registry.entries()), ([], [], [], []))
 
     def test_a_wrong_server_at_the_address_is_refused_by_world_identity_not_by_address(self):
@@ -262,7 +268,8 @@ class OfflineAndEditTests(JoinFixture):
         app, _ = pc.app(driver, worker=worker, register=fake_register(registrations), lan=LOOPBACK_LAN)
         app.run()
         self.assertTrue(driver.done(), driver.steps)
-        self.assertIn("not this world", messages[0])
+        self.assertIn("not the world from your invite", messages[0])
+        self.assertIn("nothing was sent to it", messages[0])
         self.assertEqual((worker.requests, registrations), ([], []))
 
     def test_a_changed_host_address_is_followed_by_editing_the_shortcut_and_the_character_stays(self):

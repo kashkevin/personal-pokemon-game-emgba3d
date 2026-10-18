@@ -134,7 +134,8 @@ async def submit_source(companion, payload, *, mode="enroll", reply=None):
 async def remote_enrollment(installation, private_root, *, invitation_path, route_host, route_port, source_path=None,
                             connection_timeout=10, on_status=None, character_payload=None, mode="enroll"):
     """The friend's counterpart of ``launcher_setup.host_enrollment``: connect with the account's own invitation, have the host's
-    server record the source, and yield an open ``EnrollmentRuntime``. ``route_host`` is a numeric address (already resolved).
+    server record the source, and yield an open ``EnrollmentRuntime``. ``route_host`` is a numeric address (already resolved),
+    or None when the account connects through its world's relay (its route file).
 
     ``character_payload`` (a universal character's latest save, any world): after connecting, the server says whether this
     account already has a character here; the save is detached from its old world with this world's wallet sequence
@@ -165,7 +166,8 @@ async def remote_enrollment(installation, private_root, *, invitation_path, rout
         _preflight_launch(executable, installation.rom_path, private / "character.sav", private, launch_root=launch_root)
         config = invitation.companion_config(installation.rom_path, installation.manifest_path, token=secrets.token_bytes(32),
                                              private_directory=private, ipc_port=0)
-        config = replace(config, server_host=route_host, server_port=route_port)
+        if route_host is not None:                     # None: the account's relay route (route.json), read by companion_config
+            config = replace(config, server_host=route_host, server_port=route_port)
         payload = _source_bytes(source_path) if source_path is not None else None
         companion = Companion(config)
         publish("connecting")

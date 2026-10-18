@@ -120,5 +120,48 @@ class GameFilesTests(unittest.TestCase):
         self.assertFalse((package.private / "games").exists())
 
 
+class PackagedGameFilesTests(unittest.TestCase):
+    """A packaged installation (game facts, no game.gba): Settings, Game files reports what the installation check found."""
+
+    def setUp(self):
+        import tempfile
+        from package_fixture import Package
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.package = Package(temporary.name)
+
+    def _app(self, driver):
+        from emerald_multiplayer.shell_app import ShellApp
+        from emerald_multiplayer.shell_protocol import ScriptedShell
+        return ShellApp(self.package.installation(), self.package.private, ScriptedShell(driver), worker=FakeWorker(),
+                        lan=lambda: ["192.168.1.20"], graphics_gate=lambda: "3d", version="test")
+
+    def test_an_intact_package_is_verified_and_a_damaged_one_says_how_to_repair_it_without_touching_saves(self):
+        seen = []
+        driver = Driver(("main", select("settings")), ("settings", select("files")),
+                        ("message", lambda s: seen.append((s.title, " ".join(s.notes))) or BACK), ("settings", BACK), main_exit())
+        self._app(driver).run()
+        self.assertTrue(driver.done(), driver.steps)
+        self.assertEqual(seen[0][0], "Game files")
+        self.assertIn("installed and match this release", seen[0][1])
+        # A program file goes missing (an antivirus quarantine, a half-finished copy).
+        (self.package.runtime / "SDL2.dll").unlink()
+        driver = Driver(("main", select("settings")), ("settings", select("files")),
+                        ("message", lambda s: seen.append((s.title, " ".join(s.notes))) or BACK), ("settings", BACK), main_exit())
+        app = self._app(driver)
+        app.run()
+        self.assertTrue(driver.done(), driver.steps)
+        title, text = seen[1]
+        self.assertEqual(title, "Game files need repair")
+        self.assertIn("SDL2.dll", text)
+        self.assertIn("Run the EmeraldTogether Setup file again", text)
+        self.assertIn("neither repairing nor uninstalling removes them", text)
+        self.assertFalse(app.game_ok)
+
+
+def main_exit():
+    return ("main", select("exit"))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -254,7 +254,8 @@ class EndToEnd(unittest.TestCase):
         seen = []
         driver = Driver(("main", select("join")), ("join_list", select("new")),
                         ("join_new", select("join", code=code, name="", address="", port="")),
-                        ("join_new", lambda s: seen.append(s.status) or BACK), ("join_list", BACK), main_exit())
+                        ("offline", select("back")), ("join_new", lambda s: seen.append(s.status) or BACK), ("join_list", BACK),
+                        main_exit())
         app, _ = self.app(pc, driver)
         app.run()
         self.assertTrue(driver.done(), driver.steps)
@@ -326,6 +327,41 @@ class EndToEnd(unittest.TestCase):
         self.assertTrue(any((profile_directory(pc.private, entry.world_id, friend_id) / "previous-saves").iterdir()))
         statuses = server.query("SELECT status FROM ownership_instances WHERE player_id = ? ORDER BY serial", friend_id)
         self.assertEqual([row[0] for row in statuses].count("active"), 2)
+
+    def test_a_friend_who_cannot_reach_the_host_joins_through_the_relay_with_the_real_registration(self):
+        """The host's PC cannot be reached at the address in the code (as behind CGNAT): the code also names the world's relay,
+        the check finds the relay route, and the character's registration and the game both use it. TLS stays end to end."""
+        from emerald_multiplayer.network_settings import NetworkSettings, load_join_route
+        from shell_fixture import free_port
+        entry, host_world = self.build_world()
+        self.host_first_time(entry, host_world)
+        relay_port = free_port()
+        settings = NetworkSettings(self.world.private)
+        settings.set_relay(entry.world_id, "127.0.0.1", relay_port)
+        server = ServerThread(self, self.world.installation, host_world, relay=(relay_port, settings.get(entry.world_id).relay_secret))
+        unreachable = free_port()                                     # nothing listens there: the direct route is refused
+        code = encode_invite(host_world.invitation(1), "127.0.0.1", unreachable, relay=("127.0.0.1", relay_port))
+        pc = self.world.peer("friend-behind-cgnat")
+        worker = self.worker_for(host_world)
+        driver = Driver(("main", select("join")), ("join_list", select("new")),
+                        ("join_new", select("join", code=code, name="", address="", port="")),
+                        ("confirm", select("yes")), ("create_character", select("go")), ("bring_character", select("go")),
+                        ("join_list", BACK), main_exit())
+        app, _ = self.app(pc, driver, worker)
+        app.run()
+        self.assertTrue(driver.done(), driver.steps)
+        friend_id = host_world.accounts[1].player_id
+        self.assertEqual(self.head(host_world, friend_id), 1)               # registered through the relay
+        (saved,) = app.servers.all()
+        self.assertEqual((saved["port"], saved["relay"]), (unreachable, {"address": "127.0.0.1", "port": relay_port}))
+        self.assertEqual(load_join_route(profile_directory(pc.private, entry.world_id, friend_id)), ("127.0.0.1", relay_port))
+        (request,) = worker.requests
+        self.assertEqual((request.mode, request.route), ("join", None))     # the game reads the relay route itself
+        # Nothing ever listened at the code's own address: everything above went through the relay's room for this world.
+        import socket
+        with self.assertRaises(ConnectionRefusedError), socket.create_connection(("127.0.0.1", unreachable), timeout=2):
+            pass
+        self.assertIn(entry.world_id, server.relay_server.rooms)
 
 
 if __name__ == "__main__":

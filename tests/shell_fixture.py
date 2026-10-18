@@ -173,10 +173,13 @@ class World:
 class ServerThread:
     """A real WorldServer for a host world, on its own event loop and thread (the store must stay on the thread that opened it)."""
 
-    def __init__(self, test, installation, host_world, *, allow_enrollment=True):
+    def __init__(self, test, installation, host_world, *, allow_enrollment=True, relay=None):
+        """``relay`` = (port, secret): also run a relay on 127.0.0.1:port and the host's relay agent for this world (relay.py),
+        the way a hosted world with a relay set up runs."""
         import threading
         self.installation, self.host_world = installation, host_world
         self.allow_enrollment = allow_enrollment
+        self.relay, self.relay_server, self.relay_agent = relay, None, None
         self.loop = asyncio.new_event_loop()
         self.ready = threading.Event()
         self.failed = None
@@ -203,7 +206,18 @@ class ServerThread:
             self.server = WorldServer(ServerConfig(self.host_world.build_id, self.host_world.ruleset_id,
                                                    allow_enrollment=self.allow_enrollment), store=self.store,
                                       **host_trade_effect_options(self.installation, self.store, manifest))
-            await self.server.start("127.0.0.1", self.host_world.port, tls=self.host_world.server_tls)
+            await self.server.start("127.0.0.1", self.host_world.port, tls=self.host_world.server_tls, relay=self.relay is not None)
+            if self.relay is not None:
+                from emerald_multiplayer.relay import RelayHostAgent, RelayServer
+                self.relay_server = RelayServer()
+                await self.relay_server.start("127.0.0.1", self.relay[0])
+                self.relay_agent = RelayHostAgent("127.0.0.1", self.relay[0], self.host_world.world_id, self.relay[1],
+                                                  lambda: self.server.relay_address)
+                await self.relay_agent.start()
+                for _ in range(500):
+                    if self.relay_agent.status.ready:
+                        break
+                    await asyncio.sleep(0.01)
         except BaseException as error:                     # noqa: BLE001
             self.failed = error
             self.ready.set()
@@ -211,6 +225,9 @@ class ServerThread:
         self.stopping = asyncio.Event()
         self.ready.set()
         await self.stopping.wait()
+        if self.relay_agent is not None:
+            await self.relay_agent.close()
+            await self.relay_server.close()
         await self.server.close()
         self.store.close()
 

@@ -103,7 +103,7 @@ _ROUTER = ("Let the game set up the router automatically (Network settings, Auto
            "to the hosting PC in the router's settings.")
 _CGNAT = ("If the router's own Internet (WAN) address starts with 100.64 to 100.127, 10., 172.16 to 172.31 or 192.168., the "
           "Internet provider shares one address between many homes (CGNAT) and port forwarding cannot work: use a relay or "
-          "Tailscale instead (see Networking help).")
+          "Tailscale instead (see the hosting guide, HOSTING.txt).")
 
 EXPLANATIONS = {
     OK: Explanation("Connected", "The host answered and it is the right world."),
@@ -117,7 +117,7 @@ EXPLANATIONS = {
         "Nothing is accepting connections there",
         "Your PC reached the host's computer or router, but nothing is listening on that port. Usually the world is not being "
         "hosted right now, or the port is different.",
-        ("Host the world (Host Server, then the world) and keep the game open while friends join.",
+        ("Host the world (Host World, then the world) and keep the game open while friends join.",
          "Check that the port in Server Information is the one in the invite.",
          "If the router forwards the port, it must forward it to the PC that is hosting (its current local address)."),
         ("Ask the host to start the world, then try again.",)),
@@ -190,7 +190,7 @@ EXPLANATIONS = {
     REJECTED_ENROLLMENT: Explanation(
         "The host is not accepting new characters",
         "The world is reachable, but the host has turned off creating new characters over the network.",
-        ("Open Network settings and turn on 'New players create their character', then host again.",),
+        ("Open Network settings and turn on 'New players bring their character', then host again.",),
         ("Ask the host to allow new characters.",)),
     REJECTED_FULL: Explanation(
         "The world is full",

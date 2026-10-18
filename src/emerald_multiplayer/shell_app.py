@@ -33,22 +33,22 @@ import time
 
 from .character_creation import CreationError, create_draft, message_for
 from .character_library import CharacterLibrary, LibraryError
-from .character_links import CharacterLinks, character_state, profile_directory
+from .character_links import CharacterLinks
 from .character_migration import migrate_characters, recover_draft, recoverable_drafts
 from .character_play import needs_registration, record_after_session, register_character, sync_from_worlds
+from .connection_diagnostics import check_routes, describe, result as diagnosis
 from .graphics_mode import MODE_2D, MODE_3D, MODE_LABELS, GraphicsPreference, choose_launch, explain_failure, probe_graphics
 from .invitations import Invitation, InvitationError
-from .invite_code import (InviteCodeError, decode_invite, encode_invite, fetch_certificate, redeem, resolve_address, valid_address,
-                          valid_port)
+from .invite_code import InviteCodeError, decode_invite, encode_invite, redeem, resolve_address, valid_address, valid_port
 from .launcher_session import SessionState
 from .launcher_worlds import lan_addresses
-from .saved_servers import InvitationConflict, SavedServers, invitation_path, store_invitation
-from .server_check import probe_route
+from .network_settings import NetworkSettings, route_path, save_join_route
+from .saved_servers import InvitationConflict, SavedServers, invitation_path, relay_of, store_invitation
 from .shell_migration import migrate
 from .shell_protocol import Done, Screen, ShellClosed
 from .shell_store import JsonStore, StoreUnavailable, is_uuid, text_ok, time_ok
 from .shell_tasks import BackgroundJob
-from .world_registry import LOOPBACK, WorldRegistry, WorldRegistryError, free_port, valid_world_name
+from .world_registry import LOOPBACK, WorldRegistry, free_port, valid_world_name
 
 TRADE_RULES = {
     "gen6-stable-world-region-v1": ("Shared world region", "A trade keeps the same trainer's friendship (the world is one region)."),
@@ -106,7 +106,7 @@ class ShellApp:
 
     def __init__(self, installation, private_root, ui, *, version="Development preview", worker=None,
                  register=register_character, drafter=create_draft,
-                 resolver=resolve_address, fetcher=fetch_certificate, prober=probe_route, lan=lan_addresses, graphics=None,
+                 resolver=resolve_address, checker=check_routes, lan=lan_addresses, graphics=None,
                  graphics_gate=None, importer=None, clock=time.time, session_window=SESSION_WINDOW, menu_window=MENU_WINDOW):
         self.installation = installation
         self.private_root = Path(private_root)
@@ -114,7 +114,8 @@ class ShellApp:
         self.version = version
         self.worker = worker
         self.register, self.drafter = register, drafter
-        self.resolver, self.fetcher, self.prober, self.lan = resolver, fetcher, prober, lan
+        self.resolver, self.lan = resolver, lan
+        self.checker = checker             # connection_diagnostics.check_routes: identity, version, then the route that answered
         self.graphics = graphics if graphics is not None else GraphicsPreference(self.private_root)
         self.graphics_gate = graphics_gate or self._graphics_gate
         self.importer = importer
@@ -124,6 +125,7 @@ class ShellApp:
         self.registry = WorldRegistry(self.private_root, shell, clock=clock)
         self.links = CharacterLinks(shell, clock=clock)
         self.servers = SavedServers(shell, clock=clock)
+        self.network = NetworkSettings(self.private_root, clock=clock)
         self.library = CharacterLibrary(self.private_root, clock=clock)
         self.prefs = JsonStore(shell / "preferences.json", PREFS_FORMAT, lambda: {"format": PREFS_FORMAT, "trade_rule": None},
                                _prefs_validate, clock=clock)
@@ -619,7 +621,8 @@ class ShellApp:
         if role == "host":
             options = dict(world_directory=entry.folder)
         else:
-            options = dict(invitation_path=invitation_path(self.private_root, world_id, player_id), route_host=route[0], route_port=route[1])
+            options = dict(invitation_path=invitation_path(self.private_root, world_id, player_id),
+                           route_host=route[0] if route else None, route_port=route[1] if route else None)
 
         async def enter(job):
             return await self.register(self.installation, self.private_root, self.library, character, role=role, world_id=world_id,
@@ -1098,7 +1101,8 @@ class ShellApp:
             self.hosting[hosting[0]] = hosting[1:]
         self.window(self.session_window)
         state = dict(code="installation", state="validating", autosave=None, is_host=request.mode == "host", save=False,
-                     battle=False, cleanup=False, restart=False, trade=False, connected=False, complete=None, note=note, flash=None)
+                     battle=False, cleanup=False, restart=False, trade=False, connected=False, complete=None, note=note, flash=None,
+                     router=None, relay=None, detail=None)
 
         def absorb():
             changed = False
@@ -1109,12 +1113,14 @@ class ShellApp:
                     return changed
                 if event.kind == "complete":
                     state["complete"] = event.code
+                    state["detail"] = getattr(event, "detail", None)
                     changed = True
                 elif event.kind == "status":
                     state.update(code=event.code, state=event.state, autosave=event.autosave_enabled, save=bool(event.save_available),
                                  battle=event.battle_recovery_available, cleanup=event.admission_cleanup_available,
                                  restart=event.host_restart_available, trade=event.trade_recovery_available,
-                                 connected=event.connected, is_host=event.is_host)
+                                 connected=event.connected, is_host=event.is_host, router=getattr(event, "router", None),
+                                 relay=getattr(event, "relay", None))
                     changed = True
 
         def session_screen():
@@ -1122,6 +1128,8 @@ class ShellApp:
             running = state["state"] == SessionState.RUNNING.value
             screen.note("Your game is open in its own window. Close that window when you finish." if running else
                         "Starting your game. It opens in its own window when it is ready.")
+            for line in self._session_network_lines(state, request.mode):
+                screen.note(line)
             if running:
                 if state["save"]:
                     screen.row("save", "Save now", "saves your progress to the world", "a")
@@ -1205,8 +1213,32 @@ class ShellApp:
         if outcome == "game_closed":
             self.notice = ("ok", "Game closed. Your progress is saved to the world as of your last save.")
         elif outcome != "enrollment_required":
-            self.notice = ("error" if outcome not in ("cancelled", "graphics_failed") else "warn", status_text(outcome))
+            text = status_text(outcome)
+            if state["detail"]:
+                explanation = describe(state["detail"])
+                text = f"{explanation.title}. {explanation.message}"
+            self.notice = ("error" if outcome not in ("cancelled", "graphics_failed") else "warn", text)
         return outcome
+
+    @staticmethod
+    def _session_network_lines(state, mode):
+        """The session's own reports, never a guess: the world connection (a handshake the companion completed), and for a host
+        the automatic router setup and the relay (launcher_session status)."""
+        lines = []
+        if state["state"] == SessionState.RUNNING.value:
+            if mode == "join":
+                lines.append("Connected to the host's world." if state["connected"] else
+                             "Not connected to the host's world right now. The game keeps trying to reconnect.")
+            elif state["connected"]:
+                lines.append("Your world is running and your game is connected to it.")
+        router, relay = state.get("router"), state.get("relay")
+        if router is not None:
+            lines.append("Router: " + str(getattr(router, "message", "") or getattr(router, "code", "")))
+        if relay is not None:
+            friends = getattr(relay, "friends", 0) or 0
+            lines.append("Relay: " + str(getattr(relay, "message", "") or getattr(relay, "code", ""))
+                         + (f" ({friends} friend{'s' if friends != 1 else ''} through it)" if friends else ""))
+        return lines
 
     # ------------------------------------------------------------------ Server Information, invite codes, network
 
@@ -1225,15 +1257,23 @@ class ShellApp:
             else:
                 screen.set_status("info", "Not hosting right now. Choose Host This World to start it.")
             local = self._addresses_for(entry)
+            network = self.network.get(entry.world_id)
+            lan = [a for a in local if getattr(a, "kind", "lan") == "lan"]
+            vpn = [a for a in local if getattr(a, "kind", "lan") == "vpn"]
             lines = [f"World: {entry.name}   Port: {entry.port}",
                      f"Listens on: {'this PC only (127.0.0.1)' if entry.bind_address == LOOPBACK else entry.bind_address}",
-                     "Local address: " + (", ".join(f"{a}:{entry.port}" for a in local) if local else "none found (no network connection)"),
-                     "Public address: " + (f"{entry.address}:{entry.port} (set by you, not checked)" if entry.address else "not set"),
-                     f"Internet access: {'on' if entry.internet else 'off'}"]
+                     "Local address: " + (", ".join(f"{a}:{entry.port}" for a in lan) if lan else "none found (no local network)")]
+            if vpn:
+                lines.append("VPN address (Tailscale or similar): " + ", ".join(f"{a}:{entry.port}" for a in vpn))
+            lines += ["Public address: " + (f"{entry.address}:{entry.port} (set by you, not checked)" if entry.address else "not set"),
+                      f"Internet access: {'on' if entry.internet else 'off'}"
+                      + (f" - automatic router setup {'on' if network.router_setup else 'off'}" if entry.internet else ""),
+                      "Relay: " + (f"{network.relay_address}:{network.relay_port}" if network.relay is not None else "none")]
             for line in lines:
                 screen.note(line)
-            screen.note("Friends on the same network use the local address. Friends elsewhere need your public address and the port")
-            screen.note("opened on your router. EmeraldTogether does not open ports, traverse your router or relay connections.")
+            screen.note("Friends on your Wi-Fi use the local address. Friends elsewhere need one of: your public address with the port")
+            screen.note("forwarded (the game asks the router when automatic router setup is on, but many routers refuse and none can")
+            screen.note("behind CGNAT), a VPN such as Tailscale on both PCs, or a relay someone runs (see Network settings).")
             copy_target = entry.address or (local[0] if local and entry.bind_address != LOOPBACK else None)
             if copy_target:
                 screen.row("copy", "Copy address", f"{copy_target}:{entry.port}", "a")
@@ -1274,6 +1314,9 @@ class ShellApp:
             if entry.bind_address == LOOPBACK and not entry.address:
                 screen.note("This world listens on this PC only, so friends cannot reach it yet. Change Network settings first.")
             screen.note(f"The codes point at {address}:{entry.port}. A friend can edit the address in their saved server if it changes.")
+            relay = self.network.get(entry.world_id).relay
+            if relay is not None:
+                screen.note(f"They also name your relay ({relay[0]}:{relay[1]}), used when your PC cannot be reached directly.")
             for account in world.accounts[1:]:
                 screen.row(f"slot{account.slot}", account.display_name, "copy invite code", "")
             screen.button("back", "Back")
@@ -1286,7 +1329,7 @@ class ShellApp:
             if event.id.startswith("slot"):
                 slot = int(event.id[4:])
                 try:
-                    code = encode_invite(world.invitation(slot), address, entry.port)
+                    code = encode_invite(world.invitation(slot), address, entry.port, relay=self.network.get(entry.world_id).relay)
                 except (InvitationError, InviteCodeError, ValueError) as error:
                     notice = ("error", f"No code could be made: {error}")
                     continue
@@ -1302,8 +1345,13 @@ class ShellApp:
             screen.row("bind", "Listen on", "this PC only" if entry.bind_address == LOOPBACK else entry.bind_address)
             screen.row("internet", "Internet access", "on - turn off" if entry.internet else "off - turn on")
             screen.row("address", "Public address or host name", entry.address or "not set")
-            screen.row("enrollment", "New players create their character", "on - turn off" if entry.enrollment else "off - turn on")
-            screen.note("When on, a friend with an invite code can create their own character over the connection. When off, only this PC can.")
+            screen.row("enrollment", "New players bring their character", "on - turn off" if entry.enrollment else "off - turn on")
+            network = self.network.get(entry.world_id)
+            screen.row("router", "Automatic router setup", ("on" if network.router_setup else "off") + " (UPnP / NAT-PMP, only with Internet access)")
+            screen.row("relay", "Relay", f"{network.relay_address}:{network.relay_port}" if network.relay is not None else "none - set one up")
+            screen.note("When on, a friend with an invite code can bring their character into this world over the connection.")
+            screen.note("A relay is for homes friends cannot reach (CGNAT, no router access). Someone you trust runs it; it only passes")
+            screen.note("encrypted traffic. Invite codes made after you set it up include it.")
             screen.button("back", "Back")
             if notice:
                 screen.set_status(*notice)
@@ -1314,6 +1362,12 @@ class ShellApp:
             if event.id == "enrollment":
                 self.registry.configure(entry.world_id, enrollment=not entry.enrollment)
                 notice = ("ok", "Applies the next time you host this world.")
+            elif event.id == "router":
+                current = self.network.get(entry.world_id).router_setup
+                self.network.set_router_setup(entry.world_id, not current)
+                notice = ("ok", "Automatic router setup is " + ("off." if current else "on. It is tried while the world allows Internet connections."))
+            elif event.id == "relay":
+                notice = self._relay_settings(entry)
             elif event.id == "bind":
                 options = [(LOOPBACK, "This PC only", "")] + [(a, f"Local network {a}", "") for a in self.lan()]
                 picked = self.choose("Listen on", options)
@@ -1324,7 +1378,9 @@ class ShellApp:
                     self.registry.configure(entry.world_id, internet=False)
                 elif self.confirm("Allow Internet connections?",
                                   "Internet connections let anyone with an invite code and your public address reach this PC.\n"
-                                  "Your router must forward the port and your firewall must allow it. EmeraldTogether does not set that up.",
+                                  "The port must be forwarded to this PC: the game asks your router itself when automatic router\n"
+                                  "setup is on, but many routers refuse, and none can behind CGNAT (use a relay or Tailscale then).\n"
+                                  "Windows Firewall asks once whether EmeraldTogether may accept connections: allow it.",
                                   "Allow Internet connections", warn=True):
                     self.registry.configure(entry.world_id, internet=True)
             elif event.id == "address":
@@ -1335,6 +1391,38 @@ class ShellApp:
                         notice = ("error", "That is not a usable address or host name.")
                     else:
                         self.registry.configure(entry.world_id, address=text)
+
+    def _relay_settings(self, entry):
+        """Set, change or remove the world's relay. Returns a status for the network settings page."""
+        from .relay import DEFAULT_PORT, valid_endpoint
+        network = self.network.get(entry.world_id)
+        options = [("set", "Use a relay" if network.relay is None else "Change the relay address", "address:port of a relay server")]
+        if network.relay is not None:
+            options += [("off", "Stop using the relay", "friends connect directly again"),
+                        ("key", "New relay key", "if someone else took this world's place on the relay")]
+        picked = self.choose("Relay", options, notes=[
+            "A relay passes encrypted game traffic between your PC and friends who cannot reach it directly.",
+            "It never sees your game, passwords or saves. Someone you trust runs it: EmeraldTogether.exe --relay-server",
+            "on a PC or server with one reachable port. EmeraldTogether does not run a public relay for you."])
+        if picked == "off":
+            self.network.disable_relay(entry.world_id)
+            return ("ok", "Relay off. New invite codes connect directly.")
+        if picked == "key":
+            self.network.new_relay_key(entry.world_id)
+            return ("ok", "New relay key made. It is used the next time you host.")
+        if picked != "set":
+            return None
+        current = f"{network.relay_address}:{network.relay_port}" if network.relay is not None else ""
+        text = self._ask_text("Relay address", "The relay's address and port, for example relay.example.net:7780.", current, "Address:port")
+        if not text:
+            return None
+        host, _, port_text = text.strip().rpartition(":")
+        if not host:
+            host, port_text = text.strip(), str(DEFAULT_PORT)
+        if not port_text.isdigit() or not valid_endpoint(host, int(port_text)):
+            return ("error", "That is not a usable relay address and port.")
+        self.network.set_relay(entry.world_id, host, int(port_text))
+        return ("ok", "Relay saved. Host the world to connect to it; make new invite codes so friends get the relay too.")
 
     # ------------------------------------------------------------------ Join Friend
 
@@ -1450,19 +1538,24 @@ class ShellApp:
             if invitation_source["build_id"] != getattr(self.installation, "rom_sha256", invitation_source["build_id"]):
                 status = ("error", "That invite is for a different game version than the one installed here.")
                 continue
-            result = self._verify_new_server(invitation_source, address, port)
-            if isinstance(result, str):
-                status = ("error", result)
+            while True:
+                invitation, outcome = self._verify_new_server(invitation_source, address, port)
+                if invitation is not None or isinstance(outcome, str):
+                    break
+                if self._connection_problem("This server could not be joined", outcome, edit=False) != "retry":
+                    break
+            if invitation is None:
+                status = ("error", outcome if isinstance(outcome, str) else f"{outcome.title}. Nothing was saved or created.")
                 continue
-            invitation = result
             try:
                 store_invitation(self.private_root, invitation)
             except InvitationConflict:
                 status = ("error", "A different invite is already stored for this account on this PC. Nothing was changed.")
                 continue
             name = values["name"] or f"{invitation.display_name}'s server"
+            code = invitation_source.get("code")
             server, created = self.servers.add(name, address, port, invitation.world_id, invitation.player_id, invitation.slot,
-                                               invitation.display_name)
+                                               invitation.display_name, relay=code.relay if code is not None else None)
             self.links.ensure(invitation.world_id, invitation.player_id, "friend", invitation.slot, server["name"], invitation.display_name)
             self.notice = ("ok", "Server saved." if created else "That account already had a saved server; its address was updated.")
             self._join_server(server)
@@ -1481,30 +1574,38 @@ class ShellApp:
         return dict(address=code.address, port=code.port, build_id=code.build_id, code=code)
 
     def _verify_new_server(self, source, address, port):
-        """The invitation for this server once its identity is verified, or a message saying why not."""
-        async def check(job):
-            job.progress("resolving")
-            loop = asyncio.get_running_loop()
-            numeric = await loop.run_in_executor(None, lambda: self.resolver(address, port))
-            if "invitation" in source:
-                invitation = source["invitation"]
-                result = await self.prober(invitation, numeric, port, self.private_root / "network-checks")
-                if not result.ok:
-                    raise InviteCodeError("certificate_unavailable", result.message)
-                return invitation
+        """(invitation, check) once the server answered as this invite's world and accepts this game version, or (None, reason):
+        a connection_diagnostics CheckResult, or a sentence. Nothing is sent before the host's pinned certificate matched."""
+        if "invitation" in source:
+            invitation, relay = source["invitation"], None
+            pin, world_id, build_id, ruleset_id = (invitation.certificate_sha256, invitation.world_id, invitation.build_id,
+                                                   invitation.ruleset_id)
+        else:
             code = source["code"]
-            job.progress("verifying")
-            pem = await self.fetcher(numeric, port, code.certificate_sha256, code.world_id)
-            return redeem(code, pem, endpoint=numeric)
+            relay = code.relay
+            pin, world_id, build_id, ruleset_id = code.certificate_sha256, code.world_id, code.build_id, code.ruleset_id
 
-        job = self.run_job(check, "Checking the server", "Checking that the server is reachable and is the world this invite belongs to.")
+        async def check(job):
+            job.progress("verifying")
+            return await self.checker(address, port, relay=relay, certificate_sha256=pin, world_id=world_id, build_id=build_id,
+                                      ruleset_id=ruleset_id)
+
+        job = self.run_job(check, "Checking the server", "Checking that the server is reachable, is the world this invite belongs to,\n"
+                                                         "and runs the same game version.")
         if job is None:
-            return "Cancelled."
+            return None, "Cancelled."
         if job.error is not None:
-            if isinstance(job.error, (InviteCodeError, InvitationError)):
-                return str(job.error)
-            return "The server could not be reached. Check the address and port, and that the host is running the world."
-        return job.result
+            self._record_error(job.error)
+            return None, diagnosis("unreachable", detail=type(job.error).__name__, address=address, port=port)
+        result = job.result
+        if not result.ok:
+            return None, result
+        if "invitation" in source:
+            return source["invitation"], result
+        try:
+            return redeem(source["code"], result.certificate_pem, endpoint=address), result
+        except (InviteCodeError, InvitationError) as error:
+            return None, str(error)
 
     def _join_server(self, server):
         """Join a saved server with the active character: verify it is that world, bring the character in if needed, play."""
@@ -1523,23 +1624,35 @@ class ShellApp:
             return
         invitation = Invitation.load(path)
         while True:
-            async def check(job):
-                job.progress("resolving")
-                numeric = await asyncio.get_running_loop().run_in_executor(None, lambda: self.resolver(server["address"], server["port"]))
-                job.progress("checking")
-                return numeric, await self.prober(invitation, numeric, server["port"], self.private_root / "network-checks")
+            relay = relay_of(server)
 
-            job = self.run_job(check, "Connecting", f"Connecting to {server['name']} and checking that it is the right world.")
+            async def check(job, server=server, relay=relay):
+                job.progress("resolving")
+                try:
+                    numeric = await asyncio.get_running_loop().run_in_executor(
+                        None, lambda: self.resolver(server["address"], server["port"]))
+                except InviteCodeError as error:
+                    if relay is None:
+                        return None, diagnosis(getattr(error, "reason", None) or "dns_failed", detail=error.code,
+                                               address=server["address"], port=server["port"])
+                    numeric = None                                     # the relay can still reach the world
+                job.progress("checking")
+                return numeric, await self.checker(numeric or server["address"], server["port"], relay=relay,
+                                                   certificate_sha256=invitation.certificate_sha256, world_id=invitation.world_id,
+                                                   build_id=invitation.build_id, ruleset_id=invitation.ruleset_id)
+
+            job = self.run_job(check, "Connecting", f"Connecting to {server['name']} and checking that it is the right world\n"
+                                                    "and the same game version.")
             if job is None:
                 return
             if job.error is not None:
-                reason = "The address could not be found. Check it with the host."
-                action = self._offline_choice(server, reason)
+                self._record_error(job.error)
+                result = diagnosis("unreachable", detail=type(job.error).__name__, address=server["address"], port=server["port"])
             else:
                 numeric, result = job.result
                 if result.ok:
                     break
-                action = self._offline_choice(server, result.message)
+            action = self._connection_problem(f"Can't join {server['name']}", result)
             if action == "retry":
                 continue
             if action == "edit":
@@ -1547,7 +1660,14 @@ class ShellApp:
                 server = self.servers.get(server["id"]) or server
                 continue
             return
-        route = (numeric, server["port"])
+        # The route that answered is the one the game uses (the account's route file, read by every game for this account).
+        if result.route == "relay":
+            save_join_route(self.private_root, server["world_id"], server["player_id"], relay)
+            route = None
+        else:
+            if route_path(self.private_root, server["world_id"], server["player_id"]).exists():
+                save_join_route(self.private_root, server["world_id"], server["player_id"], None)
+            route = (numeric, server["port"])
         if not self._registered(character, server["name"], server["world_id"], server["player_id"], role="friend", server=server,
                                 route=route):
             return
@@ -1564,12 +1684,20 @@ class ShellApp:
         self._after_session(character, server["world_id"], server["player_id"], outcome)
         self._remember("join", character, world_id=server["world_id"], server_id=server["id"])
 
-    def _offline_choice(self, server, reason):
-        screen = Screen("offline", f"Can't join {server['name']}")
-        screen.note(reason)
+    def _connection_problem(self, title, result, *, edit=True):
+        """Why a connection check failed, in plain words, and what the host and the player can each do about it
+        (connection_diagnostics). Returns "retry", "edit" or "back"."""
+        screen = Screen("offline", title)
+        screen.note(result.title + ".")
+        screen.note(result.message)
+        for step in result.steps[:5]:
+            screen.note("- " + step)
         screen.note("Nothing was created or reset, and your character is untouched.")
+        if result.route == "relay":
+            screen.note(f"Checked through the relay at {result.address}:{result.port}.")
         screen.row("retry", "Try again", "", "as")
-        screen.row("edit", "Edit the address")
+        if edit:
+            screen.row("edit", "Edit the address")
         screen.row("back", "Back")
         event = self.ui.show(screen)
         return event.id if event.kind == "select" else "back"
@@ -1734,13 +1862,21 @@ class ShellApp:
             self.prefs.save({"format": PREFS_FORMAT, "trade_rule": self._trade_rule_change(rule)})
 
     def _game_files(self):
-        if self._game_installed():
+        from .installation_check import check_installation
+        report = check_installation(self.installation, importer=self.importer) if self.installation is not None else None
+        if self._game_installed() and (report is None or report.ok):
             self.game_ok = True
-            self.message("Game files", "Your game files are installed and match this release. This checks the files, not gameplay.")
+            self.message("Game files", "Your game files are installed and match this release. This checks the files, not gameplay\n"
+                                       "or your network.")
             return ("ok", "Game files verified.")
         self.game_ok = False
+        if report is not None and not report.ok and not any(problem.code.startswith("rom_") for problem in report.problems):
+            # Program files: running the Setup file again repairs them (saves, characters and worlds are kept).
+            self.message("Game files need repair", report.text())
+            return ("error", "Game files need repair.")
         if self.importer is None:
-            self.message("Game files", "The game files are missing or changed, and this package cannot install them.")
+            self.message("Game files", "The game files are missing or changed, and this package cannot install them.\n"
+                         + (report.text() if report is not None and not report.ok else ""))
             return ("error", "Game files missing.")
         screen = Screen("import", "Install your game",
                         "Enter the full path of your own Pokemon Emerald file. It is checked and kept only on this PC.")

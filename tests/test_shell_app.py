@@ -355,10 +355,15 @@ class HostWorldTests(unittest.TestCase):
         app = make_world(self, world)
         (entry,) = app.registry.entries()
 
+        from types import SimpleNamespace
+        from emerald_multiplayer.relay import RelayAgentStatus
+
         class Manual(FakeWorker):
             def start(self, request):
                 self.requests.append(request)
-                self.events.put(UiEvent("status", "running", "running", True, save_available=True, is_host=True, connected=True))
+                self.events.put(UiEvent("status", "running", "running", True, save_available=True, is_host=True, connected=True,
+                                        router=SimpleNamespace(code="mapped", message="The router forwards port 7777 (UPnP)."),
+                                        relay=RelayAgentStatus("relay_ready", "127.0.0.1:7780", 1)))
                 return True
 
         worker = Manual()
@@ -368,6 +373,7 @@ class HostWorldTests(unittest.TestCase):
         def responder(screen, waiting=False):
             if screen.id == "session":
                 seen.setdefault("rows", [i.id for i in screen.items])
+                seen["notes"] = " ".join(screen.notes)
                 answer = next(script)
                 if answer is None:
                     worker.events.put(UiEvent("complete", "game_closed"))
@@ -391,7 +397,36 @@ class HostWorldTests(unittest.TestCase):
         self.assertIn("save", seen["rows"])
         self.assertIn("info", seen["rows"])
         self.assertIn("Hosting now on 192.168.1.20", seen["status"][1])
+        # What the session itself reports: the world connection, the router setup and the relay (never a guess).
+        self.assertIn("Your world is running and your game is connected to it.", seen["notes"])
+        self.assertIn("Router: The router forwards port 7777 (UPnP).", seen["notes"])
+        self.assertIn("(1 friend through it)", seen["notes"])
         self.assertEqual(ui.windows[-1][:2], app3.menu_window)
+
+    def test_a_relay_set_in_network_settings_goes_into_new_invite_codes_and_router_setup_toggles(self):
+        from emerald_multiplayer.network_settings import NetworkSettings
+        world = World(self)
+        app = make_world(self, world)
+        (entry,) = app.registry.entries()
+        seen = {}
+        driver = Driver(("main", select("host")), ("host_list", select(entry.world_id)), ("world", select("network")),
+                        ("network", select("relay")),
+                        ("choose", lambda s: seen.update(relay_notes=" ".join(s.notes)) or select("set")),
+                        ("ask_text", select("ok", value="relay.example.net:7780")),
+                        ("network", lambda s: seen.update(status=s.status) or select("router")),
+                        ("network", lambda s: seen.update(router=s.status) or BACK),
+                        ("world", select("codes")), ("codes", lambda s: seen.update(code_notes=" ".join(s.notes)) or select("slot1")),
+                        ("codes", BACK), ("world", BACK), ("host_list", BACK), main_exit())
+        app2, ui = world.app(driver)
+        app2.run()
+        self.assertTrue(driver.done(), driver.steps)
+        self.assertIn("does not run a public relay", seen["relay_notes"])
+        self.assertIn("Relay saved", seen["status"][1])
+        self.assertIn("off", seen["router"][1])
+        network = NetworkSettings(world.private).get(entry.world_id)
+        self.assertEqual((network.relay, network.router_setup), (("relay.example.net", 7780), False))
+        self.assertIn("relay.example.net:7780", seen["code_notes"])
+        self.assertEqual(decode_invite(ui.copied[-1]).relay, ("relay.example.net", 7780))
 
 
 class SettingsTests(unittest.TestCase):
