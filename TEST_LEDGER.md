@@ -230,3 +230,17 @@ preview 12's evidence for those is reused.
 | Engine native Linux build with the setup-text change | engine `6cd8af0f` | L | builds; title and main menu screenshots in setup mode show the new text | session scratch | - | Reuse |
 | Two PCs, one network / two Internet connections / real router / Tailscale / relay on a real machine | - | PC | **Never run** | procedure: report G | - | Owner |
 
+
+## Visual repairs (2026-10-18; app `claude/admiring-bohr-dpxzuy`, engine `claude/vr-repairs-engine` `47767264`; `docs/visual-repairs-20261018.md`)
+
+| Test | Build / head | Where | Last result | Evidence | Changed since | Rerun? |
+| --- | --- | --- | --- | --- | --- | --- |
+| App suite with the battle-effects packaging | app `47045e9` + docs | L | 2242 passed, 0 failed, 51 skipped (Lua 5.3 bridge subtests, private paths) | session log | - | Reuse |
+| `check-diorama` (renderer units, compositor goldens, rules) | engine `47767264` | L | all passed | session log | - | Reuse |
+| GBA ROM rebuilt at the engine head | engine `47767264` | L | SHA-256 `f214735b...3387` (unchanged) | session log | - | Reuse |
+| Battle effects: 7 moves in a 3D wild battle (Linux build beside `battlefx/`) | engine `47767264` | L | each move its own HD effect (fire, electric, ground, psychic background, grass, stat change, status) | scratchpad `vr/fx-linux.png` | - | Reuse |
+| Battle effects: Windows exe in a bundle collected with `--battle-effects`, launched from another folder; control without the folder | engine `47767264`, app `47045e9` | W | with: "core ready ... runtime\battlefx", HD effects for 6 moves; without: "cannot read", GBA sprites | scratchpad `vr/fx-wine.png` | - | Reuse |
+| Healing: GBA vs 3D frames through the effect (3 and 6 Pokemon); hurt party healed 3 runs (40/165 PSN -> 165/165) and walked away; trainer "!" over Calvin | engine `4e213ddf`+ | L | balls, glow, flash, monitor drawn in 3D; HP restored; control returned; "!" drawn | scratchpad `vr/heal-*`, `vr/excl` | - | Reuse |
+| Area changes: 7-case transition matrix (PC x2, PC at 1920x1080 and 960x600, Mart, house, route->town, town->route), frames with the GBA picture over the 3D field | before `6cd8af0f`+heal, after `df5f960b` | L | before 13/5/8/7/7/4/3, after 0 in every case | scratchpad `vr/matrix-*`, `vr/issue3-before-after.png` | - | Reuse |
+| Distant objects: Route 102 (Allen, Tiana), Rustboro; hand-over to the spawned object while walking; profile | engine `47767264` | L | drawn before spawning (missing before); continuous hand-over; object sync +0.03 ms, drawing +0.09 ms, 72 -> 84 draws | scratchpad `vr/popin-*`, `vr/rustboro-*` | - | Reuse |
+| The four repairs on a Windows PC with a real GPU at 60 fps | - | PC | **Never run** | checklist in `docs/visual-repairs-20261018.md` | - | Owner |

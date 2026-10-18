@@ -516,6 +516,15 @@ Recorded guidance the code no longer follows (not binding decisions):
 | Windows installer (per user, repair/upgrade in place, data kept on uninstall) | Implemented and tested in CI (fresh windows-2022 runner) | `.github/workflows/windows-package.yml` |
 | Setup-mode text instead of "No multiplayer link" (engine, PC-only) | Implemented and tested (native Linux build, screenshots) | engine `6cd8af0f` |
 
+## Visual repairs (2026-10-18, `docs/visual-repairs-20261018.md`)
+
+| Feature | Status | Evidence |
+| --- | --- | --- |
+| HD battle effects in the Windows package (`runtime/battlefx`, pinned) | Implemented and tested (Windows exe under Wine; CI package check; not on a PC) | app `47045e9`, `tests/test_native_runtime.py`, `tests/test_build_installer.py` |
+| Distant objects drawn before they spawn (render-only stand-ins) | Implemented and tested (native Linux 3D, Route 102 and Rustboro) | engine `47767264` |
+| No 2D picture over the 3D view at area changes | Implemented and tested (native Linux 3D, 7-case transition matrix) | engine `df5f960b` |
+| Pokémon Center healing animation and emote icons in 3D | Implemented and tested (native Linux 3D, GBA frames compared, HP restored) | engine `4e213ddf` |
+
 ## How to update
 
 1. Change a row only with new evidence: a recorded run (a doc in `docs/` or

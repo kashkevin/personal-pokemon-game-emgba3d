@@ -36,7 +36,7 @@ Xvfb (Mesa llvmpipe), compared frame by frame. No real GPU was available; see "S
 | **Using a PC took the Pokemon Center's modelled room apart** (black notches in the back wall, the counter's arm gone, the room flickering as the screen blinked on) - see 3. | `scene_snapshot.c` `SameObject`. |
 
 Examined and not changed: terrain chunk streaming (an A/B of the deferred far-chunk builds against building every chunk at once
-showed the same scenery; nothing missing); door warps stay in 3D (the brief boxed 2D frame appears only at a debug start);
+showed the same scenery; nothing missing); door warps stay in 3D (the brief boxed 2D frame appears only at a debug start; **wrong on a PC**: the boxed picture was faded out over the 3D view for 0.12 s at every area change, one frame or none at the cloud's frame rate - fixed in `docs/visual-repairs-20261018.md`, 3);
 black space outside a map's edge (interiors) is kept as it is.
 
 Remaining (not fixed): objects still *spawn* only within the GBA's window (7 rows north), now near the top fifth of the 3D

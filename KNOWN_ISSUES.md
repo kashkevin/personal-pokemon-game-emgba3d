@@ -262,3 +262,14 @@ fully offline play keeps the personal ones. See FEATURE_STATUS and the engine's
 | NU-10 | Info | `--relay-server` from the packaged (windowed) EmeraldTogether.exe opens its own console; checked only by unit tests, not on Windows. | Open: try on a PC |
 | NU-11 | Info (test environment) | The app suite skips 119 subtests here: the mGBA bridge's Lua subtests (no Lua 5.3 in this container) and one private-save-path test. Pure Python bridge tests still run. | Environment, not a failure |
 
+## Visual repairs before the merge (2026-10-18, app `claude/admiring-bohr-dpxzuy`, engine `claude/vr-repairs-engine`; `docs/visual-repairs-20261018.md`)
+
+| ID | Severity | Issue | Status |
+| --- | --- | --- | --- |
+| VR-1 | High | Windows packages never contained `battlefx/` (the runtime bundle was flat files only), so every move played its GBA animation on Windows. Owner-reported. | **Fixed** (app `47045e9`: pinned runtime.json "data", collector, CI, installation check; Windows exe under Wine shows the HD effects, the old layout does not) |
+| VR-2 | Medium | People, trainers, item balls and rocks popped into the 3D view a few steps away: the GBA spawns objects only within two tiles of its 240x160 picture. Owner-reported. | **Fixed** (engine `47767264`: render-only stand-ins; connected maps' objects still appear on entering them, as the GBA spawns them) |
+| VR-3 | High | A small boxed 2D picture showed over the 3D view for the 0.12 s cross-fade at every area change (doors, warps, route-town crossings); hidden in the cloud by its slow frame rate. Owner-reported. | **Fixed** (engine `df5f960b`) |
+| VR-4 | Medium | The Pokémon Center's healing animation (balls, glow, monitor) and trainers' "!" were missing in 3D: field-effect sprites were not drawn. Owner-reported. | **Fixed** (engine `4e213ddf`) |
+| VR-5 | Info (open) | 226 of 959 battle animations have no HD version and play their GBA animation drawn in 3D (`docs/battle-fx-audit/matrix.md`). | By design; listed |
+| VR-6 | Info (open) | The four repairs were checked under Linux and the Windows exe under Wine, both with software OpenGL; not on a Windows PC or a real GPU at 60 fps. | Open: checklist in `docs/visual-repairs-20261018.md` |
+
