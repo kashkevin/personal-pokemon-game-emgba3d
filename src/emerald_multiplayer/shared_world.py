@@ -42,6 +42,14 @@ REMINDER_SECONDS = (600, 300, 60)
 # shared spawns must use the same hours (scripts/multiplayer/
 # check_engine_spawn_weights.py compares them with the game).
 MORNING_HOURS, DAY_HOURS, EVENING_HOURS = range(4, 11), range(11, 18), range(18, 21)
+# The largest world clock the game can take: it adds its own day origin (engine include/multiplayer_world.h,
+# MP_WORLD_DAY_ORIGIN = 1000 days) to the host's seconds in 32 bits.
+MAX_CLOCK_SECONDS = 0xFFFFFFFF - 1000 * 86400
+
+
+def valid_clock_seconds(value) -> bool:
+    """A stored world clock the game can show: whole seconds since world day 0, 00:00, within the game's range."""
+    return type(value) is int and 0 <= value <= MAX_CLOCK_SECONDS
 
 
 def time_of_day_for_hour(hour: int) -> str:
@@ -138,6 +146,7 @@ class SharedWorld:
                  event_condition_chance: float | None = None, event_settings=None):
         self.path = Path(path)
         self.world_id = world_id
+        self.clock_repaired = False
         self._now = clock
         self._rng = rng or random.Random()
         self._db = sqlite3.connect(str(self.path), isolation_level=None)
@@ -152,8 +161,16 @@ class SharedWorld:
                 self._db.execute("INSERT INTO metadata VALUES ('scope', ?)", (SCOPE,))
             elif row[0] != world_id:
                 raise SharedWorldError("world_mismatch", "shared-world data belongs to another world")
-            if self._db.execute("SELECT seconds FROM clock WHERE id=1").fetchone() is None:
+            row = self._db.execute("SELECT seconds FROM clock WHERE id=1").fetchone()
+            if row is None:
+                # a new world (or one whose clock was never written): 12:00 noon of world day 0
                 self._db.execute("INSERT INTO clock VALUES (1, ?)", (BALANCE.clock_start_seconds,))
+            elif not valid_clock_seconds(row[0]):
+                # damaged clock data (not whole seconds, negative, past what the game can show): the clock starts again
+                # at a new world's noon, the bad value kept beside it; a valid clock is never touched
+                self._db.execute("INSERT OR REPLACE INTO metadata VALUES ('clock_repaired_from', ?)", (repr(row[0])[:64],))
+                self._db.execute("UPDATE clock SET seconds=? WHERE id=1", (BALANCE.clock_start_seconds,))
+                self.clock_repaired = True
         seconds = self._db.execute("SELECT seconds FROM clock WHERE id=1").fetchone()[0]
         self._clock = _Clock(float(seconds), None)
         self.bases = SecretBaseBook(self._db, self._transaction)

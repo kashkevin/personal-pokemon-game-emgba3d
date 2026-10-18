@@ -160,12 +160,25 @@ class WorldCompanionTests(unittest.IsolatedAsyncioTestCase):
         data = await self.bridges[0].world(lambda d: d[192] == 0)
         self.assertEqual(data[192:], bytes(16))
 
+    async def test_every_player_gets_the_same_world_time(self):
+        """One authoritative clock: the host's, 12x, started at noon; both players' games get it (within the time the
+        two records took to arrive), marked valid."""
+        await self.present(0, 5)
+        await self.present(1, 6)
+        first = await self.bridges[0].world(lambda d: flags(d) & 1)
+        second = await self.bridges[1].world(lambda d: flags(d) & 1)
+        host = self.server.shared_world.world_seconds()
+        self.assertGreaterEqual(seconds(first), 12 * 3600)
+        for data in (first, second):
+            self.assertLessEqual(abs(seconds(data) - host), 12 * 5)               # the companions' 5 s extrapolation bound
+        self.assertLessEqual(abs(seconds(first) - seconds(second)), 12 * 5)
+
     async def test_clock_peers_followers_and_teammate_free_inbound(self):
         await self.present(0, 5, WorldState(25, 4, 0, 0, 0, bytes(8), 0))
         await self.present(1, 6, WorldState(6, 5, 1, 254, 1, bytes(8), 9))
         data = await self.bridges[0].world(lambda d: len(peers(d)) == 1 and peers(d)[next(iter(peers(d)))][0] == 6)
         self.assertEqual(flags(data) & 1, 1)  # host clock valid
-        self.assertGreaterEqual(seconds(data), 8 * 3600)
+        self.assertGreaterEqual(seconds(data), 12 * 3600)                      # a new world starts at noon
         (token, (species, fflags, _)), = peers(data).items()
         self.assertEqual((species, fflags), (6, 5))
         # The peer record carries Bob's mount but never his wallet sequence.

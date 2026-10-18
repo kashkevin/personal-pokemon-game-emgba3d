@@ -81,6 +81,53 @@ class SharedWorldTests(unittest.TestCase):
         self.world = self.open()
         self.assertEqual(self.world.world_seconds(), expected)
 
+    def test_a_whole_day_and_night_takes_two_real_hours(self):
+        """The owner's clock (confirmed 2026-10-17): 12x - 1 real minute = 12 world minutes, 5 real minutes = 1 world hour,
+        a whole day and night = 2 real hours - from 12:00 noon, simulated (the clock is injected)."""
+        self.assertEqual(BALANCE.clock_rate, 12)
+        start = self.world.world_seconds()
+        self.assertEqual(start, 12 * 3600)
+        self.world.set_active_players(1)
+        began = self.clock.now
+        self.clock.now += 60
+        self.assertEqual(self.world.world_seconds() - start, 12 * 60)            # 1 real minute = 12 world minutes
+        seen = []
+        for step in range(1, 25):                                                # 24 steps of 5 real minutes
+            self.clock.now = began + step * 300
+            seconds = self.world.world_seconds()
+            self.assertEqual(seconds - start, step * 3600)                       # 5 real minutes = 1 world hour
+            seen.append(((seconds // 3600) % 24, self.world.time_of_day()))
+        self.assertEqual(self.world.world_seconds() - start, 86400)              # 2 real hours = one world day
+        self.assertEqual((self.world.world_seconds() // 3600) % 24, 12)          # noon again, the next day
+        names = [name for _, name in seen]
+        # day 13-17, evening 18-20, night 21-3, morning (sunrise) 4-10, day again 11-12 - each at the game's hours
+        self.assertEqual(names, ["day"] * 5 + ["evening"] * 3 + ["night"] * 7 + ["morning"] * 7 + ["day"] * 2)
+        self.assertEqual(seen[0][0], 13)
+
+    def test_damaged_clock_data_is_repaired_and_a_valid_clock_is_kept(self):
+        import sqlite3
+        from emerald_multiplayer.shared_world import MAX_CLOCK_SECONDS
+        for bad in (-5, "noon", 1.5, MAX_CLOCK_SECONDS + 1):
+            with self.subTest(bad=bad):
+                self.world.close()
+                db = sqlite3.connect(str(self.path), isolation_level=None)
+                db.execute("UPDATE clock SET seconds=? WHERE id=1", (bad,))
+                db.close()
+                self.world = self.open()
+                self.assertTrue(self.world.clock_repaired)
+                self.assertEqual(self.world.world_seconds(), BALANCE.clock_start_seconds)
+                kept = self.world._db.execute("SELECT value FROM metadata WHERE key='clock_repaired_from'").fetchone()[0]
+                self.assertEqual(kept, repr(bad))
+        for good in (0, 5 * 86400 + 7, MAX_CLOCK_SECONDS):
+            with self.subTest(good=good):
+                self.world.close()
+                db = sqlite3.connect(str(self.path), isolation_level=None)
+                db.execute("UPDATE clock SET seconds=? WHERE id=1", (good,))
+                db.close()
+                self.world = self.open()
+                self.assertFalse(self.world.clock_repaired)
+                self.assertEqual(self.world.world_seconds(), good)
+
     def test_an_existing_worlds_clock_is_never_moved_to_the_new_start(self):
         # A world made when new worlds began at 08:00 keeps its own time: only a world without a clock gets the start.
         import sqlite3
