@@ -3,14 +3,17 @@
 The native game (engine `Makefile_pc`: `pokeemerald-mp.exe`, or the 3D
 `pokeemerald-mp-diorama.exe`) is its own bridge (`src/platform/mp_bridge.c`), so
 the bundle holds the executable and SDL2.dll, and names the GBA ROM build of the
-same engine source, which the companion verifies and which the launcher checks
-before every start (`player_runtime.NativeGame`, KNOWN_ISSUES M1). Optional extra
-files (the host's `emerald-trade-replay.exe` and its DLLs) are pinned with them.
-No ROM, save or player data is copied. Private: the executable contains game data.
+same engine source (`player_runtime.NativeGame`, KNOWN_ISSUES M1). With
+--manifest it also pins `game-facts.json` (game_facts.py): the ROM's identity,
+capability markers and battle-message lengths, recorded after a full check of
+the ROM against that manifest, so a player's PC needs no game.gba (the native
+game never reads one). Optional extra files (the host's `emerald-trade-replay.exe`
+and its DLLs) are pinned with them. No ROM, save or player data is copied.
+Private: the executable contains game data.
 
     python scripts/windows-runtime/collect_native_bundle.py \\
         --game ../engine-graphics/pokeemerald-mp-diorama.exe --sdl SDL2.dll \\
-        --rom ../engine/pokedev.gba --output runtime
+        --rom ../engine/pokedev.gba --manifest manifest.json --output runtime
 
 Prints the directory and the runtime.json pin (the release record's runtime_sha256).
 """
@@ -24,6 +27,8 @@ import shutil
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
+from emerald_multiplayer.companion import verify_rom_manifest  # noqa: E402
+from emerald_multiplayer.game_facts import FILE_NAME as FACTS, write_facts  # noqa: E402
 from emerald_multiplayer.player_runtime import NativeGame, RuntimeBundle  # noqa: E402
 
 FORMAT = "emerald-native-runtime-v1"
@@ -33,10 +38,12 @@ def sha(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
-def collect(game, sdl, rom, output, extra=(), classic_game=None):
+def collect(game, sdl, rom, output, extra=(), classic_game=None, manifest=None):
     """``classic_game``: the Classic 2D game (`Makefile_pc` without DIORAMA) of the same engine
     build. The launcher's Graphics mode starts it instead of ``game`` when the player chooses 2D or
-    the 3D game cannot start; both share the save, the ROM pairing and the settings file."""
+    the 3D game cannot start; both share the save, the ROM pairing and the settings file.
+    ``manifest``: the game manifest of ``rom``; the bundle then pins the game facts recorded from
+    both (runtime.json "game_facts"), which a package needs to run without a game.gba."""
     game, sdl, rom, output = Path(game).resolve(), Path(sdl).resolve(), Path(rom).resolve(), Path(output).resolve()
     if not game.name.lower().endswith(".exe"):
         raise ValueError("the native game must be a Windows .exe")
@@ -49,42 +56,58 @@ def collect(game, sdl, rom, output, extra=(), classic_game=None):
         raise ValueError("the SDL runtime must be SDL2.dll, the name the game loads")
     if any(Path(path).suffix.lower() == ".lua" for path in extra):
         raise ValueError("a native bundle has no Lua bridge")
+    if any(Path(path).name.lower() == FACTS for path in (game, sdl, *map(Path, extra))):
+        raise ValueError(f"{FACTS} is written by --manifest, not copied")
     output.mkdir(parents=True, exist_ok=False)
     for path in (game, sdl, *map(Path, extra)):
         target = output / Path(path).name
         if target.exists():
             raise ValueError(f"two bundle files named {target.name}")
         shutil.copyfile(path, target)
+    if manifest is not None:
+        # Fully verifies the ROM against the manifest first (companion.verify_rom_manifest).
+        write_facts(rom, manifest, output / FACTS)
     files = {path.name: sha(path) for path in sorted(output.iterdir()) if path.is_file()}
     if len(files) > 32:
         raise ValueError("bundle exceeds the launcher manifest's file bound")
+    game_manifest = manifest
     manifest = dict(format=FORMAT, executable=game.name, rom_sha256=sha(rom), files=files)
     if classic_game is not None:
         manifest["classic_executable"] = classic_game.name
+    if game_manifest is not None:
+        manifest["game_facts"] = FACTS
     (output / "runtime.json").write_text(json.dumps(manifest, sort_keys=True, indent=2) + "\n")
     pin = sha(output / "runtime.json")
     # The launcher's own check, as it will run before every start.
-    executable, native = RuntimeBundle(output, pin).verify()
+    bundle = RuntimeBundle(output, pin)
+    executable, native = bundle.verify()
     if executable != output / game.name or native != NativeGame(manifest["rom_sha256"]):
         raise ValueError("the collected bundle does not verify as a native runtime")
+    if game_manifest is not None:
+        facts = bundle.game_facts_path()
+        if facts != (output / FACTS).resolve() or verify_rom_manifest(facts, Path(game_manifest))[0] != manifest["rom_sha256"]:
+            raise ValueError("the collected game facts do not verify against the manifest")
     if classic_game is not None:
         classic, _ = RuntimeBundle(output, pin, graphics="2d").verify()
         if classic != output / classic_game.name:
             raise ValueError("the collected bundle does not verify its Classic 2D game")
-    return dict(directory=str(output), manifest_sha256=pin, rom_sha256=manifest["rom_sha256"], files=len(files))
+    return dict(directory=str(output), manifest_sha256=pin, rom_sha256=manifest["rom_sha256"], files=len(files),
+                game_facts=game_manifest is not None)
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--game", type=Path, required=True, help="the native game's .exe")
     parser.add_argument("--sdl", type=Path, required=True, help="SDL2.dll it was built against")
-    parser.add_argument("--rom", type=Path, required=True, help="the GBA ROM of the same engine source")
+    parser.add_argument("--rom", type=Path, required=True, help="the GBA ROM of the same engine source (never copied)")
+    parser.add_argument("--manifest", type=Path,
+                        help="the ROM's game manifest: pin game-facts.json so the package needs no game.gba")
     parser.add_argument("--output", type=Path, required=True, help="a new bundle directory")
     parser.add_argument("--classic-game", type=Path, help="the Classic 2D game's .exe (same engine build)")
     parser.add_argument("--extra", type=Path, action="append", default=[],
                         help="another file to pin (e.g. emerald-trade-replay.exe); repeatable")
     args = parser.parse_args()
-    print(json.dumps(collect(args.game, args.sdl, args.rom, args.output, args.extra, args.classic_game)))
+    print(json.dumps(collect(args.game, args.sdl, args.rom, args.output, args.extra, args.classic_game, args.manifest)))
 
 
 if __name__ == "__main__":

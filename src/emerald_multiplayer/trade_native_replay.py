@@ -52,6 +52,10 @@ class NativeTradeReplay:
     def __init__(self, rom_path, manifest_path, bundle):
         if not isinstance(bundle, RuntimeBundle):
             raise ValueError("native replay requires an application-pinned runtime")
+        from .game_facts import is_game_facts
+        if is_game_facts(rom_path):
+            # The isolated replay worker runs the GBA ROM itself; a package's game facts cannot stand in for it.
+            raise NativeReplayError("native trade replay needs the game ROM, which this installation does not have")
         self.rom_path = Path(rom_path).resolve(strict=True)
         self.manifest_path = Path(manifest_path).resolve(strict=True)
         self.bundle = bundle

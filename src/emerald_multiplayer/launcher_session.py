@@ -12,6 +12,7 @@ from dataclasses import dataclass, replace
 from enum import Enum
 import hashlib
 import inspect
+import json
 import math
 from pathlib import Path
 import re
@@ -21,6 +22,7 @@ from .battle_journal import pending_battle
 from .autosave import AutosaveScheduler, AutosaveState
 from .checkpoint_client import CheckpointClient
 from .companion import Companion, verify_rom_manifest
+from .game_facts import is_game_facts, load_facts as load_game_facts
 from .host_world import HostWorld
 from .invitations import Invitation
 from .launcher_settings import AUTOSAVE_INTERVAL, LauncherSettings
@@ -102,7 +104,14 @@ def _safe_error(error):
 
 @dataclass(frozen=True)
 class GameInstallation:
-    """Pins come from the application release record, never from an invitation."""
+    """Pins come from the application release record, never from an invitation.
+
+    ``rom_path`` is what the Python side checks the game manifest against: the GBA ROM
+    (development setups, the mGBA runtime, a package that imported the player's own game), or in
+    a packaged native installation the game facts its pinned runtime bundle lists (game_facts.py,
+    runtime.json "game_facts"), which stand in for the ROM. The native game reads neither. The
+    build id is the ROM SHA-256 in both cases, so worlds, invitations and saves are unchanged.
+    """
 
     rom_path: Path
     manifest_path: Path
@@ -110,19 +119,50 @@ class GameInstallation:
     manifest_sha256: str
     bundle: RuntimeBundle
 
+    @property
+    def uses_game_facts(self):
+        """Whether this installation checks the package's pinned game facts instead of a GBA ROM."""
+        return is_game_facts(self.rom_path)
+
+    def _pinned_manifest(self):
+        with Path(self.manifest_path).open("rb") as source:
+            raw = source.read(131073)
+        if len(raw) > 131072 or hashlib.sha256(raw).hexdigest() != self.manifest_sha256:
+            raise LauncherSessionError("installation_changed")
+        return raw
+
     def verify(self):
         if (not isinstance(self.bundle, RuntimeBundle)
                 or any(type(value) is not str or re.fullmatch(r"[0-9a-f]{64}", value) is None
                        for value in (self.rom_sha256, self.manifest_sha256))):
             raise LauncherSessionError("invalid_configuration")
-        with Path(self.manifest_path).open("rb") as source:
-            raw = source.read(131073)
-        if len(raw) > 131072 or hashlib.sha256(raw).hexdigest() != self.manifest_sha256:
-            raise LauncherSessionError("installation_changed")
+        self._pinned_manifest()
+        if self.uses_game_facts:
+            # The facts stand in for the ROM only as the very file the pinned runtime record
+            # lists: verify() hashes it with the executables before it is read.
+            self.bundle.verify()
+            if self.bundle.game_facts_path() != Path(self.rom_path).resolve():
+                raise LauncherSessionError("installation_changed")
         build, _ = verify_rom_manifest(Path(self.rom_path), Path(self.manifest_path))
         if build != self.rom_sha256:
             raise LauncherSessionError("installation_changed")
-        self.bundle.verify()
+        if not self.uses_game_facts:
+            self.bundle.verify()
+
+    def battle_string_lengths(self, table_address):
+        """The host's battle-message bounds for ``table_address``: read from the ROM, or recorded
+        from it in the package's game facts when the package was built."""
+        if not self.uses_game_facts:
+            from .battle_controller import read_string_lengths
+            return read_string_lengths(self.rom_path, table_address=table_address)
+        raw = self._pinned_manifest()
+        try:
+            facts = load_game_facts(self.rom_path, raw, json.loads(raw.decode("utf-8")))
+        except (OSError, ValueError) as error:
+            raise LauncherSessionError("installation_changed") from error
+        if facts.battle_string_lengths is None or facts.battle_string_table_address != table_address:
+            raise LauncherSessionError("installation_changed")
+        return facts.battle_string_lengths
 
 
 class SessionState(str, Enum):
@@ -447,9 +487,7 @@ class LauncherSession:
             store=self._store, development_trades=self._development_trades or ordinary_trades,
             development_teams=battles, development_battles=battles, **effects)
         if battles:
-            from .battle_controller import read_string_lengths
-            lengths = read_string_lengths(self.installation.rom_path,
-                table_address=self._manifest["battle_string_table_address"])
+            lengths = self.installation.battle_string_lengths(self._manifest["battle_string_table_address"])
             self._server.enable_battle_execution(lengths, host.directory / "native-battle-execution",
                 resume_enabled=self._manifest.get("battle_resume_abi_version") == 1)
             if self._manifest.get("rival_abi_version") == 1:
