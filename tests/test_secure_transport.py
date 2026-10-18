@@ -83,10 +83,13 @@ class SecureTransportConfigTests(unittest.TestCase):
                         dict(public_server=1), dict(server_tls=True)):
             with self.subTest(changes=changes), self.assertRaises(ValueError):
                 replace(self.config, **changes)
-        for host in ("0.0.0.0", "::", "255.255.255.255", "224.0.0.1", "ff02::1", "example.com", "fe80::1%3", "100.64.0.1"):
+        for host in ("0.0.0.0", "::", "255.255.255.255", "224.0.0.1", "ff02::1", "example.com", "fe80::1%3", "240.0.0.1"):
             with self.subTest(host=host), self.assertRaises(ValueError):
                 replace(self.config, server_host=host, public_server=True, server_tls=tls, server_credential=credential)
-        for host in ("127.0.0.1", "::1", "::ffff:127.0.0.1", "192.168.1.2", "fd00::2", "8.8.8.8", "2606:4700:4700::1111"):
+        # 100.64.0.0/10 (Tailscale-style overlay VPNs, CGNAT) is a usable destination since the networking update: the pinned
+        # certificate and the credential, not the address, decide who the host is.
+        for host in ("127.0.0.1", "::1", "::ffff:127.0.0.1", "192.168.1.2", "fd00::2", "8.8.8.8", "2606:4700:4700::1111",
+                     "100.64.0.1", "100.101.102.103"):
             self.assertTrue(is_numeric_unicast_address(host))
             replace(self.config, server_host=host, public_server=True, server_tls=tls, server_credential=credential)
 

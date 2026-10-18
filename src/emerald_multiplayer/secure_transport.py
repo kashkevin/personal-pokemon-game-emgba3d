@@ -19,9 +19,12 @@ if TYPE_CHECKING:
     import asyncio
 
 _MAX_PEM_BYTES = 65_536
+# 100.64.0.0/10 is the shared address space of carrier-grade NAT (RFC 6598). Overlay VPNs such as Tailscale give each PC an
+# address there, so a friend's game must be allowed to *connect* to one; the TLS pin and the credential still decide who the host is.
+OVERLAY_NETWORK = ipaddress.ip_network("100.64.0.0/10")
 _PRIVATE_NETWORKS = tuple(ipaddress.ip_network(value) for value in (
     "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "fc00::/7",
-))
+)) + (OVERLAY_NETWORK,)
 
 
 class HostIdentityError(ConnectionError):
@@ -29,7 +32,7 @@ class HostIdentityError(ConnectionError):
 
 
 def is_numeric_unicast_address(value: str) -> bool:
-    """Accept a specific numeric Internet/LAN/loopback endpoint, never a wildcard."""
+    """Accept a specific numeric Internet/LAN/overlay/loopback endpoint, never a wildcard."""
     if not isinstance(value, str) or "%" in value:
         return False
     try:
@@ -46,6 +49,17 @@ def is_numeric_unicast_address(value: str) -> bool:
         address.version == network.version and address in network
         for network in _PRIVATE_NETWORKS
     )
+
+
+def is_overlay_address(value: str) -> bool:
+    """An address in 100.64.0.0/10: an overlay VPN (Tailscale and similar) or an Internet provider's CGNAT network."""
+    try:
+        address = ipaddress.ip_address(value)
+    except (ValueError, TypeError):
+        return False
+    if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped:
+        address = address.ipv4_mapped
+    return address.version == 4 and address in OVERLAY_NETWORK
 
 
 def _duration(value: float, name: str, maximum: float) -> None:
@@ -88,7 +102,7 @@ class ServerTlsConfig:
 class ClientTlsConfig:
     trusted_certificate_path: Path
     certificate_sha256: str
-    handshake_timeout: float = 5.0
+    handshake_timeout: float = 8.0      # the same budget as connection_diagnostics.DEFAULT_TIMEOUT
     shutdown_timeout: float = 1.0
 
     def __post_init__(self) -> None:
