@@ -57,7 +57,16 @@ _MESSAGES = {
     "trade_recovered": "Your committed trade was recovered and its saved result is loaded.",
     "trade_aborted_recovered": "The interrupted trade was canceled; your verified pre-trade character is loaded.",
     "mirror_active": "Another game or controller owns this character's save.",
-    "connection_timeout": "The host did not authenticate this session before the timeout.",
+    "connection_timeout": "The game could not connect to the host before the time limit.",
+    "version_mismatch": "The host runs a different game version.",
+    "wrong_world": "The server at this address is not the world of this invitation; nothing was sent to it.",
+    "rejected_public_exposure_disabled": "The host's world accepts only players on the host's own network.",
+    "rejected_player_already_connected": "This character is already connected to the world.",
+    "rejected_invalid_credentials": "The host did not accept this invitation's sign-in.",
+    "rejected_enrollment_disabled": "The host has turned off creating new characters over the network.",
+    "rejected_server_full": "The world is full.",
+    "rejected_busy": "The host is busy setting up other connections.",
+    "rejected": "The host refused this connection.",
     "connection_lost": "The authenticated host connection is unavailable.",
     "session_changed": "The authenticated session changed; reopen after verified recovery.",
     "session_active": "This launcher session is already open or has already closed.",
@@ -81,12 +90,18 @@ _MESSAGES = {
 
 
 class LauncherSessionError(ValueError):
-    def __init__(self, code):
+    """``code`` is the stable session code; ``reason`` (a connection_diagnostics code) says why a connection could not be made,
+    when that is known (for example connection_timeout with reason "refused")."""
+
+    def __init__(self, code, reason=None):
         self.code = code if code in _MESSAGES else "session_failed"
+        self.reason = reason if type(reason) is str and len(reason) <= 64 else None
         super().__init__(_MESSAGES[self.code])
 
 
 def _safe_error(error):
+    if isinstance(error, LauncherSessionError):
+        return LauncherSessionError(error.code, error.reason)
     code = getattr(error, "code", None)
     if code == "trade_disabled":
         code = "trade_recovery_unavailable"
@@ -155,6 +170,7 @@ class SessionStatus:
     championship_available: bool = False
     player_actions_available: bool = False
     trade_recovery_available: bool = False
+    detail: str | None = None          # connection_diagnostics code behind a connection failure (refused, timeout, ...)
 
 
 class LauncherSession:
@@ -351,8 +367,8 @@ class LauncherSession:
             return replace(value, state=state, code=code)
         return value
 
-    def _publish(self, state, code, *, revision=None, exit_code=None):
-        self._status = SessionStatus(state, code, revision=revision, exit_code=exit_code)
+    def _publish(self, state, code, *, revision=None, exit_code=None, detail=None):
+        self._status = SessionStatus(state, code, revision=revision, exit_code=exit_code, detail=detail)
         if self._on_status is not None:
             try:
                 result = self._on_status(self.status)
@@ -412,12 +428,7 @@ class LauncherSession:
             self._companion._native_menu_abandon_battle_preparation = self._native_menu_abandon_battle_preparation
         self._publish(SessionState.CONNECTING, "authentication")
         await self._companion.start()
-        try:
-            async with asyncio.timeout(self._timeout):
-                while not self._companion.connected:
-                    await asyncio.sleep(.025)
-        except TimeoutError:
-            raise LauncherSessionError("connection_timeout") from None
+        await self._await_authentication()
         self._binding = self._signature()
         self._runtime = PlayerRuntime(self._companion, game.bundle, self._profile_directory,
                                       self._profile_directory / "character.sav",
@@ -425,6 +436,24 @@ class LauncherSession:
                                       role="host" if self._world_directory is not None else "join")
         self._open = True
         await self.readiness()
+
+    async def _await_authentication(self):
+        """Wait for the companion's completed hello/welcome (``connected`` is set only after the server's welcome was validated).
+        A permanent refusal ends the wait with its own code at once; a refusal that may clear by itself (this character's stale
+        session, a full world) is reported with its own code when time runs out; anything else is connection_timeout with the
+        last failure as its reason."""
+        companion = self._companion
+        try:
+            async with asyncio.timeout(self._timeout):
+                while not companion.connected:
+                    if companion.stopped is not None:
+                        raise LauncherSessionError(companion.stopped, companion.stopped)
+                    await asyncio.sleep(.025)
+        except TimeoutError:
+            failure = companion.failure
+            if failure in _MESSAGES and failure.startswith("rejected"):
+                raise LauncherSessionError(failure, failure) from None
+            raise LauncherSessionError("connection_timeout", failure) from None
 
     async def _start_host_service(self, host):
         """The session owns the real service/store on its original event loop."""
@@ -1651,7 +1680,7 @@ class LauncherSession:
             except Exception as error:
                 failed = True
                 safe = _safe_error(error)
-                self._publish(SessionState.FAILED, safe.code)
+                self._publish(SessionState.FAILED, safe.code, detail=safe.reason)
                 raise safe from None
             yield self
         finally:

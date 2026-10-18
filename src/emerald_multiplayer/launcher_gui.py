@@ -58,7 +58,16 @@ _TEXT = {
     "pending_battle": "An interrupted battle needs recovery before this character can open.",
     "battle_recovery_unavailable": "The host could not check interrupted battles. Use the matching host version before opening this character.",
     "recovery_required": "Your character needs recovery before the game can open. Its private files have been retained.",
-    "connection_timeout": "The host did not respond. Check that the host is running and the invitation is current.",
+    "connection_timeout": "Could not connect to the host in time. The world may not be hosted right now, or a router, firewall or the Internet provider blocks the connection.",
+    "version_mismatch": "The host runs a different EmeraldTogether version. Install the same version on both PCs.",
+    "wrong_world": "The server at that address is not the world from your invite. Nothing was sent to it. Ask the host for the current address.",
+    "rejected_public_exposure_disabled": "The host's world accepts only players on the host's own network. The host can turn on Internet access in Network settings.",
+    "rejected_player_already_connected": "This character is already connected to the world. Close the other game using it, or wait half a minute and try again.",
+    "rejected_invalid_credentials": "The host did not accept this invite. Ask the host for a new invite code.",
+    "rejected_enrollment_disabled": "The host has turned off creating new characters. Ask the host to allow new characters in Network settings.",
+    "rejected_server_full": "The world is full. Try again when someone leaves.",
+    "rejected_busy": "The host is busy. Try again in a few seconds.",
+    "rejected": "The host refused the connection. Try again; if it keeps happening, ask the host for a new invite code.",
     "connection_lost": "Connection to the host was lost. Keep the game open while its save or battle recovery status is checked.",
     "host_loss_preserving": "Host connection lost. Preserving your game locally; keep the game open.",
     "host_loss_preserved": "Host connection lost. Your local save is preserved. Close the game and rejoin when the host returns.",
@@ -236,6 +245,7 @@ class UiEvent:
     archive_snapshot: dict | None = None
     reset_snapshot: dict | None = None
     trade_recovery_available: bool = False
+    detail: str | None = None             # connection_diagnostics code behind a connection failure (describe() explains it)
 
 
 class SessionWorker:
@@ -757,7 +767,8 @@ class SessionWorker:
                                    save_available=getattr(status, "save_available", None),
                                    championship_available=getattr(status, "championship_available", False),
                                    player_actions_available=getattr(status, "player_actions_available", False),
-                                   trade_recovery_available=self._trade_recovery_available))
+                                   trade_recovery_available=self._trade_recovery_available,
+                                   detail=getattr(status, "detail", None)))
 
     async def _session(self, options):
         session = self.factory(self._launch_installation, self.private_root, on_status=self._publish, **options)
@@ -842,6 +853,7 @@ class SessionWorker:
 
     def _run(self, options):
         code = "session_failed"
+        detail = None
         try:
             code = asyncio.run(self._execute(options))
         except asyncio.CancelledError:
@@ -849,6 +861,8 @@ class SessionWorker:
         except Exception as error:
             candidate = getattr(error, "code", None)
             code = candidate if candidate in _TEXT else "session_failed"
+            reason = getattr(error, "reason", None)
+            detail = reason if type(reason) is str and len(reason) <= 64 else None
         finally:
             with self._lock:
                 self._loop = self._task = None
@@ -868,7 +882,7 @@ class SessionWorker:
                 self._championship_future = None
                 self._championship_pending = False
             # asyncio.run has drained its loop before completion becomes visible.
-            self.events.put(UiEvent("complete", code))
+            self.events.put(UiEvent("complete", code, detail=detail))
 
 
 class LauncherWindow:

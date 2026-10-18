@@ -261,6 +261,10 @@ def classify(error):
         return error.code if error.code in EXPLANATIONS else RELAY_FAILED, _detail(error)
     if isinstance(error, HostIdentityError):
         return WRONG_WORLD, _detail(error)
+    if isinstance(error, ssl.SSLCertVerificationError):
+        # Verified against the invitation's own certificate: a different certificate is another server, an expired or
+        # not-yet-valid one is this world's certificate out of its dates.
+        return (CERTIFICATE_INVALID if getattr(error, "verify_code", None) in (9, 10) else WRONG_WORLD), _detail(error)
     if isinstance(error, socket.gaierror):
         return DNS_FAILED, _detail(error)
     if isinstance(error, (TimeoutError, asyncio.TimeoutError)):
