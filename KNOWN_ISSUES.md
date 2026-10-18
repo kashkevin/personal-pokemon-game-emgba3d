@@ -244,3 +244,21 @@ fully offline play keeps the personal ones. See FEATURE_STATUS and the engine's
 | P13 | Info (owner) | Clock: owner-confirmed 12x (1 real minute = 12 world minutes, 5 real minutes = 1 world hour, a day and night = 2 real hours); new worlds and the character-setup game start at 12:00 noon; damaged stored clocks are repaired to noon, valid ones never touched. | **Done** (`balance.py` clock_rate 12 unchanged; app `70536a5`) |
 | P14 | Info | `test_shell_window ... long_list_scrolls` saw 23 rows moved for 20 Down presses once while the machine was fully loaded (Wine and two builds); it passes alone (twice) and in the final suite. | Flaky under load; noted |
 | P15 | Low | Character setup: when the enrollment game crashed while a request was in flight, the menu could say "The connection to the server was lost" instead of "The game closed unexpectedly" (a race, seen once end to end). | **Fixed** (app `43680a9`) |
+
+
+## Next update: characters, connections, installation (2026-10-18, app `claude/admiring-bohr-dpxzuy`, engine `claude/nu-engine`; `docs/next-update-report.md`)
+
+| ID | Severity | Issue | Status |
+| --- | --- | --- | --- |
+| NU-1 | High | A friend's character registration was refused for ever with "This account already started with a different character" after any unfinished attempt (the host kept the first un-checkpointed source; a new New Game always differed); a friend's own `invitation.json` blocked the retry. Owner-reported. | **Fixed**: an unfinished first source is replaced, retries are idempotent, the friend's restart works |
+| NU-2 | High | A Solo character could not join multiplayer: characters belonged to one world account, so joining needed another New Game, which then hit NU-1. Owner-reported. | **Fixed**: universal characters (`docs/universal-characters.md`) |
+| NU-3 | High | Every connection failure read "The server could not be reached"; server refusals looped to "The host did not respond". Owner-reported. | **Fixed**: `connection_diagnostics` codes with host/friend steps; refusals keep their code |
+| NU-4 | High | Friends outside the host's home could connect only with a manual port forward, never behind CGNAT or over Tailscale (single-address bind, 100.64/10 refused, no router setup or relay). | **Fixed in code** (wildcard bind for Internet/VPN worlds, overlay peers, UPnP/NAT-PMP, self-run relay); **not verified across real networks** |
+| NU-5 | Medium | "No multiplayer link" on the character-setup run looked like a failed connection. Owner-reported. | **Fixed** (engine `6cd8af0f`: setup-mode text; screenshots under Linux) |
+| NU-6 | Medium | Installing needed the player's own game.gba, hashes and PowerShell; no installer. Owner-reported. | **Fixed**: game facts (no game.gba), Inno Setup installer, CI install/repair/uninstall check (U31-13 no longer applies to native packages) |
+| NU-7 | Medium (open) | An invite code cannot be revoked or replaced for one friend; a leaked code works whenever the world is hosted. | Open (design needed: per-account credential rotation) |
+| NU-8 | Info (open) | Not verified by a person: the real New Game + CONTINUE registration on a PC, two PCs on one network, two Internet connections, a real router's UPnP/NAT-PMP, Tailscale, a relay on a real machine, Windows Firewall's first prompt. | Open: procedure in `docs/next-update-report.md` section G |
+| NU-9 | Info | No public relay or rendezvous service exists; a relay must be run by the players (`EmeraldTogether.exe --relay-server`, `relay.py`). NAT hole punching is not implemented (needs such a service; fails on symmetric NAT/CGNAT). | By design; documented in HOSTING.txt and `docs/networking.md` |
+| NU-10 | Info | `--relay-server` from the packaged (windowed) EmeraldTogether.exe opens its own console; checked only by unit tests, not on Windows. | Open: try on a PC |
+| NU-11 | Info (test environment) | The app suite skips 119 subtests here: the mGBA bridge's Lua subtests (no Lua 5.3 in this container) and one private-save-path test. Pure Python bridge tests still run. | Environment, not a failure |
+

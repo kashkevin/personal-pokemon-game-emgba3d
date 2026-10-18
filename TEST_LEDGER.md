@@ -215,3 +215,17 @@ preview 12's evidence for those is reused.
 | In-game main menu, saved servers, world/character linking (20 end-to-end addendum tests) | app `claude/dev-update30` | cloud, simulated (scripted shell, real TLS server on loopback, temporary profiles) | all pass | `docs/update30-main-menu.md` | - | Rerun at the final head |
 | Main menu, host/join with saved servers on two or more real PCs | - | PC | Never run | `docs/update30-main-menu.md` (checklist) | - | Owner |
 
+## Next update (2026-10-18; app `claude/admiring-bohr-dpxzuy`, engine `claude/nu-engine` `6cd8af0f`)
+
+| Test | Build / head | Where | Last result | Evidence | Changed since | Rerun? |
+| --- | --- | --- | --- | --- | --- | --- |
+| App suite, baseline in this container | app `27c43c7` + early character commits | L | 2093 passed, 7 failed (capability-version expectations, fixed), 119 skipped | session log | fixed | - |
+| App suite, integrated (menu + networking + installation) | app `214da09` | L | 2232 passed, 0 failed, 119 skipped (Lua 5.3 subtests, private paths) | `docs/next-update-report.md` G | guides, 2 tests | Final run recorded in DEVELOPMENT_LEDGER |
+| Menu flows, Join Friend (real server, TLS), end to end with the real registration (host + 2 friends, Solo then friend, friend -> Solo -> back, relay route) | app `76a27ca` | L, simulated PCs | all pass | `tests/test_shell_*.py` | - | Reuse |
+| Networking: diagnostics, rejections, reachability, port mapping (fake IGD/NAT-PMP), relay, sessions via relay | `claude/nu-network` `6597062` and merged | L | 131 passed + 142 subtests | `docs/networking.md` | - | Reuse |
+| Installation: game facts, check_installation, installer build (stand-ins), CI check logic | `claude/nu-install` `45703cb` and merged | L | 44 passed + 18 subtests | `docs/windows-installation.md` | - | Reuse |
+| Windows package, smoke (synthetic game): installer build + fresh-runner silent install, files, start, repair, uninstall | app `76a27ca` | CI windows-2022 | success (run 39162293580) | run page | - | Reuse |
+| Windows package, full (real game, engine `6cd8af0f`, ROM `f214735b...3387`) | app `76a27ca` | CI windows-2022 | see DEVELOPMENT_LEDGER (run 39162322062) | run page | - | - |
+| Engine native Linux build with the setup-text change | engine `6cd8af0f` | L | builds; title and main menu screenshots in setup mode show the new text | session scratch | - | Reuse |
+| Two PCs, one network / two Internet connections / real router / Tailscale / relay on a real machine | - | PC | **Never run** | procedure: report G | - | Owner |
+

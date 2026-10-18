@@ -862,3 +862,28 @@ confirmed 12x and noon; damaged stored clocks are repaired (app `70536a5`); **se
 game's end (app `43680a9`). Tests: engine regression all pass, app suite 2114 / 0 / 1, 23 Wine self-tests, 12 vehicle scenes,
 vehicle and resolution matrices before/after. Integrated by fast-forward: engine `0493b77b79` -> `cf7cba7676`, app `a9c7ca3` ->
 the repair branch. Windows CI: not started (no Actions access from the session); inputs in the report.
+
+
+## Next update: multiplayer, character persistence, installation, menu (2026-10-18; app `claude/admiring-bohr-dpxzuy`, engine `claude/nu-engine`)
+
+`docs/next-update-report.md` (deliverables A-H), `docs/universal-characters.md`, `docs/networking.md`,
+`docs/windows-installation.md`. Owner decision recorded: characters are universal ("usable in solo and multiplayer ...
+level, Pokemon transfers").
+
+**Done.** Universal characters (library, detach-and-verify, transfer generations in the world store, idempotent
+registration, migration and recovery; app `31b3f20`, `497f96a`, `18a9b20`); the new menu (`9d617b0`); networking by a
+background agent on `claude/nu-network` (diagnostics, refusal codes, wildcard bind for Internet/VPN worlds, overlay
+peers, UPnP/NAT-PMP, relay, invite code v2; merged at `af038bd`); installation by a background agent on
+`claude/nu-install` (game facts instead of game.gba, `check_installation`, Inno Setup installer, CI install check; merged
+at `9cef3eb`); menu integration of both (`214da09`); guides (`76a27ca`); engine setup-mode text (`6cd8af0f`). Both agents
+stopped at a usage limit before their final reports; their branches were reviewed, the networking agent's last
+uncommitted pieces were tested (131 + 142 subtests) and committed (`6597062`).
+
+**Evidence.** App suite at `214da09`: 2232 passed, 0 failed, 119 skipped (Lua 5.3 subtests, private paths). Windows CI
+smoke run 39162293580: installer built, fresh-runner install/start/repair/uninstall passed. Full run 39162322062 (real
+game from `6cd8af0f`, expected ROM `f214735b…3387`): result in the next paragraph. Native Linux build with the engine
+change: setup-mode title and main menu screenshots.
+
+**Not verified.** Real PCs: the in-game New Game and registration, two PCs, two Internet connections, real routers,
+Tailscale, a relay on a real machine (procedure in the report, section G). Nothing merged into the defaults.
+

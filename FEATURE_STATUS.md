@@ -500,6 +500,22 @@ Recorded guidance the code no longer follows (not binding decisions):
 - Balance numbers live only in code; the cited `docs/balance-defaults.md` is missing.
   They are now written down in `PROJECT_SPEC.md` section 7.
 
+## Characters, connections and installation (2026-10-18, `docs/next-update-report.md`)
+
+| Feature | Status | Evidence |
+| --- | --- | --- |
+| One universal character per player (Solo, own worlds, friends' worlds; progress travels) | Implemented but unverified (automated end to end with the real registration; no real-PC run) | `docs/universal-characters.md`, `tests/test_shell_e2e.py` |
+| Main menu: Continue Adventure, Solo, Host World, Join Friend, Characters, Settings, Exit | Implemented but unverified (scripted-shell tests; not walked through on a PC) | `tests/test_shell_app.py` |
+| World and saved-server management (create, host, rename, delete to worlds-deleted; edit address, remove) | Implemented but unverified | `tests/test_shell_app.py`, `tests/test_shell_join.py` |
+| Migration of earlier characters and worlds, history, restore, recovery of unfinished attempts | Implemented but unverified | `tests/test_character_library.py`, `tests/test_shell_migration.py` |
+| Connection check with plain-English causes (identity, version, route) | Implemented but unverified (real TLS servers on one machine) | `docs/networking.md` |
+| Automatic router setup (UPnP IGD, NAT-PMP) | Implemented but unverified (fake routers only) | `tests/test_port_mapping.py` |
+| Tailscale / overlay VPN hosting | Implemented but unverified | `tests/test_host_reachability.py` |
+| Self-run relay (`--relay-server`, `relay.py`) | Implemented but unverified (loopback relay with the real registration) | `tests/test_relay.py`, `tests/test_shell_e2e.py` |
+| Packaged game without game.gba (game facts), installation report | Implemented and tested in CI (Windows runner, smoke) | `docs/windows-installation.md` |
+| Windows installer (per user, repair/upgrade in place, data kept on uninstall) | Implemented and tested in CI (fresh windows-2022 runner) | `.github/workflows/windows-package.yml` |
+| Setup-mode text instead of "No multiplayer link" (engine, PC-only) | Implemented and tested (native Linux build, screenshots) | engine `6cd8af0f` |
+
 ## How to update
 
 1. Change a row only with new evidence: a recorded run (a doc in `docs/` or
