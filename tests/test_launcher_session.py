@@ -483,6 +483,33 @@ class LauncherSessionTests(unittest.IsolatedAsyncioTestCase):
         async with local.open():
             self.assertIsNone(local.status.router)
 
+    async def test_host_and_friend_sessions_meet_through_a_relay(self):
+        import secrets as random
+        from emerald_multiplayer.network_settings import WorldNetwork, save_join_route
+        from emerald_multiplayer.relay import RelayServer
+        relay = RelayServer()
+        await relay.start("127.0.0.1", 0)
+        self.addAsyncCleanup(relay.close)
+        network = WorldNetwork(router_setup=False, relay_enabled=True, relay_address="127.0.0.1", relay_port=relay.address[1],
+                               relay_secret=random.token_bytes(32))
+        host = self.session(network=network)
+        async with host.open():
+            async with asyncio.timeout(10):
+                while host.status.relay is None or not host.status.relay.ready:
+                    await asyncio.sleep(.02)
+            friend_id = self.host.accounts[1].player_id
+            save_join_route(self.private, self.host.world_id, friend_id, ("127.0.0.1", relay.address[1]))
+            friend = self.friend()
+            async with friend.open():
+                self.assertEqual(friend.status.state, SessionState.READY)
+                self.assertEqual(friend.companion.config.relay_host, "127.0.0.1")
+                self.assertEqual(relay.rooms[self.host.world_id].pipes, 1)       # the friend came through the relay
+                self.assertIn(friend_id, host._server.sessions)
+                async with asyncio.timeout(5):
+                    while host.status.relay.friends != 1:
+                        await asyncio.sleep(.02)
+        self.assertIsNone(host._relay_agent)
+
     async def test_unavailable_host_times_out_without_starting_a_game(self):
         session = self.friend(connection_timeout=.15)
         with self.assertRaises(LauncherSessionError) as caught:

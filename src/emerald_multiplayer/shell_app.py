@@ -1458,6 +1458,9 @@ def classic_launcher(release, application_directory, import_release):
 def main(release=None, application_directory=None, import_release=None):
     """The packaged entry. Opens the menu inside the game's own window; the earlier launcher window is only the fallback."""
     import sys
+    if "--relay-server" in sys.argv[1:]:                    # EmeraldTogether.exe --relay-server [--port 7780]: run a relay (relay.py)
+        from .relay import frozen_main
+        return frozen_main(sys.argv[1:])
     from .launcher_gui import SessionWorker, private_directory, windows_dpi_awareness
     from .shell_protocol import ShellProcess
     if release is None or "--classic-launcher" in sys.argv[1:]:                          # the earlier window, on request

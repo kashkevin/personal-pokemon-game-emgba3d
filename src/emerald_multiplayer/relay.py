@@ -24,8 +24,9 @@ Wire protocol (version ETR1). Every preamble line is ASCII, at most ``MAX_LINE``
   ``ERR host_timeout``, ``ERR busy``, ``ERR full``, ``ERR bad_request``.
 
 Limits: bounded preamble lines and preamble time, idle timeouts on pipes and control connections, maximum rooms, connections,
-connections per address, waiting and active friends per room. Replies are never larger than requests (no amplification), and data
-is only ever forwarded from one paired peer to the other with normal TCP flow control (no unbounded buffering).
+connections per address, waiting and active friends per room. A refusal is one short line (at most ``MAX_REPLY`` bytes) sent only
+to a peer that completed a TCP handshake, so the relay cannot be used to reflect or amplify traffic towards a third party; data is
+only ever forwarded from one paired peer to the other with normal TCP flow control (no unbounded buffering).
 
 The relay keeps nothing on disk. The room token travels in the clear between the host and the relay: someone who can watch that
 traffic could take the room after a relay restart and so block it (they could block the traffic anyway), but never read or join the
@@ -49,6 +50,7 @@ import time
 
 PROTOCOL = "ETR1"
 MAX_LINE = 200
+MAX_REPLY = 24
 DEFAULT_PORT = 7780
 _ROOM = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 _HEX64 = re.compile(r"[0-9a-f]{64}")
@@ -132,7 +134,7 @@ async def _close(writer, timeout=1.0):
     try:
         async with asyncio.timeout(timeout):
             await writer.wait_closed()
-    except (OSError, TimeoutError, asyncio.CancelledError, Exception):
+    except Exception:                                                  # noqa: BLE001 - closing is best effort (never swallows a cancel)
         pass
 
 
@@ -598,11 +600,13 @@ class RelayHostAgent:
         relay_writer = local_writer = None
         try:
             async with asyncio.timeout(self.connect_timeout):
+                # The local world server first: if it is not serving, the friend is told the host did not answer instead of
+                # being handed a pipe to nothing.
+                host, port = self._target()
+                local_reader, local_writer = await asyncio.open_connection(host, port, limit=_CHUNK)
                 relay_reader, relay_writer = await asyncio.open_connection(self.relay_host, self.relay_port, limit=_CHUNK)
                 relay_writer.write(f"{PROTOCOL} DATA {self.room} {connection_id}\n".encode("ascii"))
                 await relay_writer.drain()
-                host, port = self._target()
-                local_reader, local_writer = await asyncio.open_connection(host, port, limit=_CHUNK)
                 if await _read_line(relay_reader, self.connect_timeout) != "OK":
                     return
             await pipe(relay_reader, relay_writer, local_reader, local_writer, idle_timeout=self.idle_timeout)
