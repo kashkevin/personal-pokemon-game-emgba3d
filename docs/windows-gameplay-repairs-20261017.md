@@ -12,7 +12,10 @@ round, 2026-10-17) -> `cf7cba7676` (vehicles, 2026-10-18), fast-forwards. App de
 descendants). Rollback tags: `rollback-before-gameplay-repairs-20261017` (engine `e4252d4`, app `a9c7ca3`) and
 `rollback-before-vehicle-fixes-20261018` (engine `0493b77b79`). The first round's app merge was blocked by the session's
 permissions (2026-10-17) and finished here; until then the engine default ran with the Update 31 app (compatible: the new launch
-arguments are optional). No force push, no workflow file changed.
+arguments are optional). No force push, no workflow file changed. After the merge: on a clean checkout of the merged app default
+(`50913fe`) with the merged engine, the app suite passed (2114 passed, 0 failed, 1 skipped); `check-abi`, `check-rival`,
+`check-catch-reconcile` and `check-clock` passed at the merged engine head; tags `emeraldtogether-gameplay-repairs-20261018` on
+both heads.
 
 **Windows package.** The cloud session cannot start or read GitHub Actions (the API answers 403). Owner: Actions ->
 `windows-package` -> Run workflow: branch `claude/emeraldtogether-combined-app`, mode `full`, `engine_ref` `cf7cba7676fa951e9789433895f729446681b6a2` (the engine
