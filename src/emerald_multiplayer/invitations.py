@@ -245,7 +245,12 @@ class Invitation:
                 raise InvitationError("certificate_invalid", "existing private trust file differs from this invitation")
         else:
             _write_new(trust, self.certificate_pem.encode("ascii"))
+        # The account's remembered route (network_settings.save_join_route): direct, or through the world's relay. Only where to
+        # knock changes; the pinned certificate, the credential and the expected world are the same either way.
+        from .network_settings import load_join_route
+        relay = load_join_route(root) if self.role == "friend" else None
         return CompanionConfig(Path(rom_path), Path(manifest_path), self.player_id, self.display_name, token,
             server_host=self.endpoint, server_port=self.port, ipc_port=ipc_port,
             server_credential=self.credential, server_tls=ClientTlsConfig(trust, self.certificate_sha256),
-            public_server=True, expected_world_id=self.world_id)
+            public_server=True, expected_world_id=self.world_id,
+            relay_host=None if relay is None else relay[0], relay_port=None if relay is None else relay[1])

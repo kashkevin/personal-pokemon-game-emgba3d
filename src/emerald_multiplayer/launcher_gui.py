@@ -20,7 +20,8 @@ from .graphics_mode import EXIT_GRAPHICS_UNAVAILABLE, GraphicsPreference, MODE_3
 from .launcher_session import GameInstallation, LauncherSession, SessionState
 from .network_diagnostics import ConnectionDetails
 from .player_runtime import RuntimeBundle
-from .server import is_local_address
+from .secure_transport import is_overlay_address
+from .server import WILDCARD, is_local_address
 
 
 _TEXT = {
@@ -212,14 +213,25 @@ class LaunchRequest:
     allow_enrollment: bool = True  # host only: whether friends may create their character over the network
 
     def options(self):
+        """The LauncherSession options. ``address`` is the address the host chose (this PC's loopback, LAN or VPN address).
+
+        Bind policy: a world open to the Internet, or hosted on a VPN/overlay address (100.64.0.0/10, e.g. Tailscale), listens
+        on every IPv4 interface ("0.0.0.0") so a router's port forward and VPN adapters reach it, and the host's own game
+        connects over loopback. Otherwise the world listens only on the chosen address (a private Solo world: 127.0.0.1)."""
         if self.mode not in {"host", "join"} or not isinstance(self.selection, Path):
             raise ValueError("selection_required")
         if self.mode == "join":
             return {"invitation_path": self.selection, **({"server_route": self.route} if self.route is not None else {})}
         if not is_local_address(self.address, allow_lan=True) or type(self.internet) is not bool:
             raise ValueError("address_invalid")
-        return dict(world_directory=self.selection.parent, bind_address=self.address,
-                    host_route=self.address, public=self.internet,
+        overlay = is_overlay_address(self.address)
+        if self.internet or overlay:
+            bind, route = WILDCARD, "127.0.0.1"
+        else:
+            bind, route = self.address, self.address
+        return dict(world_directory=self.selection.parent, bind_address=bind,
+                    host_route=route, public=self.internet,
+                    **({"overlay": True} if overlay else {}),
                     **({} if self.allow_enrollment else {"allow_enrollment": False}))
 
 

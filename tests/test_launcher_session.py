@@ -426,6 +426,15 @@ class LauncherSessionTests(unittest.IsolatedAsyncioTestCase):
             self.assertIsNone(session._store)
             self.assertEqual(session.status.state, SessionState.FAILED)
 
+    async def test_internet_world_listens_on_every_interface_and_the_host_game_uses_loopback(self):
+        from emerald_multiplayer.network_settings import WorldNetwork
+        session = self.session(bind_address="0.0.0.0", host_route=None, public=True, network=WorldNetwork(router_setup=False))
+        async with session.open():
+            self.assertEqual(session.status.state, SessionState.READY)
+            self.assertEqual(session._server.address[0], "0.0.0.0")
+            self.assertEqual(session.companion.config.server_host, "127.0.0.1")
+            self.assertTrue(session.status.connected)
+
     async def test_unavailable_host_times_out_without_starting_a_game(self):
         session = self.friend(connection_timeout=.15)
         with self.assertRaises(LauncherSessionError) as caught:

@@ -26,7 +26,7 @@ from .invitations import Invitation
 from .launcher_settings import AUTOSAVE_INTERVAL, LauncherSettings
 from .network_diagnostics import ConnectionDetails
 from .player_runtime import PlayerRuntime, RuntimeBundle, _finish_even_if_cancelled
-from .server import ServerConfig, WorldServer, is_local_address
+from .server import WILDCARD, ServerConfig, WorldServer, is_local_address
 
 
 _MESSAGES = {
@@ -185,21 +185,29 @@ class LauncherSession:
     def __init__(self, installation, private_directory, *, world_directory=None,
                  invitation_path=None, bind_address=None, host_route=None,
                  public=False, development_trades=False, connection_timeout=10,
-                 on_status=None, server_route=None, allow_enrollment=True):
+                 on_status=None, server_route=None, allow_enrollment=True, overlay=False, network=None):
         if (not isinstance(installation, GameInstallation)
                 or (world_directory is None) == (invitation_path is None)
-                or type(public) is not bool or type(development_trades) is not bool
+                or type(public) is not bool or type(development_trades) is not bool or type(overlay) is not bool
                 or type(connection_timeout) not in (int, float)
                 or not math.isfinite(connection_timeout) or not 0 < connection_timeout <= 60
                 or on_status is not None and not callable(on_status)):
             raise LauncherSessionError("invalid_configuration")
         if world_directory is not None:
+            # "0.0.0.0" (every IPv4 interface) only for a world open to the Internet or hosted on a VPN/overlay address; the
+            # host's own game then needs a specific route (loopback by default).
+            wildcard = bind_address == WILDCARD and (public or overlay)
+            if wildcard and host_route is None:
+                host_route = "127.0.0.1"
             if (type(bind_address) is not str
                     or host_route is not None and type(host_route) is not str
-                    or not is_local_address(bind_address, allow_lan=True)
+                    or not (wildcard or is_local_address(bind_address, allow_lan=True))
                     or not is_local_address(host_route or bind_address, allow_lan=True)):
                 raise LauncherSessionError("invalid_configuration")
-        elif bind_address is not None or host_route is not None or public or development_trades:
+            from .network_settings import WorldNetwork
+            if network is not None and not isinstance(network, WorldNetwork):
+                raise LauncherSessionError("invalid_configuration")
+        elif bind_address is not None or host_route is not None or public or development_trades or overlay or network is not None:
             raise LauncherSessionError("invalid_configuration")
         if type(allow_enrollment) is not bool or (not allow_enrollment and world_directory is None):
             raise LauncherSessionError("invalid_configuration")
@@ -221,6 +229,8 @@ class LauncherSession:
         self._server_route = server_route
         self._allow_enrollment = allow_enrollment
         self._public = public
+        self._overlay = overlay
+        self._network = network          # network_settings.WorldNetwork; None: read this world's saved settings at start
         self._development_trades = development_trades
         self._timeout = connection_timeout
         self._on_status = on_status
@@ -395,6 +405,12 @@ class LauncherSession:
             host = HostWorld.open(self._world_directory, game.rom_path, game.manifest_path)
             self._host_world = host
             world_id, player_id = host.world_id, host.accounts[0].player_id
+            if self._network is None:
+                from .network_settings import NetworkSettings, WorldNetwork
+                try:
+                    self._network = NetworkSettings(self.private_root).get(world_id)
+                except Exception:                                      # noqa: BLE001 - unreadable settings: the defaults
+                    self._network = WorldNetwork()
         else:
             host = None
             identity = Invitation.load(self._invitation_path)
@@ -484,7 +500,8 @@ class LauncherSession:
             if self._manifest.get("rival_abi_version") == 1:
                 self._server.enable_rival_battle_environment()  # Update 31: rival battles use the checkpoint's environment
         await self._server.start(self._bind_address, host.port, allow_lan=True,
-                                 public=self._public, tls=host.server_tls)
+                                 public=self._public, tls=host.server_tls, wildcard=self._bind_address == WILDCARD,
+                                 relay=self._network is not None and self._network.relay_enabled)
 
     async def _close_host_service(self):
         # Retain an owner if its shutdown raises, so retry/final cleanup can

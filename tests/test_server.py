@@ -361,7 +361,13 @@ class QueueAndGateTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(is_local_address("192.168.1.2", True))
         self.assertTrue(is_local_address("fd00::2", True))
         self.assertFalse(is_local_address("8.8.8.8", True))
-        self.assertFalse(is_local_address("100.64.0.1", True))
+        # Overlay VPN addresses (Tailscale, 100.64.0.0/10) count as the local network when the world is open to it (a
+        # deliberate decision of the networking update: the overlay admits only its owner's devices, and TLS + credential
+        # still decide who plays). Without allow_lan they are still refused.
+        self.assertTrue(is_local_address("100.64.0.1", True))
+        self.assertTrue(is_local_address("100.127.255.254", True))
+        self.assertFalse(is_local_address("100.64.0.1", False))
+        self.assertFalse(is_local_address("100.128.0.1", True))
 
 
 if __name__ == "__main__":
