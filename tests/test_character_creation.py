@@ -280,6 +280,46 @@ class GameEndTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(caught.exception.code, code)
 
 
+class GameCrashMidRequestTests(unittest.IsolatedAsyncioTestCase):
+    """A game that crashes while the enrollment request is in flight: the request fails as a lost connection just before
+    the process is seen to end (seen end to end, 2026-10-17). The player is told the game closed unexpectedly."""
+
+    async def test_a_lost_connection_from_a_crashing_game_is_the_games_end(self):
+        for returncode, code in ((139, "game_failed"), (0, "game_closed")):
+            process = SimpleNamespace(returncode=None)
+
+            async def wait(process=process, returncode=returncode):
+                await asyncio.sleep(0.05)
+                process.returncode = returncode
+                return returncode
+            process.wait = wait
+
+            async def enroll():
+                raise ConnectionError("bridge closed")
+            runtime = SimpleNamespace(_game=SimpleNamespace(process=process), companion=SimpleNamespace(_bridge=object()),
+                                      enroll=enroll)
+            with self.subTest(returncode=returncode), self.assertRaises(CreationError) as caught:
+                await finish_when_ready(runtime, interval=0.01)
+            self.assertEqual(caught.exception.code, code)
+
+    async def test_a_lost_connection_with_the_game_still_running_stays_a_lost_connection(self):
+        async def wait():
+            await asyncio.sleep(60)
+
+        async def enroll():
+            raise ConnectionError("server gone")
+        runtime = SimpleNamespace(_game=SimpleNamespace(process=SimpleNamespace(returncode=None, wait=wait)),
+                                  companion=SimpleNamespace(_bridge=object()), enroll=enroll)
+        from unittest.mock import patch as _patch
+        from emerald_multiplayer import character_creation
+        original = character_creation._game_ended
+
+        async def quick(game, grace=3.0):
+            return await original(game, grace=0.05)
+        with _patch.object(character_creation, "_game_ended", quick), self.assertRaises(ConnectionError):
+            await finish_when_ready(runtime, interval=0.01)
+
+
 class CreateCharacterTests(unittest.IsolatedAsyncioTestCase):
     """The chaining: a draft (the player's New Game), then approval and enrollment; a resumable draft skips the New Game."""
 

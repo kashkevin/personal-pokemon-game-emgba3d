@@ -199,15 +199,37 @@ async def finish_when_ready(runtime, *, interval=1.5, on_waiting=None):
         try:
             return await runtime.enroll()
         except LiveSaveError as error:
-            if error.safe_to_retry is not True:
-                raise
-            if on_waiting is not None:
-                on_waiting()
-            await asyncio.sleep(interval)
+            if error.safe_to_retry is True:
+                if on_waiting is not None:
+                    on_waiting()
+                await asyncio.sleep(interval)
+                continue
+            if await _game_ended(getattr(runtime, "_game", None)):
+                raise _closed(runtime._game) from None
+            raise
         except EnrollmentRuntimeError as error:
-            if error.code == "game_closed":
+            if error.code == "game_closed" or await _game_ended(getattr(runtime, "_game", None)):
                 raise _closed(getattr(runtime, "_game", None)) from None
             raise
+        except ConnectionError:
+            # A game that crashes mid-request takes its bridge with it: the request fails as a lost connection a moment
+            # before the process is seen to end. Say what happened to the game, not "the connection was lost".
+            if await _game_ended(getattr(runtime, "_game", None)):
+                raise _closed(runtime._game) from None
+            raise
+
+
+async def _game_ended(game, grace=3.0):
+    """Whether the enrollment game has ended, or does within ``grace`` seconds."""
+    if game is None:
+        return False
+    if game.process.returncode is not None:
+        return True
+    try:
+        await asyncio.wait_for(asyncio.shield(game.process.wait()), grace)
+    except TimeoutError:
+        return False
+    return True
 
 
 async def create_character(installation, private_root, *, role, world_directory=None, invitation_path=None, route_host=None,
