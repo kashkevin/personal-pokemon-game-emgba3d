@@ -328,6 +328,38 @@ class EndToEnd(unittest.TestCase):
         statuses = server.query("SELECT status FROM ownership_instances WHERE player_id = ? ORDER BY serial", friend_id)
         self.assertEqual([row[0] for row in statuses].count("active"), 2)
 
+    def test_a_solo_character_joins_a_friends_world_without_a_second_new_game_or_a_conflict(self):
+        """Problem C: a character made and played Solo joins a friend's world as itself (no New Game, no duplicate error)."""
+        entry, host_world = self.build_world()
+        self.host_first_time(entry, host_world)
+        ServerThread(self, self.world.installation, host_world)
+        pc = self.world.peer("solo-player")
+        driver = Driver(("main", select("solo")), ("confirm", select("yes")), ("create_character", select("go")),
+                        ("solo", select("new")), ("ask_text", select("ok", value="My adventure")), ("bring_character", select("go")),
+                        main_exit())
+        app, _ = self.app(pc, driver, FakeWorker(lambda request: "game_closed"))
+        app.run()
+        self.assertTrue(driver.done(), driver.steps)
+        (character,) = app.library.all()
+        (solo,) = app.registry.entries()
+        solo_world = HostWorld.open(solo.folder, self.world.rom, self.world.manifest)
+        self.assertEqual(self.head(solo_world, solo_world.accounts[0].player_id), 1)
+        solo_save = (profile_directory(pc.private, solo.world_id, solo_world.accounts[0].player_id) / "character.sav").read_bytes()
+        drafts = self.personality
+        # Join Friend with the friend's code: the same character, its first visit there.
+        app, worker = self.join_first_time(pc, host_world, entry, 1, create=False)
+        self.assertEqual(self.personality, drafts)                         # no second New Game
+        friend_id = host_world.accounts[1].player_id
+        self.assertEqual(self.head(host_world, friend_id), 1)
+        (same,) = app.library.all()
+        self.assertEqual((same.character_id, same.world_id, same.player_id), (character.character_id, entry.world_id, friend_id))
+        owned = inspect_ownership(inspect_flash(app.library.save_bytes(same), save_profile=OWNERSHIP_LAYOUT_ID))
+        self.assertEqual(sorted(r.personality for r in owned.records), [drafts])     # its starter came with it
+        self.assertEqual([r.mode for r in worker.requests], ["join"])
+        # The Solo world still holds its own save of the character, untouched.
+        self.assertEqual((profile_directory(pc.private, solo.world_id, solo_world.accounts[0].player_id) / "character.sav").read_bytes(),
+                         solo_save)
+
     def test_a_friend_who_cannot_reach_the_host_joins_through_the_relay_with_the_real_registration(self):
         """The host's PC cannot be reached at the address in the code (as behind CGNAT): the code also names the world's relay,
         the check finds the relay route, and the character's registration and the game both use it. TLS stays end to end."""

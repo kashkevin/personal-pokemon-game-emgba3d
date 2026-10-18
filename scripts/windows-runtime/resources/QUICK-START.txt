@@ -36,46 +36,59 @@ and run Setup again (see "Update or repair" below).
 3. Start
 
 Open the Start menu and click EmeraldTogether, or use the desktop shortcut. The main menu opens
-inside the game's own window: Continue Adventure, New Game, Host Server, Join Server, Settings,
-Exit. Use the mouse, or the arrow keys and Enter; Esc goes back; Ctrl+V pastes.
+inside the game's own window: Continue Adventure, Solo, Host World, Join Friend, Characters,
+Settings, Exit. Use the mouse, or the arrow keys and Enter; Esc goes back; Ctrl+V pastes.
 
-The first time you host, Windows may ask whether EmeraldTogether may use the network. Allow it
-on private networks, or friends cannot reach your world.
+The first time you host, Windows may ask whether EmeraldTogether may use the network. Allow it,
+or friends cannot reach your world.
 
 
-4. Create your character
+4. Create your character (once)
 
-The first time you play in a world, the game's normal New Game starts. Choose your name and your
-starter Pokemon, then save in the game (START, then SAVE) and close the game window. The game
-opens once more by itself: choose CONTINUE. It closes again when your character is registered,
-and then your adventure starts. From then on your character loads automatically.
+You have one character, and it goes everywhere with you: Solo, your own worlds with friends,
+and your friends' worlds. Its Pokemon, levels, items, money and story progress go with it.
+
+The first time you choose Solo, Host World or Join Friend (or Characters, Create), EmeraldTogether
+offers to create it. The game opens on a New Game ("Creating your character" is shown in the
+corner): choose your name, look and starter Pokemon, play until you can save, save in the game
+(START, then SAVE) and close the game window. Your character is ready.
+
+The first time your character enters a world (a new Solo world, your hosted world, or a friend's
+world), the game opens once on your character: choose CONTINUE. It closes by itself when the world
+has saved your character, and your adventure starts. When you come back to a world after playing
+somewhere else, the same thing happens once, so your newest progress comes with you. Your earlier
+save in that world is kept beside it, never deleted.
+
+Characters lets you rename your character, back it up, restore an earlier save, create another
+character and choose which one plays. Deleting a character moves its folder aside; nothing is
+destroyed.
 
 
 5. Play
 
-Solo. Choose New Game. It creates a private adventure on this PC with a new character, just for
-you. Next time, Continue Adventure picks up where you stopped. Starting another New Game never
-touches your earlier adventures.
+Solo. Choose Solo, then New world (or one of your worlds). A Solo world is on this PC only. Next
+time, Continue Adventure picks up where you stopped.
 
-Host World. Choose Host Server, then Create New Server World. Give the world a name, type your
-name, and keep the suggested port. For friends at your home (the same router or Wi-Fi), choose
-this PC's local network address; for friends elsewhere, also see "Playing over the Internet"
-below. Then open your world and choose "Invite codes for friends": every friend has their own
-code, copied for you to paste into a message. Send each friend only their own code, privately -
-it works like a password. Choose Host This World to start, and keep EmeraldTogether open while
-your friends play.
+Host World. Choose Host World, then Create a new world (or one of your worlds). Give the world a
+name and keep the suggested port. Open the world and choose "Invite codes for friends": every
+friend has their own code, copied for you to paste into a message. Send each friend only their
+own code, privately - it works like a password. Choose "Host this world now" to start, and keep
+EmeraldTogether open while your friends play. The small session window shows whether your world
+is running, whether the router accepted the automatic setup, and how many friends are connected
+through a relay, if you use one.
 
-Join Friend. Choose Join Server, then Join New Server, and paste the invite code your friend sent
-you (Ctrl+V). EmeraldTogether checks that it can reach your friend's world, saves it in your list
-and joins. The first time, you create your character as described above. Next time choose Join
-Server and the saved server, or simply Continue Adventure. If your friend's world is not running,
-you are told so and can try again; nothing is lost.
+Join Friend. Choose Join Friend, then "Join with an invite code", and paste the code your friend
+sent you (Ctrl+V). EmeraldTogether checks that it reaches your friend's world (the right world,
+the same game version) before anything starts, saves it in your list and brings your character in.
+Next time choose Join Friend and the saved server, or simply Continue Adventure. If your friend's
+world cannot be reached, EmeraldTogether tells you why in plain words and what each of you can do,
+with "Try again" and "Edit the address"; nothing is created or reset. It never starts a Solo game
+instead.
 
 Saving. Autosave is on: every 5 minutes, as soon as you stand somewhere safe (not in a menu or a
-battle). In a multiplayer world you can also press "Save now" in the small session window next to
-the game; wait until it says "Character saved to the host" before you close the game. The game's
-own SAVE menu does not, on its own, send your progress to the host. If a message asks you to keep
-the game open (for example after a lost connection), leave both windows open and follow it.
+battle). In a world you can also press "Save now" in the small session window next to the game;
+wait until it says the character was saved before you close the game. When the game closes, your
+character's latest save is the world's, so it goes on with you to the next world.
 
 
 6. Where your saves live
@@ -104,11 +117,19 @@ Uninstall: Windows Settings, Apps, EmeraldTogether, Uninstall. Your saves stay i
 
 Playing over the Internet
 
-Friends at your home join with this PC's local address (Server Information in your world shows
-it). For friends elsewhere, the host types the public address in the world's network settings and
-turns on Internet access, and the host's router must forward the world's TCP port to the host's
-PC. This build does not change your router or firewall settings for you. Server Information says
-what is and is not set up.
+Friends on your Wi-Fi join with your local address (it is in the invite code). For friends
+elsewhere there are three ways; HOSTING.txt in the program folder explains each one step by step:
+
+* Port forwarding: turn on Internet access in the world's Network settings. The game asks your
+  router to forward the port (automatic router setup, UPnP or NAT-PMP). Many routers allow it;
+  some do not, and then you forward the port yourself in the router's settings. It cannot work if
+  your Internet provider shares one address between homes (CGNAT).
+* Tailscale (free for personal use): install it on both PCs and join the same Tailscale network;
+  then choose your Tailscale address (100.x.y.z) in Network settings, Listen on.
+* A relay: someone you trust runs EmeraldTogether.exe --relay-server on a PC or small server
+  with one reachable port; the host sets its address in Network settings, Relay, and makes new
+  invite codes. The relay only passes encrypted traffic. EmeraldTogether does not provide a
+  public relay.
 
 
 Default game controls
@@ -123,9 +144,14 @@ a real controller).
 
 If something else goes wrong
 
+* A friend cannot connect: the screen they see names the reason (nothing hosted at that address,
+  the router does not forward the port, a firewall, a different game version, a different world)
+  and what each of you can do. HOSTING.txt has the details.
 * The menu window does not open: EmeraldTogether opens its earlier launcher window instead, with
   the same worlds and characters.
 * A battle or trade was interrupted: keep the game open and follow the message in the session
   window (Recover battle, Resolve interrupted trade). An unfinished trade is cancelled and a finished
   one is kept; nothing is guessed.
+* Something went wrong in the menu: it says so in plain words; the details for whoever helps you are
+  in %LOCALAPPDATA%\PokemonPrivate\launcher\shell\last-error.txt.
 * Read RELEASE-LIMITS.txt (in the program folder) for what this build is and what is not finished.

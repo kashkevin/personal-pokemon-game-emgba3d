@@ -75,30 +75,39 @@ The isolated Windows worker and copied native record/save-block replay
 have passed scoped checks. Those checks do not qualify the complete visible
 trading experience or recovery in a new Windows package.
 
-Main menu, Host Server / Join Server and characters
+Main menu, characters and connections
 
-The program opens on the main menu inside the game's own window (Continue Adventure, New Game, Host Server, Join Server,
-Settings, Exit). It is a front end: starting a game, the checks before it, hosting, joining, saving and recovery are the same
-code as before. A friend joins with an invite code (a password for that account: give each friend only their own) or an
-invitation file; there is no relay server, no automatic discovery, no UPnP and no NAT traversal. Internet hosting still
-needs the host's own router port forward and firewall rule. First-time characters are created with the game's normal New
-Game and registered automatically (a friend's with the host's server over the world connection; the host can turn that off).
-The menu is mouse and keyboard; a controller's D-pad, A and B are handled but untested. It was checked by automated tests
-and screenshots on a simulated display and, in CI, on a Windows runner without a graphics card; a real-PC walk-through of
-every menu path, the real New Game and enrollment sequence, and a real LAN or Internet join are still pending. The menu
-window and the game are two windows of the same program; the earlier launcher window is a fallback
-("EmeraldTogether.exe --classic-launcher").
+The program opens on the main menu inside the game's own window (Continue Adventure, Solo, Host World, Join Friend,
+Characters, Settings, Exit). It is a front end: starting a game, the checks before it, hosting, joining, saving and
+recovery are the same code as before. A friend joins with an invite code (a password for that account: give each friend
+only their own) or an invitation file.
 
-The program provides local world creation, named character accounts, separate friend invites and one-time own-game
-import when the package includes its verified patch. A character still starts as the game's ordinary New Game (name,
-starter, native Save) and is enrolled by the unchanged first-enrollment path: the host's own PC approves the host's
-character; a friend's source is sent over the world connection and the host's server checks and records it for the
-authenticated account (it must be a valid new save with no owner identities, not another account's source; the host can
-turn this off per world). That is not a registration of strangers: only an account with its own invite can do it. An
-existing world can use the explicit, backed-up feature upgrade only with its original game identity; setup cannot repin
-it to another release. Keep each friend's invite private and separate from the shared application ZIP. The earlier
-file-export path (a friend exports a verified unassigned .sav for the host to approve) remains in the fallback launcher
-window. Changed, owned and invalid sources are refused, and existing destinations are never replaced.
+One character plays everywhere. It is created once with the game's normal New Game (name, starter, native Save) and kept
+on this PC (characters folder, with a history of earlier saves). Entering a world account that does not hold its latest
+progress registers it there first: the game opens once on the character and the world's server checks and records it
+(the host's own PC for the host's worlds; the friend's account over the world connection for a friend's world; the host
+can turn that off per world). Coming back to a world after playing elsewhere registers the newer save the same way; the
+account's earlier save is kept beside it, the Pokemon identities from the earlier visit leave that world, and a Pokemon
+that another trainer in that world owns is refused (nothing changes then). Earlier characters from previous versions are
+imported automatically; their original files stay where they were. Characters are never deleted, only moved aside.
+
+Connections: the menu checks a server before anything starts (the world's pinned identity, then the game version, with no
+credential sent) and names the real reason when it cannot connect. Hosting with Internet access on asks the router to
+forward the world's port (UPnP / NAT-PMP, can be turned off); many routers refuse, and nothing helps behind CGNAT, where a
+VPN such as Tailscale or a relay is needed. A relay is a small program someone the players trust runs (EmeraldTogether.exe
+--relay-server or relay.py); EmeraldTogether provides no public relay and no rendezvous service. The relay passes only
+encrypted traffic. See HOSTING.txt.
+
+What was verified: automated tests on one computer (separate folders playing the host and friends, real servers, real
+TLS, the relay, simulated routers) and, in CI, on a Windows runner without a graphics card. Not verified for this build: a
+real-PC walk-through of every menu path, the real New Game and registration sequence in the game, and a real LAN or
+Internet join between two PCs on different networks. The menu is mouse and keyboard; a controller's D-pad, A and B are
+handled but untested. The menu window and the game are two windows of the same program; the earlier launcher window is a
+fallback ("EmeraldTogether.exe --classic-launcher").
+
+An existing world can use the explicit, backed-up feature upgrade only with its original game identity; setup cannot
+repin it to another release. Keep each friend's invite private and separate from the installer. Changed, owned and
+invalid sources are refused, and existing destinations are never replaced.
 
 Saving and recovery
 
@@ -106,12 +115,12 @@ Autosave defaults on and waits five minutes plus a safe field opportunity.
 Its toggle is remembered for this character and world on this PC. Save now
 also works with autosave off. Both normally need a reachable host. The game's
 own Save menu and window closure do not confirm a canonical host checkpoint.
-Wait for the launcher's successful save message before ordinary closure.
+Wait for the session window's successful save message before ordinary closure.
 
 Host loss can preserve a safe field save or finish an ordinary save already in
 progress for later reconciliation. Unsafe or uncertain operations may remain
 held without a completed save. Preserve private recovery files and keep the
-original game open whenever the launcher says recovery is needed.
+original game open whenever the session window says recovery is needed.
 
 Resolve interrupted trade is an explicit recovery action after the host
 returns. It uses authenticated retained evidence to cancel unfinished work or

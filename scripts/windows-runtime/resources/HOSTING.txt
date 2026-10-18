@@ -1,0 +1,114 @@
+EmeraldTogether - Hosting a world for friends
+
+This guide is for the friend who hosts. Your friends only need the invite code you send them.
+
+
+How it works, in one paragraph
+
+Your world runs on your PC while you play it (Host World, your world, "Host this world now").
+Each friend's game connects to your PC, proves who it is with the invite code you sent, and plays
+in your world. The connection is encrypted, and a friend's game checks that it reached your world
+(not just "some computer at that address") before it sends anything. Your world is only reachable
+while you host it; when you close the game, friends cannot connect until you host again.
+
+
+1. Friends in your home (same router or Wi-Fi)
+
+Nothing to set up. Create the world, open "Invite codes for friends" and send each friend their
+own code. The codes point at this PC's local address (192.168.x.x or 10.x.x.x). The first time,
+Windows asks whether EmeraldTogether may use the network: click Allow.
+
+If a friend sees "Nothing is accepting connections there", you are not hosting at that moment:
+choose "Host this world now" and keep the game open.
+
+
+2. Friends somewhere else: pick ONE of these
+
+A. Port forwarding (free; needs a router that lets you)
+
+   1. Your world, Network settings: turn on "Internet access". Leave "Automatic router setup" on.
+   2. Host the world. The session window says what your router answered:
+      - "The router forwards port ..." means it worked. Your public address is shown in Server
+        information; type it in Network settings, "Public address" (or a dynamic DNS name if you
+        use one), then make new invite codes.
+      - If the router refused or did not answer, forward the port yourself: open your router's
+        settings page (often http://192.168.1.1 or http://192.168.0.1; the address and password are
+        usually on a sticker on the router), find "Port forwarding" (sometimes "Virtual server" or
+        "NAT"), and forward TCP port <your world's port, shown in Server information> to this PC's
+        local address. Then host again.
+   3. Windows Firewall must allow EmeraldTogether (click Allow when Windows asks; if you clicked
+      Cancel before: Windows Security, Firewall & network protection, Allow an app through firewall,
+      tick EmeraldTogether for Private and Public).
+
+   This cannot work if your Internet provider shares one public address between many homes
+   (CGNAT). You can tell: if your router's own "WAN" or "Internet" address starts with 100.64 to
+   100.127, 10., 172.16 to 172.31 or 192.168., you are behind CGNAT. Many mobile and some fibre
+   providers do this. Use B or C instead.
+
+B. Tailscale (free for personal use; works behind CGNAT; nothing to change on the router)
+
+   1. Install Tailscale (tailscale.com) on your PC and on each friend's PC, and sign in. Invite
+      your friends to your Tailscale network (or share this PC with them) as Tailscale explains.
+   2. Your world, Network settings, "Listen on": choose the VPN address (100.x.y.z).
+   3. Make new invite codes; they point at the 100.x.y.z address. Friends must have Tailscale
+      connected while they play.
+
+   Tailscale is a separate service with its own terms and plans; check its website for the current
+   limits of the free plan. EmeraldTogether does not install or configure it for you.
+
+C. A relay (works behind CGNAT; someone has to run it)
+
+   A relay is a small program on a computer that everyone can reach. Your game connects out to it,
+   your friends' games connect to it, and it passes the encrypted traffic between you. It never sees
+   your game, the invite codes' passwords or anyone's save, and it cannot pretend to be your world.
+   It can see who connects and how much they send, and it can drop connections.
+
+   Someone you trust runs it, on one of:
+   - a PC with one forwarded port (it can be any friend's PC that is not behind CGNAT):
+       EmeraldTogether.exe --relay-server --port 7780
+     (from the EmeraldTogether program folder, in a Command Prompt; a window shows the relay and
+     closing it stops the relay), and forward TCP port 7780 on that router to that PC;
+   - or a small rented server (a "VPS"; typically a few dollars or euros a month) with Python 3.11
+     or newer: copy relay.py from the EmeraldTogether source and run
+       python3 relay.py serve --port 7780
+     and allow TCP port 7780 in the server's firewall.
+
+   Then, on your PC: your world, Network settings, Relay, "Use a relay", type the relay's address
+   and port (for example relay.example.net:7780 or 203.0.113.7:7780). Host the world: the session
+   window says "Relay: ..." when it is connected. Make new invite codes: they include the relay, and
+   a friend's game uses it whenever your PC cannot be reached directly.
+
+   EmeraldTogether does not run a public relay for you, and there is no account or sign-up: it is
+   your relay. Each world has its own relay key (kept on your PC) so nobody else can take your
+   world's place on the relay; Network settings, Relay, "New relay key" makes a new one if needed.
+   The relay keeps nothing on disk. Its built-in limits: 64 worlds, 256 connections, 32 per address,
+   8 friends per world, idle connections closed after 5 minutes.
+
+
+3. Keeping it safe
+
+* An invite code is a password for one friend's place in your world. Send each code only to that
+  friend, privately (not in a public chat). A single code cannot be replaced yet: if one leaks,
+  anyone holding it can play that friend's place whenever you host, so stop hosting that world
+  (a new world has new codes).
+* Internet access is off by default. With it off, only your home network (and a VPN such as
+  Tailscale) can reach the world, even if a port is forwarded.
+* Automatic router setup only asks the router for the one port of the world you host, and removes
+  the forward when you stop hosting (if the router honours that). Turn it off in Network settings
+  if you prefer to manage your router yourself.
+* Nobody can sign in to your world without a code from you, and a friend can only play their own
+  character in it.
+
+
+4. When a friend cannot connect
+
+Their screen names the reason and what each of you can do: for example "Nothing is accepting
+connections there" (you are not hosting, or the port differs), "The host did not answer" (router,
+firewall or CGNAT), "That is not the world from your invite" (the address now leads to another
+PC), "Different game versions" (install the same EmeraldTogether version on both PCs). Nothing is
+created or reset on their side when this happens, and they can try again or edit the address.
+
+What has and has not been checked: the connection checks, the relay and the automatic router setup
+are tested automatically on one computer (separate folders playing the host and friends). They have
+not been tested between two real PCs on two different home networks for this build; please report
+what happens on yours.

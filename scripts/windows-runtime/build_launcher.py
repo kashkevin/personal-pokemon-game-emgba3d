@@ -36,7 +36,7 @@ from package_audit import audit_files, audit_tree
 PYINSTALLER = "6.22.3"
 INSTALLER_SCRIPT = Path(__file__).resolve().parent / "installer" / "EmeraldTogether.iss"
 # Everything the package folder holds beside _internal; the installer and the player guide use them.
-GUIDES = ("README.txt", "QUICK-START.txt", "RELEASE-LIMITS.txt")
+GUIDES = ("README.txt", "QUICK-START.txt", "RELEASE-LIMITS.txt", "HOSTING.txt")
 
 # QUICK-START.txt lists the emulator runtime's keys. The native PC game has its
 # own (engine src/platform/sdl2.c), so a native package gets them instead.
@@ -91,10 +91,11 @@ def readme_text(release, runtime_manifest, native, development, import_enabled):
     lines = [f"Emerald Together - {release.version}", ""]
     lines.append(("Private development preview" if development else "Private release candidate")
                  + ": the main menu in the game's own window (Continue Adventure,")
-    lines += ["New Game, Host Server, Join Server, Settings, Exit), saved worlds and servers that",
-              "load your own character automatically, autosave every 5 minutes (on by default) and",
+    lines += ["Solo, Host World, Join Friend, Characters, Settings, Exit), one character that plays",
+              "everywhere with its Pokemon and progress, autosave every 5 minutes (on by default) and",
               "Save now in the session window.",
-              "Read QUICK-START.txt (how to play) and RELEASE-LIMITS.txt (what this build is) first.", ""]
+              "Read QUICK-START.txt (how to play), HOSTING.txt (friends outside your home) and",
+              "RELEASE-LIMITS.txt (what this build is) first.", ""]
     if native:
         lines += [f"The game is the native PC game {runtime_manifest['executable']} (no emulator). Everything it",
                   "needs is in this installation; no game.gba or other file has to be added. The game's",

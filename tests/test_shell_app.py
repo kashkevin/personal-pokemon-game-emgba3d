@@ -248,6 +248,27 @@ class HostWorldTests(unittest.TestCase):
         self.assertTrue(driver.done(), driver.steps)
         self.assertEqual((registrations2, len(worker2.requests)), ([], 1))
 
+    def test_deleting_a_world_asks_first_moves_its_folder_aside_and_keeps_the_character(self):
+        world = World(self)
+        app = make_world(self, world)
+        (entry,) = app.registry.entries()
+        character = app.library.all()[0]
+        seen = {}
+        driver = Driver(("main", select("host")), ("host_list", select(entry.world_id)), ("world", select("delete")),
+                        ("confirm", lambda s: seen.update(no=" ".join(s.notes)) or select("no")),
+                        ("world", select("delete")), ("confirm", select("yes")),
+                        ("host_list", lambda s: seen.update(status=s.status, rows=[i.id for i in s.items]) or BACK), main_exit())
+        app2, _ = world.app(driver)
+        app2.run()
+        self.assertTrue(driver.done(), driver.steps)
+        self.assertIn("not destroyed", seen["no"])
+        self.assertIn("worlds-deleted", seen["status"][1])
+        self.assertNotIn(entry.world_id, seen["rows"])
+        self.assertEqual(app2.registry.entries(), [])
+        (moved,) = (world.private / "worlds-deleted").iterdir()
+        self.assertTrue((moved / "host.json").is_file())                         # the world itself is kept
+        self.assertEqual(app2.library.get(character.character_id).sha256, character.sha256)
+
     def test_a_restart_never_resets_a_world(self):
         world = World(self)
         app = make_world(self, world)

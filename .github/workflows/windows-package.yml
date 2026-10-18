@@ -293,7 +293,7 @@ jobs:
               assert len(classic) > 5_000_000, "Classic 2D executable is implausibly small"
               print("packaged Classic 2D executable is the engine job's build")
           assert (dist / "EmeraldTogether.exe").is_file()
-          for guide in ("README.txt", "QUICK-START.txt", "RELEASE-LIMITS.txt"):
+          for guide in ("README.txt", "QUICK-START.txt", "RELEASE-LIMITS.txt", "HOSTING.txt"):
               assert (dist / guide).is_file(), guide
           # The pinned game facts stand in for the ROM: same build id (the ROM SHA-256) as the engine job's ROM.
           from emerald_multiplayer.companion import verify_rom_manifest

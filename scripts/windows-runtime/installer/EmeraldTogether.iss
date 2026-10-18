@@ -5,7 +5,7 @@
 ;        /DPackageDir=<...\dist\EmeraldTogether> /O<output folder> EmeraldTogether.iss
 ; and the result is EmeraldTogether-Setup-<SetupVersion>.exe. PackageDir is the finished PyInstaller
 ; folder: EmeraldTogether.exe, _internal\ (the launcher, the game manifest and runtime\ with the game),
-; README.txt, QUICK-START.txt and RELEASE-LIMITS.txt. Nothing else is packed.
+; README.txt, QUICK-START.txt, HOSTING.txt and RELEASE-LIMITS.txt. Nothing else is packed.
 ;
 ; What it does:
 ;   * installs for the current Windows user only, without administrator rights, in
