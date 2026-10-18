@@ -1,4 +1,23 @@
-Emerald Together — private release limits
+EmeraldTogether - please read: what this build is
+
+* A private build for a small group of friends who own Pokemon Emerald. The game's graphics,
+  music and text are compiled into its program files (the game runs without any separate game
+  file), so the package contains the original game's content. Do not publish it, upload it to a
+  public site, or give it to anyone outside your group.
+* The game program also contains code whose licence question is still open (src/platform/bios.c,
+  derived from GPL and MPL emulator code; see docs/bios-licensing-review.md in the project). That
+  is a second reason this build must stay private.
+* It is a development preview. Many features work and are tested automatically, but playing on
+  real PCs, over Wi-Fi and over the Internet still needs to be confirmed. Expect rough edges.
+* The installer and the programs are not code-signed. Windows SmartScreen shows "Windows
+  protected your PC" (More info, Run anyway), and some antivirus programs may warn.
+* Your saves, characters and worlds are stored in %LOCALAPPDATA%\PokemonPrivate. Repairing,
+  updating and uninstalling EmeraldTogether keep them.
+
+The rest of this file is the detailed record for the people building and testing the package.
+
+
+Emerald Together - private release limits (details)
 
 This guide accompanies private packages for up to four players. README.txt and
 _internal/package-provenance.json identify the exact frozen package and whether
@@ -119,15 +138,30 @@ retroactively qualify later unbuilt source or a newly packaged executable.
 Candidate 9's actual GUI BPS import passed in a fresh private profile using the
 owner's supplied ZIP; that ROM and package remained unchanged. This does not
 qualify a different candidate's setup, gameplay or whole installation flow.
-Clean-machine installation, physical keyboard,
+Native packages no longer need that import (they pin game facts instead); the import
+path remains for packages that ship a release patch.
+Installation on a friend's own PC, physical keyboard,
 audio, gamepads, four separate Windows PCs, Wi-Fi and outside-network Internet
 gameplay remain separate acceptance gates. Ordinary desktop key automation did
 not establish physical keyboard failure. Check connection verifies the invited
 TLS endpoint only; it sends no character login and proves no Internet gameplay.
 The application does not alter firewall rules or configure router forwarding.
 
-The download must contain no game ROM, player save, world database, private key
-or invitation. Component pins, notices and covered native source/relink material
-remain under _internal. Those materials and patch packaging do not by themselves
-resolve game-content distribution permissions. Campaign, region, customization
-and remaining master-specification work are not declared complete here.
+Installation
+
+The player receives EmeraldTogether-Setup-<version>.exe (Inno Setup, per user, no administrator
+rights, %LOCALAPPDATA%\Programs\EmeraldTogether). Running it again repairs or updates the
+installation in place; the uninstaller removes only the files Setup installed. The native game
+needs no game.gba: the package pins "game facts" recorded from the game's ROM build when the
+package was made (its SHA-256, which stays every world's build identity, the capability markers
+checked against the ROM, and the battle message lengths), and the launcher checks the pinned
+manifest, the facts and every game file before each start. Settings, Game files checks them
+without starting anything. CI installs, starts, repairs and uninstalls each Setup file on a fresh
+GitHub-hosted Windows runner; installing on friends' own PCs is a separate acceptance step.
+
+The download must contain no game ROM file (.gba), player save, world database, private key
+or invitation. It does contain the game's content compiled into the native executables (see the
+top of this file). Component pins, notices and covered native source/relink material remain
+under _internal. Those materials and patch packaging do not resolve game-content distribution
+permissions or the open bios.c licensing question. Campaign, region, customization and remaining
+master-specification work are not declared complete here.

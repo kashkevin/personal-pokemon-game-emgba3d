@@ -35,14 +35,19 @@ Manual (`Run workflow`), two jobs:
    ROM and manifest to job 2 in a one-day private artifact.
 2. **package** (Windows, Python 3.14): installs the hashed wheels of
    `requirements-host-provisioning.txt` and `scripts/windows-runtime/requirements-launcher-build.txt`
-   with `--require-hashes --only-binary=:all:`, runs `collect_native_bundle.py`, then
-   `build_launcher.py --development-preview` (a native package is a development preview until the
-   native trade replay exists). It uploads `EmeraldTogether.zip`, `package-hashes.json`,
-   `package-audit.json` and the build log for 7 days. Private inputs and the work folder are deleted
-   at the end.
+   with `--require-hashes --only-binary=:all:`, runs `collect_native_bundle.py --manifest` (which
+   pins `game-facts.json`, so the package needs no `game.gba`), then
+   `build_launcher.py --development-preview --installer` (a native package is a development preview
+   until the native trade replay exists). It uploads the player's installer
+   (`EmeraldTogether-Windows-Installer`: the Setup file and QUICK-START.txt only) and the developer
+   artifact (`EmeraldTogether.zip`, `package-hashes.json`, `package-audit.json`, `installer.json`,
+   logs and screenshots) for 7 days. Private inputs and the work folder are deleted at the end.
+3. **install-check** (fresh GitHub-hosted Windows): silent install, file check against
+   `package-hashes.json`, start, repair, uninstall, player data kept. Details:
+   [windows-installation.md](windows-installation.md).
 
-The package contains the game exe, so it holds game data: for your own PC only. It contains no
-ROM, save, invitation or world database.
+The package contains the game exe, so it holds game data: a private build for friends who own the
+game, not for publication. It contains no ROM file, save, invitation or world database.
 
 ### One-time setup (needs you)
 
@@ -51,15 +56,15 @@ ROM, save, invitation or world database.
 | `ENGINE_REPO_TOKEN` secret | A fine-grained personal access token for **only** the engine repository, permission *Contents: read*. Settings → Developer settings → Fine-grained tokens; then the app repository's Settings → Secrets and variables → Actions → New secret. |
 | Actions enabled on the app repository | Settings → Actions → General. |
 
-That alone produces a package **without** the animated Black/White battle sprites and **without**
-game import. The launcher then needs a matching `game.gba` installed by hand, so it is not a
-"download and play" ZIP.
+That alone produces a complete, installable package **without** the animated Black/White battle
+sprites. No `game.gba` is needed on the player's PC: the package pins the game facts recorded from
+the engine job's ROM (see [windows-installation.md](windows-installation.md)).
 
 ### Private inputs (kept out of Git)
 
 | Input | Pin | Effect when supplied |
 | --- | --- | --- |
-| `base-emerald.gba`: your own Emerald USA/Europe rev 0 dump (16,777,216 bytes) | SHA-256 `a9dec84d…85af`, already in the workflow | The launcher gets a BPS patch built from your dump and the built game (`--create-patch`) and shows **Import my game**: the package becomes playable by anyone who owns that dump, and the ROM itself is never in the ZIP |
+| `base-emerald.gba`: your own Emerald USA/Europe rev 0 dump (16,777,216 bytes) | SHA-256 `a9dec84d…85af`, already in the workflow | Optional, no longer needed to play: the launcher also gets a BPS patch built from your dump and the built game (`--create-patch`) for the legacy **Import my game** path; the ROM itself is never in the ZIP |
 | `battle-sprites.ebsp` (12,372,036 bytes) | Repository **variable** `SPRITE_PACK_SHA256` (the full 64 digits: `Get-FileHash battle-sprites.ebsp`) | Pinned into the runtime beside the exe; battles draw the animated sprites |
 
 How to supply them, most private first (`scripts/windows-runtime/fetch_private_input.py` checks
