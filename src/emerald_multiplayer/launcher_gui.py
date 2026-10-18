@@ -258,6 +258,8 @@ class UiEvent:
     reset_snapshot: dict | None = None
     trade_recovery_available: bool = False
     detail: str | None = None             # connection_diagnostics code behind a connection failure (describe() explains it)
+    router: object | None = None          # host: port_mapping.MappingResult (.code, .ok, .message, .external_address)
+    relay: object | None = None           # host: relay.RelayAgentStatus (.code, .ready, .message, .friends)
 
 
 class SessionWorker:
@@ -780,7 +782,8 @@ class SessionWorker:
                                    championship_available=getattr(status, "championship_available", False),
                                    player_actions_available=getattr(status, "player_actions_available", False),
                                    trade_recovery_available=self._trade_recovery_available,
-                                   detail=getattr(status, "detail", None)))
+                                   detail=getattr(status, "detail", None), router=getattr(status, "router", None),
+                                   relay=getattr(status, "relay", None)))
 
     async def _session(self, options):
         session = self.factory(self._launch_installation, self.private_root, on_status=self._publish, **options)
@@ -803,7 +806,8 @@ class SessionWorker:
                                  getattr(status, "save_available", None), getattr(status, "revision", None),
                                  getattr(status, "championship_available", False),
                                  getattr(status, "player_actions_available", False),
-                                 getattr(status, "trade_recovery_available", False))
+                                 getattr(status, "trade_recovery_available", False),
+                                 getattr(status, "router", None), getattr(status, "relay", None))
                     if signature != observed:
                         self._publish(status)
                         observed = signature

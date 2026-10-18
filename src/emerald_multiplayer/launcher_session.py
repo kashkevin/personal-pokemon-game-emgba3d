@@ -171,6 +171,8 @@ class SessionStatus:
     player_actions_available: bool = False
     trade_recovery_available: bool = False
     detail: str | None = None          # connection_diagnostics code behind a connection failure (refused, timeout, ...)
+    router: object | None = None       # host: port_mapping.MappingResult of automatic router setup (None: not attempted)
+    relay: object | None = None        # host: relay.RelayAgentStatus of the world's relay connection (None: no relay)
 
 
 class LauncherSession:
@@ -185,7 +187,8 @@ class LauncherSession:
     def __init__(self, installation, private_directory, *, world_directory=None,
                  invitation_path=None, bind_address=None, host_route=None,
                  public=False, development_trades=False, connection_timeout=10,
-                 on_status=None, server_route=None, allow_enrollment=True, overlay=False, network=None):
+                 on_status=None, server_route=None, allow_enrollment=True, overlay=False, network=None,
+                 port_mapper_factory=None):
         if (not isinstance(installation, GameInstallation)
                 or (world_directory is None) == (invitation_path is None)
                 or type(public) is not bool or type(development_trades) is not bool or type(overlay) is not bool
@@ -231,6 +234,9 @@ class LauncherSession:
         self._public = public
         self._overlay = overlay
         self._network = network          # network_settings.WorldNetwork; None: read this world's saved settings at start
+        self._port_mapper_factory = port_mapper_factory
+        self._port_mapper = self._router_task = self._router = None
+        self._relay_agent = self._relay_status = None
         self._development_trades = development_trades
         self._timeout = connection_timeout
         self._on_status = on_status
@@ -330,7 +336,7 @@ class LauncherSession:
     @property
     def status(self):
         current = self._signature()
-        value = replace(self._status, connected=current is not None,
+        value = replace(self._status, connected=current is not None, router=self._router, relay=self._relay_status,
                         autosave_enabled=self.autosave_enabled,
                         battle_recovery_available=self.can_recover_battle,
                         admission_cleanup_available=self.can_cancel_battle_entry,
@@ -379,6 +385,9 @@ class LauncherSession:
 
     def _publish(self, state, code, *, revision=None, exit_code=None, detail=None):
         self._status = SessionStatus(state, code, revision=revision, exit_code=exit_code, detail=detail)
+        self._emit()
+
+    def _emit(self):
         if self._on_status is not None:
             try:
                 result = self._on_status(self.status)
@@ -430,6 +439,7 @@ class LauncherSession:
             # route changes only the socket destination, preserving its TLS pin.
             config = replace(config, server_host=self._host_route)
             await self._start_host_service(host)
+            await self._start_reachability(host)
         self._companion = Companion(config)
         from . import privacy
         self._companion.share_location = privacy.load(self._profile_directory)
@@ -502,6 +512,58 @@ class LauncherSession:
         await self._server.start(self._bind_address, host.port, allow_lan=True,
                                  public=self._public, tls=host.server_tls, wildcard=self._bind_address == WILDCARD,
                                  relay=self._network is not None and self._network.relay_enabled)
+
+    async def _start_reachability(self, host):
+        """Automatic router setup (only while the world allows Internet connections and the host did not turn it off) and the
+        world's relay connection. Both run in the background and report through ``status.router`` / ``status.relay``; neither
+        can stop hosting."""
+        network = self._network
+        if self._public and network.router_setup:
+            from .port_mapping import PortMapper
+            factory = self._port_mapper_factory or PortMapper
+            self._port_mapper = factory(host.port, description="EmeraldTogether " + host.world_id[:8],
+                                        on_change=self._router_changed)
+            self._router = self._port_mapper.result
+            self._router_task = asyncio.create_task(self._port_mapper.start(), name="launcher-router-setup")
+        if network.relay is not None:
+            from .relay import RelayHostAgent
+
+            def target():
+                return self._server.relay_address
+            self._relay_agent = RelayHostAgent(network.relay_address, network.relay_port, host.world_id, network.relay_secret,
+                                               target, on_status=self._relay_changed)
+            self._relay_status = self._relay_agent.status
+            await self._relay_agent.start()
+
+    def _router_changed(self, result):
+        self._router = result
+        self._emit()
+
+    def _relay_changed(self, status):
+        self._relay_status = status
+        self._emit()
+
+    async def _stop_reachability(self):
+        agent, self._relay_agent = self._relay_agent, None
+        if agent is not None:
+            try:
+                await agent.close()
+            except Exception:                                          # noqa: BLE001 - closing continues
+                pass
+        task, self._router_task = self._router_task, None
+        if task is not None and not task.done():
+            # Let a mapping in progress finish so it can be removed; a router that does not answer is not waited for long
+            # (an unremoved mapping expires with its lease).
+            await asyncio.wait({task}, timeout=3)
+            if not task.done():
+                task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+        mapper, self._port_mapper = self._port_mapper, None
+        if mapper is not None:
+            try:
+                await mapper.close()
+            except Exception:                                          # noqa: BLE001
+                pass
 
     async def _close_host_service(self):
         # Retain an owner if its shutdown raises, so retry/final cleanup can
@@ -1672,6 +1734,7 @@ class LauncherSession:
             await asyncio.gather(self._play_task, return_exceptions=True)
         if self._host_restart_task is not None:
             await asyncio.gather(self._host_restart_task, return_exceptions=True)
+        await self._stop_reachability()
         try:
             if self._companion is not None:
                 await self._companion.close()

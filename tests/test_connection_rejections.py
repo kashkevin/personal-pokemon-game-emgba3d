@@ -209,6 +209,19 @@ class WorkerPlumbingTests(unittest.TestCase):
         self.assertNotIn("did not respond", status_text("connection_timeout"))
         self.assertTrue(set(CODES))
 
+    def test_router_and_relay_status_reach_the_menu(self):
+        from emerald_multiplayer.launcher_session import SessionStatus
+        from emerald_multiplayer.port_mapping import MappingResult
+        from emerald_multiplayer.relay import RelayAgentStatus
+        worker = SessionWorker(object(), Path("."))
+        router = MappingResult("mapped", "upnp", "81.2.69.160", 7777, "192.168.1.20", 7777, 3600)
+        relay = RelayAgentStatus("relay_ready", "relay.example.net:7780", 1)
+        worker._publish(SessionStatus(SessionState.READY, "ready", router=router, relay=relay))
+        event = worker.events.get_nowait()
+        self.assertEqual((event.router, event.relay), (router, relay))
+        self.assertIn("81.2.69.160:7777", event.router.message)
+        self.assertIn("Friends can join", event.relay.message)
+
     def test_a_failed_session_hands_its_code_and_reason_to_the_menu(self):
         class Refusing:
             def __init__(self, *args, **kwargs):

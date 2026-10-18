@@ -435,6 +435,54 @@ class LauncherSessionTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(session.companion.config.server_host, "127.0.0.1")
             self.assertTrue(session.status.connected)
 
+    async def test_internet_hosting_sets_up_the_router_reports_it_and_removes_it(self):
+        from emerald_multiplayer.network_settings import WorldNetwork
+        from emerald_multiplayer.port_mapping import PortMapper
+        from test_port_mapping import FakeGateway, silent_udp_port
+        gateway = FakeGateway()
+        self.addCleanup(gateway.close)
+        statuses = []
+
+        def factory(port, **options):
+            return PortMapper(port, ssdp_target=gateway.ssdp_target, gateway="127.0.0.1", natpmp_port=silent_udp_port(),
+                              budget=2.0, **options)
+        session = self.session(bind_address="0.0.0.0", host_route=None, public=True, network=WorldNetwork(),
+                               port_mapper_factory=factory, on_status=statuses.append)
+        async with session.open():
+            self.assertEqual(session.status.state, SessionState.READY)
+            async with asyncio.timeout(10):
+                while session.status.router is None or session.status.router.code == "checking":
+                    await asyncio.sleep(.02)
+            router = session.status.router
+            self.assertEqual((router.code, router.method, router.external_address, router.external_port),
+                             ("mapped", "upnp", "81.2.69.160", self.host.port))
+            self.assertTrue(any(status.router is not None and status.router.code == "mapped" for status in statuses))
+            self.assertIsNone(session.status.relay)
+        self.assertEqual(len(gateway.actions("DeletePortMapping")), 1)
+        json.dumps([asdict(status) for status in statuses])          # still plain, credential-free status data
+
+    async def test_a_router_without_automatic_setup_never_blocks_hosting(self):
+        from emerald_multiplayer.network_settings import WorldNetwork
+        from emerald_multiplayer.port_mapping import PortMapper
+        from test_port_mapping import silent_udp_port
+
+        def factory(port, **options):
+            return PortMapper(port, ssdp_target=("127.0.0.1", silent_udp_port()), gateway="127.0.0.1",
+                              natpmp_port=silent_udp_port(), budget=1.0, **options)
+        session = self.session(bind_address="0.0.0.0", host_route=None, public=True, network=WorldNetwork(),
+                               port_mapper_factory=factory)
+        async with session.open():
+            self.assertEqual(session.status.state, SessionState.READY)        # hosting did not wait for the router
+            async with asyncio.timeout(10):
+                while session.status.router.code == "checking":
+                    await asyncio.sleep(.02)
+            self.assertEqual(session.status.router.code, "no_router_support")
+            self.assertTrue(session._server.is_serving)
+        # Without Internet access the router is never touched.
+        local = self.session(network=WorldNetwork(), port_mapper_factory=factory)
+        async with local.open():
+            self.assertIsNone(local.status.router)
+
     async def test_unavailable_host_times_out_without_starting_a_game(self):
         session = self.friend(connection_timeout=.15)
         with self.assertRaises(LauncherSessionError) as caught:
