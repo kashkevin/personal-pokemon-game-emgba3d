@@ -186,10 +186,17 @@ class LauncherRelease:
             raise ValueError("invalid application release record")
 
     def installation(self, application_directory, private_directory):
+        """The packaged game. A native package's runtime bundle pins game facts that stand in for
+        the GBA ROM (game_facts.py), so nothing needs to be installed beside the program; a package
+        without them (the mGBA runtime, an older build) checks the player's imported
+        games/<rom_sha256>/game.gba in private storage, as before. Either way the build id stays
+        the ROM SHA-256 and verify() checks every pin before a start."""
         application, private = Path(application_directory), Path(private_directory)
-        return GameInstallation(private / "games" / self.rom_sha256 / "game.gba",
-            application / "game-manifest.json", self.rom_sha256, self.manifest_sha256,
-            RuntimeBundle(application / "runtime", self.runtime_sha256))
+        bundle = RuntimeBundle(application / "runtime", self.runtime_sha256)
+        facts = bundle.game_facts_path(pinned=False)
+        source = facts if facts is not None else private / "games" / self.rom_sha256 / "game.gba"
+        return GameInstallation(source, application / "game-manifest.json", self.rom_sha256,
+                                self.manifest_sha256, bundle)
 
 
 def private_directory():

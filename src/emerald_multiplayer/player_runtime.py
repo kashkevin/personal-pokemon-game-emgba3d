@@ -4,7 +4,9 @@ This is the launcher lifecycle beneath a future Host/Join interface. It only
 opens an already enrolled character. The application pins a runtime manifest;
 the manifest pins every executable and DLL in its bundle, and either the Lua
 bridge mGBA runs (emerald-windows-runtime-v1) or, for the native game with its
-own bridge, the ROM build it pairs with (emerald-native-runtime-v1).
+own bridge, the ROM build it pairs with (emerald-native-runtime-v1). A native
+bundle may also pin its game facts (runtime.json "game_facts", game_facts.py),
+which stand in for the GBA ROM: the native game never reads a ROM.
 """
 from __future__ import annotations
 
@@ -22,6 +24,7 @@ from uuid import uuid4
 from .bridge_config import configure, configure_native
 from .cold_start import ColdStartRecovery
 from .companion import verify_rom_manifest
+from .game_facts import is_game_facts
 from .live_checkpoint import _atomic
 
 _HASH = re.compile(r"[0-9a-f]{64}")
@@ -31,6 +34,10 @@ _WINDOWS_NATIVE_PATHS = os.name == "nt"
 _LAUNCH_ID_PLACEHOLDER = "00000000-0000-0000-0000-000000000000"
 _WINDOWS_RUNTIME = "emerald-windows-runtime-v1"
 _NATIVE_RUNTIME = "emerald-native-runtime-v1"
+_NATIVE_REQUIRED = frozenset({"format", "executable", "rom_sha256", "files"})
+_NATIVE_OPTIONAL = frozenset({"classic_executable", "game_facts"})
+# The native bundle's pinned game facts (game_facts.FILE_NAME), named by runtime.json "game_facts".
+GAME_FACTS_NAME = "game-facts.json"
 # The native game's settings (window, sound, the 3D view's look): one file
 # beside the launch folders, since every game starts in a new one.
 SETTINGS_NAME = "game-settings.cfg"
@@ -130,6 +137,26 @@ class RuntimeBundle:
         except (OSError, ValueError, AttributeError, PlayerRuntimeError):
             return False
 
+    def game_facts_path(self, *, pinned=True):
+        """Where this native bundle's game facts are (runtime.json "game_facts"), or None.
+
+        The facts stand in for the GBA ROM (game_facts.py). With ``pinned`` the runtime record
+        must match the launcher's pin; ``pinned=False`` is for choosing the installation's game
+        source only, since every start still runs verify(), which hashes the facts file too."""
+        try:
+            root = Path(self.directory)
+            raw = _read(root / "runtime.json", 16384)
+            if pinned and hashlib.sha256(raw).hexdigest() != self.manifest_sha256:
+                return None
+            record = json.loads(raw)
+            name = record.get("game_facts")
+            if (record.get("format") != _NATIVE_RUNTIME or name != GAME_FACTS_NAME
+                    or name not in record.get("files", {})):
+                return None
+            return (root / name).resolve()
+        except (OSError, ValueError, AttributeError, TypeError, PlayerRuntimeError):
+            return None
+
     def verify(self, graphics=None):
         """Recheck the pinned bundle immediately before each process launch.
 
@@ -151,9 +178,9 @@ class RuntimeBundle:
                 raise ValueError()
             native = manifest.get("format") == _NATIVE_RUNTIME
             if native:
-                # "classic_executable" (optional) is the Classic 2D game of the same engine build.
-                if (set(manifest) not in ({"format", "executable", "rom_sha256", "files"},
-                                          {"format", "executable", "rom_sha256", "files", "classic_executable"})
+                # "classic_executable" (optional) is the Classic 2D game of the same engine build;
+                # "game_facts" (optional) the pinned record that stands in for its GBA ROM (game_facts.py).
+                if (not _NATIVE_REQUIRED <= set(manifest) <= _NATIVE_REQUIRED | _NATIVE_OPTIONAL
                         or not isinstance(manifest["rom_sha256"], str) or not _HASH.fullmatch(manifest["rom_sha256"])):
                     raise ValueError()
             elif set(manifest) != {"format", "executable", "bridge", "files"} or manifest["format"] != _WINDOWS_RUNTIME:
@@ -172,6 +199,9 @@ class RuntimeBundle:
             classic = manifest.get("classic_executable")
             if classic is not None and (classic not in files or not classic.lower().endswith(".exe")
                                         or classic == executable or not native):
+                raise ValueError()
+            facts = manifest.get("game_facts")
+            if facts is not None and (facts != GAME_FACTS_NAME or facts not in files):
                 raise ValueError()
             if native:
                 # Nothing for an emulator to run: the game is its own bridge.
@@ -260,6 +290,9 @@ async def _open_child(companion, bundle, directory, save_path, build, manifest,
     rom_path, save_path = Path(companion.config.rom_path).resolve(), Path(save_path).resolve()
     native = isinstance(bridge, NativeGame)
     _check_pairing(bridge, build)
+    if not native and is_game_facts(rom_path):
+        # Only the native game has its data compiled in; mGBA runs the ROM itself.
+        raise PlayerRuntimeError("game_changed", "the emulator runtime needs the GBA ROM, not the package's game facts")
     script = launch_directory / ("bridge.txt" if native else "bridge.lua")
     settings = root.resolve().parent / SETTINGS_NAME
     _check_native_paths(executable, rom_path, save_path, launch_directory, script, settings)

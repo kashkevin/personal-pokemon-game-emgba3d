@@ -1,5 +1,7 @@
-"""The in-game menu when the game file is not installed: what a package without game import shows (the CI full package when the
-owner's dump is not supplied), and how Settings, Game files installs it in a package with import (BPS from the player's own file)."""
+"""The in-game menu and the game file. A native package pins game facts for its game build, so nothing has to be installed
+(game_facts.py). An installation that checks a game.gba instead (no facts: an older or mGBA package, a development setup)
+explains a missing file when it has no import, and Settings, Game files installs it in a package with import (BPS from the
+player's own file)."""
 from dataclasses import replace
 import hashlib
 import random
@@ -94,6 +96,28 @@ class GameFilesTests(unittest.TestCase):
         self.assertNotEqual((seen["main"] or ("",))[0], "warn")
         self.assertEqual(self.target.read_bytes(), self.rom)
         self.installation.verify()                                  # the launcher's own check before every start
+
+    def test_a_native_package_needs_no_game_file(self):
+        """The Windows package pins game facts for its game build: nothing to install, nothing missing."""
+        from package_fixture import Package
+        package = Package(self.world.root / "package")
+        self.installation = package.installation()                 # LauncherRelease.installation, as main() builds it
+        seen = {}
+
+        def settings(screen):
+            seen["files"] = row(screen, "files").detail
+            return select("files")
+        driver = Driver(("main", lambda screen: seen.update(status=screen.status) or select("settings")),
+                        ("settings", settings),
+                        ("message", lambda screen: seen.update(message=" ".join(screen.notes)) or BACK),
+                        ("settings", BACK), ("main", select("exit")))
+        app, _ = self._app(driver)
+        self.assertEqual(app.run(), 0)
+        self.assertTrue(driver.done(), driver.steps)
+        self.assertNotEqual((seen["status"] or ("",))[0], "warn")
+        self.assertEqual(seen["files"], "installed and verified")
+        self.assertIn("installed and match this release", seen["message"])
+        self.assertFalse((package.private / "games").exists())
 
 
 if __name__ == "__main__":

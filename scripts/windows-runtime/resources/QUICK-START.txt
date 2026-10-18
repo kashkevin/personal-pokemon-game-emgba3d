@@ -1,168 +1,131 @@
-Emerald Together — private Windows package
+EmeraldTogether - Quick start
 
-Before starting
+EmeraldTogether is Pokemon Emerald for up to four friends on Windows PCs: play on your own,
+host a world on your PC, or join a friend's world. It is a private build for friends who own
+Pokemon Emerald. Please do not pass it on to anyone else.
 
-Extract the complete ZIP and keep EmeraldTogether.exe beside its _internal
-folder. Open EmeraldTogether.exe. Python, a compiler and WSL are not needed
-on a friend's PC. See README.txt for this package's game-import availability.
-An import-disabled preview requires a separately prepared matching installation;
-it cannot install the game on a new PC yet.
 
-Packages labeled "Gen6 defaults" use a separate game and rules identity. This
-selects engine generation defaults; it is not the completed Gen6 game. Keep
-candidate 9 for worlds created with that release. Installing the new game does
-not convert or repin an old world or rewrite its Pokemon. Use a new world and
-newly prepared characters for this candidate. See RELEASE-LIMITS.txt.
+1. Download
 
-The main menu (Update 30)
+Your friend sends you one program file, EmeraldTogether-Setup-<version>.exe, together with
+this guide. Save it anywhere, for example in your Downloads folder. That is all you need: no
+emulator, no game file, no Python, no GitHub account and no command window.
 
-Emerald Together opens on its menu inside the game's own window. There is no separate
-setup program or launcher window:
-  Continue Adventure   resumes the adventure you played last (a world you host or a server
-                       you joined) and loads your character; it says what it will start
-  New Game             a new private adventure on this PC with a new character; if you
-                       already have one it asks first and never touches the old ones
-  Host Server          your saved worlds, and Create New Server World
-  Join Server          your saved servers, and Join New Server (with an invite code)
-  Settings             Native 3D or Classic 2D, display, sound, keys, the characters on
-                       this PC, multiplayer, game files (check / import)
-  Exit
-Mouse, or Up/Down + Enter, Tab, Esc to go back, Ctrl+V to paste, F11 fullscreen. A game
-controller's D-pad, A and B should work in the menu (not tested on a real controller).
-The game opens in its own window; the menu window stays beside it as a small session
-window with Save now, the autosave switch, the recovery actions and, for a host, Server
-Information. If the menu window cannot open on a PC, the earlier launcher window opens
-instead; "EmeraldTogether.exe --classic-launcher" opens that window on request (it uses the same
-worlds, characters and invitations).
+If your web browser warns that the file is not commonly downloaded, choose to keep it (in Edge:
+the "..." next to the download, then Keep, then Keep anyway).
 
-Install your own game once
 
-1. In an import-enabled package, open Settings, Game files and enter the path of your matching
-   original Emerald .gba dump (or a ZIP containing exactly one .gba). Archives are read in
-   memory; your original is not changed.
-2. Wait for "Game installed". The installer validates the original, patch and reconstructed
-   game against this release's exact hashes before publishing its private copy. An existing
-   different installation is never overwritten.
-3. Game files also verifies the installed ROM, manifest and runtime pins without starting a
-   game. File verification does not establish gameplay or network acceptance.
-4. Every friend's PC repeats this import with their own matching dump and the same release
-   package. Never include the game or saves in the shared ZIP.
+2. Install
 
-Host a world
+Double-click EmeraldTogether-Setup-<version>.exe.
 
-1. Host Server, Create New Server World: a world name, your name, a port, the network (this PC
-   only, or one of this PC's local addresses), Internet access (off unless you turn it on;
-   it asks first), an optional public address or host name, and - once - the trade friendship
-   rule (the game build requires you to choose; it is permanent for the world).
-2. The world is created with its own saved characters, Pokemon, PC and progress, and four
-   accounts: yours and three for friends. Creating a world never changes another world.
-3. The first time, Host This World lets you create your character with the game's normal New
-   Game: choose a name and starter, SAVE in the game and close it; the game opens once more -
-   choose CONTINUE - and closes by itself when your character is registered; then your
-   adventure starts. From then on Host Server, your world, Host This World (or Continue
-   Adventure) loads your character with nothing to select or import.
-4. Server Information shows the port, this PC's local addresses and any public address you
-   typed, and says plainly what is not done for you (see Host and join below).
+Windows may show a blue box saying "Windows protected your PC". It appears because the installer
+is not signed by a company (signing costs money, and this is a private build). Click
+"More info", check that the app is EmeraldTogether-Setup-..., then click "Run anyway".
 
-Invite your friends
+Setup then asks only simple questions. Read the short notes, click Next, and Install. It installs
+for your Windows user only and never asks for an administrator password. The program goes to
+C:\Users\<your name>\AppData\Local\Programs\EmeraldTogether. Tick "Create a desktop shortcut"
+if you want one.
 
-In the world's page choose "Invite codes for friends": each friend account has its own code,
-copied to your clipboard. A code is a password for that account: send each friend only their own,
-privately. The code holds no certificate or key; the friend's game checks the server's
-certificate against the one fingerprint in the code.
+Some antivirus programs distrust new programs that are not signed. If yours warns about
+EmeraldTogether or moves one of its files to quarantine, restore the file, allow EmeraldTogether,
+and run Setup again (see "Update or repair" below).
 
-Join a friend
 
-Join Server, Join New Server: paste the code (Ctrl+V). The address and port in it are filled in;
-change them if the host told you another. The game checks that the server is reachable and is
-that world, saves it as a shortcut and joins. The first time, you create your character the same
-way as above (it is registered on the host's world; the host can turn that off). After that,
-Join Server, your saved server, Join - or Continue Adventure - loads your own character.
-Your character is tied to that world and your account in it, not to the server's name or
-address: if the host's address changes, edit the saved server's address and nothing else changes.
-Removing a saved server removes only the shortcut; your character stays and pasting the same
-code brings you back to it. If the host is offline you are told so and offered Try again; nothing
-is created or reset.
+3. Start
 
-Characters and old saves
+Open the Start menu and click EmeraldTogether, or use the desktop shortcut. The main menu opens
+inside the game's own window: Continue Adventure, New Game, Host Server, Join Server, Settings,
+Exit. Use the mouse, or the arrow keys and Enter; Esc goes back; Ctrl+V pastes.
 
-Settings, Characters lists every character on this PC with its world and state. Worlds, characters
-and invitations from earlier versions are found automatically and left exactly as they are; a
-copy of launcher-recent.json is kept in the "shell" folder first. Anything that could not be
-matched without guessing is listed there and left alone.
+The first time you host, Windows may ask whether EmeraldTogether may use the network. Allow it
+on private networks, or friends cannot reach your world.
 
-Host and join
 
-LAN: friends on the host's network use the host's local address (Server Information shows it).
-Internet: the friend needs the host's public address, and the host must forward the chosen TCP
-port on the router to the host PC and allow it in the firewall. Emerald Together does not set
-this up for you and has no relay server, no UPnP and no automatic discovery. Separate-PC LAN and
-outside-network gameplay acceptance are still pending.
+4. Create your character
 
-Save and finish a session
+The first time you play in a world, the game's normal New Game starts. Choose your name and your
+starter Pokemon, then save in the game (START, then SAVE) and close the game window. The game
+opens once more by itself: choose CONTINUE. It closes again when your character is registered,
+and then your adventure starts. From then on your character loads automatically.
 
-"Autosave every 5 minutes" is on by default. It waits for a safe field location outside menus
-and battles, then saves to the world. You can switch it off in the session window; that choice is
-remembered for this character and world on this PC. Turning it off does not interrupt a save
-already in progress.
 
-During multiplayer play, return to a safe field location and press "Save now" in the session
-window. Keep the game open until "Character saved to the host" appears. Save now also works
-when autosave is off. If the game is busy, leave its menu or battle and press Save now again.
-The game's ordinary Save menu does not confirm that progress reached the host.
-After a successful save, close the game through its title-bar Close button. Keep private recovery
-files and follow the displayed recovery message. If it tells you to keep the game open, leave
-both windows open. Closing the game does not itself save progress to the host.
+5. Play
 
-If the host reports an unresolved multiplayer battle, the program blocks a
-fresh game session. Keep the original game open and retain the recovery files.
-Restore the host connection and choose "Recover battle" in every original
-player's session window. The match waits for all of its original players.
+Solo. Choose New Game. It creates a private adventure on this PC with a new character, just for
+you. Next time, Continue Adventure picks up where you stopped. Starting another New Game never
+touches your earlier adventures.
 
-If the host service stopped but its original game and its session window are still open,
-the host can choose "Restart host service" when that action becomes available.
-After it succeeds, the host and every original participant choose "Recover
-battle". Restarting the service alone does not resume the match. An exited game
-or host application cannot recover its waiting battle through this button.
+Host World. Choose Host Server, then Create New Server World. Give the world a name, type your
+name, and keep the suggested port. For friends at your home (the same router or Wi-Fi), choose
+this PC's local network address; for friends elsewhere, also see "Playing over the Internet"
+below. Then open your world and choose "Invite codes for friends": every friend has their own
+code, copied for you to paste into a message. Send each friend only their own code, privately -
+it works like a password. Choose Host This World to start, and keep EmeraldTogether open while
+your friends play.
 
-If the host disconnects during normal exploration or an ordinary save, the
-launcher attempts to preserve that exact save locally for rejoining. Wait for
-its status before closing. A confirmed preserved save can be reconciled through
-Host This World or Join after the host returns. An unsafe or uncertain operation
-may keep the game held without a completed save; do not close it while the
-launcher asks you to keep it open.
+Join Friend. Choose Join Server, then Join New Server, and paste the invite code your friend sent
+you (Ctrl+V). EmeraldTogether checks that it can reach your friend's world, saves it in your list
+and joins. The first time, you create your character as described above. Next time choose Join
+Server and the saved server, or simply Continue Adventure. If your friend's world is not running,
+you are told so and can try again; nothing is lost.
 
-If the host disconnects during a trade, keep both original game windows and
-session windows open. The surviving host uses "Restart host service" when offered.
-Each player then uses "Resolve interrupted trade" and reads its confirmation:
-it may cancel an unfinished trade or retain an already committed result. Wait
-for the verified message that says closing is safe, then close the game
-normally and reopen the same Host/Join identity for recovery and Continue.
-If the status remains held or uncertain, retain the game and recovery files.
-This does not resume the trade in that same game process or reconstruct an
-exited game/whole PC. Do not discard journals or copy a backup over the character.
+Saving. Autosave is on: every 5 minutes, as soon as you stand somewhere safe (not in a menu or a
+battle). In a multiplayer world you can also press "Save now" in the small session window next to
+the game; wait until it says "Character saved to the host" before you close the game. The game's
+own SAVE menu does not, on its own, send your progress to the host. If a message asks you to keep
+the game open (for example after a lost connection), leave both windows open and follow it.
 
-Trainer Cards and hunt records
 
-Use the game's own Players menu (START > PLAYER > PLAYERS): Your Trainer Card, connected players' public battle
-cards, challenges, trades and records. Hunts shows recorded personal attempts when the world's durable hunt ledger is
-enabled; attempts do not alter shiny odds. Records are snapshots, not unsaved live progress. The earlier launcher
-window's Trainer Card & Players, Challenges, Archive, Local Reset and Championship tabs are still available through
-"EmeraldTogether.exe --classic-launcher".
+6. Where your saves live
 
-Connection details
+Your characters, worlds, saves and settings are kept in your Windows user folder:
 
-Server Information (a host's world page or session window) shows the address and port. Copying the address copies
-support information only. A friend still needs their own invite code; the address alone grants no character access.
-Settings in the menu and the game's F10 menu explain the existing keys and recovery actions.
+    %LOCALAPPDATA%\PokemonPrivate
+
+(Paste that line into the address bar of File Explorer to open it.) They are not inside the
+program folder, so repairing, updating or uninstalling EmeraldTogether never removes them.
+To make a backup, close EmeraldTogether and copy the whole PokemonPrivate folder somewhere safe.
+
+
+7. Update or repair
+
+Update: run the newer Setup file your friend sends you. It replaces the program files and keeps
+your saves, characters and worlds.
+
+Repair: if EmeraldTogether says a game file is missing or changed, or it will not start, run the
+same Setup file again. It puts back every program file. Settings, Game files checks the installed
+files without starting anything.
+
+Uninstall: Windows Settings, Apps, EmeraldTogether, Uninstall. Your saves stay in
+%LOCALAPPDATA%\PokemonPrivate; delete that folder yourself only if you really want them gone.
+
+
+Playing over the Internet
+
+Friends at your home join with this PC's local address (Server Information in your world shows
+it). For friends elsewhere, the host types the public address in the world's network settings and
+turns on Internet access, and the host's router must forward the world's TCP port to the host's
+PC. This build does not change your router or firewall settings for you. Server Information says
+what is and is not set up.
+
 
 Default game controls
 
 Arrow keys: move       X: A / confirm        Z: B / back
 Enter: Start          Backspace: Select     A / S: L / R
 
-These are the runtime's configured defaults. Physical keyboard, audio and
-gamepad acceptance remain pending; automated native-button tests are separate.
-The launcher stores private worlds and character/recovery data in the Windows
-user's local application-data folder. See RELEASE-LIMITS.txt before sharing
-this development preview with friends.
+Settings in the main menu lets you change the keys, the graphics (3D or Classic 2D), the display
+and the sound. A game controller's D-pad, A and B should work in the menu (not yet tested with
+a real controller).
+
+
+If something else goes wrong
+
+* The menu window does not open: EmeraldTogether opens its earlier launcher window instead, with
+  the same worlds and characters.
+* A battle or trade was interrupted: keep the game open and follow the message in the session
+  window (Recover battle, Resolve interrupted trade). An unfinished trade is cancelled and a finished
+  one is kept; nothing is guessed.
+* Read RELEASE-LIMITS.txt (in the program folder) for what this build is and what is not finished.

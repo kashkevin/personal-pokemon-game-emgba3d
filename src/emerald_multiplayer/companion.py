@@ -78,10 +78,22 @@ class BattleChallengeError(ValueError):
 
 
 def verify_rom_manifest(rom_path: Path, manifest_path: Path) -> tuple[str, dict[str, Any]]:
-    """Hash the supplied game bytes; manifest identity alone is never trusted."""
+    """Hash the supplied game bytes; manifest identity alone is never trusted.
+
+    ``rom_path`` is the GBA ROM, or in a packaged native installation the package's game facts
+    (game_facts.py: recorded from the ROM when the package was built and bound to these exact
+    manifest bytes). Facts have no ROM bytes to hash: the identity comes from the facts, every
+    capability is checked against the manifest alone, and the caller's pins
+    (GameInstallation.verify: the manifest hash, and the runtime bundle that pins the facts file)
+    establish that the pair is the package's own. The build id is the same ROM SHA-256 either way.
+    """
     if manifest_path.stat().st_size > 65_536:
         raise ValueError("manifest exceeds its size limit")
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    with manifest_path.open("rb") as source:
+        raw_manifest = source.read(65_537)
+    if len(raw_manifest) > 65_536:
+        raise ValueError("manifest exceeds its size limit")
+    manifest = json.loads(raw_manifest.decode("utf-8"))
     if not isinstance(manifest, dict):
         raise ValueError("manifest must be a JSON object")
     if type(manifest.get("abi_version")) is not int or manifest["abi_version"] != ABI_VERSION:
@@ -94,7 +106,9 @@ def verify_rom_manifest(rom_path: Path, manifest_path: Path) -> tuple[str, dict[
     expected_hash = manifest.get("rom_sha256")
     if not isinstance(expected_hash, str) or re.fullmatch("[0-9a-f]{64}", expected_hash) is None:
         raise ValueError("manifest ROM SHA256 is invalid")
-    size = rom_path.stat().st_size
+    from .game_facts import is_game_facts, load_facts
+    facts = load_facts(rom_path, raw_manifest, manifest) if is_game_facts(rom_path) else None
+    size = facts.rom_size if facts is not None else rom_path.stat().st_size
     if not 1 <= size <= 32 * 1024 * 1024:
         raise ValueError("ROM size exceeds the supported GBA budget")
     if "rom_size" in manifest and (type(manifest["rom_size"]) is not int or manifest["rom_size"] != size):
@@ -115,17 +129,22 @@ def verify_rom_manifest(rom_path: Path, manifest_path: Path) -> tuple[str, dict[
                 or not 0x02000000 <= address <= 0x02040000 - 512
                 or not (address + 512 <= presence or presence + MAILBOX_SIZE <= address)):
             raise ValueError("manifest save mailbox is incompatible or overlaps presence")
-    digest, crc = hashlib.sha256(), 0
-    with rom_path.open("rb") as source:
-        for chunk in iter(lambda: source.read(1024 * 1024), b""):
-            digest.update(chunk)
-            crc = zlib.crc32(chunk, crc)
-    actual_hash = digest.hexdigest()
-    if not hmac.compare_digest(actual_hash, expected_hash):
-        raise ValueError("ROM SHA256 does not match the generated manifest")
-    if "rom_crc32" in manifest:
-        if manifest["rom_crc32"] != f"{crc & _UINT32:08x}":
-            raise ValueError("ROM CRC32 does not match the generated manifest")
+    if facts is None:
+        digest, crc = hashlib.sha256(), 0
+        with rom_path.open("rb") as source:
+            for chunk in iter(lambda: source.read(1024 * 1024), b""):
+                digest.update(chunk)
+                crc = zlib.crc32(chunk, crc)
+        actual_hash = digest.hexdigest()
+        if not hmac.compare_digest(actual_hash, expected_hash):
+            raise ValueError("ROM SHA256 does not match the generated manifest")
+        if "rom_crc32" in manifest:
+            if manifest["rom_crc32"] != f"{crc & _UINT32:08x}":
+                raise ValueError("ROM CRC32 does not match the generated manifest")
+        game = rom_path
+    else:
+        # load_facts bound the facts to these manifest bytes, their ROM SHA-256, size and CRC32.
+        actual_hash, game = facts.rom_sha256, None
     ownership_fields = {"ownership_abi_version", "save_profile"}
     if ownership_fields & set(manifest):
         if (not ownership_fields <= set(manifest) or "save_mailbox_address" not in manifest
@@ -140,32 +159,33 @@ def verify_rom_manifest(rom_path: Path, manifest_path: Path) -> tuple[str, dict[
                 or type(marker) is not int or marker % 4
                 or not 0x08000000 <= marker <= 0x08000000 + size - 4):
             raise ValueError("manifest trade capability is incompatible")
-        with rom_path.open("rb") as source:
-            source.seek(marker - 0x08000000)
-            if source.read(4) != b"\x01\x00\x00\x00":
-                raise ValueError("trade capability marker does not match the verified ROM")
-    validate_battle_manifest(manifest, rom_path)
-    validate_window_manifest(manifest, rom_path)
+        if game is not None:
+            with game.open("rb") as source:
+                source.seek(marker - 0x08000000)
+                if source.read(4) != b"\x01\x00\x00\x00":
+                    raise ValueError("trade capability marker does not match the verified ROM")
+    validate_battle_manifest(manifest, game)
+    validate_window_manifest(manifest, game)
     from .menu_mailbox import validate_menu_manifest
-    validate_menu_manifest(manifest, rom_path)
+    validate_menu_manifest(manifest, game)
     from .reset_mailbox import validate_reset_manifest
-    validate_reset_manifest(manifest, rom_path)
+    validate_reset_manifest(manifest, game)
     from .emergency_protocol import validate_emergency_manifest
-    validate_emergency_manifest(manifest, rom_path)
+    validate_emergency_manifest(manifest, game)
     from .trade_effect_mailbox import validate_effect_prepare_manifest, validate_effect_save_manifest, validate_effect_choice_manifest
-    validate_effect_prepare_manifest(manifest, rom_path)
-    validate_effect_save_manifest(manifest, rom_path)
-    validate_effect_choice_manifest(manifest, rom_path)
+    validate_effect_prepare_manifest(manifest, game)
+    validate_effect_save_manifest(manifest, game)
+    validate_effect_choice_manifest(manifest, game)
     from .trade_replay_manifest import validate_trade_replay_manifest
-    validate_trade_replay_manifest(manifest, rom_path)
+    validate_trade_replay_manifest(manifest, game)
     from .presence_animation import validate_presence_animation_manifest
-    validate_presence_animation_manifest(manifest, rom_path)
+    validate_presence_animation_manifest(manifest, game)
     from .gen6_profile import validate_generation_profile
-    validate_generation_profile(manifest, rom_path)
+    validate_generation_profile(manifest, game)
     from .player_build import validate_player_build_manifest
-    validate_player_build_manifest(manifest, rom_path)
+    validate_player_build_manifest(manifest, game)
     from .world_mailbox import validate_world_manifest
-    validate_world_manifest(manifest, rom_path)
+    validate_world_manifest(manifest, game)
     return actual_hash, manifest
 
 

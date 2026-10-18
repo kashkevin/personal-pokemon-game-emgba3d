@@ -1,15 +1,21 @@
 # Windows package: builds the launcher with the repository's pinned wheels
-# (build_launcher.py, PyInstaller 6.22.3) on a Windows runner.
+# (build_launcher.py, PyInstaller 6.22.3) on a Windows runner, packs it into the player's
+# installer (Inno Setup, scripts/windows-runtime/installer/EmeraldTogether.iss) and checks that
+# installer on a fresh GitHub-hosted runner (docs/windows-installation.md).
 #
 #   smoke (default; also runs on a push that touches the packaging files): synthetic,
 #          asset-free inputs (scripts/windows-runtime/make_smoke_inputs.py). Needs no engine,
-#          secrets, ROM or sprite pack; proves collect_native_bundle, build_launcher,
-#          PyInstaller, the package audit and that the frozen launcher starts.
+#          secrets, ROM or sprite pack; proves collect_native_bundle (with game facts),
+#          build_launcher, PyInstaller, the package audit, the installer build, that the frozen
+#          launcher starts, and the silent install / start / repair / uninstall check.
 #   full   (manual): builds the game from the private engine first, then the same steps with
 #          the real game. Needs the secrets listed in docs/windows-ci-packaging.md.
 #
+# Artifacts: EmeraldTogether-Windows-Installer (full; "-smoke-test" in smoke mode) holds only
+# what a friend downloads - the Setup file and QUICK-START.txt. EmeraldTogether-windows-<mode>
+# is the developer artifact (zip, hashes, audit, reports, screenshots).
 # Nothing here is published: no release, no Pages, no cache of game data; artifacts are
-# private to the repository.
+# private to the repository. The package never contains a .gba, save or database.
 name: windows-package
 
 on:
@@ -42,6 +48,8 @@ on:
       - src/emerald_multiplayer/launcher*.py
       - src/emerald_multiplayer/player_runtime.py
       - src/emerald_multiplayer/graphics_mode.py
+      - src/emerald_multiplayer/game_facts.py
+      - src/emerald_multiplayer/installation_check.py
 
 permissions:
   contents: read
@@ -51,6 +59,11 @@ env:
   SDL_SHA256: 147c3dc03c9be6b23e625fd877421098e93487f1f55e0e1d4e3ce571e79b91c4
   # The owner's Emerald USA/Europe revision 0 dump (docs/release-patch-creation.md); a public identity.
   BASE_ROM_SHA256: a9dec84dfe7f62ab2220bafaef7479da0929d066ece16a6885f6226db19085af
+  # GitHub's windows-2022 image ships Inno Setup 6.7.1 as `iscc` (runner-images Windows2022-Readme);
+  # a runner without it installs exactly this version from Chocolatey.
+  INNO_SETUP_VERSION: "6.7.1"
+  # The player-facing artifact: only the Setup file and QUICK-START.txt.
+  INSTALLER_ARTIFACT: ${{ (inputs.mode || 'smoke') == 'full' && 'EmeraldTogether-Windows-Installer' || 'EmeraldTogether-Windows-Installer-smoke-test' }}
 
 jobs:
   engine:
@@ -192,10 +205,23 @@ jobs:
         run: |
           extra=()
           [ "$HAVE_SPRITES" = true ] && extra=(--extra inputs/battle-sprites.ebsp)
+          # --manifest pins game-facts.json (recorded after a full check of the ROM): the package then needs no game.gba.
           .venv/Scripts/python scripts/windows-runtime/collect_native_bundle.py \
             --game inputs/pokeemerald-mp-diorama.exe --classic-game inputs/pokeemerald-mp.exe \
-            --sdl inputs/SDL2.dll --rom inputs/pokedev.gba \
+            --sdl inputs/SDL2.dll --rom inputs/pokedev.gba --manifest inputs/manifest.json \
             --output "$WORK/runtime" "${extra[@]}" | tee "$WORK.bundle.json"
+      - name: Inno Setup compiler (preinstalled on windows-2022; pinned Chocolatey install otherwise)
+        run: |
+          if command -v iscc >/dev/null 2>&1; then
+            iscc_path="$(command -v iscc)"
+          elif [ -f "/c/Program Files (x86)/Inno Setup 6/ISCC.exe" ]; then
+            iscc_path="/c/Program Files (x86)/Inno Setup 6/ISCC.exe"
+          else
+            choco install innosetup --version="$INNO_SETUP_VERSION" -y --no-progress
+            iscc_path="/c/Program Files (x86)/Inno Setup 6/ISCC.exe"
+          fi
+          "$iscc_path" 2>&1 | head -n 2 || true
+          echo "ISCC=$(cygpath -w "$iscc_path")" >> "$GITHUB_ENV"
       - name: Build the launcher package (development preview)
         run: |
           pin() { .venv/Scripts/python -c "import hashlib,sys;print(hashlib.sha256(open(sys.argv[1],'rb').read()).hexdigest())" "$1"; }
@@ -208,6 +234,7 @@ jobs:
             --rom-sha256 "$(pin inputs/pokedev.gba)" --manifest-sha256 "$(pin inputs/manifest.json)" \
             --runtime-sha256 "$(pin "$WORK/runtime/runtime.json")" \
             --version "$version" --development-preview "${patch[@]}" \
+            --installer --iscc "$ISCC" \
             --output "$WORK/launcher" < /dev/null 2>&1 | cat
       - name: Check the package contents
         run: |
@@ -221,11 +248,22 @@ jobs:
           hashes = json.load(open(work + "/package-hashes.json"))
           audit = json.load(open(work + "/package-audit.json"))
           print(len(names), "archive members;", len(hashes), "hashed files; audit keys", sorted(audit))
+          # The package carries its game facts and needs no game.gba.
+          assert "_internal/runtime/game-facts.json" in hashes, sorted(hashes)[:40]
+          assert not [n for n in hashes if n.lower().endswith((".gba", ".sav", ".sqlite3", ".db"))]
+          # The installer and the player's download: exactly the Setup file and QUICK-START.txt.
+          installer = json.load(open(work + "/installer.json"))
+          player = sorted(os.listdir(work + "/player"))
+          assert player == sorted([installer["setup"], "QUICK-START.txt"]), player
+          assert installer["setup"].startswith("EmeraldTogether-Setup-") and installer["setup"].endswith(".exe")
+          print("installer:", installer["setup"], installer["setup_bytes"], "bytes, sha256", installer["setup_sha256"])
           PY
       - name: Verify the packaged game files
         env:
           ENGINE_EXE_SHA256: ${{ needs.engine.outputs.exe_sha256 }}
           ENGINE_CLASSIC_EXE_SHA256: ${{ needs.engine.outputs.classic_exe_sha256 }}
+          ENGINE_ROM_SHA256: ${{ needs.engine.outputs.rom_sha256 }}
+          PYTHONPATH: src
         run: |
           .venv/Scripts/python - <<'PY'
           import hashlib, json, os, pathlib
@@ -257,6 +295,14 @@ jobs:
           assert (dist / "EmeraldTogether.exe").is_file()
           for guide in ("README.txt", "QUICK-START.txt", "RELEASE-LIMITS.txt"):
               assert (dist / guide).is_file(), guide
+          # The pinned game facts stand in for the ROM: same build id (the ROM SHA-256) as the engine job's ROM.
+          from emerald_multiplayer.companion import verify_rom_manifest
+          assert manifest.get("game_facts") == "game-facts.json" and "game-facts.json" in manifest["files"]
+          build, _ = verify_rom_manifest(runtime / "game-facts.json", runtime.parent / "game-manifest.json")
+          assert build == manifest["rom_sha256"], "game facts and runtime pairing disagree"
+          if os.environ["MODE"] == "full":
+              assert build == os.environ["ENGINE_ROM_SHA256"], "packaged game facts are not the engine job's ROM"
+          print("game facts: build", build)
           PY
       - name: Start the frozen launcher and watch it stay up
         shell: pwsh
@@ -297,11 +343,28 @@ jobs:
             [ "$MODE" = full ] && echo "- Engine commit: \`${{ needs.engine.outputs.engine_commit }}\`"
             [ "$MODE" = full ] && echo "- Game ROM sha256: \`${{ needs.engine.outputs.rom_sha256 }}\`"
             echo "- Sprite pack in the runtime: $HAVE_SPRITES"
-            echo "- Import of the owner's own game enabled: $HAVE_BASE"
+            echo "- Import of the owner's own game enabled: $HAVE_BASE (not needed: the package pins its game facts)"
             echo "- Archive sha256: \`$(.venv/Scripts/python -c "import hashlib,sys;print(hashlib.sha256(open(sys.argv[1],'rb').read()).hexdigest())" "$WORK/launcher/EmeraldTogether.zip")\`"
+            echo "- Installer: \`$(.venv/Scripts/python -c "import json,sys;r=json.load(open(sys.argv[1]));print(r['setup'], r['setup_sha256'])" "$WORK/launcher/installer.json")\` (artifact $INSTALLER_ARTIFACT; unsigned)"
             echo "- Private development preview; clean-PC, gameplay and network acceptance are separate."
           } >> "$GITHUB_STEP_SUMMARY"
-      - name: Upload the package (private to this repository, 7 days)
+      - name: Upload the player's installer (private to this repository, 7 days)
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.INSTALLER_ARTIFACT }}
+          path: ${{ env.WORK }}/launcher/player/
+          retention-days: 7
+          if-no-files-found: error
+      - name: Hand the package hashes to the installation check (one day)
+        uses: actions/upload-artifact@v4
+        with:
+          name: installer-check-inputs-${{ env.MODE }}
+          path: |
+            ${{ env.WORK }}/launcher/package-hashes.json
+            ${{ env.WORK }}/launcher/installer.json
+          retention-days: 1
+          if-no-files-found: error
+      - name: Upload the developer package (private to this repository, 7 days)
         uses: actions/upload-artifact@v4
         with:
           name: EmeraldTogether-windows-${{ env.MODE }}
@@ -314,9 +377,67 @@ jobs:
             ${{ env.WORK }}/launcher/EmeraldTogether.zip
             ${{ env.WORK }}/launcher/package-hashes.json
             ${{ env.WORK }}/launcher/package-audit.json
+            ${{ env.WORK }}/launcher/installer.json
+            ${{ env.WORK }}/launcher/installer.log
             ${{ env.WORK }}/launcher/build.log
           retention-days: 7
           if-no-files-found: warn
       - name: Remove private inputs from the runner
         if: always()
         run: rm -rf inputs "$WORK"
+
+  install-check:
+    name: Installation check (silent install, start, repair, uninstall)
+    needs: package
+    if: ${{ !cancelled() && needs.package.result == 'success' }}
+    # Always a fresh GitHub-hosted runner, never the owner's PC: this installs and uninstalls for the runner's user.
+    runs-on: windows-2022
+    defaults:
+      run:
+        shell: bash
+    env:
+      MODE: ${{ inputs.mode || 'smoke' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts/windows-runtime
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.INSTALLER_ARTIFACT }}
+          path: installer
+      - uses: actions/download-artifact@v4
+        with:
+          name: installer-check-inputs-${{ env.MODE }}
+          path: check-inputs
+      - name: Install silently, check the files, start it, repair over it, uninstall it
+        run: |
+          setup="$(ls installer/EmeraldTogether-Setup-*.exe)"
+          [ "$(ls installer | wc -l)" -eq 2 ] && [ -f installer/QUICK-START.txt ] || { ls -la installer; exit 1; }
+          expect=(); [ "$MODE" = full ] && expect=(--expect-shell)
+          # LOCALAPPDATA for everything the check starts is a temporary profile inside this folder;
+          # a sentinel planted in its PokemonPrivate must survive the uninstall.
+          python scripts/windows-runtime/ci_installer_check.py --setup "$setup" \
+            --hashes check-inputs/package-hashes.json --work "$RUNNER_TEMP/install-check" "${expect[@]}"
+      - name: Upload the installation check report (7 days)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: EmeraldTogether-installer-check-${{ env.MODE }}
+          path: |
+            ${{ runner.temp }}/install-check/installer-check.json
+            ${{ runner.temp }}/install-check/install.log
+            ${{ runner.temp }}/install-check/repair.log
+            ${{ runner.temp }}/install-check/uninstall.log
+          retention-days: 7
+          if-no-files-found: warn
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### Installation check ($MODE)"
+            python -c "import json,sys;r=json.load(open(sys.argv[1]));print('- Result:', r.get('result')); [print('-', s['step']) for s in r['steps']]" \
+              "$RUNNER_TEMP/install-check/installer-check.json" 2>/dev/null || echo "- no report (see the log)"
+          } >> "$GITHUB_STEP_SUMMARY"
