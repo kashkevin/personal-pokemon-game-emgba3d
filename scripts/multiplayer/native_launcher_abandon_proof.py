@@ -52,6 +52,7 @@ import signal
 import sys
 import threading
 import time
+import traceback
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "windows-runtime"))
 from native_launcher_battle_proof import Player, drive_battle_input, launcher_proof  # noqa: E402
@@ -75,6 +76,7 @@ class AbandonProof:
         self.harness = None
         self.before_saves = None
         self.thread_slot = {}
+        self.watched = set()
 
     def adopt(self, harness):
         """One machine stands in for four PCs: a game a launcher starts again by itself (after abandoning) opens on
@@ -90,6 +92,39 @@ class AbandonProof:
                 options["env"] = dict(os.environ, DISPLAY=harness.args.display[slot])
             return await real(program, *arguments, **options)
         asyncio.create_subprocess_exec = spawn
+
+    def watch_loop(self, n, worker):
+        """Proof instrumentation, nothing in the launcher changes: a stall of seconds in a launcher's event loop (the
+        host's runs the world server, the battle router and its own companion) can let a native battle's held
+        deadline expire. A watchdog thread writes every stall over 1.5 s, with the stack that blocked the loop, to
+        <output>/loop-stalls.jsonl."""
+        loop, thread = getattr(worker, "_loop", None), getattr(worker, "_thread", None)
+        if loop is None or thread is None or (n, thread.ident) in self.watched:
+            return
+        self.watched.add((n, thread.ident))
+        beat = [time.monotonic()]
+
+        async def heartbeat():
+            while True:
+                beat[0] = time.monotonic()
+                await asyncio.sleep(.1)
+        asyncio.run_coroutine_threadsafe(heartbeat(), loop)
+        path = self.harness.output / "loop-stalls.jsonl"
+
+        def watchdog():
+            stalled, stack = None, None
+            while thread.is_alive():
+                time.sleep(.25)
+                last = beat[0]
+                if stalled is not None and last != stalled:
+                    with path.open("a") as out:
+                        out.write(json.dumps(dict(slot=n, player=self.harness.names[n], seconds=round(last - stalled, 2),
+                                                  wall=time.strftime("%H:%M:%S"), stack=stack)) + "\n")
+                    stalled = stack = None
+                elif stalled is None and time.monotonic() - last > 1.5:
+                    frame = sys._current_frames().get(thread.ident)
+                    stalled, stack = last, traceback.format_stack(frame)[-30:] if frame is not None else []
+        threading.Thread(target=watchdog, name=f"loop-watchdog-{n}", daemon=True).start()
 
     def own_display(self, n, worker):
         thread = getattr(worker, "_thread", None)
@@ -370,6 +405,7 @@ class AbandonProof:
             raise Reproduced(f"{harness.names[n]} cannot open the world again after the interrupted battle "
                              f"(launcher status {code})") from None
         self.own_display(n, again.worker)
+        self.watch_loop(n, again.worker)
         revision = await harness.ready(again)
         harness.players[n] = again
         current[n], games[n], probes[n] = again.worker, again.game, again.probe
@@ -427,6 +463,7 @@ class AbandonProof:
         self.before_saves = await on_worker(current[0], saves)
         for n, worker in enumerate(current):
             self.own_display(n, worker)
+            self.watch_loop(n, worker)
         before_sessions = [await self.state_of(w) for w in current]
         require(all(v["connected"] and v["game_link"] and v["roster"] == 4 for v in before_sessions),
                 f"not everyone is in the session: {before_sessions}")
