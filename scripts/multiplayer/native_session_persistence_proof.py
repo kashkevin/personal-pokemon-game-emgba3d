@@ -6,7 +6,7 @@ one native game per player on its own X display, driven by ordinary key presses.
 
     1. Every game is linked to the session and has every other player (the game's own multiplayer.c state, read from
        its memory: sConnected, its peers and their activity); every Players tab lists everyone ("Connected: N/4").
-       The world's first mass outbreak starts a minute in (its settings file; the default is 8-15 minutes): every
+       The world's first mass outbreak starts four active minutes in (its settings file; the default is 8-15): every
        game holds its Town Map marker (the shared-world record's bytes 192-199) and stays linked.
     2. A player walks to a shared wild Pokemon and talks to it: an ordinary wild battle. For 25 s (longer than the
        server's presence and idle timeouts) every other game keeps that player as a peer (hidden, activity 0), every
@@ -43,6 +43,7 @@ import sys
 import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "windows-runtime"))
+import native_launcher_battle_proof  # noqa: E402
 from native_launcher_battle_proof import LauncherHarness  # noqa: E402
 from qualify_admission_cleanup import on_worker, require  # noqa: E402
 
@@ -52,8 +53,8 @@ ROUTE_101, LITTLEROOT = (0, 16), (0, 9)
 WAYPOINTS = ((7, None), (7, 16), (10, 16), (10, 19))
 NAMES = ("Host Hana", "Friend Finn", "Friend Fay", "Friend Flo")
 BATTLE_SECONDS = 25
-OUTBREAK_AFTER = 60     # active seconds before this world's first mass outbreak (the default is 8-15 minutes)
-OUTBREAK_WAIT = 300
+OUTBREAK_AFTER = 240    # active seconds before this world's first mass outbreak (the default is 8-15 minutes)
+OUTBREAK_WAIT = 480
 
 
 def engine_addresses(game):
@@ -347,9 +348,9 @@ async def scenario(harness, players, session):
             f"the Players tab does not list everyone: {status} {rows}")
     record("players-tab-baseline", slot=1, status=status, rows=rows)
 
-    # A mass outbreak (this world's settings start the first one a minute in, not after 8-15 minutes): its place rides
-    # in the shared-world record's bytes 192-199 for the Town Map, which the game's bridge refused until 2026-10-19 and
-    # then stopped for good, on every game at once.
+    # A mass outbreak (this world's settings start the first one four active minutes in, not after 8-15): its place
+    # rides in the shared-world record's bytes 192-199 for the Town Map, which the game's bridge refused until
+    # 2026-10-19 and then stopped for good, on every game at once.
     async with asyncio.timeout(OUTBREAK_WAIT):
         while not all([(await session.companion_view(p))["outbreak"] for p in players]):
             await asyncio.sleep(1)
@@ -438,6 +439,19 @@ async def scenario(harness, players, session):
     return walker
 
 
+def create_world_with_an_early_outbreak(*args, **kwargs):
+    """The production world, with its outbreak settings file written before anything opens the world: the first
+    server (enrollment's) saves the outbreak timer, and every later start resumes that timer."""
+    host = create_world(*args, **kwargs)
+    path = host.database_path.with_name(host.database_path.name + ".outbreaks.json")
+    path.write_text(json.dumps({"first_delay": [OUTBREAK_AFTER, OUTBREAK_AFTER]}))
+    return host
+
+
+create_world = native_launcher_battle_proof.create_world
+native_launcher_battle_proof.create_world = create_world_with_an_early_outbreak
+
+
 async def run(args):
     count = len(args.source)
     require(count in (2, 4) and len(args.display) == count, "two or four sources, one display each")
@@ -445,8 +459,6 @@ async def run(args):
                               version="Session persistence proof", scope=__doc__.split("\n\n")[0])
     async with harness:
         await harness.setup_world()
-        outbreaks = harness.host.database_path.with_name(harness.host.database_path.name + ".outbreaks.json")
-        outbreaks.write_text(json.dumps({"first_delay": [OUTBREAK_AFTER, OUTBREAK_AFTER]}))
         players = []
         for slot in range(count):
             player = await harness.start("session", slot)
