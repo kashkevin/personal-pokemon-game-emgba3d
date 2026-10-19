@@ -70,8 +70,8 @@ map 0.19, both games held its marker (`1, 0, 19, 0, 0, 0, 0, 0`) and stayed link
 
 `Companion._remote_once` ended the world session whenever **any** of its tasks finished. The rival poller finishes by
 design when a host refuses rival status (a host without rival checkpoints, such as the server that runs enrollment). The
-companion then reconnected in a loop (every 0.25 s, its reconnect delay); with the launcher's terminal saver armed it would not reconnect at
-all (`_disconnect_remote` blocks reconnecting and starts host-loss preservation). In the reproduction this made the host's
+companion then reconnected in a loop (every 0.25 s, its reconnect delay); with the launcher's terminal saver armed it
+would not reconnect at all (`_disconnect_remote` blocks reconnecting and starts host-loss preservation). In the reproduction this made the host's
 own character enrollment fail ("The authenticated host connection is unavailable", from a `ConnectionResetError`).
 
 ## Changes
@@ -106,7 +106,7 @@ App (`claude/admiring-bohr-dpxzuy`):
   (protocol 3 already allowed them; no new message or field, so an older host or friend still accepts them).
 - `player_menu.py`: the Players list shows what each player is doing ("Friend Finn - In battle", "In a menu",
   "Changing area", "Busy"), on the field their friendship level as before; a player's page starts with what they are doing
-  and where ("In battle: Route 101"). The list is the session's roster: only leaving the session removes a player.
+  and where ("In battle: ROUTE 101"). The list is the session's roster: only leaving the session removes a player.
 - `server.py`: the co-op Gym's "teammate must be here" check and friendship time keep their previous rule (the teammate
   on the field). Before this change a teammate in a battle or a menu was "unavailable", so both keep exactly what they
   did.
@@ -147,8 +147,8 @@ A game publishes its pose every frame, battles and menus included, so a long bat
 ### The production proof (`scripts/multiplayer/native_session_persistence_proof.py`)
 
 The same launcher path as the reproduction (world creation, enrollment of every character, hosting with the store,
-battles and rival checkpoints on), native Linux 2D games of engine `16d0aa55`, one X display per player, ordinary key
-presses only; the checks read the companions, the server and the games' memory. Each player starts on Route 101 from
+battles and rival checkpoints on), native Linux 2D games (engine `16d0aa55`; the final runs `3f06fd20`), one X display
+per player, ordinary key presses only; the checks read the companions, the server and the games' memory. Each player starts on Route 101 from
 its own save.
 
 1. Everyone linked: every game's bridge up, each game drawing all the others; PLAYERS lists everyone ("Connected: N/4").
@@ -164,7 +164,7 @@ its own save.
 | Run | Players | Result |
 | --- | --- | --- |
 | session-2p-10 | host, friend | **passed**: both battles held 25 s (13 observations each) with the sessions unchanged (host 6, friend 7); "Host Hana - In battle", "Friend Finn - In battle"; back on the field in the same sessions; "Field: LITTLEROOT TOWN"; "Connected: 1/4" after the close, "Connected: 2/4" after the rejoin; store check passed |
-| session-4p-final | host and three friends, engine `3f06fd20` | **passed**: everything below, plus the world's first outbreak (map 0.31) with its marker in all four games and every game linked through it; the host fought its battle out and won, a friend ran, two friends battled at the same time; sessions 10-13 unchanged throughout; "Connected: 3/4" after the close, "4/4" after the rejoin; no game logged a disconnect |
+| session-4p-final | host and three friends, engine `3f06fd20` | **passed**: all the checks above, plus the world's first outbreak (map 0.31) with its marker in all four games and every game linked through it; the host fought its battle out and won, a friend ran, two friends battled at the same time; sessions 10-13 unchanged throughout; "Connected: 3/4" after the close, "4/4" after the rejoin; no game logged a disconnect |
 | session-4p-3 | host and three friends, engine `16d0aa55` | **passed**: all four linked, each game drawing the other three, "Connected: 4/4"; the host fought its wild battle out and **lost**: whited out to the house in Littleroot (a map change in the middle), same session; a friend ran; then **two friends battled at the same time**, both "In battle" on the host's PLAYERS; each battle 25 s with all four sessions unchanged (host 10, friends 11, 12, 13); everyone back on the field; the fourth player in Littleroot listed, "Field: LITTLEROOT TOWN"; "Connected: 3/4" after the close, "Connected: 4/4" after the rejoin; store check passed |
 | session-4p-1, -2 | host and three friends | stopped on the proof's own driving, after the baseline and two battles passed: two players talked to the same wild Pokemon (4p-1; the battles now start one after the other), no wild Pokemon in a straight line within 240 s (4p-2; the proof now lines up with one) |
 
@@ -211,7 +211,7 @@ games were still linked to each other in the same sessions. Not a pass; the sess
    CONTINUE.
 3. Both on Route 101: each sees the other walking. START > PLAYER > PLAYERS: "Connected: 2/4" and the other's name.
 4. Host walks into the grass until a wild Pokemon battle starts. Friend: the host's character disappears from the field;
-   START > PLAYER > PLAYERS lists "<host> - In battle"; open it: "In battle: Route 101".
+   START > PLAYER > PLAYERS lists "<host> - In battle"; open it: "In battle: ROUTE 101".
 5. Host runs from the battle. Friend: the host appears again where they stood, without anyone reconnecting.
 6. Swap roles (friend battles, host checks).
 7. Friend walks south into Littleroot Town and into a house (a door). Host: PLAYERS still lists the friend; their page says
@@ -221,5 +221,7 @@ games were still linked to each other in the same sessions. Not a pass; the sess
    enrolled twice). PLAYERS shows "Connected: 3/4" or "4/4" and everyone else, the host included. Two players start
    battles at the same time: both are listed "In battle" on the other PCs and both come back; nobody else changes. A
    fifth PC trying to join is told "The world is full" and can join once someone leaves.
-10. If anything disappears again: in the game's launch folder, `runtime.log`'s last lines say whether the game's link
+10. Keep playing together for 15 minutes or more: the world's first mass outbreak starts (a notice on both screens); nobody
+   disappears and PLAYERS keeps everyone (before this fix every game lost its link at that moment).
+11. If anything disappears again: in the game's launch folder, `runtime.log`'s last lines say whether the game's link
    stopped (`Multiplayer bridge disconnected: ...`), and START > PLAYER > PLAYERS now says why it cannot open.
