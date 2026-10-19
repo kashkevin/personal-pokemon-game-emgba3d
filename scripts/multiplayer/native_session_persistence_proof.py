@@ -198,8 +198,8 @@ class Session:
                 else:
                     await asyncio.sleep(.5)
 
-    async def step(self, player, key):
-        """One ordinary step; a wild Pokemon that walks up and starts a battle is run from."""
+    async def step(self, player, key, flee=True):
+        """One ordinary step; a wild Pokemon that walks up and starts a battle is run from (unless flee is False)."""
         before = await self.pose(player)
         await player.probe.press(key, frames=8, release=1)
         deadline = time.monotonic() + 1.5
@@ -208,7 +208,7 @@ class Session:
             now = await self.pose(player)
             if now is not None and now[0] == 0:
                 await asyncio.sleep(1.5)
-                if await self.in_battle(player):
+                if flee and await self.in_battle(player):
                     self.h.record("ran-from-a-wild-pokemon-on-the-way", slot=player.slot)
                     await self.run_away(player)
                 return await self.pose(player)
@@ -220,7 +220,8 @@ class Session:
     async def start_wild_battle(self, player, seconds=240):
         """An ordinary wild battle, as a player gets one in the grass: stay in the grass where the game started, talk
         to a shared wild Pokemon (A) when one is next to the player or a few clear steps away in a straight line,
-        and otherwise wait: wild Pokemon roam and walk up to a player standing in the grass."""
+        line up with one a few steps away (the shorter way first, the other way when that one is blocked), and
+        otherwise wait: wild Pokemon roam and walk up to a player standing in the grass."""
         home = None
         deadline = time.monotonic() + seconds
         while time.monotonic() < deadline:
@@ -250,7 +251,16 @@ class Session:
                 await asyncio.sleep(2)
             elif target is not None and (dx == 0 or dy == 0) and abs(dx) + abs(dy) <= 4 \
                     and abs(target["x"] - home[0]) + abs(target["y"] - home[1]) <= 5:
-                await self.step(player, (RIGHT if dx > 0 else LEFT) if dx else (DOWN if dy > 0 else UP))
+                await self.step(player, (RIGHT if dx > 0 else LEFT) if dx else (DOWN if dy > 0 else UP), flee=False)
+            elif target is not None and abs(dx) + abs(dy) <= 6 \
+                    and abs(target["x"] - home[0]) + abs(target["y"] - home[1]) <= 6:
+                keys = [RIGHT if dx > 0 else LEFT, DOWN if dy > 0 else UP]
+                if abs(dy) < abs(dx):
+                    keys.reverse()
+                for key in keys:
+                    moved = await self.step(player, key, flee=False)
+                    if moved is None or moved[4:] != pose[4:]:
+                        break
             elif abs(pose[4] - home[0]) + abs(pose[5] - home[1]) > 2:
                 hx, hy = home[0] - pose[4], home[1] - pose[5]
                 await self.step(player, (RIGHT if hx > 0 else LEFT) if hx else (DOWN if hy > 0 else UP))
