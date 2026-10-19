@@ -153,6 +153,7 @@ On a PC without 3D (the runner) every start first asks "3D graphics cannot start
 | r6 (`--linux --loopback`) | Linux, the real menu (`--shell`) and real games, two X displays; hosted on "This PC only" (the cloud PC's only address, 192.0.2.2, is a documentation address invitations refuse) | **passed**: both New Games; Solo 1 -> 2; Host World 1 -> 2 (code copied, 127.0.0.1:7778); Join Friend 1 -> 2 in the host's world, "Connected to the host's world."; Exit 0 twice; no errors |
 | installed check 39296878554 / 39298566536 (installer of run 39293623472, before MS-13) | Windows CI | **failed at Solo**: both New Games passed on Windows; the character could not enter the Solo world (MS-13) |
 | installed check **39303520514**, play-check job (installer of windows-package run **39300939302**, `EmeraldTogether-Setup-EmeraldTogether-2026-10-19-session-fix-5.exe`) | Windows CI | **passed** (10 min 24 s): both menus open; "3D graphics cannot start" answered with Classic 2D (both players); both New Games (2 min 19 s each); Solo: World 1 on 127.0.0.1, entered (revision 1), Save now (1 -> 2), "Your world is running and your game is connected to it."; Host World: CI Hosted World on the runner's network address **10.1.0.44:7778**, invite code copied and decoded (slot 1), entered (1), Save now (1 -> 2); Join Friend: the code typed in, Check and join, the friend's character entered the host's world (1), the friend's game: Save now (1 -> 2 in the host's world), "Connected to the host's world."; both closed; both characters' latest saves are the hosted world's; Exit code 0 twice; no error recorded |
+| windows-package run **#81** (`39305831099`), its own installation check (the delivered installer, `EmeraldTogether-Setup-EmeraldTogether-2026-10-19-session-fix-6.exe`) | Windows CI | **passed** (10 min 36 s): the same steps on a fresh runner (network address 10.1.0.11): Classic 2D chosen for both; both New Games; Solo: World 1 on 127.0.0.1, entered (1), Save now (1 -> 2); Host World: CI Hosted World on **10.1.0.11:7778**, invite code copied (slot 1), entered (1), Save now (1 -> 2); Join Friend: the code typed in, entered the host's world (1), Save now (1 -> 2), "Connected to the host's world."; both characters' latest saves are the hosted world's; Exit code 0 twice; no error recorded. Its Create World step passed too (default network 10.1.0.11:7777, invite code, rename, public address, delete, hosting up to the game, a restart), and the installed game logged `Multiplayer bridge: ... detail 1 ffa 1` |
 | installed check 39303520514, world-check job (the same installer; and the crashed build 39180878911) | Windows CI | **passed**: the old build's crash reproduced; the new build over the old one's leftover data and on a fresh profile: Create World on the network address and with a public address, invite code, rename, delete, hosting up to the game (the 3D question answered with Classic 2D), restart with the worlds kept |
 
 Create World is also covered by the installed world check (`ci_world_check.py`: on the default network and with a public
@@ -171,11 +172,15 @@ address, invite code, rename, delete, hosting up to the game opening, a restart;
 
 | Suite | Where | Result |
 | --- | --- | --- |
-| App suite (`pytest`, xvfb), app `d34d473` working tree | Linux | **2331 passed, 1 failed, 2 skipped** (809 s). The failure, `test_launcher_menu.py::...worlds_are_listed...` (the classic launcher's Host button disabled), is this cloud PC's: it failed the same way before today's changes (this session's earlier run: 2314 passed, the same 1 failed) and passes on GitHub's runner |
-| `python-tests` (GitHub, Ubuntu) | CI | success on every push of this round up to `7259c9f` (runs 152-159) |
+| App suite (`pytest`, xvfb), app `d34d473` working tree | Linux | **2331 passed, 1 failed, 2 skipped** (809 s). The failure, `test_launcher_menu.py::...worlds_are_listed...` (the classic launcher's Host button disabled), is this cloud PC's: it failed the same way before today's changes (this session's earlier run: 2314 passed, the same 1 failed; run alone on the unchanged default `30dffa7` here: the same failure) and passes on GitHub's runner |
+| `python-tests` (GitHub, Ubuntu) | CI | success on every push of this round, up to `3036be2` (runs 152-162) |
 | Engine `make -f Makefile_pc NATIVE_LINUX=1 check-native check-abi` on `44b6ebea` | Linux | **0 failures** in every suite: 1067, 4393 (the bridge, `test_mp_bridge`), 307, 22148, 28215, 8694, 15 and 176 (the free-for-all) checks; ABI layout parity OK (172 types); the pictures decode |
+| Engine self-tests on `44b6ebea` (`check-rival check-mp-objects check-spawn-claims check-pokenav-map check-game-sections`) | Linux | 0 failures: 31, 21, 23 and 8 checks; game sections: 528 global variables checked |
+| Engine renderer checks on `44b6ebea` (`DIORAMA=1 check-diorama`) | Linux | exit 0: every suite passed (camera 403 checks, far field 54618, props 7991, battle stage, UI overlay, rules and more); compositor goldens: 18318 metatiles, 75 tilesets; "diorama rules are valid" |
 | GBA ROM | Linux | `pokedev.gba` sha256 `f214735b64e113fd10730eacca5764d757f2c93a3685230aa905af7a7cdd3387`, unchanged |
-| windows-package (full), engine `44b6ebea`, app `7259c9f` | Windows CI | run 39300939302 (#79): success (engine build with the manifest check, package, silent install / start / repair / uninstall, installed world check) |
+| windows-package (full), engine `44b6ebea`, app `7259c9f` | Windows CI | run 39300939302 (#79): success, superseded by #81 (engine build with the manifest check, package, silent install / start / repair / uninstall, installed world check) |
+| **windows-package (full), engine `44b6ebea`, app `691a162`: the delivered installer** | Windows CI | run **39305831099 (#81): success**. ROM pin `f214735b...3387`; "PC-only markers in the manifest: ['battle_ffa_abi_version', 'rival_abi_version', 'presence_detail_abi_version']"; the packaged 3D and Classic 2D games are the engine job's build; graphics checks 16 of 16; in-game menu check; installer `EmeraldTogether-Setup-EmeraldTogether-2026-10-19-session-fix-6.exe`, 57,617,861 bytes, SHA-256 `797688b1b698a16184cb83ffe55622e5d29c2febcd55a9b26a66c9bc8badc1c9` (artifact `EmeraldTogether-Windows-Installer`, ID 12213904832, zip digest `b7691465...92ecf3`, unsigned, kept 7 days); silent install / start / repair / uninstall; Create World; the play check (section 4). Report: artifact `EmeraldTogether-installer-check-full` 12213814881 |
+| windows-package push run #80 (smoke) | Windows CI | success |
 
 ## 7. What was not run
 
@@ -189,7 +194,7 @@ address, invite code, rename, delete, hosting up to the game opening, a restart;
 
 ## 8. On two or four PCs
 
-Install the fixed installer on each PC (the earlier installers have MS-13).
+Install `EmeraldTogether-Setup-EmeraldTogether-2026-10-19-session-fix-6.exe` (run #81) on each PC; the installers before run #79 have MS-13.
 
 1. Host World, create a world, Host this world now; give each friend their invite code; each friend: Join Friend, Join with
    an invite code, paste, Check and join. Each game shows the others.
