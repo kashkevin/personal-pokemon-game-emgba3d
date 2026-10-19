@@ -179,7 +179,14 @@ engine job's build, graphics checks 16/16 (the runner has no 3D, as before), the
 runner the installer `EmeraldTogether-Setup-EmeraldTogether-2026-10-19-session-fix-2.exe` (57,621,298 bytes, SHA-256
 `36d27a2485134ca6f0a5383f5817463427df4bc532dfc6cab4422e09884a588b`, artifact `EmeraldTogether-Windows-Installer`)
 installed, started, repaired and uninstalled, and Create World ran through the installed build's menu window. The
-installed game's log reads `Multiplayer bridge: ... detail 1` (the new capability). A two-player run of the proof with this engine's Windows game under Wine: running.
+installed game's log reads `Multiplayer bridge: ... detail 1` (the new capability).
+
+The proof with this engine's Windows game (`pokeemerald-mp.exe`, built here from `3f06fd20`) under Wine, two players,
+three runs (session-wine-2p, -2, -3): every time both games linked, both held the outbreak marker, a battle held 25 s
+with both sessions unchanged and "Host Hana - In battle" on the friend's PLAYERS, every Windows game logged
+`detail 1` and none a disconnect. None of them reached the end: the proof's own key presses were lost under Wine (a
+walk blocked 40 times, the arrows to RUN for a whole battle, then most presses while fighting), and at each stop both
+games were still linked to each other in the same sessions. Not a pass; the session part held throughout.
 
 ## What was not run
 
@@ -191,6 +198,9 @@ installed game's log reads `Multiplayer bridge: ... detail 1` (the new capabilit
   (`gMain.inBattle`, or a multiplayer battle in progress) and every map load through the same callbacks, so they take
   the same path; the multiplayer battle proofs of earlier builds (`native-launcher-battle-1`, `native-launcher-multi-10`)
   were not rerun.
+- A Lucky Trade in a game (the bridge fix is unit-tested only), and the Free-for-all 1v1v1v1, which the bridge still
+  refuses (KNOWN_ISSUES MS-11; its own change). The emulator fallback's Lua bridge has the same checks (MS-9).
+- A complete proof run with the Windows game: under Wine the proof's key presses were unreliable (above).
 - The 3D build: the runner has no graphics card. The bridge, the presence detail and the Players menu are the same code
   in both builds.
 
