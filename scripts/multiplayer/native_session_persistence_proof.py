@@ -284,13 +284,22 @@ class Session:
         here = await self.pose(player)
         require(here is not None and tuple(here[2:4]) == ROUTE_101, f"expected Route 101: {here}")
         for x, y in WAYPOINTS:
-            for _ in range(40):
+            stuck = 0
+            for _ in range(60):
                 now = await self.pose(player)
                 ty = now[5] if y is None else y
                 if (now[4], now[5]) == (x, ty):
                     break
                 key = (RIGHT if x > now[4] else LEFT) if now[4] != x else (DOWN if ty > now[5] else UP)
-                await self.step(player, key)
+                after = await self.step(player, key)
+                if after is None or after[2:] != now[2:]:
+                    stuck = 0
+                    continue
+                stuck += 1
+                if stuck % 3 == 0:
+                    # Something stands in the way (a wild Pokemon, a person): one step aside, then on.
+                    aside = (DOWN, UP) if key in (LEFT, RIGHT) else (RIGHT, LEFT)
+                    await self.step(player, aside[(stuck // 3) % 2])
             else:
                 raise AssertionError(f"could not reach {(x, y)} from {await self.pose(player)}")
         for _ in range(10):
