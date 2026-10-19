@@ -21,6 +21,17 @@ starts four native games, one per X display, driven by ordinary key presses. Rec
 The sources stand in Route 101's grass; each character is first walked south into Littleroot Town (no wild Pokemon
 there), to a spot of its own, while it is enrolled, so the battle and the saves happen in Littleroot.
 
+--leave-after SECONDS (a player leaves during the battle; exploratory, what happens is recorded): the battle runs that
+long, then the last friend closes their game the ordinary way. For the next --watch seconds (beyond the host's 180 s
+battle deadline) the proof records, every 30 s, what each launcher reports for the three who stayed (status, link to the
+world, roster, on the field or not, whether "Recover interrupted battle" is offered) and the host's battle state. Then
+whoever is still held in the battle closes their game too, and everyone who closed starts again from the launcher
+(rejoin). If the launchers let them in: all four linked, PLAYERS "Connected: 4/4", every party the canonical one, then
+step 5 as above. If a launcher refuses (an interrupted native battle is held for recovery by the original games, which
+are closed now: "pending_battle"), that is recorded and the run ends there. ffa-leave-1 (2026-10-19): nobody else was
+disconnected; the three who stayed were held in the battle ("battle_recovery_held") for the whole watch; after closing,
+the host's launcher refused to open the world again (pending_battle).
+
     PYTHONPATH=src:scripts/multiplayer:scripts/windows-runtime \\
       python scripts/multiplayer/native_launcher_ffa_proof.py \\
         --game ../engine/pokeemerald-mp --rom pokedev.gba --manifest manifest.json \\
@@ -33,7 +44,9 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
 from pathlib import Path
+import signal
 import struct
 import sys
 import time
@@ -180,8 +193,101 @@ def save_regions(checkpoint):
 class FreeForAll:
     """The match (step 2-4) and the comparison of the saves (step 5) for launcher_proof."""
 
-    def __init__(self, match_seconds):
+    def __init__(self, match_seconds, leave_after=None, watch=240):
         self.match_seconds, self.before_saves = match_seconds, None
+        self.leave_after, self.watch = leave_after, watch
+        self.harness = None
+
+    async def leave_and_rejoin(self, current, probes, games, host, record, battle_id, blocks, drivers, stops, started,
+                               session, before, sessions_before):
+        """--leave-after: the last friend closes their game during the battle; what the others see is recorded."""
+        harness, leaver = self.harness, 3
+        async with asyncio.timeout(self.leave_after + 300):
+            while time.monotonic() - started < self.leave_after or len(blocks) < 20:
+                for driver in drivers:
+                    if driver.done():
+                        await driver
+                await asyncio.sleep(.2)
+        stops[leaver].set()
+        await drivers[leaver]
+        record("leaving-during-the-free-for-all", slot=leaver, seconds=round(time.monotonic() - started),
+               routed_blocks=len(blocks))
+        game = games[leaver]
+        os.kill(game.process.pid, signal.SIGTERM)                 # an ordinary close (SDL turns it into a quit)
+        await harness.poll_until(lambda: game.process.returncode is not None, 60)
+        await harness.poll_until(lambda: not current[leaver].busy, 180)
+        record("left-during-the-free-for-all", slot=leaver, exit_code=game.process.returncode)
+
+        async def state(s):
+            c = s._companion
+            pose = pose_of(c)
+            return dict(code=s.status.code, connected=c.connected, game_link=c._bridge is not None, roster=len(c._players),
+                        field=pose is not None and pose[0] == 1, can_save=bool(s.can_save),
+                        recovery_offered=bool(getattr(s.status, "battle_recovery_available", False)),
+                        game_running=s._game is not None and s._game.process.returncode is None)
+
+        async def host_battle(s):
+            desk = s._server.battle_desk
+            battle = desk._active.get(battle_id) or desk._history.get(battle_id)
+            room = s._server.battle_execution.rooms.get(battle_id)
+            return dict(desk=None if battle is None else battle.state, reason=None if battle is None else battle.reason,
+                        room=None if room is None else room.state)
+        stayed = [n for n in range(4) if n != leaver]
+        watch_started = time.monotonic()
+        while True:
+            states = {n: await on_worker(current[n], state) for n in stayed}
+            record("after-the-leave", seconds=round(time.monotonic() - watch_started), host_battle=await on_worker(current[0], host_battle),
+                   players={PLAYER_NAMES[n]: v for n, v in states.items()})
+            if all(v["field"] and v["can_save"] for v in states.values()) or time.monotonic() - watch_started >= self.watch:
+                break
+            await asyncio.sleep(30)
+        for n in stayed:
+            stops[n].set()
+        await asyncio.gather(*(drivers[n] for n in stayed), return_exceptions=True)
+        held = [n for n, v in states.items() if not (v["field"] and v["can_save"])]
+        record("still-held-in-the-battle" if held else "everyone-who-stayed-is-back-on-the-field",
+               players=[PLAYER_NAMES[n] for n in (held or stayed)])
+        for n in held:                                           # their way out: close the game, as the leaver did
+            os.kill(games[n].process.pid, signal.SIGTERM)
+            await harness.poll_until(lambda g=games[n]: g.process.returncode is not None, 60)
+            await harness.poll_until(lambda w=current[n]: not w.busy, 180)
+            record("closed-a-held-game", slot=n, exit_code=games[n].process.returncode)
+        pending = [n for n in range(4) if (harness.players[n].worker.private_root / "players").exists() and any(
+            (path / "pending-battle.json").exists() for path in (harness.players[n].worker.private_root / "players").glob("*/*"))]
+        record("battle-recovery-intents-left", players=[PLAYER_NAMES[n] for n in pending])
+        for n in sorted(held + [leaver]):                        # everyone who closed starts again from the launcher
+            try:
+                again = await harness.start("rejoin", n)
+            except AssertionError:
+                # The launcher refuses to open a character an interrupted native battle still holds (pending_battle):
+                # recovery needs the original games, and they are closed. Recorded as the result of this run.
+                worker = harness.workers[-1]
+                code = getattr(worker, "_status_code", None)
+                record("rejoin-refused", slot=n, status=code)
+                raise AssertionError(f"{PLAYER_NAMES[n]} cannot open the world again after the interrupted free-for-all "
+                                     f"(launcher status {code})") from None
+            await harness.ready(again)
+            harness.players[n] = again
+            current[n], games[n], probes[n] = again.worker, again.game, again.probe
+            record("rejoined", slot=n, pid=again.game.process.pid)
+        async with asyncio.timeout(120):
+            while True:
+                states = [await on_worker(w, session) for w in current]
+                if all(v["connected"] and v["game_link"] and v["roster"] == 4 and v["pose"] is not None and v["pose"][0] == 1
+                       for v in states):
+                    break
+                await asyncio.sleep(.5)
+        for index, probe in enumerate(probes):
+            status, rows = await players_tab(probe)
+            require(status == "Connected: 4/4", f"player {index}'s PLAYERS after rejoining: {status} {rows}")
+        for index, probe in enumerate(probes):
+            state_now = await probe.battle()
+            require(state_now["count"] == before[index]["count"] and state_now["party_sha256"] == before[index]["party_sha256"],
+                    f"player {index}'s party is not the one from before the battle")
+        record("everyone-back-linked-with-their-parties", sessions=[v["epoch"] for v in states],
+               replaced=[v["epoch"] != o["epoch"] for v, o in zip(states, sessions_before)],
+               host_battle=await on_worker(current[0], host_battle))
+        return None
 
     async def match(self, current, probes, games, host, symbols, record):
         async def identity(s):
@@ -246,10 +352,13 @@ class FreeForAll:
                 return dict(state=room.state, pending=None if room.route is None else room.route.validator.pending[slot])
             return await on_worker(current[0], read)
 
-        stop = asyncio.Event()
+        stops = [asyncio.Event() for _ in probes]
         drivers = [asyncio.create_task(drive_battle_input(p, lambda slot=slot: view(slot), symbols, stop))
-                   for p, slot in zip(probes, slots)]
+                   for p, slot, stop in zip(probes, slots, stops)]
         started = time.monotonic()
+        if self.leave_after is not None:
+            return await self.leave_and_rejoin(current, probes, games, host, record, battle_id, blocks, drivers, stops,
+                                               started, session, before, sessions_before)
 
         async def finished(s):
             if (s._save_failed and s._interaction is None
@@ -272,7 +381,8 @@ class FreeForAll:
                         report_at = time.monotonic() + 30
                     await asyncio.sleep(.1)
         finally:
-            stop.set()
+            for stop in stops:
+                stop.set()
             await asyncio.gather(*drivers)
         seconds = round(time.monotonic() - started, 1)
 
@@ -338,11 +448,12 @@ class FreeForAll:
 
 async def run(args):
     require(len(args.source) == 4, "four sources, one per player")
-    ffa = FreeForAll(args.match_seconds)
+    ffa = FreeForAll(args.match_seconds, args.leave_after, args.watch)
     await launcher_proof(args, names=PLAYER_NAMES, sources=args.source, party_counts=(1,) * 4, match=ffa.match,
                          version="Native free-for-all proof", settings="windowScale=2\n",
                          scope=__doc__.split("\n\n")[0], after_boot=into_littleroot, after_save=ffa.after_save,
-                         environment=dict(SDL_FRAMEBUFFER_ACCELERATION="0"))
+                         environment=dict(SDL_FRAMEBUFFER_ACCELERATION="0"),
+                         on_harness=lambda harness: setattr(ffa, "harness", harness))
 
 
 def main():
@@ -356,6 +467,8 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--slow", type=float, default=1.0)
     parser.add_argument("--match-seconds", type=float, default=MATCH_SECONDS)
+    parser.add_argument("--leave-after", type=float, help="the last friend closes their game this long into the battle")
+    parser.add_argument("--watch", type=float, default=240, help="with --leave-after: how long to watch the others")
     parser.add_argument("--wine", type=Path, action="append", help="a Wine prefix per player: Windows clients")
     parser.add_argument("--sdl", type=Path, help="SDL2.dll for the Windows game")
     parser.add_argument("--elf", type=Path, help="the Linux build of the same engine commit (symbol sizes)")

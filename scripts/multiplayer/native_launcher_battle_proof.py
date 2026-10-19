@@ -728,13 +728,18 @@ class LauncherHarness:
 
 
 async def launcher_proof(args, *, names, sources, party_counts, match, version, settings=None, scope=None,
-                         after_boot=None, environment=None, after_save=None):
+                         after_boot=None, environment=None, after_save=None, on_harness=None):
     """World and enrollment, then two phases of real launcher workers (host, then
     each friend): `match(current, probes, games, host, symbols, record)` and manual
     saves in the first, then `after_save(current, host, record)` if given, fresh
-    Continue in the second; both end with a normal close, friends first."""
+    Continue in the second; both end with a normal close, friends first.
+    `on_harness(harness)` gets the harness first (a match that closes and restarts a
+    player's game: `harness.players` is the phase's players; a match that replaces one
+    updates the lists it was given in place)."""
     harness = LauncherHarness(args, names=names, sources=sources, party_counts=party_counts, version=version,
                               settings=settings, scope=scope, after_boot=after_boot, environment=environment)
+    if on_harness is not None:
+        on_harness(harness)
     async with harness:
         await harness.setup_world()
         host, expected, record = harness.host, harness.expected, harness.record
@@ -752,6 +757,7 @@ async def launcher_proof(args, *, names, sources, party_counts, match, version, 
             record("actual-launcher-workers-ready", phase=phase, pids=[g.process.pid for g in games],
                    load_average=[round(v, 2) for v in os.getloadavg()])
             if phase == "battle-and-save":
+                harness.players = players
                 outcome = await match(current, probes, games, host, harness.symbols, record)
                 if isinstance(outcome, dict) and "expected" in outcome:
                     # A battle that changes parties (co-op experience): its own
