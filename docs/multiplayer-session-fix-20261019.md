@@ -58,7 +58,11 @@ rival fix alone every game would still lose its link then, all at once, and a ga
 it at once. The two-player runs ended before the first outbreak; the Town Map was only ever checked with the engine's
 injected test marker, and the outbreak proof (native-outbreak-5) ran on an engine from before Update 18.
 
-The launcher proof with an outbreak a minute in, on the game before this fix and after it: running.
+Reproduced through the launcher: the proof now gives the world an outbreak settings file (first outbreak after four
+active minutes instead of 8-15). On the game with only the rival fix (engine `16d0aa55`), run outbreak-before-2p:
+both games linked, PLAYERS "Connected: 2/4"; when the outbreak started both games logged `Multiplayer bridge
+disconnected: invalid shared-world update` in the same second, and the host's game was left unlinked, without its
+friend and without the marker. On the fixed game: running.
 
 ### A second defect found on the way
 
