@@ -495,6 +495,13 @@ class AbandonProof:
         await self.abandon_from(1, current, probes, games, record)
         await self.abandoned(current, battle_id, record)
         await self.world_is_whole(current, probes, before, record, "everyone-back-after-the-lost-connection")
+        # A team lasts as long as both members' connections (team_desk.py); every restarted game came back on a new
+        # world session, so the players team up again before the rematch.
+        async def teams(s):
+            s._server.team_desk.refresh()
+            return len(s._server.team_desk._teams)
+        record("teams-after-the-abandoned-battle", teams=await on_worker(current[0], teams))
+        await self.form_teams(host, current, probes, record)
         await self.challenge_2v2(probes)
         again = await self.enter(current, probes, range(4), record, "rematch-2v2")
         stops, drivers = self.drive(current, probes, symbols, again, range(4))
