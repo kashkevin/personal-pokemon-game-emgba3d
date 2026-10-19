@@ -473,6 +473,81 @@ class SettingsTests(unittest.TestCase):
         self.assertIn("key.b=Z", text)
         self.assertNotIn("F5", text)
 
+    def test_a_pc_without_3d_creates_and_brings_in_its_character_with_the_classic_2d_game(self):
+        """A New Game and bringing a character into a world start the game too, so they follow the graphics check's choice as
+        playing does. The installed check of 2026-10-19 (windows-package run 39272719523) showed the registration game for Host
+        World starting the 3D game on a PC without 3D: it only reported "Graphics unavailable" and closed."""
+        world = World(self)
+        started = []
+        drafter, register = fake_drafter([]), fake_register([])
+
+        async def drafting(installation, private_root, **options):
+            started.append(("draft", installation.bundle.graphics))
+            return await drafter(installation, private_root, **options)
+
+        async def registering(installation, *arguments, **options):
+            started.append(("register", installation.bundle.graphics))
+            return await register(installation, *arguments, **options)
+
+        worker = FakeWorker(lambda request: "game_closed")
+        driver = Driver(("main", select("solo")), ("confirm", select("yes")), ("create_character", select("go")),
+                        ("solo", select("new")), ("ask_text", select("ok", value="My world")),
+                        ("bring_character", select("go")), main_exit())
+        app, _ = world.app(driver, worker=worker, drafter=drafting, register=registering, graphics_gate=lambda: "2d")
+        app.run()
+        self.assertTrue(driver.done(), driver.steps)
+        self.assertEqual(started, [("draft", "2d"), ("register", "2d")])
+        self.assertEqual([request.graphics for request in worker.requests], ["2d"])
+        self.assertEqual(world.installation.bundle.graphics, "3d")              # the installation itself is not changed
+        # Backing out of the check starts nothing.
+        other = world.peer("other")
+        drafts = []
+        driver = Driver(("main", select("characters")), ("characters", select("create")), ("create_character", select("go")),
+                        ("characters", BACK), main_exit())
+        app, _ = other.app(driver, drafter=fake_drafter(drafts), graphics_gate=lambda: None)
+        app.run()
+        self.assertTrue(driver.done(), driver.steps)
+        self.assertEqual((drafts, app.library.all()), ([], []))
+
+    def test_a_failed_3d_check_asks_once_then_keeps_classic_2d_until_the_menu_closes(self):
+        from dataclasses import replace
+        from unittest.mock import patch
+        from emerald_multiplayer.graphics_mode import ProbeResult
+        from test_graphics_mode import write_bundle as native_bundle
+        world = World(self)
+        folder = world.root / "native"
+        folder.mkdir()
+        world.installation = replace(world.installation, bundle=native_bundle(folder, world.installation.rom_sha256))
+        started, probes = [], []
+        drafter, register = fake_drafter([]), fake_register([])
+
+        async def drafting(installation, private_root, **options):
+            started.append(("draft", installation.bundle.graphics))
+            return await drafter(installation, private_root, **options)
+
+        async def registering(installation, *arguments, **options):
+            started.append(("register", installation.bundle.graphics))
+            return await register(installation, *arguments, **options)
+
+        def probe(executable):
+            probes.append(Path(executable).name)
+            return ProbeResult(False, "functions", "glActiveTexture is missing")
+
+        worker = FakeWorker(lambda request: "game_closed")
+        driver = Driver(("main", select("solo")), ("confirm", select("yes")), ("create_character", select("go")),
+                        ("graphics", lambda s: self.assertIn("Play in Classic 2D this time", labels(s)) or select("classic")),
+                        ("solo", select("new")), ("ask_text", select("ok", value="My world")),
+                        ("bring_character", select("go")), main_exit())
+        app, ui = world.app(driver, worker=worker, drafter=drafting, register=registering, graphics_gate=None)
+        with patch("emerald_multiplayer.shell_app.probe_graphics", probe):
+            app.run()
+        self.assertTrue(driver.done(), driver.steps)
+        self.assertEqual(started, [("draft", "2d"), ("register", "2d")])
+        self.assertEqual([request.graphics for request in worker.requests], ["2d"])
+        self.assertEqual(probes, ["pokeemerald-mp-diorama.exe"] * 3)            # checked before each start, asked once
+        self.assertEqual([s.id for s in ui.shown].count("graphics"), 1)
+        self.assertEqual(app.graphics.mode, "3d")                               # the saved preference is unchanged
+
     def test_graphics_mode_persists_and_the_other_pages_open(self):
         world = World(self)
         driver = Driver(("main", select("settings")), ("settings", select("graphics")), ("choose", select("2d")),

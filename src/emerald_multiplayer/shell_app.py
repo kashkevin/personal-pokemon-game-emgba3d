@@ -143,6 +143,7 @@ class ShellApp:
         self.library_migration = None
         self.game_ok = None
         self.last_error = None             # the last background failure, for diagnostics (never shown to the player)
+        self.classic_chosen = False        # Classic 2D was chosen after a failed 3D check: not asked again until the menu closes
 
     # ------------------------------------------------------------------ small helpers
 
@@ -468,9 +469,12 @@ class ShellApp:
         if event.kind == "back" or event.id != "go":
             return None
         texts = {"draft_running": "Create your trainer in the game window.\nWhen you are done, SAVE (START menu) and close the game."}
+        installation = self._game_installation()
+        if installation is None:
+            return None
 
         async def make(job):
-            return await self.drafter(self.installation, self.private_root, on_status=job.progress)
+            return await self.drafter(installation, self.private_root, on_status=job.progress)
 
         self.window(self.session_window)
         try:
@@ -648,9 +652,12 @@ class ShellApp:
         else:
             options = dict(invitation_path=invitation_path(self.private_root, world_id, player_id),
                            route_host=route[0] if route else None, route_port=route[1] if route else None)
+        installation = self._game_installation()
+        if installation is None:
+            return False
 
         async def enter(job):
-            return await self.register(self.installation, self.private_root, self.library, character, role=role, world_id=world_id,
+            return await self.register(installation, self.private_root, self.library, character, role=role, world_id=world_id,
                                        player_id=player_id, on_status=job.progress, **options)
 
         self.window(self.session_window)
@@ -1099,6 +1106,16 @@ class ShellApp:
 
     # ------------------------------------------------------------------ the session (the game runs in its own window)
 
+    def _game_installation(self):
+        """The installation whose runtime bundle starts the game the graphics check chose, or None (the player backed out).
+        A New Game and bringing a character into a world start the game too, so they follow the same choice as playing."""
+        graphics = self.graphics_gate()
+        if graphics is None:
+            return None
+        if graphics == MODE_2D:
+            return replace(self.installation, bundle=replace(self.installation.bundle, graphics=MODE_2D))
+        return self.installation
+
     def _graphics_gate(self):
         """Which game to start: '3d', '2d' or None (the player backed out). Runs the same 3D check the launcher ran."""
         bundle = self.installation.bundle
@@ -1117,6 +1134,8 @@ class ShellApp:
         if not choice.ask:
             return choice.mode
         has_classic = bool(getattr(bundle, "has_classic", lambda: False)())
+        if self.classic_chosen and has_classic:
+            return MODE_2D                 # the same answer as a moment ago (bringing a character in, then playing)
         screen = Screen("graphics", "3D graphics cannot start")
         for part in explain_failure(job.result).split("\n\n"):
             screen.note(part)
@@ -1124,7 +1143,10 @@ class ShellApp:
             screen.row("classic", "Play in Classic 2D this time", "your saved mode is unchanged", "as")
         screen.row("back", "Back")
         event = self.ui.show(screen)
-        return MODE_2D if event.id == "classic" and has_classic else None
+        if event.id == "classic" and has_classic:
+            self.classic_chosen = True
+            return MODE_2D
+        return None
 
     def _play(self, request, title, character, *, world_id, player_id, hosting=None, note=None):
         """Start a host or join session and show the session window until it ends. Returns the session's result code."""
