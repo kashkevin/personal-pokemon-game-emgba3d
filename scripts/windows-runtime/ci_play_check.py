@@ -498,7 +498,10 @@ class PlayCheck:
         require(not player.desk.alive(game[0]), f"{player.name}: the registration game did not close by itself within five minutes "
                                                  f"(last screen {player.current() and player.current()['notes'][:2]})")
         first = wait(lambda: revision(record, slot), 30)
-        require(first is not None and first >= 1, f"{player.name}: the world has no save of the character (revision {first})")
+        if not first:
+            after = player.expect(("message", "solo", "host_list", "join_list", "main", "busy", "graphics", "session"), 60)
+            raise CheckFailed(f"{player.name}: the registration game ended and the world has no save of the character "
+                              f"(revision {first}); the menu shows {after['id']}: {after['title']} {after['notes'][:4]}")
         player.log(f"the character entered {world['name']} (the world saved it: revision {first}); the game closed by itself")
         player.graphics_choice()
         game = player.game()
@@ -753,12 +756,24 @@ def main():
                 player.desk.kill(player.process)
             if player is not None:
                 for name in ("runtime.log",):
-                    for path in sorted((player.private / "launches").glob(f"*/{name}"))[-3:] if (player.private / "launches").is_dir() else []:
+                    logs = [*(player.private / "launches").glob(f"*/{name}"), *(player.private / "drafts").glob(f"*/{name}")] \
+                        if player.private.is_dir() else []
+                    for path in sorted(logs, key=lambda path: path.stat().st_mtime)[-3:]:
                         tail = [line for line in path.read_text("utf-8", "replace").splitlines() if line.strip()][-8:]
                         report.setdefault("game_logs", {}).setdefault(player.name, []).append(dict(folder=path.parent.name, tail=tail))
                 error = player.error_text()
                 if error:
                     report.setdefault("errors", {})[player.name] = error[-3000:]
+                if report.get("result") != "passed":
+                    # The job log is what a reader of a failed run sees first: the last screens and the newest games' output.
+                    for screen in player.screens()[-6:]:
+                        print(f"  {player.name} screen: {screen['id']} | {screen['title']} | {screen['status']} | "
+                              f"{' '.join(screen['notes'][:3])[:300]}", flush=True)
+                    for entry in report.get("game_logs", {}).get(player.name, []):
+                        for line in entry["tail"]:
+                            print(f"  {player.name} game {entry['folder'][:8]}: {line[:240]}", flush=True)
+                    if error:
+                        print(f"  {player.name} last-error.txt: {error[-1500:]}", flush=True)
         report["log"] = lines
         (work / f"{args.label}-play-check.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
         if not args.linux and target.exists():
