@@ -427,17 +427,32 @@ def run_fixed(menu, files, report, log, lan_hint):
     menu.go()
     menu.shot("world-screen")
     known = {pid for pid, _ in children(menu.process.pid)}
+    launches = files.private / "launches"
+    launched_before = set(launches.iterdir()) if launches.is_dir() else set()
     menu.go(wait=10)                    # "Host this world now" (focused); the world is prepared (a backup first)
     menu.shot("hosting-1")
     menu.go(wait=3)                     # "<character> enters <world>": Continue
-    game = files.wait(lambda: [(pid, command) for pid, command in children(menu.process.pid)
-                               if pid not in known and "--shell" not in command], 90)
+
+    def started():
+        game = [(pid, command) for pid, command in children(menu.process.pid) if pid not in known and "--shell" not in command]
+        folders = (set(launches.iterdir()) if launches.is_dir() else set()) - launched_before
+        return (game, sorted(folders)) if game or folders else None
+    seen = files.wait(started, 90, step=0.5)
     menu.shot("hosting-2")
-    require(game, "hosting did not open the game for the character "
+    require(seen, "hosting did not open the game for the character "
                   f"(last-error.txt: {files.error_text()[-1500:] if files.error_text() != errors_before else 'unchanged'})")
-    log(f"hosting: the game opened for the character to enter the world (pid {game[0][0]})")
-    report["hosting"] = "the world was prepared and the game opened for the character to enter it"
+    game, folders = seen
+    log("hosting: the world was prepared and the game was started for the character to enter it "
+        f"(game process {game[0][0] if game else 'already ended'}; launch folder {folders[0].name if folders else 'none yet'})")
+    report["hosting"] = dict(game_process=bool(game), launch_folder=bool(folders))
     menu.stop()
+    if folders:
+        log_file = folders[0] / "runtime.log"
+        if log_file.is_file():
+            tail = [line for line in log_file.read_text(encoding="utf-8", errors="replace").splitlines() if line.strip()][-6:]
+            report["hosting_runtime_log_tail"] = tail
+            for line in tail:
+                log("    game: " + line[:200])
 
     new = [w for w in files.worlds() if w["world_id"] not in before]
     report["worlds_created"] = [dict(name=w["name"], bind_address=w["bind_address"], address=w["address"]) for w in new]

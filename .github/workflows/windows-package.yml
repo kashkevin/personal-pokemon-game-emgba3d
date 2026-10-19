@@ -414,7 +414,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          sparse-checkout: scripts/windows-runtime
+          sparse-checkout: |
+            scripts/windows-runtime
+            src
+            tests
       - uses: actions/setup-python@v5
         with:
           python-version: "3.14"
@@ -435,6 +438,13 @@ jobs:
           # a sentinel planted in its PokemonPrivate must survive the uninstall.
           python scripts/windows-runtime/ci_installer_check.py --setup "$setup" \
             --hashes check-inputs/package-hashes.json --work "$RUNNER_TEMP/install-check" "${expect[@]}"
+      - name: Create World on the installed build, through its menu window (full)
+        if: env.MODE == 'full'
+        # scripts/windows-runtime/ci_world_check.py: Host World > Create World on the default network and with a public
+        # address, invite code, rename, delete, hosting up to the game opening, and a restart (the 2026-10-19 crash).
+        run: |
+          python scripts/windows-runtime/ci_world_check.py --setup "$(ls installer/EmeraldTogether-Setup-*.exe)" \
+            --work "$RUNNER_TEMP/world-check" --profile "$RUNNER_TEMP/world-check/profile" --expect fixed --label fresh
       - name: Upload the installation check report (7 days)
         if: always()
         uses: actions/upload-artifact@v4
@@ -445,6 +455,8 @@ jobs:
             ${{ runner.temp }}/install-check/install.log
             ${{ runner.temp }}/install-check/repair.log
             ${{ runner.temp }}/install-check/uninstall.log
+            ${{ runner.temp }}/world-check/*-world-check.json
+            ${{ runner.temp }}/world-check/*-pictures/
           retention-days: 7
           if-no-files-found: warn
       - name: Summary
@@ -454,4 +466,8 @@ jobs:
             echo "### Installation check ($MODE)"
             python -c "import json,sys;r=json.load(open(sys.argv[1]));print('- Result:', r.get('result')); [print('-', s['step']) for s in r['steps']]" \
               "$RUNNER_TEMP/install-check/installer-check.json" 2>/dev/null || echo "- no report (see the log)"
+            for f in "$RUNNER_TEMP"/world-check/*-world-check.json; do
+              [ -f "$f" ] || continue
+              python -c "import json,sys;r=json.load(open(sys.argv[1]));print('- Create World on the installed build:', r['result']);[print('  -', l) for l in r['log']]" "$f"
+            done
           } >> "$GITHUB_STEP_SUMMARY"
