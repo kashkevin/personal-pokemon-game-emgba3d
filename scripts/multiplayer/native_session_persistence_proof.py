@@ -351,7 +351,7 @@ async def scenario(harness, players, session):
     # in the shared-world record's bytes 192-199 for the Town Map, which the game's bridge refused until 2026-10-19 and
     # then stopped for good, on every game at once.
     async with asyncio.timeout(OUTBREAK_WAIT):
-        while not all((await session.companion_view(p))["outbreak"] for p in players):
+        while not all([(await session.companion_view(p))["outbreak"] for p in players]):
             await asyncio.sleep(1)
     place = (await session.companion_view(host))["outbreak"]
     end = time.monotonic() + 10
