@@ -178,6 +178,15 @@ class Session:
                 else:
                     await asyncio.sleep(.5)
 
+    async def win(self, player, timeout=240):
+        """Fight, as a player does: A through the battle (FIGHT, the first move, the texts, the level-up box) until
+        the field is back. Returns where the player is then (a lost battle whites out to the last place healed)."""
+        async with asyncio.timeout(timeout):
+            while not await self.on_field(player):
+                await player.probe.press(A)
+                await asyncio.sleep(.6)
+        return await self.pose(player)
+
     async def ensure_field(self, player, timeout=150):
         """Back on the field: a wild Pokemon that walked up to this idle player is run from (it happens in the
         grass); anything else off the field (a notice, a text) is waited for."""
@@ -220,7 +229,11 @@ class Session:
             view = await self.companion_view(player)
             pose, spawns = view["pose"], view["spawns"] or {}
             if pose is None or pose[0] != 1:
-                await asyncio.sleep(.5)
+                if pose is not None and pose[1] == 0:
+                    # A text over the field (two players talked to the same Pokemon): B closes it.
+                    self.note("walk", slot=player.slot, pose=pose, text=True)
+                    await player.probe.press(B)
+                await asyncio.sleep(1)
                 continue
             home = home or (pose[4], pose[5])
             on_map = [spawns.get("map_group"), spawns.get("map_number")] == pose[2:4]
@@ -321,8 +334,11 @@ async def scenario(harness, players, session):
         label = "battle-" + "-and-".join(str(p.slot) for p in battlers)
         for player in players:
             await session.ensure_field(player)
-        started = await asyncio.gather(*(session.start_wild_battle(p) for p in battlers))
+        # One after the other (two players next to each other would talk to the same Pokemon); each stays in its
+        # battle while the next one starts, so the battles run at the same time.
+        started = [await session.start_wild_battle(p) for p in battlers]
         require(all(started), f"{label}: no wild battle started")
+        require(all([await session.in_battle(p) for p in battlers]), f"{label}: not all in battle at once")
         record("wild-battle-started", label=label, slots=[p.slot for p in battlers])
         session.picture(label + "-started")
         watcher = next(p for p in players if p not in battlers)
@@ -338,8 +354,15 @@ async def scenario(harness, players, session):
         if os.environ.get("PROOF_PAUSE_IN_BATTLE"):   # diagnostics: leave the games running for a look by hand
             (harness.output / "paused").write_text(json.dumps({p.slot: p.game.process.pid for p in players}))
             await asyncio.sleep(float(os.environ["PROOF_PAUSE_IN_BATTLE"]))
-        await asyncio.gather(*(session.run_away(p) for p in battlers))
-        record("ran-from-the-battle", label=label)
+        if battlers == [host]:
+            # The host fights this one out: the end of a won (or lost) battle, not only an escape.
+            before = await session.pose(host)
+            after = await session.win(host)
+            record("fought-the-battle-out", label=label, map_before=before[2:4], map_after=after[2:4],
+                   outcome="won" if after[2:4] == before[2:4] else "whited out")
+        else:
+            await asyncio.gather(*(session.run_away(p) for p in battlers))
+            record("ran-from-the-battle", label=label)
         for player in players:
             await session.ensure_field(player)
         async with asyncio.timeout(20):
@@ -401,7 +424,10 @@ async def run(args):
         players.remove(walker)
         session.players = players
         async with asyncio.timeout(30):
-            while any(walker.name in (await session.companion_view(p))["roster"] for p in players):
+            while True:
+                rosters = [(await session.companion_view(p))["roster"] for p in players]
+                if not any(walker.name in roster for roster in rosters):
+                    break
                 await asyncio.sleep(.5)
         title, status, rows = await session.players_tab(players[0])
         require(status == f"Connected: {count - 1}/4" and not any(r.startswith(walker.name[:12]) for r in rows),
