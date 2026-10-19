@@ -7,7 +7,7 @@ from emerald_multiplayer.character_creation import CreationError
 from emerald_multiplayer.character_library import CharacterLibrary
 from emerald_multiplayer.character_links import character_state, profile_directory
 from emerald_multiplayer.invite_code import decode_invite
-from shell_fixture import BACK, Driver, FakeWorker, World, fake_drafter, fake_register, free_port, label_id, labels, select
+from shell_fixture import BACK, LAN, Driver, FakeWorker, World, fake_drafter, fake_register, free_port, label_id, labels, select
 from test_ownership_storage import source_flash
 
 
@@ -411,7 +411,7 @@ class HostWorldTests(unittest.TestCase):
                     "host_list": select(entry.world_id) if not seen.get("hosted") else BACK,
                     "bring_character": select("go")}.get(screen.id) or self.fail(f"unexpected {screen.id}")
         ui = ScriptedShell(responder)
-        app3 = ShellApp(world.installation, world.private, ui, worker=worker, lan=lambda: ["192.168.1.20"], graphics_gate=lambda: "3d",
+        app3 = ShellApp(world.installation, world.private, ui, worker=worker, lan=LAN, graphics_gate=lambda: "3d",
                         version="t", register=fake_register([]), drafter=fake_drafter([]))
         app3.run()
         self.assertEqual((worker.saves, worker.autosave), (1, [False]))

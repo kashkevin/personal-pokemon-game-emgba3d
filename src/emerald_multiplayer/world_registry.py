@@ -10,6 +10,10 @@ Listing is read-only: a world is read from its descriptor without opening its da
 hosted right now is still listed. A world folder the registry has not met (made by an earlier version of the launcher) is recognised
 by its ID and registered the first time it is listed; nothing in it is moved or rewritten. Creating a world never overwrites or deletes
 another, and a restart never resets one (the folder is only ever opened).
+
+Every text value is stored as exact ``str``. Callers may hand in a ``str`` subclass (``launcher_worlds.LocalAddress``, which carries
+the address's kind and label); it is copied to plain text when the record is built, never stored as it is, and the record is still
+checked strictly. A record that does not pass raises ``WorldRegistryError`` naming the setting, for the menu to show.
 """
 from __future__ import annotations
 
@@ -20,7 +24,7 @@ import time
 
 from .host_world import HOST_FORMAT
 from .invitations import _json, _read
-from .shell_store import JsonStore, is_uuid, text_ok, time_ok
+from .shell_store import JsonStore, StoreUnavailable, is_uuid, text_ok, time_ok
 
 FORMAT = "emerald-shell-worlds-v1"
 FILE_NAME = "worlds.json"
@@ -82,22 +86,63 @@ class WorldEntry:
         return tuple(account[2] for account in self.accounts)
 
 
+_PROBLEMS = {
+    "world_id": "the world's ID is not usable",
+    "folder": "the world's folder name is not usable",
+    "name": "the world name is not usable (1 to 32 printable characters)",
+    "kind": "the kind of world is not known",
+    "created": "the creation time is not usable",
+    "last_hosted": "the last hosted time is not usable",
+    "bind_address": "the address to listen on is not a numeric address of this PC",
+    "internet": "the Internet access setting is not usable",
+    "address": "the public address is not usable (up to 253 printable characters)",
+    "enrollment": "the new players setting is not usable",
+}
+
+
+def _plain(value):
+    """``value`` as exact ``str`` when it is any ``str`` (a subclass such as LocalAddress included); anything else unchanged."""
+    return str.__str__(value) if isinstance(value, str) else value
+
+
+def _bind_ok(value):
+    if type(value) is not str:
+        return False
+    try:
+        ipaddress.ip_address(value)
+    except ValueError:
+        return False
+    return True
+
+
+def _world_problem(world):
+    """The first field of one world record that is not usable, or None."""
+    if type(world) is not dict or set(world) != _FIELDS:
+        return "fields"
+    checks = (
+        ("world_id", is_uuid(world["world_id"])),
+        ("folder", text_ok(world["folder"], 128) and "/" not in world["folder"] and "\\" not in world["folder"]
+         and world["folder"] not in (".", "..")),
+        ("name", text_ok(world["name"], 32)),
+        ("kind", world["kind"] in KINDS),
+        ("created", time_ok(world["created"])),
+        ("last_hosted", world["last_hosted"] is None or time_ok(world["last_hosted"])),
+        ("internet", type(world["internet"]) is bool),
+        ("enrollment", type(world["enrollment"]) is bool),
+        ("bind_address", _bind_ok(world["bind_address"])),
+        ("address", text_ok(world["address"], 253, empty=True)),
+    )
+    return next((field for field, ok in checks if not ok), None)
+
+
 def _validate(record):
     if set(record) != {"format", "worlds"} or type(record["worlds"]) is not list or len(record["worlds"]) > MAX_WORLDS:
         raise ValueError("invalid world registry")
     ids, folders = set(), set()
     for world in record["worlds"]:
-        if (type(world) is not dict or set(world) != _FIELDS or not is_uuid(world["world_id"]) or not text_ok(world["folder"], 128)
-                or "/" in world["folder"] or "\\" in world["folder"] or world["folder"] in (".", "..")
-                or not text_ok(world["name"], 32) or world["kind"] not in KINDS or not time_ok(world["created"])
-                or not (world["last_hosted"] is None or time_ok(world["last_hosted"]))
-                or type(world["internet"]) is not bool or type(world["enrollment"]) is not bool or type(world["bind_address"]) is not str
-                or not text_ok(world["address"], 253, empty=True)):
-            raise ValueError("invalid world record")
-        try:
-            ipaddress.ip_address(world["bind_address"])
-        except ValueError:
-            raise ValueError("invalid bind address") from None
+        problem = _world_problem(world)
+        if problem is not None:
+            raise ValueError(f"invalid world record: {problem}")
         if world["world_id"] in ids or world["folder"] in folders:
             raise ValueError("duplicate world")
         ids.add(world["world_id"])
@@ -143,6 +188,30 @@ class WorldRegistry:
     def _write(self, worlds):
         self._store.save({"format": FORMAT, "worlds": worlds})
 
+    def _save(self, worlds):
+        """Save a changed list for the menu: a record that does not pass raises WorldRegistryError naming the setting (nothing is
+        written). A damaged file without a backup still raises StoreUnavailable."""
+        self._check(worlds)
+        self._write(worlds)
+
+    @staticmethod
+    def _check(worlds):
+        if len(worlds) > MAX_WORLDS:
+            raise WorldRegistryError("world_limit", f"this PC already keeps {MAX_WORLDS} worlds, the most it can list; delete one first")
+        try:
+            _validate({"format": FORMAT, "worlds": worlds})
+        except ValueError:
+            for world in worlds:
+                problem = _world_problem(world)
+                if problem is not None:
+                    raise WorldRegistryError("world_record_invalid", _PROBLEMS.get(problem, "the world's settings are not usable")) from None
+            raise WorldRegistryError("world_exists", "another world on this PC already has this ID or folder") from None
+
+    @staticmethod
+    def _record(world_id, folder, name, *, kind, created, bind_address, internet, address):
+        return dict(world_id=_plain(world_id), folder=_plain(folder), name=_plain(name), kind=_plain(kind), created=created,
+                    last_hosted=None, bind_address=_plain(bind_address), internet=internet, address=_plain(address), enrollment=True)
+
     def _entry(self, record, descriptor):
         return WorldEntry(record["world_id"], self.worlds_directory / record["folder"], record["name"], record["kind"],
                           record["created"], record["last_hosted"], record["bind_address"], record["internet"], record["address"],
@@ -161,7 +230,8 @@ class WorldRegistry:
     def entries(self, *, default_bind=LOOPBACK, hints=None):
         """Every usable world on disk, newest activity first. A folder the registry has not met is registered under a name made from
         its host ('Kevin's world'); ``hints`` maps a folder name to a bind address an earlier launcher remembered for it."""
-        hints = hints or {}
+        default_bind = _plain(default_bind) if _bind_ok(_plain(default_bind)) else LOOPBACK
+        hints = {_plain(folder): _plain(bind) for folder, bind in (hints or {}).items()}
         worlds = [dict(world) for world in self._store.record["worlds"]]
         known = {world["folder"] for world in worlds}
         self.damaged = {}
@@ -193,12 +263,21 @@ class WorldRegistry:
                 modified = (child / "host.json").stat().st_mtime
             except OSError:
                 modified = self.clock()
-            worlds.append(dict(world_id=descriptor["world_id"], folder=child.name, name=name, kind="server", created=modified,
-                               last_hosted=None, bind_address=hints.get(child.name, default_bind), internet=False, address="",
-                               enrollment=True))
+            bind = hints.get(child.name, default_bind)      # an earlier launcher's address only if it is a usable one
+            worlds.append(self._record(descriptor["world_id"], child.name, name, kind="server", created=modified,
+                                       bind_address=bind if _bind_ok(bind) else default_bind, internet=False, address=""))
             changed = True
         if changed:
-            self._write(worlds)
+            try:
+                self._save(worlds)
+            except (OSError, ValueError, StoreUnavailable):
+                # Listing never fails because a newly found folder could not be added: it stays on disk untouched and is listed
+                # as needing attention; the next listing tries again.
+                stored = {world["folder"] for world in self._store.record["worlds"]}
+                for world in worlds:
+                    if world["folder"] not in stored:
+                        self.damaged[world["folder"]] = "found, but the list of worlds could not be saved"
+                worlds = [dict(world) for world in self._store.record["worlds"]]
         entries = [self._entry(world, found[world["folder"]]) for world in worlds if world["folder"] in found]
         entries.sort(key=lambda entry: (entry.last_hosted or entry.created), reverse=True)
         return entries
@@ -216,14 +295,22 @@ class WorldRegistry:
     def used_ports(self):
         return {entry.port for entry in self.entries()}
 
+    def check_new(self, name, *, kind="server", bind_address=LOOPBACK, internet=False, address=""):
+        """Raise WorldRegistryError if a world with these settings could not be registered, before anything is created."""
+        from uuid import uuid4
+        worlds = [dict(item) for item in self._store.record["worlds"]]
+        worlds.append(self._record(str(uuid4()), "new-world-check", name, kind=kind, created=self.clock(), bind_address=bind_address,
+                                   internet=internet, address=address))
+        self._check(worlds)
+
     def register(self, world, name, *, kind="server", bind_address=LOOPBACK, internet=False, address=""):
         """Register a world that was just created (the folder is already on disk)."""
         worlds = [dict(item) for item in self._store.record["worlds"]]
         if any(item["world_id"] == world.world_id for item in worlds):
             raise WorldRegistryError("world_exists", "this world is already registered")
-        worlds.append(dict(world_id=world.world_id, folder=Path(world.directory).name, name=name, kind=kind, created=self.clock(),
-                           last_hosted=None, bind_address=bind_address, internet=internet, address=address, enrollment=True))
-        self._write(worlds)
+        worlds.append(self._record(world.world_id, Path(world.directory).name, name, kind=kind, created=self.clock(),
+                                   bind_address=bind_address, internet=internet, address=address))
+        self._save(worlds)
 
     def configure(self, world_id, **changes):
         allowed = {"name", "bind_address", "internet", "address", "enrollment"}
@@ -232,8 +319,8 @@ class WorldRegistry:
         worlds = [dict(item) for item in self._store.record["worlds"]]
         for item in worlds:
             if item["world_id"] == world_id:
-                item.update(changes)
-                self._write(worlds)
+                item.update({key: _plain(value) for key, value in changes.items()})
+                self._save(worlds)
                 return
         raise KeyError("no such world")
 

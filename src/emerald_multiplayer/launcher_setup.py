@@ -28,6 +28,7 @@ _MESSAGES = {
     "installation_changed": "The installed game could not be verified.",
     "runtime_path": "The game or character location is unsupported; use a shorter installation or private-data location.",
     "world_invalid": "The private host world could not be verified.",
+    "invalid_endpoint": "The world's network address is not a numeric address this PC can use.",
     "world_active": "Close the running host before setting up a character.",
     "trade_effect_policy_required": "Select a Gen 6 trade friendship policy for this world before creating or upgrading it.",
     "trade_effect_migration_required": "Close the world, select its trade friendship policy and use Upgrade world features first.",

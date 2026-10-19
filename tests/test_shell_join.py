@@ -8,10 +8,10 @@ from emerald_multiplayer.host_world import HostWorld
 from emerald_multiplayer.invitations import Invitation
 from emerald_multiplayer.invite_code import encode_invite
 from emerald_multiplayer.saved_servers import invitation_path
-from shell_fixture import BACK, Driver, FakeWorker, ServerThread, World, fake_drafter, fake_register, label_id, select
+from shell_fixture import BACK, Driver, FakeWorker, ServerThread, World, fake_drafter, fake_register, label_id, lan_of, select
 from test_shell_app import create_world_steps, library_character, main_exit
 
-LOOPBACK_LAN = lambda: ["127.0.0.1"]
+LOOPBACK_LAN = lan_of("127.0.0.1")
 
 
 class JoinFixture(unittest.TestCase):

@@ -9,10 +9,10 @@ from emerald_multiplayer.character_links import character_state, profile_directo
 from emerald_multiplayer.launcher_recent import RecentStore
 from emerald_multiplayer.launcher_setup import create_world, export_friend_invitation
 from emerald_multiplayer.saved_servers import invitation_path
-from shell_fixture import BACK, Driver, FakeWorker, ServerThread, World, fake_register, free_port, label_id, select
+from shell_fixture import BACK, Driver, FakeWorker, ServerThread, World, fake_register, free_port, label_id, lan_of, select
 from test_shell_app import world_character
 
-LAN = lambda: ["127.0.0.1"]
+LAN = lan_of("127.0.0.1")
 
 
 def tree_hashes(root):

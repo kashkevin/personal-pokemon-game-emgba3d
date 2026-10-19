@@ -12,6 +12,7 @@ from unittest.mock import patch
 
 from emerald_multiplayer.launcher_gui import UiEvent
 from emerald_multiplayer.launcher_session import GameInstallation
+from emerald_multiplayer.launcher_worlds import classify_address
 from emerald_multiplayer.shell_app import ShellApp
 from emerald_multiplayer.shell_protocol import Screen, ScriptedShell
 from test_host_world import make_trade_files
@@ -28,6 +29,15 @@ def label_id(screen, label):
 
 def labels(screen):
     return [item.label for item in screen.items]
+
+
+def lan_of(*addresses):
+    """A ``lan`` provider returning what ``launcher_worlds.lan_addresses`` returns on a real PC: LocalAddress values (a ``str``
+    subclass), never plain strings. Plain strings in these fixtures hid the 'invalid world record' crash on Windows."""
+    return lambda: [classify_address(address, "Ethernet") for address in addresses]
+
+
+LAN = lan_of("192.168.1.20")
 
 
 def free_port():
@@ -160,7 +170,7 @@ class World:
         other.private = self.root / name
         return other
 
-    def app(self, driver, *, worker=None, register=None, drafter=None, lan=lambda: ["192.168.1.20"], clock=None, **options):
+    def app(self, driver, *, worker=None, register=None, drafter=None, lan=LAN, clock=None, **options):
         ui = ScriptedShell(driver)
         kwargs = dict(worker=worker or FakeWorker(), lan=lan, graphics_gate=lambda: "3d", version="test",
                       register=register or fake_register([]), drafter=drafter or fake_drafter([]))

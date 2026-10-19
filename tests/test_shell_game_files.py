@@ -9,7 +9,7 @@ import unittest
 
 from emerald_multiplayer.game_import import GameImporter, ImportRelease
 from emerald_multiplayer.game_patch import create_bps
-from shell_fixture import BACK, Driver, FakeWorker, World, select
+from shell_fixture import BACK, LAN, Driver, FakeWorker, World, select
 
 
 def sha(data):
@@ -32,7 +32,7 @@ class GameFilesTests(unittest.TestCase):
         from emerald_multiplayer.shell_app import ShellApp
         from emerald_multiplayer.shell_protocol import ScriptedShell
         worker = options.pop("worker", FakeWorker())
-        app = ShellApp(self.installation, self.world.private, ScriptedShell(driver), worker=worker, lan=lambda: ["192.168.1.20"],
+        app = ShellApp(self.installation, self.world.private, ScriptedShell(driver), worker=worker, lan=LAN,
                        graphics_gate=lambda: "3d", version="test", **options)
         return app, worker
 
@@ -134,7 +134,7 @@ class PackagedGameFilesTests(unittest.TestCase):
         from emerald_multiplayer.shell_app import ShellApp
         from emerald_multiplayer.shell_protocol import ScriptedShell
         return ShellApp(self.package.installation(), self.package.private, ScriptedShell(driver), worker=FakeWorker(),
-                        lan=lambda: ["192.168.1.20"], graphics_gate=lambda: "3d", version="test")
+                        lan=LAN, graphics_gate=lambda: "3d", version="test")
 
     def test_an_intact_package_is_verified_and_a_damaged_one_says_how_to_repair_it_without_touching_saves(self):
         seen = []

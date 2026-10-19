@@ -26,12 +26,12 @@ from emerald_multiplayer.invite_code import encode_invite
 from emerald_multiplayer.ownership import OWNERSHIP_PROFILE, extract_source_inventory, inspect_ownership
 from emerald_multiplayer.ownership_storage import AllocationGrant
 from process_fixture import direct_python
-from shell_fixture import BACK, Driver, FakeWorker, ServerThread, World, select
+from shell_fixture import BACK, Driver, FakeWorker, ServerThread, World, lan_of, select
 from test_enrollment_runtime import NativeEnrollmentFixture
 from test_ownership_storage import owned_flash, source_flash
 from test_shell_app import create_world_steps, main_exit
 
-LOOPBACK_LAN = lambda: ["127.0.0.1"]
+LOOPBACK_LAN = lan_of("127.0.0.1")
 
 
 class EndToEnd(unittest.TestCase):

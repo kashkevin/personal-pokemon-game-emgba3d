@@ -44,11 +44,11 @@ from .launcher_session import SessionState
 from .launcher_worlds import lan_addresses
 from .network_settings import NetworkSettings, route_path, save_join_route
 from .saved_servers import InvitationConflict, SavedServers, invitation_path, relay_of, store_invitation
-from .shell_migration import migrate
+from .shell_migration import MigrationResult, migrate
 from .shell_protocol import Done, Screen, ShellClosed
 from .shell_store import JsonStore, StoreUnavailable, is_uuid, text_ok, time_ok
 from .shell_tasks import BackgroundJob
-from .world_registry import LOOPBACK, WorldRegistry, free_port, valid_world_name
+from .world_registry import LOOPBACK, WorldRegistry, WorldRegistryError, free_port, valid_world_name
 
 TRADE_RULES = {
     "gen6-stable-world-region-v1": ("Shared world region", "A trade keeps the same trainer's friendship (the world is one region)."),
@@ -101,6 +101,12 @@ def _ago(then, now):
     return "just now"
 
 
+def _sentence(error):
+    """An error's message as a sentence for the menu ('the name is not usable' -> 'The name is not usable.')."""
+    text = str(error).strip() or "It could not finish"
+    return text[0].upper() + text[1:] + ("" if text.endswith(".") else ".")
+
+
 class ShellApp:
     """One menu session. ``ui`` shows screens (``ShellProcess`` or ``ScriptedShell``); everything else is injectable for tests."""
 
@@ -114,7 +120,8 @@ class ShellApp:
         self.version = version
         self.worker = worker
         self.register, self.drafter = register, drafter
-        self.resolver, self.lan = resolver, lan
+        self.resolver, self._lan_source = resolver, lan
+        self._address_kinds = {}           # address text -> "lan" / "vpn", from the last lan() call (for Server Information)
         self.checker = checker             # connection_diagnostics.check_routes: identity, version, then the route that answered
         self.graphics = graphics if graphics is not None else GraphicsPreference(self.private_root)
         self.graphics_gate = graphics_gate or self._graphics_gate
@@ -227,7 +234,11 @@ class ShellApp:
         """The whole menu session; returns when the player chooses Exit or closes the window."""
         try:
             self.window(self.menu_window)
-            self.migration = migrate(self.private_root, self.registry, self.links, self.servers, clock=self.clock)
+            try:
+                self.migration = migrate(self.private_root, self.registry, self.links, self.servers, clock=self.clock)
+            except Exception as error:                                  # noqa: BLE001 - the menu still opens; nothing was moved
+                self._record_error(error)
+                self.migration = MigrationResult(problems=["the earlier launcher's records could not be read (shell/last-error.txt)"])
             for store, label in ((self.registry._store, "worlds"), (self.servers._store, "saved servers"),
                                  (self.links._store, "characters"), (self.library._index, "characters")):
                 if not store.available:
@@ -261,6 +272,10 @@ class ShellApp:
                     self.message("A record needs attention",
                                  "One of the menu's records is damaged and has no usable backup, so nothing was saved.\n"
                                  "Nothing was changed or deleted. Restore the file from your backup or ask for help.")
+                except WorldRegistryError as error:
+                    self.last_error = error
+                    self._record_error(error)
+                    self.message("A world setting could not be saved", f"{_sentence(error)}\nNothing was changed or deleted.\n" + DETAILS)
                 except Exception as error:                              # noqa: BLE001 - a bug never closes the menu under a player
                     self.last_error = error
                     self._record_error(error)
@@ -397,6 +412,14 @@ class ShellApp:
                 self.characters_menu()
             elif choice == "settings":
                 self.settings_menu()
+
+    def lan(self):
+        """This PC's local-network and VPN addresses, likeliest first, as plain text. ``launcher_worlds.lan_addresses`` returns
+        LocalAddress values (a ``str`` subclass with a kind and a label); the world list, a world's certificate and invite codes take
+        exact ``str`` only, so the text is copied out here and the kind kept in ``_address_kinds``."""
+        found = list(self._lan_source())
+        self._address_kinds = {str.__str__(a): getattr(a, "kind", "lan") for a in found if isinstance(a, str)}
+        return [str.__str__(a) for a in found if isinstance(a, str)]
 
     def _default_bind(self):
         addresses = self.lan()
@@ -593,6 +616,8 @@ class ShellApp:
             reason = message_for(error)
         elif isinstance(error, LibraryError):
             reason = str(error).capitalize() + "."
+        elif isinstance(error, WorldRegistryError):
+            reason = _sentence(error)
         else:
             reason = "It could not finish."
         self.message(title, reason + "\n\n" + safe + "\n" + DETAILS)
@@ -705,6 +730,7 @@ class ShellApp:
         registry = self.registry
         taken = registry.used_ports()
         port = port or free_port(taken)
+        bind, address = str.__str__(bind), str.__str__(address)   # plain text: never a LocalAddress (see lan())
         endpoint = bind
         try:
             import ipaddress
@@ -712,6 +738,12 @@ class ShellApp:
             endpoint = address            # a numeric public address is what invitations point at
         except ValueError:
             pass
+        try:
+            registry.check_new(name, kind=kind, bind_address=bind, internet=internet, address=address)   # before anything is made
+        except WorldRegistryError as error:
+            self._record_error(error)
+            self.message("The world could not be created", f"{_sentence(error)}\nNothing was changed.")
+            return None
         names = (host_name, "Player 2", "Player 3", "Player 4") if host_name != "Player" else ("Player", "Player 2", "Player 3", "Player 4")
 
         async def make(job):
@@ -725,11 +757,25 @@ class ShellApp:
             return None
         if job.error is not None:
             code = getattr(job.error, "code", "")
-            self.message("The world could not be created", f"{job.error}\nNothing was changed." if code else
-                         "The world could not be created. Nothing was changed.")
+            self._record_error(job.error.__context__ or job.error)        # the cause, for shell/last-error.txt
+            if code == "setup_failed":
+                self.message("The world could not be created", "It could not finish. Nothing was changed.\n" + DETAILS)
+            else:
+                self.message("The world could not be created", f"{job.error}\nNothing was changed." if code else
+                             "The world could not be created. Nothing was changed.")
             return None
         world = job.result
-        registry.register(world, name, kind=kind, bind_address=bind, internet=internet, address=address)
+        try:
+            registry.register(world, name, kind=kind, bind_address=bind, internet=internet, address=address)
+        except (WorldRegistryError, OSError, StoreUnavailable) as error:
+            # The folder is on disk and kept: the next listing finds it and adds it under its host's name.
+            self.last_error = error
+            self._record_error(error)
+            self.message("The world was made but not added to your list",
+                         f"{_sentence(error) if isinstance(error, WorldRegistryError) else 'Your list of worlds could not be saved.'}\n"
+                         f"The new world is kept on this PC. When the list can be saved it appears as \"{world.accounts[0].display_name}'s world\".\n"
+                         + DETAILS)
+            return None
         for slot, account in enumerate(world.accounts):
             if slot == 0:
                 self.links.ensure(world.world_id, account.player_id, "host", 0, name, account.display_name)
@@ -1258,8 +1304,8 @@ class ShellApp:
                 screen.set_status("info", "Not hosting right now. Choose Host This World to start it.")
             local = self._addresses_for(entry)
             network = self.network.get(entry.world_id)
-            lan = [a for a in local if getattr(a, "kind", "lan") == "lan"]
-            vpn = [a for a in local if getattr(a, "kind", "lan") == "vpn"]
+            lan = [a for a in local if self._address_kinds.get(a, "lan") == "lan"]
+            vpn = [a for a in local if self._address_kinds.get(a, "lan") == "vpn"]
             lines = [f"World: {entry.name}   Port: {entry.port}",
                      f"Listens on: {'this PC only (127.0.0.1)' if entry.bind_address == LOOPBACK else entry.bind_address}",
                      "Local address: " + (", ".join(f"{a}:{entry.port}" for a in lan) if lan else "none found (no local network)")]
