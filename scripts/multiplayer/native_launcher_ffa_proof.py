@@ -34,6 +34,7 @@ import argparse
 import asyncio
 import json
 from pathlib import Path
+import struct
 import sys
 import time
 
@@ -52,9 +53,12 @@ ROUTE_101, LITTLEROOT = (0, 16), (0, 9)
 # from Littleroot's north entrance down to row 3 and a spot per player (native_launcher_multi_proof.py's spots).
 WAYPOINTS = ((7, None), (7, 16), (10, 16), (10, 19))
 SPOTS = {0: (4, 3), 1: (7, 3), 2: (16, 3), 3: (13, 3)}
-# Save block 1 (include/global.h): money, coins, the registered item, PC items and the bag; flags and variables.
-ITEMS = (0x490, 0x848)
+# Save block 1 (include/global.h): money (u32) and coins (u16) at 0x490, the registered item, 50 PC item slots at 0x498,
+# then the bag's 186 slots (items, key items, balls, TMs, berries) at 0x560; flags and variables at 0x1270-0x159C.
+# Money, coins and bag quantities are kept XOR the save block 2 encryption key, which the game renews when it saves.
+MONEY, PC_ITEMS, BAG, BAG_SLOTS = 0x490, 0x498, 0x560, 186
 FLAGS_AND_VARS = (0x1270, 0x159C)
+ENCRYPTION_KEY = 0xAC
 
 
 def pose_of(companion):
@@ -160,9 +164,16 @@ async def players_tab(probe):
 
 
 def save_regions(checkpoint):
+    """What a battle must not change, decrypted: money, coins, the registered item, PC items, the bag; flags and vars."""
     parsed = inspect_flash(checkpoint.payload, save_profile=OWNERSHIP_PROFILE)
     block1 = parsed.save_block1
-    return dict(revision=checkpoint.revision, items=block1[slice(*ITEMS)].hex(),
+    key = struct.unpack_from("<I", parsed.save_block2, ENCRYPTION_KEY)[0]
+    money, coins, registered = struct.unpack_from("<IHH", block1, MONEY)
+    pc = [struct.unpack_from("<HH", block1, PC_ITEMS + 4 * i) for i in range(50)]
+    bag = [(item, quantity ^ (key & 0xFFFF)) for item, quantity in
+           (struct.unpack_from("<HH", block1, BAG + 4 * i) for i in range(BAG_SLOTS))]
+    return dict(revision=checkpoint.revision, money=money ^ key, coins=coins ^ (key & 0xFFFF), registered=registered,
+                items=[list(slot) for slot in pc + bag if slot[0]],
                 flags_and_vars=block1[slice(*FLAGS_AND_VARS)].hex())
 
 
@@ -317,10 +328,12 @@ class FreeForAll:
         after = await on_worker(current[0], saves)
         for slot, (old, new) in enumerate(zip(self.before_saves, after)):
             require(new["revision"] == old["revision"] + 1, f"slot {slot}: revision {old['revision']} -> {new['revision']}")
-            require(new["items"] == old["items"], f"slot {slot}: money, coins, PC items or the bag changed")
+            for field in ("money", "coins", "registered", "items"):
+                require(new[field] == old[field], f"slot {slot}: {field} changed: {old[field]} -> {new[field]}")
             require(new["flags_and_vars"] == old["flags_and_vars"], f"slot {slot}: flags or variables changed")
-        record("items-and-progression-unchanged", revisions=[[o["revision"], n["revision"]]
-                                                            for o, n in zip(self.before_saves, after)])
+        record("items-and-progression-unchanged", revisions=[[o["revision"], n["revision"]] for o, n in
+                                                            zip(self.before_saves, after)],
+               money=[n["money"] for n in after], items=[len(n["items"]) for n in after])
 
 
 async def run(args):
