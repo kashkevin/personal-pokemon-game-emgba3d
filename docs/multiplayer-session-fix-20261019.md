@@ -87,6 +87,11 @@ Engine (`claude/mp-session-engine`, PC only; the release ROM rebuilt from it is 
   stairs, Fly, a whiteout, the fade around them), 0 anything else (a dialogue, a cutscene, a save). Marker
   `gMultiplayerPresenceDetailAbiVersion`; the bridge accepts the byte only in the game's own pose (capability
   `presenceDetail`); other players' poses keep it zero.
+- `src/platform/mp_bridge.c`, two more frames the bridge refused although the game accepts them (found by auditing
+  every frame the companion sends against the bridge's checks): Update 18's outbreak marker (above) and a Lucky
+  Trade's private record (the resolved friendship carries the Lucky bit, 1 << 8; the bridge allowed 0-255, so every
+  Lucky Trade stopped the receiving game's link mid-trade; KNOWN_ISSUES MS-10). A free-for-all battle (phase 5) is
+  refused the same way and is left for its own change (MS-11).
 - START > PLAYER > PLAYERS: when the menu cannot open it now says why in the field banner ("Link to the world was lost. See
   the launcher window.", "Not connected to the world.", "PLAYERS is not ready yet."), instead of closing silently.
 
@@ -159,7 +164,8 @@ its own save.
 | Run | Players | Result |
 | --- | --- | --- |
 | session-2p-10 | host, friend | **passed**: both battles held 25 s (13 observations each) with the sessions unchanged (host 6, friend 7); "Host Hana - In battle", "Friend Finn - In battle"; back on the field in the same sessions; "Field: LITTLEROOT TOWN"; "Connected: 1/4" after the close, "Connected: 2/4" after the rejoin; store check passed |
-| session-4p-3 | host and three friends | **passed**: all four linked, each game drawing the other three, "Connected: 4/4"; the host fought its wild battle out and **lost**: whited out to the house in Littleroot (a map change in the middle), same session; a friend ran; then **two friends battled at the same time**, both "In battle" on the host's PLAYERS; each battle 25 s with all four sessions unchanged (host 10, friends 11, 12, 13); everyone back on the field; the fourth player in Littleroot listed, "Field: LITTLEROOT TOWN"; "Connected: 3/4" after the close, "Connected: 4/4" after the rejoin; store check passed |
+| session-4p-final | host and three friends, engine `3f06fd20` | **passed**: everything below, plus the world's first outbreak (map 0.31) with its marker in all four games and every game linked through it; the host fought its battle out and won, a friend ran, two friends battled at the same time; sessions 10-13 unchanged throughout; "Connected: 3/4" after the close, "4/4" after the rejoin; no game logged a disconnect |
+| session-4p-3 | host and three friends, engine `16d0aa55` | **passed**: all four linked, each game drawing the other three, "Connected: 4/4"; the host fought its wild battle out and **lost**: whited out to the house in Littleroot (a map change in the middle), same session; a friend ran; then **two friends battled at the same time**, both "In battle" on the host's PLAYERS; each battle 25 s with all four sessions unchanged (host 10, friends 11, 12, 13); everyone back on the field; the fourth player in Littleroot listed, "Field: LITTLEROOT TOWN"; "Connected: 3/4" after the close, "Connected: 4/4" after the rejoin; store check passed |
 | session-4p-1, -2 | host and three friends | stopped on the proof's own driving, after the baseline and two battles passed: two players talked to the same wild Pokemon (4p-1; the battles now start one after the other), no wild Pokemon in a straight line within 240 s (4p-2; the proof now lines up with one) |
 
 Pictures (not committed; the games' screens) show the battling player missing from the other screens during the battle
