@@ -171,6 +171,16 @@ its own save.
 Pictures (not committed; the games' screens) show the battling player missing from the other screens during the battle
 and back where they stood afterwards.
 
+## The Windows package
+
+windows-package run #72 (`39272719523`; app `296524a`, engine `3f06fd20`): the GBA ROM pinned at
+`f214735b64e113fd10730eacca5764d757f2c93a3685230aa905af7a7cdd3387`, the packaged 3D and Classic 2D games are the
+engine job's build, graphics checks 16/16 (the runner has no 3D, as before), the in-game menu check, and on a fresh
+runner the installer `EmeraldTogether-Setup-EmeraldTogether-2026-10-19-session-fix-2.exe` (57,621,298 bytes, SHA-256
+`36d27a2485134ca6f0a5383f5817463427df4bc532dfc6cab4422e09884a588b`, artifact `EmeraldTogether-Windows-Installer`)
+installed, started, repaired and uninstalled, and Create World ran through the installed build's menu window. The
+installed game's log reads `Multiplayer bridge: ... detail 1` (the new capability). A two-player run of the proof with this engine's Windows game under Wine: running.
+
 ## What was not run
 
 - Two (or four) physical Windows PCs, a real home network and the Internet relay: never. Everything above ran on this

@@ -58,13 +58,16 @@ OUTBREAK_WAIT = 480
 
 
 def engine_addresses(game):
-    """multiplayer.c's statics follow gMultiplayerMailbox (other files reuse the names sConnected and sFrame)."""
-    rows = subprocess.run(["nm", "-S", str(game)], capture_output=True, text=True, check=True).stdout
+    """multiplayer.c's statics follow gMultiplayerMailbox (other files reuse the names sConnected and sFrame). The
+    Windows exe (under Wine, mapped at its preferred base) has the same symbols with MinGW's leading underscore."""
+    pe = Path(game).read_bytes()[:2] == b"MZ"
+    rows = subprocess.run(["nm", str(game)], capture_output=True, text=True, check=True).stdout
     table = {}
     for line in rows.splitlines():
         row = line.split()
-        if len(row) == 4:
-            table.setdefault(row[3], []).append(int(row[0], 16))
+        if len(row) == 3:
+            name = row[2][1:] if pe and row[2].startswith("_") else row[2]
+            table.setdefault(name, []).append(int(row[0], 16))
     base = table["gMultiplayerMailbox"][0]
 
     def after(name):
