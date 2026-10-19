@@ -77,16 +77,17 @@ _EXTENDED = {0x25, 0x26, 0x27, 0x28, 0x24, 0x23}
 
 def processes():
     """[(pid, parent pid, command line)] of every process (PowerShell/CIM: Python has no command lines without extras)."""
-    script = ("Get-CimInstance Win32_Process | ForEach-Object { '{0}`t{1}`t{2}' -f $_.ProcessId, $_.ParentProcessId, "
-              "($_.CommandLine -replace '[\\r\\n\\t]', ' ') }")
+    script = ("Get-CimInstance Win32_Process | Select-Object ProcessId, ParentProcessId, CommandLine | "
+              "ConvertTo-Json -Compress")
     output = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", script], capture_output=True,
                             text=True, timeout=120, check=False).stdout
-    rows = []
-    for line in output.splitlines():
-        parts = line.split("\t", 2)
-        if len(parts) == 3 and parts[0].isdigit() and parts[1].isdigit():
-            rows.append((int(parts[0]), int(parts[1]), parts[2]))
-    return rows
+    try:
+        rows = json.loads(output or "[]")
+    except ValueError:
+        return []
+    rows = [rows] if isinstance(rows, dict) else rows
+    return [(int(row["ProcessId"]), int(row["ParentProcessId"]), row.get("CommandLine") or "") for row in rows
+            if isinstance(row, dict) and row.get("ProcessId") is not None and row.get("ParentProcessId") is not None]
 
 
 def children(pid):
@@ -178,7 +179,8 @@ class Menu:
                 if self.hwnd:
                     break
             time.sleep(1)
-        require(self.hwnd, "the in-game menu window did not open within two minutes")
+        require(self.hwnd, "the in-game menu window did not open within two minutes (launcher children: "
+                           f"{[(pid, command[-80:]) for pid, command in children(self.process.pid)]})")
         time.sleep(6)                              # the first screen (the main menu) after the start-up checks
         self.log(f"menu window open (launcher pid {self.process.pid}, menu pid {self.shell_pid})")
         self.shot("main")
