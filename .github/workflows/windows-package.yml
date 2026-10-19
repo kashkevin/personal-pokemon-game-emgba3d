@@ -458,6 +458,13 @@ jobs:
         run: |
           python scripts/windows-runtime/ci_world_check.py --setup "$(ls installer/EmeraldTogether-Setup-*.exe)" \
             --work "$RUNNER_TEMP/world-check" --profile "$RUNNER_TEMP/world-check/profile" --expect fixed --label fresh
+      - name: Create a character, Solo, Host World and Join Friend on the installed build (full)
+        if: env.MODE == 'full'
+        # scripts/windows-runtime/ci_play_check.py: two profiles on this runner, both menus open; New Game, Solo, a hosted world
+        # on this runner's network address and a friend joining it with the copied invite code, every save in its world.
+        run: |
+          python scripts/windows-runtime/ci_play_check.py --setup "$(ls installer/EmeraldTogether-Setup-*.exe)" \
+            --work "$RUNNER_TEMP/play-check" --label play
       - name: Upload the installation check report (7 days)
         if: always()
         uses: actions/upload-artifact@v4
@@ -470,6 +477,10 @@ jobs:
             ${{ runner.temp }}/install-check/uninstall.log
             ${{ runner.temp }}/world-check/*-world-check.json
             ${{ runner.temp }}/world-check/*-pictures/
+            ${{ runner.temp }}/play-check/*-play-check.json
+            ${{ runner.temp }}/play-check/*-screens.jsonl
+            ${{ runner.temp }}/play-check/*-pictures/
+            ${{ runner.temp }}/play-check/*.log
           retention-days: 7
           if-no-files-found: warn
       - name: Summary
@@ -482,5 +493,9 @@ jobs:
             for f in "$RUNNER_TEMP"/world-check/*-world-check.json; do
               [ -f "$f" ] || continue
               python -c "import json,sys;r=json.load(open(sys.argv[1]));print('- Create World on the installed build:', r['result']);[print('  -', l) for l in r['log']]" "$f"
+            done
+            for f in "$RUNNER_TEMP"/play-check/*-play-check.json; do
+              [ -f "$f" ] || continue
+              python -c "import json,sys;r=json.load(open(sys.argv[1]));print('- Create a character, Solo, Host World, Join Friend:', r['result']);[print('  -', l) for l in r['log']]" "$f"
             done
           } >> "$GITHUB_STEP_SUMMARY"
