@@ -194,7 +194,8 @@ class RivalManifestTests(manifest_fixture.CoopAndWorldManifestTests):
         self.assertNotIn("rival_abi_version", plain)  # the GBA ELF alone never advertises it
         generated = self.generate_native(self.base + self.battle + self.world, native)
         self.assertEqual(generated["rival_abi_version"], 1)
-        mingw = self.generate_native(self.base + self.battle + self.world, "00bd2780 00000004 R _gMultiplayerRivalAbiVersion\n")
+        # MinGW nm (the Windows game): a leading underscore and no size column (a PE executable's symbols have none).
+        mingw = self.generate_native(self.base + self.battle + self.world, "00bd2780 R _gMultiplayerRivalAbiVersion\n")
         self.assertEqual(mingw["rival_abi_version"], 1)
         with self.assertRaises(ValueError):
             self.generate_native(self.base + self.battle, native)  # no shared world mailbox

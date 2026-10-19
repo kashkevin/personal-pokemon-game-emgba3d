@@ -173,6 +173,28 @@ class CoopAndWorldManifestTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 self.generate_native(self.base + self.battle, bad)
 
+    def test_the_windows_games_markers_are_read_from_mingw_nm_which_prints_no_size(self):
+        """windows-package.yml generates the Windows manifest from `i686-w64-mingw32-nm --print-size` of the Windows game. For a
+        PE executable that prints no size column (these are its real lines, engine 3f06fd20), and requiring one dropped the
+        free-for-all, rival and presence-detail markers from every Windows manifest: the companion then refused the game's pose
+        whenever it was off the field and closed its link (the installed play check, run 39298566536)."""
+        mingw = ("00c0449c R _gMultiplayerBattleFfaAbiVersion\n"
+                 "00c04b28 R _gMultiplayerPresenceDetailAbiVersion\n"
+                 "00c04e94 R _gMultiplayerRivalAbiVersion\n")
+        generated = self.generate_native(self.base + self.battle + self.world, mingw)
+        self.assertEqual({key: generated.get(key) for key in ("battle_ffa_abi_version", "rival_abi_version",
+                                                              "presence_detail_abi_version")},
+                         {"battle_ffa_abi_version": 1, "rival_abi_version": 1, "presence_detail_abi_version": 1})
+        linux = ("0882468c 00000004 R gMultiplayerBattleFfaAbiVersion\n08824b5c 00000004 R gMultiplayerPresenceDetailAbiVersion\n"
+                 "08824c4c 00000004 R gMultiplayerRivalAbiVersion\n")
+        self.assertEqual(self.generate_native(self.base + self.battle + self.world, linux), generated)
+        for bad in (mingw + "00c0449c R _gMultiplayerBattleFfaAbiVersion\n",               # two markers
+                    "00c0449c 00000008 R _gMultiplayerBattleFfaAbiVersion\n"):            # a size, and not four bytes
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                self.generate_native(self.base + self.battle + self.world, bad)
+        self.assertNotIn("battle_ffa_abi_version",                                      # code, not data: not a marker
+                         self.generate_native(self.base + self.battle, "00c0449c T _gMultiplayerBattleFfaAbiVersion\n"))
+
     def test_world_marker_and_mailbox_are_generated_and_verified(self):
         from emerald_multiplayer.world_mailbox import validate_world_manifest
         generated = self.generate(self.base + self.battle + self.world)

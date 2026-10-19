@@ -12,6 +12,20 @@ import zlib
 RULESET = "baseline-rhh1.17.1-mailbox-v1"
 
 
+def native_marker(name, symbols):
+    """[(address, size or None)] of a PC-only marker in `nm --print-size` output. GNU nm prints an ELF symbol's size, but a
+    PE/COFF executable (the Windows game, MinGW nm) has no symbol sizes and its lines have none; the Windows package's
+    manifest is generated from those, so a line without a size is taken on its address and data type alone. (Requiring
+    the size dropped all three PC-only markers from every Windows manifest: 2026-10-19.)"""
+    return [(address, size or None) for address, size in
+            re.findall(rf"^([0-9a-fA-F]+)\s+(?:([0-9a-fA-F]+)\s+)?[RrDd]\s+_?{name}$", symbols, re.M)]
+
+
+def four_byte_marker(found):
+    """Exactly one marker, of four bytes where nm says its size."""
+    return len(found) == 1 and (found[0][1] is None or int(found[0][1], 16) == 4)
+
+
 def generate(rom: Path, elf: Path, nm: str, engine_commit: str, *, trade_effect_prepare=False, trade_effect_save=False, trade_effect_choice=False,
              native_symbols: str = "") -> dict:
     if not re.fullmatch(r"[0-9a-f]{40}", engine_commit):
@@ -173,10 +187,10 @@ def generate(rom: Path, elf: Path, nm: str, engine_commit: str, *, trade_effect_
         validate_battle_manifest(manifest, rom)
     # The four-player free-for-all exists in the native PC game only (the GBA ROM stays byte-identical), so its marker is read
     # from the symbols of the PC executable (`nm` of the unstripped exe), not from the GBA ELF.
-    ffa = re.findall(r"^([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+[RrDd]\s+_?gMultiplayerBattleFfaAbiVersion$", symbols + native_symbols, re.M)
+    ffa = native_marker("gMultiplayerBattleFfaAbiVersion", symbols + native_symbols)
     if ffa:
         from emerald_multiplayer.battle_manifest import validate_battle_manifest
-        if len(ffa) != 1 or int(ffa[0][1], 16) != 4 or not battle:
+        if not four_byte_marker(ffa) or not battle:
             raise ValueError("free-for-all battles require one four-byte marker and the native battle channel")
         manifest.update(battle_ffa_abi_version=1)
         validate_battle_manifest(manifest, rom)
@@ -228,17 +242,16 @@ def generate(rom: Path, elf: Path, nm: str, engine_commit: str, *, trade_effect_
         validate_world_manifest(manifest, rom)
     # Update 31: rival checkpoints (the RivalRecord in the world mailbox, a rival battle's environment in its preparation)
     # exist in the native PC game only, so the marker comes from the PC executable's symbols, like the free-for-all's.
-    rival = re.findall(r"^([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+[RrDd]\s+_?gMultiplayerRivalAbiVersion$", symbols + native_symbols, re.M)
+    rival = native_marker("gMultiplayerRivalAbiVersion", symbols + native_symbols)
     if rival:
-        if len(rival) != 1 or int(rival[0][1], 16) != 4 or not world:
+        if not four_byte_marker(rival) or not world:
             raise ValueError("rival checkpoints require one four-byte marker and the shared world mailbox")
         manifest.update(rival_abi_version=1)
     # Why a player is off the field (the PC game's pose: in battle, a menu, changing area), for the other players'
     # Players lists (docs/multiplayer-session-fix-20261019.md). Native PC game only, like the rival marker.
-    detail = re.findall(r"^([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+[RrDd]\s+_?gMultiplayerPresenceDetailAbiVersion$",
-                        symbols + native_symbols, re.M)
+    detail = native_marker("gMultiplayerPresenceDetailAbiVersion", symbols + native_symbols)
     if detail:
-        if len(detail) != 1 or int(detail[0][1], 16) != 4:
+        if not four_byte_marker(detail):
             raise ValueError("the presence detail needs one four-byte marker")
         manifest.update(presence_detail_abi_version=1)
     if len(objects) == 1:

@@ -492,6 +492,7 @@ class Companion:
         self._live_save_owner: asyncio.Task | None = None
         self._bridge: BridgeSession | None = None
         self._bridge_admission_blocked = False
+        self.last_bridge_refusal = None     # why the companion last refused the running game's bridge (diagnostics only)
         self._bridge_incarnation = 0
         self._ipc_writers: set[asyncio.StreamWriter] = set()
         self._ipc_handlers: set[asyncio.Task] = set()
@@ -726,6 +727,7 @@ class Companion:
         self._ipc_handlers.add(task)
         self._ipc_writers.add(writer)
         bridge: BridgeSession | None = None
+        refusal = None
         try:
             peer = writer.get_extra_info("peername")
             if self._closing or self._bridge_admission_blocked or peer is None or not is_local_address(peer[0]) or len(self._ipc_writers) > 4:
@@ -938,7 +940,11 @@ class Companion:
                         continue
                 self._local_pose = pose
                 self._last_pose_time = asyncio.get_running_loop().time()
-        except (BridgeError, MailboxError, ConnectionError, OSError, asyncio.TimeoutError):
+        except (BridgeError, MailboxError) as error:
+            # The game said something this companion refuses (a capability its manifest does not have, a malformed record):
+            # kept for whoever has to find out why the game keeps reconnecting.
+            refusal = self.last_bridge_refusal = f"{type(error).__name__}: {error}"
+        except (ConnectionError, OSError, asyncio.TimeoutError):
             pass
         finally:
             if bridge is not None:
@@ -946,7 +952,7 @@ class Companion:
                 if self._bridge is bridge:
                     self._bridge = None
                     self._last_pose_time = 0.0
-                    self._fail_save_requests("local game bridge disconnected")
+                    self._fail_save_requests("local game bridge disconnected" + (f" (refused: {refusal})" if refusal else ""))
                     if self.config.trade_enabled:
                         # A new emulator incarnation must never inherit an old
                         # two-party confirmation bound to this network lease.

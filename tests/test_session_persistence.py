@@ -113,7 +113,7 @@ class PresenceDetailManifestTests(manifest_fixture.CoopAndWorldManifestTests):
         self.assertNotIn("presence_detail_abi_version", plain)  # the GBA ELF alone never advertises it
         self.assertEqual(self.generate_native(self.base + self.battle + self.world, native)
                          ["presence_detail_abi_version"], 1)
-        mingw = "00bd2790 00000004 R _gMultiplayerPresenceDetailAbiVersion\n"
+        mingw = "00bd2790 R _gMultiplayerPresenceDetailAbiVersion\n"   # MinGW nm: no size column for a PE executable
         self.assertEqual(self.generate_native(self.base, mingw)["presence_detail_abi_version"], 1)
         for bad in ("00bd2790 00000008 R gMultiplayerPresenceDetailAbiVersion\n", native + native):
             with self.subTest(bad=bad), self.assertRaises(ValueError):
@@ -224,6 +224,8 @@ class PresenceSessionTests(unittest.IsolatedAsyncioTestCase):
         await bridge_a.pose(off_field(2, BATTLE))
         await wait_until(lambda: a._bridge is None)  # the malformed pose ends the game's link, not the world session
         self.assertTrue(a.connected)
+        # Why is kept: a Windows manifest without the marker (2026-10-19) showed only as a game reconnecting again and again.
+        self.assertEqual(a.last_bridge_refusal, "MailboxError: local pose reserved byte must be zero")
 
     async def test_one_to_four_players_a_battle_keeps_everyone_at_every_count(self):
         players, games = [], []
