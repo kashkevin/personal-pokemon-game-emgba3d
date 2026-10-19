@@ -139,6 +139,57 @@ class CharacterTests(unittest.TestCase):
         self.assertEqual(len({r["world_id"] for r in registrations}), 2)
         self.assertEqual(len(app.library.all()), 1)
 
+    def test_a_cancel_after_the_world_saved_the_character_keeps_it_and_one_before_changes_nothing(self):
+        """The registration game closes by itself once the world has saved the character; a key the player meant for the game
+        then lands on the menu window, whose only button is Cancel (the play check's Linux rehearsal: "Cancelled. Your character
+        was not changed" although the world had saved it). The world's new save is kept, as after an uninterrupted
+        registration, and the game starts. A cancel before the world saved anything still changes nothing."""
+        import asyncio
+        from emerald_multiplayer.shell_protocol import ScriptedShell
+        from emerald_multiplayer.shell_app import ShellApp
+
+        def run(saves_first):
+            world = World(self)
+            character = library_character(world)
+            state = dict(saved=False)
+
+            async def register(installation, private_root, library, character, *, role, world_id, player_id, on_status=None,
+                               **options):
+                import uuid
+                from emerald_multiplayer.ownership_storage import AllocationGrant
+                from test_ownership_storage import owned_flash
+                if saves_first:                        # the world saved the character; the game closed by itself
+                    folder = profile_directory(private_root, world_id, player_id)
+                    folder.mkdir(parents=True, exist_ok=True)
+                    grant = AllocationGrant(world_id, player_id, str(uuid.uuid4()), 1, 33, 1, 1, 0)
+                    (folder / "character.sav").write_bytes(owned_flash(grant, personalities=(7,)))
+                state["saved"] = True
+                await asyncio.Event().wait()           # the enrollment is still winding down when the key arrives
+
+            def responder(screen, waiting=False):
+                if screen.id == "busy" and waiting:
+                    return ("select", "cancel") if state["saved"] and "enters" in screen.title else None
+                if state["saved"] and screen.id in ("main", "solo"):
+                    return select("exit") if screen.id == "main" else BACK
+                answers = {"main": select("solo"), "solo": select("new"), "ask_text": select("ok", value="My world"),
+                           "bring_character": select("go")}
+                return answers.get(screen.id) or self.fail(f"unexpected {screen.id}: {screen.status}")
+            worker = FakeWorker(lambda request: "game_closed")
+            ui = ScriptedShell(responder)
+            app = ShellApp(world.installation, world.private, ui, worker=worker, lan=LAN, graphics_gate=lambda: "3d",
+                           version="t", register=register, drafter=fake_drafter([]))
+            app.run()
+            (entry,) = app.registry.entries()
+            return app.library.get(character.character_id), entry, worker, [s.status[1] for s in ui.shown if s.status]
+
+        kept, entry, worker, statuses = run(saves_first=True)
+        self.assertEqual((kept.world_id, kept.player_id), (entry.world_id, entry.accounts[0][1]))
+        self.assertEqual(len(worker.requests), 1)                              # and the world was played
+        self.assertFalse(any(text.startswith("Cancelled") for text in statuses), statuses)
+        unchanged, entry, worker, statuses = run(saves_first=False)
+        self.assertEqual((unchanged.world_id, len(worker.requests)), (None, 0))
+        self.assertTrue(any(text.startswith("Cancelled. Your character was not changed") for text in statuses), statuses)
+
     def test_characters_menu_create_choose_rename_back_up_restore_and_delete(self):
         world = World(self)
         first = library_character(world)

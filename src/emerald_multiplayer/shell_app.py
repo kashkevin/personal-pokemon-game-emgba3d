@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import replace
+import hashlib
 from pathlib import Path
 import time
 
@@ -35,7 +36,7 @@ from .character_creation import CreationError, create_draft, message_for
 from .character_library import CharacterLibrary, LibraryError
 from .character_links import CharacterLinks
 from .character_migration import migrate_characters, recover_draft, recoverable_drafts
-from .character_play import needs_registration, record_after_session, register_character, sync_from_worlds
+from .character_play import account_save, needs_registration, record_after_session, register_character, sync_from_worlds
 from .connection_diagnostics import check_routes, describe, result as diagnosis
 from .graphics_mode import MODE_2D, MODE_3D, MODE_LABELS, GraphicsPreference, choose_launch, explain_failure, probe_graphics
 from .invitations import Invitation, InvitationError
@@ -655,6 +656,7 @@ class ShellApp:
         installation = self._game_installation()
         if installation is None:
             return False
+        before = self._account_save_digest(world_id, player_id)
 
         async def enter(job):
             return await self.register(installation, self.private_root, self.library, character, role=role, world_id=world_id,
@@ -666,12 +668,31 @@ class ShellApp:
         finally:
             self.window(self.menu_window)
         if job is None:
+            if self._came_in(character, world_id, player_id, before):
+                return True
             self.notice = ("warn", "Cancelled. Your character was not changed; try again whenever you like.")
             return False
         if job.error is not None:
             self._explain(f"{character.name} could not enter {world_name}", job.error, game=True)
             return False
         return True
+
+    def _account_save_digest(self, world_id, player_id):
+        payload = account_save(self.private_root, world_id, player_id)
+        return None if payload is None else hashlib.sha256(payload).hexdigest()
+
+    def _came_in(self, character, world_id, player_id, before):
+        """After a cancelled registration: whether the world had already saved the character. The game closes by itself once
+        it has, and a key the player meant for the game then lands on this window, whose only button is Cancel. A save of
+        this account that is new since the registration began, of this character's trainer, means the character came in:
+        it becomes the character's latest save, as after a registration that was not interrupted."""
+        digest = self._account_save_digest(world_id, player_id)
+        if digest is None or digest == before:
+            return False
+        try:
+            return record_after_session(self.private_root, self.library, character.character_id, world_id, player_id) is not None
+        except (OSError, LibraryError, StoreUnavailable):
+            return False
 
     def _after_session(self, character, world_id, player_id, outcome):
         """After a game in a world: the character's latest save is that world's (its previous save stays in its history)."""
