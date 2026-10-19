@@ -181,6 +181,13 @@ runner the installer `EmeraldTogether-Setup-EmeraldTogether-2026-10-19-session-f
 installed, started, repaired and uninstalled, and Create World ran through the installed build's menu window. The
 installed game's log reads `Multiplayer bridge: ... detail 1` (the new capability).
 
+**Correction (MS-13, found afterwards):** that installer, and every earlier Windows package (including run #71,
+`39259757031`), shipped a game manifest without the presence-detail capability, because MinGW's `nm` prints no symbol
+sizes and the manifest generator required one. The game offered `detail 1`, but the companion on Windows refused its
+pose whenever it was off the field and closed its link, so on Windows this session fix did not hold. The Wine runs below
+used a manifest from Linux symbols and did not see it. It is fixed in app `fc41598`; use a later installer. See
+`docs/free-for-all-native-fix-20261019.md` (MS-13) and `KNOWN_ISSUES.md`.
+
 The proof with this engine's Windows game (`pokeemerald-mp.exe`, built here from `3f06fd20`) under Wine, two players,
 three runs (session-wine-2p, -2, -3): every time both games linked, both held the outbreak marker, a battle held 25 s
 with both sessions unchanged and "Host Hana - In battle" on the friend's PLAYERS, every Windows game logged
