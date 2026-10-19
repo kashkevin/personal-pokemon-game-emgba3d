@@ -62,7 +62,9 @@ Reproduced through the launcher: the proof now gives the world an outbreak setti
 active minutes instead of 8-15). On the game with only the rival fix (engine `16d0aa55`), run outbreak-before-2p:
 both games linked, PLAYERS "Connected: 2/4"; when the outbreak started both games logged `Multiplayer bridge
 disconnected: invalid shared-world update` in the same second, and the host's game was left unlinked, without its
-friend and without the marker. On the fixed game: running.
+friend and without the marker. On the fixed game (engine `3f06fd20`), run outbreak-after-2p: the outbreak started on
+map 0.19, both games held its marker (`1, 0, 19, 0, 0, 0, 0, 0`) and stayed linked, and the rest of the proof passed
+(the host fought its battle out and won; no game logged a disconnect).
 
 ### A second defect found on the way
 
@@ -133,7 +135,7 @@ A game publishes its pose every frame, battles and menus included, so a long bat
 
 | Test | What | Result |
 | --- | --- | --- |
-| engine `check-native` | all native suites, including `test_mp_bridge` `world_rival_record_accepted` (8 failures on the old validator), `world_outbreak_marker_accepted` (10 failures on the validator with only the rival fix) and `presence_detail_rides_the_local_pose_only` | the bridge suite 4354 checks, 0 failures; the full `check-native` rerun is pending |
+| engine `check-native` | all native suites, including `test_mp_bridge` `world_rival_record_accepted` (8 failures on the old validator), `world_outbreak_marker_accepted` (10 failures on the validator with only the rival fix) and `presence_detail_rides_the_local_pose_only` | 0 failures (engine `3f06fd20`: bridge 4375 checks, with `trade_record_carries_the_lucky_bit`, 6 failures on the old validator); `check-abi`, `check-rival` 31/0, `check-mp-objects` 21/0, `check-pokenav-map` 8/0, `check-spawn-claims` 23/0, `check-game-sections` and the 3D renderer suite `check-diorama` passed |
 | `tests/test_session_persistence.py` | real server and companions over TCP, games as the binary bridge protocol: 1, 2, 3 and 4 players joining one by one with a battle at each count, a battle longer than the idle and presence timeouts, menus and a door, a game without the capability, four players with independent battle/menu/walk and a fifth refused as full who takes the free place, four enrolled players on an ownership world with the Players menu, a host refusing rival status (fails on the old code: sessions replaced dozens of times a second), rival records flowing | 16 passed (17 subtests), 5 runs in a row |
 | `scripts/multiplayer/native_session_persistence_proof.py`, two and four players | see below | see below |
 
