@@ -436,6 +436,10 @@ class AbandonProof:
         except Reproduced as error:
             record("MS-16-reproduced", reason=str(error))
             raise
+        finally:
+            # Later phases start new launchers, whose worker threads can reuse these idents: the harness's own
+            # display choice applies to them again.
+            self.thread_slot.clear()
         return None
 
     async def pairs_crash(self, current, probes, games, host, symbols, record, before):
