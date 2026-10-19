@@ -599,8 +599,8 @@ class PlayCheck:
         friend.choose(friend.expect("join_list"), "new")
         friend.expect("join_new")
         friend.text(code)
-        for _ in ("name", "address", "port"):
-            friend.key("enter")
+        for _ in ("name", "address", "port", "join"):
+            friend.key("enter")                    # a field's Enter moves on: the name, the address, the port, Check and join
         friend.key("enter")                        # Check and join
         friend.log("Join Friend: typed the invite code, Check and join")
         world = dict(name=host_world["name"])
@@ -772,8 +772,8 @@ def main():
                     for entry in report.get("game_logs", {}).get(player.name, []):
                         for line in entry["tail"]:
                             print(f"  {player.name} game {entry['folder'][:8]}: {line[:240]}", flush=True)
-                    if error:
-                        print(f"  {player.name} last-error.txt: {error[-1500:]}", flush=True)
+                    if error:                      # the traceback first, then the game's output the menu appended
+                        print(f"  {player.name} last-error.txt:\n{error[:4000]}", flush=True)
         report["log"] = lines
         (work / f"{args.label}-play-check.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
         if not args.linux and target.exists():
