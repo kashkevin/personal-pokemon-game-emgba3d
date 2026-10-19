@@ -310,8 +310,9 @@ class Championships:
                 # Either every authorized BIND abort succeeded, or every
                 # original never-reserved core has its durable HANDOFF receipt.
                 # This read does not issue controls or clear any native hold.
+                # An abandoned battle (battle_abandonment.py) may have started; it still has no result.
                 if (result is not None or match["state"] in {"won", "draw"}
-                        or native is not None and (native.started
+                        or native is not None and (native.started and native.reason != "abandoned"
                         or native.state not in {"aborted", "aborting", "recovery_required"})):
                     self._invalid()
                 attempt["canceled"] = True

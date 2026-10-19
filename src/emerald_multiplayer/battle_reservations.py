@@ -310,6 +310,28 @@ class BattleReservations:
                     [(p, battle.battle_id, i) for i, p in enumerate(battle.players)])
             self._active()
 
+    def _abandon(self, battle_id, digest):
+        """Trusted host abandonment (battle_abandonment.py): the "no result" terminal, every participant released.
+
+        ``digest`` names the abandonment record kept beside the route journal. An exact retry is inert; a battle
+        with any other terminal fact (a published result, an earlier abort) is never changed.
+        """
+        _hash(digest)
+        with self.store._transaction():
+            self.store._require_boot()
+            self._active()
+            row = self.store._connection.execute("SELECT * FROM battle_reservations WHERE battle_id=?", (battle_id,)).fetchone()
+            if row is None:
+                raise StorageError("battle_reservation_invalid", "the durable battle reservation is missing")
+            record = self._read(row)
+            if row["terminal_kind"] is not None:
+                if (row["terminal_kind"], row["terminal_digest"]) != ("aborted", digest):
+                    raise StorageError("battle_reservation_conflict", "the battle already has another terminal fact")
+                return
+            self.store._connection.execute("UPDATE battle_reservations SET terminal_kind=?, terminal_digest=?, sha256=? WHERE battle_id=?",
+                ("aborted", digest, _digest([record, row["authorized_mask"], "aborted", digest]), battle_id))
+            self.store._connection.execute("DELETE FROM battle_reservation_actors WHERE battle_id=?", (battle_id,))
+
     def _finish(self, battle, kind, actor, request, response):
         """Trusted Desk after full native receipt validation, before unblocking."""
         receipts = dict(battle.receipts)

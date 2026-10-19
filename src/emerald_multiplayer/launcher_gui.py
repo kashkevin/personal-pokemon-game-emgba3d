@@ -89,6 +89,13 @@ _TEXT = {
     "battle_recovery_held": "Battle recovery could not finish. Keep this game open, restore the host connection, then try Recover battle again.",
     "battle_recovery_not_ready": "This waiting battle cannot recover yet. Keep its original game window open.",
     "battle_recovered": "Battle finished after recovery. Your party is restored and saving is available again.",
+    "battle_abandoning": "Abandoning the interrupted battle. Nobody wins or loses it; your game restarts from your last save.",
+    "battle_abandoned": "The interrupted battle was abandoned with no result. Your game continues from your last save.",
+    "battle_abandon_unavailable": "There is no interrupted battle to abandon right now.",
+    "battle_abandon_unsupported": "The host's version cannot abandon an interrupted battle. Update the host, or use Recover battle.",
+    "battle_abandon_failed": "The battle could not be abandoned now. Check the connection to the host and try again.",
+    "battle_still_running": "The battle is still running on the host. It can be abandoned once it is interrupted.",
+    "battle_result_final": "The battle had already finished on the host; its result stands. Use Recover battle.",
     "host_service_restarting": "Restarting this world's host service. Keep every original game and launcher open.",
     "host_service_restarted": "Host service restarted. Keep original games open. Use Recover battle for a waiting battle, or Resolve interrupted trade to verify or cancel a waiting trade.",
     "host_restart_failed": "The host service is unavailable. Keep every original game open, restore the host configuration, then try Restart host service again.",
@@ -166,7 +173,7 @@ def status_text(code):
 
 _RETAINS_GAME = frozenset({"host_loss_preserving", "host_loss_unsaved_held",
     "host_loss_battle_waiting", "host_loss_trade_waiting", "host_loss_armed", "game_recovery_held",
-    "battle_recovering", "battle_recovery_held", "battle_recovery_not_ready",
+    "battle_recovering", "battle_recovery_held", "battle_recovery_not_ready", "battle_abandoning",
     "host_service_restarting", "host_service_restarted", "host_restart_failed", "host_restart_not_ready",
     "admission_canceling", "admission_cleanup_held", "admission_cleanup_unsupported",
     "trade_recovery_checking", "trade_recovery_held"})
@@ -253,6 +260,7 @@ class UiEvent:
     is_host: bool = False
     host_restart_available: bool = False
     connected: bool = False
+    battle_abandon_available: bool = False
     revision: int | None = None
     connection_details: ConnectionDetails | None = None
     save_available: bool | None = None
@@ -291,6 +299,7 @@ class SessionWorker:
         self._settings_pending = False
         self._battle_recovery_future = None
         self._battle_recovery_pending = self._battle_recovery_available = False
+        self._battle_abandon_available = False
         self._trade_recovery_available = False
         self._admission_cleanup_available = False
         self._host_restart_future = None
@@ -622,7 +631,8 @@ class SessionWorker:
             save_available=getattr(status, "save_available", None),
             championship_available=getattr(status, "championship_available", False),
             player_actions_available=getattr(status, "player_actions_available", False),
-            trade_recovery_available=getattr(status, "trade_recovery_available", False)))
+            trade_recovery_available=getattr(status, "trade_recovery_available", False),
+            battle_abandon_available=getattr(status, "battle_abandon_available", False)))
 
     async def _save(self):
         try:
@@ -672,6 +682,33 @@ class SessionWorker:
             self._battle_recovery_pending = True
             self._loop.call_soon_threadsafe(self._begin_battle_entry_cancel)
             return True
+
+    def request_battle_abandon(self):
+        """Abandon the interrupted battle this game is held in (no result); the session restarts the game."""
+        with self._lock:
+            if (not self.busy or self._state is not SessionState.RUNNING or self._loop is None
+                    or self._active_session is None or not self._battle_abandon_available
+                    or self._battle_recovery_pending or self._save_pending or self._settings_pending
+                    or self._host_restart_pending or self._championship_pending or self._player_snapshot_pending):
+                return False
+            # A recovery and an abandonment own the same held game: one lane for both.
+            self._battle_recovery_pending = True
+            self._loop.call_soon_threadsafe(self._begin_battle_abandon)
+            return True
+
+    def _begin_battle_abandon(self):
+        self._battle_recovery_future = asyncio.create_task(self._abandon_battle(), name="launcher-battle-abandon-action")
+
+    async def _abandon_battle(self):
+        try:
+            if self._active_session is not None:
+                await self._active_session.abandon_battle()
+        except Exception as error:
+            code = getattr(error, "code", None)
+            self._report_running_error(code if code in _TEXT else "battle_abandon_failed")
+        finally:
+            with self._lock:
+                self._battle_recovery_pending = False
 
     def _begin_battle_entry_cancel(self):
         self._battle_recovery_future = asyncio.create_task(self._cancel_battle_entry(),
@@ -775,6 +812,7 @@ class SessionWorker:
             self._status_code = status.code
             self._battle_recovery_available = getattr(status, "battle_recovery_available", False)
             self._admission_cleanup_available = getattr(status, "admission_cleanup_available", False)
+            self._battle_abandon_available = getattr(status, "battle_abandon_available", False)
             self._is_host = getattr(status, "is_host", False)
             self._host_restart_available = getattr(status, "host_restart_available", False)
             self._trade_recovery_available = getattr(status, "trade_recovery_available", False)
@@ -789,6 +827,7 @@ class SessionWorker:
                                    championship_available=getattr(status, "championship_available", False),
                                    player_actions_available=getattr(status, "player_actions_available", False),
                                    trade_recovery_available=self._trade_recovery_available,
+                                   battle_abandon_available=self._battle_abandon_available,
                                    detail=getattr(status, "detail", None), router=getattr(status, "router", None),
                                    relay=getattr(status, "relay", None)))
 
@@ -814,6 +853,7 @@ class SessionWorker:
                                  getattr(status, "championship_available", False),
                                  getattr(status, "player_actions_available", False),
                                  getattr(status, "trade_recovery_available", False),
+                                 getattr(status, "battle_abandon_available", False),
                                  getattr(status, "router", None), getattr(status, "relay", None))
                     if signature != observed:
                         self._publish(status)
@@ -895,6 +935,7 @@ class SessionWorker:
                 self._settings_pending = False
                 self._battle_recovery_future = None
                 self._battle_recovery_pending = self._battle_recovery_available = False
+                self._battle_abandon_available = False
                 self._trade_recovery_available = False
                 self._admission_cleanup_available = False
                 self._host_restart_future = None
@@ -1183,6 +1224,9 @@ class LauncherWindow:
         self.cancel_battle_entry_button = ttk.Button(battle_actions, text="Cancel battle entry",
             command=self.cancel_battle_entry, state="disabled")
         self.cancel_battle_entry_button.pack(side="left", padx=(12, 0))
+        self.abandon_battle_button = ttk.Button(battle_actions, text="Abandon battle",
+            command=self.abandon_battle, state="disabled")
+        self.abandon_battle_button.pack(side="left", padx=(12, 0))
         trade_actions = ttk.Frame(footer)
         trade_actions.pack(fill="x", pady=(8, 0))
         self.recover_trade_button = ttk.Button(trade_actions, text="Resolve interrupted trade",
@@ -1928,6 +1972,23 @@ class LauncherWindow:
         elif not self.closing and self.worker is not None:
             self.message.set(status_text("battle_recovery_not_ready"))
 
+    def abandon_battle(self):
+        if self.closing or self.worker is None:
+            return
+        from tkinter import messagebox
+        if not messagebox.askokcancel("Abandon interrupted battle",
+                "The battle ends for everybody with no result: nobody wins or loses, and no wager or reward is paid.\n\n"
+                "Your game restarts from your last save, with the party it had before the battle.\n\n"
+                "Abandon this battle?", parent=self.root):
+            return
+        if self.worker.request_battle_abandon():
+            for button in (self.abandon_battle_button, self.recover_battle_button, self.cancel_battle_entry_button,
+                           self.restart_host_button, self.save_button, self.autosave_button):
+                button.configure(state="disabled")
+            self.message.set(status_text("battle_abandoning"))
+        else:
+            self.message.set(status_text("battle_abandon_unavailable"))
+
     def cancel_battle_entry(self):
         if not self.closing and self.worker is not None and self.worker.request_battle_entry_cancel():
             self.cancel_battle_entry_button.configure(state="disabled")
@@ -2007,6 +2068,7 @@ class LauncherWindow:
         self.autosave_button.configure(state="disabled")
         self.recover_battle_button.configure(state="disabled")
         self.cancel_battle_entry_button.configure(state="disabled")
+        self.abandon_battle_button.configure(state="disabled")
         self.restart_host_button.configure(state="disabled")
         self.recover_trade_button.configure(state="disabled")
         cancelled = self.worker.cancel_startup()
@@ -2076,6 +2138,7 @@ class LauncherWindow:
                     self.autosave_button.configure(state="disabled")
                     self.recover_battle_button.configure(state="disabled")
                     self.cancel_battle_entry_button.configure(state="disabled")
+                    self.abandon_battle_button.configure(state="disabled")
                     self.message.set(status_text(event.code))
                     self._rescan_worlds()
                 elif self.closing and event.code in _RETAINS_GAME:
@@ -2088,6 +2151,7 @@ class LauncherWindow:
                     self.restart_host_button.configure(state="normal" if event.host_restart_available else "disabled")
                     self.recover_battle_button.configure(state="normal" if event.battle_recovery_available else "disabled")
                     self.cancel_battle_entry_button.configure(state="normal" if event.admission_cleanup_available else "disabled")
+                    self.abandon_battle_button.configure(state="normal" if event.battle_abandon_available else "disabled")
                     self.message.set(status_text("wait_for_recovery"))
                 elif not self.closing:
                     self.message.set(status_text(event.code))
@@ -2101,11 +2165,13 @@ class LauncherWindow:
                         and event.battle_recovery_available else "disabled")
                     self.cancel_battle_entry_button.configure(state="normal" if event.state == "running"
                         and event.admission_cleanup_available else "disabled")
+                    self.abandon_battle_button.configure(state="normal" if event.state == "running"
+                        and event.battle_abandon_available else "disabled")
                     self.save_button.configure(state="normal" if event.state == "running"
                         and (event.save_available if event.save_available is not None else event.code in {"running", "saved", "save_not_ready", "autosave_on", "autosave_off",
                                            "autosave_deferred", "settings_unavailable", "settings_busy",
                                            "trade_finished", "trade_cancelled", "battle_finished", "battle_cancelled",
-                                           "battle_recovered", "admission_canceled"}) else "disabled")
+                                           "battle_recovered", "admission_canceled", "battle_abandoned"}) else "disabled")
                     if event.state in {"running", "finished"}:
                         self.cancel.configure(state="disabled")
         while True:

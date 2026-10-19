@@ -12,7 +12,8 @@ from .rival_catalogue import valid_preparation_word
 from .protocol import MAX_COUNTER, PROTOCOL_VERSION, ProtocolError, _fields, _integer
 from .team_protocol import _uuid
 
-BATTLE_OPERATIONS = frozenset({"invite", "invite_multi", "invite_ffa", "accept", "claim", "cancel", "cancel_admission", "admission_handoff", "status", "pending", "history", "waiting", "execute", "resume"})
+BATTLE_OPERATIONS = frozenset({"invite", "invite_multi", "invite_ffa", "accept", "claim", "cancel", "cancel_admission", "admission_handoff", "status", "pending", "history", "waiting", "execute", "resume",
+                               "abandon", "fate"})
 BATTLE_TYPES = frozenset("battle_" + op for op in BATTLE_OPERATIONS)
 STATES = frozenset({"invited", "accepted", "prepared", "starting", "running", "finishing",
                     "release_authorized", "closed", "aborting", "aborted", "recovery_required"})
@@ -47,6 +48,8 @@ def validate_battle_request(message, epoch):
         "status": {"battle_id"}, "pending": set(), "history": set(), "waiting": set(),
         "execute": {"battle_id", "generation", "incarnation", "response_b64", "response_id"},
         "resume": {"battle_id", "generation", "incarnation", "response_b64", "response_id", "response_stage"},
+        # An interrupted battle: abandon it (no result; battle_abandonment.py), or only read what became of it.
+        "abandon": {"battle_id", "generation"}, "fate": {"battle_id", "generation"},
     }[operation]
     championship_match = False
     if operation == "pending" and "championship" in message:
@@ -66,6 +69,12 @@ def validate_battle_request(message, epoch):
         if "championship" in message or "rival" in message or type(message["admission_handoff_version"]) is not int or message["admission_handoff_version"] != 1:
             raise ProtocolError("admission_handoff_unsupported", "unsupported admission handoff capability query")
         extra = extra | {"admission_handoff_version"}
+    if operation == "pending" and "abandon_version" in message:
+        # Can this host abandon an interrupted battle (battle_abandonment.py)? An older host answers with an error.
+        if (set(message) & {"championship", "rival", "admission_handoff_version"}
+                or type(message["abandon_version"]) is not int or message["abandon_version"] != 1):
+            raise ProtocolError("battle_abandon_unsupported", "unsupported battle abandonment capability query")
+        extra = extra | {"abandon_version"}
     card_fields = {"player_card_version", "card_player"}
     history_extensions = {"battle_archive", "reset_history", "trade_archive"}.intersection(message)
     if history_extensions:
@@ -98,7 +107,7 @@ def validate_battle_request(message, epoch):
     if operation in ("execute", "resume") and provisional_fields.intersection(message):
         extra = extra | provisional_fields
     _fields(message, {"type", "request_id", "session_epoch"} | extra)
-    for key in extra - {"opponents", "fingerprint", "incarnation", "response_b64", "response_id", "response_stage", "admission_sha256", "admission_b64", "admission_receipt_b64", "cleanup_receipt_b64", "cleanup_ready_b64", "handoff_receipt_b64", "admission_handoff_version", "player_card_version", "championship", "rival", "battle_archive", "reset_history", "trade_archive"}:
+    for key in extra - {"opponents", "fingerprint", "incarnation", "response_b64", "response_id", "response_stage", "admission_sha256", "admission_b64", "admission_receipt_b64", "cleanup_receipt_b64", "cleanup_ready_b64", "handoff_receipt_b64", "admission_handoff_version", "abandon_version", "player_card_version", "championship", "rival", "battle_archive", "reset_history", "trade_archive"}:
         _uuid(message[key], key)
     if operation == "execute":
         from .battle_execution_protocol import validate_execution_request
@@ -247,10 +256,15 @@ def validate_battle_reply(message, actor, world_id, epoch, request=None):
         has_championship = "championship" in message
         has_rival = "rival" in message
         has_handoff = "admission_handoff_version" in message
+        has_abandon = "abandon_version" in message
         history_extensions = {"battle_archive", "reset_history", "trade_archive"}.intersection(message)
         _fields(message, common | {"result"} | (card_fields if has_card else set())
                 | ({"championship"} if has_championship else set()) | ({"rival"} if has_rival else set())
-                | ({"admission_handoff_version"} if has_handoff else set()) | history_extensions)
+                | ({"admission_handoff_version"} if has_handoff else set())
+                | ({"abandon_version"} if has_abandon else set()) | history_extensions)
+        if has_abandon and (op != "pending" or has_championship or has_rival or has_handoff
+                or type(message["abandon_version"]) is not int or message["abandon_version"] != 1):
+            raise ProtocolError("invalid_server_message", "invalid battle abandonment capability")
         if history_extensions:
             if op != "history" or len(history_extensions) != 1 or has_card:
                 raise ProtocolError("invalid_server_message", "invalid private history extension")
@@ -300,6 +314,9 @@ def validate_battle_reply(message, actor, world_id, epoch, request=None):
         elif op == "execute":
             from .battle_execution_protocol import validate_execution_view
             validate_execution_view(result, request=request)
+        elif op in ("abandon", "fate"):
+            from .battle_abandonment import validate_abandonment_view
+            validate_abandonment_view(result, actor, request)
         elif op == "waiting":
             from .battle_reservations import validate_waiting
             if type(result) is not list or len(result) > 1:

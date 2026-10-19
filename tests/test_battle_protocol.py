@@ -51,6 +51,8 @@ def request(op, **fields):
                      response_id=0, response_b64=None),
         resume=dict(battle_id=BATTLE, generation=GENERATION, incarnation=1,
                     response_id=0, response_b64=None, response_stage=None),
+        abandon=dict(battle_id=BATTLE, generation=GENERATION),
+        fate=dict(battle_id=BATTLE, generation=GENERATION),
     )[op]
     return dict(type="battle_" + op, request_id=REQUEST, session_epoch=7, **(extra | fields))
 
@@ -80,6 +82,9 @@ def reply(op):
         from emerald_multiplayer.battle_admission_cleanup_protocol import handoff_view
         from emerald_multiplayer.battle_execution_protocol import decode_control
         result = handoff_view(decode_control(handoff_receipt(), response=True))
+    elif op in ("abandon", "fate"):
+        from emerald_multiplayer.battle_abandonment import abandonment_view
+        result = abandonment_view(BATTLE, GENERATION, "abandoned", (ACTOR, PEER), "d" * 64)
     else:
         result = [] if op in ("history", "waiting") else ([view()] if op == "pending" else view({"invite_multi": 3, "invite_ffa": 5}.get(op, 2)))
     return dict(type="battle_result", protocol=PROTOCOL_VERSION, session_epoch=7, request_id=REQUEST,

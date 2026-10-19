@@ -1190,8 +1190,8 @@ class ShellApp:
             self.hosting[hosting[0]] = hosting[1:]
         self.window(self.session_window)
         state = dict(code="installation", state="validating", autosave=None, is_host=request.mode == "host", save=False,
-                     battle=False, cleanup=False, restart=False, trade=False, connected=False, complete=None, note=note, flash=None,
-                     router=None, relay=None, detail=None)
+                     battle=False, cleanup=False, abandon=False, restart=False, trade=False, connected=False, complete=None,
+                     note=note, flash=None, router=None, relay=None, detail=None)
 
         def absorb():
             changed = False
@@ -1207,6 +1207,7 @@ class ShellApp:
                 elif event.kind == "status":
                     state.update(code=event.code, state=event.state, autosave=event.autosave_enabled, save=bool(event.save_available),
                                  battle=event.battle_recovery_available, cleanup=event.admission_cleanup_available,
+                                 abandon=getattr(event, "battle_abandon_available", False),
                                  restart=event.host_restart_available, trade=event.trade_recovery_available,
                                  connected=event.connected, is_host=event.is_host, router=getattr(event, "router", None),
                                  relay=getattr(event, "relay", None))
@@ -1228,6 +1229,8 @@ class ShellApp:
                     screen.row("recover_battle", "Recover interrupted battle", "", "w")
                 if state["cleanup"]:
                     screen.row("cancel_battle", "Cancel battle entry", "", "w")
+                if state["abandon"]:
+                    screen.row("abandon_battle", "Abandon interrupted battle", "nobody wins; your game restarts", "w")
                 if state["restart"]:
                     screen.row("restart_host", "Restart host service", "", "w")
                 if state["trade"]:
@@ -1271,6 +1274,9 @@ class ShellApp:
                     worker.request_battle_recovery()
                 elif event.id == "cancel_battle":
                     worker.request_battle_entry_cancel()
+                elif event.id == "abandon_battle":
+                    if self._confirm_abandon() and not worker.request_battle_abandon():
+                        state["flash"] = "There is no interrupted battle to abandon right now."
                 elif event.id == "restart_host":
                     worker.request_host_restart()
                 elif event.id == "trade_recovery":
@@ -1308,6 +1314,12 @@ class ShellApp:
                 text = f"{explanation.title}. {explanation.message}"
             self.notice = ("error" if outcome not in ("cancelled", "graphics_failed") else "warn", text)
         return outcome
+
+    def _confirm_abandon(self):
+        return self.confirm("Abandon interrupted battle",
+                            "The battle ends for everybody with no result: nobody wins or loses, and no wager or reward "
+                            "is paid.\nYour game restarts from your last save, with the party it had before the battle.",
+                            "Abandon the battle", "Back", warn=True)
 
     @staticmethod
     def _session_network_lines(state, mode):

@@ -426,7 +426,10 @@ class FrontierService:
             reservations = server._battle_reservations
             terminal = reservations.terminal(battle_id) if reservations is not None else None
             if terminal is not None and terminal.kind == "aborted":
-                book.void(battle_id)            # the battle was aborted before it started
+                book.void(battle_id)            # aborted before it started, or abandoned (no result either way)
+                continue
+            if server.battle_execution is not None and server.battle_execution.admission.terminal(battle_id) is not None:
+                book.void(battle_id)            # cancelled or abandoned before any reservation
                 continue
             reserved = reservations is not None and reservations.contains(battle_id)
             consented = (server.battle_execution is not None

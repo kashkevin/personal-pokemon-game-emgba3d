@@ -913,7 +913,7 @@ class WorldServer:
         self._team_reply(session, request, result=result)
 
     def _battle_reply(self, session, request, *, error=None, result=None, player_card=None, championship=None,
-                      admission_handoff_version=None, history_extensions=None, rival=None):
+                      admission_handoff_version=None, history_extensions=None, rival=None, abandon_version=None):
         assert self._world_metadata is not None
         self._control(session, dict(
             type="battle_error" if error is not None else "battle_result",
@@ -925,6 +925,7 @@ class WorldServer:
             **({"rival": rival} if rival is not None and error is None else {}),
             **({"admission_handoff_version": admission_handoff_version}
                if admission_handoff_version is not None and error is None else {}),
+            **({"abandon_version": abandon_version} if abandon_version is not None and error is None else {}),
             **(history_extensions if history_extensions is not None and error is None else {}),
             **({"code": error.code, "message": error.message} if error is not None else {"result": result})))
 
@@ -1069,6 +1070,13 @@ class WorldServer:
             result = [challenge_view(view) for view in self.battle_desk.pending(session.player_id, session.session_epoch)]
             self._battle_reply(session, request, result=result, admission_handoff_version=1)
             return
+        if operation == "pending" and "abandon_version" in request:
+            # This host can abandon an interrupted battle (battle_abandonment.py) when it runs native battles.
+            if self.battle_desk is None:
+                raise ProtocolError("battle_disabled", "this host has no native battles")
+            result = [challenge_view(view) for view in self.battle_desk.pending(session.player_id, session.session_epoch)]
+            self._battle_reply(session, request, result=result, abandon_version=1)
+            return
         if operation == "pending" and "championship" in request:
             self._championship_challenge(session, request)
             return
@@ -1088,6 +1096,19 @@ class WorldServer:
                 raise ProtocolError("battle_execution_disabled", "this host has not enabled native battle execution")
             dispatch = self.battle_execution.reconnect if operation == "resume" else self.battle_execution.exchange
             result = dispatch(session.player_id, session.session_epoch, request)
+            self._battle_reply(session, request, result=result)
+            return
+        if operation in ("abandon", "fate"):
+            # An interrupted battle: abandon it with no result, or read what became of it (battle_abandonment.py).
+            from .ownership_storage import OwnershipCheckpointStore
+            if self.battle_desk is None or not isinstance(self.store, OwnershipCheckpointStore):
+                raise ProtocolError("battle_disabled", "this host has no native battles")
+            if self._connected_lease(session.player_id) != session.session_epoch:
+                raise ProtocolError("stale_lease", "battle abandonment requires the current authenticated player")
+            from .battle_abandonment import BattleAbandonment
+            abandonment = BattleAbandonment(self)
+            result = (abandonment.abandon if operation == "abandon" else abandonment.fate)(
+                session.player_id, session.session_epoch, request)
             self._battle_reply(session, request, result=result)
             return
         if operation == "waiting":
@@ -1779,7 +1800,8 @@ class WorldServer:
         if current is None or current["state"] not in ("proposed", "locked"):
             return
         self.wagers.cancel(battle.battle_id)
-        self.shared_world.post_notice(_banner("WAGER CANCELED", "The battle never started"), to=list(battle.players))
+        why = "The battle was abandoned" if getattr(battle, "reason", None) == "abandoned" else "The battle never started"
+        self.shared_world.post_notice(_banner("WAGER CANCELED", why), to=list(battle.players))
         self._broadcast_world()
 
     def _settle_wager(self, battle, outcome) -> None:

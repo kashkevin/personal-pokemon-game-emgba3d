@@ -716,6 +716,11 @@ class BattleDesk:
 
     def _publish_closed(self, battle, actor, request, response):
         """Shared durable publication after live or exact replay validation."""
+        # An abandoned battle (battle_abandonment.py) has no result: a late RELEASE or a replayed quorum cannot publish
+        # one. A closed terminal is an exact retry, which _finish below accepts unchanged.
+        terminal = self.reservations.terminal(battle.battle_id)
+        if terminal is not None and terminal.kind != "closed":
+            raise BattleError("battle_abandoned", "this battle was abandoned; it has no result")
         # The archive holds PvP results (player cards, Championships). A co-op
         # Gym battle is PvE: its closure is the reservation's durable record.
         if self.results is not None and battle.mode not in (4, 5):

@@ -78,6 +78,9 @@ class BattleRecoveryService:
         battle_id, generation = record["view"]["battle_id"], record["view"]["generation"]
         terminal = self.desk.store._connection.execute(
             "SELECT terminal_kind, terminal_digest FROM battle_reservations WHERE battle_id=?", (battle_id,)).fetchone()
+        if terminal["terminal_kind"] == "aborted":
+            # Abandoned (battle_abandonment.py) or aborted before it started: there is nothing to recover.
+            raise BattleError("battle_abandoned", "this battle was abandoned; it has no result to recover")
         room = self.rooms.get(battle_id)
         if terminal["terminal_kind"] == "closed":
             if room is None:

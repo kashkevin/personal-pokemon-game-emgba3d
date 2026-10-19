@@ -1356,6 +1356,24 @@ class Companion:
             if not self._closing:
                 await asyncio.sleep(self._retry_delay())
 
+    def resume_world_connection(self):
+        """Reconnect to the world for abandoning an interrupted battle (battle_abandonment.py), or after it.
+
+        The reconnect fence protects a game held in a native battle for same-core recovery. Abandoning gives that
+        core up: its battle gets no result and the game is closed and started again from the canonical save. So the
+        fence is lifted on request of that abandonment (the held game may still run until the host has answered),
+        and after it with no battle intent left. A fresh authentication follows; the held core is never adopted.
+        """
+        if self._closing:
+            raise ConnectionError("the companion is closing")
+        if self.stopped is not None:
+            raise ConnectionError("the host refused this character's connection")
+        self._reconnect_blocked = False
+        self._battle_recovery_authority = None
+        self._emergency_authority = None
+        if self._remote_task is None or self._remote_task.done():
+            self._remote_task = asyncio.create_task(self._remote_loop(), name="companion-world-connection")
+
     async def reconnect_retained_battle(self, recovery):
         """One explicit authenticated reconnect for the exact retained core.
 

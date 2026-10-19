@@ -366,6 +366,22 @@ class BattleAdmissionHost:
             return None
         value = self._read(battle_id)
         view = value["view"]
+        abandoned = self.execution.directory / (battle_id + ".abandoned.json")
+        if value["canceled"] and path_present(abandoned):
+            # Abandoned before any reservation (battle_abandonment.py): the cancelled consent and the abandonment
+            # record are the whole terminal fact. With a reservation, the reservation's own terminal says it.
+            from .battle_abandonment import RECORD_FORMAT, _read_json, record_digest
+            try:
+                record = _read_json(abandoned)
+                if record.get("format") != RECORD_FORMAT or record.get("battle_id") != battle_id:
+                    raise ValueError()
+            except (OSError, ValueError, TypeError) as error:
+                raise BattleError("battle_admission_invalid", "the battle's abandonment record cannot be read") from error
+            if record["reserved"]:
+                return None
+            return AdmissionCleanupTerminal(value["world_id"], value["build_id"], value["ruleset_id"],
+                battle_id, view["generation"], view["sender"], view["mode"], tuple(view["players"]),
+                view["fingerprint"], record_digest(record))
         if (not value["canceled"] or view["state"] != "accepted"
                 or set(value["identities"]) != set(view["players"])
                 or set(view["consent"]) != set(view["players"])):

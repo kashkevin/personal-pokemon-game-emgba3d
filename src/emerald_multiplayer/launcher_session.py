@@ -50,6 +50,13 @@ _MESSAGES = {
     "invalid_invitation": "The friend invitation could not be verified.",
     "enrollment_required": "This character needs the separate first-enrollment workflow.",
     "pending_battle": "An unresolved battle requires explicit recovery before launch.",
+    "battle_abandoning": "Abandoning the interrupted battle: nobody wins or loses it.",
+    "battle_abandoned": "The interrupted battle was abandoned with no result. Your game continues from your last save.",
+    "battle_abandon_unavailable": "There is no interrupted battle to abandon right now.",
+    "battle_abandon_unsupported": "The host's version cannot abandon an interrupted battle.",
+    "battle_abandon_failed": "The interrupted battle could not be abandoned now. Check the connection to the host and try again.",
+    "battle_still_running": "The battle is still running on the host; it can be abandoned once it is interrupted.",
+    "battle_result_final": "The battle had already finished on the host; its result stands. Use Recover battle.",
     "battle_recovery_unavailable": "This host could not verify interrupted-battle admission.",
     "trade_recovery_unavailable": "This host does not provide authenticated trade recovery.",
     "trade_recovery_held": "Retain this interrupted trade's original game and records until its exact canonical fate is verified.",
@@ -203,6 +210,7 @@ class SessionStatus:
     autosave_enabled: bool = True
     battle_recovery_available: bool = False
     admission_cleanup_available: bool = False
+    battle_abandon_available: bool = False
     is_host: bool = False
     host_restart_available: bool = False
     connection_details: ConnectionDetails | None = None
@@ -306,6 +314,13 @@ class LauncherSession:
         self._battle_recovery_intent = None
         self._battle_handoff_successor = None
         self._battle_menu_preparation = None
+        # Abandoning an interrupted battle (battle_abandonment.py): the running request, the host's answers once the
+        # held game is closed (the session then starts the game again), and a watcher that follows an abandonment
+        # decided elsewhere.
+        self._abandon_task = None
+        self._battle_abandoned = None
+        self._battle_watch_task = None
+        self._resolved_at_start = ()
         self._trade_retained = self._trade_close_review = None
         self._trade_recovery_task = None
         self._host_world = None
@@ -380,6 +395,7 @@ class LauncherSession:
                         autosave_enabled=self.autosave_enabled,
                         battle_recovery_available=self.can_recover_battle,
                         admission_cleanup_available=self.can_cancel_battle_entry,
+                        battle_abandon_available=self.can_abandon_battle,
                         is_host=self._world_directory is not None,
                         host_restart_available=self.can_restart_host_service,
                         connection_details=self._connection_details,
@@ -394,6 +410,11 @@ class LauncherSession:
                            trade_recovery_available=False)
         if self._host_restart_task is not None:
             return replace(value, state=SessionState.RUNNING, code="host_service_restarting")
+        if self._abandon_task is not None:
+            return replace(value, state=SessionState.RUNNING, code="battle_abandoning")
+        if self._battle_abandoned is not None:
+            # Abandoned on the host and its held game closed; the session is starting the game again.
+            return replace(value, state=SessionState.RUNNING, code="battle_abandoned")
         if self._battle_recovery_task is not None:
             return replace(value, state=SessionState.RUNNING, code=("admission_canceling"
                 if self._status.code == "admission_canceling" else "battle_recovering"))
@@ -814,6 +835,10 @@ class LauncherSession:
         from .battle_admission_cleanup import publish_cleanup_handoffs
         await publish_cleanup_handoffs(self._companion, self._profile_directory)
         self._assert_session()
+        resolved = await self._resolve_interrupted_battles()
+        if resolved:
+            self._resolved_at_start = tuple(resolved)
+        self._assert_session()
         if pending_battle(self._companion, self._profile_directory):
             raise LauncherSessionError("pending_battle")
         head = await CheckpointClient(self._companion).info()
@@ -863,51 +888,71 @@ class LauncherSession:
         self._play_task = asyncio.current_task()
         try:
             revision = await self._ready()
-            self.installation.verify()
-            self._assert_session()
-            self._publish(SessionState.RECOVERING, "canonical_recovery", revision=revision)
-            async with self._runtime.open() as game:
-                self._played = True
-                self._game = game
-                self._revision = game.startup.mirror.revision
-                recovered_trade = getattr(game.startup, "trade_result", None)
-                code = ("trade_recovered" if recovered_trade["state"] == "applied" else "trade_aborted_recovered") if recovered_trade else "running"
-                self._publish(SessionState.RUNNING, code, revision=self._revision)
-                self._autosave_task = asyncio.create_task(self._schedule_autosave(), name="launcher-autosave")
-                if getattr(self._companion.config, "emergency_save_abi_version", 0) == 2:
-                    from .emergency_save import EmergencySaveController
-                    self._emergency = EmergencySaveController(self._companion, self._profile_directory,
-                                                              on_status=self._emergency_status)
-                    self._emergency_task = asyncio.create_task(self._watch_emergency(), name="launcher-host-loss")
-                try:
-                    result = await self._wait_game(game)
-                finally:
-                    # Stop accepting new requests before draining the one
-                    # already dispatched, while the native file lease remains
-                    # owned by PlayerRuntime. Closing a game is not a save.
-                    self._game = None
-                    self._autosave_wake.set()
-                    if self._battle_recovery_task is not None and not self._battle_recovery_task.done():
-                        self._battle_recovery_task.cancel()
-                    interrupted = False
-                    if self._battle_recovery_task is not None:
-                        _, canceled = await _finish_even_if_cancelled(
-                            asyncio.gather(self._battle_recovery_task, return_exceptions=True))
-                        interrupted |= canceled
-                    if self._host_restart_task is not None:
-                        _, canceled = await _finish_even_if_cancelled(
-                            asyncio.gather(self._host_restart_task, return_exceptions=True))
-                        interrupted |= canceled
-                    if self._trade_recovery_task is not None:
-                        _, canceled = await _finish_even_if_cancelled(
-                            asyncio.gather(self._trade_recovery_task, return_exceptions=True))
-                        interrupted |= canceled
-                    for pending in (self._emergency_task, self._autosave_task, self._save_task):
-                        if pending is not None:
-                            _, canceled = await _finish_even_if_cancelled(pending)
+            while True:
+                self.installation.verify()
+                self._assert_session()
+                self._publish(SessionState.RECOVERING, "canonical_recovery", revision=revision)
+                async with self._runtime.open() as game:
+                    self._played = True
+                    self._game = game
+                    self._revision = game.startup.mirror.revision
+                    recovered_trade = getattr(game.startup, "trade_result", None)
+                    code = (("trade_recovered" if recovered_trade["state"] == "applied" else "trade_aborted_recovered")
+                            if recovered_trade else "battle_abandoned" if self._resolved_at_start else "running")
+                    self._resolved_at_start = ()
+                    self._publish(SessionState.RUNNING, code, revision=self._revision)
+                    self._autosave_task = asyncio.create_task(self._schedule_autosave(), name="launcher-autosave")
+                    if getattr(self._companion.config, "emergency_save_abi_version", 0) == 2:
+                        from .emergency_save import EmergencySaveController
+                        self._emergency = EmergencySaveController(self._companion, self._profile_directory,
+                                                                  on_status=self._emergency_status)
+                        self._emergency_task = asyncio.create_task(self._watch_emergency(), name="launcher-host-loss")
+                    self._battle_watch_task = asyncio.create_task(self._watch_interrupted_battle(),
+                                                                  name="launcher-interrupted-battle")
+                    try:
+                        result = await self._wait_game(game)
+                    finally:
+                        # Stop accepting new requests before draining the one
+                        # already dispatched, while the native file lease remains
+                        # owned by PlayerRuntime. Closing a game is not a save.
+                        self._game = None
+                        self._autosave_wake.set()
+                        if self._battle_recovery_task is not None and not self._battle_recovery_task.done():
+                            self._battle_recovery_task.cancel()
+                        interrupted = False
+                        if self._abandon_task is not None:
+                            # An abandonment closed this game: it still retires the battle's local intents.
+                            _, canceled = await _finish_even_if_cancelled(
+                                asyncio.gather(self._abandon_task, return_exceptions=True))
                             interrupted |= canceled
-                    if interrupted:
-                        raise asyncio.CancelledError()
+                        if self._battle_recovery_task is not None:
+                            _, canceled = await _finish_even_if_cancelled(
+                                asyncio.gather(self._battle_recovery_task, return_exceptions=True))
+                            interrupted |= canceled
+                        if self._host_restart_task is not None:
+                            _, canceled = await _finish_even_if_cancelled(
+                                asyncio.gather(self._host_restart_task, return_exceptions=True))
+                            interrupted |= canceled
+                        if self._trade_recovery_task is not None:
+                            _, canceled = await _finish_even_if_cancelled(
+                                asyncio.gather(self._trade_recovery_task, return_exceptions=True))
+                            interrupted |= canceled
+                        watch = self._battle_watch_task
+                        if watch is not None and not watch.done():
+                            watch.cancel()
+                        for pending in (self._emergency_task, self._autosave_task, self._save_task, watch):
+                            if pending is not None:
+                                _, canceled = await _finish_even_if_cancelled(
+                                    asyncio.gather(pending, return_exceptions=True))
+                                interrupted |= canceled
+                        if interrupted:
+                            raise asyncio.CancelledError()
+                if self._battle_abandoned is None:
+                    break
+                # The interrupted battle was abandoned and its held game closed: this session starts the game again
+                # from the character's canonical save, with the world (and, for a host, its server) still running.
+                await self._restart_after_abandon()
+                revision = await self._ready()
             if result == 0 and self._idle_save_disconnect and self._save_is_idle():
                 # IPC can close before process exit is observed. Only confirmed
                 # normal exit clears an idle-only loss; this does not save.
@@ -925,6 +970,177 @@ class LauncherSession:
             raise safe from None
         finally:
             self._play_task = None
+
+    # Interrupted battles (KNOWN_ISSUES MS-16, battle_abandonment.py) ---------------------------------------------
+    async def _resolve_interrupted_battles(self):
+        """Before this character's game starts, a battle it was part of can never go on: its game from then is gone
+        (a crash, a closed window, a restart). Abandon it on the host, or adopt the host's terminal answer (abandoned,
+        aborted, or closed with its result), keep that answer and retire the local intents. An older host that cannot
+        abandon leaves everything as it was (the launch then stops at pending_battle, as before)."""
+        from .battle_abandonment import local_battle_targets, resolve_battle, retire_local_battle
+        from .battle_journal import BattleJournalError
+        c = self._companion
+        try:
+            targets = local_battle_targets(self._profile_directory)
+        except (BattleJournalError, OSError):
+            raise LauncherSessionError("pending_battle") from None
+        try:
+            waiting = (await c.battle_challenge_rpc("waiting"))["result"]
+        except ConnectionError:
+            raise
+        except Exception:
+            waiting = []                  # the readiness check below reports an unreadable host answer
+        for view in waiting:
+            if (view["battle_id"], view["generation"]) not in targets:
+                targets.append((view["battle_id"], view["generation"]))
+        resolved = []
+        for battle_id, generation in targets:
+            try:
+                view = await resolve_battle(c, battle_id, generation)
+            except ConnectionError:
+                raise
+            except Exception as error:
+                # A host that cannot abandon (an older version, battles turned off) keeps the earlier answer.
+                code = getattr(error, "code", None)
+                raise LauncherSessionError("battle_result_final" if code == "battle_result_final"
+                                           else "pending_battle") from None
+            self._assert_session()
+            if view["state"] == "unresolved":
+                raise LauncherSessionError("pending_battle")
+            retire_local_battle(self._profile_directory, view)
+            resolved.append(view)
+        return resolved
+
+    def _abandon_targets(self):
+        """(battle_id, generation) of the interrupted battle this session's running game is held in, if any."""
+        from .battle_abandonment import local_battle_targets
+        if (not self._open or self._closing or self._game is None or self._game.process.returncode is not None
+                or self._abandon_task is not None or self._battle_abandoned is not None
+                or self._profile_directory is None or self._companion is None):
+            return []
+        held = (self._battle_recovery_failed or self._battle_recovery_task is not None
+                or self._save_failed and self._battle_retained is not None)
+        if not held:
+            return []
+        targets = local_battle_targets(self._profile_directory)
+        if not targets and self._battle_retained is not None:
+            targets = [(self._battle_retained[3], self._battle_retained[4])]
+        return targets
+
+    @property
+    def can_abandon_battle(self):
+        try:
+            return bool(self._abandon_targets())
+        except (ValueError, OSError, AttributeError):
+            return False
+
+    async def abandon_battle(self):
+        """Abandon the interrupted battle this game is held in: no result for anybody, then the game starts again.
+
+        The host decides (or has already decided: another player abandoned, or the host restarted and resolved it).
+        Only then is the held game closed; its battle intents are kept with the host's answer and removed, and play()
+        starts the game again in this session from the canonical save, which the battle never changed.
+        """
+        from .battle_abandonment import resolve_battle, retire_local_battle
+        targets = self._abandon_targets()
+        if not targets:
+            raise LauncherSessionError("battle_abandon_unavailable")
+        game, c = self._game, self._companion
+        self._abandon_task = asyncio.current_task()
+        self._publish(SessionState.RUNNING, "battle_abandoning", revision=self._revision)
+        try:
+            recovery = self._battle_recovery_task
+            if recovery is not None and not recovery.done():
+                recovery.cancel()                    # a recovery waiting for every original game stops here
+                await asyncio.gather(recovery, return_exceptions=True)
+            if not c.connected:
+                c.resume_world_connection()          # the reconnect fence only kept this core for recovery
+                await self._await_authentication()
+            views = [await resolve_battle(c, battle_id, generation) for battle_id, generation in targets]
+            if any(view["state"] == "unresolved" for view in views):
+                raise LauncherSessionError("battle_abandon_failed")
+            self._battle_abandoned = views
+            await self._stop_autosave()
+            await self._release_battle_core(game)
+            for view in views:
+                retire_local_battle(self._profile_directory, view)
+            self._publish(SessionState.RUNNING, "battle_abandoned", revision=self._revision)
+            return views
+        except (Exception, asyncio.CancelledError) as error:
+            if self._battle_abandoned is None:
+                code = getattr(error, "code", None)
+                code = code if code in ("battle_still_running", "battle_result_final", "battle_abandon_unsupported",
+                                        "connection_timeout", "connection_lost") else "battle_abandon_failed"
+                self._publish(SessionState.RUNNING, code, revision=self._revision)
+                if isinstance(error, asyncio.CancelledError):
+                    raise
+                raise LauncherSessionError(code) from None
+            raise
+        finally:
+            self._abandon_task = None
+
+    async def _release_battle_core(self, game):
+        """Close the held game; nothing of it is kept (no result, and the save is the canonical one)."""
+        from .player_runtime import _stop
+        c = self._companion
+        emergency, watcher = self._emergency, self._emergency_task
+        if watcher is not None and not watcher.done() and watcher is not asyncio.current_task():
+            watcher.cancel()
+            await asyncio.gather(watcher, return_exceptions=True)
+        if emergency is not None and getattr(c, "_emergency_controller", None) is emergency:
+            c._emergency_controller = None       # it guarded this core's unsaved field; the core holds none
+        c._emergency_authority = None
+        await _stop(game.process)
+
+    async def _restart_after_abandon(self):
+        """Fresh per-game state for the next game of this session, and the world connection back."""
+        c = self._companion
+        self._resolved_at_start = tuple(self._battle_abandoned)   # the next game's first status says so
+        self._battle_abandoned = None
+        self._save_failed = self._idle_save_disconnect = self._autosave_dispatched = False
+        self._battle_recovery_failed = False
+        self._battle_retained = self._battle_recovery_intent = self._battle_handoff_successor = None
+        self._battle_menu_preparation = None
+        self._interaction = None
+        self._save_incarnation = None
+        self._emergency = self._emergency_task = None
+        self._autosave = self._autosave_task = self._save_task = None
+        self._battle_watch_task = None
+        self._autosave_due = None
+        c._live_battle_runtime_id = None              # a new game is a new native runtime
+        c._live_battle_terminal_pending_path = None
+        c._emergency_controller = c._emergency_authority = None   # the next game arms its own saver
+        async with asyncio.timeout(30):
+            while c._bridge is not None:                 # the closed game's bridge winds down
+                await asyncio.sleep(.05)
+        if not c.connected:
+            # Closing a game cuts its world session (companion._accept_bridge); with no battle intent left nothing
+            # fences the reconnection, which authenticates this character again.
+            c.resume_world_connection()
+            await self._await_authentication()
+        self._binding = self._signature()
+
+    async def _watch_interrupted_battle(self):
+        """While this game is held in an interrupted battle, follow a decision made elsewhere: once the host reports
+        the battle resolved (another player abandoned it, or the host did after a restart), abandon here too. This
+        never decides anything itself: an unresolved battle is left to the player (Recover or Abandon)."""
+        from .battle_abandonment import resolve_battle
+        while self._game is not None and not self._closing:
+            await asyncio.sleep(2)
+            if self._abandon_task is not None or not self._battle_recovery_failed or not self._companion.connected:
+                continue
+            try:
+                targets = self._abandon_targets()
+                views = [await resolve_battle(self._companion, battle_id, generation, abandon=False)
+                         for battle_id, generation in targets]
+            except Exception:  # noqa: BLE001 - an unanswered question is asked again later
+                continue
+            if views and all(view["state"] != "unresolved" for view in views):
+                try:
+                    await self.abandon_battle()
+                except Exception:  # noqa: BLE001 - the player can still choose
+                    pass
+                return
 
     @property
     def can_save(self):
@@ -951,6 +1167,8 @@ class LauncherSession:
     def _retain_interrupted_core(self):
         if self._game is None or self._game.process.returncode is not None:
             return False
+        if getattr(self, "_battle_abandoned", None) is not None:
+            return False                          # its battle is abandoned on the host: the core holds nothing
         if (getattr(self, "_battle_recovery_task", None) is not None
                 or getattr(self, "_host_restart_task", None) is not None):
             return True

@@ -130,6 +130,9 @@ class BattleExecutionService:
             self.rooms[battle.battle_id] = room
         if room.battle is not battle:
             raise BattleError("battle_generation_mismatch", "execution belongs to a different battle")
+        if room.error == "abandoned":
+            # battle_abandonment.py stopped this route: no command is issued or acknowledged any more.
+            return execution_view(battle.battle_id, battle.generation, "aborted")
         if battle.state == "aborted" and not battle.bind_intent:
             room.state = "aborted"
             self._persist(room)
@@ -207,6 +210,8 @@ class BattleExecutionService:
                               None if pending is None else pending[0], 0 if pending is None else pending[2])
 
     def _fail(self, room, reason):
+        if room.error == "abandoned":
+            return  # the abandoned route's own cancellation; the battle has no recovery to wait for
         room.state, room.error = "recovery_required", reason
         self.desk._recover(room.battle, reason)
         self._persist(room)
@@ -268,6 +273,8 @@ class BattleExecutionService:
             route = _NativeRoute(self, room)
             room.route = route
             await route.run()
+            if room.error == "abandoned":
+                return
             room.state = "closed"
             self._persist(room)
         except asyncio.CancelledError:
