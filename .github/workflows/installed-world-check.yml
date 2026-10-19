@@ -1,0 +1,110 @@
+# Host World > Create World on the INSTALLED Windows build, played through its real menu window
+# (scripts/windows-runtime/ci_world_check.py) on a fresh GitHub-hosted runner.
+#
+#   1. The build that crashed ("ValueError: invalid world record", windows-package run 39180878911) is installed and must
+#      show the reported failure. Its program folder is then deleted by hand, as the owner did; its data stays.
+#   2. With installer_run_id: that build is installed over the data step 1 left behind and must create, list, invite,
+#      rename, delete and start hosting worlds; then
+#   3. the same on a completely fresh profile.
+#
+# A push of this file or the check runs step 1 only (a workflow_dispatch needs the file on the default branch).
+# Nothing here is uploaded beyond the check's own reports, its menu pictures and the Setup logs; the profiles are deleted.
+name: installed-world-check
+
+on:
+  workflow_dispatch:
+    inputs:
+      installer_run_id:
+        description: "windows-package run (full) whose installer is checked; blank = only reproduce on the old one"
+        default: ""
+      old_installer_run_id:
+        description: "windows-package run of the build that crashed"
+        default: "39180878911"
+  push:
+    paths:
+      - .github/workflows/installed-world-check.yml
+      - scripts/windows-runtime/ci_world_check.py
+
+permissions:
+  contents: read
+  actions: read          # download-artifact from another run of this repository
+
+jobs:
+  world-check:
+    name: Create World on the installed build
+    runs-on: windows-2022
+    defaults:
+      run:
+        shell: bash
+    env:
+      OLD_RUN: ${{ inputs.old_installer_run_id || '39180878911' }}
+      NEW_RUN: ${{ inputs.installer_run_id || '' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            scripts/windows-runtime
+            src
+            tests
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - name: The installer of the build that crashed
+        uses: actions/download-artifact@v4
+        with:
+          name: EmeraldTogether-Windows-Installer
+          path: old-installer
+          run-id: ${{ env.OLD_RUN }}
+          github-token: ${{ github.token }}
+      - name: The installer to check
+        if: env.NEW_RUN != ''
+        uses: actions/download-artifact@v4
+        with:
+          name: EmeraldTogether-Windows-Installer
+          path: new-installer
+          run-id: ${{ env.NEW_RUN }}
+          github-token: ${{ github.token }}
+      - name: Installers
+        run: |
+          sha256sum old-installer/*.exe
+          [ -z "$NEW_RUN" ] || sha256sum new-installer/*.exe
+      - name: "1. Reproduce on the build that crashed (run ${{ env.OLD_RUN }})"
+        run: |
+          python scripts/windows-runtime/ci_world_check.py --setup "$(ls old-installer/EmeraldTogether-Setup-*.exe)" \
+            --work "$RUNNER_TEMP/world-check" --profile "$RUNNER_TEMP/world-check/leftover-profile" \
+            --expect crash --label old --delete-install
+      - name: "2. The new build over the data the old one left (run ${{ env.NEW_RUN }})"
+        if: env.NEW_RUN != ''
+        run: |
+          python scripts/windows-runtime/ci_world_check.py --setup "$(ls new-installer/EmeraldTogether-Setup-*.exe)" \
+            --work "$RUNNER_TEMP/world-check" --profile "$RUNNER_TEMP/world-check/leftover-profile" \
+            --expect fixed --label leftover
+      - name: "3. The new build on a fresh profile"
+        if: env.NEW_RUN != ''
+        run: |
+          python scripts/windows-runtime/ci_world_check.py --setup "$(ls new-installer/EmeraldTogether-Setup-*.exe)" \
+            --work "$RUNNER_TEMP/world-check" --profile "$RUNNER_TEMP/world-check/fresh-profile" \
+            --expect fixed --label fresh
+      - name: Upload the reports and menu pictures (7 days)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: EmeraldTogether-world-check
+          path: |
+            ${{ runner.temp }}/world-check/*-world-check.json
+            ${{ runner.temp }}/world-check/*-pictures/
+            ${{ runner.temp }}/world-check/*.log
+          retention-days: 7
+          if-no-files-found: warn
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### Create World on the installed build"
+            for f in "$RUNNER_TEMP"/world-check/*-world-check.json; do
+              python -c "import json,sys;r=json.load(open(sys.argv[1]));print('- **'+r['label']+'** ('+r['setup']+', expect '+r['expect']+'): '+r['result']);[print('  - '+l) for l in r['log']]" "$f"
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Remove the profiles
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/world-check"
