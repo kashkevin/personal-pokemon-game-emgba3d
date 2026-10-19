@@ -84,8 +84,9 @@ class AbandonProof:
         real = asyncio.create_subprocess_exec
 
         async def spawn(program, *arguments, **options):
-            slot = self.thread_slot.get(threading.get_ident())
-            if slot is not None and "env" not in options:
+            # Thread idents are reused: the entry counts only if it names this very (live) thread.
+            thread, slot = self.thread_slot.get(threading.get_ident(), (None, None))
+            if thread is threading.current_thread() and "env" not in options:
                 options["env"] = dict(os.environ, DISPLAY=harness.args.display[slot])
             return await real(program, *arguments, **options)
         asyncio.create_subprocess_exec = spawn
@@ -93,7 +94,7 @@ class AbandonProof:
     def own_display(self, n, worker):
         thread = getattr(worker, "_thread", None)
         if thread is not None and thread.ident is not None:
-            self.thread_slot[thread.ident] = n
+            self.thread_slot[thread.ident] = (thread, n)
 
     # Observations -----------------------------------------------------------------------------------------------
     @staticmethod
