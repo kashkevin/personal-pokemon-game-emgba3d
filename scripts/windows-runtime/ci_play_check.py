@@ -226,6 +226,10 @@ class LinuxDesk:
 
     def game_key(self, handle, name, hold=0.12):
         self._focus(handle)
+        # Keys go to the focused window: when the game has just closed, the menu has the focus and would take the key.
+        focused = subprocess.run(["xdotool", "getwindowfocus"], env=self._env(handle[0]), capture_output=True, text=True)
+        if focused.stdout.strip() != handle[1]:
+            raise CheckFailed("the game window does not have the focus")
         key = self.GAME_KEYS[name]
         subprocess.run(["xdotool", "keydown", key], env=self._env(handle[0]), check=True)
         time.sleep(hold)
