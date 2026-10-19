@@ -20,6 +20,10 @@ ordinary key presses. Scenarios (--scenario):
                      battle, then the host's launcher winds down. The host starts the launcher again (the world
                      reopens), Friends 1 and 2 abandon from the launcher, Friend 3 closes its game and starts the
                      launcher again. Then the host and Friend 3 battle 1v1 to the end.
+    ffa-exit         A free-for-all. Friend 2 closes its game during the battle (SIGTERM, which SDL turns into the
+                     same quit as closing the window; the harness's ordinary close on Linux). Friend 2 starts the
+                     launcher again, which abandons the battle as it opens the world; the other three launchers follow
+                     by themselves. Then the same four play a free-for-all again to the end.
 
 Every scenario then checks: everyone back on the field, linked to the other three ("Connected: 4/4"), every party the
 one from before the battle, no pending battle intent anywhere, the abandoned battle has no result (no archive entry, no
@@ -56,7 +60,7 @@ from qualify_admission_cleanup import on_worker, require  # noqa: E402
 from qualify_launcher_session import inspect_closed_head  # noqa: E402
 
 PLAYER_NAMES = ("AB Host", "AB Friend 1", "AB Friend 2", "AB Friend 3")
-SCENARIOS = ("pairs-crash", "multi-network", "ffa-host-crash")
+SCENARIOS = ("pairs-crash", "multi-network", "ffa-host-crash", "ffa-exit")
 PENDING = ("pending-battle.json", "pending-battle-admission.json")
 
 
@@ -533,6 +537,36 @@ class AbandonProof:
         again = await self.enter(current, probes, (0, 3), record, "rematch-1v1")
         stops, drivers = self.drive(current, probes, symbols, again, (0, 3))
         await self.finish(current, probes, again, (0, 3), stops, drivers, record, "rematch-1v1")
+        await self.world_is_whole(current, probes, before, record, "everyone-back-after-the-rematch")
+
+    async def ffa_exit(self, current, probes, games, host, symbols, record, before):
+        await self.challenge_ffa(probes)
+        battles = await self.enter(current, probes, range(4), record, "free-for-all")
+        battle_id = next(iter(battles))
+        stops, drivers = self.drive(current, probes, symbols, battles, range(4))
+        await asyncio.sleep(self.interrupt_after)
+        for n in range(4):
+            stops[n].set()
+        await asyncio.gather(*drivers.values())
+        await self.interrupt("exit", 2, current, games, record)
+        await self.harness.poll_until(lambda: not current[2].busy, 180)
+        record("launcher-after-the-exit", slot=2, status=getattr(current[2], "_status_code", None))
+        await self.watch_after(current, (0, 1, 3), battle_id, record, 30)
+        if not self.supported(current[0]):
+            await self.reproduce(current, games, (0, 1, 3), record)
+            await self.rejoin(2, current, probes, games, record)
+            raise Reproduced("the build has no abandon option")
+        # The player who closed the game starts the launcher again; it abandons the battle as it opens the world,
+        # and the other three launchers follow by themselves.
+        await self.rejoin(2, current, probes, games, record)
+        for n in (0, 1, 3):
+            await self.abandon_from(n, current, probes, games, record, explicit=False)
+        await self.abandoned(current, battle_id, record)
+        await self.world_is_whole(current, probes, before, record, "everyone-back-after-the-exit")
+        await self.challenge_ffa(probes)
+        again = await self.enter(current, probes, range(4), record, "rematch-free-for-all")
+        stops, drivers = self.drive(current, probes, symbols, again, range(4))
+        await self.finish(current, probes, again, range(4), stops, drivers, record, "rematch-free-for-all")
         await self.world_is_whole(current, probes, before, record, "everyone-back-after-the-rematch")
 
     async def after_save(self, current, host, record):
