@@ -92,7 +92,14 @@ one fresh runner (local-network addresses 10.1.1.36 and 172.21.160.1):
 | 2. New installer | **left by step 1** (the character, the remembered rule, the world the crash left on disk, last-error.txt) | Create World on the default network: listed, listening on 10.1.1.36:7778, certificate endpoint 10.1.1.36; an invite code copied from the menu decodes to 10.1.1.36:7778 and that world; renamed (same world ID); a world with public address 81.2.69.160: listed, listening on 10.1.1.36, endpoint 81.2.69.160; deleted (folder in worlds-deleted); Host this world now: the world was prepared and the game started for the character and loaded its save; started again: the worlds kept, Exit closed it with code 0; no error recorded |
 | 3. New installer | completely new | The same, on port 7777 |
 
-Port 7778 in step 2 means 7777 was taken, by the world the crash left behind, which the new build listed at start.
+Port 7778 in step 2: 7777 belongs to the world the crash left behind, which the new build listed at start.
+
+**The final build from the merged defaults** (app `f136689`, engine `47767264`): windows-package run 39195679171, installer
+`EmeraldTogether-Setup-EmeraldTogether-2026-10-19-world-fix.exe`, SHA-256
+`fd68a9fef11235bd2ec105a116c6ba9da4578f94ec1ff6dd42f7ffe2565da318`, artifact `EmeraldTogether-Windows-Installer` (ID 12162187817).
+Its own installation check ran the world check on a fresh profile and passed. installed-world-check run 39197052414 repeated
+the three steps with this installer and passed. The new log lines show the left-over world directly: "listed at start:
+Tester's world (listens on 127.0.0.1)" and, after the restart, "kept: Tester's world" and "kept: CI Renamed World".
 
 **What was not checked on Windows.** The runner has no graphics card: the game reports "Graphics unavailable (3D Diorama)",
 as in every CI run. Hosting was followed up to the game opening for the character. Choosing CONTINUE in the game, the world
