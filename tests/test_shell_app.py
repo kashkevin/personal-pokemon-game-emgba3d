@@ -627,6 +627,37 @@ class ShellProcessStartTests(unittest.TestCase):
         finally:
             shell.close()
 
+    def test_an_automated_check_can_ask_for_a_log_of_the_screens_shown(self):
+        import os
+        import sys
+        import tempfile
+        from unittest.mock import patch
+        from emerald_multiplayer.shell_protocol import SCREEN_LOG, Screen, ShellProcess
+        # A stand-in window: announces itself, then answers every screen by choosing its "no" row.
+        program = ("import sys; sys.stdout.write('ready\\tx\\n'); sys.stdout.flush()\n"
+                   "for line in sys.stdin:\n"
+                   "    if line.startswith('screen\\t'):\n"
+                   "        token = line.split('\\t')[2].strip()\n"
+                   "        sys.stdout.write('event\\t' + token + '\\tselect\\tno\\n'); sys.stdout.flush()\n")
+        with tempfile.TemporaryDirectory() as folder:
+            log = Path(folder) / "screens.jsonl"
+            for value in (None, str(log)):
+                environment = {key: item for key, item in os.environ.items() if key != SCREEN_LOG}
+                if value is not None:
+                    environment[SCREEN_LOG] = value
+                with patch.dict(os.environ, environment, clear=True):
+                    shell = ShellProcess([sys.executable, "-c", program])
+                try:
+                    event = shell.show(Screen("confirm", "Delete it?").row("yes", "Delete").row("no", "Cancel", "", "s"))
+                    self.assertEqual(event.id, "no")
+                finally:
+                    shell.close()
+                self.assertEqual(log.exists(), value is not None)
+            (line,) = log.read_text(encoding="utf-8").splitlines()
+            record = json.loads(line)
+            self.assertEqual((record["id"], record["title"]), ("confirm", "Delete it?"))
+            self.assertEqual(record["items"], [["row", "yes", "Delete", ""], ["row", "no", "Cancel", "s"]])
+
 
 if __name__ == "__main__":
     unittest.main()

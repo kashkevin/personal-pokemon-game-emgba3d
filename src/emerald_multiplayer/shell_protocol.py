@@ -9,6 +9,7 @@ Line protocol: one command a line, fields separated by TAB; text escapes ``\\\\`
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import json
 import os
 import queue
 import subprocess
@@ -17,6 +18,9 @@ import time
 
 PROTOCOL = 1
 MAX_ITEMS = 48
+# Automated checks only (scripts/windows-runtime/ci_play_check.py): a file that gets one JSON line per screen shown, so a check
+# that plays the menu by keyboard knows which screen is up before it presses a key. Players never set it.
+SCREEN_LOG = "EMERALD_SHELL_SCREEN_LOG"
 
 
 def escape(text):
@@ -146,6 +150,7 @@ class ShellProcess:
         self.ready = threading.Event()
         self.announced = False          # the window said "ready" (a program that just ends has not started a menu)
         self.error = None
+        self.screen_log = os.environ.get(SCREEN_LOG) or None
         self._reader = threading.Thread(target=self._read, name="shell-menu-reader", daemon=True)
         self._reader.start()
         if not self.ready.wait(20) or self.error is not None or not self.announced:
@@ -175,11 +180,23 @@ class ShellProcess:
         except (OSError, ValueError):
             raise ShellClosed("the menu window closed") from None
 
+    def _log(self, screen):
+        if self.screen_log is None:
+            return
+        line = dict(time=round(time.time(), 2), id=screen.id, title=screen.title, notes=screen.notes, status=screen.status,
+                    items=[[item.kind, item.id, item.label, item.flags] for item in screen.items[:MAX_ITEMS]])
+        try:
+            with open(self.screen_log, "a", encoding="utf-8") as log:
+                log.write(json.dumps(line) + "\n")
+        except OSError:
+            pass
+
     def show(self, screen, tick=None, interval=0.2):
         self.token += 1
         token = self.token
         self._screen = screen
         self.send(*screen.lines(token))
+        self._log(screen)
         while True:
             try:
                 line = self.lines.get(timeout=interval)
@@ -200,6 +217,7 @@ class ShellProcess:
                     return Event("tick", value=result.value)
                 if isinstance(result, Screen):
                     self.send(*result.lines(token))
+                    self._log(result)
 
     def request(self, command, timeout=10):
         """A test-only command (PKMN_SHELL_TEST=1) and its one-line answer."""
