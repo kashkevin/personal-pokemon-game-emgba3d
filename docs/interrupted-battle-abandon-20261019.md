@@ -87,3 +87,113 @@ The owner's decision: an interrupted battle can be abandoned; nobody wins. Polic
 Changed files: `battle_abandonment.py` (new), `battle_reservations.py`, `battle_desk.py`, `battle_execution.py`,
 `battle_recovery.py`, `battle_protocol.py`, `battle_admission_host.py`, `server.py`, `companion.py`, `championship.py`,
 `frontier_service.py`, `launcher_session.py`, `launcher_gui.py`, `shell_app.py`.
+
+## 3. Four real games on the fixed code (Linux)
+
+`native_launcher_abandon_proof.py`, app `cddfcda` code (the proof script at `20e4319`), engine `44b6ebea`, four native
+Linux games on four X displays, each with its own real `LauncherWindow`/`SessionWorker`/`LauncherSession`, the real
+world server and store. Every scenario ends with the harness's own checks: everyone back on the field and linked
+("Connected: 4/4" on every PLAYERS tab), every party exactly the one from before the battle (count and SHA-256), no
+battle intent or reservation left anywhere, the abandoned battle without a result, all four save (revision 1 -> 2) with
+money, items, flags and variables unchanged, the store's integrity check, a normal close (exit 0) and a fresh Continue onto
+the same saves. A watchdog thread recorded every launcher event-loop stall over 1.5 s (none in these four runs).
+
+| Run | Interruption | What happened | Result |
+| --- | --- | --- | --- |
+| **abandon-pairs-2** | Two 1v1 battles at once; Friend 3's game **killed** (SIGKILL) 60 s in | The host and Friend 1's battle was not affected and finished with a result (outcome 2, 93 s). Friend 2 was held, offered "Abandon battle" at once, abandoned: its game closed and a new one opened in the same session on the field (`battle_abandoned`). Friend 3 **started the launcher again and opened the world with the same character**. The host: desk, room and reservation `aborted`, the abandonment record, no result, no wager. Friend 2 and Friend 3 then **battled each other again to the end** (outcome 2, 146 s). | **passed** (46 checks) |
+| **abandon-multi-2** | A 2v2; Friend 1's world **connection cut** (its game kept running) | All four held; the three connected launchers and the disconnected one offered "Abandon battle" within 20 s. The host abandoned explicitly; **Friends 2 and 3 followed by themselves** (nobody touched their launchers); **Friend 1 reconnected to abandon**. Every game came back on the field; no result, no wager. The teams had ended with the members' connections (existing rule, below); the players teamed up again and **played the 2v2 again to the end** (outcome 2, 675 s). | **passed** (55 checks) |
+| **abandon-exit-2** | A free-for-all; Friend 2's game **closed** the ordinary way (SIGTERM, which SDL turns into the same quit as closing the window; exit code 0) | Friend 2's launcher wound down. Friend 2 **started the launcher again: it abandoned the battle as it opened the world**; the host, Friend 1 and Friend 3 followed by themselves. No result, no free-for-all ranking, no wager. The four **played a free-for-all again to the end** (Friend 2 won, outcome 3, 1031 s). | **passed** (59 checks) |
+| **abandon-ffa-2** | A free-for-all; the **host crashed**: its game killed and every connection of its server cut | The three friends were held and disconnected, each offered "Abandon battle". The host's launcher wound down (`save_recovery_required`). **The host started the launcher again and the world opened** with the host's own character; its launcher resolved the battle at start. Friends 1 and 2 abandoned (each reconnected to the restarted host); Friend 3 closed its held game and **started the launcher again**. The durable reservation `aborted` with its record, no result, no wager. The host and Friend 3 then **battled 1v1 to the end** (outcome 1, 154 s). | **passed** (47 checks) |
+
+Earlier runs of the same scenarios, kept as recorded:
+
+| Run | Result |
+| --- | --- |
+| abandon-pairs-1 | Every check up to the fresh Continue passed (abandon, rejoin, no result, rematch to the end, saves). Stopped at the fresh Continue: the proof's own display plumbing opened a game on another player's display (a reused thread ident); fixed in the proof (`b1a73ca`, `de2a465`). |
+| abandon-multi-1 | Every abandonment check passed (host explicit, two friends automatic, the disconnected friend reconnected). Stopped at the rematch: the proof challenged with teams that had ended with the members' connections; the proof now teams up again (`e97ee69`). |
+| abandon-ffa-1 | The host restart, the world reopening and two friends abandoning passed. Stopped when Friend 3's restarted game opened on another player's display (the proof's plumbing again; `de2a465`). |
+| **abandon-exit-1** | Every abandonment check passed (the leaving player's restart resolved it, the other three followed, no result, parties as before). **The free-for-all rematch was then interrupted 15 minutes in**: the host's own game reported its held native deadline expired (600 frames, about 10 s, without a command; the other three cores had used 12-15 frames since their last command), so the host stopped the battle (`execution_interrupted`; every launcher `battle_recovery_held`, nobody disconnected, the battle could be abandoned or recovered). The host launcher's event loop (world server, battle router and the host's companion, all on one loop) stalled for about 10 s. The cause was not identified (KNOWN_ISSUES MS-17); abandon-exit-2 then passed with the stall watchdog and saw no stall over 1.5 s. |
+
+## 4. Regression tests
+
+`tests/test_battle_abandonment.py`, 26 tests (Simulated: real authenticated TCP servers, SQLite stores and companions,
+scripted native responses; the launcher tests use a stand-in companion and a real child process for the game):
+
+* protocol: bounded `abandon`/`fate` requests and answers; the capability query and reply;
+* a result is final only when every restored RELEASE is in the journal tail;
+* local retirement keeps the host's answer and the exact intent bytes, then removes only that battle's intents; another
+  battle's intents and an unresolved answer retire nothing;
+* network: a player who leaves a running 1v1 no longer strands the other and can join again; a late RELEASE or a replay
+  cannot publish a result after abandonment; a running battle that nobody left is refused; a finished battle keeps its
+  result; a bound battle whose player left before the start is abandoned instead of held `aborting`; a wager is
+  cancelled and nobody pays; two battles at once, only the interrupted one is abandoned; 2v2 and free-for-all
+  reservations are abandoned for all four; **after a host restart** the durable reservation is abandoned; **a host crash
+  between the record and the reservation is finished by the next request**; the capability answer;
+* launcher: a cold start resolves the battle its lost game was in, and a reservation without a local intent; an
+  unresolved answer or an older host leaves the intent (`pending_battle` as before); the held game is closed only after
+  the host has abandoned the battle; a refusal keeps the game and the intent; a disconnected held game reconnects to
+  abandon; a healthy session offers no abandonment; an abandonment decided elsewhere is followed; an unresolved battle is
+  left to the player; the next game starts with fresh state and the world connection back.
+
+On the unchanged code these tests cannot run (no `abandon`/`fate` operation, no module); the failure itself was
+reproduced with four games (section 1). `tests/test_battle_protocol.py` covers the new operations in its request/reply
+tables.
+
+## 5. Suites and CI
+
+| Suite | Where | Result |
+| --- | --- | --- |
+| App suite (`pytest`, xvfb), app `20e4319` (fix code `cddfcda`) | Linux | (running when this was committed; the result follows) |
+| `tests/test_battle_abandonment.py` (26) with the protocol and admission tests | Simulated | 47 passed |
+| 21 related modules (execution, recovery, desk, reservations, launcher recovery and session, championship recovery and network, challenge network, companion battle, ffa/multi desk, native resume, admission, admission cleanup, frontier, rival checkpoints and server, wagers, launcher GUI, shell app) | Simulated | 405 passed |
+| `python-tests` (GitHub, Ubuntu) | CI | run 164 (`9b39d71`, the fix and its tests): success; later pushes: see the run pages |
+| GBA ROM | Windows CI (engine job) | `f214735b64e113fd10730eacca5764d757f2c93a3685230aa905af7a7cdd3387`, the pin; no engine change in this fix |
+| **windows-package (full), engine `claude/mp-session-engine` `44b6ebea`, app `20e4319`** | Windows CI | run **39337084682 (#83): success**. Manifest: "PC-only markers in the manifest: ['battle_ffa_abi_version', 'rival_abi_version', 'presence_detail_abi_version']"; the packaged 3D and Classic 2D games are the engine job's build (SHA-256 `131232e9...474f` and `fcd23f9b...a558`); graphics checks 16 of 16 (3D unsupported on the runner, Classic 2D passes); in-game menu check, no failures. Installer **`EmeraldTogether-Setup-EmeraldTogether-2026-10-19-session-fix-7.exe`, 57,644,983 bytes, SHA-256 `141da7fb99191fc5363e4f069d5d0e07034be9e777827b5b7c379ae2f009a3a8`** (artifact `EmeraldTogether-Windows-Installer`, ID 12227782501, zip digest `b19de5ce...6f70`, unsigned, kept 7 days). Installation check: silent install (160 files), start (20 s, menu up), repair, uninstall (player files kept); Create World (10.1.0.118:7777, invite code decoded, rename, public address, delete, hosting started the game, whose log reads `detail 1 ffa 1`, restart); the play check: two New Games, Solo 1 -> 2, Host World on 10.1.0.118:7778 1 -> 2, Join Friend with the typed invite code 1 -> 2 ("Connected to the host's world"), both Exit code 0, no error in either profile. Report: artifact `EmeraldTogether-installer-check-full` 12228610944 |
+| windows-package push run #82 (smoke) on `9b39d71` | Windows CI | success |
+
+The Windows runner cannot run a four-player battle, so the interrupted-battle flow itself has Linux evidence only
+(section 3).
+
+## 6. Limits and what was not run
+
+* **Nothing ran on physical PCs, a home network, the Internet relay or a GPU.** The four-game proofs ran on one cloud PC
+  (Linux, four X displays, all four launchers in one harness process); the Windows runner cannot run a four-player battle,
+  so the abandon flow was **not run on Windows** (CI or Wine). The Windows evidence is the installer build and its
+  installed checks (Create World, Solo, Host World, Join Friend), which exercise the changed launcher code paths at start
+  but not an interrupted battle.
+* Not run with the 3D build, with a wager actually staked in a real game (simulated only), in a Championship or Frontier
+  match (simulated only), or with a co-op (two players against the AI) battle.
+* **Unsaved progress.** Abandoning restarts the game from the player's last save (the checkpoint the challenge pinned,
+  the last verified safe checkpoint). Field progress made after that save and before the battle is not kept, as with a
+  vanilla link error: the game is held inside the native battle, and the engine has no command that returns it to the
+  field without a battle result (RELEASE needs one), so that progress cannot be read back safely. Saving before a
+  challenge keeps it. Keeping it automatically would need a new PC-only native "restore the pre-battle field" command
+  (engine, bridge and ABI change); not done in this fix. Everything durable is kept: other characters, the world, other
+  battles, earlier saves.
+* **A result journaled but not published.** If the host crashes in the moment after every participant's RELEASE is
+  journaled but before the result is published, the battle is answered `battle_result_final` and still needs the original
+  games (the existing recovery); this window was not reproduced in a real run.
+* **Teams.** Every restarted game comes back on a new world session and a team ends when a member's connection changes
+  (`team_desk.py`, unchanged), so 2v2 partners form their team again after an abandoned battle (MS-18).
+* **An older host** (or battles turned off) cannot abandon; the launcher says so and keeps the old `pending_battle`
+  refusal. Every player in a world needs this build.
+* **MS-17**: the one host event-loop stall seen (abandon-exit-1) interrupted a healthy battle; the players were not
+  locked out (it could be abandoned), but its cause is unknown.
+
+## 7. On two or four PCs
+
+Install `EmeraldTogether-Setup-EmeraldTogether-2026-10-19-session-fix-7.exe` (run #83) on every PC.
+
+1. Host World, Host this world now; each friend: Join Friend with their invite code. PLAYERS shows everyone.
+2. Start a battle (PLAYERS > a player > Challenge 1v1, or Challenges > Free-for-all, or a 2v2 between two teams). During
+   the battle, close one player's game (or pull their network cable, or end the process in Task Manager).
+3. Expected: the others are held in the battle and the launcher offers **Abandon battle** (in these tests at once to about
+   20 s after the interruption; the
+   EmeraldTogether menu: **Abandon interrupted battle**). One of them confirms; every remaining player's game restarts on
+   the field where they last saved, with their party as it was; nobody wins or loses.
+4. The player who left starts EmeraldTogether again, Join Friend (or Continue): they open the world with the same
+   character. Everyone can challenge again.
+5. The same with the host's game closed: the host starts EmeraldTogether again and hosts the same world; the others
+   abandon (their launchers reconnect) and play on.
+
+If any step fails, keep each player's `runtime.log` and the host's `native-battle-execution` folder.

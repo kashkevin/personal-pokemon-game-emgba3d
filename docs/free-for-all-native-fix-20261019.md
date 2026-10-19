@@ -84,6 +84,9 @@ characters' saves are untouched (a PvP battle never changes them). Changing that
 abandon an interrupted battle with no result and their parties as they were, changes a battle-integrity rule, so it needs
 the owner's decision (`KNOWN_ISSUES.md` MS-16). Reconnecting **outside** a battle is supported and passed (section 5).
 
+**Update (later on 2026-10-19):** the owner decided; an interrupted battle can now be abandoned with no result
+(`docs/interrupted-battle-abandon-20261019.md`).
+
 ## 3. Found while testing the installed Windows build
 
 The new installed play check (section 4) ran the native game together with the launcher's companion on real Windows for
@@ -202,4 +205,5 @@ Install `EmeraldTogether-Setup-EmeraldTogether-2026-10-19-session-fix-6.exe` (ru
    Pending challenge > Accept challenge. Everyone: Enter battle.
 3. Fight to the end. Expected: one winner, three losers, everyone back on the field where they stood, PLAYERS still 4/4.
 4. During any battle, do not close a game: the others stay connected but are held in the battle, and nobody in it can open
-   that world again (section 2).
+   that world again (section 2). Fixed later the same day (MS-16): the others abandon the interrupted battle with no result,
+   see `docs/interrupted-battle-abandon-20261019.md` and its installer (session-fix-7).
