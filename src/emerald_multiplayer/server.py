@@ -1671,7 +1671,8 @@ class WorldServer:
         if teammate is None:
             refuse("no_teammate", "form a team in the Players menu first", "Form a team in PLAYERS first")
         here, there = session.presence, self.sessions[teammate].presence
-        if (here is None or there is None or there.get("activity") == "unavailable"
+        # On the field, as before players sent "battle" or "menu" (a teammate in either was "unavailable" then).
+        if (here is None or there is None or there.get("activity") != "overworld"
                 or (here["map_group"], here["map_number"]) != (there["map_group"], there["map_number"])):
             refuse("teammate_away", "your teammate must be in this Gym", "Your teammate must be here")
         capture = self.battle_execution is not None and self.battle_execution.resume_enabled
@@ -1947,8 +1948,9 @@ class WorldServer:
             mono = time.monotonic()
             if mono - self._last_friendship_tick >= 60:
                 elapsed, self._last_friendship_tick = mono - self._last_friendship_tick, mono
+                # Time together on the field, as before players sent "battle" or "menu" (both were "unavailable").
                 online = [pid for pid, session in self.sessions.items()
-                          if session.presence is not None and session.presence.get("activity") != "unavailable"]
+                          if session.presence is not None and session.presence.get("activity") == "overworld"]
                 if len(online) > 1:
                     self._friendship_notices(self.friendships.add_time_together(online, min(elapsed, 120)))
                     changed = True

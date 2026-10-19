@@ -233,6 +233,14 @@ def generate(rom: Path, elf: Path, nm: str, engine_commit: str, *, trade_effect_
         if len(rival) != 1 or int(rival[0][1], 16) != 4 or not world:
             raise ValueError("rival checkpoints require one four-byte marker and the shared world mailbox")
         manifest.update(rival_abi_version=1)
+    # Why a player is off the field (the PC game's pose: in battle, a menu, changing area), for the other players'
+    # Players lists (docs/multiplayer-session-fix-20261019.md). Native PC game only, like the rival marker.
+    detail = re.findall(r"^([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+[RrDd]\s+_?gMultiplayerPresenceDetailAbiVersion$",
+                        symbols + native_symbols, re.M)
+    if detail:
+        if len(detail) != 1 or int(detail[0][1], 16) != 4:
+            raise ValueError("the presence detail needs one four-byte marker")
+        manifest.update(presence_detail_abi_version=1)
     if len(objects) == 1:
         obj_address, obj_size = (int(value, 16) for value in objects[0])
         # Read-only test metadata for the pinned engine's 0x24-byte objects.

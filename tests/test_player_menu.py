@@ -64,7 +64,9 @@ class PlayerMenuNetworkTests(unittest.IsolatedAsyncioTestCase):
         self.server.team_desk = self.server.battle_desk = None
         menu = PlayerMenu(self.companions[0]); await menu.refresh()
         screen = await self.click(menu, "Trainer 1")
-        self.assertEqual([row.label for row in screen.rows], ["View Trainer Card"])
+        # The player's status first (no game reports a position in this fixture), not selectable.
+        self.assertEqual([row.label for row in screen.rows], ["Joining", "View Trainer Card"])
+        self.assertEqual(screen.rows[0].action, 0)
 
     async def test_recent_results_show_own_side_and_read_only_roster(self):
         # Simulated native receipts have their own Desk tests. This is the

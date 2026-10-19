@@ -213,7 +213,10 @@ class CompanionIntegrationTests(unittest.IsolatedAsyncioTestCase):
         bridge_a, bridge_b = await self.add_bridge(first), await self.add_bridge(second)
         await bridge_a.pose(make_pose(x=11, direction=4))
         await bridge_b.pose(make_pose(x=-2, avatar_gender=1, map_number=2))
-        a = await bridge_a.snapshot(lambda snapshot: len(snapshot.peers) == 1 and snapshot.peers[0].pose.x == -2)
+        # A position off the map's grid (a step over a map edge) reaches the other game listed and hidden at the
+        # grid's edge: the game refuses a whole snapshot for one such peer, which hid every player.
+        a = await bridge_a.snapshot(lambda snapshot: len(snapshot.peers) == 1 and snapshot.peers[0].pose.map_number == 2)
+        self.assertEqual((a.peers[0].pose.x, a.peers[0].pose.activity), (0, 0))
         b = await bridge_b.snapshot(lambda snapshot: len(snapshot.peers) == 1 and snapshot.peers[0].pose.x == 11)
         self.assertEqual((a.self_slot, b.self_slot), (0, 1))
         self.assertEqual((a.peers[0].token, b.peers[0].token), (2, 1))

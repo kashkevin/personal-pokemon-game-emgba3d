@@ -28,6 +28,11 @@ class MailboxError(ValueError):
     pass
 
 
+# The session's presence activity for a PC game's off-field detail (engine include/multiplayer_presence.h). Without
+# one (0: a dialogue, a cutscene, a save, or a game without the capability) the player is "unavailable".
+DETAIL_ACTIVITIES = {1: "battle", 2: "menu", 3: "transition"}
+
+
 def _bound(value: int, low: int, high: int, name: str) -> int:
     if type(value) is not int or not low <= value <= high:
         raise MailboxError(f"{name} is outside its integer bounds")
@@ -48,6 +53,8 @@ class Pose:
     movement_mode: int
     activity: int
     presentation_version: int = 0
+    # Why an unavailable pose is off the field (PC games with presence_detail_abi_version 1): DETAIL_ACTIVITIES.
+    detail: int = 0
 
     def __post_init__(self) -> None:
         for name in ("map_epoch", "frame"):
@@ -62,22 +69,25 @@ class Pose:
         _bound(self.presentation_version, 0, 1, "presentation_version")
         _bound(self.movement_mode, 0, 5 if self.presentation_version else 4, "movement_mode")
         _bound(self.activity, 0, 1, "activity")
+        _bound(self.detail, 0, max(DETAIL_ACTIVITIES), "detail")
+        if self.detail and self.activity:
+            raise MailboxError("a pose on the field has no off-field detail")
 
     def pack(self) -> bytes:
         return _POSE.pack(
             self.map_epoch, self.frame, self.x, self.y, self.map_group,
             self.map_number, self.direction, self.elevation,
-            self.avatar_gender, self.movement_mode, self.activity, 0,
+            self.avatar_gender, self.movement_mode, self.activity, self.detail,
         )
 
     @classmethod
-    def unpack(cls, payload: bytes, *, presentation_version=0) -> Pose:
+    def unpack(cls, payload: bytes, *, presentation_version=0, detail_version=0) -> Pose:
         if len(payload) != POSE_SIZE:
             raise MailboxError("local pose must contain exactly 20 bytes")
         fields = _POSE.unpack(payload)
-        if fields[-1] != 0:
+        if fields[-1] != 0 and detail_version != 1:
             raise MailboxError("local pose reserved byte must be zero")
-        return cls(*fields[:-1], presentation_version=presentation_version)
+        return cls(*fields[:-1], presentation_version=presentation_version, detail=fields[-1])
 
     def network_fields(self, available: bool) -> dict:
         modes = {0: "walk", 1: "bike", 2: "bike", 3: "surf", 4: "walk", 5: "run"}
@@ -86,7 +96,8 @@ class Pose:
             "x": self.x, "y": self.y, "direction": self.direction,
             "elevation": self.elevation, "avatar_gender": self.avatar_gender,
             "movement_mode": modes[self.movement_mode],
-            "activity": "overworld" if available and self.activity == 1 and self.movement_mode != 4 else "unavailable",
+            "activity": "overworld" if available and self.activity == 1 and self.movement_mode != 4
+                        else DETAIL_ACTIVITIES.get(self.detail, "unavailable") if available else "unavailable",
         }
 
     @classmethod

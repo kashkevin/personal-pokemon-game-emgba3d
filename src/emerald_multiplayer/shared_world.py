@@ -428,6 +428,10 @@ class SharedWorld:
         director = getattr(self, "spawn_director", None)
         entry = director.map_entry(f"{group}.{number}") if director is not None else None
         name = entry.get("name") if entry else None
+        if not (isinstance(name, str) and name):
+            # Towns, buildings and caves have no wild Pokemon catalogue entry: the game's own place name.
+            from .map_names import MAP_NAMES
+            name = MAP_NAMES.get(f"{group}.{number}")
         return name[:40] if isinstance(name, str) and name else f"Area {group}-{number}"
 
     def nav_view(self, presences: dict[str, dict | None]) -> dict:

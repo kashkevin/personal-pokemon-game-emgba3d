@@ -10,7 +10,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 from contextlib import suppress
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 import hashlib
 import hmac
 import json
@@ -227,6 +227,7 @@ class CompanionConfig:
     trade_effect_save_abi_version: int = field(init=False, default=0)
     trade_effect_choice_abi_version: int = field(init=False, default=0)
     presence_animation_abi_version: int = field(init=False, default=0)
+    presence_detail_abi_version: int = field(init=False, default=0)
     battle_enabled: bool = field(init=False, default=False)
     battle_ffa_enabled: bool = field(init=False, default=False)   # the ROM can run the four-player free-for-all (phase 5)
     battle_abi_version: int = field(init=False, default=0)
@@ -261,6 +262,9 @@ class CompanionConfig:
         object.__setattr__(self, "trade_effect_save_abi_version", manifest.get("trade_effect_save_abi_version", 0))
         object.__setattr__(self, "trade_effect_choice_abi_version", manifest.get("trade_effect_choice_abi_version", 0))
         object.__setattr__(self, "presence_animation_abi_version", manifest.get("presence_animation_abi_version", 0))
+        # The PC game says why it is off the field (in battle, a menu, changing area) in its pose's last byte.
+        detail = manifest.get("presence_detail_abi_version")
+        object.__setattr__(self, "presence_detail_abi_version", 1 if type(detail) is int and detail == 1 else 0)
         object.__setattr__(self, "battle_enabled", manifest.get("battle_abi_version") in (1, 2, 3))
         object.__setattr__(self, "battle_abi_version", manifest.get("battle_abi_version", 0))
         object.__setattr__(self, "battle_ffa_enabled", manifest.get("battle_ffa_abi_version") == 1
@@ -552,11 +556,19 @@ class Companion:
         if not self.connected or self._roster_signature is None:
             return Snapshot(heartbeat=self._heartbeat, roster_epoch=self._roster_epoch)
         own_slot = next((index for index, player in enumerate(self._players) if player["player_id"] == self.config.player_id), 0)
-        peers = tuple(Peer(index + 1, Pose.from_presence(player["presence"],
-            presentation_version=self.config.presence_animation_abi_version))
+        peers = tuple(Peer(index + 1, self._game_pose(player["presence"]))
             for index, player in enumerate(self._players)
             if player["player_id"] != self.config.player_id and player["presence"] is not None)
         return Snapshot(CONNECTED, self._heartbeat, self._roster_epoch, own_slot, peers)
+
+    def _game_pose(self, presence):
+        """A roster player's pose as the game takes it. The game refuses a whole snapshot for one peer off the map's
+        grid (a step over a map edge can report -1), so every other player would vanish with it: such a peer stays
+        listed, hidden, at the grid's edge, until its next position."""
+        pose = Pose.from_presence(presence, presentation_version=self.config.presence_animation_abi_version)
+        if pose.x >= 0 and pose.y >= 0:
+            return pose
+        return replace(pose, x=max(pose.x, 0), y=max(pose.y, 0), activity=0)
 
     async def start(self) -> None:
         if self._ipc_server is not None:
@@ -912,7 +924,8 @@ class Companion:
                     continue
                 if len(packet) != 21 or packet[:1] != b"P":
                     raise BridgeError("expected one bounded local pose")
-                pose = Pose.unpack(packet[1:], presentation_version=self.config.presence_animation_abi_version)
+                pose = Pose.unpack(packet[1:], presentation_version=self.config.presence_animation_abi_version,
+                                   detail_version=self.config.presence_detail_abi_version)
                 previous = self._local_pose
                 if previous is not None:
                     epoch_distance = (pose.map_epoch - previous.map_epoch) & _UINT32
@@ -1440,9 +1453,15 @@ class Companion:
                 asyncio.create_task(self._read_world(reader, writer), name="companion-world-reader"),
                 asyncio.create_task(self._send_presence(writer), name="companion-presence-sender"),
             ]
+            # Only the connection itself ends the session. An optional status poll that stops (a host without rival
+            # checkpoints refuses it once) used to end it too: the companion then reconnected in a loop, and with the
+            # terminal saver armed never again (docs/multiplayer-session-fix-20261019.md).
+            optional = []
             if self.config.rival_abi_version == 1:
-                tasks.append(asyncio.create_task(self._poll_rival(), name="companion-rival-status"))
-            done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+                optional.append(asyncio.create_task(self._poll_rival(), name="companion-rival-status"))
+            essential = list(tasks)
+            tasks.extend(optional)
+            done, _ = await asyncio.wait(essential, return_when=asyncio.FIRST_COMPLETED)
             for task in done:
                 await task
         finally:
@@ -1508,7 +1527,8 @@ class Companion:
             except BattleChallengeError:
                 self._world_rival = None
                 return
-            except (ConnectionError, OSError, asyncio.TimeoutError, ValueError):
+            except (ConnectionError, OSError, asyncio.TimeoutError, ValueError, KeyError, TypeError):
+                # An unexpected reply shape is a missing rival record, never a reason to leave the world.
                 self._world_rival = None
             await asyncio.sleep(self.RIVAL_POLL_SECONDS)
 

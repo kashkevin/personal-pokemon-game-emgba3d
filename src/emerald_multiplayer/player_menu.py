@@ -18,6 +18,13 @@ WAGER_CHOICES = (1_000, 5_000, 10_000, 25_000, 50_000, 100_000)
 LABEL_CHARACTERS = 25  # a menu row's label: menu_mailbox packs 26 bytes, NUL-terminated
 GYM_LEADERS = {1: "Roxanne", 2: "Brawly", 3: "Wattson", 4: "Flannery", 5: "Norman",
                6: "Winona", 7: "Tate&Liza", 8: "Juan"}
+# What a connected player is doing, from the session roster's presence (protocol ACTIVITIES). Every player in the
+# roster stays listed whatever they do; only leaving the session removes them.
+ACTIVITY_LABELS = {"overworld": "On the field", "battle": "In battle", "menu": "In a menu",
+                   "transition": "Changing area", "unavailable": "Busy", "joining": "Joining"}
+# The same, beside a place name in a row's 25 characters ("Battle: EVER GRANDE CITY").
+ACTIVITY_SHORT = {"overworld": "Field", "battle": "Battle", "menu": "Menu", "transition": "Moving",
+                  "unavailable": "Busy", "joining": "Joining"}
 _OPEN_BATTLE_STATES = ("invited", "accepted", "prepared")
 
 
@@ -78,6 +85,7 @@ class PlayerMenu:
         self._hunt_show = "all"
         self._hunt_order = "source"
         self._players = {}
+        self._activities = {}
         self._friends = {}
         self._wager = None  # {"wager": view | None, "money": int | None} for the pending challenge
         self._wager_amount = WAGER_CHOICES[1]
@@ -135,6 +143,9 @@ class PlayerMenu:
         self._binding = binding
         # Immutable value copies; the companion owns and validates the roster.
         self._players = {p["player_id"]: p["display_name"] for p in self.companion._players}
+        # A player whose game has not reported a position yet is joining (still loading).
+        self._activities = {p["player_id"]: "joining" if "presence" in p and p["presence"] is None
+                            else (p.get("presence") or {}).get("activity") for p in self.companion._players}
         # Player friendship (host-owned); older hosts simply show none.
         self._friends = {}
         friendship_rpc = getattr(self.companion, "friendship_rpc", None)
@@ -315,6 +326,15 @@ class PlayerMenu:
     def _name(self, player):
         return self._players.get(player, "Disconnected player")
 
+    def _activity(self, player):
+        """What a listed player is doing: "In battle", "In a menu"... ("Joining" before their first position)."""
+        return ACTIVITY_LABELS.get(self._activities.get(player), "Connected")
+
+    def _place(self, player):
+        """Where a player is, from the host's world view (or "Location hidden" when they keep it private)."""
+        nav = self._nav or {}
+        return next((row["place"] for row in nav.get("players") or () if row.get("player_id") == player), None)
+
     # The colours the game gives other players' icons on the PokeNav map, by their place in the roster
     # (engine src/region_map.c sSlotLight). Your own icon is the game's own, in its usual colours.
     MARKER_COLOURS = ("Blue", "Yellow", "Purple", "Orange")
@@ -330,6 +350,11 @@ class PlayerMenu:
         title, status = "Players", self._notice or f"Connected: {len(self._players)}/4"
         if page == "player" and target in self._players and target != actor:
             title = self._name(target)
+            place = self._place(target)
+            where = f"{self._activity(target)}: {place}" if place else self._activity(target)
+            if len(where) > LABEL_CHARACTERS:
+                where = f"{ACTIVITY_SHORT.get(self._activities.get(target), 'Online')}: {place}"
+            actions.append((where, "", ()))
             friend = self._friends.get(target)
             if friend is not None:
                 progress = "" if friend["next"] is None else f" {friend['points']}/{friend['next']}"
@@ -627,12 +652,14 @@ class PlayerMenu:
                 if player != actor:
                     friend = self._friends.get(player)
                     label = self._name(player)
-                    if friend is not None:
-                        # The level's first word after the name, in the row's 25
-                        # characters: a name is cut only where both cannot fit, so
-                        # names that differ after their 13th character stay apart.
-                        level = friend["name"].split()[0]
-                        label = f"{label[:LABEL_CHARACTERS - 3 - len(level)]} - {level}"
+                    # Off the field, what the player is doing ("In battle"); on it, the friendship level. Either
+                    # follows the name in the row's 25 characters: a name is cut only where both cannot fit, so
+                    # names that differ after their 13th character stay apart.
+                    activity = self._activities.get(player)
+                    note = (self._activity(player) if activity not in (None, "overworld", "joining")
+                            else friend["name"].split()[0] if friend is not None else None)
+                    if note is not None:
+                        label = f"{label[:LABEL_CHARACTERS - 3 - len(note)]} - {note}"
                     actions.append((label, "player", (player,)))
             if self._team is not None:
                 actions.append(("Team invitation" if self._team["invitations"] else "Your team", "team", ()))
