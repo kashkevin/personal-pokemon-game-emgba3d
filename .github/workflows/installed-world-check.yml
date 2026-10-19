@@ -8,7 +8,10 @@
 #   3. the same on a completely fresh profile.
 #
 # A push of this file or the check runs step 1 only (a workflow_dispatch needs the file on the default branch).
-# Nothing here is uploaded beyond the check's own reports, its menu pictures and the Setup logs; the profiles are deleted.
+# With installer_run_id the play-check job also plays that build (scripts/windows-runtime/ci_play_check.py): two profiles on one
+# runner create a character each through the game's New Game, the host plays Solo and hosts a world, the friend joins it with the
+# copied invite code, and every save reaches its world.
+# Nothing here is uploaded beyond the checks' own reports, menu pictures, screen logs and the Setup logs; the profiles are deleted.
 name: installed-world-check
 
 on:
@@ -24,6 +27,7 @@ on:
     paths:
       - .github/workflows/installed-world-check.yml
       - scripts/windows-runtime/ci_world_check.py
+      - scripts/windows-runtime/ci_play_check.py
 
 permissions:
   contents: read
@@ -108,3 +112,62 @@ jobs:
       - name: Remove the profiles
         if: always()
         run: rm -rf "$RUNNER_TEMP/world-check"
+
+  play-check:
+    name: Create a character, Solo, Host World and Join Friend on the installed build
+    if: ${{ inputs.installer_run_id != '' && inputs.installer_run_id != null }}
+    runs-on: windows-2022
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: bash
+    env:
+      NEW_RUN: ${{ inputs.installer_run_id || '' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            scripts/windows-runtime
+            src
+            tests
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - name: The installer to check
+        uses: actions/download-artifact@v4
+        with:
+          name: EmeraldTogether-Windows-Installer
+          path: new-installer
+          run-id: ${{ env.NEW_RUN }}
+          github-token: ${{ github.token }}
+      - name: Installer
+        run: sha256sum new-installer/*.exe
+      - name: "Play the installed build (run ${{ env.NEW_RUN }}): a host and a friend on this runner"
+        run: |
+          python scripts/windows-runtime/ci_play_check.py --setup "$(ls new-installer/EmeraldTogether-Setup-*.exe)" \
+            --work "$RUNNER_TEMP/play-check" --label play
+      - name: Upload the report, screen logs and pictures (7 days)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: EmeraldTogether-play-check
+          path: |
+            ${{ runner.temp }}/play-check/*-play-check.json
+            ${{ runner.temp }}/play-check/*-screens.jsonl
+            ${{ runner.temp }}/play-check/*-pictures/
+            ${{ runner.temp }}/play-check/*.log
+          retention-days: 7
+          if-no-files-found: warn
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### Play the installed build"
+            for f in "$RUNNER_TEMP"/play-check/*-play-check.json; do
+              [ -f "$f" ] || continue
+              python -c "import json,sys;r=json.load(open(sys.argv[1]));print('- **'+r['label']+'** ('+str(r['setup'])+'): '+r['result']);[print('  - '+l) for l in r['log']]" "$f"
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Remove the profiles
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/play-check"
