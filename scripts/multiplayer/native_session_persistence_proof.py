@@ -176,19 +176,24 @@ class Session:
         pose = await self.pose(player)
         return pose is not None and pose[0] == 1
 
-    async def run_away(self, player, timeout=180):
+    async def run_away(self, player, timeout=90):
         """Run, as a player does: B through the battle's text (B also leaves the move list), then RUN, the bottom
         right of the four actions (Down, Right), and A. Repeated until the field is back: a slow intro or a failed
-        escape only costs another round."""
-        async with asyncio.timeout(timeout):
-            while not await self.on_field(player):
-                if await self.in_battle(player):
-                    for key in (B, B, DOWN, RIGHT, A):
-                        await player.probe.press(key)
+        escape only costs another round. A battle still on after `timeout` is fought out (under Wine the arrow
+        presses were once lost for a whole battle while A arrived)."""
+        try:
+            async with asyncio.timeout(timeout):
+                while not await self.on_field(player):
+                    if await self.in_battle(player):
+                        for key in (B, B, DOWN, RIGHT, A):
+                            await player.probe.press(key)
+                            await asyncio.sleep(.5)
+                        await asyncio.sleep(2)
+                    else:
                         await asyncio.sleep(.5)
-                    await asyncio.sleep(2)
-                else:
-                    await asyncio.sleep(.5)
+        except TimeoutError:
+            self.h.record("no-escape-fought-it-out", slot=player.slot)
+            await self.win(player)
 
     async def win(self, player, timeout=240):
         """Fight, as a player does: A through the battle (FIGHT, the first move, the texts, the level-up box) until
