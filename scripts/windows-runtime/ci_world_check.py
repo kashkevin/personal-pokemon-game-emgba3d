@@ -346,6 +346,8 @@ def run_fixed(menu, files, report, log, lan_hint):
     before = {world["world_id"] for world in files.worlds()}
     report["worlds_before"] = [dict(name=w["name"], bind_address=w["bind_address"]) for w in files.worlds()]
     report["folders_before"] = files.world_folders()
+    for world in files.worlds():
+        log(f"listed at start: {world['name']} (listens on {world['bind_address']}, world {world['world_id']})")
 
     open_create(menu)
     fill_and_create(menu, "CI LAN World", "Tester")
@@ -559,6 +561,8 @@ def main():
             require(files.error_text() == errors_before, "the restart recorded an error: " + files.error_text()[-2000:])
             log("restarted: the worlds are listed as they were and Exit closed EmeraldTogether")
             report["worlds_after"] = [dict(name=w["name"], bind_address=w["bind_address"]) for w in files.worlds()]
+            for world in report["worlds_after"]:
+                log(f"kept: {world['name']} (listens on {world['bind_address']})")
         report["result"] = "passed"
     except CheckFailed as error:
         report["result"] = "failed: " + str(error)

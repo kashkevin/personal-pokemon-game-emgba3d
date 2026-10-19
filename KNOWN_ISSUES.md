@@ -273,3 +273,13 @@ fully offline play keeps the personal ones. See FEATURE_STATUS and the engine's
 | VR-5 | Info (open) | 226 of 959 battle animations have no HD version and play their GBA animation drawn in 3D (`docs/battle-fx-audit/matrix.md`). | By design; listed |
 | VR-6 | Info (open) | The four repairs were checked under Linux and the Windows exe under Wine, both with software OpenGL; not on a Windows PC or a real GPU at 60 fps. | Open: checklist in `docs/visual-repairs-20261018.md` |
 
+## Create World crash (2026-10-19, app `claude/admiring-bohr-dpxzuy` `04f5778`; `docs/world-creation-fix-20261019.md`)
+
+| ID | Severity | Issue | Status |
+| --- | --- | --- | --- |
+| WC-1 | Critical (release-blocking) | Host World > Create World failed on every PC with a network address: `lan_addresses()` returns `LocalAddress` (a `str` subclass) and the world list, a world's endpoint and invite codes accept exact `str` only. Default network: refused with "Character setup could not complete"; with a numeric public address: the world was made, then `ValueError: invalid world record` (the owner's traceback) left it unlisted and the main menu failed again on it for the rest of the session. Owner-reported on a real PC. | **Fixed** (`04f5778`); reproduced on the old installer and passing on the new one through the installed menu window (installed-world-check run 39193466499) |
+| WC-2 | High | Same cause: an invite code for a world listening on the local network, and hosting after the PC's address changed, failed. | **Fixed** (`04f5778`; tests, and the installed build's invite code decodes to the LAN address) |
+| WC-3 | Info | A world left behind by the crash is listed as "<host>'s world", listening on this PC only (the start-up import's safe default). | By design: rename it, or Network settings > Listen on, or delete it |
+| WC-4 | Info (open) | On the runner, hosting was checked up to the game opening for the character (it loaded the character's save; the runner has no GPU, so the 3D view is unavailable). The game's CONTINUE step, the world listening on the LAN address for friends and a friend joining were not driven on an installed build. | Open: checklist in `docs/world-creation-fix-20261019.md` |
+| WC-5 | Low (tests, pre-existing) | `tests/test_launcher_menu.py::MenuTests::test_worlds_are_listed_with_their_players_and_a_world_can_be_picked_for_hosting` (the classic launcher window) fails about 3 runs in 5 under Xvfb: the host button is still disabled right after a second `selection_set`. Same on `d7dbe1c` before this fix; unrelated to it. | Open: make the selection event deterministic; do not skip the test |
+

@@ -506,7 +506,7 @@ Recorded guidance the code no longer follows (not binding decisions):
 | --- | --- | --- |
 | One universal character per player (Solo, own worlds, friends' worlds; progress travels) | Implemented but unverified (automated end to end with the real registration; no real-PC run) | `docs/universal-characters.md`, `tests/test_shell_e2e.py` |
 | Main menu: Continue Adventure, Solo, Host World, Join Friend, Characters, Settings, Exit | Implemented but unverified (scripted-shell tests; not walked through on a PC) | `tests/test_shell_app.py` |
-| World and saved-server management (create, host, rename, delete to worlds-deleted; edit address, remove) | Implemented but unverified | `tests/test_shell_app.py`, `tests/test_shell_join.py` |
+| World and saved-server management (create, host, rename, delete to worlds-deleted; edit address, remove) | Implemented but unverified (Create World, invite code, rename, delete and a restart driven through the installed Windows build's menu on a CI runner, run 39193466499, after the 2026-10-19 crash fix; not on a PC) | `tests/test_shell_app.py`, `tests/test_shell_join.py`, `tests/test_world_creation.py`, `docs/world-creation-fix-20261019.md` |
 | Migration of earlier characters and worlds, history, restore, recovery of unfinished attempts | Implemented but unverified | `tests/test_character_library.py`, `tests/test_shell_migration.py` |
 | Connection check with plain-English causes (identity, version, route) | Implemented but unverified (real TLS servers on one machine) | `docs/networking.md` |
 | Automatic router setup (UPnP IGD, NAT-PMP) | Implemented but unverified (fake routers only) | `tests/test_port_mapping.py` |
