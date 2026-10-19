@@ -18,8 +18,9 @@ What it does, as a player would:
      while shell/last-error.txt records ``ValueError: invalid world record`` from world_registry;
      --expect fixed: both worlds are created AND in the world list with the local-network address as plain text, then the
      check copies an invite code (decoded: it points at that address), renames a world, deletes the other, starts hosting
-     the renamed one up to the game opening for the character, starts EmeraldTogether again and finds the worlds kept, and
-     no error was recorded;
+     the renamed one up to the game opening for the character (this runner cannot run 3D: the menu asks first and the check
+     chooses "Play in Classic 2D this time"), starts EmeraldTogether again and finds the worlds kept, and no error was
+     recorded;
   5. --delete-install removes the program folder the way a person deletes it by hand (the profile stays); otherwise the
      check uninstalls silently unless --leave-installed.
 
@@ -160,6 +161,10 @@ class Menu:
 
     def __init__(self, exe, env, work, log, shots):
         self.exe, self.env, self.work, self.log, self.shots = exe, env, work, log, shots
+        # The launcher writes each screen it shows here (shell_protocol.SCREEN_LOG; builds before 2026-10-19's play check
+        # write nothing, and the check then only waits).
+        self.screen_log = Path(shots) / "screens.jsonl"
+        self.env = dict(env, EMERALD_SHELL_SCREEN_LOG=str(self.screen_log))
         self.process = None
         self.hwnd = None
         self.shell_pid = None
@@ -213,6 +218,13 @@ class Menu:
 
     def alive(self):
         return self.process is not None and self.process.poll() is None
+
+    def screens(self):
+        try:
+            text = self.screen_log.read_text(encoding="utf-8")
+        except OSError:
+            return []
+        return [json.loads(line) for line in text.splitlines() if line.strip().endswith("}")]
 
     def stop(self):
         if self.process is not None and self.process.poll() is None:
@@ -433,7 +445,16 @@ def run_fixed(menu, files, report, log, lan_hint):
     launched_before = set(launches.iterdir()) if launches.is_dir() else set()
     menu.go(wait=10)                    # "Host this world now" (focused); the world is prepared (a backup first)
     menu.shot("hosting-1")
+    shown = len(menu.screens())
     menu.go(wait=3)                     # "<character> enters <world>": Continue
+    # The game starts after the 3D check. A PC without 3D (this runner) is asked first: Play in Classic 2D this time (focused).
+    question = files.wait(lambda: next((s for s in menu.screens()[shown:] if s["id"] in ("graphics", "busy")
+                                        and s["title"] != "Checking graphics"), None), 60, step=0.5)
+    if question and question["id"] == "graphics":
+        menu.shot("graphics-question")
+        report["graphics_question"] = question["notes"][:3]
+        menu.go(wait=3)
+        log("3D graphics cannot start on this runner: chose Play in Classic 2D this time")
 
     def started():
         game = [(pid, command) for pid, command in children(menu.process.pid) if pid not in known and "--shell" not in command]
