@@ -6,11 +6,14 @@ one native game per player on its own X display, driven by ordinary key presses.
 
     1. Every game is linked to the session and has every other player (the game's own multiplayer.c state, read from
        its memory: sConnected, its peers and their activity); every Players tab lists everyone ("Connected: N/4").
+       The world's first mass outbreak starts a minute in (its settings file; the default is 8-15 minutes): every
+       game holds its Town Map marker (the shared-world record's bytes 192-199) and stays linked.
     2. A player walks to a shared wild Pokemon and talks to it: an ordinary wild battle. For 25 s (longer than the
        server's presence and idle timeouts) every other game keeps that player as a peer (hidden, activity 0), every
        roster says "battle", no session is replaced, and another player's Players tab lists "<name> - In battle".
        With four players two of them battle at the same time.
-    3. The player runs from the battle: back on the field in the same session; the others draw that player again.
+    3. The player runs from the battle (the host fights its battle out: won, or lost and whited out): back on the
+       field in the same session; the others draw that player again.
     4. The last player walks out of Route 101 into Littleroot Town (another map): still listed everywhere, its
        Players page says where it is.
     5. The last player closes the game (an ordinary close): the others' rosters and Players tabs drop it; it starts
@@ -49,6 +52,8 @@ ROUTE_101, LITTLEROOT = (0, 16), (0, 9)
 WAYPOINTS = ((7, None), (7, 16), (10, 16), (10, 19))
 NAMES = ("Host Hana", "Friend Finn", "Friend Fay", "Friend Flo")
 BATTLE_SECONDS = 25
+OUTBREAK_AFTER = 60     # active seconds before this world's first mass outbreak (the default is 8-15 minutes)
+OUTBREAK_WAIT = 300
 
 
 def engine_addresses(game):
@@ -64,7 +69,7 @@ def engine_addresses(game):
     def after(name):
         return min((a for a in table[name] if a > base), key=lambda a: a - base)
     return dict(connected=after("sConnected"), last=after("sLastHeartbeatFrame"), frame=after("sFrame"),
-                remotes=after("sRemotes"))
+                remotes=after("sRemotes"), world=table["gMultiplayerWorldMailbox"][0])
 
 
 class Session:
@@ -85,13 +90,16 @@ class Session:
             connected = read(a["connected"], 1)[0]
             frame, last = struct.unpack("<I", read(a["frame"], 4))[0], struct.unpack("<I", read(a["last"], 4))[0]
             raw = read(a["remotes"], 84)
+            world = read(a["world"], 256)
         peers = []
         for i in range(3):
             record = raw[i * 28:i * 28 + 28]
             token = struct.unpack("<I", record[:4])[0]
             if token:
                 peers.append(dict(token=token, map=[record[16], record[17]], activity=record[22]))
-        return dict(linked=bool(connected), heartbeat_age=frame - last, peers=peers)
+        # The shared-world record sits at 48 of the EMW1 mailbox; its bytes 192-199 are the outbreak marker.
+        outbreak = list(world[240:248]) if world[:4] == b"EMW1" else None
+        return dict(linked=bool(connected), heartbeat_age=frame - last, peers=peers, outbreak=outbreak)
 
     async def companion_view(self, player):
         async def read(s):
@@ -104,7 +112,7 @@ class Session:
                                                   (p["presence"] or {}).get("map_number")] for p in c._players},
                         pose=None if pose is None else [pose.activity, pose.detail, pose.map_group, pose.map_number,
                                                         pose.x, pose.y],
-                        spawns=c._world_spawns)
+                        spawns=c._world_spawns, outbreak=c.world_inbound().outbreak)
         return await on_worker(player.worker, read)
 
     async def sessions(self):
@@ -339,6 +347,22 @@ async def scenario(harness, players, session):
             f"the Players tab does not list everyone: {status} {rows}")
     record("players-tab-baseline", slot=1, status=status, rows=rows)
 
+    # A mass outbreak (this world's settings start the first one a minute in, not after 8-15 minutes): its place rides
+    # in the shared-world record's bytes 192-199 for the Town Map, which the game's bridge refused until 2026-10-19 and
+    # then stopped for good, on every game at once.
+    async with asyncio.timeout(OUTBREAK_WAIT):
+        while not all((await session.companion_view(p))["outbreak"] for p in players):
+            await asyncio.sleep(1)
+    place = (await session.companion_view(host))["outbreak"]
+    end = time.monotonic() + 10
+    while time.monotonic() < end:
+        state = await session.everyone_linked("outbreak")
+        for row in state:
+            require(row["game"]["outbreak"] == [1, place[0], place[1], 0, 0, 0, 0, 0],
+                    f"{row['name']}'s game does not hold the outbreak marker: {row['game']['outbreak']}")
+        await asyncio.sleep(2)
+    record("outbreak-kept-everyone", map=list(place), markers=[r["game"]["outbreak"] for r in state])
+
     battles = [[players[0]], [players[1]]] + ([[players[2], players[3]]] if count == 4 else [])
     for battlers in battles:
         label = "battle-" + "-and-".join(str(p.slot) for p in battlers)
@@ -421,6 +445,8 @@ async def run(args):
                               version="Session persistence proof", scope=__doc__.split("\n\n")[0])
     async with harness:
         await harness.setup_world()
+        outbreaks = harness.host.database_path.with_name(harness.host.database_path.name + ".outbreaks.json")
+        outbreaks.write_text(json.dumps({"first_delay": [OUTBREAK_AFTER, OUTBREAK_AFTER]}))
         players = []
         for slot in range(count):
             player = await harness.start("session", slot)

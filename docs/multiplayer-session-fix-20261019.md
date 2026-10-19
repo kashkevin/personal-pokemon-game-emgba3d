@@ -46,6 +46,20 @@ exact moment cannot be confirmed without their logs. Each game's `runtime.log` (
 `%LOCALAPPDATA%\PokemonPrivate\...\launches\`) says `Multiplayer bridge disconnected: invalid shared-world update` when
 this happened.
 
+### The same check, eight bytes earlier: mass outbreaks
+
+The four-player runs of this fix found a second trigger of the same failure, after their checks had passed: 12-13
+minutes into each run all four games logged `Multiplayer bridge disconnected: invalid shared-world update` at the same
+moment (session-4p-1, -2 and -3). Update 18 (the Town Map) has the companion pack the running mass outbreak's place into
+bytes 192-199 of the same frame (valid, map group, map number, a zero byte, an unused species word, two zero bytes;
+`world_mailbox.py`), and the game's Town Map reads it (`region_map.c`), but `ValidWorldInbound` still required those
+bytes to be zero too. The host starts the world's first outbreak 8-15 active minutes after the world starts, so with the
+rival fix alone every game would still lose its link then, all at once, and a game joining during an outbreak would lose
+it at once. The two-player runs ended before the first outbreak; the Town Map was only ever checked with the engine's
+injected test marker, and the outbreak proof (native-outbreak-5) ran on an engine from before Update 18.
+
+The launcher proof with an outbreak a minute in, on the game before this fix and after it: running.
+
 ### A second defect found on the way
 
 `Companion._remote_once` ended the world session whenever **any** of its tasks finished. The rival poller finishes by
@@ -60,7 +74,8 @@ Engine (`claude/mp-session-engine`, PC only; the release ROM rebuilt from it is 
 `f214735b64e113fd10730eacca5764d757f2c93a3685230aa905af7a7cdd3387`):
 
 - `src/platform/mp_bridge.c`: `ValidWorldInbound` accepts a well-formed rival record at 200 (the rules of
-  `multiplayer_rival.c` `ValidRecord`); 192-199 stay reserved; anything malformed still closes the link.
+  `multiplayer_rival.c` `ValidRecord`) and a well-formed outbreak marker at 192 (the layout `world_mailbox.py` packs and
+  `region_map.c` reads); anything malformed still closes the link.
 - `src/multiplayer_presence.c` (new, PC only, left out of the ROM build): while the player is off the field the game's
   pose says why in its last byte: 1 battle, 2 menu (START, PLAYERS, bag, party, PC...), 3 transition (a warp, a door,
   stairs, Fly, a whiteout, the fade around them), 0 anything else (a dialogue, a cutscene, a save). Marker
@@ -114,9 +129,9 @@ A game publishes its pose every frame, battles and menus included, so a long bat
 
 | Test | What | Result |
 | --- | --- | --- |
-| engine `check-native` | all native suites, including `test_mp_bridge` `world_rival_record_accepted` (8 failures on the old validator) and `presence_detail_rides_the_local_pose_only` | 0 failures |
-| `tests/test_session_persistence.py` | real server and companions over TCP, games as the binary bridge protocol: a battle longer than the idle and presence timeouts, menus and a door, a game without the capability, four players with independent battle/menu/walk and a fifth refused as full who takes the free place, four enrolled players on an ownership world with the Players menu, a host refusing rival status (fails on the old code: sessions replaced dozens of times a second), rival records flowing | 15 passed |
-| `scripts/multiplayer/native_session_persistence_proof.py`, two players | see below | see below |
+| engine `check-native` | all native suites, including `test_mp_bridge` `world_rival_record_accepted` (8 failures on the old validator), `world_outbreak_marker_accepted` (10 failures on the validator with only the rival fix) and `presence_detail_rides_the_local_pose_only` | the bridge suite 4354 checks, 0 failures; the full `check-native` rerun is pending |
+| `tests/test_session_persistence.py` | real server and companions over TCP, games as the binary bridge protocol: 1, 2, 3 and 4 players joining one by one with a battle at each count, a battle longer than the idle and presence timeouts, menus and a door, a game without the capability, four players with independent battle/menu/walk and a fifth refused as full who takes the free place, four enrolled players on an ownership world with the Players menu, a host refusing rival status (fails on the old code: sessions replaced dozens of times a second), rival records flowing | 16 passed (17 subtests), 5 runs in a row |
+| `scripts/multiplayer/native_session_persistence_proof.py`, two and four players | see below | see below |
 
 ### The production proof (`scripts/multiplayer/native_session_persistence_proof.py`)
 
@@ -126,10 +141,10 @@ presses only; the checks read the companions, the server and the games' memory. 
 its own save.
 
 1. Everyone linked: every game's bridge up, each game drawing all the others; PLAYERS lists everyone ("Connected: N/4").
-2. Wild battles, one player and then the next (four players: two at once): a player talks to a shared wild Pokemon; for
+2. Wild battles, one player and then the next (four players: then two at once): a player talks to a shared wild Pokemon; for
    25 s, longer than the server's 20 s idle and 3 s presence rules, every other game keeps the player in its snapshot,
    hidden, every roster says "battle", no session is replaced; the watcher's PLAYERS shows "<name> - In battle". Then
-   the player runs (or fights it out); every game draws them again on the field, same sessions.
+   the player runs (the host fights its battle out instead); every game draws them again on the field, same sessions.
 3. The last player walks south into Littleroot Town (a map change): still listed everywhere; the host's PLAYERS page for
    them says "Field: LITTLEROOT TOWN".
 4. That player closes the game normally: gone from every roster, "Connected: N-1/4"; starts again: listed again.
@@ -138,7 +153,8 @@ its own save.
 | Run | Players | Result |
 | --- | --- | --- |
 | session-2p-10 | host, friend | **passed**: both battles held 25 s (13 observations each) with the sessions unchanged (host 6, friend 7); "Host Hana - In battle", "Friend Finn - In battle"; back on the field in the same sessions; "Field: LITTLEROOT TOWN"; "Connected: 1/4" after the close, "Connected: 2/4" after the rejoin; store check passed |
-| session-4p-2 | host and three friends | running |
+| session-4p-3 | host and three friends | **passed**: all four linked, each game drawing the other three, "Connected: 4/4"; the host fought its wild battle out and **lost**: whited out to the house in Littleroot (a map change in the middle), same session; a friend ran; then **two friends battled at the same time**, both "In battle" on the host's PLAYERS; each battle 25 s with all four sessions unchanged (host 10, friends 11, 12, 13); everyone back on the field; the fourth player in Littleroot listed, "Field: LITTLEROOT TOWN"; "Connected: 3/4" after the close, "Connected: 4/4" after the rejoin; store check passed |
+| session-4p-1, -2 | host and three friends | stopped on the proof's own driving, after the baseline and two battles passed: two players talked to the same wild Pokemon (4p-1; the battles now start one after the other), no wild Pokemon in a straight line within 240 s (4p-2; the proof now lines up with one) |
 
 Pictures (not committed; the games' screens) show the battling player missing from the other screens during the battle
 and back where they stood afterwards.
@@ -147,6 +163,12 @@ and back where they stood afterwards.
 
 - Two (or four) physical Windows PCs, a real home network and the Internet relay: never. Everything above ran on this
   Linux workspace (and the Windows CI runner for the package).
+- Battles other than wild ones (trainers, doubles, a Players-menu 1v1 or 2v2), catching, Surf, Fly and stairs were not
+  driven in a game for this fix, and doors only in the simulated tests; wild battles ended by running and by losing (the
+  whiteout warps into the house) and a route-to-town change were. The game reports every battle the same way
+  (`gMain.inBattle`, or a multiplayer battle in progress) and every map load through the same callbacks, so they take
+  the same path; the multiplayer battle proofs of earlier builds (`native-launcher-battle-1`, `native-launcher-multi-10`)
+  were not rerun.
 - The 3D build: the runner has no graphics card. The bridge, the presence detail and the Players menu are the same code
   in both builds.
 

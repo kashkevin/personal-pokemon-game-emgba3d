@@ -225,6 +225,36 @@ class PresenceSessionTests(unittest.IsolatedAsyncioTestCase):
         await wait_until(lambda: a._bridge is None)  # the malformed pose ends the game's link, not the world session
         self.assertTrue(a.connected)
 
+    async def test_one_to_four_players_a_battle_keeps_everyone_at_every_count(self):
+        players, games = [], []
+        for count in range(1, MAX_PLAYERS + 1):
+            with self.subTest(players=count):
+                players.append(await self.join(count))
+                games.append(self.play(players[-1][1], lambda f, x=count + 1: make_pose(frame=f, x=x)))
+                for companion, bridge in players:
+                    await wait_until(lambda: len(companion._players) == count)
+                    await bridge.snapshot(lambda s: len(s.peers) == count - 1 and all(p.pose.activity == 1 for p in s.peers))
+                sessions = dict(self.server.sessions)
+                # The newest player battles longer than the idle and presence timeouts; everyone else keeps them.
+                battler = players[-1][0].config.display_name
+                games[-1].show(lambda f, x=count + 1: off_field(f, BATTLE, x=x))
+                await asyncio.sleep(0.8)
+                await wait_until(lambda: self.server.sessions[players[-1][0].config.player_id].presence["activity"]
+                                 == "battle")
+                for companion, bridge in players:
+                    self.assertTrue(companion.connected)
+                    await wait_until(lambda: len(companion._players) == count)
+                    if companion.config.display_name != battler:
+                        await wait_until(lambda: self.roster(companion)[battler] == "battle")
+                        snapshot = await bridge.snapshot(lambda s: len(s.peers) == count - 1
+                                                         and sorted(p.pose.activity for p in s.peers)[0] == 0)
+                        self.assertEqual(sorted(p.pose.activity for p in snapshot.peers), [0] + [1] * (count - 2))
+                games[-1].show(lambda f, x=count + 1: make_pose(frame=f, x=x))
+                for companion, bridge in players:
+                    await bridge.snapshot(lambda s: len(s.peers) == count - 1 and all(p.pose.activity == 1 for p in s.peers))
+                self.assertEqual(self.server.sessions.keys(), sessions.keys())
+                self.assertTrue(all(self.server.sessions[k] is v for k, v in sessions.items()), "a session was replaced")
+
     async def test_four_players_one_battles_one_leaves_and_a_fifth_waits_for_a_free_place(self):
         players = [await self.join(i) for i in range(1, 5)]
         games = [self.play(bridge, lambda f, x=index + 2: make_pose(frame=f, x=x))
