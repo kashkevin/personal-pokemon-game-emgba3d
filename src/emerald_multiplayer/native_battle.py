@@ -377,8 +377,7 @@ class NativeControl:
                     or player_id is not None and cancellation.admission.player_id != player_id):
                 raise BattleMailboxError("admission cleanup changed its original identity or lease")
         elif self.opcode in (Opcode.RETIRE, Opcode.HANDOFF):
-            from .native_battle_resume import Retirement
-            Retirement.unpack(self.data)
+            self._retirement()
         elif self.opcode == Opcode.RELEASE:
             if struct.unpack_from("<I", self.data, 4)[0] not in ((1, 2, 3, 4, 5) if self.phase == FFA_PHASE else (1, 2, 3)):
                 raise BattleMailboxError("release needs a normalized win/loss/draw outcome")
@@ -396,6 +395,13 @@ class NativeControl:
                     or (self.source_slot == local if self.opcode == Opcode.RECEIVE else self.source_slot != local)):
                 raise BattleMailboxError("native command disagrees with the authenticated local binding")
         return self
+
+    def _retirement(self):
+        from .native_battle_resume import Retirement
+        retirement = Retirement.unpack(self.data)
+        if retirement.outcome not in ((1, 2, 3, 4, 5) if self.phase == FFA_PHASE else (1, 2, 3)):
+            raise BattleMailboxError("terminal retirement needs its release's normalized outcome")
+        return retirement
 
     def validate_response(self, request=None):
         if request is not None:
@@ -420,8 +426,7 @@ class NativeControl:
             if request is not None and self.data != request.data:
                 raise BattleMailboxError("admission cancellation receipt changed its identity")
         elif self.opcode in (Opcode.RETIRE, Opcode.HANDOFF):
-            from .native_battle_resume import Retirement
-            Retirement.unpack(self.data)
+            self._retirement()
             if request is not None and self.data != request.data:
                 raise BattleMailboxError("retirement receipt changed the exact terminal release")
         elif self.opcode == Opcode.ADMIT:

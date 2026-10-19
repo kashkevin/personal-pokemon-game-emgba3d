@@ -728,11 +728,11 @@ class LauncherHarness:
 
 
 async def launcher_proof(args, *, names, sources, party_counts, match, version, settings=None, scope=None,
-                         after_boot=None, environment=None):
+                         after_boot=None, environment=None, after_save=None):
     """World and enrollment, then two phases of real launcher workers (host, then
     each friend): `match(current, probes, games, host, symbols, record)` and manual
-    saves in the first, fresh Continue in the second; both end with a normal close,
-    friends first."""
+    saves in the first, then `after_save(current, host, record)` if given, fresh
+    Continue in the second; both end with a normal close, friends first."""
     harness = LauncherHarness(args, names=names, sources=sources, party_counts=party_counts, version=version,
                               settings=settings, scope=scope, after_boot=after_boot, environment=environment)
     async with harness:
@@ -763,6 +763,8 @@ async def launcher_proof(args, *, names, sources, party_counts, match, version, 
                 for player in players:
                     await harness.save(player, 2)
                 record("all-saved-after-the-battle", revision=2, players=harness.count)
+                if after_save is not None:
+                    await after_save(current, host, record)
             async def heads(s):
                 rows = []
                 for slot, account in enumerate(host.accounts):

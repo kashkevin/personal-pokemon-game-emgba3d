@@ -49,6 +49,22 @@ class NativeResumeCodecTests(unittest.TestCase):
         with self.assertRaises(BattleMailboxError):
             NativeQuery.unpack(query(flags=769, seq=27, remaining=0))
 
+    def test_free_for_all_retirement_carries_its_winning_slot_or_draw(self):
+        # A free-for-all's release names the winning slot 1-4 or 5 for a draw; its terminal retirement and handoff
+        # repeat that release, so they need the same range (before: 1-3 only, a slot-4 win or a draw was refused).
+        from emerald_multiplayer.native_battle import FFA_PHASE
+        for outcome in (1, 2, 3, 4, 5):
+            retired = Retirement(binding().generation, 27, 0x12345678, outcome)
+            for opcode in (Opcode.RETIRE, Opcode.HANDOFF):
+                request = control(opcode=opcode, phase=FFA_PHASE, data=retired.pack())
+                request.validate_command()
+                request.validate_response(request)
+                if outcome > 3:
+                    with self.assertRaises(BattleMailboxError):
+                        control(opcode=opcode, phase=3, data=retired.pack()).validate_command()
+        with self.assertRaises(BattleMailboxError):
+            Retirement(binding().generation, 27, 0x12345678, 6)
+
     def test_renewal_preserves_original_cores_and_validates_exact_native_receipt(self):
         original = replace(binding(), resumable=True)
         updated = replace(original, leases=(17, 18))

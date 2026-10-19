@@ -45,7 +45,9 @@ class Retirement:
         _uuid(self.generation, "retired battle generation")
         _integer(self.release_sequence, 1, 0xFFFFFFFF, "terminal release sequence")
         _integer(self.party_crc32, 0, 0xFFFFFFFF, "restored party checksum")
-        _integer(self.outcome, 1, 3, "terminal normalized outcome")
+        # 1-3 (win, loss, draw of the fixed side); a free-for-all's release names the winning slot 1-4 or 5 for a draw,
+        # so its terminal record does too (NativeControl checks the range for the command's phase).
+        _integer(self.outcome, 1, 5, "terminal normalized outcome")
 
     def pack(self):
         return UUID(self.generation).bytes + struct.pack("<III", self.release_sequence, self.party_crc32, self.outcome)
