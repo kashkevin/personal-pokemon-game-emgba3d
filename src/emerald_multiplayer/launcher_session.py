@@ -517,6 +517,7 @@ class LauncherSession:
             self._companion._native_menu_abandon_battle_preparation = self._native_menu_abandon_battle_preparation
             self._companion._native_menu_refused_battle = self._native_menu_refused_battle
             self._companion._native_menu_battle_blocker = self._native_menu_battle_blocker
+            self._companion._native_menu_trade_blocker = self._native_menu_trade_blocker
         self._publish(SessionState.CONNECTING, "authentication")
         await self._companion.start()
         await self._await_authentication()
@@ -1761,6 +1762,49 @@ class LauncherSession:
             return "character_recovery_pending"
         return None
 
+    def _native_menu_trade_blocker(self):
+        """Why a trade could not start in this game now, or None (PLAYERS hides its trade rows and says why)."""
+        from .battle_journal import path_present
+        c = self._companion
+        if c is None or not self._open or self._closing or self._game is None or self._game.process.returncode is not None:
+            return "game_active"
+        if self._save_failed:
+            return "save_recovery_required"
+        if self._interaction is not None or self._save_task is not None and not self._save_task.done():
+            return "character_busy"
+        if any(path_present(self._profile_directory / name) for name in
+               ("pending-export.json", "pending-trade.json", "pending-battle.json", "pending-battle-admission.json")):
+            return "character_recovery_pending"
+        return None
+
+    async def _settle_failed_trade(self, trade_menu, menu_session, descriptor, error):
+        """A trade that failed part way (a refused offer, a lost reply, its window's time limit) used to leave the
+        field frozen with saving disabled until a restart (the owner's report of 2026-10-20). With the host still
+        connected it is settled here: the coordinator's cancel asks the host, whose answer is authoritative, and then
+        applies a trade the host committed or aborts it (the game's hold ends, the pre-trade party stays). Either way
+        both players end with the same outcome and no Pokemon is lost or duplicated. Without a journal nothing was
+        held or written: the proposal is cancelled so the other player is not left waiting; returns None then."""
+        from .companion import TradeError
+        coordinator, c = trade_menu.coordinator, self._companion
+        if not coordinator.trade_path.exists():
+            try:
+                await c.trade_rpc("cancel", transaction_id=descriptor["transaction_id"], generation=descriptor["generation"])
+            except (TradeError, ConnectionError, OSError, asyncio.TimeoutError, ValueError):
+                pass
+            menu_session.menu.notice("Trade did not start: try again")
+            return None
+        if not c.connected:
+            raise error
+        menu_session.abandon_trade_dialog()
+        try:
+            result = await asyncio.wait_for(coordinator.cancel(), 120)
+        except (Exception, asyncio.CancelledError):
+            raise error from None
+        trade_menu._completion(result)
+        if isinstance(result, dict) and result.get("state") == "aborted":
+            menu_session.menu.notice("Trade cancelled: nothing changed")
+        return result
+
     def _native_menu_refused_battle(self, menu_session):
         """An Enter refused before any ADMIT (BattleAdmissionRefused): forget its Python ownership. Nothing native or
         durable was left for it, so saving and later challenges stay available (no save recovery is required)."""
@@ -1966,7 +2010,15 @@ class LauncherSession:
                 self._trade_retained = (self._game, self._runtime, c._bridge, self._binding,
                     (descriptor["transaction_id"], descriptor["generation"], original_base, incarnation,
                      c._live_trade_runtime_id), menu_session, base)
-                result = await trade_menu.run(descriptor, base)
+                try:
+                    result = await trade_menu.run(descriptor, base)
+                except Exception as error:
+                    result = await self._settle_failed_trade(trade_menu, menu_session, descriptor, error)
+                    if result is None:
+                        # Nothing was held or written: the trade did not start; saving stays available.
+                        self._trade_retained = None
+                        self._publish(SessionState.RUNNING, "trade_cancelled", revision=self._revision)
+                        return
                 checkpoint = validate_metadata(result["checkpoint"], c.config, c.save_profile)
                 original_base = result.get("expected_revision")
                 if (result["transaction_id"] != descriptor["transaction_id"] or checkpoint is None

@@ -416,8 +416,13 @@ class PlayerMenu:
                 status = friend["name"] + progress
                 if friend["lucky_friends"]:
                     actions.append(("LUCKY FRIENDS: next trade", "", ()))
+            trade_blocker = getattr(self.companion, "_native_menu_trade_blocker", None)
+            trade_reason = trade_blocker() if callable(trade_blocker) else None
             if self._trades is not None and not self._trades:
-                actions.append((TRADE_ROW, "trade_open", (target,)))
+                if trade_reason is None:
+                    actions.append((TRADE_ROW, "trade_open", (target,)))
+                else:
+                    actions.append(("Trading: unavailable", "", ()))
             if self._team is not None and self._team["team"] is None:
                 actions.append(("Invite to team", "team_invite", (target,)))
             if self._battles is not None and not self._battles:
@@ -425,11 +430,19 @@ class PlayerMenu:
             actions.append(("View Trainer Card", "card", (target,)))
             if self._notice or friend is None:
                 status = self._notice or "Choose an interaction"
+            if trade_reason is not None and self._trades is not None and not self._trades and not self._notice:
+                status = refusal_text(trade_reason)
         elif page == "trade" and self._trades:
             trade = self._trades[0]
-            title, status = "Trade Pokemon", "With " + self._name(next(p for p in trade["players"] if p != actor))
+            title, status = "Trading", self._notice or "With " + self._name(next(p for p in trade["players"] if p != actor))
             params = (trade["transaction_id"], trade["generation"])
-            actions.extend((("Choose your Pokemon", "trade_enter", params), ("Decline trade", "trade_cancel", params)))
+            trade_blocker = getattr(self.companion, "_native_menu_trade_blocker", None)
+            trade_reason = trade_blocker() if callable(trade_blocker) else None
+            if trade_reason is None:
+                actions.append(("Choose your Pokemon", "trade_enter", params))
+            else:
+                status = refusal_text(trade_reason)
+            actions.append(("Decline trade", "trade_cancel", params))
         elif page == "team" and self._team is not None:
             title = "Your team"
             own = self._team["team"]
@@ -1120,7 +1133,15 @@ class PlayerMenu:
                 self._card_binding = None
                 self._page = ("card", args[0])
             elif op == "trade_open":
-                trade = (await self.companion.trade_rpc("open", peer=args[0], transaction_id=str(uuid4())))["trade"]
+                try:
+                    trade = (await self.companion.trade_rpc("open", peer=args[0], transaction_id=str(uuid4())))["trade"]
+                except TradeError as error:
+                    # The host's answer, shown where the choice was made (the menu used to vanish on it).
+                    self._notice = {"trade_busy": "A trade is already open",
+                                    "player_offline": "That player is offline",
+                                    "battle_busy": "Finish the battle first",
+                                    "trade_recovery_required": "Finish the earlier trade"}.get(error.code, "The host refused: try again")
+                    return await self._refresh()
                 if trade["state"] != "offering" or self._session() != self._binding:
                     raise PlayerMenuError("trade_changed")
                 self.handoff = ("trade", deepcopy(trade))
@@ -1132,7 +1153,11 @@ class PlayerMenu:
                 self.handoff = ("trade", deepcopy(trade))
                 return self._show("Trade Pokemon", "Preparing your party", [])
             elif op == "trade_cancel":
-                await self.companion.trade_rpc("cancel", transaction_id=args[0], generation=args[1])
+                try:
+                    await self.companion.trade_rpc("cancel", transaction_id=args[0], generation=args[1])
+                    self._notice = "Trade declined"
+                except TradeError:
+                    self._notice = "The host refused: try again"
                 self._page = ("home", None)
             elif op == "team_invite":
                 await self.companion.team_rpc("invite", peer=args[0], invitation_id=str(uuid4()))

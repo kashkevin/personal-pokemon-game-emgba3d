@@ -41,7 +41,8 @@ LIGHT_3D_SETTINGS = "\n".join((
 async def run(args):
     await proof.launcher_proof(
         args, names=("Battle Host", "Battle Friend"), sources=(args.source_a, args.source_b),
-        party_counts=(2, 1), match=proof.native_menu_match, version="Native 3D 1v1 proof",
+        party_counts=tuple(int(n) for n in args.parties.split(",")), match=proof.native_menu_match,
+        version="Native 3D 1v1 proof",
         settings=LIGHT_3D_SETTINGS,
         scope="The committed native 1v1 launcher proof on the 3D build (native UI, character "
               "selection, battle looks), light game settings")
@@ -57,6 +58,7 @@ def main():
     parser.add_argument("--display", action="append", required=True, help="an X display per player (twice)")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--slow", type=float, default=1.0)
+    parser.add_argument("--parties", default="2,1", help="the two source saves' party sizes")
     parser.add_argument("--wine", type=Path, action="append", help="a Wine prefix per player: Windows clients")
     parser.add_argument("--sdl", type=Path, help="SDL2.dll for the Windows game")
     parser.add_argument("--elf", type=Path, help="the Linux build of the same engine commit (symbol sizes)")

@@ -278,6 +278,11 @@ class MenuSession:
             raise ConnectionError("native trade menu did not acknowledge OPEN")
         self._send(request, screen)
 
+    def abandon_trade_dialog(self):
+        """A failed trade gives up its dialog; the game closes the window when its trade hold ends (Tick), and that
+        CLOSE then reaches the ordinary menu path instead of a queue nobody reads."""
+        self._dialog_queue = None
+
     def show_dialog(self, screen):
         if self._dialog_queue is None or not self.open:
             raise ConnectionError("native trade dialog closed")
