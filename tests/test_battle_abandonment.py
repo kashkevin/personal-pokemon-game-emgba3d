@@ -184,7 +184,8 @@ class AbandonNetworkTests(unittest.IsolatedAsyncioTestCase):
             for slot, player in enumerate(battle.players):
                 previous = kept.get(player)
                 models[player] = (previous if previous is not None and previous[0] == battle_id
-                                  else (battle_id, battle.generation, NativeFixture(battle, slot)))
+                                  else (battle_id, battle.generation, NativeFixture(battle, slot),
+                                        dict(response=None, dispatch=0)))
         self.models = {**kept, **models}
         stop = asyncio.Event()
 
@@ -192,18 +193,19 @@ class AbandonNetworkTests(unittest.IsolatedAsyncioTestCase):
             player = self.players[index].player_id
             if player not in models:
                 return
-            battle_id, generation, model = models[player]
-            response, dispatch = None, 0
+            # The last answer is kept across drives: a core that answered a command just as a drive stopped posts that
+            # answer when the battle is driven again, as a real core answers an exact retry from its cached response.
+            battle_id, generation, model, last = models[player]
             while not stop.is_set():
                 reply = await self.actors[index].rpc("battle_execute", battle_id=battle_id, generation=generation,
-                    incarnation=100 + index, response_id=dispatch,
-                    response_b64=None if response is None else encode_control(response))
+                    incarnation=100 + index, response_id=last["dispatch"],
+                    response_b64=None if last["response"] is None else encode_control(last["response"]))
                 if reply["type"] != "battle_result" or reply["result"]["state"] in ("closed", "aborted", "recovery_required"):
                     return reply
                 view = reply["result"]
-                if view["command_b64"] is not None and view["command_id"] != dispatch:
+                if view["command_b64"] is not None and view["command_id"] != last["dispatch"]:
                     command = decode_control(view["command_b64"])
-                    response, dispatch = await model.rpc(command), view["command_id"]
+                    last["response"], last["dispatch"] = await model.rpc(command), view["command_id"]
                 await asyncio.sleep(.001)
 
         tasks = [asyncio.create_task(client(i)) for i in range(4)]
