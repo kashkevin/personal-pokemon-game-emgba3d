@@ -13,7 +13,9 @@
 #
 # Artifacts: EmeraldTogether-Windows-Installer (full; "-smoke-test" in smoke mode) holds only
 # what a friend downloads - the Setup file and QUICK-START.txt. EmeraldTogether-windows-<mode>
-# is the developer artifact (zip, hashes, audit, reports, screenshots).
+# is the developer artifact (zip, hashes, audit, reports, screenshots). EmeraldTogether-mega-check
+# (full) is the Mega Evolution check's report: real Windows game processes of a test build that is
+# never packaged (Makefile_pc BFX_TEST=1, the Classic 2D game with the battle test driver).
 # Nothing here is published: no release, no Pages, no cache of game data; artifacts are
 # private to the repository. The package never contains a .gba, save or database.
 name: windows-package
@@ -118,6 +120,12 @@ jobs:
           # The Classic 2D game: the same engine without DIORAMA=1 (Graphics mode in the launcher).
           make -f Makefile_pc SDL_DIR="$GITHUB_WORKSPACE/sdl/SDL2-${SDL_VERSION}/i686-w64-mingw32" -j"$(nproc)"
           i686-w64-mingw32-strip --strip-all pokeemerald-mp.exe
+          # The Mega Evolution check's test build (never packaged): the Classic 2D game with the battle test driver.
+          make -f Makefile_pc SDL_DIR="$GITHUB_WORKSPACE/sdl/SDL2-${SDL_VERSION}/i686-w64-mingw32" BFX_TEST=1 -j"$(nproc)"
+          i686-w64-mingw32-strip --strip-all pokeemerald-mp-bfxtest.exe
+          mkdir -p ../mega-check-inputs
+          cp pokeemerald-mp-bfxtest.exe tools/battle_env/mega_check.py ../mega-check-inputs/
+          cp "$GITHUB_WORKSPACE/sdl/SDL2-${SDL_VERSION}/i686-w64-mingw32/bin/SDL2.dll" ../mega-check-inputs/
           rom_sha="$(sha256sum pokedev.gba | cut -d' ' -f1)"
           if [ -n "${{ inputs.expected_rom_sha256 }}" ] && [ "$rom_sha" != "${{ inputs.expected_rom_sha256 }}" ]; then
             echo "ROM sha256 $rom_sha differs from the expected pin" >&2; exit 1
@@ -158,6 +166,57 @@ jobs:
           path: native-inputs
           retention-days: 1
           if-no-files-found: error
+      - name: Hand the Mega check's test build to its Windows job (private, one day)
+        uses: actions/upload-artifact@v4
+        with:
+          name: mega-check-inputs
+          path: mega-check-inputs
+          retention-days: 1
+          if-no-files-found: error
+
+  mega-check:
+    # Update 32, Mega Evolution: single-player Mega battles in real Windows game processes (a GitHub-hosted runner, not
+    # a player's PC). The character comes from the game's own short introduction on the runner (no save is brought);
+    # then the cases (wild, trainer, Gym, rival, doubles, a Multi, both sides, no Mega Ring, another species' stone, a
+    # species without a Mega, Zygarde-Complete), every Mega Stone holder of the form change tables in a battle of its
+    # own, every Mega form drawn, and a stone given, used, taken, saved, loaded, reset away and bought with the Ring
+    # through the game's own menus, each read from the game's own log (tools/battle_env/mega_check.py).
+    name: Mega Evolution check (Windows game processes)
+    needs: engine
+    if: ${{ (inputs.mode || 'smoke') == 'full' }}
+    runs-on: windows-2022
+    timeout-minutes: 120
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@v4
+        with:
+          name: mega-check-inputs
+          path: mega-check-inputs
+      - name: A character from the short introduction, then every case, holder, form and the stones in the menus
+        shell: pwsh
+        run: |
+          $out = Join-Path $env:RUNNER_TEMP "mega-check"
+          $save = Join-Path $env:RUNNER_TEMP "mega.sav"
+          $exe = "mega-check-inputs\pokeemerald-mp-bfxtest.exe"
+          python mega-check-inputs\mega_check.py --exe $exe --make-save $save --out $out --sweep --parade --items --jobs 3
+          $normal = $LASTEXITCODE
+          # The same holders and forms shiny (the legendary ones too).
+          python mega-check-inputs\mega_check.py --exe $exe --save $save --out $out --no-cases --sweep --parade --shiny --jobs 3
+          $shiny = $LASTEXITCODE
+          if ($normal -ne 0 -or $shiny -ne 0) { throw "the Mega Evolution check failed (exit $normal, shiny $shiny)" }
+      - name: Upload the Mega check report (private to this repository, 7 days; no save)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: EmeraldTogether-mega-check
+          path: |
+            ${{ runner.temp }}/mega-check/**/*.json
+            ${{ runner.temp }}/mega-check/**/*.log
+            ${{ runner.temp }}/mega-check/**/*.png
+          retention-days: 7
+          if-no-files-found: warn
 
   package:
     name: Build the launcher package (Windows)

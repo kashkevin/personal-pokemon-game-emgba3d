@@ -323,7 +323,12 @@ class MegaProof(AbandonProof):
         await probes[0].choose("Challenges")
         await probes[0].choose("New battle")
         await probes[0].choose("Free-for-All")
-        await probes[0].choose(f"With {names[1][:8]} & {names[2][:8]}")   # the challenge's page stays open
+        # the two names in the roster's order, whichever that is; the challenge's page stays open
+        _, screen = await probes[0].ready()
+        pair = {f"With {names[1][:8]} & {names[2][:8]}", f"With {names[2][:8]} & {names[1][:8]}"}
+        labels = [row.label for row in screen.rows if row.label in pair]
+        require(len(labels) == 1, f"no single Free-for-All row for {sorted(pair)}: {[r.label for r in screen.rows]}")
+        await probes[0].choose(labels[0])
         await self.accept(probes, (1, 2))
         await self.battle(current, probes, (0, 1, 2), record, before, "1v1v1", 6)
 
