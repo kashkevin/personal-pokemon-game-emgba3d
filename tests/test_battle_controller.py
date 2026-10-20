@@ -202,6 +202,15 @@ class NativeControllerTests(unittest.TestCase):
         choice[28] = 7 << 2
         with self.assertRaises(BattleMailboxError): validator().accept(wire(bytes(choice)), 0)
 
+    def test_a_move_selection_may_name_a_usable_mega_evolution_and_nothing_else(self):
+        choice = bytearray(44)
+        choice[0], choice[3] = 19, 0x81
+        validator().accept(wire(bytes(choice)), 0)
+        for mark in (1, 0x80, 0x84, 0x86, 0xFF):
+            choice[3] = mark
+            with self.subTest(mark=mark), self.assertRaises(BattleMailboxError):
+                validator().accept(wire(bytes(choice)), 0)
+
     def test_animation_pid_is_not_a_timer_and_bitfields_are_bounded(self):
         anim = struct.pack("<IBBBB", 0xFFEEDDCC, 5, 5, 15, 0)
         validator().accept(wire(bytes((47, 1, 0, 0))+anim), 0)

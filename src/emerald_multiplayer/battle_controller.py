@@ -24,6 +24,9 @@ SET_FIELDS = {1: 2, 2: 2, 3: 16, 8: 5, 9: 1, 10: 1, 11: 1, 12: 1, 40: 4, 42: 2}
 REPLY_LENGTHS = {28: 144, 32: 6, 33: 5}
 _NEEDS_REPLY = frozenset((0, 17, 19, 21))
 _SPECIES, _MOVES, _ABILITIES, _ITEMS, _TYPES = 1573, 935, 320, 874, 21
+# A move selection's byte 3: 0, or the battler's usable Mega Evolution (MP_REMOTE_GIMMICK_MARK | GIMMICK_MEGA). Only
+# the master works out who may Mega Evolve, so it tells each player's game (engine battle_gimmick.c).
+_MEGA_MARK = 0x80 | 1
 _STRINGS, _STRING_BUFFER = 721, 256
 
 
@@ -155,7 +158,7 @@ class ControllerValidator:
 
     def _move_choice_valid(self, p):
         m = p[4:44]
-        return (p[1] == int(self._mode != PHASE) and p[2] <= 1 and p[3] == 0 and _half(m, 16) < _SPECIES
+        return (p[1] == int(self._mode != PHASE) and p[2] <= 1 and p[3] in (0, _MEGA_MARK) and _half(m, 16) < _SPECIES
             and m[24] >> 2 <= 6
             and all(_half(m, i*2) < _MOVES and m[8+i] <= m[12+i]
                     and _half(m, 30+i*2) < _MOVES and not m[25+i] & ~15 for i in range(4))
