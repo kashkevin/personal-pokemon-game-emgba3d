@@ -123,9 +123,16 @@ class ThreePlayerProof(NewcomerProof):
             await asyncio.sleep(.5)
 
     def screenshot(self, slot, name):
+        """The game's own window, raised above its launcher's (evidence for a person; the checks read memory)."""
+        probe = self.harness.players[slot].probe
         path = self.harness.output / f"{name}.png"
-        subprocess.run(["import", "-window", "root", str(path)], capture_output=True, timeout=30,
-                       env=dict(self.harness.players[slot].probe.environment))
+        try:
+            window = probe._window()
+            subprocess.run(["xdotool", "windowraise", window], env=probe.environment, capture_output=True, timeout=10)
+            time.sleep(.3)
+        except (RuntimeError, subprocess.SubprocessError):
+            window = "root"
+        subprocess.run(["import", "-window", window, str(path)], capture_output=True, timeout=30, env=probe.environment)
         return path.name
 
     @staticmethod
@@ -215,9 +222,10 @@ class ThreePlayerProof(NewcomerProof):
             return dict(newcomer_stepped_to=list(new_place), host_drew_it_after=seen_after)
 
         await self.start_menu_item(current[subject], probes[subject], MENU_ACTION_BAG, "CB2_BagMenuRun")
-        shot = self.screenshot(HOST, "host-while-friend-in-bag")
+        shots = [self.screenshot(o, f"{self.harness.names[o].split()[-1].lower()}-sees-the-friend-in-its-bag")
+                 for o in observers] + [self.screenshot(subject, "the-friend-in-its-bag")]
         await watch("bag", 5, newcomer_steps)
-        record("screenshot", name=shot)
+        record("screenshots", files=shots)
         await self.back_to_field(current[subject], probes[subject])
 
         await self.start_menu_item(current[subject], probes[subject], MENU_ACTION_POKEMON, "CB2_UpdatePartyMenu")
@@ -229,6 +237,16 @@ class ThreePlayerProof(NewcomerProof):
         await close_players(probes[subject])
         await self.on_field(current[subject])
         return results
+
+    async def three_connected(self, probe, index, when, record):
+        """PLAYERS lists both other players; its status line says "Connected: 3/4" unless it shows the player's last
+        notice instead (a trade's "Trade completed and saved" stays until the player picks a row)."""
+        status, rows = await players_tab(probe)
+        others = [name for n, name in enumerate(self.harness.names) if n != index]
+        listed = all(any(row == name or row.startswith(name + " ") for row in rows) for name in others)
+        record("players-tab", player=self.harness.names[index], when=when, status=status, rows=rows)
+        require(listed and (status == "Connected: 3/4" or not status.startswith("Connected")),
+                f"player {index}'s PLAYERS {when}: {status} {rows}")
 
     async def walk(self, slot, current, probes, record, area, points):
         companion = await self.companion_of(current[slot])
@@ -344,8 +362,7 @@ class ThreePlayerProof(NewcomerProof):
         await asyncio.sleep(5)
         await self.rejoin(FRIEND, current, probes, games, record)
         for index, probe in enumerate(probes):
-            status, rows = await players_tab(probe)
-            require(status == "Connected: 3/4", f"player {index}'s PLAYERS after the rejoin: {status} {rows}")
+            await self.three_connected(probe, index, "after the rejoin", record)
         await self.walk(FRIEND, current, probes, record, LITTLEROOT, MEET[FRIEND][-1:])
         await self.everyone_drawn(current, probes, record, "everyone-drawn-after-the-rejoin")
         record("friend-joined-again", epochs=[epoch, (await self.launcher(current[FRIEND]))["epoch"]],
