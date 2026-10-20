@@ -244,6 +244,7 @@ class CompanionConfig:
     menu_enabled: bool = field(init=False, default=False)
     menu_abi_version: int = field(init=False, default=1)
     menu_release_abi_version: int = field(init=False, default=0)   # PC game: a refused Enter battle releases its window
+    save_import_window_abi_version: int = field(init=False, default=0)  # PC game: a trade's save a 4 KiB sector at a time
     emergency_save_enabled: bool = field(init=False, default=False)
     emergency_save_abi_version: int = field(init=False, default=0)
     world_enabled: bool = field(init=False, default=False)
@@ -276,9 +277,14 @@ class CompanionConfig:
         object.__setattr__(self, "menu_abi_version", manifest.get("menu_abi_version", 1))
         # The native PC game ends a latched Enter battle window on a release screen (flags 3) when the companion
         # refused that Enter before any ADMIT; without it (an older game) a refusal still leaves the window waiting.
-        object.__setattr__(self, "menu_release_abi_version", 1 if manifest.get("menu_release_abi_version") == 1
+        release = manifest.get("menu_release_abi_version")
+        object.__setattr__(self, "menu_release_abi_version", 1 if type(release) is int and release == 1
                            and manifest.get("menu_abi_version") == 2 and manifest.get("battle_resume_abi_version") == 1 else 0)
         object.__setattr__(self, "save_window_enabled", manifest.get("save_window_abi_version") == 1)
+        # The native PC game stages an import a sector per frame ('i', WRITE_WINDOW); others take 1024 WRITEs.
+        import_window = manifest.get("save_import_window_abi_version")
+        object.__setattr__(self, "save_import_window_abi_version", 1 if type(import_window) is int and import_window == 1
+                           and manifest.get("save_window_abi_version") == 1 else 0)
         object.__setattr__(self, "reset_enabled", manifest.get("reset_abi_version") in (1, 2))
         object.__setattr__(self, "reset_abi_version", manifest.get("reset_abi_version", 0))
         object.__setattr__(self, "reset_input_abi_version", manifest.get("reset_input_abi_version", 0))
@@ -1037,11 +1043,29 @@ class Companion:
             raise ValueError("read window requires its verified capability and opcode")
         return await self._save_rpc(control, timeout=timeout)
 
+    async def save_import_window_rpc(self, control, sector, *, timeout=12.0):
+        """WRITE_WINDOW: one staged import sector, for a PC game whose manifest has the import window."""
+        from .save_mailbox import Opcode, SaveControl, import_window_packet
+        if (not isinstance(control, SaveControl) or control.opcode != Opcode.WRITE_WINDOW
+                or self.config.save_import_window_abi_version != 1):
+            raise ValueError("import window requires its verified capability and opcode")
+        frame = import_window_packet(control, sector)
+        self._guard_pending_trade_mutation()
+        bridge = self._bridge
+        if (not self.connected or bridge is None or not bridge.save_capable
+                or control.incarnation != bridge.incarnation or control.session_epoch != self.session_epoch):
+            raise ConnectionError("live-save command has no matching active session")
+        if self._save_pending:
+            raise ValueError("a live-save command is already pending")
+        return await self._dispatch_save_control(bridge, control, timeout, frame=frame)
+
     async def _save_rpc(self, control, *, timeout):
         from .save_mailbox import Opcode, SaveControl
         if not isinstance(control, SaveControl):
             raise ValueError("save command must be a validated SaveControl")
         control.validate_command()
+        if control.opcode == Opcode.WRITE_WINDOW:
+            raise ValueError("use save_import_window_rpc for an import window")
         if control.opcode >= Opcode.BEGIN_EFFECT_RECORD:
             raise ValueError("record preparation requires its dedicated retained trade authority")
         if control.opcode >= Opcode.BEGIN_EMERGENCY_EXPORT:
@@ -1115,11 +1139,14 @@ class Companion:
             raise ValueError("a live-save command is already pending")
         return await self._dispatch_save_control(bridge, control, timeout)
 
-    async def _dispatch_save_control(self, bridge, control, timeout):
+    async def _dispatch_save_control(self, bridge, control, timeout, *, frame=None):
         future = asyncio.get_running_loop().create_future()
         self._save_pending[control.sequence] = (control, future)
         try:
-            bridge.outbox.put_control(b"C" + control.pack())
+            if frame is None:
+                bridge.outbox.put_control(b"C" + control.pack())
+            else:
+                bridge.outbox.put_control(frame, maximum=len(frame))
             return await asyncio.wait_for(future, timeout)
         finally:
             self._save_pending.pop(control.sequence, None)

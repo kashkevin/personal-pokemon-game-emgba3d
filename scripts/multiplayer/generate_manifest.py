@@ -261,6 +261,13 @@ def generate(rom: Path, elf: Path, nm: str, engine_commit: str, *, trade_effect_
         if not four_byte_marker(release) or manifest.get("menu_abi_version") != 2 or manifest.get("battle_resume_abi_version") != 1:
             raise ValueError("the menu release needs one four-byte marker, the Players menu ABI 2 and native battle resume")
         manifest.update(menu_release_abi_version=1)
+    # A trade's received save staged a 4 KiB sector per command ('i', WRITE_WINDOW) instead of 1024 WRITEs: native PC
+    # game only (the GBA ROM is unchanged), and only beside the read-only save window it pairs with.
+    import_window = native_marker("gMultiplayerSaveImportWindowAbiVersion", symbols + native_symbols)
+    if import_window:
+        if not four_byte_marker(import_window) or manifest.get("save_window_abi_version") != 1:
+            raise ValueError("the save import window needs one four-byte marker and the read-only save window")
+        manifest.update(save_import_window_abi_version=1)
     if len(objects) == 1:
         obj_address, obj_size = (int(value, 16) for value in objects[0])
         # Read-only test metadata for the pinned engine's 0x24-byte objects.

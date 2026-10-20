@@ -63,6 +63,7 @@ class Opcode(IntEnum):
     BEGIN_EFFECT_SAVE = 27
     READ_EFFECT_WINDOW = 28
     QUERY_EFFECT_CHOICE = 29
+    WRITE_WINDOW = 30  # PC game with the import window: one 4 KiB sector, sent as 'i' with its bytes
 
 
 class Status(IntEnum):
@@ -169,7 +170,7 @@ class SaveControl:
                    Opcode.BEGIN_EFFECT_RECORD: 192, Opcode.CHOOSE_EFFECT_MOVE: 56,
                    Opcode.QUERY_EFFECT_RECORD: 48, Opcode.DISCARD_EFFECT_RECORD: 48,
                    Opcode.BEGIN_EFFECT_SAVE: 88, Opcode.READ_EFFECT_WINDOW: 48,
-                   Opcode.QUERY_EFFECT_CHOICE: 48}
+                   Opcode.QUERY_EFFECT_CHOICE: 48, Opcode.WRITE_WINDOW: 4}
         if self.status != Status.OK or self.length != lengths[self.opcode]:
             raise SaveMailboxError("save command status or data length is invalid")
         if self.opcode in (Opcode.READ, Opcode.WRITE) and (self.total_size != FLASH_SIZE
@@ -188,13 +189,16 @@ class SaveControl:
         if self.opcode == Opcode.READ_WINDOW and (self.total_size != FLASH_SIZE or self.offset % 4096
                                                    or self.offset > FLASH_SIZE - 4096):
             raise SaveMailboxError("Flash window must be aligned and within canonical Flash")
+        if self.opcode == Opcode.WRITE_WINDOW and (self.total_size != FLASH_SIZE or self.offset % 4096
+                                                    or self.offset > FLASH_SIZE - 4096):
+            raise SaveMailboxError("import window must be one aligned sector within canonical Flash")
         if Opcode.BEGIN_EMERGENCY_EXPORT <= self.opcode <= Opcode.PROMOTE_EMERGENCY_EXPORT:
             expected_offset = FLASH_SIZE if self.opcode == Opcode.PRESERVE_EMERGENCY else 0
             if self.total_size != FLASH_SIZE or self.offset != expected_offset:
                 raise SaveMailboxError("emergency control has an invalid size or offset")
             if self.opcode != Opcode.QUERY_EMERGENCY and self.revision == 0:
                 raise SaveMailboxError("emergency export needs a positive target revision")
-        if self.opcode >= Opcode.BEGIN_EFFECT_RECORD:
+        if Opcode.BEGIN_EFFECT_RECORD <= self.opcode <= Opcode.QUERY_EFFECT_CHOICE:
             from .trade_effect_mailbox import validate_command
             window = self.opcode == Opcode.READ_EFFECT_WINDOW
             if (self.total_size != FLASH_SIZE or not 1 <= self.revision < MAX_COUNTER
@@ -217,10 +221,10 @@ class SaveControl:
                    Opcode.BEGIN_EFFECT_RECORD: 192, Opcode.CHOOSE_EFFECT_MOVE: 192,
                    Opcode.QUERY_EFFECT_RECORD: 192, Opcode.DISCARD_EFFECT_RECORD: 0,
                    Opcode.BEGIN_EFFECT_SAVE: 8, Opcode.READ_EFFECT_WINDOW: 4,
-                   Opcode.QUERY_EFFECT_CHOICE: 84}
+                   Opcode.QUERY_EFFECT_CHOICE: 84, Opcode.WRITE_WINDOW: 0}
         if self.length != (lengths[self.opcode] if self.status == Status.OK else 0):
             raise SaveMailboxError("save response data length is invalid")
-        if self.status == Status.OK and self.opcode >= Opcode.BEGIN_EFFECT_RECORD:
+        if self.status == Status.OK and Opcode.BEGIN_EFFECT_RECORD <= self.opcode <= Opcode.QUERY_EFFECT_CHOICE:
             window = self.opcode == Opcode.READ_EFFECT_WINDOW
             if (self.total_size != FLASH_SIZE or (not window and self.offset)
                     or (window and (self.offset % 4096 or self.offset > FLASH_SIZE - 4096))):
@@ -237,11 +241,37 @@ class SaveControl:
         if self.status == Status.OK and self.opcode == Opcode.READ_WINDOW and (self.total_size != FLASH_SIZE
                 or self.offset % 4096 or self.offset > FLASH_SIZE - 4096):
             raise SaveMailboxError("read window response is outside canonical Flash")
+        if self.status == Status.OK and self.opcode == Opcode.WRITE_WINDOW and (self.total_size != FLASH_SIZE
+                or self.offset % 4096 or not 4096 <= self.offset <= FLASH_SIZE):
+            raise SaveMailboxError("import window response is not past one aligned sector")
         return self
 
 
 def command_packet(control: SaveControl) -> bytes:
+    if control.opcode == Opcode.WRITE_WINDOW:
+        raise SaveMailboxError("an import window travels as 'i' with its sector")
     return b"C" + control.validate_command().pack()
+
+
+IMPORT_WINDOW_SIZE = 4096
+
+
+def import_window_packet(control: SaveControl, sector: bytes) -> bytes:
+    """'i': WRITE_WINDOW and the sector it names by CRC (the PC game's bridge writes the sector, then the command)."""
+    control.validate_command()
+    if (control.opcode != Opcode.WRITE_WINDOW or not isinstance(sector, bytes) or len(sector) != IMPORT_WINDOW_SIZE
+            or struct.unpack("<I", control.data)[0] != zlib.crc32(sector)):
+        raise SaveMailboxError("import window needs WRITE_WINDOW and the exact sector it names")
+    return b"i" + control.pack() + sector
+
+
+def parse_import_window_packet(payload: bytes) -> tuple[SaveControl, bytes]:
+    if not isinstance(payload, bytes) or payload[:1] != b"i" or len(payload) != 1 + SAVE_SLOT_SIZE + IMPORT_WINDOW_SIZE:
+        raise SaveMailboxError("expected an import window packet")
+    control = SaveControl.unpack(payload[1:1 + SAVE_SLOT_SIZE]).validate_command()
+    sector = payload[1 + SAVE_SLOT_SIZE:]
+    import_window_packet(control, sector)
+    return control, sector
 
 
 def response_packet(control: SaveControl) -> bytes:
@@ -251,7 +281,10 @@ def response_packet(control: SaveControl) -> bytes:
 def parse_command_packet(payload: bytes) -> SaveControl:
     if not isinstance(payload, bytes) or payload[:1] != b"C":
         raise SaveMailboxError("expected a save command packet")
-    return SaveControl.unpack(payload[1:]).validate_command()
+    control = SaveControl.unpack(payload[1:]).validate_command()
+    if control.opcode == Opcode.WRITE_WINDOW:
+        raise SaveMailboxError("an import window travels as 'i' with its sector")
+    return control
 
 
 def parse_response_packet(payload: bytes) -> SaveControl:

@@ -22,7 +22,7 @@ from .live_checkpoint import LiveCheckpointCoordinator, LiveSaveError, _atomic, 
 from .live_receipt import record_live_apply, read_live_receipt
 from .ownership import OWNERSHIP_PROFILE, inspect_ownership
 from .protocol import MAX_COUNTER
-from .save_mailbox import Opcode, SaveControl, State, TradeHold, SAVE_CHUNK_SIZE
+from .save_mailbox import Opcode, SaveControl, State, TradeHold
 from .trade_preparation import prepare_recipient as build_recipient_candidate, validate_preparation
 
 
@@ -732,11 +732,7 @@ class LiveTradeCoordinator(LiveCheckpointCoordinator):
             rotation = (-struct.unpack_from("<H", payload, parsed.metadata.bank*14*4096+4084)[0]) % 14
             await self._command(session, intent["transaction_id"], head["revision"], Opcode.BEGIN_IMPORT,
                 data=struct.pack("<IIII", zlib.crc32(payload), parsed.metadata.counter, rotation, parsed.metadata.trainer_id))
-            for offset in range(0, FLASH_SIZE, SAVE_CHUNK_SIZE):
-                response = await self._command(session, intent["transaction_id"], head["revision"], Opcode.WRITE,
-                    offset=offset, data=payload[offset:offset+SAVE_CHUNK_SIZE])
-                if response.offset != offset+SAVE_CHUNK_SIZE:
-                    raise LiveTradeError("write_position", "the ROM did not acknowledge the exact staged trade chunk")
+            await self._write_flash(session, intent["transaction_id"], head["revision"], payload, error=LiveTradeError)
             if await self.client.info() != head:
                 raise LiveTradeError("revision_conflict", "canonical trade changed before Flash publication")
             self._same_session(session)

@@ -118,8 +118,8 @@ class BridgeOutbox:
             self.pending_extras = frame
             self.ready.set()
 
-    def put_control(self, payload: bytes) -> None:
-        frame = encode_packet(payload)
+    def put_control(self, payload: bytes, *, maximum=MAX_BRIDGE_FRAME_BYTES) -> None:
+        frame = encode_packet(payload, maximum=maximum)
         if self.closed:
             raise BridgeError("bridge outbox is closed")
         if len(self.controls) >= self.limit:

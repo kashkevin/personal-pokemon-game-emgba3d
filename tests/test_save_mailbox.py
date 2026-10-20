@@ -11,8 +11,8 @@ from emerald_multiplayer.save_mailbox import (
     COMMAND_GEN_OFFSET, COMMAND_OFFSET, FLASH_SIZE, Opcode, RESPONSE_GEN_OFFSET,
     RESPONSE_OFFSET, SAVE_ABI_VERSION, SAVE_MAILBOX_MAGIC, SAVE_MAILBOX_SIZE,
     SAVE_SLOT_SIZE, SaveControl, SaveMailboxError, State, Status, TradeHold,
-    capability_packet, command_packet, inspect_save_mailbox, parse_command_packet,
-    parse_response_packet, response_packet, validate_capability_packet,
+    capability_packet, command_packet, import_window_packet, inspect_save_mailbox, parse_command_packet,
+    parse_import_window_packet, parse_response_packet, response_packet, validate_capability_packet,
 )
 
 
@@ -53,6 +53,31 @@ class SaveMailboxTests(unittest.TestCase):
                         dict(opcode=True), dict(status=15), dict(total_size=131088)):
             with self.subTest(field=next(iter(changes))), self.assertRaises(SaveMailboxError):
                 control(**changes)
+
+    def test_import_window_carries_one_aligned_sector_named_by_its_crc(self):
+        sector = bytes(range(256)) * 16
+        value = control(opcode=Opcode.WRITE_WINDOW, offset=8192, sequence=5, revision=3,
+                        data=struct.pack("<I", zlib.crc32(sector)))
+        packet = import_window_packet(value, sector)
+        self.assertEqual(len(packet), 1 + SAVE_SLOT_SIZE + 4096)
+        self.assertEqual(len(encode_packet(packet, maximum=4337)), 4 + 4337)
+        self.assertEqual(parse_import_window_packet(packet), (value, sector))
+        for bad in (dict(offset=128), dict(offset=FLASH_SIZE), dict(data=bytes(8))):
+            with self.subTest(**{k: v for k, v in bad.items() if k != "data"}), self.assertRaises(SaveMailboxError):
+                replace(value, **bad).validate_command()
+        with self.assertRaises(SaveMailboxError):
+            import_window_packet(value, sector[:-1] + b"\0")          # not the sector the command names
+        with self.assertRaises(SaveMailboxError):
+            parse_import_window_packet(packet[:-1] + bytes([packet[-1] ^ 1]))
+        with self.assertRaises(SaveMailboxError):
+            command_packet(value)                                    # never as a plain 'C'
+        with self.assertRaises(SaveMailboxError):
+            parse_command_packet(b"C" + value.pack())
+        reply = replace(value, data=b"", offset=12288)
+        self.assertEqual(parse_response_packet(response_packet(reply)), reply)
+        for offset in (8192 + 128, 0):
+            with self.subTest(offset=offset), self.assertRaises(SaveMailboxError):
+                replace(reply, offset=offset).validate_response()
 
     def test_exact_command_lengths_and_aligned_flash_chunks(self):
         self.assertEqual(control(opcode=Opcode.READ).validate_command().length, 0)

@@ -143,7 +143,8 @@ jobs:
           manifest = json.load(open("../native-inputs/manifest.json"))
           markers = {"gMultiplayerBattleFfaAbiVersion": "battle_ffa_abi_version", "gMultiplayerRivalAbiVersion": "rival_abi_version",
                      "gMultiplayerPresenceDetailAbiVersion": "presence_detail_abi_version",
-                     "gMultiplayerMenuReleaseAbiVersion": "menu_release_abi_version"}
+                     "gMultiplayerMenuReleaseAbiVersion": "menu_release_abi_version",
+                     "gMultiplayerSaveImportWindowAbiVersion": "save_import_window_abi_version"}
           present = [field for symbol, field in markers.items() if re.search(rf"\s_?{symbol}$", symbols, re.M)]
           missing = [field for field in present if manifest.get(field) != 1]
           assert not missing, f"the Windows game has these markers but its manifest lacks {missing}"

@@ -1,6 +1,7 @@
 """Optional sector reads retain the save binding and bounded transport."""
 import asyncio
 from dataclasses import replace
+import hashlib
 import json
 import struct
 import tempfile
@@ -8,6 +9,7 @@ from pathlib import Path
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
+import uuid
 import zlib
 
 from emerald_multiplayer.bridge_protocol import BridgeError, encode_packet, read_packet
@@ -95,6 +97,42 @@ class WindowManifestTests(unittest.TestCase):
                         self.window_symbols + "02024000 00001000 B gSaveDataBuffer\n"):
             with self.assertRaises(ValueError):
                 self.generate(symbols)
+
+    def test_import_window_marker_comes_from_the_native_executable_beside_the_read_window(self):
+        def generate_native(symbols, native):
+            with patch.object(manifests.generator.subprocess, "check_output", return_value=self.symbols + symbols):
+                return manifests.generator.generate(self.rom, self.elf, "fixture-nm", "b" * 40, native_symbols=native)
+        native = "00bd27a0 00000004 R gMultiplayerSaveImportWindowAbiVersion\n"
+        self.assertNotIn("save_import_window_abi_version", self.generate(self.window_symbols))   # never from the GBA ELF
+        self.assertEqual(generate_native(self.window_symbols, native)["save_import_window_abi_version"], 1)
+        mingw = "00bd27a0 R _gMultiplayerSaveImportWindowAbiVersion\n"   # the Windows game's nm prints no size
+        self.assertEqual(generate_native(self.window_symbols, mingw)["save_import_window_abi_version"], 1)
+        no_read_window = self.window_symbols.replace("080000c8 00000004 R gMultiplayerSaveWindowAbiVersion\n", "")
+        for symbols, marker in ((no_read_window, native),
+                                (self.window_symbols, "00bd27a0 00000008 R gMultiplayerSaveImportWindowAbiVersion\n"),
+                                (self.window_symbols, native + native)):
+            with self.subTest(marker=marker), self.assertRaises(ValueError):
+                generate_native(symbols, marker)
+
+    def test_the_companion_takes_the_import_window_only_with_the_read_window(self):
+        for window, value, expected in ((True, None, 0), (True, 1, 1), (True, 2, 0), (True, True, 0), (False, 1, 0)):
+            with self.subTest(window=window, value=value), tempfile.TemporaryDirectory() as directory:
+                rom, manifest = companion_fixture.make_files(directory)
+                data = json.loads(manifest.read_text())
+                raw = bytearray(rom.read_bytes()); raw[192:208] = b"\x01\0\0\0" * 4; rom.write_bytes(raw)
+                data.update(rom_sha256=hashlib.sha256(raw).hexdigest(), rom_crc32=f"{zlib.crc32(raw):08x}",
+                            save_abi_version=1, save_mailbox_size=512, save_mailbox_address=0x02021000,
+                            ownership_abi_version=1, save_profile="rhh-1.17.1-bb1093-ownership-v1",
+                            trade_abi_version=1, trade_abi_address=0x080000C4)
+                if window:
+                    data.update(save_window_abi_version=1, save_window_abi_address=0x080000CC,
+                                save_window_address=0x02023000, save_window_size=4096)
+                if value is not None:
+                    data["save_import_window_abi_version"] = value
+                manifest.write_text(json.dumps(data))
+                config = companion_fixture.CompanionConfig(rom, manifest, str(uuid.uuid4()), "Alice",
+                                                           bytes(32), ipc_port=0)
+                self.assertEqual(config.save_import_window_abi_version, expected)
 
 
 class CompanionWindowTests(unittest.IsolatedAsyncioTestCase):

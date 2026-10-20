@@ -24,7 +24,8 @@ from emerald_multiplayer.live_checkpoint import LiveCheckpointCoordinator, LiveS
 from emerald_multiplayer.live_trade import LiveTradeCoordinator, LiveTradeError
 from emerald_multiplayer.ownership import OWNERSHIP_PROFILE, inspect_ownership
 from emerald_multiplayer.protocol import MAX_COUNTER
-from emerald_multiplayer.save_mailbox import Opcode, SaveControl, State, Status, SAVE_CHUNK_SIZE
+from emerald_multiplayer.save_mailbox import (Opcode, SaveControl, State, Status, SAVE_CHUNK_SIZE,
+                                              import_window_packet, parse_import_window_packet)
 from emerald_multiplayer.storage import StorageError
 from emerald_multiplayer.trade_desk import TradeDesk
 from emerald_multiplayer.trade_protocol import validate_trade_reply, validate_trade_request
@@ -63,6 +64,7 @@ class TradeCompanion(FakeCompanion):
         self.faults, self.counts = {}, {}
         self.command_hook = self.trade_hook = None
         self.desk = None
+        self.window_sector = None
 
     def reconnect(self):
         self.store.release_lease(self.config.player_id, self.session_epoch)
@@ -137,8 +139,17 @@ class TradeCompanion(FakeCompanion):
         result = replace(command, data=data, offset=command.offset if offset is None else offset)
         return SaveControl.unpack(result.pack()).validate_response()
 
+    async def save_import_window_rpc(self, control, sector, *, timeout=12):
+        # The PC game's 'i' frame: the bridge writes the sector, then the command naming its CRC.
+        control, self.window_sector = parse_import_window_packet(import_window_packet(control, sector))
+        try:
+            return await self.save_rpc(control, timeout=timeout)
+        finally:
+            self.window_sector = None
+
     async def save_rpc(self, control, *, timeout=12):
         control = SaveControl.unpack(control.pack()).validate_command()
+        assert (control.opcode == Opcode.WRITE_WINDOW) == (self.window_sector is not None)
         self.commands.append(control)
         op = control.opcode
         self.counts[op] = self.counts.get(op, 0)+1
@@ -215,6 +226,13 @@ class TradeCompanion(FakeCompanion):
                 assert self.phase == State.IMPORTING and control.offset == self.offset
                 self.stage.extend(control.data); self.offset += SAVE_CHUNK_SIZE
                 self.crc = zlib.crc32(control.data, self.crc)
+                result = self._reply(control, offset=self.offset)
+            elif op == Opcode.WRITE_WINDOW:
+                sector = self.window_sector
+                assert self.phase == State.IMPORTING and control.offset == self.offset and not self.offset % 4096
+                assert struct.unpack("<I", control.data)[0] == zlib.crc32(sector)
+                self.stage.extend(sector); self.offset += len(sector)
+                self.crc = zlib.crc32(sector, self.crc)
                 result = self._reply(control, offset=self.offset)
             elif op == Opcode.COMMIT:
                 assert self.phase == State.IMPORTING and self.offset == FLASH_SIZE and self.crc == self.import_tuple[0]
@@ -406,6 +424,42 @@ class LiveTradeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["state"], "applied")
         self.assertIn(Opcode.REBIND_TRADE, self.ops(1))
         self.assertEqual(c.releases, 1)
+
+    async def test_pc_import_window_stages_a_sector_per_command_with_the_same_result(self):
+        # 2026-10-20: 1024 WRITEs kept the field frozen about 35 s after a trade. A PC game with the import window
+        # takes 32 sectors; the post-image, the ROM's running CRC and the release are the same.
+        for c in self.companions:
+            c.config.save_import_window_abi_version = 1
+        await self.committed()
+        for index in range(2):
+            c = self.companions[index]
+            post = c.head().payload
+            result = await self.coordinators[index].resume()
+            self.assertEqual(result["state"], "applied")
+            self.assertEqual(self.ops(index).count(Opcode.WRITE_WINDOW), FLASH_SIZE // 4096)
+            self.assertNotIn(Opcode.WRITE, self.ops(index))
+            self.assertEqual(c.rom_flash, inspect_flash(post, save_profile=OWNERSHIP_PROFILE).flash)
+            self.assertEqual((c.rom_commits, c.releases), (1, 1))
+        self.store.integrity_check()
+
+    async def test_pc_import_window_lost_reply_restages_the_exact_postimage(self):
+        for c in self.companions:
+            c.config.save_import_window_abi_version = 1
+        await self.committed()
+        c = self.companions[0]
+        c.faults[Opcode.WRITE_WINDOW] = 4
+        with self.assertRaises(asyncio.TimeoutError):
+            await self.coordinators[0].resume()
+        self.assertTrue(c.import_started)
+        post = c.head().payload
+        c.reconnect()
+        result = await self.replacement().resume()
+        self.assertEqual(result["state"], "applied")
+        self.assertEqual(c.rom_flash, inspect_flash(post, save_profile=OWNERSHIP_PROFILE).flash)
+        self.assertEqual((c.rom_commits, c.releases), (1, 1))
+        # Restaged from the first sector after BEGIN_IMPORT again; no 128-byte WRITE on the way.
+        self.assertEqual(self.ops(0).count(Opcode.WRITE_WINDOW), 4 + FLASH_SIZE // 4096)
+        self.assertNotIn(Opcode.WRITE, self.ops(0))
 
     async def test_import_write_commit_and_rebind_lost_ack_restages_exact_postimage(self):
         await self.committed()

@@ -201,6 +201,33 @@ class LiveCheckpointCoordinator:
         inspect_flash(result, save_profile=self.companion.save_profile)
         return result
 
+    async def _write_flash(self, session, operation_id, revision, payload, *, error=LiveSaveError):
+        """Stages an import after BEGIN_IMPORT: a 4 KiB sector per command on a PC game with the import window
+        (WRITE_WINDOW), else 1024 WRITEs of 128 bytes. The ROM keeps the same order, running CRC and sector checks."""
+        c = self.companion
+        if (getattr(c.config, "save_import_window_abi_version", 0) == 1
+                and callable(getattr(c, "save_import_window_rpc", None))):
+            for offset in range(0, FLASH_SIZE, 4096):
+                self._same_session(session)
+                if getattr(c, "_live_binding", None) != session:
+                    raise ConnectionError("ROM save binding changed")
+                c._live_sequence += 1
+                if c._live_sequence > MAX_COUNTER:
+                    raise LiveSaveError("counter_exhausted", "reconnect before issuing another save command")
+                sector = payload[offset:offset + 4096]
+                command = SaveControl(session[2], session[1], operation_id, c._live_sequence, offset, FLASH_SIZE,
+                                      revision, Opcode.WRITE_WINDOW, data=struct.pack("<I", zlib.crc32(sector)))
+                response = await c.save_import_window_rpc(command, sector)
+                self._same_session(session)
+                if self._ok(response).offset != offset + 4096:
+                    raise error("write_position", "the game did not acknowledge the exact staged sector")
+            return
+        for offset in range(0, FLASH_SIZE, SAVE_CHUNK_SIZE):
+            response = await self._command(session, operation_id, revision, Opcode.WRITE, offset=offset,
+                                           data=payload[offset:offset + SAVE_CHUNK_SIZE])
+            if response.offset != offset + SAVE_CHUNK_SIZE:
+                raise error("write_position", "the game did not acknowledge the exact staged chunk")
+
     async def _end(self, session, operation_id, revision, payload):
         response = await self._command(session, operation_id, revision, Opcode.END, offset=FLASH_SIZE, timeout=20)
         if len(response.data) != 4 or struct.unpack("<I", response.data)[0] != zlib.crc32(payload):
@@ -441,10 +468,7 @@ class LiveCheckpointCoordinator:
             try:
                 await self._command(session, operation_id, revision, Opcode.BEGIN_IMPORT,
                                     data=struct.pack("<IIII", zlib.crc32(payload), parsed.metadata.counter, rotation, parsed.metadata.trainer_id))
-                for offset in range(0, FLASH_SIZE, SAVE_CHUNK_SIZE):
-                    response = await self._command(session, operation_id, revision, Opcode.WRITE, offset=offset, data=payload[offset:offset + SAVE_CHUNK_SIZE])
-                    if response.offset != offset + SAVE_CHUNK_SIZE:
-                        raise LiveSaveError("write_position", "the game did not acknowledge the exact staged chunk")
+                await self._write_flash(session, operation_id, revision, payload)
                 if await self.client.info() != canonical.metadata:
                     raise LiveSaveError("revision_conflict", "canonical checkpoint changed before ROM import commit")
                 await self._command(session, operation_id, revision, Opcode.COMMIT, offset=FLASH_SIZE, timeout=20)

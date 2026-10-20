@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 import secrets
 import tempfile
+import struct
 import unittest
 import uuid
 import zlib
@@ -18,7 +19,8 @@ from emerald_multiplayer.checkpoint_client import CheckpointError
 from emerald_multiplayer.ownership import OWNERSHIP_PROFILE
 from emerald_multiplayer.flash import LAYOUT_ID
 from emerald_multiplayer.save_mailbox import (
-    FLASH_SIZE, Opcode, SaveControl, capability_packet, parse_command_packet, response_packet,
+    FLASH_SIZE, Opcode, SaveControl, capability_packet, parse_command_packet, parse_import_window_packet,
+    response_packet,
 )
 from emerald_multiplayer.server import ServerConfig, WorldServer
 from emerald_multiplayer.storage import CheckpointStore
@@ -107,6 +109,28 @@ class CompanionLiveTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(await task, control)
         self.assertTrue(self.companion.connected)
         self.assertEqual(self.companion.session_epoch, control.session_epoch)
+
+    async def test_import_window_goes_to_the_game_as_one_i_frame_with_its_sector(self):
+        sector = bytes(range(256)) * 16
+        control = self.control(opcode=Opcode.WRITE_WINDOW, sequence=2, offset=4096,
+                               data=struct.pack("<I", zlib.crc32(sector)))
+        with self.assertRaisesRegex(ValueError, "verified capability"):   # a game without the marker
+            await self.companion.save_import_window_rpc(control, sector)
+        with self.assertRaisesRegex(ValueError, "save_import_window_rpc"):
+            await self.companion.save_rpc(control)
+        object.__setattr__(self.companion.config, "save_import_window_abi_version", 1)
+        task = asyncio.create_task(self.companion.save_import_window_rpc(control, sector))
+        self.pending_tasks.append(task)
+        async with asyncio.timeout(1):
+            while True:
+                packet = await read_packet(self.bridge.reader, maximum=4337)
+                if packet[:1] == b"i":
+                    break
+                self.assertEqual(packet[:1], b"S")
+        self.assertEqual(parse_import_window_packet(packet), (control, sector))
+        await self.respond(replace(control, data=b"", offset=8192))
+        self.assertEqual((await task).offset, 8192)
+        self.assertEqual(self.companion._save_pending, {})
 
     async def test_public_save_rpc_cannot_dispatch_emergency_lifecycle(self):
         for opcode, offset in ((Opcode.BEGIN_EMERGENCY_EXPORT, 0),
@@ -243,10 +267,21 @@ class CompanionTradeGuardTests(unittest.IsolatedAsyncioTestCase):
                      Opcode.PROMOTE_EMERGENCY_EXPORT}
         # Native trade-effect record/choice/save operations exist only under a
         # retained trade's dedicated authority (trade_effect_rpc), never here.
-        effect = {opcode for opcode in Opcode if opcode >= Opcode.BEGIN_EFFECT_RECORD}
+        effect = {opcode for opcode in Opcode if Opcode.BEGIN_EFFECT_RECORD <= opcode <= Opcode.QUERY_EFFECT_CHOICE}
+        # A PC game's import window (WRITE_WINDOW) has its own call, which the journal fences like WRITE.
+        sector = bytes(range(256)) * 16
+        window = self.control(Opcode.WRITE_WINDOW, data=struct.pack("<I", zlib.crc32(sector)))
+        with self.assertRaisesRegex(ValueError, "save_import_window_rpc"):
+            await self.companion.save_rpc(window)
+        with self.assertRaisesRegex(ValueError, "verified capability"):
+            await self.companion.save_import_window_rpc(window, sector)
+        object.__setattr__(self.companion.config, "save_import_window_abi_version", 1)
+        with self.assertRaisesRegex(ValueError, "pending trade recovery"):
+            await self.companion.save_import_window_rpc(window, sector)
+        object.__setattr__(self.companion.config, "save_import_window_abi_version", 0)
         effect_sizes = {Opcode.BEGIN_EFFECT_RECORD: 192, Opcode.CHOOSE_EFFECT_MOVE: 56,
                         Opcode.BEGIN_EFFECT_SAVE: 88}
-        for opcode in set(Opcode)-readonly-emergency-effect:
+        for opcode in set(Opcode)-readonly-emergency-effect-{Opcode.WRITE_WINDOW}:
             command = self.control(opcode, revision=1 if opcode == Opcode.BEGIN_TRADE_EXPORT else 0,
                 data=sizes.get(opcode, b""))
             with self.subTest(opcode=opcode), self.assertRaisesRegex(ValueError, "pending trade recovery"):
