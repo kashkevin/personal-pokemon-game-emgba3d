@@ -17,6 +17,7 @@ import math
 from pathlib import Path
 import re
 import secrets
+import time
 
 from .battle_journal import pending_battle
 from .autosave import AutosaveScheduler, AutosaveState
@@ -94,6 +95,9 @@ _MESSAGES = {
     "admission_cleanup_unsupported": "This installed game does not support neutral battle entry cleanup; retain the original game.",
     "admission_cleanup_held": "Battle entry cleanup remains incomplete; retain the original game and its recovery records.",
     "battle_entry_refused": "The game could not enter the battle; PLAYERS shows why. Nothing changed and saving still works.",
+    "soft_resetting": "Resetting the game: it starts again from this character's last host save.",
+    "soft_reset_done": "The game was reset to this character's last host save. Progress after it was discarded.",
+    "soft_reset_refused": "The game could not reset now; the game says why. Nothing changed.",
     "host_restart_not_ready": "Host restart requires this host's disconnected, retained original battle or prepared trade with no other operation running.",
     "host_restart_failed": "The host service could not restart; retain every original game and retry after restoring the host configuration.",
 }
@@ -322,6 +326,11 @@ class LauncherSession:
         self._battle_abandoned = None
         self._battle_watch_task = None
         self._resolved_at_start = ()
+        # START > PLAYER > RESET (Update 32): the task closing the game, then play() opens it again from the host
+        # save; and when the host last saved this character in this game (the Players page shows how long ago).
+        self._soft_reset_task = None
+        self._soft_reset_pending = self._reset_at_start = False
+        self._saved_at = self._saved_revision = None
         self._trade_retained = self._trade_close_review = None
         self._trade_recovery_task = None
         self._host_world = None
@@ -417,6 +426,8 @@ class LauncherSession:
         if self._battle_abandoned is not None:
             # Abandoned on the host and its held game closed; the session is starting the game again.
             return replace(value, state=SessionState.RUNNING, code="battle_abandoned")
+        if self._soft_reset_pending:
+            return replace(value, state=SessionState.RUNNING, code="soft_resetting")
         if self._battle_recovery_task is not None:
             return replace(value, state=SessionState.RUNNING, code=("admission_canceling"
                 if self._status.code == "admission_canceling" else "battle_recovering"))
@@ -447,6 +458,9 @@ class LauncherSession:
         return value
 
     def _publish(self, state, code, *, revision=None, exit_code=None, detail=None):
+        if self._game is not None and revision is not None and revision != self._saved_revision:
+            # The canonical save moved on (a save, a trade, a battle's result): what a soft reset now returns to.
+            self._saved_revision, self._saved_at = revision, time.monotonic()
         self._status = SessionStatus(state, code, revision=revision, exit_code=exit_code, detail=detail)
         self._emit()
 
@@ -518,6 +532,11 @@ class LauncherSession:
             self._companion._native_menu_refused_battle = self._native_menu_refused_battle
             self._companion._native_menu_battle_blocker = self._native_menu_battle_blocker
             self._companion._native_menu_trade_blocker = self._native_menu_trade_blocker
+        if (getattr(self._companion.config, "menu_open_page_abi_version", 0) == 1
+                and self._manifest.get("menu_abi_version") == 2):
+            # START > PLAYER > RESET (Update 32): the Players page asks this session, which then restarts the game.
+            self._companion._native_menu_reset_blocker = self._native_menu_reset_blocker
+            self._companion._native_menu_last_save = self._native_menu_last_save
         self._publish(SessionState.CONNECTING, "authentication")
         await self._companion.start()
         await self._await_authentication()
@@ -901,10 +920,12 @@ class LauncherSession:
                     self._played = True
                     self._game = game
                     self._revision = game.startup.mirror.revision
+                    self._saved_revision, self._saved_at = self._revision, None
                     recovered_trade = getattr(game.startup, "trade_result", None)
                     code = (("trade_recovered" if recovered_trade["state"] == "applied" else "trade_aborted_recovered")
-                            if recovered_trade else "battle_abandoned" if self._resolved_at_start else "running")
-                    self._resolved_at_start = ()
+                            if recovered_trade else "battle_abandoned" if self._resolved_at_start
+                            else "soft_reset_done" if self._reset_at_start else "running")
+                    self._resolved_at_start, self._reset_at_start = (), False
                     self._publish(SessionState.RUNNING, code, revision=self._revision)
                     self._autosave_task = asyncio.create_task(self._schedule_autosave(), name="launcher-autosave")
                     if getattr(self._companion.config, "emergency_save_abi_version", 0) == 2:
@@ -930,6 +951,10 @@ class LauncherSession:
                             _, canceled = await _finish_even_if_cancelled(
                                 asyncio.gather(self._abandon_task, return_exceptions=True))
                             interrupted |= canceled
+                        if self._soft_reset_task is not None:
+                            _, canceled = await _finish_even_if_cancelled(
+                                asyncio.gather(self._soft_reset_task, return_exceptions=True))
+                            interrupted |= canceled
                         if self._battle_recovery_task is not None:
                             _, canceled = await _finish_even_if_cancelled(
                                 asyncio.gather(self._battle_recovery_task, return_exceptions=True))
@@ -952,10 +977,11 @@ class LauncherSession:
                                 interrupted |= canceled
                         if interrupted:
                             raise asyncio.CancelledError()
-                if self._battle_abandoned is None:
+                if self._battle_abandoned is None and not self._soft_reset_pending:
                     break
-                # The interrupted battle was abandoned and its held game closed: this session starts the game again
-                # from the character's canonical save, with the world (and, for a host, its server) still running.
+                # The interrupted battle was abandoned and its held game closed, or the player chose RESET (Update
+                # 32): this session starts the game again from the character's canonical save, with the world (and,
+                # for a host, its server) still running.
                 await self._restart_after_abandon()
                 revision = await self._ready()
             if result == 0 and self._idle_save_disconnect and self._save_is_idle():
@@ -975,6 +1001,7 @@ class LauncherSession:
             raise safe from None
         finally:
             self._play_task = None
+            self._soft_reset_pending = False      # a reset this session no longer restarts says nothing more
 
     # Interrupted battles (KNOWN_ISSUES MS-16, battle_abandonment.py) ---------------------------------------------
     async def _resolve_interrupted_battles(self):
@@ -1098,9 +1125,13 @@ class LauncherSession:
         await _stop(game.process)
 
     async def _restart_after_abandon(self):
-        """Fresh per-game state for the next game of this session, and the world connection back."""
+        """Fresh per-game state for the next game of this session, and the world connection back (after an abandoned
+        battle, or a soft reset)."""
         c = self._companion
-        self._resolved_at_start = tuple(self._battle_abandoned)   # the next game's first status says so
+        if self._battle_abandoned is not None:
+            self._resolved_at_start = tuple(self._battle_abandoned)   # the next game's first status says so
+        self._reset_at_start, self._soft_reset_pending = self._soft_reset_pending, False
+        self._soft_reset_task = None
         self._battle_abandoned = None
         self._save_failed = self._idle_save_disconnect = self._autosave_dispatched = False
         self._battle_recovery_failed = False
@@ -1945,6 +1976,8 @@ class LauncherSession:
 
     async def _native_menu_handoff(self, kind, descriptor, menu_session):
         """Exclusive live operation after an acknowledged native menu CLOSE."""
+        if kind in ("soft_reset", "host_save"):
+            return await self._native_menu_reset_handoff(kind, menu_session)
         self._assert_session()
         prepared = self._battle_menu_preparation
         prepared_battle = (prepared is not None and kind == "battle"
@@ -2050,6 +2083,99 @@ class LauncherSession:
             if prepared_battle:
                 self._battle_menu_preparation = None
             self._interaction = None
+            self._autosave_wake.set()
+
+    # Soft reset (Update 32: START > PLAYER > RESET in a world) --------------------------------------------------
+    # The game starts again from the character's canonical save on the host, in this session: the world, a host's
+    # server and the other players carry on. It is the same as closing the game window and choosing Continue (nothing
+    # of the closed game is kept), so no Pokemon, item or money can be duplicated, and a committed trade or battle
+    # result stays (both live in the canonical save). The game's own RESET without a world is its usual soft reset.
+    def _native_menu_reset_blocker(self):
+        """Why the game could not reset now, or None; synchronous, no I/O beyond looking for recovery records. The
+        player's open challenges and trades are the Players page's (the host's lists)."""
+        from .battle_journal import path_present
+        c = self._companion
+        if c is None or not self._open or self._closing or self._game is None or self._game.process.returncode is not None:
+            return "game_active"
+        if self._save_failed:
+            return "save_recovery_required"
+        if (self._interaction is not None or self._soft_reset_task is not None or self._abandon_task is not None
+                or self._save_task is not None and not self._save_task.done()
+                or self._autosave is not None and self._autosave.status.state is AutosaveState.SAVING):
+            return "character_busy"
+        if not c.connected or self._binding is None or self._signature() != self._binding:
+            return "session_changed"
+        if (self._battle_retained is not None or self._battle_menu_preparation is not None
+                or self._battle_recovery_task is not None or self._battle_recovery_failed
+                or getattr(c, "_live_battle_owner", None) is not None):
+            return "battle_pending"
+        try:
+            if (pending_battle(c, self._profile_directory) or self._trade_retained is not None
+                    or any(path_present(self._profile_directory / name)
+                           for name in ("pending-export.json", "pending-trade.json"))):
+                return "character_recovery_pending"
+        except OSError:
+            return "character_recovery_pending"
+        return None
+
+    def _native_menu_last_save(self):
+        """Seconds since the host last saved this character in this game; None: not since the game started."""
+        return None if self._saved_at is None else max(0.0, time.monotonic() - self._saved_at)
+
+    async def _native_menu_reset_handoff(self, kind, menu_session):
+        """The soft reset page's choices, once the Players menu has closed. "host_save" saves on the host, as Save now
+        does; "soft_reset" closes this game, and play() opens it again from the host save. A refusal is said (here and
+        in the game's banner), never raised: raising from a handoff would stop saving."""
+        from .player_menu import soft_reset_refusal
+        c = self._companion
+        notice = getattr(c, "show_local_notice", None)
+        say = notice if callable(notice) else (lambda text: None)
+        if kind == "host_save":
+            try:
+                saved = await self.save()
+            except LauncherSessionError as error:
+                self._publish(SessionState.RUNNING, error.code, revision=self._revision)
+                saved = False
+            say("Saved on the host.|RESET goes back to here." if saved else "Could not save on the host.|See the launcher window.")
+            return
+        reason = self._native_menu_reset_blocker()
+        if reason is None:
+            # The Players page showed none; one may have been made since.
+            try:
+                challenges = (await c.battle_challenge_rpc("pending"))["result"]
+                trades = (await c.trade_rpc("proposals"))["proposals"] if getattr(c.config, "trade_enabled", False) else []
+            except Exception:  # noqa: BLE001 - an unreadable host list is a refusal, never a reset
+                reason = "session_changed"
+            else:
+                reason = ("challenge_pending" if challenges else "trade_pending" if trades
+                          else self._native_menu_reset_blocker())
+        if reason is not None or menu_session.bridge is not c._bridge:
+            self._publish(SessionState.RUNNING, "soft_reset_refused", revision=self._revision)
+            say("Cannot reset now:|" + soft_reset_refusal(reason or "game_active"))
+            return
+        game = self._game
+        task = asyncio.create_task(self._soft_reset(game), name="launcher-soft-reset")
+        # Synchronous with the checks above: no trade, battle or save can start in between.
+        self._interaction = self._soft_reset_task = task
+
+    async def _soft_reset(self, game):
+        try:
+            self._autosave_wake.set()
+            await self._stop_autosave()               # an autosave under way finishes first; its save stands
+            if self._save_failed or not self._save_is_idle() or self._game is not game:
+                self._soft_reset_task = None
+                if not self._save_failed:
+                    self._publish(SessionState.RUNNING, "soft_reset_refused", revision=self._revision)
+                return
+            self._soft_reset_pending = True
+            self._publish(SessionState.RUNNING, "soft_resetting", revision=self._revision)
+            notice = getattr(self._companion, "show_local_notice", None)
+            if callable(notice):
+                notice("Reset to your last host save.|Later progress was discarded.")
+            await self._release_battle_core(game)     # nothing of the closed game is kept
+        finally:
+            if self._interaction is asyncio.current_task():
+                self._interaction = None
             self._autosave_wake.set()
 
     async def save(self):

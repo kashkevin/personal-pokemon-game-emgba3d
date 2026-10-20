@@ -11,7 +11,8 @@ def configure_native(manifest: dict, token: str, port: int) -> str:
     the manifest's explicit trade-effect opt-ins. The native game takes its
     mailboxes and capability markers from its own symbols, so nothing else
     of the manifest goes in; the runtime bundle pairs it with the ROM build
-    the companion verified (player_runtime.NativeGame)."""
+    the companion verified (player_runtime.NativeGame). Update 32 adds the
+    menu page opt-in (menu_open_page=1: START > PLAYER > RESET in a world)."""
     from .trade_effect_mailbox import (validate_effect_choice_manifest, validate_effect_prepare_manifest,
                                        validate_effect_save_manifest)
     if (not isinstance(token, str) or not re.fullmatch(r"[0-9a-f]{64}", token)
@@ -24,7 +25,15 @@ def configure_native(manifest: dict, token: str, port: int) -> str:
         lines.append("trade_effect_save=1")
     if validate_effect_choice_manifest(manifest):
         lines.append("trade_effect_choice=1")
+    if menu_open_page_enabled(manifest):
+        lines.append("menu_open_page=1")
     return "\n".join(lines) + "\n"
+
+
+def menu_open_page_enabled(manifest: dict) -> bool:
+    """Update 32: the native game's Players menu OPEN may name a page (1: the soft reset), beside menu ABI 2."""
+    page = manifest.get("menu_open_page_abi_version")
+    return type(page) is int and page == 1 and manifest.get("menu_abi_version") == 2
 
 
 def configure(manifest: dict, token: str, port: int, bridge: str) -> str:

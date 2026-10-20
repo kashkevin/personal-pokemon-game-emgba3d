@@ -268,6 +268,13 @@ def generate(rom: Path, elf: Path, nm: str, engine_commit: str, *, trade_effect_
         if not four_byte_marker(import_window) or manifest.get("save_window_abi_version") != 1:
             raise ValueError("the save import window needs one four-byte marker and the read-only save window")
         manifest.update(save_import_window_abi_version=1)
+    # Update 32: a Players menu OPEN may name the page it opens (1: START > PLAYER > RESET, the soft reset in a world).
+    # Native PC game only; the launcher opts in (bridge.txt menu_open_page=1) only beside the Players menu ABI 2.
+    open_page = native_marker("gMultiplayerMenuOpenPageAbiVersion", symbols + native_symbols)
+    if open_page:
+        if not four_byte_marker(open_page) or manifest.get("menu_abi_version") != 2:
+            raise ValueError("the menu open page needs one four-byte marker and the Players menu ABI 2")
+        manifest.update(menu_open_page_abi_version=1)
     if len(objects) == 1:
         obj_address, obj_size = (int(value, 16) for value in objects[0])
         # Read-only test metadata for the pinned engine's 0x24-byte objects.

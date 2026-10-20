@@ -92,26 +92,41 @@ class NewcomerProof(ChallengeProof):
         companion = await self.walk_to_lab(slot, current, probes, record)
         return await self.claim(slot, probes[slot], companion, record)
 
+    @staticmethod
+    def screen_of(probe):
+        """The game's main screen callback (gMain.callback2)."""
+        return int.from_bytes(probe.mem("gMain", 8)[4:8], "little")
+
     async def claim(self, slot, probe, companion, record):
-        """Below a ball on the table: face it, open the 18-starter screen, take the ball's own starter, YES."""
+        """Below a ball on the table: face it, open the 18-starter screen, take the ball's own starter, YES. Each step
+        waits for the game's own screen (on a loaded PC a fixed delay drifts)."""
         before = probe.party_now()
         require(before["count"] == 0, f"{self.harness.names[slot]} has a Pokemon before the claim: {before}")
         claim_started = time.monotonic()
-        await probe.press(UP, frames=4, release=20)          # face the ball (a tap turns, the ball does not let a step)
-        await probe.press(A, release=120)                     # the 18-starter screen
-        await asyncio.sleep(1.5)
-        await probe.press(A, release=60)                      # the ball's own starter
-        await asyncio.sleep(2.5)
-        await probe.press(A, release=60)                      # YES
+        chooser = probe.symbols["CB2_StarterChoose"][0]
+        async with asyncio.timeout(60):
+            while self.screen_of(probe) != chooser:
+                await probe.press(UP, frames=4, release=20)  # face the ball (a tap turns, the ball does not let a step)
+                await probe.press(A, release=30)             # the 18-starter screen
+                for _ in range(40):
+                    if self.screen_of(probe) == chooser:
+                        break
+                    await asyncio.sleep(.2)
+        await asyncio.sleep(1.5)                             # it fades in on the ball's own starter
+        async with asyncio.timeout(60):
+            while self.screen_of(probe) == chooser:          # that starter, then YES: the screen closes
+                await probe.press(A, release=60)
+                await asyncio.sleep(2)
         async with asyncio.timeout(30):
             while probe.party_now()["count"] == 0:
                 await asyncio.sleep(.2)
         await asyncio.sleep(4)                                # the fanfare
-        for _ in range(8):                                    # B: NO to the nickname, then the last message
-            await probe.press(B, release=40)
-        async with asyncio.timeout(30):
+        # B: NO to the nickname, then each page of Birch's last message (a press while a page still prints only
+        # finishes it), until the game is back on the field.
+        async with asyncio.timeout(60):
             while (pose_of(companion) or (0,))[0] != 1:
-                await asyncio.sleep(.2)
+                await probe.press(B, release=40)
+                await asyncio.sleep(.3)
         claimed = probe.party_now()
         record("claimed-a-starter", player=self.harness.names[slot], party=claimed,
                started=round(claim_started - self.t0, 1), finished=round(time.monotonic() - self.t0, 1))

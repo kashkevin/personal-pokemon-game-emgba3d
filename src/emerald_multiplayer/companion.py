@@ -245,6 +245,7 @@ class CompanionConfig:
     menu_abi_version: int = field(init=False, default=1)
     menu_release_abi_version: int = field(init=False, default=0)   # PC game: a refused Enter battle releases its window
     save_import_window_abi_version: int = field(init=False, default=0)  # PC game: a trade's save a 4 KiB sector at a time
+    menu_open_page_abi_version: int = field(init=False, default=0)  # PC game: a Players OPEN may name a page (soft reset)
     emergency_save_enabled: bool = field(init=False, default=False)
     emergency_save_abi_version: int = field(init=False, default=0)
     world_enabled: bool = field(init=False, default=False)
@@ -285,6 +286,10 @@ class CompanionConfig:
         import_window = manifest.get("save_import_window_abi_version")
         object.__setattr__(self, "save_import_window_abi_version", 1 if type(import_window) is int and import_window == 1
                            and manifest.get("save_window_abi_version") == 1 else 0)
+        # Update 32: the PC game's START > PLAYER > RESET opens the Players menu on its soft reset page (the
+        # launcher opts in with bridge.txt menu_open_page=1, bridge_config.configure_native).
+        from .bridge_config import menu_open_page_enabled
+        object.__setattr__(self, "menu_open_page_abi_version", 1 if menu_open_page_enabled(manifest) else 0)
         object.__setattr__(self, "reset_enabled", manifest.get("reset_abi_version") in (1, 2))
         object.__setattr__(self, "reset_abi_version", manifest.get("reset_abi_version", 0))
         object.__setattr__(self, "reset_input_abi_version", manifest.get("reset_input_abi_version", 0))
@@ -533,6 +538,8 @@ class Companion:
         self._world_clock_time = 0.0
         self._world_event: dict | None = None
         self._world_notice: dict | None = None
+        self._local_notice: dict | None = None     # a banner for this player's own game (show_local_notice)
+        self._local_notice_id = 0
         self._world_wallet: dict | None = None
         self._world_teammate: str | None = None
         self._world_pending: dict[str, tuple[dict, asyncio.Future]] = {}
@@ -706,10 +713,13 @@ class Companion:
             event = WorldEventView(current["event_id"] & 0xFFFFFFFF, current["species"], current["level"], flags,
                                    current["map_group"], current["map_number"], current["x"], current["y"],
                                    current["held_item"], current["seconds_left"], current["perfect_ivs"])
-        notice_id, notice_text = 0, ""
-        notice = self._world_notice
-        if notice is not None and (notice["to"] is None or self.config.player_id in notice["to"]):
-            notice_id, notice_text = notice["id"], notice["text"]
+        notice_id, notice_text = self._host_notice()
+        local = self._local_notice
+        if local is not None:
+            if notice_id not in (0, local["over"]) or time.monotonic() > local["until"]:
+                self._local_notice = None             # the host's newer notice replaces it, or it is stale
+            else:
+                notice_id, notice_text = local["id"], local["text"]
         wallet = self._world_wallet or {"seq": 0, "delta": 0}
         # The teammate is published as its ordinary peer token (EMP1 index+1).
         teammate = next((index + 1 for index, player in enumerate(self._players)
@@ -725,6 +735,21 @@ class Companion:
                             wallet_seq=wallet["seq"], wallet_delta=wallet["delta"], teammate_token=teammate,
                             outbreak=outbreak,
                             rival=self._world_rival if self.config.rival_abi_version == 1 else None)
+
+    def _host_notice(self) -> tuple[int, str]:
+        notice = self._world_notice
+        if notice is not None and (notice["to"] is None or self.config.player_id in notice["to"]):
+            return notice["id"], notice["text"]
+        return 0, ""
+
+    def show_local_notice(self, text: str, *, seconds: float = 120.0) -> None:
+        """A banner in this player's own game only, shown as the host's notices are (Update 32: the soft reset says
+        what it did). The host's next notice replaces it, and it is dropped after `seconds` (a game that has not had a
+        calm field by then). Its ids have the top bit set, which the host's never have (shared_world.post_notice), so
+        the game cannot take one for a notice it has already shown."""
+        self._local_notice_id = self._local_notice_id % 0x7FFFFFFF + 1
+        self._local_notice = {"id": 0x80000000 | self._local_notice_id, "text": text,
+                              "over": self._host_notice()[0], "until": time.monotonic() + seconds}
 
     async def _snapshot_loop(self) -> None:
         while True:

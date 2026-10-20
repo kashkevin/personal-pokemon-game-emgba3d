@@ -10,6 +10,8 @@ MAGIC = 0x31554D45
 MAILBOX_SIZE = 512
 SCREEN_SIZE = 240
 REQUEST_SIZE = 16
+# Update 32 (PC games with menu_open_page_abi_version 1): the page an OPEN names in its action field.
+OPEN_PAGES = {1: "soft_reset"}
 FIELDS = frozenset({"menu_abi_version", "menu_abi_address", "menu_mailbox_address", "menu_mailbox_size"})
 _REQUEST = struct.Struct("<IIHB5s")
 
@@ -46,8 +48,10 @@ class MenuRequest:
         _uint(self.action, 7)
         if self.kind == 2 and (not self.screen or not self.action):
             raise ValueError("menu selection needs a displayed action")
-        if self.kind != 2 and self.action:
-            raise ValueError("menu open/close cannot choose an action")
+        if self.kind == 3 and self.action:
+            raise ValueError("menu close cannot choose an action")
+        if self.kind == 1 and self.action and self.action not in OPEN_PAGES:
+            raise ValueError("menu open names an unknown page")
         if self.kind == 1 and self.screen:
             raise ValueError("menu open cannot claim a previous screen")
         return _REQUEST.pack(self.sequence, self.screen, self.action, self.kind, bytes(5))

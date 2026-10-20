@@ -4,7 +4,7 @@ from dataclasses import replace
 
 from .battle_admission_session import BattleAdmissionRefused
 from .bridge_protocol import BridgeError
-from .menu_mailbox import MenuRequest, pack_screen
+from .menu_mailbox import OPEN_PAGES, MenuRequest, pack_screen
 from .player_menu import MenuScreen, PlayerMenu, battle_admission_enabled, refusal_text
 
 
@@ -33,6 +33,9 @@ class MenuSession:
         request = MenuRequest.unpack(payload)
         if self._closed or request.sequence <= self.sequence:
             raise ValueError("native menu request was repeated or regressed")
+        if (request.kind == 1 and request.action
+                and getattr(getattr(self.companion, "config", None), "menu_open_page_abi_version", 0) != 1):
+            raise ValueError("native menu named a page this launcher did not enable")
         self.sequence = request.sequence
         self._last_request = request
         if self._dialog_queue is not None:
@@ -111,6 +114,9 @@ class MenuSession:
                             await self._release_refused(request, error)
                         request, self._queued_open = self._queued_open, None
                         continue
+                    elif request.kind == 1 and request.action:
+                        # START > PLAYER > RESET (Update 32): the Players menu opens on that page.
+                        screen = await self.menu.open_page(OPEN_PAGES[request.action])
                     elif request.kind == 1:
                         screen = await self.menu.refresh()
                     else:

@@ -73,6 +73,36 @@ INVITE_NOTICES = {"battle_busy": "Finish the battle first", "player_offline": "T
                   "trade_recovery_required": "Finish the earlier trade", **NO_POKEMON_NOTICES}
 
 
+# Update 32: START > PLAYER > RESET in a world. The launcher starts the game again from the character's host save; it
+# is refused while something the reset would cut short is open (a status line's 31 characters).
+SOFT_RESET_REFUSALS = {
+    "trade_pending": "Finish the trade first",
+    "challenge_pending": "Cancel your challenge first",
+    "battle_pending": "Finish the battle first",
+    "character_busy": "Busy saving: try again shortly",
+    "save_recovery_required": "Saving stopped: restart game",
+    "character_recovery_pending": "Resolve the trade first",
+    "session_changed": "Connection interrupted: wait",
+    "game_active": "Your game is busy: try again",
+}
+
+
+def soft_reset_refusal(code):
+    return SOFT_RESET_REFUSALS.get(code, "Cannot reset now: try again")[:31]
+
+
+def save_age(seconds):
+    """How long ago the host last saved this character, in a row's 25 characters."""
+    if type(seconds) not in (int, float) or seconds < 0:
+        return "Host save: at game start"
+    minutes = int(seconds // 60)
+    if minutes < 1:
+        return "Host save: just now"
+    if minutes < 60:
+        return f"Host save: {minutes} min ago"
+    return f"Host save: {min(minutes // 60, 99)} h ago"
+
+
 class PlayerMenuError(ValueError):
     def __init__(self, code):
         self.code = code
@@ -180,6 +210,17 @@ class PlayerMenu:
     async def refresh(self):
         async with self._lock:
             return await self._refresh()
+
+    async def open_page(self, page):
+        """An OPEN that names its page (Update 32: START > PLAYER > RESET opens the soft reset page)."""
+        if page != "soft_reset":
+            raise PlayerMenuError("unknown_page")
+        async with self._lock:
+            screen = await self._refresh()      # the binding, the player's open challenges and trades
+            if self._binding is None:
+                return screen
+            self._page, self._notice = ("soft_reset", None), ""
+            return self._render()
 
     async def _refresh(self):
         binding = self._session()
@@ -354,9 +395,11 @@ class PlayerMenu:
             if revision > 0xFFFFFFFF:
                 raise PlayerMenuError("menu_generation_exhausted")
             self._actions = {i + 1: (op, args) for i, (_, op, args) in enumerate(normalized) if op}
-            back = 0 if self._page[0] == "home" else 7
+            # B closes the menu from the player list, and from the soft reset page (opened from START > PLAYER > RESET).
+            back = 0 if self._page[0] in ("home", "soft_reset") else 7
             if back:
-                self._actions[back] = ("records_back", ()) if self._page[0] == "records" else ("home", ())
+                self._actions[back] = {"records": ("records_back", ()),
+                                       "soft_reset_confirm": ("soft_reset", ())}.get(self._page[0], ("home", ()))
             self._screen = MenuScreen(revision, title, status,
                 tuple(MenuRow(i + 1 if op else 0, label) for i, (label, op, _) in enumerate(normalized)), back, admission)
             self._signature = signature
@@ -544,6 +587,30 @@ class PlayerMenu:
                 actions.append(("Your Trainer Card", "card", (actor,)))
                 actions.append(("Championship", "championship", ()))
                 actions.append(("Rival checkpoints", "rival", ()))
+        elif page in ("soft_reset", "soft_reset_confirm"):
+            # START > PLAYER > RESET (Update 32): the game starts again from the host save, in this session; the
+            # world and the other players carry on. Nothing open may be cut short by it.
+            blocker = getattr(self.companion, "_native_menu_reset_blocker", None)
+            reason = blocker() if callable(blocker) else "game_active"
+            if reason is None and self._trades:
+                reason = "trade_pending"
+            if reason is None and self._battles:
+                reason = "challenge_pending"
+            if page == "soft_reset_confirm" and reason is None:
+                title, status = "Reset the game?", self._notice or "Unsaved progress will be lost"
+                actions.append(("No, go back", "soft_reset", ()))
+                actions.append(("Yes, reset now", "soft_reset_now", ()))
+            else:
+                self._page = ("soft_reset", None)
+                title = "Soft reset"
+                status = self._notice or (soft_reset_refusal(reason) if reason else "Back to your last host save")
+                actions.append(("Unsaved progress is lost", "", ()))
+                last_save = getattr(self.companion, "_native_menu_last_save", None)
+                actions.append((save_age(last_save() if callable(last_save) else None), "", ()))
+                if reason is None:
+                    actions.append(("Reset to last host save", "soft_reset_confirm", ()))
+                if reason in (None, "trade_pending", "challenge_pending"):
+                    actions.append(("Save on host now", "host_save", ()))
         elif page == "wager":
             title = "Battle wager"
             battle = next((b for b in self._battles or () if b["battle_id"] == target), None)
@@ -1139,6 +1206,15 @@ class PlayerMenu:
             elif op == "card_refresh":
                 self._card_binding = None
                 self._page = ("card", args[0])
+            elif op in ("soft_reset", "soft_reset_confirm"):
+                self._page = (op, None)
+            elif op in ("soft_reset_now", "host_save"):
+                # The launcher's own (Update 32): the menu closes, then the launcher restarts the game from the host
+                # save, or saves on the host; it refuses (and says why) if that is no longer possible.
+                self._page = ("soft_reset", None)
+                self.handoff = ("soft_reset" if op == "soft_reset_now" else "host_save", {})
+                return self._show("Soft reset", "Resetting the game" if op == "soft_reset_now"
+                                  else "Saving on the host", [])
             elif op == "trade_open":
                 try:
                     trade = (await self.companion.trade_rpc("open", peer=args[0], transaction_id=str(uuid4())))["trade"]
