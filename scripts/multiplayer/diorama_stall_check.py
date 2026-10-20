@@ -31,7 +31,8 @@ def games_of(output):
             command = (entry / "cmdline").read_bytes().split(b"\0")
         except OSError:
             continue
-        if command and command[0].endswith(b"pokeemerald-mp-diorama") and str(output).encode() in b" ".join(command):
+        # The launcher runs its runtime copy of the game, application/runtime/pokeemerald-mp.exe, under the output.
+        if command and os.path.basename(command[0]).startswith(b"pokeemerald-mp") and str(output).encode() in command[0]:
             found.append(int(entry.name))
     return found
 
@@ -60,6 +61,8 @@ def main():
                 raise SystemExit("no 3D battle glide was logged")
             time.sleep(.2)
         pids = games_of(args.output)
+        if not pids:
+            raise SystemExit("no 3D game of this proof is running")
         time.sleep(2)                                     # a little normal play first
         started = time.monotonic()
         bursts = 0

@@ -743,13 +743,13 @@ async def launcher_proof(args, *, names, sources, party_counts, match, version, 
     async with harness:
         await harness.setup_world()
         host, expected, record = harness.host, harness.expected, harness.record
-        saved, revision = [], 2
+        saved, revisions = [], [2] * harness.count
         for phase in ("battle-and-save", "fresh-Continue"):
             players = []
             for slot in range(harness.count):
                 player = await harness.start(phase, slot)
                 players.append(player)
-                require(await harness.ready(player) == (1 if phase == "battle-and-save" else revision),
+                require(await harness.ready(player) == (1 if phase == "battle-and-save" else revisions[slot]),
                         "startup revision differs")
             current = [p.worker for p in players]
             games = [p.game for p in players]
@@ -770,18 +770,18 @@ async def launcher_proof(args, *, names, sources, party_counts, match, version, 
                     # A match that trades: the canonical parties (and their owned serials) it left, and the
                     # revision the next save makes (a trade applies at base + 2).
                     expected[:] = outcome["parties"]
-                    revision = outcome["revision"]
-                    record("expected-parties-after-the-match", parties=expected, revision=revision)
-                for player in players:
-                    await harness.save(player, revision)
-                record("all-saved-after-the-battle", revision=revision, players=harness.count)
+                    revisions = list(outcome["revisions"])
+                    record("expected-parties-after-the-match", parties=expected, revisions=revisions)
+                for slot, player in enumerate(players):
+                    await harness.save(player, revisions[slot])
+                record("all-saved-after-the-battle", revisions=revisions, players=harness.count)
                 if after_save is not None:
                     await after_save(current, host, record)
             async def heads(s):
                 rows = []
                 for slot, account in enumerate(host.accounts):
                     head = inspect_closed_head(s._store, account.player_id)
-                    require(head.revision == revision and party(head) == expected[slot], "canonical party or revision changed")
+                    require(head.revision == revisions[slot] and party(head) == expected[slot], "canonical party or revision changed")
                     rows.append((head.revision, head.sha256))
                 s._store.integrity_check()
                 return rows

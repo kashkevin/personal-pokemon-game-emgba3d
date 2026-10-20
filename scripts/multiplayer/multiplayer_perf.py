@@ -154,7 +154,8 @@ class PerfRecorder:
 
     # Requests ------------------------------------------------------------------------------------------------------
     def time_companion(self, player, companion):
-        for name in ("battle_challenge_rpc", "trade_rpc", "team_rpc", "battle_rpc", "checkpoint_rpc"):
+        for name in ("battle_challenge_rpc", "trade_rpc", "team_rpc", "battle_rpc", "checkpoint_rpc", "save_rpc",
+                     "save_import_window_rpc"):
             method = getattr(companion, name, None)
             if method is None or getattr(method, "_perf_timed", False):
                 continue
@@ -165,7 +166,9 @@ class PerfRecorder:
                     try:
                         return await method(*args, **kwargs)
                     finally:
-                        operation = name if not args or not isinstance(args[0], str) else f"{name}:{args[0]}"
+                        opcode = getattr(args[0], "opcode", None) if args else None
+                        operation = (f"{name}:{args[0]}" if args and isinstance(args[0], str)
+                                     else f"{name}:{getattr(opcode, 'name', opcode)}" if opcode is not None else name)
                         with self.lock:
                             self.requests[(player, operation, self.phase)].append((time.monotonic() - started) * 1000)
                 timed._perf_timed = True

@@ -44,7 +44,7 @@ from qualify_admission_cleanup import on_worker, require
 
 SCENARIOS = ("enter-both", "friend-save", "host-save", "save-failed", "late-enter", "reconnect", "trade",
              "trade-battle", "trade-walk")
-PLAYER_NAMES = ("CH Host", "CH Friend")
+PLAYER_NAMES = ("CH Host", "CH Friend", "CH Third", "CH Fourth")   # four sources: the third and fourth stay on the field
 
 
 def trade_phase(session):
@@ -80,6 +80,8 @@ async def pick(probe, label=None):
 
 
 class ChallengeProof(AbandonProof):
+    """With four sources, players 3 and 4 stay on the field the whole time (1v1, trade, while others explore)."""
+
     def __init__(self, scenario, watch, late, match_seconds, fixed=False, perf=False):
         super().__init__(scenario, 0, watch, match_seconds)
         self.late, self.fixed, self.want_perf = late, fixed, perf
@@ -122,8 +124,11 @@ class ChallengeProof(AbandonProof):
             text = [screen.title, screen.status]
         except ValueError:
             text = None
+        # The battle mailbox's state (offset 12): PREPARED 4 and RUNNING 5 are a bound battle. The hold flags say
+        # ADMITTING (2) only until BIND, so a battle that binds before the first look shows hold 0.
+        battle = int.from_bytes(probe.mem("gMultiplayerBattleMailbox", 4, 12), "little")
         return dict(menu=bool(row["active"]), waiting=bool(row["waiting"]),
-                    latched=bool(probe.mem("sBattleAdmissionLatched")[0]), hold=row["hold"], shown=text)
+                    latched=bool(probe.mem("sBattleAdmissionLatched")[0]), hold=row["hold"], battle=battle, shown=text)
 
     async def launcher(self, worker):
         async def read(s):
@@ -147,7 +152,7 @@ class ChallengeProof(AbandonProof):
             natives = {n: self.native(probes[n]) for n in slots}
             launchers = {n: await self.launcher(current[n]) for n in slots}
             elapsed = round(time.monotonic() - started)
-            running = all(v["hold"] and not v["menu"] for v in natives.values())
+            running = all((v["hold"] or v["battle"] in (4, 5)) and not v["menu"] for v in natives.values())
             if running or elapsed >= self.watch or elapsed % 10 < 2:
                 record(label, seconds=elapsed, natives={self.harness.names[n]: v for n, v in natives.items()},
                        launchers={self.harness.names[n]: v for n, v in launchers.items()})
@@ -360,8 +365,8 @@ class ChallengeProof(AbandonProof):
             return [party(inspect_closed_head(s._store, account.player_id)) for account in host.accounts]
         parties = await on_worker(current[0], heads)
         revisions = [(await self.launcher(w))["revision"] for w in current]
-        require(len(set(revisions)) == 1, f"the players' revisions differ after the trade: {revisions}")
-        return dict(parties=parties, revision=revisions[0] + 1)
+        require(revisions[0] == revisions[1], f"the traders' revisions differ after the trade: {revisions}")
+        return dict(parties=parties, revisions=[revision + 1 for revision in revisions])
 
     async def trade(self, host, current, probes, record):
         """The friend offers, the host answers, both pick their first Pokemon and confirm: the native trade window
@@ -414,9 +419,10 @@ class ChallengeProof(AbandonProof):
 
 
 async def run(args):
-    require(len(args.source) == 2 and len(args.display) == 2, "two sources and two displays")
+    require(len(args.source) in (2, 4) and len(args.display) == len(args.source), "two or four sources and displays")
+    count = len(args.source)
     proof = ChallengeProof(args.scenario, args.watch, args.late, args.match_seconds, args.fixed, args.perf)
-    await launcher_proof(args, names=PLAYER_NAMES, sources=args.source, party_counts=(1, 1), match=proof.match,
+    await launcher_proof(args, names=PLAYER_NAMES[:count], sources=args.source, party_counts=(1,) * count, match=proof.match,
                          version="Native challenge proof", settings="windowScale=2\n",
                          scope=__doc__.split("\n\n")[0] + " Scenario: " + args.scenario,
                          after_boot=into_littleroot, after_save=proof.after_save,
