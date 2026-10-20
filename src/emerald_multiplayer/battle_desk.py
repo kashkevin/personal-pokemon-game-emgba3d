@@ -344,7 +344,7 @@ class BattleDesk:
             raise BattleError(error.code, error.message) from error
         if len(self._active) >= MAX_ACTIVE or any(set(players).intersection(b.players) for b in self._active.values()):
             raise BattleError("battle_busy", "a participant has an unresolved battle lifecycle")
-        leases, roster = [], []
+        leases, roster, empty = [], [], []
         for slot, player in enumerate(players):
             current_lease = self.lease_for(player)
             if current_lease is None:
@@ -357,14 +357,18 @@ class BattleDesk:
                 descriptor = CanonicalBattler.from_checkpoint(checkpoint,
                     world_id=self.store.metadata.world_id, build_id=self.store.build_id,
                     ruleset_id=self.store.ruleset_id, source_slot=slot, mode=mode, bring=(brings or {}).get(player, 0))
-            except EmptyPartyError as error:
+            except EmptyPartyError:
                 # Update 32: a new character has no Pokemon until its starter claim in Birch's lab.
-                raise (BattleError("no_pokemon", "you have no Pokemon yet: claim one in Professor Birch's lab")
-                       if player == actor else BattleError("peer_no_pokemon", "a trainer has no Pokemon yet")) from error
+                empty.append(player)
+                continue
             except ValueError as error:
                 raise BattleError("checkpoint_required", "all trainers need a valid owned canonical party"
                                   + (" and a team selection that is still valid" if brings else "")) from error
             leases.append(current_lease); roster.append(descriptor)
+        if empty:
+            # The challenger's own empty party first, whatever the order of the roster.
+            raise (BattleError("no_pokemon", "you have no Pokemon yet: claim one in Professor Birch's lab")
+                   if actor in empty else BattleError("peer_no_pokemon", "a trainer has no Pokemon yet"))
         generation, rng = str(uuid4()), secrets.token_bytes(16)
         if not any(rng):
             raise BattleError("rng_unavailable", "could not issue a nonzero native battle RNG state")

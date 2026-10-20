@@ -13,6 +13,7 @@ from emerald_multiplayer.native_battle import Kind, NativeControl, Opcode
 from emerald_multiplayer.ownership import OWNERSHIP_PROFILE
 from emerald_multiplayer.storage import StorageError
 from emerald_multiplayer.trade_storage import TradeCheckpointStore
+from test_ownership import make_ownership_flash
 from test_ownership_storage import source_flash, owned_flash
 
 
@@ -52,7 +53,10 @@ class BattleDeskTests(unittest.TestCase):
         player = self.store.create_player("New Trainer")
         lease = self.store.acquire_lease(player.player_id, player.credential)
         self.leases[player.player_id] = lease
-        self.store.enroll_player(player.player_id, source_flash(()))
+        # Each a save of its own (the same empty source cannot be enrolled twice): another save counter.
+        self._starterless = getattr(self, "_starterless", 0) + 1
+        self.store.enroll_player(player.player_id, make_ownership_flash(records=(), metadata=bytes(4),
+                                                                        counter=1 + self._starterless))
         grant = self.store.reserve_instances(player.player_id, lease, str(uuid4()), 0, 1, 32)
         self.store.commit_checkpoint(player.player_id, lease, str(uuid4()), 0, owned_flash(grant, ()),
             self.store.build_id, self.store.ruleset_id, OWNERSHIP_PROFILE)
@@ -70,6 +74,12 @@ class BattleDeskTests(unittest.TestCase):
         with self.assertRaises(BattleError) as caught:
             self.desk.invite_ffa(*self.actor(2), (self.players[0].player_id, self.players[3].player_id, newcomer), str(uuid4()))
         self.assertEqual(caught.exception.code, "peer_no_pokemon")
+        other, other_lease = self.starterless()
+        for actor, peer in (((newcomer, lease), other), ((other, other_lease), newcomer)):
+            with self.subTest(both_empty=actor[0]):
+                with self.assertRaises(BattleError) as caught:
+                    self.desk.invite(*actor, peer, str(uuid4()))
+                self.assertEqual(caught.exception.code, "no_pokemon")   # the challenger's own reason, either order
         # nothing was left behind: the two trainers with Pokemon still battle each other
         view = self.desk.invite(*self.actor(2), self.players[3].player_id, str(uuid4()))
         self.assertEqual(view["state"], "invited")

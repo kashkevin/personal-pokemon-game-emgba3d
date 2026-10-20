@@ -65,8 +65,13 @@ class NewcomerProof(ChallengeProof):
         require(action in [r.label for r in screen.rows], f"{action}: the menu left the player's page")
         await close_players(probe)
 
-    async def to_lab_and_claim(self, slot, current, probes, record):
-        probe, companion = probes[slot], current[slot]._companion
+    async def companion_of(self, worker):
+        async def own_companion(session):
+            return session._companion                 # its pose is read where the walk decides (an atomic reference)
+        return await on_worker(worker, own_companion)
+
+    async def walk_to_lab(self, slot, current, probes, record):
+        probe, companion = probes[slot], await self.companion_of(current[slot])
         started = time.monotonic()
         here = pose_of(companion)
         require(here is not None and tuple(here[2:4]) == LITTLEROOT, f"{self.harness.names[slot]} is not in Littleroot: {here}")
@@ -81,6 +86,14 @@ class NewcomerProof(ChallengeProof):
             await walk_to(probe, companion, LAB, x, y, record, slot)
         record("at-the-lab-table", player=self.harness.names[slot], position=list(pose_of(companion)[2:]),
                seconds=round(time.monotonic() - started, 1))
+        return companion
+
+    async def to_lab_and_claim(self, slot, current, probes, record):
+        companion = await self.walk_to_lab(slot, current, probes, record)
+        return await self.claim(slot, probes[slot], companion, record)
+
+    async def claim(self, slot, probe, companion, record):
+        """Below a ball on the table: face it, open the 18-starter screen, take the ball's own starter, YES."""
         before = probe.party_now()
         require(before["count"] == 0, f"{self.harness.names[slot]} has a Pokemon before the claim: {before}")
         claim_started = time.monotonic()

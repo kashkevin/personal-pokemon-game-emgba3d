@@ -277,8 +277,9 @@ class PresenceSessionTests(unittest.IsolatedAsyncioTestCase):
         expected = {"Player 1": "overworld", "Player 2": "battle", "Player 3": "menu", "Player 4": "overworld"}
         for companion, bridge in players:
             await wait_until(lambda: self.roster(companion) == expected)
-            # Every game keeps all three others: those on the field drawn, the battling and the menu player hidden.
-            drawn = sorted(1 if name in ("Player 1", "Player 4") else 0
+            # Every game keeps all three others: those on the field drawn, and (Update 32) the player standing in a
+            # menu too; the battling one hidden.
+            drawn = sorted(1 if name in ("Player 1", "Player 3", "Player 4") else 0
                            for name in expected if name != companion.config.display_name)
             snapshot = await bridge.snapshot(lambda s: sorted(p.pose.activity for p in s.peers) == drawn)
             self.assertEqual(len(snapshot.peers), 3)

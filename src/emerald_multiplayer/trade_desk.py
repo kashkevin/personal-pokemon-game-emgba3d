@@ -163,7 +163,7 @@ class TradeDesk:
             return self._public(existing)
         if len(self._proposals) >= 2 or any(set(players) & set(p.players) for p in self._proposals.values()):
             raise StorageError("trade_busy", "a participant already has a pending proposal")
-        leases = []
+        leases, empty = [], []
         for participant in players:
             current = self.lease_for(participant)
             if current is None:
@@ -172,12 +172,14 @@ class TradeDesk:
             if checkpoint is None:
                 raise StorageError("checkpoint_required", "both players need an owned checkpoint")
             if not inspect_flash(checkpoint.payload, save_profile=self.store.save_profile).metadata.party_count:
-                # Update 32: a new character has no Pokemon until its starter claim in Birch's lab.
-                raise (StorageError("no_pokemon", "you have no Pokemon to trade yet") if participant == player
-                       else StorageError("peer_no_pokemon", "that player has no Pokemon to trade yet"))
+                empty.append(participant)  # Update 32: a new character before its starter claim in Birch's lab
             if self.store.pending_trade_recovery(participant, current):
                 raise StorageError("trade_recovery_required", "apply the previous trade result before starting another")
             leases.append(current)
+        if empty:
+            # The asking player's own empty party first, whatever the order of the pair.
+            raise (StorageError("no_pokemon", "you have no Pokemon to trade yet") if player in empty
+                   else StorageError("peer_no_pokemon", "that player has no Pokemon to trade yet"))
         proposal = _Proposal(transaction_id, str(uuid4()), players, tuple(leases), self.clock()+self.timeout)
         self._proposals[transaction_id] = proposal
         return self._public(proposal)
