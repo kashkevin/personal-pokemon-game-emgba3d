@@ -110,7 +110,8 @@ class ChallengeProof(AbandonProof):
             self.watch_loop(n, worker)
         for index, probe in enumerate(probes):
             status, rows = await players_tab(probe)
-            require(status == f"Connected: {len(probes)}/{len(probes)}", f"player {index}'s PLAYERS: {status} {rows}")
+            # "Connected: 2/4": the players connected, out of the world's four places.
+            require(status.startswith(f"Connected: {len(probes)}/"), f"player {index}'s PLAYERS: {status} {rows}")
         record("linked-before-the-challenge", sessions=[(await self.launcher(w)).get("epoch") for w in current])
         order = [(0, 1)]
         if self.scenario == "reconnect":
