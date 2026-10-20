@@ -7,10 +7,13 @@ Uncertain execution remains reserved; ABI 3 interruption is not auto-resumable.
 from __future__ import annotations
 
 import asyncio
+from collections import deque
 import hashlib
 from dataclasses import dataclass, field
 from pathlib import Path
 import struct
+import time
+import traceback
 import zlib
 
 from .battle_controller import ControllerValidator
@@ -63,6 +66,14 @@ class _Room:
     route: object = None
     journal: object = None
     admitted: dict = field(default_factory=dict)
+    # Diagnosis only (KNOWN_ISSUES MS-17): each player's last commands (published, first handed to that player's
+    # companion, answered) and the gaps between that companion's polls; written with the route's exception when the
+    # route stops (<battle_id>.diagnosis.json). Never persisted with the intent, never read back.
+    hops: dict = field(default_factory=dict)
+    polls: dict = field(default_factory=dict)
+
+
+HOPS_KEPT = 48
 
 
 class BattleExecutionService:
@@ -130,6 +141,12 @@ class BattleExecutionService:
             self.rooms[battle.battle_id] = room
         if room.battle is not battle:
             raise BattleError("battle_generation_mismatch", "execution belongs to a different battle")
+        now = time.monotonic()
+        poll = room.polls.setdefault(actor, dict(first=now, last=now, count=0, longest=0.0, longest_at=None))
+        if now - poll["last"] > poll["longest"]:
+            poll["longest"], poll["longest_at"] = now - poll["last"], poll["last"]
+        poll["last"] = now
+        poll["count"] += 1
         if room.error == "abandoned":
             # battle_abandonment.py stopped this route: no command is issued or acknowledged any more.
             return execution_view(battle.battle_id, battle.generation, "aborted")
@@ -201,6 +218,9 @@ class BattleExecutionService:
                     else:
                         room.acknowledged[actor] = previous
                     raise
+                hop = next((h for h in room.hops.get(actor, ()) if h["dispatch"] == dispatch_id), None)
+                if hop is not None:
+                    hop["answered"], hop["status"] = time.monotonic(), int(response.status)
                 if not future.done():
                     if response.status == Status.OK and command.opcode != Opcode.QUERY:
                         self.native_sequences[actor] = (lease, incarnation, command.sequence)
@@ -211,6 +231,10 @@ class BattleExecutionService:
             room.task = asyncio.create_task(self._drive(room), name="native-battle-execution")
         pending = room.pending.get(actor)
         pending = pending if room.state in ("admitting", "executing") else None
+        if pending is not None:
+            hop = next((h for h in room.hops.get(actor, ()) if h["dispatch"] == pending[2]), None)
+            if hop is not None and hop["delivered"] is None:
+                hop["delivered"] = time.monotonic()
         return execution_view(battle.battle_id, battle.generation, room.state,
                               None if pending is None else pending[0], 0 if pending is None else pending[2])
 
@@ -233,6 +257,9 @@ class BattleExecutionService:
             raise BattleError("counter_exhausted", "native dispatch counter is exhausted")
         room.dispatch_ids[actor] = dispatch_id
         room.pending[actor] = (command, future, dispatch_id)
+        room.hops.setdefault(actor, deque(maxlen=HOPS_KEPT)).append(dict(
+            dispatch=dispatch_id, opcode=int(command.opcode), published=time.monotonic(), delivered=None,
+            answered=None, status=None))
         # Publication precedes dispatch. Cancellation/timeout keeps the intent.
         if b.resumable:
             if room.journal is None:
@@ -285,9 +312,38 @@ class BattleExecutionService:
         except asyncio.CancelledError:
             self._fail(room, "execution_stopped")
             raise
-        except Exception:
+        except Exception as error:
             # No automatic winner, release, retirement, fresh BIND or save.
             self._fail(room, "execution_interrupted")
+            self._diagnose(room, "execution_interrupted", error)
+
+    def _diagnose(self, room, reason, error):
+        """Why a route stopped (KNOWN_ISSUES MS-17): its exception and each player's last command hops, in seconds
+        before now. A record for people; nothing reads it back, and failing to write it changes nothing."""
+        now = time.monotonic()
+
+        def ago(value):
+            return None if value is None else round(now - value, 3)
+        try:
+            players = []
+            for slot, actor in enumerate(room.battle.players):
+                poll = room.polls.get(actor)
+                players.append(dict(
+                    slot=slot,
+                    polls=None if poll is None else dict(count=poll["count"], last=ago(poll["last"]),
+                        longest=round(poll["longest"], 3), longest_began=ago(poll["longest_at"])),
+                    hops=[dict(dispatch=h["dispatch"], opcode=h["opcode"], published=ago(h["published"]),
+                               delivered=ago(h["delivered"]), answered=ago(h["answered"]), status=h["status"])
+                          for h in room.hops.get(actor, ())],
+                    pending=None if actor not in room.pending else room.pending[actor][2]))
+            code = getattr(error, "code", None)
+            record = dict(format="native-battle-route-diagnosis-v1", battle_id=room.battle.battle_id, reason=reason,
+                          error=f"{type(error).__name__}: {error}", code=None if code is None else str(code),
+                          traceback=traceback.format_exception(type(error), error, error.__traceback__)[-12:],
+                          players=players)
+            _atomic(self.directory / (room.battle.battle_id + ".diagnosis.json"), _json_bytes(record))
+        except Exception:  # noqa: BLE001 - the record is best effort; the route's own outcome stands
+            pass
 
     async def close(self):
         if self.recovery is not None:

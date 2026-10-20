@@ -354,3 +354,17 @@ class BattleExecutionNetworkTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(room.battle.released)
         for i in range(2):
             self.assertTrue((self.root / ("client-" + str(i)) / "pending-battle.json").exists())
+        # KNOWN_ISSUES MS-17: the stopped route says why, with each player's last command hops and poll gaps.
+        diagnosis = json.loads((self.server.battle_execution.directory / (self.battle_id + ".diagnosis.json")).read_bytes())
+        self.assertEqual(diagnosis["reason"], "execution_interrupted")
+        self.assertTrue(diagnosis["error"].startswith("BattleError"), diagnosis["error"])
+        self.assertTrue(diagnosis["traceback"])
+        self.assertEqual([player["slot"] for player in diagnosis["players"]], [0, 1])
+        for player in diagnosis["players"]:
+            self.assertGreater(player["polls"]["count"], 0)
+            self.assertTrue(player["hops"])
+            answered = [hop for hop in player["hops"] if hop["answered"] is not None]
+            self.assertTrue(answered)
+            for hop in answered:
+                self.assertGreaterEqual(hop["published"], hop["delivered"])
+                self.assertGreaterEqual(hop["delivered"], hop["answered"])
