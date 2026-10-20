@@ -82,8 +82,10 @@ class ChallengeProof(AbandonProof):
             await asyncio.sleep(2)
 
     async def saved(self, worker, revision, seconds=60):
+        async def read(s):
+            return s._revision
         async with asyncio.timeout(seconds):
-            while (await on_worker(worker, lambda s: s._revision)) <= revision:
+            while (await on_worker(worker, read)) <= revision:
                 await asyncio.sleep(.5)
 
     # The challenge ------------------------------------------------------------------------------------------------
