@@ -39,7 +39,7 @@ from pathlib import Path
 
 from native_launcher_abandon_proof import AbandonProof, Reproduced
 from native_launcher_battle_proof import inspect_closed_head, launcher_proof, party, unpack_screen
-from native_launcher_ffa_proof import close_players, into_littleroot, players_tab
+from native_launcher_ffa_proof import close_players, into_littleroot, players_tab, pose_of
 from qualify_admission_cleanup import on_worker, require
 
 SCENARIOS = ("enter-both", "friend-save", "host-save", "save-failed", "late-enter", "reconnect", "trade",
@@ -235,6 +235,46 @@ class ChallengeProof(AbandonProof):
         record("both-free-on-the-field", launchers={self.harness.names[n]: await self.launcher(current[n]) for n in (0, 1)})
 
     async def match(self, current, probes, games, host, symbols, record):
+        """With four games, players 3 and 4 walk on the field the whole time (explore), whatever 1 and 2 do."""
+        self.explorers = None
+        self.explored = {}
+        finished = False
+        try:
+            outcome = await self._match(current, probes, games, host, symbols, record)
+            finished = True
+            return outcome
+        finally:
+            if self.explorers is not None:
+                self.explorers.cancel()
+                await asyncio.gather(self.explorers, return_exceptions=True)
+                record("players-3-and-4-explored", explored={self.harness.names[n]: v for n, v in self.explored.items()})
+                if finished:
+                    require(all(v["places"] >= 2 and v["steps"] >= 10 for v in self.explored.values()),
+                            f"players 3 and 4 did not move on the field: {self.explored}")
+
+    async def explore(self, current, probes, slots):
+        """Two steps left, two right, over and over; the places each game's own pose reported, and how often it was
+        off the field (a menu, a battle or a map change would be)."""
+        async def pose(s):
+            return pose_of(s._companion)
+        steps = {n: 0 for n in slots}
+        places = {n: set() for n in slots}
+        off_field = {n: 0 for n in slots}
+        try:
+            while True:
+                for n in slots:
+                    await probes[n].press(32 if steps[n] % 4 < 2 else 16, frames=18, release=2)
+                    steps[n] += 1
+                    here = await on_worker(current[n], pose)
+                    if here is not None:
+                        places[n].add(here[2:])
+                        off_field[n] += here[0] != 1
+                    self.explored[n] = dict(steps=steps[n], places=len(places[n]), off_field=off_field[n])
+                await asyncio.sleep(.5)
+        except asyncio.CancelledError:
+            return
+
+    async def _match(self, current, probes, games, host, symbols, record):
         for n, worker in enumerate(current):
             self.own_display(n, worker)
             self.watch_loop(n, worker)
@@ -243,6 +283,8 @@ class ChallengeProof(AbandonProof):
             # "Connected: 2/4": the players connected, out of the world's four places.
             require(status.startswith(f"Connected: {len(probes)}/"), f"player {index}'s PLAYERS: {status} {rows}")
         record("linked-before-the-challenge", sessions=[(await self.launcher(w)).get("epoch") for w in current])
+        if len(probes) == 4:      # after every PLAYERS check above: from here players 3 and 4 only walk
+            self.explorers = asyncio.create_task(self.explore(current, probes, (2, 3)))
         if self.want_perf:
             await self.perf_start(current, probes)
             self.mark("field")
@@ -415,7 +457,20 @@ class ChallengeProof(AbandonProof):
             await asyncio.sleep(1)
 
     async def after_save(self, current, host, record):
-        return None
+        """Players 3 and 4 walked: the same Pokemon (count and owned serials) as before, and what they just saved is
+        what their games must hold. Walking changes their box records: friendship rises with steps (win-ch4-enter-3:
+        70 -> 71 after about 90 steps, nothing else)."""
+        if not self.explored:
+            return None
+        async def heads(s):
+            return {n: party(inspect_closed_head(s._store, host.accounts[n].player_id)) for n in self.explored}
+        saved = await on_worker(current[0], heads)
+        for n, new in saved.items():
+            old = self.harness.expected[n]
+            require((new["count"], new["serials"]) == (old["count"], old["serials"]),
+                    f"{self.harness.names[n]} walked and came back with other Pokemon: {old} -> {new}")
+            self.harness.expected[n] = new
+        record("walkers-saved-the-same-pokemon", parties={self.harness.names[n]: v for n, v in saved.items()})
 
 
 async def run(args):

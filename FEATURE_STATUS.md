@@ -526,6 +526,17 @@ Recorded guidance the code no longer follows (not binding decisions):
 | No 2D picture over the 3D view at area changes | Implemented and tested (native Linux 3D, 7-case transition matrix) | engine `df5f960b` |
 | Pokémon Center healing animation and emote icons in 3D | Implemented and tested (native Linux 3D, GBA frames compared, HP restored) | engine `4e213ddf` |
 
+## Battle, trade and lag repair (2026-10-20, `docs/multiplayer-battle-trade-repair-20261020.md`)
+
+| Feature | Status | Evidence |
+| --- | --- | --- |
+| Enter battle never waits forever: a refused Enter releases the window with the reason (PC game, release screen) | Implemented and tested (Linux, real launcher and games: fixed-ch-failed-2; not on a PC) | engine `1afd495c`, app `af77426`; `tests/test_menu_session.py` `BothPlayersEnterTests` |
+| A challenge that ends before its battle frees the entered player | Implemented and tested (Linux, real launcher and games: win-late-1; not on a PC) | app `9b14cb3` |
+| PLAYERS labels and statuses (Rival Battle - 1v1/2v2, Free-for-All - 4 Players, Trading, Championship; Waiting for opponent, Opponent accepted, Waiting for remaining players, All players ready, Starting battle, Connection interrupted, Challenge cancelled with why) | Implemented and tested (Linux: the games showed "Rival Battle - 1v1" with "Saving stopped: restart game"; not on a PC) | app `af77426`, `tests/test_player_menu.py` |
+| A failed trade is settled (host decides applied or aborted), refusals shown | Implemented but unverified (simulated; failure exits not driven with real games) | app `91760bd`, `tests/test_trade_settlement.py` |
+| Trade import a 4 KiB sector per command on the PC game | Implemented and tested (Linux, two real games: 38 s -> about 5 s; Windows package logs `import 1`; no trade on Windows) | engine `c76651ea`, app `4c96fe2` |
+| 3D battle water and flowers recover after slow frames | Implemented and tested (Linux 3D, software OpenGL: tiles-old-4 vs tiles-new-1; not on a GPU or PC) | engine `be8b28ab` |
+
 ## How to update
 
 1. Change a row only with new evidence: a recorded run (a doc in `docs/` or
