@@ -215,7 +215,7 @@ async def native_multi_match(current, probes, games, host, symbols, record, *, m
                 "ordinary native team invitations did not form two separate exact duos")
     await probes[0].open_players()
     await probes[0].choose("Your team")
-    await probes[0].choose("Challenge other team 2v2")
+    await probes[0].choose("Rival Battle - 2v2")
     for probe in probes[1:]:
         await probe.open_players()
         await probe.choose("Pending challenge")

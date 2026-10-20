@@ -35,7 +35,7 @@ class PlayerMenuNetworkTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_challenge_consent_is_exact_and_does_not_start_native_battle(self):
         a, b = (PlayerMenu(self.companions[i]) for i in (0, 1))
-        await a.refresh(); await self.click(a, "Trainer 1"); await self.click(a, "Challenge 1v1")
+        await a.refresh(); await self.click(a, "Trainer 1"); await self.click(a, "Rival Battle - 1v1")
         await b.refresh(); await self.click(b, "Pending challenge")
         await self.click(b, "Accept challenge")
         self.assertEqual(b.screen.status, "Waiting for battle coordinator")
@@ -57,7 +57,7 @@ class PlayerMenuNetworkTests(unittest.IsolatedAsyncioTestCase):
         self.companions[0].connected = False
         with self.assertRaises(PlayerMenuError): await menu.choose(screen.revision, 1)
         screen = await menu.refresh()
-        self.assertEqual(screen.status, "Connection lost")
+        self.assertEqual(screen.status, "Connection interrupted")
         self.assertFalse(screen.rows)
 
     async def test_disabled_services_keep_read_only_card_but_no_mutation_buttons(self):
@@ -91,14 +91,14 @@ class PlayerMenuNetworkTests(unittest.IsolatedAsyncioTestCase):
         await menus[0].refresh()
         await self.click(menus[0], "Challenges")
         self.assertFalse(self.companions[0].config.battle_ffa_enabled)     # the fixture ROM has no free-for-all marker
-        self.assertNotIn("Free-for-all 1v1v1v1", [row.label for row in menus[0].screen.rows])
+        self.assertNotIn("Free-for-All - 4 Players", [row.label for row in menus[0].screen.rows])
         for companion in self.companions:
             object.__setattr__(companion.config, "battle_ffa_enabled", True)
         await menus[0].refresh()
         if "Challenges" in [row.label for row in menus[0].screen.rows]:
             await self.click(menus[0], "Challenges")
-        screen = await self.click(menus[0], "Free-for-all 1v1v1v1")
-        self.assertEqual(screen.title, "1v1v1v1 free-for-all")
+        screen = await self.click(menus[0], "Free-for-All - 4 Players")
+        self.assertEqual(screen.title, "Free-for-All: 4 Players")
         labels = [row.label for row in screen.rows]
         self.assertFalse([label for label in labels if label.startswith("Wager")])    # no wager in a free-for-all
         self.assertIn("Cancel challenge", labels)
@@ -106,7 +106,7 @@ class PlayerMenuNetworkTests(unittest.IsolatedAsyncioTestCase):
         for i in (1, 2, 3):
             await menus[i].refresh()
             screen = await self.click(menus[i], "Pending challenge")
-            self.assertEqual(screen.title, "1v1v1v1 free-for-all")
+            self.assertEqual(screen.title, "Free-for-All: 4 Players")
             self.assertIn("Accept challenge", [row.label for row in screen.rows])
             await self.click(menus[i], "Accept challenge")
         pending = await self.companions[0].battle_challenge_rpc("pending")
@@ -130,7 +130,7 @@ class PlayerMenuNetworkTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(screen.rows[1].label, "Filters and refresh")
         await menu.choose(screen.revision, 7)
         screen = await self.click(menu, "Trainer 1")
-        self.assertNotIn("Challenge 1v1", [row.label for row in screen.rows])
+        self.assertNotIn("Rival Battle - 1v1", [row.label for row in screen.rows])
 
 
 class PlayerMenuAdmissionTests(unittest.TestCase):

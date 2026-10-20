@@ -320,7 +320,7 @@ async def run(args):
             record("two-ordinary-Continue-enrolled-and-emergency-armed")
             await open_menu(0)
             await choose(0, players[1].display_name)
-            await choose(0, "Challenge 1v1")
+            await choose(0, "Rival Battle - 1v1")
             await open_menu(1)
             await choose(1, "Pending challenge")
             await choose(1, "Accept challenge")

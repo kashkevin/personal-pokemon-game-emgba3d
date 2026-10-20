@@ -207,7 +207,7 @@ async def run(args):
         record("ordinary-Continue-and-enrollment")
         await open_menu(0)
         await choose(0, players[1].display_name)
-        await choose(0, "Trade Pokemon")
+        await choose(0, "Trading")
         await choose(0, first=True)
         await open_menu(1)
         await choose(1, "Pending trade")
@@ -241,7 +241,7 @@ async def run(args):
         await pump.advance(90)
         await open_menu(0)
         await choose(0, players[1].display_name)
-        await choose(0, "Trade Pokemon")
+        await choose(0, "Trading")
         await press(0, 2)
         async with asyncio.timeout(45):
             while results[0] is None:

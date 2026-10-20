@@ -26,7 +26,7 @@ async def interrupted_trade(sessions, games, probes, tasks, host, slots, record,
                   s._companion.save_incarnation, s._companion.session_epoch) for s in sessions]
     await probes[0].open_players()
     await choose_visible(probes[0], host.accounts[1].display_name)
-    await choose_visible(probes[0], "Trade Pokemon")
+    await choose_visible(probes[0], "Trading")
     await choose_party_slot(probes[0], slots[0])
     await probes[1].open_players()
     await choose_visible(probes[1], "Pending trade")

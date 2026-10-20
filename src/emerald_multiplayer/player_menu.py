@@ -26,6 +26,40 @@ ACTIVITY_LABELS = {"overworld": "On the field", "battle": "In battle", "menu": "
 ACTIVITY_SHORT = {"overworld": "Field", "battle": "Battle", "menu": "Menu", "transition": "Moving",
                   "unavailable": "Busy", "joining": "Joining"}
 _OPEN_BATTLE_STATES = ("invited", "accepted", "prepared")
+# The battle modes as PLAYERS names them (a row's 25 characters, a title's 23).
+MODE_TITLES = {2: "Rival Battle - 1v1", 3: "Rival Battle - 2v2", 5: "Free-for-All: 4 Players"}
+MODE_ROWS = {2: "Rival Battle - 1v1", 3: "Rival Battle - 2v2", 5: "Free-for-All - 4 Players"}
+TRADE_ROW = "Trading"
+# Why an Enter battle could not be admitted (BattleAdmissionRefused, the launcher's blocker), in a status line's 31
+# characters. The owner's report of 2026-10-20: these used to leave the window on "Waiting for server..." for good.
+REFUSALS = {
+    "save_recovery_required": "Saving stopped: restart game",
+    "character_recovery_pending": "Resolve the trade first",
+    "character_busy": "Busy saving: try again shortly",
+    "save_not_ready": "Save changed: challenge again",
+    "session_changed": "Connection interrupted: wait",
+    "battle_admission_required": "Connection changed: try again",
+    "battle_recovery_required": "Connection changed: try again",
+    "battle_not_ready": "Challenge expired: try again",
+    "battle_missing": "Challenge ended: try again",
+    "battle_generation_mismatch": "Challenge changed: try again",
+    "stale_lease": "Connection changed: try again",
+    "game_active": "Your game is busy: try again",
+}
+# Why an open challenge ended before its battle (BattleDesk reasons), for the menu that showed it.
+CANCEL_REASONS = {
+    "canonical_changed": "Cancelled: a party was saved",
+    "session_changed": "Cancelled: a player reconnected",
+    "deadline": "Challenge expired: not entered",
+    "participant_canceled": "Challenge cancelled",
+    "admission_canceled": "Challenge cancelled",
+    "unentered_invitation_canceled": "Challenge cancelled",
+    "native_refused": "Cancelled: a game refused it",
+}
+
+
+def refusal_text(code):
+    return REFUSALS.get(code, "Could not enter: try again")[:31]
 
 
 def _money(amount):
@@ -114,9 +148,27 @@ class PlayerMenu:
         c = self.companion
         return (c.world_id, c.server_epoch, c.session_epoch) if c.connected else None
 
+    def notice(self, text):
+        """A status the next screen shows until the player's next choice (a refused Enter, an ended challenge)."""
+        self._notice = _text(text, 31)
+
     @property
     def screen(self):
         return self._screen
+
+    async def _ended_challenge(self, pending, binding):
+        """A challenge this menu showed is no longer pending: say why when it ended without its battle (a save, a
+        reconnect, the time limit), instead of the challenge silently disappearing (seen 2026-10-20)."""
+        shown = getattr(self, "_shown_battle", None)
+        self._shown_battle = pending[0]["battle_id"] if pending else None
+        if not shown or (pending and pending[0]["battle_id"] == shown):
+            return
+        try:
+            view = (await self.companion.battle_challenge_rpc("status", battle_id=shown))["result"]
+        except (BattleChallengeError, ConnectionError, OSError, asyncio.TimeoutError):
+            return
+        if self._session() == binding and view.get("state") in ("aborted", "aborting") and not self._notice:
+            self._notice = CANCEL_REASONS.get(view.get("reason"), "Challenge cancelled")
 
     async def refresh(self):
         async with self._lock:
@@ -132,7 +184,7 @@ class PlayerMenu:
             self._championship.reset()
             self._rival.reset()
             self._record_menu.reset()
-            return self._show("Players", "Connection lost", [])
+            return self._show("Players", "Connection interrupted", [])
         if binding != self._binding:
             self._page = ("home", None)
             self._notice = ""
@@ -167,8 +219,11 @@ class PlayerMenu:
                 self._actions.clear()
                 self._signature = None
                 raise PlayerMenuError("session_changed")
-            if kind == "team": self._team = value
-            else: self._battles = value
+            if kind == "team":
+                self._team = value
+            else:
+                await self._ended_challenge(value, binding)
+                self._battles = value
         # The optional money wager on the pending challenge (host-owned).
         self._wager = None
         wager_rpc = getattr(self.companion, "wager_rpc", None)
@@ -362,11 +417,11 @@ class PlayerMenu:
                 if friend["lucky_friends"]:
                     actions.append(("LUCKY FRIENDS: next trade", "", ()))
             if self._trades is not None and not self._trades:
-                actions.append(("Trade Pokemon", "trade_open", (target,)))
+                actions.append((TRADE_ROW, "trade_open", (target,)))
             if self._team is not None and self._team["team"] is None:
                 actions.append(("Invite to team", "team_invite", (target,)))
             if self._battles is not None and not self._battles:
-                actions.append(("Challenge 1v1", "battle_invite", (target,)))
+                actions.append((MODE_ROWS[2], "battle_invite", (target,)))
             actions.append(("View Trainer Card", "card", (target,)))
             if self._notice or friend is None:
                 status = self._notice or "Choose an interaction"
@@ -384,7 +439,7 @@ class PlayerMenu:
                 actions.append(("Leave team", "team_leave", (own["team_id"], own["generation"])))
                 other = next((t for t in self._team["teams"] if t["team_id"] != own["team_id"]), None)
                 if other is not None and self._battles is not None and not self._battles:
-                    actions.append(("Challenge other team 2v2", "battle_multi", (peer, *other["members"])))
+                    actions.append((MODE_ROWS[3], "battle_multi", (peer, *other["members"])))
                 status = self._notice or "Separate parties and items"
             elif self._team["invitations"]:
                 invitation = self._team["invitations"][0]
@@ -401,9 +456,18 @@ class PlayerMenu:
             title = "Challenges"
             if self._battles:
                 battle = self._battles[0]
-                title = {2: "1v1 challenge", 3: "2v2 full-party challenge", 5: "1v1v1v1 free-for-all",
-                         4: self._coop_title(battle.get("gym"))}.get(battle["mode"], "Challenge")
-                status = self._notice or f"Accepted: {len(battle['consent'])}/{len(battle['players'])}"
+                title = MODE_TITLES.get(battle["mode"]) or (self._coop_title(battle.get("gym")) if battle["mode"] == 4
+                                                            else "Challenge")
+                waiting = [p for p in battle["players"] if p not in battle["consent"]]
+                if not waiting:
+                    pending_status = "Opponent accepted" if battle["mode"] == 2 else "All players ready"
+                elif actor in waiting:
+                    pending_status = f"{self._name(battle['sender'])[:12]} challenges you"
+                elif len(battle["players"]) == 2:
+                    pending_status = "Waiting for opponent"
+                else:
+                    pending_status = "Waiting for remaining players"
+                status = self._notice or pending_status
                 parties = {cp["player_id"]: cp["party_count"] for cp in battle["checkpoints"]}
                 if battle["mode"] in (2, 4):
                     for cp in battle["checkpoints"]:
@@ -436,10 +500,17 @@ class PlayerMenu:
                         if (callable(getattr(self.companion, "_native_menu_handoff", None))
                                 and (getattr(self.companion.config, "battle_resume_abi_version", 0) != 1
                                      or battle_admission_enabled(self.companion))):
-                            status = "All players accepted"
-                            actions.append(("Enter battle", "battle_enter", (*params, battle["fingerprint"])))
+                            # Offer Enter only when this game can be admitted: an Enter the launcher must refuse
+                            # would latch the game's window for nothing (the owner's report of 2026-10-20).
+                            blocker = getattr(self.companion, "_native_menu_battle_blocker", None)
+                            reason = blocker(battle) if callable(blocker) else None
+                            if reason is None:
+                                status = self._notice or pending_status
+                                actions.append(("Enter battle", "battle_enter", (*params, battle["fingerprint"])))
+                            else:
+                                status = refusal_text(reason)
                 else:
-                    status = {"aborting": "Canceling safely", "recovery_required": "Battle recovery required",
+                    status = {"aborting": "Cancelling safely", "recovery_required": "Battle needs recovery",
                               "running": "Battle in progress", "starting": "Starting battle"}.get(battle["state"], battle["state"])
                 if battle["mode"] == 2 and len(actions) < 6:
                     actions.append(("Championship", "championship", ()))
@@ -447,7 +518,7 @@ class PlayerMenu:
                 status = self._notice or ("New battles disabled on host" if self._battles is None else "No pending challenges")
                 if (self._battles is not None and len(self._players) == 4 and actor in self._players
                         and getattr(self.companion.config, "battle_ffa_enabled", True)):
-                    actions.append(("Free-for-all 1v1v1v1", "battle_ffa", tuple(p for p in self._players if p != actor)))
+                    actions.append((MODE_ROWS[5], "battle_ffa", tuple(p for p in self._players if p != actor)))
                 actions.append(("Recent battle results", "results", (0,)))
                 actions.append(("Full record archives", "records", ()))
                 actions.append(("Your Trainer Card", "card", (actor,)))
@@ -1082,7 +1153,14 @@ class PlayerMenu:
             elif op in ("battle_accept", "battle_cancel"):
                 fields = dict(battle_id=args[0], generation=args[1])
                 if op == "battle_accept": fields["fingerprint"] = args[2]
-                await self.companion.battle_challenge_rpc(op.removeprefix("battle_"), **fields)
+                try:
+                    await self.companion.battle_challenge_rpc(op.removeprefix("battle_"), **fields)
+                except BattleChallengeError as error:
+                    # The host's answer, shown where the choice was made (the menu used to close on it).
+                    self._notice = {"battle_native_abort_required": "Entered games must cancel it",
+                                    "battle_offer_changed": "The challenge changed",
+                                    "revision_conflict": "A save changed a party",
+                                    "battle_started": "The battle already started"}.get(error.code, "The host refused: try again")
             elif op == "wager":
                 self._page = ("wager", args[0])
             elif op == "privacy_toggle":

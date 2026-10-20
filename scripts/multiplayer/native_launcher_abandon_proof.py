@@ -176,7 +176,7 @@ class AbandonProof:
     async def challenge_1v1(self, host, probes, sender, recipient):
         await probes[sender].open_players()
         await probes[sender].choose(host.accounts[recipient].display_name, prefix=True)
-        await probes[sender].choose("Challenge 1v1")
+        await probes[sender].choose("Rival Battle - 1v1")
         await probes[recipient].open_players()
         await probes[recipient].choose("Pending challenge")
         await probes[recipient].choose("Accept challenge")
@@ -196,7 +196,7 @@ class AbandonProof:
     async def challenge_2v2(self, probes):
         await probes[0].open_players()
         await probes[0].choose("Your team")
-        await probes[0].choose("Challenge other team 2v2")
+        await probes[0].choose("Rival Battle - 2v2")
         for probe in probes[1:]:
             await probe.open_players()
             await probe.choose("Pending challenge")
@@ -205,7 +205,7 @@ class AbandonProof:
     async def challenge_ffa(self, probes):
         await probes[0].open_players()
         await probes[0].choose("Challenges")
-        await probes[0].choose("Free-for-all 1v1v1v1")
+        await probes[0].choose("Free-for-All - 4 Players")
         for probe in probes[1:]:
             await probe.open_players()
             await probe.choose("Pending challenge")

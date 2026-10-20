@@ -64,17 +64,22 @@ class MenuRequest:
         return result
 
 
-def pack_screen(request_sequence, screen, *, close=False, reopen_trade=False, allow_battle_admission=False):
+def pack_screen(request_sequence, screen, *, close=False, reopen_trade=False, allow_battle_admission=False,
+                release=False):
+    """`release` (flags 3, PC games with menu_release_abi_version 1): the reply to an Enter battle choice the
+    companion refused before any ADMIT; the game's latched window takes it and shows it with its rows usable."""
     _uint(request_sequence, 0xFFFFFFFF, 1)
-    if (not isinstance(screen, MenuScreen) or type(close) is not bool
-            or type(reopen_trade) is not bool or type(allow_battle_admission) is not bool or close and reopen_trade):
+    if (not isinstance(screen, MenuScreen) or type(close) is not bool or type(release) is not bool
+            or type(reopen_trade) is not bool or type(allow_battle_admission) is not bool
+            or close + reopen_trade + release > 1):
         raise ValueError("menu response needs a typed screen and close flag")
     _uint(screen.revision, 0xFFFFFFFF, 1)
     if type(screen.back) is not int or screen.back not in (0, 7):
         raise ValueError("menu back action must be absent or seven")
     if type(screen.rows) is not tuple or len(screen.rows) > 6:
         raise ValueError("menu screen permits at most six rows")
-    data = struct.pack("<IIBBH", request_sequence, screen.revision, 2 if reopen_trade else int(close), len(screen.rows), screen.back)
+    data = struct.pack("<IIBBH", request_sequence, screen.revision, 3 if release else 2 if reopen_trade else int(close),
+                       len(screen.rows), screen.back)
     data += _string(screen.title, 24) + _string(screen.status, 32)
     used = set()
     for index, row in enumerate(screen.rows):
@@ -85,27 +90,28 @@ def pack_screen(request_sequence, screen, *, close=False, reopen_trade=False, al
     if screen.back in used:
         raise ValueError("menu back action overlaps a row")
     _uint(screen.admission_action, 6)
-    if screen.admission_action and (not allow_battle_admission or close or reopen_trade
+    if screen.admission_action and (not allow_battle_admission or close or reopen_trade or release
             or screen.admission_action not in used):
         raise ValueError("battle admission requires an enabled row and verified capability")
     return data + bytes(SCREEN_SIZE - 4 - len(data)) + struct.pack("<HH", screen.admission_action, 0)
 
 
-def unpack_screen(value, *, allow_trade_reopen=False, allow_battle_admission=False):
+def unpack_screen(value, *, allow_trade_reopen=False, allow_battle_admission=False, allow_release=False):
     if type(value) is not bytes or len(value) != SCREEN_SIZE:
         raise ValueError("menu response must have exactly 240 bytes")
     ack, revision, flags, count, back = struct.unpack_from("<IIBBH", value)
-    if (flags > (2 if allow_trade_reopen else 1) or count > 6
+    if (flags > (3 if allow_release else 2 if allow_trade_reopen else 1) or flags == 2 and not allow_trade_reopen
+            or count > 6
             or any(value[68 + 28 * count:236]) or any(value[238:])):
         raise ValueError("menu response has invalid flags, count or padding")
     rows = tuple(MenuRow(struct.unpack_from("<H", value, 68 + i * 28)[0],
         _read_string(value[70 + i * 28:96 + i * 28])) for i in range(count))
     screen = MenuScreen(revision, _read_string(value[12:36]), _read_string(value[36:68]), rows, back,
                         struct.unpack_from("<H", value, 236)[0])
-    if pack_screen(ack, screen, close=flags == 1, reopen_trade=flags == 2,
+    if pack_screen(ack, screen, close=flags == 1, reopen_trade=flags == 2, release=flags == 3,
                    allow_battle_admission=allow_battle_admission) != value:
         raise ValueError("menu response is not canonical")
-    return ack, screen, (flags if allow_trade_reopen else bool(flags))
+    return ack, screen, (flags if allow_trade_reopen or allow_release else bool(flags))
 
 
 def validate_menu_manifest(manifest, rom_path=None):

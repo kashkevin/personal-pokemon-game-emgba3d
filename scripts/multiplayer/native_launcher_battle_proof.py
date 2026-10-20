@@ -290,7 +290,7 @@ async def native_menu_match(current, probes, games, host, symbols, record):
     before = [await probe.battle() for probe in probes]
     await probes[0].open_players()
     await probes[0].choose("Battle Friend", prefix=True)
-    await probes[0].choose("Challenge 1v1")
+    await probes[0].choose("Rival Battle - 1v1")
     await probes[1].open_players()
     await probes[1].choose("Pending challenge")
     await probes[1].choose("Accept challenge")
@@ -743,13 +743,13 @@ async def launcher_proof(args, *, names, sources, party_counts, match, version, 
     async with harness:
         await harness.setup_world()
         host, expected, record = harness.host, harness.expected, harness.record
-        saved = []
+        saved, revision = [], 2
         for phase in ("battle-and-save", "fresh-Continue"):
             players = []
             for slot in range(harness.count):
                 player = await harness.start(phase, slot)
                 players.append(player)
-                require(await harness.ready(player) == (1 if phase == "battle-and-save" else 2),
+                require(await harness.ready(player) == (1 if phase == "battle-and-save" else revision),
                         "startup revision differs")
             current = [p.worker for p in players]
             games = [p.game for p in players]
@@ -766,16 +766,22 @@ async def launcher_proof(args, *, names, sources, party_counts, match, version, 
                     expected[:] = [dict(old, count=new["count"], box_crc=new["box_crc"])
                                    for old, new in zip(expected, outcome["expected"])]
                     record("expected-parties-after-the-match", parties=expected)
+                if isinstance(outcome, dict) and "parties" in outcome:
+                    # A match that trades: the canonical parties (and their owned serials) it left, and the
+                    # revision the next save makes (a trade applies at base + 2).
+                    expected[:] = outcome["parties"]
+                    revision = outcome["revision"]
+                    record("expected-parties-after-the-match", parties=expected, revision=revision)
                 for player in players:
-                    await harness.save(player, 2)
-                record("all-saved-after-the-battle", revision=2, players=harness.count)
+                    await harness.save(player, revision)
+                record("all-saved-after-the-battle", revision=revision, players=harness.count)
                 if after_save is not None:
                     await after_save(current, host, record)
             async def heads(s):
                 rows = []
                 for slot, account in enumerate(host.accounts):
                     head = inspect_closed_head(s._store, account.player_id)
-                    require(head.revision == 2 and party(head) == expected[slot], "canonical party or revision changed")
+                    require(head.revision == revision and party(head) == expected[slot], "canonical party or revision changed")
                     rows.append((head.revision, head.sha256))
                 s._store.integrity_check()
                 return rows

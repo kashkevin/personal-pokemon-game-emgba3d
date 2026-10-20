@@ -147,7 +147,7 @@ async def native_menu_match(current, probes, games, host, symbols, record):
     before = [await probe.battle() for probe in probes]
     await probes[0].open_players()
     await probes[0].choose("Battle Friend")
-    await probes[0].choose("Challenge 1v1")
+    await probes[0].choose("Rival Battle - 1v1")
     await probes[1].open_players()
     await probes[1].choose("Pending challenge")
     await probes[1].choose("Accept challenge")

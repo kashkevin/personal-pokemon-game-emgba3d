@@ -10,9 +10,17 @@ must be back on the field; a pair of menus still latched and waiting when the wa
 "stuck-waiting-for-server" with what each launcher and companion knew.
 
     enter-both     both choose Enter battle at the same moment (the committed proofs' order)
-    friend-save    after both accepted, the friend's launcher saves ("Save now"), then both enter
+    friend-save    after both accepted, the friend leaves PLAYERS, its launcher saves (what the five-minute autosave
+                   does on the field), the friend opens PLAYERS > Pending challenge again, then both enter
     host-save      the same with the host's save
+    save-failed    the friend's launcher has given up on saving (a failed autosave or host-loss arm: the
+                   "save_recovery_required" state a real network can leave), then both enter
     late-enter     the host enters; the friend enters --late seconds later
+    trade          no challenge: the friend offers the host a trade from PLAYERS, both choose their first
+                   Pokemon and confirm; both games and launchers are watched until the trade is applied
+    trade-battle   the trade, then the usual challenge, acceptance and entry
+    trade-walk     the friend offers the host a trade and keeps walking while PLAYERS closes for it (a player
+                   does not wait for the trade window); then the usual challenge, acceptance and entry
     reconnect      before the challenge the friend's world connection is cut (its game keeps running); once the
                    companion is back, the usual challenge, acceptance and entry
 
@@ -27,14 +35,48 @@ import argparse
 import asyncio
 import json
 import time
+from pathlib import Path
 
 from native_launcher_abandon_proof import AbandonProof, Reproduced
-from native_launcher_battle_proof import launcher_proof
-from native_launcher_ffa_proof import into_littleroot, players_tab
+from native_launcher_battle_proof import inspect_closed_head, launcher_proof, party, unpack_screen
+from native_launcher_ffa_proof import close_players, into_littleroot, players_tab
 from qualify_admission_cleanup import on_worker, require
 
-SCENARIOS = ("enter-both", "friend-save", "host-save", "late-enter", "reconnect")
+SCENARIOS = ("enter-both", "friend-save", "host-save", "save-failed", "late-enter", "reconnect", "trade",
+             "trade-battle", "trade-walk")
 PLAYER_NAMES = ("CH Host", "CH Friend")
+
+
+def trade_phase(session):
+    try:
+        return json.loads((Path(session._profile_directory) / "pending-trade.json").read_text()).get("phase")
+    except (OSError, TypeError, ValueError):
+        return None
+
+
+async def shown(probe, timeout=60):
+    """The screen a game shows once it takes input; the trade window's first screen reopens it (flags 2), which
+    NativeProbe.ready does not decode."""
+    async with asyncio.timeout(timeout):
+        while True:
+            row = probe.read()
+            if row["active"] and not row["waiting"]:
+                try:
+                    return row, unpack_screen(row["screen"], allow_trade_reopen=True, allow_battle_admission=True)[1]
+                except ValueError:
+                    pass
+            await asyncio.sleep(.03)
+
+
+async def pick(probe, label=None):
+    """A choice by its label, or the first one on the screen (the trade's first Pokemon), as a player picks it."""
+    row, screen = await shown(probe)
+    found = [n for n, item in enumerate(screen.rows) if item.action and (label is None or item.label == label)]
+    require(found, f"no choice {label!r}: {[r.label for r in screen.rows]}")
+    for _ in range((found[0] - row["cursor"]) % len(screen.rows)):
+        await probe.press(128)
+    await probe.press(1)
+    return screen.rows[found[0]].label
 
 
 class ChallengeProof(AbandonProof):
@@ -46,8 +88,13 @@ class ChallengeProof(AbandonProof):
     @staticmethod
     def native(probe):
         row = probe.read()
+        try:
+            screen = unpack_screen(row["screen"], allow_trade_reopen=True, allow_battle_admission=True)[1]
+            text = [screen.title, screen.status]
+        except ValueError:
+            text = None
         return dict(menu=bool(row["active"]), waiting=bool(row["waiting"]),
-                    latched=bool(probe.mem("sBattleAdmissionLatched")[0]), hold=row["hold"])
+                    latched=bool(probe.mem("sBattleAdmissionLatched")[0]), hold=row["hold"], shown=text)
 
     async def launcher(self, worker):
         async def read(s):
@@ -58,7 +105,7 @@ class ChallengeProof(AbandonProof):
                         save_failed=s._save_failed, recovery_failed=s._battle_recovery_failed,
                         admission_failed=getattr(menu, "_battle_admission_failed", None),
                         latched=getattr(menu, "_battle_latched", None),
-                        preparing=getattr(menu, "_battle_preparing", None))
+                        preparing=getattr(menu, "_battle_preparing", None), trade=trade_phase(s))
         try:
             return await on_worker(worker, read)
         except RuntimeError as error:
@@ -129,14 +176,64 @@ class ChallengeProof(AbandonProof):
                     await asyncio.sleep(.5)
             record("friend-reconnected", epochs=[before, state["epoch"]])
             await asyncio.sleep(3)
+        if self.scenario == "trade-walk":
+            await probes[1].open_players()
+            await probes[1].choose(host.accounts[0].display_name, prefix=True)
+            await probes[1].choose("Trading", wait=False)
+            for step in range(10):
+                await probes[1].press(32 if step % 2 == 0 else 16, frames=18, release=2)
+            started = time.monotonic()
+            while time.monotonic() - started < 30:
+                await asyncio.sleep(5)
+                record("after-the-trade-walk", seconds=round(time.monotonic() - started),
+                       natives={self.harness.names[n]: self.native(probes[n]) for n in (0, 1)},
+                       launchers={self.harness.names[n]: await self.launcher(current[n]) for n in (0, 1)})
+            for m in (0, 1):
+                if probes[m].read()["active"] and not self.native(probes[m])["latched"]:
+                    await close_players(probes[m])
+        if self.scenario in ("trade", "trade-battle"):
+            await self.trade(host, current, probes, record)
+            if self.scenario == "trade":
+                return await self.traded(host, current, record)
+            await asyncio.sleep(3)
         await self.challenge_and_accept(host, probes)
         record("both-accepted", launchers={self.harness.names[n]: await self.launcher(current[n]) for n in (0, 1)})
         if self.scenario in ("friend-save", "host-save"):
+            # A game saves only on the field: PLAYERS holds it (a save asked for then waits as "save_not_ready").
             n = 1 if self.scenario == "friend-save" else 0
+            await close_players(probes[n])
             revision = (await self.launcher(current[n]))["revision"]
             require(current[n].request_save(), f"{self.harness.names[n]}: the launcher refused Save now")
             await self.saved(current[n], revision)
             record("saved-after-accepting", slot=n, revision=[revision, (await self.launcher(current[n]))["revision"]])
+            await probes[n].open_players()
+            _, root = await probes[n].ready()
+            if "Pending challenge" not in [r.label for r in root.rows]:
+                await asyncio.sleep(3)
+                screens = {}
+                for m in (0, 1):
+                    _, screen = await probes[m].ready()
+                    screens[self.harness.names[m]] = dict(title=screen.title, status=screen.status,
+                                                          rows=[r.label for r in screen.rows])
+                record("challenge-gone-after-the-save", screens=screens,
+                       launchers={self.harness.names[m]: await self.launcher(current[m]) for m in (0, 1)})
+                raise Reproduced("the save ended the accepted challenge; the menus said: " + json.dumps(screens))
+            await probes[n].choose("Pending challenge")
+            await asyncio.sleep(3)   # the menus' 2 s refresh
+            screens = {}
+            for m in (0, 1):
+                _, screen = await probes[m].ready()
+                screens[self.harness.names[m]] = dict(status=screen.status, rows=[r.label for r in screen.rows])
+            record("challenge-after-the-save", screens=screens,
+                   launchers={self.harness.names[m]: await self.launcher(current[m]) for m in (0, 1)})
+            if not all("Enter battle" in v["rows"] for v in screens.values()):
+                await self.observe(current, probes, (0, 1), record, "no-enter-offered")
+                raise Reproduced("after the save the challenge offers no Enter battle: " + json.dumps(screens))
+        elif self.scenario == "save-failed":
+            async def give_up(s):
+                s._fail_save()
+            await on_worker(current[1], give_up)
+            record("friend-save-given-up", launcher=await self.launcher(current[1]))
         elif self.scenario == "late-enter":
             order = [(0,), -self.late, (1,)]
         battles = await self.enter_battle(current, probes, record, order)
@@ -146,9 +243,66 @@ class ChallengeProof(AbandonProof):
         stops, drivers = self.drive(current, probes, symbols, battles, (0, 1))
         await self.finish(current, probes, battles, (0, 1), stops, drivers, record, "1v1")
         async with asyncio.timeout(120):
-            while not all((await self.state_of(w)).get("field") for w in current):
+            while not all([(await self.state_of(w)).get("field") for w in current]):
                 await asyncio.sleep(.5)
         record("both-back-on-the-field", players=list(self.harness.names))
+        if self.scenario == "trade-battle":
+            return await self.traded(host, current, record)
+
+    async def traded(self, host, current, record):
+        """What the trade left on the host: each player's canonical party, for the closing saves' checks."""
+        async def heads(s):
+            return [party(inspect_closed_head(s._store, account.player_id)) for account in host.accounts]
+        parties = await on_worker(current[0], heads)
+        revisions = [(await self.launcher(w))["revision"] for w in current]
+        require(len(set(revisions)) == 1, f"the players' revisions differ after the trade: {revisions}")
+        return dict(parties=parties, revision=revisions[0] + 1)
+
+    async def trade(self, host, current, probes, record):
+        """The friend offers, the host answers, both pick their first Pokemon and confirm: the native trade window
+        through the launcher's own handoff (_native_menu_handoff "trade"), as two players do it."""
+        before = {n: (await self.launcher(current[n]))["revision"] for n in (0, 1)}
+        await probes[1].open_players()
+        await probes[1].choose(host.accounts[0].display_name, prefix=True)
+        await probes[1].choose("Trading", wait=False)
+        offered = {1: await pick(probes[1])}
+        await probes[0].open_players()
+        await probes[0].choose("Pending trade")
+        await probes[0].choose("Choose your Pokemon", wait=False)
+        offered[0] = await pick(probes[0])
+        record("trade-offers-chosen", offered={self.harness.names[n]: offered[n] for n in (0, 1)})
+        started = time.monotonic()
+        confirmed = set()
+        while True:
+            natives = {n: self.native(probes[n]) for n in (0, 1)}
+            launchers = {n: await self.launcher(current[n]) for n in (0, 1)}
+            for n in (0, 1):
+                row = probes[n].read()
+                if n not in confirmed and row["active"] and not row["waiting"]:
+                    try:
+                        screen = unpack_screen(row["screen"], allow_trade_reopen=True, allow_battle_admission=True)[1]
+                    except ValueError:
+                        continue
+                    if any(r.label == "Confirm this trade" for r in screen.rows):
+                        await pick(probes[n], "Confirm this trade")
+                        confirmed.add(n)
+                        record("trade-confirmed", player=self.harness.names[n],
+                               seconds=round(time.monotonic() - started, 1))
+            elapsed = round(time.monotonic() - started)
+            done = all(v.get("interaction") is None and v.get("trade") is None and v.get("revision") == before[n] + 2
+                       for n, v in launchers.items())
+            if done or elapsed >= self.watch or elapsed % 10 < 2:
+                record("trading", seconds=elapsed, natives={self.harness.names[n]: v for n, v in natives.items()},
+                       launchers={self.harness.names[n]: v for n, v in launchers.items()})
+            if done:
+                record("trade-applied", seconds=elapsed, revisions={self.harness.names[n]: [before[n], launchers[n]["revision"]]
+                                                                     for n in (0, 1)})
+                return
+            if elapsed >= self.watch:
+                record("trade-stuck", natives={self.harness.names[n]: v for n, v in natives.items()},
+                       launchers={self.harness.names[n]: v for n, v in launchers.items()})
+                raise Reproduced("the trade did not finish")
+            await asyncio.sleep(1)
 
     async def after_save(self, current, host, record):
         return None

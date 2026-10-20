@@ -6,7 +6,7 @@ SessionWorker and LauncherSession; production world creation and enrollment; the
 starts four native games, one per X display, driven by ordinary key presses. Recorded and required:
 
     1. Everyone linked: each game has the other three as peers, every Players tab lists everyone ("Connected: 4/4").
-    2. The host opens PLAYERS > Challenges > "Free-for-all 1v1v1v1"; the three others open PLAYERS, the pending
+    2. The host opens PLAYERS > Challenges > "Free-for-All - 4 Players"; the three others open PLAYERS, the pending
        challenge, and accept; all four see the same challenge and press Enter battle at the same time.
     3. One native free-for-all (phase 5, four cores) runs with default moves to its end: every launcher reports
        battle_finished with its original game, bridge and native identity; each trainer's exact party is back in
@@ -314,7 +314,7 @@ class FreeForAll:
 
         await probes[0].open_players()
         await probes[0].choose("Challenges")
-        await probes[0].choose("Free-for-all 1v1v1v1")
+        await probes[0].choose("Free-for-All - 4 Players")
         for probe in probes[1:]:
             await probe.open_players()
             await probe.choose("Pending challenge")

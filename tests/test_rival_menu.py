@@ -130,7 +130,7 @@ class RivalMenuTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(PlayerMenuError):
             await menu.choose(screen.revision, next(r.action for r in screen.rows if r.label == "Start Now"))
         screen = await menu.refresh()
-        self.assertEqual(screen.status, "Connection lost")
+        self.assertEqual(screen.status, "Connection interrupted")
 
     async def test_challenges_page_links_rival_progress(self):
         menu = PlayerMenu(self.companions[2])

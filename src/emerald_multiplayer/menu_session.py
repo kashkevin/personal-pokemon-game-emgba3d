@@ -1,9 +1,11 @@
 """One bounded native menu session on one authenticated bridge incarnation."""
 import asyncio
+from dataclasses import replace
 
+from .battle_admission_session import BattleAdmissionRefused
 from .bridge_protocol import BridgeError
 from .menu_mailbox import MenuRequest, pack_screen
-from .player_menu import MenuScreen, PlayerMenu, battle_admission_enabled
+from .player_menu import MenuScreen, PlayerMenu, battle_admission_enabled, refusal_text
 
 
 class MenuSession:
@@ -101,7 +103,12 @@ class MenuSession:
             while request is not None:
                 try:
                     if self._battle_latched:
-                        await self.admit_for_handoff(request)
+                        try:
+                            await self.admit_for_handoff(request)
+                        except BattleAdmissionRefused as error:
+                            if not self._release_capable():
+                                raise
+                            await self._release_refused(request, error)
                         request, self._queued_open = self._queued_open, None
                         continue
                     elif request.kind == 1:
@@ -136,10 +143,43 @@ class MenuSession:
                 self.open = False
                 self.bridge.writer.close()
 
+    def _release_capable(self):
+        """The game ends a latched Enter window on a release screen (menu_release_abi_version 1)."""
+        return (getattr(getattr(self.companion, "config", None), "menu_release_abi_version", 0) == 1
+                and getattr(self.bridge, "battle_capable", False))
+
+    async def _release_refused(self, request, error):
+        """Enter refused before any ADMIT: the latched window shows why, with its rows usable again (Cancel challenge,
+        a new Enter once the reason is gone, B: Back). Never a wait that cannot end."""
+        settle = getattr(self.companion, "_native_menu_refused_battle", None)
+        if callable(settle):
+            settle(self)
+        text = refusal_text(getattr(error, "code", None))
+        self.menu.notice(text)
+        try:
+            screen = await self.menu.refresh()
+        except (ValueError, ConnectionError, OSError, asyncio.TimeoutError):
+            screen = MenuScreen(self.menu.screen.revision + 1, "Players", text, (), 0)
+        if (self._closed or not self.open or request.sequence != self.sequence
+                or self.companion._bridge is not self.bridge):
+            return
+        self._battle_latched = self._battle_preparing = self._battle_admission_failed = False
+        self._admission_display = self._admission_selection = self._admission_identity = None
+        try:
+            self.bridge.outbox.put_control(b"M" + pack_screen(request.sequence, replace(screen, admission_action=0),
+                                                              release=True))
+        except BridgeError:
+            self.open = False
+            self.bridge.writer.close()
+            return
+        if screen.admission_action:
+            self._send(request, screen)   # the usual screen: its Enter row works again
+
     async def admit_for_handoff(self, request, *, timeout=5):
         """ADMIT transfers the native Enter latch; ordinary CLOSE never does."""
         waiter = None
         succeeded = False
+        failure = None
         try:
             selection, self._admission_selection = self._admission_selection, None
             if (not self._battle_preparing or not self._battle_latched or self._battle_admission_failed
@@ -161,6 +201,9 @@ class MenuSession:
                 raise ConnectionError("native battle admission close acknowledgment changed")
             await self.companion._native_menu_handoff("battle", descriptor, self)
             succeeded = True
+        except BaseException as error:
+            failure = error
+            raise
         finally:
             if waiter is not None:
                 self._close_waiter = None
@@ -168,7 +211,10 @@ class MenuSession:
                     waiter.cancel()
                 elif not waiter.cancelled():
                     waiter.exception()  # Observe cleanup failure even if preparation failed first.
-            if not succeeded:
+            if not succeeded and isinstance(failure, BattleAdmissionRefused) and self._release_capable():
+                # Refused before any ADMIT: _handle releases the window (_release_refused); nothing to retain.
+                self._queued_open = None
+            elif not succeeded:
                 self._battle_admission_failed = True
                 self._queued_open = None
                 abandon = getattr(self.companion, "_native_menu_abandon_battle_preparation", None)

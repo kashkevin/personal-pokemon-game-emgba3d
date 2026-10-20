@@ -385,7 +385,7 @@ async def run(args: argparse.Namespace) -> None:
 
         await open_menu(0)
         await choose(0, players[1].display_name, prefix=True)  # "Trader B - New": name and friendship
-        await choose(0, "Trade Pokemon")
+        await choose(0, "Trading")
         await choose(0, first=True)
         await open_menu(1)
         await choose(1, "Pending trade")
@@ -428,7 +428,7 @@ async def run(args: argparse.Namespace) -> None:
         await asyncio.sleep(3)
         await open_menu(0)
         await choose(0, players[1].display_name, prefix=True)  # "Trader B - New": name and friendship
-        await choose(0, "Trade Pokemon")
+        await choose(0, "Trading")
         await press(0, 2)
         await until("the backed-out trade ended", lambda: results[0] is not None, 90)
         assert results[0]["state"] == "aborted" and revisions == [4, 3], (results[0], revisions)

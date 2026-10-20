@@ -362,7 +362,7 @@ async def run(args):
                 if phase == "cancel-and-save":
                     await probes[0].open_players()
                     await probes[0].choose("Cancel Friend")
-                    await probes[0].choose("Challenge 1v1")
+                    await probes[0].choose("Rival Battle - 1v1")
                     await probes[1].open_players()
                     await probes[1].choose("Pending challenge")
                     await probes[1].choose("Accept challenge")

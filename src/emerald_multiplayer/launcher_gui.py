@@ -102,6 +102,7 @@ _TEXT = {
     "host_restart_not_ready": "Host restart requires the host's interrupted battle or prepared trade, with other operations finished.",
     "admission_canceling": "Canceling battle entry… Keep the game open until cancellation is verified.",
     "admission_canceled": "Battle entry canceled. Your party is unchanged and you can keep playing.",
+    "battle_entry_refused": "Your game could not enter that battle; the Players menu says why. Your party is unchanged and saving still works. Choose Enter battle again, or cancel the challenge.",
     "admission_cleanup_held": "Battle entry could not be canceled safely. Keep the game open; reconnect to the host and try again when cancellation is available.",
     "admission_cleanup_unsupported": "This game version cannot safely cancel a paused battle entry. Keep the original game open for recovery.",
     "trade_running": "Trading. Choose your Pokemon and confirm the offer in the game.",

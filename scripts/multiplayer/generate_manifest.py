@@ -254,6 +254,13 @@ def generate(rom: Path, elf: Path, nm: str, engine_commit: str, *, trade_effect_
         if not four_byte_marker(detail):
             raise ValueError("the presence detail needs one four-byte marker")
         manifest.update(presence_detail_abi_version=1)
+    # A refused Enter battle releases the game's latched Players window (menu screens with flags 3): native PC game
+    # only, like the presence detail (docs/multiplayer-battle-trade-repair-20261020.md).
+    release = native_marker("gMultiplayerMenuReleaseAbiVersion", symbols + native_symbols)
+    if release:
+        if not four_byte_marker(release) or manifest.get("menu_abi_version") != 2 or manifest.get("battle_resume_abi_version") != 1:
+            raise ValueError("the menu release needs one four-byte marker, the Players menu ABI 2 and native battle resume")
+        manifest.update(menu_release_abi_version=1)
     if len(objects) == 1:
         obj_address, obj_size = (int(value, 16) for value in objects[0])
         # Read-only test metadata for the pinned engine's 0x24-byte objects.

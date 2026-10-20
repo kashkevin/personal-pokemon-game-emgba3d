@@ -243,6 +243,7 @@ class CompanionConfig:
     reset_build_flags: int | None = field(init=False, default=None)
     menu_enabled: bool = field(init=False, default=False)
     menu_abi_version: int = field(init=False, default=1)
+    menu_release_abi_version: int = field(init=False, default=0)   # PC game: a refused Enter battle releases its window
     emergency_save_enabled: bool = field(init=False, default=False)
     emergency_save_abi_version: int = field(init=False, default=0)
     world_enabled: bool = field(init=False, default=False)
@@ -273,6 +274,10 @@ class CompanionConfig:
         object.__setattr__(self, "battle_admission_cleanup_abi_version", manifest.get("battle_admission_cleanup_abi_version", 0))
         object.__setattr__(self, "menu_enabled", manifest.get("menu_abi_version") in (1, 2))
         object.__setattr__(self, "menu_abi_version", manifest.get("menu_abi_version", 1))
+        # The native PC game ends a latched Enter battle window on a release screen (flags 3) when the companion
+        # refused that Enter before any ADMIT; without it (an older game) a refusal still leaves the window waiting.
+        object.__setattr__(self, "menu_release_abi_version", 1 if manifest.get("menu_release_abi_version") == 1
+                           and manifest.get("menu_abi_version") == 2 and manifest.get("battle_resume_abi_version") == 1 else 0)
         object.__setattr__(self, "save_window_enabled", manifest.get("save_window_abi_version") == 1)
         object.__setattr__(self, "reset_enabled", manifest.get("reset_abi_version") in (1, 2))
         object.__setattr__(self, "reset_abi_version", manifest.get("reset_abi_version", 0))

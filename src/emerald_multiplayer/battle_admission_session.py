@@ -14,6 +14,39 @@ from .native_battle import NativeBinding, NativeQuery, Opcode
 
 FORMAT = "native-battle-admission-receipt-v1"
 
+# Host replies that prove an Enter claim was never recorded: BattleAdmissionHost.claim and BattleDesk._get refuse before
+# anything is written. Such an Enter needs no ADMIT; its provisional intent is retired and the window released.
+DEFINITE_CLAIM_REFUSALS = frozenset({"battle_not_ready", "battle_missing", "battle_not_participant",
+                                     "battle_generation_mismatch", "stale_lease", "battle_resume_disabled"})
+
+
+class BattleAdmissionRefused(BattleJournalError):
+    """Enter refused before any ADMIT: no native hold exists or will exist for it, and no host claim was recorded.
+
+    The latched native window may be released (menu screen flags 3) with the reason; nothing needs recovery. The owner's
+    report of 2026-10-20: every such refusal used to leave both games on "Waiting for server..." for good."""
+
+
+def refused_admission_path(directory, battle_id):
+    return Path(directory) / (battle_id + ".refused-admission-intent.json")
+
+
+def retire_refused_admission(directory, intent):
+    """Keep a refused Enter's provisional intent as a record, never as a pending admission: no ADMIT was sent for it
+    (its receipt record does not exist) and the host refused its claim before recording it."""
+    directory = Path(directory)
+    pending, receipt = directory / FILENAME, directory / (intent.battle_id + ".battle-admission-receipt.json")
+    if path_present(receipt) or read_admission_intent(pending) != intent:
+        raise BattleJournalError("battle_recovery_required", "a refused Enter must still be the exact unadmitted intent")
+    _atomic(refused_admission_path(directory, intent.battle_id), pending.read_bytes())
+    pending.unlink()
+    _sync_directory(directory)
+
+
+def check_battle_admission(c, directory, challenge, original_session, retained_bridge):
+    """Every check of publish_battle_admission, writing nothing: what can refuse an Enter before it is durable."""
+    _admission_intent(c, directory, challenge, original_session, retained_bridge)
+
 
 def publish_battle_admission(c, directory, challenge, original_session, retained_bridge):
     """Synchronous Enter-event stage using already authenticated immutable pins.
@@ -21,7 +54,14 @@ def publish_battle_admission(c, directory, challenge, original_session, retained
     No network request or Flash download precedes the durable record. A native
     Enter latch still owns the field until the later exact ADMIT transfer.
     """
-    from .battle_admission_intent import BattleAdmissionIntent, publish_admission_intent
+    from .battle_admission_intent import publish_admission_intent
+    intent, journal = _admission_intent(c, directory, challenge, original_session, retained_bridge)
+    publish_admission_intent(journal.directory / FILENAME, intent)
+    return intent
+
+
+def _admission_intent(c, directory, challenge, original_session, retained_bridge):
+    from .battle_admission_intent import BattleAdmissionIntent
     from .battle_journal import BattleJournal
     from .battle_session import RenewedBattleSession
     from .battle_protocol import _view
@@ -67,8 +107,7 @@ def publish_battle_admission(c, directory, challenge, original_session, retained
     if path_present(journal.path):
         raise BattleJournalError("character_busy", "a full native battle already owns this core")
     journal._other_recovery()
-    publish_admission_intent(journal.directory / FILENAME, intent)
-    return intent
+    return intent, journal
 
 
 async def prepare_battle_admission(c, directory, challenge):
@@ -99,11 +138,21 @@ async def prepare_battle_admission(c, directory, challenge):
             if not path_present(path) or read_admission_intent(path) != intent:
                 raise BattleJournalError("battle_recovery_required", "provisional Enter intent disappeared before preparation")
             if c.connected:
+                from .companion import BattleChallengeError
                 try:
                     claimed = (await c.battle_challenge_rpc("claim", battle_id=intent.battle_id,
                         generation=intent.generation, incarnation=intent.incarnation, runtime_id=intent.runtime_id))["result"]
                     if claimed != intent.challenge or authenticated_session(c) != original or c._bridge is not bridge:
                         raise BattleJournalError("battle_recovery_required", "Enter claim changed its original accepted challenge")
+                except BattleChallengeError as error:
+                    if (error.code in DEFINITE_CLAIM_REFUSALS and getattr(c.config, "menu_release_abi_version", 0) == 1
+                            and not path_present(journal.directory / (intent.battle_id + ".battle-admission-receipt.json"))):
+                        # The host answered, and refused before recording the claim (the challenge expired, was
+                        # cancelled or changed): this Enter cannot become a battle, so it never becomes a hold.
+                        retire_refused_admission(journal.directory, intent)
+                        raise BattleAdmissionRefused(error.code, str(error)) from error
+                    await hold_admission(c, journal.directory, intent, bridge)
+                    raise
                 except (Exception, asyncio.CancelledError):
                     # Exact native ADMIT proves the already-selected Enter if
                     # its host claim reply was lost. It grants no battle start.

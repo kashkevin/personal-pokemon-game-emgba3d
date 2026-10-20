@@ -93,6 +93,7 @@ _MESSAGES = {
     "battle_recovery_held": "Battle recovery remains incomplete; retain the original game and its recovery records.",
     "admission_cleanup_unsupported": "This installed game does not support neutral battle entry cleanup; retain the original game.",
     "admission_cleanup_held": "Battle entry cleanup remains incomplete; retain the original game and its recovery records.",
+    "battle_entry_refused": "The game could not enter the battle; PLAYERS shows why. Nothing changed and saving still works.",
     "host_restart_not_ready": "Host restart requires this host's disconnected, retained original battle or prepared trade with no other operation running.",
     "host_restart_failed": "The host service could not restart; retain every original game and retry after restoring the host configuration.",
 }
@@ -513,6 +514,8 @@ class LauncherSession:
             self._companion._native_menu_capture_battle = self._native_menu_capture_battle
             self._companion._native_menu_prepare_battle = self._native_menu_prepare_battle
             self._companion._native_menu_abandon_battle_preparation = self._native_menu_abandon_battle_preparation
+            self._companion._native_menu_refused_battle = self._native_menu_refused_battle
+            self._companion._native_menu_battle_blocker = self._native_menu_battle_blocker
         self._publish(SessionState.CONNECTING, "authentication")
         await self._companion.start()
         await self._await_authentication()
@@ -1712,11 +1715,72 @@ class LauncherSession:
         if controller.task is not None:
             await controller.drain()
 
+    def _native_menu_battle_blocker(self, descriptor, *, entering=False):
+        """Why this launcher would refuse Enter battle for `descriptor` now, or None; synchronous, no I/O beyond
+        checking for recovery records. PLAYERS asks before it offers Enter, so the game never latches an Enter that
+        cannot be admitted (the owner's report of 2026-10-20). `entering`: the Enter itself, whose connection and
+        binding checks (including a host loss that is still draining) are check_battle_admission's."""
+        c = self._companion
+        if c is None or not self._open or self._closing or self._game is None or self._game.process.returncode is not None:
+            return "game_active"
+        if self._save_failed and not self._idle_save_disconnect:
+            return "save_recovery_required"
+        if self._interaction is not None or self._save_task is not None and not self._save_task.done():
+            return "character_busy"
+        if not entering and (not c.connected or self._binding is None or self._signature() != self._binding):
+            return "session_changed"
+        accepted = next((cp for cp in descriptor.get("checkpoints", ()) if cp.get("player_id") == c.config.player_id), None)
+        if accepted is None or accepted.get("revision") != self._revision:
+            return "save_not_ready"
+        try:
+            from .battle_journal import BattleJournal
+            BattleJournal(c, self._profile_directory)._other_recovery()
+        except ValueError as error:
+            return getattr(error, "code", "character_recovery_pending")
+        except OSError:
+            return "character_recovery_pending"
+        return None
+
+    def _native_menu_refused_battle(self, menu_session):
+        """An Enter refused before any ADMIT (BattleAdmissionRefused): forget its Python ownership. Nothing native or
+        durable was left for it, so saving and later challenges stay available (no save recovery is required)."""
+        prepared = self._battle_menu_preparation
+        if prepared is not None and prepared[1] is menu_session:
+            self._battle_menu_preparation = None
+            if self._interaction in (menu_session, prepared[0]):
+                self._interaction = None
+        elif self._interaction is menu_session:
+            self._interaction = None
+        retained = self._battle_retained
+        if retained is not None and self._companion is not None and retained[2] is self._companion._bridge:
+            self._battle_retained = None
+        self._battle_recovery_intent = None
+        self._autosave_wake.set()
+        if self._game is not None and not self._save_failed:
+            self._publish(SessionState.RUNNING, "battle_entry_refused", revision=self._revision)
+
     def _native_menu_capture_battle(self, descriptor, menu_session):
         """Publish the exact native Enter event before creating any async work."""
         from .battle_admission_intent import BattleAdmissionIntent
-        from .battle_admission_session import publish_battle_admission
+        from .battle_admission_session import BattleAdmissionRefused, check_battle_admission, publish_battle_admission
         from .battle_session import RenewedBattleSession
+        from .battle_journal import BattleJournalError
+        c = self._companion
+        try:
+            blocker = self._native_menu_battle_blocker(descriptor, entering=True)
+            if blocker is not None:
+                raise BattleJournalError(blocker, "this game cannot enter the battle now")
+            self._capture_checks(descriptor, menu_session)
+            check_battle_admission(c, self._profile_directory, descriptor, RenewedBattleSession(
+                self._binding[0], self._binding[4], self._binding[5], self._binding[6], self._binding[3],
+                self._binding[1], self._binding[2], c.save_incarnation, getattr(c, "_live_battle_runtime_id", None)),
+                c._bridge)
+        except Exception as error:
+            # Nothing durable or native names this Enter yet: a refusal, never a save failure.
+            raise BattleAdmissionRefused(getattr(error, "code", None) or "game_active", str(error)) from error
+        return self._capture_battle(descriptor, menu_session)
+
+    def _capture_checks(self, descriptor, menu_session):
         c = self._companion
         if (not self._open or self._closing or self._binding is None or c is None
                 or self._manifest.get("battle_resume_abi_version") != 1
@@ -1734,6 +1798,13 @@ class LauncherSession:
         accepted = next((cp for cp in descriptor["checkpoints"] if cp["player_id"] == c.config.player_id), None)
         if accepted is None or accepted["revision"] != self._revision:
             raise LauncherSessionError("save_not_ready")
+
+    def _capture_battle(self, descriptor, menu_session):
+        from .battle_admission_intent import BattleAdmissionIntent
+        from .battle_admission_session import publish_battle_admission
+        from .battle_session import RenewedBattleSession
+        c = self._companion
+        accepted = next(cp for cp in descriptor["checkpoints"] if cp["player_id"] == c.config.player_id)
         self._battle_retained = retained = (self._game, self._runtime, c._bridge,
             descriptor["battle_id"], descriptor["generation"], self._revision,
             accepted["sha256"], c.save_incarnation, getattr(c, "_live_battle_runtime_id", None))
@@ -1759,7 +1830,7 @@ class LauncherSession:
 
     async def _native_menu_prepare_battle(self, descriptor, menu_session):
         """Consume only this menu's synchronously published Enter event."""
-        from .battle_admission_session import prepare_battle_admission
+        from .battle_admission_session import BattleAdmissionRefused, prepare_battle_admission
         prepared, c = self._battle_menu_preparation, self._companion
         if (prepared is None or prepared[0] is not None or prepared[1] is not menu_session
                 or prepared[2] is None or prepared[2].challenge != descriptor
@@ -1780,6 +1851,10 @@ class LauncherSession:
             if intent != prepared[2]:
                 raise LauncherSessionError("battle_recovery_held")
             return intent
+        except BattleAdmissionRefused:
+            # The host refused the claim before recording it and no ADMIT was sent (prepare_battle_admission retired
+            # the intent): the window is released, saving stays available.
+            raise
         except (Exception, asyncio.CancelledError):
             self._native_menu_abandon_battle_preparation(menu_session)
             raise
