@@ -80,6 +80,16 @@ class MailboxTests(unittest.TestCase):
         self.assertEqual(converted.frame, 99)
         self.assertEqual(converted.activity, 1)
 
+    def test_a_player_in_a_menu_or_dialogue_stays_drawn_and_battle_or_map_change_hides(self):
+        # Update 32: the game reports a menu, a dialogue or a cutscene on the field as "menu" with its current
+        # position; the other players' games draw that avatar standing there. A battle or a map change hides it.
+        presence = {**pose().network_fields(True), "map_epoch": 3, "seq": 5}
+        for activity, drawn in (("overworld", 1), ("menu", 1), ("battle", 0), ("transition", 0), ("unavailable", 0)):
+            with self.subTest(activity=activity):
+                self.assertEqual(Pose.from_presence({**presence, "activity": activity}).activity, drawn)
+        local = Pose.unpack(pose(activity=0).pack()[:-1] + bytes([2]), detail_version=1)
+        self.assertEqual(local.network_fields(True)["activity"], "menu")
+
 
 class BridgeFramingTests(unittest.IsolatedAsyncioTestCase):
     async def test_partial_binary_frames_and_clean_eof(self):

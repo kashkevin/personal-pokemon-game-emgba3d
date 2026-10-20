@@ -272,10 +272,21 @@ class MenuTests(unittest.TestCase):
 
     # ---- My Worlds
 
+    def settle_world_scan(self, window, seconds=10):
+        """The window lists the PC's worlds on a background thread; its result replaces any list shown before it lands.
+        A test that shows its own list first lets that scan finish (it used to land in between, now and then)."""
+        import time
+        deadline = time.monotonic() + seconds
+        while window._scanning and time.monotonic() < deadline:
+            self.root.update()
+            time.sleep(.01)
+        self.assertFalse(window._scanning, "the window's world scan did not finish")
+
     def test_worlds_are_listed_with_their_players_and_a_world_can_be_picked_for_hosting(self):
         a, b = self.world("a"), self.world("b")
         entries = [WorldEntry(a.parent, a, ("Ash", "Misty"), STATUS_READY, 2.0), WorldEntry(b.parent, b, (), STATUS_INVALID, 1.0)]
         window = self.window()
+        self.settle_world_scan(window)
         window._apply_worlds(entries)
         tree = window.world_tree
         self.assertEqual(len(tree.get_children()), 2)

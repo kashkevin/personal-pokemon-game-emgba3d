@@ -66,14 +66,22 @@ class CharacterHandoffTests(unittest.TestCase):
         self.denied("source_changed", self.export, selection)
         self.assertFalse(self.destination.exists())
 
-    def test_owned_invalid_and_starterless_sources_cannot_be_selected(self):
+    def test_owned_and_invalid_sources_cannot_be_selected(self):
         for payload, code in ((b"not a save", "invalid_source"),
-                (make_ownership_flash(), "invalid_source"),
-                (source_flash(locations=()), "starter_required")):
+                (make_ownership_flash(), "invalid_source")):
             with self.subTest(code=code, size=len(payload)):
                 self.source.write_bytes(payload)
                 self.denied(code, self.inspect)
         self.assertFalse(self.destination.exists())
+
+    def test_starterless_new_character_is_selected_and_copied_exactly(self):
+        # Update 32: the short introduction saves before the starter is claimed in Birch's lab.
+        self.payload = source_flash(locations=())
+        self.source.write_bytes(self.payload)
+        selection = self.inspect()
+        self.assertEqual(selection.party_count, 0)
+        self.assertEqual(self.export(selection), self.destination)
+        self.assertEqual(self.destination.read_bytes(), self.payload)
 
     def test_live_draft_lease_blocks_inspection_and_export(self):
         selection = self.inspect()

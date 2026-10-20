@@ -46,6 +46,23 @@ class TradeDeskTests(unittest.TestCase):
         player=self.players[index].player_id
         return player,self.leases[player]
 
+    def test_a_player_with_no_pokemon_yet_cannot_open_a_trade(self):
+        # Update 32: a new character has no Pokemon until it claims its starter in Birch's lab.
+        player = self.store.create_player('New Player')
+        lease = self.store.acquire_lease(player.player_id, player.credential)
+        self.leases[player.player_id] = lease
+        self.store.enroll_player(player.player_id, source_flash(()))
+        grant = self.store.reserve_instances(player.player_id, lease, str(uuid4()), 0, 1, 32)
+        self.store.commit_checkpoint(player.player_id, lease, str(uuid4()), 0, owned_flash(grant, ()),
+            self.store.build_id, self.store.ruleset_id, OWNERSHIP_PROFILE)
+        for actor, peer, code in (((player.player_id, lease), self.players[2].player_id, 'no_pokemon'),
+                                  (self.actor(2), player.player_id, 'peer_no_pokemon')):
+            with self.subTest(code=code):
+                with self.assertRaises(StorageError) as caught:
+                    self.desk.open(*actor, peer, str(uuid4()))
+                self.assertEqual(caught.exception.code, code)
+        self.assertEqual(self.desk.proposals(*self.actor(2)), [])
+
     def test_discovery_is_private_and_does_not_extend_expiry(self):
         self.assertEqual(self.desk.proposals(*self.actor(0)), [self.view])
         self.assertEqual(self.desk.proposals(*self.actor(1)), [self.view])

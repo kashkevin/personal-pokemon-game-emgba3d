@@ -456,12 +456,13 @@ class ShellApp:
         return None
 
     def create_character_flow(self):
-        """The game's New Game, once: name, look, starter, Save, close. Returns the new character (now active) or None."""
+        """The game's New Game, once: boy or girl, name, the arrival save, close. Returns the new character (now active) or None."""
         if not self._need_game():
             return None
         screen = Screen("create_character", "Create a character")
-        screen.note("1. The game opens on a New Game. Choose your name, look and starter Pokemon.")
-        screen.note("2. Save the game (START menu, SAVE), then close the game window.")
+        screen.note("1. The game opens on a New Game. Choose boy or girl and your name.")
+        screen.note("2. The game saves when you arrive in Littleroot; then close the game window.")
+        screen.note("   Your first Pokemon waits in Professor Birch's lab: choose it when you play.")
         screen.note("3. Your character is ready: it plays Solo, hosts your worlds and joins your friends.")
         screen.note("This happens on this PC only; no world or connection is needed.")
         screen.row("go", "Create my character", "", "as")
@@ -469,7 +470,7 @@ class ShellApp:
         event = self.ui.show(screen)
         if event.kind == "back" or event.id != "go":
             return None
-        texts = {"draft_running": "Create your trainer in the game window.\nWhen you are done, SAVE (START menu) and close the game."}
+        texts = {"draft_running": "Create your trainer in the game window.\nWhen it has saved in Littleroot, close the game."}
         installation = self._game_installation()
         if installation is None:
             return None

@@ -43,6 +43,8 @@ NOTICES = {
     "battle_busy": "A rival is busy in a battle",
     "player_busy": "A rival is busy",
     "checkpoint_required": "A rival has no saved party",
+    "no_pokemon": "Get a Pokemon in Birch's lab",
+    "peer_no_pokemon": "A rival has no Pokemon yet",
     "trade_recovery_required": "Finish the pending trade",
 }
 

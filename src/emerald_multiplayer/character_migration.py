@@ -107,7 +107,8 @@ def recoverable_drafts(private_root, library: CharacterLibrary):
         if not save.is_file():
             continue
         payload, info = _read(save)
-        if info is None or info.world_id is not None or info.party_count < 1 or info.sha256 in known:
+        # Update 32: a draft with no Pokemon yet (the short introduction's save) is a character too.
+        if info is None or info.world_id is not None or info.sha256 in known:
             continue
         try:
             modified = save.stat().st_mtime

@@ -66,6 +66,13 @@ def _money(amount):
     return f"${amount:,}"
 
 
+# Update 32: a new character has no Pokemon until it claims its starter in Birch's lab.
+NO_POKEMON_NOTICES = {"no_pokemon": "Get a Pokemon in Birch's lab", "peer_no_pokemon": "They have no Pokemon yet"}
+# Host refusals of a new challenge shown in the menu (others keep the menu's own error handling).
+INVITE_NOTICES = {"battle_busy": "Finish the battle first", "player_offline": "That player is offline",
+                  "trade_recovery_required": "Finish the earlier trade", **NO_POKEMON_NOTICES}
+
+
 class PlayerMenuError(ValueError):
     def __init__(self, code):
         self.code = code
@@ -1140,7 +1147,8 @@ class PlayerMenu:
                     self._notice = {"trade_busy": "A trade is already open",
                                     "player_offline": "That player is offline",
                                     "battle_busy": "Finish the battle first",
-                                    "trade_recovery_required": "Finish the earlier trade"}.get(error.code, "The host refused: try again")
+                                    "trade_recovery_required": "Finish the earlier trade",
+                                    **NO_POKEMON_NOTICES}.get(error.code, "The host refused: try again")
                     return await self._refresh()
                 if trade["state"] != "offering" or self._session() != self._binding:
                     raise PlayerMenuError("trade_changed")
@@ -1166,15 +1174,21 @@ class PlayerMenu:
                 await self.companion.team_rpc("leave", team_id=args[0], generation=args[1])
             elif op in ("team_accept", "team_decline", "team_cancel"):
                 await self.companion.team_rpc(op.removeprefix("team_"), invitation_id=args[0], generation=args[1])
-            elif op == "battle_invite":
-                await self.companion.battle_challenge_rpc("invite", peer=args[0], battle_id=str(uuid4()))
-                self._page = ("battles", None)
-            elif op == "battle_multi":
-                await self.companion.battle_challenge_rpc("invite_multi", teammate=args[0], opponents=list(args[1:]), battle_id=str(uuid4()))
-                self._page = ("battles", None)
-            elif op == "battle_ffa":
-                await self.companion.battle_challenge_rpc("invite_ffa", opponents=list(args), battle_id=str(uuid4()))
-                self._page = ("battles", None)
+            elif op in ("battle_invite", "battle_multi", "battle_ffa"):
+                operation, fields = {
+                    "battle_invite": ("invite", dict(peer=args[0])),
+                    "battle_multi": ("invite_multi", dict(teammate=args[0], opponents=list(args[1:]))),
+                    "battle_ffa": ("invite_ffa", dict(opponents=list(args))),
+                }[op]
+                try:
+                    await self.companion.battle_challenge_rpc(operation, battle_id=str(uuid4()), **fields)
+                    self._page = ("battles", None)
+                except BattleChallengeError as error:
+                    if error.code not in INVITE_NOTICES:
+                        raise
+                    # The host's answer, shown on the page the challenge was made from (Update 32: a trainer with
+                    # no Pokemon yet).
+                    self._notice = INVITE_NOTICES[error.code]
             elif op in ("battle_accept", "battle_cancel"):
                 fields = dict(battle_id=args[0], generation=args[1])
                 if op == "battle_accept": fields["fingerprint"] = args[2]

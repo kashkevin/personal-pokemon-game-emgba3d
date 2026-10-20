@@ -1054,7 +1054,7 @@ class LauncherWindow:
         self.controls.append(browse_world)
         ttk.Button(row, text="Refresh", command=self._rescan_worlds).pack(side="left")
         ttk.Label(page, wraplength=700, style="Muted.TLabel", text=(
-            "New characters are made in the game itself (New Game, choose a starter, Save), then the host approves them. "
+            "New characters are made in the game itself (New Game, boy or girl, a name; it saves in Littleroot), then the host approves them. "
             "Setup walks you through each step and keeps your original saves untouched.")).pack(anchor="w", pady=(16, 0))
         self.setup_view = view("setup", "World & character setup")
         self.setup_host = ttk.Frame(self.setup_view)

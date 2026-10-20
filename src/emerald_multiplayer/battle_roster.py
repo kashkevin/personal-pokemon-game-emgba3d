@@ -68,6 +68,10 @@ def bring_party(party: bytes, mask: int) -> bytes:
     return b"".join(chosen) + bytes(POKEMON_SIZE * (6 - len(chosen)))
 
 
+
+class EmptyPartyError(BattleMailboxError):
+    """A trainer with no Pokemon yet (Update 32: a new character before its starter claim in Birch's lab)."""
+
 @dataclass(frozen=True)
 class CanonicalBattler:
     world_id: str
@@ -104,7 +108,7 @@ class CanonicalBattler:
             raise BattleMailboxError("canonical battle checkpoint belongs to a different world/player")
         metadata = snapshot.metadata
         if not metadata.party_count:
-            raise BattleMailboxError("native battle requires a nonempty owned party")
+            raise EmptyPartyError("native battle requires a nonempty owned party")
         party = snapshot.save_block1[SAVED_PARTY_OFFSET:SAVED_PARTY_OFFSET+600]
         # Pinned LinkPlayer layout: version0/u16, field2/u16, trainer4/u32,
         # name8/8B, progress16..18/zero, gender19/u8, linktype20/u32,

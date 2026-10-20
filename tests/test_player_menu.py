@@ -43,6 +43,22 @@ class PlayerMenuNetworkTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(room.consent), 2)
         self.assertFalse(room.bind_intent)
 
+    async def test_a_challenge_to_a_trainer_with_no_pokemon_yet_is_refused_where_it_was_made(self):
+        # Update 32: a new character has no Pokemon until it claims its starter in Birch's lab.
+        from emerald_multiplayer.battle_desk import BattleError
+        desk = self.server.battle_desk
+        for code, notice in (("peer_no_pokemon", "They have no Pokemon yet"), ("no_pokemon", "Get a Pokemon in Birch's lab")):
+            with self.subTest(code=code):
+                def refuse(*args, code=code, **kwargs):
+                    raise BattleError(code, "a trainer has no Pokemon yet")
+                desk._invite = refuse
+                menu = PlayerMenu(self.companions[0]); await menu.refresh()
+                await self.click(menu, "Trainer 1")
+                screen = await self.click(menu, "Rival Battle - 1v1")
+                self.assertEqual(screen.status, notice)
+                self.assertIn("Rival Battle - 1v1", [row.label for row in screen.rows])  # still on the player's page
+                self.assertFalse(desk._active)
+
     async def test_unchanged_refresh_keeps_visible_action_generation(self):
         menu = PlayerMenu(self.companions[0])
         first = await menu.refresh()

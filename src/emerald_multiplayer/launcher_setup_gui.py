@@ -50,17 +50,17 @@ MESSAGES = {
     "connection_timeout": "The local host did not authenticate this character in time.",
     "connection_lost": "The authenticated host connection was lost.",
     "session_changed": "The authenticated session changed. Setup stopped safely.",
-    "draft_running": "In the game: choose New Game, choose a starter, use the normal Save menu, then close the game window.",
+    "draft_running": "In the game: choose New Game, boy or girl and a name; the game saves when you arrive in Littleroot. Then close the game window.",
     "draft_created": "Saved character selected. Friends: export it for your host. Hosts: select the account and explicitly approve enrollment.",
     "source_selected": "Closed, unassigned character verified and selected. The original save is preserved.",
     "character_ready": "Character verified. Choose a new .sav filename for the copy you will give your host.",
     "character_exported": "Character copy saved. Give only this .sav to your host for approval. Wait for enrollment, then use your personal invitation in Join Game. Keep the original as a backup; do not continue playing it.",
     "character_exists": "That file already exists. Choose a new filename; no existing save was replaced.",
     "character_destination": "Choose a new .sav file outside Emerald Together’s private data. Existing saves and world records cannot be replaced.",
-    "draft_unsaved": "Save normally after choosing a starter, then close the game. Incomplete drafts are retained privately.",
+    "draft_unsaved": "Create the character (it saves when you arrive in Littleroot), then close the game. Incomplete drafts are retained privately.",
     "draft_active": "Close the draft game normally before completing character preparation.",
-    "save_required": "Create a character, choose a starter and use the game’s Save menu before closing it.",
-    "starter_required": "Choose a starter and save through the game’s menu before enrollment.",
+    "save_required": "Create a character (it saves when you arrive in Littleroot) before closing the game.",
+    "starter_required": "Save through the game’s menu before enrollment.",
     "game_running": "Save through the game’s menu and close the game window first.",
     "game_failed": "The draft game did not close normally. Its private files were retained.",
     "game_closed": "The game was closed before the character was registered. Its private files were retained.",
@@ -288,7 +288,7 @@ class SetupWindow:
                   wraplength=650).pack(anchor="w", pady=(0, 16))
         for title, detail, role in (
                 ("I’m hosting", "Create one world with the host and friend names, choose the world’s trade rule, then approve a saved character for each account. Keep the whole world folder private.", "host"),
-                ("I’m joining a friend", "Create a character, choose a starter and save normally. Export its .sav here and give it to your host for approval. After the host enrolls it, use your own invitation in Join Game; the host must be running.", "friend")):
+                ("I’m joining a friend", "Create a character (New Game saves when you arrive in Littleroot). Export its .sav here and give it to your host for approval. After the host enrolls it, use your own invitation in Join Game; the host must be running.", "friend")):
             ttk.Label(start, text=detail, wraplength=650).pack(anchor="w", pady=(0, 8))
             button = ttk.Button(start, text=title, command=lambda r=role: self.begin_role(r))
             button.pack(anchor="w", pady=(0, 22))

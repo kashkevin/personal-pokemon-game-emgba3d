@@ -78,6 +78,8 @@ class ChampionshipMenu:
                     "player_offline": "A participant disconnected",
                     "player_busy": "A participant is busy",
                     "battle_busy": "Finish the current battle first",
+                    "no_pokemon": "Get a Pokemon in Birch's lab",
+                    "peer_no_pokemon": "A trainer has no Pokemon yet",
                     "championship_busy": "A participant has another bracket",
                     "championship_changed": "Bracket changed; refresh first",
                     "championship_stale": "Bracket changed; refresh first",

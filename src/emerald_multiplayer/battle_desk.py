@@ -17,7 +17,7 @@ import time
 from uuid import uuid4
 
 from .battle_mailbox import BattleMailboxError, _integer, _uuid
-from .battle_roster import CanonicalBattler
+from .battle_roster import CanonicalBattler, EmptyPartyError
 from .coop_code import valid_code
 from .rival_catalogue import valid_preparation_word
 from .native_battle import Kind, NativeBinding, NativeControl, NativeQuery, Opcode
@@ -357,6 +357,10 @@ class BattleDesk:
                 descriptor = CanonicalBattler.from_checkpoint(checkpoint,
                     world_id=self.store.metadata.world_id, build_id=self.store.build_id,
                     ruleset_id=self.store.ruleset_id, source_slot=slot, mode=mode, bring=(brings or {}).get(player, 0))
+            except EmptyPartyError as error:
+                # Update 32: a new character has no Pokemon until its starter claim in Birch's lab.
+                raise (BattleError("no_pokemon", "you have no Pokemon yet: claim one in Professor Birch's lab")
+                       if player == actor else BattleError("peer_no_pokemon", "a trainer has no Pokemon yet")) from error
             except ValueError as error:
                 raise BattleError("checkpoint_required", "all trainers need a valid owned canonical party"
                                   + (" and a team selection that is still valid" if brings else "")) from error

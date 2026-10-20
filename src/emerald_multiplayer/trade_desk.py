@@ -168,8 +168,13 @@ class TradeDesk:
             current = self.lease_for(participant)
             if current is None:
                 raise StorageError("player_offline", "both trade participants must be connected")
-            if self._auth(participant, current) is None:
+            checkpoint = self._auth(participant, current)
+            if checkpoint is None:
                 raise StorageError("checkpoint_required", "both players need an owned checkpoint")
+            if not inspect_flash(checkpoint.payload, save_profile=self.store.save_profile).metadata.party_count:
+                # Update 32: a new character has no Pokemon until its starter claim in Birch's lab.
+                raise (StorageError("no_pokemon", "you have no Pokemon to trade yet") if participant == player
+                       else StorageError("peer_no_pokemon", "that player has no Pokemon to trade yet"))
             if self.store.pending_trade_recovery(participant, current):
                 raise StorageError("trade_recovery_required", "apply the previous trade result before starting another")
             leases.append(current)

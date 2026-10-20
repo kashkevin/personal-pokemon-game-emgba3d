@@ -45,8 +45,9 @@ def _read_source(path):
             raise CharacterHandoffError("source_changed")
         snapshot = inspect_flash(payload, save_profile=LAYOUT_ID)
         extract_source_inventory(snapshot)
-        if not 1 <= snapshot.metadata.party_count <= 6:
-            raise CharacterHandoffError("starter_required")
+        # Update 32: a new character has no Pokemon until it claims its starter in Birch's lab.
+        if not 0 <= snapshot.metadata.party_count <= 6:
+            raise CharacterHandoffError("invalid_source")
         return payload, snapshot.metadata.party_count
     except CharacterHandoffError:
         raise

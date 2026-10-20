@@ -114,10 +114,9 @@ class DraftRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.runtime.save_path.read_bytes(), self.payload)
         self.assertIsNone(self.runtime.result)
 
-    async def test_unsaved_corrupt_owned_or_starterless_source_is_refused(self):
+    async def test_unsaved_corrupt_or_owned_source_is_refused(self):
         cases = ((None, "save_required"), (b"invalid", "invalid_source"),
-                 (make_ownership_flash(), "invalid_source"),
-                 (source_flash(locations=()), "starter_required"))
+                 (make_ownership_flash(), "invalid_source"))
         for payload, code in cases:
             with self.subTest(code=code):
                 self.runtime = DraftRuntime(self.installation, self.root / "private")
@@ -130,6 +129,17 @@ class DraftRuntimeTests(unittest.IsolatedAsyncioTestCase):
                         self.assertEqual(caught.exception.code, code)
                 self.assertFalse((self.runtime.directory / "draft-completed.json").exists())
                 self.assertIsNone(self.runtime.result)
+
+    async def test_starterless_new_character_is_a_valid_source(self):
+        # Update 32: the short introduction saves in Littleroot before the starter is claimed in Birch's lab.
+        self.payload = source_flash(locations=())
+        with self.fixture():
+            async with self.runtime.open() as game:
+                await game.wait()
+                result = self.runtime.finish()
+        self.assertEqual(result.party_count, 0)
+        self.assertEqual(result.sha256, hashlib.sha256(self.payload).hexdigest())
+        self.assertTrue((self.runtime.directory / "draft-completed.json").exists())
 
     async def test_closed_or_already_finished_draft_cannot_publish_again(self):
         with self.assertRaises(DraftRuntimeError) as caught:

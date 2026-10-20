@@ -47,6 +47,33 @@ class BattleDeskTests(unittest.TestCase):
     def tearDown(self):
         self.store.close(); self.temp.cleanup()
 
+    def starterless(self):
+        """A fifth trainer enrolled and checkpointed with no Pokemon (Update 32: before the lab claim)."""
+        player = self.store.create_player("New Trainer")
+        lease = self.store.acquire_lease(player.player_id, player.credential)
+        self.leases[player.player_id] = lease
+        self.store.enroll_player(player.player_id, source_flash(()))
+        grant = self.store.reserve_instances(player.player_id, lease, str(uuid4()), 0, 1, 32)
+        self.store.commit_checkpoint(player.player_id, lease, str(uuid4()), 0, owned_flash(grant, ()),
+            self.store.build_id, self.store.ruleset_id, OWNERSHIP_PROFILE)
+        return player.player_id, lease
+
+    def test_a_trainer_with_no_pokemon_yet_is_refused_by_name_not_as_a_broken_save(self):
+        newcomer, lease = self.starterless()
+        for actor, peer, code in (((newcomer, lease), self.players[2].player_id, "no_pokemon"),
+                                  (self.actor(2), newcomer, "peer_no_pokemon")):
+            with self.subTest(code=code):
+                with self.assertRaises(BattleError) as caught:
+                    self.desk.invite(*actor, peer, str(uuid4()))
+                self.assertEqual(caught.exception.code, code)
+        self.call("cancel", 0)  # the fixture's own challenge: trainers 0 and 1 are free for a free-for-all
+        with self.assertRaises(BattleError) as caught:
+            self.desk.invite_ffa(*self.actor(2), (self.players[0].player_id, self.players[3].player_id, newcomer), str(uuid4()))
+        self.assertEqual(caught.exception.code, "peer_no_pokemon")
+        # nothing was left behind: the two trainers with Pokemon still battle each other
+        view = self.desk.invite(*self.actor(2), self.players[3].player_id, str(uuid4()))
+        self.assertEqual(view["state"], "invited")
+
     def actor(self, index):
         player = self.players[index].player_id
         return player,self.leases[player]

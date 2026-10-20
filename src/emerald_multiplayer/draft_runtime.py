@@ -36,9 +36,9 @@ _MESSAGES = {
     "draft_closed": "The new-character draft is not open.",
     "game_running": "Save through the game's menu and close the game first.",
     "game_failed": "The game did not close normally; the private draft is retained.",
-    "save_required": "Create a character, choose a starter and save through the game's menu first.",
+    "save_required": "Create a character in the game first: it saves when you arrive in Littleroot.",
     "invalid_source": "The draft is not a valid, unassigned character save.",
-    "starter_required": "Choose a starter and save through the game's menu before enrollment.",
+    "starter_required": "Save through the game's menu before enrollment.",
     "draft_finished": "This draft already has its source receipt.",
     "draft_failed": "New-character preparation could not complete; its private files are retained.",
 }
@@ -166,8 +166,9 @@ class DraftRuntime:
             extract_source_inventory(snapshot)
         except Exception:
             raise DraftRuntimeError("invalid_source") from None
-        if not 1 <= snapshot.metadata.party_count <= 6:
-            raise DraftRuntimeError("starter_required")
+        # Update 32: a new character has no Pokemon until it claims its starter in Birch's lab.
+        if not 0 <= snapshot.metadata.party_count <= 6:
+            raise DraftRuntimeError("invalid_source")
         result = DraftSource(self.save_path, hashlib.sha256(payload).hexdigest(),
                              snapshot.metadata.party_count)
         try:

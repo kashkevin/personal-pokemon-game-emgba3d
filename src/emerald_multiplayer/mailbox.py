@@ -31,6 +31,9 @@ class MailboxError(ValueError):
 # The session's presence activity for a PC game's off-field detail (engine include/multiplayer_presence.h). Without
 # one (0: a dialogue, a cutscene, a save, or a game without the capability) the player is "unavailable".
 DETAIL_ACTIVITIES = {1: "battle", 2: "menu", 3: "transition"}
+# Update 32: the other players' games draw a player on the field and one standing there in a menu or a dialogue (the
+# game reports those as "menu" with its current position); a battle or a map change hides the avatar.
+DRAWN_ACTIVITIES = frozenset({"overworld", "menu"})
 
 
 def _bound(value: int, low: int, high: int, name: str) -> int:
@@ -107,7 +110,7 @@ class Pose:
             presence["map_epoch"], presence["seq"], presence["x"], presence["y"],
             presence["map_group"], presence["map_number"], presence["direction"],
             presence["elevation"], presence["avatar_gender"],
-            modes[presence["movement_mode"]], 1 if presence["activity"] == "overworld" else 0,
+            modes[presence["movement_mode"]], 1 if presence["activity"] in DRAWN_ACTIVITIES else 0,
             presentation_version=presentation_version,
         )
 
