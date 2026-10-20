@@ -56,7 +56,8 @@ import traceback
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "windows-runtime"))
 from native_launcher_battle_proof import Player, drive_battle_input, launcher_proof  # noqa: E402
-from native_launcher_ffa_proof import close_players, into_littleroot, players_tab, pose_of, save_regions  # noqa: E402
+from native_launcher_ffa_proof import (challenge_free_for_all, close_players, into_littleroot,  # noqa: E402
+                                      players_tab, pose_of, save_regions)
 from qualify_admission_cleanup import on_worker, require  # noqa: E402
 from qualify_launcher_session import inspect_closed_head  # noqa: E402
 
@@ -203,9 +204,7 @@ class AbandonProof:
             await probe.choose("Accept challenge")
 
     async def challenge_ffa(self, probes):
-        await probes[0].open_players()
-        await probes[0].choose("Challenges")
-        await probes[0].choose("Free-for-All - 4 Players")
+        await challenge_free_for_all(probes[0], 4)
         for probe in probes[1:]:
             await probe.open_players()
             await probe.choose("Pending challenge")

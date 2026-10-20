@@ -6,7 +6,7 @@ SessionWorker and LauncherSession; production world creation and enrollment; the
 starts four native games, one per X display, driven by ordinary key presses. Recorded and required:
 
     1. Everyone linked: each game has the other three as peers, every Players tab lists everyone ("Connected: 4/4").
-    2. The host opens PLAYERS > Challenges > "Free-for-All - 4 Players"; the three others open PLAYERS, the pending
+    2. The host opens PLAYERS > Challenges > New battle > the free-for-all of all four; the three others open PLAYERS, the pending
        challenge, and accept; all four see the same challenge and press Enter battle at the same time.
     3. One native free-for-all (phase 5, four cores) runs with default moves to its end: every launcher reports
        battle_finished with its original game, bridge and native identity; each trainer's exact party is back in
@@ -168,6 +168,19 @@ async def close_players(probe):
             await probe.press(B)
 
 
+async def challenge_free_for_all(probe, players):
+    """PLAYERS > Challenges > New battle > the free-for-all of everyone connected (Update 32). A game with the 1v1v1
+    offers four connected players a Free-for-All page (everyone, or three of the four): "Everyone: 4 Players"."""
+    await probe.open_players()
+    await probe.choose("Challenges")
+    _, screen = await probe.choose("New battle")
+    if players == 4 and "Free-for-All" in [row.label for row in screen.rows]:
+        await probe.choose("Free-for-All")
+        await probe.choose("Everyone: 4 Players")
+    else:
+        await probe.choose(f"Free-for-All - {players} Players")
+
+
 async def players_tab(probe):
     await probe.open_players()
     _, screen = await probe.ready()
@@ -192,6 +205,7 @@ def save_regions(checkpoint):
 
 class FreeForAll:
     """The match (step 2-4) and the comparison of the saves (step 5) for launcher_proof."""
+    PLAYERS, MODE = 4, 5   # native_launcher_ffa3_proof.py: the 1v1v1
 
     def __init__(self, match_seconds, leave_after=None, watch=240):
         self.match_seconds, self.before_saves = match_seconds, None
@@ -289,6 +303,14 @@ class FreeForAll:
                host_battle=await on_worker(current[0], host_battle))
         return None
 
+    async def challenge(self, probes, host, record):
+        """Step 2: the host's free-for-all of everyone; each other player accepts it."""
+        await challenge_free_for_all(probes[0], self.PLAYERS)
+        for probe in probes[1:]:
+            await probe.open_players()
+            await probe.choose("Pending challenge")
+            await probe.choose("Accept challenge")
+
     async def match(self, current, probes, games, host, symbols, record):
         async def identity(s):
             c = s._companion
@@ -304,28 +326,23 @@ class FreeForAll:
 
         self.before_saves = await on_worker(current[0], saves)
         sessions_before = [await on_worker(w, session) for w in current]
-        require(all(v["connected"] and v["game_link"] and v["roster"] == 4 for v in sessions_before),
+        connected = f"Connected: {self.PLAYERS}/4"
+        require(all(v["connected"] and v["game_link"] and v["roster"] == self.PLAYERS for v in sessions_before),
                 f"not everyone is in the session: {sessions_before}")
         for index, probe in enumerate(probes):
             status, rows = await players_tab(probe)
-            require(status == "Connected: 4/4", f"player {index}'s PLAYERS: {status} {rows}")
+            require(status == connected, f"player {index}'s PLAYERS: {status} {rows}")
         record("everyone-linked-before-the-battle", sessions=[v["epoch"] for v in sessions_before])
         before = [await probe.battle() for probe in probes]
 
-        await probes[0].open_players()
-        await probes[0].choose("Challenges")
-        await probes[0].choose("Free-for-All - 4 Players")
-        for probe in probes[1:]:
-            await probe.open_players()
-            await probe.choose("Pending challenge")
-            await probe.choose("Accept challenge")
+        await self.challenge(probes, host, record)
         async with asyncio.timeout(60):
             while not all(screen.admission_action for _, screen in [await p.ready() for p in probes]):
                 await asyncio.sleep(.05)
 
         async def descriptor(s):
             values = s._companion._bridge.menu_session.menu._battles
-            require(len(values) == 1 and values[0]["mode"] == 5, f"expected one free-for-all challenge: {values}")
+            require(len(values) == 1 and values[0]["mode"] == self.MODE, f"expected one free-for-all challenge: {values}")
             return json.loads(json.dumps(values[0]))
         challenges = [await on_worker(w, descriptor) for w in current]
         challenge = challenges[0]
@@ -341,7 +358,7 @@ class FreeForAll:
             service.observer = lambda block: blocks.append(dict(block))
         await on_worker(current[0], observe)
         await asyncio.gather(*(p.choose("Enter battle", wait=False) for p in probes))
-        record("all-four-entered-the-free-for-all", battle_id=battle_id, source_slots=slots,
+        record("everyone-entered-the-free-for-all", battle_id=battle_id, source_slots=slots,
                pids=[g.process.pid for g in games])
 
         async def view(slot):
@@ -423,11 +440,11 @@ class FreeForAll:
                 await asyncio.sleep(.5)
         require([v["epoch"] for v in states] == [v["epoch"] for v in sessions_before],
                 f"a session was replaced by the battle: {states}")
-        require(all(v["connected"] and v["game_link"] and v["roster"] == 4 for v in states),
+        require(all(v["connected"] and v["game_link"] and v["roster"] == self.PLAYERS for v in states),
                 f"somebody left the session: {states}")
         for index, probe in enumerate(probes):
             status, rows = await players_tab(probe)
-            require(status == "Connected: 4/4", f"player {index}'s PLAYERS after the battle: {status} {rows}")
+            require(status == connected, f"player {index}'s PLAYERS after the battle: {status} {rows}")
         record("back-in-the-world-same-sessions", sessions=[v["epoch"] for v in states],
                poses=[list(v["pose"]) for v in states])
         return result

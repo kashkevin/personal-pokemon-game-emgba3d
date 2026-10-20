@@ -11,7 +11,7 @@ from pathlib import Path
 import struct
 
 from .battle_mailbox import BattleMailboxError, _integer
-from .native_battle import COOP_PHASE, FFA_PHASE, PHASE, battler_count_for_phase, battler_owner, player_count_for_phase
+from .native_battle import COOP_PHASE, FFA_PHASES, PHASE, battler_count_for_phase, battler_owner, player_count_for_phase
 
 MASTER_LENGTHS = {
     0: 4, 4: 4, 5: 4, 6: 2, 7: 4, 8: 4, 9: 4, 10: 4,
@@ -205,7 +205,8 @@ class ControllerValidator:
         if command == 49: return p[1] <= 2
         if command == 50:
             # Free-for-all: byte 2 names the winner's battler (255: a draw) and each core works out its own result from it.
-            winner_ok = (p[2] < self._count or p[2] == 255) if self._mode == FFA_PHASE else not p[2]
+            # The winner is one of the trainers' battlers (never the 1v1v1's empty place).
+            winner_ok = (p[2] < self._cores or p[2] == 255) if self._mode in FFA_PHASES else not p[2]
             return p[1] in (1, 2, 3) and winner_ok and not any(p[3:6])
         return True
 

@@ -11,7 +11,7 @@ import zlib
 
 from .battle_mailbox import BattleMailboxError, _integer, _uuid
 from .flash import SAVED_PARTY_OFFSET, inspect_flash
-from .native_battle import COOP_PHASE, Kind, Preparation, PHASE, MULTI_PHASE, FFA_PHASE, player_count_for_phase
+from .native_battle import COOP_PHASE, Kind, Preparation, PHASE, MULTI_PHASE, FFA_PHASES, player_count_for_phase
 from .ownership import OWNERSHIP_PROFILE, inspect_ownership
 from .protocol import MAX_COUNTER
 from .storage import Checkpoint
@@ -118,9 +118,9 @@ class CanonicalBattler:
         struct.pack_into("<HHI", trainer, 0, 0x4003, 0, metadata.trainer_id)
         trainer[8:16] = snapshot.save_block2[:8]
         trainer[19] = metadata.gender
-        # LINKTYPE_MULTI_BATTLE only for four linked trainers; singles and
-        # co-op Gym battles (two linked trainers) use LINKTYPE_BATTLE.
-        struct.pack_into("<IHH", trainer, 20, 0x2255 if mode in (MULTI_PHASE, FFA_PHASE) else 0x2211, source_slot, 2)
+        # LINKTYPE_MULTI_BATTLE for the four-battler link battles (2v2 and both free-for-alls, the 1v1v1 with three
+        # linked trainers); singles and co-op Gym battles (two linked trainers) use LINKTYPE_BATTLE.
+        struct.pack_into("<IHH", trainer, 20, 0x2255 if mode in (MULTI_PHASE, *FFA_PHASES) else 0x2211, source_slot, 2)
         if bring and (mode != COOP_PHASE or not valid_bring(bring, party, metadata.party_count)):
             raise BattleMailboxError("team selection is not valid for this party")
         return cls(world_id, checkpoint.player_id, checkpoint.revision, checkpoint.sha256,

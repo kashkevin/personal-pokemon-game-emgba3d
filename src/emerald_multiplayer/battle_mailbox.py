@@ -6,6 +6,7 @@ This separate ABI preserves existing presence/save transport and profiles.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import ClassVar
 from enum import IntEnum
 from functools import lru_cache
 import struct
@@ -131,10 +132,12 @@ class BattleBinding:
     leases: tuple[int, ...]
     incarnations: tuple[int, ...]
     local_slot: int
+    # The diagnostic channel binds two or four trainers; a native 1v1v1 binding (native_battle.py) also binds three.
+    _player_counts: ClassVar[tuple[int, ...]] = (2, 4)
 
     def __post_init__(self):
         _uuid(self.generation, "battle generation")
-        if (type(self.players) is not tuple or len(self.players) not in (2, 4)
+        if (type(self.players) is not tuple or len(self.players) not in self._player_counts
                 or type(self.leases) is not tuple or type(self.incarnations) is not tuple
                 or len(self.leases) != len(self.players) or len(self.incarnations) != len(self.players)):
             raise BattleMailboxError("binding needs exactly two or four immutable player/lease/incarnation entries")
@@ -164,7 +167,7 @@ class BattleBinding:
         generation, players, *fields = _BINDING.unpack(data)
         leases, incarnations = fields[:4], fields[4:8]
         count, local, mode, reserved = fields[8:]
-        if (count not in (2, 4) or mode != Phase.DIAGNOSTIC or reserved
+        if (count not in cls._player_counts or mode != Phase.DIAGNOSTIC or reserved
                 or any(players[count*16:]) or any(leases[count:]) or any(incarnations[count:])):
             raise BattleMailboxError("binding count, mode or unused fields are invalid")
         return cls(str(UUID(bytes=generation)),

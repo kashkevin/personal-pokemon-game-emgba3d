@@ -70,6 +70,13 @@ class TradeError(ValueError):
         self.code = code
 
 
+class LobbyError(ValueError):
+    """A host's refusal of a battle lobby operation (Update 32); a transport failure leaves its fate unknown."""
+    def __init__(self, code: str, message: str):
+        super().__init__(message)
+        self.code = code
+
+
 class BattleChallengeError(ValueError):
     """Authoritative consent refusal; transport failure still has unknown fate."""
     def __init__(self, code: str, message: str):
@@ -230,6 +237,7 @@ class CompanionConfig:
     presence_detail_abi_version: int = field(init=False, default=0)
     battle_enabled: bool = field(init=False, default=False)
     battle_ffa_enabled: bool = field(init=False, default=False)   # the ROM can run the four-player free-for-all (phase 5)
+    battle_ffa3_enabled: bool = field(init=False, default=False)  # ... and the three-player one (1v1v1, phase 6)
     battle_abi_version: int = field(init=False, default=0)
     battle_resume_abi_version: int = field(init=False, default=0)
     battle_admission_cleanup_abi_version: int = field(init=False, default=0)
@@ -272,6 +280,8 @@ class CompanionConfig:
         object.__setattr__(self, "battle_abi_version", manifest.get("battle_abi_version", 0))
         object.__setattr__(self, "battle_ffa_enabled", manifest.get("battle_ffa_abi_version") == 1
                            and manifest.get("battle_abi_version") == 3)
+        object.__setattr__(self, "battle_ffa3_enabled", self.battle_ffa_enabled
+                           and manifest.get("battle_ffa3_abi_version") == 1)
         object.__setattr__(self, "battle_resume_abi_version", manifest.get("battle_resume_abi_version", 0))
         object.__setattr__(self, "battle_admission_cleanup_abi_version", manifest.get("battle_admission_cleanup_abi_version", 0))
         object.__setattr__(self, "menu_enabled", manifest.get("menu_abi_version") in (1, 2))
@@ -499,6 +509,7 @@ class Companion:
         self._checkpoint_pending: dict[str, tuple[str, int, asyncio.Future]] = {}
         self._trade_pending: dict[str, tuple[dict, asyncio.Future]] = {}
         self._team_pending: dict[str, tuple[dict, asyncio.Future]] = {}
+        self._lobby_pending: dict[str, tuple[dict, asyncio.Future]] = {}
         self._enrollment_pending: dict[str, tuple[dict, asyncio.Future]] = {}
         self._challenge_pending: dict[str, tuple[dict, asyncio.Future]] = {}
         self._reset_pending: dict[str, tuple[dict, asyncio.Future]] = {}
@@ -1214,7 +1225,7 @@ class Companion:
         world-server routing; those belong to the native battle coordinator.
         """
         from .battle_mailbox import BattleControl, Opcode
-        from .native_battle import NativeControl, supports_native_phase
+        from .native_battle import FFA3_PHASE, NativeControl, supports_native_phase
         if (not self.config.development_battle_channel
                 or not isinstance(control, (BattleControl, NativeControl))
                 or (isinstance(control, NativeControl) and control.opcode > 13
@@ -1224,7 +1235,10 @@ class Companion:
                 or (isinstance(control, NativeControl) and control.opcode == Opcode.BIND
                     and len(control.data) == 116 and control.data[115]
                     and self.config.battle_resume_abi_version != 1)
-                or (isinstance(control, NativeControl) and not supports_native_phase(self.config.battle_abi_version, control.phase))):
+                or (isinstance(control, NativeControl) and not supports_native_phase(self.config.battle_abi_version, control.phase))
+                # Update 32: an older game has no 1v1v1 (its bridge would close on the first phase 6 command).
+                or (isinstance(control, NativeControl) and control.phase == FFA3_PHASE
+                    and not getattr(self.config, "battle_ffa3_enabled", False))):
             raise ValueError("battle channel requires explicit development opt-in and a matching ABI control")
         control.validate_command(player_id=self.config.player_id)
         if control.opcode != Opcode.QUERY:
@@ -1357,6 +1371,10 @@ class Companion:
             if not future.done():
                 future.set_exception(ConnectionError("team connection lost; query membership after reconnect"))
         self._team_pending.clear()
+        for _, future in self._lobby_pending.values():
+            if not future.done():
+                future.set_exception(ConnectionError("lobby connection lost; read the lobbies after reconnect"))
+        self._lobby_pending.clear()
         for _, future in self._enrollment_pending.values():
             if not future.done():
                 future.set_exception(ConnectionError("enrollment connection lost; ask for the account's state after reconnect"))
@@ -1627,6 +1645,8 @@ class Companion:
                 self._receive_checkpoint(message)
             elif message.get("type") in {"team_result", "team_error"}:
                 self._receive_team(message)
+            elif message.get("type") in {"lobby_result", "lobby_error"}:
+                self._receive_lobby(message)
             elif message.get("type") in {"enrollment_result", "enrollment_error"}:
                 self._receive_enrollment(message)
             elif message.get("type") in {"trade_result", "trade_error"}:
@@ -1671,6 +1691,49 @@ class Companion:
             self._team_pending.pop(request_id, None)
             if not future.done():
                 future.cancel()
+
+    async def lobby_rpc(self, operation: str, *, request_id: str | None = None,
+                        timeout: float = 5.0, **fields: Any) -> dict[str, Any]:
+        """Update 32: battle lobbies (battle_lobby.py, lobby_protocol.py); the format follows who joined."""
+        from .ownership_protocol import OWNERSHIP_PROFILE
+        from .lobby_protocol import LOBBY_OPERATIONS, validate_lobby_request
+        if not isinstance(operation, str) or operation not in LOBBY_OPERATIONS:
+            raise ValueError("unsupported lobby operation")
+        if type(timeout) not in (int, float) or not 0 < timeout <= 60 or not math.isfinite(timeout):
+            raise ValueError("lobby RPC timeout must be finite and between 0 and 60 seconds")
+        if (not self.connected or self.world_id is None or self._remote_writer is None
+                or self.config.server_credential is None or self.save_profile != OWNERSHIP_PROFILE):
+            raise ConnectionError("no authenticated ownership lobby session")
+        if set(fields) & {"type", "session_epoch"}:
+            raise ValueError("lobby envelope fields cannot be overridden")
+        request_id = request_id or str(uuid4())
+        request = dict(type="lobby_" + operation, session_epoch=self.session_epoch, request_id=request_id, **fields)
+        validate_lobby_request(request, self.session_epoch)
+        if request_id in self._lobby_pending or len(self._lobby_pending) >= 8:
+            raise ValueError("lobby request is pending or capacity is exhausted")
+        future = asyncio.get_running_loop().create_future()
+        self._lobby_pending[request_id] = (request, future)
+        try:
+            await self._send_remote(self._remote_writer, request)
+            return await asyncio.wait_for(future, timeout)
+        finally:
+            self._lobby_pending.pop(request_id, None)
+            if not future.done():
+                future.cancel()
+
+    def _receive_lobby(self, message):
+        from .lobby_protocol import validate_lobby_reply
+        validated = validate_lobby_reply(message, self.config.player_id, self.world_id, self.session_epoch)
+        pending = self._lobby_pending.get(validated["request_id"])
+        if pending is None:
+            return  # a late reply: the menu reads the lobbies again
+        request, future = pending
+        validate_lobby_reply(validated, self.config.player_id, self.world_id, self.session_epoch, request)
+        if not future.done():
+            if validated["type"] == "lobby_error":
+                future.set_exception(LobbyError(validated["code"], validated["message"]))
+            else:
+                future.set_result(validated)
 
     async def enrollment_rpc(self, operation, *, request_id=None, timeout=10.0, **fields):
         """A friend's first-time enrollment over the world connection (enrollment_protocol.py)."""
@@ -1787,7 +1850,7 @@ class Companion:
         championship_match = (operation == "pending" and any(
             type(fields.get(extension)) is dict and fields[extension].get("operation") == "match"
             for extension in ("championship", "rival")))
-        if (operation in {"invite", "invite_multi", "invite_ffa", "accept"} or championship_match) and self.config.battle_resume_abi_version == 1:
+        if (operation in {"invite", "invite_multi", "invite_ffa", "invite_ffa3", "accept"} or championship_match) and self.config.battle_resume_abi_version == 1:
             if self.config.battle_abi_version != 3 or self._bridge is None or not self._bridge.battle_capable:
                 raise ValueError("resumable consent requires the current verified native core")
             if getattr(self, "_live_battle_runtime_id", None) is None:

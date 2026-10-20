@@ -32,6 +32,7 @@ from .secure_transport import ServerTlsConfig, is_numeric_unicast_address
 from .trade_protocol import TRADE_TYPES, validate_trade_common, validate_trade_request
 from .enrollment_protocol import ENROLLMENT_TYPES, validate_enrollment_common, validate_enrollment_request
 from .team_protocol import TEAM_TYPES, validate_team_common, validate_team_request
+from .lobby_protocol import LOBBY_TYPES, validate_lobby_common, validate_lobby_request
 from .battle_protocol import BATTLE_TYPES, challenge_view, validate_battle_common, validate_battle_request
 from .reset_protocol import RESET_TYPES, validate_reset_common, validate_reset_request
 
@@ -337,11 +338,15 @@ class WorldServer:
         if self.trade_effects is not None:
             self.trade_effects.lucky_decider = self._decide_lucky_trade
             self.trade_effects.on_commit = self._on_trade_committed
+        self.lobby_desk = None
         if self.battle_desk is not None:
             self.battle_desk.on_closed = self._on_battle_closed
             self.battle_desk.on_publish = self._on_battle_publish
             self.battle_desk.on_aborted = self._on_battle_aborted
             self.battle_desk.start_gate = self._wager_gate
+            # Update 32: battle lobbies (the format follows who joined), in front of the challenges.
+            from .battle_lobby import LobbyDesk
+            self.lobby_desk = LobbyDesk(self._team_roster, battle_desk=self.battle_desk)
         self._last_friendship_tick = time.monotonic()
         self._last_clock_broadcast = 0.0
         self.world_seq = 0
@@ -667,6 +672,9 @@ class WorldServer:
                     if self.team_desk is not None:
                         with suppress(StorageError):
                             self.team_desk.refresh()
+                    if getattr(self, "lobby_desk", None) is not None:
+                        with suppress(StorageError, ProtocolError):
+                            self.lobby_desk.refresh()     # a trainer who left the world leaves their lobby
                     if not self._closing:
                         self._broadcast_world()
                 if self.store is not None:
@@ -744,6 +752,14 @@ class WorldServer:
                 self._team(session, request)
             except (ProtocolError, StorageError) as error:
                 self._team_reply(session, message, error=error)
+        elif isinstance(kind, str) and kind in LOBBY_TYPES and self.store is not None:
+            validate_lobby_common(message, session.session_epoch)
+            try:
+                request = validate_lobby_request(message, session.session_epoch)
+                session.last_seen = now
+                self._lobby(session, request)
+            except (ProtocolError, StorageError) as error:
+                self._lobby_reply(session, message, error=error)
         elif isinstance(kind, str) and kind in BATTLE_TYPES and self.store is not None:
             validate_battle_common(message, session.session_epoch)
             try:
@@ -911,6 +927,52 @@ class WorldServer:
         else:
             result = getattr(desk, operation)(*actor, request["invitation_id"], request["generation"])
         self._team_reply(session, request, result=result)
+
+    def _lobby_reply(self, session, request, *, error=None, result=None):
+        assert self._world_metadata is not None
+        self._control(session, dict(
+            type="lobby_error" if error is not None else "lobby_result",
+            protocol=PROTOCOL_VERSION, session_epoch=session.session_epoch,
+            request_id=request["request_id"], operation=request["type"].removeprefix("lobby_"),
+            world_id=self._world_metadata.world_id, player_id=session.player_id,
+            **({"code": error.code, "message": error.message} if error is not None else {"result": result})))
+
+    def _lobby(self, session, request):
+        """Update 32: a battle lobby (battle_lobby.py); its start is the creator's own challenge, linked here."""
+        if self.lobby_desk is None:
+            raise ProtocolError("battle_disabled", "this development world has not enabled battle challenges")
+        desk, actor = self.lobby_desk, (session.player_id, session.session_epoch)
+        operation = request["type"].removeprefix("lobby_")
+        if operation == "create":
+            result = desk.create(*actor, tuple(request["invitees"]), request["lobby_id"])
+        elif operation == "start":
+            result = desk.start(*actor, request["lobby_id"], request["generation"], request["battle_id"])
+        elif operation == "status":
+            result = desk.status(*actor)
+        else:
+            result = getattr(desk, operation)(*actor, request["lobby_id"], request["generation"])
+        self._lobby_reply(session, request, result=result)
+        if operation != "status":
+            self._lobby_notices(session, operation, result)
+
+    def _lobby_notices(self, session, operation, view):
+        """The in-game banner for those a lobby choice concerns (never for the one who made it)."""
+        from .shared_world import _banner
+        name = session.display_name[:12]
+        others = [p for p in (view["creator"], *view["invited"]) if p != session.player_id]
+        if operation == "create":
+            self.shared_world.post_notice(_banner(f"{name}: BATTLE LOBBY", "Open PLAYERS to join"), to=view["invited"])
+        elif operation == "join":
+            self.shared_world.post_notice(_banner(f"{name} JOINED THE LOBBY", " or ".join(view["formats"])),
+                                          to=[view["creator"]])
+        elif operation == "decline":
+            self.shared_world.post_notice(_banner(f"{name} DECLINED", "the battle lobby"), to=[view["creator"]])
+        elif operation == "start":
+            joined = [p for p in view["joined"] if p != session.player_id]
+            self.shared_world.post_notice(_banner(f"{view['format']} CHALLENGE!", "Accept it in PLAYERS"), to=joined)
+        elif operation == "leave" and view["state"] == "ended" and view["reason"] == "cancelled":
+            self.shared_world.post_notice(_banner("LOBBY CANCELLED", f"by {name}"),
+                                          to=[p for p in others if p not in view["declined"] and p not in view["left"]])
 
     def _battle_reply(self, session, request, *, error=None, result=None, player_card=None, championship=None,
                       admission_handoff_version=None, history_extensions=None, rival=None, abandon_version=None):
@@ -1156,17 +1218,17 @@ class WorldServer:
             raise ProtocolError("battle_disabled", "this development world has not enabled battle challenges")
         desk, actor = self.battle_desk, (session.player_id, session.session_epoch)
         capture_original = (self.battle_execution is not None and self.battle_execution.resume_enabled
-                            and operation in ("invite", "invite_multi", "invite_ffa", "accept"))
+                            and operation in ("invite", "invite_multi", "invite_ffa", "invite_ffa3", "accept"))
         if capture_original:
             self.battle_execution.admission.require_identity(request)
         if operation == "pending":
             result = [challenge_view(view) for view in desk.pending(*actor)]
         else:
             battle_id = request["battle_id"]
-            if (operation in ("invite", "invite_multi", "invite_ffa") and self._championships is not None
+            if (operation in ("invite", "invite_multi", "invite_ffa", "invite_ffa3") and self._championships is not None
                     and self._championships.claims_battle(battle_id)):
                 raise ProtocolError("championship_match_owned", "Use the Championship page for this reserved match")
-            if (operation in ("invite", "invite_multi", "invite_ffa") and self._rivals is not None
+            if (operation in ("invite", "invite_multi", "invite_ffa", "invite_ffa3") and self._rivals is not None
                     and self._rivals.claims_battle(battle_id)):
                 raise ProtocolError("rival_match_owned", "Use the rival checkpoint page for this reserved match")
             if operation == "invite":
@@ -1175,6 +1237,8 @@ class WorldServer:
                 view = desk.invite_multi(*actor, request["teammate"], tuple(request["opponents"]), battle_id)
             elif operation == "invite_ffa":
                 view = desk.invite_ffa(*actor, tuple(request["opponents"]), battle_id)
+            elif operation == "invite_ffa3":
+                view = desk.invite_ffa3(*actor, tuple(request["opponents"]), battle_id)
             elif operation == "status":
                 view = desk.status(*actor, battle_id)
             elif operation == "accept":
@@ -1769,7 +1833,7 @@ class WorldServer:
             raise WagerError("rival_match", "Rival checkpoint battles have no wagers")
         if battle.mode == 4:
             raise WagerError("coop_gym", "Gym battles together have no wagers")
-        if battle.mode == 5:
+        if battle.mode in (5, 6):
             raise WagerError("free_for_all", "free-for-all battles have no wagers")
         battle_id, players = battle.battle_id, list(battle.players)
         open_states = ("invited", "accepted", "prepared")
@@ -1878,8 +1942,8 @@ class WorldServer:
         """Before a co-op battle closes: its outcome becomes durable (the PvP archive does not hold co-op battles)."""
         outcome = next(iter(battle.finished.values()), None)
         if outcome is not None:
-            if battle.mode == 5:
-                self.shared_world.ffa.record(battle.battle_id, outcome, battle.players)   # four-player free-for-all
+            if battle.mode in (5, 6):
+                self.shared_world.ffa.record(battle.battle_id, outcome, battle.players)   # a free-for-all (4 or 3 players)
             else:
                 self.shared_world.frontier.record_result(battle.battle_id, outcome, battle.players)
 
@@ -1891,7 +1955,7 @@ class WorldServer:
             except Exception:  # noqa: BLE001 - progress is reconciled again at the next read or tick
                 pass
         outcome = next(iter(battle.finished.values()), None)
-        if outcome is not None and battle.mode != 5:   # a free-for-all has no wager
+        if outcome is not None and battle.mode not in (5, 6):   # a free-for-all has no wager
             try:
                 self._settle_wager(battle, outcome)
             except Exception:  # noqa: BLE001 - a wager never changes the battle record
@@ -1909,8 +1973,8 @@ class WorldServer:
             for x in teams[0]:
                 for y in teams[1]:
                     changes.append(self.friendships.record_pair(kind, x, y, battle.battle_id))
-        elif battle.mode == 5:
-            # Four independent trainers: everyone fought everyone.
+        elif battle.mode in (5, 6):
+            # Four (or three) independent trainers: everyone fought everyone.
             for i, x in enumerate(players):
                 for y in players[i + 1:]:
                     changes.append(self.friendships.record_pair("battle_against", x, y, battle.battle_id))

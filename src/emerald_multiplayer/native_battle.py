@@ -1,4 +1,4 @@
-"""ABI2 singles, ABI3 full-party Multi and co-op Gym envelopes; ABI1 stays separate.
+"""ABI2 singles, ABI3 full-party Multi, co-op Gym and free-for-all envelopes; ABI1 stays separate.
 
 These codecs validate bounded transport envelopes. Complete startup blocks still
 need canonical-save comparison, and controller blocks need the stateful native
@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import IntEnum
+from typing import ClassVar
 import struct
 from uuid import UUID
 import zlib
@@ -32,24 +33,36 @@ COOP_GYM_COUNT = 8
 # a side of their own. Its result is the winner (slot + 1) or a draw (FFA_DRAW); see docs/free-for-all.md.
 FFA_PHASE = 5
 FFA_DRAW = 5
+# Update 32: the three-player free-for-all (1v1v1; ABI3 + the free-for-all marker + the game's 1v1v1 marker): three cores,
+# the free-for-all's four battlers with the fourth place (battler 3) empty. Results as FFA_PHASE: winner slot + 1 or FFA_DRAW.
+FFA3_PHASE = 6
+FFA_PHASES = (FFA_PHASE, FFA3_PHASE)
 _U32 = 0xFFFFFFFF
 _PREPARE = struct.Struct("<IIII16sI")
 
 
 def player_count_for_phase(phase):
     """Trainers (cores) in a native phase."""
-    _integer(phase, PHASE, FFA_PHASE, "native phase")
-    return 4 if phase in (MULTI_PHASE, FFA_PHASE) else 2
+    _integer(phase, PHASE, FFA3_PHASE, "native phase")
+    return 3 if phase == FFA3_PHASE else 4 if phase in (MULTI_PHASE, FFA_PHASE) else 2
 
 
 def battler_count_for_phase(phase):
-    """Battlers on the field: both double phases have four."""
-    _integer(phase, PHASE, FFA_PHASE, "native phase")
+    """Battlers on the field: both double phases and both free-for-alls have four (the 1v1v1's fourth is empty)."""
+    _integer(phase, PHASE, FFA3_PHASE, "native phase")
     return 2 if phase == PHASE else 4
 
 
+def outcomes_for_phase(phase):
+    """The normalized results a phase's battle can end with: a free-for-all names its winner (slot + 1) or a draw."""
+    if phase in FFA_PHASES:
+        return tuple(range(1, player_count_for_phase(phase) + 1)) + (FFA_DRAW,)
+    return (1, 2, 3)
+
+
 def battler_owner(phase, battler):
-    """The core supplying a battler's choices. Co-op: slot 0 runs both AI foes."""
+    """The core supplying a battler's choices. Co-op: slot 0 runs both AI foes. The 1v1v1's empty place (battler 3) has
+    no core: nobody supplies its choices (it is absent from the first turn)."""
     if phase == COOP_PHASE:
         return 1 if battler == 2 else 0
     return battler
@@ -57,7 +70,7 @@ def battler_owner(phase, battler):
 
 def supports_native_phase(abi, phase):
     return (type(abi) is int and type(phase) is int
-            and ((abi == 2 and phase == 2) or (abi == 3 and phase in (2, 3, COOP_PHASE, FFA_PHASE))))
+            and ((abi == 2 and phase == 2) or (abi == 3 and phase in (2, 3, COOP_PHASE, FFA_PHASE, FFA3_PHASE))))
 
 
 class Opcode(IntEnum):
@@ -108,6 +121,11 @@ def validate_block_size(kind, size):
         raise BattleMailboxError("native block has the wrong exact size")
 
 
+class _NativeShape(BattleBinding):
+    """The diagnostic binding layout as a native binding uses it: the 1v1v1 also binds three trainers."""
+    _player_counts: ClassVar[tuple[int, ...]] = (2, 3, 4)
+
+
 @dataclass(frozen=True)
 class NativeBinding:
     generation: str
@@ -126,8 +144,8 @@ class NativeBinding:
             raise BattleMailboxError("native phase requires its exact trainer count")
 
     def _diagnostic_shape(self):
-        return BattleBinding(self.generation, self.players, self.leases,
-                             self.incarnations, self.local_slot)
+        return _NativeShape(self.generation, self.players, self.leases,
+                            self.incarnations, self.local_slot)
 
     def pack(self):
         raw = self._diagnostic_shape().pack()
@@ -135,10 +153,10 @@ class NativeBinding:
 
     @classmethod
     def unpack(cls, data):
-        if (type(data) is not bytes or len(data) != 116 or data[114] not in (PHASE, MULTI_PHASE, COOP_PHASE, FFA_PHASE)
-                or data[115] not in (0, 1)):
-            raise BattleMailboxError("native binding requires exactly 116 phase2/3/4/5 bytes")
-        shape = BattleBinding.unpack(data[:114] + b"\x01\0")
+        if (type(data) is not bytes or len(data) != 116
+                or data[114] not in (PHASE, MULTI_PHASE, COOP_PHASE, FFA_PHASE, FFA3_PHASE) or data[115] not in (0, 1)):
+            raise BattleMailboxError("native binding requires exactly 116 phase2/3/4/5/6 bytes")
+        shape = _NativeShape.unpack(data[:114] + b"\x01\0")
         return cls(shape.generation, shape.players, shape.leases,
                    shape.incarnations, shape.local_slot, data[114], bool(data[115]))
 
@@ -251,7 +269,7 @@ class NativeQuery:
             return cls(flags, uuid_text(generation), count, local, mode, *words)
         if (reserved or flags & ~127 or count != expected_count or local >= count
                 or not any(generation) or not seq or received & ~((1 << count)-1) or remaining > 600
-                or revision > MAX_COUNTER or outcome not in ((0, 1, 2, 3, 4, 5) if mode == FFA_PHASE else (0, 1, 2, 3))
+                or revision > MAX_COUNTER or outcome not in (0, *outcomes_for_phase(mode))
                 or (flags & 2 and (not flags & 1 or remaining))
                 or (not flags & 1 and (remaining or flags & ~1 or received or size))
                 or (flags & 64 and flags & 3 != 3)
@@ -379,7 +397,7 @@ class NativeControl:
         elif self.opcode in (Opcode.RETIRE, Opcode.HANDOFF):
             self._retirement()
         elif self.opcode == Opcode.RELEASE:
-            if struct.unpack_from("<I", self.data, 4)[0] not in ((1, 2, 3, 4, 5) if self.phase == FFA_PHASE else (1, 2, 3)):
+            if struct.unpack_from("<I", self.data, 4)[0] not in outcomes_for_phase(self.phase):
                 raise BattleMailboxError("release needs a normalized win/loss/draw outcome")
         elif self.opcode == Opcode.ACK_OUT:
             mask = (1 << player_count_for_phase(self.phase))-1
@@ -399,7 +417,7 @@ class NativeControl:
     def _retirement(self):
         from .native_battle_resume import Retirement
         retirement = Retirement.unpack(self.data)
-        if retirement.outcome not in ((1, 2, 3, 4, 5) if self.phase == FFA_PHASE else (1, 2, 3)):
+        if retirement.outcome not in outcomes_for_phase(self.phase):
             raise BattleMailboxError("terminal retirement needs its release's normalized outcome")
         return retirement
 

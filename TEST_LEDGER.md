@@ -363,3 +363,25 @@ scratchpad (`mp/multiplayer-proof/<run>`, `mp/<run>.out`).
 | `python-tests` (GitHub) | app `4c96fe2` | CI | run 183: success | run page | - | Reuse |
 | Windows package, full, installed checks | app `4c96fe2`, engine `c76651ea` | CI windows-2022 | **success** (run #90, 39371001628): ROM pin enforced, PC-only markers (release, import) in the manifest, the game logs `release 1 import 1`; install/start/repair/uninstall; Create World; two characters, Solo, Host World, Join Friend, saves in the hosted world (Classic 2D) | run page, artifact `EmeraldTogether-installer-check-full` | - | Reuse |
 | Battles, trades or four players on Windows (Wine or the runner) or on PCs | - | W / PC | **Never run** | - | - | Owner (PCs) |
+
+## Update 32 features (2026-10-20; app `claude/admiring-bohr-dpxzuy`, engine `claude/feature-update-engine`; `docs/update-32-features-20261020.md`)
+
+New features, so every test below is a first run (nothing reused). Evidence folders are in the session's scratchpad
+(`mp/<run>.out`, `mp/multiplayer-proof/<run>`, `intro32/`, logs named in the cell).
+
+| Test | Build / head | Where | Last result | Evidence | Changed since | Rerun? |
+| --- | --- | --- | --- | --- | --- | --- |
+| Short introduction and lab starters in the game (`tools/pc_port/intro32_check.py`, 9 scenarios from a fresh boot and the field scene) | engine `37f4edaf`, again on `09ee5144` | L | passed 9/9 both times | `intro32/run3.log` | - | Reuse |
+| `--selftest-update32` (35 checks: intro state, Route 101 guard, lab balls, one claim, 400,000 claims at 1/4096) | engine `37f4edaf`-`09ee5144` | L | 35 checks, 0 failed | `update32-qf4.log` | - | Reuse |
+| Two new characters with no Pokemon through real launchers (`native_launcher_newcomer_proof.py`) | engine `1b8af913`, app `47b7457` | L | **passed** (newcomer-4, 31 checks); newcomer-3 **found a wrong refusal** with both trainers empty ("They have no Pokemon yet" for one's own challenge; fixed in app `47b7457`: your own empty party is named first); newcomer-1 and -2 failed in the proof itself (the connection cut, reading the companion) | `mp/newcomer-*.out` | soft reset, 1v1v1, lobby (not on its path) | Final pass |
+| Soft reset offline (`tools/pc_port/soft_reset_check.py`: RESET and YES gives a new roll; RESET and NO plays on) | engine `09ee5144` | L | 2/2 | session log | - | Reuse |
+| Soft reset in a world (`native_launcher_soft_reset_proof.py`, two games) | engine `91d856fb`, app `9397a61` | L | **passed** (soft-reset-7, 24 checks: a new personality and IVs after the reset, the friend never disconnected); runs 1-4 and 6 failed in the proof itself (submenu timing, reading a closed game, Birch's last message); run 5: the game did not open PLAYERS for RESET once, reason not logged (MS-29) | `mp/soft-reset-*.out` | 1v1v1, lobby (not on its path) | Final pass |
+| 1v1v1, three games through real launchers (`native_launcher_ffa3_proof.py`) | engine `eb496d27`, app QF-6 working tree | L | **passed** (ffa3-1, 38 checks: 833 blocks, 273 s, winner the host) | `mp/ffa3-1.out` | - | Reuse |
+| Battle lobby, three games: invite, join, "1v1v1: 3 joined", start, the 1v1v1 to its end (`native_launcher_lobby_proof.py`) | engine `eb496d27`, app QF-6 working tree | L | **passed** (lobby-1, 40 checks: 865 blocks, 279 s) | `mp/lobby-1.out` | - | Reuse |
+| Engine test ROM `make check TESTS="Multiplayer"` (two new 1v1v1 channel tests) | engine `eb496d27` | L | 138/138 | `check-test-rom-qf6.log` | - | Reuse |
+| Engine 1v1v1 rules tests (`test/battle/ffa/ffa3.c`, `FFA3_BATTLE_TEST`) | engine working tree | L | **pending** | - | - | Run |
+| Engine `check-native` and the GBA ROM hash | engine `eb496d27` | L | 0 failures (bridge 4467 checks); ROM `f214735b...3387` unchanged after every engine commit | `check-native-qf6.log`, `gba-qf6.log` | - | Reuse |
+| App suite (`pytest`, xvfb) | app `9397a61` | L | exit 0 | `app-suite-qf4b.log` | 1v1v1, lobby | Rerun (running on the QF-6 tree) |
+| Three players in one world: drawn, menus, refused trade, a trade while the third goes to the lab, rejoin, a 1v1 while the third walks (`native_launcher_three_player_proof.py`) | - | L | **pending** | - | - | Run |
+| Four players: a lobby with a 2v2 start; the free-for-all of four through the new Challenges page | - | L | **pending** | - | - | Run |
+| Any Update 32 feature on Windows (the runner or Wine) or a PC | - | CI / W / PC | **Never run** | - | - | Feature 16 |

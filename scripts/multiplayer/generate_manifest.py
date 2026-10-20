@@ -194,6 +194,14 @@ def generate(rom: Path, elf: Path, nm: str, engine_commit: str, *, trade_effect_
             raise ValueError("free-for-all battles require one four-byte marker and the native battle channel")
         manifest.update(battle_ffa_abi_version=1)
         validate_battle_manifest(manifest, rom)
+    # Update 32: the three-player free-for-all (1v1v1), also native-PC-only, built on the free-for-all.
+    ffa3 = native_marker("gMultiplayerBattleFfa3AbiVersion", symbols + native_symbols)
+    if ffa3:
+        from emerald_multiplayer.battle_manifest import validate_battle_manifest
+        if not four_byte_marker(ffa3) or manifest.get("battle_ffa_abi_version") != 1:
+            raise ValueError("the 1v1v1 requires one four-byte marker and the free-for-all")
+        manifest.update(battle_ffa3_abi_version=1)
+        validate_battle_manifest(manifest, rom)
     objects = re.findall(r"^([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+[BDbd]\s+gObjectEvents$", symbols, re.M)
     reset = re.findall(r"^([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+[Rr]\s+gMultiplayerResetAbiVersion$", symbols, re.M)
     reset_channel = re.findall(r"^([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+[BDbd]\s+gMultiplayerResetMailbox$", symbols, re.M)

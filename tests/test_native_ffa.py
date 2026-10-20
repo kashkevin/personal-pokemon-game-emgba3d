@@ -45,7 +45,7 @@ class NativeFfaEnvelopeTests(unittest.TestCase):
         self.assertEqual((player_count_for_phase(FFA_PHASE), battler_count_for_phase(FFA_PHASE)), (4, 4))
         self.assertEqual([battler_owner(FFA_PHASE, b) for b in range(4)], [0, 1, 2, 3])
         for abi, phase, expected in ((1, FFA_PHASE, False), (2, FFA_PHASE, False), (3, FFA_PHASE, True),
-                                      (3, 6, False), (True, FFA_PHASE, False), (3, True, False)):
+                                      (3, 6, True), (3, 7, False), (True, FFA_PHASE, False), (3, True, False)):
             self.assertEqual(supports_native_phase(abi, phase), expected)
 
     def test_four_independent_slots_require_exact_phase_and_count(self):
@@ -182,7 +182,7 @@ class NativeFfaRosterTests(unittest.TestCase):
                 roster.verify_startup(Kind.TRAINER, singles.trainer_descriptor)
             multi = self.roster(source_slot=source, mode=3)
             self.assertNotEqual(multi.mode, roster.mode)
-        for kwargs in (dict(source_slot=4, mode=FFA_PHASE), dict(source_slot=0, mode=6)):
+        for kwargs in (dict(source_slot=4, mode=FFA_PHASE), dict(source_slot=0, mode=7)):
             with self.assertRaises(BattleMailboxError): self.roster(**kwargs)
 
 

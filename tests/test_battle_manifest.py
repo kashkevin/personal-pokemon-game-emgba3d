@@ -173,6 +173,25 @@ class CoopAndWorldManifestTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 self.generate_native(self.base + self.battle, bad)
 
+    def test_the_1v1v1_marker_comes_from_the_native_executable_and_needs_the_free_for_all(self):
+        """Update 32: the three-player free-for-all (phase 6) is the free-for-all with its fourth place empty."""
+        from emerald_multiplayer.battle_manifest import FFA3_FIELDS
+        ffa = "00bd2770 00000004 R gMultiplayerBattleFfaAbiVersion\n"
+        ffa3 = "00bd2774 00000004 R gMultiplayerBattleFfa3AbiVersion\n"
+        generated = self.generate_native(self.base + self.battle, ffa + ffa3)
+        self.assertEqual({key: generated[key] for key in FFA3_FIELDS}, {"battle_ffa3_abi_version": 1})
+        self.assertTrue(validate_battle_manifest(generated, self.rom))
+        self.assertFalse(FFA3_FIELDS & set(self.generate_native(self.base + self.battle, ffa)))
+        for changes in ({"battle_ffa3_abi_version": 2}, {"battle_ffa3_abi_version": True}):
+            with self.subTest(changes=changes), self.assertRaises(ValueError):
+                validate_battle_manifest({**generated, **changes}, self.rom)
+        without_ffa = dict(generated); del without_ffa["battle_ffa_abi_version"]
+        with self.assertRaises(ValueError):
+            validate_battle_manifest(without_ffa, self.rom)
+        for bad in (ffa3, ffa + "00bd2774 00000008 R gMultiplayerBattleFfa3AbiVersion\n", ffa + ffa3 + ffa3):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                self.generate_native(self.base + self.battle, bad)
+
     def test_the_windows_games_markers_are_read_from_mingw_nm_which_prints_no_size(self):
         """windows-package.yml generates the Windows manifest from `i686-w64-mingw32-nm --print-size` of the Windows game. For a
         PE executable that prints no size column (these are its real lines, engine 3f06fd20), and requiring one dropped the

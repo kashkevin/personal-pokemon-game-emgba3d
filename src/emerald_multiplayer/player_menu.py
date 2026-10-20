@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from textwrap import wrap
 from uuid import uuid4
 
-from .companion import TeamError, BattleChallengeError, TradeError
+from .companion import TeamError, BattleChallengeError, LobbyError, TradeError
 
 
 WAGER_CHOICES = (1_000, 5_000, 10_000, 25_000, 50_000, 100_000)
@@ -27,8 +27,8 @@ ACTIVITY_SHORT = {"overworld": "Field", "battle": "Battle", "menu": "Menu", "tra
                   "unavailable": "Busy", "joining": "Joining"}
 _OPEN_BATTLE_STATES = ("invited", "accepted", "prepared")
 # The battle modes as PLAYERS names them (a row's 25 characters, a title's 23).
-MODE_TITLES = {2: "Rival Battle - 1v1", 3: "Rival Battle - 2v2", 5: "Free-for-All: 4 Players"}
-MODE_ROWS = {2: "Rival Battle - 1v1", 3: "Rival Battle - 2v2", 5: "Free-for-All - 4 Players"}
+MODE_TITLES = {2: "Rival Battle - 1v1", 3: "Rival Battle - 2v2", 5: "Free-for-All: 4 Players", 6: "Free-for-All: 3 Players"}
+MODE_ROWS = {2: "Rival Battle - 1v1", 3: "Rival Battle - 2v2", 5: "Free-for-All - 4 Players", 6: "Free-for-All - 3 Players"}
 TRADE_ROW = "Trading"
 # Why an Enter battle could not be admitted (BattleAdmissionRefused, the launcher's blocker), in a status line's 31
 # characters. The owner's report of 2026-10-20: these used to leave the window on "Waiting for server..." for good.
@@ -71,6 +71,16 @@ NO_POKEMON_NOTICES = {"no_pokemon": "Get a Pokemon in Birch's lab", "peer_no_pok
 # Host refusals of a new challenge shown in the menu (others keep the menu's own error handling).
 INVITE_NOTICES = {"battle_busy": "Finish the battle first", "player_offline": "That player is offline",
                   "trade_recovery_required": "Finish the earlier trade", **NO_POKEMON_NOTICES}
+# Update 32: battle lobbies (battle_lobby.py): the host's refusals, and why a lobby ended (a status line's 31 characters).
+LOBBY_NOTICES = {"lobby_busy": "Someone is in another lobby", "battle_busy": "Someone has an open challenge",
+                 "player_offline": "That player is offline", "lobby_capacity": "Too many lobbies are open",
+                 "lobby_closed": "The lobby is closed", "lobby_missing": "The lobby has ended",
+                 "lobby_changed": "The lobby changed: try again", "lobby_too_small": "Wait for someone to join",
+                 "lobby_answered": "You already answered"}
+LOBBY_ENDINGS = {"cancelled": "The lobby was cancelled", "creator_left": "The lobby's leader left",
+                 "timed_out": "The lobby timed out", "nobody_joined": "Nobody joined the lobby"}
+# A lobby format's challenge (battle_desk.py operations) and the game capability it needs.
+LOBBY_INVITES = {"1v1": "invite", "1v1v1": "invite_ffa3", "1v1v1v1": "invite_ffa", "2v2": "invite_multi"}
 
 
 # Update 32: START > PLAYER > RESET in a world. The launcher starts the game again from the character's host save; it
@@ -159,6 +169,8 @@ class PlayerMenu:
         self._activities = {}
         self._friends = {}
         self._wager = None  # {"wager": view | None, "money": int | None} for the pending challenge
+        self._lobbies = []        # Update 32: the battle lobbies this player is part of (battle_lobby.py)
+        self._lobby_pick = []     # the trainers chosen on the lobby's invitation page
         self._wager_amount = WAGER_CHOICES[1]
         self._binding = None
         self._signature = None
@@ -272,6 +284,17 @@ class PlayerMenu:
             else:
                 await self._ended_challenge(value, binding)
                 self._battles = value
+        # Update 32: battle lobbies, where the format follows the trainers who joined (battle_lobby.py).
+        self._lobbies = []
+        lobby_rpc = getattr(self.companion, "lobby_rpc", None)
+        if self._battles is not None and callable(lobby_rpc):
+            try:
+                self._lobbies = (await lobby_rpc("status"))["result"]["lobbies"]
+            except LobbyError as error:
+                if error.code != "battle_disabled":
+                    raise
+            if self._session() != binding:
+                raise PlayerMenuError("session_changed")
         # The optional money wager on the pending challenge (host-owned).
         self._wager = None
         wager_rpc = getattr(self.companion, "wager_rpc", None)
@@ -398,12 +421,45 @@ class PlayerMenu:
             # B closes the menu from the player list, and from the soft reset page (opened from START > PLAYER > RESET).
             back = 0 if self._page[0] in ("home", "soft_reset") else 7
             if back:
-                self._actions[back] = {"records": ("records_back", ()),
+                self._actions[back] = {"records": ("records_back", ()), "ffa": ("new_battle", ()),
+                                       "new_battle": ("battles", ()), "lobby_pick": ("new_battle", ()),
+                                       "lobby_2v2": ("lobby", ()),
                                        "soft_reset_confirm": ("soft_reset", ())}.get(self._page[0], ("home", ()))
             self._screen = MenuScreen(revision, title, status,
                 tuple(MenuRow(i + 1 if op else 0, label) for i, (label, op, _) in enumerate(normalized)), back, admission)
             self._signature = signature
         return self._screen
+
+    async def _start_lobby(self, lobby_id, generation, fmt, teammate=None):
+        """The leader starts the lobby: their game sends the format's ordinary challenge to exactly the joined
+        trainers (consent and the original game core as for any challenge), then the host links it to the lobby. If
+        the lobby changed meanwhile, the challenge is withdrawn again."""
+        actor = self.companion.config.player_id
+        view = next((v for v in self._lobbies if v["lobby_id"] == lobby_id), None)
+        if view is None or view["state"] != "open" or fmt not in self._lobby_formats(view):
+            self._notice, self._page = "The lobby changed: try again", ("lobby", None)
+            return
+        others = [p for p in view["joined"] if p != actor]
+        fields = {"1v1": lambda: dict(peer=others[0]), "1v1v1": lambda: dict(opponents=others),
+                  "1v1v1v1": lambda: dict(opponents=others),
+                  "2v2": lambda: dict(teammate=teammate, opponents=[p for p in others if p != teammate])}[fmt]()
+        battle_id = str(uuid4())
+        try:
+            sent = (await self.companion.battle_challenge_rpc(LOBBY_INVITES[fmt], battle_id=battle_id, **fields))["result"]
+        except BattleChallengeError as error:
+            self._notice = INVITE_NOTICES.get(error.code, "The host refused: try again")
+            self._page = ("lobby", None)
+            return
+        try:
+            await self.companion.lobby_rpc("start", lobby_id=lobby_id, generation=generation, battle_id=battle_id)
+        except LobbyError:
+            try:
+                await self.companion.battle_challenge_rpc("cancel", battle_id=battle_id, generation=sent["generation"])
+            except BattleChallengeError:
+                pass
+            self._notice, self._page = "The lobby changed: try again", ("lobby", None)
+            return
+        self._page = ("battles", None)
 
     def claim_battle_admission(self, revision, action):
         """Consume a displayed Enter selection without waiting on network state.
@@ -430,6 +486,21 @@ class PlayerMenu:
 
     def _name(self, player):
         return self._players.get(player, "Disconnected player")
+
+    def _lobby_of(self, actor):
+        """The battle lobby to show this player: an open one they are in or invited to (not declined or left),
+        else one that just started or ended with them in it."""
+        def open_for(view):
+            return view["state"] == "open" and actor not in view["declined"] and actor not in view["left"]
+        return (next((v for v in self._lobbies if open_for(v)), None)
+                or next((v for v in self._lobbies if actor in v["joined"] or actor == v["creator"]), None))
+
+    def _lobby_formats(self, view):
+        """The formats this player's game can start (a 1v1v1 needs the game's 1v1v1, a 1v1v1v1 its free-for-all)."""
+        config = self.companion.config
+        ffa = getattr(config, "battle_ffa_enabled", True)
+        able = {"1v1": True, "2v2": True, "1v1v1v1": ffa, "1v1v1": ffa and getattr(config, "battle_ffa3_enabled", True)}
+        return [f for f in view["formats"] if able[f]]
 
     def _activity(self, player):
         """What a listed player is doing: "In battle", "In a menu"... ("Joining" before their first position)."""
@@ -535,8 +606,8 @@ class PlayerMenu:
                 if battle["mode"] in (2, 4):
                     for cp in battle["checkpoints"]:
                         actions.append((f"{self._name(cp['player_id'])[:18]} ({cp['party_count']})", "", ()))
-                elif battle["mode"] == 5:
-                    # Four independent trainers: two rows of two keep room for the consent rows (no wager, no teams).
+                elif battle["mode"] in (5, 6):
+                    # Independent trainers: rows of two keep room for the consent rows (no wager, no teams).
                     for pair in (battle["players"][:2], battle["players"][2:]):
                         actions.append((" / ".join(f"{self._name(p)[:8]}({parties.get(p, 0)})" for p in pair), "", ()))
                 else:
@@ -546,7 +617,7 @@ class PlayerMenu:
                 params = (battle["battle_id"], battle["generation"])
                 wager = self._wager["wager"] if self._wager is not None else None
                 wager_ready = wager is None or set(wager["accepted"]) == set(wager["players"])
-                if battle["state"] in _OPEN_BATTLE_STATES and self._wager is not None and battle["mode"] != 5:
+                if battle["state"] in _OPEN_BATTLE_STATES and self._wager is not None and battle["mode"] not in (5, 6):
                     if wager is None:
                         label = "Wager: none (set one)"
                     else:
@@ -579,14 +650,106 @@ class PlayerMenu:
                     actions.append(("Championship", "championship", ()))
             else:
                 status = self._notice or ("New battles disabled on host" if self._battles is None else "No pending challenges")
-                if (self._battles is not None and len(self._players) == 4 and actor in self._players
-                        and getattr(self.companion.config, "battle_ffa_enabled", True)):
-                    actions.append((MODE_ROWS[5], "battle_ffa", tuple(p for p in self._players if p != actor)))
+                if self._battles is not None and actor in self._players and len(self._players) >= 2:
+                    # Update 32: a battle lobby (the format follows who joins) or a free-for-all of everyone.
+                    actions.append(("New battle", "new_battle", ()))
                 actions.append(("Recent battle results", "results", (0,)))
                 actions.append(("Full record archives", "records", ()))
                 actions.append(("Your Trainer Card", "card", (actor,)))
                 actions.append(("Championship", "championship", ()))
                 actions.append(("Rival checkpoints", "rival", ()))
+        elif page == "new_battle":
+            title, status = "New battle", self._notice or "Invite: the format follows who joins"
+            others = [p for p in self._players if p != actor]
+            ffa = getattr(self.companion.config, "battle_ffa_enabled", True)
+            ffa3 = ffa and getattr(self.companion.config, "battle_ffa3_enabled", True)
+            if self._battles is None:
+                status = self._notice or "New battles disabled on host"
+            elif self._battles:
+                status = self._notice or "Finish the open challenge"
+            elif self._lobby_of(actor) is not None and self._lobby_of(actor)["state"] == "open":
+                status = self._notice or "You are in a battle lobby"
+                actions.append(("Battle lobby", "lobby", ()))
+            elif not others or actor not in self._players:
+                status = self._notice or "Nobody else is connected"
+            else:
+                actions.append(("Battle lobby", "lobby_pick", ()))
+                if len(self._players) == 4 and ffa3:
+                    actions.append(("Free-for-All", "ffa", ()))      # everyone, or three of the four (Update 32)
+                elif len(self._players) == 4 and ffa:
+                    actions.append((MODE_ROWS[5], "battle_ffa", tuple(others)))
+                elif len(self._players) == 3 and ffa3:
+                    actions.append((MODE_ROWS[6], "battle_ffa3", tuple(others)))
+        elif page == "lobby_pick":
+            title = "Battle lobby"
+            others = [p for p in self._players if p != actor]
+            self._lobby_pick = [p for p in self._lobby_pick if p in others]
+            chosen = len(self._lobby_pick)
+            status = self._notice or (f"Invite {chosen}: A changes" if chosen else "Who do you invite? A changes")
+            for player in others:
+                actions.append((f"{self._name(player)[:19]}: {'Yes' if player in self._lobby_pick else 'No'}",
+                                "lobby_toggle", (player,)))
+            if self._lobby_pick:
+                actions.append(("Send invitations", "lobby_create", tuple(self._lobby_pick)))
+        elif page in ("lobby", "lobby_2v2"):
+            title, view = "Battle lobby", self._lobby_of(actor)
+            if view is None:
+                status = self._notice or "No battle lobby"
+            elif view["state"] == "started":
+                status = self._notice or f"{view['format']} challenge sent"
+                actions.append(("Pending challenge" if self._battles else "Challenges", "battles", ()))
+            elif view["state"] == "ended":
+                status = self._notice or LOBBY_ENDINGS.get(view["reason"], "The lobby has ended")
+            elif page == "lobby_2v2":
+                # The leader's 2v2 partner: the other two make the opposing team.
+                status = self._notice or "Choose your 2v2 partner"
+                for player in view["joined"]:
+                    if player != actor:
+                        actions.append((f"With {self._name(player)[:20]}", "lobby_start",
+                                        (view["lobby_id"], view["generation"], "2v2", player)))
+            else:
+                ids = (view["lobby_id"], view["generation"])
+                joined = view["joined"]
+                formats, playable = view["formats"], self._lobby_formats(view)
+                waiting = [p for p in view["invited"] if p not in joined and p not in view["declined"]
+                           and p not in view["left"]]
+                if formats:
+                    status = self._notice or f"{' or '.join(formats)}: {len(joined)} joined"
+                else:
+                    status = self._notice or f"Waiting for {len(waiting)} to answer"
+                for player in (view["creator"], *view["invited"]):
+                    if player == actor:
+                        continue
+                    state = ("leader" if player == view["creator"] else "joined" if player in joined
+                             else "declined" if player in view["declined"] else "left" if player in view["left"]
+                             else "invited")
+                    actions.append((f"{self._name(player)[:15]}: {state}", "", ()))
+                if actor == view["creator"]:
+                    for fmt in playable:
+                        actions.append((f"Start {fmt}", "lobby_2v2" if fmt == "2v2" else "lobby_start",
+                                        () if fmt == "2v2" else (*ids, fmt)))
+                    if formats and not playable:
+                        status = self._notice or f"Your game cannot play {formats[0]}"
+                    actions.append(("Cancel lobby", "lobby_leave", ids))
+                elif actor in joined:
+                    actions.append(("Leave lobby", "lobby_leave", ids))
+                else:
+                    actions.append(("Join lobby", "lobby_join", ids))
+                    actions.append(("Decline", "lobby_decline", ids))
+        elif page == "ffa":
+            title, status = "Free-for-All", self._notice or "Who battles?"
+            others = [p for p in self._players if p != actor]
+            if self._battles is None:
+                status = self._notice or "New battles disabled on host"
+            elif self._battles:
+                status = self._notice or "Finish the open challenge"
+            elif len(others) != 3 or actor not in self._players:
+                status = self._notice or "Needs four players connected"
+            else:
+                actions.append(("Everyone: 4 Players", "battle_ffa", tuple(others)))
+                for i, a in enumerate(others):
+                    for b in others[i + 1:]:
+                        actions.append((f"With {self._name(a)[:8]} & {self._name(b)[:8]}", "battle_ffa3", (a, b)))
         elif page in ("soft_reset", "soft_reset_confirm"):
             # START > PLAYER > RESET (Update 32): the game starts again from the host save, in this session; the
             # world and the other players carry on. Nothing open may be cut short by it.
@@ -822,7 +985,12 @@ class PlayerMenu:
             if self._team is not None:
                 actions.append(("Team invitation" if self._team["invitations"] else "Your team", "team", ()))
             if self._battles is not None:
-                actions.append(("Pending challenge" if self._battles else "Challenges", "battles", ()))
+                if self._battles:
+                    actions.append(("Pending challenge", "battles", ()))
+                elif self._lobby_of(actor) is not None:
+                    actions.append(("Battle lobby", "lobby", ()))
+                else:
+                    actions.append(("Challenges", "battles", ()))
             else:
                 # Completed history remains authenticated and readable when
                 # new native battle admission is disabled (normal launcher).
@@ -1195,7 +1363,7 @@ class PlayerMenu:
                     self._notice = "Could not change it"
                 self._page = ("base", None)
             elif op in ("home", "world", "world_players", "world_player", "world_outbreak", "world_event", "base", "frontier",
-                        "league", "hall", "shop", "team_pick", "extras", "coop", "habitat", "team", "battles", "player", "results", "result", "result_filters", "trade", "card", "card_battles", "card_championships", "card_shared", "card_progress", "hunts", "hunt", "hunt_filters", "hunt_totals"):
+                        "league", "hall", "shop", "team_pick", "extras", "coop", "habitat", "team", "battles", "ffa", "new_battle", "lobby", "lobby_2v2", "lobby_pick", "player", "results", "result", "result_filters", "trade", "card", "card_battles", "card_championships", "card_shared", "card_progress", "hunts", "hunt", "hunt_filters", "hunt_totals"):
                 if op == "results" and self._page[0] not in {"results", "result", "result_filters"}:
                     self._results_binding = None
                 self._page = (op, args[0] if args else None)
@@ -1250,11 +1418,34 @@ class PlayerMenu:
                 await self.companion.team_rpc("leave", team_id=args[0], generation=args[1])
             elif op in ("team_accept", "team_decline", "team_cancel"):
                 await self.companion.team_rpc(op.removeprefix("team_"), invitation_id=args[0], generation=args[1])
-            elif op in ("battle_invite", "battle_multi", "battle_ffa"):
+            elif op == "lobby_toggle":
+                chosen = args[0]
+                self._lobby_pick = ([p for p in self._lobby_pick if p != chosen] if chosen in self._lobby_pick
+                                    else self._lobby_pick + [chosen])[:3]
+                self._page = ("lobby_pick", None)
+            elif op == "lobby_create":
+                try:
+                    await self.companion.lobby_rpc("create", lobby_id=str(uuid4()), invitees=list(args))
+                    self._lobby_pick = []
+                    self._page = ("lobby", None)
+                except LobbyError as error:
+                    self._notice = LOBBY_NOTICES.get(error.code, "The host refused: try again")
+                    self._page = ("lobby_pick", None)
+            elif op in ("lobby_join", "lobby_decline", "lobby_leave"):
+                try:
+                    await self.companion.lobby_rpc(op.removeprefix("lobby_"), lobby_id=args[0], generation=args[1])
+                    self._page = ("lobby", None) if op == "lobby_join" else ("home", None)
+                except LobbyError as error:
+                    self._notice = LOBBY_NOTICES.get(error.code, "The host refused: try again")
+                    self._page = ("lobby", None)
+            elif op == "lobby_start":
+                await self._start_lobby(*args)
+            elif op in ("battle_invite", "battle_multi", "battle_ffa", "battle_ffa3"):
                 operation, fields = {
                     "battle_invite": ("invite", dict(peer=args[0])),
                     "battle_multi": ("invite_multi", dict(teammate=args[0], opponents=list(args[1:]))),
                     "battle_ffa": ("invite_ffa", dict(opponents=list(args))),
+                    "battle_ffa3": ("invite_ffa3", dict(opponents=list(args))),
                 }[op]
                 try:
                     await self.companion.battle_challenge_rpc(operation, battle_id=str(uuid4()), **fields)

@@ -70,7 +70,7 @@ def validate_abandonment_view(value, actor, request=None):
         _uuid(value["battle_id"], "battle_id")
         _uuid(value["generation"], "generation")
         players = value["players"]
-        if type(players) is not list or len(players) not in (2, 4) or len(set(players)) != len(players):
+        if type(players) is not list or len(players) not in (2, 3, 4) or len(set(players)) != len(players):
             raise ValueError()
         for player in players:
             _uuid(player, "player")

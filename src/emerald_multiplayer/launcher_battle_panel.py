@@ -101,7 +101,7 @@ class BattlePanelController:
             if not self.session.can_manage_players:
                 raise BattlePanelError("not_ready")
             roster, actor = self._roster(), self.session.companion.config.player_id
-            if operation in {"preview_single", "preview_multi", "preview_ffa"}:
+            if operation in {"preview_single", "preview_multi", "preview_ffa", "preview_ffa3"}:
                 if self._pending:
                     raise BattlePanelError("stale")
                 if operation == "preview_single":
@@ -109,12 +109,13 @@ class BattlePanelController:
                         raise BattlePanelError("roster_changed")
                     self._preview = dict(mode=2, players=[actor, args[0]], names=[roster[actor], roster[args[0]]],
                                          battle_id=str(uuid4()), teams=None)
-                elif operation == "preview_ffa":
-                    rivals = args[::2]
-                    if len(set(rivals)) != 3 or actor in rivals or any(roster.get(p) != n for p, n in zip(args[::2], args[1::2])):
+                elif operation in ("preview_ffa", "preview_ffa3"):
+                    rivals, size = args[::2], 3 if operation == "preview_ffa" else 2
+                    if (len(rivals) != size or len(set(rivals)) != size or actor in rivals
+                            or any(roster.get(p) != n for p, n in zip(args[::2], args[1::2]))):
                         raise BattlePanelError("roster_changed")
-                    self._preview = dict(mode=5, players=[actor, *rivals], names=[roster[actor], *args[1::2]],
-                                         battle_id=str(uuid4()), teams=None)
+                    self._preview = dict(mode=5 if operation == "preview_ffa" else 6, players=[actor, *rivals],
+                                         names=[roster[actor], *args[1::2]], battle_id=str(uuid4()), teams=None)
                 else:
                     if self._duos() != args:
                         raise BattlePanelError("roster_changed")
@@ -130,8 +131,9 @@ class BattlePanelController:
                     raise BattlePanelError("roster_changed")
                 if p["mode"] == 2:
                     rpc, fields = "invite", dict(peer=p["players"][1], battle_id=p["battle_id"])
-                elif p["mode"] == 5:
-                    rpc, fields = "invite_ffa", dict(opponents=p["players"][1:], battle_id=p["battle_id"])
+                elif p["mode"] in (5, 6):
+                    rpc = "invite_ffa" if p["mode"] == 5 else "invite_ffa3"
+                    fields = dict(opponents=p["players"][1:], battle_id=p["battle_id"])
                 else:
                     rpc, fields = "invite_multi", dict(teammate=p["players"][1], opponents=p["players"][2:], battle_id=p["battle_id"])
                 self._preview = None
@@ -206,6 +208,10 @@ class BattlePanelController:
                 for trio in (list(itertools.combinations(others, 3))[:6] if ffa_capable else ()):
                     add("Review 1v1v1v1 free-for-all with " + ", ".join(n for _, n in trio), "preview_ffa",
                         tuple(x for pair in trio for x in pair))
+                ffa3_capable = ffa_capable and getattr(self.session.companion.config, "battle_ffa3_enabled", True)
+                for duo in (list(itertools.combinations(others, 2))[:6] if ffa3_capable else ()):
+                    add("Review 1v1v1 free-for-all with " + ", ".join(n for _, n in duo), "preview_ffa3",
+                        tuple(x for pair in duo for x in pair))
             else:
                 view = self._pending[0]
                 if view["state"] == "invited" and not view["bound"] and not view["started"]:
@@ -255,7 +261,7 @@ class BattlePanel:
         ttk.Label(self.frame, textvariable=self.details, wraplength=560, justify="left").pack(anchor="w", pady=8)
         self.actions = ttk.Frame(self.frame)
         self.actions.pack(fill="x")
-        ttk.Label(self.frame, text="Proposals use the current host-saved parties. Save now first if you want recent field progress included. 2v2 uses both current teams with independent full parties, up to six Pokémon per Trainer. Accepting never presses Enter or controls battle moves. No wagers, rewards, experience or automatic forfeits are added; a free-for-all (1v1v1v1) has every Trainer against every other.", wraplength=560).pack(anchor="w", pady=12)
+        ttk.Label(self.frame, text="Proposals use the current host-saved parties. Save now first if you want recent field progress included. 2v2 uses both current teams with independent full parties, up to six Pokémon per Trainer. Accepting never presses Enter or controls battle moves. No wagers, rewards, experience or automatic forfeits are added; a free-for-all (1v1v1v1 or 1v1v1) has every Trainer against every other.", wraplength=560).pack(anchor="w", pady=12)
 
     def refresh(self):
         self._request()
@@ -288,8 +294,9 @@ class BattlePanel:
         preview, pending = snapshot["preview"], snapshot["pending"]
         if preview:
             names = preview["names"]
-            sides = names if preview["mode"] in (2, 5) else (" + ".join(names[:2]), " + ".join(names[2:]))
-            self.details.set({2: "1v1", 5: "1v1v1v1 free-for-all (everyone against everyone)"}.get(preview["mode"], "2v2 full parties") + " proposal\n" + " vs ".join(sides)
+            sides = names if preview["mode"] in (2, 5, 6) else (" + ".join(names[:2]), " + ".join(names[2:]))
+            self.details.set({2: "1v1", 5: "1v1v1v1 free-for-all (everyone against everyone)",
+                              6: "1v1v1 free-for-all (everyone against everyone)"}.get(preview["mode"], "2v2 full parties") + " proposal\n" + " vs ".join(sides)
                 + "\nParty counts are confirmed by the host when the proposal is created.")
         elif pending:
             view = pending[0]
@@ -297,12 +304,13 @@ class BattlePanel:
             parties = {p["player_id"]: p["party_count"] for p in view["checkpoints"]}
             lines = []
             coop = view["mode"] == 4  # both trainers together against a Gym Leader and partner
-            ffa = view["mode"] == 5   # four independent trainers: no sides at all
+            ffa = view["mode"] in (5, 6)   # independent trainers: no sides at all
             for index, player in enumerate(view["players"]):
                 lines.append((f"Team: " if coop else f"Trainer {index + 1}: " if ffa else f"Side {index % 2 + 1}: ") + names.get(player, 'Offline Trainer')
                     + (" (you)" if player == actor else "") + f" · {parties[player]} Pokémon · "
                     + ("accepted" if player in view["consent"] else "awaiting consent"))
-            label = "Team Gym battle" if coop else "1v1v1v1 free-for-all" if ffa else ("1v1" if view["mode"] == 2 else "2v2 full parties")
+            label = ("Team Gym battle" if coop else "1v1v1v1 free-for-all" if view["mode"] == 5
+                     else "1v1v1 free-for-all" if view["mode"] == 6 else ("1v1" if view["mode"] == 2 else "2v2 full parties"))
             self.details.set(label + " · " + view["state"]
                 + "\n" + "\n".join(lines) + "\n" + ("Everyone accepted: use the original game’s Players menu to Enter." if view["state"] == "accepted" else "Refresh to see new consent; no automatic polling."))
         else:

@@ -13,7 +13,7 @@ from emerald_multiplayer.battle_roster import CanonicalBattler
 from emerald_multiplayer.checkpoint_client import CheckpointClient
 from emerald_multiplayer.bridge_protocol import encode_packet, read_packet
 from emerald_multiplayer.flash import FLASH_SIZE
-from emerald_multiplayer.native_battle import NativeBinding, NativeControl, Opcode as NativeOpcode
+from emerald_multiplayer.native_battle import NativeBinding, NativeControl, Opcode as NativeOpcode, player_count_for_phase
 from emerald_multiplayer.ownership import OWNERSHIP_PROFILE
 from emerald_multiplayer.save_mailbox import (SaveControl, Opcode as SaveOpcode,
     capability_packet, response_packet as save_response)
@@ -40,7 +40,7 @@ class CompanionBattleAdmissionTests(unittest.IsolatedAsyncioTestCase):
             owned_flash(grant,(("party:0",grant.start),),personalities=(7,)),
             self.store.build_id,self.store.ruleset_id,OWNERSHIP_PROFILE)
         mode = getattr(self, "native_phase", 2)
-        count = 4 if mode in (3, 5) else 2
+        count = player_count_for_phase(mode)
         players = tuple(sorted((actor, *(str(uuid4()) for _ in range(count-1)))))
         local = players.index(actor)
         leases = tuple(self.c.session_epoch if p == actor else self.c.session_epoch+1 for p in players)

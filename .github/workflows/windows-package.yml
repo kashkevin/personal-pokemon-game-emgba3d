@@ -142,6 +142,7 @@ jobs:
           symbols = open("native-symbols.txt").read()
           manifest = json.load(open("../native-inputs/manifest.json"))
           markers = {"gMultiplayerBattleFfaAbiVersion": "battle_ffa_abi_version", "gMultiplayerRivalAbiVersion": "rival_abi_version",
+                     "gMultiplayerBattleFfa3AbiVersion": "battle_ffa3_abi_version",
                      "gMultiplayerPresenceDetailAbiVersion": "presence_detail_abi_version",
                      "gMultiplayerMenuReleaseAbiVersion": "menu_release_abi_version",
                      "gMultiplayerSaveImportWindowAbiVersion": "save_import_window_abi_version"}

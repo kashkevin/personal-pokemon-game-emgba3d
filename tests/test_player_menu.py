@@ -106,13 +106,14 @@ class PlayerMenuNetworkTests(unittest.IsolatedAsyncioTestCase):
         menus = [PlayerMenu(c) for c in self.companions]
         await menus[0].refresh()
         await self.click(menus[0], "Challenges")
+        await self.click(menus[0], "New battle")
         self.assertFalse(self.companions[0].config.battle_ffa_enabled)     # the fixture ROM has no free-for-all marker
         self.assertNotIn("Free-for-All - 4 Players", [row.label for row in menus[0].screen.rows])
         for companion in self.companions:
             object.__setattr__(companion.config, "battle_ffa_enabled", True)
         await menus[0].refresh()
-        if "Challenges" in [row.label for row in menus[0].screen.rows]:
-            await self.click(menus[0], "Challenges")
+        if "New battle" in [row.label for row in menus[0].screen.rows]:
+            await self.click(menus[0], "New battle")
         screen = await self.click(menus[0], "Free-for-All - 4 Players")
         self.assertEqual(screen.title, "Free-for-All: 4 Players")
         labels = [row.label for row in screen.rows]
@@ -128,6 +129,55 @@ class PlayerMenuNetworkTests(unittest.IsolatedAsyncioTestCase):
         pending = await self.companions[0].battle_challenge_rpc("pending")
         self.assertEqual(pending["result"][0]["state"], "accepted")
         self.assertEqual(pending["result"][0]["mode"], 5)
+
+    async def test_with_four_connected_a_free_for_all_names_everyone_or_two_of_the_three_others(self):
+        """Update 32: the 1v1v1. With four trainers connected the Free-for-All page offers everyone (1v1v1v1) or a
+        three-trainer free-for-all with any two of the other three; only the invited two see the challenge."""
+        menus = [PlayerMenu(c) for c in self.companions]
+        for companion in self.companions:
+            object.__setattr__(companion.config, "battle_ffa_enabled", True)
+            object.__setattr__(companion.config, "battle_ffa3_enabled", True)
+        await menus[0].refresh()
+        await self.click(menus[0], "Challenges")
+        await self.click(menus[0], "New battle")
+        self.assertNotIn("Free-for-All - 4 Players", [row.label for row in menus[0].screen.rows])
+        screen = await self.click(menus[0], "Free-for-All")
+        self.assertEqual(screen.title, "Free-for-All")
+        labels = [row.label for row in screen.rows]
+        self.assertEqual(labels[0], "Everyone: 4 Players")
+        pairs = [label for label in labels if label.startswith("With ")]
+        self.assertEqual(len(pairs), 3)                                  # the three pairs of the other three
+        screen = await self.click(menus[0], pairs[0])
+        self.assertEqual(screen.title, "Free-for-All: 3 Players")
+        labels = [row.label for row in screen.rows]
+        self.assertFalse([label for label in labels if label.startswith("Wager")])
+        self.assertIn("Cancel challenge", labels)
+        pending = (await self.companions[0].battle_challenge_rpc("pending"))["result"][0]
+        self.assertEqual((pending["mode"], len(pending["players"]), pending["players"][0]),
+                         (6, 3, self.companions[0].config.player_id))
+        invited = [i for i, c in enumerate(self.companions) if c.config.player_id in pending["players"][1:]]
+        left_out = [i for i in (1, 2, 3) if i not in invited]
+        self.assertEqual(len(invited), 2)
+        await menus[left_out[0]].refresh()
+        self.assertNotIn("Pending challenge", [row.label for row in menus[left_out[0]].screen.rows])
+        for i in invited:
+            await menus[i].refresh()
+            screen = await self.click(menus[i], "Pending challenge")
+            self.assertEqual(screen.title, "Free-for-All: 3 Players")
+            await self.click(menus[i], "Accept challenge")
+        pending = (await self.companions[0].battle_challenge_rpc("pending"))["result"][0]
+        self.assertEqual((pending["state"], pending["mode"]), ("accepted", 6))
+
+    async def test_an_older_game_offers_no_1v1v1(self):
+        menus = [PlayerMenu(c) for c in self.companions]
+        for companion in self.companions:
+            object.__setattr__(companion.config, "battle_ffa_enabled", True)
+        await menus[0].refresh()
+        await self.click(menus[0], "Challenges")
+        await self.click(menus[0], "New battle")
+        labels = [row.label for row in menus[0].screen.rows]
+        self.assertIn("Free-for-All - 4 Players", labels)               # the four-player row as before
+        self.assertNotIn("Free-for-All", labels)
 
     async def test_history_stays_reachable_when_new_battles_are_disabled(self):
         fixture = fixtures.BattleChallengeNetworkTests

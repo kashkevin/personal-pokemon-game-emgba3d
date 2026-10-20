@@ -171,6 +171,32 @@ class BattleChallengeNetworkTests(unittest.IsolatedAsyncioTestCase):
             for y in ids[i + 1:]:
                 self.assertGreater(self.server.friendships.pair(x, y)["points"], 0)
 
+    async def test_1v1v1_three_independent_consents_kept_once_and_never_wagered(self):
+        """Update 32: the three-player free-for-all through the host: two other trainers, each accepts for
+        themselves; the result goes to the free-for-all book, friendship to every pair, and no wager."""
+        ids = [p.player_id for p in self.players]
+        view = await self.rpc(0, "invite_ffa3", opponents=ids[1:3], battle_id=str(uuid4()))
+        self.assertEqual((view["mode"], view["players"][0], len(view["players"])), (6, ids[0], 3))
+        self.assertEqual(await self.rpc(3, "pending"), [])                 # the fourth trainer is not part of it
+        self.assertEqual((await self.accept(1, view))["state"], "invited")
+        accepted = await self.accept(2, view)
+        self.assertEqual((accepted["state"], len(accepted["consent"])), ("accepted", 3))
+        repeat = await self.rpc(0, "invite_ffa3", opponents=[ids[2], ids[1]], battle_id=view["battle_id"])
+        self.assertEqual(repeat["fingerprint"], view["fingerprint"])
+        for opponents in (ids[1:2], [ids[1], ids[1]], ids[1:4], [ids[0], ids[1]]):
+            with self.assertRaises(Exception):
+                await self.rpc(3, "invite_ffa3", opponents=opponents, battle_id=str(uuid4()))
+        battle = type("Battle", (), dict(battle_id=str(uuid4()), mode=6, players=tuple(ids[:3]), finished={ids[0]: 2}))()
+        self.server._on_battle_publish(battle)
+        self.server._on_battle_publish(battle)
+        found = self.server.shared_world.ffa.result(battle.battle_id)
+        self.assertEqual((found["outcome"], found["winner"]), (2, ids[1]))
+        self.assertIsNone(self.server.shared_world.frontier.coop_result(battle.battle_id))
+        self.server._on_battle_closed(battle)
+        for i, x in enumerate(ids[:3]):
+            for y in ids[i + 1:3]:
+                self.assertGreater(self.server.friendships.pair(x, y)["points"], 0)
+
     async def test_wrong_participant_and_changed_fingerprint_refused(self):
         view = await self.invite()
         await self.error("battle_not_participant", 2, "status", battle_id=view["battle_id"])

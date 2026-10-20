@@ -32,7 +32,7 @@ class CoopPhaseTests(unittest.TestCase):
         self.assertEqual([battler_owner(MULTI_PHASE, b) for b in range(4)], [0, 1, 2, 3])
         self.assertTrue(supports_native_phase(3, COOP_PHASE))
         self.assertFalse(supports_native_phase(2, COOP_PHASE))
-        for phase in (1, 6, True):
+        for phase in (1, 7, True):   # Update 32: 6 is the 1v1v1
             with self.subTest(phase=phase), self.assertRaises(BattleMailboxError):
                 player_count_for_phase(phase)
 

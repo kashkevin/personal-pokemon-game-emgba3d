@@ -537,6 +537,22 @@ Recorded guidance the code no longer follows (not binding decisions):
 | Trade import a 4 KiB sector per command on the PC game | Implemented and tested (Linux, two real games: 38 s -> about 5 s; Windows package logs `import 1`; no trade on Windows) | engine `c76651ea`, app `4c96fe2` |
 | 3D battle water and flowers recover after slow frames | Implemented and tested (Linux 3D, software OpenGL: tiles-old-4 vs tiles-new-1; not on a GPU or PC) | engine `be8b28ab` |
 
+
+## Update 32 features (2026-10-20, `docs/update-32-features-20261020.md`)
+
+| Feature | Status | Evidence |
+| --- | --- | --- |
+| Short introduction: boy or girl, the name, the save, Littleroot with no Pokemon | Implemented and tested (Linux natively: intro32_check 9/9; not on Windows or a PC) | engine `37f4edaf` |
+| Characters with no Pokemon: save, load, host, join, reconnect; refusals by name | Implemented and tested (Linux, two real games through real launchers: newcomer-4; not on Windows or a PC) | engine `1b8af913`, app `66b0049`, `47b7457` |
+| Starter Poke Balls in Birch's lab (18 starters, one claim per character, players independent) | Implemented and tested (Linux: intro32_check, newcomer-4 with two claims 18 s apart; not on Windows or a PC) | engine `37f4edaf` |
+| Soft reset: START > PLAYER > RESET offline and in a world (restart from the host save in the same session) | Implemented and tested (Linux: soft_reset_check 2/2, soft-reset-7; not on Windows or a PC; MS-29 open) | engine `09ee5144`, `91d856fb`, app `9397a61` |
+| Shiny starter hunting (save, claim, reset, a new roll; 1 in 4096) | Implemented and tested (Linux: selftest 400,000 claims, soft-reset-7 reroll; not on Windows or a PC) | engine `37f4edaf` |
+| Players in a menu or a dialogue stay drawn for the others | Implemented but unverified (simulated tests; the real-game check is in the three-player proof, not run yet) | engine `1b8af913`, app `66b0049` |
+| Three players in one world (menus, trades while the third explores, map changes, reconnect, mixed parties) | Implemented but unverified (three-player battles tested; the three-player world proof not run yet) | `scripts/multiplayer/native_launcher_three_player_proof.py` |
+| 1v1v1 (three trainers, each on a side of their own) | Implemented and tested (Linux, three real games: ffa3-1, lobby-1; rules tests pending; not on Windows or a PC) | engine `eb496d27`, app QF-6 |
+| 1v1v1v1 and 2v2 through PLAYERS > Challenges > New battle | Implemented but unverified (the battles were tested before this update; not yet re-run through the new page) | app QF-6 |
+| Battle lobby: the format follows who joined (2: 1v1, 3: 1v1v1, 4: 1v1v1v1 or 2v2) | Implemented and tested for three players (Linux: lobby-1); the four-player choice is simulated only | app QF-6, `tests/test_battle_lobby.py` |
+
 ## How to update
 
 1. Change a row only with new evidence: a recorded run (a doc in `docs/` or
