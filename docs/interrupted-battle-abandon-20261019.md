@@ -197,3 +197,42 @@ Install `EmeraldTogether-Setup-EmeraldTogether-2026-10-19-session-fix-7.exe` (ru
    abandon (their launchers reconnect) and play on.
 
 If any step fails, keep each player's `runtime.log` and the host's `native-battle-execution` folder.
+
+## 8. Merged, and the installer built from the merged branches (2026-10-20)
+
+The owner approved the merge on 2026-10-20. Before it: both default branches were unchanged (app `30dffa7`, engine
+`47767264`); python-tests run 174 passed on the development head `2e6fe36`; the engine's `check-native check-abi` passed on
+`44b6ebea` (the engine repository has no Actions workflows). Both merges were fast-forwards, without force:
+
+* app `claude/emeraldtogether-combined-app` `30dffa7` -> `2e6fe36` (41 commits);
+* engine `claude/emeraldtogether-combined` `47767264` -> `44b6ebea` (4 commits).
+
+After it (Windows CI; no physical PC):
+
+| Check | Result |
+| --- | --- |
+| python-tests on the merged default (run 175) | success |
+| **windows-package full from the merged defaults: run #85 (39349202047)** | **success**. Installer **`EmeraldTogether-Setup-EmeraldTogether-2026-10-20-merged.exe`**, 57,650,453 bytes, SHA-256 `46d06f14dd668e551fdfd951559005998eec09103eae829fcca4f8cc7462af33` (artifact `EmeraldTogether-Windows-Installer`, ID 12232409434, unsigned, kept until 2026-10-27). ROM `f214735b...3387`; the engine is `44b6ebea` (the hosted game's bridge logs `detail 1 ffa 1`, a field added in `44b6ebea`). Installation: silent install, start, repair, uninstall. Hosting: Create World (10.1.0.103:7777), invite code, rename, public address, delete, the game started for the world. Joining and saving: two New Games; Solo, Host World (10.1.0.103:7778) and Join Friend with the typed invite code, each save revision 1 -> 2, "Connected to the host's world", Exit code 0, no errors |
+| installed-world-check on that installer: run #16 (39352370864) | **success**: the same installer (SHA-256 re-checked) played again on another runner (Solo, Host World on 10.1.0.110:7778, Join Friend, saves 1 -> 2, Exit 0, no errors); the world check over the old build's leftover data and on a fresh profile |
+
+What this does not show: a Windows runner runs one host and one friend on one machine without a GPU; four players, battles
+and an interrupted battle on Windows have **not** been run. MS-17 and MS-18 remain open known issues.
+
+**Four-player checklist (four Windows PCs).** Install the run #85 installer on all four, then:
+
+1. Host: Host World, create a world, Host this world now. Each friend: Join Friend with their own invite code. Everyone's
+   PLAYERS shows "Connected: 4/4".
+2. Save now on every PC (the menu says the world saved the character).
+3. A 1v1 to the end (PLAYERS > a player > Challenge 1v1; the other accepts; both Enter battle): one winner, both back on the
+   field, PLAYERS still 4/4.
+4. A 2v2 to the end (two teams via Invite to team; Your team > Challenge other team 2v2; the other two accept).
+5. A free-for-all to the end (PLAYERS > Challenges > Free-for-all 1v1v1v1; three accept).
+6. Interrupted battle: start a free-for-all and close one player's game in the middle. The other three get "Abandon battle"
+   (EmeraldTogether menu: "Abandon interrupted battle"); one confirms; everyone's game restarts on the field with the party it
+   had before; nobody wins. The player who left starts EmeraldTogether again and Join Friend: same character, PLAYERS 4/4.
+7. Host crash: start a 1v1 with the host in it and end the host's game in Task Manager. The host starts EmeraldTogether and
+   hosts the same world again; the other player abandons (their launcher reconnects); both play on.
+8. Everyone: Save now, Exit, start again, Continue: the same character, money and items as after step 2 (battles give no
+   money or items in this build).
+
+Keep every player's `runtime.log` and the host's `native-battle-execution` folder if a step fails; note the time.
