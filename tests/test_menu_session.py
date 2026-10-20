@@ -2,6 +2,7 @@ import asyncio
 from types import SimpleNamespace
 import unittest
 
+from emerald_multiplayer.battle_admission_session import BattleAdmissionRefused
 from emerald_multiplayer.bridge_protocol import BridgeOutbox
 from emerald_multiplayer.menu_mailbox import MenuRequest, unpack_screen
 from emerald_multiplayer.menu_session import MenuSession
@@ -396,3 +397,157 @@ class MenuSessionTests(unittest.IsolatedAsyncioTestCase):
         await self.session._task
         self.assertTrue((await self.result())[2])
         self.assertEqual(called, [])
+
+
+class AdmissionReleaseTests(MenuSessionTests):
+    """The owner's report of 2026-10-20: both players chose Enter battle and both games stayed on "Waiting for
+    server..." for good. An Enter the companion refuses before any ADMIT now releases the window with its reason."""
+
+    async def release_menu(self, **kwargs):
+        await self.admission_menu(**kwargs)
+        self.companion.config.menu_release_abi_version = 1
+        self.refused, self.notices = [], []
+        self.companion._native_menu_refused_battle = self.refused.append
+        self.session.menu.notice = self.notices.append
+
+    async def released(self, ack):
+        frame = await asyncio.wait_for(self.bridge.outbox.get(), 1)
+        sequence, screen, flags = unpack_screen(frame[5:], allow_release=True)
+        self.assertEqual((sequence, flags), (ack, 3))
+        self.assertEqual(screen.admission_action, 0)      # a release never carries an Enter row
+        return screen
+
+    async def test_refused_enter_releases_the_latched_window_with_its_reason(self):
+        await self.release_menu()
+        def capture(*_): raise BattleAdmissionRefused("save_recovery_required", "saving stopped")
+        self.companion._native_menu_capture_battle = capture
+        self.feed(2, 1, 1, 2)
+        await asyncio.wait_for(self.session._task, 2)
+        await self.released(2)
+        self.assertEqual(self.notices, ["Saving stopped: restart game"])
+        self.assertEqual(self.events, ["claim"])          # no preparation, no abandon: nothing to recover
+        self.assertEqual(self.refused, [self.session])
+        self.assertFalse(self.session._battle_latched or self.session._battle_admission_failed)
+        # Then the usual screen, whose Enter row works again once the reason is gone.
+        frame = await asyncio.wait_for(self.bridge.outbox.get(), 1)
+        self.assertEqual(unpack_screen(frame[5:], allow_battle_admission=True)[1].admission_action, 1)
+        self.feed(3, 1, 0, 3)                             # the window takes input again (here, B: Close)
+
+    async def test_host_refused_claim_releases_without_retention(self):
+        async def prepare(*_):
+            self.events.append("prepare")
+            raise BattleAdmissionRefused("battle_not_ready", "the challenge expired")
+        await self.release_menu(prepare=prepare)
+        self.feed(2, 1, 1, 2)
+        await asyncio.wait_for(self.session._task, 2)
+        await self.released(2)
+        self.assertEqual(self.notices, ["Challenge expired: try again"])
+        self.assertEqual(self.events, ["claim", "prepare"])
+        self.assertFalse(self.session._battle_latched)
+
+    async def test_uncertain_failure_still_retains_with_the_release(self):
+        async def prepare(*_):
+            self.events.append("prepare")
+            raise ConnectionError("ADMIT receipt uncertain")
+        await self.release_menu(prepare=prepare)
+        self.feed(2, 1, 1, 2)
+        await self.session._task
+        self.assertEqual(self.events, ["claim", "prepare", "abandon"])
+        self.assertTrue(self.session._battle_latched)
+        self.assertFalse(self.bridge.outbox.controls)
+
+    async def test_refusal_without_the_release_keeps_the_old_retention(self):
+        await self.admission_menu()
+        def capture(*_): raise BattleAdmissionRefused("save_recovery_required", "saving stopped")
+        self.companion._native_menu_capture_battle = capture
+        self.feed(2, 1, 1, 2)
+        await self.session._task
+        self.assertEqual(self.events, ["claim", "abandon"])
+        self.assertTrue(self.session._battle_latched)
+        self.assertFalse(self.bridge.outbox.controls)
+
+
+class BothPlayersEnterTests(unittest.IsolatedAsyncioTestCase):
+    """Both clients choose Enter battle at the same moment and wait for the host: each must either reach its battle
+    or get a clear, recoverable screen in bounded time, never wait forever (the owner's report of 2026-10-20)."""
+
+    def player(self, name, host):
+        test = self
+        bridge = SimpleNamespace(outbox=BridgeOutbox(), writer=SimpleNamespace(close=lambda: None), battle_capable=True)
+        companion = SimpleNamespace(_bridge=bridge, config=SimpleNamespace(menu_abi_version=2,
+            battle_resume_abi_version=1, emergency_save_abi_version=2, menu_release_abi_version=1))
+        session = MenuSession(companion, bridge)
+        menu = FakeMenu()
+        menu.gate.set()
+        menu.screen = MenuScreen(1, "Rival Battle - 1v1", "Opponent accepted", (MenuRow(1, "Enter battle"),), 0, 1)
+        menu.claim_battle_admission = lambda revision, action: {"battle_id": "b1", "generation": 1}
+        menu.notice = lambda text: setattr(menu, "noticed", text)
+        session.menu = menu
+        outcome = {"name": name}
+        def capture(descriptor, owner):
+            refusal = host.refusals.get(name)
+            if refusal is not None:
+                raise BattleAdmissionRefused(refusal, "refused before any ADMIT")
+        async def prepare(descriptor, owner):
+            host.entered.add(name)
+            session.feed(MenuRequest(3, 1, 0, 3).pack())   # ADMIT moved the window into the battle hold (native CLOSE)
+        async def handoff(kind, descriptor, owner):
+            # The battle starts when every trainer entered; it ends unstarted when one was refused.
+            async with asyncio.timeout(5):
+                while not (host.entered >= {"host", "friend"} or host.refusals):
+                    await asyncio.sleep(.01)
+            outcome["battle"] = "started" if not host.refusals else "entry cancelled"
+            owner.finish_battle_admission("b1", 1)
+        companion._native_menu_capture_battle = capture
+        companion._native_menu_prepare_battle = prepare
+        companion._native_menu_handoff = handoff
+        companion._native_menu_abandon_battle_preparation = lambda owner: outcome.setdefault("abandoned", True)
+        companion._native_menu_refused_battle = lambda owner: outcome.setdefault("refused", True)
+        test.sessions.append(session)
+        return session, bridge, outcome
+
+    async def asyncSetUp(self):
+        self.sessions = []
+
+    async def asyncTearDown(self):
+        for session in self.sessions:
+            await session.close()
+
+    async def both_enter(self, refusals):
+        host = SimpleNamespace(refusals=dict(refusals), entered=set())
+        players = [self.player(name, host) for name in ("host", "friend")]
+        for session, bridge, _ in players:
+            session.feed(MenuRequest(1, 0, 0, 1).pack())
+            await session._task
+            await asyncio.wait_for(bridge.outbox.get(), 1)
+        for session, _, _ in players:   # the same moment: neither waits for the other's Enter to be handled
+            session.feed(MenuRequest(2, 1, 1, 2).pack())
+        await asyncio.wait_for(asyncio.gather(*(s._task for s, _, _ in players)), 10)
+        return players
+
+    async def test_both_enter_and_both_battle(self):
+        for session, bridge, outcome in await self.both_enter({}):
+            self.assertEqual(outcome.get("battle"), "started")
+            self.assertFalse(session._battle_latched)
+            self.assertFalse(bridge.outbox.controls)
+
+    async def test_both_refused_both_windows_released(self):
+        # The reproduction's condition on both PCs (a failed save each): both windows get their reason.
+        for session, bridge, outcome in await self.both_enter({"host": "save_recovery_required",
+                                                               "friend": "character_recovery_pending"}):
+            frame = await asyncio.wait_for(bridge.outbox.get(), 1)
+            self.assertEqual(unpack_screen(frame[5:], allow_release=True)[2], 3)
+            self.assertTrue(outcome.get("refused"))
+            self.assertNotIn("abandoned", outcome)
+            self.assertFalse(session._battle_latched)
+        self.assertEqual([s.menu.noticed for s in self.sessions],
+                         ["Saving stopped: restart game", "Resolve the trade first"])
+
+    async def test_one_refused_the_other_ends_unstarted(self):
+        players = await self.both_enter({"friend": "save_not_ready"})
+        (host, host_bridge, host_outcome), (friend, friend_bridge, friend_outcome) = players
+        self.assertEqual(host_outcome.get("battle"), "entry cancelled")
+        self.assertFalse(host._battle_latched)
+        frame = await asyncio.wait_for(friend_bridge.outbox.get(), 1)
+        self.assertEqual(unpack_screen(frame[5:], allow_release=True)[2], 3)
+        self.assertFalse(friend._battle_latched)

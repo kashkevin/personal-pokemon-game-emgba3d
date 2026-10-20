@@ -254,6 +254,46 @@ class RetainedBattleRecoveryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(calls), 1)
         self.assertEqual(read_admission_receipt(self.directory, calls[0]).opcode, Opcode.ADMIT)
 
+    async def test_definitely_refused_claim_sends_no_admit_and_retires_its_intent(self):
+        # The owner's report of 2026-10-20: an Enter whose claim the host refused (the challenge had expired) still
+        # sent ADMIT and left the game frozen. A definite refusal is answered before anything is recorded: no ADMIT.
+        from emerald_multiplayer.battle_admission_session import (BattleAdmissionRefused, prepare_battle_admission,
+            refused_admission_path)
+        from emerald_multiplayer.companion import BattleChallengeError
+        self.journal.path.unlink()
+        self.c._live_binding = (self.c.world_id, self.c.session_epoch, self.c.battle_incarnation)
+        object.__setattr__(self.c.config, "menu_release_abi_version", 1)
+        challenge = self.accepted_challenge()
+        async def refused(operation, **fields):
+            raise BattleChallengeError("battle_not_ready", "Enter requires the exact accepted original game core")
+        with patch.object(self.c, "battle_challenge_rpc", refused), \
+             patch.object(self.c, "battle_rpc", side_effect=AssertionError("ADMIT sent for a refused Enter")):
+            with self.assertRaises(BattleAdmissionRefused) as raised:
+                await prepare_battle_admission(self.c, self.directory, challenge)
+        self.assertEqual(raised.exception.code, "battle_not_ready")
+        self.assertFalse((self.directory / "pending-battle-admission.json").exists())
+        self.assertTrue(refused_admission_path(self.directory, challenge["battle_id"]).exists())
+        self.assertFalse((self.directory / (challenge["battle_id"] + ".battle-admission-receipt.json")).exists())
+        self.assertIsNone(self.c._live_save_owner)
+
+    async def test_refused_claim_still_holds_for_games_without_the_release(self):
+        from emerald_multiplayer.battle_admission_session import prepare_battle_admission, read_admission_receipt
+        from emerald_multiplayer.battle_admission_intent import read_admission_intent
+        from emerald_multiplayer.companion import BattleChallengeError
+        self.journal.path.unlink()
+        self.c._live_binding = (self.c.world_id, self.c.session_epoch, self.c.battle_incarnation)
+        calls = []
+        async def refused(operation, **fields):
+            intent = read_admission_intent(self.directory / "pending-battle-admission.json")
+            calls.append(intent)
+            echo = asyncio.create_task(self.echo(intent.admit, self.query(flags=129, sequence=0, remaining=0)))
+            self.tasks.append(echo)
+            raise BattleChallengeError("battle_not_ready", "expired")
+        with patch.object(self.c, "battle_challenge_rpc", refused):
+            with self.assertRaises(BattleChallengeError):
+                await prepare_battle_admission(self.c, self.directory, self.accepted_challenge())
+        self.assertEqual(read_admission_receipt(self.directory, calls[0]).opcode, Opcode.ADMIT)
+
     async def test_synchronous_enter_publication_may_overlap_only_its_exact_lost_saver(self):
         from emerald_multiplayer.battle_admission_session import publish_battle_admission
         from emerald_multiplayer.battle_terminal import authenticated_session

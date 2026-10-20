@@ -133,6 +133,23 @@ class PlayerMenuNetworkTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("Rival Battle - 1v1", [row.label for row in screen.rows])
 
 
+class PlayerMenuChallengeStatusTests(PlayerMenuNetworkTests):
+    async def test_a_challenge_that_ends_unstarted_says_why(self):
+        # Seen 2026-10-20: a save after accepting ended the challenge and it vanished from both menus without a word.
+        a, b = (PlayerMenu(self.companions[i]) for i in (0, 1))
+        await a.refresh(); await self.click(a, "Trainer 1"); await self.click(a, "Rival Battle - 1v1")
+        self.assertEqual(a.screen.title, "Rival Battle - 1v1")
+        self.assertEqual(a.screen.status, "Waiting for opponent")
+        await b.refresh(); await self.click(b, "Pending challenge")
+        self.assertEqual(b.screen.status, "Trainer 0 challenges you")
+        room = next(iter(self.server.battle_desk._active.values()))
+        self.server.battle_desk._abort(room, "canonical_changed")
+        screen = await b.refresh()
+        self.assertEqual(screen.status, "Cancelled: a party was saved")
+        self.assertNotIn("Accept challenge", [row.label for row in screen.rows])
+        self.assertEqual((await a.refresh()).status, "Cancelled: a party was saved")
+
+
 class PlayerMenuAdmissionTests(unittest.TestCase):
     def setUp(self):
         self.companion = SimpleNamespace(config=SimpleNamespace(menu_abi_version=2,
@@ -176,3 +193,40 @@ class PlayerMenuAdmissionTests(unittest.TestCase):
                 self.menu.claim_battle_admission(revision, action)
         self.battle["consent"] = ["a"]
         with self.assertRaises(PlayerMenuError): self.menu.claim_battle_admission(screen.revision, 2)
+
+
+class PlayerMenuEnterTests(PlayerMenuAdmissionTests):
+    """Enter battle is offered only when this game's launcher could admit it; otherwise the reason is shown, so the
+    game never latches an Enter that must be refused (the owner's report of 2026-10-20)."""
+
+    def render(self, actor="a", **battle):
+        self.companion.config.player_id = actor
+        self.menu._players = {"a": "Ann", "b": "Bob", "c": "Cy", "d": "Di"}
+        self.battle.update(dict(mode=2, sender="a", checkpoints=[dict(player_id=p, party_count=1)
+                                                                 for p in self.battle["players"]]), **battle)
+        return self.menu._render()
+
+    def test_enter_offered_only_when_the_launcher_could_admit(self):
+        screen = self.render()
+        self.assertEqual((screen.title, screen.status), ("Rival Battle - 1v1", "Opponent accepted"))
+        self.assertIn("Enter battle", [row.label for row in screen.rows])
+        self.companion._native_menu_battle_blocker = lambda battle: "save_recovery_required"
+        screen = self.render()
+        self.assertEqual(screen.status, "Saving stopped: restart game")
+        self.assertNotIn("Enter battle", [row.label for row in screen.rows])
+        self.assertIn("Cancel challenge", [row.label for row in screen.rows])
+        self.assertEqual(screen.admission_action, 0)
+        self.companion._native_menu_battle_blocker = lambda battle: None
+        self.assertIn("Enter battle", [row.label for row in self.render().rows])
+
+    def test_pending_statuses_say_who_is_awaited(self):
+        self.assertEqual(self.render(consent=["a"]).status, "Waiting for opponent")
+        self.assertEqual(self.render(actor="b", consent=["a"], state="invited").status, "Ann challenges you")
+        four = dict(mode=3, players=["a", "b", "c", "d"])
+        self.assertEqual(self.render(consent=["a", "b"], state="invited", **four).status,
+                         "Waiting for remaining players")
+        screen = self.render(consent=["a", "b", "c", "d"], **four)
+        self.assertEqual((screen.title, screen.status), ("Rival Battle - 2v2", "All players ready"))
+        self.assertEqual(self.render(consent=["a", "b", "c", "d"], state="starting", **four).status, "Starting battle")
+        self.assertEqual(self.render(mode=5, consent=["a", "b", "c", "d"], players=["a", "b", "c", "d"]).title,
+                         "Free-for-All: 4 Players")

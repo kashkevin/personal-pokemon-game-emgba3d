@@ -312,6 +312,20 @@ class BattleExecutionNetworkTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(room.battle.bind_intent)
         self.assertEqual(self.server._battle_reservations.waiting(*self.actor(0)), [])
 
+    async def test_challenge_ended_before_bind_tells_the_waiting_core(self):
+        # Seen 2026-10-20: the time limit (or a cancel by the trainer who had not entered) moved an entered challenge
+        # to recovery_required while its room stayed "waiting"; the entered core polled that room for good, held.
+        service = self.enable()
+        self.accept()
+        self.assertEqual((await self.exchange(0))["result"]["state"], "waiting")
+        self.desk._recover(self.desk._active[self.battle_id], "deadline")
+        self.assertEqual((await self.exchange(0))["result"]["state"], "recovery_required")
+        room = service.rooms[self.battle_id]
+        self.assertFalse(room.pending)
+        self.assertIsNone(room.task)
+        self.assertFalse(room.battle.bind_intent)
+        self.assertEqual(room.state, "waiting")   # the persisted room is untouched: neutral cleanup's evidence stays exact
+
     async def test_shutdown_keeps_durable_exact_pending_command_and_all_participants_reserved(self):
         service = self.enable()
         self.accept(multi=True)

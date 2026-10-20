@@ -155,7 +155,9 @@ class MenuSession:
         if callable(settle):
             settle(self)
         text = refusal_text(getattr(error, "code", None))
-        self.menu.notice(text)
+        notice = getattr(self.menu, "notice", None)
+        if callable(notice):
+            notice(text)
         try:
             screen = await self.menu.refresh()
         except (ValueError, ConnectionError, OSError, asyncio.TimeoutError):

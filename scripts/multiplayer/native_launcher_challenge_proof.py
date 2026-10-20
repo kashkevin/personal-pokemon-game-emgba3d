@@ -80,9 +80,38 @@ async def pick(probe, label=None):
 
 
 class ChallengeProof(AbandonProof):
-    def __init__(self, scenario, watch, late, match_seconds):
+    def __init__(self, scenario, watch, late, match_seconds, fixed=False, perf=False):
         super().__init__(scenario, 0, watch, match_seconds)
-        self.late = late
+        self.late, self.fixed, self.want_perf = late, fixed, perf
+        self.perf = None
+
+    async def perf_start(self, current, probes):
+        """--perf: multiplayer_perf.PerfRecorder on both games, both launchers' loops and companions, the host."""
+        from multiplayer_perf import PerfRecorder
+        self.perf = PerfRecorder(self.harness.output / "perf.jsonl")
+        self.perf.watch_fsync()
+        for n, (worker, probe) in enumerate(zip(current, probes)):
+            name = self.harness.names[n]
+            self.perf.watch_game(name, probe.pid, probe.symbols)
+            self.perf.watch_loop(name, worker._loop, worker._thread)
+            async def companion(s):
+                return s._companion
+            self.perf.time_companion(name, await on_worker(worker, companion))
+        async def server(s):
+            return s._server
+        self.perf.time_server(await on_worker(current[0], server))
+
+    def mark(self, phase):
+        if self.perf is not None:
+            self.perf.mark(phase)
+
+    def perf_report(self, record):
+        if self.perf is None:
+            return
+        report = self.perf.summary()
+        self.perf.stop()
+        (self.harness.output / "perf-summary.json").write_text(json.dumps(report, indent=1))
+        record("perf-summary", phases=list(report))
 
     # Observations -----------------------------------------------------------------------------------------------
     @staticmethod
@@ -149,9 +178,56 @@ class ChallengeProof(AbandonProof):
             if isinstance(group, (int, float)) and not isinstance(group, bool) and group < 0:
                 await asyncio.sleep(-group)
                 continue
-            await asyncio.gather(*(probes[n].choose("Enter battle", wait=False) for n in group))
-            record("entered", players=[self.harness.names[n] for n in group])
+            offered = []
+            for n in group:
+                _, screen = await shown(probes[n])
+                if "Enter battle" in [r.label for r in screen.rows]:
+                    offered.append(n)
+                else:
+                    record("enter-not-offered", player=self.harness.names[n], title=screen.title, status=screen.status,
+                           rows=[r.label for r in screen.rows])
+            await asyncio.gather(*(probes[n].choose("Enter battle", wait=False) for n in offered))
+            record("entered", players=[self.harness.names[n] for n in offered])
         return {battle["battle_id"]: battle}
+
+    async def settle(self, current, probes, record, label, seconds):
+        """Fixed build: every game ends in its battle or free (no latched window, no hold) within `seconds`."""
+        started = time.monotonic()
+        while True:
+            natives = {n: self.native(probes[n]) for n in (0, 1)}
+            launchers = {n: await self.launcher(current[n]) for n in (0, 1)}
+            elapsed = round(time.monotonic() - started)
+            free = all(not v["latched"] and not v["hold"] for v in natives.values())
+            if free or elapsed >= seconds or elapsed % 10 < 2:
+                record(label, seconds=elapsed, natives={self.harness.names[n]: v for n, v in natives.items()},
+                       launchers={self.harness.names[n]: v for n, v in launchers.items()})
+            if free:
+                return natives
+            require(elapsed < seconds, f"{label}: a game is still latched or held after {seconds} s")
+            await asyncio.sleep(2)
+
+    async def refused_then_cancelled(self, current, probes, record):
+        """The friend's Enter was refused before any ADMIT: its window shows why and takes input; the friend cancels
+        the challenge; the host's admitted entry is cancelled by its own launcher; both games are free."""
+        async with asyncio.timeout(30):
+            while True:
+                friend = self.native(probes[1])
+                if friend["menu"] and not friend["latched"] and not friend["waiting"]:
+                    break
+                await asyncio.sleep(.2)
+        record("friend-window-released", native=friend, launcher=await self.launcher(current[1]))
+        _, screen = await shown(probes[1])
+        if "Cancel challenge" in [r.label for r in screen.rows]:
+            await pick(probes[1], "Cancel challenge")
+            record("friend-cancelled-the-challenge")
+        natives = await self.settle(current, probes, record, "after-the-refusal", self.watch)
+        for n in (0, 1):
+            if natives[n]["menu"]:
+                await close_players(probes[n])
+        async with asyncio.timeout(60):
+            while not all([(await self.state_of(w)).get("field") for w in current]):
+                await asyncio.sleep(.5)
+        record("both-free-on-the-field", launchers={self.harness.names[n]: await self.launcher(current[n]) for n in (0, 1)})
 
     async def match(self, current, probes, games, host, symbols, record):
         for n, worker in enumerate(current):
@@ -162,6 +238,10 @@ class ChallengeProof(AbandonProof):
             # "Connected: 2/4": the players connected, out of the world's four places.
             require(status.startswith(f"Connected: {len(probes)}/"), f"player {index}'s PLAYERS: {status} {rows}")
         record("linked-before-the-challenge", sessions=[(await self.launcher(w)).get("epoch") for w in current])
+        if self.want_perf:
+            await self.perf_start(current, probes)
+            self.mark("field")
+            await asyncio.sleep(15)        # both on the field: the baseline
         order = [(0, 1)]
         if self.scenario == "reconnect":
             async def cut(s):
@@ -192,10 +272,15 @@ class ChallengeProof(AbandonProof):
                 if probes[m].read()["active"] and not self.native(probes[m])["latched"]:
                     await close_players(probes[m])
         if self.scenario in ("trade", "trade-battle"):
+            self.mark("trade")
             await self.trade(host, current, probes, record)
+            self.mark("after-the-trade")
             if self.scenario == "trade":
+                await asyncio.sleep(10)
+                self.perf_report(record)
                 return await self.traded(host, current, record)
             await asyncio.sleep(3)
+        self.mark("challenge")
         await self.challenge_and_accept(host, probes)
         record("both-accepted", launchers={self.harness.names[n]: await self.launcher(current[n]) for n in (0, 1)})
         if self.scenario in ("friend-save", "host-save"):
@@ -236,16 +321,36 @@ class ChallengeProof(AbandonProof):
             record("friend-save-given-up", launcher=await self.launcher(current[1]))
         elif self.scenario == "late-enter":
             order = [(0,), -self.late, (1,)]
+        self.mark("enter")
         battles = await self.enter_battle(current, probes, record, order)
+        if self.fixed and self.scenario == "save-failed":
+            await self.refused_then_cancelled(current, probes, record)
+            async def withdraw(s):          # the injected save failure is withdrawn for the closing saves
+                s._save_failed = False
+            await on_worker(current[1], withdraw)
+            return
+        if self.fixed and self.scenario == "late-enter":
+            await self.settle(current, probes, record, "after-the-late-entry", self.watch)
+            for n in (0, 1):
+                if probes[n].read()["active"]:
+                    await close_players(probes[n])
+            record("both-free-on-the-field", launchers={self.harness.names[n]: await self.launcher(current[n]) for n in (0, 1)})
+            return
         if not await self.observe(current, probes, (0, 1), record, "after-entering"):
             record("stuck-waiting-for-server", natives={self.harness.names[n]: self.native(probes[n]) for n in (0, 1)})
             raise Reproduced("both games are still on the challenge screen, waiting for the server")
+        self.mark("battle")
         stops, drivers = self.drive(current, probes, symbols, battles, (0, 1))
         await self.finish(current, probes, battles, (0, 1), stops, drivers, record, "1v1")
+        self.mark("back-to-the-field")
         async with asyncio.timeout(120):
             while not all([(await self.state_of(w)).get("field") for w in current]):
                 await asyncio.sleep(.5)
         record("both-back-on-the-field", players=list(self.harness.names))
+        if self.perf is not None:
+            self.mark("field-after")
+            await asyncio.sleep(10)
+            self.perf_report(record)
         if self.scenario == "trade-battle":
             return await self.traded(host, current, record)
 
@@ -310,7 +415,7 @@ class ChallengeProof(AbandonProof):
 
 async def run(args):
     require(len(args.source) == 2 and len(args.display) == 2, "two sources and two displays")
-    proof = ChallengeProof(args.scenario, args.watch, args.late, args.match_seconds)
+    proof = ChallengeProof(args.scenario, args.watch, args.late, args.match_seconds, args.fixed, args.perf)
     await launcher_proof(args, names=PLAYER_NAMES, sources=args.source, party_counts=(1, 1), match=proof.match,
                          version="Native challenge proof", settings="windowScale=2\n",
                          scope=__doc__.split("\n\n")[0] + " Scenario: " + args.scenario,
@@ -331,6 +436,9 @@ def main():
     parser.add_argument("--watch", type=float, default=60, help="seconds to watch both games after entering")
     parser.add_argument("--late", type=float, default=45, help="late-enter: seconds between the two entries")
     parser.add_argument("--match-seconds", type=float, default=900)
+    parser.add_argument("--perf", action="store_true", help="measure frames, loops, fsync, requests, CPU per phase")
+    parser.add_argument("--fixed", action="store_true",
+                        help="the repaired build: a refused or expired Enter must end free, never latched or held")
     parser.add_argument("--wine", type=__import__("pathlib").Path, action="append", help="(not used)")
     parser.add_argument("--sdl", type=__import__("pathlib").Path)
     parser.add_argument("--elf", type=__import__("pathlib").Path)

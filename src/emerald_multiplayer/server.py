@@ -1184,13 +1184,33 @@ class WorldServer:
                     raise ProtocolError("battle_resume_disabled", "provisional admission requires the verified resume capability")
                 view = self.battle_execution.admission.claim(*actor, request)
             else:
-                view = desk.cancel(*actor, battle_id, request["generation"])
-                if self.battle_execution is not None and self.battle_execution.resume_enabled:
-                    self.battle_execution.admission.canceled(battle_id)
+                try:
+                    view = desk.cancel(*actor, battle_id, request["generation"])
+                except BattleError as error:
+                    view = self._cancel_entered_challenge(actor, battle_id, request["generation"], error)
+                else:
+                    if self.battle_execution is not None and self.battle_execution.resume_enabled:
+                        self.battle_execution.admission.canceled(battle_id)
             if capture_original:
                 self.battle_execution.admission.capture(*actor, request)
             result = challenge_view(view)
         self._battle_reply(session, request, result=result)
+
+    def _cancel_entered_challenge(self, actor, battle_id, generation, error):
+        """A trainer who has not entered cancels a challenge another trainer has already entered (claimed). That game
+        holds its entry, so the battle cannot simply be aborted (battle_native_abort_required): it becomes
+        recovery_required, and the entered game's session cancels its entry neutrally (battle_entry_unstarted in
+        battle_session.py, then cancel_admission). Before 2026-10-20 the cancel was refused and the entered game
+        stayed frozen until the challenge's time limit."""
+        execution = self.battle_execution
+        if error.code != "battle_native_abort_required" or execution is None or not execution.resume_enabled:
+            raise error
+        battle = self.battle_desk._get(*actor, battle_id, generation)
+        if (actor[0] in execution.admission.claimed(battle_id) or battle.bind_intent or battle.bound
+                or battle.state != "accepted"):
+            raise error
+        self.battle_desk._recover(battle, "participant_canceled")
+        return self.battle_desk._view(battle)
 
     def _trade_reply(self, session, request, *, error=None, **fields):
         assert self._world_metadata is not None

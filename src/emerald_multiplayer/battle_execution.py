@@ -137,6 +137,11 @@ class BattleExecutionService:
             room.state = "aborted"
             self._persist(room)
             return execution_view(battle.battle_id, battle.generation, room.state)
+        if battle.state == "recovery_required" and room.state == "waiting" and room.task is None and not battle.bind_intent:
+            # The challenge ended before any BIND (a trainer cancelled or could not enter, its time limit passed). The
+            # room never left "waiting", so an entered core polled it for good, held (seen 2026-10-20). Say so; that
+            # core's launcher cancels its entry neutrally (battle_entry_unstarted, then cancel_admission).
+            return execution_view(battle.battle_id, battle.generation, "recovery_required")
         incarnation = request["incarnation"]
         if actor in room.ready and room.ready[actor] != incarnation:
             self._fail(room, "incarnation_changed")

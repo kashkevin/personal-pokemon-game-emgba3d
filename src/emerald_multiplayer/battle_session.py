@@ -217,6 +217,10 @@ class NativeBattleSession:
                         return BattleCompletion(challenge["battle_id"], challenge["generation"],
                             roster.revision, roster.checkpoint_sha256, state="aborted")
                     if view["state"] in ("aborted", "recovery_required"):
+                        if self.intent is None and self.admission_intent is not None:
+                            # Admitted, never bound: the launcher cancels this entry neutrally (cancel_admission
+                            # refuses anything reserved), instead of holding the game until a restart.
+                            raise BattleJournalError("battle_entry_unstarted", "the battle ended before it started")
                         raise BattleJournalError("battle_recovery_required", "battle remains held for recovery")
                     if view["command_b64"] is None:
                         # The host issues the next command within a millisecond or two of a

@@ -133,6 +133,10 @@ class BattleAdmissionHost:
         b.resumable = True
         return self.desk._view(b)
 
+    def claimed(self, battle_id):
+        """The trainers whose Enter this host recorded for the battle (none without a consent record)."""
+        return tuple(self._read(battle_id)["claimed"]) if self.has_consent(battle_id) else ()
+
     def canceled(self, battle_id):
         path = self._path(battle_id)
         if path.exists():

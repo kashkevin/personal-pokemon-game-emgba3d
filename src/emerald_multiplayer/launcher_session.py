@@ -326,6 +326,7 @@ class LauncherSession:
         self._trade_recovery_task = None
         self._host_world = None
         self._host_restart_task = None
+        self._entry_cleanup_task = None
         self._host_restart_notice = None
         self._connection_details = None
         self._championship_controller = None
@@ -1425,6 +1426,25 @@ class LauncherSession:
                 self._interaction = None
             self._autosave_wake.set()
 
+    def _schedule_entry_cleanup(self):
+        """The battle ended before it started (another trainer could not enter or cancelled, the challenge expired)
+        while this game held its admitted entry and no BIND: cancel that entry neutrally, as "Cancel battle entry"
+        does, instead of leaving the game frozen until a restart (the owner's report of 2026-10-20). The host's
+        cancel_admission refuses anything reserved or bound; then the session window still offers the button."""
+        async def run():
+            # The failed handoff releases its menu ownership in the same task, before this one runs.
+            for _ in range(100):
+                if self._interaction is None and self._battle_menu_preparation is None:
+                    break
+                await asyncio.sleep(.05)
+            try:
+                if self.can_cancel_battle_entry:
+                    await self.cancel_battle_entry()
+            except (LauncherSessionError, ValueError, OSError, ConnectionError):
+                pass   # cancel_battle_entry published admission_cleanup_held
+        if self._entry_cleanup_task is None or self._entry_cleanup_task.done():
+            self._entry_cleanup_task = asyncio.create_task(run(), name="launcher-unstarted-entry-cleanup")
+
     async def _adopt_battle_completion(self, result, intent, game, bridge, runtime, *, cleanup=False):
         """Transfer terminal native ownership before making this character writable."""
         from .battle_session import BattleCompletion, RenewedBattleSession
@@ -1967,10 +1987,12 @@ class LauncherSession:
                 self._trade_retained = None
             self._autosave_due = self._autosave_clock() + AUTOSAVE_INTERVAL
             self._publish(SessionState.RUNNING, code, revision=self._revision)
-        except (Exception, asyncio.CancelledError):
+        except (Exception, asyncio.CancelledError) as error:
             # A dispatched native operation must preserve every recovery
             # journal. Querying the newest server head cannot certify it.
             self._fail_save()
+            if kind == "battle" and getattr(error, "code", None) == "battle_entry_unstarted":
+                self._schedule_entry_cleanup()
             raise
         finally:
             if prepared_battle:
@@ -2065,6 +2087,8 @@ class LauncherSession:
             await asyncio.gather(self._play_task, return_exceptions=True)
         if self._host_restart_task is not None:
             await asyncio.gather(self._host_restart_task, return_exceptions=True)
+        if self._entry_cleanup_task is not None:
+            await asyncio.gather(self._entry_cleanup_task, return_exceptions=True)
         await self._stop_reachability()
         try:
             if self._companion is not None:

@@ -110,3 +110,18 @@ class MenuManifestTests(unittest.TestCase):
         self.assertEqual(manifest["menu_abi_version"], 2)
         self.assertTrue(validate_menu_manifest(manifest, self.rom))
         self.assertIn("menu_abi=2", self.configure(manifest))
+
+
+class MenuReleaseTests(unittest.TestCase):
+    def test_release_is_flag_three_and_never_carries_an_enter_row(self):
+        screen = MenuScreen(4, "Rival Battle - 1v1", "Challenge expired: try again", (MenuRow(1, "Cancel challenge"),), 0)
+        value = pack_screen(9, screen, release=True)
+        self.assertEqual(value[8], 3)
+        self.assertEqual(unpack_screen(value, allow_release=True), (9, screen, 3))
+        with self.assertRaises(ValueError):
+            unpack_screen(value)                            # only a reader expecting releases takes one
+        with self.assertRaises(ValueError):
+            pack_screen(9, screen, release=True, close=True)
+        with self.assertRaises(ValueError):
+            pack_screen(9, MenuScreen(4, "Battle", "x", (MenuRow(1, "Enter battle"),), 0, 1),
+                        release=True, allow_battle_admission=True)
