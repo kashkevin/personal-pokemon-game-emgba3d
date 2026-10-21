@@ -177,6 +177,11 @@ jobs:
           for r in results:
               if not r["passed"]:
                   print(f"FAILED {r['key']}: {r['reason']}")
+          # blocked in the game itself, not by the plan (a story object this save hides, an object on a trigger):
+          # with the plan and the FAILED lines, what tools/qa/coverage.py --failed needs for the coverage manifest
+          for b in blocked.values():
+              if b.get("runtime"):
+                  print(f"BLOCKED {b['key']}: {b['reason']}")
           PY
       - name: Upload the merged report (private to this repository, 7 days)
         uses: actions/upload-artifact@v4
