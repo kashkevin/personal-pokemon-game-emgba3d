@@ -284,6 +284,13 @@ generation, audits) runs in parallel, and Windows work fans out over parallel ru
   games on the four cores, no host loop stall over 1.5 s). With run 8, newcomers-mixed4-2 and busy4-3 and every gate
   3 proof, no healthy battle on the fixed app was interrupted: MS-17 is fixed and verified, no longer
   release-blocking (KNOWN_ISSUES).
+- 2026-10-21, the merge and gate 7: both default branches fast-forwarded (no force; the engine `44b6ebea..edfc4b28`,
+  the app `2e6fe36..ce2238f`). On the merged commits: python-tests run 215 (2,458 passed, 127 skipped, none failed),
+  gameplay-check run 8 (3,612 of 3,612 judged targets passed), windows-package full run 39647648344 (every job
+  passed; the installer under test `EmeraldTogether-Setup-Native-3D-CI-108.exe`, sha256 `bf3a9dfd...e74da`),
+  installed-world-check run 39658627714 (the new installer over the old build's data and on a fresh profile, a host
+  and a friend playing it), and on L the native self-tests (24 of 24) and the GBA ROM (`f214735b...3387`). Gate 7
+  passed; the release record below has every run.
 
 ## 5. Release record
 
@@ -305,7 +312,7 @@ GBA ROM `f214735b64e113fd10730eacca5764d757f2c93a3685230aa905af7a7cdd3387` (unch
 | 4 Windows | windows-package full run 39610329221 (app `59a22c6`, engine `edfc4b28`, the ROM pinned): every job passed, the four multiplayer-check jobs included; the installer under test `EmeraldTogether-Setup-Native-3D-CI-106.exe`, sha256 `624642491f8b8259007986d73c51dcb39c0ce3d218383bc94ff6ccc7cd011b0a` |
 | 5 Coverage manifest | `docs/coverage-manifest.md`: gameplay run 7 (CI 39596147527, engine `f98bab2f`), 3,611 of 3,611 judged targets passed, no failed entry; the 618 blocked and every unverified entry listed with its reason |
 | 6 No open High or Critical defect | KNOWN_ISSUES: none open. MS-17 fixed and verified (gate 1); N20 closed as not reproduced (250 launches with a save under Wine); NU-4 (High) is fixed in code but not verified across real networks (below). Open and lower: MS-29 (Low; its cause found in this update) and the Medium and Low items listed there |
-| 7 After the merge | Recorded in the section below once it has run: the merged commits' python-tests and gameplay-check, windows-package full on the default branches (the installer built from the merged commits, installed and played on the runner, its file name and SHA-256) and the ROM hash |
+| 7 After the merge | Passed on the merged commits (app `ce2238f`, engine `edfc4b28`): python-tests run 215 on the default branch, 2,458 passed, 127 skipped, none failed; gameplay-check run 8 (engine `edfc4b28`), 3,612 of 3,612 judged targets passed, 617 blocked; windows-package full run 39647648344 (#108: engine `claude/emeraldtogether-combined`, the ROM pinned), all ten jobs passed - the installer built from the merged commits, `EmeraldTogether-Setup-Native-3D-CI-108.exe`, sha256 `bf3a9dfd3d7776d0a9d3a855ed4e7da78d386df7d32e9074f5553bc0bd9e74da`, installed, started, repaired and uninstalled on the runner, Create World and a character, Solo, Host World and Join Friend played on it (Classic 2D: the runner cannot start 3D), the four multiplayer jobs, starters and rerolls, the Mega check (110 of 110, shiny 97 of 97); installed-world-check run 39658627714: the CI-108 installer over the data the crashing 2026-10-19 build left (which reproduced its crash first) and on a fresh profile listed, created, renamed and deleted worlds and hosted, and its play check (a host and a friend) recorded no error; on L the native self-tests on `edfc4b28` (the player build rebuilt from it): 24 of 24 targets exit 0, and the GBA ROM rebuilt from it: `f214735b...3387` |
 
 Not verified by this update (and not claimed): play between separate Windows PCs (every Windows result above is one
 GitHub runner, its games on loopback); real networks between homes (NU-4); 3D graphics on the runner (it has no GPU:
