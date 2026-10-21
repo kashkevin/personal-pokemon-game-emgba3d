@@ -6,6 +6,7 @@ import json
 from pathlib import Path, PureWindowsPath
 import sys
 import tempfile
+import threading
 import unittest
 from unittest.mock import patch
 
@@ -204,6 +205,27 @@ class ProcessTests(unittest.IsolatedAsyncioTestCase):
                 async with self.runtime.open():
                     self.fail("changed lease must never yield")
         self.assertIsNotNone(self.children[0].returncode)
+
+    async def test_the_game_and_its_rom_are_hashed_off_the_event_loop(self):
+        # A relaunch hashes the game and the ROM (tens of MB) on opening and again just before the spawn; on the
+        # host the event loop also runs the world server and the battle router (newcomers-busy4-3: 2-3 s held).
+        loop_thread, threads = threading.get_ident(), []
+        identity = sys.modules["emerald_multiplayer.player_runtime"].verify_rom_manifest      # setUp's patch
+        verify, manifest = RuntimeBundle.verify, identity.return_value
+        def recorded_verify(bundle, *args):
+            threads.append(("game", threading.get_ident()))
+            return verify(bundle, *args)
+        def recorded_identity(*args):
+            threads.append(("rom", threading.get_ident()))
+            return manifest
+        identity.side_effect = recorded_identity
+        with patch.object(RuntimeBundle, "verify", recorded_verify), \
+                patch("emerald_multiplayer.player_runtime.asyncio.create_subprocess_exec", self.spawn):
+            async with self.runtime.open() as game:
+                game.process.terminate()
+                await game.wait()
+        self.assertEqual([kind for kind, _ in threads], ["game", "rom", "game", "rom"])
+        self.assertNotIn(loop_thread, [thread for _, thread in threads])
 
     async def test_corrupt_bundle_prevents_any_spawn(self):
         (self.bundle.directory / "SDL2.dll").write_bytes(b"corrupt")

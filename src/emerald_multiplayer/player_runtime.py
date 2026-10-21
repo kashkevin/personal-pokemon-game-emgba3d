@@ -345,8 +345,11 @@ async def _open_child(companion, bundle, directory, save_path, build, manifest,
     Both normal recovery and explicit first enrollment must establish their own
     distinct preconditions before using it.
     """
-    executable, bridge = bundle.verify()
-    final_build, final_manifest = verify_rom_manifest(companion.config.rom_path, companion.config.manifest_path)
+    # The hashes (the game and the ROM, tens of MB) run off the event loop: on the host it also carries the world
+    # server and the battle router, which a relaunch held up 2-3 s (newcomers-busy4-3, a soft reset's restart).
+    executable, bridge = await asyncio.to_thread(bundle.verify)
+    final_build, final_manifest = await asyncio.to_thread(
+        verify_rom_manifest, companion.config.rom_path, companion.config.manifest_path)
     if final_build != build or final_manifest != manifest:
         raise PlayerRuntimeError("game_changed", "the game or mailbox manifest changed during startup recovery")
     check_session()
@@ -425,9 +428,9 @@ class PlayerRuntime:
             raise PlayerRuntimeError("game_active", "this launcher already owns a game process")
         self._active = True
         try:
-            executable, bridge = self.bundle.verify()
+            executable, bridge = await asyncio.to_thread(self.bundle.verify)    # off the loop, as in _open_child
             c = self.companion
-            build, manifest = verify_rom_manifest(c.config.rom_path, c.config.manifest_path)
+            build, manifest = await asyncio.to_thread(verify_rom_manifest, c.config.rom_path, c.config.manifest_path)
             if build != c.config.build_id:
                 raise PlayerRuntimeError("game_changed", "the game changed after companion authentication")
             _check_pairing(bridge, build)

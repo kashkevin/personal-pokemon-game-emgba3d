@@ -222,3 +222,17 @@ generation, audits) runs in parallel, and Windows work fans out over parallel ru
   snapshot that never waits for a writer, and a late `execute` reply asked again (the host takes the identical repeat
   as inert and hands the outstanding command again) for up to 60 s. Regression tests fail on the code before the fix.
   MS-17 stays release-blocking; its scenarios run again on the fixed app (mixed4-2, ms17-ffa-exit-8, then gate 3).
+- 2026-10-21, gameplay-check run 6 (CI 39591264557, engine `1babadd1`): **3,609 of 3,610 judged targets passed**, 619
+  blocked with their reasons; run 5's eight passed or were blocked "moved". The one failure was the check's: after
+  Shelly's battle at the Weather Institute, "Give Castform a nickname?" got YES from the menu fallback and the naming
+  screen was never left. Engine `f98bab2f` (test builds only): a naming screen is finished as a player keeping the name
+  would (START to OK, then A); a replay of that CI job's 235 targets passed every judged one. Run 7 checks the whole
+  game on it. The plan written from `f98bab2f` is byte-identical to run 6's, and every engine change since gate 2's
+  commit (`7223275b`) is under `DIORAMA_BATTLE_ENV_TEST` (test builds only, checked hunk by hunk): the GBA ROM
+  (`f214735b...3387`, rebuilt), the test ROM and the player builds compile the same code.
+- 2026-10-21, QM-5 on the MS-45 and MS-17 fixes (L): newcomers-mixed4-2 and newcomers-busy4-3 **passed** (busy: four
+  claims at once, the 1v1 entered while two others traded, the RESET page refused during the trade, two soft resets with
+  others playing, the dialogue check on each player's own tile). The loop-stall watchdog's two stalls in busy4-3 named
+  one more blocking call: **MS-46**, a game's launch hashed the game and the ROM on the launcher's event loop (2-3 s;
+  on the host that loop also carries the world server and the battle router). Fixed in the app (the hashes in a worker
+  thread; a regression test fails on the old code); the gate 3 proofs run on it.
