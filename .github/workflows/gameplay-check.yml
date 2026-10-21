@@ -164,6 +164,13 @@ jobs:
               results += report["results"]
               blocked.update({b["key"]: b for b in report["blocked"]})
               seconds.append(report["seconds"])
+              # a game process that ended before any target began, with the game's own last lines (run 3)
+              for job, runs in sorted(report.get("runs", {}).items()):
+                  for run in runs:
+                      if run.get("problem"):
+                          print(f"{path.split('/')[1]} job {job} run {run['run']}: {run['problem']} (exit {run['exit']})")
+                          for line in run.get("tail", []):
+                              print("   ", line)
           summary = collections.defaultdict(collections.Counter)
           for r in results:
               summary[r["kind"]]["passed" if r["passed"] else "failed"] += 1
