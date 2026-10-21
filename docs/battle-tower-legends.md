@@ -40,8 +40,8 @@ This file is the contract between the engine and the app. Section 8 lists every 
     save's Tower record the moment the battle ends and is sent to the host until the host has settled it (a reconnect or a
     restart after a save sends it again). A started solo battle whose result never reaches the host (the game closed or
     crashed before the result was saved or sent) counts as a **loss** when the player next asks for a Tower battle (Battle
-    Frontier rule: quitting a challenge forfeits it); a battle that never started (the game refused the command, or closed
-    before the battle began) changes nothing.
+    Frontier rule: quitting a challenge forfeits it). A floor starts when the game takes the command (its intro, then its
+    battle); one that never started (the game refused the command, or closed before it took it) changes nothing.
   * Duo: the existing native recovery. A battle that starts and is abandoned without a result is **void** for both (the
     co-op Battle Frontier's owner default: no progress lost or gained); a battle that never started changes nothing.
   * A result is settled once; a repeated or contradicting result changes nothing.
@@ -186,8 +186,8 @@ installed game's manifest has `tower_abi_version` 1 (every player of a world run
 
 ### 8.3 World action 7 (the game -> the host)
 `struct MultiplayerWorldAction { u32 seq; u8 kind = 7; u8 result; u16 species = floor; u32 eventId = ticket; u32 amount = 0 }`
-result: 1 started (the battle began), 2 won, 3 lost, 4 refused (the command could not start a battle), 5 drew (a loss for
-the rules). The game keeps a won/lost/drew result in the save (section 8.6) and posts it again every 20 s and after every
+result: 1 started (the game took the command and the floor began: its intro, then its battle), 2 won, 3 lost, 4 refused
+(the command could not start a battle), 5 drew (a loss for the rules). The game keeps a won/lost/drew result in the save (section 8.6) and posts it again every 20 s and after every
 (re)connection until a TOWER_STATE word (8.4) settles that ticket. The companion forwards it as world request
 `{"type": "tower_result", "ticket", "floor", "outcome": "started"|"won"|"lost"|"refused"|"drew", "seq"}` and acknowledges
 the action when the host has answered.

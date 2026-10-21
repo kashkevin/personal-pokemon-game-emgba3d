@@ -28,9 +28,15 @@ class MenuSession:
         self._battle_latched = False
         self._battle_preparing = False
         self._battle_admission_failed = False
+        self._window_closing = False   # a Tower command or Hyper Training screen closed the game's window
+
+    def _tower_capable(self):
+        """The game has Battle Tower: Legends (tower_abi_version 1, bridge.txt tower=1): its page, its command and Hyper
+        Training screens and the page styles may be sent; without it none of them ever is."""
+        return getattr(getattr(self.companion, "config", None), "tower_abi_version", 0) == 1
 
     def feed(self, payload):
-        request = MenuRequest.unpack(payload)
+        request = MenuRequest.unpack(payload, allow_tower=self._tower_capable())
         if self._closed or request.sequence <= self.sequence:
             raise ValueError("native menu request was repeated or regressed")
         if (request.kind == 1 and request.action
@@ -38,6 +44,7 @@ class MenuSession:
             raise ValueError("native menu named a page this launcher did not enable")
         self.sequence = request.sequence
         self._last_request = request
+        self._window_closing = False
         if self._dialog_queue is not None:
             if request.kind == 3:
                 self.open = False
@@ -88,15 +95,23 @@ class MenuSession:
             self._admission_display = None
         self._task = asyncio.create_task(self._handle(request), name="native-players-menu")
 
-    def _send(self, request, screen, *, close=False):
+    def _send(self, request, screen, *, close=False, tower=None):
+        """``tower``: the PlayerMenu's Tower reply, ("command", TowerCommand) or ("hyper_training", None), sent as the
+        game's flags-4 or flags-5 screen (only to a game with the Tower)."""
         if (not self._closed and not self._battle_latched and self.open and request.sequence == self.sequence
                 and self.companion._bridge is self.bridge):
+            capable = self._tower_capable()
+            if not capable and (screen.style or screen.style_arg):
+                screen = replace(screen, style=0, style_arg=0)   # a game without the Tower draws the classic page
             try:
                 self.bridge.outbox.put_control(b"M" + pack_screen(request.sequence, screen, close=close,
                     allow_battle_admission=battle_admission_enabled(self.companion)
-                        and getattr(self.bridge, "battle_capable", False)))
+                        and getattr(self.bridge, "battle_capable", False),
+                    tower_command=tower[1] if tower is not None and tower[0] == "command" else None,
+                    hyper_training=tower is not None and tower[0] == "hyper_training", allow_tower=capable))
                 self._admission_display = ((screen.revision, screen.admission_action)
-                    if screen.admission_action and not close else None)
+                    if screen.admission_action and not close and tower is None else None)
+                self._window_closing = tower is not None
             except BridgeError:
                 self.open = False
                 self.bridge.writer.close()
@@ -124,7 +139,18 @@ class MenuSession:
                     else:
                         screen = await self.menu.choose(request.screen, request.action)
                     handoff = getattr(self.menu, "handoff", None)
-                    if handoff is None:
+                    tower = getattr(self.menu, "tower_reply", None)
+                    if tower is not None:
+                        # Battle Tower: Legends: the host issued a solo battle (or Hyper Training was chosen). Consumed
+                        # before anything else, so a lost reply never repeats it; the game's window closes on it. A game
+                        # without the Tower is never offered one (the ticket of an undelivered command expires unused).
+                        self.menu.tower_reply = None
+                        if self._tower_capable():
+                            self._send(request, replace(screen, rows=(), admission_action=0, style=0, style_arg=0),
+                                       tower=tower)
+                        else:
+                            self._send(request, screen)
+                    elif handoff is None:
                         self._send(request, screen)
                     else:
                         # Consumption precedes all awaits. Neither a delayed
@@ -317,7 +343,7 @@ class MenuSession:
             # exact marked screen may still be displayed or its Enter input
             # may already be latched with its IPC event in transit. A status
             # refresh must not discard that authenticated original descriptor.
-            if (self._battle_latched or self._admission_display is not None or not self.open
+            if (self._battle_latched or self._admission_display is not None or not self.open or self._window_closing
                     or (self._task is not None and not self._task.done())):
                 continue
             request = self._last_request

@@ -9,7 +9,8 @@ from .protocol import MAX_COUNTER, ProtocolError
 
 WORLD_TYPES = frozenset({"world_action", "appearance_get", "appearance_set", "friendship_get",
                          "wager_get", "wager_set", "wager_accept", "wager_decline", "wallet_applied",
-                         "gym_coop", "spawn_action", "base_publish", "base_visibility", "base_get", "frontier", "habitat_get"})
+                         "gym_coop", "spawn_action", "base_publish", "base_visibility", "base_get", "frontier", "habitat_get",
+                         "tower", "tower_result"})
 ACTIONS = frozenset({"claim", "result", "release"})
 RESULTS = frozenset({"caught", "defeated", "ran", "lost", "cancelled"})
 _HEX16 = re.compile(r"[0-9a-f]{16}\Z")
@@ -17,6 +18,13 @@ _BASE_HEX = re.compile(r"[0-9a-f]{320}\Z")
 _EVENT_FIELDS = {"event_id", "species", "level", "shiny", "mega", "map_group", "map_number", "x", "y",
                  "held_item", "perfect_ivs", "seconds_left", "claimant"}
 FRONTIER_OPS = frozenset({"status", "propose", "accept", "cancel", "retire", "battle", "shop_buy", "bring"})
+# Battle Tower: Legends (tower_service.py): each operation and the one field it names (if any).
+TOWER_OPS = {"status": None, "solo": "floor", "duo_invite": "floor", "duo_floor": "floor", "duo_accept": None,
+             "duo_decline": None, "duo_leave": None, "duo_ready": None, "duo_unready": None, "bring": "mask",
+             "shop_buy": "slot", "milestone_send": "milestone"}
+TOWER_FIELD_BOUNDS = {"floor": (1, 100), "mask": (0, 63), "slot": (0, 31), "milestone": (0, 3)}
+# A solo Tower battle's state as the game posts it (world action 7, docs/battle-tower-legends.md 8.3).
+TOWER_OUTCOMES = frozenset({"started", "won", "lost", "refused", "drew"})
 SPAWN_ACTIONS = frozenset({"claim", "result", "release"})
 SPAWN_RESULTS = frozenset({"caught", "defeated", "ran", "lost", "cancelled"})
 SPAWN_KINDS = frozenset({"normal", "outbreak"})
@@ -129,15 +137,16 @@ def validate_notice(value: Any) -> dict | None:
     return value
 
 
-def validate_wallet(value: Any) -> dict | None:
-    """This player's next wager wallet adjustment (per-player world field)."""
+def validate_wallet(value: Any, *, tower: bool = False) -> dict | None:
+    """This player's next wager wallet adjustment (per-player world field). Battle Tower words only for a game with the
+    Tower (``tower``: the companion's tower_abi_version 1)."""
     if value is None:
         return None
     if type(value) is not dict or set(value) != {"seq", "delta"}:
         raise ProtocolError("invalid_server_message", "invalid wallet adjustment")
     _int(value["seq"], "wallet sequence", 1, 0xFFFF)
     from .rewards import valid_wallet_delta
-    if type(value["delta"]) is not int or not valid_wallet_delta(value["delta"]):
+    if type(value["delta"]) is not int or not valid_wallet_delta(value["delta"], tower=tower):
         raise ProtocolError("invalid_server_message", "a wallet adjustment moves money, Battle Points or an item")
     return value
 
@@ -226,6 +235,32 @@ def validate_world_request(message: Any, session_epoch: int) -> dict:
             _int(message["mask"], "team mask", 0, 63)
         elif message["op"] == "bring":
             raise ProtocolError("invalid_field", "a team selection names a mask")
+    elif kind == "tower":
+        base = {"type", "session_epoch", "request_id", "op"}
+        op = message.get("op")
+        if type(op) is not str or op not in TOWER_OPS:
+            raise ProtocolError("invalid_field", "unsupported Battle Tower operation")
+        named = TOWER_OPS[op]
+        allowed = [base | {named}] if named else [base]
+        if op == "duo_ready":
+            allowed.append(base | {"incarnation", "runtime_id"})   # the request that issues the battle names its core
+        if set(message) not in allowed:
+            raise ProtocolError("invalid_fields", "Battle Tower request has unexpected fields")
+        if named:
+            _int(message[named], f"Tower {named}", *TOWER_FIELD_BOUNDS[named])
+        if "incarnation" in message:
+            _int(message["incarnation"], "native incarnation", 1, 0xFFFFFFFF)
+            _uuid(message["runtime_id"], "native runtime")
+    elif kind == "tower_result":
+        if set(message) != {"type", "session_epoch", "request_id", "ticket", "floor", "outcome", "seq"}:
+            raise ProtocolError("invalid_fields", "Tower result has missing or unexpected fields")
+        _int(message["ticket"], "Tower ticket", 1, 0xFFFFFFFF)
+        if not message["ticket"] & 0xFF:
+            raise ProtocolError("invalid_field", "a Tower ticket's low byte is never zero")
+        _int(message["floor"], "Tower floor", 1, 100)
+        if type(message["outcome"]) is not str or message["outcome"] not in TOWER_OUTCOMES:
+            raise ProtocolError("invalid_field", "unsupported Tower result")
+        _int(message["seq"], "action seq", 1, 0xFFFFFFFF)
     elif kind == "base_visibility":
         if set(message) != {"type", "session_epoch", "request_id", "mode"}:
             raise ProtocolError("invalid_fields", "secret base visibility has unexpected fields")

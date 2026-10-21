@@ -258,6 +258,7 @@ class CompanionConfig:
     emergency_save_abi_version: int = field(init=False, default=0)
     world_enabled: bool = field(init=False, default=False)
     rival_abi_version: int = field(init=False, default=0)
+    tower_abi_version: int = field(init=False, default=0)  # PC game: Battle Tower: Legends (bridge.txt tower=1)
 
     def __post_init__(self) -> None:
         rom_path, manifest_path = Path(self.rom_path).resolve(), Path(self.manifest_path).resolve()
@@ -314,6 +315,10 @@ class CompanionConfig:
         # Update 31: an engine that reads the rival record in the world mailbox says so in its manifest.
         object.__setattr__(self, "rival_abi_version", manifest.get("rival_abi_version", 0)
                            if self.world_enabled and manifest.get("rival_abi_version") == 1 else 0)
+        # Battle Tower: Legends: the game's Tower screens, world action 7 and reward words 6-7 (the launcher opts in with
+        # bridge.txt tower=1, bridge_config.configure_native); without them none of it is ever sent to the game.
+        from .bridge_config import tower_enabled
+        object.__setattr__(self, "tower_abi_version", 1 if self.world_enabled and tower_enabled(manifest) else 0)
         if type(self.development_battle_channel) is not bool:
             raise ValueError("development_battle_channel must be a boolean")
         if self.development_battle_channel and (not self.battle_enabled or self.server_credential is None):
@@ -428,7 +433,7 @@ def validate_world(message: dict[str, Any], config: CompanionConfig, session_epo
     validate_clock(message["clock"])
     validate_event(message["event"])
     validate_notice(message["notice"])
-    validate_wallet(message["wallet"])
+    validate_wallet(message["wallet"], tower=getattr(config, "tower_abi_version", 0) == 1)
     validate_teammate(message["teammate"])
     _integer(message["world_seq"], 1, MAX_COUNTER, "world_seq")
     players = message["players"]
@@ -745,7 +750,8 @@ class Companion:
                             event=event, notice_id=notice_id, notice_text=notice_text,
                             wallet_seq=wallet["seq"], wallet_delta=wallet["delta"], teammate_token=teammate,
                             outbreak=outbreak,
-                            rival=self._world_rival if self.config.rival_abi_version == 1 else None)
+                            rival=self._world_rival if self.config.rival_abi_version == 1 else None,
+                            tower=getattr(self.config, "tower_abi_version", 0) == 1)
 
     def _host_notice(self) -> tuple[int, str]:
         notice = self._world_notice
@@ -2100,7 +2106,10 @@ class Companion:
         if kind == "coop_gym":
             self._spawn_coop_gym_request(action)
             return
-        if kind is None or action.event_id == 0:
+        if kind == "tower" and getattr(self.config, "tower_abi_version", 0) == 1:
+            self._spawn_tower_result(action)
+            return
+        if kind in (None, "tower") or action.event_id == 0:
             self._world_action_ack = action.seq
             return
         result = RESULT_NAMES.get(action.result) if kind == "result" else None
@@ -2263,6 +2272,26 @@ class Companion:
         self._ipc_handlers.add(task)
         task.add_done_callback(self._ipc_handlers.discard)
 
+    def _spawn_tower_result(self, action) -> None:
+        """Battle Tower: Legends (docs/battle-tower-legends.md 8.3): a solo Tower battle started, ended or was refused by
+        the game. Acknowledged only once the host has answered (its refusal included), like a World Event result: the
+        game keeps a won, lost or drawn result in its save and posts it again until the host's Tower word settles it."""
+        from .world_mailbox import TOWER_RESULTS
+
+        async def run():
+            if await self._deliver_world_request("tower_result", ticket=action.event_id, floor=action.species,
+                                                 outcome=TOWER_RESULTS[action.result], seq=action.seq):
+                self._world_action_ack = action.seq
+                self._publish_snapshot()
+            else:
+                await asyncio.sleep(_ACTION_RETRY_SECONDS)
+                if self._world_action_sent == action.seq:
+                    self._world_action_sent = 0  # forwarded again from the game's next record
+
+        task = asyncio.create_task(run(), name="companion-tower-result")
+        self._ipc_handlers.add(task)
+        task.add_done_callback(self._ipc_handlers.discard)
+
     async def wager_rpc(self, operation: str, **fields) -> dict:
         """Read, propose, accept or decline the wager on a pending challenge."""
         result = await self.world_rpc(operation, **fields)
@@ -2278,7 +2307,8 @@ class Companion:
         from .shared_world_protocol import validate_world_request
         if not self.connected or self._remote_writer is None or self.session_epoch is None:
             raise ConnectionError("no shared-world session")
-        if ((operation == "gym_coop" or (operation == "frontier" and fields.get("op") == "battle"))
+        if ((operation == "gym_coop" or (operation == "frontier" and fields.get("op") == "battle")
+                or (operation == "tower" and fields.get("op") == "duo_ready"))
                 and self.config.battle_resume_abi_version == 1
                 and self.config.battle_abi_version == 3 and self._bridge is not None
                 and self._bridge.battle_capable):
@@ -2348,6 +2378,19 @@ class Companion:
                 or (run is not None and (type(run) is not dict or run.get("state") not in ("forming", "active", "ended")
                                          or type(run.get("round")) is not int or type(run.get("streak")) is not int))):
             raise ProtocolError("invalid_server_message", "invalid Frontier view")
+        return result
+
+    async def tower_rpc(self, op: str = "status", **fields) -> dict:
+        """Battle Tower: Legends (tower_service.py): read it, ask for a solo battle (the reply carries the command this
+        game's window takes), form and ready a Duo, choose the Duo team, buy from the shop or send an owed milestone
+        Pokemon again. Refusals arrive as ProtocolError with the host's reason."""
+        result = await self.world_rpc("tower", op=op, **fields)
+        player, command = result.get("player"), result.get("command")
+        if (type(player) is not dict or type(player.get("progress")) is not int or type(player.get("highest")) is not int
+                or type(player.get("claims")) is not int
+                or (command is not None and (type(command) is not dict or set(command) != {"ticket", "floor", "table_hash"}
+                                             or command["floor"] != fields.get("floor")))):
+            raise ProtocolError("invalid_server_message", "invalid Battle Tower view")
         return result
 
     async def appearance_rpc(self, appearance: bytes | None = None) -> bytes | None:

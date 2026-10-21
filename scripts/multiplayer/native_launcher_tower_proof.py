@@ -472,9 +472,16 @@ class TowerScenario:
         harness.players[0] = again
         current[0], probes[0], games[0] = again.worker, again.probe, again.game
         await harness.ready(again)
-        await open_tower(again.probe)
-        _, screen = await again.probe.ready()
+        # The loss is counted when the player next asks (design section 2), at least 15 s into the game's new session
+        # (a status read cannot tell a closed game's battle from one still running).
+        await asyncio.sleep(16)
+        screen = await open_tower(again.probe)
         record("tower-forfeit-home", status=screen.status, rows=[r.label for r in screen.rows])
+        await again.probe.choose("Solo: floor 13")
+        await again.probe.choose("Start the battle")
+        _, screen = await again.probe.ready()
+        record("tower-forfeit-asked", title=screen.title, status=screen.status, rows=[r.label for r in screen.rows])
+        require("counted as a loss" in screen.status, f"the ask answers the forfeit: {screen.status!r}")
         view = await tower_view(current[0])
         require((view["player"]["progress"], view["player"]["highest"]) == (11, 12),
                 f"floor 13 counted as a loss: P 11, H 12, not {view['player']}")

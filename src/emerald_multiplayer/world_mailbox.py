@@ -47,8 +47,14 @@ ACTION_RELEASE = 3
 ACTION_APPEARANCE = 4  # the local state carries a newly saved trainer look
 ACTION_WALLET = 5      # the save applied wallet adjustment event_id moving `amount`
 ACTION_COOP_GYM = 6    # a Gym Leader script asks for a co-op battle; event_id = Gym 1..8
+# Battle Tower: Legends (PC games with tower_abi_version 1, docs/battle-tower-legends.md 8.3): a solo Tower battle's state.
+# species = the floor 1..100, event_id = the host's ticket (low byte nonzero), result = TOWER_RESULTS, amount 0.
+ACTION_TOWER = 7
 ACTION_KINDS = {ACTION_CLAIM: "claim", ACTION_RESULT: "result", ACTION_RELEASE: "release",
-                ACTION_APPEARANCE: "appearance", ACTION_WALLET: "wallet", ACTION_COOP_GYM: "coop_gym"}
+                ACTION_APPEARANCE: "appearance", ACTION_WALLET: "wallet", ACTION_COOP_GYM: "coop_gym",
+                ACTION_TOWER: "tower"}
+TOWER_RESULTS = {1: "started", 2: "won", 3: "lost", 4: "refused", 5: "drew"}
+TOWER_FLOORS = 100
 MAX_MONEY = 999_999
 WALLET_OFFSET = 180  # inbound: u32 wallet seq, s32 wallet delta, u32 teammate token
 RIVAL_OFFSET = 200  # inbound (Update 31, only for engines advertising rival_abi_version 1): RivalRecord
@@ -138,11 +144,17 @@ class WorldAction:
 
     def __post_init__(self):
         _bound(self.seq, 0, _UINT32, "action seq")
-        _bound(self.kind, 0, ACTION_COOP_GYM, "action kind")
+        _bound(self.kind, 0, ACTION_TOWER, "action kind")
         _bound(self.result, 0, 5, "action result")
         _bound(self.species, 0, MAX_SPECIES, "action species")
         _bound(self.event_id, 0, _UINT32, "action event")
         _bound(self.amount, 0, MAX_MONEY if self.kind == ACTION_WALLET else 0, "action amount")
+        if self.kind == ACTION_TOWER:
+            # A Tower battle's state names its floor and the ticket of the command that started it, and nothing else.
+            _bound(self.result, 1, 5, "Tower result")
+            _bound(self.species, 1, TOWER_FLOORS, "Tower floor")
+            if not self.event_id & 0xFF:
+                raise WorldMailboxError("a Tower result names its ticket, whose low byte is never zero")
 
     def pack(self) -> bytes:
         return _ACTION.pack(self.seq, self.kind, self.result, self.species, self.event_id, self.amount)
@@ -262,15 +274,18 @@ class WorldInbound:
     teammate_token: int = 0  # peer token of the host-formed teammate (0 = none)
     outbreak: tuple | None = None  # (map group, map number) of the running outbreak, for the Town Map marker
     rival: RivalRecord | None = None  # Update 31; None (all zero) unless the engine advertises rival_abi_version 1
+    tower: bool = False  # the game has the Battle Tower (tower_abi_version 1): its words may be delivered (never packed)
 
     def __post_init__(self):
         _bound(self.world_seconds, 0, _UINT32, "world seconds")
         _bound(self.action_ack, 0, _UINT32, "action ack")
         _bound(self.notice_id, 0, _UINT32, "notice id")
         _bound(self.wallet_seq, 0, 0xFFFF, "wallet sequence")
-        if not is_reward_word(self.wallet_delta):   # money, or a Frontier reward (Battle Points / an item), rewards.py
+        if type(self.tower) is not bool:
+            raise WorldMailboxError("the Tower capability is a boolean")
+        if not is_reward_word(self.wallet_delta):   # money, or a reward (Battle Points, an item, a Tower word), rewards.py
             _bound(self.wallet_delta, -MAX_MONEY, MAX_MONEY, "wallet delta")
-        elif decode(self.wallet_delta) is None:
+        elif decode(self.wallet_delta, tower=self.tower) is None:
             raise WorldMailboxError("wallet delta is not a valid reward")
         if (self.wallet_seq == 0) != (self.wallet_delta == 0):
             raise WorldMailboxError("a wallet adjustment needs both a sequence and a nonzero delta")

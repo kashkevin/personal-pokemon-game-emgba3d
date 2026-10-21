@@ -12,7 +12,9 @@ def configure_native(manifest: dict, token: str, port: int) -> str:
     mailboxes and capability markers from its own symbols, so nothing else
     of the manifest goes in; the runtime bundle pairs it with the ROM build
     the companion verified (player_runtime.NativeGame). Update 32 adds the
-    menu page opt-in (menu_open_page=1: START > PLAYER > RESET in a world)."""
+    menu page opt-in (menu_open_page=1: START > PLAYER > RESET in a world);
+    Battle Tower: Legends adds tower=1 (its screens, world action 7 and
+    reward words 6-7, docs/battle-tower-legends.md 8.1)."""
     from .trade_effect_mailbox import (validate_effect_choice_manifest, validate_effect_prepare_manifest,
                                        validate_effect_save_manifest)
     if (not isinstance(token, str) or not re.fullmatch(r"[0-9a-f]{64}", token)
@@ -27,6 +29,8 @@ def configure_native(manifest: dict, token: str, port: int) -> str:
         lines.append("trade_effect_choice=1")
     if menu_open_page_enabled(manifest):
         lines.append("menu_open_page=1")
+    if tower_enabled(manifest):
+        lines.append("tower=1")
     return "\n".join(lines) + "\n"
 
 
@@ -34,6 +38,15 @@ def menu_open_page_enabled(manifest: dict) -> bool:
     """Update 32: the native game's Players menu OPEN may name a page (1: the soft reset), beside menu ABI 2."""
     page = manifest.get("menu_open_page_abi_version")
     return type(page) is int and page == 1 and manifest.get("menu_abi_version") == 2
+
+
+def tower_enabled(manifest: dict) -> bool:
+    """Battle Tower: Legends: the native game's Tower (manifest tower_abi_version 1), which needs the Players menu ABI 2,
+    its named pages (START > PLAYER > TOWER) and the shared world. Every player of a world runs the same build, so the
+    host's own manifest speaks for every game (server.WorldServer.enable_tower)."""
+    version, world = manifest.get("tower_abi_version"), manifest.get("world_abi_version")
+    return (type(version) is int and version == 1 and menu_open_page_enabled(manifest)
+            and type(world) is int and world == 1)
 
 
 def configure(manifest: dict, token: str, port: int, bridge: str) -> str:

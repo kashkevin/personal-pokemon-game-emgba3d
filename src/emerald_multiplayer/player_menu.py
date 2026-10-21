@@ -133,6 +133,10 @@ class MenuScreen:
     rows: tuple[MenuRow, ...]
     back: int = 7
     admission_action: int = 0
+    # Battle Tower: Legends pages (menu_mailbox.TOWER_STYLES): how the native PC UI draws this page, sent only to a game
+    # with the Tower; the classic window ignores it.
+    style: int = 0
+    style_arg: int = 0
 
 
 def battle_admission_enabled(companion):
@@ -192,6 +196,9 @@ class PlayerMenu:
         self._rival = RivalMenu(companion)
         from .record_menu import NativeRecordMenu
         self._record_menu = NativeRecordMenu(companion)
+        from .tower_menu import TowerMenu
+        self._tower = TowerMenu(companion)      # Battle Tower: Legends (games with tower_abi_version 1)
+        self.tower_reply = None                 # a Tower answer the menu session sends as the game's flags 4/5 screen
 
     def _session(self):
         c = self.companion
@@ -227,19 +234,26 @@ class PlayerMenu:
         """A plain OPEN (START > PLAYER > PLAYERS). The soft reset page is RESET's own (open_page): PLAYERS opens on
         the Players home, never on that page, wherever an earlier RESET left the menu (it has no way back to home)."""
         async with self._lock:
-            if self._page[0] in ("soft_reset", "soft_reset_confirm"):
-                self._page, self._notice = ("home", None), ""
+            if self._page[0] in ("soft_reset", "soft_reset_confirm") or (self._page[0] == "tower"
+                                                                        and self._tower.origin == "home"):
+                self._page, self._notice = ("home", None), ""   # a page START > PLAYER > RESET or TOWER opened
             return await self._refresh()
 
     async def open_page(self, page):
-        """An OPEN that names its page (Update 32: START > PLAYER > RESET opens the soft reset page)."""
-        if page != "soft_reset":
+        """An OPEN that names its page (Update 32: START > PLAYER > RESET opens the soft reset page; Battle Tower:
+        Legends: START > PLAYER > TOWER opens the Tower, whose B goes back to the Players home)."""
+        if page not in ("soft_reset", "tower"):
             raise PlayerMenuError("unknown_page")
         async with self._lock:
             screen = await self._refresh()      # the binding, the player's open challenges and trades
             if self._binding is None:
                 return screen
-            self._page, self._notice = ("soft_reset", None), ""
+            self._notice = ""
+            if page == "tower":
+                self._tower.open("home")
+                self._page = ("tower", None)
+                return await self._refresh()
+            self._page = ("soft_reset", None)
             return self._render()
 
     async def _refresh(self):
@@ -252,6 +266,7 @@ class PlayerMenu:
             self._championship.reset()
             self._rival.reset()
             self._record_menu.reset()
+            self._tower.reset()
             return self._show("Players", "Connection interrupted", [])
         if binding != self._binding:
             self._page = ("home", None)
@@ -260,6 +275,7 @@ class PlayerMenu:
             self._championship.reset()
             self._rival.reset()
             self._record_menu.reset()
+            self._tower.reset()
         self._binding = binding
         # Immutable value copies; the companion owns and validates the roster.
         self._players = {p["player_id"]: p["display_name"] for p in self.companion._players}
@@ -411,16 +427,27 @@ class PlayerMenu:
                 self._actions.clear()
                 self._signature = None
                 raise PlayerMenuError("session_changed")
+        if self._page[0] == "tower":
+            from .tower_menu import TowerMenuError
+            try:
+                await self._tower.refresh()
+            except TowerMenuError as error:
+                raise PlayerMenuError(error.code) from error
+            if self._session() != binding:
+                self._actions.clear()
+                self._signature = None
+                raise PlayerMenuError("session_changed")
         return self._render()
 
-    def _show(self, title, status, actions):
+    def _show(self, title, status, actions, style=(0, 0)):
+        """``style``: a Battle Tower page's (style, argument) for the native PC UI (menu_mailbox.TOWER_STYLES)."""
         if len(actions) > 6:
             raise PlayerMenuError("menu_capacity")
         title, status = _text(title, 23), _text(status, 31)
         normalized = tuple((_text(label, 25), op, tuple(args)) for label, op, args in actions)
         admission = next((i + 1 for i, (_, op, _) in enumerate(normalized)
             if op == "battle_enter" and battle_admission_enabled(self.companion)), 0)
-        signature = (self._binding, self._page, title, status, normalized, admission)
+        signature = (self._binding, self._page, title, status, normalized, admission, style)
         if signature != self._signature:
             revision = self._screen.revision + 1
             if revision > 0xFFFFFFFF:
@@ -431,10 +458,11 @@ class PlayerMenu:
             if back:
                 self._actions[back] = {"records": ("records_back", ()), "ffa": ("new_battle", ()),
                                        "new_battle": ("battles", ()), "lobby_pick": ("new_battle", ()),
-                                       "lobby_2v2": ("lobby", ()),
+                                       "lobby_2v2": ("lobby", ()), "tower": ("tower_back", ()),
                                        "soft_reset_confirm": ("soft_reset", ())}.get(self._page[0], ("home", ()))
             self._screen = MenuScreen(revision, title, status,
-                tuple(MenuRow(i + 1 if op else 0, label) for i, (label, op, _) in enumerate(normalized)), back, admission)
+                tuple(MenuRow(i + 1 if op else 0, label) for i, (label, op, _) in enumerate(normalized)), back, admission,
+                *style)
             self._signature = signature
         return self._screen
 
@@ -819,6 +847,13 @@ class PlayerMenu:
                 raise PlayerMenuError(error.code) from error
         elif page == "records":
             return self._show(*self._record_menu.render())
+        elif page == "tower":
+            from .tower_menu import TowerMenuError
+            try:
+                title, status, actions, style = self._tower.render()
+            except TowerMenuError as error:
+                raise PlayerMenuError(error.code) from error
+            return self._show(title, status, actions, style)
         elif page in ("card", "card_battles", "card_championships", "card_shared", "card_progress", "hunts", "hunt", "hunt_filters", "hunt_totals"):
             title, status = "Trainer Card", self._card_notice or "Recorded results snapshot"
             card = self._card
@@ -1017,9 +1052,13 @@ class PlayerMenu:
 
     @staticmethod
     def _coop_title(code):
-        """A co-op battle's title: a Gym, or a ladder battle (Battle Frontier) against two named trainers."""
-        from .coop_code import decode
+        """A co-op battle's title: a Gym, a ladder battle (Battle Frontier) against two named trainers, or a Battle Tower
+        floor's Duo battle."""
+        from .coop_code import decode, decode_tower
         from .frontier import TRAINER_NAMES
+        tower = decode_tower(code)
+        if tower is not None:
+            return f"Battle Tower floor {tower.floor}"
         ladder = decode(code)
         if ladder is None:
             return "Team Gym vs " + GYM_LEADERS.get(code, "Leader")
@@ -1242,6 +1281,8 @@ class PlayerMenu:
         elif page == "coop":
             title, status = "Frontier and League", self._notice or "Fight together as a team"
             actions = [("Battle Frontier", "frontier", ()), ("Pokemon League", "league", ())]
+            if getattr(self.companion.config, "tower_abi_version", 0) == 1:
+                actions.append(("Battle Tower: Legends", "tower", ()))
             if nav.get("rule"):
                 actions.append(("Entry rule: " + nav["rule"], "", ()))
             actions.append(("Back to World", "world", ()))
@@ -1293,6 +1334,25 @@ class PlayerMenu:
             elif op == "records":
                 self._record_menu.open(*args)
                 self._page = ("records", None)
+            elif op == "tower":
+                self._tower.open("coop")
+                self._page = ("tower", None)
+            elif op.startswith("tower_"):
+                from .tower_menu import TowerMenuError
+                try:
+                    outcome = await self._tower.choose(op, args)
+                except TowerMenuError as error:
+                    raise PlayerMenuError(error.code) from error
+                if isinstance(outcome, tuple):
+                    # The game's window takes this answer (menu flags 4: start the solo battle; 5: Hyper Training).
+                    self.tower_reply = outcome
+                    if outcome[0] == "command":
+                        return self._show("Battle Tower", f"Floor {outcome[1].floor}: good luck!", [])
+                    return self._show("Hyper Training", "Opening Hyper Training", [])
+                if outcome == "leave":
+                    self._page = (self._tower.origin, None)
+                elif outcome in ("battles", "players"):
+                    self._page = ("battles" if outcome == "battles" else "home", None)
             elif op.startswith("records_"):
                 if await self._record_menu.choose(op, args):
                     self._page = ("home", None)

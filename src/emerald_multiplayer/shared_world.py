@@ -64,6 +64,7 @@ from . import event_conditions, privacy
 from .frontier import SCHEMA as _FRONTIER_SCHEMA, FrontierBook
 from .ffa_results import SCHEMA as _FFA_SCHEMA, FfaBook
 from .secret_bases import SCHEMA as _BASE_SCHEMA, SecretBaseBook
+from .tower import SCHEMA as _TOWER_SCHEMA, TowerBook
 
 _SCHEMA = (
     "CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
@@ -89,6 +90,7 @@ _SCHEMA = (
     *_BASE_SCHEMA,
     *_FRONTIER_SCHEMA,
     *_FFA_SCHEMA,
+    *_TOWER_SCHEMA,
 )
 
 
@@ -176,6 +178,7 @@ class SharedWorld:
         self.bases = SecretBaseBook(self._db, self._transaction)
         self.frontier = FrontierBook(self._db, self._transaction, clock=time.time)
         self.ffa = FfaBook(self._db, self._transaction, clock=time.time)
+        self.tower = TowerBook(self._db, self._transaction, clock=time.time)
         from .event_settings import DEFAULT_EVENT_SETTINGS
         self._events = event_settings if event_settings is not None else DEFAULT_EVENT_SETTINGS
         self._condition_chance = self._events.condition_chance if event_condition_chance is None else event_condition_chance

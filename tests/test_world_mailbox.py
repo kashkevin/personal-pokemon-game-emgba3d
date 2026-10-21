@@ -40,7 +40,7 @@ class LayoutTests(unittest.TestCase):
 
     def test_action_kinds_match_the_rom(self):
         self.assertEqual(ACTION_KINDS, {1: "claim", 2: "result", 3: "release", 4: "appearance",
-                                        5: "wallet", 6: "coop_gym"})
+                                        5: "wallet", 6: "coop_gym", 7: "tower"})
 
 
 class StateAndActionTests(unittest.TestCase):
@@ -67,7 +67,7 @@ class StateAndActionTests(unittest.TestCase):
     def test_action_amount_only_for_wallet_receipts(self):
         self.assertEqual(WorldAction(1, ACTION_WALLET, 2, 0, 3, 999_999).amount, 999_999)
         for changes in (dict(kind=ACTION_CLAIM, amount=1), dict(kind=ACTION_WALLET, amount=1_000_000),
-                        dict(kind=7), dict(result=6), dict(seq=-1), dict(event_id=1 << 32)):
+                        dict(kind=8), dict(result=6), dict(seq=-1), dict(event_id=1 << 32)):
             with self.subTest(changes=changes), self.assertRaises(WorldMailboxError):
                 replace(WorldAction(1, ACTION_RESULT, 1, 25, 7), **changes)
         raw = bytearray(WorldAction(1, ACTION_CLAIM, 0, 25, 7).pack())

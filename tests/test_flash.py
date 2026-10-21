@@ -201,7 +201,7 @@ class FlashTests(unittest.TestCase):
                         _rewrite(data, 0, 4, 3664, b"\1"),
                         _rewrite(data, 0, 13, 2400, b"\1"),
                         _rewrite(data, 0, 0, 3972, b"\1"),
-                        _rewrite(data, 0, 9, 3968, b"\1")):   # SaveBlock3 byte 1044 is past the egg queue (ends at 1012)
+                        _rewrite(data, 0, 9, 3968 + 32, b"\1")):   # SaveBlock3 byte 1076: past the Tower record (1012-1075)
             with self.subTest(case=hashlib.sha256(changed).hexdigest()), self.assertRaisesRegex(FlashError, "padding"):
                 inspect_flash(changed)
         # SaveBlock3's four real bytes are not covered by upstream checksum.

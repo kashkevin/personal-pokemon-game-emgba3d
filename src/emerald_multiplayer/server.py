@@ -178,6 +178,9 @@ class PlayerSession:
     writer_task: asyncio.Task[None] | None = field(default=None, repr=False)
     upload: CheckpointUpload | None = field(default=None, repr=False)
     enrollment_upload: CheckpointUpload | None = field(default=None, repr=False)
+    # When this connection began (time.monotonic): a game posts its unsettled Battle Tower result right after it
+    # connects, so a started Tower battle with no result is forfeited only some seconds later (tower_service.py).
+    connected: float = field(default_factory=time.monotonic)
 
     def close(self, reason: str) -> None:
         if not self.closed:
@@ -277,6 +280,10 @@ class WorldServer:
         # Update 31: rival battles name their checkpoint's battle environment in the native preparation, only when the
         # host's installed game says every core of this world's build reads it (manifest rival_abi_version 1).
         self._rival_battle_environment = False
+        # Battle Tower: Legends (tower_service.py), only when the host's installed game has it (enable_tower).
+        self._tower_enabled = False
+        self._tower_service = None
+        self._last_tower_tick = 0.0
         self._last_frontier_tick = 0.0
         from .frontier_rules import FrontierSettings
         self._frontier = (FrontierSettings.load(store.path.with_name(store.path.name + ".frontier.json"))
@@ -395,6 +402,38 @@ class WorldServer:
         if self._server is not None:
             raise ValueError("configure rival battles before starting the host")
         self._rival_battle_environment = True
+
+    def enable_tower(self):
+        """Application-only: the installed, hash-verified game has Battle Tower: Legends (manifest tower_abi_version 1
+        with its prerequisites, bridge_config.tower_enabled). Every player of a world runs the same build (hello
+        build_id), so the host's own manifest speaks for every game: without it no Tower request is served and no Tower
+        word is ever queued."""
+        if self._server is not None:
+            raise ValueError("configure the Battle Tower before starting the host")
+        self._tower_enabled = True
+
+    @property
+    def tower(self):
+        """Battle Tower: Legends' host service (tower_service.py)."""
+        if self._tower_service is None:
+            from .tower_service import TowerService
+            self._tower_service = TowerService(self)
+        return self._tower_service
+
+    def _tower_request(self, session, request) -> dict:
+        from .shared_world import SharedWorldError
+        if not self._tower_enabled:
+            raise SharedWorldError("tower_disabled", "this host's game has no Battle Tower")
+        try:
+            if request["type"] == "tower_result":
+                return self.tower.result(session, request)
+            return self.tower.request(session, request)
+        except SharedWorldError:
+            raise
+        except Exception as error:  # noqa: BLE001 - a Tower fault answers the request, never closes the player's link
+            # Nothing half-done stays: every Tower change is one transaction, and a game posts its unsettled result
+            # again in 20 seconds.
+            raise SharedWorldError("tower_failed", "The Tower failed: try again") from error
 
     def _preflight_battle_bind(self, players, leases) -> None:
         assert self.store is not None
@@ -1662,6 +1701,9 @@ class WorldServer:
             if kind == "frontier":
                 self._world_reply(session, request, result=self.frontier.request(session, request))
                 return
+            if kind in ("tower", "tower_result"):
+                self._world_reply(session, request, result=self._tower_request(session, request))
+                return
             if kind in ("base_publish", "base_visibility", "base_get"):
                 self._world_reply(session, request, result=self._secret_base_request(session, request))
                 return
@@ -1950,6 +1992,11 @@ class WorldServer:
                 self.frontier.reconcile()   # a Frontier round's result settles once (frontier_service.py)
             except Exception:  # noqa: BLE001 - progress is reconciled again at the next read or tick
                 pass
+            if self._tower_enabled:
+                try:
+                    self.tower.reconcile()  # ... and a Battle Tower Duo battle's (tower_service.py)
+                except Exception:  # noqa: BLE001 - progress is reconciled again at the next read or tick
+                    pass
         outcome = next(iter(battle.finished.values()), None)
         if outcome is not None and battle.mode not in (5, 6):   # a free-for-all has no wager
             try:
@@ -2044,6 +2091,14 @@ class WorldServer:
                 self._last_frontier_tick = time.monotonic()
                 try:
                     self.frontier.reconcile()
+                except Exception:  # noqa: BLE001 - never stops the host loop
+                    pass
+            # Battle Tower: Legends: expired commands, forfeits, Duo results, receipts and prizes (solo battles need no
+            # battle desk, so the Tower is reconciled whenever the installed game has it).
+            if self._tower_enabled and time.monotonic() - self._last_tower_tick >= 5:
+                self._last_tower_tick = time.monotonic()
+                try:
+                    self.tower.reconcile()
                 except Exception:  # noqa: BLE001 - never stops the host loop
                     pass
             # Online-together friendship time (small, daily capped).

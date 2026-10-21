@@ -283,6 +283,16 @@ def generate(rom: Path, elf: Path, nm: str, engine_commit: str, *, trade_effect_
         if not four_byte_marker(open_page) or manifest.get("menu_abi_version") != 2:
             raise ValueError("the menu open page needs one four-byte marker and the Players menu ABI 2")
         manifest.update(menu_open_page_abi_version=1)
+    # Battle Tower: Legends (docs/battle-tower-legends.md 8.1): its screens (START > PLAYER > TOWER, the solo command,
+    # Hyper Training), world action 7 and reward words 6-7. Native PC game only, beside the Players menu ABI 2, its named
+    # pages and the shared world mailbox; the launcher opts in with bridge.txt tower=1.
+    tower = native_marker("gMultiplayerTowerAbiVersion", symbols + native_symbols)
+    if tower:
+        if (not four_byte_marker(tower) or manifest.get("menu_abi_version") != 2
+                or manifest.get("menu_open_page_abi_version") != 1 or manifest.get("world_abi_version") != 1):
+            raise ValueError("the Battle Tower needs one four-byte marker, the Players menu ABI 2, its named pages "
+                             "and the shared world")
+        manifest.update(tower_abi_version=1)
     if len(objects) == 1:
         obj_address, obj_size = (int(value, 16) for value in objects[0])
         # Read-only test metadata for the pinned engine's 0x24-byte objects.

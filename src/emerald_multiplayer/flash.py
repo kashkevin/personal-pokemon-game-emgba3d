@@ -38,7 +38,13 @@ EGG_QUEUE_OFFSET = OWNERSHIP_SAVE_BLOCK_3_SIZE
 EGG_QUEUE_CAPACITY = 5
 EGG_QUEUE_SIZE = 4 + 1 + 1 + 2 + EGG_QUEUE_CAPACITY * 80 + 4
 EGG_QUEUE_MAGIC = 0x45474751
-SAVE_BLOCK_3_FULL_SIZE = EGG_QUEUE_OFFSET + EGG_QUEUE_SIZE
+# Battle Tower: Legends (docs/battle-tower-legends.md 8.6): the save's mirror of its trainer's Tower record follows the egg
+# queue (engine struct MPTowerRecord, PC game only). All zeros (every older save) means no record: floor 1, nothing claimed.
+TOWER_RECORD_OFFSET = EGG_QUEUE_OFFSET + EGG_QUEUE_SIZE
+TOWER_RECORD_SIZE = 64
+TOWER_RECORD_MAGIC = 0x314C5754  # "TWL1"
+TOWER_PENDING_OUTCOMES = {0: None, 2: "won", 3: "lost", 5: "drew"}
+SAVE_BLOCK_3_FULL_SIZE = TOWER_RECORD_OFFSET + TOWER_RECORD_SIZE
 STORAGE_SIZE = 34144
 PARTY_SIZE = 6
 POKEMON_SIZE = 100
@@ -57,6 +63,9 @@ REMOTE_LOCAL_IDS = frozenset((241, 242, 243))
 SECTION_LENGTHS = (3884, 3968, 3968, 3968, 3664,
                    3968, 3968, 3968, 3968, 3968, 3968, 3968, 3968, 2400)
 _FOOTER = struct.Struct("<HHII")
+# magic, version, highest, progress, pendingOutcome, pendingTicket, pendingFloor, reserved0, claims, revision, reserved1,
+# reserved[40], crc32 (of bytes 0-59): all little-endian
+_TOWER_RECORD = struct.Struct("<IBBBBIBBHHH40sI")
 _UINT32 = 0xFFFFFFFF
 _ERASED_SECTOR = bytes([0xFF]) * SECTOR_SIZE
 # Generated factual bounds from pinned data/maps/map_groups.json.
@@ -127,6 +136,20 @@ class FlashMetadata:
 
 
 @dataclass(frozen=True)
+class TowerRecord:
+    """A save's Battle Tower record: its trainer's progress floor P (1-101), highest cleared floor H (0-100), the prizes
+    claimed (8.4 op 1's bits), the result waiting for the host to settle it (outcome "won"/"lost"/"drew", its ticket and
+    floor; None when nothing waits) and the record's revision (+1 for every Tower word the save applied)."""
+    progress: int
+    highest: int
+    claims: int
+    pending: str | None
+    pending_ticket: int
+    pending_floor: int
+    revision: int
+
+
+@dataclass(frozen=True)
 class FlashSnapshot:
     container: bytes
     flash: bytes
@@ -140,6 +163,7 @@ class FlashSnapshot:
     container_sha256: str
     state_sha256: str
     save_profile: str = LAYOUT_ID
+    tower: TowerRecord | None = None   # the Battle Tower record of the selected bank, None when the save has none
 
 
 @dataclass(frozen=True)
@@ -149,6 +173,7 @@ class _Bank:
     rotation: int
     sections: tuple[bytes, ...]
     save_block3_size: int = SAVE_BLOCK_3_SIZE
+    tower: TowerRecord | None = None
 
 
 def _checksum(data: bytes) -> int:
@@ -202,7 +227,8 @@ def _inspect_bank(flash: bytes, bank_index: int, save_profile: str = LAYOUT_ID) 
             raise FlashError("save bank section checksum mismatch")
         if any(sector[size:SECTOR_DATA_SIZE]):
             raise FlashError("save section padding does not match the pinned layout")
-        # Both profiles may carry the egg queue (offset 600): bytes below it are checked as a whole after the bank is assembled.
+        # Both profiles may carry the egg queue (offset 600) and the Tower record after it: bytes below their end are
+        # checked as a whole after the bank is assembled.
         chunk_used = max(0, min(SAVE_BLOCK_3_FULL_SIZE - section_id * 116, 116))
         if any(sector[SECTOR_DATA_SIZE + chunk_used:4084]):
             raise FlashError("SaveBlock3 padding does not match the pinned layout")
@@ -216,7 +242,8 @@ def _inspect_bank(flash: bytes, bank_index: int, save_profile: str = LAYOUT_ID) 
         raise FlashError("save counter parity does not match its bank")
     size = SAVE_BLOCK_3_SIZE
     full_block3 = b"".join(sector[3968:4084] for sector in sections)[:SAVE_BLOCK_3_FULL_SIZE]  # type: ignore[index]
-    _check_egg_queue(full_block3[EGG_QUEUE_OFFSET:])
+    _check_egg_queue(full_block3[EGG_QUEUE_OFFSET:EGG_QUEUE_OFFSET + EGG_QUEUE_SIZE])
+    tower = parse_tower_record(full_block3[TOWER_RECORD_OFFSET:])
     if save_profile != OWNERSHIP_LAYOUT_ID and any(full_block3[SAVE_BLOCK_3_SIZE:EGG_QUEUE_OFFSET]):
         raise FlashError("SaveBlock3 padding does not match the pinned layout")
     if save_profile == OWNERSHIP_LAYOUT_ID:
@@ -225,7 +252,7 @@ def _inspect_bank(flash: bytes, bank_index: int, save_profile: str = LAYOUT_ID) 
             from .ownership import _parse_metadata
             _parse_metadata(block3)
             size = OWNERSHIP_SAVE_BLOCK_3_SIZE
-    return _Bank(bank_index, counter, next(iter(rotations)), tuple(sections), size)  # type: ignore[arg-type]
+    return _Bank(bank_index, counter, next(iter(rotations)), tuple(sections), size, tower)  # type: ignore[arg-type]
 
 
 def _check_egg_queue(queue: bytes) -> None:
@@ -248,6 +275,23 @@ def _check_egg_queue(queue: bytes) -> None:
         _box_species(egg, f"waiting egg {index}")
         if not egg[19] & 2 or not egg[19] & 4:
             raise FlashError(f"waiting egg {index} is not an Egg")
+
+
+def parse_tower_record(record: bytes) -> TowerRecord | None:
+    """The Battle Tower record (docs/battle-tower-legends.md 8.6): None for all zeros (a save from before the Tower), else
+    the sealed record. Like the egg queue it is never repaired, only refused (FlashError)."""
+    if len(record) != TOWER_RECORD_SIZE:
+        raise FlashError("the Tower record has the wrong size")
+    if not any(record):
+        return None
+    (magic, version, highest, progress, outcome, ticket, floor, reserved0, claims, revision, reserved1, reserved,
+     crc) = _TOWER_RECORD.unpack(record)
+    if (magic != TOWER_RECORD_MAGIC or version != 1 or crc != zlib.crc32(record[:TOWER_RECORD_SIZE - 4])
+            or reserved0 or reserved1 or any(reserved)):
+        raise FlashError("the Tower record is damaged or unsupported")
+    if highest > 100 or not 1 <= progress <= 101 or outcome not in TOWER_PENDING_OUTCOMES:
+        raise FlashError("the Tower record's floors or result are out of bounds")
+    return TowerRecord(progress, highest, claims, TOWER_PENDING_OUTCOMES[outcome], ticket, floor, revision)
 
 
 def _inspect_special_sectors(flash: bytes) -> None:
@@ -389,6 +433,7 @@ def inspect_flash(data: bytes, *, expected_trainer_id: int | None = None,
     else:
         latest_index = 0
     block1, block2, block3, storage, metadata = decoded[latest_index]
+    tower = banks[latest_index].tower
     if expected_trainer_id is not None and metadata.trainer_id != expected_trainer_id:
         raise FlashError("checkpoint trainer identity does not match its enrolled owner")
     if save_profile == OWNERSHIP_LAYOUT_ID:
@@ -407,4 +452,4 @@ def inspect_flash(data: bytes, *, expected_trainer_id: int | None = None,
         state.extend(payload)
     return FlashSnapshot(data, flash, footer, block1, block2, block3, storage, metadata,
                          hashlib.sha256(flash).hexdigest(), hashlib.sha256(data).hexdigest(),
-                         hashlib.sha256(state).hexdigest(), save_profile)
+                         hashlib.sha256(state).hexdigest(), save_profile, tower)

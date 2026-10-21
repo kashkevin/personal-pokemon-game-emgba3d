@@ -8,7 +8,8 @@ ordinary save with no world identities (the "legacy" profile the server accepts 
 
 * every Pokémon's identity bits are cleared and its checksum recomputed (party, PC boxes, Day Care, fusion slots), so each
   Pokémon keeps exactly its content (``content_sha256`` excludes only the identity bits and the checksum);
-* the 600-byte ownership profile is zeroed; the Day Care egg queue after it is kept byte for byte;
+* the 600-byte ownership profile is zeroed; the Day Care egg queue and the Battle Tower record after it are kept byte for
+  byte (the destination world reads the Tower progress from it: tower.py);
 * the newest complete save bank is kept, the older bank is erased (a valid save with one bank, as after a first save);
 * two pieces of multiplayer state that belong to the old world are reset: a World Event catch still waiting for the old host's
   verdict (five vars; the Pokémon stays with the character) and the reward wallet sequence (three vars), which is set to the
@@ -17,7 +18,8 @@ ordinary save with no world identities (the "legacy" profile the server accepts 
 * nothing else changes: trainer, party stats, items, flags, position, Hall of Fame sectors and the clock footer.
 
 The result is checked before it is returned: it must parse as a legacy save, keep the same trainer, the same Pokémon in the
-same places with the same content, and the same egg queue. Any surprise raises ``TransferError`` and nothing is written.
+same places with the same content, and the same egg queue and Tower record. Any surprise raises ``TransferError`` and nothing
+is written.
 """
 from __future__ import annotations
 
@@ -227,7 +229,7 @@ def _verify(owned, owned_records, result, wallet_seq):
     if old_flash[28 * SECTOR_SIZE:] != new_flash[28 * SECTOR_SIZE:]:
         raise TransferError("detach_failed", "the converted save changed the Hall of Fame or special sectors")
     if _egg_queue(owned.flash, owned.metadata.bank) != _egg_queue(new_flash, after.bank):
-        raise TransferError("detach_failed", "the converted save changed the Day Care eggs")
+        raise TransferError("detach_failed", "the converted save changed the Day Care eggs or the Tower record")
     # Outside the Pokémon slots and the world vars, SaveBlock1 and the PC storage are byte for byte the same.
     old1, new1 = bytearray(owned.save_block1), bytearray(snapshot.save_block1)
     for buffer in (old1, new1):
@@ -252,6 +254,7 @@ def _verify(owned, owned_records, result, wallet_seq):
 
 
 def _egg_queue(flash, bank):
+    """SaveBlock3 after the ownership profile: the Day Care egg queue and the Battle Tower record."""
     sections = _latest_bank(flash, bank)
     full = b"".join(sections[i][1][SECTOR_DATA_SIZE:SECTOR_DATA_SIZE + SAVE_BLOCK_3_CHUNK_SIZE] for i in range(14))
     return full[EGG_QUEUE_OFFSET:SAVE_BLOCK_3_FULL_SIZE]
