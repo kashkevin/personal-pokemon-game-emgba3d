@@ -162,7 +162,7 @@ again; the trainer id and party CRC checks are unchanged), and trade-battle-2 pa
   nothing in the empty place; Surf hits both others; a single-target move at either one; a random-target move picks a
   real trainer, never the empty place; Intimidate lowers both others; turn order by Speed; a switch keeps the place;
   a trainer with no Pokemon left is out and the others fight on; the last trainer standing wins; a trainer who falls
-  while another stands has lost. **Result: pending** (built after the app suite).
+  while another stands has lost. **Result: 11 of 11 passed** (the whole test ROM suite on engine `7abaa6c6`, 2026-10-21; TEST_LEDGER).
 - **Channel tests** (`test/multiplayer_battle.c`): only phase 6 binds three players and it binds exactly three; three
   trainers start as one free-for-all with the empty place in the second player position everywhere. Test ROM
   "Multiplayer" 138/138.
@@ -183,8 +183,11 @@ and the free-for-all rows). The four-player proofs were updated for that step (`
 Re-run with the new menus (L, four games): **lobby4-1 passed** - a 2v2 started from a lobby of four (2.10) ran to its
 end in 724 s with the teams the host chose, everyone back with the same parties. The four-player free-for-all from the
 Challenges page (Free-for-All > Everyone: 4 Players): **mega-5 passed** (section 4.3) - it ran to its end in 390 s and
-everyone was back with the same parties; the free-for-all proof itself (`native_launcher_ffa_proof.py`, with its
-disconnect and win/lose cases) was not re-run with the new page.
+everyone was back with the same parties; and the free-for-all proof itself (`native_launcher_ffa_proof.py`) through
+the new page: **ffa-qf7-1 passed** (57 checks: the free-for-all to its end in 718 s, the host the winner and three
+losers in the free-for-all book, everyone back in the world with the same sessions, saved, money, items and
+progression unchanged, a fresh Continue). Its leave-during-the-battle variant and the abandonment proofs were not
+re-run in this update.
 
 ### 2.10 Feature 10: the battle lobby (format detection)
 

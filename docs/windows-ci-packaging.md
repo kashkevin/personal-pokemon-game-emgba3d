@@ -27,7 +27,7 @@ that wrote it; see "What is verified").
 
 ## The workflow `.github/workflows/windows-package.yml`
 
-Manual (`Run workflow`), two jobs:
+Manual (`Run workflow`); its jobs:
 
 1. **engine** (Ubuntu): checks out the private engine at `engine_ref`, builds the GBA ROM
    (`make BUILD_NAME=dev`) and the Windows 3D exe (`Makefile_pc DIORAMA=1`, MinGW, pinned SDL2),
@@ -45,6 +45,15 @@ Manual (`Run workflow`), two jobs:
 3. **install-check** (fresh GitHub-hosted Windows): silent install, file check against
    `package-hashes.json`, start, repair, uninstall, player data kept. Details:
    [windows-installation.md](windows-installation.md).
+4. **mega-check** (full, Windows): the engine job also builds the Classic 2D test build
+   (`Makefile_pc BFX_TEST=1`, the battle test driver; never packaged); `tools/battle_env/mega_check.py` runs it in
+   real Windows game processes: a character from the game's own short introduction, then the Mega Evolution cases,
+   every Mega Stone holder, the parade of every Mega form and the stones through the menus, normal and shiny, each
+   read from the game's own log (`EmeraldTogether-mega-check`, 7 days; Update 32 report, section 4).
+5. **feature-check** (full, Windows): the same test build with `tools/battle_env/feature_check.py`: a new character,
+   its save with no Pokemon, the starter claimed in Birch's lab and saved, that save loaded, and three claims each
+   undone by the game's own soft reset, every one a new roll (`EmeraldTogether-feature-check`, 7 days; Update 32
+   report, section 5.3).
 
 The package contains the game exe, so it holds game data: a private build for friends who own the
 game, not for publication. It contains no ROM file, save, invitation or world database.

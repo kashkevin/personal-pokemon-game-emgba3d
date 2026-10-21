@@ -15,7 +15,8 @@
 # what a friend downloads - the Setup file and QUICK-START.txt. EmeraldTogether-windows-<mode>
 # is the developer artifact (zip, hashes, audit, reports, screenshots). EmeraldTogether-mega-check
 # (full) is the Mega Evolution check's report: real Windows game processes of a test build that is
-# never packaged (Makefile_pc BFX_TEST=1, the Classic 2D game with the battle test driver).
+# never packaged (Makefile_pc BFX_TEST=1, the Classic 2D game with the battle test driver);
+# EmeraldTogether-feature-check (full) is the same build's starter, soft reset and reroll check.
 # Nothing here is published: no release, no Pages, no cache of game data; artifacts are
 # private to the repository. The package never contains a .gba, save or database.
 name: windows-package
@@ -124,7 +125,7 @@ jobs:
           make -f Makefile_pc SDL_DIR="$GITHUB_WORKSPACE/sdl/SDL2-${SDL_VERSION}/i686-w64-mingw32" BFX_TEST=1 -j"$(nproc)"
           i686-w64-mingw32-strip --strip-all pokeemerald-mp-bfxtest.exe
           mkdir -p ../mega-check-inputs
-          cp pokeemerald-mp-bfxtest.exe tools/battle_env/mega_check.py ../mega-check-inputs/
+          cp pokeemerald-mp-bfxtest.exe tools/battle_env/mega_check.py tools/battle_env/feature_check.py ../mega-check-inputs/
           cp "$GITHUB_WORKSPACE/sdl/SDL2-${SDL_VERSION}/i686-w64-mingw32/bin/SDL2.dll" ../mega-check-inputs/
           rom_sha="$(sha256sum pokedev.gba | cut -d' ' -f1)"
           if [ -n "${{ inputs.expected_rom_sha256 }}" ] && [ "$rom_sha" != "${{ inputs.expected_rom_sha256 }}" ]; then
@@ -215,6 +216,45 @@ jobs:
             ${{ runner.temp }}/mega-check/**/*.json
             ${{ runner.temp }}/mega-check/**/*.log
             ${{ runner.temp }}/mega-check/**/*.png
+          retention-days: 7
+          if-no-files-found: warn
+
+  feature-check:
+    # Update 32, features 1-5 (feature 16: Windows): the single-player ones in real Windows game processes of the same
+    # test build (a GitHub-hosted runner, not a player's PC). A character from the game's own short introduction, its
+    # save with no Pokemon, a save in Birch's lab, the starter claimed from the Fire ball and saved, that save loaded,
+    # then the claim and the game's own soft reset (START > PLAYER > RESET) three times in one process: the claim open
+    # again after each reset and every claim a new roll - each read from the game's own log
+    # (tools/battle_env/feature_check.py).
+    name: Starters, soft reset and rerolls (Windows game processes)
+    needs: engine
+    if: ${{ (inputs.mode || 'smoke') == 'full' }}
+    runs-on: windows-2022
+    timeout-minutes: 45
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@v4
+        with:
+          name: mega-check-inputs
+          path: mega-check-inputs
+      - name: A new character, no Pokemon, a starter claimed and saved, three rerolls by soft reset
+        shell: pwsh
+        run: |
+          $out = Join-Path $env:RUNNER_TEMP "feature-check"
+          $save = Join-Path $env:RUNNER_TEMP "new.sav"
+          python mega-check-inputs\feature_check.py --exe mega-check-inputs\pokeemerald-mp-bfxtest.exe --make-save $save --out $out
+          if ($LASTEXITCODE -ne 0) { throw "the starter and soft reset check failed (exit $LASTEXITCODE)" }
+      - name: Upload the check's report (private to this repository, 7 days; no save)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: EmeraldTogether-feature-check
+          path: |
+            ${{ runner.temp }}/feature-check/**/*.json
+            ${{ runner.temp }}/feature-check/**/*.log
+            ${{ runner.temp }}/feature-check/**/*.png
           retention-days: 7
           if-no-files-found: warn
 
