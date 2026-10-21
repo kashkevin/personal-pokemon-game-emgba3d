@@ -236,3 +236,11 @@ generation, audits) runs in parallel, and Windows work fans out over parallel ru
   one more blocking call: **MS-46**, a game's launch hashed the game and the ROM on the launcher's event loop (2-3 s;
   on the host that loop also carries the world server and the battle router). Fixed in the app (the hashes in a worker
   thread; a regression test fails on the old code); the gate 3 proofs run on it.
+- 2026-10-21, gate 1: MS-17's scenario (the free-for-all rematch after a player closes their game) ran again on the
+  fixed app, run 8: **passed** (the interrupted battle abandoned without a result, the rematch to its end in 819 s,
+  everyone back and saved, no host loop stall over 1.5 s). With newcomers-mixed4-2 and busy4-3 on the same app, the
+  scenarios of the recorded failures passed without an interruption; the gate 3 proofs follow.
+- 2026-10-21, gate 5: gameplay-check run 7 (CI 39596147527, engine `f98bab2f`): **3,611 of 3,611 judged targets
+  passed, none failed**, 618 blocked with their reasons. The coverage manifest generated from it, the plan and the
+  test ROM's results: `docs/coverage-manifest.md` - no failed entry in any category; every blocked and unverified
+  entry listed with its reason.
