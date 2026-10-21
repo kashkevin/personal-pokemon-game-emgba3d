@@ -18,6 +18,10 @@ to a companion and answered; this timeline adds what happens in between, for eve
                         watchdog misses)
     stall               a published command unanswered for STALL seconds: every thread's stack, every companion's
                         asyncio tasks (their stacks), pending RPCs, send lock and bridge queue - once per command
+    gc                  a garbage collection over 20 ms (it stops every thread of the process: the four launchers share
+                        one here, as they never do on PCs), with its generation and the objects it went through
+    pause               the whole process stopped over 200 ms (a monitor thread that should wake every 50 ms woke late;
+                        a loop's own watchdog thread stops with it and can miss it)
 
 All times are time.monotonic() seconds, the clock of the route's own hops. Nothing here changes what the launcher, the
 companion or the route does: each wrapper calls the original and only writes down when and how long.
@@ -131,6 +135,32 @@ def _probe_once(timeline, services, companions, name_of, done):
                         timeline.write("stall", **record)
 
 
+def watch_process(timeline: Timeline) -> None:
+    """Garbage collections over 20 ms and pauses of the whole process over 200 ms."""
+    import gc
+    started = {}
+
+    def on_gc(phase, info):
+        if phase == "start":
+            started["t"] = time.perf_counter()
+        elif "t" in started:
+            seconds = time.perf_counter() - started.pop("t")
+            if seconds > .02:
+                timeline.write("gc", generation=info.get("generation"), seconds=round(seconds, 4),
+                               collected=info.get("collected"))
+    gc.callbacks.append(on_gc)
+
+    def monitor():
+        last = time.monotonic()
+        while True:
+            time.sleep(.05)
+            now = time.monotonic()
+            if now - last > .25:
+                timeline.write("pause", seconds=round(now - last - .05, 3))
+            last = now
+    threading.Thread(target=monitor, name="route-timeline-pauses", daemon=True).start()
+
+
 def install(timeline: Timeline, name_of) -> None:
     """Wrap the companion, the battle session, the bridge queue, the route's exchange and journal. name_of(player_id)
     gives a player's label (or None)."""
@@ -166,6 +196,7 @@ def install(timeline: Timeline, name_of) -> None:
     BattleExecutionService.__init__ = service_init
     threading.Thread(target=probe_stalls, args=(timeline, services, companions, name_of, threading.Event()),
                      name="route-timeline-stalls", daemon=True).start()
+    watch_process(timeline)
 
     def who(companion):
         player = getattr(getattr(companion, "config", None), "player_id", None)
