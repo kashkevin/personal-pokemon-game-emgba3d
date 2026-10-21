@@ -12,8 +12,8 @@ This file is the contract between the engine and the app. Section 8 lists every 
 ## 1. What the players get
 * **START > PLAYER > TOWER** (a new entry of the PLAYER submenu, in a world only) opens the Players menu on the Battle
   Tower's home page; the same page is **PLAYERS > World and my base > Frontier and League > Battle Tower: Legends**. No map,
-  no building, no warp: a Tower battle starts where the player stands (the battle uses its own indoor scene) and returns
-  there. Nothing else in the world stops: other players keep exploring.
+  no building, no warp: a Tower battle starts where the player stands (the battle uses the scene of the place the player
+  stands in, as every battle does) and returns there. Nothing else in the world stops: other players keep exploring.
 * **100 floors.** Every floor is one battle against a trainer; every opposing Pokemon is exactly the floor's level (floor
   1 = level 1, floor 100 = level 100). The player's Pokemon keep their own levels (no level sync).
 * **Solo:** one player against the floor's trainer with their own party (up to six), a normal single battle run by their
@@ -47,8 +47,9 @@ This file is the contract between the engine and the app. Section 8 lists every 
   * A result is settled once; a repeated or contradicting result changes nothing.
 
 ## 3. Experience caps (Tower battles only)
-Badges 0..8 -> cap 15, 20, 25, 30, 40, 45, 50, 55, 60; Champion (FLAG_IS_CHAMPION) -> 100. Each game reads its own badge
-flags when it awards experience (a Duo: each game for its own party, so a teammate's badges never raise a cap). A Pokemon at
+Badges 0..8 -> cap 15, 20, 25, 30, 40, 45, 50, 55, 60; Champion (FLAG_SYS_GAME_CLEAR, 0x864: the Hall of Fame entered) ->
+100. Each game reads its own badge flags when it awards experience (a Duo: each game for its own party, so a teammate's
+badges never raise a cap). A Pokemon at
 or above its cap gains no experience from a Tower battle; one below gains normally but stops exactly at the cap's level. Levels
 are never reduced, Pokemon above the cap may still battle, and nothing changes outside Tower battles (Rare Candy, wild and
 trainer battles, the Day Care). Effort values are gained as in any battle.
@@ -222,8 +223,8 @@ u8  reserved0;
 u16 claims;          8.4 op 1's bits
 u16 revision;        +1 for every kind 6 word applied
 u16 reserved1;
-u8  reserved[36];    zero
-u32 crc32;           CRC-32 of the 60 bytes before
+u8  reserved[40];    zero (bytes 20-59)
+u32 crc32;           at offset 60: CRC-32 (zlib.crc32) of bytes 0-59
 ```
 `MP_SAVE_BLOCK_3_BYTES` grows by 64 (1012 -> 1076): the engine's sector check and the app's `flash.py` (`SAVE_BLOCK_3_FULL_SIZE`,
 a zero or valid record) move together.
@@ -249,11 +250,13 @@ Their trainer flags are never set by a Tower battle.
 
 ## 10. UI
 * Classic window (both builds): the host's pages.
-* Native PC UI (the 3D build): `src/native_ui/screens/ui_tower.c` draws the Tower screens from the page's style (8.2), the
-  game's own floor table (names, pictures, levels) and its save record: the home screen (current floor, highest, checkpoint,
-  next boss, next milestone, BP), the 100-floor map (cleared, current, locked, bosses, specials, checkpoints, claimed prizes),
-  the boss preview (name, region, picture, floor, difficulty, the prize; never the team), the shop, the Duo status. The host's
-  rows stay the buttons; input and every rule stay in `multiplayer_menu.c`. Keyboard, mouse and controller as the Players UI.
+* Native PC UI (the 3D build): `src/native_ui/screens/ui_tower.c` draws the Tower screens in the Players screen's link
+  device (`ui_players.c`, beside the host's rows) from the page's style (8.2), the game's own floor table (names, pictures,
+  levels) and its save record: the home screen (current floor, highest, checkpoint, next boss, next milestone, BP), the
+  100-floor map (cleared, current, locked, bosses, specials, checkpoints, claimed prizes), the boss preview (name, region,
+  picture, floor, difficulty, the prize; never the team), the shop, the Duo status, records, Hyper Training and the prizes.
+  The host's rows stay the buttons; input and every rule stay in `multiplayer_menu.c`. Keyboard, mouse and controller as the
+  Players UI.
 
 ## 11. Tests (plan)
 Engine `--selftest-tower` (the table: every floor and trainer, levels, legality, pictures, Megas; the exp cap; the reward words;

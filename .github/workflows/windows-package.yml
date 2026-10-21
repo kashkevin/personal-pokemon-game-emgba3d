@@ -131,6 +131,10 @@ jobs:
           i686-w64-mingw32-strip --strip-all pokeemerald-mp-bfxtest.exe
           mkdir -p ../mega-check-inputs
           cp pokeemerald-mp-bfxtest.exe tools/battle_env/mega_check.py tools/battle_env/feature_check.py ../mega-check-inputs/
+          # Battle Tower: Legends' floor check and its floor table, from an engine that has the Tower.
+          if [ -f src/tower_legends.c ]; then
+            cp tools/battle_env/tower_check.py tools/tower_legends/tower_legends.json ../mega-check-inputs/
+          fi
           cp "$GITHUB_WORKSPACE/sdl/SDL2-${SDL_VERSION}/i686-w64-mingw32/bin/SDL2.dll" ../mega-check-inputs/
           rom_sha="$(sha256sum pokedev.gba | cut -d' ' -f1)"
           if [ -n "${{ inputs.expected_rom_sha256 }}" ] && [ "$rom_sha" != "${{ inputs.expected_rom_sha256 }}" ]; then
@@ -159,7 +163,8 @@ jobs:
                      "gMultiplayerBattleFfa3AbiVersion": "battle_ffa3_abi_version",
                      "gMultiplayerPresenceDetailAbiVersion": "presence_detail_abi_version",
                      "gMultiplayerMenuReleaseAbiVersion": "menu_release_abi_version",
-                     "gMultiplayerSaveImportWindowAbiVersion": "save_import_window_abi_version"}
+                     "gMultiplayerSaveImportWindowAbiVersion": "save_import_window_abi_version",
+                     "gMultiplayerTowerAbiVersion": "tower_abi_version"}
           present = [field for symbol, field in markers.items() if re.search(rf"\s_?{symbol}$", symbols, re.M)]
           missing = [field for field in present if manifest.get(field) != 1]
           assert not missing, f"the Windows game has these markers but its manifest lacks {missing}"
@@ -228,6 +233,53 @@ jobs:
             ${{ runner.temp }}/mega-check/**/*.json
             ${{ runner.temp }}/mega-check/**/*.log
             ${{ runner.temp }}/mega-check/**/*.png
+          retention-days: 7
+          if-no-files-found: warn
+
+  tower-check:
+    # Battle Tower: Legends: every floor in real Windows game processes of the same test build (a GitHub-hosted runner,
+    # not a player's PC), won and lost, through the game's own start of a solo floor (PKMN_TEST_BATTLE=tower:<floor>),
+    # each run checked against the floor table from the game's own log: the trainer, every opposing Pokemon as built,
+    # the outcome, the save's Tower record, no money moved, the party healed, the Megas (tools/battle_env/tower_check.py).
+    # Four shards of 25 floors.
+    name: Battle Tower floors ${{ matrix.floors }} (Windows game processes)
+    needs: engine
+    if: ${{ (inputs.mode || 'smoke') == 'full' }}
+    runs-on: windows-2022
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        floors: ["1-25", "26-50", "51-75", "76-100"]
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@v4
+        with:
+          name: mega-check-inputs
+          path: mega-check-inputs
+      - name: A character from the short introduction, then each floor won and lost
+        shell: pwsh
+        run: |
+          if (-not (Test-Path mega-check-inputs\tower_check.py)) {
+            Write-Output "::notice::this engine has no Battle Tower (no src/tower_legends.c): nothing to check"
+            exit 0
+          }
+          $out = Join-Path $env:RUNNER_TEMP "tower-check"
+          $save = Join-Path $env:RUNNER_TEMP "tower.sav"
+          python mega-check-inputs\tower_check.py --exe mega-check-inputs\pokeemerald-mp-bfxtest.exe --make-save $save `
+            --data mega-check-inputs\tower_legends.json --out $out --floors ${{ matrix.floors }} --jobs 3
+          if ($LASTEXITCODE -ne 0) { throw "the Battle Tower check failed (exit $LASTEXITCODE)" }
+      - name: Upload the Tower check report (private to this repository, 7 days; no save)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: EmeraldTogether-tower-check-${{ strategy.job-index }}
+          path: |
+            ${{ runner.temp }}/tower-check/*.json
+            ${{ runner.temp }}/tower-check/*.md
+            ${{ runner.temp }}/tower-check/**/test.log
           retention-days: 7
           if-no-files-found: warn
 
