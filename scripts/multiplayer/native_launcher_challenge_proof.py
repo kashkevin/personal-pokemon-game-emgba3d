@@ -298,6 +298,7 @@ class ChallengeProof(AbandonProof):
             async def cut(s):
                 s._companion._remote_writer.transport.abort()
             before = (await self.launcher(current[1]))["epoch"]
+            self.parties_before_the_cut = await self.host_parties(host, current)
             await on_worker(current[1], cut)
             # A lost world connection is fenced and the save kept ("Close the game and rejoin when the host
             # returns", launcher_gui): the friend's launcher never reconnects by itself. The player closes the game
@@ -414,12 +415,29 @@ class ChallengeProof(AbandonProof):
             self.perf_report(record)
         if self.scenario == "trade-battle":
             return await self.traded(host, current, record)
+        if self.scenario == "reconnect":
+            return await self.rejoined(host, current, record)
+
+    async def host_parties(self, host, current):
+        """Each player's canonical party as the host holds it."""
+        async def heads(s):
+            return [party(inspect_closed_head(s._store, account.player_id)) for account in host.accounts]
+        return await on_worker(current[0], heads)
+
+    async def rejoined(self, host, current, record):
+        """After the cut, the rejoin and the 1v1: the parties as before the cut (the friend's preserved save
+        reconciled, nothing lost or doubled); joining again saved the friend once more, so the closing saves are one
+        past each launcher's revision now."""
+        parties = await self.host_parties(host, current)
+        require(parties == self.parties_before_the_cut,
+                f"the parties changed across the cut and the rejoin: {self.parties_before_the_cut} -> {parties}")
+        revisions = [(await self.launcher(w))["revision"] for w in current]
+        record("parties-unchanged-after-the-rejoin", revisions=revisions)
+        return dict(parties=parties, revisions=[revision + 1 for revision in revisions])
 
     async def traded(self, host, current, record):
         """What the trade left on the host: each player's canonical party, for the closing saves' checks."""
-        async def heads(s):
-            return [party(inspect_closed_head(s._store, account.player_id)) for account in host.accounts]
-        parties = await on_worker(current[0], heads)
+        parties = await self.host_parties(host, current)
         revisions = [(await self.launcher(w))["revision"] for w in current]
         require(revisions[0] == revisions[1], f"the traders' revisions differ after the trade: {revisions}")
         return dict(parties=parties, revisions=[revision + 1 for revision in revisions])
