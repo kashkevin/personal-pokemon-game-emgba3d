@@ -9,12 +9,16 @@ game's own menus; the checks read the games' memory (the save's Tower record mir
 and, after the harness's saves, the canonical checkpoints (money, the Bag, Battle Points, the record).
 
   --scenario solo     player 1: START > PLAYER > TOWER opens the Tower's home page (the Players menu's page 2); "Solo:
-                      floor N" > "Start the battle" for floors 1 to --floors (default 11) in turn: the game closes the
-                      menu, shows the floor's intro, battles the floor's trainer (A: the lead's first move), shows the
-                      result; the host settles it and the game's record reaches P = N + 1, H = N; the lead's experience
-                      never moves (at the cap); the party is healed. Floor 10 is Brock, the first checkpoint: its
-                      first-clear prize (10 Rare Candy, $10,000) and every floor's BP and money are in the next save as
-                      the host's rules (tower_rewards.py) say. Player 2 (--weak-b: a level-1 Magikarp's save) loses its
+                      floor N" > "Start the battle" for floors P (its save's record; 1 without one) to --floors (default
+                      11) in turn: the game closes the menu, shows the floor's intro, battles the floor's trainer (A: the
+                      lead's first move; NO to the Shift style's "Will you change Pokemon?"), shows the result; the host
+                      settles it and the game's record reaches P = N + 1, H = N; the lead's experience never moves (at
+                      the cap); the party is healed. Floor 10 is Brock, the first checkpoint: its first-clear prize (10
+                      Rare Candy, $10,000) and every floor's BP and money are in the next save as the host's rules
+                      (tower_rewards.py) say. A milestone floor (25, 50, 75, 100) climbed makes its milestone Pokemon in
+                      the game (the full party: into the PC; the record marks it delivered). Then the last prize floor
+                      is replayed (Replay a floor: P and H kept, replay rates, no second prize or Pokemon) and, with 16
+                      BP, an HP Up is bought in the Tower Shop (the game pays the BP, then gets the item). Player 2 (--weak-b: a level-1 Magikarp's save) loses its
                       progress floor in its game and goes back as the checkpoint rule says, nothing paid: floor 1 from
                       a save without a Tower record (P stays 1), or the special boss, Giovanni on floor 25, from one
                       whose record says floor 24 cleared (P 21: checkpoint 20 is kept, H stays 24).
@@ -126,15 +130,20 @@ async def tower_view(worker):
 
 
 def wallet_of(checkpoint_payload: bytes) -> dict:
-    """Money, Rare Candy and Battle Points of a checkpoint, decrypted, and its Tower record."""
+    """Money, Rare Candy, HP Up and Battle Points of a checkpoint, decrypted, the Pokemon in its PC and its Tower
+    record."""
     parsed = inspect_flash(checkpoint_payload, save_profile=OWNERSHIP_PROFILE)
     block1, block2 = parsed.save_block1, parsed.save_block2
     key = struct.unpack_from("<I", block2, ENCRYPTION_KEY)[0]
     money = struct.unpack_from("<I", block1, MONEY)[0] ^ key
-    candy = sum(quantity ^ (key & 0xFFFF) for item, quantity in
-                (struct.unpack_from("<HH", block1, BAG + 4 * i) for i in range(BAG_SLOTS)) if item == ITEM_RARE_CANDY)
+    slots = [struct.unpack_from("<HH", block1, BAG + 4 * i) for i in range(BAG_SLOTS)]
+
+    def count(wanted):
+        return sum(quantity ^ (key & 0xFFFF) for item, quantity in slots if item == wanted)
     bp = struct.unpack_from("<H", block2, BATTLE_POINTS)[0]
-    return dict(money=money, rare_candy=candy, bp=bp, tower=None if parsed.tower is None else dataclasses.asdict(parsed.tower))
+    return dict(money=money, rare_candy=count(ITEM_RARE_CANDY), hp_up=count(tower_rewards.ITEM_HP_UP), bp=bp,
+                stored=parsed.stored_pokemon_count,
+                tower=None if parsed.tower is None else dataclasses.asdict(parsed.tower))
 
 
 def expected_solo_pay(floors) -> dict:
@@ -243,15 +252,31 @@ async def wait_settled(probe, worker, record, slot, *, progress, highest, second
     raise AssertionError(f"slot {slot}: not settled at P {progress} H {highest}: host {view['player']} game {mirror}")
 
 
-async def solo_floor(probe, worker, record, slot, floor, *, won=True):
-    """One solo floor through the menus, played, settled."""
+async def choose_paged(probe, prefix, more):
+    """The row starting with `prefix` on a page of four, turning the pages (rows starting with `more`)."""
+    for _ in range(30):
+        _, screen = await probe.ready()
+        label = next((r.label for r in screen.rows if r.label.startswith(prefix)), None)
+        if label is not None:
+            await probe.choose(label)
+            return label
+        await probe.choose(next(r.label for r in screen.rows if r.label.startswith(more)))
+    raise AssertionError(f"no row {prefix!r} on any page")
+
+
+async def solo_floor(probe, worker, record, slot, floor, *, won=True, replay=False):
+    """One solo floor through the menus (a replay: Replay a floor > its row), played, settled."""
     before = tower_record(probe)
     party_before = own_party(probe)
     screen = await open_tower(probe)
     record("tower-home", slot=slot, status=screen.status, rows=[r.label for r in screen.rows],
            style=[screen.style, screen.style_arg])
     require(screen.style == 1, "the home page names the native UI's home screen (style 1)")
-    await probe.choose(f"Solo: floor {floor}")
+    if replay:
+        await probe.choose("Replay a floor")
+        await choose_paged(probe, f"{floor:>3} ", "More floors")
+    else:
+        await probe.choose(f"Solo: floor {floor}")
     _, screen = await probe.ready()
     record("tower-solo-page", slot=slot, title=screen.title, status=screen.status, rows=[r.label for r in screen.rows],
            style=[screen.style, screen.style_arg])
@@ -265,14 +290,54 @@ async def solo_floor(probe, worker, record, slot, floor, *, won=True):
     highest = max(before.highest if before else 0, floor) if won else (before.highest if before else 0)
     checkpoint = max((c for c in tower_rewards.PRIZE_FLOORS if c <= highest), default=0)
     progress = floor + 1 if won else checkpoint + 1
+    if replay:                                   # a replay never changes P or H (design section 2)
+        progress, highest = before.progress, before.highest
     view, mirror = await wait_settled(probe, worker, record, slot, progress=progress, highest=highest)
     require(all(m["hp"] == m["max_hp"] for m in party_after), "the party is healed after a Tower battle")
     if party_before[0]["level"] >= CAP_NO_BADGES:
         require(party_after[0]["experience"] == party_before[0]["experience"],
                 "the lead (at or above the Tower experience cap) gained no experience")
-    record("tower-floor-done", slot=slot, floor=floor, won=won, lead_experience=[party_before[0]["experience"],
-           party_after[0]["experience"]], record=dataclasses.asdict(mirror))
+    record("tower-floor-done", slot=slot, floor=floor, won=won, replay=replay,
+           lead_experience=[party_before[0]["experience"], party_after[0]["experience"]],
+           record=dataclasses.asdict(mirror))
     return view
+
+
+async def milestone_delivered(probe, worker, record, slot, milestone, floor, seconds=180):
+    """The milestone Pokemon of `floor` made in the player's game: the host's milestone delivered, the game's record
+    marking it (claims bit 12 + milestone) as well as the floor's prize."""
+    deadline = time.monotonic() + seconds
+    while True:
+        view = await tower_view(worker)
+        entry = next((m for m in view.get("milestones") or () if m["floor"] == floor), None)
+        mirror = tower_record(probe)
+        if entry is not None and entry["state"] == "delivered" and mirror is not None \
+                and mirror.claims >> (12 + milestone) & 1 and mirror.claims & tower_rewards.claim_bit(floor):
+            record("tower-milestone-delivered", slot=slot, floor=floor, milestone=milestone, name=entry["name"],
+                   level=entry["level"], claims=mirror.claims)
+            return entry
+        require(time.monotonic() < deadline, f"the milestone of floor {floor} was not delivered: {entry} {mirror}")
+        await asyncio.sleep(1)
+
+
+async def shop_buy(probe, worker, record, slot, name, price):
+    """Tower > Prizes and shop > Tower Shop > the item (its page): the game pays the BP, then gets the item."""
+    await open_tower(probe)
+    await probe.choose("Prizes and shop")
+    _, screen = await probe.ready()
+    await probe.choose(next(r.label for r in screen.rows if r.label.startswith("Tower Shop")))
+    label = await choose_paged(probe, f"{name} {price}BP", "More items")
+    record("tower-shop-ordered", slot=slot, row=label)
+    deadline = time.monotonic() + 120
+    while True:
+        purchase = (await tower_view(worker)).get("purchase")
+        if purchase is not None and purchase["state"] in ("done", "refused", "refunded"):
+            break
+        require(time.monotonic() < deadline, f"the purchase did not finish: {purchase}")
+        await asyncio.sleep(1)
+    await close_players(probe)
+    record("tower-shop-purchase", slot=slot, purchase=purchase)
+    require(purchase["state"] == "done" and purchase["price"] == price, f"the purchase: {purchase}")
 
 
 async def form_team(probes, host, record):
@@ -430,15 +495,33 @@ class TowerScenario:
             return inspect_closed_head(s._store, host.accounts[0].player_id)
         self.before = wallet_of((await on_worker(current[0], head)).payload)
         record("tower-wallet-before", wallet=self.before)
-        floors = range(1, self.args.floors + 1)
+        start = tower_record(probes[0])               # the save's record, imported on the first Tower action
+        floors = range(start.progress if start else 1, self.args.floors + 1)
         for floor in floors:
             await solo_floor(probes[0], current[0], record, 0, floor)
+        self.paid = dict(expected_solo_pay(floors), hp_up=0)
+        self.milestones = 0
+        for milestone, floor in enumerate(tower_rewards.MILESTONE_FLOORS):
+            if floor in floors:
+                await milestone_delivered(probes[0], current[0], record, 0, milestone, floor)
+                self.milestones += 1
+        prize_floors = [floor for floor in floors if floor in tower_rewards.PRIZES]
+        if prize_floors:
+            # The last prize floor again: replay rates only - no second prize, no second milestone, P and H kept.
+            again, highest = prize_floors[-1], floors[-1]
+            await solo_floor(probes[0], current[0], record, 0, again, replay=True)
+            self.paid["money"] += tower_rewards.later_win_money(again, highest)
+            self.paid["bp"] += tower_rewards.later_win_bp(again, highest)
+        if self.paid["bp"] >= 16:
+            # The Tower Shop: an HP Up for 16 BP, paid from the game's points.
+            await shop_buy(probes[0], current[0], record, 0, "HP Up", 16)
+            self.paid["bp"] -= 16
+            self.paid["hp_up"] += 1
         if self.args.weak_b:
             start = tower_record(probes[1])               # the save's record, imported on the first Tower action
             await solo_floor(probes[1], current[1], record, 1, start.progress if start else 1, won=False)
             end = tower_record(probes[1])
             self.loser = (end.progress, end.highest)
-        self.paid = expected_solo_pay(floors)
         return dict(expected=[p.party_now() for p in probes])
 
     async def climb(self, current, probes, games, host, symbols, record):
@@ -660,11 +743,13 @@ class TowerScenario:
                         == (self.args.floors + 1, self.args.floors), f"slot {slot}: the saved Tower record")
             return
         after = wallet_of(saved[0].payload)
-        paid = dict(money=after["money"] - self.before["money"], rare_candy=after["rare_candy"] - self.before["rare_candy"],
-                    bp=None if after["bp"] is None else after["bp"] - self.before["bp"])
+        paid = {key: after[key] - self.before[key] for key in ("money", "rare_candy", "bp", "hp_up")}
         record("tower-saved-wallet", revision=saved[0].revision, before=self.before, after=after, paid=paid,
-               expected=self.paid)
+               expected=self.paid, milestones=self.milestones)
         require(paid == self.paid, f"the saved prizes {paid} differ from the host's rules {self.paid}")
+        require(after["stored"] - self.before["stored"] == self.milestones,
+                f"the PC holds {after['stored'] - self.before['stored']} new Pokemon, not the {self.milestones} "
+                f"milestone Pokemon (the party is full)")
         require(after["tower"] is not None and (after["tower"]["progress"], after["tower"]["highest"])
                 == (self.args.floors + 1, self.args.floors), "the saved Tower record")
         if self.args.weak_b:

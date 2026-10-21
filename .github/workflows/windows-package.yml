@@ -336,11 +336,14 @@ jobs:
     # (scripts/multiplayer/native_launcher_tower_proof.py, Windows mode). The characters come from the game's own short
     # introduction; the test build then gives them their Tower fixtures (scripts/multiplayer/make_tower_saves.py).
     # solo: floors 1-11 through the Players menu, each settled by the host, Brock's checkpoint prize and every floor's
-    # money and BP in the next save, and player 2 losing the special boss (Giovanni, floor 25) back to checkpoint 20;
+    # money and BP in the next save, floor 10 replayed (replay rates, no second prize), an HP Up bought in the Tower Shop
+    # with 16 BP, and player 2 losing the special boss (Giovanni, floor 25) back to checkpoint 20; milestone: from a
+    # record at floor 25, Giovanni beaten and his milestone Pokemon made in the game (into the PC), floor 25 replayed
+    # (no second Pokemon), and player 2 losing floor 1 (no checkpoint yet);
     # duo: a team, the Duo invitation, both Ready, the native co-op battle won and settled for both; mega: a Duo replay
     # of floor 40 where Norman's Kangaskhan Mega Evolves; forfeit: a solo floor closed mid-battle, the game started
     # again, the floor counted as a loss on the next ask.
-    name: Battle Tower in the launcher (Windows game processes, ${{ matrix.scenario }})
+    name: Battle Tower in the launcher (Windows game processes, ${{ matrix.name }})
     needs: [engine, symbol-sizes]
     if: ${{ (inputs.mode || 'smoke') == 'full' }}
     runs-on: windows-2022
@@ -349,10 +352,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - {scenario: solo, a: tower-strong-a, b: tower-weak25-b, extra: "--weak-b --party-counts 6 1"}
-          - {scenario: duo, a: tower-strong-a, b: tower-strong-b, extra: "--party-counts 6 6"}
-          - {scenario: mega, a: tower-mega-a, b: tower-mega-b, extra: "--party-counts 6 6 --floors-json mega-check-inputs/tower_legends.json"}
-          - {scenario: forfeit, a: tower-forfeit-a, b: tower-strong-b, extra: "--party-counts 6 6"}
+          - {name: solo, scenario: solo, a: tower-strong-a, b: tower-weak25-b, extra: "--weak-b --party-counts 6 1"}
+          - {name: milestone, scenario: solo, a: tower-strong25-a, b: tower-weak-b, extra: "--weak-b --party-counts 6 1 --floors 26"}
+          - {name: duo, scenario: duo, a: tower-strong-a, b: tower-strong-b, extra: "--party-counts 6 6"}
+          - {name: mega, scenario: mega, a: tower-mega-a, b: tower-mega-b, extra: "--party-counts 6 6 --floors-json mega-check-inputs/tower_legends.json"}
+          - {name: forfeit, scenario: forfeit, a: tower-forfeit-a, b: tower-strong-b, extra: "--party-counts 6 6"}
     defaults:
       run:
         shell: bash
@@ -393,7 +397,7 @@ jobs:
           .venv/Scripts/python scripts/multiplayer/make_tower_saves.py --exe mega-check-inputs/pokeemerald-mp-bfxtest.exe \
             --mega-check mega-check-inputs/mega_check.py --source-a "$RUNNER_TEMP/intro/boy-1.sav" \
             --source-b "$RUNNER_TEMP/intro/girl-1.sav" --out "$RUNNER_TEMP/tower-saves" --only ${{ matrix.a }},${{ matrix.b }}
-      - name: The Battle Tower (${{ matrix.scenario }})
+      - name: The Battle Tower (${{ matrix.name }})
         run: |
           if [ ! -f mega-check-inputs/tower_check.py ]; then echo "::notice::this engine has no Battle Tower"; exit 0; fi
           .venv/Scripts/python scripts/multiplayer/native_launcher_tower_proof.py --scenario ${{ matrix.scenario }} \
@@ -401,12 +405,12 @@ jobs:
             --manifest inputs/manifest.json --pe-symbols symbols/pokeemerald-mp.nm.txt \
             --sizes symbols/pokeemerald-mp.sizes.txt --slow 1.5 \
             --source-a "$RUNNER_TEMP/tower-saves/${{ matrix.a }}.sav" --source-b "$RUNNER_TEMP/tower-saves/${{ matrix.b }}.sav" \
-            ${{ matrix.extra }} --output "$RUNNER_TEMP/multiplayer-proof/tower-${{ matrix.scenario }}"
+            ${{ matrix.extra }} --output "$RUNNER_TEMP/multiplayer-proof/tower-${{ matrix.name }}"
       - name: Upload the proof's record (private to this repository, 7 days; no save)
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: EmeraldTogether-tower-proof-${{ matrix.scenario }}
+          name: EmeraldTogether-tower-proof-${{ matrix.name }}
           path: |
             ${{ runner.temp }}/multiplayer-proof/*/evidence.json
             ${{ runner.temp }}/multiplayer-proof/*/*.jsonl

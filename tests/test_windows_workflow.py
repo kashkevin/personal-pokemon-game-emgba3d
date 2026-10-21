@@ -64,11 +64,13 @@ class WindowsWorkflowTests(unittest.TestCase):
         proof = job("tower-proof")
         self.assertIn("runs-on: windows-2022", proof)
         self.assertIn("needs: [engine, symbol-sizes]", proof)
-        for scenario in ("solo", "duo", "mega", "forfeit"):
-            self.assertIn(f"{{scenario: {scenario},", proof)
+        for name, scenario in (("solo", "solo"), ("milestone", "solo"), ("duo", "duo"), ("mega", "mega"),
+                               ("forfeit", "forfeit")):
+            self.assertIn(f"{{name: {name}, scenario: {scenario},", proof)
         self.assertIn("b: tower-weak25-b", proof)          # player 2 loses the special boss (floor 25)
         self.assertIn("scripts/multiplayer/make_tower_saves.py", proof)
         self.assertIn("scripts/multiplayer/native_launcher_tower_proof.py --scenario ${{ matrix.scenario }}", proof)
+        self.assertIn("a: tower-strong25-a", proof)        # the milestone Pokemon of floor 25
         self.assertIn("--pe-symbols symbols/pokeemerald-mp.nm.txt", proof)
 
     def test_no_upload_carries_game_data(self):

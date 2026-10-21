@@ -4,6 +4,7 @@ engine's test build gives a party and, for some, a Tower record (PKMN_TEST_BATTL
 PKMN_TEST_TOWER_RECORD: the game loads the save, sets them and saves through its own save code). Never a player build.
 
   tower-strong-a / -b   six level-100 Mewtwo, Psychic first (above every Tower experience cap without badges)
+  tower-strong25-a      as strong-a, its record floor 24 cleared, 25 next: the milestone Pokemon (Giovanni's floor)
   tower-weak-b          a level-1 Magikarp (Splash only): it loses any floor
   tower-weak25-b        as weak-b, its record floor 24 cleared, 25 next: the special boss's loss (Giovanni)
   tower-mega-a / -b     as strong, the record floor 40 cleared, 41 next: the Mega Duo (Norman's Kangaskhan)
@@ -33,6 +34,7 @@ DUO = ",".join(["716:100:v605i443"] * 6)               # SPECIES_XERNEAS, MOVE_D
 FIXTURES = (  # (name, source, party, record "highest:progress" or None)
     ("tower-strong-a", "a", STRONG, None),
     ("tower-strong-b", "b", STRONG, None),
+    ("tower-strong25-a", "a", STRONG, (24, 25)),
     ("tower-weak-b", "b", WEAK, None),
     ("tower-weak25-b", "b", WEAK, (24, 25)),
     ("tower-mega-a", "a", STRONG, (40, 41)),
