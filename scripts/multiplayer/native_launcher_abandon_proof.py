@@ -60,6 +60,7 @@ from native_launcher_ffa_proof import (challenge_free_for_all, close_players, in
                                       players_tab, pose_of, save_regions)
 from qualify_admission_cleanup import on_worker, require  # noqa: E402
 from qualify_launcher_session import inspect_closed_head  # noqa: E402
+import route_timeline  # noqa: E402
 
 PLAYER_NAMES = ("AB Host", "AB Friend 1", "AB Friend 2", "AB Friend 3")
 SCENARIOS = ("pairs-crash", "multi-network", "ffa-host-crash", "ffa-exit")
@@ -78,12 +79,18 @@ class AbandonProof:
         self.before_saves = None
         self.thread_slot = {}
         self.watched = set()
+        self.timeline = None
+        self.player_names = {}
 
     def adopt(self, harness):
         """One machine stands in for four PCs: a game a launcher starts again by itself (after abandoning) opens on
         that player's own display. The harness sets the display only when it starts a launcher; this wrapper picks it
         by the launcher's worker thread. Display plumbing only; nothing else of the spawn changes."""
         self.harness = harness
+        if self.timeline is None:
+            # KNOWN_ISSUES MS-17: every native battle command's hops, every player (route_timeline.py)
+            self.timeline = route_timeline.Timeline(harness.output / "route-timeline.jsonl")
+            route_timeline.install(self.timeline, self.player_names.get)
         real = asyncio.create_subprocess_exec
 
         async def spawn(program, *arguments, **options):
@@ -110,6 +117,8 @@ class AbandonProof:
                 beat[0] = time.monotonic()
                 await asyncio.sleep(.1)
         asyncio.run_coroutine_threadsafe(heartbeat(), loop)
+        if self.timeline is not None:
+            self.timeline.watch(n, loop)
         path = self.harness.output / "loop-stalls.jsonl"
 
         def watchdog():
@@ -460,6 +469,7 @@ class AbandonProof:
         async def saves(s):
             return [save_regions(inspect_closed_head(s._store, a.player_id)) for a in host.accounts]
         self.before_saves = await on_worker(current[0], saves)
+        self.player_names.update({a.player_id: PLAYER_NAMES[n] for n, a in enumerate(host.accounts)})
         for n, worker in enumerate(current):
             self.own_display(n, worker)
             self.watch_loop(n, worker)
