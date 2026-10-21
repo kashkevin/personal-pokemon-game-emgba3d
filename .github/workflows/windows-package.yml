@@ -695,6 +695,8 @@ jobs:
         run: |
           setup="$(ls installer/EmeraldTogether-Setup-*.exe)"
           [ "$(ls installer | wc -l)" -eq 2 ] && [ -f installer/QUICK-START.txt ] || { ls -la installer; exit 1; }
+          # in the log as well as the report: the artifact cannot always be fetched, the log can
+          echo "installer under test: $(basename "$setup") sha256 $(sha256sum "$setup" | cut -d' ' -f1)"
           expect=(); [ "$MODE" = full ] && expect=(--expect-shell)
           # LOCALAPPDATA for everything the check starts is a temporary profile inside this folder;
           # a sentinel planted in its PokemonPrivate must survive the uninstall.

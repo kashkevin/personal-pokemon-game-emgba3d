@@ -6,9 +6,9 @@
 # ran exactly when its variable says it is due. The build job writes the plan from
 # the engine's data (the reachable maps of tools/qa/inventory.py); the shard jobs split it; the report job merges.
 # Manual, and on a push that changes this file (a new workflow can only be dispatched once it is on the default
-# branch). Artifacts are private to the repository: the test build and the plan for one day, the reports and the
-# pictures of any hang for 7 days. Each job makes its own character from the game's short introduction; no save is
-# kept or uploaded.
+# branch; until then a new engine commit is checked by a push that changes this file). Artifacts are private to the
+# repository: the test build and the plan for one day, the reports and the pictures of any hang for 7 days. Each job
+# makes its own character from the game's short introduction; no save is kept or uploaded.
 name: gameplay-check
 
 on:
