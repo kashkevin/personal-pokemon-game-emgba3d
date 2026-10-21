@@ -118,7 +118,9 @@ class MenuSession:
                         # START > PLAYER > RESET (Update 32): the Players menu opens on that page.
                         screen = await self.menu.open_page(OPEN_PAGES[request.action])
                     elif request.kind == 1:
-                        screen = await self.menu.refresh()
+                        # START > PLAYER > PLAYERS: the menu's home, not a page RESET left open
+                        opener = getattr(self.menu, "open", None)
+                        screen = await (opener() if callable(opener) else self.menu.refresh())
                     else:
                         screen = await self.menu.choose(request.screen, request.action)
                     handoff = getattr(self.menu, "handoff", None)

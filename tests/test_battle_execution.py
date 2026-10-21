@@ -18,6 +18,7 @@ from emerald_multiplayer.battle_execution_protocol import (
     decode_control, encode_control, execution_view, validate_execution_view)
 from emerald_multiplayer.battle_journal import BattleJournalError
 from emerald_multiplayer.battle_protocol import challenge_view, validate_battle_request
+from emerald_multiplayer import battle_session
 from emerald_multiplayer.battle_session import NativeBattleSession
 from emerald_multiplayer.native_battle import Kind, NativeControl, Opcode
 from emerald_multiplayer.ownership import OWNERSHIP_PROFILE
@@ -199,7 +200,7 @@ class BattleExecutionNetworkTests(unittest.IsolatedAsyncioTestCase):
             generation=self.generation, incarnation=100 + index,
             response_id=dispatch, response_b64=None if response is None else encode_control(response), **changes)
 
-    async def run_clients(self, *, multi=False, busy=False, use_journal=False, mutate=None, reuse=False):
+    async def run_clients(self, *, multi=False, busy=False, use_journal=False, mutate=None, reuse=False, late=None):
         service = self.server.battle_execution if reuse else self.enable()
         self.accept(multi)
         battle = self.desk._active[self.battle_id]
@@ -224,7 +225,10 @@ class BattleExecutionNetworkTests(unittest.IsolatedAsyncioTestCase):
                 async def cp(operation, **fields):
                     return await actor.rpc("checkpoint_" + operation, **fields)
                 async def challenge(operation, **fields):
-                    return await actor.rpc("battle_" + operation, **fields)
+                    reply = await actor.rpc("battle_" + operation, **fields)
+                    if late is not None and late(index, operation, reply):
+                        raise TimeoutError      # the host's reply came after the companion's own timeout
+                    return reply
                 session = NativeBattleSession(c, self.root / ("client-" + str(index)))
                 async def native(command):
                     if command.opcode != Opcode.QUERY:
@@ -386,6 +390,40 @@ class BattleExecutionNetworkTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(room.state, "recovery_required")
         diagnosis = json.loads((self.server.battle_execution.directory / (self.battle_id + ".diagnosis.json")).read_bytes())
         self.assertEqual(diagnosis["code"], "battle_recovery_required")
+
+    async def test_an_execute_reply_that_comes_too_late_is_asked_again_and_the_battle_goes_on(self):
+        # KNOWN_ISSUES MS-17 (newcomers-mixed4-1): the host's event loop held up for seconds; the host's own
+        # companion's execute timed out after the host had handed it the next command, the companion stopped, and
+        # the route stopped the battle for everyone 20 s later. Asked again with the same response (inert on the
+        # host), the outstanding command comes again: each of these replies is lost once, in both games.
+        lost = []
+
+        def late(index, operation, reply):
+            view = reply.get("result") or {}
+            key = (index, view.get("command_id"))
+            if operation == "execute" and view.get("command_b64") and key[1] in (3, 7, 11) and key not in lost:
+                lost.append(key)
+                return True
+            return False
+        await self.run_clients(multi=True, use_journal=True, late=late)
+        self.assertEqual(sorted(lost), [(i, d) for i in range(4) for d in (3, 7, 11)])
+
+    async def test_execute_replies_that_never_come_still_end_in_time(self):
+        # Asked again only for a while: then the companion gives up as before (the host has held the battle for
+        # recovery long since; a broken connection raises at once).
+        self.addCleanup(setattr, battle_session, "EXECUTE_LATE_SECONDS", battle_session.EXECUTE_LATE_SECONDS)
+        battle_session.EXECUTE_LATE_SECONDS = .2
+        with self.assertRaises(TimeoutError):
+            await self.run_clients(use_journal=True, late=lambda index, operation, reply: index == 0)
+
+    async def test_the_team_roster_checks_leases_without_reading_checkpoints(self):
+        # MS-17: the roster behind every world broadcast's teammate view read and re-hashed each connected player's
+        # whole checkpoint; it needs only the lease.
+        def no_read(*args, **kwargs):
+            raise AssertionError("the team roster read a checkpoint")
+        self.store.read_checkpoint = no_read
+        roster = self.server._team_roster()
+        self.assertEqual(roster, {a.player.player_id: a.lease for a in self.actors})
 
     async def test_corrupt_native_startup_never_starts_or_releases_battle(self):
         def corrupt(index, command, response, session):

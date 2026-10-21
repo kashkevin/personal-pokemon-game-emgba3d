@@ -390,7 +390,7 @@ class AbandonProof:
         """The launcher is started again for this player (its earlier game is gone)."""
         harness = self.harness
         if games[n].process.returncode is None:
-            os.kill(games[n].process.pid, signal.SIGTERM)
+            await harness.close_game(games[n], probes[n])       # SIGTERM; on Windows the window's WM_CLOSE
             await harness.poll_until(lambda: games[n].process.returncode is not None, 60)
             record("closed-a-held-game", slot=n, exit_code=games[n].process.returncode)
         await harness.poll_until(lambda: not current[n].busy, 180)

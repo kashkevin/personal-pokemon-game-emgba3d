@@ -166,3 +166,59 @@ generation, audits) runs in parallel, and Windows work fans out over parallel ru
   failing after the first round pass or are blocked; three samples of every 15th target (761 targets) and every
   coordinate trigger (243) ended with every failure fixed or blocked. Run 3 (the coordinate triggers added to the
   kinds) runs the whole game again on `d466f500`.
+- 2026-10-21, phase 10: gameplay-check runs 3 and 4 (engine `d466f500`, `523cf5aa`) ran no target at all: every
+  shard's game processes ended on their first frames. Not a game defect: the test build's new no-frame watchdog
+  compared the main thread's clock with the game thread's frame stamp (ms | 1) as unsigned, and a stamp in the same
+  even millisecond made the difference wrap to about 4,294,967 s ("hang the game made no frame for 4294967 s", the
+  game's own last line, which the shards print since run 4). The local runs never met that timing. Fixed in the test
+  build (engine `7223275b`: the difference is signed); run 5 runs the whole game again on it.
+- 2026-10-21, MS-17 (gate 1): the free-for-all rematch loop on the fixed build (engine `d466f500`, app `05df6cd`):
+  runs 5, 6 and 7 passed without an interruption (the free-for-all interrupted by a player closing their game,
+  abandoned without a result; the rematch to its end in 930 s, 930 s and 1,276 s, the last with the full test ROM
+  running beside it at low priority; everyone back with the same parties, saved, a fresh Continue). With runs 1-4 on
+  the instrumented old build, the scenario of both recorded failures has now passed seven times in a row; MS-17 stays
+  release-blocking until the mandatory release tests pass.
+- 2026-10-21, QM-5 and QM-6: `scripts/multiplayer/native_launcher_newcomers_proof.py`, two to four new characters
+  from the game's own short introduction in one world: claims at the same moment, battle lobbies, mixed parties (one
+  without a Pokemon refused by name), a battle and a trade at once, the RESET page refusing during the trade, repeated
+  soft resets with others playing, no second claim after trading the starter away, Route 101's rescue scene not
+  starting for a lab character, the trainer card, the options and a dialogue seen by the others. The same proof runs
+  on Windows itself: the launcher harness's Windows mode (ReadProcessMemory at the build's own symbols moved to where
+  Windows loaded the game, keys posted to each game's window, WM_CLOSE; `scripts/windows-runtime/
+  native_windows_process.py`) and the `windows-package` jobs `symbol-sizes` and `multiplayer-check` (four scenarios
+  on the runner, characters made there by the game's own short introduction).
+- 2026-10-21, QM-5 on L (engine `7223275b` player build): newcomers-lobby3-1 **passed** (three characters linked with
+  no Pokemon, refusals by name, a cut connection and rejoin, three claims in Birch's lab at once, the 1v1v1 to its end,
+  everyone back with the same parties, saved, a fresh Continue). newcomers-busy4-1 found a product bug, **MS-45**:
+  after RESET was refused ("Finish the trade first"), START > PLAYER > PLAYERS opened on the soft reset page, which
+  has no way back to the roster (fixed: a plain open goes to the Players home; two regression tests). newcomers-busy4-2
+  on the fixed app passed that point and much more (the trade during the 1v1, two soft resets with the battle running,
+  the 1v1 to its end, no second claim, the trainer card and the options drawn by the others) and then failed on the
+  proof's own dialogue check: it took the player's tile before the walk to Birch, and its test accepted any player
+  drawn on that tile (two of three observers saw another player there). Fixed in the proof (the tile taken once the
+  dialogue is open and required to be the subject's own).
+- 2026-10-21, gate 2 on engine `7223275b` (L): the test ROM's whole suite has the same 39 failures as the reference
+  list, compared name by name, and the same 15 failed assumptions; the native self-tests passed (24 of 24 targets);
+  the GBA ROM is still `f214735b...3387`.
+- 2026-10-21, phase 10: gameplay-check run 5 (CI 39571998682, engine `7223275b`, the whole game): **3,605 of 3,613
+  judged targets passed, 8 failed**, 616 blocked with their reasons. Triage on L, failure by failure - none is a game
+  defect: three Rustboro arrivals met the Match Call scene (Devon's scientist, the PokeNav tutorial's forced START
+  menu) that an earlier target's story step had made due, and the check could not play the tutorial; the Space Center
+  stairs during Team Magma's invasion (its grunt guards them); the Fan Club interviewer's "Have you forgotten?" was
+  answered NO again and again because the check's menu fallback chose on every frame instead of once per press; three people a map
+  script puts elsewhere for the story step (the Weather Institute's while Team Aqua holds it, Norman at his gym's
+  entrance) were looked for at their usual place. Check fixes (test builds only): the PokeNav tutorial played as a
+  player would (POKeNAV on the forced menu, a Match Call call, out) - which also shows the tutorial completes in this
+  build; the fallback's choice once per press and after a menu's first frames; people a map script moved reported as
+  blocked ("moved", with the place). L: the 8 again with the Devon president first - 5 passed (the Space Center stairs on a
+  fresh save, where no grunt guards them), 3 blocked "moved".
+- 2026-10-21, MS-17 recurred (gate 1): newcomers-mixed4-1, a 1v1v1 with mixed parties, was interrupted 12 minutes in
+  on the app before this fix, the machine loaded by low-priority checks beside the four games. The loop-stall
+  watchdog named the code at last: on every world broadcast the host's event loop checked each connected player's
+  lease by reading and re-hashing that player's whole checkpoint under a write lock that waits up to 5 s for any other
+  writer (`team_desk.refresh` < `_team_roster` < `read_checkpoint`; stalls of 1.7-4.8 s); in one of them the host's own
+  companion's `execute` timed out just after the host had handed it the next command, its battle loop ended on that
+  error, and the route's 20 s wait for the answer ran out. Fixed in the app: the lease check alone in a read-only
+  snapshot that never waits for a writer, and a late `execute` reply asked again (the host takes the identical repeat
+  as inert and hands the outstanding command again) for up to 60 s. Regression tests fail on the code before the fix.
+  MS-17 stays release-blocking; its scenarios run again on the fixed app (mixed4-2, ms17-ffa-exit-8, then gate 3).

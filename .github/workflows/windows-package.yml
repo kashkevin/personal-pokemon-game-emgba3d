@@ -17,6 +17,8 @@
 # (full) is the Mega Evolution check's report: real Windows game processes of a test build that is
 # never packaged (Makefile_pc BFX_TEST=1, the Classic 2D game with the battle test driver);
 # EmeraldTogether-feature-check (full) is the same build's starter, soft reset and reroll check.
+# EmeraldTogether-multiplayer-check-* (full) are the multiplayer gameplay proofs' records (evidence.json): two to four
+# players through the whole launcher with the Classic 2D game it packages, in real Windows game processes.
 # Nothing here is published: no release, no Pages, no cache of game data; artifacts are
 # private to the repository. The package never contains a .gba, save or database.
 name: windows-package
@@ -120,6 +122,9 @@ jobs:
           i686-w64-mingw32-strip --strip-all pokeemerald-mp-diorama.exe
           # The Classic 2D game: the same engine without DIORAMA=1 (Graphics mode in the launcher).
           make -f Makefile_pc SDL_DIR="$GITHUB_WORKSPACE/sdl/SDL2-${SDL_VERSION}/i686-w64-mingw32" -j"$(nproc)"
+          # The multiplayer gameplay job reads the running games' memory at their symbols: the table before the strip.
+          mkdir -p ../classic-pe-symbols
+          i686-w64-mingw32-nm -n pokeemerald-mp.exe > ../classic-pe-symbols/pokeemerald-mp.nm.txt
           i686-w64-mingw32-strip --strip-all pokeemerald-mp.exe
           # The Mega Evolution check's test build (never packaged): the Classic 2D game with the battle test driver.
           make -f Makefile_pc SDL_DIR="$GITHUB_WORKSPACE/sdl/SDL2-${SDL_VERSION}/i686-w64-mingw32" BFX_TEST=1 -j"$(nproc)"
@@ -172,6 +177,13 @@ jobs:
         with:
           name: mega-check-inputs
           path: mega-check-inputs
+          retention-days: 1
+          if-no-files-found: error
+      - name: Hand the Classic game's symbol table to the multiplayer job (private, one day)
+        uses: actions/upload-artifact@v4
+        with:
+          name: classic-pe-symbols
+          path: classic-pe-symbols
           retention-days: 1
           if-no-files-found: error
 
@@ -255,6 +267,141 @@ jobs:
             ${{ runner.temp }}/feature-check/**/*.json
             ${{ runner.temp }}/feature-check/**/*.log
             ${{ runner.temp }}/feature-check/**/*.png
+          retention-days: 7
+          if-no-files-found: warn
+
+  symbol-sizes:
+    # The Windows game's symbol table has addresses but no sizes (MinGW nm prints none); the Linux build of the same
+    # engine commit has both, and each size must fit the Windows layout (scripts/multiplayer/native_trade_proof.py
+    # parse_pe_symbols). For the multiplayer job's memory reads only; nothing of this build is packaged or uploaded but
+    # its symbol list.
+    name: Symbol sizes (the Linux Classic 2D game)
+    if: ${{ (inputs.mode || 'smoke') == 'full' }}
+    runs-on: ubuntu-24.04
+    # A clean Ubuntu 24.04: the runner image's own -dev packages keep the 32-bit SDL2 one from installing.
+    container:
+      image: ubuntu:24.04
+    timeout-minutes: 60
+    outputs:
+      engine_commit: ${{ steps.build.outputs.engine_commit }}
+    steps:
+      - name: Toolchain (the native game is a 32-bit Linux program with SDL2)
+        run: |
+          dpkg --add-architecture i386
+          apt-get update -qq
+          DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends git ca-certificates \
+            python3 python3-venv build-essential gcc-multilib libpng-dev pkg-config \
+            gcc-arm-none-eabi binutils-arm-none-eabi libnewlib-arm-none-eabi libsdl2-dev:i386
+      - uses: actions/checkout@v4
+        with:
+          path: app
+      - name: Check out the private engine
+        uses: actions/checkout@v4
+        with:
+          repository: kashkevin/personal-pokemon-game-emgba3d-engine
+          ref: ${{ inputs.engine_ref }}
+          token: ${{ secrets.ENGINE_REPO_TOKEN }}
+          path: engine
+      - name: The engine's build tools (graphics, rules, ABI checks import Pillow, NumPy and pyelftools)
+        run: |
+          python3 -m venv .tools
+          .tools/bin/python -m pip install -q --only-binary=:all: -r app/requirements-dev.txt
+      - name: Build the GBA ROM's assets and the Linux Classic 2D game
+        id: build
+        working-directory: engine
+        run: |
+          git config --global --add safe.directory "$PWD"
+          export PATH="$GITHUB_WORKSPACE/.tools/bin:$PATH"
+          make -j"$(nproc)" BUILD_NAME=dev
+          make -f Makefile_pc NATIVE_LINUX=1 -j"$(nproc)"
+          mkdir -p ../classic-linux-sizes
+          nm -S pokeemerald-mp > ../classic-linux-sizes/pokeemerald-mp.sizes.txt
+          echo "engine_commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Hand the symbol sizes to the multiplayer job (private, one day)
+        uses: actions/upload-artifact@v4
+        with:
+          name: classic-linux-sizes
+          path: classic-linux-sizes
+          retention-days: 1
+          if-no-files-found: error
+
+  multiplayer-check:
+    # The final master update (QM-6): multiplayer gameplay in real Windows game processes on a GitHub-hosted runner
+    # (not a player's PC). The whole launcher - a real LauncherWindow, SessionWorker and LauncherSession per player and
+    # the world server - with the Classic 2D game it packages; two to four new characters from the game's own short
+    # introduction (no save is brought or kept); keys are the keyboard's messages posted to each game's window and what
+    # is on screen is read from the games' memory (scripts/multiplayer/native_launcher_newcomers_proof.py, Windows
+    # mode of native_launcher_battle_proof.py). Starters claimed at once, battle lobbies, mixed parties, a battle and a
+    # trade at the same time, soft resets with others playing, what the others see while one is in a menu. One PC on
+    # its own loopback: no second PC, router or Internet.
+    name: Multiplayer gameplay (Windows game processes, ${{ matrix.players }} players, ${{ matrix.scenario }})
+    needs: [engine, symbol-sizes]
+    if: ${{ (inputs.mode || 'smoke') == 'full' }}
+    runs-on: windows-2022
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {scenario: busy, players: 4, format: 1v1v1v1}
+          - {scenario: mixed, players: 4, format: 2v2}
+          - {scenario: lobby, players: 4, format: 1v1v1v1}
+          - {scenario: lobby, players: 3, format: 1v1v1v1}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Both builds come from one engine commit
+        run: |
+          [ "${{ needs.engine.outputs.engine_commit }}" = "${{ needs.symbol-sizes.outputs.engine_commit }}" ] || {
+            echo "the Windows game and the Linux symbol sizes are of different engine commits" >&2; exit 1; }
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - name: Private virtual environment with the pinned, hashed wheels
+        run: |
+          python -m venv .venv
+          .venv/Scripts/python -m pip install --require-hashes --only-binary=:all: -r requirements-host-provisioning.txt
+      - uses: actions/download-artifact@v4
+        with:
+          name: native-inputs
+          path: inputs
+      - uses: actions/download-artifact@v4
+        with:
+          name: mega-check-inputs
+          path: mega-check-inputs
+      - uses: actions/download-artifact@v4
+        with:
+          name: classic-pe-symbols
+          path: symbols
+      - uses: actions/download-artifact@v4
+        with:
+          name: classic-linux-sizes
+          path: symbols
+      - name: New characters from the game's own short introduction (boys and girls)
+        run: |
+          .venv/Scripts/python scripts/multiplayer/make_intro_saves.py --exe mega-check-inputs/pokeemerald-mp-bfxtest.exe \
+            --mega-check mega-check-inputs/mega_check.py --out "$RUNNER_TEMP/intro" --count ${{ matrix.players }}
+      - name: ${{ matrix.players }} new characters in one world (${{ matrix.scenario }})
+        run: |
+          # make_intro_saves.py's names, in its order (no glob over a Windows path in bash)
+          names=(boy-1 girl-1 boy-2 girl-2); sources=()
+          for n in $(seq 0 $(( ${{ matrix.players }} - 1 ))); do sources+=(--source "$RUNNER_TEMP/intro/${names[$n]}.sav"); done
+          .venv/Scripts/python scripts/multiplayer/native_launcher_newcomers_proof.py --scenario ${{ matrix.scenario }} \
+            --format ${{ matrix.format }} --game inputs/pokeemerald-mp.exe --sdl inputs/SDL2.dll --rom inputs/pokedev.gba \
+            --manifest inputs/manifest.json --pe-symbols symbols/pokeemerald-mp.nm.txt \
+            --sizes symbols/pokeemerald-mp.sizes.txt --slow 1.5 "${sources[@]}" \
+            --output "$RUNNER_TEMP/multiplayer-proof/${{ matrix.scenario }}-${{ matrix.players }}"
+      - name: Upload the proof's record (private to this repository, 7 days; no save)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: EmeraldTogether-multiplayer-check-${{ matrix.scenario }}-${{ matrix.players }}
+          path: |
+            ${{ runner.temp }}/multiplayer-proof/*/evidence.json
+            ${{ runner.temp }}/multiplayer-proof/*/*.jsonl
+            ${{ runner.temp }}/multiplayer-proof/*/*.png
           retention-days: 7
           if-no-files-found: warn
 

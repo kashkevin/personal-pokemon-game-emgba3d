@@ -430,14 +430,10 @@ class WorldServer:
         for session in self.sessions.values():
             if session.closed:
                 continue
-            try:
-                # A read verifies the lease even when there is no checkpoint.
-                self.store.read_checkpoint(session.player_id, session.session_epoch)
-            except StorageError as error:
-                if error.code == "stale_lease":
-                    continue
-                raise
-            roster[session.player_id] = session.session_epoch
+            # The lease alone (MS-17: a whole checkpoint read and re-hashed per player, under a write lock, on every
+            # world broadcast held the host's event loop up for seconds).
+            if self.store.lease_is_current(session.player_id, session.session_epoch):
+                roster[session.player_id] = session.session_epoch
         return roster
 
     @property
@@ -994,7 +990,7 @@ class WorldServer:
     def _championship_challenge(self, session, request):
         if self._championships is None:
             raise ProtocolError("championship_disabled", "This host has not enabled Championships")
-        self.store.read_checkpoint(session.player_id, session.session_epoch)
+        self.store.require_current_lease(session.player_id, session.session_epoch)
         if self._connected_lease(session.player_id) != session.session_epoch:
             raise ProtocolError("stale_lease", "Championships require the current authenticated player")
         desk = self.battle_desk
@@ -1026,7 +1022,7 @@ class WorldServer:
         """Update 31 rival checkpoints over the authenticated battle pending RPC."""
         if self._rivals is None:
             raise ProtocolError("rival_disabled", "This host has not enabled rival checkpoints")
-        self.store.read_checkpoint(session.player_id, session.session_epoch)
+        self.store.require_current_lease(session.player_id, session.session_epoch)
         if self._connected_lease(session.player_id) != session.session_epoch:
             raise ProtocolError("stale_lease", "Rival checkpoints require the current authenticated player")
         desk = self.battle_desk
@@ -1177,7 +1173,7 @@ class WorldServer:
             from .ownership_storage import OwnershipCheckpointStore
             if not isinstance(self.store, OwnershipCheckpointStore):
                 raise ProtocolError("battle_disabled", "battle waiting status requires an authenticated ownership world")
-            self.store.read_checkpoint(session.player_id, session.session_epoch)
+            self.store.require_current_lease(session.player_id, session.session_epoch)
             if self._connected_lease(session.player_id) != session.session_epoch:
                 raise ProtocolError("stale_lease", "battle waiting status requires the current authenticated player")
             result = [] if self._battle_reservations is None else self._battle_reservations.waiting(
@@ -1188,7 +1184,7 @@ class WorldServer:
             from .ownership_storage import OwnershipCheckpointStore
             if not isinstance(self.store, OwnershipCheckpointStore):
                 raise ProtocolError("battle_disabled", "battle history requires an authenticated ownership world")
-            self.store.read_checkpoint(session.player_id, session.session_epoch)
+            self.store.require_current_lease(session.player_id, session.session_epoch)
             if self._connected_lease(session.player_id) != session.session_epoch:
                 raise ProtocolError("stale_lease", "battle history requires the current authenticated player")
             extensions = {"battle_archive", "reset_history", "trade_archive"}.intersection(request)

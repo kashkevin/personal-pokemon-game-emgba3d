@@ -6,6 +6,7 @@ import sqlite3
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 import uuid
 from process_fixture import direct_python
@@ -92,6 +93,28 @@ class StorageTests(unittest.TestCase):
         self.assertGreater(self.lease, old)
         self.assert_code("stale_lease", self.commit, lease_epoch=old)
         self.assert_code("stale_lease", self.store.read_checkpoint, self.owner.player_id, old)
+
+    def test_lease_is_current_reads_without_waiting_for_a_writer(self):
+        # KNOWN_ISSUES MS-17: the team roster checked every connected player's lease with a whole checkpoint read
+        # under BEGIN IMMEDIATE, on every world broadcast, on the host's event loop - which waits up to the 5 s busy
+        # timeout while another connection writes. The lease check alone is a read-only snapshot.
+        self.commit(payload=bytes(range(256)) * 512)
+        self.assertTrue(self.store.lease_is_current(self.owner.player_id, self.lease))
+        self.assertFalse(self.store.lease_is_current(self.owner.player_id, self.lease + 1))
+        self.assertFalse(self.store.lease_is_current(str(uuid.uuid4()), self.lease))
+        writer = sqlite3.connect(self.path, isolation_level=None, timeout=5)
+        try:
+            writer.execute("BEGIN IMMEDIATE")      # another connection in the middle of a write
+            writer.execute("UPDATE world_metadata SET singleton = singleton")
+            started = time.monotonic()
+            self.assertTrue(self.store.lease_is_current(self.owner.player_id, self.lease))
+            self.assertLess(time.monotonic() - started, 1)
+            self.assert_code("storage_error", self.store.read_checkpoint, self.owner.player_id, self.lease)
+        finally:
+            writer.execute("ROLLBACK")
+            writer.close()
+        self.assertTrue(self.store.release_lease(self.owner.player_id, self.lease))
+        self.assertFalse(self.store.lease_is_current(self.owner.player_id, self.lease))
 
     def test_second_live_host_rejected_then_new_boot_fences_old_lease(self):
         newer = CheckpointStore(self.path, BUILD, RULESET, PROFILE)

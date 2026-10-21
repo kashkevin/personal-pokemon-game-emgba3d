@@ -72,9 +72,24 @@ def pe_symbols(exe: Path, elf: Path, names) -> dict[str, tuple[int, int]]:
 
     Data is read through these, so each data symbol's size must fit before the
     PE's next symbol; a function's address is only compared with task pointers."""
-    sizes = symbols_of(elf)
     rows = subprocess.run(["i686-w64-mingw32-nm", "-n", str(exe)], capture_output=True, text=True,
                           check=True).stdout
+    return parse_pe_symbols(rows, symbols_of(elf), names)
+
+
+def parse_nm_sizes(text: str) -> dict[str, tuple[int, int]]:
+    """symbols_of() from a saved `nm -S` of the Linux build (a Windows PC has no nm)."""
+    symbols = {}
+    for line in text.splitlines():
+        row = line.split()
+        if len(row) == 4:
+            symbols[row[3]] = (int(row[0], 16), int(row[1], 16))
+    return symbols
+
+
+def parse_pe_symbols(rows: str, sizes: dict, names) -> dict[str, tuple[int, int]]:
+    """pe_symbols() from texts: `rows` is `i686-w64-mingw32-nm -n` of the Windows executable (saved by the build
+    before it strips the executable), `sizes` the Linux build's symbols."""
     entries = []
     for line in rows.splitlines():
         row = line.split()

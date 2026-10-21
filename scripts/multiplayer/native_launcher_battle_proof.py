@@ -31,6 +31,14 @@ native_trade_proof.py); "normal close" is Alt+F4 to the game's window, the
 ordinary Windows close (Wine's window procedure turns it into WM_CLOSE, SDL into
 an ordinary quit, exit 0).
 
+On Windows itself (the CI runner: `--game pokeemerald-mp.exe --sdl SDL2.dll
+--pe-symbols <nm -n of the exe before its strip> --sizes <nm -S of the Linux
+build>`): the launcher starts the Windows game as it does for a player; memory
+is read with ReadProcessMemory at the PE symbols' addresses moved to where
+Windows loaded the game (native_windows_process.py), keys are the keyboard's
+messages posted to each game's own window, "normal close" is WM_CLOSE. All the
+players' games share one desktop; nobody types on the PC.
+
 Steps: both sources enrolled by the launcher's host enrollment (each bootstrap
 game closes itself); the friend's invitation exported; host and friend
 launchers start their games, which Continue into the overworld; A challenges B
@@ -70,7 +78,7 @@ from qualify_admission_cleanup import on_worker, require  # noqa: E402
 from qualify_launcher_session import inspect_closed_head, output_event  # noqa: E402
 from qualify_live_runtime import field_ready, lease_is_owned, party, sha  # noqa: E402
 from qualify_menu_battle import party_action  # noqa: E402
-from native_trade_proof import PE_IMAGE_BASE, pe_symbols  # noqa: E402
+from native_trade_proof import PE_IMAGE_BASE, parse_nm_sizes, parse_pe_symbols, pe_symbols  # noqa: E402
 from emerald_multiplayer.checkpoint_mirror import MirrorLease  # noqa: E402
 from emerald_multiplayer.launcher_gui import LaunchRequest, LauncherWindow, SessionWorker  # noqa: E402
 from emerald_multiplayer.launcher_session import GameInstallation  # noqa: E402
@@ -85,6 +93,38 @@ NEEDED = ("sMultiplayerMenuActive", "sMultiplayerMenuWaiting", "sMultiplayerMenu
           "gMultiplayerBattleMailbox", "gTasks", "gPartyMenu", "gParties", "gPartiesCount", *PARTY_TASKS,
           "gBattlerControllerFuncs", "gActionSelectionCursor")
 CHOOSE_ACTION = "HandleInputChooseAction"  # static in each battle controller: every address counts
+# What the proofs built on this harness read beyond NEEDED (a PE symbol table gives only the names asked for).
+EXTRA_NEEDED = ("gMain", "CB2_StarterChoose", "CB2_Overworld", "CB2_TrainerCard", "CB2_BagMenuRun",
+                "CB2_UpdatePartyMenu", "sBattleAdmissionLatched", "gBattleTypeFlags", "gBattlersCount", "gBattleMons",
+                "sRemotes", "sGlobalScriptContextStatus", "HandleInputChooseMove", "BattleMainCB2")
+WINDOWS = sys.platform == "win32"
+
+
+def load_average():
+    """The 1, 5 and 15 minute load (Linux); Windows has none."""
+    return [round(v, 2) for v in os.getloadavg()] if hasattr(os, "getloadavg") else None
+
+
+def pe_symbol_table(rows, sizes):
+    """NEEDED, each fitting the Windows layout (native_trade_proof.parse_pe_symbols), and what of EXTRA_NEEDED fits:
+    `rows` is `i686-w64-mingw32-nm -n` of the Windows game, `sizes` the Linux build's symbols."""
+    symbols = parse_pe_symbols(rows, sizes, NEEDED)
+    for name in EXTRA_NEEDED:
+        try:
+            symbols.update(parse_pe_symbols(rows, sizes, (name,)))
+        except ValueError:
+            pass                     # a proof that reads it fails on the missing name, with that name
+    return symbols
+
+
+def function_addresses_in(rows, name):
+    """function_addresses() from a saved `i686-w64-mingw32-nm -n` of the Windows game."""
+    found = set()
+    for line in rows.splitlines():
+        row = line.split()
+        if len(row) == 3 and row[1] in ("T", "t") and row[2] in (name, "_" + name):
+            found.add(int(row[0], 16) & ~1)
+    return frozenset(found)
 
 
 def function_addresses(game, name, *, pe=False):
@@ -258,6 +298,34 @@ class NativeProbe:
         await self.press(1)
 
 
+class WindowsProbe(NativeProbe):
+    """NativeProbe for the Windows game run on Windows (native_windows_process.py): its memory through
+    ReadProcessMemory at the build's symbols moved to the game's image base, keys posted to the game's own window
+    (the players' games share one desktop and its focus), WM_CLOSE as its close button."""
+
+    def __init__(self, pid, symbols, display, record, *, exe, **options):
+        super().__init__(pid, symbols, display, record, **options)
+        import native_windows_process
+        self._windows = native_windows_process
+        self.memory = native_windows_process.ProcessMemory(pid, exe)
+
+    def mem(self, name, size=None, offset=0):
+        address, length = self.symbols[name]
+        return self.memory.read(address + offset, length if size is None else size)
+
+    def _window(self):
+        window = self._windows.window_of(self.pid)
+        if window is None:
+            raise RuntimeError(f"no window of native game {self.pid}")
+        return window
+
+    def _close_window(self):
+        self._windows.close(self._window())
+
+    def _press(self, key, seconds):
+        self._windows.press(self._window(), key, seconds)
+
+
 async def drive_battle_input(probe, view, symbols, stop):
     """qualify_menu_battle.py's input policy: one key owner per game."""
     while not stop.is_set():
@@ -420,18 +488,29 @@ class LauncherHarness:
         self.settings, self.after_boot, self.environment = settings, after_boot, environment
         self.count = count = len(names)
         self.output = output = args.output.resolve()
-        require("/multiplayer-proof/" in str(output) + "/" and not output.exists(), "choose a new private proof directory")
+        require("/multiplayer-proof/" in output.as_posix() + "/" and not output.exists(),
+                "choose a new private proof directory")
         output.mkdir(parents=True)
-        game = args.game.resolve()
+        self.game = game = args.game.resolve()
         self.wine = wine = bool(args.wine)
-        if wine:
+        # The Windows game on Windows itself (the CI runner): no Wine, no X displays, no binutils.
+        self.native_windows = native_windows = WINDOWS
+        if native_windows:
+            require(not wine and getattr(args, "pe_symbols", None) and getattr(args, "sizes", None) and args.sdl,
+                    "on Windows: --sdl, --pe-symbols (nm -n of the game before its strip) and --sizes (nm -S of the "
+                    "Linux build of the same engine commit)")
+            rows = args.pe_symbols.read_text()
+            self.symbols = pe_symbol_table(rows, parse_nm_sizes(args.sizes.read_text()))
+            self.choose_action = function_addresses_in(rows, CHOOSE_ACTION)
+        elif wine:
             require(len(args.wine) == count and len(set(args.wine)) == count and args.sdl and args.elf,
                     "Windows clients need a Wine prefix per player, --sdl and --elf")
             self.symbols = pe_symbols(game, args.elf.resolve(), NEEDED)
+            self.choose_action = function_addresses(game, CHOOSE_ACTION, pe=True)
         else:
             self.symbols = symbols_of(game)
+            self.choose_action = function_addresses(game, CHOOSE_ACTION)
         missing = [name for name in NEEDED if name not in self.symbols]
-        self.choose_action = function_addresses(game, CHOOSE_ACTION, pe=wine)
         require(self.choose_action, f"the native game lacks {CHOOSE_ACTION}: build it unstripped")
         require(not missing, f"the native game lacks symbols {missing}: build it unstripped")
         manifest = json.loads(args.manifest.read_text())
@@ -441,7 +520,7 @@ class LauncherHarness:
             os.environ["WINEDEBUG"] = "-all"
         self.hold, self.gap = (.5, .3) if wine else (.15, .2)
         self.ready_seconds = 20 if count == 2 else 90
-        if wine:
+        if wine or native_windows:
             # The release's own files: the Windows exe and its SDL2.dll.
             info = collect(game, args.sdl.resolve(), args.rom, output / "application" / "runtime")
         else:
@@ -464,7 +543,8 @@ class LauncherHarness:
         self.sources = [Path(path).resolve() for path in sources]
         self.source_hashes = [sha(p) for p in self.sources]
         self.evidence = dict(passed=False, scope=scope or __doc__.split("\n\n")[0], game_sha256=sha(game), bundle=info,
-                             wine=wine, key_hold_seconds=self.hold, elf_sha256=sha(args.elf) if wine else None,
+                             wine=wine, windows=native_windows, key_hold_seconds=self.hold,
+                             elf_sha256=sha(args.elf) if wine else None,
                              build_id=manifest["rom_sha256"],
                              sources=[dict(path=str(p), sha256=h) for p, h in zip(self.sources, self.source_hashes)],
                              checks=[], inputs=0, forced_children=[], players=list(names),
@@ -545,10 +625,17 @@ class LauncherHarness:
         if error is not None:
             evidence["error"] = repr(error)
             evidence["traceback"] = "".join(traceback.format_exception(kind, error, tb))
-            evidence["load_average"] = os.getloadavg()
-            for slot, display in enumerate(self.args.display):
-                subprocess.run(["import", "-window", "root", str(self.output / f"failure-{slot}.png")],
-                               env=dict(os.environ, DISPLAY=display), capture_output=True)
+            evidence["load_average"] = load_average()
+            if self.native_windows:
+                try:                              # the one desktop all the games share
+                    import ci_world_check
+                    ci_world_check.screenshot(self.output / "failure.png")
+                except Exception as picture_error:  # noqa: BLE001 - a picture never hides the failure
+                    evidence["picture_error"] = repr(picture_error)
+            else:
+                for slot, display in enumerate(self.args.display):
+                    subprocess.run(["import", "-window", "root", str(self.output / f"failure-{slot}.png")],
+                                   env=dict(os.environ, DISPLAY=display), capture_output=True)
         for child in self.children:
             if child.returncode is None:
                 evidence["forced_children"].append(child.pid)
@@ -578,9 +665,14 @@ class LauncherHarness:
         return False
 
     # Steps ----------------------------------------------------------------
+    def probe_of(self, pid, slot):
+        options = dict(hold=self.hold, gap=self.gap, choose_action=self.choose_action)
+        if self.native_windows:
+            return WindowsProbe(pid, self.symbols, self.args.display[slot], self.record, exe=self.game, **options)
+        return NativeProbe(pid, self.symbols, self.args.display[slot], self.record, **options)
+
     async def boot_until_field(self, companion, game_process, slot):
-        probe = NativeProbe(game_process.pid, self.symbols, self.args.display[slot], self.record, hold=self.hold,
-                            gap=self.gap, choose_action=self.choose_action)
+        probe = self.probe_of(game_process.pid, slot)
         probe.output = self.output  # for pictures taken when a step fails
         await probe.boot(self.args.slow)
         for _ in range(20):
@@ -703,13 +795,21 @@ class LauncherHarness:
             require(s.status.revision == revision, "manual save revision differs")
         await on_worker(player.worker, save)
 
+    async def close_game(self, game, probe):
+        """One game's ordinary close: SIGTERM (SDL turns it into a quit), on Windows its window's WM_CLOSE."""
+        if self.native_windows:
+            await probe.close_window()
+        else:
+            os.kill(game.process.pid, signal.SIGTERM)
+
     async def close(self, players):
-        """Ordinary close in the given order (SIGTERM, which SDL turns into a quit; Alt+F4 under Wine)."""
+        """Ordinary close in the given order (SIGTERM, which SDL turns into a quit; Alt+F4 under Wine; WM_CLOSE on
+        Windows)."""
         for player in players:
             if self.wine:
                 await player.probe.close_window()
             else:
-                os.kill(player.game.process.pid, signal.SIGTERM)
+                await self.close_game(player.game, player.probe)
             await self.poll_until(lambda g=player.game: g.process.returncode is not None, 30)
         await self.poll_until(lambda: not any(p.worker.busy for p in players), 120)
         codes = [p.game.process.returncode for p in players]
@@ -755,7 +855,7 @@ async def launcher_proof(args, *, names, sources, party_counts, match, version, 
             games = [p.game for p in players]
             probes = [p.probe for p in players]
             record("actual-launcher-workers-ready", phase=phase, pids=[g.process.pid for g in games],
-                   load_average=[round(v, 2) for v in os.getloadavg()])
+                   load_average=load_average())
             if phase == "battle-and-save":
                 harness.players = players
                 outcome = await match(current, probes, games, host, harness.symbols, record)

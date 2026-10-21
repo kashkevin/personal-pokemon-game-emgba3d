@@ -63,6 +63,10 @@ class FakeMenu:
         self.pages.append(page)
         return replace(self.screen, title="Soft reset")
 
+    async def open(self):
+        self.pages.append("home")
+        return self.screen
+
 
 class OpenPageSessionTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
@@ -83,6 +87,13 @@ class OpenPageSessionTests(unittest.IsolatedAsyncioTestCase):
         sequence, screen, close = unpack_screen(frame[5:])
         self.assertEqual((sequence, screen.title, close), (1, "Soft reset", False))
         self.assertEqual(self.session.menu.pages, ["soft_reset"])
+
+    async def test_a_plain_open_asks_the_menu_for_its_home(self):
+        self.session.feed(MenuRequest(1, 0, 0, 1).pack())          # OPEN naming no page: START > PLAYER > PLAYERS
+        await self.session._task
+        frame = await asyncio.wait_for(self.bridge.outbox.get(), 1)
+        self.assertEqual(unpack_screen(frame[5:])[1].title, "Players")
+        self.assertEqual(self.session.menu.pages, ["home"])
 
     async def test_a_page_the_launcher_did_not_enable_is_a_protocol_error(self):
         self.companion.config.menu_open_page_abi_version = 0
@@ -149,6 +160,20 @@ class SoftResetPageTests(unittest.IsolatedAsyncioTestCase):
         screen = await self.click(menu, "Yes, reset now")
         self.assertEqual(menu.handoff, ("soft_reset", {}))
         self.assertEqual(screen.rows, ())
+
+    async def test_players_opens_on_its_home_after_reset_was_used(self):
+        """newcomers-busy4-1 (QM-5): RESET refused during a trade and closed, then START > PLAYER > PLAYERS showed the
+        soft reset page again, which has no way back to the Players list (challenges, trades, lobbies)."""
+        menu = self.page()
+        await menu.open_page("soft_reset")
+        screen = await menu.open()
+        self.assertEqual(screen.title, "Players")
+        self.assertNotIn("Save on host now", [row.label for row in screen.rows])
+        await menu.open_page("soft_reset")
+        await self.click(menu, "Reset to last host save")          # the confirmation page, closed with START
+        screen = await menu.open()
+        self.assertEqual(screen.title, "Players")
+        self.assertEqual((await menu.open_page("soft_reset")).title, "Soft reset")   # RESET still opens its page
 
     async def test_save_on_host_now_is_the_launchers_save(self):
         menu = self.page(last_save=None)

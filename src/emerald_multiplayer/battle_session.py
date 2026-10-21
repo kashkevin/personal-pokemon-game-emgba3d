@@ -26,6 +26,10 @@ from .storage import Checkpoint
 # Client poll interval for the next native command: 1 ms after activity, doubling to 10 ms when idle.
 IDLE_POLL_MIN = .001
 IDLE_POLL_MAX = .01
+# How long an execute whose reply comes too late is asked again (KNOWN_ISSUES MS-17): the host takes a byte-identical
+# repeat as inert and hands the outstanding command again, and its route waits 20 s for each answer; longer than that
+# the battle is held for recovery, which the next reply says.
+EXECUTE_LATE_SECONDS = 60
 
 
 @dataclass(frozen=True)
@@ -193,6 +197,7 @@ class NativeBattleSession:
                 binding = None
                 admission_sha256 = None
                 idle_polls = 0
+                late_since = None
                 while True:
                     if self.journal._session() != captured:
                         raise BattleJournalError("battle_recovery_required", "retain the original held battle core")
@@ -202,10 +207,20 @@ class NativeBattleSession:
                     if self.admission_intent is not None:
                         from .battle_admission_session import admission_fields
                         admission.update(admission_fields(self.admission_intent, self.admission_receipt))
-                    view = (await c.battle_challenge_rpc("execute", battle_id=challenge["battle_id"],
-                        generation=challenge["generation"], incarnation=c.battle_incarnation,
-                        response_id=self._dispatch_id if self._response is not None else 0,
-                        response_b64=None if self._response is None else encode_control(self._response), **admission))["result"]
+                    try:
+                        view = (await c.battle_challenge_rpc("execute", battle_id=challenge["battle_id"],
+                            generation=challenge["generation"], incarnation=c.battle_incarnation,
+                            response_id=self._dispatch_id if self._response is not None else 0,
+                            response_b64=None if self._response is None else encode_control(self._response), **admission))["result"]
+                    except TimeoutError:
+                        # The reply came too late (the host's event loop held up, MS-17: the host had handed the
+                        # next command, which this game then never ran, and its route stopped the battle 20 s on).
+                        # Asked again, the same response: inert if it arrived, and the outstanding command again.
+                        late_since = asyncio.get_running_loop().time() if late_since is None else late_since
+                        if asyncio.get_running_loop().time() - late_since > EXECUTE_LATE_SECONDS:
+                            raise
+                        continue
+                    late_since = None
                     validate_execution_view(view, request=dict(battle_id=challenge["battle_id"],
                         generation=challenge["generation"], incarnation=c.battle_incarnation,
                         session_epoch=captured[6]))

@@ -223,6 +223,14 @@ class PlayerMenu:
         async with self._lock:
             return await self._refresh()
 
+    async def open(self):
+        """A plain OPEN (START > PLAYER > PLAYERS). The soft reset page is RESET's own (open_page): PLAYERS opens on
+        the Players home, never on that page, wherever an earlier RESET left the menu (it has no way back to home)."""
+        async with self._lock:
+            if self._page[0] in ("soft_reset", "soft_reset_confirm"):
+                self._page, self._notice = ("home", None), ""
+            return await self._refresh()
+
     async def open_page(self, page):
         """An OPEN that names its page (Update 32: START > PLAYER > RESET opens the soft reset page)."""
         if page != "soft_reset":

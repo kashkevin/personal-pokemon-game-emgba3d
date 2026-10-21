@@ -265,6 +265,28 @@ class CheckpointStore:
                                    "checkpoint transaction failed") from error
             raise
 
+    @contextmanager
+    def _read_transaction(self) -> Iterator[None]:
+        """A read-only snapshot (BEGIN DEFERRED): in WAL mode it never waits for a writer's lock, where BEGIN
+        IMMEDIATE waits up to the connection's 5 s busy timeout - on the host's event loop that held up the world
+        server, the battle router and the host's own companion for seconds (KNOWN_ISSUES MS-17)."""
+        if self._closed:
+            raise StorageError("storage_closed", "checkpoint store is closed")
+        try:
+            self._connection.execute("BEGIN")
+            yield
+            self._connection.execute("COMMIT")
+        except BaseException as error:
+            if self._connection.in_transaction:
+                with suppress(sqlite3.DatabaseError):
+                    self._connection.execute("ROLLBACK")
+            if isinstance(error, sqlite3.DatabaseError):
+                code = getattr(error, "sqlite_errorcode", 0) & 255
+                corrupt = code in (sqlite3.SQLITE_CORRUPT, sqlite3.SQLITE_NOTADB)
+                raise StorageError("storage_corrupt" if corrupt else "storage_error",
+                                   "checkpoint read failed") from error
+            raise
+
     def _validate_schema(self) -> None:
         version = self._connection.execute("PRAGMA user_version").fetchone()[0]
         application = self._connection.execute("PRAGMA application_id").fetchone()[0]
@@ -472,6 +494,24 @@ class CheckpointStore:
             row = self._connection.execute(
                 "SELECT * FROM checkpoints WHERE player_id = ? AND revision = ?", (player_id, wanted)).fetchone()
             return self._checkpoint(row) if row is not None else None
+
+    def lease_is_current(self, player_id: str, lease_epoch: int) -> bool:
+        """Whether `lease_epoch` is the player's current lease under this server boot - read_checkpoint's lease
+        check alone: a read-only snapshot, no checkpoint bytes read or hashed. The team roster asks it of every
+        connected player on every world broadcast, on the host's event loop (MS-17)."""
+        _player_id(player_id)
+        _counter(lease_epoch, "lease_epoch", 1)
+        with self._read_transaction():
+            self._require_boot()
+            row = self._connection.execute(
+                "SELECT lease_epoch, lease_server_epoch FROM players WHERE player_id = ?", (player_id,)).fetchone()
+            return row is not None and row["lease_epoch"] == lease_epoch and row["lease_server_epoch"] == self._boot_epoch
+
+    def require_current_lease(self, player_id: str, lease_epoch: int) -> None:
+        """read_checkpoint's lease check alone (its stale_lease error), for requests that only need the lease: the
+        rival status every player polls every 1.5 s, Championships, battle waiting and history (MS-17)."""
+        if not self.lease_is_current(player_id, lease_epoch):
+            raise StorageError("stale_lease", "the character lease is no longer active")
 
     def checkpoint_head(self, player_id: str, lease_epoch: int) -> tuple[int, str] | None:
         """(revision, sha256) of the player's latest checkpoint under the same lease check as
