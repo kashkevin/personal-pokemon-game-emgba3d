@@ -108,3 +108,44 @@ generation, audits) runs in parallel, and Windows work fans out over parallel ru
 ## 4. Progress log
 
 - 2026-10-21: phase 1 audit (this file).
+- 2026-10-21, Update 32 closed: windows-package run 99 (engine `8e0dc216`, app `ccd6279`) green in every job, the Mega
+  check included (110 of 110, 97 of 97 shiny).
+- 2026-10-21, MS-17 (gate 1), in progress. The failed run's journal (win-ffa-exit-1) rules out a frame-rate gap
+  between the games: in the rounds before the failure every core, the host's included, used 8-10 frames per QUERY
+  round; in the failing round only the host's own core went 577 frames (9.6 s) without its QUERY while the three others
+  answered within 9-10 frames - the delay was on the host's own delivery path. The code paths read so far cannot delay
+  only that path silently (the server never blocks reading a connection, the companion's 5 s waits raise, the game core
+  reads its command every frame, the frame clock cannot run ahead). Proof instrumentation (app `4e3e0b3`,
+  `scripts/multiplayer/route_timeline.py`): every command's hops for every player and a stall probe (a command
+  unanswered for 2 s: every thread's stack, every companion's asyncio tasks, its pending RPCs, send lock and bridge
+  queue). The failing scenario (the free-for-all rematch after a player closes their game) runs again and again on L:
+  ms17-ffa-exit-1 and -2 passed (the host's slowest command 0.44 s and 0.71 s; no stall); the loop continues.
+- 2026-10-21, phases 9 and 15: `tools/qa/inventory.py` (engine `7a8f764f`): 460 of the 518 Emerald maps reachable, the
+  58 others explained (unused, secret bases, Battle Pyramid pieces, high tide, the truck), none of the 417 FireRed and
+  LeafGreen maps; 842 of 863 trainers fought in the game (object, script, rematch table, co-op twins), 7 Frontier
+  Brains, 14 unused. `tools/qa/coverage.py` (engine `0145e973`): the manifest of every entry with its status.
+- 2026-10-21, phase 10: the test driver's plan runner and `tools/qa/gameplay_check.py` (engine `c984c83c`-`c004deb0`,
+  test builds only): each trainer, person, item ball, sign, hidden item and warp visited in a real game and judged from
+  its log; L: Oldale Town, Route 102 and Petalburg City 42 of 42 passed (4x game speed: 123 s). The whole game (3,680
+  targets) runs on Linux runners in parallel (app workflow `gameplay-check`, `8f84d82`/`6341607`).
+- 2026-10-21, MS-17 (gate 1): the interruption itself is fixed; what held the host's command up is still not
+  identified. The game core gave up after 600 frames (10 s) without a command, shorter than the host route's own 20 s
+  wait for each answer, so one command held up for 10-20 s ended a healthy battle for everyone. Engine `b36b9462`
+  (PC and test ROM; the GBA ROM is unchanged): a held core gives up 1200 frames after its deadline (30 s); the deadline
+  QUERY reports, and so the route's KEEP pace, is unchanged, and a command held up longer than 20 s still stops the
+  battle through the route, which writes why. The first design (a longer reported deadline and a KEEP pace that follows
+  it) was dropped: the app refuses any QUERY reporting more than 600 frames left, so it would have broken every battle
+  and every older host. Evidence on L: one QUERY to the host's own game held 12 s in a real two-game 1v1
+  (`native_launcher_challenge_proof.py --delay-host-query 12`): old engine interrupted (`battle_recovery_required`, the
+  held QUERY answered with the core expired), fixed engine passed (answered with 0 frames left, the core still held,
+  the battle to its end, both saved, a fresh Continue). App tests (`tests/test_battle_execution.py`, 3 new: the same
+  delay with and without the grace, the margin while players choose) and the test ROM's grace test (fails on the old
+  line). The free-for-all rematch loop on the old engine passed runs 1-4 with the new instrumentation (no recurrence);
+  it now runs on the fixed build.
+- 2026-10-21, phase 10: gameplay-check CI run 39541530570 (engine `5e7354b6`, 8 Linux shards, 460 targets each):
+  shards 0 and 2-7 passed 2,988 of 3,220 targets, 232 failed; shard 1 is still running. One real game bug so far:
+  **MS-43**, entering the Battle Dome lobby stopped the PC game in about 7 entries of 10 (fixed, engine `22e0e8ca`).
+  Most other failures are the check's own limits, being fixed and re-run: twin trainers (one double battle's trainer on
+  two objects) had their battle marked won before it began; Pokemon Center escalators were stepped onto from the wrong
+  elevation; the Easy Chat screen (Gabby and Ty, interviewers) and info desks that ask again were never left; story
+  objects and doors that the game hides or keeps shut in this state were counted as failures instead of blocked.

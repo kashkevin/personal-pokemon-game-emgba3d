@@ -38,6 +38,7 @@ import time
 from pathlib import Path
 
 from native_launcher_abandon_proof import AbandonProof, Reproduced
+import route_timeline
 from native_launcher_battle_proof import inspect_closed_head, launcher_proof, party, unpack_screen
 from native_launcher_ffa_proof import close_players, into_littleroot, players_tab, pose_of
 from qualify_admission_cleanup import on_worker, require
@@ -275,6 +276,8 @@ class ChallengeProof(AbandonProof):
             return
 
     async def _match(self, current, probes, games, host, symbols, record):
+        # The timeline's labels (and --delay-host-query's player), as the abandon proof's match names them.
+        self.player_names.update({a.player_id: PLAYER_NAMES[n] for n, a in enumerate(host.accounts)})
         for n, worker in enumerate(current):
             self.own_display(n, worker)
             self.watch_loop(n, worker)
@@ -477,6 +480,8 @@ async def run(args):
     require(len(args.source) in (2, 4) and len(args.display) == len(args.source), "two or four sources and displays")
     count = len(args.source)
     proof = ChallengeProof(args.scenario, args.watch, args.late, args.match_seconds, args.fixed, args.perf)
+    if args.delay_host_query:
+        route_timeline.DELAYS[PLAYER_NAMES[0]] = dict(seconds=args.delay_host_query, after=args.delay_after)
     await launcher_proof(args, names=PLAYER_NAMES[:count], sources=args.source, party_counts=(1,) * count, match=proof.match,
                          version="Native challenge proof", settings="windowScale=2\n",
                          scope=__doc__.split("\n\n")[0] + " Scenario: " + args.scenario,
@@ -498,6 +503,9 @@ def main():
     parser.add_argument("--late", type=float, default=45, help="late-enter: seconds between the two entries")
     parser.add_argument("--match-seconds", type=float, default=900)
     parser.add_argument("--perf", action="store_true", help="measure frames, loops, fsync, requests, CPU per phase")
+    parser.add_argument("--delay-host-query", type=float, default=0,
+                        help="KNOWN_ISSUES MS-17: hold one QUERY to the host's own game this many seconds")
+    parser.add_argument("--delay-after", type=int, default=40, help="the QUERY after the host game's START it holds")
     parser.add_argument("--fixed", action="store_true",
                         help="the repaired build: a refused or expired Enter must end free, never latched or held")
     parser.add_argument("--wine", type=__import__("pathlib").Path, action="append", help="(not used)")

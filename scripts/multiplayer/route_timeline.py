@@ -40,6 +40,10 @@ SLOW = .05      # a poll RPC, a poll gap
 WAIT = .02      # a send-lock wait, a drain, a bridge queue wait, a state write
 LAG = .05       # a loop wake-up this late
 STALL = 2.0     # a command unanswered this long gets the stall probe (the core's deadline is 10 s)
+# Fault injection, proofs only: {player label: dict(seconds=S, after=N)} holds the Nth QUERY after that player's own
+# game started its battle for S seconds before the companion hands it to the game, as a command to the host's own core
+# was held up in win-ffa-exit-1 (KNOWN_ISSUES MS-17). The other games' commands are not held.
+DELAYS: dict = {}
 
 
 class Timeline:
@@ -251,6 +255,17 @@ def install(timeline: Timeline, name_of) -> None:
 
     @functools.wraps(original_rpc)
     async def battle_rpc(self, control, *, timeout=5.0):
+        plan = DELAYS.get(who(self))
+        if plan is not None and not plan.get("done"):
+            if control.opcode == Opcode.START:
+                plan["started"] = True
+            elif plan.get("started") and control.opcode == Opcode.QUERY:
+                plan["queries"] = plan.get("queries", 0) + 1
+                if plan["queries"] == plan["after"]:
+                    plan["done"] = True
+                    timeline.write("delay", who=who(self), seq=control.sequence, seconds=plan["seconds"],
+                                   frame=frame(self))
+                    await asyncio.sleep(plan["seconds"])
         began, first = time.monotonic(), frame(self)
         try:
             response = await original_rpc(self, control, timeout=timeout)

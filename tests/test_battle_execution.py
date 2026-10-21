@@ -13,6 +13,7 @@ from uuid import UUID, uuid4
 import zlib
 
 from emerald_multiplayer.battle_execution import BattleExecutionService, _independent
+from emerald_multiplayer import battle_execution
 from emerald_multiplayer.battle_execution_protocol import (
     decode_control, encode_control, execution_view, validate_execution_view)
 from emerald_multiplayer.battle_journal import BattleJournalError
@@ -30,15 +31,21 @@ class NativeFixture:
 
     It models the native watchdog as the game does (multiplayer_battle.c): every accepted mutating
     command refreshes it to 600 frames, QUERY reports the frames left without refreshing it, and a
-    core whose watchdog runs out reports itself expired. FRAMES_PER_QUERY is the game time that passes
-    from one query to the next."""
+    core expires GRACE frames after its watchdog runs out (MULTIPLAYER_BATTLE_GRACE: 1200 in the PC
+    game, 0 in the GBA ROM's code; KNOWN_ISSUES MS-17), then reports itself expired. FRAMES_PER_QUERY
+    is the game time that passes from one query to the next; DELAYS adds game time before chosen idle
+    queries reach their core (a command held up on its way: {(slot, idle query number): frames})."""
     FRAMES_PER_QUERY = 40
     IDLE_QUERIES = 0   # after START, this many queries see no outbound block (players choosing)
+    GRACE = 0
+    DELAYS = {}
 
     def __init__(self, battle, slot):
         self.battle, self.slot = battle, slot
-        self.frames_left = 600
+        self.frames_used = 0   # since the last refresh
         self.idle_left = self.IDLE_QUERIES
+        self.idle_queries = 0
+        self.idle_frames_to_expiry = []   # as each idle query reached the core
         self.sequence = 0
         self.prepared = self.started = self.released = False
         self.out_index, self.offset = 0, 0
@@ -58,22 +65,26 @@ class NativeFixture:
         flags |= 16 if self.started and not self.released else 0
         flags |= 32 if restored and not self.released else 0
         flags |= 4 if outbound else 0
-        expired = self.frames_left == 0 and not self.released
+        expired = self.frames_used >= 600 + self.GRACE and not self.released
         flags |= 2 if expired else 0
         data = self.blocks[self.out_index] if outbound else b""
         return struct.pack("<I16sBBBB10I", flags, UUID(self.battle.generation).bytes,
             len(self.battle.players), self.slot, self.battle.mode, 0,
             self.sequence, self.out_index + 1 if outbound else 0,
             self.out_index + 2 if outbound else 0, len(data), zlib.crc32(data) if data else 0,
-            self.offset if outbound else 0, 0, self.frames_left if not self.released else 0,
+            self.offset if outbound else 0, 0, max(0, 600 - self.frames_used) if not self.released else 0,
             self.battle.roster[self.slot].revision if self.prepared and not self.released else 0,
             2 if restored and not self.released else 0)
 
     async def rpc(self, command):
         command.validate_command()
         if command.opcode == Opcode.QUERY:
+            if self.started and self.idle_left:
+                self.idle_queries += 1
+                self.frames_used += self.DELAYS.get((self.slot, self.idle_queries), 0)
+                self.idle_frames_to_expiry.append(max(0, 600 + self.GRACE - self.frames_used))
             data = self.query()
-            self.frames_left = max(0, self.frames_left - self.FRAMES_PER_QUERY)
+            self.frames_used = min(600 + self.GRACE, self.frames_used + self.FRAMES_PER_QUERY)
             if self.started and self.idle_left:
                 self.idle_left -= 1
             return replace(command, data=data)
@@ -83,8 +94,8 @@ class NativeFixture:
             self.busy_once = False
             return replace(command, status=1, data=b"")
         self.sequence += 1
-        if self.frames_left:
-            self.frames_left = 600   # an accepted command refreshes the watchdog; an expired core stays expired
+        if self.frames_used < 600 + self.GRACE:
+            self.frames_used = 0   # an accepted command refreshes the watchdog; an expired core stays expired
         data = b""
         if command.opcode == Opcode.PREPARE:
             self.prepared = True
@@ -340,6 +351,41 @@ class BattleExecutionNetworkTests(unittest.IsolatedAsyncioTestCase):
         for i in range(4):
             waiting = self.server._battle_reservations.waiting(*self.actor(i))
             self.assertEqual(waiting[0]["battle_id"], self.battle_id)
+
+    def core(self, *, grace, delays=None, idle=80):
+        for name, value in (("GRACE", grace), ("DELAYS", delays or {}), ("IDLE_QUERIES", idle)):
+            self.addCleanup(setattr, NativeFixture, name, getattr(NativeFixture, name))
+            setattr(NativeFixture, name, value)
+
+    async def test_a_pc_core_always_has_longer_than_the_routes_wait_before_it_gives_up(self):
+        # KNOWN_ISSUES MS-17: a host's own core expired (600 frames, about 10 s, without a command) while one
+        # command was held up on its way to it, though the route waits 20 s for every answer; the battle stopped
+        # for everyone. The PC game gives up 1200 frames after its deadline, and the route's KEEP pace (from the
+        # frames left that QUERY reports, unchanged) keeps every core far from that while players choose (80
+        # idle queries, past KEEP_EVERY_STEPS).
+        self.core(grace=1200)
+        await self.run_clients(multi=True)
+        lowest = min(min(model.idle_frames_to_expiry) for model in self.native_models.values())
+        self.assertTrue(all(len(model.idle_frames_to_expiry) == 80 for model in self.native_models.values()))
+        self.assertGreater(lowest, 60 * 20)
+
+    async def test_a_12_s_delay_on_the_way_to_a_pc_core_is_waited_out(self):
+        # The same as a single delay: a command to the host's core (slot 0) reaches it 720 frames late.
+        self.core(grace=1200, delays={(0, 30): 720})
+        await self.run_clients(multi=True)
+        host = next(model for model in self.native_models.values() if model.slot == 0)
+        self.assertTrue(0 < host.idle_frames_to_expiry[29] <= 1800 - 720)   # it arrived late, and in time
+
+    async def test_the_same_delay_stops_the_battle_of_a_core_without_the_grace(self):
+        # The GBA ROM's code: the core expires 600 frames after its last command, so the route stops the battle
+        # (it says why). No KEEP pace could prevent it: the delay is longer than the whole deadline.
+        self.core(grace=0, delays={(0, 30): 720})
+        with self.assertRaises(AssertionError):
+            await self.run_clients(multi=True)
+        room = self.server.battle_execution.rooms[self.battle_id]
+        self.assertEqual(room.state, "recovery_required")
+        diagnosis = json.loads((self.server.battle_execution.directory / (self.battle_id + ".diagnosis.json")).read_bytes())
+        self.assertEqual(diagnosis["code"], "battle_recovery_required")
 
     async def test_corrupt_native_startup_never_starts_or_releases_battle(self):
         def corrupt(index, command, response, session):
