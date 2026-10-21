@@ -1,32 +1,38 @@
-# Update 32: short introduction, starters in Birch's lab, soft reset, three players, battle lobby (2026-10-20)
+# Update 32: short introduction, starters in Birch's lab, soft reset, three players, battle lobby, Mega Evolution (2026-10-20/21)
 
 The owner's feature update (features 1-16, queued after the battle and trade repair of 2026-10-20), plus the later
-request for complete Mega Evolution testing. This report covers features 1-10, which are implemented; features 11-16
-(the earlier repairs re-checked, breeding, Windows) and Mega Evolution are in progress and get their own sections
-when they are done. Branches: app `claude/admiring-bohr-dpxzuy`, engine `claude/feature-update-engine` (from the
-repair's engine `c76651ea`). **Nothing is merged.**
+request for complete Mega Evolution testing: features 1-10 (sections 1-3), Mega Evolution (section 4) and features
+11-16 (section 5: the earlier repairs checked again, breeding, Windows). Branches: app `claude/admiring-bohr-dpxzuy`,
+engine `claude/feature-update-engine` (from the repair's engine `c76651ea`). **Nothing is merged**; the final QA update
+decides that.
 
 Test environments are named as in `TEST_LEDGER.md`: **L** cloud Linux (native Linux games, software OpenGL, the real
 launcher, companions and host; several "PCs" are several games on one machine), **W** Wine, **CI** the GitHub Windows
-runner, **PC** the owner's PCs. **Every gameplay run below is L.** Nothing in this report ran on Windows or on a PC yet.
+runner, **PC** the owner's PCs. Gameplay runs are L unless marked CI: the Windows runner ran features 1-5 (single
+player), the Mega Evolution checks and the installed build's play check (5.3). **Nothing ran on a PC or under Wine.**
 
 The release GBA ROM stays byte-identical after every engine change (SHA-256 `f214735b...3387`): every engine change is
-PC-only (`#ifdef PORTABLE` or `MP_FFA_ENABLED`, GBA lines kept by `tools/pc_port/check_gba_lines.py`).
+PC-only (`#ifdef PORTABLE` or `MP_FFA_ENABLED`, GBA lines kept by `tools/pc_port/check_gba_lines.py`) or
+in test builds only (the battle test driver, the test ROM).
 
 ## 1. Summary
 
 | # | Feature | What a player sees now | Engine | App | Evidence (L) |
 | --- | --- | --- | --- | --- | --- |
-| 1 | Short introduction | NEW GAME asks boy or girl at once, then the name; the character saves and starts in Littleroot with no Pokemon | `37f4edaf` | `66b0049` | `intro32_check.py` 9/9; `--selftest-update32` 35/0 |
-| 2 | Characters with no Pokemon | Saving, loading, hosting, joining and reconnecting with an empty party; Pokemon-dependent actions say "Get a Pokemon in Birch's lab" / "They have no Pokemon yet" | `1b8af913`, `91d856fb` | `66b0049`, `47b7457` | newcomer-4 (two games) |
-| 3 | Starters in Birch's lab | Three Poke Balls on the lab table; each opens the 18-starter screen on its own type; one claim per character | `37f4edaf` | - | `intro32_check.py`; newcomer-4 (two claims 18 s apart) |
-| 4 | Soft reset | START > PLAYER > RESET: offline back to the last save; in a world the Players menu's reset page restarts the game from the host save, in the same session | `09ee5144`, `91d856fb` | `9397a61` | `soft_reset_check.py` 2/2; soft-reset-7 (two games) |
-| 5 | Shiny starter hunting | Save, claim, inspect, reset, claim again: a new Pokemon each time, shiny 1 in 4096 | `37f4edaf`, `09ee5144` | `9397a61` | selftest 400,000 claims; soft-reset-7 (new personality and IVs) |
+| 1 | Short introduction | NEW GAME asks boy or girl at once, then the name; the character saves and starts in Littleroot with no Pokemon | `37f4edaf` | `66b0049` | `intro32_check.py` 9/9; `--selftest-update32` 35/0; CI run 99 (`feature_check.py`) |
+| 2 | Characters with no Pokemon | Saving, loading, hosting, joining and reconnecting with an empty party; Pokemon-dependent actions say "Get a Pokemon in Birch's lab" / "They have no Pokemon yet" | `1b8af913`, `91d856fb` | `66b0049`, `47b7457` | newcomer-4 (two games); CI run 99 (a save with no Pokemon) |
+| 3 | Starters in Birch's lab | Three Poke Balls on the lab table; each opens the 18-starter screen on its own type; one claim per character | `37f4edaf` | - | `intro32_check.py`; newcomer-4 (two claims 18 s apart); CI run 99 (claimed, saved, loaded) |
+| 4 | Soft reset | START > PLAYER > RESET: offline back to the last save; in a world the Players menu's reset page restarts the game from the host save, in the same session | `09ee5144`, `91d856fb` | `9397a61` | `soft_reset_check.py` 2/2; soft-reset-7 (two games); CI run 99 (offline, three resets) |
+| 5 | Shiny starter hunting | Save, claim, inspect, reset, claim again: a new Pokemon each time, shiny 1 in 4096 | `37f4edaf`, `09ee5144` | `9397a61` | selftest 400,000 claims; soft-reset-7 (new personality and IVs); CI run 99 (three different rolls) |
 | 6 | Players in menus stay drawn | A player in a menu, the bag, the party screen or a dialogue stays drawn for the others; a battle or a map change hides them | `1b8af913` | `66b0049` | unit tests; three-4 (three games: every sample drawn) |
 | 7 | Three players | Three players in one world | `62c1711a` (MS-30) | this update | three-4 (three games, 61 checks) |
 | 8 | 1v1v1 | "Free-for-All - 3 Players": three trainers, each on a side of their own | `eb496d27` | this update | test ROM; ffa3-1, lobby-1 (three games) |
-| 9 | 1v1v1v1 and 2v2 | Unchanged rules; reached through PLAYERS > Challenges > New battle | - | this update | lobby4-1 (a 2v2 from a lobby); see 2.9 |
+| 9 | 1v1v1v1 and 2v2 | Unchanged rules; reached through PLAYERS > Challenges > New battle | - | this update | lobby4-1 (a 2v2 from a lobby); ffa-qf7-1 and mega-5 (the free-for-all of four); see 2.9 |
 | 10 | Battle lobby | Invite players; the format follows who joined (2: 1v1, 3: 1v1v1, 4: 1v1v1v1 or 2v2); start, leave, decline, cancel, time-out | - | this update | 14 unit/network tests; lobby-1 (three games), lobby4-1 (four games) |
+
+Features 11-14 (the battle and trade repair checked again: matchmaking, trading, lag, battle backgrounds) are in
+5.1, feature 15 (breeding) in 5.2, feature 16 (Windows) in 5.3; Mega Evolution in section 4 (not declared fully
+verified, 4.5).
 
 ## 2. Features
 
@@ -223,7 +229,9 @@ re-run in this update.
 
 ## 3. Known limits
 
-- Nothing here ran on Windows (W or CI) or on a PC yet (feature 16 is next).
+- Nothing ran on a player's PC or under Wine. The Windows runner ran features 1-5 (single player), Mega Evolution's
+  single-player checks and the package and installed-build checks (5.3); the multiplayer features (6-14) never ran
+  on Windows: their proofs need the Linux harness.
 - Players of one world need the same version: the world's build id is the game data (unchanged GBA ROM hash), so an
   older and a newer launcher can meet in a world, and a host that does not know a request type ends that player's
   connection. A newer player with an older host is disconnected when PLAYERS asks for the lobbies (as it already was
@@ -412,3 +420,20 @@ the Linux selftest's 400,000 claims), players drawn in menus (6), three players 
 (9), the lobby (10), battles and trades between players (11, 12), lag (13), the 3D battle background (14: the runner
 has no OpenGL 3.3) and breeding (15). Each passed on Linux (sections 2 and 5); on Windows they are for the final QA
 update and the owner's PCs.
+
+## 6. Commits (oldest first)
+
+**Engine** `claude/feature-update-engine` (from the repair's `c76651ea`): `37f4edaf` the short introduction and the
+starters in Birch's lab; `1b8af913` players in menus stay drawn; `09ee5144`, `91d856fb` the soft reset; `eb496d27`
+the 1v1v1; `39223d91` its rules tests; `62c1711a` a battle right after a trade (MS-30); `af9b33dd` Egg moves
+(MS-31); `8906fb9b` the Mega Evolution tests and their fixes (MS-34 to MS-37); `731a7c87` every player can Mega Evolve
+(MS-32, MS-33); `d02e0cc9` MS-40; `7b7d2489` the Mega checks in real game processes (test builds); `b763ce6f` MS-41;
+`2bcbeffb`, `7abaa6c6` the Mega check's purchases, palettes and cases; `8e0dc216` the starter, soft reset and reroll
+check (test builds).
+
+**App** `claude/admiring-bohr-dpxzuy` (after the repair's `df06949`): `66b0049`, `47b7457` characters with no Pokemon
+and players in menus; `9397a61` the soft reset in a world; `172b85e` the 1v1v1 and battle lobbies; `362ff44` the
+three-player proof; `5bde8c5` the route accepts a move request's Mega mark; `a927d8b` a diagnosis file for every
+interrupted battle (MS-17); `c2db4e8` the lobby and Mega proofs; `0f95b61` Mega Evolution on the Windows runner;
+`4f4d9da` the Mega report; `ccd6279` the Windows starter check and the free-for-all re-run; `25ee3af` their results and
+the lag and background re-checks; and this report's last commit.
