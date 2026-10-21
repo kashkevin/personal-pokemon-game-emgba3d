@@ -164,7 +164,8 @@ installed game's manifest has `tower_abi_version` 1 (every player of a world run
 * **Open page 2 = the Tower.** START > PLAYER > TOWER calls `MultiplayerMenu_OpenPage(MP_MENU_PAGE_TOWER)` (2). The bridge
   accepts an OPEN action of 2 with the tower capability; app `menu_mailbox.OPEN_PAGES[2] = "tower"`.
 * **Screen style (bytes 238-239 of the 240-byte screen, zero otherwise):** byte 238 `style`, byte 239 `arg`, only with the
-  tower capability: 0 none; 1 Tower home; 2 floor map (arg: the first floor shown, 1..100); 3 floor or boss preview (arg:
+  tower capability: 0 none; 1 Tower home; 2 floor map (arg: the first floor shown, 1..100; the native UI marks the floors
+  the page's rows list, a row that starts with a floor number); 3 floor or boss preview (arg:
   floor 1..100); 4 shop; 5 Duo status; 6 records; 7 Hyper Training information; 8 prizes. The classic window ignores it; the
   native PC UI draws the Tower screens from it (section 10).
 * **Flags 4 = start a solo Tower battle.** A screen with flags 4, count 0, admission 0 and this 32-byte command at screen
@@ -200,8 +201,10 @@ the action when the host has answered.
     40, 50, 60, 70, 75, 80, 90, 100 claimed; bits 12-15 the milestone Pokemon of 25, 50, 75, 100 delivered. Bits 16-21 zero.
   * Receipt amount: the record's revision after applying (a counter in the save; 8.6).
 * **Kind 7, TOWER_MON:** bits 22-23 milestone (0: floor 25, 1: 50, 2: 75, 3: 100), bits 11-21 species (1..2047), bits 4-10
-  level (1..100), bits 0-3 zero. The game makes the Pokemon (section 4) into the party, else the PC. Receipt amount: 1 made,
-  0 nothing made (no room, an invalid species or level).
+  level (1..100), bits 0-3 zero. The game makes the Pokemon (section 4) into the party, else the PC, and marks the milestone
+  delivered in the save's record (its claim bit 12-15, saved with the Pokemon). Receipt amount: 1 made, 2 already delivered
+  to this save (the record has the bit: nothing made), 0 nothing made (no room, an invalid species or level). The host counts
+  1 and 2 as delivered.
 
 ### 8.5 Duo battle code (the native co-op preparation's 32-bit flags; engine `multiplayer_ladder.h`, app `coop_code.py`)
 The ladder layout with family 1 in bits 7-9 (the ladder requires them zero today, so an older engine refuses a Tower code):
