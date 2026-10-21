@@ -29,7 +29,9 @@ direction keys checked step by step against the game's reported position.
 This happens while each source is enrolled (enrollment saves the running
 game, so every character is enrolled standing in Littleroot, its party
 unchanged) and again if a game ever starts in the grass; the battle, the saves
-and the fresh Continue all happen in Littleroot.
+and the fresh Continue all happen in Littleroot. Sources that stand south of the
+grass, as the other launcher proofs' do, take those proofs' way out
+(native_launcher_ffa_proof.into_littleroot).
 
 Four games share the cloud workspace's two processor cores, and the host gives
 each native battle step 20 seconds (native-launcher-multi-6's battle went to
@@ -62,6 +64,7 @@ import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "windows-runtime"))
 from native_launcher_battle_proof import drive_battle_input, launcher_proof  # noqa: E402
+from native_launcher_ffa_proof import into_littleroot  # noqa: E402
 from qualify_admission_cleanup import on_worker, require  # noqa: E402
 from qualify_live_runtime import sha  # noqa: E402
 from qualify_menu_multi import (FULL_PARTY_COUNTS, TEAM_ACCOUNTS, challenge_slots, outcome_label,  # noqa: E402
@@ -180,6 +183,19 @@ async def leave_the_grass(phase, slot, probe, companion, record):
     end = where(companion)
     record("walked-out-of-the-grass-into-littleroot", phase=phase, slot=slot, start=list(here[:4]),
            end=list(end[:4]), steps=80 - budget, seconds=round(time.monotonic() - started, 1))
+
+
+async def into_town(phase, slot, probe, companion):
+    """Into Littleroot Town from where the source stands: this proof's tall grass, or south of the grass (Route 101's
+    (4-5,14)), where the other launcher proofs' sources stand - their way out."""
+    async with asyncio.timeout(60):
+        while where(companion) is None:
+            await asyncio.sleep(.2)
+    here = where(companion)
+    if here[:2] == ROUTE_101 and tuple(here[2:4]) not in STARTS:
+        await into_littleroot(phase, slot, probe, companion)
+    else:
+        await leave_the_grass(phase, slot, probe, companion, probe.record)
 
 
 async def close_players(probe):
@@ -331,7 +347,7 @@ async def run(args):
     require(len(args.source) == 4, "four sources, one per player")
 
     async def after_boot(phase, slot, probe, companion):
-        await leave_the_grass(phase, slot, probe, companion, probe.record)
+        await into_town(phase, slot, probe, companion)
     await launcher_proof(args, names=PLAYER_NAMES, sources=args.source, party_counts=FULL_PARTY_COUNTS,
                          match=lambda *values: native_multi_match(*values, match_seconds=args.match_seconds),
                          version="Native 2v2 proof", settings="windowScale=2\n",

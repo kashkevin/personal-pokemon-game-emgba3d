@@ -16,7 +16,8 @@ parties afterwards, with the launcher harness of native_launcher_battle_proof.py
     own first moves, Scratch and Pound, run native-launcher-coop-5 was still
     battling after 900 s: the native battle relay moves about 2.8 controller
     blocks a second in the cloud);
-  - both stand in Littleroot (a game that starts in Route 101's grass walks out, as the 2v2 proof);
+  - both stand in Littleroot (a game that starts on Route 101 walks into the town, as the 2v2 proof's
+    into_town);
   - player 1 invites player 2 to a team in the Players menu, player 2 accepts;
   - player 1's companion asks the host for the co-op Gym challenge, the request
     a Gym Leader's script sends (world action "gym_coop"; Petalburg, Norman:
@@ -52,7 +53,7 @@ import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "windows-runtime"))
 from native_launcher_battle_proof import drive_battle_input, launcher_proof  # noqa: E402
-from native_launcher_multi_proof import close_players, field_state, leave_the_grass  # noqa: E402
+from native_launcher_multi_proof import close_players, field_state, into_town  # noqa: E402
 from native_coop_exp_award_proof import decode  # noqa: E402
 from native_spawn_proof import SAVEBLOCK1_DATA, _save_slots, _sector_checksum  # noqa: E402
 from qualify_admission_cleanup import on_worker, require  # noqa: E402
@@ -300,7 +301,7 @@ async def coop_match(current, probes, games, host, symbols, record):
 
 
 async def after_boot(phase, slot, probe, companion):
-    await leave_the_grass(phase, slot, probe, companion, probe.record)
+    await into_town(phase, slot, probe, companion)
 
 
 async def run(args):

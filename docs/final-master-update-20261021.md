@@ -244,3 +244,71 @@ generation, audits) runs in parallel, and Windows work fans out over parallel ru
   passed, none failed**, 618 blocked with their reasons. The coverage manifest generated from it, the plan and the
   test ROM's results: `docs/coverage-manifest.md` - no failed entry in any category; every blocked and unverified
   entry listed with its reason.
+- 2026-10-21, gate 2 on the final engine `edfc4b28`: everything since `7223275b` is test-build code
+  (`DIORAMA_BATTLE_ENV_TEST`: the naming screen of `f98bab2f`) or `#line` directives (`edfc4b28`:
+  `src/multiplayer_save.c`'s PC-only blocks had moved the GBA line numbers after them since Update 32, which
+  `tools/pc_port/check_gba_lines.py` reports; the directives restore them, and the GBA ROM's object code is
+  identical), so the test ROM's results and the native self-tests of `7223275b` stand. The GBA ROM built from
+  `edfc4b28` in windows-package run 39610329221 matched the pinned `f214735b...3387` (the job compares the two and
+  fails on a difference). The app suite in CI on the MS-46 fix (python-tests run 207, app `dafc493`): 2,457 passed,
+  127 skipped, none failed; runs 212 and 213 on the later heads passed too.
+- 2026-10-21, gate 4: `windows-package` full on the final pair (run 39610329221: app `59a22c6`, engine `edfc4b28`,
+  the GBA ROM pinned) **passed in every job**, the four multiplayer-check jobs included (three or four new
+  characters in real Windows game processes on one runner: lobbies, claims at once, trades, resets, a 1v1v1, a 1v1
+  and a 2v2, the same parties, saves, normal closes, a fresh Continue). The run before (39591275230) had shown two
+  faults of the harness's Windows mode, not of the game: code pointers read from a game that Windows had loaded away
+  from its preferred base were compared with the symbols unmoved, and the cleanup used `signal.SIGKILL`, which
+  Windows lacks (fixed in app `59a22c6`, with a test). The installer under test:
+  `EmeraldTogether-Setup-Native-3D-CI-106.exe`, sha256
+  `624642491f8b8259007986d73c51dcb39c0ce3d218383bc94ff6ccc7cd011b0a` (the runner has no GPU: the installed build's
+  play check ran in Classic 2D).
+- 2026-10-21, gate 3 (L, the candidate's production code): the gate's proofs through the real launchers, each from
+  enrollment to a fresh Continue on the same canonical saves: the Players-menu 1v1, a trade then a 1v1, a cut
+  connection and rejoin with the parties unchanged, a late entry refused or joined in time, a 1v1 beside two players
+  exploring, the 1v1v1v1 and the 1v1v1 to their ends, lobbies of three and four (a decline; the 2v2 of four), two
+  1v1s at once with a game killed in one, a lost connection in a 2v2 and the host crashing in a free-for-all (each
+  abandoned without a result and played again), three players with mixed parties, two newcomers' claims at once, the
+  Mega without a Ring, the soft reset in a world: all passed. Two formats had not run in real games since
+  2026-10-10/14 and were added: the co-op Gym battle (qm-coop-1: each game awarded its own party) and the 2v2 with
+  full parties of six (qm-multi-full-1: every trainer sent out all six; 6,438 routed blocks in 63 minutes); both
+  passed, with sources made by the engine's test build (the Mega proof's fixture method: the full-party proof's old
+  sources were prepared through ordinary gameplay with `multi_party_prepare.py` and are not in this workspace).
+  qm-softreset-1 met **MS-29** (known, Low): START within about 0.15 s of a turn in place left the turn state set,
+  and RESET refused once with "PLAYERS is not ready yet. Try again in a moment."; the cause shown in a real game
+  process with frame-exact keys (KNOWN_ISSUES), the fix left for a later update since it changes the shared field
+  check of saves, battles and menus; qm-softreset-2 passed. In qm-mega-four-1's 2v2 one player's Mega was never
+  triggered (the proof's driver recorded no attempt; three Megas shown and the battle went on; eight games on the
+  four cores); qm-mega-four-2 passed with every Mega in the 1v1, the 1v1v1, the 1v1v1v1 and the 2v2. No healthy
+  battle was interrupted (MS-17); TEST_LEDGER has every run.
+- 2026-10-21, gate 1: MS-17's scenario passed again on the final app code (run 9, beside the gate 3 queue: eight
+  games on the four cores, no host loop stall over 1.5 s). With run 8, newcomers-mixed4-2 and busy4-3 and every gate
+  3 proof, no healthy battle on the fixed app was interrupted: MS-17 is fixed and verified, no longer
+  release-blocking (KNOWN_ISSUES).
+
+## 5. Release record
+
+The merge: fast-forward, no force, under the owner's authorization of 2026-10-21 once the release gates pass; the
+engine first, then the app.
+
+| Repository | Default branch | From | To | Branch merged |
+| --- | --- | --- | --- | --- |
+| engine | `claude/emeraldtogether-combined` | `44b6ebea` | `edfc4b28` | `claude/feature-update-engine` |
+| app | `claude/emeraldtogether-combined-app` | `2e6fe366` | the commit carrying this section | `claude/admiring-bohr-dpxzuy` |
+
+GBA ROM `f214735b64e113fd10730eacca5764d757f2c93a3685230aa905af7a7cdd3387` (unchanged).
+
+| Gate | Evidence |
+| --- | --- |
+| 1 MS-17 | Root cause found and fixed (the host loop's blocking checkpoint reads and the companion's late replies, besides the core's grace); its scenario passed runs 8 and 9 on the fixed app without an interruption, newcomers-mixed4-2 and busy4-3 too, and no healthy battle of gate 3 was interrupted; KNOWN_ISSUES MS-17: fixed and verified, no longer release-blocking |
+| 2 Suites | App suite in CI: python-tests run 207 on `dafc493`, 2,457 passed, 127 skipped, none failed (runs 212-213 on the later heads passed; the merge commit's run in gate 7); the engine test ROM on `7223275b`: the same 39 failures as the reference, name by name, standing for `edfc4b28` (test-build code and `#line` directives only since); native self-tests 24 of 24; the GBA ROM `f214735b...3387` (built from `edfc4b28` in windows-package run 39610329221 and compared with the pinned hash) |
+| 3 Multiplayer in real games (L) | 20 proofs passed on the candidate's production code (TEST_LEDGER, gate 3): 1v1, 2v2 with small and with full parties, 1v1v1, 1v1v1v1 and co-op battles, trades, lobbies of three and four, three and four players, abandon and recovery (a killed game, a lost connection, the host's crash), reconnect, late entries, newcomers' claims, Megas, the soft reset in a world; two first runs failed and passed when run again: qm-softreset-1 on MS-29 (Low, the cause found) and qm-mega-four-1 on one player's Mega never triggered in its 2v2 (the proof's driver recorded no attempt; the battle went on) |
+| 4 Windows | windows-package full run 39610329221 (app `59a22c6`, engine `edfc4b28`, the ROM pinned): every job passed, the four multiplayer-check jobs included; the installer under test `EmeraldTogether-Setup-Native-3D-CI-106.exe`, sha256 `624642491f8b8259007986d73c51dcb39c0ce3d218383bc94ff6ccc7cd011b0a` |
+| 5 Coverage manifest | `docs/coverage-manifest.md`: gameplay run 7 (CI 39596147527, engine `f98bab2f`), 3,611 of 3,611 judged targets passed, no failed entry; the 618 blocked and every unverified entry listed with its reason |
+| 6 No open High or Critical defect | KNOWN_ISSUES: none open. MS-17 fixed and verified (gate 1); N20 closed as not reproduced (250 launches with a save under Wine); NU-4 (High) is fixed in code but not verified across real networks (below). Open and lower: MS-29 (Low; its cause found in this update) and the Medium and Low items listed there |
+| 7 After the merge | Recorded in the section below once it has run: the merged commits' python-tests and gameplay-check, windows-package full on the default branches (the installer built from the merged commits, installed and played on the runner, its file name and SHA-256) and the ROM hash |
+
+Not verified by this update (and not claimed): play between separate Windows PCs (every Windows result above is one
+GitHub runner, its games on loopback); real networks between homes (NU-4); 3D graphics on the runner (it has no GPU:
+the installed build's play check chose Classic 2D); the owner's GPU benchmark (V39); the multiplayer proofs on
+Windows with full parties or a co-op battle (the runner's jobs use new characters with one Pokemon); the game is not
+claimed bug-free (KNOWN_ISSUES lists the open Medium and Low items).
