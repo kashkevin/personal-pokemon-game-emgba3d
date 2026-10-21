@@ -36,11 +36,21 @@ jobs:
   build:
     name: Build the Linux test game and the plan
     runs-on: ubuntu-24.04
+    # A clean Ubuntu 24.04: the runner image's own -dev packages keep the 32-bit SDL2 one from installing.
+    container:
+      image: ubuntu:24.04
     timeout-minutes: 60
     outputs:
       shards: ${{ steps.plan.outputs.shards }}
       engine_commit: ${{ steps.plan.outputs.engine_commit }}
     steps:
+      - name: Toolchain (the native game is a 32-bit Linux program with SDL2)
+        run: |
+          dpkg --add-architecture i386
+          apt-get update -qq
+          DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends git ca-certificates \
+            python3 python3-venv build-essential gcc-multilib libpng-dev pkg-config \
+            gcc-arm-none-eabi binutils-arm-none-eabi libnewlib-arm-none-eabi libsdl2-dev:i386
       - uses: actions/checkout@v4
         with:
           path: app
@@ -51,20 +61,14 @@ jobs:
           ref: ${{ inputs.engine_ref || 'claude/feature-update-engine' }}
           token: ${{ secrets.ENGINE_REPO_TOKEN }}
           path: engine
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - name: Toolchain (the native game is a 32-bit Linux program with SDL2)
+      - name: The engine's build tools (graphics, rules, ABI checks import Pillow, NumPy and pyelftools)
         run: |
-          sudo dpkg --add-architecture i386
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq --no-install-recommends build-essential gcc-multilib libpng-dev pkg-config \
-            gcc-arm-none-eabi binutils-arm-none-eabi libnewlib-arm-none-eabi libsdl2-dev:i386
-          python -m venv .tools
-          .tools/bin/python -m pip install --only-binary=:all: -r app/requirements-dev.txt
+          python3 -m venv .tools
+          .tools/bin/python -m pip install -q --only-binary=:all: -r app/requirements-dev.txt
       - name: Build the GBA ROM's assets and the Classic 2D test game
         working-directory: engine
         run: |
+          git config --global --add safe.directory "$PWD"
           export PATH="$GITHUB_WORKSPACE/.tools/bin:$PATH"
           make -j"$(nproc)" BUILD_NAME=dev
           echo "GBA ROM $(sha256sum pokedev.gba | cut -d' ' -f1)"
@@ -78,12 +82,12 @@ jobs:
           cp pokeemerald-mp-bfxtest ../gameplay-inputs/
           cp tools/qa/gameplay_check.py tools/qa/inventory.py ../gameplay-inputs/tools/qa/
           cp tools/battle_env/mega_check.py ../gameplay-inputs/tools/battle_env/
-          python tools/qa/gameplay_check.py --exe pokeemerald-mp-bfxtest --kinds "${{ inputs.kinds || 'trainer,item,person,sign,hidden,warp' }}" --plan-only \
+          python3 tools/qa/gameplay_check.py --exe pokeemerald-mp-bfxtest --kinds "${{ inputs.kinds || 'trainer,item,person,sign,hidden,warp' }}" --plan-only \
             --out ../gameplay-inputs/plan
           shards="${{ inputs.shards || '8' }}"
           [ "$shards" -ge 1 ] && [ "$shards" -le 16 ] || { echo "shards must be 1-16" >&2; exit 1; }
-          echo "shards=$(python -c "import json; print(json.dumps(list(range($shards))))")" >> "$GITHUB_OUTPUT"
-          echo "engine_commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "shards=$(python3 -c "import json; print(json.dumps(list(range($shards))))")" >> "$GITHUB_OUTPUT"
+          echo "engine_commit=$(git -c safe.directory="$PWD" rev-parse HEAD)" >> "$GITHUB_OUTPUT"
       - name: Hand the test game and the plan to the shard jobs (private, one day)
         uses: actions/upload-artifact@v4
         with:
@@ -96,29 +100,30 @@ jobs:
     name: Targets (shard ${{ matrix.shard }})
     needs: build
     runs-on: ubuntu-24.04
+    container:
+      image: ubuntu:24.04
     timeout-minutes: 240
     strategy:
       fail-fast: false
       matrix:
         shard: ${{ fromJSON(needs.build.outputs.shards) }}
     steps:
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
+      - name: Runtime (32-bit SDL2, a virtual display)
+        run: |
+          dpkg --add-architecture i386
+          apt-get update -qq
+          DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends python3 libsdl2-2.0-0:i386 \
+            xvfb xauth
       - uses: actions/download-artifact@v4
         with:
           name: gameplay-inputs
           path: inputs
-      - name: Runtime (32-bit SDL2, a virtual display)
-        run: |
-          sudo dpkg --add-architecture i386
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq --no-install-recommends libsdl2-2.0-0:i386 xvfb
       - name: A character from the short introduction, then this shard's targets
+        shell: bash
         run: |
           chmod +x inputs/pokeemerald-mp-bfxtest
           set +e
-          xvfb-run -a -s "-screen 0 1280x800x24" python inputs/tools/qa/gameplay_check.py \
+          xvfb-run -a -s "-screen 0 1280x800x24" python3 inputs/tools/qa/gameplay_check.py \
             --exe inputs/pokeemerald-mp-bfxtest --plan inputs/plan/plan.json --kinds "${{ inputs.kinds || 'trainer,item,person,sign,hidden,warp' }}" \
             --make-save "$RUNNER_TEMP/new.sav" --shard ${{ matrix.shard }} --shards ${{ inputs.shards || '8' }} \
             --jobs 2 --speed ${{ inputs.speed || '4' }} --out out
@@ -150,7 +155,7 @@ jobs:
           path: shards
       - name: Merge the shards
         run: |
-          python - <<'PY'
+          python3 - <<'PY'
           import collections, glob, json
           results, blocked, seconds = [], {}, []
           for path in sorted(glob.glob("shards/*/gameplay_check.json")):
