@@ -143,7 +143,7 @@ def wallet_of(checkpoint_payload: bytes) -> dict:
         return sum(quantity ^ (key & 0xFFFF) for item, quantity in slots if item == wanted)
     bp = struct.unpack_from("<H", block2, BATTLE_POINTS)[0]
     return dict(money=money, rare_candy=count(ITEM_RARE_CANDY), hp_up=count(tower_rewards.ITEM_HP_UP), bp=bp,
-                stored=parsed.stored_pokemon_count,
+                stored=parsed.metadata.stored_pokemon_count,
                 tower=None if parsed.tower is None else dataclasses.asdict(parsed.tower))
 
 
@@ -736,7 +736,7 @@ class TowerScenario:
                 paid = dict(money=after["money"] - before["money"], rare_candy=after["rare_candy"] - before["rare_candy"],
                             bp=after["bp"] - before["bp"])
                 expected = self.paid[slot] if self.args.scenario == "duo-climb" else self.paid
-                stored = inspect_flash(saved[slot].payload, save_profile=OWNERSHIP_PROFILE).stored_pokemon_count
+                stored = inspect_flash(saved[slot].payload, save_profile=OWNERSHIP_PROFILE).metadata.stored_pokemon_count
                 record("tower-climb-saved", slot=slot, revision=saved[slot].revision, paid=paid, expected=expected,
                        stored_pokemon=stored, record=after["tower"])
                 require(paid == expected, f"slot {slot}: the saved prizes {paid} differ from the host's {expected}")
