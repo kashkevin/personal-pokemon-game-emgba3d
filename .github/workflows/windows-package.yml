@@ -269,7 +269,7 @@ jobs:
           $out = Join-Path $env:RUNNER_TEMP "tower-check"
           $save = Join-Path $env:RUNNER_TEMP "tower.sav"
           python mega-check-inputs\tower_check.py --exe mega-check-inputs\pokeemerald-mp-bfxtest.exe --make-save $save `
-            --data mega-check-inputs\tower_legends.json --out $out --floors ${{ matrix.floors }} --jobs 3
+            --data mega-check-inputs\tower_legends.json --out $out --floors ${{ matrix.floors }} --jobs 3 --speed 4
           if ($LASTEXITCODE -ne 0) { throw "the Battle Tower check failed (exit $LASTEXITCODE)" }
       - name: Upload the Tower check report (private to this repository, 7 days; no save)
         if: always()

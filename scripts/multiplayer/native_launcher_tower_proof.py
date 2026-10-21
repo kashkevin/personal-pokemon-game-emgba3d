@@ -22,6 +22,9 @@ and, after the harness's saves, the canonical checkpoints (money, the Bag, Battl
   --scenario mega     as duo, from saves whose Tower records say floor 40 cleared (a third fixture: the record mirror,
                       which the host imports on the first Tower action): a Duo replay of floor 40, Norman and his
                       partner; the master game's battle shows Norman's Kangaskhan Mega Evolved.
+  --scenario ui       the 3D game with the native PC UI (--native-ui): player 1 opens each Tower page (home, a floor's
+                      preview, floors and bosses, the floor map, prizes, the shop, Hyper Training, records, the Duo) and
+                      each is pictured (ui-*.png: the Players screen's link device shows the page's Tower screen).
   --scenario forfeit  player 1 from a save whose record says floor 12 cleared (P = 13): floor 13 started, the game
                       closed in the battle (an ordinary close), started again through the launcher: the Tower counts
                       floor 13 as a loss ("Floor 13: counted as a loss") and P = 11 (checkpoint 10 + 1); H stays 12.
@@ -42,6 +45,7 @@ import os
 from pathlib import Path
 import signal
 import struct
+import subprocess
 import sys
 import time
 
@@ -447,6 +451,68 @@ class TowerScenario:
         _, floor = await duo_battle(current, probes, host, symbols, record, floor=40, megas=base)
         return dict(expected=[p.party_now() for p in probes])
 
+    def picture(self, slot, name):
+        """The game's window as the player sees it (xdotool raises it, ImageMagick's import takes it)."""
+        probe = self.harness.players[slot].probe
+        path = self.harness.output / f"{name}.png"
+        try:
+            window = probe._window()
+            subprocess.run(["xdotool", "windowraise", window], env=probe.environment, capture_output=True, timeout=10)
+            time.sleep(.5)
+        except (RuntimeError, subprocess.SubprocessError):
+            window = "root"
+        subprocess.run(["import", "-window", window, str(path)], capture_output=True, timeout=30, env=probe.environment)
+        return path.name
+
+    async def ui(self, current, probes, games, host, symbols, record):
+        probe, pictures = probes[0], []
+
+        async def shot(name):
+            await asyncio.sleep(1.5)                     # the screen drawn and settled
+            _, screen = await probe.ready()
+            pictures.append(dict(name=self.picture(0, f"ui-{name}"), title=screen.title, status=screen.status,
+                                 style=[screen.style, screen.style_arg], rows=[r.label for r in screen.rows]))
+            record("tower-ui-page", **pictures[-1])
+
+        async def back():
+            await probe.press(B)
+            await probe.ready()
+
+        await open_tower(probe)
+        await shot("home")
+        await probe.choose("Solo: floor 1")
+        await shot("solo-preview")
+        await back()
+        await probe.choose("Floors and bosses")
+        await shot("bosses")
+        await probe.choose("Floor map")
+        await shot("map")
+        await back()
+        await back()
+        await probe.choose("Prizes and shop")
+        await shot("prizes")
+        label = next(r.label for r in (await probe.ready())[1].rows if r.label.startswith("Prizes:"))
+        await probe.choose(label)
+        await shot("prize-list")
+        await back()
+        label = next(r.label for r in (await probe.ready())[1].rows if r.label.startswith("Tower Shop"))
+        await probe.choose(label)
+        await shot("shop")
+        await back()
+        await probe.choose("Hyper Training")
+        await shot("training")
+        await back()
+        await back()
+        await probe.choose("Records")
+        await shot("records")
+        await back()
+        label = next(r.label for r in (await probe.ready())[1].rows if r.label.startswith("Duo"))
+        await probe.choose(label)
+        await shot("duo")
+        await close_players(probe)
+        record("tower-ui-pictures", count=len(pictures))
+        return dict(expected=[p.party_now() for p in probes])
+
     async def forfeit(self, current, probes, games, host, symbols, record):
         harness, probe = self.harness, probes[0]
         view = await tower_view(current[0])
@@ -532,13 +598,14 @@ async def run(args):
                          match=getattr(scenario, args.scenario), version=f"Native Tower proof ({args.scenario})",
                          after_boot=lambda phase, slot, probe, companion: into_town(phase, slot, probe, companion),
                          settings="windowScale=2\n", scope=__doc__.split("\n\n")[0],
-                         environment=dict(SDL_FRAMEBUFFER_ACCELERATION="0", PKMN_NATIVE_UI="0"),
+                         environment=dict(SDL_FRAMEBUFFER_ACCELERATION="0", PKMN_NATIVE_UI="1" if args.native_ui else "0"),
                          after_save=scenario.after_save, on_harness=lambda h: setattr(scenario, "harness", h))
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--scenario", choices=("solo", "duo", "mega", "forfeit"), required=True)
+    parser.add_argument("--scenario", choices=("solo", "duo", "mega", "forfeit", "ui"), required=True)
+    parser.add_argument("--native-ui", action="store_true", help="the 3D game's native PC UI on (the ui scenario)")
     parser.add_argument("--floors", type=int, default=11)
     parser.add_argument("--weak-b", action="store_true")
     parser.add_argument("--party-counts", type=int, nargs=2, default=(2, 1))
