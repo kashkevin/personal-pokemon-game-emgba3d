@@ -134,6 +134,7 @@ jobs:
           # Battle Tower: Legends' floor check and its floor table, from an engine that has the Tower.
           if [ -f src/tower_legends.c ]; then
             cp tools/battle_env/tower_check.py tools/tower_legends/tower_legends.json ../mega-check-inputs/
+            if [ -f tools/battle_env/train_check.py ]; then cp tools/battle_env/train_check.py ../mega-check-inputs/; fi
           fi
           cp "$GITHUB_WORKSPACE/sdl/SDL2-${SDL_VERSION}/i686-w64-mingw32/bin/SDL2.dll" ../mega-check-inputs/
           rom_sha="$(sha256sum pokedev.gba | cut -d' ' -f1)"
@@ -280,6 +281,137 @@ jobs:
             ${{ runner.temp }}/tower-check/*.json
             ${{ runner.temp }}/tower-check/*.md
             ${{ runner.temp }}/tower-check/**/test.log
+          retention-days: 7
+          if-no-files-found: warn
+
+  tower-extras:
+    # Battle Tower: Legends' experience caps in real Tower battles (no badges, one, eight, the Champion, a Pokemon above
+    # its cap: tools/battle_env/tower_check.py --caps) and its items through the game's own Bag and party menus (a
+    # Bottle Cap, a Gold Bottle Cap and an Ability Patch used, refused where they would do nothing, saved and loaded:
+    # tools/battle_env/train_check.py), in real Windows game processes of the same test build (a GitHub-hosted runner).
+    name: Battle Tower caps and items (Windows game processes)
+    needs: engine
+    if: ${{ (inputs.mode || 'smoke') == 'full' }}
+    runs-on: windows-2022
+    timeout-minutes: 60
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@v4
+        with:
+          name: mega-check-inputs
+          path: mega-check-inputs
+      - name: A character from the short introduction, the experience caps, then the items in the menus
+        shell: pwsh
+        run: |
+          if (-not (Test-Path mega-check-inputs\train_check.py)) {
+            Write-Output "::notice::this engine has no Battle Tower items check (tools/battle_env/train_check.py)"
+            exit 0
+          }
+          $exe = "mega-check-inputs\pokeemerald-mp-bfxtest.exe"
+          $out = Join-Path $env:RUNNER_TEMP "tower-extras"
+          $save = Join-Path $env:RUNNER_TEMP "tower-extras.sav"
+          python mega-check-inputs\tower_check.py --exe $exe --make-save $save --data mega-check-inputs\tower_legends.json `
+            --out (Join-Path $out "caps") --caps --speed 4
+          $caps = $LASTEXITCODE
+          python mega-check-inputs\train_check.py --exe $exe --save $save --out (Join-Path $out "items")
+          $items = $LASTEXITCODE
+          if ($caps -ne 0 -or $items -ne 0) { throw "the Tower caps or items check failed (caps $caps, items $items)" }
+      - name: Upload the reports (private to this repository, 7 days; no save)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: EmeraldTogether-tower-extras
+          path: |
+            ${{ runner.temp }}/tower-extras/**/*.json
+            ${{ runner.temp }}/tower-extras/**/test.log
+            ${{ runner.temp }}/tower-extras/**/*.png
+          retention-days: 7
+          if-no-files-found: warn
+
+  tower-proof:
+    # Battle Tower: Legends through the whole launcher in real Windows game processes (a GitHub-hosted runner, one PC on
+    # its own loopback): two players' launchers, the world server, the Classic 2D game it packages
+    # (scripts/multiplayer/native_launcher_tower_proof.py, Windows mode). The characters come from the game's own short
+    # introduction; the test build then gives them their Tower fixtures (scripts/multiplayer/make_tower_saves.py).
+    # solo: floors 1-11 through the Players menu, each settled by the host, Brock's checkpoint prize and every floor's
+    # money and BP in the next save, and player 2 losing the special boss (Giovanni, floor 25) back to checkpoint 20;
+    # duo: a team, the Duo invitation, both Ready, the native co-op battle won and settled for both; mega: a Duo replay
+    # of floor 40 where Norman's Kangaskhan Mega Evolves; forfeit: a solo floor closed mid-battle, the game started
+    # again, the floor counted as a loss on the next ask.
+    name: Battle Tower in the launcher (Windows game processes, ${{ matrix.scenario }})
+    needs: [engine, symbol-sizes]
+    if: ${{ (inputs.mode || 'smoke') == 'full' }}
+    runs-on: windows-2022
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {scenario: solo, a: tower-strong-a, b: tower-weak25-b, extra: "--weak-b --party-counts 6 1"}
+          - {scenario: duo, a: tower-strong-a, b: tower-strong-b, extra: "--party-counts 6 6"}
+          - {scenario: mega, a: tower-mega-a, b: tower-mega-b, extra: "--party-counts 6 6 --floors-json mega-check-inputs/tower_legends.json"}
+          - {scenario: forfeit, a: tower-forfeit-a, b: tower-strong-b, extra: "--party-counts 6 6"}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Both builds come from one engine commit
+        run: |
+          [ "${{ needs.engine.outputs.engine_commit }}" = "${{ needs.symbol-sizes.outputs.engine_commit }}" ] || {
+            echo "the Windows game and the Linux symbol sizes are of different engine commits" >&2; exit 1; }
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - name: Private virtual environment with the pinned, hashed wheels
+        run: |
+          python -m venv .venv
+          .venv/Scripts/python -m pip install --require-hashes --only-binary=:all: -r requirements-host-provisioning.txt
+      - uses: actions/download-artifact@v4
+        with:
+          name: native-inputs
+          path: inputs
+      - uses: actions/download-artifact@v4
+        with:
+          name: mega-check-inputs
+          path: mega-check-inputs
+      - uses: actions/download-artifact@v4
+        with:
+          name: classic-pe-symbols
+          path: symbols
+      - uses: actions/download-artifact@v4
+        with:
+          name: classic-linux-sizes
+          path: symbols
+      - name: Two new characters from the game's own short introduction, then their Tower fixtures
+        run: |
+          if [ ! -f mega-check-inputs/tower_check.py ]; then echo "::notice::this engine has no Battle Tower"; exit 0; fi
+          .venv/Scripts/python scripts/multiplayer/make_intro_saves.py --exe mega-check-inputs/pokeemerald-mp-bfxtest.exe \
+            --mega-check mega-check-inputs/mega_check.py --out "$RUNNER_TEMP/intro" --count 2
+          .venv/Scripts/python scripts/multiplayer/make_tower_saves.py --exe mega-check-inputs/pokeemerald-mp-bfxtest.exe \
+            --mega-check mega-check-inputs/mega_check.py --source-a "$RUNNER_TEMP/intro/boy-1.sav" \
+            --source-b "$RUNNER_TEMP/intro/girl-1.sav" --out "$RUNNER_TEMP/tower-saves" --only ${{ matrix.a }},${{ matrix.b }}
+      - name: The Battle Tower (${{ matrix.scenario }})
+        run: |
+          if [ ! -f mega-check-inputs/tower_check.py ]; then echo "::notice::this engine has no Battle Tower"; exit 0; fi
+          .venv/Scripts/python scripts/multiplayer/native_launcher_tower_proof.py --scenario ${{ matrix.scenario }} \
+            --game inputs/pokeemerald-mp.exe --sdl inputs/SDL2.dll --rom inputs/pokedev.gba \
+            --manifest inputs/manifest.json --pe-symbols symbols/pokeemerald-mp.nm.txt \
+            --sizes symbols/pokeemerald-mp.sizes.txt --slow 1.5 \
+            --source-a "$RUNNER_TEMP/tower-saves/${{ matrix.a }}.sav" --source-b "$RUNNER_TEMP/tower-saves/${{ matrix.b }}.sav" \
+            ${{ matrix.extra }} --output "$RUNNER_TEMP/multiplayer-proof/tower-${{ matrix.scenario }}"
+      - name: Upload the proof's record (private to this repository, 7 days; no save)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: EmeraldTogether-tower-proof-${{ matrix.scenario }}
+          path: |
+            ${{ runner.temp }}/multiplayer-proof/*/evidence.json
+            ${{ runner.temp }}/multiplayer-proof/*/*.jsonl
+            ${{ runner.temp }}/multiplayer-proof/*/*.png
+            ${{ runner.temp }}/tower-saves/run-*/test.log
           retention-days: 7
           if-no-files-found: warn
 

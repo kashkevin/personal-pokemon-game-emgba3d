@@ -59,8 +59,11 @@ import subprocess
 import sys
 import time
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "windows-runtime"))
-from native_launcher_battle_proof import NativeProbe, launcher_proof  # noqa: E402
+ROOT = Path(__file__).resolve().parents[2]
+for _path in (ROOT / "src", ROOT / "scripts" / "multiplayer", ROOT / "scripts" / "windows-runtime"):
+    if str(_path) not in sys.path:              # the Windows runner starts it without PYTHONPATH
+        sys.path.insert(0, str(_path))
+from native_launcher_battle_proof import WINDOWS, NativeProbe, launcher_proof  # noqa: E402
 from native_launcher_coop_proof import finish_award, logged_driver, own_party  # noqa: E402
 from native_launcher_multi_proof import close_players, field_state, into_town  # noqa: E402
 from qualify_admission_cleanup import on_worker, require  # noqa: E402
@@ -101,6 +104,10 @@ NativeProbe.ready = _ready
 
 # ---------------------------------------------------------------------------------------------------------- reading
 def read_at(probe, address: int, size: int) -> bytes:
+    """`size` bytes at an address the game holds (a pointer's value: where it is in the running process)."""
+    memory = getattr(probe, "memory", None)
+    if memory is not None:                     # Windows: ReadProcessMemory (WindowsProbe), the address as it is
+        return memory._raw(address, size)
     with open(f"/proc/{probe.pid}/mem", "rb", buffering=0) as memory:
         memory.seek(address)
         return memory.read(size)
@@ -176,10 +183,20 @@ def calm(probe) -> bool:
             and not state.get("players_menu_active"))
 
 
+def battle_question_up(probe) -> bool:
+    """The battle's YES/NO box takes input (the player's battler: PlayerHandleYesNoInput): with the Shift battle style
+    (a new game's default) "<trainer> is about to use ... Will <player> change Pokemon?" when a foe faints."""
+    address = probe.symbols.get("PlayerHandleYesNoInput", (None,))[0]
+    funcs = probe.code(int.from_bytes(probe.mem("gBattlerControllerFuncs", 4), "little")) & ~1
+    return address is not None and funcs == address
+
+
 async def play_local_battle(probe, record, slot, label, seconds=600):
     """The floor's intro, its battle and its result as a player plays them: B through the field's messages, A in the
-    battle (FIGHT, the first move, its messages), until the field has been calm for three seconds after a battle."""
-    deadline, battled, calm_since, screens = time.monotonic() + seconds, False, None, []
+    battle (FIGHT, the first move, its messages), until the field has been calm for three seconds after a battle. The
+    Shift style's question after a foe faints is answered NO (B) as a player keeping the lead in; a party screen opened
+    from the battle by anything else is left with B."""
+    deadline, battled, calm_since, screens, questions = time.monotonic() + seconds, False, None, [], 0
     while time.monotonic() < deadline:
         state = field_state(probe)
         screen = state.get("callback2")
@@ -187,7 +204,15 @@ async def play_local_battle(probe, record, slot, label, seconds=600):
             screens.append(screen)
         if in_battle(probe):
             battled, calm_since = True, None
-            await probe.press(A, frames=8, release=16)
+            if battle_question_up(probe):
+                questions += 1
+                record("tower-switch-question-declined", slot=slot, label=label, count=questions, quiet=questions > 1)
+                await probe.press(B, frames=8, release=30)
+            elif screen == "CB2_UpdatePartyMenu":
+                record("tower-party-screen-left", slot=slot, label=label)
+                await probe.press(B, frames=8, release=30)
+            else:
+                await probe.press(A, frames=8, release=16)
             continue
         if battled and calm(probe):
             calm_since = calm_since or time.monotonic()
@@ -651,6 +676,9 @@ class TowerScenario:
 
 async def run(args):
     sources = (args.source_a, args.source_b)
+    if not args.display:
+        require(WINDOWS, "an X display per player")
+        args.display = ["desktop-0", "desktop-1"]                  # Windows: one desktop; names for the records
     if args.floors is None:
         args.floors = 100 if args.scenario in ("climb", "duo-climb") else 11
     scenario = TowerScenario(args)
@@ -680,11 +708,13 @@ def main():
     parser.add_argument("--manifest", type=Path, required=True)
     parser.add_argument("--source-a", type=Path, required=True)
     parser.add_argument("--source-b", type=Path, required=True)
-    parser.add_argument("--display", action="append", required=True)
+    parser.add_argument("--display", action="append", help="an X display per player (Linux)")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--slow", type=float, default=1.0)
     parser.add_argument("--wine", type=Path, action="append")
-    parser.add_argument("--sdl", type=Path)
+    parser.add_argument("--sdl", type=Path, help="Windows: SDL2.dll of the game")
+    parser.add_argument("--pe-symbols", type=Path, help="Windows: i686-w64-mingw32-nm -n of the game before its strip")
+    parser.add_argument("--sizes", type=Path, help="Windows: nm -S of the Linux build of the same engine commit")
     parser.add_argument("--elf", type=Path)
     asyncio.run(run(parser.parse_args()))
 

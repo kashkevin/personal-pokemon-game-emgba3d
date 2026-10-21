@@ -100,7 +100,8 @@ def field_state(probe):
     if "gMain" in probe.symbols:
         main = probe.mem("gMain", 8)
         for field, offset in (("callback1", 0), ("callback2", 4)):
-            address = int.from_bytes(main[offset:offset + 4], "little") & ~1
+            # probe.code: a Windows game loaded away from its preferred base holds moved code pointers
+            address = probe.code(int.from_bytes(main[offset:offset + 4], "little")) & ~1
             state[field] = names.get(address, hex(address))
     if "sGlobalScriptContextStatus" in probe.symbols:
         state["script_status"] = probe.mem("sGlobalScriptContextStatus", 1)[0]

@@ -51,6 +51,26 @@ class WindowsWorkflowTests(unittest.TestCase):
                      "In-game menu check on the real packaged games"):
             self.assertIn(f"- name: {name}", WORKFLOW)
 
+    def test_battle_tower_runs_in_windows_game_processes(self):
+        floors = job("tower-check")
+        self.assertIn("runs-on: windows-2022", floors)
+        self.assertIn('floors: ["1-25", "26-50", "51-75", "76-100"]', floors)
+        self.assertIn("tower_check.py --exe mega-check-inputs\\pokeemerald-mp-bfxtest.exe", floors)
+        extras = job("tower-extras")
+        self.assertIn("runs-on: windows-2022", extras)
+        self.assertIn("--caps", extras)
+        self.assertIn("train_check.py --exe $exe --save $save", extras)
+        self.assertIn("tools/battle_env/train_check.py ../mega-check-inputs/", job("engine"))
+        proof = job("tower-proof")
+        self.assertIn("runs-on: windows-2022", proof)
+        self.assertIn("needs: [engine, symbol-sizes]", proof)
+        for scenario in ("solo", "duo", "mega", "forfeit"):
+            self.assertIn(f"{{scenario: {scenario},", proof)
+        self.assertIn("b: tower-weak25-b", proof)          # player 2 loses the special boss (floor 25)
+        self.assertIn("scripts/multiplayer/make_tower_saves.py", proof)
+        self.assertIn("scripts/multiplayer/native_launcher_tower_proof.py --scenario ${{ matrix.scenario }}", proof)
+        self.assertIn("--pe-symbols symbols/pokeemerald-mp.nm.txt", proof)
+
     def test_no_upload_carries_game_data(self):
         uploads = re.findall(r"uses: actions/upload-artifact@v4\n\s+with:\n(.*?)(?=\n      - |\n  [a-z-]+:\n|\Z)",
                              WORKFLOW, re.S)
