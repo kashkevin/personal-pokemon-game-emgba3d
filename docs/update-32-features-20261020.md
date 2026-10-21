@@ -22,11 +22,11 @@ PC-only (`#ifdef PORTABLE` or `MP_FFA_ENABLED`, GBA lines kept by `tools/pc_port
 | 3 | Starters in Birch's lab | Three Poke Balls on the lab table; each opens the 18-starter screen on its own type; one claim per character | `37f4edaf` | - | `intro32_check.py`; newcomer-4 (two claims 18 s apart) |
 | 4 | Soft reset | START > PLAYER > RESET: offline back to the last save; in a world the Players menu's reset page restarts the game from the host save, in the same session | `09ee5144`, `91d856fb` | `9397a61` | `soft_reset_check.py` 2/2; soft-reset-7 (two games) |
 | 5 | Shiny starter hunting | Save, claim, inspect, reset, claim again: a new Pokemon each time, shiny 1 in 4096 | `37f4edaf`, `09ee5144` | `9397a61` | selftest 400,000 claims; soft-reset-7 (new personality and IVs) |
-| 6 | Players in menus stay drawn | A player in a menu, the bag, the party screen or a dialogue stays drawn for the others; a battle or a map change hides them | `1b8af913` | `66b0049` | unit tests; real games: see 2.6 |
-| 7 | Three players | Three players in one world | - | this update | see 2.7 |
+| 6 | Players in menus stay drawn | A player in a menu, the bag, the party screen or a dialogue stays drawn for the others; a battle or a map change hides them | `1b8af913` | `66b0049` | unit tests; three-4 (three games: every sample drawn) |
+| 7 | Three players | Three players in one world | `62c1711a` (MS-30) | this update | three-4 (three games, 61 checks) |
 | 8 | 1v1v1 | "Free-for-All - 3 Players": three trainers, each on a side of their own | `eb496d27` | this update | test ROM; ffa3-1, lobby-1 (three games) |
-| 9 | 1v1v1v1 and 2v2 | Unchanged rules; reached through PLAYERS > Challenges > New battle | - | this update | see 2.9 |
-| 10 | Battle lobby | Invite players; the format follows who joined (2: 1v1, 3: 1v1v1, 4: 1v1v1v1 or 2v2); start, leave, decline, cancel, time-out | - | this update | 14 unit/network tests; lobby-1 (three games) |
+| 9 | 1v1v1v1 and 2v2 | Unchanged rules; reached through PLAYERS > Challenges > New battle | - | this update | lobby4-1 (a 2v2 from a lobby); see 2.9 |
+| 10 | Battle lobby | Invite players; the format follows who joined (2: 1v1, 3: 1v1v1, 4: 1v1v1v1 or 2v2); start, leave, decline, cancel, time-out | - | this update | 14 unit/network tests; lobby-1 (three games), lobby4-1 (four games) |
 
 ## 2. Features
 
@@ -122,7 +122,26 @@ and checks the three-player world with real games: `scripts/multiplayer/native_l
 menus, a refused trade, a trade between two while the third walks into the lab (another map), claims its starter and
 comes back, a cut connection and a rejoin, a 1v1 while the third walks, saves and a fresh Continue.
 
-Result: **pending** (the run follows this report's first commit; the ledger records it).
+Result (L, three games): **three-4 passed** (61 checks) on engine `af9b33dd`:
+
+- Everyone drawn by everyone at once; a player in the START menu, the bag, the party screen and PLAYERS stayed drawn
+  for both others in every sample (START 30/30, bag 50/50, party 40/40, PLAYERS 30/30 per observer; the longest gap
+  0.0 s). Pictures: the host's and the newcomer's view of the friend in its bag.
+- The newcomer (no Pokemon) was refused a trade with "Get a Pokemon in Birch's lab"; in the lab (another map) it was
+  drawn by nobody and drew nobody; it claimed a starter (20.6 s) while the other two traded; the trade applied in 11 s.
+- The friend's connection was cut; it joined again and everyone was drawn again at once.
+- **A 1v1 right after the trade** (neither had saved since) ran to its end in 110 s while the newcomer walked 105 steps;
+  the two battlers were hidden from the walker (220 of 221 samples) and drawn again at once afterwards. All three saved
+  the expected Pokemon; a fresh Continue.
+
+The earlier runs: three-1 and three-2 failed in the proof itself (a recording name clash; the rejoin check read the
+trade's persistent notice in PLAYERS as a status); **three-3 found a real bug**: that 1v1 right after the trade never
+started. The trade's canonical post-image keeps the save counter of the frozen export (it is byte-preserving) while the
+game writes it one counter higher, and the game's PREPARE refused a preparation naming the image's counter: both
+launchers held the battle as interrupted and stopped saving. It is older than this update (KNOWN_ISSUES MS-30).
+Reproduced with two games (trade-battle-1, `native_launcher_challenge_proof.py --scenario trade-battle`), fixed in
+engine `62c1711a` (PC only: after it imports a canonical image the game accepts that image's counter until it saves
+again; the trainer id and party CRC checks are unchanged), and trade-battle-2 passed on the fix.
 
 ### 2.8 Feature 8: the 1v1v1
 
@@ -161,7 +180,11 @@ Result: **pending** (the run follows this report's first commit; the ledger reco
 The rules and the battle code are unchanged (Update 15's free-for-all, the full Multi 2v2; their engine tests still
 pass: test ROM "Multiplayer" 138/138). What changed is the way in: the Challenges page now has "New battle" (the lobby,
 and the free-for-all rows). The four-player proofs were updated for that step (`challenge_free_for_all`).
-**Re-run with the new menus: pending** (a four-game lobby with a 2v2 start, and the four-player free-for-all).
+Re-run with the new menus (L, four games): **lobby4-1 passed** - a 2v2 started from a lobby of four (2.10) ran to its
+end in 724 s with the teams the host chose, everyone back with the same parties. The four-player free-for-all from the
+Challenges page (Free-for-All > Everyone: 4 Players): **mega-5 passed** (section 4.3) - it ran to its end in 390 s and
+everyone was back with the same parties; the free-for-all proof itself (`native_launcher_ffa_proof.py`, with its
+disconnect and win/lose cases) was not re-run with the new page.
 
 ### 2.10 Feature 10: the battle lobby (format detection)
 
@@ -187,8 +210,13 @@ and the free-for-all rows). The four-player proofs were updated for that step (`
   joined set, time-outs and the creator leaving; the protocol; the whole menu flow over a real host with four connected
   players). (L) **lobby-1** (`native_launcher_lobby_proof.py`, three games): the host invited both friends ("Waiting for
   2 to answer"), each joined from PLAYERS, the host's page showed "1v1v1: 3 joined" with "Start 1v1v1" and no other
-  format, the start, both accepted, the 1v1v1 to its end, saves and a fresh Continue (above). The four-player choice
-  (1v1v1v1 or 2v2) is unit-tested; its real-game run is pending (2.9).
+  format, the start, both accepted, the 1v1v1 to its end, saves and a fresh Continue (above). **lobby4-1** (`native_launcher_lobby4_proof.py`, four games, 57
+  checks): the host invited three; two joined and one declined: "1v1v1: 3 joined", the decliner shown as declined,
+  only "Start 1v1v1"; the two accepted, the decliner had no challenge and no battle and stayed on the field in every
+  sample (69 of 69) while the 1v1v1 ran to its end (343 s); a second lobby where all three joined showed "1v1v1v1 or
+  2v2: 4 joined" with "Start 1v1v1v1" and "Start 2v2"; "Start 2v2" asked "Choose your 2v2 partner", the host chose the
+  first friend, the teams were host + first friend against the other two, and the 2v2 ran to its end (724 s); everyone
+  was back in the world with the same parties after each battle.
 
 ## 3. Known limits
 
@@ -200,3 +228,172 @@ and the free-for-all rows). The four-player proofs were updated for that step (`
   MS-28.
 - MS-17 (a healthy native battle interrupted by the host core's expired deadline, seen twice on four games) is still
   open and **release-blocking**; no 1v1v1 run hit it.
+
+## 4. Mega Evolution
+
+The owner's request (2026-10-20, during this update): inspect the Mega Evolution the game has, test every Mega and
+every rule automatically (the 14 items of 4.3), in real game processes including Windows ones, repair what is broken,
+report what is missing, and keep new implementation apart from testing. **Mega Evolution is not declared fully
+verified** (4.5).
+
+### 4.1 What the game has
+
+- **97 Mega Evolutions** in the species data's form change tables, the game's own list (the test ROM and the
+  real-game check both read it at run time): 96 by a Mega Stone - the Gen 6-7 Megas, Charizard X and Y and Mewtwo X
+  and Y among them, the Legends Z-A Megas of Gen 1-9 species and Mega Zygarde (from Zygarde-Complete) - and Mega
+  Rayquaza, by the move Dragon Ascent without a stone. **92 different Mega Stones** for the 96 (Tatsugiri's three
+  forms share one, as do Magearna's two forms and male and female Meowstic).
+- **Getting them on PC:** the Mega Ring is a Game Corner prize in Mauville (25,000 coins); the Mega Stone dealer in the
+  Mauville Poke Mart, only for a player with the Ring, sells **82 stones** (the Mega of every Gen 1-6 species) for
+  30,000-100,000 coins (Update 29). The release GBA ROM keeps its own way (the dealer gives the Ring after the fourth
+  badge).
+- **Missing (reported; not built here):**
+  - 10 stones are neither sold nor found anywhere: the Megas of Gen 7-9 species (Crabominite, Golisopite, Drampanite,
+    Falinksite, Glimmoranite, Baxcalibrite, Scovillainite, Tatsugirinite, Magearnite, Zeraorite). They work when held
+    (the tests hand them over), but no player can own them.
+  - Mega Rayquaza cannot be reached: Rayquaza cannot learn Dragon Ascent (MS-39). Primal Reversion is enabled but
+    neither orb can be obtained.
+  - Mega Lucario Z's Ability, Aura Guard, is unimplemented (it does nothing; MS-38), while Lucarionite Z is sold.
+  - The dealer sells a stone the player already owns again (one of each is all a player needs).
+- **Rules** (the battle engine's, unchanged): the stone must be the species' own and the Ring must be in the bag; one
+  Mega per trainer per battle; the form lasts until the Pokemon faints or the battle ends (switching keeps it); a usable
+  stone cannot be knocked off, stolen or swapped; the turn a Pokemon Mega Evolves it moves at its old Speed.
+- **Multiplayer** (native battles of linked players, PC): before this update only the player whose game runs the
+  battle could Mega Evolve (MS-32).
+
+### 4.2 New implementation, repairs and test tools
+
+- **New implementation:** every player of a native multiplayer battle can Mega Evolve with their own Ring and stone,
+  one Mega each, in the 1v1, 1v1v1, 1v1v1v1 and 2v2 (engine `731a7c87`, app `5bde8c5`; MS-32, MS-33). The battle's
+  running game names a battler's usable Mega in the move request it sends; the player's own game offers it only with
+  the Ring in that player's bag; the host's route accepts that one mark and nothing else.
+- **Repairs** (KNOWN_ISSUES): MS-34 Mega Chimecho's HP, MS-35 a revived Mega's mark, MS-36 the one-Mega rule when the
+  turn's choices are carried out, MS-37 Zygarde-Complete's crash screen at every battle's end (engine `8906fb9b`);
+  MS-40 the Mega Ring message that stopped a player's game in a 1v1v1, 1v1v1v1 or 2v2 (engine `d02e0cc9`); MS-41 the
+  Mega Stone dealer's coin display (engine `b763ce6f`). Each was found by these tests; all are older than Update 32.
+- **Test tools** (test builds only, never shipped): the test ROM's Mega tests (`test/battle/form_change/`, 26) and the
+  native controller's test; the battle test driver's Mega log and the Classic 2D test build with
+  `tools/battle_env/mega_check.py` (engine `7b7d2489`, `2bcbeffb`): everything read from the game's own log, so the same
+  check runs on Windows; the multiplayer proof `scripts/multiplayer/native_launcher_mega_proof.py` (app `c2db4e8`,
+  `0f95b61` and this report's commit): four games, three games, and two games with one player without the Ring
+  (in either game).
+
+### 4.3 Results by requested item
+
+**T** the engine's GBA test ROM (`make check`, battles without a link). **L** cloud Linux, real game processes: the test
+builds of 4.2 for single-player battles (Classic 2D and 3D), the player build through the real launcher for
+multiplayer. **CI** the GitHub Windows runner: real Windows game processes of the Classic 2D test build (a hosted
+runner, not a player's PC; Windows' software renderer).
+
+| # | Requested | Tests | Result |
+| --- | --- | --- | --- |
+| 1 | Every Mega, Charizard X/Y and Mewtwo X/Y | T: every holder of the form change tables (96) by dex range; Mega Rayquaza by Dragon Ascent. L/CI `mega_check.py --sweep`: every holder in a wild battle of its own in the real game, level 100, read from its log. The four-game proof's leads: Charizard X and Y, Mewtwo X and Y | T 25 of 26 (the 26th is MS-39, Rayquaza cannot learn the move; its Mega works when it knows it). L: **passed**, all 96 holders (Classic 2D), and all 96 again shiny; Mega Rayquaza, which no player can reach, only in T. CI: **passed**, all 96 holders and all 96 again shiny (run 97, engine `7abaa6c6`; run 95 the same) |
+| 2 | Stones: ownership, purchase, equip, remove, persistence | L/CI `mega_check.py --items`, the game's own menus: GIVE from the bag and SAVE; TAKE and SAVE; load; the Ring bought at the Game Corner (25,000 coins, the Shiny Charm declined) and Venusaurite from the dealer (60,000 coins), each saved, then loaded: Ring, stone and coins left, money untouched. `--selftest-coins` (prices, payment) | L: **passed** (items-6), and it **found MS-41** (the dealer's coin display; fixed). CI: **passed** (runs 95 and 97: the stone given, used, taken, saved, loaded and reset away; the Ring and Venusaurite bought, saved and loaded) |
+| 3 | Eligibility and activation | T: the right stone with the Ring, a wrong stone, no stone, a species without a Mega, Floette and Zygarde forms. L/CI cases: no Ring, another species' stone, Pikachu holding Charizardite X, Zygarde-Complete with and without Zygardite: the move menu offers the trigger exactly when it may, and START turns it on. L multiplayer (two games through the launcher, a 1v1): one player without the Ring, once in the game that runs the battle (its own bag is read) and once in the other game (it refuses the Mega the running game names) | L: **passed**, all 12 cases in the Classic 2D test build and all 12 in the 3D one; multiplayer **passed** (mega-noring-1, -2, mega-noring-host-1: the player without the Ring never offered the Mega, the other player Mega Evolving, one Mega in both games). CI: **passed**, all 12 cases (run 97; in run 95 the Gym and rival cases never ended: the check's own Recover fault, fixed in `7abaa6c6`) |
+| 4 | Appearance, form, typing, stats, Ability | T: each holder's Mega form, typing, Ability, stats and max HP (found MS-34). L/CI: in every battle the lead as the game shows it (species, types, Ability, the Mega mark) against the species data, after the animation drawn with the Mega form's palette, and a picture | L: **passed**, all 12 cases in the Classic 2D test build and all 12 in the 3D one. CI: **passed**, all 12 cases and all 96 holders (run 97) |
+| 5 | Moves, damage, turn order | T: the Mega turn at the old Speed and the next at the Mega's; Mega Mawile's Huge Power doubles its damage; Mega Charizard X loses Flying and Ground hits it | T: passed. Not re-checked in a real game (damage is the engine's, the same code) |
+| 6 | One Mega per battle | T: once per battle; one of two holders in a double; checked again when carried out (found MS-36). L/CI: the double case, Venusaur and Blastoise both holding their stones: one Mega on the player's side | L: **passed**, all 12 cases in the Classic 2D test build and all 12 in the 3D one. CI: **passed**, the double case (runs 95 and 97) |
+| 7 | Switching, fainting, battle end, soft reset | T: switching keeps the form; fainting reverts it and the Mega stays used; a revived Mega unmarked (found MS-35). L/CI: after every battle the lead is its own form holding its stone; after a Mega battle the stone taken (not saved) and START > PLAYER > RESET: back from the title the save as it was. A reset in the middle of a battle does not exist on PC (4.4) | T: passed. L: **passed** (items-6; every case). CI: **passed** (runs 95 and 97: the items check with the reset; after every case and holder the lead its own form holding its stone) |
+| 8 | Wild, trainer, rival, Gym, multiplayer | L/CI cases: wild, trainer, Gym (Roxanne), rival (May, a shiny Mewtwo), a Multi with an in-game partner, both sides Mega Evolving; multiplayer: item 9 | L: **passed**, all 12 cases in the Classic 2D test build and all 12 in the 3D one. CI: **passed**, all 12 cases (run 97) |
+| 9 | 1v1, 1v1v1, 1v1v1v1, 2v2 | L, four games through the real launcher: mega-5. T: a free-for-all, a 1v1v1 and a multi battle with every trainer Mega Evolving | L: **passed** (mega-5; the 1v1 also with two 3D games, mega-two-3d-2; earlier runs: 4.5). T: passed. Not on Windows (4.4) |
+| 10 | Several players Mega Evolving in one battle | As 9: every player of every battle Mega Evolved (2, 3, 4 and 4 Megas, marked in every game) | L: **passed** (mega-5) |
+| 11 | Animations and rendering, Classic 2D and 3D | L/CI: a picture after each Mega's animation (every case and holder), the parade of every Mega form on both sides; the multiplayer proof's screenshots of each game | L: **passed** - Classic 2D: a picture after the Mega animation in every case and for every holder (normal and shiny), the parade of all 96 forms on both sides (normal and shiny), no placeholder; 3D: every case's Mega and the parade of all 96 forms (normal and shiny) in the Diorama battle scene; the multiplayer proofs' screenshots of each game at its Megas (Classic 2D), and a 1v1 of two 3D games (mega-two-3d-2: both Mega Evolved, each game drawing both Megas in the 3D battle scene, the battle to its end, saved, a fresh Continue). CI: **passed**, Classic 2D: a picture after the Mega animation in every case and for every holder (normal and shiny), both parades of all 96 forms (run 97); the 3D build does not run on the runner (Windows' software renderer has no OpenGL 3.3: the graphics mode check offers Classic 2D there) |
+| 12 | Save and load without duplication or corruption | L/CI items: one stone, never two or none, through give, take, save, load and the reset; the purchases saved and loaded. L multiplayer: every party the canonical one after each battle, all saved, the store's integrity check, a fresh Continue | L: **passed** (items-6, mega-5). CI: **passed** (runs 95 and 97, the items check) |
+| 13 | Shiny Megas, shiny legendaries | T: every Mega form has a shiny palette of its own; a shiny Pokemon Mega Evolves into its shiny colors. L/CI: the shiny sweep (every holder shiny, the legendary and mythical ones among them: Mewtwo X and Y, Latias, Latios, Diancie, Zygarde, Heatran, Darkrai, Magearna, Zeraora), each drawn with its shiny Mega palette; the shiny parade; the rival case's shiny Mewtwo Y; the proof's shiny Mewtwo Y | T: passed. L: **passed** - the shiny sweep (96 of 96, each drawn with its shiny Mega palette, the legendary and mythical holders among them), the shiny parade, the rival case's shiny Mega Mewtwo Y (2D and 3D), the four-game proof's shiny Mewtwo Y Mega Evolving in the 1v1v1v1 and the 2v2. CI: **passed**, the shiny sweep 96 of 96, each drawn with its shiny Mega palette, and the shiny parade (runs 95 and 97); the rival case's shiny Mega Mewtwo Y (run 97) |
+| 14 | Pokemon that cannot Mega Evolve, wrong stones | As 3 | L: **passed**, all 12 cases in the Classic 2D test build and all 12 in the 3D one; the multiplayer runs without the Ring (3). CI: **passed**, all 12 cases (run 97) |
+
+### 4.4 Not verified
+
+- **No player's PC** ran any of this. Windows: only the runner's single-player check (CI, 4.3). No multiplayer Mega
+  battle ran on Windows: the four-game proof needs the Linux harness (it reads each game's memory with gdb's help).
+- **Co-op battles** (linked players against the game's trainers, the co-op Battle Frontier): the Mega mark of 4.2
+  covers every native link battle, co-op included, but no co-op battle with a Mega ran in a game.
+- **A soft reset in the middle of a battle does not exist on PC**: RESET is a field menu, and the A+B+START+SELECT chord
+  is claimed by the multiplayer reset handler and never resets, by design. What was tested is the reset on the field
+  after a Mega battle (item 7).
+- **Damage and turn order** after a Mega Evolution were checked in the test ROM only (item 5).
+- **3D multiplayer:** one 1v1 of two 3D games ran (mega-two-3d-2, item 11); the 1v1v1, 1v1v1v1 and 2v2 with Megas ran
+  in the Classic 2D player build only (three or four 3D games on software OpenGL are too slow for the proofs'
+  deadlines).
+- The gaps of 4.1 (10 stones, Mega Rayquaza, Primal Reversion, Aura Guard) are owner decisions or new work; none was
+  done here.
+
+### 4.5 Verdict
+
+**Mega Evolution is not declared fully verified.** Every supported Mega form and every rule the request names passed
+the automated tests listed in 4.3 where they could run (the test ROM, real Linux game processes, and the Windows
+runner's single-player check), and the multiplayer formats passed with four real games through the launcher. Missing
+for a full verification: the items of 4.4 (no PC, no Windows multiplayer, no co-op), and the game's own gaps of 4.1
+(10 stones no player can get, Mega Rayquaza unreachable, Aura Guard unimplemented), which need the owner's decision
+before they can be built or tested. MS-17 (KNOWN_ISSUES) stays release-blocking; no Mega run hit it.
+
+Earlier runs, for the record: mega-1 to mega-4 and mega-three-1 to -3 (four and three games) failed in the proof or
+found MS-40 (4.2); the items check items-1 to -5 was tuned on its pictures; the case table's Mewtwo first fought with
+its own first move, Recover, and never ended its battles (fixed in the check, engine `7abaa6c6`).
+
+## 5. Features 11-16
+
+### 5.1 Features 11-14: rival matchmaking, trading, lag, battle backgrounds
+
+These four were the battle and trade repair that ran just before this update
+(`docs/multiplayer-battle-trade-repair-20261020.md`; KNOWN_ISSUES MS-19 to MS-27): the stuck "Waiting for server..." of
+two players entering a 1v1 (root causes and fixes in its section 1-2), the stalled trades and their failure exits, the
+35-40 s frozen fields after a trade (measured, fixed), and the 3D battle background that stood still after slow frames
+(fixed, 3D and 2D checked over many frames). This update re-checked them in real games (L) and found one more:
+
+- **Matchmaking and battles:** every battle of this update's proofs went through the repaired challenge path: the 1v1s
+  of mega-2, mega-3 and mega-5, the 1v1v1 of ffa3-1, lobby-1, lobby4-1 and mega-three-4/mega-5, the 1v1v1v1 and the 2v2
+  of lobby4-1 and mega-5, each entered, played to its end and closed with everyone back in the world. None stayed on
+  "Waiting for server...". MS-17 (a healthy battle interrupted by the host core's expired deadline) did not recur and
+  stays open and release-blocking.
+- **Trading:** the three-player proof's trades applied in about 10-11 s while the third player walked. A battle right
+  after a trade, before either player saved again, **never started** (MS-30, older than Update 32): fixed in engine
+  `62c1711a`; trade-battle-2 and three-4 passed on the fix.
+- **Lag:** no new measurement in this update; the four-game proofs report no event-loop stall.
+- **Battle backgrounds:** not re-checked in this update beyond the repair's own checks.
+
+### 5.2 Feature 15: breeding and the Pokemon collection systems
+
+Audit of what exists (the engine's Day Care, eggs and hatching; PC storage; party; catching; evolution; shiny):
+
+- **Implemented and tested** (`--selftest-breeding` 64 checks, 0 failed on this update's build; the test ROM's
+  `test/daycare.c` and `test/egg_hatch.c`; the app's save and ownership tests): Day Care deposit from the party or a PC
+  box and withdrawal (100 + 100 per level gained); the 64-step egg check (70/50/20% by compatibility; Ditto 50/20; the
+  Undiscovered group never); up to five Eggs waiting per character (Update 30); the egg species, incense babies,
+  Nidoran/Volbeat/Illumise, Manaphy to Phione and regional forms; egg moves; Everstone nature, three inherited IVs (five
+  with the Destiny Knot), the Gen 6 Ability and Poke Ball rules; hatching in 32 steps per cycle, halved by Flame Body,
+  Magma Armor or Steam Engine; the hatched Pokemon's friendship 120, met level 0, its trainer the hatcher; a shiny
+  rolled into the Egg when it is made (three rolls with a shiny parent, six with two, three more with the Shiny Charm).
+- **Repaired:** level-up moves both parents know were inherited only if they were the baby's first learnset move (and
+  the loop read past its four-move array): MS-31, engine `af9b33dd` (PC only).
+- **Reported, not changed** (they are owner decisions or missing content, not faults of the code that exists):
+  - MS-42: the PC's hatch speed is 87.5% fewer steps than this game's Gen 6 cycle (257), not the 75% Update 30 asked for.
+  - Items breeding uses that a player cannot get: the Power items, seven of the nine incenses (Full, Luck, Odd, Pure,
+    Rock, Rose, Wave), the Oval Charm and the Mirror Herb; the Destiny Knot only from Pickup (about 1% at level 21 and
+    up). So Munchlax, Happiny, Mime Jr., Chingling, Bonsly, Budew and Mantyke cannot be bred.
+  - The Masuda method does not exist (by the project's rules: shiny parents add rolls instead).
+  - A party that is full keeps the Eggs waiting at the Day Care (none go to a PC box); Eggs cannot be traded (KNOWN_ISSUES
+    U30-4).
+  - Latent: hatching sets the trainer to the hatcher, and a Pokemon's shininess depends on its trainer id, so an Egg
+    hatched by another trainer than the one it was made for could change shininess. No such path exists today (each
+    character's Day Care and Eggs are its own and Eggs cannot be traded).
+- Catching, evolution, friendship, PC storage, party management and the shiny rates were not changed by this update;
+  their tests pass (the app suite, `--selftest-shiny`).
+
+### 5.3 Feature 16: Windows
+
+What ran on Windows, on the GitHub runner (CI: real Windows processes, Windows' software renderer, Classic 2D; not a
+player's PC), from this update's branches (windows-package runs 95 and 97, full, engine `2bcbeffb` and `7abaa6c6`, app
+`0f95b61`, ROM pinned `f214735b...3387`):
+
+| Update 32 feature | On the runner | Result |
+| --- | --- | --- |
+| 1 Short introduction, 2 characters with no Pokemon | The installed build's play check: two profiles each create a character through New Game (now the short introduction: no Pokemon), Solo, Host World on the runner's address, the friend joins with the invite code; every save in its world | **passed** in both runs (no error in either profile) |
+| Mega Evolution (section 4) | The Classic 2D test build in real Windows game processes: the 12 cases, the 96 holders, the parade, the stones through the menus (give, take, save, load, RESET, the Ring and a stone bought), then the 96 holders and the parade shiny | **passed** in run 97 (engine `7abaa6c6`): 110 of 110 (the 12 cases, the 96 holders, the stones through the menus, the parade), then 97 of 97 shiny (the 96 holders, the parade), 73 minutes. Run 95 (engine `2bcbeffb`): 108 of 110 and 97 of 97 - the Gym and rival cases never ended (the check gave Mewtwo its own first move, Recover; fixed in `7abaa6c6`), everything else passed |
+| The package itself | Build, package contents, the packaged game files, the frozen launcher stays up, the graphics mode check (3D unsupported on the runner, Classic 2D offered), the in-game menu check, silent install, repair, uninstall, Create World | **passed** in both runs |
+
+Not run on Windows (the hosted runner's checks cannot drive them yet; the four-game proofs need the Linux harness):
+the starters in Birch's lab (3), the soft reset and shiny rerolls (4, 5), players drawn in menus (6), three players (7),
+the 1v1v1 (8), four-player battles (9), the lobby (10), battles and trades between players (11, 12), lag (13), battle
+backgrounds (14) and breeding (15). Each passed on Linux (sections 2 and 5); on Windows they are for the final QA
+update and the owner's PCs.

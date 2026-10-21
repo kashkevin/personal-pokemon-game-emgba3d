@@ -20,9 +20,19 @@ canonical one, the store passes its integrity check, a normal close and a fresh 
 
 --scenario three (three games): the 1v1v1 alone, through PLAYERS > Challenges > New battle > Free-for-All - 3 Players.
 
+--scenario two (two games): the 1v1 alone. With --light-3d (the native 3D build, DIORAMA=1) the launchers' game settings
+are native_launcher_battle_3d_proof.py's light 3D configuration, so two software-OpenGL games fit a cloud workspace;
+the 3D build goes in as --game with its debug information stripped (objcopy --strip-debug: unstripped it is over the
+runtime's size limit) and as --elf unstripped, for the battle structures' offsets.
+
 --scenario no-ring (two games): the friend's lead holds Charizardite Y but its bag has no Mega Ring. In their 1v1 the
 host Mega Evolves; the friend's game never offers it (the Ring is in the player's own bag, which only their game can
 see), so the battle marks one Mega and the friend's Charizard keeps its form.
+
+--scenario no-ring-host (two games): the same with the Ring in the friend's bag and not in the host's (the host's lead
+holds Charizardite X). Whichever of the two runs the battle, the one without the Ring is never offered it: the game that
+runs the battle reads its own player's bag, and the other game refuses a Mega offered by the game that runs the battle
+unless its own bag has the Ring.
 
 The battle structures' offsets come from the game's own debug information (gdb, read only).
 
@@ -43,6 +53,7 @@ import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "windows-runtime"))
 from native_launcher_abandon_proof import PENDING, AbandonProof  # noqa: E402
+from native_launcher_battle_3d_proof import LIGHT_3D_SETTINGS  # noqa: E402
 from native_launcher_battle_proof import launcher_proof  # noqa: E402
 from native_launcher_ffa_proof import MATCH_SECONDS, into_littleroot, players_tab  # noqa: E402
 from qualify_admission_cleanup import on_worker, require  # noqa: E402
@@ -310,9 +321,17 @@ class MegaProof(AbandonProof):
         await self.accept(probes, (1, 2))
         await self.battle(current, probes, (0, 1, 2), record, before, "1v1v1", 6)
 
+    async def two(self, current, probes, games, host, symbols, record, before):
+        await self.challenge_1v1(host, probes, 0, 1)
+        await self.battle(current, probes, (0, 1), record, before, "1v1", 2)
+
     async def no_ring(self, current, probes, games, host, symbols, record, before):
         await self.challenge_1v1(host, probes, 0, 1)
         await self.battle(current, probes, (0, 1), record, before, "1v1-friend-without-a-mega-ring", 2, megas=(0,))
+
+    async def no_ring_host(self, current, probes, games, host, symbols, record, before):
+        await self.challenge_1v1(host, probes, 0, 1)
+        await self.battle(current, probes, (0, 1), record, before, "1v1-host-without-a-mega-ring", 2, megas=(1,))
 
     async def four(self, current, probes, games, host, symbols, record, before):
         names = [a.display_name for a in host.accounts]
@@ -343,22 +362,24 @@ class MegaProof(AbandonProof):
 async def run(args):
     players = {"four": 4, "three": 3}.get(args.scenario, 2)
     require(len(args.source) == players and len(args.display) == players, f"{players} sources and displays")
-    facts = game_facts(args.game)
+    facts = game_facts(args.elf or args.game)
     proof = MegaProof(args.scenario, args.watch, args.match_seconds, facts)
     await launcher_proof(args, names=PLAYER_NAMES[:players], sources=args.source, party_counts=(1,) * players,
                          match=proof.match, version=f"Native Mega Evolution proof ({args.scenario})",
-                         settings="windowScale=2\n",
+                         settings=LIGHT_3D_SETTINGS if args.light_3d else "windowScale=2\n",
                          scope=__doc__.split("\n\n")[0], after_boot=into_littleroot,
                          environment=dict(SDL_FRAMEBUFFER_ACCELERATION="0"), on_harness=proof.adopt)
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--game", type=Path, required=True, help="native Linux executable, unstripped")
+    parser.add_argument("--game", type=Path, required=True,
+                        help="native Linux executable, with its symbols (and its debug information unless --elf)")
     parser.add_argument("--rom", type=Path, required=True)
     parser.add_argument("--manifest", type=Path, required=True)
-    parser.add_argument("--scenario", choices=("four", "three", "no-ring"), default="four")
+    parser.add_argument("--scenario", choices=("four", "three", "two", "no-ring", "no-ring-host"), default="four")
     parser.add_argument("--source", type=Path, action="append", required=True, help="a save per player")
+    parser.add_argument("--light-3d", action="store_true", help="the native 3D build's light game settings")
     parser.add_argument("--display", action="append", required=True, help="an X display per player (four)")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--slow", type=float, default=1.0)
@@ -366,7 +387,8 @@ def main():
     parser.add_argument("--match-seconds", type=float, default=MATCH_SECONDS)
     parser.add_argument("--wine", type=Path, action="append", help="(not used)")
     parser.add_argument("--sdl", type=Path)
-    parser.add_argument("--elf", type=Path)
+    parser.add_argument("--elf", type=Path, help="the unstripped game, for its debug information, when --game "
+                        "has none (the native 3D build is over the runtime's size limit with it)")
     asyncio.run(run(parser.parse_args()))
 
 
