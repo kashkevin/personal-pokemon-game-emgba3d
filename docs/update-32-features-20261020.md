@@ -352,8 +352,18 @@ two players entering a 1v1 (root causes and fixes in its section 1-2), the stall
 - **Trading:** the three-player proof's trades applied in about 10-11 s while the third player walked. A battle right
   after a trade, before either player saved again, **never started** (MS-30, older than Update 32): fixed in engine
   `62c1711a`; trade-battle-2 and three-4 passed on the fix.
-- **Lag:** no new measurement in this update; the four-game proofs report no event-loop stall.
-- **Battle backgrounds:** not re-checked in this update beyond the repair's own checks.
+- **Lag, measured again** on this update's player build with the repair's harness and saves (L, two games,
+  `multiplayer_perf.py`): a trade (qf7-trade-perf-1): 32 import windows per player, confirmed at 2.3 and 4.3 s and
+  applied at 9 s, the same as the repair's run (win-trade-perf-1); game frames p50 16.6 ms, p99 33.7-33.9 ms, at
+  most 48 ms; three frames over 50 ms (at most 64 ms). A 1v1 (qf7-enter-perf-1): over the 107 s battle game frames
+  p50 16.8 ms, p99 33.6-33.8 ms, two single frames over 50 ms (65 and 51 ms) and one launcher loop late by 58 ms
+  (the repair's run: none); after the battle one 180 ms pause hit both games and both launchers' loops in the same
+  second while the loops sat idle in poll(), which is the machine, not the game. Not measured on PCs.
+- **Battle backgrounds, checked again** (L, software OpenGL; qf7-tiles-1, the repair's 3D 1v1 with its pauses
+  injected): both games stepped the water and flowers down after the pauses (every 2, 4 ... 32 game frames, then
+  still), kept trying, and went back to moving at every change when frames recovered; the animated tiles redrew the
+  world 399 and 400 times in the battle (the repair's fixed game 405 and 407, the old game 8 and 9). Classic 2D has
+  no animated battle background.
 
 ### 5.2 Feature 15: breeding and the Pokemon collection systems
 
@@ -386,17 +396,19 @@ Audit of what exists (the engine's Day Care, eggs and hatching; PC storage; part
 ### 5.3 Feature 16: Windows
 
 What ran on Windows, on the GitHub runner (CI: real Windows processes, Windows' software renderer, Classic 2D; not a
-player's PC), from this update's branches (windows-package runs 95 and 97, full, engine `2bcbeffb` and `7abaa6c6`, app
-`0f95b61`, ROM pinned `f214735b...3387`):
+player's PC), from this update's branches (windows-package runs 95, 97 and 99, full, engine `2bcbeffb`, `7abaa6c6` and
+`8e0dc216`, app `0f95b61` and `ccd6279`, ROM pinned `f214735b...3387`):
 
 | Update 32 feature | On the runner | Result |
 | --- | --- | --- |
 | 1 Short introduction, 2 characters with no Pokemon | The installed build's play check: two profiles each create a character through New Game (now the short introduction: no Pokemon), Solo, Host World on the runner's address, the friend joins with the invite code; every save in its world | **passed** in both runs (no error in either profile) |
+| 1-5 Short introduction, no Pokemon, starters in Birch's lab, soft reset, shiny rerolls (single player) | `tools/battle_env/feature_check.py` on the Classic 2D test build (engine `8e0dc216`), read from the game's own log: a character from the game's own short introduction on the runner; its save in Littleroot with no Pokemon and the claim open; a save in Birch's lab with no Pokemon; the Fire ball's Torchic claimed through the 18-starter screen and saved; that save loaded (the same Torchic); then the claim and START > PLAYER > RESET, YES three times in one process | **passed** in run 99, every step as on Linux: the claim open again after each reset, three different rolls (f3065023, 1ad75391, 05666450; none shiny) |
 | Mega Evolution (section 4) | The Classic 2D test build in real Windows game processes: the 12 cases, the 96 holders, the parade, the stones through the menus (give, take, save, load, RESET, the Ring and a stone bought), then the 96 holders and the parade shiny | **passed** in run 97 (engine `7abaa6c6`): 110 of 110 (the 12 cases, the 96 holders, the stones through the menus, the parade), then 97 of 97 shiny (the 96 holders, the parade), 73 minutes. Run 95 (engine `2bcbeffb`): 108 of 110 and 97 of 97 - the Gym and rival cases never ended (the check gave Mewtwo its own first move, Recover; fixed in `7abaa6c6`), everything else passed |
 | The package itself | Build, package contents, the packaged game files, the frozen launcher stays up, the graphics mode check (3D unsupported on the runner, Classic 2D offered), the in-game menu check, silent install, repair, uninstall, Create World | **passed** in both runs |
 
-Not run on Windows (the hosted runner's checks cannot drive them yet; the four-game proofs need the Linux harness):
-the starters in Birch's lab (3), the soft reset and shiny rerolls (4, 5), players drawn in menus (6), three players (7),
-the 1v1v1 (8), four-player battles (9), the lobby (10), battles and trades between players (11, 12), lag (13), battle
-backgrounds (14) and breeding (15). Each passed on Linux (sections 2 and 5); on Windows they are for the final QA
+Not run on Windows (the hosted runner's checks cannot drive them yet; the multiplayer proofs need the Linux harness):
+the soft reset in a world (the launcher restarts the game from the host's save) and the shiny rate itself (1 in 4096:
+the Linux selftest's 400,000 claims), players drawn in menus (6), three players (7), the 1v1v1 (8), four-player battles
+(9), the lobby (10), battles and trades between players (11, 12), lag (13), the 3D battle background (14: the runner
+has no OpenGL 3.3) and breeding (15). Each passed on Linux (sections 2 and 5); on Windows they are for the final QA
 update and the owner's PCs.
