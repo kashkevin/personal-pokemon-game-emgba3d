@@ -14,8 +14,10 @@ and, after the harness's saves, the canonical checkpoints (money, the Bag, Battl
                       result; the host settles it and the game's record reaches P = N + 1, H = N; the lead's experience
                       never moves (at the cap); the party is healed. Floor 10 is Brock, the first checkpoint: its
                       first-clear prize (10 Rare Candy, $10,000) and every floor's BP and money are in the next save as
-                      the host's rules (tower_rewards.py) say. Player 2 (--weak-b: the level-1 Magikarp's save) loses
-                      floor 1 in its game: its P stays 1, nothing is paid.
+                      the host's rules (tower_rewards.py) say. Player 2 (--weak-b: a level-1 Magikarp's save) loses its
+                      progress floor in its game and goes back as the checkpoint rule says, nothing paid: floor 1 from
+                      a save without a Tower record (P stays 1), or the special boss, Giovanni on floor 25, from one
+                      whose record says floor 24 cleared (P 21: checkpoint 20 is kept, H stays 24).
   --scenario duo      a team (Players > invite, accept); Tower > Duo > "Invite: floor F" (F the lower progress floor),
                       accepted, both Ready: the host issues the native co-op battle against the floor's two trainers;
                       both enter it (A presses) and win; each game's co-op award gives nothing above its cap; the host
@@ -260,8 +262,29 @@ async def form_team(probes, host, record):
     record("ordinary-native-team-formed")
 
 
-async def duo_battle(current, probes, host, symbols, record, *, floor=None, megas=None):
-    """A team, the Duo through the Tower's pages, the native co-op battle, each game's award. Returns the battle id."""
+SEEN_BATTLES = set()       # the co-op battles already fought (the menu keeps their challenges listed)
+
+
+async def duo_ready_again(probes, record):
+    """After a Duo battle the Duo goes on to its next floor (forming): both players Tower > Duo: floor F > Ready."""
+    floor = None
+    for slot, probe in enumerate(probes):
+        await open_tower(probe)
+        await probe.choose(next(r.label for r in (await probe.ready())[1].rows if r.label.startswith("Duo: floor")))
+        _, screen = await probe.ready()
+        floor = int(screen.title.split()[-1])
+        record("tower-duo-again", slot=slot, title=screen.title, status=screen.status)
+        await probe.choose("Ready")
+        await close_players(probe)
+    return floor
+
+
+async def duo_battle(current, probes, host, symbols, record, *, floor=None, megas=None, again=False):
+    """A team, the Duo through the Tower's pages, the native co-op battle, each game's award. Returns the battle id.
+    again: the Duo already played a battle (its next floor: both Ready)."""
+    if again:
+        floor = await duo_ready_again(probes, record)
+        return await duo_fight(current, probes, host, symbols, record, floor, megas)
     await form_team(probes, host, record)
     # player 1: Tower > Duo with ... > Invite: floor F (or the replay page's floor)
     await open_tower(probes[0])
@@ -290,17 +313,22 @@ async def duo_battle(current, probes, host, symbols, record, *, floor=None, mega
     await probes[0].choose(next(r.label for r in (await probes[0].ready())[1].rows if r.label.startswith("Duo: floor")))
     await probes[0].choose("Ready")
     await close_players(probes[0])
-    # the host issues the co-op battle: the challenge as the co-op Gym's
+    return await duo_fight(current, probes, host, symbols, record, floor, megas)
+
+
+async def duo_fight(current, probes, host, symbols, record, floor, megas):
+    """Both Ready: the host issues the native co-op battle (the challenge as the co-op Gym's); both enter and play it."""
     async def descriptor(s):
         values = s._companion._bridge.menu_session.menu._battles
         return [json.loads(json.dumps(v)) for v in values]
     async with asyncio.timeout(60):
         while True:
-            values = await on_worker(current[0], descriptor)
+            values = [v for v in await on_worker(current[0], descriptor) if v["battle_id"] not in SEEN_BATTLES]
             if values:
                 break
             await asyncio.sleep(.5)
     battle_id = values[0]["battle_id"]
+    SEEN_BATTLES.add(battle_id)
     record("tower-duo-challenge-issued", battle_id=battle_id, challenge=values[0])
     await probes[1].open_players()
     await probes[1].choose("Pending challenge")
@@ -370,7 +398,7 @@ def opposing_mega(probe, base_species):
 # ---------------------------------------------------------------------------------------------------------- scenarios
 class TowerScenario:
     def __init__(self, args):
-        self.args, self.harness, self.before = args, None, None
+        self.args, self.harness, self.before, self.loser = args, None, None, None
 
     async def solo(self, current, probes, games, host, symbols, record):
         async def head(s):
@@ -381,7 +409,10 @@ class TowerScenario:
         for floor in floors:
             await solo_floor(probes[0], current[0], record, 0, floor)
         if self.args.weak_b:
-            await solo_floor(probes[1], current[1], record, 1, 1, won=False)
+            start = tower_record(probes[1])               # the save's record, imported on the first Tower action
+            await solo_floor(probes[1], current[1], record, 1, start.progress if start else 1, won=False)
+            end = tower_record(probes[1])
+            self.loser = (end.progress, end.highest)
         self.paid = expected_solo_pay(floors)
         return dict(expected=[p.party_now() for p in probes])
 
@@ -409,6 +440,56 @@ class TowerScenario:
                         f"slot {slot}: every prize and milestone claimed: host {view['player']['claims']:#x}, "
                         f"game {mirror.claims:#x}")
         self.paid = expected_solo_pay(floors)
+        return dict(expected=[p.party_now() for p in probes])
+
+    async def duo_climb(self, current, probes, games, host, symbols, record):
+        """Both players climb together in Duo battles to --floors; a loss sends both back to their checkpoint and the
+        climb goes on. Each settled result's prize is summed (the saves must hold exactly that)."""
+        async def head(s, slot):
+            return inspect_closed_head(s._store, host.accounts[slot].player_id)
+        self.before = [wallet_of((await on_worker(current[0], lambda s, n=n: head(s, n))).payload) for n in range(2)]
+        record("tower-duo-climb-wallets-before", wallets=self.before)
+        self.paid = [dict(money=0, rare_candy=0, bp=0) for _ in range(2)]
+        started, battles, losses, again = time.monotonic(), 0, 0, False
+        while True:
+            views = [await tower_view(w) for w in current]
+            players = [v["player"] for v in views]
+            if min(p["progress"] for p in players) > self.args.floors:
+                break
+            require(battles < 3 * self.args.floors, f"the Duo climb took {battles} battles")
+            battle_id, floor = await duo_battle(current, probes, host, symbols, record, again=again)
+            again, battles = True, battles + 1
+            outcomes = []
+            for slot, (worker, probe) in enumerate(zip(current, probes)):
+                async with asyncio.timeout(180):
+                    while True:
+                        view = await tower_view(worker)
+                        last = view.get("last")
+                        if view["battle"] is None and last and last["floor"] == floor and last["mode"] == "duo":
+                            break
+                        await asyncio.sleep(1)
+                player, outcome = players[slot], last["state"]
+                progress, highest = last["after"] if last["after"] else (player["progress"], player["highest"])
+                await wait_settled(probe, worker, record, slot, progress=progress, highest=highest)
+                reward = last.get("reward") or {}
+                self.paid[slot]["money"] += reward.get("money", 0)
+                self.paid[slot]["bp"] += reward.get("bp", 0)
+                self.paid[slot]["rare_candy"] += sum(q for item, q in reward.get("items", ()) if item == ITEM_RARE_CANDY)
+                outcomes.append(outcome)
+            require(len(set(outcomes)) == 1, f"floor {floor}: the two players' results differ: {outcomes}")
+            losses += outcomes[0] != "won"
+            if floor % 10 == 0 or outcomes[0] != "won":
+                record("tower-duo-climb-progress", floor=floor, outcome=outcomes[0], battles=battles, losses=losses,
+                       minutes=round((time.monotonic() - started) / 60, 1))
+        for slot in range(2):
+            view = await tower_view(current[slot])
+            mirror = tower_record(probes[slot])
+            record("tower-duo-climb-done", slot=slot, player=view["player"], record=dataclasses.asdict(mirror),
+                   battles=battles, losses=losses, paid=self.paid[slot])
+            if self.args.floors == 100:
+                require(view["player"]["claims"] == 0xFFFF and mirror.claims == 0xFFFF,
+                        f"slot {slot}: every prize and milestone claimed: host {view['player']['claims']:#x}, "
+                        f"game {mirror.claims:#x}")
         return dict(expected=[p.party_now() for p in probes])
 
     async def duo(self, current, probes, games, host, symbols, record):
@@ -533,22 +614,23 @@ class TowerScenario:
         return dict(expected=[p.party_now() for p in probes])
 
     async def after_save(self, current, host, record):
-        """The canonical checkpoints after the match's saves: the prizes and the record (solo, climb)."""
-        if self.args.scenario not in ("solo", "climb"):
+        """The canonical checkpoints after the match's saves: the prizes and the record (solo, climb, duo-climb)."""
+        if self.args.scenario not in ("solo", "climb", "duo-climb"):
             return
 
         async def heads(s):
             return [inspect_closed_head(s._store, account.player_id) for account in host.accounts]
         saved = await on_worker(current[0], heads)
-        if self.args.scenario == "climb":
+        if self.args.scenario in ("climb", "duo-climb"):
             for slot in range(2):
                 after, before = wallet_of(saved[slot].payload), self.before[slot]
                 paid = dict(money=after["money"] - before["money"], rare_candy=after["rare_candy"] - before["rare_candy"],
                             bp=after["bp"] - before["bp"])
+                expected = self.paid[slot] if self.args.scenario == "duo-climb" else self.paid
                 stored = inspect_flash(saved[slot].payload, save_profile=OWNERSHIP_PROFILE).stored_pokemon_count
-                record("tower-climb-saved", slot=slot, revision=saved[slot].revision, paid=paid, expected=self.paid,
+                record("tower-climb-saved", slot=slot, revision=saved[slot].revision, paid=paid, expected=expected,
                        stored_pokemon=stored, record=after["tower"])
-                require(paid == self.paid, f"slot {slot}: the saved prizes {paid} differ from the host's rules {self.paid}")
+                require(paid == expected, f"slot {slot}: the saved prizes {paid} differ from the host's {expected}")
                 require(after["tower"] is not None and (after["tower"]["progress"], after["tower"]["highest"])
                         == (self.args.floors + 1, self.args.floors), f"slot {slot}: the saved Tower record")
             return
@@ -563,17 +645,18 @@ class TowerScenario:
         if self.args.weak_b:
             lost = wallet_of(saved[1].payload)
             record("tower-saved-loser", after=lost)
-            require(lost["tower"] is not None and (lost["tower"]["progress"], lost["tower"]["highest"]) == (1, 0),
-                    "the loser's saved Tower record: P 1, H 0")
+            require(lost["tower"] is not None and (lost["tower"]["progress"], lost["tower"]["highest"]) == self.loser,
+                    f"the loser's saved Tower record: P {self.loser[0]}, H {self.loser[1]}")
 
 
 async def run(args):
     sources = (args.source_a, args.source_b)
     if args.floors is None:
-        args.floors = 100 if args.scenario == "climb" else 11
+        args.floors = 100 if args.scenario in ("climb", "duo-climb") else 11
     scenario = TowerScenario(args)
     await launcher_proof(args, names=NAMES, sources=tuple(sources), party_counts=tuple(args.party_counts),
-                         match=getattr(scenario, args.scenario), version=f"Native Tower proof ({args.scenario})",
+                         match=getattr(scenario, args.scenario.replace("-", "_")),
+                         version=f"Native Tower proof ({args.scenario})",
                          after_boot=lambda phase, slot, probe, companion: into_town(phase, slot, probe, companion),
                          settings="windowScale=2\n", scope=__doc__.split("\n\n")[0],
                          environment=dict(SDL_FRAMEBUFFER_ACCELERATION="0", PKMN_NATIVE_UI="1" if args.native_ui else "0",
@@ -583,12 +666,13 @@ async def run(args):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--scenario", choices=("solo", "duo", "mega", "forfeit", "ui", "climb"), required=True)
+    parser.add_argument("--scenario", choices=("solo", "duo", "mega", "forfeit", "ui", "climb", "duo-climb"),
+                        required=True)
     parser.add_argument("--test-env", action="append", default=[],
                         help="NAME=VALUE for the games (the test build's switches: the climb's accelerated set-up)")
     parser.add_argument("--native-ui", action="store_true", help="the 3D game's native PC UI on (the ui scenario)")
     parser.add_argument("--floors", type=int, default=None, help="the last floor (solo: 11, climb: 100)")
-    parser.add_argument("--weak-b", action="store_true", help="source B is the losing fixture (player 2 loses floor 1)")
+    parser.add_argument("--weak-b", action="store_true", help="source B is a losing fixture (player 2 loses its progress floor)")
     parser.add_argument("--party-counts", type=int, nargs=2, default=(2, 1))
     parser.add_argument("--floors-json", type=Path, help="the engine's tools/tower_legends/tower_legends.json (mega)")
     parser.add_argument("--game", type=Path, required=True)
