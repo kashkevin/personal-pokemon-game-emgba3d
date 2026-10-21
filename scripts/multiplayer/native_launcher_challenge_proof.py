@@ -21,8 +21,9 @@ must be back on the field; a pair of menus still latched and waiting when the wa
     trade-battle   the trade, then the usual challenge, acceptance and entry
     trade-walk     the friend offers the host a trade and keeps walking while PLAYERS closes for it (a player
                    does not wait for the trade window); then the usual challenge, acceptance and entry
-    reconnect      before the challenge the friend's world connection is cut (its game keeps running); once the
-                   companion is back, the usual challenge, acceptance and entry
+    reconnect      before the challenge the friend's world connection is cut (its game keeps running); its launcher
+                   keeps the save and fences the link, the friend closes the game and joins again, then the usual
+                   challenge, acceptance and entry
 
     PYTHONPATH=src:scripts/multiplayer:scripts/windows-runtime \\
       python scripts/multiplayer/native_launcher_challenge_proof.py --scenario friend-save \\
@@ -298,12 +299,16 @@ class ChallengeProof(AbandonProof):
                 s._companion._remote_writer.transport.abort()
             before = (await self.launcher(current[1]))["epoch"]
             await on_worker(current[1], cut)
+            # A lost world connection is fenced and the save kept ("Close the game and rejoin when the host
+            # returns", launcher_gui): the friend's launcher never reconnects by itself. The player closes the game
+            # and joins again (AbandonProof.rejoin), as newcomers' cut_and_rejoin does.
             async with asyncio.timeout(90):
-                while True:
-                    state = await self.launcher(current[1])
-                    if state.get("connected") and state.get("epoch") != before:
-                        break
+                while (await self.launcher(current[1])).get("code") != "host_loss_preserved":
                     await asyncio.sleep(.5)
+            record("connection-cut", launcher=await self.launcher(current[1]))
+            await self.rejoin(1, current, probes, games, record)
+            state = await self.launcher(current[1])
+            require(state.get("connected") and state.get("epoch") != before, f"after joining again: {state}")
             record("friend-reconnected", epochs=[before, state["epoch"]])
             await asyncio.sleep(3)
         if self.scenario == "trade-walk":
@@ -380,12 +385,18 @@ class ChallengeProof(AbandonProof):
             await on_worker(current[1], withdraw)
             return
         if self.fixed and self.scenario == "late-enter":
-            await self.settle(current, probes, record, "after-the-late-entry", self.watch)
-            for n in (0, 1):
-                if probes[n].read()["active"]:
-                    await close_players(probes[n])
-            record("both-free-on-the-field", launchers={self.harness.names[n]: await self.launcher(current[n]) for n in (0, 1)})
-            return
+            natives = await self.settle(current, probes, record, "after-the-late-entry", self.watch)
+            if not any(v["battle"] in (4, 5) for v in natives.values()):
+                # the host's entry ended before the friend's: both free on the field, nothing latched or held
+                for n in (0, 1):
+                    if probes[n].read()["active"]:
+                        await close_players(probes[n])
+                record("both-free-on-the-field",
+                       launchers={self.harness.names[n]: await self.launcher(current[n]) for n in (0, 1)})
+                return
+            # the friend entered while the host's entry was still open: the battle bound (PREPARED or RUNNING) and
+            # is played to its end below, as every other scenario's
+            record("late-entry-joined-the-battle", natives={self.harness.names[n]: v for n, v in natives.items()})
         if not await self.observe(current, probes, (0, 1), record, "after-entering"):
             record("stuck-waiting-for-server", natives={self.harness.names[n]: self.native(probes[n]) for n in (0, 1)})
             raise Reproduced("both games are still on the challenge screen, waiting for the server")
