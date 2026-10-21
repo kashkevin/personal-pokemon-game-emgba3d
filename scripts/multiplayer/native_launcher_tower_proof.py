@@ -1,9 +1,10 @@
 """Two native games through the whole launcher: Battle Tower: Legends, solo and Duo, in real games.
 
 The Tower (docs/battle-tower-legends.md) with the launcher harness of native_launcher_battle_proof.py (real launcher
-workers, the production world, enrollment, the Players menu): two Linux games whose sources' leads are raised to Lv. 60
-with Crunch first (native_launcher_coop_proof.py's boost_lead; a test fixture), above the Tower experience cap of a
-trainer without badges (Lv. 15), so a Tower win never gives them experience. Every step is a player's presses in the
+workers, the production world, enrollment, the Players menu): two Linux games. Their sources are fixture saves the
+engine's test build made (make_tower_saves.sh: PKMN_TEST_BATTLE=save:1 with PKMN_TEST_PARTY, and PKMN_TEST_TOWER_RECORD
+for a record): six level-100 Mewtwo with Psychic first (above every Tower experience cap of a trainer without badges,
+so a Tower win never gives them experience), or a level-1 Magikarp that loses. Every step is a player's presses in the
 game's own menus; the checks read the games' memory (the save's Tower record mirror, the party), the host's Tower view
 and, after the harness's saves, the canonical checkpoints (money, the Bag, Battle Points, the record).
 
@@ -13,15 +14,22 @@ and, after the harness's saves, the canonical checkpoints (money, the Bag, Battl
                       result; the host settles it and the game's record reaches P = N + 1, H = N; the lead's experience
                       never moves (at the cap); the party is healed. Floor 10 is Brock, the first checkpoint: its
                       first-clear prize (10 Rare Candy, $10,000) and every floor's BP and money are in the next save as
-                      the host's rules (tower_rewards.py) say. Player 2 (--weak-b: its lead Lv. 1 with Splash only, a
-                      second fixture) loses floor 1 in its game: its P stays 1, nothing is paid.
+                      the host's rules (tower_rewards.py) say. Player 2 (--weak-b: the level-1 Magikarp's save) loses
+                      floor 1 in its game: its P stays 1, nothing is paid.
   --scenario duo      a team (Players > invite, accept); Tower > Duo > "Invite: floor F" (F the lower progress floor),
                       accepted, both Ready: the host issues the native co-op battle against the floor's two trainers;
                       both enter it (A presses) and win; each game's co-op award gives nothing above its cap; the host
                       settles each player's result (a replay changes nothing; a climb advances).
-  --scenario mega     as duo, from saves whose Tower records say floor 40 cleared (a third fixture: the record mirror,
-                      which the host imports on the first Tower action): a Duo replay of floor 40, Norman and his
-                      partner; the master game's battle shows Norman's Kangaskhan Mega Evolved.
+  --scenario mega     as duo, from saves whose Tower records say floor 40 cleared (the host imports a save's record on
+                      the player's first Tower action): a Duo replay of floor 40, Norman and his partner; the master
+                      game's battle shows Norman's Kangaskhan Mega Evolved.
+  --scenario climb    both players climb floors 1 to --floors (default 100) at the same time, in the engine's test build
+                      (--game pokeemerald-mp-bfxtest with --test-env: PKMN_TEST_TOWER_WIN=1, the floor check's in-memory
+                      advantage, and PKMN_TEST_SPEED=4, the game's clock four times as fast; an accelerated set-up, as
+                      the request allows): every floor through the menus and settled by the host, the record mirror
+                      after each; at the end each save holds every first-clear prize (the 12 prize floors' items and
+                      money, every floor's money and BP as tower_rewards.py says), the four milestone Pokemon (in the
+                      PC: the party is full) and the record P 101, H 100, claims 0xFFFF.
   --scenario ui       the 3D game with the native PC UI (--native-ui): player 1 opens each Tower page (home, a floor's
                       preview, floors and bosses, the floor map, prizes, the shop, Hyper Training, records, the Duo) and
                       each is pictured (ui-*.png: the Players screen's link device shows the page's Tower screen).
@@ -51,16 +59,13 @@ import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "windows-runtime"))
 from native_launcher_battle_proof import NativeProbe, launcher_proof  # noqa: E402
-from native_launcher_coop_proof import boost_lead, finish_award, logged_driver, own_party  # noqa: E402
+from native_launcher_coop_proof import finish_award, logged_driver, own_party  # noqa: E402
 from native_launcher_multi_proof import close_players, field_state, into_town  # noqa: E402
-from native_spawn_proof import SAVEBLOCK1_DATA, _save_slots, _sector_checksum  # noqa: E402
 from qualify_admission_cleanup import on_worker, require  # noqa: E402
 from qualify_launcher_session import inspect_closed_head  # noqa: E402
 from emerald_multiplayer import tower_rewards  # noqa: E402
-from emerald_multiplayer.flash import (POKEMON_SIZE, SAVED_PARTY_OFFSET, TOWER_RECORD_OFFSET, TOWER_RECORD_SIZE,  # noqa: E402
-                                       inspect_flash, parse_tower_record)
+from emerald_multiplayer.flash import TOWER_RECORD_OFFSET, TOWER_RECORD_SIZE, inspect_flash, parse_tower_record  # noqa: E402
 from emerald_multiplayer.menu_mailbox import unpack_screen  # noqa: E402
-from emerald_multiplayer.ownership import _SUBSTRUCT_OFFSETS  # noqa: E402
 from emerald_multiplayer.ownership_protocol import OWNERSHIP_PROFILE  # noqa: E402
 
 A, B, START, DOWN = 1, 2, 8, 128
@@ -68,11 +73,11 @@ PLAYER_OPTIONS, TRAINER_CARD, TOWER = 15, 16, 23          # src/start_menu.c MEN
 TITLE = "Battle Tower: Legends"
 NAMES = ("Tower Host", "Tower Friend")
 CAP_NO_BADGES = 15
-MOVE_SPLASH = 150
 # Save block 1 (include/global.h): money at 0x490, the bag's slots at 0x560 (items pocket first); save block 2's
-# encryption key at 0xAC and the Battle Frontier's points at frontier + 0xEB8 (native_launcher_ffa_proof.py's offsets).
+# encryption key at 0xAC and the Battle Frontier's points at 0xEB8 (offsetof in the PC build; native_launcher_ffa_proof.py's
+# offsets).
 MONEY, BAG, BAG_SLOTS, ENCRYPTION_KEY = 0x490, 0x560, 186, 0xAC
-FRONTIER, BATTLE_POINTS = 0x64C, 0xEB8
+BATTLE_POINTS = 0xEB8
 ITEM_RARE_CANDY = 102
 
 
@@ -90,60 +95,6 @@ async def _ready(self, timeout=15):
 
 
 NativeProbe.ready = _ready
-
-
-# ---------------------------------------------------------------------------------------------------------- fixtures
-def _block3_positions(data: bytes, base_sectors):
-    """Where SaveBlock3's bytes [offset, offset + 64) of the Tower record live in a bank: (file offset, length) pieces
-    (SaveBlock3 is kept 116 bytes a sector, after each sector's 3968 data bytes)."""
-    pieces = []
-    for section_id in range(14):
-        lo, hi = section_id * 116, section_id * 116 + 116
-        a, b = max(lo, TOWER_RECORD_OFFSET), min(hi, TOWER_RECORD_OFFSET + TOWER_RECORD_SIZE)
-        if a < b:
-            pieces.append((base_sectors[section_id] + 3968 + (a - lo), b - a, a - TOWER_RECORD_OFFSET))
-    return pieces
-
-
-def with_tower_record(source: Path, target: Path, highest: int, progress: int) -> None:
-    """A private test fixture: the copy's Tower record mirror says floor `highest` cleared and `progress` next (claims
-    and pending result none, revision 1, its CRC-32), in the save's newest bank; nothing else changes. The host imports
-    it on the player's first Tower action (design section 9)."""
-    import zlib
-    data = bytearray(source.read_bytes() if source != target else target.read_bytes())
-    _, sectors = _save_slots(data)
-    body = struct.pack("<IBBBBIBBHHH40s", 0x314C5754, 1, highest, progress, 0, 0, 0, 0, 0, 1, 0, bytes(40))
-    record = body + struct.pack("<I", zlib.crc32(body))
-    for offset, length, start in _block3_positions(data, sectors):
-        data[offset:offset + length] = record[start:start + length]
-    target.write_bytes(bytes(data))
-    target.chmod(0o600)
-
-
-def weaken_lead(source: Path, target: Path) -> None:
-    """A private test fixture: the copy's lead at Lv. 1 with Splash alone and 1 HP: it loses any Tower floor."""
-    data = bytearray(source.read_bytes())
-    _, sectors = _save_slots(data)
-    base = sectors[1]
-    start = base + SAVED_PARTY_OFFSET
-    mon = bytearray(data[start:start + POKEMON_SIZE])
-    personality, ot_id = struct.unpack_from("<II", mon)
-    key = personality ^ ot_id
-    words = [value ^ key for value in struct.unpack_from("<12I", mon, 32)]
-    growth = [row[personality % 24] for row in _SUBSTRUCT_OFFSETS][0] * 3
-    words[growth + 1] &= ~0x1FFFFF                       # experience 0: level 1
-    attacks = [row[personality % 24] for row in _SUBSTRUCT_OFFSETS][1] * 3
-    words[attacks] = MOVE_SPLASH                         # Splash, no second move
-    words[attacks + 1] = 0
-    words[attacks + 2] = (words[attacks + 2] & ~0xFFFFFFFF) | 40   # its PP; the others none
-    struct.pack_into("<H", mon, 28, sum((v & 0xFFFF) + (v >> 16) for v in words) & 0xFFFF)
-    struct.pack_into("<12I", mon, 32, *(value ^ key for value in words))
-    mon[84] = 1
-    struct.pack_into("<7H", mon, 86, 1, 11, 5, 5, 5, 5, 5)
-    data[start:start + POKEMON_SIZE] = mon
-    struct.pack_into("<H", data, base + 0xFF6, _sector_checksum(data, base, SAVEBLOCK1_DATA))
-    target.write_bytes(bytes(data))
-    target.chmod(0o600)
 
 
 # ---------------------------------------------------------------------------------------------------------- reading
@@ -173,7 +124,7 @@ def wallet_of(checkpoint_payload: bytes) -> dict:
     money = struct.unpack_from("<I", block1, MONEY)[0] ^ key
     candy = sum(quantity ^ (key & 0xFFFF) for item, quantity in
                 (struct.unpack_from("<HH", block1, BAG + 4 * i) for i in range(BAG_SLOTS)) if item == ITEM_RARE_CANDY)
-    bp = struct.unpack_from("<H", block2, FRONTIER + BATTLE_POINTS)[0] if len(block2) >= FRONTIER + BATTLE_POINTS + 2 else None
+    bp = struct.unpack_from("<H", block2, BATTLE_POINTS)[0]
     return dict(money=money, rare_candy=candy, bp=bp, tower=None if parsed.tower is None else dataclasses.asdict(parsed.tower))
 
 
@@ -434,6 +385,32 @@ class TowerScenario:
         self.paid = expected_solo_pay(floors)
         return dict(expected=[p.party_now() for p in probes])
 
+    async def climb(self, current, probes, games, host, symbols, record):
+        async def head(s, slot):
+            return inspect_closed_head(s._store, host.accounts[slot].player_id)
+        self.before = [wallet_of((await on_worker(current[0], lambda s, n=n: head(s, n))).payload) for n in range(2)]
+        record("tower-climb-wallets-before", wallets=self.before)
+        floors = range(1, self.args.floors + 1)
+        started = time.monotonic()
+
+        async def climb_one(slot):
+            for floor in floors:
+                await solo_floor(probes[slot], current[slot], record, slot, floor)
+                if floor % 10 == 0:
+                    record("tower-climb-progress", slot=slot, floor=floor,
+                           minutes=round((time.monotonic() - started) / 60, 1))
+        await asyncio.gather(climb_one(0), climb_one(1))
+        for slot in range(2):
+            view = await tower_view(current[slot])
+            mirror = tower_record(probes[slot])
+            record("tower-climb-done", slot=slot, player=view["player"], record=dataclasses.asdict(mirror))
+            if self.args.floors == 100:
+                require(view["player"]["claims"] == 0xFFFF and mirror.claims == 0xFFFF,
+                        f"slot {slot}: every prize and milestone claimed: host {view['player']['claims']:#x}, "
+                        f"game {mirror.claims:#x}")
+        self.paid = expected_solo_pay(floors)
+        return dict(expected=[p.party_now() for p in probes])
+
     async def duo(self, current, probes, games, host, symbols, record):
         views = [await tower_view(w) for w in current]
         _, floor = await duo_battle(current, probes, host, symbols, record)
@@ -556,13 +533,25 @@ class TowerScenario:
         return dict(expected=[p.party_now() for p in probes])
 
     async def after_save(self, current, host, record):
-        """The canonical checkpoints after the match's saves: the prizes and the record (solo)."""
-        if self.args.scenario != "solo":
+        """The canonical checkpoints after the match's saves: the prizes and the record (solo, climb)."""
+        if self.args.scenario not in ("solo", "climb"):
             return
 
         async def heads(s):
             return [inspect_closed_head(s._store, account.player_id) for account in host.accounts]
         saved = await on_worker(current[0], heads)
+        if self.args.scenario == "climb":
+            for slot in range(2):
+                after, before = wallet_of(saved[slot].payload), self.before[slot]
+                paid = dict(money=after["money"] - before["money"], rare_candy=after["rare_candy"] - before["rare_candy"],
+                            bp=after["bp"] - before["bp"])
+                stored = inspect_flash(saved[slot].payload, save_profile=OWNERSHIP_PROFILE).stored_pokemon_count
+                record("tower-climb-saved", slot=slot, revision=saved[slot].revision, paid=paid, expected=self.paid,
+                       stored_pokemon=stored, record=after["tower"])
+                require(paid == self.paid, f"slot {slot}: the saved prizes {paid} differ from the host's rules {self.paid}")
+                require(after["tower"] is not None and (after["tower"]["progress"], after["tower"]["highest"])
+                        == (self.args.floors + 1, self.args.floors), f"slot {slot}: the saved Tower record")
+            return
         after = wallet_of(saved[0].payload)
         paid = dict(money=after["money"] - self.before["money"], rare_candy=after["rare_candy"] - self.before["rare_candy"],
                     bp=None if after["bp"] is None else after["bp"] - self.before["bp"])
@@ -579,35 +568,27 @@ class TowerScenario:
 
 
 async def run(args):
-    root = args.output.resolve()
-    fixtures = root.parent / (root.name + "-fixtures")
-    fixtures.mkdir(parents=True, exist_ok=False)
-    sources = []
-    for name, source in (("a", args.source_a), ("b", args.source_b)):
-        target = fixtures / f"tower-{name}.sav"
-        boost_lead(source, target)
-        if name == "b" and args.weak_b:
-            weaken_lead(target, target)
-        if args.scenario == "mega":
-            with_tower_record(target, target, 40, 41)
-        if args.scenario == "forfeit" and name == "a":
-            with_tower_record(target, target, 12, 13)
-        sources.append(target)
+    sources = (args.source_a, args.source_b)
+    if args.floors is None:
+        args.floors = 100 if args.scenario == "climb" else 11
     scenario = TowerScenario(args)
     await launcher_proof(args, names=NAMES, sources=tuple(sources), party_counts=tuple(args.party_counts),
                          match=getattr(scenario, args.scenario), version=f"Native Tower proof ({args.scenario})",
                          after_boot=lambda phase, slot, probe, companion: into_town(phase, slot, probe, companion),
                          settings="windowScale=2\n", scope=__doc__.split("\n\n")[0],
-                         environment=dict(SDL_FRAMEBUFFER_ACCELERATION="0", PKMN_NATIVE_UI="1" if args.native_ui else "0"),
+                         environment=dict(SDL_FRAMEBUFFER_ACCELERATION="0", PKMN_NATIVE_UI="1" if args.native_ui else "0",
+                                          **dict(item.split("=", 1) for item in args.test_env)),
                          after_save=scenario.after_save, on_harness=lambda h: setattr(scenario, "harness", h))
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--scenario", choices=("solo", "duo", "mega", "forfeit", "ui"), required=True)
+    parser.add_argument("--scenario", choices=("solo", "duo", "mega", "forfeit", "ui", "climb"), required=True)
+    parser.add_argument("--test-env", action="append", default=[],
+                        help="NAME=VALUE for the games (the test build's switches: the climb's accelerated set-up)")
     parser.add_argument("--native-ui", action="store_true", help="the 3D game's native PC UI on (the ui scenario)")
-    parser.add_argument("--floors", type=int, default=11)
-    parser.add_argument("--weak-b", action="store_true")
+    parser.add_argument("--floors", type=int, default=None, help="the last floor (solo: 11, climb: 100)")
+    parser.add_argument("--weak-b", action="store_true", help="source B is the losing fixture (player 2 loses floor 1)")
     parser.add_argument("--party-counts", type=int, nargs=2, default=(2, 1))
     parser.add_argument("--floors-json", type=Path, help="the engine's tools/tower_legends/tower_legends.json (mega)")
     parser.add_argument("--game", type=Path, required=True)
