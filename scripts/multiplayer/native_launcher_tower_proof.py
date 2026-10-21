@@ -1,12 +1,13 @@
 """Two native games through the whole launcher: Battle Tower: Legends, solo and Duo, in real games.
 
 The Tower (docs/battle-tower-legends.md) with the launcher harness of native_launcher_battle_proof.py (real launcher
-workers, the production world, enrollment, the Players menu): two Linux games. Their sources are fixture saves the
-engine's test build made (make_tower_saves.sh: PKMN_TEST_BATTLE=save:1 with PKMN_TEST_PARTY, and PKMN_TEST_TOWER_RECORD
-for a record): six level-100 Mewtwo with Psychic first (above every Tower experience cap of a trainer without badges,
-so a Tower win never gives them experience), or a level-1 Magikarp that loses. Every step is a player's presses in the
-game's own menus; the checks read the games' memory (the save's Tower record mirror, the party), the host's Tower view
-and, after the harness's saves, the canonical checkpoints (money, the Bag, Battle Points, the record).
+workers, the production world, enrollment, the Players menu): two games, Linux or (Windows mode) the Windows exe on
+Windows. Their sources are fixture saves the engine's test build made (make_tower_saves.py: PKMN_TEST_BATTLE=save:1
+with PKMN_TEST_PARTY, and PKMN_TEST_TOWER_RECORD for a record): six level-100 Mewtwo with Dazzling Gleam first (above
+every Tower experience cap of a trainer without badges, so a Tower win never gives them experience; no type is immune
+to the move), or a level-1 Magikarp that loses. Every step is a player's presses in the game's own menus; the checks
+read the games' memory (the save's Tower record mirror, the party), the host's Tower view and, after the harness's
+saves, the canonical checkpoints (money, the Bag, Battle Points, the PC, the record).
 
   --scenario solo     player 1: START > PLAYER > TOWER opens the Tower's home page (the Players menu's page 2); "Solo:
                       floor N" > "Start the battle" for floors P (its save's record; 1 without one) to --floors (default

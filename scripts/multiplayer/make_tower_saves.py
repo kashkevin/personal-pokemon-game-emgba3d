@@ -3,7 +3,8 @@ Windows): each is a save the game wrote at the end of its own short introduction
 engine's test build gives a party and, for some, a Tower record (PKMN_TEST_BATTLE=save:1 with PKMN_TEST_PARTY and
 PKMN_TEST_TOWER_RECORD: the game loads the save, sets them and saves through its own save code). Never a player build.
 
-  tower-strong-a / -b   six level-100 Mewtwo, Psychic first (above every Tower experience cap without badges)
+  tower-strong-a / -b   six level-100 Mewtwo, Dazzling Gleam first (above every Tower experience cap without badges;
+                        no type is immune to the move: Psychic first stalled against floor 6's Carvanha, a Dark type)
   tower-strong25-a      as strong-a, its record floor 24 cleared, 25 next: the milestone Pokemon (Giovanni's floor)
   tower-weak-b          a level-1 Magikarp (Splash only): it loses any floor
   tower-weak25-b        as weak-b, its record floor 24 cleared, 25 next: the special boss's loss (Giovanni)
@@ -28,7 +29,7 @@ import types
 
 from make_intro_saves import load
 
-STRONG = ",".join(["150:100:v94"] * 6)                 # SPECIES_MEWTWO, MOVE_PSYCHIC first
+STRONG = ",".join(["150:100:v605"] * 6)                # SPECIES_MEWTWO, MOVE_DAZZLING_GLEAM first
 WEAK = "129:1"                                         # SPECIES_MAGIKARP
 DUO = ",".join(["716:100:v605i443"] * 6)               # SPECIES_XERNEAS, MOVE_DAZZLING_GLEAM, ITEM_CHOICE_SPECS
 FIXTURES = (  # (name, source, party, record "highest:progress" or None)
