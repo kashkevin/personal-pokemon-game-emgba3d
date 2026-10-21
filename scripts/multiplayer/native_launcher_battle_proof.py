@@ -164,6 +164,11 @@ class NativeProbe:
             memory.seek(address + offset)
             return memory.read(length if size is None else size)
 
+    def code(self, value):
+        """A code pointer read from the game (a callback, a task's function) as the build's own address, the
+        symbols' numbering: a Linux game (or the Windows one under Wine) runs where it was linked."""
+        return value
+
     def read(self):
         count = self.mem("sNumStartMenuActions")[0]
         return dict(frame=time.monotonic(), active=self.mem("sMultiplayerMenuActive")[0],
@@ -261,7 +266,8 @@ class NativeProbe:
         raw_party = self.mem("gParties", 600)
         return dict(frame=time.monotonic(), state=int.from_bytes(self.mem("gMultiplayerBattleMailbox", 4, 12), "little"),
                     count=self.mem("gPartiesCount", 1)[0],
-                    active=frozenset(int.from_bytes(tasks[o:o + 4], "little") & ~1 for o in range(0, 640, 40) if tasks[o + 4]),
+                    active=frozenset(self.code(int.from_bytes(tasks[o:o + 4], "little")) & ~1
+                                     for o in range(0, 640, 40) if tasks[o + 4]),
                     cursor=self.mem("gPartyMenu", 20)[9], party_sha256=hashlib.sha256(raw_party).hexdigest())
 
     def party_now(self):
@@ -272,7 +278,7 @@ class NativeProbe:
 
     def in_choose_action(self):
         """The player's battle controller waits on its action menu (Fight, Bag, Pokemon, Run)."""
-        funcs = int.from_bytes(self.mem("gBattlerControllerFuncs", 4), "little") & ~1
+        funcs = self.code(int.from_bytes(self.mem("gBattlerControllerFuncs", 4), "little")) & ~1
         return funcs in self.choose_action
 
     async def run_from_wild_battle(self, in_field, timeout=120):
@@ -312,6 +318,12 @@ class WindowsProbe(NativeProbe):
     def mem(self, name, size=None, offset=0):
         address, length = self.symbols[name]
         return self.memory.read(address + offset, length if size is None else size)
+
+    def code(self, value):
+        # Windows may load the game elsewhere than its preferred base (ASLR): the reads above move each symbol by that
+        # delta, and every code pointer the game holds is moved by it too. Compared with the symbols, a callback read
+        # as it is never matched (the runner's newcomers claims waited for CB2_StarterChoose until they timed out).
+        return value - self.memory.delta if value else value
 
     def _window(self):
         window = self._windows.window_of(self.pid)
@@ -640,7 +652,7 @@ class LauncherHarness:
             if child.returncode is None:
                 evidence["forced_children"].append(child.pid)
                 try:
-                    os.kill(child.pid, signal.SIGKILL)
+                    child.kill()                  # SIGKILL; TerminateProcess on Windows (which has no SIGKILL)
                 except ProcessLookupError:
                     pass
         try:

@@ -6,6 +6,7 @@ from __future__ import annotations
 from pathlib import Path
 import struct
 import sys
+from types import SimpleNamespace
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -17,6 +18,7 @@ import make_intro_saves  # noqa: E402
 import native_launcher_battle_proof as harness  # noqa: E402
 from native_trade_proof import parse_nm_sizes, parse_pe_symbols  # noqa: E402
 import native_windows_process  # noqa: E402
+from native_launcher_three_player_proof import ThreePlayerProof  # noqa: E402
 
 PE_ROWS = """\
 00401000 T _main
@@ -88,6 +90,20 @@ class WindowsModeTests(unittest.TestCase):
         sizes = parse_nm_sizes(LINUX_SIZES.replace("00000100 b sMultiplayerMenuScreen", "00000200 b sMultiplayerMenuScreen"))
         with self.assertRaises(ValueError):                           # a needed one that does not fit stops the proof
             harness.pe_symbol_table(PE_ROWS, sizes)
+
+    def test_code_pointers_are_read_back_as_the_builds_own_addresses(self):
+        # Windows loaded the game 0x10000 above its preferred base (ASLR): a callback the game holds is moved by the
+        # same delta as the reads, so it is moved back before it is compared with a symbol (the runner's claims waited
+        # for CB2_StarterChoose until they timed out). A Linux game (or Wine) runs where it was linked.
+        windows = harness.WindowsProbe.__new__(harness.WindowsProbe)
+        windows.memory = SimpleNamespace(delta=0x10000)
+        self.assertEqual(windows.code(0x412000), 0x402000)
+        self.assertEqual(windows.code(0), 0)
+        linux = harness.NativeProbe.__new__(harness.NativeProbe)
+        self.assertEqual(linux.code(0x402000), 0x402000)
+        gmain = (0x401000).to_bytes(4, "little") + (0x412000).to_bytes(4, "little")
+        windows.mem = lambda name, size=None, offset=0: gmain if name == "gMain" else b""
+        self.assertEqual(ThreePlayerProof.screen(windows), 0x402000)
 
     def test_the_girls_short_introduction(self):
         boy = ([f"{f}:A" for f in range(400, 801, 100)] + ["980:A", "1100:START", "1140:A", "1300:A", "1360:A"]

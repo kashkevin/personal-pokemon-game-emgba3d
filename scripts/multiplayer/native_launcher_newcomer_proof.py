@@ -95,7 +95,7 @@ class NewcomerProof(ChallengeProof):
     @staticmethod
     def screen_of(probe):
         """The game's main screen callback (gMain.callback2)."""
-        return int.from_bytes(probe.mem("gMain", 8)[4:8], "little")
+        return probe.code(int.from_bytes(probe.mem("gMain", 8)[4:8], "little"))
 
     async def claim(self, slot, probe, companion, record):
         """Below a ball on the table: face it, open the 18-starter screen, take the ball's own starter, YES. Each step

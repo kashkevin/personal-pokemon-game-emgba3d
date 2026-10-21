@@ -137,7 +137,7 @@ class ThreePlayerProof(NewcomerProof):
 
     @staticmethod
     def screen(probe):
-        return int.from_bytes(probe.mem("gMain", 8)[4:8], "little")
+        return probe.code(int.from_bytes(probe.mem("gMain", 8)[4:8], "little"))
 
     async def until(self, predicate, timeout, what):
         async with asyncio.timeout(timeout):
