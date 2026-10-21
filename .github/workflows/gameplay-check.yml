@@ -1,8 +1,9 @@
-# Gameplay check (the final master update, phase 10): every trainer, person, item ball, sign, hidden item and warp of
-# the Emerald game visited in a real game process - Linux, the Classic 2D test build (Makefile_pc NATIVE_LINUX=1
-# BFX_TEST=1: the battle test driver's plan runner, never packaged) - and judged from the game's own log by the
-# engine's tools/qa/gameplay_check.py: a trainer battle won with the beaten flag set, an item in the bag and the ball
-# gone, a script that ran and gave the field back, the destination map reached. The build job writes the plan from
+# Gameplay check (the final master update, phase 10): every trainer, person, item ball, sign, hidden item, warp and
+# coordinate trigger of the Emerald game visited in a real game process - Linux, the Classic 2D test build
+# (Makefile_pc NATIVE_LINUX=1 BFX_TEST=1: the battle test driver's plan runner, never packaged) - and judged from the
+# game's own log by the engine's tools/qa/gameplay_check.py: a trainer battle won with the beaten flag set, an item in
+# the bag and the ball gone, a script that ran and gave the field back, the destination map reached, a trigger that
+# ran exactly when its variable says it is due. The build job writes the plan from
 # the engine's data (the reachable maps of tools/qa/inventory.py); the shard jobs split it; the report job merges.
 # Manual, and on a push that changes this file (a new workflow can only be dispatched once it is on the default
 # branch). Artifacts are private to the repository: the test build and the plan for one day, the reports and the
@@ -17,8 +18,8 @@ on:
         description: engine branch or full commit to build
         default: claude/feature-update-engine
       kinds:
-        description: comma-separated, of trainer,item,person,sign,hidden,warp
-        default: trainer,item,person,sign,hidden,warp
+        description: comma-separated, of trainer,item,person,sign,hidden,warp,trigger
+        default: trainer,item,person,sign,hidden,warp,trigger
       shards:
         description: parallel jobs (the plan split this many ways; at most 16)
         default: "8"
@@ -82,7 +83,7 @@ jobs:
           cp pokeemerald-mp-bfxtest ../gameplay-inputs/
           cp tools/qa/gameplay_check.py tools/qa/inventory.py ../gameplay-inputs/tools/qa/
           cp tools/battle_env/mega_check.py ../gameplay-inputs/tools/battle_env/
-          python3 tools/qa/gameplay_check.py --exe pokeemerald-mp-bfxtest --kinds "${{ inputs.kinds || 'trainer,item,person,sign,hidden,warp' }}" --plan-only \
+          python3 tools/qa/gameplay_check.py --exe pokeemerald-mp-bfxtest --kinds "${{ inputs.kinds || 'trainer,item,person,sign,hidden,warp,trigger' }}" --plan-only \
             --out ../gameplay-inputs/plan
           shards="${{ inputs.shards || '8' }}"
           [ "$shards" -ge 1 ] && [ "$shards" -le 16 ] || { echo "shards must be 1-16" >&2; exit 1; }
@@ -124,7 +125,7 @@ jobs:
           chmod +x inputs/pokeemerald-mp-bfxtest
           set +e
           xvfb-run -a -s "-screen 0 1280x800x24" python3 inputs/tools/qa/gameplay_check.py \
-            --exe inputs/pokeemerald-mp-bfxtest --plan inputs/plan/plan.json --kinds "${{ inputs.kinds || 'trainer,item,person,sign,hidden,warp' }}" \
+            --exe inputs/pokeemerald-mp-bfxtest --plan inputs/plan/plan.json --kinds "${{ inputs.kinds || 'trainer,item,person,sign,hidden,warp,trigger' }}" \
             --make-save "$RUNNER_TEMP/new.sav" --shard ${{ matrix.shard }} --shards ${{ inputs.shards || '8' }} \
             --jobs 2 --speed ${{ inputs.speed || '4' }} --out out
           echo "exit=$?" >> "$GITHUB_ENV"

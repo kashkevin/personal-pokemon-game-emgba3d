@@ -149,3 +149,20 @@ generation, audits) runs in parallel, and Windows work fans out over parallel ru
   two objects) had their battle marked won before it began; Pokemon Center escalators were stepped onto from the wrong
   elevation; the Easy Chat screen (Gabby and Ty, interviewers) and info desks that ask again were never left; story
   objects and doors that the game hides or keeps shut in this state were counted as failures instead of blocked.
+- 2026-10-21, phase 10: CI run 39541530570 finished: 3,413 of 3,680 targets passed, 267 failed. Triage on L, failure
+  by failure, then the fixes re-run: most failures were the check's own limits, and the check now plays the game the
+  way a player would in each case (engine `d466f500`, test builds only): long scenes (the Devon president, Scott's
+  welcome, the Frontier gate) count their text and battles as progress instead of hitting a fixed budget; a map's own
+  scene that ran first is followed by the target again; the game's ending (Hall of Fame, credits, reset to the title)
+  is followed through; questions get YES for a trainer until its battle, an Easy Chat screen its own CANCEL, a script's
+  menu each choice in turn; battles use the most effective of four moves and leave the party menu's fainted Pokemon;
+  only item balls and hidden items are put back, so story objects this save hides are reported, not forced out of
+  their story step; never standing on a warp's own tile; Repel, fast text, no battle animations. Blocked with their
+  reasons rather than failed: encounters that ask the multiplayer server first (every game the app starts has one;
+  the standalone test game has none), rooms entered only through a script (Frontier challenges, the Battle Pyramid's
+  top, Trainer Hill floors, link rooms, contest halls, the Mystery Events house basement). A second real defect:
+  **MS-44**, the end credits stopped the PC game (division by zero) when no Pokemon was registered as caught (fixed,
+  engine `512bed8e`; a player reaches it only with an empty caught record). Local re-runs: all 68 targets still
+  failing after the first round pass or are blocked; three samples of every 15th target (761 targets) and every
+  coordinate trigger (243) ended with every failure fixed or blocked. Run 3 (the coordinate triggers added to the
+  kinds) runs the whole game again on `d466f500`.
