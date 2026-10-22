@@ -10,8 +10,7 @@ Classic 2D PC game under Xvfb (and the engine's GBA test ROM, `T`); a Linux pass
 Statuses: **Passed on Windows**, **Passed on Linux only**, **Failed**, **Blocked**, **Unverified**, **Not implemented**.
 Commits: app `claude/admiring-bohr-dpxzuy`, engine `claude/feature-update-engine`. Windows runs: 121 (app `6a3639e`,
 engine `a5ce214d`), 129 (app `c5c2a35`, engine `a5ce214d`), 133 (app `26a6e15`, engine `b1066514`; section 5), 138 (app
-`341e505`, engine `83808e7e`: 41 of 42), 141 (app `a2ce0a2`, engine `da278011`: 43 of 45 at 07:20 UTC, the climb
-still running), 143 (app `fa6e601`, engine `da278011`: the `ffa-exit` check alone, four attempts).
+`341e505`, engine `83808e7e`: 41 of 42), 141 (app `a2ce0a2`, engine `da278011`: 44 of 45, the climb passed), 143 (app `fa6e601`, engine `da278011`: the `ffa-exit` check alone, four attempts).
 
 ## 1. The newest updates
 
@@ -25,7 +24,7 @@ still running), 143 (app `fa6e601`, engine `da278011`: the `ffa-exit` check alon
 | Battle Tower: milestone Pokemon (floor 25, made in the game, delivered once, replay without a second) | **Passed on Windows** | run 133 end to end; run 129 the milestone part (claims 4100, no second prize) | L tower-milestone-2 |
 | Battle Tower: solo climb through the launcher, prizes, replay, Tower Shop, special boss loss to its checkpoint | **Passed on Windows** | run 133 end to end (floors 1-11, Brock's prize, the replay, the HP Up for 16 BP, the saved wallet as the rules say; player 2 back to floor 21 after Giovanni) | L tower-solo-9 |
 | Battle Tower: native 3D UI pages | **Passed on Windows** (Mesa software OpenGL only) | runs 138 and 141 (the `ui` entry, pinned Mesa) | L tower-ui-5: ten pages pictured, saves, fresh Continue, integrity check |
-| Battle Tower: a whole 100-floor climb through the launcher | **Passed on Linux only**; Windows run 141's climb job running | run 141's climb job, running since 05:00 UTC | L tower-climb-3: two players, floors 1-100 each (100 wins), 189 minutes, every claim, the saves paid as the rules say, integrity, fresh Continue |
+| Battle Tower: a whole 100-floor climb through the launcher | **Passed on Windows** | run 141: both players floors 1-100 (100 wins each, 181 minutes), every claim, the saves paid as the rules say ($990,000, 45 Rare Candy, 751 BP, 4 milestone Pokemon), fresh Continue, integrity | L tower-climb-3: two players, floors 1-100 each (100 wins), 189 minutes, every claim, the saves paid as the rules say, integrity, fresh Continue |
 | Co-op team selection (MS-47, engine `0df64e01`) | **Passed on Windows** | runs 121, 129 (Tower Duo and Mega Duo with six-Pokemon parties) | T 3/3, L |
 | Battle Points the game received since its save (MS-53, app `8c668bc`) | **Passed on Windows** | run 133 (solo, milestone) | L tower-solo-8/9; app tests |
 | Shop orders finish after the menu closes (MS-54, app `a100436`) | **Passed on Windows** | run 133 (solo) | L tower-solo-9; app tests |
@@ -38,7 +37,7 @@ still running), 143 (app `fa6e601`, engine `da278011`: the `ffa-exit` check alon
 | Mega Evolution drawn in 3D (wild, trainer, the 96-form parade) | **Passed on Windows** (Mesa software OpenGL only) | run 129 (Mesa 26.2.4 llvmpipe; pinned since) | - |
 | Mega Evolution in a multiplayer battle (both players; one without the Mega Ring) | **Passed on Windows** | run 133: two and no-ring end to end (run 129 stopped on the proof's own picture: harness, fixed `26a6e15`) | L (earlier sessions) |
 | Interrupted battles: pairs crash, multi-battle network loss, free-for-all exit, free-for-all host crash | **Passed on Windows** except while MS-57 is open | runs 129, 133, 141 every scenario; run 138's `ffa-exit` and run 143's attempt 2 of 4 failed in the rematch with MS-57 (the host knocked out while the free-for-all went on) | L; MS-57 reproduced (ffa-exit-diag-1, double-2, ffa-exit-gdb-5) |
-| A host knocked out while the battle goes on (KNOWN_ISSUES MS-57: a free-for-all, the same path in a 2v2 or co-op battle) | **Failed** before the fix; the fix (engine `65641401` and the app's check): **Passed on Windows** for the free-for-all (run 145: both `ffa-knockout` jobs, the host's action menus with battler 0 out taken), the 2v2 **Passed on Linux only** until run 146 (run 145's two `multi-knockout` jobs failed on the proof's fixture: their short battles drew the random turn order that hides the value; the longer fixtures passed on Linux); co-op battles - the Tower's Duo, co-op Gyms - share the same checks and have only their unit tests | run 145 (`ffa-knockout` x2 passed, `multi-knockout` x2 failed on the fixture); run 146 (the knockouts with the longer fixtures) | L: double-2 failed on turn 1 (pre-fix); knockout-fixed-1 failed on the app's check (the engine half only); **knockout-fixed-2 passed end to end with both halves** (the host out on turn 1, the free-for-all to its result in 293 s); **knockout-2v2-1 passed** (the 2v2, 253 s); the test ROM 142/142 and the app's controller tests pass with the fix |
+| A host knocked out while the battle goes on (KNOWN_ISSUES MS-57: a free-for-all, the same path in a 2v2 or co-op battle) | **Failed** before the fix; the fix (engine `65641401` and the app's check): **Passed on Windows** for the free-for-all (run 145: both `ffa-knockout` jobs, the host's action menus with battler 0 out taken), the 2v2 **Passed on Linux only** until run 147 (run 145's two `multi-knockout` jobs failed on the proof's fixture: their short battles drew the random turn order that hides the value; the longer fixtures passed on Linux); co-op battles - the Tower's Duo, co-op Gyms - share the same checks and have only their unit tests | run 145 (`ffa-knockout` x2 passed, `multi-knockout` x2 failed on the fixture); run 147 (the knockouts with the longer fixtures) | L: double-2 failed on turn 1 (pre-fix); knockout-fixed-1 failed on the app's check (the engine half only); **knockout-fixed-2 passed end to end with both halves** (the host out on turn 1, the free-for-all to its result in 293 s); **knockout-2v2-1 passed** (the 2v2, 253 s); the test ROM 142/142 and the app's controller tests pass with the fix |
 | Engine self-tests in the Windows build (24) | **Passed on Windows** (24 of 24) | run 133 (`update32` 35 checks after the console fix: engine `b1066514`, app `bc8ca31`; run 129 had 23 of 24) | L 24/24 |
 
 ## 2. The whole game
@@ -107,9 +106,9 @@ informational benchmark, and the gameplay runner's fix. 41 of 42 jobs passed; th
 in its rematch (MS-57), so it was not the release.
 
 Run 141 (app `a2ce0a2`, engine `da278011`, https://github.com/kashkevin/personal-pokemon-game-emgba3d/actions/runs/39723669535):
-the catch check, the rival checkpoint battle between players and the Tower's 100-floor climb added. 43 of 45 jobs had
-passed at 07:20 UTC (`ffa-exit` among them this time); the rival battle failed on the proof's own race (fixed) and the
-climb was still running.
+the catch check, the rival checkpoint battle between players and the Tower's 100-floor climb added. 44 of 45 jobs
+passed (`ffa-exit` among them this time, and the first whole climb on Windows); the rival battle failed on the proof's
+own race (fixed).
 
 Run 143 (app `fa6e601`, https://github.com/kashkevin/personal-pokemon-game-emgba3d/actions/runs/39726406080): the
 `ffa-exit` check alone, four attempts side by side: three passed, attempt 2 failed with MS-57 and the proof's new

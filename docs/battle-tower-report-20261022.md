@@ -190,7 +190,7 @@ hosted runner's own OpenGL is 1.1): **passed in runs 138 and 141** (Mesa's softw
 | Shop order without its debit | app (2 tests) | - | - |
 | Battle Points received since the save (MS-53), "Close the menu to finish" (MS-54) | app (new tests) | passed (tower-solo-9) | passed (run 133 solo and milestone) |
 | 3D native UI pages | - | passed (tower-ui-5: ten pages) | passed in runs 138 and 141 (`ui` entry, Mesa only) |
-| A whole climb, 100 floors, through the launcher (`climb`, fast-text fixtures) | - | passed (tower-climb-3: both players floors 1-100, 189 minutes, every claim, $990,000, 45 Rare Candy, 751 BP and 4 milestone Pokemon paid as the rules say) | run 141's climb job running (from 05:00 UTC) |
+| A whole climb, 100 floors, through the launcher (`climb`, fast-text fixtures) | - | passed (tower-climb-3: both players floors 1-100, 189 minutes, every claim, $990,000, 45 Rare Candy, 751 BP and 4 milestone Pokemon paid as the rules say) | passed in run 141 (both players floors 1-100 in 181 minutes, the same prizes paid) |
 
 ## 13. Windows gameplay verification
 
@@ -218,7 +218,8 @@ GitHub's hosted Windows runners (`windows-2022`), real Windows game processes of
   solo, milestone, Duo, Mega Duo, forfeit, `ui`); the run's one failure was the multiplayer `ffa-exit` (MS-57).
 * Run 141 (app `a2ce0a2`, engine `da278011`,
   https://github.com/kashkevin/personal-pokemon-game-emgba3d/actions/runs/39723669535): every Tower job passed again;
-  the new 100-floor climb through the launcher was still running at 07:20 UTC.
+  the new 100-floor climb through the launcher passed (both players floors 1-100 in 181 minutes, every claim, the
+  saves paid as the rules say).
 
 ## 14. Known issues and limitations
 
@@ -231,7 +232,7 @@ MS-51 (low, open): a milestone Pokemon lost in a narrow case (game closed unsave
 MS-52 (low, open, cosmetic): native Tower screens show the game's copy of the record until the host's word arrives.
 MS-49's remainder: a game below about 22 frames a second could still start a floor after the host's two minutes. The 3D
 UI is verified on Linux and on Windows through Mesa only (runs 138, 141). The full 100-floor climb through the launcher
-passed on Linux (tower-climb-3) and is running on Windows (run 141). Older Mega items (MS-38
+passed on Linux (tower-climb-3) and on Windows (run 141). Older Mega items (MS-38
 Mega Lucario Z's Aura Guard, MS-39 Mega Rayquaza) affect no Tower floor (no floor uses them).
 
 ## 15. Integration and release readiness
@@ -239,6 +240,7 @@ Mega Lucario Z's Aura Guard, MS-39 Mega Rayquaza) affect no Tower floor (no floo
 Not merged. Gates: the Windows run on the final commits green (Tower jobs included), the multiplayer proofs green, no
 open critical or high fault (MS-47 fixed and confirmed on Windows in runs 121 and 129), save integrity verified (every proof's
 canonical checkpoints), app and engine commits compatible (one engine commit per run, ROM pinned), the newest features
-covered (this report's matrix). Status: in progress. The Tower jobs passed in runs 133, 138 and 141; the open gate is
-multiplayer's MS-57 (High: a battle stopped once the host's battler was out of Pokemon; fixed in engine `65641401` and
-the app, waiting for its Windows run) and the climb. See the final report.
+covered (this report's matrix). Status: in progress. The Tower jobs passed in runs 133, 138, 141 and 145 (the whole
+climb on Windows in run 141); the open gate is multiplayer's MS-57 (High: a battle stopped once the host's battler was
+out of Pokemon; fixed in engine `65641401` and the app, verified on Windows for the free-for-all in run 145, the 2v2 in
+run 147). See the final report.
