@@ -152,6 +152,12 @@ jobs:
           fi
           # Breeding and egg hatching through the Day Care man and the field, from an engine that has the check.
           if [ -f tools/battle_env/breed_check.py ]; then cp tools/battle_env/breed_check.py ../mega-check-inputs/; fi
+          # The rival checkpoints and the short introduction through the game's own scripts (the rival-check job): the
+          # flag and variable numbers from this engine's headers, as the Windows runner has none.
+          if grep -q -- "--write-facts" tools/pc_port/rival_check.py 2>/dev/null; then
+            cp tools/pc_port/rival_check.py ../mega-check-inputs/
+            python3 tools/pc_port/rival_check.py --write-facts ../mega-check-inputs/rival-facts.json
+          fi
           # The whole game's gameplay check: its plan from this engine's data (the maps a player can reach), for the
           # Windows shard jobs (they run the test build above; no engine checkout there).
           mkdir -p ../gameplay-inputs/tools/qa ../gameplay-inputs/tools/battle_env
@@ -406,6 +412,52 @@ jobs:
             ${{ runner.temp }}/breed-check/**/*.json
             ${{ runner.temp }}/breed-check/**/test.log
             ${{ runner.temp }}/breed-check/**/*.png
+          retention-days: 7
+          if-no-files-found: warn
+
+  rival-check:
+    # Update 31's rival checkpoints and the short introduction through the game's own scripts, in Windows game processes
+    # of the player build (a GitHub-hosted runner, not a player's PC): an armed trigger line stops a northbound player
+    # and asks for the Players menu; a pass gives the original reward exactly once (the Dowsing Machine; HM02 Fly and
+    # Scott's scene; Birch's lab state; the Lilycove rival home); the NPC rivals stay away in multiplayer and are there
+    # offline; a rival battle takes its checkpoint's environment; the host going away mid-scene; New Game's short
+    # introduction for a boy and a girl. Engine tools/pc_port/rival_check.py: debug scenes with a simulated host record
+    # (no host or network), judged from the game's own output (PKMN_DEBUG_LOG). The rival battle between players itself
+    # is the multiplayer battle the other jobs play.
+    name: Rival checkpoints and the short introduction (Windows game processes)
+    needs: engine
+    if: ${{ (inputs.mode || 'smoke') == 'full' }}
+    runs-on: windows-2022
+    timeout-minutes: 60
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@v4
+        with:
+          name: native-inputs
+          path: native-inputs
+      - uses: actions/download-artifact@v4
+        with:
+          name: mega-check-inputs
+          path: mega-check-inputs
+      - name: Every rival scene and the short introduction
+        shell: pwsh
+        run: |
+          if (-not (Test-Path mega-check-inputs\rival-facts.json)) {
+            Write-Output "::notice::this engine's rival check has no Windows mode: nothing to check"
+            exit 0
+          }
+          $out = Join-Path $env:RUNNER_TEMP "rival-check"
+          python mega-check-inputs\rival_check.py --binary native-inputs\pokeemerald-mp.exe `
+            --facts mega-check-inputs\rival-facts.json --keep-logs $out --timeout 150
+          if ($LASTEXITCODE -ne 0) { throw "the rival check failed (exit $LASTEXITCODE)" }
+      - name: Upload the check's logs (private to this repository, 7 days; no save)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: EmeraldTogether-rival-check
+          path: ${{ runner.temp }}/rival-check/*.log
           retention-days: 7
           if-no-files-found: warn
 

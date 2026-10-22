@@ -139,6 +139,17 @@ class WindowsWorkflowTests(unittest.TestCase):
         self.assertIn('throw "the breeding check failed', breed)                # a failed check fails the job
         self.assertIn("tools/battle_env/breed_check.py ../mega-check-inputs/", job("engine"))
 
+    def test_the_rival_checkpoints_run_in_windows_game_processes(self):
+        rival = job("rival-check")
+        self.assertIn("runs-on: windows-2022", rival)
+        self.assertIn("needs: engine", rival)
+        self.assertIn("rival_check.py --binary native-inputs\\pokeemerald-mp.exe", rival)    # the player build
+        self.assertIn("--facts mega-check-inputs\\rival-facts.json", rival)
+        self.assertIn('throw "the rival check failed', rival)                  # a failed scene fails the job
+        self.assertIn("rival-check/*.log", rival)                              # logs only: never the scenes' saves
+        engine = job("engine")
+        self.assertIn("rival_check.py --write-facts ../mega-check-inputs/rival-facts.json", engine)
+
     def test_no_upload_carries_game_data(self):
         uploads = re.findall(r"uses: actions/upload-artifact@v4\n\s+with:\n(.*?)(?=\n      - |\n  [a-z-]+:\n|\Z)",
                              WORKFLOW, re.S)
