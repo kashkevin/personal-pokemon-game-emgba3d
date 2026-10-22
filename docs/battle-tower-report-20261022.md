@@ -276,14 +276,30 @@ Mega Lucario Z's Aura Guard, MS-39 Mega Rayquaza) affect no Tower floor (no floo
 
 ## 15. Integration and release readiness
 
-Not merged. Gates: the Windows run on the final commits green (Tower jobs included), the multiplayer proofs green, no
-open critical or high fault (MS-47 fixed and confirmed on Windows in runs 121 and 129), save integrity verified (every proof's
-canonical checkpoints), app and engine commits compatible (one engine commit per run, ROM pinned), the newest features
-covered (this report's matrix). Status: in progress. The Tower jobs passed in runs 133, 138, 141 and 145 (the whole
-climb on Windows in runs 141 and 145); multiplayer's MS-57 (High: a battle stopped once the host's battler was out of
-Pokemon) is fixed in engine `65641401` and the app and verified on Windows (the free-for-all in runs 145 and 147, the
-2v2 in run 147). The co-op progression (app `1c9d1f3`, `5034e60`) passed on Linux (tower-join-3, -4) and on Windows
-(run 151). MS-60 (High, found by the co-op progression's proof; its general case outside the Tower confirmed in real
-games) is fixed in engine `547d0789` and app `cff44fe`, `4328509`, verified on Linux (stale-save-6, -7) and on Windows
-(run 158's `stale-save` entry, both attempts); run 158's climb was the gate still open when this
-was written. See the final report.
+The release gates (`docs/final-master-update-20261021.md` section 3) on the final candidate: app
+`claude/admiring-bohr-dpxzuy` at the commit carrying this section (its code last changed in `4328509`, MS-60's fix; after
+it only the CI's apt bounds `46e46ee`, the Tower proof's soft-reset option `eb28919` and documents), engine
+`claude/feature-update-engine` at `547d0789`; GBA ROM `f214735b64e113fd10730eacca5764d757f2c93a3685230aa905af7a7cdd3387`
+unchanged. Gates 1 to 6 passed (2026-10-22); the merge is a fast-forward of both default branches, no force, the engine
+first, under the owner's authorization once the gates pass; gate 7 runs on the merged commits.
+
+| Gate | Evidence |
+| --- | --- |
+| 1 MS-17 and this round's High faults | MS-17 stays fixed: no healthy battle interrupted in runs 151 and 158 (the four multiplayer jobs: battles while others play and trade, two to four games). MS-57 (High): fixed in engine `65641401` and app `1a9a14b`, its scenarios (`ffa-knockout`, `multi-knockout`) passed twice each in runs 151 and 158. MS-60 (High): fixed in engine `547d0789` and app `cff44fe`, `4328509`, its scenario passed on Linux (stale-save-6, -7) and on Windows (run 158, both attempts) |
+| 2 Suites | python-tests on the candidate's code: run 273 (`eb28919`), 2,670 passed, 127 skipped, none failed (274-276 on the documents after it passed too); the engine's GBA test ROM on `547d0789`: 6,077 tests, exactly the 39 expected failures name by name; native self-tests 24 of 24 on the Windows build of `547d0789` (run 158) and the bridge's 4,479 checks; the GBA ROM `f214735b...3387` (built from `547d0789` in run 158 and compared with the pinned hash) |
+| 3 Multiplayer in real games | On the candidate's code, in real Windows game processes on GitHub's runner (run 158; the whole launcher, one PC's loopback): lobbies of three and four with 1v1v1v1 battles, four players busy, a 2v2 beside a trade, soft resets with others playing, starters claimed at once; abandon and recovery in seven scenarios twice each (a game killed, a connection lost, a player leaving, the host's crash, knockouts in a free-for-all and a 2v2, a stale save); Mega Evolution in multiplayer (two, no ring); the rival battle; the Tower's Duo, Mega Duo, forfeit and co-op progression (`join` with the host restarted; run 160: `join-reset`). On Linux (L): stale-save-6, -7, tower-join-5, tower-join-reset-1 |
+| 4 Windows | windows-package full run 158 (https://github.com/kashkevin/personal-pokemon-game-emgba3d/actions/runs/39803470837; app `46e46ee`, engine `547d0789`, the ROM pinned, the gameplay check on): 56 of 56 jobs passed, the climb's 180 minutes included; the installer under test `EmeraldTogether-Setup-Native-3D-CI-158.exe`, sha256 `a06b78ccf0a998c658f68dfd1b86563c5166f1415f1eb6304ed9495fd510fac3`, installed, started, repaired, uninstalled and played; run 160 (`eb28919`): `join-reset` and the other Tower entries passed |
+| 5 Coverage manifest | `docs/coverage-manifest.md` from gameplay-check run 13 (engine `547d0789`): 3,612 judged targets passed, none failed; the 617 blocked and every unverified entry listed with its reason |
+| 6 No open High or Critical defect | KNOWN_ISSUES: none open (MS-57 and MS-60 fixed and verified on Linux and Windows). Open and lower: Medium MS-28, MS-38; Low MS-12, MS-29, MS-51, MS-52, MS-55; the owner's decisions MS-39, MS-42; and the other Medium, Low and Info items listed there |
+| 7 After the merge | Running on the merged commits: python-tests, gameplay-check, windows-package full (engine `claude/emeraldtogether-combined`), installed-world-check; the installer built from them and its SHA-256 are recorded here when they pass |
+
+| Repository | Default branch | From | To | Branch merged |
+| --- | --- | --- | --- | --- |
+| engine | `claude/emeraldtogether-combined` | `edfc4b28` | `547d0789` | `claude/feature-update-engine` |
+| app | `claude/emeraldtogether-combined-app` | `c2372e4` | the commit carrying this section | `claude/admiring-bohr-dpxzuy` |
+
+Not verified (and not claimed): play between separate Windows PCs or across real networks (every Windows result is
+one GitHub runner, its games on loopback); 3D graphics on a GPU (the runner has none: the 3D pages through Mesa's
+software OpenGL only); the owner's own multiplayer test on their PCs; the races between two trainers' claims and an
+entered game's first poll (unit tests only); the game is not claimed bug-free (KNOWN_ISSUES lists the open Medium and
+Low items).
