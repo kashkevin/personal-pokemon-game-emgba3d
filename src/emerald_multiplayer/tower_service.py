@@ -601,7 +601,11 @@ class TowerService:
             raise TowerError("no_wallet", "This host has no wallet")
         purchase_id = str(uuid4())
         self.book.start_purchase(purchase_id, actor, entry.item, entry.quantity, entry.price)
-        wagers.grant_reward(actor, rewards.KIND_BP_DEBIT, entry.price, f"tower-shop:{purchase_id}:debit")
+        try:
+            wagers.grant_reward(actor, rewards.KIND_BP_DEBIT, entry.price, f"tower-shop:{purchase_id}:debit")
+        except Exception:
+            self.book.set_purchase(purchase_id, "void")     # nothing was taken: the order never holds the shop
+            raise
 
     def _advance_purchases(self) -> None:
         """Move every open purchase one step: the game's receipt for the debit decides whether the item is given."""
@@ -613,7 +617,12 @@ class TowerService:
             pid, player = purchase["purchase_id"], purchase["player_id"]
             if purchase["state"] == "debit":
                 entry = wagers.entry(player, f"tower-shop:{pid}:debit")
-                if entry is None or entry["applied"] is None:
+                if entry is None:
+                    # The debit was never queued (the host stopped between the order and its debit, in two databases):
+                    # nothing was taken, and the order must not hold the shop for ever.
+                    book.set_purchase(pid, "void")
+                    continue
+                if entry["applied"] is None:
                     continue
                 paid = entry["applied"]
                 if paid >= purchase["price"]:

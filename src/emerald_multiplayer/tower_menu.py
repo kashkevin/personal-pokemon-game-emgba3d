@@ -427,7 +427,7 @@ class TowerMenu:
         if purchase is not None:
             status = {"debit": "Waiting for your game...", "granting": "Waiting for your game...",
                       "done": "Bought " + purchase["name"][:18], "refused": "Not enough BP in the game",
-                      "refunded": "No room: BP returned"}.get(purchase["state"], status)
+                      "refunded": "No room: BP returned", "void": "Order not taken: try again"}.get(purchase["state"], status)
         pages = max(1, (len(shop) + PER_PAGE - 1) // PER_PAGE)
         page_no = page_no if type(page_no) is int and 0 <= page_no < pages else 0
         actions = [(f"{entry['name'][:15]} {entry['price']}BP", "tower_buy", (entry["slot"],))

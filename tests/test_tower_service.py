@@ -403,6 +403,30 @@ class SoloTests(unittest.TestCase):
         self.buy(4)                                                                   # not stuck
         self.refused("shop_buy", "no_such_item", slot=len(tower_rewards.SHOP))
 
+    def test_an_order_whose_debit_was_never_queued_does_not_hold_the_shop(self):
+        # The host stopped between the order (the Tower's database) and its debit (the wallet's): review of 2026-10-21
+        # found the order then waited for a receipt that could never come, and the shop refused every later order.
+        self.world.tower.start_purchase("lost-order", A, tower_rewards.SHOP[0].item, 1, tower_rewards.SHOP[0].price)
+        self.assertIsNotNone(self.world.tower.open_purchase(A))
+        self.service.reconcile()
+        self.assertEqual(self.world.tower.purchase("lost-order")["state"], "void")
+        self.assertEqual(self.words(), [])                                             # nothing taken, nothing given
+        self.buy(4)                                                                   # the next order goes through
+        self.assertEqual(self.words(), [(3, tower_rewards.SHOP[4].price)])
+
+    def test_a_debit_the_wallet_refuses_leaves_the_shop_open(self):
+        self.store.saves[A] = tower_save(bp=500)
+        real = self.wagers.grant_reward
+
+        def refuse(*args, **kwargs):
+            raise RuntimeError("the wallet refused")
+        self.wagers.grant_reward = refuse
+        with self.assertRaises(RuntimeError):
+            self.service._shop_buy(self.sessions[A], 0)
+        self.wagers.grant_reward = real
+        self.assertIsNone(self.world.tower.open_purchase(A))
+        self.buy(4)                                                                   # not stuck
+
     # ----------------------------------------------------------------- the view
     def test_the_view_carries_the_records_and_the_partys_training(self):
         self.store.saves[A] = tower_save(record=tower_record(highest=11, progress=12, revision=1), party=((258, 30), (25, 9)))
