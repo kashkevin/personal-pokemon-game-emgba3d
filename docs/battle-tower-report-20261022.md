@@ -94,12 +94,12 @@ Blue's Mega, Red's Charizardite X, ...) are listed in FLOORS.md.
 
 | Behaviour | Evidence | Result |
 | --- | --- | --- |
-| Solo floors through the menus, settled by the host, money and BP in the next save, checkpoint prize, replay, Tower Shop purchase | L tower-solo-5 (floors 1-5, then the old fixture's floor 6), tower-solo-7 (running) | floors 1-5 passed (L, W run 116); full run: pending |
-| The special boss's loss back to checkpoint 20 (player 2 on floor 25) | L tower-solo-7 | pending |
-| Milestone Pokemon (Giovanni, floor 25) made in the game, replay without a second | L tower-milestone-2 | pending |
-| Duo floor 1: invitation, Ready, native co-op battle, settled for both | L tower-duo-2 (battle won and settled), tower-duo-3 (whole proof) | passed (L) |
-| Mega Duo: floor 40 replay, Norman's Kangaskhan Mega Evolves in the co-op battle | L tower-mega-2 | passed (L) |
-| Forfeit: a solo floor closed mid-battle, counted as a loss on the next ask | L tower-forfeit-2, W run 121 | passed (L, W) |
+| Solo floors through the menus, settled by the host, money and BP in the next save, checkpoint prize, replay, Tower Shop purchase | L tower-solo-7 and -8 (found MS-53 and MS-54), tower-solo-9; W runs 121 and 129 (floors 1-11 and the replay passed, then MS-53 at the shop), run 133 | passed on Linux (solo-9: 11 floors, the replay, the HP Up bought for 16 BP, the closing saves +$15,900, 10 Rare Candy, 1 HP Up, BP 0 to 3); Windows: pending run 133 |
+| The special boss's loss back to checkpoint 20 (player 2 on floor 25) | L tower-solo-9; W run 133 | passed on Linux (P 21, H 24, saved); Windows: pending run 133 |
+| Milestone Pokemon (Giovanni, floor 25) made in the game, replay without a second | L tower-milestone-2; W run 129 | passed (L: Miltank level 15 made and delivered; W run 129: claims 4100, the replay paid no second prize; both runs then stopped at the shop, MS-53) |
+| Duo floor 1: invitation, Ready, native co-op battle, settled for both | L tower-duo-2 (battle won and settled), tower-duo-3 (whole proof); W runs 121, 129 | passed (L, W) |
+| Mega Duo: floor 40 replay, Norman's Kangaskhan Mega Evolves in the co-op battle | L tower-mega-2; W runs 121, 129 | passed (L, W) |
+| Forfeit: a solo floor closed mid-battle, counted as a loss on the next ask | L tower-forfeit-2, W runs 121, 129 | passed (L, W) |
 
 ## 6. Checkpoints and saves
 
@@ -117,7 +117,7 @@ Blue's Mega, Red's Charizardite X, ...) are listed in FLOORS.md.
 Badges 0-8 -> 15, 20, 25, 30, 40, 45, 50, 55, 60; Champion -> 100. Solo: the in-battle award is clamped
 (`TowerLegends_ClampExp` from `Cmd_getexp`); Duo: the co-op award is clamped with each game's own badges. Evidence: S
 (caps, the clamp below, at and above the cap), L `tower_check.py --caps` (real Tower battles: no badges, one badge,
-eight, the Champion, a Pokemon above its cap; engine `68a8b0f5`), W run 121 "Battle Tower caps and items" (pending).
+eight, the Champion, a Pokemon above its cap; engine `68a8b0f5`), W runs 121 and 129 "Battle Tower caps and items" (passed).
 
 ## 8. Rewards and anti-duplication
 
@@ -136,7 +136,7 @@ Hyper Training from the Bag and from the Tower page (the stat list shows natural
 counts the stat as 31 and travels with the Pokemon); the Ability Patch switches to and from the Hidden Ability after a
 confirmation; each refuses without using the item where it would do nothing. Evidence: L `train_check.py` (a Bottle
 Cap, a Gold Bottle Cap and an Ability Patch used through the game's own Bag and party menus, refused where they would
-do nothing, saved and loaded; engine `282ec5d9`); W run 121 "Battle Tower caps and items" (pending).
+do nothing, saved and loaded; engine `282ec5d9`); W runs 121 and 129 "Battle Tower caps and items" (passed).
 
 ## 10. Tower Shop and Battle Points
 
@@ -170,29 +170,43 @@ run the 3D game (no OpenGL 3.3 on the hosted runner): the 3D UI on Windows is **
 | Area | T / S / app | L | W |
 | --- | --- | --- | --- |
 | Floor table against the game's data | S 2077/0 | - | - |
-| Every floor won and lost (test build) | - | 200/200 (engine `547b2950`); final build rerun running | run 121 shards (pending) |
-| Experience caps in real battles | S | passed (`--caps`) | run 121 (pending) |
-| Items in the real menus | - | passed (`train_check.py`) | run 121 (pending) |
-| Solo through the launcher (prizes, replay, shop) | app | floors 1-5 passed; full: pending | floors 1-5 passed (run 116); full: run 121 (pending) |
-| Special boss loss, milestone Pokemon | app | pending (tower-solo-7, tower-milestone-2) | run 121 (pending) |
-| Duo (native co-op) | T (team selection) | passed (tower-duo-3) | run 121 (pending) |
-| Mega Duo | - | passed (tower-mega-2) | run 121 (pending) |
-| Forfeit | app | passed (tower-forfeit-2) | passed (run 121) |
+| Every floor won and lost (test build) | - | 200/200 (engine `547b2950`); the final build's rerun stopped at floor 49 (98/98: Windows ran all 100) | 200/200 in run 121 and in run 129 (`docs/battle-tower-floors-20261022.md`) |
+| Experience caps in real battles | S | passed (`--caps`) | passed (runs 121, 129) |
+| Items in the real menus | - | passed (`train_check.py`) | passed (runs 121, 129) |
+| Solo through the launcher (prizes, replay, shop) | app | passed (tower-solo-9, after MS-53 and MS-54) | floors 1-11 and the replay passed (runs 121, 129), the shop failed there (MS-53, fixed); run 133 pending |
+| Special boss loss, milestone Pokemon | app | passed (tower-solo-9, tower-milestone-2) | milestone passed (run 129); the special boss loss in run 133 |
+| Duo (native co-op) | T (team selection) | passed (tower-duo-3) | passed (runs 121, 129) |
+| Mega Duo | - | passed (tower-mega-2) | passed (runs 121, 129) |
+| Forfeit | app | passed (tower-forfeit-2) | passed (runs 121, 129) |
 | Held items after evolution, queued floor deadline | S | - | - |
 | Shop order without its debit | app (2 tests) | - | - |
+| Battle Points received since the save (MS-53), "Close the menu to finish" (MS-54) | app (new tests) | passed (tower-solo-9) | run 133 pending |
 | 3D native UI pages | - | pending (`ui` scenario) | unverified (no OpenGL 3.3) |
 | A whole climb, 100 floors (test build) | - | not run yet (`climb`) | not run |
 
 ## 13. Windows gameplay verification
 
-Run 116 (app `6123912`, engine `547b2950`): floors 1-5 of the solo proof and the forfeit's loss counted; the floor
-shards and the caps-and-items job never started a game (a workflow argument fault), the Duo and Mega Duo hit MS-47, the
-solo proof's old fixture could not pass floor 6, the forfeit's final save hit the harness's host close. Run 121 (app
-`6a3639e`, engine `a5ce214d`): https://github.com/kashkevin/personal-pokemon-game-emgba3d/actions/runs/39700894025 -
-results recorded in section 12 as they finish.
+GitHub's hosted Windows runners (`windows-2022`), real Windows game processes of the MinGW build; not a player's PC.
+
+* Run 116 (app `6123912`, engine `547b2950`): floors 1-5 of the solo proof and the forfeit's loss counted; the floor
+  shards and the caps-and-items job never started a game (a workflow argument fault), the Duo and Mega Duo hit MS-47,
+  the solo proof's old fixture could not pass floor 6, the forfeit's final save hit the harness's host close.
+* Run 121 (app `6a3639e`, engine `a5ce214d`,
+  https://github.com/kashkevin/personal-pokemon-game-emgba3d/actions/runs/39700894025): every floor won and lost (200 of
+  200), caps and items, Duo, Mega Duo and forfeit passed; the milestone proof stopped on its own record right after the
+  game made the Pokemon (harness, fixed); the solo proof passed floors 1-11 and the replay, then MS-53 at the shop.
+* Run 129 (app `c5c2a35`, engine `a5ce214d`,
+  https://github.com/kashkevin/personal-pokemon-game-emgba3d/actions/runs/39704312638): the same passes again, the
+  milestone Pokemon made and delivered on Windows; solo and milestone then stopped at the shop (MS-53, before its fix).
+* Run 133 (app `26a6e15`, engine `b1066514`,
+  https://github.com/kashkevin/personal-pokemon-game-emgba3d/actions/runs/39710794241): MS-53 and MS-54 fixed; pending
+  when this was written (TEST_LEDGER has its results).
 
 ## 14. Known issues and limitations
 
+MS-53 (medium, fixed in app `8c668bc`): the host read the Battle Points only from the last save, so the shop refused
+points a climb had paid (found by the Windows and Linux solo proofs). MS-54 (low, fixed in app `a100436`): the shop said
+"Waiting for your game..." while the game, which pays only on the field, waited for the menu to close.
 MS-51 (low, open): a milestone Pokemon lost in a narrow case (game closed unsaved after the delivery, older save full).
 MS-52 (low, open, cosmetic): native Tower screens show the game's copy of the record until the host's word arrives.
 MS-49's remainder: a game below about 22 frames a second could still start a floor after the host's two minutes. The 3D
@@ -202,6 +216,6 @@ Mega Lucario Z's Aura Guard, MS-39 Mega Rayquaza) affect no Tower floor (no floo
 ## 15. Integration and release readiness
 
 Not merged. Gates: the Windows run on the final commits green (Tower jobs included), the multiplayer proofs green, no
-open critical or high fault (MS-47 fixed; its Windows confirmation pending), save integrity verified (every proof's
+open critical or high fault (MS-47 fixed and confirmed on Windows in runs 121 and 129), save integrity verified (every proof's
 canonical checkpoints), app and engine commits compatible (one engine commit per run, ROM pinned), the newest features
 covered (this report's matrix). Status: in progress; see the final report.
