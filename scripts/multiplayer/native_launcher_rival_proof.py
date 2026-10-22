@@ -1,10 +1,11 @@
 """Native games through the whole launcher: Update 31's rival checkpoint battle between real players (Route 110).
 
 The rival checkpoints (docs/update31-rival-checkpoints.md) with the launcher harness of native_launcher_battle_proof.py
-(real launcher workers, the production world, enrollment, the Players menu): two games (--players 2: one 1v1) or three
-(--players 3: the round robin of three 1v1s, one at a time, that three present players get), Linux or (Windows mode) the
-Windows exe on Windows. Their sources are fixture saves the engine's test build made (make_tower_saves.py rival-a,
-rival-b, rival-c: a level-5 starter each, on Route 110 just south of its rival line, VAR_ROUTE110_STATE 0). Every step
+(real launcher workers, the production world, enrollment, the Players menu): two games (--players 2: one 1v1), three
+(--players 3: the round robin of three 1v1s, one at a time, that three present players get) or four (--players 4: one
+2v2, full Multi, the teams the host plans), Linux or (Windows mode) the Windows exe on Windows. Their sources are fixture
+saves the engine's test build made (make_tower_saves.py rival-a, rival-b, rival-c, rival-d: a level-5 Pokemon each, on
+Route 110 just south of its rival line, VAR_ROUTE110_STATE 0). Every step
 is a player's presses; the checks read the games' memory, the host's rival coordinator and battle results and, after the
 harness's saves, the canonical checkpoints.
 
@@ -13,10 +14,11 @@ harness's saves, the canonical checkpoints.
   2. Player 1 walks north onto the line: the armed gate stops the player ("Your rivals meet here!", a step back south)
      and opens the Players menu by itself.
   3. Everyone opens "Rival checkpoint" ("Rival: Route 110") and chooses "Start Now"; everyone present chose it, so the
-     5 s countdown runs and the host commits the session: the ready match's two trainers see "Battle: <1> vs <2>".
-  4. The first of them chooses it (an ordinary challenge carrying the checkpoint's battle environment); the other "Open
-     Challenges to accept" > "Accept challenge"; both "Enter battle": the native 1v1 runs to its end, with a durable
-     result. Three players: the next match's two trainers do the same, until all three are played.
+     5 s countdown runs and the host commits the session: the ready match's trainers see "Battle: <1> vs <2>" (a 2v2:
+     "Battle: <1> & <2> v ...", all four).
+  4. The first of them chooses it (an ordinary challenge carrying the checkpoint's battle environment); the others
+     "Open Challenges to accept" > "Accept challenge"; all "Enter battle": the native battle runs to its end, with a
+     durable result. Three players: the next match's two trainers do the same, until all three are played.
   5. The host completes the checkpoint for everyone ("via battle") and each game's record says so.
   6. Each steps onto the line again: the original reward scene, once - the Dowsing Machine, VAR_ROUTE110_STATE 1.
   7. The harness's saves: each holds the Dowsing Machine, VAR_ROUTE110_STATE 1 and FLAG_HIDE_ROUTE_110_RIVAL; its own
@@ -49,7 +51,9 @@ from qualify_launcher_session import inspect_closed_head  # noqa: E402
 from emerald_multiplayer.flash import inspect_flash  # noqa: E402
 from emerald_multiplayer.ownership_protocol import OWNERSHIP_PROFILE  # noqa: E402
 
-NAMES = ("Rival Host", "Rival Friend", "Rival Third")
+NAMES = ("Rival Host", "Rival Friend", "Rival Third", "Rival Fourth")
+# rival_formats.plan: two trainers one 1v1, three the round robin's three 1v1s, four one 2v2 (full Multi)
+MATCHES = {2: (1, 2), 3: (3, 2), 4: (1, 4)}         # players: (matches, trainers in each)
 A, B, UP = 1, 2, 64
 ROUTE110, LINE_Y, CHECKPOINT, BIT = (0, 25), 56, "route110", 1 << 2     # the third checkpoint in story order
 # SaveBlock1 (engine include/global.h): flags at 0x1270, vars at 0x139C (from VARS_START 0x4000); the bag's 186 slots
@@ -183,17 +187,18 @@ class RivalProof(AbandonProof):
             await asyncio.sleep(.3)
         record("rival-reward", slot=slot, route110_state=route110_state(probe), pose=list(pose_of(companion)[2:]))
 
-    async def ready_pair(self, probes, timeout=120):
-        """The two slots whose rival page offers "Battle: ...", the ready match's trainers (every player's page open)."""
+    async def ready_match(self, probes, size, timeout=120):
+        """The `size` slots whose rival page offers "Battle: ...", the ready match's trainers (every player's page
+        open)."""
         deadline = time.monotonic() + timeout
         while True:
             seen = {}
             for slot, probe in enumerate(probes):
                 screen = await self.rival_page(probe, slot)
                 seen[slot] = [row.label for row in screen.rows]
-            pair = [slot for slot, rows in seen.items() if any(row.startswith("Battle: ") for row in rows)]
-            if len(pair) == 2:
-                return pair, seen
+            slots = [slot for slot, rows in seen.items() if any(row.startswith("Battle: ") for row in rows)]
+            if len(slots) == size:
+                return slots, seen
             require(time.monotonic() < deadline, f"no ready match: {seen}")
             await asyncio.sleep(1)
 
@@ -205,23 +210,31 @@ class RivalProof(AbandonProof):
         for slot in range(count):
             await self.vote(probes[slot], slot, record)
         results = {}
-        for number in range(1 if count == 2 else 3):
+        matches, size = MATCHES[count]
+        for number in range(matches):
             # Step 3's end (and each next match): the committed session's ready match
-            (sender, recipient), seen = await self.ready_pair(probes)
-            record("rival-session", match=number, sender=sender, recipient=recipient, pages=seen)
+            slots, seen = await self.ready_match(probes, size)
+            sender, recipients = slots[0], slots[1:]
+            record("rival-session", match=number, sender=sender, recipients=recipients, pages=seen)
             # Step 4: the challenge, accepted, entered and played to its end
             await probes[sender].choose("Battle:", prefix=True)
-            await rows_until(probes[recipient], lambda row: row == "Open Challenges to accept", 60, "the invitation")
-            await probes[recipient].choose("Open Challenges to accept")
-            await probes[recipient].choose("Accept challenge")
-            pair = sorted((sender, recipient))
-            battles = await self.enter(current, probes, pair, record, f"rival-{number}")
-            stops, drivers = self.drive(current, probes, symbols, battles, pair)
-            results.update(await self.finish(current, probes, battles, pair, stops, drivers, record, f"rival-{number}"))
+            for recipient in recipients:
+                await rows_until(probes[recipient], lambda row: row == "Open Challenges to accept", 60,
+                                 f"slot {recipient}'s invitation")
+                await probes[recipient].choose("Open Challenges to accept")
+                await probes[recipient].choose("Accept challenge")
+            battles = await self.enter(current, probes, slots, record, f"rival-{number}")
+            stops, drivers = self.drive(current, probes, symbols, battles, slots)
+            results.update(await self.finish(current, probes, battles, slots, stops, drivers, record, f"rival-{number}"))
         # Step 5: the world's completion and each player's pass
         for slot in range(count):
-            row = await self.summary(current, slot)
-            require(row["completed"] and row["cleared"] and row["via"] == "battle", f"slot {slot}: {row}")
+            # The host completes the checkpoint when it next reconciles the session with the battle's result, a few
+            # seconds after the result on a busy machine (Windows run 141: still open 4 s after it).
+            deadline = time.monotonic() + 60
+            while not ((row := await self.summary(current, slot))["completed"] and row["cleared"]):
+                require(time.monotonic() < deadline, f"slot {slot}: the host never completed the checkpoint: {row}")
+                await asyncio.sleep(.5)
+            require(row["via"] == "battle", f"slot {slot}: completed other than by the battle: {row}")
             deadline = time.monotonic() + 60
             while not ((got := await self.record_of(current[slot])) or {}).get("completed", 0) & BIT:
                 require(time.monotonic() < deadline, f"slot {slot}: the game's record never said complete: {got}")
@@ -248,8 +261,8 @@ class RivalProof(AbandonProof):
 
 
 async def run(args):
-    sources = (args.source_a, args.source_b, args.source_c)[:args.players]
-    require(all(sources), f"--players {args.players}: a source per player (--source-a, -b, -c)")
+    sources = (args.source_a, args.source_b, args.source_c, args.source_d)[:args.players]
+    require(all(sources), f"--players {args.players}: a source per player (--source-a, -b, -c, -d)")
     if not args.display:
         require(WINDOWS, "an X display per player")
         args.display = [f"desktop-{n}" for n in range(args.players)]   # Windows: one desktop; names for the records
@@ -267,8 +280,9 @@ def main():
     parser.add_argument("--manifest", type=Path, required=True)
     parser.add_argument("--source-a", type=Path, required=True, help="make_tower_saves.py rival-a")
     parser.add_argument("--source-b", type=Path, required=True, help="make_tower_saves.py rival-b")
-    parser.add_argument("--source-c", type=Path, help="make_tower_saves.py rival-c (--players 3)")
-    parser.add_argument("--players", type=int, choices=(2, 3), default=2)
+    parser.add_argument("--source-c", type=Path, help="make_tower_saves.py rival-c (--players 3 or 4)")
+    parser.add_argument("--source-d", type=Path, help="make_tower_saves.py rival-d (--players 4)")
+    parser.add_argument("--players", type=int, choices=sorted(MATCHES), default=2)
     parser.add_argument("--display", action="append", help="an X display per player (Linux)")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--slow", type=float, default=1.0)

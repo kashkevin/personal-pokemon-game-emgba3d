@@ -22,22 +22,28 @@ class VersusLabelTests(unittest.TestCase):
     "Battle: Rival F vs Rival " - the second name's last letter cut)."""
 
     def test_two_seven_letter_names_keep_every_letter(self):
-        label = "Battle: " + _versus(["Rival F", "Rival H"], 25 - len("Battle: "))
+        label = "Battle: " + _versus([["Rival F"], ["Rival H"]], 25 - len("Battle: "))
         self.assertEqual(label, "Battle: Rival F v Rival H")
         self.assertLessEqual(len(label), 25)
 
     def test_short_names_keep_vs(self):
-        self.assertEqual(_versus(["Kash", "Bob"], 17), "Kash vs Bob")
+        self.assertEqual(_versus([["Kash"], ["Bob"]], 17), "Kash vs Bob")
 
-    def test_teams_too_long_are_cut_evenly(self):
-        label = _versus(["Rival F & Rival H", "Rival T & Rival Q"], 17)
-        self.assertLessEqual(len(label), 17)
-        self.assertEqual(label, "Rival F v Rival T")
+    def test_a_2v2_keeps_all_four_trainers(self):
+        # MS-58 (L rival-4p-1): the teams cut as one string showed "Battle: Rival T v Rival H", one trainer a side.
+        self.assertEqual(_versus([["Kevin", "Sam"], ["Alex", "Jo"]], 17), "Kev&Sam v Alex&Jo")
+        self.assertEqual(_versus([["Al", "Bo"], ["Cy", "Di"]], 17), "Al & Bo v Cy & Di")
+        self.assertEqual(_versus([["Al", "Bo"], ["Cy", "Di"]], 18), "Al & Bo vs Cy & Di")
+        for teams in ([["Rival F", "Rival H"], ["Rival T", "Rival Q"]], [["A", "B"], ["Rival Thirds", "Rival Q"]]):
+            label = _versus(teams, 17)
+            self.assertLessEqual(len(label), 17, label)
+            left, right = label.split(" v ")
+            self.assertEqual((left.count("&"), right.count("&")), (1, 1), label)
 
     def test_a_bystanders_row_fits_with_its_state(self):
         for state in ("ready", "pending", "invited", "waiting", "resolved", "void"):
             word = " " + STATE_WORDS.get(state, state)
-            label = _versus(["Rival F", "Rival H"], 25 - len(word)) + word
+            label = _versus([["Rival F"], ["Rival H"]], 25 - len(word)) + word
             self.assertLessEqual(len(label), 25, state)
             self.assertTrue(label.startswith("Rival F v") and "Rival H" in label, f"{state}: {label}")
         self.assertEqual(STATE_WORDS["resolved"], "done")     # L rival-3p-1: "Rival  v Rival  resolved"

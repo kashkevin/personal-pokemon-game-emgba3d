@@ -20,9 +20,10 @@ PKMN_TEST_TOWER_RECORD: the game loads the save, sets them and saves through its
   mega2-a / -b          a level-50 Charizard holding Charizardite X / Y, the Mega Ring in the bag: the Mega Evolution
                         proof's 1v1 (native_launcher_mega_proof.py --scenario two)
   mega2-noring-b        as mega2-b without the Mega Ring (--scenario no-ring: never offered the Mega)
-  rival-a / -b / -c     one level-5 starter each (Treecko, Torchic, Mudkip) on Route 110 just south of its rival line
-                        (34,57 / 35,57 / 33,57; the test build's PKMN_TEST_WARP): the rival checkpoint proof
-                        (native_launcher_rival_proof.py)
+  rival-a / -b / -c / -d  one level-5 Pokemon each (Treecko, Torchic, Mudkip, Poochyena) on Route 110 just south of
+                        its rival line (34,57 / 35,57 / 33,57 / 34,57: the line has three tiles, and each game is its
+                        own copy of the world; the test build's PKMN_TEST_WARP): the rival checkpoint proof
+                        (native_launcher_rival_proof.py; --players 4 is its 2v2)
 
     python scripts/multiplayer/make_tower_saves.py --exe <Makefile_pc BFX_TEST=1 build> \\
         --mega-check <engine>/tools/battle_env/mega_check.py --source-a boy-1.sav --source-b girl-1.sav --out DIR \\
@@ -68,6 +69,7 @@ FIXTURES = (  # (name, source, party, record "highest:progress" or None[, bag "i
     ("rival-a", "a", "252:5", None, "", "0:25:0:34:57"),      # MAP_ROUTE110 (group 0, map 25): south of its line
     ("rival-b", "b", "255:5", None, "", "0:25:0:35:57"),
     ("rival-c", "c", "258:5", None, "", "0:25:0:33:57"),
+    ("rival-d", "d", "261:5", None, "", "0:25:0:34:57"),      # SPECIES_POOCHYENA
 )
 
 
@@ -112,7 +114,7 @@ def main():
     parser.add_argument("--source-a", type=Path, required=True, help="player A's short-introduction save")
     parser.add_argument("--source-b", type=Path, required=True, help="player B's short-introduction save")
     parser.add_argument("--source-c", type=Path, help="player C's short-introduction save (abandon-c, rival-c)")
-    parser.add_argument("--source-d", type=Path, help="player D's short-introduction save (the abandon fixtures)")
+    parser.add_argument("--source-d", type=Path, help="player D's short-introduction save (abandon-d, rival-d)")
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--only", default="", help="comma-separated fixture names (default: all)")
     parser.add_argument("--display", default=None, help="Linux: an X display for the game")

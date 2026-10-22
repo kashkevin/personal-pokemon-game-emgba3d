@@ -34,14 +34,23 @@ def _text(value, limit=25):
 STATE_WORDS = {"resolved": "done"}
 
 
-def _versus(sides, room):
-    """"A vs B" within `room` characters of a row: " v " when " vs " does not fit, then each side cut evenly. ("Battle: "
-    and two seven-letter names with " vs " take 26 of a row's 25: the second name lost its last letter.)"""
+def _versus(teams, room):
+    """"A vs B" (a team: "A & B") within `room` characters of a row: " v " when " vs " does not fit, then each side half
+    the room, a team's names cut evenly and joined by "&". ("Battle: " and two seven-letter names with " vs " take 26 of
+    a row's 25: the second name lost its last letter; a 2v2 cut as one string kept one trainer a side, MS-58.)"""
+    sides = [" & ".join(team) for team in teams]
     for joint in (" vs ", " v "):
         if len(sides[0]) + len(joint) + len(sides[1]) <= room:
             return sides[0] + joint + sides[1]
     each = max(1, (room - 3) // 2)
-    return sides[0][:each] + " v " + sides[1][:each]
+
+    def side(team):
+        for joint in (" & ", "&"):
+            if len(joint.join(team)) <= each:
+                return joint.join(team)
+        cut = max(1, (each - len(team) + 1) // len(team))
+        return "&".join(name[:cut] for name in team)[:each]
+    return side(teams[0]) + " v " + side(teams[1])
 
 
 NOTICES = {
@@ -243,7 +252,7 @@ class RivalMenu:
             for match in session["matches"]:
                 if len(actions) >= 4:
                     break
-                sides = [" & ".join(self._name(session, p)[:7] for p in team) for team in match["teams"]]
+                sides = [[self._name(session, p)[:7] for p in team] for team in match["teams"]]
                 mine = self._actor in sum(match["teams"], [])
                 if mine and match["state"] == "ready":
                     actions.append((_text("Battle: " + _versus(sides, 25 - len("Battle: "))), "rival_match",
