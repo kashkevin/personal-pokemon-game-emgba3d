@@ -54,41 +54,23 @@ import time
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "windows-runtime"))
 from native_launcher_abandon_proof import PENDING, AbandonProof  # noqa: E402
 from native_launcher_battle_3d_proof import LIGHT_3D_SETTINGS  # noqa: E402
-from native_launcher_battle_proof import launcher_proof  # noqa: E402
+from native_launcher_battle_proof import WINDOWS, launcher_proof  # noqa: E402
+from mega_facts import game_facts, load_facts  # noqa: E402
 from native_launcher_ffa_proof import MATCH_SECONDS, into_littleroot, players_tab  # noqa: E402
 from qualify_admission_cleanup import on_worker, require  # noqa: E402
 from qualify_menu_battle import party_action  # noqa: E402
 
 PLAYER_NAMES = ("Mega Host", "Blaze", "Flare", "Psychic")
-LEADS = ("SPECIES_CHARIZARD_MEGA_X", "SPECIES_CHARIZARD_MEGA_Y", "SPECIES_MEWTWO_MEGA_X", "SPECIES_MEWTWO_MEGA_Y")
 GIMMICK_MEGA = 1
 BATTLE_TYPE_IS_MASTER = 1 << 2
 START, A = 8, 1
-QUERIES = {
-    "mon_size": "sizeof(struct BattlePokemon)",
-    "gimmick": "(int)&((struct BattleStruct*)0)->gimmick",
-    "usable": "(int)&((struct BattleGimmickData*)0)->usableGimmick",
-    "select": "(int)&((struct BattleGimmickData*)0)->playerSelect",
-    "active": "(int)&((struct BattleGimmickData*)0)->activeGimmick",
-    "active_size": "sizeof(((struct BattleGimmickData*)0)->activeGimmick)",
-}
-
-
-def game_facts(game):
-    """Offsets and the Mega species numbers from the game's debug information (gdb reads the file; nothing runs)."""
-    names = list(QUERIES) + list(LEADS)
-    command = ["gdb", "-batch", "-nx"]
-    for name in names:
-        command += ["-ex", "print " + QUERIES.get(name, f"(int){name}")]
-    out = subprocess.run(command + [str(game)], capture_output=True, text=True, timeout=300).stdout
-    values = [int(line.split("=", 1)[1]) for line in out.splitlines() if line.startswith("$")]
-    require(len(values) == len(names), f"gdb answered {out!r}")
-    facts = dict(zip(names, values))
-    facts["megas"] = tuple(facts[name] for name in LEADS)
-    return facts
 
 
 def raw(probe, address, size):
+    """`size` bytes at an address the game holds (a pointer's value: where it is in the running process)."""
+    memory = getattr(probe, "memory", None)
+    if memory is not None:                     # Windows: ReadProcessMemory (WindowsProbe), the address as it is
+        return memory._raw(address, size)
     with open(f"/proc/{probe.pid}/mem", "rb", buffering=0) as memory:
         memory.seek(address)
         return memory.read(size)
@@ -126,7 +108,7 @@ def move_menu_battler(probe, symbols):
     menu = symbols["HandleInputChooseMove"][0] & ~1
     funcs = probe.mem("gBattlerControllerFuncs", 16)
     for battler in range(4):
-        if int.from_bytes(funcs[battler * 4:battler * 4 + 4], "little") & ~1 == menu:
+        if probe.code(int.from_bytes(funcs[battler * 4:battler * 4 + 4], "little")) & ~1 == menu:
             return battler
     return None
 
@@ -159,8 +141,8 @@ async def drive_mega_input(probe, view, symbols, stop, facts, record, name):
                     names = {address & ~1: symbol for symbol, (address, _) in symbols.items()}
                     record("mega-trigger-stuck", player=name, battler=battler, usable=data["usable"], presses=starts,
                            flags=hex(int.from_bytes(probe.mem("gBattleTypeFlags", 4), "little")),
-                           controllers=[names.get(int.from_bytes(funcs[4 * b:4 * b + 4], "little") & ~1, "?")
-                                        for b in range(4)])
+                           controllers=[names.get(probe.code(int.from_bytes(funcs[4 * b:4 * b + 4], "little")) & ~1,
+                                                  "?") for b in range(4)])
                 triggered = True
         state = await probe.battle()
         action = party_action(room["pending"], state, symbols) if room["state"] == "executing" else "wait"
@@ -362,7 +344,7 @@ class MegaProof(AbandonProof):
 async def run(args):
     players = {"four": 4, "three": 3}.get(args.scenario, 2)
     require(len(args.source) == players and len(args.display) == players, f"{players} sources and displays")
-    facts = game_facts(args.elf or args.game)
+    facts = load_facts(args.facts) if args.facts else game_facts(args.elf or args.game)
     proof = MegaProof(args.scenario, args.watch, args.match_seconds, facts)
     await launcher_proof(args, names=PLAYER_NAMES[:players], sources=args.source, party_counts=(1,) * players,
                          match=proof.match, version=f"Native Mega Evolution proof ({args.scenario})",
@@ -380,7 +362,7 @@ def main():
     parser.add_argument("--scenario", choices=("four", "three", "two", "no-ring", "no-ring-host"), default="four")
     parser.add_argument("--source", type=Path, action="append", required=True, help="a save per player")
     parser.add_argument("--light-3d", action="store_true", help="the native 3D build's light game settings")
-    parser.add_argument("--display", action="append", required=True, help="an X display per player (four)")
+    parser.add_argument("--display", action="append", help="an X display per player (Linux)")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--slow", type=float, default=1.0)
     parser.add_argument("--watch", type=float, default=120)
@@ -389,7 +371,16 @@ def main():
     parser.add_argument("--sdl", type=Path)
     parser.add_argument("--elf", type=Path, help="the unstripped game, for its debug information, when --game "
                         "has none (the native 3D build is over the runtime's size limit with it)")
-    asyncio.run(run(parser.parse_args()))
+    parser.add_argument("--facts", type=Path, help="the build's offsets as mega_facts.py wrote them (Windows: the "
+                        "packaged game has no debug information)")
+    parser.add_argument("--pe-symbols", type=Path, help="Windows: i686-w64-mingw32-nm -n of the game before its strip")
+    parser.add_argument("--sizes", type=Path, help="Windows: nm -S of the Linux build of the same engine commit")
+    args = parser.parse_args()
+    if not args.display:
+        require(WINDOWS, "an X display per player")
+        players = {"four": 4, "three": 3}.get(args.scenario, 2)
+        args.display = [f"desktop-{n}" for n in range(players)]       # Windows: one desktop; names for the records
+    asyncio.run(run(args))
 
 
 if __name__ == "__main__":

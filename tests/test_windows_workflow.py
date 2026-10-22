@@ -74,6 +74,30 @@ class WindowsWorkflowTests(unittest.TestCase):
         self.assertIn("b: tower-forfeit-b", proof)         # the joiner forfeits: the host's world stays up
         self.assertIn("--pe-symbols symbols/pokeemerald-mp.nm.txt", proof)
 
+    def test_multiplayer_mega_evolution_runs_in_windows_game_processes(self):
+        mega = job("mega-proof")
+        self.assertIn("runs-on: windows-2022", mega)
+        self.assertIn("{scenario: two, b: mega2-b}", mega)
+        self.assertIn("{scenario: no-ring, b: mega2-noring-b}", mega)
+        self.assertIn("native_launcher_mega_proof.py --scenario ${{ matrix.scenario }}", mega)
+        self.assertIn("--facts symbols/mega-facts.json", mega)
+        engine = job("engine")
+        self.assertIn("mega_facts.py --game pokeemerald-mp.exe --out ../classic-pe-symbols/mega-facts.json", engine)
+        # the offsets come from the build before its strip (no debug information after it)
+        self.assertLess(engine.index("mega_facts.py --game pokeemerald-mp.exe"),
+                        engine.index("i686-w64-mingw32-strip --strip-all pokeemerald-mp.exe"))
+
+    def test_interrupted_battles_run_in_windows_game_processes(self):
+        abandon = job("abandon-check")
+        self.assertIn("runs-on: windows-2022", abandon)
+        self.assertIn("needs: [engine, symbol-sizes]", abandon)
+        self.assertIn("scenario: [pairs-crash, multi-network, ffa-exit, ffa-host-crash]", abandon)
+        self.assertIn("make_intro_saves.py --exe mega-check-inputs/pokeemerald-mp-bfxtest.exe", abandon)
+        self.assertIn("--count 4", abandon)
+        self.assertIn("--only abandon-a,abandon-b,abandon-c,abandon-d", abandon)
+        self.assertIn("native_launcher_abandon_proof.py --scenario ${{ matrix.scenario }}", abandon)
+        self.assertIn("--pe-symbols symbols/pokeemerald-mp.nm.txt", abandon)
+
     def test_breeding_and_egg_hatching_run_in_windows_game_processes(self):
         breed = job("breed-check")
         self.assertIn("runs-on: windows-2022", breed)

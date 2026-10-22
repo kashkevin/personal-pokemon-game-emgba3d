@@ -98,7 +98,7 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq --no-install-recommends build-essential libpng-dev \
-            gcc-arm-none-eabi binutils-arm-none-eabi libnewlib-arm-none-eabi mingw-w64
+            gcc-arm-none-eabi binutils-arm-none-eabi libnewlib-arm-none-eabi mingw-w64 gdb
           python -m venv .venv
           .venv/bin/python -m pip install --require-hashes --only-binary=:all: \
             -r app/requirements-host-provisioning.txt
@@ -125,6 +125,9 @@ jobs:
           # The multiplayer gameplay job reads the running games' memory at their symbols: the table before the strip.
           mkdir -p ../classic-pe-symbols
           i686-w64-mingw32-nm -n pokeemerald-mp.exe > ../classic-pe-symbols/pokeemerald-mp.nm.txt
+          # ... and the Mega Evolution proof the battle structures' offsets of this very build (gdb reads its debug
+          # information; MinGW's layout is not the Linux build's).
+          python ../app/scripts/multiplayer/mega_facts.py --game pokeemerald-mp.exe --out ../classic-pe-symbols/mega-facts.json
           i686-w64-mingw32-strip --strip-all pokeemerald-mp.exe
           # The Mega Evolution check's test build (never packaged): the Classic 2D game with the battle test driver.
           make -f Makefile_pc SDL_DIR="$GITHUB_WORKSPACE/sdl/SDL2-${SDL_VERSION}/i686-w64-mingw32" BFX_TEST=1 -j"$(nproc)"
@@ -459,6 +462,166 @@ jobs:
             ${{ runner.temp }}/multiplayer-proof/*/*.jsonl
             ${{ runner.temp }}/multiplayer-proof/*/*.png
             ${{ runner.temp }}/tower-saves/run-*/test.log
+          retention-days: 7
+          if-no-files-found: warn
+
+  mega-proof:
+    # Mega Evolution in a multiplayer battle, in real Windows game processes (a GitHub-hosted runner): two players'
+    # launchers, the world server and the Classic 2D game it packages (scripts/multiplayer/native_launcher_mega_proof.py,
+    # Windows mode; the battle structures' offsets from this build, mega_facts.py in the engine job). two: a 1v1 where
+    # both players' Charizard Mega Evolve (X and Y) at their first move menu and every game marks both Megas; no-ring:
+    # player 2's bag has no Mega Ring, so only player 1 is offered it. The characters come from the game's own short
+    # introduction, given their Charizard, stone and Ring by the test build.
+    name: Mega Evolution in a multiplayer battle (Windows game processes, ${{ matrix.scenario }})
+    needs: [engine, symbol-sizes]
+    if: ${{ (inputs.mode || 'smoke') == 'full' }}
+    runs-on: windows-2022
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {scenario: two, b: mega2-b}
+          - {scenario: no-ring, b: mega2-noring-b}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Both builds come from one engine commit
+        run: |
+          [ "${{ needs.engine.outputs.engine_commit }}" = "${{ needs.symbol-sizes.outputs.engine_commit }}" ] || {
+            echo "the Windows game and the Linux symbol sizes are of different engine commits" >&2; exit 1; }
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - name: Private virtual environment with the pinned, hashed wheels
+        run: |
+          python -m venv .venv
+          .venv/Scripts/python -m pip install --require-hashes --only-binary=:all: -r requirements-host-provisioning.txt
+      - uses: actions/download-artifact@v4
+        with:
+          name: native-inputs
+          path: inputs
+      - uses: actions/download-artifact@v4
+        with:
+          name: mega-check-inputs
+          path: mega-check-inputs
+      - uses: actions/download-artifact@v4
+        with:
+          name: classic-pe-symbols
+          path: symbols
+      - uses: actions/download-artifact@v4
+        with:
+          name: classic-linux-sizes
+          path: symbols
+      - name: Two new characters from the game's own short introduction, each with a Charizard and its stone
+        run: |
+          .venv/Scripts/python scripts/multiplayer/make_intro_saves.py --exe mega-check-inputs/pokeemerald-mp-bfxtest.exe \
+            --mega-check mega-check-inputs/mega_check.py --out "$RUNNER_TEMP/intro" --count 2
+          .venv/Scripts/python scripts/multiplayer/make_tower_saves.py --exe mega-check-inputs/pokeemerald-mp-bfxtest.exe \
+            --mega-check mega-check-inputs/mega_check.py --source-a "$RUNNER_TEMP/intro/boy-1.sav" \
+            --source-b "$RUNNER_TEMP/intro/girl-1.sav" --out "$RUNNER_TEMP/mega-saves" --only mega2-a,${{ matrix.b }}
+      - name: The multiplayer Mega Evolution (${{ matrix.scenario }})
+        run: |
+          .venv/Scripts/python scripts/multiplayer/native_launcher_mega_proof.py --scenario ${{ matrix.scenario }} \
+            --game inputs/pokeemerald-mp.exe --sdl inputs/SDL2.dll --rom inputs/pokedev.gba \
+            --manifest inputs/manifest.json --pe-symbols symbols/pokeemerald-mp.nm.txt \
+            --sizes symbols/pokeemerald-mp.sizes.txt --facts symbols/mega-facts.json --slow 1.5 \
+            --source "$RUNNER_TEMP/mega-saves/mega2-a.sav" --source "$RUNNER_TEMP/mega-saves/${{ matrix.b }}.sav" \
+            --output "$RUNNER_TEMP/multiplayer-proof/mega-${{ matrix.scenario }}"
+      - name: Upload the proof's record (private to this repository, 7 days; no save)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: EmeraldTogether-mega-proof-${{ matrix.scenario }}
+          path: |
+            ${{ runner.temp }}/multiplayer-proof/*/evidence.json
+            ${{ runner.temp }}/multiplayer-proof/*/*.jsonl
+            ${{ runner.temp }}/multiplayer-proof/*/*.png
+            ${{ runner.temp }}/mega-saves/run-*/test.log
+          retention-days: 7
+          if-no-files-found: warn
+
+  abandon-check:
+    # A multiplayer battle interrupted, in real Windows game processes (a GitHub-hosted runner, one PC on its own
+    # loopback): four players' launchers, the world server and the Classic 2D game it packages
+    # (scripts/multiplayer/native_launcher_abandon_proof.py, Windows mode). pairs-crash: two 1v1s at once, one game
+    # killed (TerminateProcess): the other battle ends with a result, the left player abandons from the launcher, the
+    # killed one starts the launcher again, then those two battle again to the end; multi-network: a 2v2 whose player's
+    # world connection is cut (the game keeps running); ffa-exit: a free-for-all whose player closes the game (its
+    # window's close); ffa-host-crash: the host's game killed and its connections cut. Each: nobody stuck, everyone back
+    # on the field with the party of the last save, no result for the abandoned battle, then a battle to its end. The
+    # characters come from the game's own short introduction, each given one level-5 starter by the test build.
+    name: Interrupted battle (Windows game processes, ${{ matrix.scenario }})
+    needs: [engine, symbol-sizes]
+    if: ${{ (inputs.mode || 'smoke') == 'full' }}
+    runs-on: windows-2022
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        scenario: [pairs-crash, multi-network, ffa-exit, ffa-host-crash]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Both builds come from one engine commit
+        run: |
+          [ "${{ needs.engine.outputs.engine_commit }}" = "${{ needs.symbol-sizes.outputs.engine_commit }}" ] || {
+            echo "the Windows game and the Linux symbol sizes are of different engine commits" >&2; exit 1; }
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - name: Private virtual environment with the pinned, hashed wheels
+        run: |
+          python -m venv .venv
+          .venv/Scripts/python -m pip install --require-hashes --only-binary=:all: -r requirements-host-provisioning.txt
+      - uses: actions/download-artifact@v4
+        with:
+          name: native-inputs
+          path: inputs
+      - uses: actions/download-artifact@v4
+        with:
+          name: mega-check-inputs
+          path: mega-check-inputs
+      - uses: actions/download-artifact@v4
+        with:
+          name: classic-pe-symbols
+          path: symbols
+      - uses: actions/download-artifact@v4
+        with:
+          name: classic-linux-sizes
+          path: symbols
+      - name: Four new characters from the game's own short introduction, each with a starter
+        run: |
+          .venv/Scripts/python scripts/multiplayer/make_intro_saves.py --exe mega-check-inputs/pokeemerald-mp-bfxtest.exe \
+            --mega-check mega-check-inputs/mega_check.py --out "$RUNNER_TEMP/intro" --count 4
+          .venv/Scripts/python scripts/multiplayer/make_tower_saves.py --exe mega-check-inputs/pokeemerald-mp-bfxtest.exe \
+            --mega-check mega-check-inputs/mega_check.py --source-a "$RUNNER_TEMP/intro/boy-1.sav" \
+            --source-b "$RUNNER_TEMP/intro/girl-1.sav" --source-c "$RUNNER_TEMP/intro/boy-2.sav" \
+            --source-d "$RUNNER_TEMP/intro/girl-2.sav" --out "$RUNNER_TEMP/abandon-saves" \
+            --only abandon-a,abandon-b,abandon-c,abandon-d
+      - name: The interrupted battle (${{ matrix.scenario }})
+        run: |
+          .venv/Scripts/python scripts/multiplayer/native_launcher_abandon_proof.py --scenario ${{ matrix.scenario }} \
+            --game inputs/pokeemerald-mp.exe --sdl inputs/SDL2.dll --rom inputs/pokedev.gba \
+            --manifest inputs/manifest.json --pe-symbols symbols/pokeemerald-mp.nm.txt \
+            --sizes symbols/pokeemerald-mp.sizes.txt --slow 1.5 \
+            --source "$RUNNER_TEMP/abandon-saves/abandon-a.sav" --source "$RUNNER_TEMP/abandon-saves/abandon-b.sav" \
+            --source "$RUNNER_TEMP/abandon-saves/abandon-c.sav" --source "$RUNNER_TEMP/abandon-saves/abandon-d.sav" \
+            --output "$RUNNER_TEMP/multiplayer-proof/abandon-${{ matrix.scenario }}"
+      - name: Upload the proof's record (private to this repository, 7 days; no save)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: EmeraldTogether-abandon-check-${{ matrix.scenario }}
+          path: |
+            ${{ runner.temp }}/multiplayer-proof/*/evidence.json
+            ${{ runner.temp }}/multiplayer-proof/*/*.jsonl
+            ${{ runner.temp }}/multiplayer-proof/*/*.png
+            ${{ runner.temp }}/abandon-saves/run-*/test.log
           retention-days: 7
           if-no-files-found: warn
 

@@ -55,12 +55,18 @@ import time
 import traceback
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "windows-runtime"))
-from native_launcher_battle_proof import Player, drive_battle_input, launcher_proof  # noqa: E402
+from native_launcher_battle_proof import WINDOWS, Player, drive_battle_input, launcher_proof  # noqa: E402
 from native_launcher_ffa_proof import (challenge_free_for_all, close_players, into_littleroot,  # noqa: E402
                                       players_tab, pose_of, save_regions)
 from qualify_admission_cleanup import on_worker, require  # noqa: E402
 from qualify_launcher_session import inspect_closed_head  # noqa: E402
 import route_timeline  # noqa: E402
+
+
+def kill_hard(pid):
+    """A crash: the process killed outright (SIGKILL; on Windows TerminateProcess, what os.kill does there)."""
+    os.kill(pid, signal.SIGTERM if WINDOWS else signal.SIGKILL)
+
 
 PLAYER_NAMES = ("AB Host", "AB Friend 1", "AB Friend 2", "AB Friend 3")
 SCENARIOS = ("pairs-crash", "multi-network", "ffa-host-crash", "ffa-exit")
@@ -305,7 +311,10 @@ class AbandonProof:
     async def interrupt(self, kind, slot, current, games, record):
         harness = self.harness
         if kind in ("crash", "exit"):
-            os.kill(games[slot].process.pid, signal.SIGKILL if kind == "crash" else signal.SIGTERM)
+            if kind == "crash":
+                kill_hard(games[slot].process.pid)
+            else:
+                await harness.close_game(games[slot], harness.players[slot].probe)  # SIGTERM; Windows: WM_CLOSE
             await harness.poll_until(lambda: games[slot].process.returncode is not None, 60)
             record("game-" + ("killed" if kind == "crash" else "closed") + "-during-the-battle", slot=slot,
                    exit_code=games[slot].process.returncode)
@@ -319,7 +328,7 @@ class AbandonProof:
         elif kind == "host-crash":
             async def crash(s):
                 server = s._server
-                os.kill(s._game.process.pid, signal.SIGKILL)
+                kill_hard(s._game.process.pid)
                 for writer in list(server._connections):
                     writer.transport.abort()
                 if server._server is not None:
@@ -648,7 +657,7 @@ def main():
     parser.add_argument("--rom", type=Path, required=True)
     parser.add_argument("--manifest", type=Path, required=True)
     parser.add_argument("--source", type=Path, action="append", required=True, help="a save per player (four)")
-    parser.add_argument("--display", action="append", required=True, help="an X display per player (four)")
+    parser.add_argument("--display", action="append", help="an X display per player (four; Linux)")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--slow", type=float, default=1.0)
     parser.add_argument("--interrupt-after", type=float, default=60, help="seconds into the battle")
@@ -657,7 +666,13 @@ def main():
     parser.add_argument("--wine", type=Path, action="append", help="(not used by this proof)")
     parser.add_argument("--sdl", type=Path)
     parser.add_argument("--elf", type=Path)
-    asyncio.run(run(parser.parse_args()))
+    parser.add_argument("--pe-symbols", type=Path, help="Windows: i686-w64-mingw32-nm -n of the game before its strip")
+    parser.add_argument("--sizes", type=Path, help="Windows: nm -S of the Linux build of the same engine commit")
+    args = parser.parse_args()
+    if not args.display:
+        require(WINDOWS, "an X display per player")
+        args.display = [f"desktop-{n}" for n in range(4)]          # Windows: one desktop; names for the records
+    asyncio.run(run(args))
 
 
 if __name__ == "__main__":
