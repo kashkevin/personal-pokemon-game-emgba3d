@@ -717,12 +717,38 @@ class TowerScenario:
             if floor == 11:
                 # A disconnect and a reconnect: player 2's game closed in the world and started again through the
                 # launcher. The host keeps both players' progress; the team and the Duo are formed again.
+                # --rejoin reset: instead, player 2's soft reset (START > PLAYER > RESET > "Reset to last host save"),
+                # which starts its game again from its host save in the same session and keeps nothing unsaved -
+                # floor 10's first-clear prize, delivered to the game after its last save, among it.
                 game = games[1]
-                os.kill(game.process.pid, signal.SIGTERM)
-                await harness.poll_until(lambda: game.process.returncode is not None, 60)
-                await harness.poll_until(lambda: not current[1].busy, 180)
-                record("tower-join-player-2-closed", exit_code=game.process.returncode)
-                again = await harness.start("rejoin", 1)
+                if getattr(self.args, "rejoin", "close") == "reset":
+                    from native_launcher_soft_reset_proof import SoftResetProof
+                    await SoftResetProof.open_reset_page(SoftResetProof, probes[1])
+                    await probes[1].choose("Reset to last host save")
+                    await SoftResetProof.final_choice(probes[1], "Yes, reset now")
+                    record("tower-join-player-2-reset", pid=game.process.pid)
+                    await harness.poll_until(lambda: game.process.returncode is not None, 120)
+                    old_pid = game.process.pid
+
+                    async def new_game(s):
+                        g = s._game
+                        return None if g is None or g.process.returncode is not None or g.process.pid == old_pid else (
+                            g, s.profile_directory / "character.sav", s._companion)
+                    async with asyncio.timeout(240):
+                        while (found := await on_worker(current[1], new_game)) is None:
+                            await asyncio.sleep(.25)
+                    new, mirror, companion = found
+                    harness.children.append(new.process)
+                    probe = await harness.boot_until_field(companion, new.process, 1)
+                    from native_launcher_battle_proof import Player
+                    again = Player(1, current[1], new, probe, mirror, companion)
+                    record("tower-join-player-2-restarted", old_pid=old_pid, new_pid=new.process.pid)
+                else:
+                    os.kill(game.process.pid, signal.SIGTERM)
+                    await harness.poll_until(lambda: game.process.returncode is not None, 60)
+                    await harness.poll_until(lambda: not current[1].busy, 180)
+                    record("tower-join-player-2-closed", exit_code=game.process.returncode)
+                    again = await harness.start("rejoin", 1)
                 harness.players[1] = again
                 current[1], probes[1], games[1] = again.worker, again.probe, again.game
                 await harness.ready(again)
@@ -1008,6 +1034,8 @@ def main():
     parser.add_argument("--native-ui", action="store_true", help="the 3D game's native PC UI on (the ui scenario)")
     parser.add_argument("--floors", type=int, default=None, help="the last floor (solo: 11, climb: 100)")
     parser.add_argument("--weak-b", action="store_true", help="source B is a losing fixture (player 2 loses its progress floor)")
+    parser.add_argument("--rejoin", choices=("close", "reset"), default="close",
+                        help="join: player 2 leaves after floor 10 by closing its game (default) or by its soft reset")
     parser.add_argument("--party-counts", type=int, nargs=2, default=(2, 1))
     parser.add_argument("--floors-json", type=Path, help="the engine's tools/tower_legends/tower_legends.json (mega)")
     parser.add_argument("--game", type=Path, required=True)

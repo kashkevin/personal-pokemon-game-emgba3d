@@ -631,7 +631,9 @@ jobs:
     # progression - player 1 (floors 1-11 cleared, three level-10 Mewtwo) joins player 2's Duo on player 2's floor 10:
     # floors 10 and 11 pay player 1 nothing while its Mewtwo gain experience and levels, player 2 is paid each first
     # clear, player 2's game closed and started again between them (its rewards arrive once), floor 12 pays both, and
-    # after the world's host restarts both records are kept and nothing is paid again;
+    # after the world's host restarts both records are kept and nothing is paid again; join-reset: the same with player 2's
+    # soft reset (START > PLAYER > RESET, back to its host save) in place of the close: floor 10's prize, received after
+    # the save, arrives again exactly once;
     # mega: a Duo replay
     # of floor 40 where Norman's Kangaskhan Mega Evolves; forfeit: player 2's solo floor closed mid-battle (player 1
     # hosts the world, which stays up), the game started again, the floor counted as a loss on the next ask; ui: the 3D
@@ -653,6 +655,7 @@ jobs:
           - {name: milestone, scenario: solo, a: tower-strong25-a, b: tower-weak-b, extra: "--weak-b --party-counts 6 1 --floors 26"}
           - {name: duo, scenario: duo, a: tower-strong-a, b: tower-strong-b, extra: "--party-counts 6 6"}
           - {name: join, scenario: join, a: tower-join-a, b: tower-join-b, extra: "--party-counts 3 6"}
+          - {name: join-reset, scenario: join, a: tower-join-a, b: tower-join-b, extra: "--party-counts 3 6 --rejoin reset"}
           - {name: mega, scenario: mega, a: tower-mega-a, b: tower-mega-b, extra: "--party-counts 6 6 --floors-json mega-check-inputs/tower_legends.json"}
           - {name: forfeit, scenario: forfeit, a: tower-strong-a, b: tower-forfeit-b, extra: "--party-counts 6 6"}
           - {name: ui, scenario: ui, a: tower-strong-a, b: tower-strong-b, extra: "--party-counts 6 6 --native-ui", game: inputs/pokeemerald-mp-diorama.exe, mesa: "yes"}

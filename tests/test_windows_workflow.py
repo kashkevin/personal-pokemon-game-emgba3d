@@ -69,6 +69,9 @@ class WindowsWorkflowTests(unittest.TestCase):
             self.assertIn(f"{{name: {name}, scenario: {scenario},", proof)
         # join: co-op progression - the player who climbed higher (three level-10 Mewtwo) joins the other's lower floor
         self.assertIn('{name: join, scenario: join, a: tower-join-a, b: tower-join-b, extra: "--party-counts 3 6"}', proof)
+        # join-reset: the same with player 2's soft reset in place of the close (L tower-join-reset-1)
+        self.assertIn('{name: join-reset, scenario: join, a: tower-join-a, b: tower-join-b, '
+                      'extra: "--party-counts 3 6 --rejoin reset"}', proof)
         self.assertIn("b: tower-weak25-b", proof)          # player 2 loses the special boss (floor 25)
         self.assertIn("scripts/multiplayer/make_tower_saves.py", proof)
         self.assertIn("scripts/multiplayer/native_launcher_tower_proof.py --scenario ${{ matrix.scenario }}", proof)
