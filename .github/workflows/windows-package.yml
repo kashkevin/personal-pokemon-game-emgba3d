@@ -143,6 +143,9 @@ jobs:
       - name: Build the GBA ROM, the Windows 3D game and the Classic 2D game
         id: build
         working-directory: engine
+        env:
+          # only: package (an installer and nothing else): the test builds the check jobs use are left out
+          QUICK: ${{ inputs.only == 'package' && '1' || '' }}
         run: |
           export PATH="$GITHUB_WORKSPACE/.tools/bin:$PATH"
           make -j"$(nproc)" BUILD_NAME=dev
@@ -162,6 +165,7 @@ jobs:
           # information; MinGW's layout is not the Linux build's).
           python ../app/scripts/multiplayer/mega_facts.py --game pokeemerald-mp.exe --out ../classic-pe-symbols/mega-facts.json
           i686-w64-mingw32-strip --strip-all pokeemerald-mp.exe
+          if [ -z "$QUICK" ]; then
           # The Mega Evolution check's test build (never packaged): the Classic 2D game with the battle test driver.
           make -f Makefile_pc SDL_DIR="$GITHUB_WORKSPACE/sdl/SDL2-${SDL_VERSION}/i686-w64-mingw32" BFX_TEST=1 -j"$(nproc)"
           # The Tower's 100-floor climb runs this test build through the launcher: its symbol table before the strip.
@@ -203,6 +207,7 @@ jobs:
             python3 tools/qa/gameplay_check.py --exe pokeemerald-mp-bfxtest.exe --plan-only --out ../gameplay-inputs/plan
           fi
           cp "$GITHUB_WORKSPACE/sdl/SDL2-${SDL_VERSION}/i686-w64-mingw32/bin/SDL2.dll" ../mega-check-inputs/
+          fi
           rom_sha="$(sha256sum pokedev.gba | cut -d' ' -f1)"
           if [ -n "${{ inputs.expected_rom_sha256 }}" ] && [ "$rom_sha" != "${{ inputs.expected_rom_sha256 }}" ]; then
             echo "ROM sha256 $rom_sha differs from the expected pin" >&2; exit 1
@@ -232,7 +237,8 @@ jobs:
                      "gMultiplayerMenuReleaseAbiVersion": "menu_release_abi_version",
                      "gMultiplayerSaveImportWindowAbiVersion": "save_import_window_abi_version",
                      "gMultiplayerSavePartyQueryAbiVersion": "save_party_query_abi_version",
-                     "gMultiplayerTowerAbiVersion": "tower_abi_version"}
+                     "gMultiplayerTowerAbiVersion": "tower_abi_version",
+                     "gMultiplayerHostSavePageAbiVersion": "host_save_page_abi_version"}
           present = [field for symbol, field in markers.items() if re.search(rf"\s_?{symbol}$", symbols, re.M)]
           missing = [field for field in present if manifest.get(field) != 1]
           assert not missing, f"the Windows game has these markers but its manifest lacks {missing}"
@@ -246,6 +252,7 @@ jobs:
           retention-days: 1
           if-no-files-found: error
       - name: Hand the Mega check's test build to its Windows job (private, one day)
+        if: ${{ inputs.only != 'package' }}
         uses: actions/upload-artifact@v4
         with:
           name: mega-check-inputs
@@ -253,6 +260,7 @@ jobs:
           retention-days: 1
           if-no-files-found: error
       - name: Hand the 3D test build to the graphics job (private, one day)
+        if: ${{ inputs.only != 'package' }}
         uses: actions/upload-artifact@v4
         with:
           name: diorama-check-inputs
@@ -260,6 +268,7 @@ jobs:
           retention-days: 1
           if-no-files-found: error
       - name: Hand the gameplay check's plan to its Windows jobs (private, one day)
+        if: ${{ inputs.only != 'package' }}
         uses: actions/upload-artifact@v4
         with:
           name: gameplay-inputs
