@@ -217,10 +217,20 @@ class HostOutTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.records, [dict(check="knockout-2v2-host-out", menus=2)])
 
     def test_the_knockout_sources_have_their_own_party_profile(self):
-        self.assertEqual(proof.party_counts("ffa-knockout"), (1, 2, 1, 4))
-        self.assertEqual(proof.party_counts("multi-knockout"), (1, 2, 1, 4))
+        self.assertEqual(proof.party_counts("ffa-knockout"), (1, 2, 2, 4))
+        self.assertEqual(proof.party_counts("multi-knockout"), (1, 2, 2, 4))
         for scenario in ("pairs-crash", "multi-network", "ffa-host-crash", "ffa-exit"):
             self.assertEqual(proof.party_counts(scenario), (1, 1, 1, 1))
+
+    def test_the_knockout_2v2_puts_the_host_at_battler_0_when_any_id_sorts_after_it(self):
+        self.assertEqual(proof.knockout_teams(["b", "a", "c", "d"]), (((0, 2), (1, 3)), True))
+        self.assertEqual(proof.knockout_teams(["a", "b", "c", "d"]), (((0, 1), (2, 3)), True))
+        self.assertEqual(proof.knockout_teams(["c", "d", "a", "b"]), (((0, 1), (2, 3)), True))
+        self.assertEqual(proof.knockout_teams(["d", "a", "b", "c"]), (((0, 1), (2, 3)), False))
+        for ids in (["b", "a", "c", "d"], ["c", "a", "b", "d"], ["c", "d", "a", "b"]):
+            (team, _), first = proof.knockout_teams(ids)
+            self.assertTrue(first)
+            self.assertEqual(min(team, key=lambda slot: ids[slot]), 0)    # battle_desk.invite_multi sorts each team
 
     async def test_a_battle_whose_host_was_never_out_fails_the_check(self):
         out = bytes.fromhex("0001020308000502" "11000000" "00000000")

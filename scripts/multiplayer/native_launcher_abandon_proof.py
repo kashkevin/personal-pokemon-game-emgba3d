@@ -27,11 +27,13 @@ ordinary key presses. Scenarios (--scenario):
     ffa-knockout     No interruption (KNOWN_ISSUES MS-57): a free-for-all whose host is knocked out on its first turn and
                      which goes on without the host to its result. The sources are make_tower_saves.py knockout-a..d: a
                      level-30 Earthquake (Friend 1's two Mudkip) against the host's level-2 Torchic (super effective:
-                     always out on the first turn) and Friend 2's level-2 Treecko, level-30 Tackles (Friend 3's four
-                     Zigzagoon): about eight turns with the host out. One of the two level-30 trainers wins.
-    multi-knockout   The same in a 2v2 (KNOWN_ISSUES MS-57's other format): the host and Friend 1 against Friends 2
-                     and 3 with the knockout sources; Friend 1's Earthquake knocks out its own partner's - the host's -
-                     level-2 Pokemon and Friend 2's on the first turn, and the 2v2 goes on without the host to its result.
+                     always out on the first turn), level-30 Tackles (Friend 2's two Zigzagoon, Friend 3's four): many
+                     turns with the host out, battler 1 alive through them. Anyone but the host wins.
+    multi-knockout   The same in a 2v2 (KNOWN_ISSUES MS-57's other format) with the knockout sources: the host's team
+                     is the host and a friend whose player id sorts after the host's (a 2v2 orders each team by id),
+                     so the host is battler 0; the first Earthquake or Tackle knocks its Torchic out and the 2v2 goes on
+                     without it to its result. When the host's id sorts after every other the record says so and only
+                     the result counts.
                      Both knockout scenarios read the host's route journal: the master's action menus must have carried
                      battler 0's B_ACTION_NOTHING_FAINTED (the host out while the battle went on).
 
@@ -84,9 +86,20 @@ PLAYER_NAMES = ("AB Host", "AB Friend 1", "AB Friend 2", "AB Friend 3")
 SCENARIOS = ("pairs-crash", "multi-network", "ffa-host-crash", "ffa-exit", "ffa-knockout", "multi-knockout")
 
 
+def knockout_teams(player_ids):
+    """The knockout 2v2's teams: the host and a teammate whose player id sorts after the host's, so the host - the one
+    knocked out on the first turn - is battler 0, the master's own battler (KNOWN_ISSUES MS-57): a 2v2 orders each team
+    by player id (battle_desk.invite_multi). Returns the two teams (slots, inviter first) and whether the host is first:
+    not when its id sorts after every other (then no teammate does it)."""
+    later = [slot for slot in (1, 2, 3) if player_ids[slot] > player_ids[0]]
+    mate = later[0] if later else 1
+    others = tuple(slot for slot in (1, 2, 3) if slot != mate)
+    return ((0, mate), others), bool(later)
+
+
 def party_counts(scenario):
-    """The sources' party sizes: one Pokemon each, but the knockout sources' two Mudkip and four Zigzagoon."""
-    return (1, 2, 1, 4) if scenario.endswith("-knockout") else (1,) * 4
+    """The sources' party sizes: one Pokemon each, but the knockout sources' two Mudkip, two and four Zigzagoon."""
+    return (1, 2, 2, 4) if scenario.endswith("-knockout") else (1,) * 4
 PENDING = ("pending-battle.json", "pending-battle-admission.json")
 CLOSED_WAIT = 120       # seconds a launcher may take to report a closed battle finished (and saved)
 
@@ -216,8 +229,8 @@ class AbandonProof:
         await probes[recipient].choose("Pending challenge")
         await probes[recipient].choose("Accept challenge")
 
-    async def form_teams(self, host, current, probes, record):
-        for sender, recipient in ((0, 1), (2, 3)):
+    async def form_teams(self, host, current, probes, record, teams=((0, 1), (2, 3))):
+        for sender, recipient in teams:
             await probes[sender].open_players()
             await probes[sender].choose(host.accounts[recipient].display_name, prefix=True)
             await probes[sender].choose("Invite to team")
@@ -226,7 +239,7 @@ class AbandonProof:
             await probes[recipient].choose("Accept invitation")
             await close_players(probes[sender])
             await close_players(probes[recipient])
-        record("teams-formed", teams=[[0, 1], [2, 3]])
+        record("teams-formed", teams=[list(team) for team in teams])
 
     async def challenge_2v2(self, probes):
         await probes[0].open_players()
@@ -735,21 +748,26 @@ class AbandonProof:
         stops, drivers = self.drive(current, probes, symbols, battles, range(4))
         await self.finish(current, probes, battles, range(4), stops, drivers, record, "knockout-free-for-all")
         fate = await on_worker(current[0], self.host_fate(battle_id))
-        strong = {host.accounts[1].player_id: PLAYER_NAMES[1], host.accounts[3].player_id: PLAYER_NAMES[3]}
+        strong = {host.accounts[n].player_id: PLAYER_NAMES[n] for n in (1, 2, 3)}
         winner = (fate["ffa_result"] or {}).get("winner")
-        require(winner in strong, f"the free-for-all's winner is not a level-30 trainer: {fate}")
+        require(winner in strong, f"the free-for-all's winner is not one of the level-30 trainers: {fate}")
         record("knockout-free-for-all-won", winner=strong[winner])
         await self.host_was_out(current, battle_id, record, "knockout-free-for-all")
         await self.world_is_whole(current, probes, before, record, "everyone-back-after-the-knockout")
 
     async def multi_knockout(self, current, probes, games, host, symbols, record, before):
-        await self.form_teams(host, current, probes, record)
-        await self.challenge_2v2(probes)
+        teams, host_first = knockout_teams([account.player_id for account in host.accounts])
+        await self.form_teams(host, current, probes, record, teams)
+        await self.challenge_2v2(probes)                         # the host's team: battlers 0 and 2
         battles = await self.enter(current, probes, range(4), record, "knockout-2v2")
         battle_id = next(iter(battles))
         stops, drivers = self.drive(current, probes, symbols, battles, range(4))
         await self.finish(current, probes, battles, range(4), stops, drivers, record, "knockout-2v2")
-        await self.host_was_out(current, battle_id, record, "knockout-2v2")
+        if host_first:
+            await self.host_was_out(current, battle_id, record, "knockout-2v2")
+        else:
+            record("knockout-2v2-host-not-battler-0", reason="the host's player id sorts after every other: no "
+                   "teammate puts the host at battler 0, so this 2v2 cannot show MS-57's situation")
         await self.world_is_whole(current, probes, before, record, "everyone-back-after-the-knockout")
 
     async def host_was_out(self, current, battle_id, record, label):

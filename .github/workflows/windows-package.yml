@@ -1127,9 +1127,9 @@ jobs:
     # on the field with the party of the last save, no result for the abandoned battle, then a battle to its end. The
     # characters come from the game's own short introduction, each given one level-5 starter by the test build.
     # ffa-knockout and multi-knockout (KNOWN_ISSUES MS-57): no interruption; the host knocked out on the first turn of a
-    # free-for-all or a 2v2 that goes on to its result (knockout-a..d: a level-30 Earthquake against two level-2 Pokemon,
-    # in the 2v2 the host's own partner's); the host's route journal must show the host's game sending action menus
-    # with battler 0 out.
+    # free-for-all or a 2v2 that goes on to its result (knockout-a..d: the host's level-2 Torchic against level-30
+    # Earthquake and Tackle users; in the 2v2 the host's partner is chosen so that the host is battler 0); the host's
+    # route journal must show the host's game sending action menus with battler 0 out.
     name: Interrupted battle (Windows game processes, ${{ matrix.scenario }}${{ matrix.attempt > 1 && format(', attempt {0}', matrix.attempt) || '' }})
     needs: [engine, symbol-sizes]
     if: ${{ (inputs.mode || 'smoke') == 'full' && (!inputs.only || contains(format(',{0},', inputs.only), ',abandon-check,')) }}
