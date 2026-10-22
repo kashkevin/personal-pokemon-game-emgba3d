@@ -31,9 +31,11 @@ saves, the canonical checkpoints (money, the Bag, Battle Points, the PC, the rec
                       the player's first Tower action): a Duo replay of floor 40, Norman and his partner; the master
                       game's battle shows Norman's Kangaskhan Mega Evolved.
   --scenario climb    both players climb floors 1 to --floors (default 100) at the same time, in the engine's test build
-                      (--game pokeemerald-mp-bfxtest with --test-env: PKMN_TEST_TOWER_WIN=1, the floor check's in-memory
-                      advantage, and PKMN_TEST_SPEED=4, the game's clock four times as fast; an accelerated set-up, as
-                      the request allows): every floor through the menus and settled by the host, the record mirror
+                      (--game pokeemerald-mp-bfxtest with --test-env PKMN_TEST_TOWER_WIN=1, the floor check's in-memory
+                      advantage: the lead's HP full again at each of its turns; an accelerated set-up, as the request
+                      allows. Not PKMN_TEST_SPEED: it runs the whole game faster than the harness's presses, which are
+                      timed in seconds - L tower-climb-1's walk into Littleroot went past the town): every floor through
+                      the menus and settled by the host, the record mirror
                       after each; at the end each save holds every first-clear prize (the 12 prize floors' items and
                       money, every floor's money and BP as tower_rewards.py says), the four milestone Pokemon (in the
                       PC: the party is full) and the record P 101, H 100, claims 0xFFFF.
@@ -744,6 +746,12 @@ class TowerScenario:
                 require(paid == expected, f"slot {slot}: the saved prizes {paid} differ from the host's {expected}")
                 require(after["tower"] is not None and (after["tower"]["progress"], after["tower"]["highest"])
                         == (self.args.floors + 1, self.args.floors), f"slot {slot}: the saved Tower record")
+                if self.args.scenario == "climb":
+                    # every milestone climbed made its Pokemon in the game, into the PC (the party is full)
+                    milestones = sum(floor <= self.args.floors for floor in tower_rewards.MILESTONE_FLOORS)
+                    require(after["stored"] - before["stored"] == milestones,
+                            f"slot {slot}: the PC holds {after['stored'] - before['stored']} new Pokemon, not the "
+                            f"{milestones} milestone Pokemon")
             return
         after = wallet_of(saved[0].payload)
         paid = {key: after[key] - self.before[key] for key in ("money", "rare_candy", "bp", "hp_up")}

@@ -72,12 +72,17 @@ class WindowsWorkflowTests(unittest.TestCase):
         self.assertIn("scripts/multiplayer/native_launcher_tower_proof.py --scenario ${{ matrix.scenario }}", proof)
         self.assertIn("a: tower-strong25-a", proof)        # the milestone Pokemon of floor 25
         self.assertIn("b: tower-forfeit-b", proof)         # the joiner forfeits: the host's world stays up
-        self.assertIn('--pe-symbols "symbols/${game%.exe}.nm.txt"', proof)
-        self.assertIn("game=\"${{ matrix.game || 'pokeemerald-mp.exe' }}\"", proof)     # the Classic 2D game by default
+        self.assertIn('--pe-symbols "symbols/$name.nm.txt"', proof)
+        self.assertIn("game=\"${{ matrix.game || 'inputs/pokeemerald-mp.exe' }}\"", proof)     # the Classic 2D game by default
         # ui: the 3D game's native Tower pages through Mesa (the pinned archive, as graphics-3d), its symbols from the
         # engine job, Mesa added to the proof's runtime only
         self.assertIn("{name: ui, scenario: ui,", proof)
-        self.assertIn("game: pokeemerald-mp-diorama.exe, mesa: \"yes\"}", proof)
+        self.assertIn("game: inputs/pokeemerald-mp-diorama.exe, mesa: \"yes\"}", proof)
+        # climb: floors 1-100 in the test build through the launcher, its symbols from before the strip, a longer limit
+        self.assertIn("{name: climb, scenario: climb,", proof)
+        self.assertIn("--test-env PKMN_TEST_TOWER_WIN=1\", game: mega-check-inputs/pokeemerald-mp-bfxtest.exe}", proof)
+        self.assertNotIn("PKMN_TEST_SPEED", proof)          # the whole game faster than the harness's presses
+        self.assertIn("timeout-minutes: ${{ matrix.name == 'climb' && 330 || 120 }}", proof)
         self.assertIn("MESA_SHA256: 351fc8c8b695878ffb3eaa044b3ead08672a48b1a045e3c3e3975811df0f6695", proof)
         self.assertIn("if ($hash -ne $env:MESA_SHA256) { throw", proof)
         self.assertIn('runtime_extra+=(--runtime-extra "$dll")', proof)
@@ -86,6 +91,8 @@ class WindowsWorkflowTests(unittest.TestCase):
                       engine)
         self.assertLess(engine.index("i686-w64-mingw32-nm -n pokeemerald-mp-diorama.exe"),
                         engine.index("i686-w64-mingw32-strip --strip-all pokeemerald-mp-diorama.exe"))
+        self.assertLess(engine.index("i686-w64-mingw32-nm -n pokeemerald-mp-bfxtest.exe > ../classic-pe-symbols/"),
+                        engine.index("i686-w64-mingw32-strip --strip-all pokeemerald-mp-bfxtest.exe"))
 
     def test_the_engines_self_tests_run_in_the_windows_build(self):
         tests = job("selftests")
@@ -174,6 +181,14 @@ class WindowsWorkflowTests(unittest.TestCase):
         self.assertIn("shop_check.py --exe mega-check-inputs\\pokeemerald-mp-bfxtest.exe --make-save", shop)
         self.assertIn('throw "the shop check failed', shop)
         self.assertIn("tools/battle_env/shop_check.py ../mega-check-inputs/", job("engine"))
+
+    def test_catching_runs_in_windows_game_processes(self):
+        catch = job("catch-check")
+        self.assertIn("runs-on: windows-2022", catch)
+        self.assertIn("needs: engine", catch)
+        self.assertIn("catch_check.py --exe mega-check-inputs\\pokeemerald-mp-bfxtest.exe --make-save", catch)
+        self.assertIn('throw "the catch check failed', catch)                  # a failed step fails the job
+        self.assertIn("tools/battle_env/catch_check.py ../mega-check-inputs/", job("engine"))
 
     def test_the_rival_checkpoints_run_in_windows_game_processes(self):
         rival = job("rival-check")

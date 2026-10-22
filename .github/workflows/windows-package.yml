@@ -139,6 +139,8 @@ jobs:
           i686-w64-mingw32-strip --strip-all pokeemerald-mp.exe
           # The Mega Evolution check's test build (never packaged): the Classic 2D game with the battle test driver.
           make -f Makefile_pc SDL_DIR="$GITHUB_WORKSPACE/sdl/SDL2-${SDL_VERSION}/i686-w64-mingw32" BFX_TEST=1 -j"$(nproc)"
+          # The Tower's 100-floor climb runs this test build through the launcher: its symbol table before the strip.
+          i686-w64-mingw32-nm -n pokeemerald-mp-bfxtest.exe > ../classic-pe-symbols/pokeemerald-mp-bfxtest.nm.txt
           i686-w64-mingw32-strip --strip-all pokeemerald-mp-bfxtest.exe
           # The 3D game's test build (never packaged): the 3D battles and Mega forms drawn on a Windows runner through
           # Mesa's software OpenGL (the graphics-3d job; the hosted runner's own OpenGL is 1.1).
@@ -159,6 +161,8 @@ jobs:
           if [ -f tools/battle_env/evolve_check.py ]; then cp tools/battle_env/evolve_check.py ../mega-check-inputs/; fi
           # A Poke Mart's purchase and sale with money, from an engine that has the check.
           if [ -f tools/battle_env/shop_check.py ]; then cp tools/battle_env/shop_check.py ../mega-check-inputs/; fi
+          # Wild Pokemon caught (into the party, into the PC), from an engine that has the check.
+          if [ -f tools/battle_env/catch_check.py ]; then cp tools/battle_env/catch_check.py ../mega-check-inputs/; fi
           # The rival checkpoints and the short introduction through the game's own scripts (the rival-check job): the
           # flag and variable numbers from this engine's headers, as the Windows runner has none.
           if grep -q -- "--write-facts" tools/pc_port/rival_check.py 2>/dev/null; then
@@ -501,6 +505,46 @@ jobs:
           retention-days: 7
           if-no-files-found: warn
 
+  catch-check:
+    # Catching wild Pokemon in real Windows game processes of the test build (a GitHub-hosted runner, not a player's PC;
+    # tools/battle_env/catch_check.py): a Master Ball thrown from the battle's Bag, "Gotcha!", the experience, the
+    # Pokedex registration, NO to the nickname; a party of five keeps the catch (level, ball), a full party sends it to
+    # the PC; one species more caught in the Pokedex; each saved and loaded, read from the game's own log.
+    name: Catching wild Pokemon (Windows game processes)
+    needs: engine
+    if: ${{ (inputs.mode || 'smoke') == 'full' }}
+    runs-on: windows-2022
+    timeout-minutes: 30
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@v4
+        with:
+          name: mega-check-inputs
+          path: mega-check-inputs
+      - name: A character from the short introduction, then a catch into the party and one into the PC, both saves
+        shell: pwsh
+        run: |
+          if (-not (Test-Path mega-check-inputs\catch_check.py)) {
+            Write-Output "::notice::this engine has no catch check (tools/battle_env/catch_check.py)"
+            exit 0
+          }
+          $out = Join-Path $env:RUNNER_TEMP "catch-check"
+          python mega-check-inputs\catch_check.py --exe mega-check-inputs\pokeemerald-mp-bfxtest.exe --make-save --out $out
+          if ($LASTEXITCODE -ne 0) { throw "the catch check failed ($LASTEXITCODE)" }
+      - name: Upload the report (private to this repository, 7 days; no save)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: EmeraldTogether-catch-check
+          path: |
+            ${{ runner.temp }}/catch-check/**/*.json
+            ${{ runner.temp }}/catch-check/**/test.log
+            ${{ runner.temp }}/catch-check/**/*.png
+          retention-days: 7
+          if-no-files-found: warn
+
   rival-check:
     # Update 31's rival checkpoints and the short introduction through the game's own scripts, in Windows game processes
     # of the player build (a GitHub-hosted runner, not a player's PC): an armed trigger line stops a northbound player
@@ -561,12 +605,15 @@ jobs:
     # of floor 40 where Norman's Kangaskhan Mega Evolves; forfeit: player 2's solo floor closed mid-battle (player 1
     # hosts the world, which stays up), the game started again, the floor counted as a loss on the next ask; ui: the 3D
     # game the launcher packages with its native PC UI, through Mesa's software OpenGL (pinned, as graphics-3d; added to
-    # the proof's runtime only, never to the package): player 1 opens every Tower page and each is pictured.
+    # the proof's runtime only, never to the package): player 1 opens every Tower page and each is pictured; climb: both
+    # players climb floors 1-100 at once in the engine's test build through the launcher (PKMN_TEST_TOWER_WIN: the lead's
+    # HP refilled each turn, in memory only), every floor settled by the host, and at the end each save holds every
+    # first-clear prize, every floor's money and BP, the four milestone Pokemon (in the PC) and the record P 101, H 100.
     name: Battle Tower in the launcher (Windows game processes, ${{ matrix.name }})
     needs: [engine, symbol-sizes]
     if: ${{ (inputs.mode || 'smoke') == 'full' }}
     runs-on: windows-2022
-    timeout-minutes: 120
+    timeout-minutes: ${{ matrix.name == 'climb' && 330 || 120 }}
     strategy:
       fail-fast: false
       matrix:
@@ -576,7 +623,8 @@ jobs:
           - {name: duo, scenario: duo, a: tower-strong-a, b: tower-strong-b, extra: "--party-counts 6 6"}
           - {name: mega, scenario: mega, a: tower-mega-a, b: tower-mega-b, extra: "--party-counts 6 6 --floors-json mega-check-inputs/tower_legends.json"}
           - {name: forfeit, scenario: forfeit, a: tower-strong-a, b: tower-forfeit-b, extra: "--party-counts 6 6"}
-          - {name: ui, scenario: ui, a: tower-strong-a, b: tower-strong-b, extra: "--party-counts 6 6 --native-ui", game: pokeemerald-mp-diorama.exe, mesa: "yes"}
+          - {name: ui, scenario: ui, a: tower-strong-a, b: tower-strong-b, extra: "--party-counts 6 6 --native-ui", game: inputs/pokeemerald-mp-diorama.exe, mesa: "yes"}
+          - {name: climb, scenario: climb, a: tower-strong-a, b: tower-strong-b, extra: "--party-counts 6 6 --test-env PKMN_TEST_TOWER_WIN=1", game: mega-check-inputs/pokeemerald-mp-bfxtest.exe}
     defaults:
       run:
         shell: bash
@@ -642,12 +690,13 @@ jobs:
           GALLIUM_DRIVER: llvmpipe
         run: |
           if [ ! -f mega-check-inputs/tower_check.py ]; then echo "::notice::this engine has no Battle Tower"; exit 0; fi
-          game="${{ matrix.game || 'pokeemerald-mp.exe' }}"
+          game="${{ matrix.game || 'inputs/pokeemerald-mp.exe' }}"
+          name="$(basename "$game" .exe)"
           runtime_extra=()
           for dll in mesa/*.dll; do if [ -f "$dll" ]; then runtime_extra+=(--runtime-extra "$dll"); fi; done
           .venv/Scripts/python scripts/multiplayer/native_launcher_tower_proof.py --scenario ${{ matrix.scenario }} \
-            --game "inputs/$game" --sdl inputs/SDL2.dll --rom inputs/pokedev.gba \
-            --manifest inputs/manifest.json --pe-symbols "symbols/${game%.exe}.nm.txt" \
+            --game "$game" --sdl inputs/SDL2.dll --rom inputs/pokedev.gba \
+            --manifest inputs/manifest.json --pe-symbols "symbols/$name.nm.txt" \
             --sizes symbols/pokeemerald-mp.sizes.txt --slow 1.5 "${runtime_extra[@]}" \
             --source-a "$RUNNER_TEMP/tower-saves/${{ matrix.a }}.sav" --source-b "$RUNNER_TEMP/tower-saves/${{ matrix.b }}.sav" \
             ${{ matrix.extra }} --output "$RUNNER_TEMP/multiplayer-proof/tower-${{ matrix.name }}"
