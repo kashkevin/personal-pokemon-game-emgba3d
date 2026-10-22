@@ -1067,13 +1067,14 @@ class PlayerMenu:
 
     def _render_shop(self, view, page_no):
         """The Battle Points shop (frontier_rewards.SHOP): points are taken from the save first, then the item is given."""
+        from .tower_menu import CLOSE_TO_FINISH
         bp = view.get("bp") or {}
         actions, shop = [], bp.get("shop") or []
         purchase = bp.get("purchase")
         balance = bp.get("balance")
-        status = self._notice or ("Your BP: " + ("?" if balance is None else str(balance)) + " (saved game)")
+        status = self._notice or ("Your BP: " + ("?" if balance is None else str(balance)))
         if purchase is not None and purchase["state"] in ("debit", "granting", "refunding"):
-            status = self._notice or "Waiting for your game..."
+            status = self._notice or CLOSE_TO_FINISH
         per_page = 4
         pages = max(1, (len(shop) + per_page - 1) // per_page)
         page_no = page_no if type(page_no) is int and 0 <= page_no < pages else 0
@@ -1407,9 +1408,10 @@ class PlayerMenu:
                 self._page = ("team_pick", args[1])
             elif op == "shop_buy":
                 from .protocol import ProtocolError
+                from .tower_menu import CLOSE_TO_FINISH
                 try:
                     self._frontier = await self.companion.frontier_rpc("shop_buy", slot=args[0])
-                    self._notice = "Order sent to your game"
+                    self._notice = CLOSE_TO_FINISH
                 except ProtocolError as error:
                     self._notice = error.message[:31]
                 self._page = ("shop", 0)

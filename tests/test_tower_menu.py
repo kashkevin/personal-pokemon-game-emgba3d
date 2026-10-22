@@ -258,7 +258,7 @@ class PageTests(unittest.IsolatedAsyncioTestCase):
                                        "Hyper Training"])
         await self.click("Send Dragonite now")
         self.assertIn(("milestone_send", {"milestone": 0}), self.calls)
-        self.assertEqual(self.menu.screen.status, "Sent: watch your game")
+        self.assertEqual(self.menu.screen.status, "Sent: close the menu")         # the game makes it on the field
         await self.click("Prizes: 3/12 claimed")
         self.assertEqual(self.labels, ["+ 10 10 Rare Candy", "+ 20 5 Bottle Caps", "+ 25 Shiny Pokemon",
                                        "- 30 15 Rare Candy", "More prizes (1/3)"])
@@ -272,7 +272,16 @@ class PageTests(unittest.IsolatedAsyncioTestCase):
                                        "Ability Capsule 50BP", "More items (1/7)"])
         await self.click("Bottle Cap 48BP")
         self.assertIn(("shop_buy", {"slot": 0}), self.calls)
-        self.assertEqual(self.menu.screen.status, "Order sent to your game")
+        self.assertEqual(self.menu.screen.status, "Close the menu to finish")
+        # the game pays and receives on the field, never with this menu open (engine multiplayer.c FieldReady): the
+        # page says so until the order is done (L tower-solo-8 waited with it open for nothing)
+        self.menu._tower._notice = ""                                              # the click's notice read
+        self.view["purchase"] = {"state": "debit", "price": 48, "name": "Bottle Cap"}
+        await self.menu.refresh()
+        self.assertEqual(self.menu.screen.status, "Close the menu to finish")
+        self.view["purchase"] = {"state": "done", "price": 48, "name": "Bottle Cap"}
+        await self.menu.refresh()
+        self.assertEqual(self.menu.screen.status, "Bought Bottle Cap")
 
     async def test_hyper_training_is_the_games_own_screen_and_the_ivs_page(self):
         await self.open_tower()

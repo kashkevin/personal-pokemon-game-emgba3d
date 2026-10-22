@@ -36,6 +36,10 @@ VOID_REASONS = {"refused": "Floor {floor}: your game refused", "expired": "Floor
 PER_PAGE = 4
 
 
+# The game pays for an order and receives it (and a milestone Pokemon) on the field, never while the Players menu is
+# open (engine multiplayer.c FieldReady): the player closes it (windows-package run 121, L tower-solo-8).
+CLOSE_TO_FINISH = "Close the menu to finish"
+
 class TowerMenuError(ValueError):
     def __init__(self, code):
         self.code = code
@@ -184,11 +188,11 @@ class TowerMenu:
             return None
         if op == "tower_buy":
             if await self._rpc("shop_buy", slot=args[0]):
-                self._notice = "Order sent to your game"
+                self._notice = CLOSE_TO_FINISH
             return None
         if op == "tower_send":
             if await self._rpc("milestone_send", milestone=args[0]):
-                self._notice = "Sent: watch your game"
+                self._notice = "Sent: close the menu"
             return None
         if op == "tower_bring":
             return await self._toggle(*args)
@@ -422,10 +426,10 @@ class TowerMenu:
         view = self._view
         shop = view.get("shop") or []
         bp = (view.get("save") or {}).get("bp")
-        status = "Your BP: " + ("?" if bp is None else str(bp)) + " (saved game)"
+        status = "Your BP: " + ("?" if bp is None else str(bp))
         purchase = view.get("purchase")
         if purchase is not None:
-            status = {"debit": "Waiting for your game...", "granting": "Waiting for your game...",
+            status = {"debit": CLOSE_TO_FINISH, "granting": CLOSE_TO_FINISH,
                       "done": "Bought " + purchase["name"][:18], "refused": "Not enough BP in the game",
                       "refunded": "No room: BP returned", "void": "Order not taken: try again"}.get(purchase["state"], status)
         pages = max(1, (len(shop) + PER_PAGE - 1) // PER_PAGE)

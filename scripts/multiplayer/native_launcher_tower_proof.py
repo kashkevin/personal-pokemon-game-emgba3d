@@ -332,7 +332,12 @@ async def shop_buy(probe, worker, record, slot, name, price):
     _, screen = await probe.ready()
     await probe.choose(next(r.label for r in screen.rows if r.label.startswith("Tower Shop")))
     label = await choose_paged(probe, f"{name} {price}BP", "More items")
-    record("tower-shop-ordered", slot=slot, row=label)
+    _, screen = await probe.ready()
+    record("tower-shop-ordered", slot=slot, row=label, status=screen.status)
+    # The game pays and receives the item on the field, never while the Players menu is open (engine multiplayer.c
+    # FieldReady): the page says so, and the player closes it (L tower-solo-8 waited with it open for nothing).
+    require(screen.status == "Close the menu to finish", f"the shop's status after the order: {screen.status!r}")
+    await close_players(probe)
     deadline = time.monotonic() + 120
     while True:
         purchase = (await tower_view(worker)).get("purchase")
@@ -340,7 +345,6 @@ async def shop_buy(probe, worker, record, slot, name, price):
             break
         require(time.monotonic() < deadline, f"the purchase did not finish: {purchase}")
         await asyncio.sleep(1)
-    await close_players(probe)
     record("tower-shop-purchase", slot=slot, purchase=purchase)
     require(purchase["state"] == "done" and purchase["price"] == price, f"the purchase: {purchase}")
 
