@@ -55,7 +55,7 @@ on:
         options: ["no", "yes"]
         default: "no"
       only:
-        description: "full: only these check jobs after the builds (job ids, comma-separated, e.g. abandon-check,rival-proof; blank = every job, the installer too)"
+        description: "full: only these check jobs after the builds (job ids, comma-separated, e.g. abandon-check,rival-proof; no-climb: tower-proof without its climb; blank = every job, the installer too)"
         default: ""
       abandon_scenario:
         description: "full: the interrupted-battle check's scenario (all = the seven)"
@@ -721,6 +721,8 @@ jobs:
           }
           if (-not (Test-Path mesa\opengl32.dll)) { throw "Mesa's 32-bit opengl32.dll is missing" }
       - name: The Battle Tower (${{ matrix.name }})
+        # only: ...,no-climb skips the climb's three hours (a quick run of the other entries)
+        if: ${{ matrix.name != 'climb' || !contains(format(',{0},', inputs.only), ',no-climb,') }}
         env:
           GALLIUM_DRIVER: llvmpipe
         run: |
