@@ -39,7 +39,11 @@ saves, the canonical checkpoints (money, the Bag, Battle Points, the PC, the rec
                       PC: the party is full) and the record P 101, H 100, claims 0xFFFF.
   --scenario ui       the 3D game with the native PC UI (--native-ui): player 1 opens each Tower page (home, a floor's
                       preview, floors and bosses, the floor map, prizes, the shop, Hyper Training, records, the Duo) and
-                      each is pictured (ui-*.png: the Players screen's link device shows the page's Tower screen).
+                      each is pictured (ui-*.png: the Players screen's link device shows the page's Tower screen). The
+                      games run light 3D settings at 960x540 (UI_3D_SETTINGS). Linux: the 3D build with its debug
+                      information stripped (objcopy --strip-debug keeps the symbols; unstripped it is over the runtime's
+                      size limit). Windows: the packaged 3D exe with --runtime-extra Mesa's opengl32.dll and its
+                      libraries (a hosted runner's own OpenGL is 1.1), added to this proof's runtime only.
   --scenario forfeit  player 2 (who joined: the world stays up) from a save whose record says floor 12 cleared (P =
                       13): floor 13 started, the game closed in the battle (an ordinary close), started again through
                       the launcher: the Tower counts floor 13 as a loss ("Floor 13: counted as a loss") and P = 11
@@ -635,7 +639,7 @@ class TowerScenario:
         async def shot(name):
             await asyncio.sleep(1.5)                     # the screen drawn and settled
             _, screen = await probe.ready()
-            pictures.append(dict(name=self.picture(0, f"ui-{name}"), title=screen.title, status=screen.status,
+            pictures.append(dict(picture=self.picture(0, f"ui-{name}"), title=screen.title, status=screen.status,
                                  style=[screen.style, screen.style_arg], rows=[r.label for r in screen.rows]))
             record("tower-ui-page", **pictures[-1])
 
@@ -758,6 +762,12 @@ class TowerScenario:
                     f"the loser's saved Tower record: P {self.loser[0]}, H {self.loser[1]}")
 
 
+# The ui scenario's 3D game: light settings (two 3D games on one machine's software OpenGL), at a size the pages read at
+# (native_launcher_battle_3d_proof.py's, larger).
+UI_3D_SETTINGS = "\n".join(("resolution=960x540", "displayMode=windowed", "renderScale=50", "shadows=off", "lighting=0",
+                             "effects=0", "details=0", "antialiasing=0")) + "\n"
+
+
 async def run(args):
     sources = (args.source_a, args.source_b)
     if not args.display:
@@ -770,7 +780,8 @@ async def run(args):
                          match=getattr(scenario, args.scenario.replace("-", "_")),
                          version=f"Native Tower proof ({args.scenario})",
                          after_boot=lambda phase, slot, probe, companion: into_town(phase, slot, probe, companion),
-                         settings="windowScale=2\n", scope=__doc__.split("\n\n")[0],
+                         settings=UI_3D_SETTINGS if args.scenario == "ui" else "windowScale=2\n",
+                         scope=__doc__.split("\n\n")[0],
                          environment=dict(SDL_FRAMEBUFFER_ACCELERATION="0", PKMN_NATIVE_UI="1" if args.native_ui else "0",
                                           **dict(item.split("=", 1) for item in args.test_env)),
                          after_save=scenario.after_save, on_harness=lambda h: setattr(scenario, "harness", h))
@@ -799,6 +810,9 @@ def main():
     parser.add_argument("--sdl", type=Path, help="Windows: SDL2.dll of the game")
     parser.add_argument("--pe-symbols", type=Path, help="Windows: i686-w64-mingw32-nm -n of the game before its strip")
     parser.add_argument("--sizes", type=Path, help="Windows: nm -S of the Linux build of the same engine commit")
+    parser.add_argument("--runtime-extra", type=Path, action="append",
+                        help="Windows: a file the game loads beside it, added to the launcher's runtime (the ui "
+                             "scenario's 3D game on a runner: Mesa's opengl32.dll and its libraries)")
     parser.add_argument("--elf", type=Path)
     asyncio.run(run(parser.parse_args()))
 

@@ -35,6 +35,25 @@ class GamePictureTests(unittest.TestCase):
         self.assertEqual(name, "mega-evolved-alice.png")
         self.assertEqual(taken, [str(Path("out") / "mega-evolved-alice.png")])
 
+    def test_windows_keeps_the_games_window_on_top_while_the_desktop_is_taken(self):
+        # every player's game shares the runner's one desktop: the picture shows the game asked for (the Tower's 3D UI
+        # pages are player 1's), then its window goes back among the others
+        steps = []
+
+        class Windows:
+            @staticmethod
+            def keep_on_top(window, on_top=True):
+                steps.append(("on top" if on_top else "back", window))
+                return True
+
+        probe = Probe()
+        probe._windows = Windows
+        with mock.patch.object(proof, "WINDOWS", True), mock.patch.object(proof.time, "sleep", lambda _: None), \
+                mock.patch.object(ci_world_check, "screenshot", lambda path: steps.append(("picture", path))), \
+                mock.patch.object(subprocess, "run", side_effect=AssertionError("an X11 command on Windows")):
+            proof.game_picture(probe, Path("out") / "ui-home.png")
+        self.assertEqual(steps, [("on top", 0x1234), ("picture", str(Path("out") / "ui-home.png")), ("back", 0x1234)])
+
     def test_the_proofs_that_run_on_windows_take_their_pictures_through_it(self):
         for name in ("native_launcher_mega_proof.py", "native_launcher_tower_proof.py",
                      "native_launcher_three_player_proof.py"):

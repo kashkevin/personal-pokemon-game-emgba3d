@@ -3,11 +3,13 @@ tables it reads memory through (saved by the build before the strip, sizes from 
 of the short introduction (scripts/multiplayer/make_intro_saves.py)."""
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 import struct
 import sys
 from types import SimpleNamespace
 import unittest
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 for path in (ROOT / "src", ROOT / "scripts" / "multiplayer", ROOT / "scripts" / "windows-runtime"):
@@ -113,6 +115,44 @@ class WindowsModeTests(unittest.TestCase):
         self.assertEqual(girl[5:7], ["970:DOWN", "1010:A"])
         self.assertEqual(girl[7:], boy[6:])
         self.assertNotIn("980:A", girl)
+
+
+class BootTests(unittest.TestCase):
+    """The boot's first press waits for the game's window: the 3D game opens it after loading its world, and on the
+    first start after a restart (a cold disk) that took longer than the boot's ten seconds (Linux tower-ui-4: "no
+    window of native game")."""
+
+    def probe(self, missing):
+        probe = harness.NativeProbe.__new__(harness.NativeProbe)
+        probe.looks, probe.presses_seen = 0, []
+
+        def window():
+            probe.looks += 1
+            if probe.looks <= missing:
+                raise RuntimeError("no window of native game 565")
+            return "0x400001"
+
+        async def press(key, frames=12, release=24):
+            probe.presses_seen.append((key, probe.looks))
+
+        probe._window, probe.press = window, press
+        return probe
+
+    def test_the_first_press_comes_once_the_window_is_there(self):
+        probe = self.probe(missing=3)
+        with mock.patch.object(harness.asyncio, "sleep", new=mock.AsyncMock()):
+            asyncio.run(probe.boot())
+        self.assertEqual(probe.presses_seen[0], (8, 4))          # START only after the fourth look found the window
+        self.assertEqual([key for key, _ in probe.presses_seen], [8, 8, 1])
+
+    def test_a_window_that_never_comes_still_fails_the_boot(self):
+        probe = self.probe(missing=10 ** 6)
+        clock = iter(range(0, 10 ** 6, 30))
+        with mock.patch.object(harness.asyncio, "sleep", new=mock.AsyncMock()), \
+                mock.patch.object(harness.time, "monotonic", lambda: next(clock)):
+            with self.assertRaisesRegex(RuntimeError, "no window of native game"):
+                asyncio.run(probe.boot())
+        self.assertEqual(probe.presses_seen, [])
 
 
 if __name__ == "__main__":

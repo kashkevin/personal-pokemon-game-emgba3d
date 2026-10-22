@@ -154,10 +154,20 @@ def game_picture(probe, path, settle=.3):
     """A game's window as a person sees it (evidence for a person; the checks read memory), at `path` (a .png); returns
     its file name. Linux: xdotool raises the window and ImageMagick's import takes it. Windows: the runner's desktop,
     where every player's game is (ci_world_check.py's capture; windows-package run 129's Mega proof stopped on the X11
-    commands after both Charizard had Mega Evolved)."""
+    commands after both Charizard had Mega Evolved), with this game's window kept above the others while it is taken."""
     if WINDOWS:
         from ci_world_check import screenshot
-        screenshot(str(path))
+        try:
+            window = probe._window()
+            raised = probe._windows.keep_on_top(window)
+            time.sleep(settle)
+        except (RuntimeError, OSError, AttributeError):
+            window, raised = None, False
+        try:
+            screenshot(str(path))
+        finally:
+            if raised:
+                probe._windows.keep_on_top(window, False)
         return Path(path).name
     try:
         window = probe._window()
@@ -314,9 +324,22 @@ class NativeProbe:
                     await self.press(2)
                 await asyncio.sleep(.2)
 
+    async def wait_for_window(self, timeout):
+        """The game's window once it is there. The 3D game opens it after loading its world: the first start after a
+        restart (a cold disk) took longer than the boot's ten seconds, and the first press found no window."""
+        deadline = time.monotonic() + timeout
+        while True:
+            try:
+                return await asyncio.to_thread(self._window)
+            except RuntimeError:
+                if time.monotonic() >= deadline:
+                    raise
+                await asyncio.sleep(1)
+
     async def boot(self, slow=1.0):
         """Title screen, main menu, Continue: what a player presses."""
         await asyncio.sleep(10 * slow)
+        await self.wait_for_window(60 * slow)
         await self.press(8)
         await asyncio.sleep(4 * slow)
         await self.press(8)
@@ -553,8 +576,10 @@ class LauncherHarness:
         self.hold, self.gap = (.5, .3) if wine else (.15, .2)
         self.ready_seconds = 20 if count == 2 else 90
         if wine or native_windows:
-            # The release's own files: the Windows exe and its SDL2.dll.
-            info = collect(game, args.sdl.resolve(), args.rom, output / "application" / "runtime")
+            # The release's own files: the Windows exe and its SDL2.dll (and what a test runner adds beside them:
+            # Mesa's software OpenGL for the 3D game on a runner whose own OpenGL is 1.1).
+            info = collect(game, args.sdl.resolve(), args.rom, output / "application" / "runtime",
+                           extra=tuple(path.resolve() for path in getattr(args, "runtime_extra", None) or ()))
         else:
             # The launcher's own bundle and installation checks, for the Linux game.
             staging = output / "linux-game"

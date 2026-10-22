@@ -72,7 +72,20 @@ class WindowsWorkflowTests(unittest.TestCase):
         self.assertIn("scripts/multiplayer/native_launcher_tower_proof.py --scenario ${{ matrix.scenario }}", proof)
         self.assertIn("a: tower-strong25-a", proof)        # the milestone Pokemon of floor 25
         self.assertIn("b: tower-forfeit-b", proof)         # the joiner forfeits: the host's world stays up
-        self.assertIn("--pe-symbols symbols/pokeemerald-mp.nm.txt", proof)
+        self.assertIn('--pe-symbols "symbols/${game%.exe}.nm.txt"', proof)
+        self.assertIn("game=\"${{ matrix.game || 'pokeemerald-mp.exe' }}\"", proof)     # the Classic 2D game by default
+        # ui: the 3D game's native Tower pages through Mesa (the pinned archive, as graphics-3d), its symbols from the
+        # engine job, Mesa added to the proof's runtime only
+        self.assertIn("{name: ui, scenario: ui,", proof)
+        self.assertIn("game: pokeemerald-mp-diorama.exe, mesa: \"yes\"}", proof)
+        self.assertIn("MESA_SHA256: 351fc8c8b695878ffb3eaa044b3ead08672a48b1a045e3c3e3975811df0f6695", proof)
+        self.assertIn("if ($hash -ne $env:MESA_SHA256) { throw", proof)
+        self.assertIn('runtime_extra+=(--runtime-extra "$dll")', proof)
+        engine = job("engine")
+        self.assertIn("i686-w64-mingw32-nm -n pokeemerald-mp-diorama.exe > ../classic-pe-symbols/pokeemerald-mp-diorama.nm.txt",
+                      engine)
+        self.assertLess(engine.index("i686-w64-mingw32-nm -n pokeemerald-mp-diorama.exe"),
+                        engine.index("i686-w64-mingw32-strip --strip-all pokeemerald-mp-diorama.exe"))
 
     def test_the_engines_self_tests_run_in_the_windows_build(self):
         tests = job("selftests")

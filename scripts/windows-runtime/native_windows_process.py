@@ -25,6 +25,8 @@ WM_KEYDOWN, WM_KEYUP, WM_CLOSE = 0x0100, 0x0101, 0x0010
 # Linux proofs use; the arrows are extended keys (without the flag a scan code is the keypad's).
 VK = {"z": 0x5A, "x": 0x58, "Return": 0x0D, "Left": 0x25, "Up": 0x26, "Right": 0x27, "Down": 0x28}
 EXTENDED = frozenset((0x25, 0x26, 0x27, 0x28))
+HWND_TOPMOST, HWND_NOTOPMOST = -1, -2
+SWP_NOSIZE, SWP_NOMOVE, SWP_NOACTIVATE = 0x0001, 0x0002, 0x0010
 
 
 def pe_header(data):
@@ -79,6 +81,9 @@ def _user32():
     user32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
     user32.IsWindowVisible.argtypes = [wintypes.HWND]
     user32.GetClassNameW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
+    user32.SetWindowPos.argtypes = [wintypes.HWND, wintypes.HWND, ctypes.c_int, ctypes.c_int, ctypes.c_int,
+                                    ctypes.c_int, wintypes.UINT]
+    user32.SetWindowPos.restype = wintypes.BOOL
     return user32
 
 
@@ -165,6 +170,14 @@ def press(hwnd, key, seconds):
 def close(hwnd):
     """The window's close button: WM_CLOSE (SDL's quit; the game exits 0)."""
     _user32().PostMessageW(hwnd, WM_CLOSE, 0, 0)
+
+
+def keep_on_top(hwnd, on_top=True):
+    """The window above every other one (on_top) or back among them, without the focus: a picture of the desktop then
+    shows this game where the players' windows overlap on the runner's one desktop. The order of the windows only: the
+    keys still go to each game's own window."""
+    return bool(_user32().SetWindowPos(hwnd, HWND_TOPMOST if on_top else HWND_NOTOPMOST, 0, 0, 0, 0,
+                                       SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE))
 
 
 def available():
