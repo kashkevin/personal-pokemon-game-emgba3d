@@ -46,6 +46,8 @@ _LAN_NETWORKS = tuple(ipaddress.ip_network(network) for network in (
     "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "fc00::/7", "100.64.0.0/10",
 ))
 WILDCARD = "0.0.0.0"
+# KNOWN_ISSUES MS-62: how long a native battle poll that brought no next command waits for the route to issue one.
+EXECUTE_HOLD_SECONDS = .5
 
 
 def is_local_address(value: str, allow_lan: bool = False) -> bool:
@@ -360,6 +362,7 @@ class WorldServer:
         self._session_epoch = 0
         self._server: asyncio.Server | None = None
         self._monitor_task: asyncio.Task[None] | None = None
+        self._execute_holds: set[asyncio.Task[None]] = set()
         self._handlers: set[asyncio.Task[None]] = set()
         self._connections: set[asyncio.StreamWriter] = set()
         self._allow_lan = False
@@ -1159,6 +1162,34 @@ class WorldServer:
             if reason is not None:
                 raise ProtocolError("championship_ineligible", f"{session.display_name[:8]}: {reason}")
 
+    def _hold_execute_reply(self, session, request, result):
+        """KNOWN_ISSUES MS-62: battles over the internet were very slow. A trainer's poll carries its game's answer
+        and takes the next command, but the route issues that command only after this poll's reply was made, so every
+        command cost a second round trip (and more while the route waited for the other trainer). The reply now waits,
+        at most EXECUTE_HOLD_SECONDS, for the next command, then the same poll is asked again: a byte-identical repeat
+        is inert (BattleExecutionService.exchange) and brings the outstanding command."""
+        async def reply_when_issued():
+            reply, execution = result, self.battle_execution
+            try:
+                loop = asyncio.get_running_loop()
+                deadline = loop.time() + EXECUTE_HOLD_SECONDS
+                while loop.time() < deadline:
+                    await asyncio.sleep(.002)
+                    room = execution.rooms.get(request["battle_id"])
+                    if (room is None or session.player_id in room.pending
+                            or room.state not in ("admitting", "executing")):
+                        break
+                reply = execution.exchange(session.player_id, session.session_epoch, request)
+            except (ProtocolError, StorageError) as error:
+                self._battle_reply(session, request, error=error)
+                return
+            except Exception:  # noqa: BLE001 - the first answer still stands; the next poll says what changed
+                reply = result
+            self._battle_reply(session, request, result=reply)
+        task = asyncio.create_task(reply_when_issued(), name="battle-execute-hold")
+        self._execute_holds.add(task)
+        task.add_done_callback(self._execute_holds.discard)
+
     def _battle_challenge(self, session, request):
         # Public consent never authorizes BIND/START, supplies native receipts,
         # or claims a winner. Those remain trusted coordinator operations.
@@ -1203,6 +1234,10 @@ class WorldServer:
                 raise ProtocolError("battle_execution_disabled", "this host has not enabled native battle execution")
             dispatch = self.battle_execution.reconnect if operation == "resume" else self.battle_execution.exchange
             result = dispatch(session.player_id, session.session_epoch, request)
+            if (operation == "execute" and result.get("command_b64") is None
+                    and result.get("state") in ("admitting", "executing")):
+                self._hold_execute_reply(session, request, result)
+                return
             self._battle_reply(session, request, result=result)
             return
         if operation in ("abandon", "fate"):
