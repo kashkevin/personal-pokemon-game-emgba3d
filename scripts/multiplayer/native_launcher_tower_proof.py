@@ -18,7 +18,7 @@ saves, the canonical checkpoints (money, the Bag, Battle Points, the PC, the rec
                       Rare Candy, $10,000) and every floor's BP and money are in the next save as the host's rules
                       (tower_rewards.py) say. A milestone floor (25, 50, 75, 100) climbed makes its milestone Pokemon in
                       the game (the full party: into the PC; the record marks it delivered). Then the last prize floor
-                      is replayed (Replay a floor: P and H kept, replay rates, no second prize or Pokemon) and, with 16
+                      is replayed (Replay a floor: P and H kept, nothing paid - no BP, money, prize or Pokemon) and, with 16
                       BP, an HP Up is bought in the Tower Shop (the game pays the BP, then gets the item). Player 2 (--weak-b: a level-1 Magikarp's save) loses its
                       progress floor in its game and goes back as the checkpoint rule says, nothing paid: floor 1 from
                       a save without a Tower record (P stays 1), or the special boss, Giovanni on floor 25, from one
@@ -27,6 +27,15 @@ saves, the canonical checkpoints (money, the Bag, Battle Points, the PC, the rec
                       accepted, both Ready: the host issues the native co-op battle against the floor's two trainers;
                       both enter it (A presses) and win; each game's co-op award gives nothing above its cap; the host
                       settles each player's result (a replay changes nothing; a climb advances).
+  --scenario join     co-op progression (owner request 2026-10-22): player 1 (floors 1-11 cleared, three level-10
+                      Mewtwo: make_tower_saves.py tower-join-a) joins the Duo of player 2 (floors 1-9 cleared, six
+                      level-100 Mewtwo: tower-join-b), who invites on its own floor 10 (Brock); only player 2 may
+                      change the floor. Floors 10 and 11 are player 1's replays: no Battle Points, money or prize,
+                      while its Mewtwo gain experience and levels in its own game's co-op award; player 2 is paid each
+                      first clear (floor 10's prize). Between them player 2's game is closed (an ordinary close)
+                      and started again through the launcher (a disconnect and a reconnect): the team and the Duo are
+                      formed again and what it was owed arrives once. Floor 12 is both players' first clear: player 1's
+                      rewards resume. The saves hold exactly what the host's rules say, the parties their experience.
   --scenario mega     as duo, from saves whose Tower records say floor 40 cleared (the host imports a save's record on
                       the player's first Tower action): a Duo replay of floor 40, Norman and his partner; the master
                       game's battle shows Norman's Kangaskhan Mega Evolved.
@@ -483,6 +492,47 @@ async def duo_fight(current, probes, host, symbols, record, floor, megas):
     return battle_id, floor
 
 
+async def join_invite(probes, host, record, floor):
+    """Player 2 (who has climbed less) invites on its own floor - the Duo's host chooses it - and player 1, who has
+    climbed higher, accepts: Tower > Duo: floor F (invited) > Accept."""
+    await open_tower(probes[1])
+    await probes[1].choose(f"Duo with {host.accounts[0].display_name}"[:25], prefix=False)
+    _, screen = await probes[1].ready()
+    rows = [r.label for r in screen.rows]
+    record("tower-join-duo-page", slot=1, rows=rows)
+    require(f"Invite: floor {floor}" in rows, f"player 2's Duo page offers its own floor {floor}: {rows}")
+    await probes[1].choose(f"Invite: floor {floor}")
+    await close_players(probes[1])
+    await open_tower(probes[0])
+    await probes[0].choose(next(r.label for r in (await probes[0].ready())[1].rows if r.label.startswith("Duo: floor")))
+    _, screen = await probes[0].ready()
+    record("tower-join-invited", slot=0, title=screen.title, status=screen.status, rows=[r.label for r in screen.rows])
+    await probes[0].choose(f"Accept: floor {floor}")
+    await close_players(probes[0])
+    record("tower-join-accepted", floor=floor)
+
+
+async def join_ready(probes, record, floor, replay):
+    """Both Ready on the Duo's floor: player 2 first, then player 1, whose Ready issues the battle (duo_fight: its game
+    runs it). Each page names what the floor pays each player ("prizes": a first clear, "Exp only": cleared before) and
+    only the Duo's host - player 2 - may change the floor."""
+    expected = {0: f"{NAMES[0][:8]}: {'Exp only' if replay else 'prizes'}", 1: f"{NAMES[1][:8]}: prizes"}
+    for slot in (1, 0):
+        await open_tower(probes[slot])
+        await probes[slot].choose(next(r.label for r in (await probes[slot].ready())[1].rows
+                                       if r.label.startswith("Duo: floor")))
+        _, screen = await probes[slot].ready()
+        rows = [r.label for r in screen.rows]
+        record("tower-join-ready", slot=slot, title=screen.title, status=screen.status, rows=rows)
+        require(screen.title == f"Duo: floor {floor}", f"slot {slot}: the Duo is on floor {floor}: {screen.title!r}")
+        for who, label in expected.items():
+            require(any(row == label or row.startswith(label + ",") for row in rows),
+                    f"slot {slot}: player {who + 1}'s row says {label!r}: {rows}")
+        require(("Change floor" in rows) == (slot == 1), f"slot {slot}: only the Duo's host changes its floor: {rows}")
+        await probes[slot].choose("Ready")
+        await close_players(probes[slot])
+
+
 def opposing_mega(probe, base_species):
     """An opposing battler of the game running the battle (gBattleMons, species first) whose species is none of the
     floor's trainers' own: a form changed in battle (the Mega Evolution of a stone holder), else None."""
@@ -521,11 +571,10 @@ class TowerScenario:
                 self.milestones += 1
         prize_floors = [floor for floor in floors if floor in tower_rewards.PRIZES]
         if prize_floors:
-            # The last prize floor again: replay rates only - no second prize, no second milestone, P and H kept.
-            again, highest = prize_floors[-1], floors[-1]
+            # The last prize floor again: a floor cleared before pays nothing (no BP, money, second prize or
+            # milestone; the owner's request of 2026-10-22), and P and H are kept. The saves must show no change.
+            again = prize_floors[-1]
             await solo_floor(probes[0], current[0], record, 0, again, replay=True)
-            self.paid["money"] += tower_rewards.later_win_money(again, highest)
-            self.paid["bp"] += tower_rewards.later_win_bp(again, highest)
         if self.paid["bp"] >= 16:
             # The Tower Shop: an HP Up for 16 BP, paid from the game's points.
             await shop_buy(probes[0], current[0], record, 0, "HP Up", 16)
@@ -623,6 +672,79 @@ class TowerScenario:
             highest = max(player["highest"], floor) if climb else player["highest"]
             await wait_settled(probe, worker, record, slot, progress=floor + 1 if climb else player["progress"],
                                highest=highest)
+        return dict(expected=[p.party_now() for p in probes])
+
+    async def join(self, current, probes, games, host, symbols, record):
+        """Co-op progression and no repeated rewards (the module's --scenario join)."""
+        harness = self.harness
+
+        async def head(s, slot):
+            return inspect_closed_head(s._store, host.accounts[slot].player_id)
+        self.before = [wallet_of((await on_worker(current[0], lambda s, n=n: head(s, n))).payload) for n in range(2)]
+        record("tower-join-wallets-before", wallets=self.before)
+        start = [((v := await tower_view(w))["player"]["progress"], v["player"]["highest"]) for w in current]
+        record("tower-join-start", players=start)
+        require(start == [(12, 11), (10, 9)], f"the fixtures' records: player 1 floor 12 next, player 2 floor 10: {start}")
+        self.paid = [dict(money=0, rare_candy=0, bp=0) for _ in range(2)]
+        await form_team(probes, host, record)
+        await join_invite(probes, host, record, 10)
+        lead = [own_party(probes[0])]
+        record("tower-join-party-start", slot=0, party=lead[0])
+        for floor in (10, 11, 12):
+            replay = floor <= 11                               # player 1 cleared floors 1-11 before
+            if floor == 11:
+                # A disconnect and a reconnect: player 2's game closed in the world and started again through the
+                # launcher. The host keeps both players' progress; the team and the Duo are formed again.
+                game = games[1]
+                os.kill(game.process.pid, signal.SIGTERM)
+                await harness.poll_until(lambda: game.process.returncode is not None, 60)
+                await harness.poll_until(lambda: not current[1].busy, 180)
+                record("tower-join-player-2-closed", exit_code=game.process.returncode)
+                again = await harness.start("rejoin", 1)
+                harness.players[1] = again
+                current[1], probes[1], games[1] = again.worker, again.probe, again.game
+                await harness.ready(again)
+                view = await tower_view(current[1])
+                record("tower-join-player-2-back", player=view["player"], duo=view["duo"], teammate=view["teammate"])
+                require((view["player"]["progress"], view["player"]["highest"]) == (11, 10),
+                        f"player 2's progress kept across the reconnect: {view['player']}")
+                if view["duo"] is None or view["duo"]["state"] == "ended":
+                    if view["teammate"] is None:
+                        await form_team(probes, host, record)
+                    await join_invite(probes, host, record, 11)
+            await join_ready(probes, record, floor, replay)
+            battle_id, fought = await duo_fight(current, probes, host, symbols, record, floor, None)
+            require(fought == floor, f"the Duo fought floor {fought}, not {floor}")
+            lead.append(own_party(probes[0]))
+            gains = [after["experience"] - before["experience"] for after, before in zip(lead[-1], lead[-2])]
+            record("tower-join-experience", slot=0, floor=floor, replay=replay, gains=gains,
+                   levels=[(before["level"], after["level"]) for after, before in zip(lead[-1], lead[-2])],
+                   moves=[after["moves"] for after in lead[-1]])
+            if replay:
+                require(gains[0] > 0, f"floor {floor}: player 1's lead gained no experience on a replayed floor")
+            for slot, (worker, probe) in enumerate(zip(current, probes)):
+                first = slot == 1 or not replay
+                progress, highest = (floor + 1, floor) if first else (12, 11)
+                view, _ = await wait_settled(probe, worker, record, slot, progress=progress, highest=highest)
+                last = view.get("last") or {}
+                reward = last.get("reward") or {}
+                record("tower-join-settled", slot=slot, floor=floor, last=last)
+                require(last.get("floor") == floor and last.get("mode") == "duo" and last.get("state") == "won",
+                        f"slot {slot}: floor {floor}'s Duo result: {last}")
+                require(bool(reward.get("first_clear")) == first,
+                        f"slot {slot}: floor {floor} {'is' if first else 'is not'} a first clear: {reward}")
+                if not first:
+                    require((reward.get("bp"), reward.get("money"), list(reward.get("items") or ()))
+                            == (0, 0, []), f"slot {slot}: a floor cleared before paid {reward}")
+                self.paid[slot]["money"] += reward.get("money", 0)
+                self.paid[slot]["bp"] += reward.get("bp", 0)
+                self.paid[slot]["rare_candy"] += sum(q for item, q in reward.get("items", ()) if item == ITEM_RARE_CANDY)
+        levels = [(start["level"], end["level"]) for start, end in zip(lead[0], lead[-1])]
+        record("tower-join-levels", slot=0, levels=levels)
+        require(lead[2][0]["level"] > lead[0][0]["level"],
+                f"player 1's lead levelled up on its replayed floors: {levels}")
+        require(self.paid[0] == expected_solo_pay([12]) and self.paid[1] == expected_solo_pay([10, 11, 12]),
+                f"what the host paid: {self.paid}")
         return dict(expected=[p.party_now() for p in probes])
 
     async def mega(self, current, probes, games, host, symbols, record):
@@ -728,12 +850,24 @@ class TowerScenario:
 
     async def after_save(self, current, host, record):
         """The canonical checkpoints after the match's saves: the prizes and the record (solo, climb, duo-climb)."""
-        if self.args.scenario not in ("solo", "climb", "duo-climb"):
+        if self.args.scenario not in ("solo", "climb", "duo-climb", "join"):
             return
 
         async def heads(s):
             return [inspect_closed_head(s._store, account.player_id) for account in host.accounts]
         saved = await on_worker(current[0], heads)
+        if self.args.scenario == "join":
+            for slot, progress in enumerate(((13, 12), (13, 12))):
+                after, before = wallet_of(saved[slot].payload), self.before[slot]
+                paid = dict(money=after["money"] - before["money"], rare_candy=after["rare_candy"] - before["rare_candy"],
+                            bp=after["bp"] - before["bp"])
+                record("tower-join-saved", slot=slot, revision=saved[slot].revision, paid=paid, expected=self.paid[slot],
+                       record=after["tower"])
+                require(paid == self.paid[slot], f"slot {slot}: the saved rewards {paid} differ from the host's "
+                        f"{self.paid[slot]} (a floor cleared before pays nothing; each reward once)")
+                require(after["tower"] is not None and (after["tower"]["progress"], after["tower"]["highest"]) == progress,
+                        f"slot {slot}: the saved Tower record: {after['tower']}")
+            return
         if self.args.scenario in ("climb", "duo-climb"):
             for slot in range(2):
                 after, before = wallet_of(saved[slot].payload), self.before[slot]
@@ -797,7 +931,7 @@ async def run(args):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--scenario", choices=("solo", "duo", "mega", "forfeit", "ui", "climb", "duo-climb"),
+    parser.add_argument("--scenario", choices=("solo", "duo", "join", "mega", "forfeit", "ui", "climb", "duo-climb"),
                         required=True)
     parser.add_argument("--test-env", action="append", default=[],
                         help="NAME=VALUE for the games (the test build's switches: the climb's accelerated set-up)")

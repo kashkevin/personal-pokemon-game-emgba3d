@@ -16,9 +16,12 @@ and the in-game notices. The host is enabled only when its installed game has th
 * **Interrupted battles:** a command never started for 120 s is void; a started battle that never reports is a loss
   (forfeit) once its player asks for another Tower battle at least 15 s after their game connected, or after 24 hours.
   A Duo battle follows the native recovery; one abandoned without a result is void for both.
-* **Duo:** a host-formed team of two (PLAYERS > Invite to team) forms a Duo session: invite, accept, choose a floor and
-  the team (at most three each, the Frontier's selection), both ready; the second Ready issues the native co-op battle
-  (BattleDesk.invite_coop with the floor's Tower code), entered from PLAYERS > Challenges as any co-op battle.
+* **Duo:** a host-formed team of two (PLAYERS > Invite to team) forms a Duo session: invite (the inviter is the Duo's
+  host and chooses the floor: any floor open to both, so a player who has climbed higher joins a friend's lower floor),
+  accept, the team (at most three each, the Frontier's selection), both ready; the second Ready issues the native co-op
+  battle (BattleDesk.invite_coop with the floor's Tower code), entered from PLAYERS > Challenges as any co-op battle.
+  Each player's result, progress and rewards are settled on their own row: a floor one of them cleared before pays that
+  player nothing but the battle's experience.
 * **Paying:** the settlement plans the words (Tower state, money, items, Battle Points, claims, milestone Pokemon) and
   ``pay`` queues each on the player's wallet stream exactly once per (player, reference) (wagers.py). The receipts come
   back: a Tower state word's is the save record's revision, a milestone Pokemon's says whether it was made (no room: it
@@ -40,7 +43,7 @@ from .frontier_service import FrontierService
 from .tower import DUO, OPEN, SETTLED, SOLO, TowerError
 from .tower_data import TowerDataError
 from .tower_rules import (CLIMBED, TowerRuleError, can_fight, checkpoint, choose_milestone, duo_floor_allowed,
-                          is_progression, milestone_level, party_training, save_cap)
+                          first_clear, is_progression, milestone_level, party_training, save_cap)
 
 ISSUED_SECONDS = 120              # a solo command the game never started is void after this
 STARTED_SECONDS = 24 * 3600       # a started solo battle that never reports is a loss after this
@@ -256,10 +259,12 @@ class TowerService:
         members = []
         for player in duo["players"]:
             row = self.book.player(player)
-            progress, highest = (row["progress"], row["highest"]) if row else (1, 0)
+            progress, highest, best, claims = ((row["progress"], row["highest"], row["best"], row["claims"]) if row
+                                               else (1, 0, 0, 0))
             team = self._frontier.team_view(player)
             members.append({"player_id": player, "name": self._name(player), "progress": progress, "highest": highest,
                             "progression": is_progression(progress, duo["floor"]),
+                            "first_clear": first_clear(duo["floor"], highest, best, claims),
                             "ready": player in duo["ready"], "consent": player in duo["consent"],
                             "team": None if team is None else [s["name"] for s in team["slots"] if s["selected"]]})
         native = None
@@ -430,12 +435,16 @@ class TowerService:
         reward = result.get("reward")
         floor = ticket["floor"]
         if ticket["state"] == "won":
-            tail = f"+{reward['bp']}BP" if reward else ""
-            if reward and reward["money"]:
+            if not reward or not reward["first_clear"]:
+                # A floor cleared before pays nothing again: the battle's experience is the only gain.
+                self._notice([ticket["player_id"]], f"TOWER FLOOR {floor} CLEARED!", "Cleared before: Exp. only")
+                return
+            tail = f"+{reward['bp']}BP"
+            if reward["money"]:
                 tail += f" ${reward['money']:,}"
-            if reward and reward["items"]:
+            if reward["items"]:
                 tail += " +prize"
-            if reward and reward["milestone"] is not None:
+            if reward["milestone"] is not None:
                 tail += " +Pokemon!"
             self._notice([ticket["player_id"]], f"TOWER FLOOR {floor} CLEARED!", tail.strip())
         elif ticket["progression"] and progress is not None:
@@ -498,7 +507,11 @@ class TowerService:
             self._notice(other, "TOWER DUO ENDED", f"{self._name(actor).upper()[:10]} {reason} it")
 
     def _duo_floor(self, session, floor) -> None:
+        """The Duo's host - the player who invited - chooses its floor, any floor open to both (owner request
+        2026-10-22: the group starts at the host's floor; a teammate who has climbed higher replays it)."""
         duo = self._open_duo(session.player_id)
+        if session.player_id != duo["players"][0]:
+            raise TowerError("duo_host_floor", f"{self._name(duo['players'][0])} chooses the floor")
         rows = self._duo_rows(duo["players"])
         if not duo_floor_allowed(floor, *((row["progress"], row["highest"]) for row in rows)):
             raise TowerError("tower_floor_locked", f"Floor {floor} is not open to both")

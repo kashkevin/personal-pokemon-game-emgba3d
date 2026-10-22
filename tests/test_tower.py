@@ -10,6 +10,7 @@ import unittest
 from emerald_multiplayer import rewards, tower_rewards
 from emerald_multiplayer.shared_world import SharedWorld
 from emerald_multiplayer.tower import MONEY, TowerError
+from emerald_multiplayer.tower_rules import duo_floor_allowed
 
 WORLD = "11111111-1111-4111-8111-111111111111"
 
@@ -46,6 +47,19 @@ class BookTests(unittest.TestCase):
         while self.book.player(player)["progress"] < to:
             ticket = self.book.issue_solo(player, self.book.player(player)["progress"])
             self.book.settle(ticket["ticket_id"], "won", choose=chooser())
+
+    def deliver(self, player):
+        """The game applies every word planned for the player, in order: each Tower state word raises the save record's
+        revision by one (its receipt), anything else lands as sent."""
+        revision = self.book.player(player)["revision"]
+        for word in self.book.words_of(player):
+            if word["state"] != "planned":
+                continue
+            self.book.word_queued(player, word["ref"])
+            if word["kind"] == rewards.KIND_TOWER_STATE:
+                revision += 1
+            self.book.word_receipt(player, word["ref"], revision if word["kind"] == rewards.KIND_TOWER_STATE
+                                   else 1 if word["kind"] == rewards.KIND_TOWER_MON else word["payload"])
 
     def words(self, player, ticket_id=None):
         return [(w["ref"].split(":")[-1], w["kind"], w["payload"]) for w in self.book.words_of(player, ticket_id)]
@@ -148,14 +162,32 @@ class BookTests(unittest.TestCase):
         self.assertEqual(forfeited["state"], "forfeit")
         self.assertEqual(self.book.player("pa")["progress"], 11)
 
-    def test_replay_rates_and_a_prize_only_once(self):
+    def test_a_replay_pays_nothing_and_a_prize_only_once(self):
         self.book.sync("pa", "Alice", None, outstanding=0)
         self.climb("pa", 12)
         replay = self.book.issue_solo("pa", 10)
         settled = self.book.settle(replay["ticket_id"], "won")
-        self.assertEqual(settled["result"]["reward"]["first_clear"], False)
-        self.assertEqual([w[0] for w in self.words("pa", replay["ticket_id"])], ["state", "money", "bp"])
+        self.assertEqual(settled["result"]["reward"], {"first_clear": False, "bp": 0, "money": 0, "items": [],
+                                                       "claim": 0, "milestone": None})
+        self.assertEqual([w[0] for w in self.words("pa", replay["ticket_id"])], ["state"])   # no BP, money or prize
         self.assertEqual(self.book.player("pa")["claims"], tower_rewards.claim_bit(10))
+        self.assertEqual((self.book.player("pa")["progress"], self.book.player("pa")["highest"]), (12, 11))
+
+    def test_a_re_climb_after_a_loss_pays_nothing_until_a_new_floor(self):
+        self.book.sync("pa", "Alice", None, outstanding=0)
+        self.climb("pa", 15)                                        # floors 1-14 cleared
+        lost = self.book.issue_solo("pa", 15)
+        self.book.settle(lost["ticket_id"], "lost")
+        self.assertEqual(self.book.player("pa")["progress"], 11)   # back to checkpoint 10 + 1
+        for floor in range(11, 16):
+            ticket = self.book.issue_solo("pa", floor)
+            settled = self.book.settle(ticket["ticket_id"], "won", choose=chooser())
+            names = [w[0] for w in self.words("pa", ticket["ticket_id"])]
+            if floor <= 14:                                         # cleared before the loss: progress, nothing paid
+                self.assertEqual((settled["result"]["reward"]["first_clear"], names), (False, ["state"]))
+            else:                                                   # floor 15: a first clear again
+                self.assertEqual((settled["result"]["reward"]["first_clear"], names), (True, ["state", "money", "bp"]))
+        self.assertEqual((self.book.player("pa")["progress"], self.book.player("pa")["highest"]), (16, 15))
 
     def test_ticket_numbers_are_unique_with_a_nonzero_low_byte(self):
         self.book.sync("pa", "Alice", record(101, 100), outstanding=0)
@@ -270,8 +302,105 @@ class BookTests(unittest.TestCase):
         self.assertEqual((duo["state"], duo["floor"], duo["ready"], duo["battle_id"]), ("forming", 13, [], None))
         state = [w for w in self.book.words_of("pb") if w["ref"].endswith(":0:state")][0]
         self.assertEqual(state["payload"], rewards.tower_progress(49, 50, 0))        # a Duo settles no solo result
-        self.assertEqual([w[0] for w in self.words("pb")], ["state", "money", "bp"])  # a replay's rates for B
-        self.assertEqual([w[0] for w in self.words("pa")], ["state", "money", "bp"])
+        self.assertEqual([w[0] for w in self.words("pb")], ["state"])                 # B cleared it before: nothing
+        self.assertEqual([w[0] for w in self.words("pa")], ["state", "money", "bp"])  # A's first clear
+
+    def duo_battle(self, proposer, partner, floor, outcome="won", *, duo_id="d1", battle="battle-1"):
+        """One Duo battle through the book: invited and accepted (or the session's next floor), both ready, issued,
+        settled. Returns the battle's tickets after the settlement."""
+        duo = self.book.duo(duo_id)
+        if duo is None or duo["state"] == "ended":
+            self.book.invite_duo(duo_id, proposer, partner, floor)
+            self.book.accept_duo(duo_id, partner)
+        elif duo["floor"] != floor:
+            self.book.set_duo_floor(duo_id, floor)
+        for player in (proposer, partner):
+            self.book.set_ready(duo_id, player, True)
+        tickets = self.book.issue_duo(duo_id, battle)
+        self.book.settle(tickets[0]["ticket_id"], outcome, choose=chooser())
+        return {t["player_id"]: t for t in self.book.tickets_of_battle(battle)}
+
+    def test_a_higher_player_joins_a_lower_floor_and_only_their_own_new_floors_pay(self):
+        """The owner's example (2026-10-22): A cleared floor 30, B floor 10. B hosts, A joins on B's floor: A's battles
+        pay A nothing but experience until A clears floor 31, B is paid every floor new to B. Each player's progress
+        stays their own."""
+        self.book.sync("pa", "Alice", record(31, 30, 0b1111, 3), outstanding=0)      # floors 1-30, prizes 10-30
+        self.book.sync("pb", "Bob", record(11, 10, tower_rewards.claim_bit(10), 2), outstanding=0)
+        self.assertTrue(duo_floor_allowed(11, (11, 10), (31, 30)))
+        paid = {"pa": [], "pb": []}
+        for number, floor in enumerate(range(11, 33)):
+            tickets = self.duo_battle("pb", "pa", floor, battle=f"battle-{number}")
+            for player in ("pa", "pb"):
+                names = [w[0] for w in self.words(player, tickets[player]["ticket_id"])]
+                if names != ["state"]:
+                    paid[player].append(floor)
+            a, b = self.book.player("pa"), self.book.player("pb")
+            self.assertEqual((a["progress"], a["highest"]), (max(31, floor + 1), max(30, floor)))   # A moves from 31
+            self.assertEqual((b["progress"], b["highest"]), (floor + 1, floor))                   # B climbs each floor
+            self.assertEqual(self.book.duo("d1")["floor"], min(a["progress"], b["progress"]))       # on with B's floor
+        self.assertEqual(paid, {"pa": [31, 32], "pb": list(range(11, 33))})
+        ticket = self.book.tickets_of_battle("battle-0")
+        reward = {t["player_id"]: t["result"]["reward"] for t in ticket}
+        self.assertEqual(reward["pa"], {"first_clear": False, "bp": 0, "money": 0, "items": [], "claim": 0,
+                                        "milestone": None})
+        self.assertEqual((reward["pb"]["bp"], reward["pb"]["money"]), (2, 1100))
+        # B's prizes on floors 20, 25 and 30 (Misty's Bottle Caps, Giovanni's Pokemon, Flannery's Rare Candy) are B's
+        # alone: A claimed them long ago, and claims are never shared.
+        self.assertEqual(self.book.player("pb")["claims"] & 0b1111, 0b1111)
+        self.assertEqual([m["milestone"] for m in self.book.milestones_of("pb")], [0])
+        self.assertEqual(self.book.milestones_of("pa"), [])
+
+    def test_the_lower_player_cannot_be_taken_past_their_own_floor(self):
+        self.book.sync("pa", "Alice", record(31, 30), outstanding=0)
+        self.book.sync("pb", "Bob", record(11, 10), outstanding=0)
+        self.assertFalse(duo_floor_allowed(12, (31, 30), (11, 10)))                    # no skipping for B
+        self.book.invite_duo("d1", "pa", "pb", 25)                                     # the book takes it; issuing
+        self.book.accept_duo("d1", "pb")                                               # does not
+        with self.assertRaises(TowerError):
+            self.book.issue_duo("d1", "battle-1")
+        self.assertEqual(self.book.open_ticket("pb"), None)
+
+    def test_a_duo_result_settles_once_through_reconnects_and_a_restart(self):
+        self.book.sync("pa", "Alice", record(31, 30, 0b1111), outstanding=0)
+        self.book.sync("pb", "Bob", record(10, 9), outstanding=0)
+        tickets = self.duo_battle("pb", "pa", 10)
+        words = {p: self.words(p) for p in ("pa", "pb")}
+        self.assertEqual([w[0] for w in words["pb"]], ["state", "money", "item", "bp", "claims"])   # Brock's prize
+        self.assertEqual([w[0] for w in words["pa"]], ["state"])
+        # The same result again (a game reporting after a reconnect, the host reading it twice): nothing changes.
+        for ticket in tickets.values():
+            self.assertIsNone(self.book.settle(ticket["ticket_id"], "won", choose=chooser()))
+        self.assertIsNone(self.book.settle(tickets["pa"]["ticket_id"], "lost"))       # nor a contradicting one
+        self.world.close()
+        again = SharedWorld(self.path, WORLD)
+        self.addCleanup(again.close)
+        book = again.tower
+        for ticket in tickets.values():
+            self.assertIsNone(book.settle(ticket["ticket_id"], "won", choose=chooser()))
+        self.assertEqual({p: [(w["ref"].split(":")[-1], w["kind"], w["payload"]) for w in book.words_of(p)]
+                          for p in ("pa", "pb")}, words)
+        self.assertEqual((book.player("pb")["progress"], book.player("pb")["highest"]), (11, 10))
+        self.assertEqual((book.player("pa")["progress"], book.player("pa")["highest"]), (31, 30))
+
+    def test_a_reset_save_never_makes_a_cleared_floor_pay_again(self):
+        """A save reloaded from before a climb (an older revision: not imported) or one whose record was reset (a newer
+        revision with H 0: imported, but the ledger's best is kept) re-climbs floors without being paid for them."""
+        self.book.sync("pa", "Alice", None, outstanding=0)
+        self.climb("pa", 21)                                                           # floors 1-20 cleared and paid
+        self.deliver("pa")                                                             # the game applied every word
+        row = self.book.player("pa")
+        claims = row["claims"]
+        self.assertEqual((row["progress"], row["highest"], row["best"], row["revision"]), (21, 20, 20, 22))
+        row, imported = self.book.sync("pa", "Alice", record(5, 4, 0, 5), outstanding=0)   # an older save: ignored
+        self.assertEqual((imported, row["progress"], row["highest"]), (False, 21, 20))
+        row, imported = self.book.sync("pa", "Alice", record(1, 0, 0, row["revision"] + 50), outstanding=0)
+        self.assertEqual((imported, row["progress"], row["highest"], row["best"], row["claims"]), (True, 1, 0, 20, claims))
+        before = len(self.book.words_of("pa"))
+        self.climb("pa", 21)                                                           # floors 1-20 again
+        words = self.book.words_of("pa")[before:]
+        self.assertEqual({w["ref"].split(":")[-1] for w in words}, {"state"})           # progress words only
+        self.climb("pa", 22)                                                           # floor 21: new
+        self.assertEqual([w[0] for w in self.words("pa")[-3:]], ["state", "money", "bp"])
 
     def test_an_abandoned_duo_battle_is_void_for_both(self):
         self.book.sync("pa", "Alice", record(12, 11), outstanding=0)

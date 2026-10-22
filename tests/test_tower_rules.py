@@ -15,9 +15,9 @@ from unittest.mock import patch
 from emerald_multiplayer import tower_data, tower_rewards, tower_rules
 from emerald_multiplayer.frontier_service import FLAGS_OFFSET
 from emerald_multiplayer.tower_data import TowerDataError
-from emerald_multiplayer.tower_rules import (CHECKPOINTS, TowerRuleError, after, can_fight, checkpoint, choose_milestone,
-                                             default_duo_floor, duo_floor_allowed, exp_cap, is_progression,
-                                             max_unlocked, milestone_level, win_reward)
+from emerald_multiplayer.tower_rules import (CHECKPOINTS, NO_REWARD, TowerRuleError, after, can_fight, checkpoint,
+                                             choose_milestone, default_duo_floor, duo_floor_allowed, exp_cap, first_clear,
+                                             is_progression, max_unlocked, milestone_level, win_reward)
 
 BOSSES = {10: ("Leader", "Brock"), 20: ("Leader", "Misty"), 25: ("Boss", "Giovanni"), 30: ("Leader", "Flannery"),
           40: ("Leader", "Norman"), 50: ("Champion", "Wallace"), 60: ("Leader", "Winona"), 70: ("Champion", "Steven"),
@@ -296,16 +296,33 @@ class RewardTests(unittest.TestCase):
 
     def test_a_prize_is_paid_once_per_player_ever(self):
         claimed = tower_rewards.claim_bit(10)
-        self.assertEqual(win_reward(10, 9, 9, claimed), (True, 6, 1000, (), 0, None))   # already claimed: the floor's money
-        self.assertEqual(win_reward(10, 30, 30, 0).claim, 0)                             # not a first clear
+        # The save says the prize was claimed (the claim bits travel with it): floor 10 was cleared, nothing is paid again.
+        self.assertEqual(win_reward(10, 9, 9, claimed), NO_REWARD)
+        self.assertFalse(first_clear(10, 9, 9, claimed))
+        self.assertEqual(win_reward(10, 30, 30, 0), NO_REWARD)                            # not a first clear
+        self.assertEqual(win_reward(11, 9, 9, claimed), (True, 2, 1100, (), 0, None))    # a floor without a prize: new
 
-    def test_later_wins_pay_a_third_near_the_top_and_little_below_it(self):
-        self.assertEqual(win_reward(41, 48, 48, 0), (False, 5 // 3, 41 * 30, (), 0, None))
-        self.assertEqual(win_reward(40, 48, 48, 0), (False, 15 // 3, 40 * 30, (), 0, None))
-        self.assertEqual(win_reward(28, 48, 48, 0), (False, 1, 28 * 30, (), 0, None))      # exactly 20 below: still near
-        self.assertEqual(win_reward(27, 48, 48, 0), (False, 1, 27 * 10, (), 0, None))
-        self.assertEqual(win_reward(100, 100, 100, 0xFFFF), (False, 18, 3000, (), 0, None))
-        self.assertEqual(win_reward(5, 100, 100, 0), (False, 1, 50, (), 0, None))
+    def test_a_floor_cleared_before_pays_nothing_again(self):
+        """Owner request 2026-10-22: a replay, a re-climb after a loss and a Duo partner's lower floor pay no Battle
+        Points, money, items, prize or milestone; the battle's experience is the only gain."""
+        for floor, highest, best, claims in ((41, 48, 48, 0), (40, 48, 48, 0), (28, 48, 48, 0), (27, 48, 48, 0),
+                                             (100, 100, 100, 0xFFFF), (5, 100, 100, 0), (25, 30, 30, 0),
+                                             (48, 48, 48, 0), (1, 1, 1, 0)):
+            with self.subTest(floor=floor, highest=highest):
+                self.assertEqual(win_reward(floor, highest, best, claims), NO_REWARD)
+                self.assertFalse(first_clear(floor, highest, best, claims))
+        self.assertEqual(NO_REWARD, (False, 0, 0, (), 0, None))
+        self.assertFalse(hasattr(tower_rewards, "later_win_bp") or hasattr(tower_rewards, "later_win_money"))
+
+    def test_the_first_floor_above_the_best_pays_its_first_clear_again(self):
+        # Player A cleared floor 30: floors up to 30 pay nothing; floor 31, A's first clear, pays as a first clear.
+        self.assertEqual(win_reward(30, 30, 30, 0), NO_REWARD)
+        self.assertEqual(win_reward(31, 30, 30, 0), (True, tower_rewards.first_clear_bp(31), 3100, (), 0, None))
+        # Player B cleared floor 10: floor 11 is new for B whatever A has done (each player reckoned on their own).
+        self.assertEqual(win_reward(11, 10, 10, tower_rewards.claim_bit(10)), (True, 2, 1100, (), 0, None))
+        # A prize floor's first clear pays its prize instead of the floor's money.
+        self.assertEqual(win_reward(30, 29, 29, 0b111),
+                         (True, 12, 30_000, ((tower_rewards.ITEM_RARE_CANDY, 15),), tower_rewards.claim_bit(30), None))
 
     def test_a_floor_cleared_before_an_import_is_not_a_first_clear(self):
         self.assertFalse(win_reward(12, 5, 30, 0).first_clear)

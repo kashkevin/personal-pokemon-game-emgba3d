@@ -7,7 +7,13 @@
   a replay, which never changes P or H.
 * A Duo battle's floor defaults to the lower of the two progress floors; a replay may be any floor up to the lower of the
   two players' highest unlocked floors (max(H, P), at most 100). For each player the floor is progression when it is their
-  P, else a replay: one battle may move one player and be a replay for the other.
+  P, else a replay: one battle may move one player and be a replay for the other. Different progress never keeps two
+  players apart: a player who has climbed higher joins a friend's lower floor (owner request 2026-10-22); the Duo's host -
+  the player who invited - chooses the floor.
+* A floor the player has already cleared pays nothing again (owner request 2026-10-22): no Battle Points, money, items,
+  prize or milestone Pokemon; the battle still gives its Pokemon their experience (each game's own award, capped as
+  below). A floor above the highest the player ever cleared in this world pays its first-clear rewards, each player's
+  reckoned on their own.
 * Experience caps (shown here, applied by each game itself): 0..8 badges cap Tower experience at level 15, 20, 25, 30, 40,
   45, 50, 55, 60; a Champion (FLAG_SYS_GAME_CLEAR: the Hall of Fame entered) at 100.
 * Prizes and Battle Points: tower_rewards.py; ``win_reward`` combines them for one player's win.
@@ -124,7 +130,7 @@ def choose_milestone(pool, level: int, rng):
 
 
 class WinReward(NamedTuple):
-    first_clear: bool            # the floor's first win ever for this player
+    first_clear: bool            # the floor's first win ever for this player (anything else pays nothing)
     bp: int
     money: int
     items: tuple                 # (item id, quantity)
@@ -132,20 +138,29 @@ class WinReward(NamedTuple):
     milestone: int | None        # the milestone Pokemon this win makes owed (0-3)
 
 
+NO_REWARD = WinReward(False, 0, 0, (), 0, None)
+
+
+def first_clear(floor: int, highest: int, best: int, claims: int) -> bool:
+    """Whether winning ``floor`` is this player's first clear of it: above their H before the battle and above ``best``,
+    the highest floor they ever cleared in this world (an import may lower H, so resetting a save never makes a floor new
+    again), and, for a prize floor, its prize not claimed already (the claim bits travel in the save)."""
+    if floor <= max(highest, best):
+        return False
+    return floor not in tower_rewards.PRIZES or not claims & tower_rewards.claim_bit(floor)
+
+
 def win_reward(floor: int, highest: int, best: int, claims: int) -> WinReward:
-    """What one player earns for winning ``floor``. ``highest`` is their H before the battle, ``best`` the highest floor
-    they ever cleared in this world (an import may have lowered H: a floor cleared before is never a first clear again),
-    ``claims`` their claim bits (a prize is paid once per player, ever)."""
-    first = floor > max(highest, best)
+    """What one player earns for winning ``floor``: the first-clear rewards (a prize floor's prize instead of the floor's
+    money), or nothing at all for a floor already cleared (NO_REWARD: experience is the only gain). ``highest`` is their H
+    before the battle, ``best`` the highest floor they ever cleared in this world, ``claims`` their claim bits."""
+    if not first_clear(floor, highest, best, claims):
+        return NO_REWARD
     prize = tower_rewards.PRIZES.get(floor)
-    if first and prize is not None and not claims & tower_rewards.claim_bit(floor):
-        # A prize floor's first clear pays its prize instead of the floor's money.
+    if prize is not None:
         return WinReward(True, tower_rewards.first_clear_bp(floor), prize.money, prize.items,
                          tower_rewards.claim_bit(floor), prize.milestone)
-    if first:
-        return WinReward(True, tower_rewards.first_clear_bp(floor), tower_rewards.first_clear_money(floor), (), 0, None)
-    return WinReward(False, tower_rewards.later_win_bp(floor, highest), tower_rewards.later_win_money(floor, highest), (), 0,
-                     None)
+    return WinReward(True, tower_rewards.first_clear_bp(floor), tower_rewards.first_clear_money(floor), (), 0, None)
 
 
 def party_training(save_block1: bytes) -> list[dict]:

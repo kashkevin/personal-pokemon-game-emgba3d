@@ -64,9 +64,11 @@ class WindowsWorkflowTests(unittest.TestCase):
         proof = job("tower-proof")
         self.assertIn("runs-on: windows-2022", proof)
         self.assertIn("needs: [engine, symbol-sizes]", proof)
-        for name, scenario in (("solo", "solo"), ("milestone", "solo"), ("duo", "duo"), ("mega", "mega"),
+        for name, scenario in (("solo", "solo"), ("milestone", "solo"), ("duo", "duo"), ("join", "join"), ("mega", "mega"),
                                ("forfeit", "forfeit")):
             self.assertIn(f"{{name: {name}, scenario: {scenario},", proof)
+        # join: co-op progression - the player who climbed higher (three level-10 Mewtwo) joins the other's lower floor
+        self.assertIn('{name: join, scenario: join, a: tower-join-a, b: tower-join-b, extra: "--party-counts 3 6"}', proof)
         self.assertIn("b: tower-weak25-b", proof)          # player 2 loses the special boss (floor 25)
         self.assertIn("scripts/multiplayer/make_tower_saves.py", proof)
         self.assertIn("scripts/multiplayer/native_launcher_tower_proof.py --scenario ${{ matrix.scenario }}", proof)

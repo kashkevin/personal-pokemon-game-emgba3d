@@ -8,7 +8,9 @@ are the save's own ``frontier.battlePoints``, shared with the Battle Frontier an
 
 Prize floors and their claim bits (the save record's ``claims``, reward kind 6 op 1): bits 0-11 the prize of floors 10, 20,
 25, 30, 40, 50, 60, 70, 75, 80, 90 and 100 claimed; bits 12-15 the milestone Pokemon of 25, 50, 75 and 100 delivered.
-Prices and amounts are the owner's (design section 4 and the request of 2026-10-21).
+Prices and amounts are the owner's (design section 4 and the request of 2026-10-21). Only a floor's first clear pays
+(the owner's request of 2026-10-22): a floor already cleared - a replay, a re-climb after a loss, a Duo partner's lower
+floor - pays nothing again (tower_rules.win_reward).
 """
 from __future__ import annotations
 
@@ -101,20 +103,6 @@ def first_clear_bp(floor: int) -> int:
 
 def first_clear_money(floor: int) -> int:
     return floor * 100
-
-
-def near(floor: int, highest: int) -> bool:
-    """A later win is within 20 floors of the player's highest cleared floor (below that, anti-farming rates)."""
-    return highest - floor <= 20
-
-
-def later_win_bp(floor: int, highest: int) -> int:
-    """A replay or a re-climb after a loss: a third of the first-clear BP (at least 1), 1 BP more than 20 floors down."""
-    return max(1, first_clear_bp(floor) // 3) if near(floor, highest) else 1
-
-
-def later_win_money(floor: int, highest: int) -> int:
-    return floor * (30 if near(floor, highest) else 10)
 
 
 def describe_items(items) -> str:

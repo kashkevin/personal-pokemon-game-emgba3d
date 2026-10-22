@@ -140,6 +140,11 @@ class SoloTests(unittest.TestCase):
         row = self.world.tower.player(player)
         return row["progress"], row["highest"]
 
+    def notices(self):
+        """The in-game banners posted and not yet shown, as (first line, second line)."""
+        posted = [self.world._notice] + list(self.world._notice_queue)
+        return [tuple((notice["text"] + "|").split("|")[:2]) for notice in posted if notice is not None]
+
     # -------------------------------------------------------------------- solo
     def test_a_solo_win_from_the_command_to_its_words(self):
         view = self.call("status")
@@ -177,8 +182,11 @@ class SoloTests(unittest.TestCase):
         ticket = self.solo(100)
         self.report("won", ticket, 100)
         self.assertEqual(self.progress(), (101, 100))
-        self.assertEqual(self.words()[1:], [(0, 3000), (1, 18)])                     # a later win near the top
+        self.assertEqual(self.words()[1:], [])                                       # cleared before: nothing paid
         self.assertEqual(self.world.tower.player(A)["completions"], 1)
+        view = self.call("status")
+        self.assertEqual(view["last"]["reward"]["first_clear"], False)
+        self.assertIn(("TOWER FLOOR 100 CLEARED!", "Cleared before: Exp. only"), self.notices())
 
     def test_every_refusal_says_why(self):
         self.store.saves[A] = tower_save(record=tower_record(highest=11, progress=12, revision=1))
@@ -322,7 +330,7 @@ class SoloTests(unittest.TestCase):
         self.apply()
         replay = self.solo(10)
         self.report("won", replay, 10)
-        self.assertEqual(self.words()[5:], [(6, rewards.tower_progress(10, 11, replay & 0xFF)), (0, 300), (1, 2)])
+        self.assertEqual(self.words()[5:], [(6, rewards.tower_progress(10, 11, replay & 0xFF))])   # the replay: nothing
 
     def test_a_milestone_pokemon_waits_for_room_and_is_sent_again(self):
         self.store.saves[A] = tower_save(record=tower_record(highest=24, progress=25, revision=2), badges=8)
@@ -542,6 +550,53 @@ class DuoTests(unittest.TestCase):
         self.service.reconcile()
         self.assertEqual(len(self.wagers.pending_for(self.a)), 3)                         # paid once
 
+    def paid(self, player):
+        return [rewards.decode(w["delta"], tower=True) or (0, w["delta"]) for w in self.wagers.pending_for(player)]
+
+    def test_a_higher_player_joins_the_hosts_lower_floor_and_only_new_floors_pay(self):
+        """Owner request 2026-10-22: Bob (floor 49 cleared) joins Alice's run (her floor 12). The floor is Alice's
+        choice; Bob's battle pays him nothing but its experience, Alice's pays her first clear; neither player's
+        progress moves the other's."""
+        view = self.call(self.a, "duo_invite", floor=12)
+        self.assertEqual([(m["progression"], m["first_clear"]) for m in view["duo"]["members"]],
+                         [(True, True), (False, False)])
+        self.call(self.b, "duo_accept")
+        with self.assertRaises(SharedWorldError) as caught:
+            self.call(self.b, "duo_floor", floor=3)                                        # the host's floor stands
+        self.assertEqual((caught.exception.code, caught.exception.message), ("duo_host_floor", "Trainer 0 chooses the floor"))
+        self.call(self.a, "duo_ready")
+        duo = self.call(self.b, "duo_ready")["duo"]
+        self.finish(duo["battle_id"], 1)
+        self.service.reconcile()
+        self.assertEqual(self.paid(self.a), [(6, rewards.tower_progress(12, 13, 0)), (0, 1200), (1, 2)])
+        self.assertEqual(self.paid(self.b), [(6, rewards.tower_progress(49, 50, 0))])    # experience only
+        a, b = self.world.tower.player(self.a), self.world.tower.player(self.b)
+        self.assertEqual(((a["progress"], a["highest"]), (b["progress"], b["highest"])), ((13, 12), (50, 49)))
+        self.assertEqual(self.call(self.b, "status")["last"]["reward"]["first_clear"], False)
+        self.assertEqual(self.call(self.a, "status")["last"]["reward"]["bp"], 2)
+        texts = [n["text"] for n in [self.world._notice] + list(self.world._notice_queue) if n]
+        self.assertIn("TOWER FLOOR 12 CLEARED!|Cleared before: Exp. only", texts)
+        self.assertIn("TOWER FLOOR 12 CLEARED!|+2BP $1,200", texts)
+        view = self.call(self.b, "status")["duo"]
+        self.assertEqual((view["state"], view["floor"]), ("forming", 13))                 # on with Alice's climb
+        self.service.reconcile()
+        self.assertEqual((len(self.wagers.pending_for(self.a)), len(self.wagers.pending_for(self.b))), (3, 1))
+
+    def test_the_higher_player_may_host_on_any_floor_open_to_both(self):
+        view = self.call(self.b, "duo_invite", floor=12)                                  # Bob hosts on Alice's floor
+        self.assertEqual(view["duo"]["proposer"], self.b)
+        self.call(self.a, "duo_accept")
+        with self.assertRaises(SharedWorldError) as caught:
+            self.call(self.b, "duo_floor", floor=30)                                       # Alice would skip floors
+        self.assertEqual(caught.exception.code, "tower_floor_locked")
+        self.call(self.b, "duo_floor", floor=7)                                            # a replay for both: allowed
+        self.call(self.b, "duo_ready")
+        duo = self.call(self.a, "duo_ready")["duo"]
+        self.finish(duo["battle_id"], 1)
+        self.service.reconcile()
+        self.assertEqual(self.paid(self.a), [(6, rewards.tower_progress(11, 12, 0))])     # both cleared floor 7 before
+        self.assertEqual(self.paid(self.b), [(6, rewards.tower_progress(49, 50, 0))])
+
     def test_a_battle_that_never_started_is_void_for_both(self):
         duo = self.form()
         self.fixture.desk._active.pop(duo["battle_id"])                                  # the host lost the challenge
@@ -558,9 +613,12 @@ class DuoTests(unittest.TestCase):
         self.call(self.a, "duo_invite", floor=12)
         self.call(self.b, "duo_accept")
         with self.assertRaises(SharedWorldError) as caught:
-            self.call(self.b, "duo_floor", floor=13)                                       # beyond Alice's floors
+            self.call(self.a, "duo_floor", floor=13)                                       # beyond Alice's floors
         self.assertEqual(caught.exception.code, "tower_floor_locked")
-        self.call(self.b, "duo_floor", floor=5)                                            # a replay for both
+        with self.assertRaises(SharedWorldError) as caught:
+            self.call(self.b, "duo_floor", floor=5)                                        # Alice hosts: her choice
+        self.assertEqual(caught.exception.code, "duo_host_floor")
+        self.call(self.a, "duo_floor", floor=5)                                            # a replay for both
         self.call(self.a, "duo_ready")
         duo = self.call(self.b, "duo_ready")["duo"]
         self.assertEqual(duo["floor"], 5)

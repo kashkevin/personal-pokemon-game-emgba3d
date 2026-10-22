@@ -20,7 +20,8 @@ Tables (CREATE TABLE IF NOT EXISTS):
   tower_words       every wallet word the Tower sends, in order: written as ``planned`` in the transaction that decides it,
                     ``queued`` once it is on the player's wallet stream (wagers.py, once per (player, reference)), with the
                     game's receipt (``applied``). A settled battle plans its Tower state (PROGRESS) first, then money, items,
-                    Battle Points, the claims and the milestone Pokemon. Kind 0 is money (payload = the amount).
+                    Battle Points, the claims and the milestone Pokemon - each only when it pays something: a floor the
+                    player already cleared plans the state word alone. Kind 0 is money (payload = the amount).
   tower_duos        a Duo session of a host-formed team: invited -> forming (both agreed; each marks ready, the floor may
                     change) -> battle (its co-op battle issued) -> forming again after the battle (on to the next floor), or
                     ended (declined, cancelled, left, the team changed).
@@ -280,7 +281,8 @@ class TowerBook:
                 words.append(("money", MONEY, reward.money))
             words.extend(("item", rewards.KIND_ITEM, rewards.item_payload(item, quantity))
                          for item, quantity in reward.items)
-            words.append(("bp", rewards.KIND_BP, reward.bp))
+            if reward.bp:                    # a floor already cleared pays nothing: its battle plans the state word alone
+                words.append(("bp", rewards.KIND_BP, reward.bp))
             if claims != row["claims"]:
                 words.append(("claims", rewards.KIND_TOWER_STATE, rewards.tower_claims(claims)))
         for position, (name, kind, payload) in enumerate(words):

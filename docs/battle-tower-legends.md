@@ -30,8 +30,14 @@ This file is the contract between the engine and the app. Section 8 lists every 
 * **Progress:** each player has a *progress floor* P (the next floor of their climb, 1..100; 101 when floor 100 is cleared)
   and a *highest cleared floor* H (0..100). Winning floor P: P+1, H = max(H, P). Losing (or drawing) floor P: P = C+1, where C
   is the highest checkpoint <= H (0 when none). Examples: lose on 18 -> 11, on 48 -> 41, on 73 -> 71, on 79 -> 76, on 7 -> 1.
-* **Replays:** any floor <= H can be fought again ("Replay floor N"); a replay never changes P or H and pays the replay rates
-  (section 4). After floor 100 (P = 101) every floor is a replay.
+* **Replays:** any floor <= H can be fought again ("Replay floor N"); a replay never changes P or H and pays nothing
+  but the battle's experience (section 4). After floor 100 (P = 101) every floor is a replay.
+* **Co-op progression (owner request 2026-10-22):** different progress never keeps two players apart. A Duo's host - the
+  player who invites - chooses its floor, any floor open to both (each player's own P or a floor <= their own H), so a
+  player who has climbed higher joins a friend's lower floor; the partner cannot change it. For each player that floor is
+  progression (their P) or a replay, reckoned on their own: one battle may climb for one player and replay for the other,
+  and after it the Duo goes on to the lower progress floor (the host's climb, when the host is the lower one). Each
+  player's P, H and rewards are their own rows and words; one player's result never writes the other's.
 * **No skipping:** a player only ever fights their P or a floor <= H. The host checks it for every battle it issues.
 * **One Tower battle at a time per player** (solo or Duo): while one is issued or running, every other Tower action of that
   player is refused with the reason.
@@ -73,12 +79,20 @@ All prizes go through the wallet stream (exactly once per save and adjustment; t
   | 80 | 1 Ability Patch + $80,000 |
   | 90 | 1 Ability Patch + 3 Gold Bottle Cap + $90,000 |
   | 100 | milestone Pokemon: shiny, all IVs 31, a legendary of the supported pool + $100,000 |
-* **Every won battle** also pays Battle Points and (except on a prize floor's first clear) money:
-  * first clear (the floor's first win ever): BP = (1 + floor // 10) x (3 on floors 10, 20, 30, 40, 60, 70, 80, 90; 4 on 25,
-    50, 75; 5 on 100; else 1); money = floor x $100.
-  * any later win (a replay, or a re-climb after a loss): BP = max(1, first-clear BP // 3) and money = floor x $30 when the
-    floor is within 20 of the player's H; 1 BP and floor x $10 below that (anti-farming).
-  * A loss pays nothing.
+* **A floor's first clear** (the floor above the highest the player ever cleared in this world, its prize not claimed
+  already) also pays Battle Points and (except on a prize floor) money: BP = (1 + floor // 10) x (3 on floors 10, 20, 30,
+  40, 60, 70, 80, 90; 4 on 25, 50, 75; 5 on 100; else 1); money = floor x $100.
+* **A floor already cleared pays nothing again** (owner request 2026-10-22, replacing the earlier replay rates): a replay,
+  a re-climb after a loss and a Duo partner's lower floor give no Battle Points, money, items, prize or milestone Pokemon.
+  The battle still gives its Pokemon their experience - each game's own award, capped as in section 3 - with the levels,
+  the moves learned and the evolutions that follow. Once a player wins a floor above their highest, first-clear rewards
+  resume for that player. Each player's eligibility is reckoned on their own (``tower_rules.first_clear``): the host's
+  ledger keeps ``best``, the highest floor ever cleared in this world, which no save import lowers, so a reloaded or reset
+  save never makes a floor new again, and the claim bits travel with the save. A loss pays nothing.
+* **Exactly once:** a battle settles once (its ticket; a repeated or contradicting result changes nothing, across
+  reconnects, soft resets and host restarts: the ledger is in the world's SQLite file) and each word it pays goes on the
+  player's wallet stream once (wagers.py: applied once per save; a reloaded older save applies it again with its money,
+  never a second time on the same save).
 * **Milestone Pokemon** (25, 50, 75, 100): once per player permanently. The host picks the species when the floor is first
   cleared and records it before anything is sent; the game makes the Pokemon from that species and a seed of (milestone,
   species, the save's trainer ID), so a resend, a reload or a retry makes the same Pokemon (no rerolls). Level: the floor,

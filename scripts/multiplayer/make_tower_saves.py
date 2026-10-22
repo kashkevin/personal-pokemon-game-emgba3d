@@ -15,6 +15,10 @@ PKMN_TEST_TOWER_RECORD: the game loads the save, sets them and saves through its
                         world's host stays up)
   tower-duo-a / -b      six level-100 Xerneas, Dazzling Gleam first (it hits both foes; no type is immune to it),
                         Choice Specs: the Duo climb
+  tower-join-a          three level-10 Mewtwo, Dazzling Gleam first (below the Tower experience cap without badges,
+                        15: they gain experience and levels), the record floor 11 cleared, 12 next: the player who has
+                        climbed higher and joins (--scenario join)
+  tower-join-b          as strong, the record floor 9 cleared, 10 next: the Duo's host, on its own floor (Brock)
   abandon-a / -b / -c / -d  one level-5 starter each (Treecko, Torchic, Mudkip, Treecko): the interrupted battle proof
                         (native_launcher_abandon_proof.py; players 3 and 4 from --source-c and --source-d)
   knockout-a / -b / -c / -d  a level-2 Torchic; two level-30 Mudkip with Earthquake first; two level-30 Zigzagoon
@@ -69,6 +73,8 @@ FIXTURES = (  # (name, source, party, record "highest:progress" or None[, bag "i
     ("tower-forfeit-b", "b", STRONG, (12, 13)),
     ("tower-duo-a", "a", DUO, None),
     ("tower-duo-b", "b", DUO, None),
+    ("tower-join-a", "a", ",".join(["150:10:v605"] * 3), (11, 12)),   # SPECIES_MEWTWO at level 10: experience to gain
+    ("tower-join-b", "b", STRONG, (9, 10)),
     ("abandon-a", "a", "252:5", None),                 # SPECIES_TREECKO
     ("abandon-b", "b", "255:5", None),                 # SPECIES_TORCHIC
     ("abandon-c", "c", "258:5", None),                 # SPECIES_MUDKIP

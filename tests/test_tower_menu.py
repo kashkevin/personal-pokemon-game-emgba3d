@@ -20,9 +20,10 @@ from test_tower_rules import TABLE_HASH, synthetic_data
 ME, MATE = "a", "b"
 
 
-def member(player, name, progress, highest, *, progression, ready=False, team=("Mudkip",)):
+def member(player, name, progress, highest, *, progression, first_clear=None, ready=False, team=("Mudkip",)):
     return {"player_id": player, "name": name, "progress": progress, "highest": highest, "progression": progression,
-            "ready": ready, "consent": True, "team": list(team)}
+            "first_clear": progression if first_clear is None else first_clear, "ready": ready, "consent": True,
+            "team": list(team)}
 
 
 def host_view(progress=12, highest=11, claims=0b11, *, bp=45, battle=None, last=None, duo=None, teammate=None,
@@ -225,7 +226,8 @@ class PageTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((self.menu.screen.style, self.menu.screen.style_arg), (2, 6))
         await self.click("  7 Ace Trainer Ace7")
         self.assertEqual(self.menu.screen.title, "Floor 7 (replay)")
-        self.assertIn("Win: 1 BP, $210", self.labels)
+        self.assertIn("Win: Exp. only (cleared)", self.labels)                      # a cleared floor pays nothing again
+        self.assertFalse(any(label.startswith("Win: ") and "BP" in label for label in self.labels))
 
     async def test_the_floor_map_bosses_and_previews_never_show_a_team(self):
         await self.open_tower()
@@ -317,11 +319,11 @@ class PageTests(unittest.IsolatedAsyncioTestCase):
         await self.click(" 11 Ace Trainer Ace11")
         self.assertIn(("duo_invite", {"floor": 11}), self.calls)
         self.assertEqual((self.menu.screen.title, self.menu.screen.status), ("Duo: floor 12", "Waiting for Bob"))
-        self.assertEqual(self.labels, ["Alice: climb", "Bob: replay", "Cancel the invitation"])
+        self.assertEqual(self.labels, ["Alice: prizes", "Bob: Exp only", "Cancel the invitation"])
         self.view = host_view(teammate=TEAMMATE, duo=DUO_VIEWS["forming"])
         await self.menu.refresh()
-        self.assertEqual(self.labels, ["Alice: climb, ready", "Bob: replay", "Team: Mudkip", "Not ready", "Change floor",
-                                       "Leave the Duo"])
+        self.assertEqual(self.labels, ["Alice: prizes, ready", "Bob: Exp only", "Team: Mudkip", "Not ready",
+                                       "Change floor", "Leave the Duo"])
         self.assertEqual((self.menu.screen.status, self.menu.screen.style, self.menu.screen.style_arg),
                          ("Floor 12: 1/2 ready", 5, 12))
         await self.click("Team: Mudkip")
@@ -333,6 +335,23 @@ class PageTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.menu.screen.status, "Battle needs recovery")
         await self.click("Open Challenges")
         self.assertEqual(self.menu.screen.title, "Challenges")
+
+    async def test_the_teammate_who_joined_sees_the_hosts_floor_and_cannot_change_it(self):
+        """Bob hosts (he climbed to 50); Alice joins on his choice of floor: her row says what the floor pays her, and
+        only the host may change the floor."""
+        duo = dict(DUO_VIEWS["forming"], proposer=MATE,
+                   members=[member(MATE, "Bob", 50, 49, progression=False, first_clear=False),
+                            member(ME, "Alice", 12, 11, progression=True, first_clear=True, ready=True)])
+        self.view = host_view(teammate=TEAMMATE, duo=duo)
+        await self.open_tower()
+        await self.click("Duo: floor 12 (forming)")
+        self.assertEqual(self.labels, ["Bob: Exp only", "Alice: prizes, ready", "Team: Mudkip", "Not ready",
+                                       "Leave the Duo"])
+        self.assertNotIn("Change floor", self.labels)
+        # A re-climb after a loss is progression but pays nothing: the row says so.
+        duo["members"][1] = member(ME, "Alice", 12, 14, progression=True, first_clear=False)
+        await self.menu.refresh()
+        self.assertEqual(self.labels[1], "Alice: Exp only")
 
     async def test_an_invitation_is_accepted_or_declined_and_an_ended_duo_says_why(self):
         self.view = host_view(teammate=TEAMMATE, duo=DUO_VIEWS["invited, theirs"])

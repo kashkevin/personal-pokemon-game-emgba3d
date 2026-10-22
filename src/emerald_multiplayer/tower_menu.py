@@ -152,6 +152,8 @@ class TowerMenu:
         """What winning ``floor`` would pay this player (section 4), in two rows."""
         player = self._player()
         reward = win_reward(floor, player["highest"], max(player["highest"], player.get("best", 0)), player["claims"])
+        if not reward.first_clear:
+            return [("Win: Exp. only (cleared)", "", ())]      # a floor cleared before pays nothing again
         rows = []
         if reward.claim:
             rows.append(("Prize: " + PRIZE_LABELS[floor], "", ()))
@@ -324,7 +326,7 @@ class TowerMenu:
         actions = [(f"{f:>3} {self._trainer(f)}", "tower_page", ("solo", f)) for f in shown]
         if pages > 1:
             actions.append((f"More floors ({page_no + 1}/{pages})", "tower_page", ("replay", (page_no + 1) % pages)))
-        status = "Replays keep your floor" if floors else "Clear a floor to replay it"
+        status = "Replays: Exp. only, no BP" if floors else "Clear a floor to replay it"
         return "Replay a floor", status, actions, (STYLE_MAP, shown[-1] if shown else 1)
 
     def _render_bosses(self, page_no):
@@ -365,7 +367,7 @@ class TowerMenu:
             actions.append((f"Difficulty: {entry['difficulty']}", "", ()))
         actions.extend(self._reward_rows(floor))
         if floor == player["progress"] or floor <= player["highest"]:
-            status = "Your next floor" if floor == player["progress"] else "Cleared: replay it any time"
+            status = "Your next floor" if floor == player["progress"] else "Cleared: replay for Exp."
             actions.append(("Fight this floor", "tower_page", ("solo", floor)))
         else:
             status = f"Clear floor {min(player['progress'], FLOORS)} first"
@@ -478,9 +480,11 @@ class TowerMenu:
 
     # ------------------------------------------------------------------- Duo
     def _duo_member(self, member, floor):
-        role = "climb" if member["progression"] else "replay"
+        """One player of the Duo: whether this floor pays them its first-clear rewards ("prizes") or, cleared before,
+        only experience (each player reckoned on their own)."""
+        role = "prizes" if member.get("first_clear", member["progression"]) else "Exp only"
         state = ", ready" if member["ready"] else ""
-        return (f"{member['name'][:10]}: {role}{state}", "", ())
+        return (f"{member['name'][:8]}: {role}{state}", "", ())
 
     def _render_duo(self, _):
         view, actor = self._view, self._actor
@@ -520,7 +524,8 @@ class TowerMenu:
         actions.append(("Team: " + (", ".join(team) if team else "choose")[:19], "tower_page", ("team", 0)))
         actions.append(("Not ready" if mine["ready"] else "Ready", "tower_duo", ("duo_unready" if mine["ready"]
                                                                                  else "duo_ready",)))
-        actions.append(("Change floor", "tower_page", ("duo_floor", 0)))
+        if duo["proposer"] == actor:      # the Duo's host chooses its floor
+            actions.append(("Change floor", "tower_page", ("duo_floor", 0)))
         actions.append(("Leave the Duo", "tower_duo", ("duo_leave",)))
         return f"Duo: floor {floor}", status, actions, (STYLE_DUO, floor)
 

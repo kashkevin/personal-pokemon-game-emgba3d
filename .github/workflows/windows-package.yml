@@ -614,11 +614,15 @@ jobs:
     # (scripts/multiplayer/native_launcher_tower_proof.py, Windows mode). The characters come from the game's own short
     # introduction; the test build then gives them their Tower fixtures (scripts/multiplayer/make_tower_saves.py).
     # solo: floors 1-11 through the Players menu, each settled by the host, Brock's checkpoint prize and every floor's
-    # money and BP in the next save, floor 10 replayed (replay rates, no second prize), an HP Up bought in the Tower Shop
+    # money and BP in the next save, floor 10 replayed (nothing paid again), an HP Up bought in the Tower Shop
     # with 16 BP, and player 2 losing the special boss (Giovanni, floor 25) back to checkpoint 20; milestone: from a
     # record at floor 25, Giovanni beaten and his milestone Pokemon made in the game (into the PC), floor 25 replayed
     # (no second Pokemon), and player 2 losing floor 1 (no checkpoint yet);
-    # duo: a team, the Duo invitation, both Ready, the native co-op battle won and settled for both; mega: a Duo replay
+    # duo: a team, the Duo invitation, both Ready, the native co-op battle won and settled for both; join: co-op
+    # progression - player 1 (floors 1-11 cleared, three level-10 Mewtwo) joins player 2's Duo on player 2's floor 10:
+    # floors 10 and 11 pay player 1 nothing while its Mewtwo gain experience and levels, player 2 is paid each first
+    # clear, player 2's game closed and started again between them (its rewards arrive once), floor 12 pays both;
+    # mega: a Duo replay
     # of floor 40 where Norman's Kangaskhan Mega Evolves; forfeit: player 2's solo floor closed mid-battle (player 1
     # hosts the world, which stays up), the game started again, the floor counted as a loss on the next ask; ui: the 3D
     # game the launcher packages with its native PC UI, through Mesa's software OpenGL (pinned, as graphics-3d; added to
@@ -638,6 +642,7 @@ jobs:
           - {name: solo, scenario: solo, a: tower-strong-a, b: tower-weak25-b, extra: "--weak-b --party-counts 6 1"}
           - {name: milestone, scenario: solo, a: tower-strong25-a, b: tower-weak-b, extra: "--weak-b --party-counts 6 1 --floors 26"}
           - {name: duo, scenario: duo, a: tower-strong-a, b: tower-strong-b, extra: "--party-counts 6 6"}
+          - {name: join, scenario: join, a: tower-join-a, b: tower-join-b, extra: "--party-counts 3 6"}
           - {name: mega, scenario: mega, a: tower-mega-a, b: tower-mega-b, extra: "--party-counts 6 6 --floors-json mega-check-inputs/tower_legends.json"}
           - {name: forfeit, scenario: forfeit, a: tower-strong-a, b: tower-forfeit-b, extra: "--party-counts 6 6"}
           - {name: ui, scenario: ui, a: tower-strong-a, b: tower-strong-b, extra: "--party-counts 6 6 --native-ui", game: inputs/pokeemerald-mp-diorama.exe, mesa: "yes"}
