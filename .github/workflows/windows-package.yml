@@ -624,7 +624,7 @@ jobs:
           - {name: mega, scenario: mega, a: tower-mega-a, b: tower-mega-b, extra: "--party-counts 6 6 --floors-json mega-check-inputs/tower_legends.json"}
           - {name: forfeit, scenario: forfeit, a: tower-strong-a, b: tower-forfeit-b, extra: "--party-counts 6 6"}
           - {name: ui, scenario: ui, a: tower-strong-a, b: tower-strong-b, extra: "--party-counts 6 6 --native-ui", game: inputs/pokeemerald-mp-diorama.exe, mesa: "yes"}
-          - {name: climb, scenario: climb, a: tower-strong-a, b: tower-strong-b, extra: "--party-counts 6 6 --test-env PKMN_TEST_TOWER_WIN=1", game: mega-check-inputs/pokeemerald-mp-bfxtest.exe}
+          - {name: climb, scenario: climb, a: tower-fast-a, b: tower-fast-b, extra: "--party-counts 6 6 --test-env PKMN_TEST_TOWER_WIN=1", game: mega-check-inputs/pokeemerald-mp-bfxtest.exe}
     defaults:
       run:
         shell: bash
@@ -710,6 +710,80 @@ jobs:
             ${{ runner.temp }}/multiplayer-proof/*/*.jsonl
             ${{ runner.temp }}/multiplayer-proof/*/*.png
             ${{ runner.temp }}/tower-saves/run-*/test.log
+          retention-days: 7
+          if-no-files-found: warn
+
+  rival-proof:
+    # Update 31's rival checkpoint battle between real players, in Windows game processes (a GitHub-hosted runner, one
+    # PC on its own loopback): two players' launchers, the world server and the Classic 2D game it packages
+    # (scripts/multiplayer/native_launcher_rival_proof.py, Windows mode). Both stand on Route 110 south of its rival line
+    # (fixtures the test build makes from the game's own short introduction: make_tower_saves.py rival-a / rival-b);
+    # player 1 walks onto the line and the gate stops the player and opens the Players menu; both choose Start Now on
+    # "Rival: Route 110"; the committed match is an ordinary challenge, accepted and entered, played natively to its end;
+    # the host completes the checkpoint for both "via battle"; each steps onto the line again for the original reward
+    # (the Dowsing Machine, VAR_ROUTE110_STATE 1), which the saves then hold.
+    name: Rival checkpoint battle (Windows game processes, Route 110)
+    needs: [engine, symbol-sizes]
+    if: ${{ (inputs.mode || 'smoke') == 'full' }}
+    runs-on: windows-2022
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Both builds come from one engine commit
+        run: |
+          [ "${{ needs.engine.outputs.engine_commit }}" = "${{ needs.symbol-sizes.outputs.engine_commit }}" ] || {
+            echo "the Windows game and the Linux symbol sizes are of different engine commits" >&2; exit 1; }
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - name: Private virtual environment with the pinned, hashed wheels
+        run: |
+          python -m venv .venv
+          .venv/Scripts/python -m pip install --require-hashes --only-binary=:all: -r requirements-host-provisioning.txt
+      - uses: actions/download-artifact@v4
+        with:
+          name: native-inputs
+          path: inputs
+      - uses: actions/download-artifact@v4
+        with:
+          name: mega-check-inputs
+          path: mega-check-inputs
+      - uses: actions/download-artifact@v4
+        with:
+          name: classic-pe-symbols
+          path: symbols
+      - uses: actions/download-artifact@v4
+        with:
+          name: classic-linux-sizes
+          path: symbols
+      - name: Two new characters from the game's own short introduction, each with a starter on Route 110
+        run: |
+          .venv/Scripts/python scripts/multiplayer/make_intro_saves.py --exe mega-check-inputs/pokeemerald-mp-bfxtest.exe \
+            --mega-check mega-check-inputs/mega_check.py --out "$RUNNER_TEMP/intro" --count 2
+          .venv/Scripts/python scripts/multiplayer/make_tower_saves.py --exe mega-check-inputs/pokeemerald-mp-bfxtest.exe \
+            --mega-check mega-check-inputs/mega_check.py --source-a "$RUNNER_TEMP/intro/boy-1.sav" \
+            --source-b "$RUNNER_TEMP/intro/girl-1.sav" --out "$RUNNER_TEMP/rival-saves" --only rival-a,rival-b
+      - name: The rival checkpoint battle (Route 110)
+        run: |
+          .venv/Scripts/python scripts/multiplayer/native_launcher_rival_proof.py \
+            --game inputs/pokeemerald-mp.exe --sdl inputs/SDL2.dll --rom inputs/pokedev.gba \
+            --manifest inputs/manifest.json --pe-symbols symbols/pokeemerald-mp.nm.txt \
+            --sizes symbols/pokeemerald-mp.sizes.txt --slow 1.5 \
+            --source-a "$RUNNER_TEMP/rival-saves/rival-a.sav" --source-b "$RUNNER_TEMP/rival-saves/rival-b.sav" \
+            --output "$RUNNER_TEMP/multiplayer-proof/rival-route110"
+      - name: Upload the proof's record (private to this repository, 7 days; no save)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: EmeraldTogether-rival-proof
+          path: |
+            ${{ runner.temp }}/multiplayer-proof/*/evidence.json
+            ${{ runner.temp }}/multiplayer-proof/*/*.jsonl
+            ${{ runner.temp }}/multiplayer-proof/*/*.png
+            ${{ runner.temp }}/rival-saves/run-*/test.log
           retention-days: 7
           if-no-files-found: warn
 

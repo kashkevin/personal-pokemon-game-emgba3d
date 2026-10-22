@@ -29,6 +29,21 @@ def _text(value, limit=25):
     return "".join(char if 32 <= ord(char) <= 126 else "?" for char in value)[:limit]
 
 
+# A match's state as a bystander's row shows it: "resolved" left too little room for two names (L rival-3p-1 showed
+# "Rival  v Rival  resolved"); "done" leaves them whole.
+STATE_WORDS = {"resolved": "done"}
+
+
+def _versus(sides, room):
+    """"A vs B" within `room` characters of a row: " v " when " vs " does not fit, then each side cut evenly. ("Battle: "
+    and two seven-letter names with " vs " take 26 of a row's 25: the second name lost its last letter.)"""
+    for joint in (" vs ", " v "):
+        if len(sides[0]) + len(joint) + len(sides[1]) <= room:
+            return sides[0] + joint + sides[1]
+    each = max(1, (room - 3) // 2)
+    return sides[0][:each] + " v " + sides[1][:each]
+
+
 NOTICES = {
     "rival_not_present": "Stand at the checkpoint first",
     "rival_completed": "Already completed",
@@ -230,9 +245,8 @@ class RivalMenu:
                     break
                 sides = [" & ".join(self._name(session, p)[:7] for p in team) for team in match["teams"]]
                 mine = self._actor in sum(match["teams"], [])
-                label = _text(f"{sides[0]} vs {sides[1]}")
                 if mine and match["state"] == "ready":
-                    actions.append((_text("Battle: " + label), "rival_match",
+                    actions.append((_text("Battle: " + _versus(sides, 25 - len("Battle: "))), "rival_match",
                                     (cid, session["session_id"], match["index"], match["attempt"])))
                 elif mine and match["state"] == "invited":
                     actions.append(("Open Challenges to accept", "rival_battle", (cid,)))
@@ -240,7 +254,8 @@ class RivalMenu:
                     actions.append(("Recover waiting battle", "rival_recover",
                                     (cid, session["session_id"], match["index"], match["attempt"], match["battle_id"])))
                 else:
-                    actions.append((_text(f"{label} {match['state']}"), "", ()))
+                    state = " " + STATE_WORDS.get(match["state"], match["state"])
+                    actions.append((_text(_versus(sides, 25 - len(state)) + state), "", ()))
             if here["can_solo"]:
                 actions.append(("Continue on my own", "rival_solo", (cid,)))
         else:

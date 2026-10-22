@@ -79,7 +79,7 @@ class WindowsWorkflowTests(unittest.TestCase):
         self.assertIn("{name: ui, scenario: ui,", proof)
         self.assertIn("game: inputs/pokeemerald-mp-diorama.exe, mesa: \"yes\"}", proof)
         # climb: floors 1-100 in the test build through the launcher, its symbols from before the strip, a longer limit
-        self.assertIn("{name: climb, scenario: climb,", proof)
+        self.assertIn("{name: climb, scenario: climb, a: tower-fast-a, b: tower-fast-b,", proof)   # fast text, no animations
         self.assertIn("--test-env PKMN_TEST_TOWER_WIN=1\", game: mega-check-inputs/pokeemerald-mp-bfxtest.exe}", proof)
         self.assertNotIn("PKMN_TEST_SPEED", proof)          # the whole game faster than the harness's presses
         self.assertIn("timeout-minutes: ${{ matrix.name == 'climb' && 330 || 120 }}", proof)
@@ -134,6 +134,16 @@ class WindowsWorkflowTests(unittest.TestCase):
         self.assertIn("gameplay_check.py --exe pokeemerald-mp-bfxtest.exe --plan-only", job("engine"))
         report = job("gameplay-report")
         self.assertIn("merge_gameplay_shards.py --shards shards --expected 8 --platform windows-2022", report)
+
+    def test_the_rival_checkpoint_battle_runs_in_windows_game_processes(self):
+        rival = job("rival-proof")
+        self.assertIn("runs-on: windows-2022", rival)
+        self.assertIn("needs: [engine, symbol-sizes]", rival)
+        self.assertIn("make_tower_saves.py --exe mega-check-inputs/pokeemerald-mp-bfxtest.exe", rival)
+        self.assertIn("--only rival-a,rival-b", rival)                       # Route 110, south of the rival line
+        self.assertIn("native_launcher_rival_proof.py", rival)
+        self.assertIn("--game inputs/pokeemerald-mp.exe", rival)             # the packaged Classic 2D game
+        self.assertIn("--pe-symbols symbols/pokeemerald-mp.nm.txt", rival)
 
     def test_multiplayer_mega_evolution_runs_in_windows_game_processes(self):
         mega = job("mega-proof")
