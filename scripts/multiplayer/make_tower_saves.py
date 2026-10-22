@@ -9,7 +9,8 @@ PKMN_TEST_TOWER_RECORD: the game loads the save, sets them and saves through its
   tower-weak-b          a level-1 Magikarp (Splash only): it loses any floor
   tower-weak25-b        as weak-b, its record floor 24 cleared, 25 next: the special boss's loss (Giovanni)
   tower-mega-a / -b     as strong, the record floor 40 cleared, 41 next: the Mega Duo (Norman's Kangaskhan)
-  tower-forfeit-a       as strong-a, the record floor 12 cleared, 13 next: the forfeit
+  tower-forfeit-a / -b  as strong, the record floor 12 cleared, 13 next: the forfeit (player 2's, -b: the
+                        world's host stays up)
   tower-duo-a / -b      six level-100 Xerneas, Dazzling Gleam first (it hits both foes; no type is immune to it),
                         Choice Specs: the Duo climb
 
@@ -41,6 +42,7 @@ FIXTURES = (  # (name, source, party, record "highest:progress" or None)
     ("tower-mega-a", "a", STRONG, (40, 41)),
     ("tower-mega-b", "b", STRONG, (40, 41)),
     ("tower-forfeit-a", "a", STRONG, (12, 13)),
+    ("tower-forfeit-b", "b", STRONG, (12, 13)),
     ("tower-duo-a", "a", DUO, None),
     ("tower-duo-b", "b", DUO, None),
 )

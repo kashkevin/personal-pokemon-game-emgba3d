@@ -97,7 +97,7 @@ CHOOSE_ACTION = "HandleInputChooseAction"  # static in each battle controller: e
 EXTRA_NEEDED = ("gMain", "CB2_StarterChoose", "CB2_Overworld", "CB2_TrainerCard", "CB2_BagMenuRun",
                 "CB2_UpdatePartyMenu", "sBattleAdmissionLatched", "gBattleTypeFlags", "gBattlersCount", "gBattleMons",
                 "sRemotes", "sGlobalScriptContextStatus", "HandleInputChooseMove", "BattleMainCB2",
-                "gSaveBlock3Ptr", "PlayerHandleYesNoInput")
+                "gSaveBlock3Ptr", "PlayerHandleYesNoInput", "sCoopAward", "sCoopExp")
 WINDOWS = sys.platform == "win32"
 
 

@@ -71,6 +71,7 @@ class WindowsWorkflowTests(unittest.TestCase):
         self.assertIn("scripts/multiplayer/make_tower_saves.py", proof)
         self.assertIn("scripts/multiplayer/native_launcher_tower_proof.py --scenario ${{ matrix.scenario }}", proof)
         self.assertIn("a: tower-strong25-a", proof)        # the milestone Pokemon of floor 25
+        self.assertIn("b: tower-forfeit-b", proof)         # the joiner forfeits: the host's world stays up
         self.assertIn("--pe-symbols symbols/pokeemerald-mp.nm.txt", proof)
 
     def test_breeding_and_egg_hatching_run_in_windows_game_processes(self):

@@ -118,12 +118,19 @@ def own_party(probe) -> list[dict]:
     return [decode(raw[i * POKEMON_SIZE:(i + 1) * POKEMON_SIZE], i) for i in range(count)]
 
 
-COOP_EXP_STAGE_DONE = 5  # src/multiplayer_coop.c
+COOP_EXP_STAGE_GAINED, COOP_EXP_STAGE_DONE = 0, 5  # src/multiplayer_coop.c
 
 
 def award_done(probe) -> bool:
-    """The game's co-op award reached its last stage (sCoopAward.stage, PC build)."""
-    return probe.mem("sCoopAward", 1)[0] == COOP_EXP_STAGE_DONE
+    """The game's co-op award reached its last stage (sCoopAward.stage, PC build), or there was nothing to award: the
+    battle's experience consumed (sCoopExp.pending clear) and no Pokemon gaining any (sCoopAward's participants, sharers
+    and leveled masks empty: level-100 parties, a Tower floor above the experience cap). The award then stays at its
+    first stage (multiplayer_coop.c MultiplayerCoop_ExpBegin), as tower-duo-2 (2026-10-22) waited out."""
+    award = probe.mem("sCoopAward", 8)
+    if award[0] == COOP_EXP_STAGE_DONE:
+        return True
+    pending = probe.mem("sCoopExp", 2)[1]
+    return award[0] == COOP_EXP_STAGE_GAINED and not pending and not (award[4] | award[5] | award[6])
 
 
 def calm(probe) -> bool:

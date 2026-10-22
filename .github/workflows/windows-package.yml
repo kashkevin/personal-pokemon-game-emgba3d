@@ -384,8 +384,8 @@ jobs:
     # record at floor 25, Giovanni beaten and his milestone Pokemon made in the game (into the PC), floor 25 replayed
     # (no second Pokemon), and player 2 losing floor 1 (no checkpoint yet);
     # duo: a team, the Duo invitation, both Ready, the native co-op battle won and settled for both; mega: a Duo replay
-    # of floor 40 where Norman's Kangaskhan Mega Evolves; forfeit: a solo floor closed mid-battle, the game started
-    # again, the floor counted as a loss on the next ask.
+    # of floor 40 where Norman's Kangaskhan Mega Evolves; forfeit: player 2's solo floor closed mid-battle (player 1
+    # hosts the world, which stays up), the game started again, the floor counted as a loss on the next ask.
     name: Battle Tower in the launcher (Windows game processes, ${{ matrix.name }})
     needs: [engine, symbol-sizes]
     if: ${{ (inputs.mode || 'smoke') == 'full' }}
@@ -399,7 +399,7 @@ jobs:
           - {name: milestone, scenario: solo, a: tower-strong25-a, b: tower-weak-b, extra: "--weak-b --party-counts 6 1 --floors 26"}
           - {name: duo, scenario: duo, a: tower-strong-a, b: tower-strong-b, extra: "--party-counts 6 6"}
           - {name: mega, scenario: mega, a: tower-mega-a, b: tower-mega-b, extra: "--party-counts 6 6 --floors-json mega-check-inputs/tower_legends.json"}
-          - {name: forfeit, scenario: forfeit, a: tower-forfeit-a, b: tower-strong-b, extra: "--party-counts 6 6"}
+          - {name: forfeit, scenario: forfeit, a: tower-strong-a, b: tower-forfeit-b, extra: "--party-counts 6 6"}
     defaults:
       run:
         shell: bash

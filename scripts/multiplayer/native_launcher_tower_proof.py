@@ -40,9 +40,11 @@ saves, the canonical checkpoints (money, the Bag, Battle Points, the PC, the rec
   --scenario ui       the 3D game with the native PC UI (--native-ui): player 1 opens each Tower page (home, a floor's
                       preview, floors and bosses, the floor map, prizes, the shop, Hyper Training, records, the Duo) and
                       each is pictured (ui-*.png: the Players screen's link device shows the page's Tower screen).
-  --scenario forfeit  player 1 from a save whose record says floor 12 cleared (P = 13): floor 13 started, the game
-                      closed in the battle (an ordinary close), started again through the launcher: the Tower counts
-                      floor 13 as a loss ("Floor 13: counted as a loss") and P = 11 (checkpoint 10 + 1); H stays 12.
+  --scenario forfeit  player 2 (who joined: the world stays up) from a save whose record says floor 12 cleared (P =
+                      13): floor 13 started, the game closed in the battle (an ordinary close), started again through
+                      the launcher: the Tower counts floor 13 as a loss ("Floor 13: counted as a loss") and P = 11
+                      (checkpoint 10 + 1); H stays 12. (Player 1 hosts the world: closing that game closes it for
+                      both, and player 2's next save found no host, windows-package run 116.)
 
     PYTHONPATH=src:scripts/multiplayer:scripts/windows-runtime \\
       python scripts/multiplayer/native_launcher_tower_proof.py --scenario solo \\
@@ -681,8 +683,8 @@ class TowerScenario:
         return dict(expected=[p.party_now() for p in probes])
 
     async def forfeit(self, current, probes, games, host, symbols, record):
-        harness, probe = self.harness, probes[0]
-        view = await tower_view(current[0])
+        harness, probe = self.harness, probes[1]
+        view = await tower_view(current[1])
         require(view["player"]["progress"] == 13, f"the imported record: floor 13 next, not {view['player']}")
         await open_tower(probe)
         await probe.choose("Solo: floor 13")
@@ -692,18 +694,18 @@ class TowerScenario:
             while not in_battle(probe):
                 await probe.press(B, frames=8, release=20)
         async with asyncio.timeout(60):
-            while (await tower_view(current[0])).get("battle", {}) is None or \
-                    (await tower_view(current[0]))["battle"]["state"] == "issued":
+            while (await tower_view(current[1])).get("battle", {}) is None or \
+                    (await tower_view(current[1]))["battle"]["state"] == "issued":
                 await asyncio.sleep(.5)
         record("tower-forfeit-battle-started", floor=13)
-        game = games[0]
+        game = games[1]
         os.kill(game.process.pid, signal.SIGTERM)                 # an ordinary close in the battle
         await harness.poll_until(lambda: game.process.returncode is not None, 60)
-        await harness.poll_until(lambda: not current[0].busy, 180)
+        await harness.poll_until(lambda: not current[1].busy, 180)
         record("tower-forfeit-game-closed", exit_code=game.process.returncode)
-        again = await harness.start("rejoin", 0)
-        harness.players[0] = again
-        current[0], probes[0], games[0] = again.worker, again.probe, again.game
+        again = await harness.start("rejoin", 1)
+        harness.players[1] = again
+        current[1], probes[1], games[1] = again.worker, again.probe, again.game
         await harness.ready(again)
         # The loss is counted when the player next asks (design section 2), at least 15 s into the game's new session
         # (a status read cannot tell a closed game's battle from one still running).
@@ -715,7 +717,7 @@ class TowerScenario:
         _, screen = await again.probe.ready()
         record("tower-forfeit-asked", title=screen.title, status=screen.status, rows=[r.label for r in screen.rows])
         require("counted as a loss" in screen.status, f"the ask answers the forfeit: {screen.status!r}")
-        view = await tower_view(current[0])
+        view = await tower_view(current[1])
         require((view["player"]["progress"], view["player"]["highest"]) == (11, 12),
                 f"floor 13 counted as a loss: P 11, H 12, not {view['player']}")
         await close_players(again.probe)
