@@ -81,6 +81,9 @@ class WindowsWorkflowTests(unittest.TestCase):
         for name in ("tower", "breeding", "shiny", "rewards", "coop-exp"):
             self.assertIn(f'"{name}"', tests)
         self.assertIn('throw "self-tests failed in the Windows build', tests)
+        # their output in files (the Windows game's own console is slow and unreadable: run 129's update32 timed out)
+        self.assertIn("$env:PKMN_DEBUG_LOG = $log", tests)
+        self.assertIn("selftests/*.log", tests)
 
     def test_the_3d_game_is_drawn_in_windows_game_processes(self):
         graphics = job("graphics-3d")
