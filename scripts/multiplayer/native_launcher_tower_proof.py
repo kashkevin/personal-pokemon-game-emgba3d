@@ -316,7 +316,9 @@ async def milestone_delivered(probe, worker, record, slot, milestone, floor, sec
         mirror = tower_record(probe)
         if entry is not None and entry["state"] == "delivered" and mirror is not None \
                 and mirror.claims >> (12 + milestone) & 1 and mirror.claims & tower_rewards.claim_bit(floor):
-            record("tower-milestone-delivered", slot=slot, floor=floor, milestone=milestone, name=entry["name"],
+            # (not name=: the record's own first argument; windows-package run 121 stopped on it right after the
+            # Pokemon was made)
+            record("tower-milestone-delivered", slot=slot, floor=floor, milestone=milestone, pokemon=entry["name"],
                    level=entry["level"], claims=mirror.claims)
             return entry
         require(time.monotonic() < deadline, f"the milestone of floor {floor} was not delivered: {entry} {mirror}")
