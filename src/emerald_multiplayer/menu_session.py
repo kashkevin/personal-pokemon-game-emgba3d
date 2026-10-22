@@ -35,8 +35,13 @@ class MenuSession:
         Training screens and the page styles may be sent; without it none of them ever is."""
         return getattr(getattr(self.companion, "config", None), "tower_abi_version", 0) == 1
 
+    def _host_save_capable(self):
+        """MS-61: the game asks for the host save after an in-game SAVE (host_save_page_abi_version 1, bridge.txt
+        host_save_page=1)."""
+        return getattr(getattr(self.companion, "config", None), "host_save_page_abi_version", 0) == 1
+
     def feed(self, payload):
-        request = MenuRequest.unpack(payload, allow_tower=self._tower_capable())
+        request = MenuRequest.unpack(payload, allow_tower=self._tower_capable(), allow_host_save=self._host_save_capable())
         if self._closed or request.sequence <= self.sequence:
             raise ValueError("native menu request was repeated or regressed")
         if (request.kind == 1 and request.action
@@ -130,7 +135,7 @@ class MenuSession:
                         request, self._queued_open = self._queued_open, None
                         continue
                     elif request.kind == 1 and request.action:
-                        # START > PLAYER > RESET (Update 32): the Players menu opens on that page.
+                        # A named page (Update 32): the reset key's question, the Tower, the in-game SAVE's host save.
                         screen = await self.menu.open_page(OPEN_PAGES[request.action])
                     elif request.kind == 1:
                         # START > PLAYER > PLAYERS: the menu's home, not a page RESET left open
@@ -152,6 +157,10 @@ class MenuSession:
                             self._send(request, screen)
                     elif handoff is None:
                         self._send(request, screen)
+                    elif handoff[0] == "close":
+                        # MS-61: a row that only closes the window (the soft reset's "No"): nothing for the launcher.
+                        self.menu.handoff = None
+                        self._send(request, screen, close=True)
                     else:
                         # Consumption precedes all awaits. Neither a delayed
                         # CLOSE nor a reconnect may repeat this user action.

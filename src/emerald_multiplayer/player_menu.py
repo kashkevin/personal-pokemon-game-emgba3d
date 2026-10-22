@@ -92,8 +92,9 @@ LOBBY_ENDINGS = {"cancelled": "The lobby was cancelled", "creator_left": "The lo
 LOBBY_INVITES = {"1v1": "invite", "1v1v1": "invite_ffa3", "1v1v1v1": "invite_ffa", "2v2": "invite_multi"}
 
 
-# Update 32: START > PLAYER > RESET in a world. The launcher starts the game again from the character's host save; it
-# is refused while something the reset would cut short is open (a status line's 31 characters).
+# Update 32: the soft reset in a world (since MS-61 the game's reset key, Ctrl+R or A+B+START+SELECT, no menu row). The
+# launcher starts the game again from the character's last save on the host; it is refused while something the reset
+# would cut short is open (a status line's 31 characters).
 SOFT_RESET_REFUSALS = {
     "trade_pending": "Finish the trade first",
     "challenge_pending": "Cancel your challenge first",
@@ -111,15 +112,16 @@ def soft_reset_refusal(code):
 
 
 def save_age(seconds):
-    """How long ago the host last saved this character, in a row's 25 characters."""
+    """How long ago this character was last saved (on the host: since MS-61 an in-game SAVE in a world is that save too),
+    in a row's 25 characters."""
     if type(seconds) not in (int, float) or seconds < 0:
-        return "Host save: at game start"
+        return "Last save: at game start"
     minutes = int(seconds // 60)
     if minutes < 1:
-        return "Host save: just now"
+        return "Last save: just now"
     if minutes < 60:
-        return f"Host save: {minutes} min ago"
-    return f"Host save: {min(minutes // 60, 99)} h ago"
+        return f"Last save: {minutes} min ago"
+    return f"Last save: {min(minutes // 60, 99)} h ago"
 
 
 class PlayerMenuError(ValueError):
@@ -246,24 +248,34 @@ class PlayerMenu:
         async with self._lock:
             if self._page[0] in ("soft_reset", "soft_reset_confirm") or (self._page[0] == "tower"
                                                                         and self._tower.origin == "home"):
-                self._page, self._notice = ("home", None), ""   # a page START > PLAYER > RESET or TOWER opened
+                self._page, self._notice = ("home", None), ""   # a page the reset key or TOWER opened
             return await self._refresh()
 
     async def open_page(self, page):
-        """An OPEN that names its page (Update 32: START > PLAYER > RESET opens the soft reset page; Battle Tower:
-        Legends: START > PLAYER > TOWER opens the Tower, whose B goes back to the Players home)."""
-        if page not in ("soft_reset", "tower"):
+        """An OPEN that names its page (Update 32: the soft reset key opens the soft reset question; Battle Tower:
+        Legends: START > PLAYER > TOWER opens the Tower, whose B goes back to the Players home; MS-61: an in-game SAVE in
+        a world opens the host save, which closes the window at once and saves on the host)."""
+        if page not in ("soft_reset", "tower", "host_save"):
             raise PlayerMenuError("unknown_page")
         async with self._lock:
             screen = await self._refresh()      # the binding, the player's open challenges and trades
             if self._binding is None:
+                if page == "host_save":
+                    return self._show("Save", "Saved on this PC only", [("Not in the world now", "", ())])
                 return screen
             self._notice = ""
             if page == "tower":
                 self._tower.open("home")
                 self._page = ("tower", None)
                 return await self._refresh()
-            self._page = ("soft_reset", None)
+            if page == "host_save":
+                # MS-61: the launcher's own, as its Save now: the window closes first, then it saves on the host and
+                # the game's banner says how that went (launcher_session._native_menu_reset_handoff).
+                self._page = ("home", None)
+                self.handoff = ("host_save", {})
+                return self._show("Save", "Saving on the host", [])
+            # MS-61: the key asks at once ("Reset the game?", NO first); a refusal shows why instead (_render).
+            self._page = ("soft_reset_confirm", None)
             return self._render()
 
     async def _refresh(self):
@@ -463,13 +475,12 @@ class PlayerMenu:
             if revision > 0xFFFFFFFF:
                 raise PlayerMenuError("menu_generation_exhausted")
             self._actions = {i + 1: (op, args) for i, (_, op, args) in enumerate(normalized) if op}
-            # B closes the menu from the player list, and from the soft reset page (opened from START > PLAYER > RESET).
-            back = 0 if self._page[0] in ("home", "soft_reset") else 7
+            # B closes the menu from the player list, and from the soft reset pages (the reset key opens them).
+            back = 0 if self._page[0] in ("home", "soft_reset", "soft_reset_confirm") else 7
             if back:
                 self._actions[back] = {"records": ("records_back", ()), "ffa": ("new_battle", ()),
                                        "new_battle": ("battles", ()), "lobby_pick": ("new_battle", ()),
-                                       "lobby_2v2": ("lobby", ()), "tower": ("tower_back", ()),
-                                       "soft_reset_confirm": ("soft_reset", ())}.get(self._page[0], ("home", ()))
+                                       "lobby_2v2": ("lobby", ()), "tower": ("tower_back", ())}.get(self._page[0], ("home", ()))
             self._screen = MenuScreen(revision, title, status,
                 tuple(MenuRow(i + 1 if op else 0, label) for i, (label, op, _) in enumerate(normalized)), back, admission,
                 *style)
@@ -802,29 +813,30 @@ class PlayerMenu:
                     for b in others[i + 1:]:
                         actions.append((f"With {self._name(a)[:8]} & {self._name(b)[:8]}", "battle_ffa3", (a, b)))
         elif page in ("soft_reset", "soft_reset_confirm"):
-            # START > PLAYER > RESET (Update 32): the game starts again from the host save, in this session; the
-            # world and the other players carry on. Nothing open may be cut short by it.
+            # The soft reset key (Update 32, MS-61): the game starts again from its last save on the host, in this
+            # session; the world and the other players carry on. Nothing open may be cut short by it.
             blocker = getattr(self.companion, "_native_menu_reset_blocker", None)
             reason = blocker() if callable(blocker) else "game_active"
             if reason is None and self._trades:
                 reason = "trade_pending"
             if reason is None and self._battles:
                 reason = "challenge_pending"
+            last_save = getattr(self.companion, "_native_menu_last_save", None)
+            age = save_age(last_save() if callable(last_save) else None)
             if page == "soft_reset_confirm" and reason is None:
+                # NO first; B is NO too. The last save's age says how far back the reset goes.
                 title, status = "Reset the game?", self._notice or "Unsaved progress will be lost"
-                actions.append(("No, go back", "soft_reset", ()))
+                actions.append(("No, keep playing", "soft_reset_no", ()))
                 actions.append(("Yes, reset now", "soft_reset_now", ()))
+                actions.append((age, "", ()))
             else:
                 self._page = ("soft_reset", None)
                 title = "Soft reset"
-                status = self._notice or (soft_reset_refusal(reason) if reason else "Back to your last host save")
+                status = self._notice or (soft_reset_refusal(reason) if reason else "Back to your last save")
                 actions.append(("Unsaved progress is lost", "", ()))
-                last_save = getattr(self.companion, "_native_menu_last_save", None)
-                actions.append((save_age(last_save() if callable(last_save) else None), "", ()))
+                actions.append((age, "", ()))
                 if reason is None:
-                    actions.append(("Reset to last host save", "soft_reset_confirm", ()))
-                if reason in (None, "trade_pending", "challenge_pending"):
-                    actions.append(("Save on host now", "host_save", ()))
+                    actions.append(("Reset the game", "soft_reset_confirm", ()))
         elif page == "wager":
             title = "Battle wager"
             battle = next((b for b in self._battles or () if b["battle_id"] == target), None)
@@ -1461,6 +1473,11 @@ class PlayerMenu:
                 self._page = ("card", args[0])
             elif op in ("soft_reset", "soft_reset_confirm"):
                 self._page = (op, None)
+            elif op == "soft_reset_no":
+                # MS-61: NO closes the window; the game goes on as it was
+                self._page = ("home", None)
+                self.handoff = ("close", {})
+                return self._show("Soft reset", "Kept playing", [])
             elif op in ("soft_reset_now", "host_save"):
                 # The launcher's own (Update 32): the menu closes, then the launcher restarts the game from the host
                 # save, or saves on the host; it refuses (and says why) if that is no longer possible.

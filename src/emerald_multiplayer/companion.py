@@ -260,6 +260,7 @@ class CompanionConfig:
     world_enabled: bool = field(init=False, default=False)
     rival_abi_version: int = field(init=False, default=0)
     tower_abi_version: int = field(init=False, default=0)  # PC game: Battle Tower: Legends (bridge.txt tower=1)
+    host_save_page_abi_version: int = field(init=False, default=0)  # PC game: an in-game SAVE saves on the host (MS-61)
 
     def __post_init__(self) -> None:
         rom_path, manifest_path = Path(self.rom_path).resolve(), Path(self.manifest_path).resolve()
@@ -302,10 +303,12 @@ class CompanionConfig:
         party_query = manifest.get("save_party_query_abi_version")
         object.__setattr__(self, "save_party_query_abi_version", 1 if type(party_query) is int and party_query == 1
                            and manifest.get("save_abi_version") == 1 else 0)
-        # Update 32: the PC game's START > PLAYER > RESET opens the Players menu on its soft reset page (the
+        # Update 32: the PC game's soft reset key (MS-61) opens the Players menu on its soft reset page (the
         # launcher opts in with bridge.txt menu_open_page=1, bridge_config.configure_native).
         from .bridge_config import menu_open_page_enabled
         object.__setattr__(self, "menu_open_page_abi_version", 1 if menu_open_page_enabled(manifest) else 0)
+        from .bridge_config import host_save_page_enabled
+        object.__setattr__(self, "host_save_page_abi_version", 1 if host_save_page_enabled(manifest) else 0)
         object.__setattr__(self, "reset_enabled", manifest.get("reset_abi_version") in (1, 2))
         object.__setattr__(self, "reset_abi_version", manifest.get("reset_abi_version", 0))
         object.__setattr__(self, "reset_input_abi_version", manifest.get("reset_input_abi_version", 0))

@@ -300,6 +300,14 @@ def generate(rom: Path, elf: Path, nm: str, engine_commit: str, *, trade_effect_
             raise ValueError("the Battle Tower needs one four-byte marker, the Players menu ABI 2, its named pages "
                              "and the shared world")
         manifest.update(tower_abi_version=1)
+    # MS-61: a Players menu OPEN may name page 3, the host save an in-game SAVE in a world asks for (the launcher then saves
+    # on the host as its Save now does). Native PC game only, beside the named pages; the launcher opts in with bridge.txt
+    # host_save_page=1.
+    host_save = native_marker("gMultiplayerHostSavePageAbiVersion", symbols + native_symbols)
+    if host_save:
+        if not four_byte_marker(host_save) or manifest.get("menu_open_page_abi_version") != 1:
+            raise ValueError("the host save page needs one four-byte marker and the Players menu's named pages")
+        manifest.update(host_save_page_abi_version=1)
     if len(objects) == 1:
         obj_address, obj_size = (int(value, 16) for value in objects[0])
         # Read-only test metadata for the pinned engine's 0x24-byte objects.

@@ -1,7 +1,9 @@
-"""Update 32: START > PLAYER > RESET in a world, and the in-game banner the launcher uses to say what it did.
+"""Update 32 and MS-61: the soft reset in a world (the game's reset key, Ctrl+R or A+B+START+SELECT, asks at once), the
+in-game SAVE's host save, and the in-game banner the launcher uses to say what it did.
 
-The game restarts from the character's host save in the same launcher session (the world, a host's server and the
-other players carry on); it is refused while a trade, a challenge, a battle or a save is unresolved.
+The game restarts from the character's last save on the host in the same launcher session (the world, a host's server
+and the other players carry on); it is refused while a trade, a challenge, a battle or a save is unresolved. An in-game
+SAVE in a world is that save too: the game opens Players page 3 and the launcher saves on the host, as Save now does.
 """
 import asyncio
 from dataclasses import replace
@@ -12,9 +14,9 @@ from types import SimpleNamespace
 import unittest
 from uuid import uuid4
 
-from emerald_multiplayer.bridge_config import configure_native, menu_open_page_enabled
+from emerald_multiplayer.bridge_config import configure_native, host_save_page_enabled, menu_open_page_enabled
 from emerald_multiplayer.bridge_protocol import BridgeOutbox
-from emerald_multiplayer.launcher_session import GameInstallation, LauncherSession
+from emerald_multiplayer.launcher_session import GameInstallation, LauncherSession, LauncherSessionError
 from emerald_multiplayer.menu_mailbox import MenuRequest, unpack_screen
 from emerald_multiplayer.menu_session import MenuSession
 from emerald_multiplayer.ownership import OWNERSHIP_PROFILE
@@ -26,10 +28,31 @@ TOKEN = "ab" * 32
 class OpenPageCodecTests(unittest.TestCase):
     def test_an_open_may_name_the_soft_reset_page_and_nothing_else(self):
         self.assertEqual(MenuRequest.unpack(MenuRequest(4, 0, 1, 1).pack()), MenuRequest(4, 0, 1, 1))
-        for request in (MenuRequest(4, 0, 2, 1), MenuRequest(4, 0, 7, 1), MenuRequest(4, 0, 1, 3),
-                        MenuRequest(4, 3, 1, 1)):
+        for request in (MenuRequest(4, 0, 2, 1), MenuRequest(4, 0, 3, 1), MenuRequest(4, 0, 7, 1),
+                        MenuRequest(4, 0, 1, 3), MenuRequest(4, 3, 1, 1)):
             with self.subTest(request=request), self.assertRaises(ValueError):
                 request.pack()
+
+    def test_the_host_save_page_needs_its_own_capability(self):
+        """MS-61: page 3 (an in-game SAVE's host save) only from a game whose launcher enabled it; the Tower's page 2
+        is not implied by it, nor it by the Tower."""
+        request = MenuRequest(4, 0, 3, 1)
+        self.assertEqual(MenuRequest.unpack(request.pack(allow_host_save=True), allow_host_save=True), request)
+        for options in (dict(), dict(allow_tower=True), dict(allow_host_save=1)):
+            with self.subTest(options=options), self.assertRaises(ValueError):
+                request.pack(**options)
+        with self.assertRaises(ValueError):
+            MenuRequest(4, 0, 2, 1).pack(allow_host_save=True)
+
+    def test_the_launcher_opts_in_to_the_host_save_beside_the_named_pages(self):
+        manifest = dict(menu_open_page_abi_version=1, menu_abi_version=2, host_save_page_abi_version=1)
+        self.assertTrue(host_save_page_enabled(manifest))
+        self.assertEqual(configure_native(manifest, TOKEN, 9).splitlines()[2:], ["menu_open_page=1", "host_save_page=1"])
+        for other in (dict(manifest, menu_abi_version=1), dict(manifest, host_save_page_abi_version=2),
+                      dict(manifest, host_save_page_abi_version=True), dict(manifest, menu_open_page_abi_version=0)):
+            with self.subTest(manifest=other):
+                self.assertFalse(host_save_page_enabled(other))
+                self.assertNotIn("host_save_page=1", configure_native(other, TOKEN, 9).splitlines())
 
     def test_the_launcher_opts_in_only_beside_the_players_menu_abi_2(self):
         manifest = dict(menu_open_page_abi_version=1, menu_abi_version=2)
@@ -44,8 +67,9 @@ class OpenPageCodecTests(unittest.TestCase):
     def test_page_texts_fit_the_game_window(self):
         for seconds in (None, -1, 0, 59, 60, 3599, 3600, 10 ** 9):
             self.assertLessEqual(len(save_age(seconds)), 25)
-        self.assertEqual(save_age(None), "Host save: at game start")
-        self.assertEqual(save_age(125), "Host save: 2 min ago")
+        self.assertEqual(save_age(None), "Last save: at game start")
+        self.assertEqual(save_age(125), "Last save: 2 min ago")
+        self.assertEqual(save_age(7200), "Last save: 2 h ago")
         for code in ("trade_pending", "challenge_pending", "battle_pending", "character_busy", "unknown"):
             self.assertLessEqual(len(soft_reset_refusal(code)), 31)
 
@@ -103,6 +127,38 @@ class OpenPageSessionTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(self.session._task)
         self.assertEqual(self.session.sequence, 0)
 
+    async def test_the_host_save_page_needs_the_launchers_opt_in(self):
+        with self.assertRaises(ValueError):
+            self.session.feed(MenuRequest(1, 0, 3, 1).pack(allow_host_save=True))
+        self.assertEqual(self.session.menu.pages, [])
+        self.companion.config.host_save_page_abi_version = 1
+        self.session.feed(MenuRequest(1, 0, 3, 1).pack(allow_host_save=True))
+        await self.session._task
+        await asyncio.wait_for(self.bridge.outbox.get(), 1)
+        self.assertEqual(self.session.menu.pages, ["host_save"])
+
+    async def test_a_row_that_only_closes_the_window_reaches_no_launcher_operation(self):
+        """MS-61: the reset question's "No, keep playing" closes the game's window and nothing else happens."""
+        calls = []
+        async def handoff(kind, value, owner):
+            calls.append((kind, value))
+        self.companion._native_menu_handoff = handoff
+        self.session.feed(MenuRequest(1, 0, 1, 1).pack())
+        await self.session._task
+        await self.bridge.outbox.get()
+        async def choose(screen, action):
+            self.session.menu.handoff = ("close", {})
+            return replace(self.session.menu.screen, revision=2, rows=())
+        self.session.menu.choose = choose
+        self.session.feed(MenuRequest(2, 1, 1, 2).pack())
+        await self.session._task
+        frame = await asyncio.wait_for(self.bridge.outbox.get(), 1)
+        self.assertTrue(unpack_screen(frame[5:])[2])      # CLOSE
+        self.assertIsNone(self.session.menu.handoff)
+        self.session.feed(MenuRequest(3, 0, 0, 3).pack())   # the game's close acknowledgment
+        self.assertEqual(calls, [])
+        self.assertFalse(self.session.open)
+
     async def test_the_choice_is_handed_to_the_launcher_after_the_menu_closed(self):
         calls = []
         async def handoff(kind, value, owner):
@@ -141,46 +197,41 @@ class SoftResetPageTests(unittest.IsolatedAsyncioTestCase):
         companion._native_menu_last_save = lambda: last_save
         return PlayerMenu(companion)
 
-    async def test_the_reset_is_confirmed_then_handed_to_the_launcher(self):
+    async def test_the_key_asks_at_once_then_hands_the_reset_to_the_launcher(self):
+        """MS-61: the reset key opens the question itself, NO first; B and NO close the window; YES is the launcher's."""
         menu = self.page()
         screen = await menu.open_page("soft_reset")
-        self.assertEqual((screen.title, screen.status, screen.back), ("Soft reset", "Back to your last host save", 0))
+        self.assertEqual((screen.title, screen.status, screen.back), ("Reset the game?", "Unsaved progress will be lost", 0))
         self.assertEqual([(row.label, bool(row.action)) for row in screen.rows],
-                         [("Unsaved progress is lost", False), ("Host save: 2 min ago", False),
-                          ("Reset to last host save", True), ("Save on host now", True)])
-        screen = await self.click(menu, "Reset to last host save")
-        self.assertEqual((screen.title, screen.status), ("Reset the game?", "Unsaved progress will be lost"))
-        self.assertEqual([row.label for row in screen.rows], ["No, go back", "Yes, reset now"])
-        self.assertEqual((await menu.choose(screen.revision, screen.back)).title, "Soft reset")   # B: back
-        await self.click(menu, "Reset to last host save")
-        screen = await self.click(menu, "No, go back")
-        self.assertEqual(screen.title, "Soft reset")
-        await self.click(menu, "Reset to last host save")
+                         [("No, keep playing", True), ("Yes, reset now", True), ("Last save: 2 min ago", False)])
+        screen = await self.click(menu, "No, keep playing")
+        self.assertEqual(menu.handoff, ("close", {}))
+        self.assertEqual(screen.rows, ())
+        menu.handoff = None
+        await menu.open_page("soft_reset")
         self.assertIsNone(menu.handoff)
         screen = await self.click(menu, "Yes, reset now")
         self.assertEqual(menu.handoff, ("soft_reset", {}))
         self.assertEqual(screen.rows, ())
 
     async def test_players_opens_on_its_home_after_reset_was_used(self):
-        """newcomers-busy4-1 (QM-5): RESET refused during a trade and closed, then START > PLAYER > PLAYERS showed the
-        soft reset page again, which has no way back to the Players list (challenges, trades, lobbies)."""
+        """newcomers-busy4-1 (QM-5): the reset page has no way back to the Players list (challenges, trades,
+        lobbies), so a plain OPEN after it shows the Players home."""
         menu = self.page()
         await menu.open_page("soft_reset")
         screen = await menu.open()
         self.assertEqual(screen.title, "Players")
-        self.assertNotIn("Save on host now", [row.label for row in screen.rows])
-        await menu.open_page("soft_reset")
-        await self.click(menu, "Reset to last host save")          # the confirmation page, closed with START
+        self.assertNotIn("Yes, reset now", [row.label for row in screen.rows])
+        self.assertEqual((await menu.open_page("soft_reset")).title, "Reset the game?")   # the key still asks
+
+    async def test_an_in_game_save_hands_the_host_save_to_the_launcher(self):
+        """MS-61: page 3, an in-game SAVE in a world: the window closes and the launcher saves on the host."""
+        menu = self.page(last_save=None)
+        screen = await menu.open_page("host_save")
+        self.assertEqual((screen.title, screen.status, screen.rows), ("Save", "Saving on the host", ()))
+        self.assertEqual(menu.handoff, ("host_save", {}))
         screen = await menu.open()
         self.assertEqual(screen.title, "Players")
-        self.assertEqual((await menu.open_page("soft_reset")).title, "Soft reset")   # RESET still opens its page
-
-    async def test_save_on_host_now_is_the_launchers_save(self):
-        menu = self.page(last_save=None)
-        screen = await menu.open_page("soft_reset")
-        self.assertEqual(screen.rows[1].label, "Host save: at game start")
-        await self.click(menu, "Save on host now")
-        self.assertEqual(menu.handoff, ("host_save", {}))
 
     async def test_an_open_challenge_or_trade_or_a_busy_launcher_has_no_reset_row(self):
         challenger = PlayerMenu(self.companions[1])
@@ -189,10 +240,9 @@ class SoftResetPageTests(unittest.IsolatedAsyncioTestCase):
         await self.click(challenger, "Rival Battle - 1v1")
         menu = self.page()
         screen = await menu.open_page("soft_reset")
-        self.assertEqual(screen.status, "Cancel your challenge first")
+        self.assertEqual((screen.title, screen.status, screen.back), ("Soft reset", "Cancel your challenge first", 0))
         labels = [row.label for row in screen.rows]
-        self.assertNotIn("Reset to last host save", labels)
-        self.assertIn("Save on host now", labels)
+        self.assertEqual(labels, ["Unsaved progress is lost", "Last save: 2 min ago"])
         for blocker, status in (("character_busy", "Busy saving: try again shortly"),
                                 ("battle_pending", "Finish the battle first"),
                                 ("save_recovery_required", "Saving stopped: restart game")):
@@ -200,15 +250,14 @@ class SoftResetPageTests(unittest.IsolatedAsyncioTestCase):
                 menu = self.page(blocker=blocker)
                 screen = await menu.open_page("soft_reset")
                 self.assertEqual(screen.status, status)
-                self.assertNotIn("Reset to last host save", [row.label for row in screen.rows])
+                self.assertFalse(any(row.action for row in screen.rows))
 
     async def test_a_reset_that_became_blocked_cannot_be_confirmed(self):
         reason = [None]
         companion = self.companions[0]
         companion._native_menu_reset_blocker = lambda: reason[0]
         menu = PlayerMenu(companion)
-        await menu.open_page("soft_reset")
-        await self.click(menu, "Reset to last host save")
+        self.assertEqual((await menu.open_page("soft_reset")).title, "Reset the game?")
         reason[0] = "character_busy"
         screen = await menu.refresh()
         self.assertEqual((screen.title, screen.status), ("Soft reset", "Busy saving: try again shortly"))
@@ -218,7 +267,7 @@ class SoftResetPageTests(unittest.IsolatedAsyncioTestCase):
         menu = PlayerMenu(self.companions[0])        # no _native_menu_reset_blocker: an older launcher
         screen = await menu.open_page("soft_reset")
         self.assertEqual(screen.status, "Your game is busy: try again")
-        self.assertNotIn("Reset to last host save", [row.label for row in screen.rows])
+        self.assertNotIn("Yes, reset now", [row.label for row in screen.rows])
 
 
 class LocalNoticeTests(unittest.TestCase):
@@ -324,7 +373,7 @@ class LauncherSoftResetTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(s._soft_reset_pending)
         self.assertEqual(s.status.code, "soft_resetting")
         self.assertIsNone(s._interaction)
-        self.assertEqual(self.notices, ["Reset to your last host save.|Later progress was discarded."])
+        self.assertEqual(self.notices, ["Reset to your last save.|Later progress was discarded."])
         s._game, self.c._bridge = None, None                 # the closed game's bridge has wound down
         await s._restart_after_abandon()                     # what play() does next
         self.assertFalse(s._soft_reset_pending)
@@ -386,7 +435,7 @@ class LauncherSoftResetTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(s._soft_reset_task)
         self.assertEqual(s.status.code, "soft_reset_refused")
 
-    async def test_save_on_host_now_reports_in_the_game(self):
+    async def test_the_in_game_saves_host_save_reports_in_the_game(self):
         await self.game()
         s = self.session
         results = []
@@ -396,12 +445,41 @@ class LauncherSoftResetTests(unittest.IsolatedAsyncioTestCase):
         s.save = save
         await s._native_menu_handoff("host_save", {}, self.menu)
         self.assertEqual(results, ["saved"])
-        self.assertEqual(self.notices[-1], "Saved on the host.|RESET goes back to here.")
+        self.assertEqual(self.notices[-1], "Saved on the host.|A soft reset comes back here.")
         async def refused():
             return False
         s.save = refused
         await s._native_menu_handoff("host_save", {}, self.menu)
         self.assertEqual(self.notices[-1], "Could not save on the host.|See the launcher window.")
+
+    async def test_a_save_under_way_finishes_first_then_the_in_game_save_is_saved(self):
+        """MS-61: an autosave or Save now running when the in-game SAVE asks: it finishes, then this save runs."""
+        await self.game()
+        s = self.session
+        results = []
+        running = asyncio.get_running_loop().create_future()
+        s._save_task = running
+        async def save():
+            if not running.done():
+                results.append("busy")
+                asyncio.get_running_loop().call_later(.2, running.set_result, True)
+                raise LauncherSessionError("save_busy")
+            results.append("saved")
+            return True
+        s.save = save
+        await s._native_menu_handoff("host_save", {}, self.menu)
+        self.assertEqual(results, ["busy", "saved"])
+        self.assertEqual(self.notices[-1], "Saved on the host.|A soft reset comes back here.")
+
+    async def test_a_failed_host_save_says_so(self):
+        await self.game()
+        s = self.session
+        async def save():
+            raise LauncherSessionError("save_not_ready")
+        s.save = save
+        await s._native_menu_handoff("host_save", {}, self.menu)
+        self.assertEqual(self.notices[-1], "Could not save on the host.|See the launcher window.")
+        self.assertEqual(s.status.code, "save_not_ready")
 
     async def test_the_page_shows_how_old_the_host_save_is(self):
         await self.game()

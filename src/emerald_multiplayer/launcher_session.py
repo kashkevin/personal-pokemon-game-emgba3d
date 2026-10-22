@@ -96,8 +96,8 @@ _MESSAGES = {
     "admission_cleanup_unsupported": "This installed game does not support neutral battle entry cleanup; retain the original game.",
     "admission_cleanup_held": "Battle entry cleanup remains incomplete; retain the original game and its recovery records.",
     "battle_entry_refused": "The game could not enter the battle; PLAYERS shows why. Nothing changed and saving still works.",
-    "soft_resetting": "Resetting the game: it starts again from this character's last host save.",
-    "soft_reset_done": "The game was reset to this character's last host save. Progress after it was discarded.",
+    "soft_resetting": "Resetting the game: it starts again from this character's last save.",
+    "soft_reset_done": "The game was reset to this character's last save. Progress after it was discarded.",
     "soft_reset_refused": "The game could not reset now; the game says why. Nothing changed.",
     "host_restart_not_ready": "Host restart requires this host's disconnected, retained original battle or prepared trade with no other operation running.",
     "host_restart_failed": "The host service could not restart; retain every original game and retry after restoring the host configuration.",
@@ -327,7 +327,7 @@ class LauncherSession:
         self._battle_abandoned = None
         self._battle_watch_task = None
         self._resolved_at_start = ()
-        # START > PLAYER > RESET (Update 32): the task closing the game, then play() opens it again from the host
+        # The soft reset (Update 32; MS-61: the game's reset key): the task closing the game, then play() opens it again from the host
         # save; and when the host last saved this character in this game (the Players page shows how long ago).
         self._soft_reset_task = None
         self._soft_reset_pending = self._reset_at_start = False
@@ -536,7 +536,7 @@ class LauncherSession:
             self._companion._native_menu_trade_blocker = self._native_menu_trade_blocker
         if (getattr(self._companion.config, "menu_open_page_abi_version", 0) == 1
                 and self._manifest.get("menu_abi_version") == 2):
-            # START > PLAYER > RESET (Update 32): the Players page asks this session, which then restarts the game.
+            # The soft reset key (Update 32, MS-61): the Players page asks this session, which then restarts the game.
             self._companion._native_menu_reset_blocker = self._native_menu_reset_blocker
             self._companion._native_menu_last_save = self._native_menu_last_save
         self._publish(SessionState.CONNECTING, "authentication")
@@ -2116,7 +2116,7 @@ class LauncherSession:
             self._interaction = None
             self._autosave_wake.set()
 
-    # Soft reset (Update 32: START > PLAYER > RESET in a world) --------------------------------------------------
+    # Soft reset (Update 32; MS-61: the reset key in a world) and the in-game SAVE's host save (MS-61) ------------
     # The game starts again from the character's canonical save on the host, in this session: the world, a host's
     # server and the other players carry on. It is the same as closing the game window and choosing Continue (nothing
     # of the closed game is kept), so no Pokemon, item or money can be duplicated, and a committed trade or battle
@@ -2162,12 +2162,24 @@ class LauncherSession:
         notice = getattr(c, "show_local_notice", None)
         say = notice if callable(notice) else (lambda text: None)
         if kind == "host_save":
-            try:
-                saved = await self.save()
-            except LauncherSessionError as error:
-                self._publish(SessionState.RUNNING, error.code, revision=self._revision)
-                saved = False
-            say("Saved on the host.|RESET goes back to here." if saved else "Could not save on the host.|See the launcher window.")
+            # MS-61: an in-game SAVE in a world (the game's Players page 3). A save already under way (an autosave or
+            # Save now) finishes first, then this one saves the game as it is now.
+            saved = False
+            for attempt in range(2):
+                try:
+                    saved = await self.save()
+                except LauncherSessionError as error:
+                    if error.code == "save_busy" and attempt == 0:
+                        for _ in range(300):
+                            if self._save_is_idle() and not (self._autosave is not None
+                                                             and self._autosave.status.state is AutosaveState.SAVING):
+                                break
+                            await asyncio.sleep(.1)
+                        continue
+                    self._publish(SessionState.RUNNING, error.code, revision=self._revision)
+                break
+            say("Saved on the host.|A soft reset comes back here." if saved
+                else "Could not save on the host.|See the launcher window.")
             return
         reason = self._native_menu_reset_blocker()
         if reason is None:
@@ -2202,7 +2214,7 @@ class LauncherSession:
             self._publish(SessionState.RUNNING, "soft_resetting", revision=self._revision)
             notice = getattr(self._companion, "show_local_notice", None)
             if callable(notice):
-                notice("Reset to your last host save.|Later progress was discarded.")
+                notice("Reset to your last save.|Later progress was discarded.")
             await self._release_battle_core(game)     # nothing of the closed game is kept
         finally:
             if self._interaction is asyncio.current_task():

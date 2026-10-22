@@ -523,7 +523,7 @@ class TowerMenu:
         if mine.get("save_needed"):
             # The last Duo battle's experience is not in the host save yet: the launcher's Save now (or its autosave)
             # makes one; the game's own START > SAVE does not (it saves only in the game).
-            status = "Save first: launcher Save now"
+            status = "Save first: START > SAVE"
         elif any(member.get("save_needed") for member in members):
             other = next(member for member in members if member.get("save_needed"))
             status = f"{other['name'][:10]} must save first"

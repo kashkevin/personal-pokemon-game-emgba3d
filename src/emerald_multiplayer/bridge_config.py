@@ -12,9 +12,10 @@ def configure_native(manifest: dict, token: str, port: int) -> str:
     mailboxes and capability markers from its own symbols, so nothing else
     of the manifest goes in; the runtime bundle pairs it with the ROM build
     the companion verified (player_runtime.NativeGame). Update 32 adds the
-    menu page opt-in (menu_open_page=1: START > PLAYER > RESET in a world);
+    menu page opt-in (menu_open_page=1: the soft reset in a world);
     Battle Tower: Legends adds tower=1 (its screens, world action 7 and
-    reward words 6-7, docs/battle-tower-legends.md 8.1)."""
+    reward words 6-7, docs/battle-tower-legends.md 8.1); MS-61 adds
+    host_save_page=1 (an in-game SAVE in a world saves on the host too)."""
     from .trade_effect_mailbox import (validate_effect_choice_manifest, validate_effect_prepare_manifest,
                                        validate_effect_save_manifest)
     if (not isinstance(token, str) or not re.fullmatch(r"[0-9a-f]{64}", token)
@@ -31,6 +32,8 @@ def configure_native(manifest: dict, token: str, port: int) -> str:
         lines.append("menu_open_page=1")
     if tower_enabled(manifest):
         lines.append("tower=1")
+    if host_save_page_enabled(manifest):
+        lines.append("host_save_page=1")
     return "\n".join(lines) + "\n"
 
 
@@ -38,6 +41,13 @@ def menu_open_page_enabled(manifest: dict) -> bool:
     """Update 32: the native game's Players menu OPEN may name a page (1: the soft reset), beside menu ABI 2."""
     page = manifest.get("menu_open_page_abi_version")
     return type(page) is int and page == 1 and manifest.get("menu_abi_version") == 2
+
+
+def host_save_page_enabled(manifest: dict) -> bool:
+    """MS-61: an in-game SAVE in a world opens the Players menu on page 3 and the launcher saves on the host, as its Save now
+    does (manifest host_save_page_abi_version 1, beside the named pages)."""
+    version = manifest.get("host_save_page_abi_version")
+    return type(version) is int and version == 1 and menu_open_page_enabled(manifest)
 
 
 def tower_enabled(manifest: dict) -> bool:

@@ -360,7 +360,7 @@ class PageTests(unittest.IsolatedAsyncioTestCase):
         self.view = host_view(teammate=TEAMMATE, duo=duo)
         await self.open_tower()
         await self.click("Duo: floor 12 (forming)")
-        self.assertEqual(self.menu.screen.status, "Save first: launcher Save now")
+        self.assertEqual(self.menu.screen.status, "Save first: START > SAVE")
         duo["members"][0]["save_needed"] = False
         await self.menu.refresh()
         self.assertEqual(self.menu.screen.status, "Bob must save first")
