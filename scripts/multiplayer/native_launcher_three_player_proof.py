@@ -34,12 +34,11 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import subprocess
 import struct
 import time
 from pathlib import Path
 
-from native_launcher_battle_proof import inspect_closed_head, launcher_proof, party
+from native_launcher_battle_proof import game_picture, inspect_closed_head, launcher_proof, party
 from native_launcher_ffa_proof import (A, B, DOWN, LEFT, RIGHT, UP, close_players, into_littleroot, players_tab,
                                        pose_of, step, walk_to)
 from native_launcher_newcomer_proof import LAB, LITTLEROOT, NO_POKEMON, NewcomerProof
@@ -124,16 +123,7 @@ class ThreePlayerProof(NewcomerProof):
 
     def screenshot(self, slot, name):
         """The game's own window, raised above its launcher's (evidence for a person; the checks read memory)."""
-        probe = self.harness.players[slot].probe
-        path = self.harness.output / f"{name}.png"
-        try:
-            window = probe._window()
-            subprocess.run(["xdotool", "windowraise", window], env=probe.environment, capture_output=True, timeout=10)
-            time.sleep(.3)
-        except (RuntimeError, subprocess.SubprocessError):
-            window = "root"
-        subprocess.run(["import", "-window", window, str(path)], capture_output=True, timeout=30, env=probe.environment)
-        return path.name
+        return game_picture(self.harness.players[slot].probe, self.harness.output / f"{name}.png", settle=.3)
 
     @staticmethod
     def screen(probe):

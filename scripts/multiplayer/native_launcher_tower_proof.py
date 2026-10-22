@@ -62,7 +62,6 @@ import os
 from pathlib import Path
 import signal
 import struct
-import subprocess
 import sys
 import time
 
@@ -70,7 +69,7 @@ ROOT = Path(__file__).resolve().parents[2]
 for _path in (ROOT / "src", ROOT / "scripts" / "multiplayer", ROOT / "scripts" / "windows-runtime"):
     if str(_path) not in sys.path:              # the Windows runner starts it without PYTHONPATH
         sys.path.insert(0, str(_path))
-from native_launcher_battle_proof import WINDOWS, NativeProbe, launcher_proof  # noqa: E402
+from native_launcher_battle_proof import WINDOWS, NativeProbe, game_picture, launcher_proof  # noqa: E402
 from native_launcher_coop_proof import finish_award, logged_driver, own_party  # noqa: E402
 from native_launcher_multi_proof import close_players, field_state, into_town  # noqa: E402
 from qualify_admission_cleanup import on_worker, require  # noqa: E402
@@ -627,17 +626,8 @@ class TowerScenario:
         return dict(expected=[p.party_now() for p in probes])
 
     def picture(self, slot, name):
-        """The game's window as the player sees it (xdotool raises it, ImageMagick's import takes it)."""
-        probe = self.harness.players[slot].probe
-        path = self.harness.output / f"{name}.png"
-        try:
-            window = probe._window()
-            subprocess.run(["xdotool", "windowraise", window], env=probe.environment, capture_output=True, timeout=10)
-            time.sleep(.5)
-        except (RuntimeError, subprocess.SubprocessError):
-            window = "root"
-        subprocess.run(["import", "-window", window, str(path)], capture_output=True, timeout=30, env=probe.environment)
-        return path.name
+        """The game's window as the player sees it (game_picture: the window on Linux, the desktop on Windows)."""
+        return game_picture(self.harness.players[slot].probe, self.harness.output / f"{name}.png", settle=.5)
 
     async def ui(self, current, probes, games, host, symbols, record):
         probe, pictures = probes[0], []

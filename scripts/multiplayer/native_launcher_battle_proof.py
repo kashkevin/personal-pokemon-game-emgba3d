@@ -150,6 +150,25 @@ def symbols_of(game):
     return symbols
 
 
+def game_picture(probe, path, settle=.3):
+    """A game's window as a person sees it (evidence for a person; the checks read memory), at `path` (a .png); returns
+    its file name. Linux: xdotool raises the window and ImageMagick's import takes it. Windows: the runner's desktop,
+    where every player's game is (ci_world_check.py's capture; windows-package run 129's Mega proof stopped on the X11
+    commands after both Charizard had Mega Evolved)."""
+    if WINDOWS:
+        from ci_world_check import screenshot
+        screenshot(str(path))
+        return Path(path).name
+    try:
+        window = probe._window()
+        subprocess.run(["xdotool", "windowraise", window], env=probe.environment, capture_output=True, timeout=10)
+        time.sleep(settle)
+    except (RuntimeError, subprocess.SubprocessError):
+        window = "root"
+    subprocess.run(["import", "-window", window, str(path)], capture_output=True, timeout=30, env=probe.environment)
+    return Path(path).name
+
+
 class NativeProbe:
     """One launcher-started native game: keys to its window, reads of its memory."""
 

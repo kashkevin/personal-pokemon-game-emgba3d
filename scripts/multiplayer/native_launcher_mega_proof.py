@@ -47,14 +47,13 @@ from __future__ import annotations
 import argparse
 import asyncio
 from pathlib import Path
-import subprocess
 import sys
 import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "windows-runtime"))
 from native_launcher_abandon_proof import PENDING, AbandonProof  # noqa: E402
 from native_launcher_battle_3d_proof import LIGHT_3D_SETTINGS  # noqa: E402
-from native_launcher_battle_proof import WINDOWS, launcher_proof  # noqa: E402
+from native_launcher_battle_proof import WINDOWS, game_picture, launcher_proof  # noqa: E402
 from mega_facts import game_facts, load_facts  # noqa: E402
 from native_launcher_ffa_proof import MATCH_SECONDS, into_littleroot, players_tab  # noqa: E402
 from qualify_admission_cleanup import on_worker, require  # noqa: E402
@@ -235,16 +234,7 @@ class MegaProof(AbandonProof):
         return stops, drivers
 
     def screenshot(self, slot, name):
-        probe = self.harness.players[slot].probe
-        path = self.harness.output / f"{name}.png"
-        try:
-            window = probe._window()
-            subprocess.run(["xdotool", "windowraise", window], env=probe.environment, capture_output=True, timeout=10)
-            time.sleep(.3)
-        except (RuntimeError, subprocess.SubprocessError):
-            window = "root"
-        subprocess.run(["import", "-window", window, str(path)], capture_output=True, timeout=30, env=probe.environment)
-        return path.name
+        return game_picture(self.harness.players[slot].probe, self.harness.output / f"{name}.png", settle=.3)
 
     async def megas_seen(self, probes, slots, record, label, timeout=240, megas=None):
         """Every game of the battle marks one Mega per player who may Mega Evolve (megas: those slots, default all);
