@@ -464,6 +464,22 @@ Milestone G. [dir] [base]
 - [ ] 8.8 Game Corner purchase (9,000 coins), persistence and effect: holder vs
   non-holder; World Events unchanged. [audit]
 
+**Queued by the owner (2026-10-21/22; not started unless marked)**
+
+- [~] 8.9 Battle Tower: Legends (QUEUED 1): 100 floors, bosses, solo and Duo, checkpoints, experience cap, rewards,
+  Bottle Caps, Hyper Training, Ability Patch, Tower Shop, Mega floors, native UI. Implemented (app `tower*.py`, engine
+  `src/tower_legends.c`); verification in progress: all 100 floors won and lost (L, test build), launcher proofs (L,
+  W), deliverables 1-15 report (`docs/battle-tower-legends.md`). See TEST_LEDGER and KNOWN_ISSUES MS-47 to MS-52.
+- [ ] 8.10 Six-player worlds and eight-competitor Championships (QUEUED 2): worlds of up to six players (today four:
+  the host, the menus, PLAYERS, the battle desk and the lobbies assume at most four), Championships of eight
+  competitors with AI trainers filling the empty places. Not started: needs a design pass over every four-player
+  limit (world server, presence, battle router, menus, launcher) and its own Windows multiplayer proofs.
+- [ ] 8.11 Comprehensive game-wide QA update (owner request, kept separate from the Tower): every map, trainer,
+  NPC, item, warp and feature of the whole game re-verified on the current build (the QM inventory and accelerated
+  gameplay checks as its base), with Windows runner coverage wherever feasible and a per-feature Passed on Windows /
+  Linux only / Failed / Blocked / Unverified / Not implemented record. Not started: queued after the Tower's
+  integration.
+
 ### 9. Hoenn content backlog
 
 **Gen 1-6 profile**
