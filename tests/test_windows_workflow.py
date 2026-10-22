@@ -73,6 +73,14 @@ class WindowsWorkflowTests(unittest.TestCase):
         self.assertIn("a: tower-strong25-a", proof)        # the milestone Pokemon of floor 25
         self.assertIn("--pe-symbols symbols/pokeemerald-mp.nm.txt", proof)
 
+    def test_breeding_and_egg_hatching_run_in_windows_game_processes(self):
+        breed = job("breed-check")
+        self.assertIn("runs-on: windows-2022", breed)
+        self.assertIn("needs: engine", breed)
+        self.assertIn("breed_check.py --exe mega-check-inputs\\pokeemerald-mp-bfxtest.exe --make-save", breed)
+        self.assertIn('throw "the breeding check failed', breed)                # a failed check fails the job
+        self.assertIn("tools/battle_env/breed_check.py ../mega-check-inputs/", job("engine"))
+
     def test_no_upload_carries_game_data(self):
         uploads = re.findall(r"uses: actions/upload-artifact@v4\n\s+with:\n(.*?)(?=\n      - |\n  [a-z-]+:\n|\Z)",
                              WORKFLOW, re.S)
