@@ -264,6 +264,23 @@ class Wagers:
         candidate = last - ((last - low) & 0xFF)
         return max(0, candidate)
 
+    def battle_points_moved(self, player: str, saved_seq: int, live_seq_low) -> int:
+        """The Battle Points the player's game moved after its save: points added minus points taken by the adjustments
+        after ``saved_seq`` (the save's VAR_MP_WALLET_SEQ) up to the one the game reports having applied now
+        (``live_seq_low``: its world presence's low byte), each as much as its receipt says (one applied whose receipt is
+        still on its way: in full). Nothing without a reported sequence; a game back on an older save holds none of
+        them (it applies them again)."""
+        if type(live_seq_low) is not int or not 0 <= live_seq_low <= 0xFF or type(saved_seq) is not int:
+            return 0
+        moved = 0
+        for delta, applied in self._db.execute("SELECT delta, applied FROM wallet WHERE player_id=? AND seq>? AND seq<=?",
+                                               (player, saved_seq, self._full_seq(player, live_seq_low))):
+            decoded = rewards.decode(delta)
+            if decoded is not None and decoded[0] in (rewards.KIND_BP, rewards.KIND_BP_DEBIT):
+                amount = decoded[1] if applied is None else applied
+                moved += amount if decoded[0] == rewards.KIND_BP else -amount
+        return moved
+
     def applied_seq(self, player: str) -> int:
         """The highest wallet sequence this player's save reported applying here (0: none). A character entering this world
         with a save from elsewhere starts from it, so queued adjustments after it are delivered once (character_transfer)."""

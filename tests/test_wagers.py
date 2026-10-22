@@ -164,6 +164,28 @@ class WagerTests(unittest.TestCase):
         for seq, amount in ((0, 0), (0x10000, 0), (1, -1), (1, 1_000_000), ("1", 0)):
             self.assertEqual(self.wagers.applied(self.a, seq, amount), [])
 
+    def test_battle_points_moved_since_a_save_follow_the_games_receipts(self):
+        # A Battle Tower climb saves nothing between floors: the host counts the points the game applied after its save.
+        from emerald_multiplayer import rewards
+        grant = self.wagers.grant_reward
+        grant(self.a, rewards.KIND_BP, 6, "floor-10:bp")                              # seq 1
+        grant(self.a, rewards.KIND_ITEM, rewards.item_payload(68, 10), "floor-10:item")   # seq 2: not points
+        self.wagers.grant(self.a, 300, "floor-11:money")                             # seq 3: money, not points
+        grant(self.a, rewards.KIND_BP, 2, "floor-11:bp")                              # seq 4
+        grant(self.a, rewards.KIND_BP_DEBIT, 16, "shop:debit")                        # seq 5
+        for seq, amount in ((1, 6), (2, 10), (3, 300), (4, 2)):
+            self.wagers.applied(self.a, seq, amount)
+        moved = self.wagers.battle_points_moved
+        self.assertEqual(moved(self.a, 0, 4), 8)
+        self.assertEqual(moved(self.a, 1, 4), 2)                                      # the save already holds seq 1
+        self.assertEqual(moved(self.a, 0, 5), 8 - 16)                                 # applied, receipt on its way: in full
+        self.wagers.applied(self.a, 5, 7)                                             # the game had 7 points to take
+        self.assertEqual(moved(self.a, 0, 5), 8 - 7)
+        self.assertEqual(moved(self.a, 4, 2), 0)                                      # back on an older save
+        for live in (None, -1, 256, "4"):
+            self.assertEqual(moved(self.a, 0, live), 0)                               # no sequence reported
+        self.assertEqual(moved(self.b, 0, 5), 0)                                      # another player's stream
+
     def test_persistence_and_world_binding(self):
         players = [self.a, self.b]
         self.agreed(players)

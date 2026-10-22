@@ -72,12 +72,12 @@ class _Saves(FrontierService):
         return data, count, party_slots(block1)
 
     def battle_points(self, player):
-        from .frontier_service import BATTLE_POINTS_OFFSET
+        from .frontier_service import held_battle_points
         try:
-            block2 = self._tower._snapshot(player).save_block2
+            snapshot = self._tower._snapshot(player)
         except TowerError:
             return None
-        return min(int.from_bytes(block2[BATTLE_POINTS_OFFSET:BATTLE_POINTS_OFFSET + 2], "little"), rewards.MAX_BP)
+        return held_battle_points(self.server, player, snapshot)
 
 
 class TowerService:

@@ -30,8 +30,9 @@ WORLD = "11111111-1111-4111-8111-111111111111"
 A, B = "aaaaaaaa-0000-4000-8000-000000000001", "bbbbbbbb-0000-4000-8000-000000000002"
 
 
-def tower_save(*, record=None, badges=0, champion=False, party=((258, 30),), hp=50, bp=0, counter=2):
-    """A synthetic save: a party (species, level), badges, the Champion flag, Battle Points and a Tower record."""
+def tower_save(*, record=None, badges=0, champion=False, party=((258, 30),), hp=50, bp=0, counter=2, wallet_seq=0):
+    """A synthetic save: a party (species, level), badges, the Champion flag, Battle Points, the last wallet adjustment it
+    applied and a Tower record."""
     data = make_flash(counter=counter)
     bank = counter % 2
     data = _rewrite(data, bank, 1, 0x234, bytes([len(party)]))
@@ -45,6 +46,7 @@ def tower_save(*, record=None, badges=0, champion=False, party=((258, 30),), hp=
         flags[flag // 8 - 268] |= 1 << flag % 8
     data = _rewrite(data, bank, 2, 0x1270 + 268 - 3968, bytes(flags))
     data = _rewrite(data, bank, 0, 0xEB8, struct.pack("<H", bp))
+    data = _rewrite(data, bank, 2, 0x1598 - 3968, struct.pack("<H", wallet_seq))   # SaveBlock1 VAR_MP_WALLET_SEQ
     if record is not None:
         data = test_flash.FlashTests._put_block3(data, 1012, record) if bank == 0 else data
     return data
@@ -426,6 +428,29 @@ class SoloTests(unittest.TestCase):
         self.wagers.grant_reward = real
         self.assertIsNone(self.world.tower.open_purchase(A))
         self.buy(4)                                                                   # not stuck
+
+    def test_battle_points_paid_since_the_last_save_count_in_the_shop(self):
+        # windows-package run 121 and Linux tower-solo-7: eleven floors paid 19 BP, the game saved nothing between
+        # floors, and the host read the save's 0 BP: the Tower said 0BP and the shop refused an HP Up the game could pay.
+        price = tower_rewards.SHOP[0].price
+        self.store.saves[A] = tower_save(bp=price - 1)
+        self.report("won", self.solo(1), 1)
+        self.assertEqual(self.words()[-1], (1, 1))                                    # floor 1 pays 1 BP (seq 3)
+        self.apply()
+        self.sessions[A].presence["wallet_seq"] = 3                                   # the game applied seq 3 ...
+        self.assertEqual(self.call("status")["save"]["bp"], price)                    # ... and holds the saved 47 + 1
+        self.sessions[A].presence["wallet_seq"] = 0                                   # back on its save (a reload)
+        self.assertEqual(self.refused("shop_buy", "not_enough_bp", slot=0), f"{price} BP needed, you have {price - 1}")
+        self.sessions[A].presence["wallet_seq"] = 3
+        self.call("shop_buy", slot=0)
+        self.assertEqual(self.words()[-1], (3, price))                                # the debit (seq 4)
+        self.wagers.applied(A, 4, price)
+        self.sessions[A].presence["wallet_seq"] = 4
+        self.assertEqual(self.call("status")["save"]["bp"], 0)                        # the debit counts as well
+        self.store.saves[A] = tower_save(bp=0, wallet_seq=4)                          # saved: nothing counted twice
+        self.assertEqual(self.call("status")["save"]["bp"], 0)
+        self.store.saves[A] = tower_save(bp=price, wallet_seq=3)                      # saved before the debit
+        self.assertEqual(self.call("status")["save"]["bp"], 0)
 
     # ----------------------------------------------------------------- the view
     def test_the_view_carries_the_records_and_the_partys_training(self):

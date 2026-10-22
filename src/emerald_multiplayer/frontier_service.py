@@ -20,6 +20,8 @@ MIN_PARTY = 1
 # --selftest-ladder: flags at 0x1270 of the first save block, badge 1 = flag 0x867).
 # The player's Battle Points: SaveBlock2.frontier.battlePoints (a u16, offset 0xEB8 of the second save block).
 BATTLE_POINTS_OFFSET = 0xEB8
+# The last wallet adjustment the save applied: SaveBlock1.vars[VAR_MP_WALLET_SEQ] (0x139C + 2 * (0x40FE - 0x4000)).
+WALLET_SEQ_OFFSET = 0x1598
 FLAGS_OFFSET = 0x1270
 BADGE_FLAGS = tuple(range(0x867, 0x86F))
 
@@ -27,6 +29,19 @@ BADGE_FLAGS = tuple(range(0x867, 0x86F))
 def count_badges(save_block1: bytes) -> int:
     """The Gym badges (of eight) in a saved game's first block."""
     return sum(bool(save_block1[FLAGS_OFFSET + flag // 8] >> (flag % 8) & 1) for flag in BADGE_FLAGS)
+
+
+def held_battle_points(server, player, snapshot) -> int:
+    """The Battle Points the player's game holds: its last save's, plus what the game moved since that save. A prize
+    (a Frontier round, a Tower floor) and a shop's debit are applied by the game the moment they arrive and reach the host's
+    copy of the save only with the game's next save; a Tower climb saves nothing between floors (windows-package run 121:
+    the shop said 0 BP after eleven floors had paid 19)."""
+    points = int.from_bytes(snapshot.save_block2[BATTLE_POINTS_OFFSET:BATTLE_POINTS_OFFSET + 2], "little")
+    wagers, session = getattr(server, "wagers", None), server.sessions.get(player)
+    if wagers is not None and session is not None and hasattr(wagers, "battle_points_moved"):
+        saved_seq = int.from_bytes(snapshot.save_block1[WALLET_SEQ_OFFSET:WALLET_SEQ_OFFSET + 2], "little")
+        points += wagers.battle_points_moved(player, saved_seq, (getattr(session, "presence", None) or {}).get("wallet_seq"))
+    return max(0, min(points, rewards.MAX_BP))
 
 
 def levels_of_party(members) -> int:
@@ -206,7 +221,7 @@ class FrontierService:
 
     # ------------------------------------------------- Battle Points and the shop
     def battle_points(self, player) -> int | None:
-        """The Battle Points in the player's last saved game (None when there is no readable save)."""
+        """The Battle Points the player's game holds (held_battle_points; None when there is no readable save)."""
         from .flash import FlashError, inspect_flash
         server = self.server
         session = server.sessions.get(player)
@@ -216,10 +231,10 @@ class FrontierService:
         if checkpoint is None:
             return None
         try:
-            block2 = inspect_flash(checkpoint.payload, save_profile=checkpoint.save_profile).save_block2
+            snapshot = inspect_flash(checkpoint.payload, save_profile=checkpoint.save_profile)
         except FlashError:
             return None
-        return min(int.from_bytes(block2[BATTLE_POINTS_OFFSET:BATTLE_POINTS_OFFSET + 2], "little"), rewards.MAX_BP)
+        return held_battle_points(server, player, snapshot)
 
     def bp_view(self, player) -> dict:
         ledger = self.book.bp_ledger(player)
