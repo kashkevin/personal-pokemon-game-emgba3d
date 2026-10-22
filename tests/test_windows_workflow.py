@@ -162,12 +162,49 @@ class WindowsWorkflowTests(unittest.TestCase):
         abandon = job("abandon-check")
         self.assertIn("runs-on: windows-2022", abandon)
         self.assertIn("needs: [engine, symbol-sizes]", abandon)
-        self.assertIn("scenario: [pairs-crash, multi-network, ffa-exit, ffa-host-crash]", abandon)
+        self.assertIn("'[\"pairs-crash\", \"multi-network\", \"ffa-exit\", \"ffa-host-crash\"]'", abandon)
         self.assertIn("make_intro_saves.py --exe mega-check-inputs/pokeemerald-mp-bfxtest.exe", abandon)
         self.assertIn("--count 4", abandon)
         self.assertIn("--only abandon-a,abandon-b,abandon-c,abandon-d", abandon)
         self.assertIn("native_launcher_abandon_proof.py --scenario ${{ matrix.scenario }}", abandon)
         self.assertIn("--pe-symbols symbols/pokeemerald-mp.nm.txt", abandon)
+
+    def test_one_check_runs_on_its_own_and_a_release_run_runs_everything(self):
+        # `only` names a check job: the builds and that job run, nothing else (no installer). Blank (a release run, a
+        # push) runs every job as before.
+        self.assertIn("      only:\n", WORKFLOW)
+        checks = [name for name in re.findall(r"^  ([a-z0-9-]+):\n", WORKFLOW, re.M)
+                  if name not in ("push", "engine", "symbol-sizes", "install-check")]
+        self.assertIn("abandon-check", checks)
+        self.assertIn("package", checks)
+        for name in checks:
+            with self.subTest(job=name):
+                key = "gameplay-check" if name == "gameplay-report" else name
+                condition = re.search(r"^    if: (.*)$", job(name), re.M).group(1)
+                self.assertTrue(condition.endswith(f"&& (inputs.only || '{key}') == '{key}' }}}}"), condition)
+        for name in ("engine", "symbol-sizes"):
+            self.assertNotIn("inputs.only", job(name))
+        self.assertIn("needs: package", job("install-check"))
+
+    def test_the_interrupted_battle_check_repeats_a_scenario_on_request(self):
+        abandon = job("abandon-check")
+        self.assertIn("options: [all, pairs-crash, multi-network, ffa-exit, ffa-host-crash]", WORKFLOW)
+        self.assertIn("format('[\"{0}\"]', inputs.abandon_scenario)", abandon)
+        self.assertIn("inputs.attempts == '4' && '[1, 2, 3, 4]'", abandon)
+        self.assertIn("|| '[1]') }}", abandon)                                 # the default: once
+        # Attempt 1 keeps a release run's job and artifact names.
+        self.assertIn("${{ matrix.attempt > 1 && format(', attempt {0}', matrix.attempt) || '' }}", abandon)
+        self.assertIn("EmeraldTogether-abandon-check-${{ matrix.scenario }}${{ matrix.attempt > 1 && "
+                      "format('-{0}', matrix.attempt) || '' }}", abandon)
+
+    def test_a_failed_launcher_proof_prints_its_diagnosis_in_the_log(self):
+        # Run 138's ffa-exit: the evidence went to an artifact a session reading the log could not fetch.
+        for name in ("tower-proof", "rival-proof", "mega-proof", "abandon-check", "multiplayer-check"):
+            with self.subTest(job=name):
+                steps = job(name)
+                summary = steps.index("proof_failure_summary.py \"$RUNNER_TEMP/multiplayer-proof\"")
+                self.assertIn("if: failure()", steps[steps.rindex("- name:", 0, summary):summary])
+                self.assertLess(summary, steps.index("- name: Upload the proof's record"))
 
     def test_breeding_and_egg_hatching_run_in_windows_game_processes(self):
         breed = job("breed-check")

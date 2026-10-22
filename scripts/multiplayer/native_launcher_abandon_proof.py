@@ -71,6 +71,7 @@ def kill_hard(pid):
 PLAYER_NAMES = ("AB Host", "AB Friend 1", "AB Friend 2", "AB Friend 3")
 SCENARIOS = ("pairs-crash", "multi-network", "ffa-host-crash", "ffa-exit")
 PENDING = ("pending-battle.json", "pending-battle-admission.json")
+CLOSED_WAIT = 120       # seconds a launcher may take to report a closed battle finished (and saved)
 
 
 class Reproduced(AssertionError):
@@ -87,6 +88,7 @@ class AbandonProof:
         self.watched = set()
         self.timeline = None
         self.player_names = {}
+        self.seen = {}          # slot -> what its battle driver last read and did (drive_battle_input)
 
     def adopt(self, harness):
         """One machine stands in for four PCs: a game a launcher starts again by itself (after abandoning) opens on
@@ -268,8 +270,57 @@ class AbandonProof:
                 except RuntimeError:
                     return dict(state="recovery_required", pending=None)   # the host is gone
             stops[n] = asyncio.Event()
-            drivers[n] = asyncio.create_task(drive_battle_input(probes[n], view, symbols, stops[n]))
+            self.seen[n] = {}
+            drivers[n] = asyncio.create_task(drive_battle_input(probes[n], view, symbols, stops[n], self.seen[n]))
         return stops, drivers
+
+    @staticmethod
+    def room_view(battle_id):
+        """The host's view of a battle's room, for the record while it runs and when it stops: its state and error,
+        and per slot the validator's pending request and the player's last command hop (opcode, status, seconds since
+        it was published, handed to the companion and answered: battle_execution.py's diagnosis fields). A route that
+        stopped adds its diagnosis (<battle_id>.diagnosis.json): the error and the traceback's end."""
+        async def read(s):
+            service = s._server.battle_execution
+            room = service.rooms.get(battle_id)
+            if room is None:
+                return dict(state="waiting")
+            now = time.monotonic()
+
+            def ago(value):
+                return None if value is None else round(now - value, 1)
+            slots = []
+            for slot, actor in enumerate(room.battle.players):
+                hops = room.hops.get(actor) or ()
+                hop = hops[-1] if hops else None
+                slots.append(dict(
+                    pending=None if room.route is None else room.route.validator.pending[slot],
+                    hop=None if hop is None else dict(opcode=hop["opcode"], status=hop["status"],
+                                                      published=ago(hop["published"]),
+                                                      delivered=ago(hop["delivered"]), answered=ago(hop["answered"]))))
+            view = dict(state=room.state, error=room.error, slots=slots)
+            path = service.directory / (battle_id + ".diagnosis.json")
+            if path.exists():
+                diagnosis = json.loads(path.read_text())
+                view["diagnosis"] = dict(reason=diagnosis.get("reason"), error=diagnosis.get("error"),
+                                         code=diagnosis.get("code"), traceback=diagnosis.get("traceback", [])[-6:])
+            return view
+        return read
+
+    async def battle_record(self, current, battles, slots):
+        """Each of these players' battle as the host and their own launcher and driver see it."""
+        rooms = {battle_id[:8]: await on_worker(current[0], self.room_view(battle_id)) for battle_id in battles}
+
+        async def code(s):
+            return s.status.code
+        now = time.monotonic()
+        players = {}
+        for n in slots:
+            seen = dict(self.seen.get(n, {}))
+            pressed = seen.pop("pressed", None)
+            players[self.harness.names[n]] = dict(code=await on_worker(current[n], code), **seen,
+                                                  idle=None if pressed is None else round(now - pressed, 1))
+        return rooms, players
 
     async def finish(self, current, probes, battles, slots, stops, drivers, record, label):
         """The battle(s) of these players run to their end; each launcher reports battle_finished."""
@@ -277,28 +328,59 @@ class AbandonProof:
             if s._game is None or s._game.process.returncode is not None:
                 raise AssertionError(f"launcher lost its game: {s.status.code}")
             return s.status.code == "battle_finished" and s.can_save and s._interaction is None
+        mine = [battle_id for battle_id, challenge in battles.items()
+                if any(self.harness.host.accounts[n].player_id in challenge["players"] for n in slots)]
+
+        async def states(s):
+            rooms = s._server.battle_execution.rooms
+            return [rooms[b].state if b in rooms else "waiting" for b in mine]
         started = time.monotonic()
         try:
             async with asyncio.timeout(self.match_seconds):
-                report_at = 0
+                report_at, closed_at = 0, None
                 while True:
                     for n in slots:
                         if drivers[n].done():
                             await drivers[n]
                     if all([await on_worker(current[n], finished) for n in slots]):
                         break
+                    # A room the route left without a result (its drivers have stopped) never gives battle_finished:
+                    # the record says why at once rather than at the timeout (Windows run 138's ffa-exit waited 30
+                    # minutes and said nothing).
+                    room_states = await on_worker(current[0], states)
+                    if any(state in ("recovery_required", "aborted") for state in room_states):
+                        rooms, players = await self.battle_record(current, mine, slots)
+                        record(label + "-stopped", elapsed=round(time.monotonic() - started), rooms=rooms,
+                               players=players)
+                        raise AssertionError(f"{label}: the battle stopped without a result: {rooms}")
+                    # Closed with a result, but a launcher still not back from it (no battle_finished, no save):
+                    # after CLOSED_WAIT seconds that is a stuck launcher, not a slow one.
+                    if not all(state == "closed" for state in room_states):
+                        closed_at = None
+                    elif closed_at is None:
+                        closed_at = time.monotonic()
+                    elif time.monotonic() - closed_at > CLOSED_WAIT:
+                        rooms, players = await self.battle_record(current, mine, slots)
+                        record(label + "-closed-unfinished", elapsed=round(time.monotonic() - started), rooms=rooms,
+                               players=players)
+                        raise AssertionError(f"{label}: the battle closed but not every launcher finished it: "
+                                             f"{players}")
                     if time.monotonic() >= report_at:
-                        record(label + "-progress", elapsed=round(time.monotonic() - started))
+                        rooms, players = await self.battle_record(current, mine, slots)
+                        record(label + "-progress", elapsed=round(time.monotonic() - started), rooms=rooms,
+                               players=players)
                         report_at = time.monotonic() + 60
                     await asyncio.sleep(.2)
+        except TimeoutError:
+            rooms, players = await self.battle_record(current, mine, slots)
+            record(label + "-timed-out", seconds=self.match_seconds, rooms=rooms, players=players)
+            raise
         finally:
             for n in slots:
                 stops[n].set()
             await asyncio.gather(*(drivers[n] for n in slots))
         results = {}
-        for battle_id, challenge in battles.items():
-            if not any(self.harness.host.accounts[n].player_id in challenge["players"] for n in slots):
-                continue
+        for battle_id in mine:
             fate = await on_worker(current[0], self.host_fate(battle_id))
             require(fate["reservation"] == "closed", f"{label}: the battle did not close: {fate}")
             results[battle_id] = fate["result"] or fate["ffa_result"]

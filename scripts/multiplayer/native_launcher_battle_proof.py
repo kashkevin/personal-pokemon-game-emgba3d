@@ -381,14 +381,24 @@ class WindowsProbe(NativeProbe):
         self._windows.press(self._window(), key, seconds)
 
 
-async def drive_battle_input(probe, view, symbols, stop):
-    """qualify_menu_battle.py's input policy: one key owner per game."""
+async def drive_battle_input(probe, view, symbols, stop, seen=None):
+    """qualify_menu_battle.py's input policy: one key owner per game. `seen` (a dict, if given) keeps what the driver
+    last read and did, for a proof's record while the battle runs: the room's state and pending request, the game's
+    battle phase, the action, the presses so far and when the last one was (time.monotonic())."""
+    if seen is not None:
+        seen.update(presses=0, pressed=None)
     while not stop.is_set():
         room = await view()
+        if seen is not None:
+            seen.update(room=room["state"], pending=room["pending"])
         if room["state"] in ("closed", "aborted", "recovery_required"):
             return
         state = await probe.battle()
         action = party_action(room["pending"], state, symbols) if room["state"] == "executing" else "wait"
+        if seen is not None:
+            seen.update(phase=state["state"], action=action)
+            if action != "wait":
+                seen.update(presses=seen["presses"] + 1, pressed=time.monotonic())
         if stop.is_set():
             return
         if action == "next-party":
