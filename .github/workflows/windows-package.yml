@@ -154,6 +154,8 @@ jobs:
           if [ -f tools/battle_env/breed_check.py ]; then cp tools/battle_env/breed_check.py ../mega-check-inputs/; fi
           # Evolutions (a Rare Candy, stopped with B, a stone, after a battle), from an engine that has the check.
           if [ -f tools/battle_env/evolve_check.py ]; then cp tools/battle_env/evolve_check.py ../mega-check-inputs/; fi
+          # A Poke Mart's purchase and sale with money, from an engine that has the check.
+          if [ -f tools/battle_env/shop_check.py ]; then cp tools/battle_env/shop_check.py ../mega-check-inputs/; fi
           # The rival checkpoints and the short introduction through the game's own scripts (the rival-check job): the
           # flag and variable numbers from this engine's headers, as the Windows runner has none.
           if grep -q -- "--write-facts" tools/pc_port/rival_check.py 2>/dev/null; then
@@ -454,6 +456,45 @@ jobs:
             ${{ runner.temp }}/evolve-check/**/*.json
             ${{ runner.temp }}/evolve-check/**/test.log
             ${{ runner.temp }}/evolve-check/**/*.png
+          retention-days: 7
+          if-no-files-found: warn
+
+  shop-check:
+    # A Poke Mart in real Windows game processes of the test build (a GitHub-hosted runner, not a player's PC;
+    # tools/battle_env/shop_check.py): a Potion bought with money at the Oldale Town Mart through the clerk's own menus
+    # and sold back, each saved and loaded; the money and the Bag read from the game's own log, the prices the game's.
+    name: Poke Mart purchase and sale (Windows game processes)
+    needs: engine
+    if: ${{ (inputs.mode || 'smoke') == 'full' }}
+    runs-on: windows-2022
+    timeout-minutes: 30
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@v4
+        with:
+          name: mega-check-inputs
+          path: mega-check-inputs
+      - name: A character from the short introduction, then a Potion bought and sold, both saves
+        shell: pwsh
+        run: |
+          if (-not (Test-Path mega-check-inputs\shop_check.py)) {
+            Write-Output "::notice::this engine has no shop check (tools/battle_env/shop_check.py)"
+            exit 0
+          }
+          $out = Join-Path $env:RUNNER_TEMP "shop-check"
+          python mega-check-inputs\shop_check.py --exe mega-check-inputs\pokeemerald-mp-bfxtest.exe --make-save --out $out
+          if ($LASTEXITCODE -ne 0) { throw "the shop check failed ($LASTEXITCODE)" }
+      - name: Upload the report (private to this repository, 7 days; no save)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: EmeraldTogether-shop-check
+          path: |
+            ${{ runner.temp }}/shop-check/**/*.json
+            ${{ runner.temp }}/shop-check/**/test.log
+            ${{ runner.temp }}/shop-check/**/*.png
           retention-days: 7
           if-no-files-found: warn
 
