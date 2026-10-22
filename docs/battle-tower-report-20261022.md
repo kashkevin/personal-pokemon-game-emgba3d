@@ -161,9 +161,17 @@ HP Up bought for 16 BP and found in the next save).
 
 The Classic 2D menus are the Players menu's pages, recorded by every proof (titles, rows and status lines in
 `evidence.json`, e.g. "Tower Friend: floor 1 / You: floor 1 / Invite: floor 1 / Invite: replay a floor"). The 3D game's
-native PC UI pages (home, floor preview, floors and bosses, the floor map, prizes, the shop, Hyper Training, records,
-the Duo) are pictured by the launcher proof's `ui` scenario: to run on the final 3D build (L). The Windows runners cannot
-run the 3D game (no OpenGL 3.3 on the hosted runner): the 3D UI on Windows is **unverified**.
+native PC UI pages are pictured by the launcher proof's `ui` scenario: two 3D games through the whole launcher, player 1
+opening each page from the Players menu. On Linux it passed end to end (L tower-ui-5, app `341e505`, the 3D player
+build of engine `a5ce214d`; the engine commits since touch only test tools and logs: ten pages pictured, the saves, a normal close, a fresh Continue, the store's integrity check):
+the home page (floor, best, BP, the next boss Brock with his sprite, the session's milestones), floor 1's preview
+(Tuber Larry, "Win: 1 BP, $100", the experience cap), floors and bosses (Brock, Misty, Giovanni, Flannery...), the
+100-floor map (floors 1-4 listed, the grid with won/next/boss/special colours), prizes and shop, the floor prize list
+(10 Rare Candy, 5 Bottle Caps, the Shiny Pokemon, 15 Rare Candy...), the Tower Shop (Bottle Cap 48 BP, Gold Bottle Cap
+192 BP, Ability Patch 200 BP, Ability Capsule 50 BP, the Bag's counts), Hyper Training, records and the Duo page ("Form a
+team in PLAYERS first"). The pictures are in the session's proof directory (not in Git: they show the game's art).
+Windows: the same scenario runs in windows-package's tower-proof `ui` entry through Mesa's software OpenGL (pinned; the
+hosted runner's own OpenGL is 1.1), first in run 138; until it passes the 3D UI on Windows is **unverified**.
 
 ## 12. Test matrix
 
@@ -173,15 +181,15 @@ run the 3D game (no OpenGL 3.3 on the hosted runner): the 3D UI on Windows is **
 | Every floor won and lost (test build) | - | 200/200 (engine `547b2950`); the final build's rerun stopped at floor 49 (98/98: Windows ran all 100) | 200/200 in run 121 and in run 129 (`docs/battle-tower-floors-20261022.md`) |
 | Experience caps in real battles | S | passed (`--caps`) | passed (runs 121, 129) |
 | Items in the real menus | - | passed (`train_check.py`) | passed (runs 121, 129) |
-| Solo through the launcher (prizes, replay, shop) | app | passed (tower-solo-9, after MS-53 and MS-54) | floors 1-11 and the replay passed (runs 121, 129), the shop failed there (MS-53, fixed); run 133 pending |
-| Special boss loss, milestone Pokemon | app | passed (tower-solo-9, tower-milestone-2) | milestone passed (run 129); the special boss loss in run 133 |
+| Solo through the launcher (prizes, replay, shop) | app | passed (tower-solo-9, after MS-53 and MS-54) | passed end to end in run 133 (floors 1-11, Brock's prize, the replay, the HP Up bought with 16 BP, the saved wallet as the host's rules say); runs 121 and 129 stopped at the shop (MS-53) |
+| Special boss loss, milestone Pokemon | app | passed (tower-solo-9, tower-milestone-2) | passed in run 133 (player 2 lost Giovanni and went back to floor 21; the milestone proof end to end); the milestone part already in run 129 |
 | Duo (native co-op) | T (team selection) | passed (tower-duo-3) | passed (runs 121, 129) |
 | Mega Duo | - | passed (tower-mega-2) | passed (runs 121, 129) |
 | Forfeit | app | passed (tower-forfeit-2) | passed (runs 121, 129) |
 | Held items after evolution, queued floor deadline | S | - | - |
 | Shop order without its debit | app (2 tests) | - | - |
-| Battle Points received since the save (MS-53), "Close the menu to finish" (MS-54) | app (new tests) | passed (tower-solo-9) | run 133 pending |
-| 3D native UI pages | - | pending (`ui` scenario) | unverified (no OpenGL 3.3) |
+| Battle Points received since the save (MS-53), "Close the menu to finish" (MS-54) | app (new tests) | passed (tower-solo-9) | passed (run 133 solo and milestone) |
+| 3D native UI pages | - | passed (tower-ui-5: ten pages) | run 138 (`ui` entry, Mesa); unverified until it passes |
 | A whole climb, 100 floors (test build) | - | not run yet (`climb`) | not run |
 
 ## 13. Windows gameplay verification
@@ -199,18 +207,26 @@ GitHub's hosted Windows runners (`windows-2022`), real Windows game processes of
   https://github.com/kashkevin/personal-pokemon-game-emgba3d/actions/runs/39704312638): the same passes again, the
   milestone Pokemon made and delivered on Windows; solo and milestone then stopped at the shop (MS-53, before its fix).
 * Run 133 (app `26a6e15`, engine `b1066514`,
-  https://github.com/kashkevin/personal-pokemon-game-emgba3d/actions/runs/39710794241): MS-53 and MS-54 fixed; pending
-  when this was written (TEST_LEDGER has its results).
+  https://github.com/kashkevin/personal-pokemon-game-emgba3d/actions/runs/39710794241): every Tower job passed - the four
+  floor shards (200 of 200 again), caps and items, Duo, Mega Duo, forfeit, and, for the first time on Windows, the solo
+  proof end to end (floors 1-11 settled, Brock's 10 Rare Candy and $10,000, floor 10 replayed at replay rates, an HP Up
+  bought in the Tower Shop with 16 BP, the next save holding $15,900, 10 Rare Candy, 1 HP Up and 3 BP as the host's rules
+  say; player 2 lost Giovanni on floor 25 and went back to floor 21, nothing paid) and the milestone proof end to end.
+* Run 138 (app `341e505`, engine `83808e7e`,
+  https://github.com/kashkevin/personal-pokemon-game-emgba3d/actions/runs/39716739086): the release candidate's run,
+  with the new `ui` entry (the 3D pages through Mesa); running when this was written.
 
 ## 14. Known issues and limitations
 
-MS-53 (medium, fixed in app `8c668bc`): the host read the Battle Points only from the last save, so the shop refused
-points a climb had paid (found by the Windows and Linux solo proofs). MS-54 (low, fixed in app `a100436`): the shop said
-"Waiting for your game..." while the game, which pays only on the field, waited for the menu to close.
+MS-53 (medium, fixed in app `8c668bc`, verified on Windows in run 133): the host read the Battle Points only from the
+last save, so the shop refused points a climb had paid (found by the Windows and Linux solo proofs). MS-54 (low, fixed
+in app `a100436`, verified in run 133): the shop said "Waiting for your game..." while the game, which pays only on the
+field, waited for the menu to close. MS-55 (low, cosmetic, open): a new Players menu page opens with the cursor on the
+row chosen on the page before (the Tower Shop opens on its second item); the rule is the menu's GBA code.
 MS-51 (low, open): a milestone Pokemon lost in a narrow case (game closed unsaved after the delivery, older save full).
 MS-52 (low, open, cosmetic): native Tower screens show the game's copy of the record until the host's word arrives.
 MS-49's remainder: a game below about 22 frames a second could still start a floor after the host's two minutes. The 3D
-UI is not verified on Windows. A full 100-floor climb through the launcher has not been run. Older Mega items (MS-38
+UI is verified on Linux and not yet on Windows (run 138). A full 100-floor climb through the launcher has not been run. Older Mega items (MS-38
 Mega Lucario Z's Aura Guard, MS-39 Mega Rayquaza) affect no Tower floor (no floor uses them).
 
 ## 15. Integration and release readiness

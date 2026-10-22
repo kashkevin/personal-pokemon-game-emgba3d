@@ -9,8 +9,8 @@ Classic 2D PC game under Xvfb (and the engine's GBA test ROM, `T`); a Linux pass
 
 Statuses: **Passed on Windows**, **Passed on Linux only**, **Failed**, **Blocked**, **Unverified**, **Not implemented**.
 Commits: app `claude/admiring-bohr-dpxzuy`, engine `claude/feature-update-engine`. Windows runs: 121 (app `6a3639e`,
-engine `a5ce214d`), 129 (app `c5c2a35`, engine `a5ce214d`), 133 (app `26a6e15`, engine `b1066514`: running when this
-was written; its results are added in section 5).
+engine `a5ce214d`), 129 (app `c5c2a35`, engine `a5ce214d`), 133 (app `26a6e15`, engine `b1066514`; section 5), 138 (app
+`341e505`, engine `83808e7e`: the release candidate, running when this was updated).
 
 ## 1. The newest updates
 
@@ -21,23 +21,23 @@ was written; its results are added in section 5).
 | Battle Tower: Duo (native co-op battle with a host-formed team) | **Passed on Windows** | runs 121, 129 (settled for both players) | L tower-duo-3 |
 | Battle Tower: Mega Duo (floor 40, the boss's Kangaskhan Mega Evolves) | **Passed on Windows** | runs 121, 129 | L tower-mega-2 |
 | Battle Tower: forfeit (the joiner's forfeit counts as a loss, the host's world stays up) | **Passed on Windows** | runs 121, 129 | L tower-forfeit-2 |
-| Battle Tower: milestone Pokemon (floor 25, made in the game, delivered once, replay without a second) | **Passed on Windows** (the milestone part) | run 129: claims 4100, the replay paid no second prize; the run then stopped at the shop (MS-53, fixed after) | L tower-milestone-2 |
-| Battle Tower: solo climb through the launcher, prizes, replay, Tower Shop, special boss loss to its checkpoint | **Passed on Linux only** so far | runs 121/129 failed at the shop (MS-53, then MS-54: both fixed); run 133 has both fixes | L tower-solo-9 passed end to end |
-| Battle Tower: native 3D UI pages | **Unverified** | the 3D UI was never drawn on a Windows runner (no OpenGL 3.3 without Mesa; the Tower proof's `ui` scenario is not ported to Mesa) | not run on Linux either |
+| Battle Tower: milestone Pokemon (floor 25, made in the game, delivered once, replay without a second) | **Passed on Windows** | run 133 end to end; run 129 the milestone part (claims 4100, no second prize) | L tower-milestone-2 |
+| Battle Tower: solo climb through the launcher, prizes, replay, Tower Shop, special boss loss to its checkpoint | **Passed on Windows** | run 133 end to end (floors 1-11, Brock's prize, the replay, the HP Up for 16 BP, the saved wallet as the rules say; player 2 back to floor 21 after Giovanni) | L tower-solo-9 |
+| Battle Tower: native 3D UI pages | **Passed on Linux only**; Windows in run 138 | the `ui` entry (Mesa, pinned) runs first in run 138 | L tower-ui-5: ten pages pictured, saves, fresh Continue, integrity check |
 | Battle Tower: a whole 100-floor climb through the launcher | **Unverified** | not run | not run (`climb` scenario exists) |
 | Co-op team selection (MS-47, engine `0df64e01`) | **Passed on Windows** | runs 121, 129 (Tower Duo and Mega Duo with six-Pokemon parties) | T 3/3, L |
-| Battle Points the game received since its save (MS-53, app `8c668bc`) | **Passed on Linux only** | run 133 | L tower-solo-8/9; app tests |
-| Shop orders finish after the menu closes (MS-54, app `a100436`) | **Passed on Linux only** | run 133 | L tower-solo-9; app tests |
+| Battle Points the game received since its save (MS-53, app `8c668bc`) | **Passed on Windows** | run 133 (solo, milestone) | L tower-solo-8/9; app tests |
+| Shop orders finish after the menu closes (MS-54, app `a100436`) | **Passed on Windows** | run 133 (solo) | L tower-solo-9; app tests |
 | Breeding and egg hatching (the Day Care man's Egg, Everstone, Destiny Knot, ball, Egg move, hatching, saves) | **Passed on Windows** | runs 121, 129 | L |
-| Evolution: Rare Candy, stopped with B, Fire Stone, after a won battle (engine `3446295c`) | **Passed on Linux only** | run 133 (new evolve-check job) | L 8/8 steps |
-| Update 31 rival checkpoints (field scripts: gates, rewards once, NPC rivals away, the battle's environment, host gone mid-scene) and the short introduction | **Passed on Linux only** | run 133 (new rival-check job, engine `6e62d3f5`'s PKMN_DEBUG_LOG) | L: 25/25 in Update 31's integration (and 25/25 under Wine then: not Windows); this session 4 scenarios in the new file mode |
+| Evolution: Rare Candy, stopped with B, Fire Stone, after a won battle (engine `3446295c`) | **Passed on Windows** | run 133 (new evolve-check job: all eight steps) | L 8/8 steps |
+| Update 31 rival checkpoints (field scripts: gates, rewards once, NPC rivals away, the battle's environment, host gone mid-scene) and the short introduction | **Passed on Windows** | run 133 (new rival-check job: every scene, `rival_check: 0 failed`) | L: 25/25 in Update 31's integration; 4 scenarios in the new file mode |
 | Update 31 rival checkpoint battle between players (the lobby, formats, completion) | **Unverified** | never played in real games on any platform (FEATURE_STATUS) | engine self-test `rival` passed in the Windows build (run 129) |
 | Update 32: starters in Birch's lab, soft reset rerolls, shiny odds | **Passed on Windows** | runs 121, 129 (starters job); self-tests `update32` (35 checks; run 133 after the console fix) and `shiny` (run 129) | L |
 | Mega Evolution, single player: every case, all 96 holders, the stones and the Mega Ring in the menus, normal and shiny parades | **Passed on Windows** | run 121: 97 of 97 | L |
 | Mega Evolution drawn in 3D (wild, trainer, the 96-form parade) | **Passed on Windows** (Mesa software OpenGL only) | run 129 (Mesa 26.2.4 llvmpipe; pinned since) | - |
-| Mega Evolution in a multiplayer battle (both players; one without the Mega Ring) | **Passed on Linux only**; Windows reached the Megas | run 129: both Mega Evolutions happened, then the proof stopped on its own picture (harness, fixed `26a6e15`); run 133 | L (earlier sessions) |
+| Mega Evolution in a multiplayer battle (both players; one without the Mega Ring) | **Passed on Windows** | run 133: two and no-ring end to end (run 129 stopped on the proof's own picture: harness, fixed `26a6e15`) | L (earlier sessions) |
 | Interrupted battles: pairs crash, multi-battle network loss, free-for-all exit, free-for-all host crash | **Passed on Windows** | run 129 (first Windows run) | L |
-| Engine self-tests in the Windows build (24) | 23 **Passed on Windows**, `update32` **Failed** on the runner's console (environment) | run 129; run 133 has the fix (engine `b1066514`, app `bc8ca31`) | L 24/24 |
+| Engine self-tests in the Windows build (24) | **Passed on Windows** (24 of 24) | run 133 (`update32` 35 checks after the console fix: engine `b1066514`, app `bc8ca31`; run 129 had 23 of 24) | L 24/24 |
 
 ## 2. The whole game
 
@@ -55,16 +55,16 @@ was written; its results are added in section 5).
 | Visibility of other players (everyone draws everyone) | **Passed on Windows** | `lobby`, `busy` | L |
 | Disconnect and reconnect | **Passed on Windows** | `lobby` (player 2's connection cut, rejoined), the four interrupted battles | L |
 | Save and load | **Passed on Windows** | every proof's closing saves and a fresh Continue; breeding's two saves; the Tower's canonical checkpoints | L |
-| Every reachable map's people, signs, items, hidden items, trainers, warps, coordinate triggers | **Passed on Windows** except 1 target | run 129: 3,609 targets passed (1,048 people, 512 signs, 1,039 warps, 237 triggers, 162 items, 109 hidden items, 502 trainers), 1 failed (`warp:MAP_ABANDONED_SHIP_ROOMS_1F:5`, a hang; under investigation), the rest blocked by the game's own story state (hidden objects, closed doors) | L gameplay runs; that map's warps pass alone |
+| Every reachable map's people, signs, items, hidden items, trainers, warps, coordinate triggers | **Passed on Windows** | run 133: 3,612 targets passed (1,049 people, 512 signs, 1,041 warps, 237 triggers, 162 items, 109 hidden items, 502 trainers), none failed, 617 blocked by the game's own story state (hidden objects, closed doors). Run 129's one failure (`warp:MAP_ABANDONED_SHIP_ROOMS_1F:5`) was the test runner's: a trainer who turned toward the player between two targets and was never answered (fixed in engine `83808e7e`; run 138 runs it) | L: the fix's A/B (the old runner hung in 6 of 8 runs, the fixed one passed 12 of 12) |
 | Story events (coordinate triggers, scenes) | **Passed on Windows** (the reachable ones) | the gameplay check's triggers; rival scenes in run 133 | L |
 | Menus (start menu, Bag, party, trainer card, options, PLAYERS pages) | **Passed on Windows** | `busy` (trainer card, options), the Bag uses of the Mega and items checks, every Tower and multiplayer page | L |
 | Inventory: using items from the Bag | **Passed on Windows** | Bottle Caps, Ability Patch, Mega Stones and the Mega Ring | L (evolution items too) |
-| Shops | **Passed on Windows** in part | Mega Stones and the Mega Ring bought with Game Corner coins (Mega check items step); the Tower Shop in run 133 | L Tower Shop; a Poke Mart purchase with money is not checked on either platform (**Unverified**) |
+| Shops | **Passed on Windows** (coins and BP); a Poke Mart with money **Passed on Linux only**, Windows in run 138 | Mega Stones and the Mega Ring bought with Game Corner coins (Mega check items step); the Tower Shop's HP Up for 16 BP (run 133) | L: the shop check (a Potion bought at the Oldale Mart and sold back, saved and loaded); the Windows shop-check job runs first in run 138 |
 | Battle mechanics (moves, Abilities, held items) | Exercised on Windows; exhaustively only in T | every battle the Windows jobs play (400 Tower battles, 502 trainer battles of the gameplay check, the Mega cases, the multiplayer battles) | T: the engine's GBA test ROM (the same battle code, compiled for the GBA, on Linux); no exhaustive battle suite runs in the Windows build (limitation) |
 | Battle animations | **Passed on Windows** | the Mega check's picture series (2D), the 3D Mega series and parade through Mesa | L |
 | Classic 2D graphics | **Passed on Windows** (software renderer) | every job; the package's graphics mode check | L |
 | 3D graphics | **Passed on Windows** through Mesa only | run 129's graphics-3d job (llvmpipe, OpenGL 4.6); no GPU or vendor driver | L (Xvfb llvmpipe) |
-| Performance | **Unverified** on Windows | no frame-time measurement in the Windows jobs; a hosted runner without a graphics card says nothing about a player's PC | L benchmarks (earlier updates) |
+| Performance | **Unverified** on Windows for a player's PC | the graphics-3d job's informational benchmark (the 3D view at 1280x720 through Mesa's llvmpipe, from run 138) says the 3D view runs on Windows at that rate, nothing about a graphics card | L: 8.9 fps average at 720p under Xvfb's llvmpipe; earlier updates' benchmarks |
 | Installer: silent install, start, repair, uninstall, Create World, character, Solo, Host World, Join Friend on the installed build | **Passed on Windows** | runs 121, 129 (installation check) | - |
 | Two or more physical PCs, a home network, the Internet relay | **Unverified** | the runner plays every player on one machine (KNOWN_ISSUES MS-7) | - |
 
@@ -74,16 +74,28 @@ MS-51 (Low, open): a milestone Pokemon can be lost in a narrow case. MS-52 (Low,
 the game's copy of the record until the host's word arrives. MS-49's remainder: a game below about 22 frames a second
 could start a floor after the host's two minutes. MS-38 (Medium, open): Mega Lucario Z's Aura Guard does nothing.
 MS-39 (Low, owner decision): Mega Rayquaza cannot be reached. MS-28 (Medium, mixed versions only). MS-29 (Low).
-MS-17 is fixed and verified (2026-10-21); the multiplayer jobs of runs 121 and 129 that would show it (battle starts
-and deliveries in two to four Windows games) all passed. The gameplay check's Abandoned Ship warp (section 2) is under investigation.
+MS-17 is fixed and verified (2026-10-21); the multiplayer jobs of runs 121, 129 and 133 that would show it (battle starts
+and deliveries in two to four Windows games) all passed. MS-53 and MS-54 are verified on Windows (run 133). MS-55 (Low,
+cosmetic, open): a new Players menu page opens with the cursor on the row chosen on the page before. The gameplay
+check's Abandoned Ship hang was the test runner's (fixed, section 2).
 
 ## 4. Limitations
 
 No player's PC, no graphics card, no vendor OpenGL driver, no second machine and no real network were used; every
-"Passed on Windows" above is a hosted runner's result. The Battle Tower's 3D screens and the rival checkpoint battle
-between players were never shown on any platform. Performance on Windows was not measured. The battle mechanics' full
-suite runs only in the GBA test ROM on Linux.
+"Passed on Windows" above is a hosted runner's result. The Battle Tower's 3D screens were shown on Linux only (Windows
+in run 138, through Mesa); the rival checkpoint battle between players was never shown on any platform. Performance on
+Windows was measured only through Mesa's software renderer (informational). The battle mechanics' full suite runs only
+in the GBA test ROM on Linux.
 
-## 5. Run 133 (the release candidate's first full run)
+## 5. Run 133 and the release candidate
 
-Pending at the time of writing; see TEST_LEDGER.md for its results as they are recorded.
+Run 133 (app `26a6e15`, engine `b1066514`, https://github.com/kashkevin/personal-pokemon-game-emgba3d/actions/runs/39710794241):
+every job passed - build, symbol sizes, package, installation check, starters and soft resets, breeding, evolution (new),
+rival checkpoints (new), self-tests 24 of 24, 3D graphics through Mesa, the four Tower floor shards, caps and items, the
+five Tower proofs (solo and milestone end to end for the first time on Windows), the four interrupted battles, the four
+multiplayer jobs, both multiplayer Mega proofs, and the gameplay check's eight shards (3,612 targets, none failed). Its
+Mega Evolution check was still running when this was updated (TEST_LEDGER.md records it).
+
+Run 138 (app `341e505`, engine `83808e7e`, https://github.com/kashkevin/personal-pokemon-game-emgba3d/actions/runs/39716739086):
+the release candidate, with the newest jobs: the Poke Mart check, the Tower's 3D UI through Mesa, the pinned Mesa and the
+informational benchmark, and the gameplay runner's fix. Its results decide the release gates (TEST_LEDGER.md).
