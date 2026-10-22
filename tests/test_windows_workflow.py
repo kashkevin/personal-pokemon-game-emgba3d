@@ -74,6 +74,18 @@ class WindowsWorkflowTests(unittest.TestCase):
         self.assertIn("b: tower-forfeit-b", proof)         # the joiner forfeits: the host's world stays up
         self.assertIn("--pe-symbols symbols/pokeemerald-mp.nm.txt", proof)
 
+    def test_the_whole_games_gameplay_check_runs_in_windows_game_processes(self):
+        check = job("gameplay-check")
+        self.assertIn("runs-on: windows-2022", check)
+        self.assertIn("inputs.gameplay_qa == 'yes'", check)
+        self.assertIn("shard: [0, 1, 2, 3, 4, 5, 6, 7]", check)
+        self.assertIn("gameplay_check.py --exe mega-check-inputs\\pokeemerald-mp-bfxtest.exe", check)
+        self.assertIn("--plan gameplay-inputs\\plan\\plan.json", check)
+        self.assertIn("throw", check)                                           # a failed target fails the job
+        self.assertIn("gameplay_check.py --exe pokeemerald-mp-bfxtest.exe --plan-only", job("engine"))
+        report = job("gameplay-report")
+        self.assertIn("merge_gameplay_shards.py --shards shards --expected 8 --platform windows-2022", report)
+
     def test_multiplayer_mega_evolution_runs_in_windows_game_processes(self):
         mega = job("mega-proof")
         self.assertIn("runs-on: windows-2022", mega)

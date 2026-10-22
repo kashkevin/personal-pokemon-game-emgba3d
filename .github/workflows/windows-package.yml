@@ -45,6 +45,11 @@ on:
       expected_rom_sha256:
         description: "full: fail unless the built game ROM has this SHA-256 (blank = just report it)"
         default: ""
+      gameplay_qa:
+        description: "full: also the whole game's gameplay check in Windows game processes (every trainer, person, item, sign, hidden item, warp, trigger; 8 runners, hours)"
+        type: choice
+        options: ["no", "yes"]
+        default: "no"
   push:
     paths:
       - .github/workflows/windows-package.yml
@@ -141,6 +146,14 @@ jobs:
           fi
           # Breeding and egg hatching through the Day Care man and the field, from an engine that has the check.
           if [ -f tools/battle_env/breed_check.py ]; then cp tools/battle_env/breed_check.py ../mega-check-inputs/; fi
+          # The whole game's gameplay check: its plan from this engine's data (the maps a player can reach), for the
+          # Windows shard jobs (they run the test build above; no engine checkout there).
+          mkdir -p ../gameplay-inputs/tools/qa ../gameplay-inputs/tools/battle_env
+          if [ -f tools/qa/gameplay_check.py ]; then
+            cp tools/qa/gameplay_check.py tools/qa/inventory.py ../gameplay-inputs/tools/qa/
+            cp tools/battle_env/mega_check.py ../gameplay-inputs/tools/battle_env/
+            python3 tools/qa/gameplay_check.py --exe pokeemerald-mp-bfxtest.exe --plan-only --out ../gameplay-inputs/plan
+          fi
           cp "$GITHUB_WORKSPACE/sdl/SDL2-${SDL_VERSION}/i686-w64-mingw32/bin/SDL2.dll" ../mega-check-inputs/
           rom_sha="$(sha256sum pokedev.gba | cut -d' ' -f1)"
           if [ -n "${{ inputs.expected_rom_sha256 }}" ] && [ "$rom_sha" != "${{ inputs.expected_rom_sha256 }}" ]; then
@@ -190,6 +203,13 @@ jobs:
           path: mega-check-inputs
           retention-days: 1
           if-no-files-found: error
+      - name: Hand the gameplay check's plan to its Windows jobs (private, one day)
+        uses: actions/upload-artifact@v4
+        with:
+          name: gameplay-inputs
+          path: gameplay-inputs
+          retention-days: 1
+          if-no-files-found: warn
       - name: Hand the Classic game's symbol table to the multiplayer job (private, one day)
         uses: actions/upload-artifact@v4
         with:
@@ -540,6 +560,83 @@ jobs:
             ${{ runner.temp }}/multiplayer-proof/*/*.jsonl
             ${{ runner.temp }}/multiplayer-proof/*/*.png
             ${{ runner.temp }}/mega-saves/run-*/test.log
+          retention-days: 7
+          if-no-files-found: warn
+
+  gameplay-check:
+    # The whole game's gameplay check in real Windows game processes (opt-in: gameplay_qa): every trainer, person, item
+    # ball, sign, hidden item, warp and coordinate trigger of the reachable maps visited by the test build's plan runner
+    # (engine tools/qa/gameplay_check.py: a warp beside the target, faced, acted on as a player would) and judged from
+    # the game's own log - a trainer battle won with its beaten flag set, an item in the bag and the ball gone, a script
+    # that ran and gave the field back, the destination map reached, a trigger that ran exactly when its variable says it
+    # is due. The same check as the gameplay-check workflow's Linux shards, here on Windows runners.
+    name: Gameplay check (Windows game processes, shard ${{ matrix.shard }})
+    needs: engine
+    if: ${{ (inputs.mode || 'smoke') == 'full' && inputs.gameplay_qa == 'yes' }}
+    runs-on: windows-2022
+    timeout-minutes: 330
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@v4
+        with:
+          name: mega-check-inputs
+          path: mega-check-inputs
+      - uses: actions/download-artifact@v4
+        with:
+          name: gameplay-inputs
+          path: gameplay-inputs
+      - name: A character from the short introduction, then this shard's targets
+        shell: pwsh
+        run: |
+          if (-not (Test-Path gameplay-inputs\plan\plan.json)) {
+            Write-Output "::notice::this engine has no gameplay check (tools/qa/gameplay_check.py)"
+            exit 0
+          }
+          $out = Join-Path $env:RUNNER_TEMP "gameplay"
+          python gameplay-inputs\tools\qa\gameplay_check.py --exe mega-check-inputs\pokeemerald-mp-bfxtest.exe `
+            --plan gameplay-inputs\plan\plan.json --make-save (Join-Path $env:RUNNER_TEMP "new.sav") `
+            --shard ${{ matrix.shard }} --shards 8 --jobs 2 --speed 4 --out $out
+          $code = $LASTEXITCODE
+          Get-ChildItem -Path $out -Recurse -Include test.sav, new.sav | Remove-Item -Force
+          if ($code -ne 0) { throw "shard ${{ matrix.shard }}: a target failed or a game ended early ($code)" }
+      - name: Upload this shard's report (private to this repository, 7 days; no save)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gameplay-windows-shard-${{ matrix.shard }}
+          path: |
+            ${{ runner.temp }}/gameplay/gameplay_check.json
+            ${{ runner.temp }}/gameplay/**/hang-*.png
+          retention-days: 7
+          if-no-files-found: warn
+
+  gameplay-report:
+    name: The whole game's gameplay report (Windows)
+    needs: [engine, gameplay-check]
+    if: ${{ always() && (inputs.mode || 'smoke') == 'full' && inputs.gameplay_qa == 'yes' && needs.engine.result == 'success' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: gameplay-windows-shard-*
+          path: shards
+      - name: Merge the shards (every failed target and blocked group in the log)
+        run: |
+          python3 scripts/qa/merge_gameplay_shards.py --shards shards --expected 8 --platform windows-2022 \
+            --engine-commit "${{ needs.engine.outputs.engine_commit }}" --out gameplay_check.json
+      - name: Upload the merged report (private to this repository, 7 days)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gameplay-check-windows-report
+          path: gameplay_check.json
           retention-days: 7
           if-no-files-found: warn
 
