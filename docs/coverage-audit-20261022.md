@@ -113,3 +113,14 @@ own race (fixed).
 Run 143 (app `fa6e601`, https://github.com/kashkevin/personal-pokemon-game-emgba3d/actions/runs/39726406080): the
 `ffa-exit` check alone, four attempts side by side: three passed, attempt 2 failed with MS-57 and the proof's new
 diagnosis named it. The next full run carries both halves of MS-57's fix and the deterministic `ffa-knockout` check.
+
+Run 145 (app `1a9a14b`, engine `65641401`, https://github.com/kashkevin/personal-pokemon-game-emgba3d/actions/runs/39741875955):
+the release candidate with MS-57's fix, the six interrupted-battle scenarios twice each. 49 of the 52 finished jobs
+passed, the two `ffa-knockout` jobs among them (MS-57's fix verified on Windows in the free-for-all); three failed in the
+proofs, not the game: both `multi-knockout` jobs (one 2v2 had the host at battler 2, the other a short battle) and the
+rival battle (its symbol table on Windows lacked `gSaveBlock1Ptr`). The climb was still running when this was written.
+
+Run 147 (app `bced6f5`, https://github.com/kashkevin/personal-pokemon-game-emgba3d/actions/runs/39753874621): the
+interrupted-battle check (six scenarios twice) and the rival battle alone: 12 of 13 passed - the rival battle's first
+Windows pass and `multi-knockout` attempt 2 (MS-57's fix verified on Windows in a 2v2); attempt 1 had the host at
+battler 2 again, which the proof now prevents (app `05a2320`, the teams formed from the player ids).
