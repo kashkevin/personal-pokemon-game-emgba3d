@@ -207,7 +207,7 @@ hosted runner's own OpenGL is 1.1): **passed in runs 138 and 141** (Mesa's softw
 | Battle Points received since the save (MS-53), "Close the menu to finish" (MS-54) | app (new tests) | passed (tower-solo-9) | passed (run 133 solo and milestone) |
 | 3D native UI pages | - | passed (tower-ui-5: ten pages) | passed in runs 138 and 141 (`ui` entry, Mesa only) |
 | A whole climb, 100 floors, through the launcher (`climb`, fast-text fixtures) | - | passed (tower-climb-3: both players floors 1-100, 189 minutes, every claim, $990,000, 45 Rare Candy, 751 BP and 4 milestone Pokemon paid as the rules say) | passed in runs 141 and 145 (both players floors 1-100 in 181 and 181.5 minutes, the same prizes paid) |
-| Co-op progression: a higher player on a friend's lower floor, no repeated rewards, experience kept, first clears resume, a reconnect, a save between Duo floors (`join`) | app (the owner's 30-and-10 example over 22 floors; replays, re-climbs, restarts, reset and older saves; the host's floor choice; MS-60's gate) | passed (tower-join-3; tower-join-4 and -5 with the host's restart; tower-join-reset-1 with player 2's soft reset after a prize it had not saved: the prize arrived again once) | passed in runs 151 (`join`, its first Windows pass) and 158 (`join` with the restarted world's check: records kept, nothing paid again); the soft reset: the `join-reset` entry in run 160 |
+| Co-op progression: a higher player on a friend's lower floor, no repeated rewards, experience kept, first clears resume, a reconnect, a save between Duo floors (`join`) | app (the owner's 30-and-10 example over 22 floors; replays, re-climbs, restarts, reset and older saves; the host's floor choice; MS-60's gate) | passed (tower-join-3; tower-join-4 and -5 with the host's restart; tower-join-reset-1 with player 2's soft reset after a prize it had not saved: the prize arrived again once) | passed in runs 151 (`join`, its first Windows pass) and 158 (`join` with the restarted world's check: records kept, nothing paid again); the soft reset passed in run 160 (`join-reset`: the prize the game had not saved arrived again once, the records kept) |
 
 ## 13. Windows gameplay verification
 
@@ -285,5 +285,5 @@ Pokemon) is fixed in engine `65641401` and the app and verified on Windows (the 
 2v2 in run 147). The co-op progression (app `1c9d1f3`, `5034e60`) passed on Linux (tower-join-3, -4) and on Windows
 (run 151). MS-60 (High, found by the co-op progression's proof; its general case outside the Tower confirmed in real
 games) is fixed in engine `547d0789` and app `cff44fe`, `4328509`, verified on Linux (stale-save-6, -7) and on Windows
-(run 158's `stale-save` entry, both attempts); run 158's climb and single-player Mega check were the gates still open when
-this was written. See the final report.
+(run 158's `stale-save` entry, both attempts); run 158's climb was the gate still open when this
+was written. See the final report.
