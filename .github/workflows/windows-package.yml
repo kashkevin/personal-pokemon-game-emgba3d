@@ -693,6 +693,7 @@ jobs:
           name: classic-linux-sizes
           path: symbols
       - name: Two new characters from the game's own short introduction, then their Tower fixtures
+        if: ${{ !contains(inputs.only, 'tower:') || contains(format(',{0},', inputs.only), format(',tower:{0},', matrix.name)) }}
         run: |
           if [ ! -f mega-check-inputs/tower_check.py ]; then echo "::notice::this engine has no Battle Tower"; exit 0; fi
           .venv/Scripts/python scripts/multiplayer/make_intro_saves.py --exe mega-check-inputs/pokeemerald-mp-bfxtest.exe \
@@ -722,7 +723,9 @@ jobs:
           if (-not (Test-Path mesa\opengl32.dll)) { throw "Mesa's 32-bit opengl32.dll is missing" }
       - name: The Battle Tower (${{ matrix.name }})
         # only: ...,no-climb skips the climb's three hours (a quick run of the other entries)
-        if: ${{ matrix.name != 'climb' || !contains(format(',{0},', inputs.only), ',no-climb,') }}
+        # only: ...,tower:<entry>,...: those entries alone (a quick check)
+        if: ${{ (matrix.name != 'climb' || !contains(format(',{0},', inputs.only), ',no-climb,'))
+                && (!contains(inputs.only, 'tower:') || contains(format(',{0},', inputs.only), format(',tower:{0},', matrix.name))) }}
         env:
           GALLIUM_DRIVER: llvmpipe
         run: |
@@ -1013,25 +1016,33 @@ jobs:
           $tests = @("party-order", "battle-names", "cry-stop", "shake-anim", "line-break", "wild-weather", "legend",
                      "shiny", "coins", "breeding", "rival", "update32", "clock", "keybinds", "mp-objects", "spawn-claims",
                      "secret-base", "rewards", "catch-reconcile", "pokenav-map", "ladder", "coop-exp", "coop-controller",
-                     "tower")
-          $exe = Resolve-Path inputs\pokeemerald-mp.exe
+                     "tower", "start-menu")
+          # only: ...,new-only: the MS-61 check alone (the START menu, its 3D names, the soft reset key)
+          if (",${{ inputs.only }}," -like "*,new-only,*") { $tests = @("start-menu") }
+          $runs = @($tests | ForEach-Object { @{ test = $_; exe = "inputs\pokeemerald-mp.exe"; name = $_ } })
+          # the 3D game's own menu names (MS-61: TOWER and RESET showed as "Exit" there)
+          if (Test-Path inputs\pokeemerald-mp-diorama.exe) {
+            $runs += @{ test = "start-menu"; exe = "inputs\pokeemerald-mp-diorama.exe"; name = "start-menu-3d" }
+          } else { $failed = @("start-menu-3d (no 3D game in the inputs)") }
           $logs = New-Item -ItemType Directory -Force -Path (Join-Path $env:RUNNER_TEMP "selftests")
-          $failed = @()
-          foreach ($test in $tests) {
-            $log = Join-Path $logs "selftest-$test.log"
+          if (-not $failed) { $failed = @() }
+          foreach ($run in $runs) {
+            $test = $run.test
+            $exe = Resolve-Path $run.exe
+            $log = Join-Path $logs "selftest-$($run.name).log"
             $env:PKMN_DEBUG_LOG = $log
             $process = Start-Process -FilePath $exe -ArgumentList "--selftest-$test" -WorkingDirectory $env:RUNNER_TEMP -PassThru
             if (-not $process.WaitForExit(300000)) { $process.Kill(); $failed += "$test (no end in 5 minutes)"; continue }
             $lines = if (Test-Path $log) { Get-Content $log } else { @() }
             $summary = $lines | Where-Object { $_ -match "^selftest-.*(failed|passed)" } | Select-Object -Last 1
-            Write-Output "selftest-${test}: exit $($process.ExitCode) $summary"
+            Write-Output "selftest-$($run.name): exit $($process.ExitCode) $summary"
             if ($process.ExitCode -ne 0) {
-              $failed += $test
+              $failed += $run.name
               $lines | Where-Object { $_ -match "^FAIL" } | Select-Object -First 40 | ForEach-Object { Write-Output "    $_" }
             }
           }
           Remove-Item Env:PKMN_DEBUG_LOG
-          "- Self-tests on Windows: $($tests.Count - $failed.Count) of $($tests.Count) passed" >> $env:GITHUB_STEP_SUMMARY
+          "- Self-tests on Windows: $($runs.Count - $failed.Count) of $($runs.Count) passed" >> $env:GITHUB_STEP_SUMMARY
           if ($failed.Count) { throw "self-tests failed in the Windows build: $($failed -join ', ')" }
       - name: Upload the self-tests' output (private to this repository, 7 days)
         if: always()
