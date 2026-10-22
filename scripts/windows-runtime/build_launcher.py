@@ -337,9 +337,16 @@ def build(args):
     command = [sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean", "--noupx",
         "--onedir", "--windowed", "--name", "EmeraldTogether", "--paths", str(frozen_source.parent),
         "--distpath", str(output / "dist"), "--workpath", str(output / "work"),
-        "--specpath", str(output), "--add-data", str(resources) + os.pathsep + ".", str(entry)]
+        "--specpath", str(output), "--add-data", str(resources) + os.pathsep + ".",
+        # tower_data.py imports the generated floor table by name, which PyInstaller cannot see: without this the
+        # installed launcher says "Tower floor data is missing".
+        "--hidden-import", "emerald_multiplayer.tower_floors", str(entry)]
     with (output / "build.log").open("w", encoding="utf-8") as log:
         subprocess.run(command, check=True, stdout=log, stderr=subprocess.STDOUT, cwd=output)
+    frozen_modules = "".join(path.read_text(encoding="utf-8", errors="replace")
+                             for path in (output / "work").rglob("PYZ-*.toc"))
+    if "emerald_multiplayer.tower_floors" not in frozen_modules:
+        raise ValueError("the Battle Tower floor table (emerald_multiplayer.tower_floors) is not in the package")
     package = output / "dist/EmeraldTogether"
     # Put the readable entry instructions beside the executable as well as in
     # the frozen resource tree; friends need not discover PyInstaller internals.
