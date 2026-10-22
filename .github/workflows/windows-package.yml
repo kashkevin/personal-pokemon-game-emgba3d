@@ -653,6 +653,42 @@ jobs:
           retention-days: 7
           if-no-files-found: warn
 
+  selftests:
+    # The engine's own self-tests in the Windows build (the PC game's code without a game window: party order, battle
+    # names, cries, shake animations, line breaks, wild weather, legends, shiny odds, coins, breeding, rivals, Update 32,
+    # the clock, key bindings, multiplayer objects, spawn claims, secret bases, rewards, catch verdicts, the PokeNav
+    # map, the ladder, co-op experience and controllers, the Battle Tower) - the game logic as MinGW compiled it, in a
+    # Windows process. Each exits 0 or 1 (on Windows the game writes to its own console, so the job names each test).
+    name: Engine self-tests (the Windows build)
+    needs: engine
+    if: ${{ (inputs.mode || 'smoke') == 'full' }}
+    runs-on: windows-2022
+    timeout-minutes: 45
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: native-inputs
+          path: inputs
+      - name: Every self-test
+        shell: pwsh
+        env:
+          SDL_AUDIODRIVER: dummy
+        run: |
+          $tests = @("party-order", "battle-names", "cry-stop", "shake-anim", "line-break", "wild-weather", "legend",
+                     "shiny", "coins", "breeding", "rival", "update32", "clock", "keybinds", "mp-objects", "spawn-claims",
+                     "secret-base", "rewards", "catch-reconcile", "pokenav-map", "ladder", "coop-exp", "coop-controller",
+                     "tower")
+          $exe = Resolve-Path inputs\pokeemerald-mp.exe
+          $failed = @()
+          foreach ($test in $tests) {
+            $process = Start-Process -FilePath $exe -ArgumentList "--selftest-$test" -WorkingDirectory $env:RUNNER_TEMP -PassThru
+            if (-not $process.WaitForExit(300000)) { $process.Kill(); $failed += "$test (no end in 5 minutes)"; continue }
+            Write-Output "selftest-${test}: exit $($process.ExitCode)"
+            if ($process.ExitCode -ne 0) { $failed += $test }
+          }
+          "- Self-tests on Windows: $($tests.Count - $failed.Count) of $($tests.Count) passed" >> $env:GITHUB_STEP_SUMMARY
+          if ($failed.Count) { throw "self-tests failed in the Windows build: $($failed -join ', ')" }
+
   graphics-3d:
     # The 3D game drawn on a Windows runner (a GitHub-hosted runner has no graphics card; its own OpenGL is Windows'
     # 1.1 software renderer, which the 3D game refuses). Test only, never packaged: Mesa's software OpenGL (llvmpipe,

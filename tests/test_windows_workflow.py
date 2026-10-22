@@ -74,6 +74,14 @@ class WindowsWorkflowTests(unittest.TestCase):
         self.assertIn("b: tower-forfeit-b", proof)         # the joiner forfeits: the host's world stays up
         self.assertIn("--pe-symbols symbols/pokeemerald-mp.nm.txt", proof)
 
+    def test_the_engines_self_tests_run_in_the_windows_build(self):
+        tests = job("selftests")
+        self.assertIn("runs-on: windows-2022", tests)
+        self.assertIn('-ArgumentList "--selftest-$test"', tests)
+        for name in ("tower", "breeding", "shiny", "rewards", "coop-exp"):
+            self.assertIn(f'"{name}"', tests)
+        self.assertIn('throw "self-tests failed in the Windows build', tests)
+
     def test_the_3d_game_is_drawn_in_windows_game_processes(self):
         graphics = job("graphics-3d")
         self.assertIn("runs-on: windows-2022", graphics)
