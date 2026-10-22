@@ -190,7 +190,7 @@ hosted runner's own OpenGL is 1.1): **passed in runs 138 and 141** (Mesa's softw
 | Shop order without its debit | app (2 tests) | - | - |
 | Battle Points received since the save (MS-53), "Close the menu to finish" (MS-54) | app (new tests) | passed (tower-solo-9) | passed (run 133 solo and milestone) |
 | 3D native UI pages | - | passed (tower-ui-5: ten pages) | passed in runs 138 and 141 (`ui` entry, Mesa only) |
-| A whole climb, 100 floors, through the launcher (`climb`, fast-text fixtures) | - | tower-climb-3 running (past floor 90 at 2.5 h) | run 141's climb job running (from 05:00 UTC) |
+| A whole climb, 100 floors, through the launcher (`climb`, fast-text fixtures) | - | passed (tower-climb-3: both players floors 1-100, 189 minutes, every claim, $990,000, 45 Rare Candy, 751 BP and 4 milestone Pokemon paid as the rules say) | run 141's climb job running (from 05:00 UTC) |
 
 ## 13. Windows gameplay verification
 
@@ -231,7 +231,7 @@ MS-51 (low, open): a milestone Pokemon lost in a narrow case (game closed unsave
 MS-52 (low, open, cosmetic): native Tower screens show the game's copy of the record until the host's word arrives.
 MS-49's remainder: a game below about 22 frames a second could still start a floor after the host's two minutes. The 3D
 UI is verified on Linux and on Windows through Mesa only (runs 138, 141). The full 100-floor climb through the launcher
-is running on both platforms. Older Mega items (MS-38
+passed on Linux (tower-climb-3) and is running on Windows (run 141). Older Mega items (MS-38
 Mega Lucario Z's Aura Guard, MS-39 Mega Rayquaza) affect no Tower floor (no floor uses them).
 
 ## 15. Integration and release readiness
