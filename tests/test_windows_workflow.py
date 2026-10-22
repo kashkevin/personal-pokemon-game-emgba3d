@@ -213,6 +213,14 @@ class WindowsWorkflowTests(unittest.TestCase):
         self.assertIn("EmeraldTogether-abandon-check-${{ matrix.scenario }}${{ matrix.attempt > 1 && "
                       "format('-{0}', matrix.attempt) || '' }}", abandon)
 
+    def test_apt_never_holds_a_build_for_good(self):
+        # Runs 153 and 156 (2026-10-22): the engine build's apt-get update hung with no output for an hour.
+        gameplay = (Path(__file__).resolve().parents[1] / ".github" / "workflows" / "gameplay-check.yml").read_text()
+        for text in (job("engine"), job("symbol-sizes"), gameplay):
+            self.assertIn("99ci-timeouts", text)
+            self.assertIn("timeout 300", text)
+            self.assertIsNone(re.search(r"^\s+(sudo )?apt-get update", text, re.M))
+
     def test_a_failed_launcher_proof_prints_its_diagnosis_in_the_log(self):
         # Run 138's ffa-exit: the evidence went to an artifact a session reading the log could not fetch.
         for name in ("tower-proof", "rival-proof", "mega-proof", "abandon-check", "multiplayer-check"):

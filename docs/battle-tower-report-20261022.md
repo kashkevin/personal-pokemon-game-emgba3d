@@ -33,8 +33,8 @@ says so.
 
 | Repository | Branch | Head at this report | Tower commits |
 | --- | --- | --- | --- |
-| App | `claude/admiring-bohr-dpxzuy` | see the final report | `6a6b6a5`, `1550320`, `304daed`, `647f275`, `c241ecf`, `15ab178`, `0db6cf7`, `6123912`, `ac5c5c6`, `3ee7c91`, `4dcec39`, `6a3639e`, `f9c4df6`, `dbb8185`, `4cddf97`, `8c668bc` (MS-53), `a100436` (MS-54), `26a6e15`, `341e505` (the ui proof), `815d4b6` (the climb on Windows) |
-| Engine | `claude/feature-update-engine` | `65641401` (the Tower's code unchanged since `a5ce214d`: the later commits are test-build checks and MS-57's fix) | `1ba266c8`, `122ebcda`, `282ec5d9`, `68a8b0f5`, `547b2950`, `0df64e01` (co-op selection, also the Frontier's), `f4c512b4`, `6408f4ce`, `83214a4e` (breeding check), `a5ce214d` |
+| App | `claude/admiring-bohr-dpxzuy` | see the final report | `6a6b6a5`, `1550320`, `304daed`, `647f275`, `c241ecf`, `15ab178`, `0db6cf7`, `6123912`, `ac5c5c6`, `3ee7c91`, `4dcec39`, `6a3639e`, `f9c4df6`, `dbb8185`, `4cddf97`, `8c668bc` (MS-53), `a100436` (MS-54), `26a6e15`, `341e505` (the ui proof), `815d4b6` (the climb on Windows), `1c9d1f3` (co-op progression: no repeated rewards, the host chooses the Duo floor), `5034e60` (the Duo's save gate, MS-60), `81cec9a` (the join proof's host restart), `cff44fe` and `4328509` (MS-60's fix: a game with unsaved progress turned away at Enter; the Duo page's "Save first: launcher Save now") |
+| Engine | `claude/feature-update-engine` | `547d0789` (the Tower's code unchanged since `a5ce214d`: the later commits are test-build checks, MS-57's fix and MS-60's save mailbox QUERY_PARTY) | `1ba266c8`, `122ebcda`, `282ec5d9`, `68a8b0f5`, `547b2950`, `0df64e01` (co-op selection, also the Frontier's), `f4c512b4`, `6408f4ce`, `83214a4e` (breeding check), `a5ce214d` |
 
 Not merged: integration waits for every release gate (section 15).
 

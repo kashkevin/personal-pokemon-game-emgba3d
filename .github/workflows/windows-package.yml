@@ -118,8 +118,16 @@ jobs:
           python-version: "3.12"
       - name: Toolchain
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq --no-install-recommends build-essential libpng-dev \
+          # apt-get update once hung with no output for an hour on a hosted runner (windows-package runs 153 and 156,
+          # 2026-10-22): network timeouts, and three tries of at most five minutes each.
+          printf 'Acquire::Retries "3";\nAcquire::http::Timeout "60";\nAcquire::https::Timeout "60";\n' \
+            | sudo tee /etc/apt/apt.conf.d/99ci-timeouts >/dev/null
+          for attempt in 1 2 3; do
+            timeout 300 sudo apt-get update -qq && break
+            [ "$attempt" = 3 ] && { echo "apt-get update failed three times" >&2; exit 1; }
+            echo "apt-get update stalled or failed (attempt $attempt): again" >&2
+          done
+          timeout 1200 sudo apt-get install -y -qq --no-install-recommends build-essential libpng-dev \
             gcc-arm-none-eabi binutils-arm-none-eabi libnewlib-arm-none-eabi mingw-w64 gdb
           python -m venv .venv
           .venv/bin/python -m pip install --require-hashes --only-binary=:all: \
@@ -1285,8 +1293,16 @@ jobs:
       - name: Toolchain (the native game is a 32-bit Linux program with SDL2)
         run: |
           dpkg --add-architecture i386
-          apt-get update -qq
-          DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends git ca-certificates \
+          # apt-get update once hung with no output for an hour on a hosted runner (windows-package runs 153 and 156,
+          # 2026-10-22): network timeouts, and three tries of at most five minutes each.
+          printf 'Acquire::Retries "3";\nAcquire::http::Timeout "60";\nAcquire::https::Timeout "60";\n' \
+            > /etc/apt/apt.conf.d/99ci-timeouts
+          for attempt in 1 2 3; do
+            timeout 300 apt-get update -qq && break
+            [ "$attempt" = 3 ] && { echo "apt-get update failed three times" >&2; exit 1; }
+            echo "apt-get update stalled or failed (attempt $attempt): again" >&2
+          done
+          DEBIAN_FRONTEND=noninteractive timeout 1200 apt-get install -y -qq --no-install-recommends git ca-certificates \
             python3 python3-venv build-essential gcc-multilib libpng-dev pkg-config \
             gcc-arm-none-eabi binutils-arm-none-eabi libnewlib-arm-none-eabi libsdl2-dev:i386
       - uses: actions/checkout@v4
