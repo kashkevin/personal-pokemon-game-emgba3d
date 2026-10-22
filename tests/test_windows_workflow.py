@@ -74,6 +74,19 @@ class WindowsWorkflowTests(unittest.TestCase):
         self.assertIn("b: tower-forfeit-b", proof)         # the joiner forfeits: the host's world stays up
         self.assertIn("--pe-symbols symbols/pokeemerald-mp.nm.txt", proof)
 
+    def test_the_3d_game_is_drawn_in_windows_game_processes(self):
+        graphics = job("graphics-3d")
+        self.assertIn("runs-on: windows-2022", graphics)
+        self.assertIn("GALLIUM_DRIVER: llvmpipe", graphics)
+        self.assertIn("pokeemerald-mp-diorama-bfxtest.exe --probe-graphics", graphics)
+        self.assertIn('-notmatch "llvmpipe"', graphics)                         # never Windows' own OpenGL 1.1
+        self.assertIn("--only wild --only trainer --series --parade", graphics)
+        engine = job("engine")
+        self.assertIn("DIORAMA=1 BFX_TEST=1", engine)
+        self.assertIn("../diorama-check-inputs/", engine)
+        # Mesa is a test tool: the packaged game never carries it
+        self.assertNotIn("opengl32", job("package").lower())
+
     def test_the_whole_games_gameplay_check_runs_in_windows_game_processes(self):
         check = job("gameplay-check")
         self.assertIn("runs-on: windows-2022", check)

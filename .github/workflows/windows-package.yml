@@ -137,6 +137,12 @@ jobs:
           # The Mega Evolution check's test build (never packaged): the Classic 2D game with the battle test driver.
           make -f Makefile_pc SDL_DIR="$GITHUB_WORKSPACE/sdl/SDL2-${SDL_VERSION}/i686-w64-mingw32" BFX_TEST=1 -j"$(nproc)"
           i686-w64-mingw32-strip --strip-all pokeemerald-mp-bfxtest.exe
+          # The 3D game's test build (never packaged): the 3D battles and Mega forms drawn on a Windows runner through
+          # Mesa's software OpenGL (the graphics-3d job; the hosted runner's own OpenGL is 1.1).
+          make -f Makefile_pc SDL_DIR="$GITHUB_WORKSPACE/sdl/SDL2-${SDL_VERSION}/i686-w64-mingw32" DIORAMA=1 BFX_TEST=1 -j"$(nproc)"
+          i686-w64-mingw32-strip --strip-all pokeemerald-mp-diorama-bfxtest.exe
+          mkdir -p ../diorama-check-inputs
+          cp pokeemerald-mp-diorama-bfxtest.exe "$GITHUB_WORKSPACE/sdl/SDL2-${SDL_VERSION}/i686-w64-mingw32/bin/SDL2.dll" ../diorama-check-inputs/
           mkdir -p ../mega-check-inputs
           cp pokeemerald-mp-bfxtest.exe tools/battle_env/mega_check.py tools/battle_env/feature_check.py ../mega-check-inputs/
           # Battle Tower: Legends' floor check and its floor table, from an engine that has the Tower.
@@ -201,6 +207,13 @@ jobs:
         with:
           name: mega-check-inputs
           path: mega-check-inputs
+          retention-days: 1
+          if-no-files-found: error
+      - name: Hand the 3D test build to the graphics job (private, one day)
+        uses: actions/upload-artifact@v4
+        with:
+          name: diorama-check-inputs
+          path: diorama-check-inputs
           retention-days: 1
           if-no-files-found: error
       - name: Hand the gameplay check's plan to its Windows jobs (private, one day)
@@ -637,6 +650,83 @@ jobs:
         with:
           name: gameplay-check-windows-report
           path: gameplay_check.json
+          retention-days: 7
+          if-no-files-found: warn
+
+  graphics-3d:
+    # The 3D game drawn on a Windows runner (a GitHub-hosted runner has no graphics card; its own OpenGL is Windows'
+    # 1.1 software renderer, which the 3D game refuses). Test only, never packaged: Mesa's software OpenGL (llvmpipe,
+    # mesa-dist-win's 32-bit build) beside the 3D test build. The game's own probe must report llvmpipe with OpenGL 3.3
+    # or later; then the Mega check in 3D (tools/battle_env/mega_check.py): a wild and a trainer battle whose Mega
+    # Evolutions are drawn in 3D with a series of 16 pictures each, and the parade of every Mega form drawn in battle.
+    # What it says: the 3D renderer, its shaders and animations work in a Windows process; not a GPU or vendor driver.
+    name: 3D graphics (Windows game processes, Mesa software OpenGL)
+    needs: engine
+    if: ${{ (inputs.mode || 'smoke') == 'full' }}
+    runs-on: windows-2022
+    timeout-minutes: 120
+    env:
+      GALLIUM_DRIVER: llvmpipe
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@v4
+        with:
+          name: mega-check-inputs
+          path: mega-check-inputs
+      - uses: actions/download-artifact@v4
+        with:
+          name: diorama-check-inputs
+          path: diorama-check-inputs
+      - name: Mesa's software OpenGL (32-bit) beside the 3D test build
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $headers = @{ "User-Agent" = "emeraldtogether-ci"; "Authorization" = "Bearer $env:GH_TOKEN" }
+          $release = Invoke-RestMethod -Uri "https://api.github.com/repos/pal1000/mesa-dist-win/releases/latest" -Headers $headers
+          $asset = $release.assets | Where-Object { $_.name -match '^mesa3d-.*-release-msvc\.7z$' } | Select-Object -First 1
+          if (-not $asset) { throw "no msvc release archive in mesa-dist-win $($release.tag_name)" }
+          $archive = Join-Path $env:RUNNER_TEMP "mesa.7z"
+          Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $archive
+          $hash = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLower()
+          Write-Output "mesa-dist-win $($release.tag_name): $($asset.name) sha256 $hash"
+          "- Mesa: mesa-dist-win $($release.tag_name), $($asset.name), sha256 ``$hash``" >> $env:GITHUB_STEP_SUMMARY
+          $mesa = Join-Path $env:RUNNER_TEMP "mesa"
+          & 7z x $archive "-o$mesa" "x86\*.dll" -y | Out-Null
+          Get-ChildItem (Join-Path $mesa "x86") -Filter *.dll | ForEach-Object { Write-Output "  $($_.Name)" }
+          foreach ($dll in @("opengl32.dll", "libgallium_wgl.dll", "libglapi.dll")) {
+            $source = Join-Path $mesa "x86\$dll"
+            if (Test-Path $source) { Copy-Item $source diorama-check-inputs\ }
+          }
+          if (-not (Test-Path diorama-check-inputs\opengl32.dll)) { throw "Mesa's 32-bit opengl32.dll is missing" }
+      - name: The game's own graphics probe (llvmpipe, OpenGL 3.3 or later)
+        shell: pwsh
+        run: |
+          $probe = & diorama-check-inputs\pokeemerald-mp-diorama-bfxtest.exe --probe-graphics | Select-Object -Last 1
+          Write-Output $probe
+          "- Probe: ``$probe``" >> $env:GITHUB_STEP_SUMMARY
+          $result = $probe | ConvertFrom-Json
+          if (-not $result.supported) { throw "the 3D game refused Mesa's OpenGL: $($result.reason) $($result.detail)" }
+          if ($result.renderer -notmatch "llvmpipe") { throw "not Mesa's llvmpipe: $($result.renderer)" }
+      - name: Mega Evolutions in 3D battles (picture series) and the parade of every Mega form
+        shell: pwsh
+        run: |
+          $out = Join-Path $env:RUNNER_TEMP "graphics-3d"
+          $save = Join-Path $env:RUNNER_TEMP "graphics-3d.sav"
+          python mega-check-inputs\mega_check.py --exe diorama-check-inputs\pokeemerald-mp-diorama-bfxtest.exe `
+            --make-save $save --out $out --only wild --only trainer --series --parade --jobs 1
+          if ($LASTEXITCODE -ne 0) { throw "the 3D Mega check failed ($LASTEXITCODE)" }
+      - name: Upload the report and the pictures (private to this repository, 7 days; no save)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: EmeraldTogether-graphics-3d
+          path: |
+            ${{ runner.temp }}/graphics-3d/**/*.json
+            ${{ runner.temp }}/graphics-3d/**/test.log
+            ${{ runner.temp }}/graphics-3d/**/*.png
           retention-days: 7
           if-no-files-found: warn
 
