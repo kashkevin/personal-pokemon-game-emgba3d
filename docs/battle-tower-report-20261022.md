@@ -95,7 +95,10 @@ Blue's Mega, Red's Charizardite X, ...) are listed in FLOORS.md.
   The Duo's host - the player who invited - chooses the floor, any floor open to both (each player's own next floor or
   one they cleared), so a player who has climbed higher joins a friend's lower floor; the partner cannot change it.
   Each player's page row says what the floor pays them ("prizes": their first clear; "Exp only": cleared before). After
-  each battle the Duo goes on to the lower progress floor.
+  each battle the Duo goes on to the lower progress floor. Between two Duo floors both players save (START > SAVE; app
+  `5034e60`): the host prepares each native battle from the players' saves and the co-op award changes the parties after
+  a battle, so Ready answers "Save your game first" until each player's save is newer than the one the last floor was
+  prepared from (KNOWN_ISSUES MS-60).
 
 | Behaviour | Evidence | Result |
 | --- | --- | --- |
@@ -105,6 +108,7 @@ Blue's Mega, Red's Charizardite X, ...) are listed in FLOORS.md.
 | Duo floor 1: invitation, Ready, native co-op battle, settled for both | L tower-duo-2 (battle won and settled), tower-duo-3 (whole proof); W runs 121, 129 | passed (L, W) |
 | Mega Duo: floor 40 replay, Norman's Kangaskhan Mega Evolves in the co-op battle | L tower-mega-2; W runs 121, 129 | passed (L, W) |
 | Forfeit: a solo floor closed mid-battle, counted as a loss on the next ask | L tower-forfeit-2, W runs 121, 129 | passed (L, W) |
+| Co-op progression: player 1 (floors 1-11 cleared, three level-10 Mewtwo) joins player 2's (floors 1-9) Duo on player 2's floor 10, plays 10, 11 and 12; player 2's game closed and started again between 10 and 11 | L tower-join-2 (floor 10 passed; floor 11 found MS-60), tower-join-3; W: the `join` entry (the next full run) | passed on Linux (tower-join-3): floors 10 and 11 paid player 1 nothing (0 BP, $0, no items) while its Mewtwo gained 847/421/421 and 898/448/448 experience; player 2 got Brock's prize (6 BP, $10,000, 10 Rare Candy) and 2 BP + $1,100; player 2 back with P 11, H 10; player 1's Ready refused until it saved; floor 12 paid both 2 BP + $1,200; the final saves: player 1 $1,200, 2 BP, Mewtwo at levels 14, 12, 12; player 2 $12,300, 10 Rare Candy, 10 BP; both P 13, H 12. Windows not run yet |
 
 ## 6. Checkpoints and saves
 
@@ -164,8 +168,8 @@ void (MS-50).
 | Rare Candy | 24 | Weakness Policy | 48 | Lum Berry | 16 |
 | PP Up | 24 | PP Max | 64 | Sitrus Berry | 8 |
 
-Earning: a first clear pays (1 + floor // 10) BP x 3 on the boss floors, x4 on 25/50/75, x5 on 100, else x1; a later win
-max(1, first-clear BP // 3) within 20 floors of the player's highest, else 1. Evidence: app tests; L/W solo proofs (the
+Earning: a first clear pays (1 + floor // 10) BP x 3 on the boss floors, x4 on 25/50/75, x5 on 100, else x1; a floor
+already cleared pays no BP (section 8; until 2026-10-22 a later win paid a third). Evidence: app tests; L/W solo proofs (the
 HP Up bought for 16 BP and found in the next save).
 
 ## 11. UI evidence
@@ -201,7 +205,8 @@ hosted runner's own OpenGL is 1.1): **passed in runs 138 and 141** (Mesa's softw
 | Shop order without its debit | app (2 tests) | - | - |
 | Battle Points received since the save (MS-53), "Close the menu to finish" (MS-54) | app (new tests) | passed (tower-solo-9) | passed (run 133 solo and milestone) |
 | 3D native UI pages | - | passed (tower-ui-5: ten pages) | passed in runs 138 and 141 (`ui` entry, Mesa only) |
-| A whole climb, 100 floors, through the launcher (`climb`, fast-text fixtures) | - | passed (tower-climb-3: both players floors 1-100, 189 minutes, every claim, $990,000, 45 Rare Candy, 751 BP and 4 milestone Pokemon paid as the rules say) | passed in run 141 (both players floors 1-100 in 181 minutes, the same prizes paid) |
+| A whole climb, 100 floors, through the launcher (`climb`, fast-text fixtures) | - | passed (tower-climb-3: both players floors 1-100, 189 minutes, every claim, $990,000, 45 Rare Candy, 751 BP and 4 milestone Pokemon paid as the rules say) | passed in runs 141 and 145 (both players floors 1-100 in 181 and 181.5 minutes, the same prizes paid) |
+| Co-op progression: a higher player on a friend's lower floor, no repeated rewards, experience kept, first clears resume, a reconnect, a save between Duo floors (`join`) | app (the owner's 30-and-10 example over 22 floors; replays, re-climbs, restarts, reset and older saves; the host's floor choice; MS-60's gate) | passed (tower-join-3) | not run yet (the `join` entry, next full run) |
 
 ## 13. Windows gameplay verification
 
@@ -220,7 +225,7 @@ GitHub's hosted Windows runners (`windows-2022`), real Windows game processes of
 * Run 133 (app `26a6e15`, engine `b1066514`,
   https://github.com/kashkevin/personal-pokemon-game-emgba3d/actions/runs/39710794241): every Tower job passed - the four
   floor shards (200 of 200 again), caps and items, Duo, Mega Duo, forfeit, and, for the first time on Windows, the solo
-  proof end to end (floors 1-11 settled, Brock's 10 Rare Candy and $10,000, floor 10 replayed at replay rates, an HP Up
+  proof end to end (floors 1-11 settled, Brock's 10 Rare Candy and $10,000, floor 10 replayed at the replay rates of the time, an HP Up
   bought in the Tower Shop with 16 BP, the next save holding $15,900, 10 Rare Candy, 1 HP Up and 3 BP as the host's rules
   say; player 2 lost Giovanni on floor 25 and went back to floor 21, nothing paid) and the milestone proof end to end.
 * Run 138 (app `341e505`, engine `83808e7e`,
@@ -231,6 +236,11 @@ GitHub's hosted Windows runners (`windows-2022`), real Windows game processes of
   https://github.com/kashkevin/personal-pokemon-game-emgba3d/actions/runs/39723669535): every Tower job passed again;
   the new 100-floor climb through the launcher passed (both players floors 1-100 in 181 minutes, every claim, the
   saves paid as the rules say).
+* Run 145 (app `1a9a14b`, engine `65641401`,
+  https://github.com/kashkevin/personal-pokemon-game-emgba3d/actions/runs/39741875955): every Tower job passed again
+  (the four floor shards, caps and items, solo, milestone, Duo, Mega Duo, forfeit, `ui`), and the climb for the second
+  time (both players floors 1-100 in 181.5 minutes, every claim, the saves paid as the rules say). The run's three
+  failures were multiplayer proofs' own (TEST_LEDGER.md).
 
 ## 14. Known issues and limitations
 
@@ -241,9 +251,12 @@ field, waited for the menu to close. MS-55 (low, cosmetic, open): a new Players 
 row chosen on the page before (the Tower Shop opens on its second item); the rule is the menu's GBA code.
 MS-51 (low, open): a milestone Pokemon lost in a narrow case (game closed unsaved after the delivery, older save full).
 MS-52 (low, open, cosmetic): native Tower screens show the game's copy of the record until the host's word arrives.
+MS-60 (medium; prevented in the Tower Duo, app `5034e60`, verified on Linux in tower-join-3): the host prepares a
+native battle from each player's save, and a party the co-op award changed after the save made the next Duo floor's
+start refused; the Duo now waits until both players have saved ("Save first: START > SAVE").
 MS-49's remainder: a game below about 22 frames a second could still start a floor after the host's two minutes. The 3D
 UI is verified on Linux and on Windows through Mesa only (runs 138, 141). The full 100-floor climb through the launcher
-passed on Linux (tower-climb-3) and on Windows (run 141). Older Mega items (MS-38
+passed on Linux (tower-climb-3) and on Windows (runs 141 and 145). Older Mega items (MS-38
 Mega Lucario Z's Aura Guard, MS-39 Mega Rayquaza) affect no Tower floor (no floor uses them).
 
 ## 15. Integration and release readiness
@@ -252,6 +265,7 @@ Not merged. Gates: the Windows run on the final commits green (Tower jobs includ
 open critical or high fault (MS-47 fixed and confirmed on Windows in runs 121 and 129), save integrity verified (every proof's
 canonical checkpoints), app and engine commits compatible (one engine commit per run, ROM pinned), the newest features
 covered (this report's matrix). Status: in progress. The Tower jobs passed in runs 133, 138, 141 and 145 (the whole
-climb on Windows in run 141); the open gate is multiplayer's MS-57 (High: a battle stopped once the host's battler was
-out of Pokemon; fixed in engine `65641401` and the app, verified on Windows for the free-for-all in run 145, the 2v2 in
-run 147). See the final report.
+climb on Windows in runs 141 and 145); multiplayer's MS-57 (High: a battle stopped once the host's battler was out of
+Pokemon) is fixed in engine `65641401` and the app and verified on Windows (the free-for-all in runs 145 and 147, the
+2v2 in run 147). The co-op progression (app `1c9d1f3`, `5034e60`) passed on Linux (tower-join-3); the next full Windows
+run, with its `join` entry, is the gate still open. See the final report.
