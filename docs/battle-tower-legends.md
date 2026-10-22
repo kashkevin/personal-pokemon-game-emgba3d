@@ -40,9 +40,11 @@ This file is the contract between the engine and the app. Section 8 lists every 
   player's P, H and rewards are their own rows and words; one player's result never writes the other's.
 * **Save between Duo floors:** the host prepares each native battle from the players' saves (save counter and party
   CRC, which the game's PREPARE checks), and the co-op award changes a party after the battle, so the next Duo floor
-  waits until each player has saved again: Ready answers "Save your game first", the Duo page says "Save first: START >
-  SAVE" or which teammate must save (app `5034e60`; KNOWN_ISSUES MS-60). A ticket issued before this records no save and
-  never holds a Duo back.
+  waits until each player has saved again with the launcher (Save now, or its autosave; the game's own START > SAVE
+  saves only in the game and does not count): Ready answers "Save your game first", the Duo page says "Save first:
+  launcher Save now" or which teammate must save (app `5034e60`; the page said "START > SAVE" until app `cff44fe`;
+  KNOWN_ISSUES MS-60). A ticket issued before this records no save and never holds a Duo back. A Duo battle entered by a
+  game whose party is not its host save is refused at Enter and void for both (KNOWN_ISSUES MS-60).
 * **No skipping:** a player only ever fights their P or a floor <= H. The host checks it for every battle it issues.
 * **One Tower battle at a time per player** (solo or Duo): while one is issued or running, every other Tower action of that
   player is refused with the reason.

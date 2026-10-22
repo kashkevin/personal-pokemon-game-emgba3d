@@ -11,7 +11,9 @@ Statuses: **Passed on Windows**, **Passed on Linux only**, **Failed**, **Blocked
 Commits: app `claude/admiring-bohr-dpxzuy`, engine `claude/feature-update-engine`. Windows runs: 121 (app `6a3639e`,
 engine `a5ce214d`), 129 (app `c5c2a35`, engine `a5ce214d`), 133 (app `26a6e15`, engine `b1066514`; section 5), 138 (app
 `341e505`, engine `83808e7e`: 41 of 42), 141 (app `a2ce0a2`, engine `da278011`: 44 of 45, the climb passed), 143 (app `fa6e601`, engine `da278011`: the `ffa-exit` check alone, four attempts), 145 (app `1a9a14b`, engine
-`65641401`: 50 of 53, the climb passed again), 147 (app `bced6f5`: the interrupted battles and the rival battle, 12 of 13).
+`65641401`: 50 of 53, the climb passed again), 147 (app `bced6f5`: the interrupted battles and the rival battle, 12 of 13),
+151 (app `a7d3aa8`, engine `65641401`: 53 of 54 when written, the climb running), 156 (app `4328509`, engine
+`547d0789`: MS-60's fix; running when written). Runs 153 and 155 were cancelled (section 5).
 
 ## 1. The newest updates
 
@@ -26,7 +28,8 @@ engine `a5ce214d`), 129 (app `c5c2a35`, engine `a5ce214d`), 133 (app `26a6e15`, 
 | Battle Tower: solo climb through the launcher, prizes, replay, Tower Shop, special boss loss to its checkpoint | **Passed on Windows** | run 133 end to end (floors 1-11, Brock's prize, the replay, the HP Up for 16 BP, the saved wallet as the rules say; player 2 back to floor 21 after Giovanni) | L tower-solo-9 |
 | Battle Tower: native 3D UI pages | **Passed on Windows** (Mesa software OpenGL only) | runs 138 and 141 (the `ui` entry, pinned Mesa) | L tower-ui-5: ten pages pictured, saves, fresh Continue, integrity check |
 | Battle Tower: a whole 100-floor climb through the launcher | **Passed on Windows** | runs 141 and 145 (181.5 minutes): both players floors 1-100 (100 wins each, 181 minutes in run 141), every claim, the saves paid as the rules say ($990,000, 45 Rare Candy, 751 BP, 4 milestone Pokemon), fresh Continue, integrity | L tower-climb-3: two players, floors 1-100 each (100 wins), 189 minutes, every claim, the saves paid as the rules say, integrity, fresh Continue |
-| Battle Tower: co-op progression - a higher player joins a friend's lower floor, a cleared floor pays only experience (no BP, money, items, prize or milestone), first clears resume above each player's own highest, the next Duo floor after both players saved (owner request 2026-10-22; app `1c9d1f3`, `5034e60`) | **Passed on Linux only** | the `join` entry of the Tower launcher job: not run yet (the next full run) | L tower-join-3 end to end: player 1 (floors 1-11 cleared) on player 2's floors 10 and 11 paid nothing while its three Mewtwo gained experience and levels (10 -> 14, 12, 12), player 2's first clears paid (Brock's prize on 10), player 2's game closed and started again with its progress kept, player 1's Ready refused until it saved (MS-60), floor 12 paid both, the saves as the host's rules say, integrity, fresh Continue; L tower-join-4 the same, then the world's host restarted: records kept, nothing paid again (each game's wallet and record still its save's); L tower-join-2 found MS-60; app tests (the owner's 30-and-10 example over 22 floors, reconnects, restarts, reset and older saves) |
+| Battle Tower: co-op progression - a higher player joins a friend's lower floor, a cleared floor pays only experience (no BP, money, items, prize or milestone), first clears resume above each player's own highest, the next Duo floor after both players saved (owner request 2026-10-22; app `1c9d1f3`, `5034e60`) | **Passed on Windows** | run 151 (`join`, its first Windows pass: the same payments and levels as on Linux); the host-restart check (tower-join-4) rides run 156 | L tower-join-3 end to end: player 1 (floors 1-11 cleared) on player 2's floors 10 and 11 paid nothing while its three Mewtwo gained experience and levels (10 -> 14, 12, 12), player 2's first clears paid (Brock's prize on 10), player 2's game closed and started again with its progress kept, player 1's Ready refused until it saved (MS-60), floor 12 paid both, the saves as the host's rules say, integrity, fresh Continue; L tower-join-4 the same, then the world's host restarted: records kept, nothing paid again (each game's wallet and record still its save's); L tower-join-2 found MS-60; app tests (the owner's 30-and-10 example over 22 floors, reconnects, restarts, reset and older saves) |
+| A battle entered with progress the host has not saved is turned away at Enter, nothing held or lost (KNOWN_ISSUES MS-60, High; engine `547d0789`, app `cff44fe`, `4328509`) | **Passed on Linux only** | run 156's `stale-save` entries (running when written) | L stale-save-6 and -7 end to end: the friend's own START > SAVE, refused at Enter entering first and after the host's recorded Enter, the host's late Enter told why, the host's entry cancelled neutrally, nobody held, the progress kept, the launcher's save within a second of the menus closing, then a 1v1 to its end, saves, fresh Continue, integrity; before the fix ms60-pvp-2 reproduced it (both held, saving stopped, the abandonment lost the unsaved change) |
 | Co-op team selection (MS-47, engine `0df64e01`) | **Passed on Windows** | runs 121, 129 (Tower Duo and Mega Duo with six-Pokemon parties) | T 3/3, L |
 | Battle Points the game received since its save (MS-53, app `8c668bc`) | **Passed on Windows** | run 133 (solo, milestone) | L tower-solo-8/9; app tests |
 | Shop orders finish after the menu closes (MS-54, app `a100436`) | **Passed on Windows** | run 133 (solo) | L tower-solo-9; app tests |
@@ -79,10 +82,12 @@ the game's copy of the record until the host's word arrives. MS-49's remainder: 
 could start a floor after the host's two minutes. MS-38 (Medium, open): Mega Lucario Z's Aura Guard does nothing.
 MS-39 (Low, owner decision): Mega Rayquaza cannot be reached. MS-28 (Medium, mixed versions only). MS-29 (Low).
 MS-17 is fixed and verified (2026-10-21); the multiplayer jobs of runs 121, 129 and 133 that would show it (battle starts
-and deliveries in two to four Windows games) all passed. MS-57 (High, fixed, verification running): a battle stopped
-for everyone once the host's battler was out of Pokemon while it went on; it was MS-17's two free-for-all recurrences
-too. MS-58 (Low, cosmetic, fixed): a 2v2 rival match's row. MS-59 (closed, not a defect): the gdb instrument. MS-60 (Medium; prevented in the Tower Duo, verified on Linux: a
-native battle prepared from a save older than the game's party never starts; outside the Tower a save first avoids it). MS-53 and MS-54 are verified on Windows (run 133). MS-55 (Low,
+and deliveries in two to four Windows games) all passed. MS-57 (High, fixed and verified on Windows: runs 145, 147
+and 151): a battle stopped for everyone once the host's battler was out of Pokemon while it went on; it was MS-17's two
+free-for-all recurrences too. MS-58 (Low, cosmetic, fixed): a 2v2 rival match's row. MS-59 (closed, not a defect): the gdb instrument. MS-60 (High, fixed and verified on Linux; Windows: run 156): a
+native battle entered with progress the host had not saved never started, every trainer was held with saving stopped,
+and the abandonment lost that progress; now such a game is turned away at Enter and its launcher saves it (in the Tower
+Duo the save gate of `5034e60` stays, its page now saying "Save first: launcher Save now"). MS-53 and MS-54 are verified on Windows (run 133). MS-55 (Low,
 cosmetic, open): a new Players menu page opens with the cursor on the row chosen on the page before. The gameplay
 check's Abandoned Ship hang was the test runner's (fixed, section 2).
 
@@ -132,3 +137,17 @@ Run 149 (app `05a2320`, https://github.com/kashkevin/personal-pokemon-game-emgba
 run on that head, cancelled when the owner's Tower co-op progression request changed the app; the next full run carries
 the change (app `1c9d1f3`, `5034e60`) with its new `join` job. Gameplay check run 10 (Linux CI, engine `65641401`):
 3,611 targets passed, none failed, 618 blocked by the game's own story state.
+
+Run 151 (app `a7d3aa8`, engine `65641401`, https://github.com/kashkevin/personal-pokemon-game-emgba3d/actions/runs/39778505816):
+the full run with the Tower's co-op progression: 53 of its 54 jobs had passed when this was written - the `join` job
+among them (the co-op progression's first Windows pass), the twelve interrupted-battle jobs, the four multiplayer jobs,
+every Tower job, the rival battle, the Mega checks and the gameplay check's eight shards - the climb still running.
+
+Run 153 (app `81cec9a`, `only: tower-proof`, https://github.com/kashkevin/personal-pokemon-game-emgba3d/actions/runs/39782564052):
+cancelled; its engine build sat in its toolchain step for over an hour. Run 155 (app `cff44fe`,
+https://github.com/kashkevin/personal-pokemon-game-emgba3d/actions/runs/39796044414): cancelled about 20 minutes in, when
+L stale-save-4 and -5 found that commit's own fault (fixed in `4328509`).
+
+Run 156 (app `4328509`, engine `547d0789`, https://github.com/kashkevin/personal-pokemon-game-emgba3d/actions/runs/39799783695):
+the full run on MS-60's fix, with the new `stale-save` entries; running when this was written (TEST_LEDGER.md has its
+result).
