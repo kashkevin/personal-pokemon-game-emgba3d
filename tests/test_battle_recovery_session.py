@@ -337,6 +337,35 @@ class RetainedBattleRecoveryTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(refused_admission_path(self.directory, challenge["battle_id"]).exists())
         self.assertIsNone(self.c._live_save_owner)
 
+    async def test_the_sessions_own_claim_after_admit_sends_no_party_and_an_ended_challenge_is_unstarted(self):
+        # L stale-save-4/-5 (KNOWN_ISSUES MS-60): NativeBattleSession.run claims the Enter again after its ADMIT. The
+        # held game cannot answer QUERY_PARTY then, so that claim names no party (the first claim was checked); and when
+        # the challenge has ended meanwhile (another trainer's Enter refused), the entry is cancelled neutrally.
+        from emerald_multiplayer.battle_admission_session import prepare_battle_admission
+        from emerald_multiplayer.companion import BattleChallengeError
+        self.journal.path.unlink()
+        admission, _ = self.seed_provisional()
+        object.__setattr__(self.c.config, "menu_release_abi_version", 1)
+        object.__setattr__(self.c.config, "save_party_query_abi_version", 1)
+        calls = []
+        async def host(operation, **fields):
+            calls.append((operation, fields))
+            return {"result": self.accepted_challenge()}
+        async def no_query():
+            raise AssertionError("a held game was asked its party")
+        with patch.object(self.c, "battle_challenge_rpc", host), patch.object(self.c, "live_party_identity", no_query):
+            self.assertEqual(await prepare_battle_admission(self.c, self.directory, admission.challenge), admission)
+        self.assertEqual([operation for operation, _ in calls], ["claim"])
+        self.assertNotIn("live", calls[0][1])
+        async def ended(operation, **fields):
+            raise BattleChallengeError("battle_not_ready", "Enter requires the exact accepted original game core")
+        with patch.object(self.c, "battle_challenge_rpc", ended), patch.object(self.c, "live_party_identity", no_query):
+            with self.assertRaises(BattleJournalError) as raised:
+                await prepare_battle_admission(self.c, self.directory, admission.challenge)
+        self.assertEqual(raised.exception.code, "battle_entry_unstarted")
+        self.assertTrue((self.directory / "pending-battle-admission.json").exists())   # what the neutral cancel uses
+        self.assertIsNone(self.c._live_save_owner)
+
     async def test_refused_claim_still_holds_for_games_without_the_release(self):
         from emerald_multiplayer.battle_admission_session import prepare_battle_admission, read_admission_receipt
         from emerald_multiplayer.battle_admission_intent import read_admission_intent

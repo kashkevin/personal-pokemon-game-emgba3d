@@ -229,6 +229,17 @@ class PlayerMenuChallengeStatusTests(PlayerMenuNetworkTests):
         a.notice(refusal_text("character_busy"))           # a refusal about this game itself stays
         self.assertEqual((await a.refresh()).status, "Busy saving: try again shortly")
 
+    async def test_a_refused_trainer_reads_its_reason_while_the_other_leaves_the_challenge(self):
+        # L stale-save-4: the refused trainer's menu read "Battle needs recovery" while the trainer who had entered
+        # cancelled its entry (recovery_required); its own reason comes first, the state otherwise.
+        a, b = (PlayerMenu(self.companions[i]) for i in (0, 1))
+        await a.refresh(); await self.click(a, "Trainer 1"); await self.click(a, "Rival Battle - 1v1")
+        await b.refresh(); await self.click(b, "Pending challenge")
+        self.server.battle_desk._recover(next(iter(self.server.battle_desk._active.values())), "save_needed")
+        self.assertEqual((await b.refresh()).status, "Battle needs recovery")
+        b.notice(refusal_text("save_needed"))
+        self.assertEqual((await b.refresh()).status, "Not saved: close menu to save")
+
 
 class PlayerMenuAdmissionTests(unittest.TestCase):
     def setUp(self):

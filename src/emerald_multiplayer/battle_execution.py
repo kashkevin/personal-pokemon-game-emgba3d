@@ -126,11 +126,18 @@ class BattleExecutionService:
         battle = self.desk._get(actor, lease, request["battle_id"], request["generation"])
         room = self.rooms.get(battle.battle_id)
         if room is None:
+            path = self.directory / (battle.battle_id + ".json")
+            if (battle.state == "recovery_required" and self.resume_enabled and not battle.bind_intent
+                    and not battle.bound and not path.exists()):
+                # The challenge ended (a trainer could not enter, or cancelled) after this trainer's Enter was recorded
+                # but before its core's first poll made the room (L stale-save-4, KNOWN_ISSUES MS-60). Say so, as for a
+                # room still waiting, so its launcher cancels the entry neutrally (battle_entry_unstarted, then
+                # cancel_admission); answering battle_not_ready left that launcher holding the battle for recovery.
+                return execution_view(battle.battle_id, battle.generation, "recovery_required")
             if battle.state != "accepted" or battle.consent != set(battle.players):
                 raise BattleError("battle_not_ready", "all trainers must accept this exact challenge")
             if request["response_b64"] is not None:
                 raise BattleError("invalid_receipt", "no native command was issued")
-            path = self.directory / (battle.battle_id + ".json")
             if path.exists():
                 raise BattleError("battle_recovery_required", "persisted native execution needs recovery")
             completed = [key for key, value in self.rooms.items() if value.state in ("closed", "aborted")]

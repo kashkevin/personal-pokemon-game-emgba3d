@@ -341,6 +341,23 @@ class BattleExecutionNetworkTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(room.battle.bind_intent)
         self.assertEqual(room.state, "waiting")   # the persisted room is untouched: neutral cleanup's evidence stays exact
 
+    async def test_challenge_ended_before_the_entered_cores_first_poll_tells_it(self):
+        # L stale-save-4 (KNOWN_ISSUES MS-60): the other trainer's Enter was refused after this trainer's Enter was
+        # recorded but before its core first polled (no room yet); that poll answered battle_not_ready, and the entered
+        # core's launcher held the battle instead of cancelling its entry neutrally.
+        for resumable in (True, False):
+            service = self.server.battle_execution = BattleExecutionService(
+                self.desk, (None,) * 721, self.root / f"execution-{resumable}", resume_enabled=resumable)
+            if resumable:
+                self.accept()
+                self.desk._recover(self.desk._active[self.battle_id], "save_needed")
+                self.assertEqual((await self.exchange(0))["result"]["state"], "recovery_required")
+                self.assertNotIn(self.battle_id, service.rooms)          # nothing made for a challenge that ended
+                self.assertFalse((service.directory / (self.battle_id + ".json")).exists())
+            else:
+                # Without provisional admission nothing entered was recorded: the poll is refused as before.
+                self.assertEqual((await self.exchange(0))["code"], "battle_not_ready")
+
     async def test_shutdown_keeps_durable_exact_pending_command_and_all_participants_reserved(self):
         service = self.enable()
         self.accept(multi=True)

@@ -692,6 +692,11 @@ class PlayerMenu:
                 else:
                     status = {"aborting": "Cancelling safely", "recovery_required": "Battle needs recovery",
                               "running": "Battle in progress", "starting": "Starting battle"}.get(battle["state"], battle["state"])
+                    if battle["state"] in ("aborting", "recovery_required") and self._notice:
+                        # This player's own refused Enter or cancel says more than the state of a challenge another
+                        # trainer's game is still leaving (KNOWN_ISSUES MS-60, L stale-save-4: the refused trainer
+                        # read "Battle needs recovery" while the entered one cancelled its entry).
+                        status = self._notice
                 if battle["mode"] == 2 and len(actions) < 6:
                     actions.append(("Championship", "championship", ()))
             else:

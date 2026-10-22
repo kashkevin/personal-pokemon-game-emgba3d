@@ -159,8 +159,13 @@ async def prepare_battle_admission(c, directory, challenge):
                 raise BattleJournalError("battle_recovery_required", "provisional Enter intent disappeared before preparation")
             if c.connected:
                 from .companion import BattleChallengeError
+                receipt = journal.directory / (intent.battle_id + ".battle-admission-receipt.json")
+                # Admitted before (its ADMIT receipt kept): this is the battle session's own claim of the Enter the
+                # host already recorded (NativeBattleSession.run). The game is held and cannot answer QUERY_PARTY, and
+                # the host checked its party at the first claim (L stale-save-4/-5), so none is sent.
+                admitted = path_present(receipt)
                 try:
-                    live = await live_claim_fields(c)
+                    live = {} if admitted else await live_claim_fields(c)
                     if live is None:
                         raise BattleChallengeError("party_unknown", "the game could not report its party")
                     claimed = (await c.battle_challenge_rpc("claim", battle_id=intent.battle_id,
@@ -170,7 +175,7 @@ async def prepare_battle_admission(c, directory, challenge):
                         raise BattleJournalError("battle_recovery_required", "Enter claim changed its original accepted challenge")
                 except BattleChallengeError as error:
                     if (error.code in DEFINITE_CLAIM_REFUSALS and getattr(c.config, "menu_release_abi_version", 0) == 1
-                            and not path_present(journal.directory / (intent.battle_id + ".battle-admission-receipt.json"))):
+                            and not path_present(receipt)):
                         # The host answered, and refused before recording the claim (the challenge expired, was
                         # cancelled or changed; or this game changed since its last save, MS-60), or the claim was
                         # never sent (party_unknown): this Enter cannot become a battle, so it never becomes a hold.
@@ -179,6 +184,11 @@ async def prepare_battle_admission(c, directory, challenge):
                         retire_refused_admission(journal.directory, intent)
                         raise BattleAdmissionRefused(error.code, str(error)) from error
                     await hold_admission(c, journal.directory, intent, bridge)
+                    if admitted and error.code == "battle_not_ready":
+                        # Entered and admitted, and the challenge has since ended for another trainer (its Enter
+                        # refused or cancelled; KNOWN_ISSUES MS-60): the launcher cancels this entry neutrally
+                        # (cancel_admission refuses anything reserved or bound), as when the route says so.
+                        raise BattleJournalError("battle_entry_unstarted", "the battle ended before it started") from error
                     raise
                 except (Exception, asyncio.CancelledError):
                     # Exact native ADMIT proves the already-selected Enter if
