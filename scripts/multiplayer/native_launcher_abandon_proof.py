@@ -24,6 +24,15 @@ ordinary key presses. Scenarios (--scenario):
                      same quit as closing the window; the harness's ordinary close on Linux). Friend 2 starts the
                      launcher again, which abandons the battle as it opens the world; the other three launchers follow
                      by themselves. Then the same four play a free-for-all again to the end.
+    ffa-knockout     No interruption (KNOWN_ISSUES MS-57): a free-for-all whose host is knocked out on its first turn and
+                     which goes on without the host to its result. The sources are make_tower_saves.py knockout-a..d: a
+                     level-30 Earthquake (Friend 1's) against the host's and Friend 2's level-2 Pokemon, a level-30
+                     Tackle (Friend 3's). One of the two level-30 trainers wins.
+    multi-knockout   The same in a 2v2 (KNOWN_ISSUES MS-57's other format): the host and Friend 1 against Friends 2
+                     and 3 with the knockout sources; Friend 1's Earthquake knocks out its own partner's - the host's -
+                     level-2 Pokemon and Friend 2's on the first turn, and the 2v2 goes on without the host to its result.
+                     Both knockout scenarios read the host's route journal: the master's action menus must have carried
+                     battler 0's B_ACTION_NOTHING_FAINTED (the host out while the battle went on).
 
 Every scenario then checks: everyone back on the field, linked to the other three ("Connected: 4/4"), every party the
 one from before the battle, no pending battle intent anywhere, the abandoned battle has no result (no archive entry, no
@@ -45,6 +54,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import base64
 import json
 import os
 from pathlib import Path
@@ -61,6 +71,7 @@ from native_launcher_ffa_proof import (challenge_free_for_all, close_players, in
 from qualify_admission_cleanup import on_worker, require  # noqa: E402
 from qualify_launcher_session import inspect_closed_head  # noqa: E402
 import route_timeline  # noqa: E402
+from emerald_multiplayer.native_battle import NativeControl, Opcode  # noqa: E402
 
 
 def kill_hard(pid):
@@ -69,7 +80,7 @@ def kill_hard(pid):
 
 
 PLAYER_NAMES = ("AB Host", "AB Friend 1", "AB Friend 2", "AB Friend 3")
-SCENARIOS = ("pairs-crash", "multi-network", "ffa-host-crash", "ffa-exit")
+SCENARIOS = ("pairs-crash", "multi-network", "ffa-host-crash", "ffa-exit", "ffa-knockout", "multi-knockout")
 PENDING = ("pending-battle.json", "pending-battle-admission.json")
 CLOSED_WAIT = 120       # seconds a launcher may take to report a closed battle finished (and saved)
 
@@ -79,9 +90,9 @@ class Reproduced(AssertionError):
 
 
 class AbandonProof:
-    def __init__(self, scenario, interrupt_after, watch, match_seconds):
+    def __init__(self, scenario, interrupt_after, watch, match_seconds, rematches=1):
         self.scenario, self.interrupt_after, self.watch = scenario, interrupt_after, watch
-        self.match_seconds = match_seconds
+        self.match_seconds, self.rematches = match_seconds, rematches
         self.harness = None
         self.before_saves = None
         self.thread_slot = {}
@@ -701,11 +712,64 @@ class AbandonProof:
             await self.abandon_from(n, current, probes, games, record, explicit=False)
         await self.abandoned(current, battle_id, record)
         await self.world_is_whole(current, probes, before, record, "everyone-back-after-the-exit")
+        # --rematches N: the same four play N free-for-alls one after another (KNOWN_ISSUES MS-57 came in one of
+        # three; more battles in one run, with the setup's half hour once)
+        for number in range(self.rematches):
+            suffix = "" if number == 0 else f"-{number + 1}"
+            await self.challenge_ffa(probes)
+            again = await self.enter(current, probes, range(4), record, "rematch-free-for-all" + suffix)
+            stops, drivers = self.drive(current, probes, symbols, again, range(4))
+            await self.finish(current, probes, again, range(4), stops, drivers, record, "rematch-free-for-all" + suffix)
+            await self.world_is_whole(current, probes, before, record, "everyone-back-after-the-rematch" + suffix)
+
+    async def ffa_knockout(self, current, probes, games, host, symbols, record, before):
         await self.challenge_ffa(probes)
-        again = await self.enter(current, probes, range(4), record, "rematch-free-for-all")
-        stops, drivers = self.drive(current, probes, symbols, again, range(4))
-        await self.finish(current, probes, again, range(4), stops, drivers, record, "rematch-free-for-all")
-        await self.world_is_whole(current, probes, before, record, "everyone-back-after-the-rematch")
+        battles = await self.enter(current, probes, range(4), record, "knockout-free-for-all")
+        battle_id = next(iter(battles))
+        stops, drivers = self.drive(current, probes, symbols, battles, range(4))
+        await self.finish(current, probes, battles, range(4), stops, drivers, record, "knockout-free-for-all")
+        fate = await on_worker(current[0], self.host_fate(battle_id))
+        strong = {host.accounts[1].player_id: PLAYER_NAMES[1], host.accounts[3].player_id: PLAYER_NAMES[3]}
+        winner = (fate["ffa_result"] or {}).get("winner")
+        require(winner in strong, f"the free-for-all's winner is not a level-30 trainer: {fate}")
+        record("knockout-free-for-all-won", winner=strong[winner])
+        await self.host_was_out(current, battle_id, record, "knockout-free-for-all")
+        await self.world_is_whole(current, probes, before, record, "everyone-back-after-the-knockout")
+
+    async def multi_knockout(self, current, probes, games, host, symbols, record, before):
+        await self.form_teams(host, current, probes, record)
+        await self.challenge_2v2(probes)
+        battles = await self.enter(current, probes, range(4), record, "knockout-2v2")
+        battle_id = next(iter(battles))
+        stops, drivers = self.drive(current, probes, symbols, battles, range(4))
+        await self.finish(current, probes, battles, range(4), stops, drivers, record, "knockout-2v2")
+        await self.host_was_out(current, battle_id, record, "knockout-2v2")
+        await self.world_is_whole(current, probes, before, record, "everyone-back-after-the-knockout")
+
+    async def host_was_out(self, current, battle_id, record, label):
+        """KNOWN_ISSUES MS-57's situation, read from the host's route journal (<battle_id>.events.jsonl): the action
+        menus the master sent (CONTROLLER_CHOOSEACTION, read out of the host's game) that carried battler 0's
+        B_ACTION_NOTHING_FAINTED - the host out of Pokemon while the battle went on."""
+        async def directory(s):
+            return s._server.battle_execution.directory
+
+        def count(path):
+            menus = 0
+            for line in path.read_text().splitlines():
+                value = json.loads(line)["value"]
+                if value.get("kind") != "response" or "control_b64" not in value:
+                    continue
+                control = NativeControl.unpack(base64.b64decode(value["control_b64"]))
+                data = control.data
+                if (control.opcode == Opcode.READ_OUT and len(data) >= 10 and data[0] == 0
+                        and data[8] == 17 and data[9] == 13):
+                    menus += 1
+            return menus
+        path = (await on_worker(current[0], directory)) / (battle_id + ".events.jsonl")
+        menus = await asyncio.to_thread(count, path)
+        require(menus, f"{label}: no action menu carried B_ACTION_NOTHING_FAINTED; the host was never out while the "
+                       "battle went on")
+        record(label + "-host-out", menus=menus)
 
     async def after_save(self, current, host, record):
         async def saves(s):
@@ -723,7 +787,7 @@ class AbandonProof:
 
 async def run(args):
     require(len(args.source) == 4, "four sources, one per player")
-    proof = AbandonProof(args.scenario, args.interrupt_after, args.watch, args.match_seconds)
+    proof = AbandonProof(args.scenario, args.interrupt_after, args.watch, args.match_seconds, args.rematches)
     await launcher_proof(args, names=PLAYER_NAMES, sources=args.source, party_counts=(1,) * 4, match=proof.match,
                          version="Native interrupted battle proof", settings="windowScale=2\n",
                          scope=__doc__.split("\n\n")[0] + " Scenario: " + args.scenario,
@@ -745,6 +809,7 @@ def main():
     parser.add_argument("--interrupt-after", type=float, default=60, help="seconds into the battle")
     parser.add_argument("--watch", type=float, default=90, help="how long to watch the others after the interruption")
     parser.add_argument("--match-seconds", type=float, default=1800)
+    parser.add_argument("--rematches", type=int, default=1, help="ffa-exit: free-for-all rematches, one after another")
     parser.add_argument("--wine", type=Path, action="append", help="(not used by this proof)")
     parser.add_argument("--sdl", type=Path)
     parser.add_argument("--elf", type=Path)

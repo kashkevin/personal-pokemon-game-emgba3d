@@ -162,10 +162,14 @@ class WindowsWorkflowTests(unittest.TestCase):
         abandon = job("abandon-check")
         self.assertIn("runs-on: windows-2022", abandon)
         self.assertIn("needs: [engine, symbol-sizes]", abandon)
-        self.assertIn("'[\"pairs-crash\", \"multi-network\", \"ffa-exit\", \"ffa-host-crash\"]'", abandon)
+        self.assertIn("'[\"pairs-crash\", \"multi-network\", \"ffa-exit\", \"ffa-host-crash\", \"ffa-knockout\", "
+                      "\"multi-knockout\"]'", abandon)
         self.assertIn("make_intro_saves.py --exe mega-check-inputs/pokeemerald-mp-bfxtest.exe", abandon)
         self.assertIn("--count 4", abandon)
-        self.assertIn("--only abandon-a,abandon-b,abandon-c,abandon-d", abandon)
+        self.assertIn("--only abandon-a,abandon-b,abandon-c,abandon-d,knockout-a,knockout-b,knockout-c,knockout-d", abandon)
+        # MS-57's regression: the knockout fixtures for ffa-knockout and multi-knockout, the abandon ones for the others
+        self.assertIn("fixture=${{ endsWith(matrix.scenario, '-knockout') && 'knockout' || 'abandon' }}", abandon)
+        self.assertIn('--source "$RUNNER_TEMP/abandon-saves/$fixture-a.sav"', abandon)
         self.assertIn("native_launcher_abandon_proof.py --scenario ${{ matrix.scenario }}", abandon)
         self.assertIn("--pe-symbols symbols/pokeemerald-mp.nm.txt", abandon)
 
@@ -188,7 +192,8 @@ class WindowsWorkflowTests(unittest.TestCase):
 
     def test_the_interrupted_battle_check_repeats_a_scenario_on_request(self):
         abandon = job("abandon-check")
-        self.assertIn("options: [all, pairs-crash, multi-network, ffa-exit, ffa-host-crash]", WORKFLOW)
+        self.assertIn("options: [all, pairs-crash, multi-network, ffa-exit, ffa-host-crash, ffa-knockout, multi-knockout]",
+                      WORKFLOW)
         self.assertIn("format('[\"{0}\"]', inputs.abandon_scenario)", abandon)
         self.assertIn("inputs.attempts == '4' && '[1, 2, 3, 4]'", abandon)
         self.assertIn("|| '[1]') }}", abandon)                                 # the default: once

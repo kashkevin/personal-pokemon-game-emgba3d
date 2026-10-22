@@ -17,6 +17,9 @@ PKMN_TEST_TOWER_RECORD: the game loads the save, sets them and saves through its
                         Choice Specs: the Duo climb
   abandon-a / -b / -c / -d  one level-5 starter each (Treecko, Torchic, Mudkip, Treecko): the interrupted battle proof
                         (native_launcher_abandon_proof.py; players 3 and 4 from --source-c and --source-d)
+  knockout-a / -b / -c / -d  a level-2 Treecko, a level-30 Mudkip with Earthquake first, a level-2 Torchic, a level-30
+                        Zigzagoon with Tackle first: the interrupted battle proof's ffa-knockout (the host knocked out
+                        on the first turn of a free-for-all that goes on; KNOWN_ISSUES MS-57)
   mega2-a / -b          a level-50 Charizard holding Charizardite X / Y, the Mega Ring in the bag: the Mega Evolution
                         proof's 1v1 (native_launcher_mega_proof.py --scenario two)
   mega2-noring-b        as mega2-b without the Mega Ring (--scenario no-ring: never offered the Mega)
@@ -63,6 +66,10 @@ FIXTURES = (  # (name, source, party, record "highest:progress" or None[, bag "i
     ("abandon-b", "b", "255:5", None),                 # SPECIES_TORCHIC
     ("abandon-c", "c", "258:5", None),                 # SPECIES_MUDKIP
     ("abandon-d", "d", "252:5", None),
+    ("knockout-a", "a", "252:2", None),                # SPECIES_TREECKO
+    ("knockout-b", "b", "258:30:v89", None),           # SPECIES_MUDKIP, MOVE_EARTHQUAKE: it hits every other trainer
+    ("knockout-c", "c", "255:2", None),                # SPECIES_TORCHIC
+    ("knockout-d", "d", "263:30:v33", None),           # SPECIES_ZIGZAGOON, MOVE_TACKLE
     ("mega2-a", "a", "6:50:i293", None, "703:1"),     # SPECIES_CHARIZARD, ITEM_CHARIZARDITE_X; ITEM_MEGA_RING
     ("mega2-b", "b", "6:50:i294", None, "703:1"),     # ITEM_CHARIZARDITE_Y
     ("mega2-noring-b", "b", "6:50:i294", None, ""),
@@ -114,7 +121,7 @@ def main():
     parser.add_argument("--source-a", type=Path, required=True, help="player A's short-introduction save")
     parser.add_argument("--source-b", type=Path, required=True, help="player B's short-introduction save")
     parser.add_argument("--source-c", type=Path, help="player C's short-introduction save (abandon-c, rival-c)")
-    parser.add_argument("--source-d", type=Path, help="player D's short-introduction save (abandon-d, rival-d)")
+    parser.add_argument("--source-d", type=Path, help="player D's short-introduction save (abandon-d, knockout-d, rival-d)")
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--only", default="", help="comma-separated fixture names (default: all)")
     parser.add_argument("--display", default=None, help="Linux: an X display for the game")

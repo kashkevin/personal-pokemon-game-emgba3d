@@ -154,6 +154,19 @@ class NativeControllerTests(unittest.TestCase):
             with self.subTest(payload=p), self.assertRaises(BattleMailboxError):
                 validator().accept(wire(p), 0)
 
+    def test_an_action_menu_may_carry_battler_0s_nothing_fainted(self):
+        # KNOWN_ISSUES MS-57: the block the knocked-out host sent for battler 1 in L knockout-fixed-1 (battlers 0 and 2
+        # out); the host's own validator refused it and the route stopped the free-for-all.
+        block = bytes.fromhex("0001020308000502" "110d0000" "00000000")
+        v = ffa_validator().accept(block, 0)
+        v.accept(wire(bytes((32, 0, 0, 0, 0, 0)), role=1, battler=1, absent=5), 1)
+        validator().accept(wire(bytes((17, 13, 0, 0))), 0)
+        for p in (bytes((17, 13, 1, 0)),                     # only USE_ITEM carries an item
+                  bytes((17, 4, 0, 0)), bytes((17, 10, 0, 0)), bytes((17, 12, 0, 0)),
+                  bytes((17, 14, 0, 0)), bytes((17, 20, 0, 0)), bytes((17, 21, 0, 0))):
+            with self.subTest(payload=p), self.assertRaises(BattleMailboxError):
+                validator().accept(wire(p), 0)
+
     def test_header_padding_masks_and_exact_size_are_checked_before_state(self):
         p = wire(bytes((4, 0, 0, 0)))
         broken = (p[:-1], p+b"\0", p[:-1]+b"\1",

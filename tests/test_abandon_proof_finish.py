@@ -3,10 +3,13 @@ against stand-ins for the launchers and the host's battle rooms. Regression for 
 rematch free-for-all gave no result for 30 minutes and the record said only how long it had waited. A room the route
 left without a result now ends the wait at once with the host's view of it (its state, error and diagnosis, each slot's
 pending request and last command hop) and each player's launcher status and driver; the minute records and a timeout
-carry the same view. The shared battle driver keeps what it last read and did (drive_battle_input's `seen`)."""
+carry the same view. The shared battle driver keeps what it last read and did (drive_battle_input's `seen`). The
+knockout scenarios' check of the host's route journal (host_was_out, KNOWN_ISSUES MS-57) counts only the master's action
+menus that carried battler 0's B_ACTION_NOTHING_FAINTED."""
 from __future__ import annotations
 
 import asyncio
+import base64
 from collections import deque
 import json
 from pathlib import Path
@@ -22,6 +25,7 @@ for _path in (ROOT / "src", ROOT / "scripts" / "multiplayer", ROOT / "scripts" /
         sys.path.insert(0, str(_path))
 import native_launcher_abandon_proof as proof  # noqa: E402
 import native_launcher_battle_proof as harness_module  # noqa: E402
+from emerald_multiplayer.native_battle import FFA_PHASE, Kind, NativeControl, NativeQuery, Opcode  # noqa: E402
 
 BATTLE = "7a6b5c4d-0000-4000-8000-000000000001"
 PLAYERS = ("p0", "p1", "p2", "p3")
@@ -177,6 +181,47 @@ class DriverSeenTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((seen["room"], seen["pending"], seen["phase"], seen["action"], seen["presses"]),
                          ("recovery_required", 17, 5, "confirm", 2))
         self.assertLessEqual(seen["pressed"], time.monotonic())
+
+
+def journal_row(kind, opcode, data=b"", sequence=1):
+    control = NativeControl(1, 1, BATTLE, sequence, opcode, block_sequence=1, total_size=16, phase=FFA_PHASE,
+                            kind=Kind.CONTROLLER, data=data)
+    return json.dumps(dict(value=dict(kind=kind, actor=PLAYERS[0], dispatch_id=sequence,
+                                      control_b64=base64.b64encode(control.pack()).decode())))
+
+
+class HostOutTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        self.directory = Path(tempfile.mkdtemp())
+        server = SimpleNamespace(battle_execution=SimpleNamespace(rooms={}, directory=self.directory))
+        self.current = [Worker(Launcher(server))]
+        self.proof = proof.AbandonProof("ffa-knockout", 0, 0, match_seconds=30)
+        self.records = []
+
+    def record(self, check, **fields):
+        self.records.append(dict(check=check, **fields))
+
+    def journal(self, *rows):
+        header = json.dumps(dict(value=dict(kind="header", value=dict(battle_id=BATTLE, players=list(PLAYERS)))))
+        (self.directory / (BATTLE + ".events.jsonl")).write_text("\n".join((header,) + rows) + "\n")
+
+    async def test_only_the_masters_action_menus_with_nothing_fainted_count(self):
+        out = bytes.fromhex("0001020308000502" "110d0000" "00000000")      # L knockout-fixed-1's block
+        self.journal(
+            journal_row("command", Opcode.READ_OUT, sequence=1),            # a command carries no block
+            journal_row("response", Opcode.READ_OUT, out, sequence=1),
+            journal_row("response", Opcode.READ_OUT, out[:9] + b"\x00" + out[10:], sequence=2),  # B_ACTION_USE_MOVE
+            journal_row("response", Opcode.READ_OUT, b"\x01" + out[1:8] + bytes((32, 13)) + out[10:], sequence=3),
+            journal_row("response", Opcode.READ_OUT, out, sequence=4))
+        await self.proof.host_was_out(self.current, BATTLE, self.record, "knockout-2v2")
+        self.assertEqual(self.records, [dict(check="knockout-2v2-host-out", menus=2)])
+
+    async def test_a_battle_whose_host_was_never_out_fails_the_check(self):
+        out = bytes.fromhex("0001020308000502" "11000000" "00000000")
+        self.journal(journal_row("response", Opcode.READ_OUT, out))
+        with self.assertRaisesRegex(AssertionError, "never out"):
+            await self.proof.host_was_out(self.current, BATTLE, self.record, "knockout-free-for-all")
+        self.assertEqual(self.records, [])
 
 
 if __name__ == "__main__":

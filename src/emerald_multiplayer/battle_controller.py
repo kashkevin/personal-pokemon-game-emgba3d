@@ -193,7 +193,11 @@ class ControllerValidator:
             # FIRST_TURN_EVENTS_END uses B_ACTION_NONE before the trainer
             # chooses. Only USE_ITEM consumes the item argument; native virtual
             # packing canonicalizes that otherwise stale scratch field to zero.
-            return (p[1] <= 3 or p[1] == 255) and (_half(p, 2) < _ITEMS if p[1] == 1 else _half(p, 2) == 0)
+            # Byte 1 is battler 0's action of the turn (battle_main.c), so it is
+            # B_ACTION_NOTHING_FAINTED (13) once battler 0 is out with nobody to
+            # send in: a free-for-all's knocked-out host (KNOWN_ISSUES MS-57; the
+            # engine's MasterDataValid takes the same values).
+            return (p[1] <= 3 or p[1] in (13, 255)) and (_half(p, 2) < _ITEMS if p[1] == 1 else _half(p, 2) == 0)
         if command == 19: return self._move_choice_valid(p)
         if command == 21:
             return p[1] <= 4 and p[2] <= 6 and (p[3] | p[7] << 8) < _ABILITIES and p[8] < self._count and _order_valid(p[4:7])

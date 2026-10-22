@@ -58,9 +58,9 @@ on:
         description: "full: only this check job after the builds (its job id, e.g. abandon-check; blank = every job, the installer too)"
         default: ""
       abandon_scenario:
-        description: "full: the interrupted-battle check's scenario (all = the four)"
+        description: "full: the interrupted-battle check's scenario (all = the six)"
         type: choice
-        options: [all, pairs-crash, multi-network, ffa-exit, ffa-host-crash]
+        options: [all, pairs-crash, multi-network, ffa-exit, ffa-host-crash, ffa-knockout, multi-knockout]
         default: all
       attempts:
         description: "full: how many times the interrupted-battle check runs each scenario, side by side (a failure that comes and goes)"
@@ -1126,6 +1126,10 @@ jobs:
     # window's close); ffa-host-crash: the host's game killed and its connections cut. Each: nobody stuck, everyone back
     # on the field with the party of the last save, no result for the abandoned battle, then a battle to its end. The
     # characters come from the game's own short introduction, each given one level-5 starter by the test build.
+    # ffa-knockout and multi-knockout (KNOWN_ISSUES MS-57): no interruption; the host knocked out on the first turn of a
+    # free-for-all or a 2v2 that goes on to its result (knockout-a..d: a level-30 Earthquake against two level-2 Pokemon,
+    # in the 2v2 the host's own partner's); the host's route journal must show the host's game sending action menus
+    # with battler 0 out.
     name: Interrupted battle (Windows game processes, ${{ matrix.scenario }}${{ matrix.attempt > 1 && format(', attempt {0}', matrix.attempt) || '' }})
     needs: [engine, symbol-sizes]
     if: ${{ (inputs.mode || 'smoke') == 'full' && (inputs.only || 'abandon-check') == 'abandon-check' }}
@@ -1134,7 +1138,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        scenario: ${{ fromJSON((inputs.abandon_scenario || 'all') == 'all' && '["pairs-crash", "multi-network", "ffa-exit", "ffa-host-crash"]' || format('["{0}"]', inputs.abandon_scenario)) }}
+        scenario: ${{ fromJSON((inputs.abandon_scenario || 'all') == 'all' && '["pairs-crash", "multi-network", "ffa-exit", "ffa-host-crash", "ffa-knockout", "multi-knockout"]' || format('["{0}"]', inputs.abandon_scenario)) }}
         attempt: ${{ fromJSON(inputs.attempts == '4' && '[1, 2, 3, 4]' || inputs.attempts == '3' && '[1, 2, 3]' || inputs.attempts == '2' && '[1, 2]' || '[1]') }}
     defaults:
       run:
@@ -1176,15 +1180,16 @@ jobs:
             --mega-check mega-check-inputs/mega_check.py --source-a "$RUNNER_TEMP/intro/boy-1.sav" \
             --source-b "$RUNNER_TEMP/intro/girl-1.sav" --source-c "$RUNNER_TEMP/intro/boy-2.sav" \
             --source-d "$RUNNER_TEMP/intro/girl-2.sav" --out "$RUNNER_TEMP/abandon-saves" \
-            --only abandon-a,abandon-b,abandon-c,abandon-d
+            --only abandon-a,abandon-b,abandon-c,abandon-d,knockout-a,knockout-b,knockout-c,knockout-d
       - name: The interrupted battle (${{ matrix.scenario }})
         run: |
+          fixture=${{ endsWith(matrix.scenario, '-knockout') && 'knockout' || 'abandon' }}
           .venv/Scripts/python scripts/multiplayer/native_launcher_abandon_proof.py --scenario ${{ matrix.scenario }} \
             --game inputs/pokeemerald-mp.exe --sdl inputs/SDL2.dll --rom inputs/pokedev.gba \
             --manifest inputs/manifest.json --pe-symbols symbols/pokeemerald-mp.nm.txt \
             --sizes symbols/pokeemerald-mp.sizes.txt --slow 1.5 \
-            --source "$RUNNER_TEMP/abandon-saves/abandon-a.sav" --source "$RUNNER_TEMP/abandon-saves/abandon-b.sav" \
-            --source "$RUNNER_TEMP/abandon-saves/abandon-c.sav" --source "$RUNNER_TEMP/abandon-saves/abandon-d.sav" \
+            --source "$RUNNER_TEMP/abandon-saves/$fixture-a.sav" --source "$RUNNER_TEMP/abandon-saves/$fixture-b.sav" \
+            --source "$RUNNER_TEMP/abandon-saves/$fixture-c.sav" --source "$RUNNER_TEMP/abandon-saves/$fixture-d.sav" \
             --output "$RUNNER_TEMP/multiplayer-proof/abandon-${{ matrix.scenario }}"
       - name: The proof's own diagnosis, in this log (only when it failed; scripts/multiplayer/proof_failure_summary.py)
         if: failure()

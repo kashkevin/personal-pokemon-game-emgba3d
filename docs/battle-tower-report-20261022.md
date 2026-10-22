@@ -94,8 +94,8 @@ Blue's Mega, Red's Charizardite X, ...) are listed in FLOORS.md.
 
 | Behaviour | Evidence | Result |
 | --- | --- | --- |
-| Solo floors through the menus, settled by the host, money and BP in the next save, checkpoint prize, replay, Tower Shop purchase | L tower-solo-7 and -8 (found MS-53 and MS-54), tower-solo-9; W runs 121 and 129 (floors 1-11 and the replay passed, then MS-53 at the shop), run 133 | passed on Linux (solo-9: 11 floors, the replay, the HP Up bought for 16 BP, the closing saves +$15,900, 10 Rare Candy, 1 HP Up, BP 0 to 3); Windows: pending run 133 |
-| The special boss's loss back to checkpoint 20 (player 2 on floor 25) | L tower-solo-9; W run 133 | passed on Linux (P 21, H 24, saved); Windows: pending run 133 |
+| Solo floors through the menus, settled by the host, money and BP in the next save, checkpoint prize, replay, Tower Shop purchase | L tower-solo-7 and -8 (found MS-53 and MS-54), tower-solo-9; W runs 121 and 129 (floors 1-11 and the replay passed, then MS-53 at the shop), run 133 | passed on Linux (solo-9: 11 floors, the replay, the HP Up bought for 16 BP, the closing saves +$15,900, 10 Rare Candy, 1 HP Up, BP 0 to 3); passed on Windows (run 133 end to end; runs 138 and 141 again) |
+| The special boss's loss back to checkpoint 20 (player 2 on floor 25) | L tower-solo-9; W run 133 | passed on Linux (P 21, H 24, saved) and on Windows (runs 133, 138, 141) |
 | Milestone Pokemon (Giovanni, floor 25) made in the game, replay without a second | L tower-milestone-2; W run 129 | passed (L: Miltank level 15 made and delivered; W run 129: claims 4100, the replay paid no second prize; both runs then stopped at the shop, MS-53) |
 | Duo floor 1: invitation, Ready, native co-op battle, settled for both | L tower-duo-2 (battle won and settled), tower-duo-3 (whole proof); W runs 121, 129 | passed (L, W) |
 | Mega Duo: floor 40 replay, Norman's Kangaskhan Mega Evolves in the co-op battle | L tower-mega-2; W runs 121, 129 | passed (L, W) |
@@ -171,7 +171,7 @@ the home page (floor, best, BP, the next boss Brock with his sprite, the session
 192 BP, Ability Patch 200 BP, Ability Capsule 50 BP, the Bag's counts), Hyper Training, records and the Duo page ("Form a
 team in PLAYERS first"). The pictures are in the session's proof directory (not in Git: they show the game's art).
 Windows: the same scenario runs in windows-package's tower-proof `ui` entry through Mesa's software OpenGL (pinned; the
-hosted runner's own OpenGL is 1.1), first in run 138; until it passes the 3D UI on Windows is **unverified**.
+hosted runner's own OpenGL is 1.1): **passed in runs 138 and 141** (Mesa's software renderer only; no graphics card).
 
 ## 12. Test matrix
 
@@ -189,8 +189,8 @@ hosted runner's own OpenGL is 1.1), first in run 138; until it passes the 3D UI 
 | Held items after evolution, queued floor deadline | S | - | - |
 | Shop order without its debit | app (2 tests) | - | - |
 | Battle Points received since the save (MS-53), "Close the menu to finish" (MS-54) | app (new tests) | passed (tower-solo-9) | passed (run 133 solo and milestone) |
-| 3D native UI pages | - | passed (tower-ui-5: ten pages) | run 138 (`ui` entry, Mesa); unverified until it passes |
-| A whole climb, 100 floors (test build) | - | not run yet (`climb`) | not run |
+| 3D native UI pages | - | passed (tower-ui-5: ten pages) | passed in runs 138 and 141 (`ui` entry, Mesa only) |
+| A whole climb, 100 floors, through the launcher (`climb`, fast-text fixtures) | - | tower-climb-3 running (past floor 90 at 2.5 h) | run 141's climb job running (from 05:00 UTC) |
 
 ## 13. Windows gameplay verification
 
@@ -214,7 +214,11 @@ GitHub's hosted Windows runners (`windows-2022`), real Windows game processes of
   say; player 2 lost Giovanni on floor 25 and went back to floor 21, nothing paid) and the milestone proof end to end.
 * Run 138 (app `341e505`, engine `83808e7e`,
   https://github.com/kashkevin/personal-pokemon-game-emgba3d/actions/runs/39716739086): the release candidate's run,
-  with the new `ui` entry (the 3D pages through Mesa); running when this was written.
+  with the new `ui` entry (the 3D pages through Mesa): every Tower job passed (the four floor shards, caps and items,
+  solo, milestone, Duo, Mega Duo, forfeit, `ui`); the run's one failure was the multiplayer `ffa-exit` (MS-57).
+* Run 141 (app `a2ce0a2`, engine `da278011`,
+  https://github.com/kashkevin/personal-pokemon-game-emgba3d/actions/runs/39723669535): every Tower job passed again;
+  the new 100-floor climb through the launcher was still running at 07:20 UTC.
 
 ## 14. Known issues and limitations
 
@@ -226,7 +230,8 @@ row chosen on the page before (the Tower Shop opens on its second item); the rul
 MS-51 (low, open): a milestone Pokemon lost in a narrow case (game closed unsaved after the delivery, older save full).
 MS-52 (low, open, cosmetic): native Tower screens show the game's copy of the record until the host's word arrives.
 MS-49's remainder: a game below about 22 frames a second could still start a floor after the host's two minutes. The 3D
-UI is verified on Linux and not yet on Windows (run 138). A full 100-floor climb through the launcher has not been run. Older Mega items (MS-38
+UI is verified on Linux and on Windows through Mesa only (runs 138, 141). The full 100-floor climb through the launcher
+is running on both platforms. Older Mega items (MS-38
 Mega Lucario Z's Aura Guard, MS-39 Mega Rayquaza) affect no Tower floor (no floor uses them).
 
 ## 15. Integration and release readiness
@@ -234,4 +239,6 @@ Mega Lucario Z's Aura Guard, MS-39 Mega Rayquaza) affect no Tower floor (no floo
 Not merged. Gates: the Windows run on the final commits green (Tower jobs included), the multiplayer proofs green, no
 open critical or high fault (MS-47 fixed and confirmed on Windows in runs 121 and 129), save integrity verified (every proof's
 canonical checkpoints), app and engine commits compatible (one engine commit per run, ROM pinned), the newest features
-covered (this report's matrix). Status: in progress; see the final report.
+covered (this report's matrix). Status: in progress. The Tower jobs passed in runs 133, 138 and 141; the open gate is
+multiplayer's MS-57 (High: a battle stopped once the host's battler was out of Pokemon; fixed in engine `65641401` and
+the app, waiting for its Windows run) and the climb. See the final report.
