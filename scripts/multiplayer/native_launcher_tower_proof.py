@@ -38,6 +38,9 @@ saves, the canonical checkpoints (money, the Bag, Battle Points, the PC, the rec
                       save first (the last battle's experience is not in their saves: KNOWN_ISSUES MS-60) - player 1's
                       Ready is refused until then - and both save. Floor 12 is both players' first clear: player 1's
                       rewards resume. The saves hold exactly what the host's rules say, the parties their experience.
+                      The fresh Continue starts every process again, the world's host first: the restarted host keeps
+                      both records (P 13, H 12, best 12, nothing issued) and pays nothing again - 30 s on, each
+                      running game's money, Rare Candy, HP Up, Battle Points and record are its save's.
   --scenario mega     as duo, from saves whose Tower records say floor 40 cleared (the host imports a save's record on
                       the player's first Tower action): a Duo replay of floor 40, Norman and his partner; the master
                       game's battle shows Norman's Kangaskhan Mega Evolved.
@@ -140,6 +143,22 @@ def tower_record(probe):
     """The running game's Tower record mirror (gSaveBlock3Ptr->tower), parsed as the app parses a save's."""
     pointer = int.from_bytes(probe.mem("gSaveBlock3Ptr", 4), "little")
     return parse_tower_record(read_at(probe, pointer + TOWER_RECORD_OFFSET, TOWER_RECORD_SIZE))
+
+
+def live_wallet(probe) -> dict:
+    """The running game's money, Rare Candy, HP Up and Battle Points (gSaveBlock1Ptr, gSaveBlock2Ptr), decrypted as
+    wallet_of decrypts a checkpoint's."""
+    block1 = int.from_bytes(probe.mem("gSaveBlock1Ptr", 4), "little")
+    block2 = int.from_bytes(probe.mem("gSaveBlock2Ptr", 4), "little")
+    key = struct.unpack("<I", read_at(probe, block2 + ENCRYPTION_KEY, 4))[0]
+    money = struct.unpack("<I", read_at(probe, block1 + MONEY, 4))[0] ^ key
+    bag = read_at(probe, block1 + BAG, 4 * BAG_SLOTS)
+    slots = [struct.unpack_from("<HH", bag, 4 * i) for i in range(BAG_SLOTS)]
+
+    def count(wanted):
+        return sum(quantity ^ (key & 0xFFFF) for item, quantity in slots if item == wanted)
+    bp = struct.unpack("<H", read_at(probe, block2 + BATTLE_POINTS, 2))[0]
+    return dict(money=money, rare_candy=count(ITEM_RARE_CANDY), hp_up=count(tower_rewards.ITEM_HP_UP), bp=bp)
 
 
 async def tower_view(worker):
@@ -554,7 +573,7 @@ def opposing_mega(probe, base_species):
 # ---------------------------------------------------------------------------------------------------------- scenarios
 class TowerScenario:
     def __init__(self, args):
-        self.args, self.harness, self.before, self.loser = args, None, None, None
+        self.args, self.harness, self.before, self.loser, self.saved = args, None, None, None, None
 
     async def solo(self, current, probes, games, host, symbols, record):
         async def head(s):
@@ -882,8 +901,9 @@ class TowerScenario:
             return [inspect_closed_head(s._store, account.player_id) for account in host.accounts]
         saved = await on_worker(current[0], heads)
         if self.args.scenario == "join":
+            self.saved = [wallet_of(head.payload) for head in saved]
             for slot, progress in enumerate(((13, 12), (13, 12))):
-                after, before = wallet_of(saved[slot].payload), self.before[slot]
+                after, before = self.saved[slot], self.before[slot]
                 paid = dict(money=after["money"] - before["money"], rare_candy=after["rare_candy"] - before["rare_candy"],
                             bp=after["bp"] - before["bp"])
                 record("tower-join-saved", slot=slot, revision=saved[slot].revision, paid=paid, expected=self.paid[slot],
@@ -929,6 +949,30 @@ class TowerScenario:
                     f"the loser's saved Tower record: P {self.loser[0]}, H {self.loser[1]}")
 
 
+    async def after_continue(self, current, probes, host, record):
+        """The fresh Continue (join): every process started again, the world's host first. The restarted host keeps
+        both players' records and sends nothing again: each running game's wallet and record stay its save's."""
+        if self.args.scenario != "join":
+            return
+        for wait in (5, 25):                                   # 5 s, then 30 s into the restarted world
+            await asyncio.sleep(wait)
+            for slot, (worker, probe) in enumerate(zip(current, probes)):
+                view = await tower_view(worker)
+                player, saved = view["player"], self.saved[slot]
+                live = live_wallet(probe)
+                mirror = dataclasses.asdict(tower_record(probe))
+                record("tower-join-after-the-host-restart", slot=slot, seconds=5 if wait == 5 else 30,
+                       player=player, battle=view.get("battle"), last=view.get("last"), live=live, mirror=mirror)
+                require((player["progress"], player["highest"], player["best"]) == (13, 12, 12),
+                        f"slot {slot}: the restarted host's record: {player}")
+                require(view.get("battle") is None, f"slot {slot}: a Tower battle after the restart: {view.get('battle')}")
+                last = view.get("last") or {}
+                require((last.get("floor"), last.get("state")) == (12, "won"), f"slot {slot}: the last result: {last}")
+                require(live == {key: saved[key] for key in live},
+                        f"slot {slot}: the running game's wallet {live} is not its save's {saved} (paid again?)")
+                require(mirror == saved["tower"], f"slot {slot}: the game's record {mirror} is not its save's")
+
+
 # The ui scenario's 3D game: light settings (two 3D games on one machine's software OpenGL), at a size the pages read at
 # (native_launcher_battle_3d_proof.py's, larger).
 UI_3D_SETTINGS = "\n".join(("resolution=960x540", "displayMode=windowed", "renderScale=50", "shadows=off", "lighting=0",
@@ -951,7 +995,8 @@ async def run(args):
                          scope=__doc__.split("\n\n")[0],
                          environment=dict(SDL_FRAMEBUFFER_ACCELERATION="0", PKMN_NATIVE_UI="1" if args.native_ui else "0",
                                           **dict(item.split("=", 1) for item in args.test_env)),
-                         after_save=scenario.after_save, on_harness=lambda h: setattr(scenario, "harness", h))
+                         after_save=scenario.after_save, on_harness=lambda h: setattr(scenario, "harness", h),
+                         after_continue=scenario.after_continue)
 
 
 def main():

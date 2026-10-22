@@ -97,7 +97,8 @@ CHOOSE_ACTION = "HandleInputChooseAction"  # static in each battle controller: e
 EXTRA_NEEDED = ("gMain", "CB2_StarterChoose", "CB2_Overworld", "CB2_TrainerCard", "CB2_BagMenuRun",
                 "CB2_UpdatePartyMenu", "sBattleAdmissionLatched", "gBattleTypeFlags", "gBattlersCount", "gBattleMons",
                 "sRemotes", "sGlobalScriptContextStatus", "HandleInputChooseMove", "BattleMainCB2",
-                "gSaveBlock1Ptr", "gSaveBlock3Ptr", "PlayerHandleYesNoInput", "sCoopAward", "sCoopExp", "gBattleStruct")
+                "gSaveBlock1Ptr", "gSaveBlock2Ptr", "gSaveBlock3Ptr", "PlayerHandleYesNoInput", "sCoopAward", "sCoopExp",
+                "gBattleStruct")
 WINDOWS = sys.platform == "win32"
 
 
@@ -895,11 +896,13 @@ class LauncherHarness:
 
 
 async def launcher_proof(args, *, names, sources, party_counts, match, version, settings=None, scope=None,
-                         after_boot=None, environment=None, after_save=None, on_harness=None):
+                         after_boot=None, environment=None, after_save=None, on_harness=None, after_continue=None):
     """World and enrollment, then two phases of real launcher workers (host, then
     each friend): `match(current, probes, games, host, symbols, record)` and manual
     saves in the first, then `after_save(current, host, record)` if given, fresh
-    Continue in the second; both end with a normal close, friends first.
+    Continue in the second (every process started again, the world's host first; then
+    `after_continue(current, probes, host, record)` if given: what the restarted world
+    kept); both end with a normal close, friends first.
     `on_harness(harness)` gets the harness first (a match that closes and restarts a
     player's game: `harness.players` is the phase's players; a match that replaces one
     updates the lists it was given in place)."""
@@ -923,6 +926,8 @@ async def launcher_proof(args, *, names, sources, party_counts, match, version, 
             probes = [p.probe for p in players]
             record("actual-launcher-workers-ready", phase=phase, pids=[g.process.pid for g in games],
                    load_average=load_average())
+            if phase == "fresh-Continue" and after_continue is not None:
+                await after_continue(current, probes, host, record)
             if phase == "battle-and-save":
                 harness.players = players
                 outcome = await match(current, probes, games, host, harness.symbols, record)

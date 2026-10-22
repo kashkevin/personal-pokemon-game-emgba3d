@@ -621,7 +621,8 @@ jobs:
     # duo: a team, the Duo invitation, both Ready, the native co-op battle won and settled for both; join: co-op
     # progression - player 1 (floors 1-11 cleared, three level-10 Mewtwo) joins player 2's Duo on player 2's floor 10:
     # floors 10 and 11 pay player 1 nothing while its Mewtwo gain experience and levels, player 2 is paid each first
-    # clear, player 2's game closed and started again between them (its rewards arrive once), floor 12 pays both;
+    # clear, player 2's game closed and started again between them (its rewards arrive once), floor 12 pays both, and
+    # after the world's host restarts both records are kept and nothing is paid again;
     # mega: a Duo replay
     # of floor 40 where Norman's Kangaskhan Mega Evolves; forfeit: player 2's solo floor closed mid-battle (player 1
     # hosts the world, which stays up), the game started again, the floor counted as a loss on the next ask; ui: the 3D
