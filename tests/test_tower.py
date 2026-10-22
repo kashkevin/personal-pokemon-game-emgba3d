@@ -402,6 +402,28 @@ class BookTests(unittest.TestCase):
         self.climb("pa", 22)                                                           # floor 21: new
         self.assertEqual([w[0] for w in self.words("pa")[-3:]], ["state", "money", "bp"])
 
+    def test_a_duo_ticket_keeps_the_checkpoint_its_battle_was_prepared_from(self):
+        """MS-60: the next Duo battle waits for a newer save than the last one's (tower_service._needs_save)."""
+        self.book.sync("pa", "Alice", record(12, 11), outstanding=0)
+        self.book.sync("pb", "Bob", record(50, 49), outstanding=0)
+        self.assertIsNone(self.book.last_duo_checkpoint("pa"))
+        self.book.invite_duo("d1", "pa", "pb", 12)
+        self.book.accept_duo("d1", "pb")
+        tickets = self.book.issue_duo("d1", "battle-1", {"pa": 4, "pb": 9})
+        self.assertEqual({t["player_id"]: t["result"] for t in tickets}, {"pa": {"checkpoint": 4}, "pb": {"checkpoint": 9}})
+        self.assertIsNone(self.book.last_duo_checkpoint("pa"))                    # not until the battle has a result
+        self.book.settle(tickets[0]["ticket_id"], "won", choose=chooser())
+        self.assertEqual((self.book.last_duo_checkpoint("pa"), self.book.last_duo_checkpoint("pb")), (4, 9))
+        settled = {t["player_id"]: t["result"] for t in self.book.tickets_of_battle("battle-1")}
+        self.assertEqual(settled["pa"]["checkpoint"], 4)
+        self.assertEqual(settled["pa"]["after"], [13, 12])                          # the settlement itself is unchanged
+        voided = self.book.issue_duo("d1", "battle-2", {"pa": 5, "pb": 10})
+        self.book.void_battle("battle-2", "abandoned")                              # no result: no award, no save needed
+        self.assertEqual((self.book.last_duo_checkpoint("pa"), voided[0]["state"]), (4, "issued"))
+        self.book.issue_duo("d1", "battle-3")                                       # an older host recorded none
+        self.book.settle(self.book.tickets_of_battle("battle-3")[0]["ticket_id"], "lost")
+        self.assertIsNone(self.book.last_duo_checkpoint("pa"))
+
     def test_an_abandoned_duo_battle_is_void_for_both(self):
         self.book.sync("pa", "Alice", record(12, 11), outstanding=0)
         self.book.sync("pb", "Bob", record(12, 11), outstanding=0)

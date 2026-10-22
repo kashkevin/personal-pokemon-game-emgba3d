@@ -353,6 +353,21 @@ class PageTests(unittest.IsolatedAsyncioTestCase):
         await self.menu.refresh()
         self.assertEqual(self.labels[1], "Alice: Exp only")
 
+    async def test_after_a_duo_battle_the_page_asks_for_a_save_before_the_next_floor(self):
+        """The last Duo battle's experience is not in the save yet (KNOWN_ISSUES MS-60): the page says who must save."""
+        duo = dict(DUO_VIEWS["forming"], members=[dict(member(ME, "Alice", 13, 12, progression=True), save_needed=True),
+                                                  dict(member(MATE, "Bob", 50, 49, progression=False), save_needed=True)])
+        self.view = host_view(teammate=TEAMMATE, duo=duo)
+        await self.open_tower()
+        await self.click("Duo: floor 12 (forming)")
+        self.assertEqual(self.menu.screen.status, "Save first: START > SAVE")
+        duo["members"][0]["save_needed"] = False
+        await self.menu.refresh()
+        self.assertEqual(self.menu.screen.status, "Bob must save first")
+        duo["members"][1]["save_needed"] = False
+        await self.menu.refresh()
+        self.assertEqual(self.menu.screen.status, "Floor 12: 0/2 ready")
+
     async def test_an_invitation_is_accepted_or_declined_and_an_ended_duo_says_why(self):
         self.view = host_view(teammate=TEAMMATE, duo=DUO_VIEWS["invited, theirs"])
         await self.open_tower()

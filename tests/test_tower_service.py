@@ -597,6 +597,62 @@ class DuoTests(unittest.TestCase):
         self.assertEqual(self.paid(self.a), [(6, rewards.tower_progress(11, 12, 0))])     # both cleared floor 7 before
         self.assertEqual(self.paid(self.b), [(6, rewards.tower_progress(49, 50, 0))])
 
+    def save(self, player):
+        """The player saved: a new checkpoint of the same game (the head's revision + 1)."""
+        from uuid import uuid4
+        from emerald_multiplayer.ownership_protocol import OWNERSHIP_PROFILE
+        f = self.fixture
+        head = f.store.read_checkpoint(player, f.leases[player])
+        return f.store.commit_checkpoint(player, f.leases[player], str(uuid4()), head.revision, head.payload,
+                                         f.store.build_id, f.store.ruleset_id, OWNERSHIP_PROFILE)
+
+    def test_the_next_duo_battle_waits_until_both_have_saved_after_the_last_one(self):
+        """A Duo battle's experience award changes each game's party after its last save, and the game refuses a
+        native battle prepared from an older checkpoint (KNOWN_ISSUES MS-60: L tower-join-2's floor 11). The next Duo
+        battle waits until each player has saved; it is then prepared from the new checkpoints."""
+        duo = self.form()
+        first = {t["player_id"]: t["result"]["checkpoint"] for t in self.world.tower.tickets_of_battle(duo["battle_id"])}
+        self.assertEqual(first, {player: self.fixture.store.checkpoint_head(player, self.fixture.leases[player])[0]
+                                 for player in (self.a, self.b)})
+        self.finish(duo["battle_id"], 1)
+        self.service.reconcile()
+        view = self.call(self.a, "status")["duo"]
+        self.assertEqual((view["state"], [m["save_needed"] for m in view["members"]]), ("forming", [True, True]))
+        with self.assertRaises(SharedWorldError) as caught:
+            self.call(self.a, "duo_ready")
+        self.assertEqual((caught.exception.code, caught.exception.message), ("save_first", "Save your game first"))
+        self.save(self.a)
+        view = self.call(self.a, "duo_ready")["duo"]
+        self.assertEqual(([m["save_needed"] for m in view["members"]], view["state"]), ([False, True], "forming"))
+        with self.assertRaises(SharedWorldError) as caught:
+            self.call(self.b, "duo_ready")                                                 # Bob has not saved
+        self.assertEqual(caught.exception.message, "Save your game first")
+        self.save(self.b)
+        duo = self.call(self.b, "duo_ready")["duo"]
+        self.assertEqual(duo["state"], "battle")
+        second = {t["player_id"]: t["result"]["checkpoint"] for t in self.world.tower.tickets_of_battle(duo["battle_id"])}
+        self.assertEqual(second, {player: first[player] + 1 for player in (self.a, self.b)})
+        self.finish(duo["battle_id"], 1)
+        self.service.reconcile()
+        settled = {t["player_id"]: t["result"] for t in self.world.tower.tickets_of_battle(duo["battle_id"])}
+        self.assertEqual({p: r["checkpoint"] for p, r in settled.items()}, second)    # kept through the settlement
+        self.assertEqual(self.world.tower.last_duo_checkpoint(self.a), second[self.a])
+
+    def test_the_second_ready_names_a_teammate_whose_save_is_older_than_its_last_duo_battle(self):
+        self.call(self.a, "duo_invite", floor=12)
+        self.call(self.b, "duo_accept")
+        self.call(self.a, "duo_ready")
+        # Alice's last Duo battle (an earlier session's, recorded here directly) was prepared from her current save.
+        head = self.fixture.store.checkpoint_head(self.a, self.fixture.leases[self.a])[0]
+        self.world.tower._db.execute(
+            "INSERT INTO tower_tickets VALUES ('old', 77, ?, 'duo', 'd0', 'b0', 5, 0, 'won', NULL, 1, 2, 3, ?)",
+            (self.a, '{"checkpoint": %d}' % head))
+        with self.assertRaises(SharedWorldError) as caught:
+            self.call(self.b, "duo_ready")
+        self.assertEqual((caught.exception.code, caught.exception.message), ("save_first", "Trainer 0 must save first"))
+        self.assertEqual(self.call(self.a, "status")["duo"]["state"], "forming")         # nothing was issued
+        self.assertEqual(self.world.tower.open_ticket(self.b), None)
+
     def test_a_battle_that_never_started_is_void_for_both(self):
         duo = self.form()
         self.fixture.desk._active.pop(duo["battle_id"])                                  # the host lost the challenge

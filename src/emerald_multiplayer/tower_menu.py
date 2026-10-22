@@ -520,6 +520,11 @@ class TowerMenu:
             return f"Duo: floor {floor}", status, actions, (STYLE_DUO, floor)
         ready = sum(member["ready"] for member in members)
         status = f"Floor {floor}: {ready}/2 ready"
+        if mine.get("save_needed"):
+            status = "Save first: START > SAVE"          # the last Duo battle's experience is not in the save yet
+        elif any(member.get("save_needed") for member in members):
+            other = next(member for member in members if member.get("save_needed"))
+            status = f"{other['name'][:10]} must save first"
         team = mine.get("team")
         actions.append(("Team: " + (", ".join(team) if team else "choose")[:19], "tower_page", ("team", 0)))
         actions.append(("Not ready" if mine["ready"] else "Ready", "tower_duo", ("duo_unready" if mine["ready"]

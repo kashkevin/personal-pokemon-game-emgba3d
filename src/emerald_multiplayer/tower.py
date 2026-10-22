@@ -269,6 +269,8 @@ class TowerBook:
              int(won), int(not won), int(won and floor == FLOORS), now, row["player_id"]))
         result = {"before": list(before), "after": [progress, highest], "progression": consistent and before[0] == floor,
                   "reward": None if reward is None else reward._asdict(), "consistent": consistent}
+        if (ticket["result"] or {}).get("checkpoint") is not None:
+            result["checkpoint"] = ticket["result"]["checkpoint"]     # the save the Duo battle was issued from
         self._db.execute("UPDATE tower_tickets SET state=?, settled=?, result=? WHERE ticket_id=?",
                          ("forfeit" if forfeit else outcome, now, json.dumps(result), ticket["ticket_id"]))
         # The words, in the contract's order: the Tower state first (always: it settles the save's result), then
@@ -504,9 +506,11 @@ class TowerBook:
                                                                                        duo_id))
         return self.duo(duo_id)
 
-    def issue_duo(self, duo_id: str, battle_id: str) -> list[dict]:
+    def issue_duo(self, duo_id: str, battle_id: str, checkpoints: dict | None = None) -> list[dict]:
         """Record the Duo battle *before* the host invites anybody: one ticket per player (progression where the floor is
-        their P), the session in battle."""
+        their P), the session in battle. ``checkpoints``: each player's checkpoint revision the battle is prepared from
+        (kept in the ticket: a game whose party changed in the battle's experience award must save again before its next
+        native battle - last_duo_checkpoint)."""
         duo = self.duo(duo_id)
         if duo is None or duo["state"] != "forming":
             raise TowerError("no_duo", "The Duo is not ready")
@@ -518,10 +522,12 @@ class TowerBook:
         now = self._now()
         with self._transaction():
             for row in rows:
+                revision = (checkpoints or {}).get(row["player_id"])
                 self._db.execute("INSERT INTO tower_tickets VALUES (?, ?, ?, 'duo', ?, ?, ?, ?, 'issued', NULL, ?, NULL, "
-                                 "NULL, NULL)",
+                                 "NULL, ?)",
                                  (secrets.token_hex(16), self._number(), row["player_id"], duo_id, battle_id, duo["floor"],
-                                  int(is_progression(row["progress"], duo["floor"])), now))
+                                  int(is_progression(row["progress"], duo["floor"])), now,
+                                  None if revision is None else json.dumps({"checkpoint": revision})))
             self._db.execute("UPDATE tower_duos SET state='battle', battle_id=?, updated=? WHERE duo_id=?",
                              (battle_id, now, duo_id))
         return self.tickets_of_battle(battle_id)
@@ -530,6 +536,15 @@ class TowerBook:
         """Inside a transaction: the Duo battle ended (or never started); both choose readiness again."""
         self._db.execute("UPDATE tower_duos SET state='forming', battle_id=NULL, ready='[]', floor=COALESCE(?, floor), "
                          "updated=? WHERE duo_id=? AND state='battle'", (floor, self._now(), duo_id))
+
+    def last_duo_checkpoint(self, player: str) -> int | None:
+        """The checkpoint revision the player's last Duo battle that reached a result was prepared from (None: none, or
+        one issued before it was recorded). Its experience award may have changed the game's party since."""
+        row = self._db.execute("SELECT result FROM tower_tickets WHERE player_id=? AND mode='duo' AND state IN "
+                               "('won', 'lost', 'drew') ORDER BY settled DESC LIMIT 1", (player,)).fetchone()
+        result = json.loads(row[0]) if row is not None and row[0] else {}
+        revision = result.get("checkpoint")
+        return revision if type(revision) is int else None
 
     def void_battle(self, battle_id: str, reason: str) -> list[dict]:
         """A Duo battle that never started or was abandoned without a result: void for both, nothing changes."""

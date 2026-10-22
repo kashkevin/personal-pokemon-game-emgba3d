@@ -91,6 +91,11 @@ Blue's Mega, Red's Charizardite X, ...) are listed in FLOORS.md.
   host issues the native co-op battle with the floor's two trainers; each player brings at most three Pokemon (the
   host's team selection; MS-47 fixed the selection's transport); each game awards its own party's experience under its
   own cap. A released result settles both players; an abandoned battle is void for both.
+* **Co-op progression** (owner request 2026-10-22, app `1c9d1f3`): different progress never keeps two players apart.
+  The Duo's host - the player who invited - chooses the floor, any floor open to both (each player's own next floor or
+  one they cleared), so a player who has climbed higher joins a friend's lower floor; the partner cannot change it.
+  Each player's page row says what the floor pays them ("prizes": their first clear; "Exp only": cleared before). After
+  each battle the Duo goes on to the lower progress floor.
 
 | Behaviour | Evidence | Result |
 | --- | --- | --- |
@@ -122,7 +127,13 @@ eight, the Champion, a Pokemon above its cap; engine `68a8b0f5`), W runs 121 and
 ## 8. Rewards and anti-duplication
 
 * Prize floors' first clears (Rare Candy, Bottle Caps, Gold Bottle Caps, Ability Patches, money, the four milestone
-  Pokemon), BP and money for every win (replay and anti-farming rates), nothing for a loss - `tower_rewards.py`.
+  Pokemon), BP and money for a floor's first clear, nothing for a loss - `tower_rewards.py`. **A floor already cleared
+  pays nothing again** (owner request 2026-10-22; until then replays and re-climbs paid a third of the BP and $30 or
+  $10 a floor): a replay, a re-climb after a loss and a Duo partner's lower floor give no BP, money, items, prize or
+  milestone; their battles still give experience (each game's award, with levels, moves and evolutions). First-clear
+  rewards resume once a player wins a floor above the highest they ever cleared in the world (`tower_rules.first_clear`:
+  above H and above the ledger's `best`, which no save import lowers; a prize floor's claim bit also counts), each
+  player reckoned on their own.
 * Exactly once: each prize is a reference on the wallet stream (a repeat queues nothing); the game's receipt says what
   moved; a claim bit in the save and the ledger stops a second first-clear prize; a milestone Pokemon is made from a
   seed of (milestone, species, trainer id), so a resend makes the same Pokemon and a save that already has it answers

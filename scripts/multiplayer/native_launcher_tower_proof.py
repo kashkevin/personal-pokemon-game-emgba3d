@@ -34,7 +34,9 @@ saves, the canonical checkpoints (money, the Bag, Battle Points, the PC, the rec
                       while its Mewtwo gain experience and levels in its own game's co-op award; player 2 is paid each
                       first clear (floor 10's prize). Between them player 2's game is closed (an ordinary close)
                       and started again through the launcher (a disconnect and a reconnect): the team and the Duo are
-                      formed again and what it was owed arrives once. Floor 12 is both players' first clear: player 1's
+                      formed again and what it was owed arrives once. Before each later floor the host asks both to
+                      save first (the last battle's experience is not in their saves: KNOWN_ISSUES MS-60) - player 1's
+                      Ready is refused until then - and both save. Floor 12 is both players' first clear: player 1's
                       rewards resume. The saves hold exactly what the host's rules say, the parties their experience.
   --scenario mega     as duo, from saves whose Tower records say floor 40 cleared (the host imports a save's record on
                       the player's first Tower action): a Duo replay of floor 40, Norman and his partner; the master
@@ -686,6 +688,7 @@ class TowerScenario:
         record("tower-join-start", players=start)
         require(start == [(12, 11), (10, 9)], f"the fixtures' records: player 1 floor 12 next, player 2 floor 10: {start}")
         self.paid = [dict(money=0, rare_candy=0, bp=0) for _ in range(2)]
+        revisions = [1, 1]                                     # each player's save, as the match began
         await form_team(probes, host, record)
         await join_invite(probes, host, record, 10)
         lead = [own_party(probes[0])]
@@ -712,6 +715,28 @@ class TowerScenario:
                     if view["teammate"] is None:
                         await form_team(probes, host, record)
                     await join_invite(probes, host, record, 11)
+            if floor > 10:
+                # The last Duo battle's experience award changed player 1's party after its save, and a native battle
+                # starts only from a checkpoint matching the party (KNOWN_ISSUES MS-60: tower-join-2's floor 11 was
+                # refused there). The host asks each player to save first; then both save.
+                if floor == 11:
+                    await open_tower(probes[0])
+                    await probes[0].choose(next(r.label for r in (await probes[0].ready())[1].rows
+                                                if r.label.startswith("Duo: floor")))
+                    _, screen = await probes[0].ready()
+                    record("tower-join-save-asked", slot=0, floor=floor, status=screen.status,
+                           rows=[r.label for r in screen.rows])
+                    require(screen.status == "Save first: START > SAVE",
+                            f"player 1's Duo page asks for a save first: {screen.status!r}")
+                    await probes[0].choose("Ready")
+                    _, screen = await probes[0].ready()
+                    record("tower-join-ready-refused", slot=0, floor=floor, status=screen.status)
+                    require(screen.status == "Save your game first", f"Ready before the save: {screen.status!r}")
+                    await close_players(probes[0])
+                for slot in (0, 1):
+                    revisions[slot] += 1
+                    await harness.save(harness.players[slot], revisions[slot])
+                record("tower-join-saved-before-the-floor", floor=floor, revisions=list(revisions))
             await join_ready(probes, record, floor, replay)
             battle_id, fought = await duo_fight(current, probes, host, symbols, record, floor, None)
             require(fought == floor, f"the Duo fought floor {fought}, not {floor}")
@@ -745,7 +770,7 @@ class TowerScenario:
                 f"player 1's lead levelled up on its replayed floors: {levels}")
         require(self.paid[0] == expected_solo_pay([12]) and self.paid[1] == expected_solo_pay([10, 11, 12]),
                 f"what the host paid: {self.paid}")
-        return dict(expected=[p.party_now() for p in probes])
+        return dict(expected=[p.party_now() for p in probes], revisions=[revision + 1 for revision in revisions])
 
     async def mega(self, current, probes, games, host, symbols, record):
         data = json.loads(Path(self.args.floors_json).read_text())["floors"][39]

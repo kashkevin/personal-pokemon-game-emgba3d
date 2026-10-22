@@ -21,7 +21,9 @@ and the in-game notices. The host is enabled only when its installed game has th
   accept, the team (at most three each, the Frontier's selection), both ready; the second Ready issues the native co-op
   battle (BattleDesk.invite_coop with the floor's Tower code), entered from PLAYERS > Challenges as any co-op battle.
   Each player's result, progress and rewards are settled on their own row: a floor one of them cleared before pays that
-  player nothing but the battle's experience.
+  player nothing but the battle's experience. That experience changes the game's party after its last save, and a
+  native battle starts only from a checkpoint that matches the party, so the next Duo battle waits until each player
+  has saved again ("Save your game first"; KNOWN_ISSUES MS-60).
 * **Paying:** the settlement plans the words (Tower state, money, items, Battle Points, claims, milestone Pokemon) and
   ``pay`` queues each on the player's wallet stream exactly once per (player, reference) (wagers.py). The receipts come
   back: a Tower state word's is the save record's revision, a milestone Pokemon's says whether it was made (no room: it
@@ -125,6 +127,29 @@ class TowerService:
 
     def _name(self, player) -> str:
         return self.server._player_name(player)[:12]
+
+    def _checkpoint_revision(self, player) -> int | None:
+        """The revision of the player's latest checkpoint (its head only: no payload read), or None when it cannot be
+        read (the player away, no save)."""
+        from .storage import StorageError
+        session = self.server.sessions.get(player)
+        store = self.server.store
+        if session is None or session.closed or store is None or not hasattr(store, "checkpoint_head"):
+            return None
+        try:
+            head = store.checkpoint_head(player, session.session_epoch)
+        except StorageError:
+            return None
+        return None if head is None else head[0]
+
+    def _needs_save(self, player) -> bool:
+        """Whether the player must save before another Duo battle: their last Duo battle that reached a result was
+        prepared from the checkpoint they still have. Its experience award (levels, moves, evolutions) changed the
+        game's party after that save, and a native battle starts only from a checkpoint matching the game's party - the
+        game refuses any other preparation (KNOWN_ISSUES MS-60), so the host asks for the save instead."""
+        last = self.book.last_duo_checkpoint(player)
+        current = self._checkpoint_revision(player)
+        return last is not None and current is not None and current <= last
 
     def _outstanding(self, player) -> int:
         """Tower words on the player's wallet stream that the game may have applied without the host having its receipt
@@ -265,6 +290,7 @@ class TowerService:
             members.append({"player_id": player, "name": self._name(player), "progress": progress, "highest": highest,
                             "progression": is_progression(progress, duo["floor"]),
                             "first_clear": first_clear(duo["floor"], highest, best, claims),
+                            "save_needed": duo["state"] in ("invited", "forming") and self._needs_save(player),
                             "ready": player in duo["ready"], "consent": player in duo["consent"],
                             "team": None if team is None else [s["name"] for s in team["slots"] if s["selected"]]})
         native = None
@@ -532,6 +558,8 @@ class TowerService:
             raise TowerError("no_teammate", "Your teammate left the team")
         self._ready_player(actor)
         self._free(session)
+        if self._needs_save(actor):
+            raise TowerError("save_first", "Save your game first")
         self._frontier.check_party(actor)
         duo = self.book.set_ready(duo["duo_id"], actor, True)
         if set(duo["ready"]) == set(duo["players"]):
@@ -548,6 +576,8 @@ class TowerService:
                 raise TowerError("tower_floor_locked", f"Floor {duo['floor']}: not open to both")
             if self.book.open_ticket(teammate) is not None or self._unsettled_in_game(teammate):
                 raise TowerError("tower_busy", f"{self._name(teammate)} is in a battle")
+            if self._needs_save(teammate):
+                raise TowerError("save_first", f"{self._name(teammate)} must save first")
             self._frontier.check_party(teammate)
             if server.battle_desk is None:
                 raise TowerError("battle_disabled", "Duo battles are off here")
@@ -558,7 +588,8 @@ class TowerService:
             self.book.set_ready(duo["duo_id"], actor, False)
             raise
         battle_id = str(uuid4())
-        self.book.issue_duo(duo["duo_id"], battle_id)      # the intent is durable before anybody is invited
+        checkpoints = {player: self._checkpoint_revision(player) for player in duo["players"]}
+        self.book.issue_duo(duo["duo_id"], battle_id, checkpoints)    # the intent is durable before anybody is invited
         try:
             server._assert_battle_available(actor, teammate)
             brings = {player: mask for player in (actor, teammate) if (mask := self._frontier.team(player)[0])}

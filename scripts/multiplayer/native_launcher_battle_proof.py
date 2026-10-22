@@ -932,7 +932,10 @@ async def launcher_proof(args, *, names, sources, party_counts, match, version, 
                     # (Owned serials never change with experience.)
                     expected[:] = [dict(old, count=new["count"], box_crc=new["box_crc"])
                                    for old, new in zip(expected, outcome["expected"])]
-                    record("expected-parties-after-the-match", parties=expected)
+                    if "revisions" in outcome:
+                        # A match that saved on its way (the Tower Duo's floors): the revision the closing save makes.
+                        revisions = list(outcome["revisions"])
+                    record("expected-parties-after-the-match", parties=expected, revisions=revisions)
                 if isinstance(outcome, dict) and "parties" in outcome:
                     # A match that trades: the canonical parties (and their owned serials) it left, and the
                     # revision the next save makes (a trade applies at base + 2).
