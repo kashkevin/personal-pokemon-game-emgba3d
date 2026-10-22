@@ -827,20 +827,19 @@ jobs:
         with:
           name: diorama-check-inputs
           path: diorama-check-inputs
-      - name: Mesa's software OpenGL (32-bit) beside the 3D test build
+      - name: Mesa's software OpenGL (32-bit) beside the 3D test build (pinned)
         shell: pwsh
         env:
-          GH_TOKEN: ${{ github.token }}
+          # mesa-dist-win's release as run 129 used it first (the probe: llvmpipe, OpenGL 4.6 Core, Mesa 26.2.4)
+          MESA_VERSION: "26.2.4"
+          MESA_SHA256: 351fc8c8b695878ffb3eaa044b3ead08672a48b1a045e3c3e3975811df0f6695
         run: |
-          $headers = @{ "User-Agent" = "emeraldtogether-ci"; "Authorization" = "Bearer $env:GH_TOKEN" }
-          $release = Invoke-RestMethod -Uri "https://api.github.com/repos/pal1000/mesa-dist-win/releases/latest" -Headers $headers
-          $asset = $release.assets | Where-Object { $_.name -match '^mesa3d-.*-release-msvc\.7z$' } | Select-Object -First 1
-          if (-not $asset) { throw "no msvc release archive in mesa-dist-win $($release.tag_name)" }
+          $name = "mesa3d-$env:MESA_VERSION-release-msvc.7z"
           $archive = Join-Path $env:RUNNER_TEMP "mesa.7z"
-          Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $archive
+          Invoke-WebRequest -Uri "https://github.com/pal1000/mesa-dist-win/releases/download/$env:MESA_VERSION/$name" -OutFile $archive
           $hash = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLower()
-          Write-Output "mesa-dist-win $($release.tag_name): $($asset.name) sha256 $hash"
-          "- Mesa: mesa-dist-win $($release.tag_name), $($asset.name), sha256 ``$hash``" >> $env:GITHUB_STEP_SUMMARY
+          if ($hash -ne $env:MESA_SHA256) { throw "$name has sha256 $hash, not the pinned $env:MESA_SHA256" }
+          "- Mesa: mesa-dist-win $env:MESA_VERSION, $name, sha256 ``$hash`` (pinned)" >> $env:GITHUB_STEP_SUMMARY
           $mesa = Join-Path $env:RUNNER_TEMP "mesa"
           & 7z x $archive "-o$mesa" "x86\*.dll" -y | Out-Null
           Get-ChildItem (Join-Path $mesa "x86") -Filter *.dll | ForEach-Object { Write-Output "  $($_.Name)" }

@@ -91,6 +91,9 @@ class WindowsWorkflowTests(unittest.TestCase):
         self.assertIn("GALLIUM_DRIVER: llvmpipe", graphics)
         self.assertIn("pokeemerald-mp-diorama-bfxtest.exe --probe-graphics", graphics)
         self.assertIn('-notmatch "llvmpipe"', graphics)                         # never Windows' own OpenGL 1.1
+        self.assertIn('MESA_SHA256: 351fc8c8b695878ffb3eaa044b3ead08672a48b1a045e3c3e3975811df0f6695', graphics)
+        self.assertIn("if ($hash -ne $env:MESA_SHA256) { throw", graphics)    # the pinned archive or nothing
+        self.assertNotIn("releases/latest", graphics)
         self.assertIn("--only wild --only trainer --series --parade", graphics)
         engine = job("engine")
         self.assertIn("DIORAMA=1 BFX_TEST=1", engine)
