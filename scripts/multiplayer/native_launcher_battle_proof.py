@@ -243,6 +243,21 @@ class NativeProbe:
         time.sleep(seconds)
         subprocess.run(["xdotool", "keyup", key], env=self.environment, check=True)
 
+    def _chord(self, keys, seconds):
+        self._window()
+        for key in keys:
+            subprocess.run(["xdotool", "keydown", key], env=self.environment, check=True)
+        time.sleep(seconds)
+        for key in keys:
+            subprocess.run(["xdotool", "keyup", key], env=self.environment, check=True)
+
+    async def press_reset_key(self, frames=12, release=60):
+        """MS-61: the soft reset key, A+B+START+SELECT held together (Ctrl+R sends the same)."""
+        await asyncio.to_thread(self._chord, ("z", "x", "Return", "backslash"), max(self.hold, frames / 60))
+        await asyncio.sleep(max(self.gap, release / 60))
+        self.record("ordinary-input", pid=self.pid, key="reset-key", quiet=True)
+        return self.read()
+
     async def press(self, key, frames=12, release=24):
         await asyncio.to_thread(self._press, KEYS[key], max(self.hold, frames / 60))
         await asyncio.sleep(max(self.gap, release / 60))
@@ -380,6 +395,9 @@ class WindowsProbe(NativeProbe):
 
     def _press(self, key, seconds):
         self._windows.press(self._window(), key, seconds)
+
+    def _chord(self, keys, seconds):
+        self._windows.chord(self._window(), keys, seconds)
 
 
 async def drive_battle_input(probe, view, symbols, stop, seen=None):

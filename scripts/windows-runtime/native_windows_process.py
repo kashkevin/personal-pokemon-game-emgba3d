@@ -21,9 +21,9 @@ import time
 PROCESS_QUERY_INFORMATION, PROCESS_VM_READ = 0x0400, 0x0010
 LIST_MODULES_32BIT = 0x01
 WM_KEYDOWN, WM_KEYUP, WM_CLOSE = 0x0100, 0x0101, 0x0010
-# The game's default keys (A = Z, B = X, Start = Enter, the arrows) as virtual-key codes, by the xdotool names the
-# Linux proofs use; the arrows are extended keys (without the flag a scan code is the keypad's).
-VK = {"z": 0x5A, "x": 0x58, "Return": 0x0D, "Left": 0x25, "Up": 0x26, "Right": 0x27, "Down": 0x28}
+# The game's default keys (A = Z, B = X, Start = Enter, Select = backslash, the arrows) as virtual-key codes, by the
+# xdotool names the Linux proofs use; the arrows are extended keys (without the flag a scan code is the keypad's).
+VK = {"z": 0x5A, "x": 0x58, "Return": 0x0D, "backslash": 0xDC, "Left": 0x25, "Up": 0x26, "Right": 0x27, "Down": 0x28}
 EXTENDED = frozenset((0x25, 0x26, 0x27, 0x28))
 HWND_TOPMOST, HWND_NOTOPMOST = -1, -2
 SWP_NOSIZE, SWP_NOMOVE, SWP_NOACTIVATE = 0x0001, 0x0002, 0x0010
@@ -165,6 +165,22 @@ def press(hwnd, key, seconds):
         raise OSError(ctypes.get_last_error(), "the game's window refused a key")
     time.sleep(seconds)
     user32.PostMessageW(hwnd, WM_KEYUP, vk, _signed(lparam | (1 << 30) | (1 << 31)))
+
+
+def chord(hwnd, keys, seconds):
+    """Keys held together `seconds` (MS-61: the soft reset key, A+B+START+SELECT): every key down, then every key up."""
+    user32 = _user32()
+    params = []
+    for key in keys:
+        vk = VK[key]
+        scan = user32.MapVirtualKeyW(vk, 0)
+        params.append((vk, 1 | (scan << 16) | ((1 << 24) if vk in EXTENDED else 0)))
+    for vk, lparam in params:
+        if not user32.PostMessageW(hwnd, WM_KEYDOWN, vk, _signed(lparam)):
+            raise OSError(ctypes.get_last_error(), "the game's window refused a key")
+    time.sleep(seconds)
+    for vk, lparam in params:
+        user32.PostMessageW(hwnd, WM_KEYUP, vk, _signed(lparam | (1 << 30) | (1 << 31)))
 
 
 def close(hwnd):

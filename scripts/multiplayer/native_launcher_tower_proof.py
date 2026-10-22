@@ -717,14 +717,13 @@ class TowerScenario:
             if floor == 11:
                 # A disconnect and a reconnect: player 2's game closed in the world and started again through the
                 # launcher. The host keeps both players' progress; the team and the Duo are formed again.
-                # --rejoin reset: instead, player 2's soft reset (START > PLAYER > RESET > "Reset to last host save"),
+                # --rejoin reset: instead, player 2's soft reset (MS-61: the reset key, "Reset the game?" YES),
                 # which starts its game again from its host save in the same session and keeps nothing unsaved -
                 # floor 10's first-clear prize, delivered to the game after its last save, among it.
                 game = games[1]
                 if getattr(self.args, "rejoin", "close") == "reset":
                     from native_launcher_soft_reset_proof import SoftResetProof
                     await SoftResetProof.open_reset_page(SoftResetProof, probes[1])
-                    await probes[1].choose("Reset to last host save")
                     await SoftResetProof.final_choice(probes[1], "Yes, reset now")
                     record("tower-join-player-2-reset", pid=game.process.pid)
                     await harness.poll_until(lambda: game.process.returncode is not None, 120)
@@ -780,7 +779,20 @@ class TowerScenario:
                     await close_players(probes[0])
                 for slot in (0, 1):
                     revisions[slot] += 1
-                    await harness.save(harness.players[slot], revisions[slot])
+                    if slot == 1:
+                        await harness.save(harness.players[slot], revisions[slot])
+                        continue
+                    # MS-61: player 1 saves in the game (START > SAVE): in a world that is the host's save too - the
+                    # game opens its host save page, the launcher saves as Save now does.
+                    from native_launcher_stale_save_proof import save_in_game
+
+                    async def host_revision(s):
+                        return s.status.revision
+                    counters = await save_in_game(probes[0])
+                    async with asyncio.timeout(90):
+                        while (seen := await on_worker(harness.players[0].worker, host_revision)) != revisions[0]:
+                            await asyncio.sleep(.5)
+                    record("tower-join-in-game-save-on-host", slot=0, counters=list(counters), revision=seen)
                 record("tower-join-saved-before-the-floor", floor=floor, revisions=list(revisions))
             await join_ready(probes, record, floor, replay)
             battle_id, fought = await duo_fight(current, probes, host, symbols, record, floor, None)
