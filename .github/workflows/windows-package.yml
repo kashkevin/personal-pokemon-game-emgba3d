@@ -865,6 +865,23 @@ jobs:
           python mega-check-inputs\mega_check.py --exe diorama-check-inputs\pokeemerald-mp-diorama-bfxtest.exe `
             --make-save $save --out $out --only wild --only trainer --series --parade --jobs 1
           if ($LASTEXITCODE -ne 0) { throw "the 3D Mega check failed ($LASTEXITCODE)" }
+      - name: The 3D view's frame rate through Mesa (informational; a software renderer, not a player's graphics card)
+        shell: pwsh
+        run: |
+          # The game's own --benchmark (include/platform/benchmark.h) from the save above (outdoors in Littleroot): it
+          # Continues by itself, draws the 3D field at 1280x720 for 10 s after a warm-up, writes benchmark.log, quits and
+          # saves nothing. What it says: the 3D view runs on Windows through llvmpipe at this rate; nothing about a GPU.
+          $out = Join-Path $env:RUNNER_TEMP "graphics-3d"
+          $save = Join-Path $env:RUNNER_TEMP "graphics-3d.sav"
+          $log = Join-Path $out "benchmark.log"
+          $exe = Resolve-Path diorama-check-inputs\pokeemerald-mp-diorama-bfxtest.exe
+          $process = Start-Process -FilePath $exe -WorkingDirectory $out -PassThru -ArgumentList `
+            "--save `"$save`" --benchmark 10 --bench-heights 720 --bench-name windows-runner-mesa --bench-log `"$log`""
+          if (-not $process.WaitForExit(300000)) { $process.Kill(); throw "the benchmark did not end in 5 minutes" }
+          if (-not (Test-Path $log)) { throw "no benchmark.log (exit $($process.ExitCode))" }
+          Get-Content $log | Write-Output
+          $row = Get-Content $log | Where-Object { $_ -match "^1280x720\s+\d" } | Select-Object -First 1
+          "- 3D frame rate through Mesa llvmpipe (informational): ``$row``" >> $env:GITHUB_STEP_SUMMARY
       - name: Upload the report and the pictures (private to this repository, 7 days; no save)
         if: always()
         uses: actions/upload-artifact@v4
@@ -874,6 +891,7 @@ jobs:
             ${{ runner.temp }}/graphics-3d/**/*.json
             ${{ runner.temp }}/graphics-3d/**/test.log
             ${{ runner.temp }}/graphics-3d/**/*.png
+            ${{ runner.temp }}/graphics-3d/benchmark.log
           retention-days: 7
           if-no-files-found: warn
 

@@ -94,6 +94,8 @@ class WindowsWorkflowTests(unittest.TestCase):
         self.assertIn('MESA_SHA256: 351fc8c8b695878ffb3eaa044b3ead08672a48b1a045e3c3e3975811df0f6695', graphics)
         self.assertIn("if ($hash -ne $env:MESA_SHA256) { throw", graphics)    # the pinned archive or nothing
         self.assertNotIn("releases/latest", graphics)
+        # the 3D view's frame rate through Mesa, informational (the game's own benchmark; not a player's GPU)
+        self.assertIn("--benchmark 10 --bench-heights 720", graphics)
         self.assertIn("--only wild --only trainer --series --parade", graphics)
         engine = job("engine")
         self.assertIn("DIORAMA=1 BFX_TEST=1", engine)
