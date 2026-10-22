@@ -139,6 +139,14 @@ class WindowsWorkflowTests(unittest.TestCase):
         self.assertIn('throw "the breeding check failed', breed)                # a failed check fails the job
         self.assertIn("tools/battle_env/breed_check.py ../mega-check-inputs/", job("engine"))
 
+    def test_evolutions_run_in_windows_game_processes(self):
+        evolve = job("evolve-check")
+        self.assertIn("runs-on: windows-2022", evolve)
+        self.assertIn("needs: engine", evolve)
+        self.assertIn("evolve_check.py --exe mega-check-inputs\\pokeemerald-mp-bfxtest.exe --make-save", evolve)
+        self.assertIn('throw "the evolution check failed', evolve)              # a failed step fails the job
+        self.assertIn("tools/battle_env/evolve_check.py ../mega-check-inputs/", job("engine"))
+
     def test_the_rival_checkpoints_run_in_windows_game_processes(self):
         rival = job("rival-check")
         self.assertIn("runs-on: windows-2022", rival)
