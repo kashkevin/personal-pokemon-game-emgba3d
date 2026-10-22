@@ -7,6 +7,33 @@ listed separately.
 Which result is current for which build, and what to reuse instead of rerunning:
 `TEST_LEDGER.md` (the owner's incremental-validation rule, 2026-10-14).
 
+## 0. Windows first (owner, 2026-10-22)
+
+EmeraldTogether is a Windows PC game, and Linux gameplay runs missed problems the owner's Windows sessions hit. Every
+gameplay claim is therefore made on Windows game processes: `windows-package` (mode `full`) on GitHub's Windows
+runners is the release verification, run on the newest app and engine commits (one engine commit per run, the ROM
+pinned). Linux runs are for unit tests, fast debugging and reproducing one fault; a Linux-only pass is recorded as
+"Linux only" and never counts as Windows-tested.
+
+What a full run executes in real Windows game processes (one hosted runner per job; jobs in parallel):
+
+| Area | Job(s) |
+| --- | --- |
+| Install, start, repair, uninstall; Create World, a character, Solo, Host World, Join Friend on the installed build | installation check |
+| The packaged games start; 3D refused cleanly and the 2D fallback (the runner's OpenGL 1.1); in-game menus | package |
+| A new character, no Pokemon, a starter claimed and saved, three soft-reset rerolls | feature-check (starters, soft reset) |
+| Two to four players in one world: simultaneous starter claims, 1v1, 1v1v1, 1v1v1v1, 2v2, a battle and a trade at once, resets while others play, visibility, a connection cut and rejoined | multiplayer-check (lobby 3 and 4, mixed, busy) |
+| A battle interrupted: a game killed, a connection cut, a game closed, the host crashed; abandon, rejoin, rematch | abandon-check (pairs-crash, multi-network, ffa-exit, ffa-host-crash) |
+| Mega Evolution: every case, holder, form and the stones in the menus; both players' Megas in a 1v1; no Ring | mega-check, mega-proof (two, no-ring) |
+| Breeding and egg hatching, both saves | breed-check |
+| Battle Tower: every floor won and lost; caps and items; solo (prizes, replay, shop, special boss loss), milestone Pokemon, Duo, Mega Duo, forfeit through the launcher | tower-check (4 shards), tower-extras, tower-proof (5) |
+| The whole game: every trainer, person, item ball, sign, hidden item, warp and coordinate trigger of the reachable maps | gameplay-check (8 shards; `gameplay_qa=yes`) |
+| The 3D renderer: Mega battles drawn in 3D and the parade of every Mega form (Mesa's software OpenGL, test only) | graphics-3d |
+
+What the runners cannot show: a real GPU or vendor driver (3D runs on Mesa's software renderer), two PCs, a router
+or the Internet (every multiplayer job is one PC on its own loopback), audio, controllers, DPI and fullscreen. Those
+stay for the owner's own Windows PCs and are reported as unverified, never as passed.
+
 ## 1. Python host and companion (app repo)
 
 ```sh
