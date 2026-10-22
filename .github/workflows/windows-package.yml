@@ -58,9 +58,9 @@ on:
         description: "full: only these check jobs after the builds (job ids, comma-separated, e.g. abandon-check,rival-proof; blank = every job, the installer too)"
         default: ""
       abandon_scenario:
-        description: "full: the interrupted-battle check's scenario (all = the six)"
+        description: "full: the interrupted-battle check's scenario (all = the seven)"
         type: choice
-        options: [all, pairs-crash, multi-network, ffa-exit, ffa-host-crash, ffa-knockout, multi-knockout]
+        options: [all, pairs-crash, multi-network, ffa-exit, ffa-host-crash, ffa-knockout, multi-knockout, stale-save]
         default: all
       attempts:
         description: "full: how many times the interrupted-battle check runs each scenario, side by side (a failure that comes and goes)"
@@ -223,6 +223,7 @@ jobs:
                      "gMultiplayerPresenceDetailAbiVersion": "presence_detail_abi_version",
                      "gMultiplayerMenuReleaseAbiVersion": "menu_release_abi_version",
                      "gMultiplayerSaveImportWindowAbiVersion": "save_import_window_abi_version",
+                     "gMultiplayerSavePartyQueryAbiVersion": "save_party_query_abi_version",
                      "gMultiplayerTowerAbiVersion": "tower_abi_version"}
           present = [field for symbol, field in markers.items() if re.search(rf"\s_?{symbol}$", symbols, re.M)]
           missing = [field for field in present if manifest.get(field) != 1]
@@ -1136,6 +1137,11 @@ jobs:
     # free-for-all or a 2v2 that goes on to its result (knockout-a..d: the host's level-2 Torchic against level-30
     # Earthquake and Tackle users; in the 2v2 the host's partner is chosen so that the host is battler 0); the host's
     # route journal must show the host's game sending action menus with battler 0 out.
+    # stale-save (KNOWN_ISSUES MS-60; scripts/multiplayer/native_launcher_stale_save_proof.py, two players): a battle
+    # that cannot start, entered by a game with progress its host has not saved (the game's own START > SAVE). Its Enter
+    # is refused before anything is held (the other trainer's menu says why, or its recorded Enter is cancelled
+    # neutrally), the game keeps its progress and its launcher saves it once the menu is closed; twice, then a battle
+    # to its end.
     name: Interrupted battle (Windows game processes, ${{ matrix.scenario }}${{ matrix.attempt > 1 && format(', attempt {0}', matrix.attempt) || '' }})
     needs: [engine, symbol-sizes]
     if: ${{ (inputs.mode || 'smoke') == 'full' && (!inputs.only || contains(format(',{0},', inputs.only), ',abandon-check,')) }}
@@ -1144,7 +1150,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        scenario: ${{ fromJSON((inputs.abandon_scenario || 'all') == 'all' && '["pairs-crash", "multi-network", "ffa-exit", "ffa-host-crash", "ffa-knockout", "multi-knockout"]' || format('["{0}"]', inputs.abandon_scenario)) }}
+        scenario: ${{ fromJSON((inputs.abandon_scenario || 'all') == 'all' && '["pairs-crash", "multi-network", "ffa-exit", "ffa-host-crash", "ffa-knockout", "multi-knockout", "stale-save"]' || format('["{0}"]', inputs.abandon_scenario)) }}
         attempt: ${{ fromJSON(inputs.attempts == '4' && '[1, 2, 3, 4]' || inputs.attempts == '3' && '[1, 2, 3]' || inputs.attempts == '2' && '[1, 2]' || '[1]') }}
     defaults:
       run:
@@ -1189,6 +1195,15 @@ jobs:
             --only abandon-a,abandon-b,abandon-c,abandon-d,knockout-a,knockout-b,knockout-c,knockout-d
       - name: The interrupted battle (${{ matrix.scenario }})
         run: |
+          if [ "${{ matrix.scenario }}" = stale-save ]; then
+            .venv/Scripts/python scripts/multiplayer/native_launcher_stale_save_proof.py \
+              --game inputs/pokeemerald-mp.exe --sdl inputs/SDL2.dll --rom inputs/pokedev.gba \
+              --manifest inputs/manifest.json --pe-symbols symbols/pokeemerald-mp.nm.txt \
+              --sizes symbols/pokeemerald-mp.sizes.txt --slow 1.5 \
+              --source-a "$RUNNER_TEMP/abandon-saves/abandon-a.sav" --source-b "$RUNNER_TEMP/abandon-saves/abandon-b.sav" \
+              --output "$RUNNER_TEMP/multiplayer-proof/abandon-stale-save"
+            exit
+          fi
           fixture=${{ endsWith(matrix.scenario, '-knockout') && 'knockout' || 'abandon' }}
           .venv/Scripts/python scripts/multiplayer/native_launcher_abandon_proof.py --scenario ${{ matrix.scenario }} \
             --game inputs/pokeemerald-mp.exe --sdl inputs/SDL2.dll --rom inputs/pokedev.gba \

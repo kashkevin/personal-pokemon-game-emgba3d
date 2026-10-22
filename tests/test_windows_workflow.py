@@ -165,7 +165,7 @@ class WindowsWorkflowTests(unittest.TestCase):
         self.assertIn("runs-on: windows-2022", abandon)
         self.assertIn("needs: [engine, symbol-sizes]", abandon)
         self.assertIn("'[\"pairs-crash\", \"multi-network\", \"ffa-exit\", \"ffa-host-crash\", \"ffa-knockout\", "
-                      "\"multi-knockout\"]'", abandon)
+                      "\"multi-knockout\", \"stale-save\"]'", abandon)
         self.assertIn("make_intro_saves.py --exe mega-check-inputs/pokeemerald-mp-bfxtest.exe", abandon)
         self.assertIn("--count 4", abandon)
         self.assertIn("--only abandon-a,abandon-b,abandon-c,abandon-d,knockout-a,knockout-b,knockout-c,knockout-d", abandon)
@@ -174,6 +174,14 @@ class WindowsWorkflowTests(unittest.TestCase):
         self.assertIn('--source "$RUNNER_TEMP/abandon-saves/$fixture-a.sav"', abandon)
         self.assertIn("native_launcher_abandon_proof.py --scenario ${{ matrix.scenario }}", abandon)
         self.assertIn("--pe-symbols symbols/pokeemerald-mp.nm.txt", abandon)
+        # KNOWN_ISSUES MS-60: a game with progress its host has not saved is turned away at Enter (two players).
+        stale = abandon.index('if [ "${{ matrix.scenario }}" = stale-save ]; then')
+        branch = abandon[stale:abandon.index("fi\n", stale)]
+        self.assertIn("native_launcher_stale_save_proof.py", branch)
+        self.assertIn('--source-a "$RUNNER_TEMP/abandon-saves/abandon-a.sav"', branch)
+        self.assertIn('--source-b "$RUNNER_TEMP/abandon-saves/abandon-b.sav"', branch)
+        self.assertIn("--pe-symbols symbols/pokeemerald-mp.nm.txt", branch)
+        self.assertIn("exit\n", branch)
 
     def test_one_check_runs_on_its_own_and_a_release_run_runs_everything(self):
         # `only` names check jobs (comma-separated): the builds and those jobs run, nothing else (no installer). Blank (a
@@ -195,8 +203,8 @@ class WindowsWorkflowTests(unittest.TestCase):
 
     def test_the_interrupted_battle_check_repeats_a_scenario_on_request(self):
         abandon = job("abandon-check")
-        self.assertIn("options: [all, pairs-crash, multi-network, ffa-exit, ffa-host-crash, ffa-knockout, multi-knockout]",
-                      WORKFLOW)
+        self.assertIn("options: [all, pairs-crash, multi-network, ffa-exit, ffa-host-crash, ffa-knockout, multi-knockout, "
+                      "stale-save]", WORKFLOW)
         self.assertIn("format('[\"{0}\"]', inputs.abandon_scenario)", abandon)
         self.assertIn("inputs.attempts == '4' && '[1, 2, 3, 4]'", abandon)
         self.assertIn("|| '[1]') }}", abandon)                                 # the default: once

@@ -1010,7 +1010,8 @@ class WorldServer:
                                           to=[p for p in others if p not in view["declined"] and p not in view["left"]])
 
     def _battle_reply(self, session, request, *, error=None, result=None, player_card=None, championship=None,
-                      admission_handoff_version=None, history_extensions=None, rival=None, abandon_version=None):
+                      admission_handoff_version=None, history_extensions=None, rival=None, abandon_version=None,
+                      live_check_version=None):
         assert self._world_metadata is not None
         self._control(session, dict(
             type="battle_error" if error is not None else "battle_result",
@@ -1023,6 +1024,7 @@ class WorldServer:
             **({"admission_handoff_version": admission_handoff_version}
                if admission_handoff_version is not None and error is None else {}),
             **({"abandon_version": abandon_version} if abandon_version is not None and error is None else {}),
+            **({"live_check_version": live_check_version} if live_check_version is not None and error is None else {}),
             **(history_extensions if history_extensions is not None and error is None else {}),
             **({"code": error.code, "message": error.message} if error is not None else {"result": result})))
 
@@ -1174,6 +1176,14 @@ class WorldServer:
             result = [challenge_view(view) for view in self.battle_desk.pending(session.player_id, session.session_epoch)]
             self._battle_reply(session, request, result=result, abandon_version=1)
             return
+        if operation == "pending" and "live_check_version" in request:
+            # KNOWN_ISSUES MS-60: this host checks a claim's party against the canonical save the battle names
+            # (battle_admission_host.claim), when it runs native battles with provisional admission.
+            if self.battle_desk is None or self.battle_execution is None or not self.battle_execution.resume_enabled:
+                raise ProtocolError("battle_live_check_unsupported", "this host does not check a claim's party")
+            result = [challenge_view(view) for view in self.battle_desk.pending(session.player_id, session.session_epoch)]
+            self._battle_reply(session, request, result=result, live_check_version=1)
+            return
         if operation == "pending" and "championship" in request:
             self._championship_challenge(session, request)
             return
@@ -1281,7 +1291,12 @@ class WorldServer:
             elif operation == "claim":
                 if self.battle_execution is None or not self.battle_execution.resume_enabled:
                     raise ProtocolError("battle_resume_disabled", "provisional admission requires the verified resume capability")
-                view = self.battle_execution.admission.claim(*actor, request)
+                try:
+                    view = self.battle_execution.admission.claim(*actor, request)
+                except BattleError as error:
+                    if error.code == "save_needed":
+                        self._cancel_stale_claim(actor, battle_id, request["generation"])
+                    raise
             else:
                 try:
                     view = desk.cancel(*actor, battle_id, request["generation"])
@@ -1294,6 +1309,19 @@ class WorldServer:
                 self.battle_execution.admission.capture(*actor, request)
             result = challenge_view(view)
         self._battle_reply(session, request, result=result)
+
+    def _cancel_stale_claim(self, actor, battle_id, generation):
+        """KNOWN_ISSUES MS-60: a trainer's Enter named a party that is not the canonical save the challenge was made from
+        (battle_admission_host.claim): the game's PREPARE would refuse the battle, so it ends now for everybody, as a
+        cancel does. A trainer who already entered holds that entry: the battle becomes recovery_required and that game's
+        session cancels its entry neutrally (as _cancel_entered_challenge); otherwise it is aborted."""
+        desk, admission = self.battle_desk, self.battle_execution.admission
+        battle = desk._get(*actor, battle_id, generation)
+        if admission.claimed(battle_id) or battle.bind_intent or battle.bound:
+            desk._recover(battle, "save_needed")
+        else:
+            desk._abort(battle, "save_needed")
+            admission.canceled(battle_id)
 
     def _cancel_entered_challenge(self, actor, battle_id, generation, error):
         """A trainer who has not entered cancels a challenge another trainer has already entered (claimed). That game

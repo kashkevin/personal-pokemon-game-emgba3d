@@ -16,8 +16,28 @@ FORMAT = "native-battle-admission-receipt-v1"
 
 # Host replies that prove an Enter claim was never recorded: BattleAdmissionHost.claim and BattleDesk._get refuse before
 # anything is written. Such an Enter needs no ADMIT; its provisional intent is retired and the window released.
+# party_unknown is this launcher's own, before any claim is sent: the host checks the party (KNOWN_ISSUES MS-60) and the
+# game could not say what its party is (its save mailbox busy), so the Enter is never claimed unchecked.
 DEFINITE_CLAIM_REFUSALS = frozenset({"battle_not_ready", "battle_missing", "battle_not_participant",
-                                     "battle_generation_mismatch", "stale_lease", "battle_resume_disabled"})
+                                     "battle_generation_mismatch", "stale_lease", "battle_resume_disabled",
+                                     "save_needed", "party_unknown"})
+
+
+async def live_claim_fields(c):
+    """KNOWN_ISSUES MS-60: the claim's `live` field - what this game's PREPARE will compare (party_identity.py) - when
+    the host checks it (a `pending` with live_check_version) and the game has QUERY_PARTY; nothing for an older host or
+    game (the claim goes as before); None when the host checks but the game could not answer (party_unknown)."""
+    from .companion import BattleChallengeError
+    if getattr(c.config, "save_party_query_abi_version", 0) != 1:
+        return {}
+    try:
+        reply = await c.battle_challenge_rpc("pending", live_check_version=1)
+    except (BattleChallengeError, ConnectionError, OSError, ValueError, asyncio.TimeoutError):
+        return {}                      # an older host: it does not check
+    if reply.get("live_check_version") != 1:
+        return {}
+    identity = await c.live_party_identity()
+    return None if identity is None else {"live": identity.as_request()}
 
 
 class BattleAdmissionRefused(BattleJournalError):
@@ -140,15 +160,22 @@ async def prepare_battle_admission(c, directory, challenge):
             if c.connected:
                 from .companion import BattleChallengeError
                 try:
+                    live = await live_claim_fields(c)
+                    if live is None:
+                        raise BattleChallengeError("party_unknown", "the game could not report its party")
                     claimed = (await c.battle_challenge_rpc("claim", battle_id=intent.battle_id,
-                        generation=intent.generation, incarnation=intent.incarnation, runtime_id=intent.runtime_id))["result"]
+                        generation=intent.generation, incarnation=intent.incarnation, runtime_id=intent.runtime_id,
+                        **live))["result"]
                     if claimed != intent.challenge or authenticated_session(c) != original or c._bridge is not bridge:
                         raise BattleJournalError("battle_recovery_required", "Enter claim changed its original accepted challenge")
                 except BattleChallengeError as error:
                     if (error.code in DEFINITE_CLAIM_REFUSALS and getattr(c.config, "menu_release_abi_version", 0) == 1
                             and not path_present(journal.directory / (intent.battle_id + ".battle-admission-receipt.json"))):
                         # The host answered, and refused before recording the claim (the challenge expired, was
-                        # cancelled or changed): this Enter cannot become a battle, so it never becomes a hold.
+                        # cancelled or changed; or this game changed since its last save, MS-60), or the claim was
+                        # never sent (party_unknown): this Enter cannot become a battle, so it never becomes a hold.
+                        if error.code == "save_needed":
+                            c._battle_save_needed = True   # the launcher saves once the field is free again
                         retire_refused_admission(journal.directory, intent)
                         raise BattleAdmissionRefused(error.code, str(error)) from error
                     await hold_admission(c, journal.directory, intent, bridge)

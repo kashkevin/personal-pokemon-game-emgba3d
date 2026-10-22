@@ -745,7 +745,7 @@ class TowerScenario:
                     _, screen = await probes[0].ready()
                     record("tower-join-save-asked", slot=0, floor=floor, status=screen.status,
                            rows=[r.label for r in screen.rows])
-                    require(screen.status == "Save first: START > SAVE",
+                    require(screen.status == "Save first: launcher Save now",
                             f"player 1's Duo page asks for a save first: {screen.status!r}")
                     await probes[0].choose("Ready")
                     _, screen = await probes[0].ready()

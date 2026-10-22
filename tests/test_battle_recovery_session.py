@@ -276,6 +276,67 @@ class RetainedBattleRecoveryTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse((self.directory / (challenge["battle_id"] + ".battle-admission-receipt.json")).exists())
         self.assertIsNone(self.c._live_save_owner)
 
+    async def test_a_claim_names_the_party_and_a_stale_game_is_refused_with_its_save(self):
+        # KNOWN_ISSUES MS-60: the claim carries the game's QUERY_PARTY answer; the host's save_needed is a definite
+        # refusal (no ADMIT, the intent retired) and asks the launcher to save once the menu is closed.
+        from emerald_multiplayer.battle_admission_session import (BattleAdmissionRefused, prepare_battle_admission,
+            refused_admission_path)
+        from emerald_multiplayer.companion import BattleChallengeError
+        from emerald_multiplayer.party_identity import PartyIdentity
+        self.journal.path.unlink()
+        self.c._live_binding = (self.c.world_id, self.c.session_epoch, self.c.battle_incarnation)
+        object.__setattr__(self.c.config, "menu_release_abi_version", 1)
+        object.__setattr__(self.c.config, "save_party_query_abi_version", 1)
+        challenge = self.accepted_challenge()
+        identity = PartyIdentity(4, 4, 0x12345678, 1, 0xCAFEF00D)
+        calls = []
+        async def rpc(operation, **fields):
+            calls.append((operation, fields))
+            if operation == "pending":
+                return dict(live_check_version=1, result=[])
+            raise BattleChallengeError("save_needed", "this game changed since its last save")
+        async def live():
+            return identity
+        with patch.object(self.c, "battle_challenge_rpc", rpc), patch.object(self.c, "live_party_identity", live), \
+             patch.object(self.c, "battle_rpc", side_effect=AssertionError("ADMIT sent for a refused Enter")):
+            with self.assertRaises(BattleAdmissionRefused) as raised:
+                await prepare_battle_admission(self.c, self.directory, challenge)
+        self.assertEqual(raised.exception.code, "save_needed")
+        self.assertEqual([operation for operation, _ in calls], ["pending", "claim"])
+        self.assertEqual(calls[1][1]["live"], identity.as_request())
+        self.assertTrue(self.c._battle_save_needed)
+        self.assertFalse((self.directory / "pending-battle-admission.json").exists())
+        self.assertTrue(refused_admission_path(self.directory, challenge["battle_id"]).exists())
+        self.assertIsNone(self.c._live_save_owner)
+
+    async def test_a_game_that_cannot_report_its_party_is_never_claimed_unchecked(self):
+        # KNOWN_ISSUES MS-60: the host checks each Enter's party; when the game's save mailbox could not say what its
+        # party is, the Enter is refused here (party_unknown) before any claim: nothing recorded, no ADMIT.
+        from emerald_multiplayer.battle_admission_session import (BattleAdmissionRefused, prepare_battle_admission,
+            refused_admission_path)
+        self.journal.path.unlink()
+        self.c._live_binding = (self.c.world_id, self.c.session_epoch, self.c.battle_incarnation)
+        object.__setattr__(self.c.config, "menu_release_abi_version", 1)
+        object.__setattr__(self.c.config, "save_party_query_abi_version", 1)
+        challenge = self.accepted_challenge()
+        operations = []
+        async def rpc(operation, **fields):
+            operations.append(operation)
+            if operation == "pending":
+                return dict(live_check_version=1, result=[])
+            raise AssertionError("claimed without the party")
+        async def unknown():
+            return None
+        with patch.object(self.c, "battle_challenge_rpc", rpc), patch.object(self.c, "live_party_identity", unknown), \
+             patch.object(self.c, "battle_rpc", side_effect=AssertionError("ADMIT sent for a refused Enter")):
+            with self.assertRaises(BattleAdmissionRefused) as raised:
+                await prepare_battle_admission(self.c, self.directory, challenge)
+        self.assertEqual(raised.exception.code, "party_unknown")
+        self.assertEqual(operations, ["pending"])
+        self.assertFalse((self.directory / "pending-battle-admission.json").exists())
+        self.assertTrue(refused_admission_path(self.directory, challenge["battle_id"]).exists())
+        self.assertIsNone(self.c._live_save_owner)
+
     async def test_refused_claim_still_holds_for_games_without_the_release(self):
         from emerald_multiplayer.battle_admission_session import prepare_battle_admission, read_admission_receipt
         from emerald_multiplayer.battle_admission_intent import read_admission_intent

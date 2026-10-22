@@ -1,7 +1,7 @@
 import unittest
 from types import SimpleNamespace
 
-from emerald_multiplayer.player_menu import PlayerMenu, PlayerMenuError
+from emerald_multiplayer.player_menu import PlayerMenu, PlayerMenuError, refusal_text
 import test_battle_challenge_network as fixtures
 
 
@@ -214,6 +214,20 @@ class PlayerMenuChallengeStatusTests(PlayerMenuNetworkTests):
         self.assertEqual(screen.status, "Cancelled: a party was saved")
         self.assertNotIn("Accept challenge", [row.label for row in screen.rows])
         self.assertEqual((await a.refresh()).status, "Cancelled: a party was saved")
+
+    async def test_an_enter_refused_after_the_challenge_ended_says_why(self):
+        # KNOWN_ISSUES MS-60 (L stale-save-1): the other trainer's Enter was refused (its game not saved) and the
+        # challenge ended; this menu still showed its Enter (a displayed Enter screen is never refreshed underneath), so
+        # the player pressed it and the host answered battle_not_ready. The menu then says why the challenge ended.
+        a, b = (PlayerMenu(self.companions[i]) for i in (0, 1))
+        await a.refresh(); await self.click(a, "Trainer 1"); await self.click(a, "Rival Battle - 1v1")
+        await b.refresh(); await self.click(b, "Pending challenge")
+        room = next(iter(self.server.battle_desk._active.values()))
+        self.server.battle_desk._abort(room, "save_needed")
+        b.notice(refusal_text("battle_not_ready"))         # what MenuSession._release_refused shows first
+        self.assertEqual((await b.refresh()).status, "Cancelled: a trainer must save")
+        a.notice(refusal_text("character_busy"))           # a refusal about this game itself stays
+        self.assertEqual((await a.refresh()).status, "Busy saving: try again shortly")
 
 
 class PlayerMenuAdmissionTests(unittest.TestCase):

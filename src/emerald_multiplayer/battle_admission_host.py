@@ -127,6 +127,13 @@ class BattleAdmissionHost:
                 or value["view"]["state"] != "accepted"
                 or value["identities"].get(actor) != self.require_identity(request)):
             raise BattleError("battle_not_ready", "Enter requires the exact accepted original game core")
+        if "live" in request and actor not in value["claimed"]:
+            # KNOWN_ISSUES MS-60: the game's PREPARE would refuse a preparation built from the canonical save this
+            # battle names (a party changed, or saved only in the game, since its last host save). Turned away before
+            # the claim is recorded and anything is held; the server ends the battle (server._cancel_stale_claim).
+            from .party_identity import PartyIdentity
+            if not PartyIdentity.from_request(request["live"]).matches(b.roster[b.players.index(actor)]):
+                raise BattleError("save_needed", "this game changed since its last save: save, then challenge again")
         if actor not in value["claimed"]:
             value["claimed"].append(actor)
             _atomic(self._path(b.battle_id), _json_bytes(value))

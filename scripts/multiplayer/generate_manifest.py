@@ -276,6 +276,13 @@ def generate(rom: Path, elf: Path, nm: str, engine_commit: str, *, trade_effect_
         if not four_byte_marker(import_window) or manifest.get("save_window_abi_version") != 1:
             raise ValueError("the save import window needs one four-byte marker and the read-only save window")
         manifest.update(save_import_window_abi_version=1)
+    # KNOWN_ISSUES MS-60: the save mailbox answers QUERY_PARTY with what a battle preparation checks, so a battle's host
+    # can turn a game whose party is not its canonical save's away at Enter, before anything is held. Native PC game only.
+    party_query = native_marker("gMultiplayerSavePartyQueryAbiVersion", symbols + native_symbols)
+    if party_query:
+        if not four_byte_marker(party_query) or manifest.get("save_abi_version") != 1:
+            raise ValueError("the party query needs one four-byte marker and the save mailbox")
+        manifest.update(save_party_query_abi_version=1)
     # Update 32: a Players menu OPEN may name the page it opens (1: START > PLAYER > RESET, the soft reset in a world).
     # Native PC game only; the launcher opts in (bridge.txt menu_open_page=1) only beside the Players menu ABI 2.
     open_page = native_marker("gMultiplayerMenuOpenPageAbiVersion", symbols + native_symbols)

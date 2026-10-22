@@ -279,9 +279,12 @@ class CompanionTradeGuardTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(ValueError, "pending trade recovery"):
             await self.companion.save_import_window_rpc(window, sector)
         object.__setattr__(self.companion.config, "save_import_window_abi_version", 0)
+        # KNOWN_ISSUES MS-60: the PC game's party query is read-only and has its own call (live_party_identity).
+        with self.assertRaisesRegex(ValueError, "live_party_identity"):
+            await self.companion.save_rpc(self.control(Opcode.QUERY_PARTY))
         effect_sizes = {Opcode.BEGIN_EFFECT_RECORD: 192, Opcode.CHOOSE_EFFECT_MOVE: 56,
                         Opcode.BEGIN_EFFECT_SAVE: 88}
-        for opcode in set(Opcode)-readonly-emergency-effect-{Opcode.WRITE_WINDOW}:
+        for opcode in set(Opcode)-readonly-emergency-effect-{Opcode.WRITE_WINDOW, Opcode.QUERY_PARTY}:
             command = self.control(opcode, revision=1 if opcode == Opcode.BEGIN_TRADE_EXPORT else 0,
                 data=sizes.get(opcode, b""))
             with self.subTest(opcode=opcode), self.assertRaisesRegex(ValueError, "pending trade recovery"):

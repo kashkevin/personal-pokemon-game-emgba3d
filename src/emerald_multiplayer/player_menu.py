@@ -45,6 +45,8 @@ REFUSALS = {
     "battle_generation_mismatch": "Challenge changed: try again",
     "stale_lease": "Connection changed: try again",
     "game_active": "Your game is busy: try again",
+    "save_needed": "Not saved: close menu to save",   # KNOWN_ISSUES MS-60 (the launcher saves when the menu closes)
+    "party_unknown": "Your game is busy: try again",   # MS-60: the game could not say what its party is
 }
 # Why an open challenge ended before its battle (BattleDesk reasons), for the menu that showed it.
 CANCEL_REASONS = {
@@ -55,7 +57,14 @@ CANCEL_REASONS = {
     "admission_canceled": "Challenge cancelled",
     "unentered_invitation_canceled": "Challenge cancelled",
     "native_refused": "Cancelled: a game refused it",
+    "save_needed": "Cancelled: a trainer must save",  # KNOWN_ISSUES MS-60
 }
+
+
+# Refusals of an Enter that say only that the challenge is gone. A displayed Enter screen is never refreshed underneath
+# (MenuSession._poll), so an Enter can come after the challenge ended; why it ended (CANCEL_REASONS, from the host) says
+# more, such as the other trainer's unsaved game (KNOWN_ISSUES MS-60, L stale-save-1).
+_CHALLENGE_GONE = frozenset({REFUSALS["battle_not_ready"], REFUSALS["battle_missing"]})
 
 
 def refusal_text(code):
@@ -223,7 +232,8 @@ class PlayerMenu:
             view = (await self.companion.battle_challenge_rpc("status", battle_id=shown))["result"]
         except (BattleChallengeError, ConnectionError, OSError, asyncio.TimeoutError):
             return
-        if self._session() == binding and view.get("state") in ("aborted", "aborting") and not self._notice:
+        if self._session() == binding and view.get("state") in ("aborted", "aborting") and (
+                not self._notice or self._notice in _CHALLENGE_GONE):
             self._notice = CANCEL_REASONS.get(view.get("reason"), "Challenge cancelled")
 
     async def refresh(self):

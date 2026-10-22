@@ -64,6 +64,7 @@ class Opcode(IntEnum):
     READ_EFFECT_WINDOW = 28
     QUERY_EFFECT_CHOICE = 29
     WRITE_WINDOW = 30  # PC game with the import window: one 4 KiB sector, sent as 'i' with its bytes
+    QUERY_PARTY = 31   # PC game (save_party_query_abi_version 1): what a battle preparation checks (KNOWN_ISSUES MS-60)
 
 
 class Status(IntEnum):
@@ -170,9 +171,11 @@ class SaveControl:
                    Opcode.BEGIN_EFFECT_RECORD: 192, Opcode.CHOOSE_EFFECT_MOVE: 56,
                    Opcode.QUERY_EFFECT_RECORD: 48, Opcode.DISCARD_EFFECT_RECORD: 48,
                    Opcode.BEGIN_EFFECT_SAVE: 88, Opcode.READ_EFFECT_WINDOW: 48,
-                   Opcode.QUERY_EFFECT_CHOICE: 48, Opcode.WRITE_WINDOW: 4}
+                   Opcode.QUERY_EFFECT_CHOICE: 48, Opcode.WRITE_WINDOW: 4, Opcode.QUERY_PARTY: 0}
         if self.status != Status.OK or self.length != lengths[self.opcode]:
             raise SaveMailboxError("save command status or data length is invalid")
+        if self.opcode == Opcode.QUERY_PARTY and (self.total_size != FLASH_SIZE or self.offset or self.revision):
+            raise SaveMailboxError("a party query names canonical Flash and nothing else")
         if self.opcode in (Opcode.READ, Opcode.WRITE) and (self.total_size != FLASH_SIZE
                 or self.offset % SAVE_CHUNK_SIZE or self.offset >= FLASH_SIZE):
             raise SaveMailboxError("Flash chunks must be aligned and within canonical Flash")
@@ -221,7 +224,7 @@ class SaveControl:
                    Opcode.BEGIN_EFFECT_RECORD: 192, Opcode.CHOOSE_EFFECT_MOVE: 192,
                    Opcode.QUERY_EFFECT_RECORD: 192, Opcode.DISCARD_EFFECT_RECORD: 0,
                    Opcode.BEGIN_EFFECT_SAVE: 8, Opcode.READ_EFFECT_WINDOW: 4,
-                   Opcode.QUERY_EFFECT_CHOICE: 84, Opcode.WRITE_WINDOW: 0}
+                   Opcode.QUERY_EFFECT_CHOICE: 84, Opcode.WRITE_WINDOW: 0, Opcode.QUERY_PARTY: 20}
         if self.length != (lengths[self.opcode] if self.status == Status.OK else 0):
             raise SaveMailboxError("save response data length is invalid")
         if self.status == Status.OK and Opcode.BEGIN_EFFECT_RECORD <= self.opcode <= Opcode.QUERY_EFFECT_CHOICE:

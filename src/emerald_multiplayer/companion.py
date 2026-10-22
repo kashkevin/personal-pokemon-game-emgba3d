@@ -253,6 +253,7 @@ class CompanionConfig:
     menu_abi_version: int = field(init=False, default=1)
     menu_release_abi_version: int = field(init=False, default=0)   # PC game: a refused Enter battle releases its window
     save_import_window_abi_version: int = field(init=False, default=0)  # PC game: a trade's save a 4 KiB sector at a time
+    save_party_query_abi_version: int = field(init=False, default=0)  # PC game: QUERY_PARTY (KNOWN_ISSUES MS-60)
     menu_open_page_abi_version: int = field(init=False, default=0)  # PC game: a Players OPEN may name a page (soft reset)
     emergency_save_enabled: bool = field(init=False, default=False)
     emergency_save_abi_version: int = field(init=False, default=0)
@@ -297,6 +298,10 @@ class CompanionConfig:
         import_window = manifest.get("save_import_window_abi_version")
         object.__setattr__(self, "save_import_window_abi_version", 1 if type(import_window) is int and import_window == 1
                            and manifest.get("save_window_abi_version") == 1 else 0)
+        # KNOWN_ISSUES MS-60: the PC game answers what a battle preparation checks (party_identity.py).
+        party_query = manifest.get("save_party_query_abi_version")
+        object.__setattr__(self, "save_party_query_abi_version", 1 if type(party_query) is int and party_query == 1
+                           and manifest.get("save_abi_version") == 1 else 0)
         # Update 32: the PC game's START > PLAYER > RESET opens the Players menu on its soft reset page (the
         # launcher opts in with bridge.txt menu_open_page=1, bridge_config.configure_native).
         from .bridge_config import menu_open_page_enabled
@@ -1077,6 +1082,24 @@ class Companion:
             raise ValueError("use save_window_rpc for the separately verified read-only window")
         return await self._save_rpc(control, timeout=timeout)
 
+    async def live_party_identity(self, *, timeout: float = 5.0):
+        """KNOWN_ISSUES MS-60: what the running game's next battle PREPARE will compare (party_identity.PartyIdentity),
+        under the live-save binding battle admission requires; None when the game cannot say (no QUERY_PARTY in its
+        build, no binding, another save command pending, the mailbox busy) - the claim then goes as before."""
+        from uuid import uuid4
+        from .party_identity import PartyIdentity
+        from .save_mailbox import FLASH_SIZE, Opcode, SaveControl, Status
+        bridge, binding = self._bridge, getattr(self, "_live_binding", None)
+        if (self.config.save_party_query_abi_version != 1 or not self.connected or bridge is None
+                or not bridge.save_capable or binding is None or binding[2] != bridge.incarnation or self._save_pending):
+            return None
+        control = SaveControl(binding[2], binding[1], str(uuid4()), 1, 0, FLASH_SIZE, 0, Opcode.QUERY_PARTY)
+        try:
+            response = await self._dispatch_save_control(bridge, control.validate_command(), timeout)
+            return PartyIdentity.unpack(response.data) if response.status == Status.OK else None
+        except (asyncio.TimeoutError, ValueError, ConnectionError, BridgeError):
+            return None
+
     async def save_window_rpc(self, control, *, timeout=12.0):
         from .save_mailbox import Opcode
         self._guard_pending_trade_mutation()
@@ -1108,6 +1131,8 @@ class Companion:
         control.validate_command()
         if control.opcode == Opcode.WRITE_WINDOW:
             raise ValueError("use save_import_window_rpc for an import window")
+        if control.opcode == Opcode.QUERY_PARTY:
+            raise ValueError("use live_party_identity for the party query")
         if control.opcode >= Opcode.BEGIN_EFFECT_RECORD:
             raise ValueError("record preparation requires its dedicated retained trade authority")
         if control.opcode >= Opcode.BEGIN_EMERGENCY_EXPORT:

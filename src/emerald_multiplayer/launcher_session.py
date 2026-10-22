@@ -32,6 +32,7 @@ from .player_runtime import PlayerRuntime, RuntimeBundle, _finish_even_if_cancel
 from .server import WILDCARD, ServerConfig, WorldServer, is_local_address
 
 
+BATTLE_SAVE_WAIT = 600  # KNOWN_ISSUES MS-60: how long a refused Enter's save waits for the Players menu to close
 _MESSAGES = {
     "invalid_configuration": "The development launcher configuration is invalid.",
     "installation_changed": "The installed game differs from its application pins.",
@@ -336,6 +337,7 @@ class LauncherSession:
         self._host_world = None
         self._host_restart_task = None
         self._entry_cleanup_task = None
+        self._battle_save_task = None
         self._host_restart_notice = None
         self._connection_details = None
         self._championship_controller = None
@@ -1856,6 +1858,32 @@ class LauncherSession:
         self._autosave_wake.set()
         if self._game is not None and not self._save_failed:
             self._publish(SessionState.RUNNING, "battle_entry_refused", revision=self._revision)
+        if self._companion is not None and getattr(self._companion, "_battle_save_needed", False):
+            self._companion._battle_save_needed = False
+            self._start_battle_save()
+
+    def _start_battle_save(self):
+        """KNOWN_ISSUES MS-60: an Enter refused because this game changed since its last host save (save_needed): save
+        it, as Save now does, once the Players menu is closed (the game does not save under a menu), so the next
+        challenge starts from this progress. The autosave never comes sooner than its interval after a save."""
+        if self._battle_save_task is not None and not self._battle_save_task.done():
+            return
+
+        async def save_when_free():
+            loop = asyncio.get_running_loop()
+            deadline = loop.time() + BATTLE_SAVE_WAIT
+            while not self._closing and self._game is not None and loop.time() < deadline:
+                menu = getattr(getattr(self._companion, "_bridge", None), "menu_session", None)
+                if not self.can_save or getattr(menu, "open", False):
+                    await asyncio.sleep(.5)
+                    continue
+                try:
+                    if await self.save():
+                        return
+                except LauncherSessionError:
+                    return
+                await asyncio.sleep(3)          # refused while the game was busy (save_not_ready): try again
+        self._battle_save_task = asyncio.create_task(save_when_free(), name="launcher-battle-save")
 
     def _native_menu_capture_battle(self, descriptor, menu_session):
         """Publish the exact native Enter event before creating any async work."""
@@ -2270,6 +2298,9 @@ class LauncherSession:
             await asyncio.gather(self._host_restart_task, return_exceptions=True)
         if self._entry_cleanup_task is not None:
             await asyncio.gather(self._entry_cleanup_task, return_exceptions=True)
+        if self._battle_save_task is not None and not self._battle_save_task.done():
+            self._battle_save_task.cancel()
+            await asyncio.gather(self._battle_save_task, return_exceptions=True)
         await self._stop_reachability()
         try:
             if self._companion is not None:
