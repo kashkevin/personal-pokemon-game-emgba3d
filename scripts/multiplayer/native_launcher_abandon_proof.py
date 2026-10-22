@@ -26,8 +26,9 @@ ordinary key presses. Scenarios (--scenario):
                      by themselves. Then the same four play a free-for-all again to the end.
     ffa-knockout     No interruption (KNOWN_ISSUES MS-57): a free-for-all whose host is knocked out on its first turn and
                      which goes on without the host to its result. The sources are make_tower_saves.py knockout-a..d: a
-                     level-30 Earthquake (Friend 1's) against the host's and Friend 2's level-2 Pokemon, a level-30
-                     Tackle (Friend 3's). One of the two level-30 trainers wins.
+                     level-30 Earthquake (Friend 1's two Mudkip) against the host's level-2 Torchic (super effective:
+                     always out on the first turn) and Friend 2's level-2 Treecko, level-30 Tackles (Friend 3's four
+                     Zigzagoon): about eight turns with the host out. One of the two level-30 trainers wins.
     multi-knockout   The same in a 2v2 (KNOWN_ISSUES MS-57's other format): the host and Friend 1 against Friends 2
                      and 3 with the knockout sources; Friend 1's Earthquake knocks out its own partner's - the host's -
                      level-2 Pokemon and Friend 2's on the first turn, and the 2v2 goes on without the host to its result.
@@ -81,6 +82,11 @@ def kill_hard(pid):
 
 PLAYER_NAMES = ("AB Host", "AB Friend 1", "AB Friend 2", "AB Friend 3")
 SCENARIOS = ("pairs-crash", "multi-network", "ffa-host-crash", "ffa-exit", "ffa-knockout", "multi-knockout")
+
+
+def party_counts(scenario):
+    """The sources' party sizes: one Pokemon each, but the knockout sources' two Mudkip and four Zigzagoon."""
+    return (1, 2, 1, 4) if scenario.endswith("-knockout") else (1,) * 4
 PENDING = ("pending-battle.json", "pending-battle-admission.json")
 CLOSED_WAIT = 120       # seconds a launcher may take to report a closed battle finished (and saved)
 
@@ -788,8 +794,8 @@ class AbandonProof:
 async def run(args):
     require(len(args.source) == 4, "four sources, one per player")
     proof = AbandonProof(args.scenario, args.interrupt_after, args.watch, args.match_seconds, args.rematches)
-    await launcher_proof(args, names=PLAYER_NAMES, sources=args.source, party_counts=(1,) * 4, match=proof.match,
-                         version="Native interrupted battle proof", settings="windowScale=2\n",
+    await launcher_proof(args, names=PLAYER_NAMES, sources=args.source, party_counts=party_counts(args.scenario),
+                         match=proof.match, version="Native interrupted battle proof", settings="windowScale=2\n",
                          scope=__doc__.split("\n\n")[0] + " Scenario: " + args.scenario,
                          after_boot=into_littleroot, after_save=proof.after_save,
                          environment=dict(SDL_FRAMEBUFFER_ACCELERATION="0"),

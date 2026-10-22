@@ -216,6 +216,12 @@ class HostOutTests(unittest.IsolatedAsyncioTestCase):
         await self.proof.host_was_out(self.current, BATTLE, self.record, "knockout-2v2")
         self.assertEqual(self.records, [dict(check="knockout-2v2-host-out", menus=2)])
 
+    def test_the_knockout_sources_have_their_own_party_profile(self):
+        self.assertEqual(proof.party_counts("ffa-knockout"), (1, 2, 1, 4))
+        self.assertEqual(proof.party_counts("multi-knockout"), (1, 2, 1, 4))
+        for scenario in ("pairs-crash", "multi-network", "ffa-host-crash", "ffa-exit"):
+            self.assertEqual(proof.party_counts(scenario), (1, 1, 1, 1))
+
     async def test_a_battle_whose_host_was_never_out_fails_the_check(self):
         out = bytes.fromhex("0001020308000502" "11000000" "00000000")
         self.journal(journal_row("response", Opcode.READ_OUT, out))

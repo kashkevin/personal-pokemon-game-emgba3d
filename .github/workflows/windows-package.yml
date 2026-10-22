@@ -10,8 +10,8 @@
 #          launcher starts, and the silent install / start / repair / uninstall check.
 #   full   (manual): builds the game from the private engine first, then the same steps with
 #          the real game. Needs the secrets listed in docs/windows-ci-packaging.md.
-#          `only` (a check job's id) runs the builds and that one check, no installer: a failure
-#          looked at again without the whole run; with abandon-check, `abandon_scenario` and
+#          `only` (check job ids, comma-separated) runs the builds and those checks, no installer:
+#          failures looked at again without the whole run; with abandon-check, `abandon_scenario` and
 #          `attempts` run one scenario (or all) up to four times side by side. A release run
 #          leaves all three at their defaults.
 #
@@ -55,7 +55,7 @@ on:
         options: ["no", "yes"]
         default: "no"
       only:
-        description: "full: only this check job after the builds (its job id, e.g. abandon-check; blank = every job, the installer too)"
+        description: "full: only these check jobs after the builds (job ids, comma-separated, e.g. abandon-check,rival-proof; blank = every job, the installer too)"
         default: ""
       abandon_scenario:
         description: "full: the interrupted-battle check's scenario (all = the six)"
@@ -274,7 +274,7 @@ jobs:
     # through the game's own menus, each read from the game's own log (tools/battle_env/mega_check.py).
     name: Mega Evolution check (Windows game processes)
     needs: engine
-    if: ${{ (inputs.mode || 'smoke') == 'full' && (inputs.only || 'mega-check') == 'mega-check' }}
+    if: ${{ (inputs.mode || 'smoke') == 'full' && (!inputs.only || contains(format(',{0},', inputs.only), ',mega-check,')) }}
     runs-on: windows-2022
     timeout-minutes: 120
     steps:
@@ -317,7 +317,7 @@ jobs:
     # Four shards of 25 floors.
     name: Battle Tower floors ${{ matrix.floors }} (Windows game processes)
     needs: engine
-    if: ${{ (inputs.mode || 'smoke') == 'full' && (inputs.only || 'tower-check') == 'tower-check' }}
+    if: ${{ (inputs.mode || 'smoke') == 'full' && (!inputs.only || contains(format(',{0},', inputs.only), ',tower-check,')) }}
     runs-on: windows-2022
     timeout-minutes: 150
     strategy:
@@ -363,7 +363,7 @@ jobs:
     # tools/battle_env/train_check.py), in real Windows game processes of the same test build (a GitHub-hosted runner).
     name: Battle Tower caps and items (Windows game processes)
     needs: engine
-    if: ${{ (inputs.mode || 'smoke') == 'full' && (inputs.only || 'tower-extras') == 'tower-extras' }}
+    if: ${{ (inputs.mode || 'smoke') == 'full' && (!inputs.only || contains(format(',{0},', inputs.only), ',tower-extras,')) }}
     runs-on: windows-2022
     timeout-minutes: 60
     steps:
@@ -410,7 +410,7 @@ jobs:
     # Light Ball's Volt Tackle; every value read from the game's own log.
     name: Breeding and egg hatching (Windows game processes)
     needs: engine
-    if: ${{ (inputs.mode || 'smoke') == 'full' && (inputs.only || 'breed-check') == 'breed-check' }}
+    if: ${{ (inputs.mode || 'smoke') == 'full' && (!inputs.only || contains(format(',{0},', inputs.only), ',breed-check,')) }}
     runs-on: windows-2022
     timeout-minutes: 45
     steps:
@@ -450,7 +450,7 @@ jobs:
     # nature, Ability slot, ball and moves read from the game's own log.
     name: Evolution (Windows game processes)
     needs: engine
-    if: ${{ (inputs.mode || 'smoke') == 'full' && (inputs.only || 'evolve-check') == 'evolve-check' }}
+    if: ${{ (inputs.mode || 'smoke') == 'full' && (!inputs.only || contains(format(',{0},', inputs.only), ',evolve-check,')) }}
     runs-on: windows-2022
     timeout-minutes: 45
     steps:
@@ -489,7 +489,7 @@ jobs:
     # and sold back, each saved and loaded; the money and the Bag read from the game's own log, the prices the game's.
     name: Poke Mart purchase and sale (Windows game processes)
     needs: engine
-    if: ${{ (inputs.mode || 'smoke') == 'full' && (inputs.only || 'shop-check') == 'shop-check' }}
+    if: ${{ (inputs.mode || 'smoke') == 'full' && (!inputs.only || contains(format(',{0},', inputs.only), ',shop-check,')) }}
     runs-on: windows-2022
     timeout-minutes: 30
     steps:
@@ -529,7 +529,7 @@ jobs:
     # the PC; one species more caught in the Pokedex; each saved and loaded, read from the game's own log.
     name: Catching wild Pokemon (Windows game processes)
     needs: engine
-    if: ${{ (inputs.mode || 'smoke') == 'full' && (inputs.only || 'catch-check') == 'catch-check' }}
+    if: ${{ (inputs.mode || 'smoke') == 'full' && (!inputs.only || contains(format(',{0},', inputs.only), ',catch-check,')) }}
     runs-on: windows-2022
     timeout-minutes: 30
     steps:
@@ -573,7 +573,7 @@ jobs:
     # is the multiplayer battle the other jobs play.
     name: Rival checkpoints and the short introduction (Windows game processes)
     needs: engine
-    if: ${{ (inputs.mode || 'smoke') == 'full' && (inputs.only || 'rival-check') == 'rival-check' }}
+    if: ${{ (inputs.mode || 'smoke') == 'full' && (!inputs.only || contains(format(',{0},', inputs.only), ',rival-check,')) }}
     runs-on: windows-2022
     timeout-minutes: 60
     steps:
@@ -628,7 +628,7 @@ jobs:
     # first-clear prize, every floor's money and BP, the four milestone Pokemon (in the PC) and the record P 101, H 100.
     name: Battle Tower in the launcher (Windows game processes, ${{ matrix.name }})
     needs: [engine, symbol-sizes]
-    if: ${{ (inputs.mode || 'smoke') == 'full' && (inputs.only || 'tower-proof') == 'tower-proof' }}
+    if: ${{ (inputs.mode || 'smoke') == 'full' && (!inputs.only || contains(format(',{0},', inputs.only), ',tower-proof,')) }}
     runs-on: windows-2022
     timeout-minutes: ${{ matrix.name == 'climb' && 330 || 120 }}
     strategy:
@@ -744,7 +744,7 @@ jobs:
     # (the Dowsing Machine, VAR_ROUTE110_STATE 1), which the saves then hold.
     name: Rival checkpoint battle (Windows game processes, Route 110)
     needs: [engine, symbol-sizes]
-    if: ${{ (inputs.mode || 'smoke') == 'full' && (inputs.only || 'rival-proof') == 'rival-proof' }}
+    if: ${{ (inputs.mode || 'smoke') == 'full' && (!inputs.only || contains(format(',{0},', inputs.only), ',rival-proof,')) }}
     runs-on: windows-2022
     timeout-minutes: 90
     defaults:
@@ -819,7 +819,7 @@ jobs:
     # introduction, given their Charizard, stone and Ring by the test build.
     name: Mega Evolution in a multiplayer battle (Windows game processes, ${{ matrix.scenario }})
     needs: [engine, symbol-sizes]
-    if: ${{ (inputs.mode || 'smoke') == 'full' && (inputs.only || 'mega-proof') == 'mega-proof' }}
+    if: ${{ (inputs.mode || 'smoke') == 'full' && (!inputs.only || contains(format(',{0},', inputs.only), ',mega-proof,')) }}
     runs-on: windows-2022
     timeout-minutes: 90
     strategy:
@@ -900,7 +900,7 @@ jobs:
     # is due. The same check as the gameplay-check workflow's Linux shards, here on Windows runners.
     name: Gameplay check (Windows game processes, shard ${{ matrix.shard }})
     needs: engine
-    if: ${{ (inputs.mode || 'smoke') == 'full' && inputs.gameplay_qa == 'yes' && (inputs.only || 'gameplay-check') == 'gameplay-check' }}
+    if: ${{ (inputs.mode || 'smoke') == 'full' && inputs.gameplay_qa == 'yes' && (!inputs.only || contains(format(',{0},', inputs.only), ',gameplay-check,')) }}
     runs-on: windows-2022
     timeout-minutes: 330
     strategy:
@@ -947,7 +947,7 @@ jobs:
   gameplay-report:
     name: The whole game's gameplay report (Windows)
     needs: [engine, gameplay-check]
-    if: ${{ always() && (inputs.mode || 'smoke') == 'full' && inputs.gameplay_qa == 'yes' && needs.engine.result == 'success' && (inputs.only || 'gameplay-check') == 'gameplay-check' }}
+    if: ${{ always() && (inputs.mode || 'smoke') == 'full' && inputs.gameplay_qa == 'yes' && needs.engine.result == 'success' && (!inputs.only || contains(format(',{0},', inputs.only), ',gameplay-check,')) }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -977,7 +977,7 @@ jobs:
     # is unreadable here and slow), whose summary line the job prints, and every FAIL line of a test that failed.
     name: Engine self-tests (the Windows build)
     needs: engine
-    if: ${{ (inputs.mode || 'smoke') == 'full' && (inputs.only || 'selftests') == 'selftests' }}
+    if: ${{ (inputs.mode || 'smoke') == 'full' && (!inputs.only || contains(format(',{0},', inputs.only), ',selftests,')) }}
     runs-on: windows-2022
     timeout-minutes: 45
     steps:
@@ -1031,7 +1031,7 @@ jobs:
     # What it says: the 3D renderer, its shaders and animations work in a Windows process; not a GPU or vendor driver.
     name: 3D graphics (Windows game processes, Mesa software OpenGL)
     needs: engine
-    if: ${{ (inputs.mode || 'smoke') == 'full' && (inputs.only || 'graphics-3d') == 'graphics-3d' }}
+    if: ${{ (inputs.mode || 'smoke') == 'full' && (!inputs.only || contains(format(',{0},', inputs.only), ',graphics-3d,')) }}
     runs-on: windows-2022
     timeout-minutes: 120
     env:
@@ -1132,7 +1132,7 @@ jobs:
     # with battler 0 out.
     name: Interrupted battle (Windows game processes, ${{ matrix.scenario }}${{ matrix.attempt > 1 && format(', attempt {0}', matrix.attempt) || '' }})
     needs: [engine, symbol-sizes]
-    if: ${{ (inputs.mode || 'smoke') == 'full' && (inputs.only || 'abandon-check') == 'abandon-check' }}
+    if: ${{ (inputs.mode || 'smoke') == 'full' && (!inputs.only || contains(format(',{0},', inputs.only), ',abandon-check,')) }}
     runs-on: windows-2022
     timeout-minutes: 120
     strategy:
@@ -1216,7 +1216,7 @@ jobs:
     # (tools/battle_env/feature_check.py).
     name: Starters, soft reset and rerolls (Windows game processes)
     needs: engine
-    if: ${{ (inputs.mode || 'smoke') == 'full' && (inputs.only || 'feature-check') == 'feature-check' }}
+    if: ${{ (inputs.mode || 'smoke') == 'full' && (!inputs.only || contains(format(',{0},', inputs.only), ',feature-check,')) }}
     runs-on: windows-2022
     timeout-minutes: 45
     steps:
@@ -1312,7 +1312,7 @@ jobs:
     # its own loopback: no second PC, router or Internet.
     name: Multiplayer gameplay (Windows game processes, ${{ matrix.players }} players, ${{ matrix.scenario }})
     needs: [engine, symbol-sizes]
-    if: ${{ (inputs.mode || 'smoke') == 'full' && (inputs.only || 'multiplayer-check') == 'multiplayer-check' }}
+    if: ${{ (inputs.mode || 'smoke') == 'full' && (!inputs.only || contains(format(',{0},', inputs.only), ',multiplayer-check,')) }}
     runs-on: windows-2022
     timeout-minutes: 120
     strategy:
@@ -1387,7 +1387,7 @@ jobs:
   package:
     name: Build the launcher package (Windows)
     needs: engine
-    if: ${{ !cancelled() && (needs.engine.result == 'success' || needs.engine.result == 'skipped') && (inputs.only || 'package') == 'package' }}
+    if: ${{ !cancelled() && (needs.engine.result == 'success' || needs.engine.result == 'skipped') && (!inputs.only || contains(format(',{0},', inputs.only), ',package,')) }}
     runs-on: ${{ inputs.runner == 'self-hosted' && fromJSON('["self-hosted","windows"]') || 'windows-2022' }}
     defaults:
       run:

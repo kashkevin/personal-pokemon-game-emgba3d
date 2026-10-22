@@ -17,9 +17,15 @@ PKMN_TEST_TOWER_RECORD: the game loads the save, sets them and saves through its
                         Choice Specs: the Duo climb
   abandon-a / -b / -c / -d  one level-5 starter each (Treecko, Torchic, Mudkip, Treecko): the interrupted battle proof
                         (native_launcher_abandon_proof.py; players 3 and 4 from --source-c and --source-d)
-  knockout-a / -b / -c / -d  a level-2 Treecko, a level-30 Mudkip with Earthquake first, a level-2 Torchic, a level-30
-                        Zigzagoon with Tackle first: the interrupted battle proof's ffa-knockout (the host knocked out
-                        on the first turn of a free-for-all that goes on; KNOWN_ISSUES MS-57)
+  knockout-a / -b / -c / -d  a level-2 Torchic; two level-30 Mudkip with Earthquake first; a level-2 Treecko; four
+                        level-30 Zigzagoon with Tackle first: the interrupted battle proof's ffa-knockout and
+                        multi-knockout (the host knocked out on the first turn of a battle that goes on; KNOWN_ISSUES
+                        MS-57). The host's is the Torchic: Ground is super effective on it, so the first Earthquake
+                        knocks it out whoever is targeted and whatever the roll. The battle then goes on for about eight
+                        turns (Earthquake takes two turns per Zigzagoon): each turn of a double battle the game picks at
+                        random (AI_REVERSE_BATTLER_LOGIC_ORDER_CHANCE, 50%) whether battler 0's action menu is settled
+                        before the others' and so carries B_ACTION_NOTHING_FAINTED, and Windows run 145's 2v2s, two
+                        turns long after the knockout, drew B_ACTION_NONE on every turn.
   mega2-a / -b          a level-50 Charizard holding Charizardite X / Y, the Mega Ring in the bag: the Mega Evolution
                         proof's 1v1 (native_launcher_mega_proof.py --scenario two)
   mega2-noring-b        as mega2-b without the Mega Ring (--scenario no-ring: never offered the Mega)
@@ -66,10 +72,10 @@ FIXTURES = (  # (name, source, party, record "highest:progress" or None[, bag "i
     ("abandon-b", "b", "255:5", None),                 # SPECIES_TORCHIC
     ("abandon-c", "c", "258:5", None),                 # SPECIES_MUDKIP
     ("abandon-d", "d", "252:5", None),
-    ("knockout-a", "a", "252:2", None),                # SPECIES_TREECKO
-    ("knockout-b", "b", "258:30:v89", None),           # SPECIES_MUDKIP, MOVE_EARTHQUAKE: it hits every other trainer
-    ("knockout-c", "c", "255:2", None),                # SPECIES_TORCHIC
-    ("knockout-d", "d", "263:30:v33", None),           # SPECIES_ZIGZAGOON, MOVE_TACKLE
+    ("knockout-a", "a", "255:2", None),                # SPECIES_TORCHIC: Ground is super effective, Earthquake KOs it
+    ("knockout-b", "b", ",".join(["258:30:v89"] * 2), None),   # SPECIES_MUDKIP, MOVE_EARTHQUAKE: it hits every other trainer
+    ("knockout-c", "c", "252:2", None),                # SPECIES_TREECKO
+    ("knockout-d", "d", ",".join(["263:30:v33"] * 4), None),   # SPECIES_ZIGZAGOON, MOVE_TACKLE
     ("mega2-a", "a", "6:50:i293", None, "703:1"),     # SPECIES_CHARIZARD, ITEM_CHARIZARDITE_X; ITEM_MEGA_RING
     ("mega2-b", "b", "6:50:i294", None, "703:1"),     # ITEM_CHARIZARDITE_Y
     ("mega2-noring-b", "b", "6:50:i294", None, ""),

@@ -174,8 +174,8 @@ class WindowsWorkflowTests(unittest.TestCase):
         self.assertIn("--pe-symbols symbols/pokeemerald-mp.nm.txt", abandon)
 
     def test_one_check_runs_on_its_own_and_a_release_run_runs_everything(self):
-        # `only` names a check job: the builds and that job run, nothing else (no installer). Blank (a release run, a
-        # push) runs every job as before.
+        # `only` names check jobs (comma-separated): the builds and those jobs run, nothing else (no installer). Blank (a
+        # release run, a push) runs every job as before.
         self.assertIn("      only:\n", WORKFLOW)
         checks = [name for name in re.findall(r"^  ([a-z0-9-]+):\n", WORKFLOW, re.M)
                   if name not in ("push", "engine", "symbol-sizes", "install-check")]
@@ -185,7 +185,8 @@ class WindowsWorkflowTests(unittest.TestCase):
             with self.subTest(job=name):
                 key = "gameplay-check" if name == "gameplay-report" else name
                 condition = re.search(r"^    if: (.*)$", job(name), re.M).group(1)
-                self.assertTrue(condition.endswith(f"&& (inputs.only || '{key}') == '{key}' }}}}"), condition)
+                self.assertTrue(condition.endswith(
+                    f"&& (!inputs.only || contains(format(',{{0}},', inputs.only), ',{key},')) }}}}"), condition)
         for name in ("engine", "symbol-sizes"):
             self.assertNotIn("inputs.only", job(name))
         self.assertIn("needs: package", job("install-check"))
