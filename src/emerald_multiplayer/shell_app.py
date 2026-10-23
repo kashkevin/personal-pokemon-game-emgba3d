@@ -2013,7 +2013,8 @@ def main(release=None, application_directory=None, import_release=None):
     if "--relay-server" in sys.argv[1:]:                    # EmeraldTogether.exe --relay-server [--port 7780]: run a relay (relay.py)
         from .relay import frozen_main
         return frozen_main(sys.argv[1:])
-    from .launcher_gui import SessionWorker, private_directory, windows_dpi_awareness
+    from .launcher_gui import SessionWorker, private_directory, windows_dpi_awareness, windows_timer_resolution
+    windows_timer_resolution()
     from .shell_protocol import ShellProcess
     if release is None or "--classic-launcher" in sys.argv[1:]:                          # the earlier window, on request
         return classic_launcher(release, application_directory, import_release)          # a source preview has no game to host it

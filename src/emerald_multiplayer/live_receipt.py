@@ -24,6 +24,7 @@ from .flash import FLASH_SIZE, FlashError, LAYOUT_ID, MAX_CONTAINER_SIZE, inspec
 from .ownership import OWNERSHIP_PROFILE
 from .protocol import MAX_COUNTER
 from .storage import _ExclusiveFileLock
+from .windows_files import replace_file
 
 if TYPE_CHECKING:
     from .checkpoint_client import DownloadedCheckpoint
@@ -266,7 +267,7 @@ def record_live_apply(path: str | Path, downloaded: DownloadedCheckpoint,
             target.write(data)
             target.flush()
             os.fsync(target.fileno())
-        os.replace(staging, destination)
+        replace_file(staging, destination)
         if os.name != "nt":
             directory = os.open(destination.parent, os.O_RDONLY | os.O_DIRECTORY)
             try:

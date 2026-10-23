@@ -498,6 +498,20 @@ class WidgetTests(unittest.TestCase):
             self.assertTrue(launcher_gui.windows_dpi_awareness())
         self.assertEqual(calls, [1])
 
+    def test_fine_timer_only_on_windows(self):
+        # KNOWN_ISSUES MS-62: the battle loops' few-millisecond waits are 15.6 ms on Windows without timeBeginPeriod(1).
+        from unittest.mock import patch
+        from emerald_multiplayer import launcher_gui
+        import types
+        with patch.object(launcher_gui.os, "name", "posix"):
+            self.assertFalse(launcher_gui.windows_timer_resolution())
+        calls = []
+        winmm = types.SimpleNamespace(timeBeginPeriod=lambda period: calls.append(period) or 0)
+        fake = types.SimpleNamespace(WinDLL=lambda name: winmm if name == "winmm" else None)
+        with patch.object(launcher_gui.os, "name", "nt"), patch.dict("sys.modules", {"ctypes": fake}):
+            self.assertTrue(launcher_gui.windows_timer_resolution())
+        self.assertEqual(calls, [1])
+
     def test_preview_disables_play_without_release(self):
         window = LauncherWindow(self.root)
         self.root.update_idletasks()

@@ -25,6 +25,7 @@ from .ownership import OWNERSHIP_PROFILE, inspect_ownership
 from .protocol import MAX_COUNTER
 from .save_mailbox import Opcode, SaveControl, State, TradeHold
 from .trade_preparation import prepare_recipient as build_recipient_candidate, validate_preparation
+from .windows_files import unlink_file
 
 
 class LiveTradeError(LiveSaveError):
@@ -653,7 +654,7 @@ class LiveTradeCoordinator(LiveCheckpointCoordinator):
         emergency = getattr(self.companion, "_emergency_controller", None)
         if emergency is not None:
             emergency.trade_completed(self._session(), intent, outcome)
-        self.trade_path.unlink()
+        unlink_file(self.trade_path)
         _sync_directory(self.directory)
         result = {"transaction_id": intent["transaction_id"], "generation": intent["generation"],
             "expected_revision": intent["expected_revision"], "state": outcome,

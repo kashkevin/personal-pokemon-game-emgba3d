@@ -24,6 +24,7 @@ from .flash import FLASH_SIZE, inspect_flash
 from .live_receipt import record_live_apply
 from .protocol import MAX_COUNTER
 from .save_mailbox import Opcode, SaveControl, Status, SAVE_CHUNK_SIZE
+from .windows_files import replace_file
 
 
 class LiveSaveError(ValueError):
@@ -58,7 +59,7 @@ def _atomic(path: Path, payload: bytes) -> None:
             target.write(payload)
             target.flush()
             os.fsync(target.fileno())
-        os.replace(temporary, path)
+        replace_file(temporary, path)
         _sync_directory(path.parent)
     finally:
         with suppress(FileNotFoundError):

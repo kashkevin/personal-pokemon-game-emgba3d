@@ -21,6 +21,7 @@ from .flash import FlashError, LAYOUT_ID, MAX_CONTAINER_SIZE, inspect_flash
 from .ownership import OWNERSHIP_PROFILE
 from .protocol import MAX_COUNTER
 from .storage import _ExclusiveFileLock
+from .windows_files import replace_file
 
 MIRROR_SCHEMA_VERSION = 1
 MAX_SIDECAR_BYTES = 4096
@@ -305,9 +306,9 @@ def restore_checkpoint_held(lease: MirrorLease, checkpoint, world_id: str) -> Mi
         staged_save = _stage(path, payload)
         metadata = (json.dumps(asdict(info), sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8")
         staged_sidecar = _stage(sidecar, metadata)
-        os.replace(staged_save, path)
+        replace_file(staged_save, path)
         _fsync_directory(path.parent)
-        os.replace(staged_sidecar, sidecar)
+        replace_file(staged_sidecar, sidecar)
         _fsync_directory(path.parent)
     except OSError as error:
         raise MirrorError("mirror_io_error", "offline checkpoint replacement was interrupted; inspect preserved recovery files") from error

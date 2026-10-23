@@ -2203,10 +2203,25 @@ def windows_dpi_awareness():
             return False
 
 
+def windows_timer_resolution():
+    """KNOWN_ISSUES MS-62: Windows rounds every timed wait of this process up to its clock's 15.6 ms tick unless the
+    process asks for 1 ms (timeBeginPeriod; the game asks for its own through SDL). The battle loops wait a few
+    milliseconds between steps (the observer's 4 ms look at the game, the 1 ms poll after an empty answer), which
+    became 15.6 ms each on a player's PC. Before the sessions start; nothing to do elsewhere."""
+    if os.name != "nt":
+        return False
+    import ctypes
+    try:
+        return ctypes.WinDLL("winmm").timeBeginPeriod(1) == 0
+    except (AttributeError, OSError):
+        return False
+
+
 def main(release=None, application_directory=None, import_release=None):
     """Packaged entry supplies compiled release pins; source launch is a preview."""
     import tkinter as tk
     windows_dpi_awareness()
+    windows_timer_resolution()
     root = tk.Tk()
     worker = None
     private_error = False
