@@ -511,10 +511,13 @@ async def run(args):
     proof = ChallengeProof(args.scenario, args.watch, args.late, args.match_seconds, args.fixed, args.perf)
     if args.delay_host_query:
         route_timeline.DELAYS[PLAYER_NAMES[0]] = dict(seconds=args.delay_host_query, after=args.delay_after)
-    await launcher_proof(args, names=PLAYER_NAMES[:count], sources=args.source, party_counts=(1,) * count, match=proof.match,
+    party_counts = tuple(args.party_counts) if args.party_counts else (1,) * count
+    require(len(party_counts) == count, "one --party-counts entry per source")
+    # --anywhere: the saves stay where they were saved (a trade needs no place; mid-game saves are not near Littleroot)
+    await launcher_proof(args, names=PLAYER_NAMES[:count], sources=args.source, party_counts=party_counts, match=proof.match,
                          version="Native challenge proof", settings="windowScale=2\n",
                          scope=__doc__.split("\n\n")[0] + " Scenario: " + args.scenario,
-                         after_boot=into_littleroot, after_save=proof.after_save,
+                         after_boot=None if args.anywhere else into_littleroot, after_save=proof.after_save,
                          environment=dict(SDL_FRAMEBUFFER_ACCELERATION="0"), on_harness=proof.adopt)
 
 
@@ -528,6 +531,8 @@ def main():
     parser.add_argument("--display", action="append", required=True)
     parser.add_argument("--output", type=__import__("pathlib").Path, required=True)
     parser.add_argument("--slow", type=float, default=1.0)
+    parser.add_argument("--party-counts", type=int, nargs="+", help="each source's party size (default: 1 each)")
+    parser.add_argument("--anywhere", action="store_true", help="the players start where their saves were made")
     parser.add_argument("--watch", type=float, default=60, help="seconds to watch both games after entering")
     parser.add_argument("--late", type=float, default=45, help="late-enter: seconds between the two entries")
     parser.add_argument("--match-seconds", type=float, default=900)

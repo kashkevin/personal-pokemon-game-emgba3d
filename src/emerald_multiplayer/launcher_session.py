@@ -130,6 +130,13 @@ def _safe_error(error):
     return LauncherSessionError(code)
 
 
+def _trade_reason(error) -> str:
+    """A failed trade's reason for the game's banner: its error code (or the exception's kind), at most 26 characters."""
+    code = getattr(error, "code", None)
+    text = code if isinstance(code, str) and code else type(error).__name__
+    return "".join(ch if 32 <= ord(ch) < 127 and ch != "|" else "_" for ch in text)[:26]
+
+
 @dataclass(frozen=True)
 class GameInstallation:
     """Pins come from the application release record, never from an invitation.
@@ -1824,30 +1831,55 @@ class LauncherSession:
         held or written: the proposal is cancelled so the other player is not left waiting; returns None then."""
         from .companion import TradeError
         coordinator, c = trade_menu.coordinator, self._companion
-        # The Players menu has closed by now: the game's banner says what happened (the owner's report of 2026-10-23,
-        # "for trading it literally just kicks you out of the screen": the notice waited for the menu's next opening).
-        banner = getattr(c, "show_local_notice", None)
-        say = banner if callable(banner) else (lambda text: None)
+        # The Players menu has closed by now: the game's banner says what happened and why (the owner's reports of
+        # 2026-10-23, "for trading it literally just kicks you out of the screen", then after both confirmed: closed
+        # with no message and nothing traded). Its second line is the error's code, for the player to pass on (two lines
+        # of at most 32 characters).
+        say = self._trade_banner
+        reason = _trade_reason(error)
         if not coordinator.trade_path.exists():
             try:
                 await c.trade_rpc("cancel", transaction_id=descriptor["transaction_id"], generation=descriptor["generation"])
             except (TradeError, ConnectionError, OSError, asyncio.TimeoutError, ValueError):
                 pass
             menu_session.menu.notice("Trade did not start: try again")
-            say("The trade did not start.|Try again from PLAYERS.")
+            say(f"Trade did not start (retry).|Code: {reason}")
             return None
         if not c.connected:
+            say(f"Trade stopped: host lost.|Code: {reason}")
             raise error
         menu_session.abandon_trade_dialog()
         try:
             result = await asyncio.wait_for(coordinator.cancel(), 120)
         except (Exception, asyncio.CancelledError):
+            say(f"Trade stopped; keep game open|Code: {reason}")
             raise error from None
         trade_menu._completion(result)
         if isinstance(result, dict) and result.get("state") == "aborted":
             menu_session.menu.notice("Trade cancelled: nothing changed")
-            say("The trade was cancelled.|Nothing changed.")
+            say(f"Trade cancelled; no change.|Code: {reason}")
+        elif isinstance(result, dict) and result.get("state") == "applied":
+            self._trade_outcome_banner(trade_menu, result)
         return result
+
+    def _trade_banner(self, text):
+        banner = getattr(self._companion, "show_local_notice", None)
+        if callable(banner):
+            banner(text)
+
+    def _trade_outcome_banner(self, trade_menu, result):
+        """The game's banner for a finished trade: the received Pokemon, or who ended it (a trade used to close its window
+        with nothing said; the menu's own notice waited for PLAYERS to open again)."""
+        from .species_labels import species_label
+        if result.get("state") == "applied":
+            received = result.get("received")
+            species = received["species"] if received is not None else getattr(trade_menu, "peer_species", None)
+            self._trade_banner("Trade complete!|" + (f"You received {species_label(species)}." if species else
+                                                       "Your party is saved."))
+        elif getattr(trade_menu, "cancelled_here", False):
+            self._trade_banner("Trade cancelled.|Nothing changed.")
+        else:
+            self._trade_banner("Trade ended by friend or host.|Nothing changed.")
 
     def _native_menu_refused_battle(self, menu_session):
         """An Enter refused before any ADMIT (BattleAdmissionRefused): forget its Python ownership. Nothing native or
@@ -2082,9 +2114,11 @@ class LauncherSession:
                 self._trade_retained = (self._game, self._runtime, c._bridge, self._binding,
                     (descriptor["transaction_id"], descriptor["generation"], original_base, incarnation,
                      c._live_trade_runtime_id), menu_session, base)
+                settled = False
                 try:
                     result = await trade_menu.run(descriptor, base)
                 except Exception as error:
+                    settled = True
                     result = await self._settle_failed_trade(trade_menu, menu_session, descriptor, error)
                     if result is None:
                         # Nothing was held or written: the trade did not start; saving stays available.
@@ -2101,6 +2135,8 @@ class LauncherSession:
                         or (self._profile_directory / "pending-trade.json").exists()):
                     raise LauncherSessionError("recovery_required")
                 code = "trade_finished" if result["state"] == "applied" else "trade_cancelled"
+                if not settled:
+                    self._trade_outcome_banner(trade_menu, result)
             else:
                 raise LauncherSessionError("invalid_configuration")
             self._assert_session()

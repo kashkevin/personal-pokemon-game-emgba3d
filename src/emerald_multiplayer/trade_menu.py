@@ -84,6 +84,8 @@ class NativeTradeMenu:
         self.blocked_serial = None
         self.notice = ""
         self.effect_paused = False
+        self.peer_species = None      # the friend's offered species, as last seen (the banner's "You received ...")
+        self.cancelled_here = False   # this player chose Cancel trade
 
     async def _inspect(self, view, player):
         """Negotiate through a known operation before sending the new request."""
@@ -163,6 +165,8 @@ class NativeTradeMenu:
         else:
             own = next((o for o in view["offers"] if o["player_id"] == actor), None)
             peer = next((o for o in view["offers"] if o["player_id"] != actor), None)
+            if peer is not None:
+                self.peer_species = peer["species"]
             status = self.notice or "Select offers for details"
             for label, offer in (("Yours", own), ("Theirs", peer)):
                 actions.append((label + ": " + (species_label(offer["species"]) if offer else "Waiting"),
@@ -279,6 +283,7 @@ class NativeTradeMenu:
                 # native terminal release. Relinquish this window first, then
                 # let that owner resolve cancellation versus a concurrent commit.
                 await self.menu_session.close_dialog(self.screen)
+                self.cancelled_here = True
                 return self._completion(await self.coordinator.cancel())
             else:
                 self.page = "party"
