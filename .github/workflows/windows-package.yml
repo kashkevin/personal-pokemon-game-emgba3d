@@ -127,8 +127,18 @@ jobs:
             [ "$attempt" = 3 ] && { echo "apt-get update failed three times" >&2; exit 1; }
             echo "apt-get update stalled or failed (attempt $attempt): again" >&2
           done
-          timeout 1200 sudo apt-get install -y -qq --no-install-recommends build-essential libpng-dev \
-            gcc-arm-none-eabi binutils-arm-none-eabi libnewlib-arm-none-eabi mingw-w64 gdb
+          # The install itself then stalled for its whole 20 minutes (runs 175, 180 and 183, 2026-10-23), with no output.
+          # dpkg's man-db trigger is a known stall on hosted runners (it rebuilds the manual index after every install):
+          # skip it; and try three times, at most seven minutes each (apt keeps what it already downloaded).
+          sudo rm -f /var/lib/man-db/auto-update
+          for attempt in 1 2 3; do
+            timeout 420 sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends \
+              -o Dpkg::Use-Pty=0 build-essential libpng-dev \
+              gcc-arm-none-eabi binutils-arm-none-eabi libnewlib-arm-none-eabi mingw-w64 gdb && break
+            [ "$attempt" = 3 ] && { echo "apt-get install failed three times" >&2; exit 1; }
+            echo "apt-get install stalled or failed (attempt $attempt): again" >&2
+            sudo dpkg --configure -a || true
+          done
           python -m venv .venv
           .venv/bin/python -m pip install --require-hashes --only-binary=:all: \
             -r app/requirements-host-provisioning.txt

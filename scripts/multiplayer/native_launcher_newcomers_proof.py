@@ -611,7 +611,7 @@ class NewcomersProof(SoftResetProof, ThreePlayerProof):
         await self.across_route_101(3, current, probes, record)
 
 
-LATENCY_MS, HOLD, DISK_MS, REMOTE_ONLY = [0], [True], [0], [False]
+LATENCY_MS, HOLD, DISK_MS, REMOTE_ONLY, LATENCY_ALL = [0], [True], [0], [False], [False]
 
 
 def simulate_disk(disk_ms):
@@ -640,7 +640,9 @@ def simulate_internet(latency_ms, hold, host_player=None):
         # handshake or rejoin is refused (wrong_world), as a real one never is.
         def lagged(session, message):
             # --remote-only: the host's own game talks to its server on the same PC, without the network's delay.
-            return (str(message.get("type", "")).startswith("battle_")
+            # --latency-all: every message from the match on (trades, saves, presence), not only the battle's.
+            kind = str(message.get("type", ""))
+            return ((kind.startswith("battle_") or (LATENCY_ALL[0] and kind not in ("hello", "welcome")))
                     and (host_player is None or getattr(session, "player_id", None) != host_player))
 
         def late_receive(self, session, message):
@@ -662,6 +664,7 @@ def simulate_internet(latency_ms, hold, host_player=None):
 
 async def run(args):
     LATENCY_MS[0], HOLD[0], DISK_MS[0], REMOTE_ONLY[0] = args.latency_ms, not args.no_hold, args.disk_ms, args.remote_only
+    LATENCY_ALL[0] = args.latency_all
     count = len(args.source)
     require(2 <= count <= 4, "two to four sources (short-introduction saves)")
     require(args.scenario == "lobby" or count == 4 or (args.scenario == "trade" and count == 2),
@@ -704,6 +707,8 @@ def main():
     parser.add_argument("--remote-only", action="store_true",
                         help="--latency-ms for the other players only (the host's own game is on its PC)")
     parser.add_argument("--disk-ms", type=float, default=0, help="extra milliseconds on every fsync (a player's PC)")
+    parser.add_argument("--latency-all", action="store_true",
+                        help="--latency-ms on every message from the match on, not only the battle's")
     parser.add_argument("--no-hold", action="store_true", help="the host answers battle polls at once (before MS-62)")
     args = parser.parse_args()
     if args.format is None:
