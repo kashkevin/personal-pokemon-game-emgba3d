@@ -61,6 +61,7 @@ from native_launcher_lobby4_proof import FourPlayerLobbyProof  # noqa: E402
 from native_launcher_newcomer_proof import LAB, LITTLEROOT, NO_POKEMON  # noqa: E402
 from native_launcher_soft_reset_proof import SoftResetProof  # noqa: E402
 from native_launcher_three_player_proof import ThreePlayerProof, longest_gap  # noqa: E402
+from proof_network import simulate_disk, simulate_internet  # noqa: E402
 from emerald_multiplayer.menu_mailbox import unpack_screen  # noqa: E402
 from qualify_admission_cleanup import on_worker, require  # noqa: E402
 
@@ -504,7 +505,7 @@ class NewcomersProof(SoftResetProof, ThreePlayerProof):
             async def player(s):
                 return s._companion.config.player_id
             host_player = await on_worker(current[0], player)
-        simulate_internet(LATENCY_MS[0], HOLD[0], host_player)
+        simulate_internet(LATENCY_MS[0], HOLD[0], host_player, everything=LATENCY_ALL[0])
         simulate_disk(DISK_MS[0])
         count = len(current)
         for n, worker in enumerate(current):
@@ -679,54 +680,6 @@ class NewcomersProof(SoftResetProof, ThreePlayerProof):
 LATENCY_MS, HOLD, DISK_MS, REMOTE_ONLY, LATENCY_ALL, WALK = [0], [True], [0], [False], [False], [0.0]
 # live_trade.CALM_OPCODES (QUERY_OWNERSHIP, GRANT_OWNERSHIP, BEGIN_TRADE_EXPORT), spelled out to run on older apps too.
 CALM_OPCODES = frozenset({10, 11, 12})
-
-
-def simulate_disk(disk_ms):
-    """--disk-ms: every fsync waits that much longer, as on a player's Windows PC (a consumer SSD's cache flush and the
-    virus scanner's look at each new file; the CI runners and this machine flush at once)."""
-    if disk_ms:
-        import os
-        real = os.fsync
-
-        def slow_fsync(fd):
-            time.sleep(disk_ms / 1000)
-            return real(fd)
-        os.fsync = slow_fsync
-
-
-def simulate_internet(latency_ms, hold, host_player=None):
-    """--latency-ms: every battle message between the host and a player arrives that much later, each way (the host's
-    receive and send, in its own event loop), as over the internet. --no-hold: the host answers a battle poll at once,
-    as before KNOWN_ISSUES MS-62's fix (for the comparison). From the match on: the world's set-up (enrollment) answers
-    each step at once."""
-    from emerald_multiplayer.server import WorldServer
-    if latency_ms:
-        delay, receive, control = latency_ms / 1000, WorldServer._receive, WorldServer._control
-
-        # Battle messages only (the challenge, its acceptance, Enter and every native command): a delayed connection
-        # handshake or rejoin is refused (wrong_world), as a real one never is.
-        def lagged(session, message):
-            # --remote-only: the host's own game talks to its server on the same PC, without the network's delay.
-            # --latency-all: every message from the match on (trades, saves, presence), not only the battle's.
-            kind = str(message.get("type", ""))
-            return ((kind.startswith("battle_") or (LATENCY_ALL[0] and kind not in ("hello", "welcome")))
-                    and (host_player is None or getattr(session, "player_id", None) != host_player))
-
-        def late_receive(self, session, message):
-            if lagged(session, message):
-                asyncio.get_running_loop().call_later(delay, receive, self, session, message)
-            else:
-                receive(self, session, message)
-
-        def late_control(self, session, message):
-            if lagged(session, message):
-                asyncio.get_running_loop().call_later(delay, control, self, session, message)
-            else:
-                control(self, session, message)
-        WorldServer._receive, WorldServer._control = late_receive, late_control
-    if not hold:
-        WorldServer._hold_execute_reply = lambda self, session, request, result: self._battle_reply(
-            session, request, result=result)
 
 
 async def run(args):

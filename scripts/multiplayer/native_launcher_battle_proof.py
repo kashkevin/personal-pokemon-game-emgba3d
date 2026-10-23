@@ -924,6 +924,10 @@ async def launcher_proof(args, *, names, sources, party_counts, match, version, 
     `on_harness(harness)` gets the harness first (a match that closes and restarts a
     player's game: `harness.players` is the phase's players; a match that replaces one
     updates the lists it was given in place)."""
+    if os.environ.get("PROOF_LIGHT_3D") == "1":
+        # --game is the 3D build: the light settings of native_launcher_battle_3d_proof.py (software OpenGL here)
+        from native_launcher_battle_3d_proof import LIGHT_3D_SETTINGS
+        settings = LIGHT_3D_SETTINGS
     harness = LauncherHarness(args, names=names, sources=sources, party_counts=party_counts, version=version,
                               settings=settings, scope=scope, after_boot=after_boot, environment=environment)
     if on_harness is not None:
@@ -948,6 +952,8 @@ async def launcher_proof(args, *, names, sources, party_counts, match, version, 
                 await after_continue(current, probes, host, record)
             if phase == "battle-and-save":
                 harness.players = players
+                from proof_network import apply_environment
+                await apply_environment(current, record)      # PROOF_LATENCY_MS and the others (none by default)
                 outcome = await match(current, probes, games, host, harness.symbols, record)
                 if isinstance(outcome, dict) and "expected" in outcome:
                     # A battle that changes parties (co-op experience): its own

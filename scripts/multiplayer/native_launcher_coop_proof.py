@@ -194,6 +194,10 @@ async def logged_driver(probe, battler, view, symbols, stop):
 
 async def coop_match(current, probes, games, host, symbols, record):
     before = [own_party(p) for p in probes]
+
+    async def revision(s):
+        return s.status.revision
+    start_revisions = [await on_worker(w, revision) for w in current]
     record("parties-before", parties=before)
     for p in before:
         require(p[0]["level"] == LEAD_LEVEL, "fixture parties: the lead at Lv. 60")
@@ -304,7 +308,21 @@ async def coop_match(current, probes, games, host, symbols, record):
         require(all(gains[0] >= g for g in gains[1:]), f"slot {slot}: a Pokemon not sent out gained more than the lead")
         require(probes[slot].mem("gPartiesCount", 4)[2] == 0, f"slot {slot}: the teammate's party is still held")
     record("both-games-awarded-their-own-parties")
-    return dict(expected=[p.party_now() for p in probes])
+    # A game whose party's Pokemon changed (an evolution after the award: species is part of what it watches) saves on
+    # the host by itself (the engine's MultiplayerHostSave_PartyWatch, since 2026-10-23: a new Pokemon is never only in
+    # the game), so its closing save comes one revision later; the others' saves stay where they were.
+    evolved = [any(a["species"] != b["species"] for a, b in zip(after[slot], before[slot])) for slot in range(2)]
+
+    deadline = time.monotonic() + 90
+    while True:
+        now = [await on_worker(w, revision) for w in current]
+        if all(r == b + e for r, b, e in zip(now, start_revisions, evolved)):
+            break
+        require(time.monotonic() < deadline and all(r <= b + e for r, b, e in zip(now, start_revisions, evolved)),
+                f"the games' host saves after the award: revisions {now} from {start_revisions}, evolved {evolved}")
+        await asyncio.sleep(.5)
+    record("saved-by-themselves-after-an-evolution", evolved=evolved, revisions=now)
+    return dict(expected=[p.party_now() for p in probes], revisions=[r + 1 for r in now])
 
 
 async def after_boot(phase, slot, probe, companion):
