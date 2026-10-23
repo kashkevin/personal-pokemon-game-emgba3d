@@ -311,6 +311,9 @@ class LauncherSession:
         self._game = self._save_task = None
         self._revision = self._save_incarnation = None
         self._save_failed = False
+        # Why the last explicit checkpoint stopped (the error's code and text), for a report and the proofs; None after one
+        # that finished.
+        self.last_save_error = None
         self._idle_save_disconnect = self._autosave_dispatched = False
         self._settings = LauncherSettings()
         self._settings_busy = False
@@ -2322,6 +2325,10 @@ class LauncherSession:
             # that was not the one selected. An explicit later click may retry.
             if (c.live_checkpoint_lock.locked() or getattr(c, "_live_save_owner", None) is not None
                     or getattr(c, "_live_battle_owner", None) is not None):
+                self.last_save_error = "busy: " + ", ".join(name for name, held in (
+                    ("checkpoint lock", c.live_checkpoint_lock.locked()),
+                    ("live save", getattr(c, "_live_save_owner", None) is not None),
+                    ("live battle", getattr(c, "_live_battle_owner", None) is not None)) if held)
                 self._publish(SessionState.RUNNING, "save_not_ready", revision=self._revision)
                 return False
             coordinator = LiveCheckpointCoordinator(c, self._profile_directory)
@@ -2337,9 +2344,11 @@ class LauncherSession:
                 raise ValueError("checkpoint completion changed")
             self._revision = metadata["revision"]
             self._autosave_due = self._autosave_clock() + AUTOSAVE_INTERVAL
+            self.last_save_error = None
             self._publish(SessionState.RUNNING, "saved", revision=self._revision)
             return True
         except Exception as error:
+            self.last_save_error = (f"{type(error).__name__} {getattr(error, 'code', '') or ''}: {error}")[:300]
             if isinstance(error, LiveSaveError) and error.safe_to_retry is True:
                 self._publish(SessionState.RUNNING, "save_not_ready", revision=self._revision)
             else:

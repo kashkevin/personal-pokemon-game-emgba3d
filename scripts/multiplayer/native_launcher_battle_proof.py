@@ -877,7 +877,8 @@ class LauncherHarness:
 
     async def save(self, player, revision):
         async def save(s):
-            require(await s.save(), "manual save did not finish")
+            require(await s.save(), "manual save did not finish: " + json.dumps(dict(
+                code=s.status.code, error=getattr(s, "last_save_error", None))))
             require(s.status.revision == revision, "manual save revision differs")
         await on_worker(player.worker, save)
 
