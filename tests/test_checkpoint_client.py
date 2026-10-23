@@ -7,8 +7,9 @@ from unittest.mock import patch
 from uuid import uuid4
 
 from emerald_multiplayer.checkpoint_client import (
-    CheckpointClient, CheckpointError, validate_checkpoint_reply,
+    TRANSFER_WINDOW, CheckpointClient, CheckpointError, validate_checkpoint_reply,
 )
+from emerald_multiplayer.companion import Companion
 from emerald_multiplayer.protocol import ProtocolError
 from emerald_multiplayer.protocol import PROTOCOL_VERSION
 
@@ -68,6 +69,9 @@ class FakeCompanion:
     async def checkpoint_rpc(self, op, **fields):
         self.calls.append((op, fields))
         await asyncio.sleep(0)
+        return self.reply(op, fields)
+
+    def reply(self, op, fields):
         if op == "info":
             return {"checkpoint": {**self.head, "sha256": "b" * 64} if self.bad_hash else self.head}
         if op == "read":
@@ -137,6 +141,105 @@ class TransferTests(unittest.IsolatedAsyncioTestCase):
         self.companion.change_commit_session = True
         with patch("emerald_multiplayer.flash.inspect_flash"), self.assertRaises(ConnectionError):
             await self.client.upload(self.payload, 0)
+
+
+class PipelinedLink(FakeCompanion):
+    """The real Companion's checkpoint_rpc, checkpoint_pipeline and request checks, over a host that answers each
+    request a while later (a round trip over the internet), in the order they came."""
+    checkpoint_rpc = Companion.checkpoint_rpc
+    checkpoint_pipeline = Companion.checkpoint_pipeline
+
+    def __init__(self, payload):
+        super().__init__(payload)
+        self._checkpoint_pending, self._remote_writer, self._live_save_owner = {}, object(), None
+        self.in_flight = self.most = 0
+        self.refuse = None   # the offset of a request the host refuses
+
+    def _guard_pending_trade_mutation(self):
+        pass
+
+    async def _send_remote(self, writer, message):
+        op = message["type"].removeprefix("checkpoint_")
+        fields = {k: v for k, v in message.items() if k not in ("type", "session_epoch")}
+        self.calls.append((op, fields))
+        self.in_flight += 1
+        self.most = max(self.most, self.in_flight)
+        asyncio.get_running_loop().call_later(.01, self.answer, op, fields)
+
+    def answer(self, op, fields):
+        self.in_flight -= 1
+        pending = self._checkpoint_pending.get(fields["request_id"])
+        if pending is None or pending[2].done():
+            return
+        if fields.get("offset") is not None and fields["offset"] == self.refuse:
+            pending[2].set_exception(CheckpointError("checkpoint_offset_conflict", "refused"))
+        else:
+            pending[2].set_result(self.reply(op, fields))
+
+
+class PipelineTests(unittest.IsolatedAsyncioTestCase):
+    """The owner's report (2026-10-23): over the internet a save, and so every trade, cost a round trip a chunk."""
+
+    def setUp(self):
+        self.payload = bytes(range(256)) * 512 + b"z" * 16
+        self.companion = PipelinedLink(self.payload)
+        self.client = CheckpointClient(self.companion)
+
+    def own(self):
+        # A live-save lifecycle's transfer stays its own: every request goes from the test's task.
+        self.companion._live_save_owner = asyncio.current_task()
+
+    def sent(self, op):
+        return [fields for kind, fields in self.companion.calls if kind == op]
+
+    async def test_chunks_travel_a_few_at_once_in_order(self):
+        self.own()
+        with patch("emerald_multiplayer.flash.inspect_flash"):
+            result = await self.client.upload(self.payload, 0)
+            self.assertEqual(result["revision"], 1)
+            self.assertEqual(self.companion.most, TRANSFER_WINDOW)
+            chunks = self.sent("chunk")
+            self.assertEqual([f["offset"] for f in chunks], list(range(0, len(self.payload), 4096)))
+            self.assertEqual(b"".join(base64.b64decode(f["data_b64"]) for f in chunks), self.payload)
+            self.companion.most = 0
+            self.assertEqual((await self.client.download()).payload, self.payload)
+            self.assertEqual(self.companion.most, TRANSFER_WINDOW)
+            self.assertEqual([f["offset"] for f in self.sent("read")], list(range(0, len(self.payload), 4096)))
+        self.assertEqual(self.companion._checkpoint_pending, {})
+
+    async def test_a_refused_chunk_ends_the_upload_without_a_commit(self):
+        self.own()
+        self.companion.refuse = 4096 * 5
+        with patch("emerald_multiplayer.flash.inspect_flash"), self.assertRaises(CheckpointError):
+            await self.client.upload(self.payload, 0)
+        # No more than the window behind the refused chunk was sent; nothing was committed or is left waiting.
+        self.assertLessEqual(max(f["offset"] for f in self.sent("chunk")), 4096 * (5 + TRANSFER_WINDOW))
+        self.assertEqual(self.sent("commit"), [])
+        self.assertEqual(self.companion._checkpoint_pending, {})
+        self.companion.calls.clear()
+        with patch("emerald_multiplayer.flash.inspect_flash"), self.assertRaises(CheckpointError):
+            await self.client.download()
+        self.assertLessEqual(max(f["offset"] for f in self.sent("read")), 4096 * (5 + TRANSFER_WINDOW))
+        self.assertEqual(self.companion._checkpoint_pending, {})
+
+    async def test_a_wrong_acknowledgement_or_a_new_session_stops_the_transfer(self):
+        self.own()
+        reply = self.companion.reply
+
+        def short(op, fields):
+            result = reply(op, fields)
+            if op == "chunk" and fields["offset"] == 4096 * 2:
+                result = {**result, "next_offset": result["next_offset"] - 1}
+            return result
+        self.companion.reply = short
+        with patch("emerald_multiplayer.flash.inspect_flash"), self.assertRaises(ProtocolError):
+            await self.client.upload(self.payload, 0)
+        self.assertEqual(self.sent("commit"), [])
+        self.companion.reply = reply
+        self.companion.change_session = True
+        with patch("emerald_multiplayer.flash.inspect_flash"), self.assertRaises(ConnectionError):
+            await self.client.download()
+        self.assertEqual(self.companion._checkpoint_pending, {})
 
 
 if __name__ == "__main__":

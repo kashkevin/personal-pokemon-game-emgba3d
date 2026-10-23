@@ -2036,34 +2036,42 @@ class Companion:
 
     async def checkpoint_rpc(self, operation: str, *, request_id: str | None = None, timeout: float = 5.0, **fields: Any) -> dict[str, Any]:
         """Use the existing reader so heartbeat/presence continue during transfers."""
-        from .protocol import validate_checkpoint_request
-        if operation in {"begin", "chunk", "commit", "abort", "ownership_grant"}:
-            self._guard_pending_trade_mutation()
-        if (self._live_save_owner is not None and self._live_save_owner is not asyncio.current_task()
-                and operation in {"begin", "chunk", "commit", "abort", "ownership_grant"}):
-            raise ValueError("a live-save lifecycle owns this character's checkpoint writes")
-        if set(fields) & {"type", "session_epoch"}:
-            raise ValueError("checkpoint envelope fields cannot be overridden")
-        if not self.connected or self.world_id is None or self._remote_writer is None:
-            raise ConnectionError("no authenticated checkpoint session")
-        request_id = request_id or str(uuid4())
-        if request_id in self._checkpoint_pending:
-            raise ValueError("checkpoint request is already pending")
-        if len(self._checkpoint_pending) >= 8:
-            raise ValueError("checkpoint request capacity is exhausted")
-        epoch = self.session_epoch
-        message = {"type": operation if operation == "ownership_grant" else "checkpoint_" + operation,
-                   "session_epoch": epoch, "request_id": request_id, **fields}
-        validate_checkpoint_request(message, epoch)
-        future = asyncio.get_running_loop().create_future()
-        self._checkpoint_pending[request_id] = (operation, epoch, future)
+        message, future = _checkpoint_request(self, operation, request_id, fields)
         try:
             await self._send_remote(self._remote_writer, message)
             return await asyncio.wait_for(future, timeout)
         finally:
-            self._checkpoint_pending.pop(request_id, None)
+            self._checkpoint_pending.pop(message["request_id"], None)
             if not future.done():
                 future.cancel()
+
+    async def checkpoint_pipeline(self, operation: str, requests, *, window: int, timeout: float = 5.0):
+        """checkpoint_rpc for each field dict of the iterator `requests` in order, up to `window` of them sent before the oldest is
+        answered; yields the answers in that order. All of it runs in the caller's task (a live-save lifecycle's
+        transfer stays its own), and the host takes a connection's messages one by one in order, so each answer is
+        that of its own request. Use under contextlib.aclosing: an early end forgets the requests still out."""
+        pending = []
+        try:
+            while True:
+                while len(pending) < window:
+                    fields = next(requests, None)
+                    if fields is None:
+                        break
+                    message, future = _checkpoint_request(self, operation, None, fields)
+                    pending.append((message["request_id"], future))
+                    await self._send_remote(self._remote_writer, message)
+                if not pending:
+                    return
+                request_id, future = pending[0]
+                answer = await asyncio.wait_for(future, timeout)
+                pending.pop(0)
+                self._checkpoint_pending.pop(request_id, None)
+                yield answer
+        finally:
+            for request_id, future in pending:
+                self._checkpoint_pending.pop(request_id, None)
+                if not future.done():
+                    future.cancel()
 
     def _receive_checkpoint(self, message: dict[str, Any]) -> None:
         from .checkpoint_client import validate_checkpoint_reply, CheckpointError
@@ -2475,6 +2483,33 @@ def main() -> None:
         parser.error(str(error))
     except KeyboardInterrupt:
         pass
+
+
+def _checkpoint_request(companion, operation, request_id, fields):
+    """Companion.checkpoint_rpc's checks; registers the request's answer and returns (message, future). A function, so the
+    tests' stand-in companions that call Companion.checkpoint_rpc directly meet the same live-save owner guard."""
+    from .protocol import validate_checkpoint_request
+    if operation in {"begin", "chunk", "commit", "abort", "ownership_grant"}:
+        companion._guard_pending_trade_mutation()
+    if (companion._live_save_owner is not None and companion._live_save_owner is not asyncio.current_task()
+            and operation in {"begin", "chunk", "commit", "abort", "ownership_grant"}):
+        raise ValueError("a live-save lifecycle owns this character's checkpoint writes")
+    if set(fields) & {"type", "session_epoch"}:
+        raise ValueError("checkpoint envelope fields cannot be overridden")
+    if not companion.connected or companion.world_id is None or companion._remote_writer is None:
+        raise ConnectionError("no authenticated checkpoint session")
+    request_id = request_id or str(uuid4())
+    if request_id in companion._checkpoint_pending:
+        raise ValueError("checkpoint request is already pending")
+    if len(companion._checkpoint_pending) >= 8:
+        raise ValueError("checkpoint request capacity is exhausted")
+    epoch = companion.session_epoch
+    message = {"type": operation if operation == "ownership_grant" else "checkpoint_" + operation,
+               "session_epoch": epoch, "request_id": request_id, **fields}
+    validate_checkpoint_request(message, epoch)
+    future = asyncio.get_running_loop().create_future()
+    companion._checkpoint_pending[request_id] = (operation, epoch, future)
+    return message, future
 
 
 if __name__ == "__main__":

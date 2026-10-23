@@ -53,9 +53,10 @@ ROOT = Path(__file__).resolve().parents[2]
 for _path in (ROOT / "src", ROOT / "scripts" / "multiplayer", ROOT / "scripts" / "windows-runtime"):
     if str(_path) not in sys.path:              # the Windows runner starts it without PYTHONPATH
         sys.path.insert(0, str(_path))
-from native_launcher_battle_proof import WINDOWS, launcher_proof  # noqa: E402
+from native_launcher_battle_3d_proof import LIGHT_3D_SETTINGS  # noqa: E402
+from native_launcher_battle_proof import KEYS, WINDOWS, launcher_proof  # noqa: E402
 from native_launcher_challenge_proof import pick, shown  # noqa: E402
-from native_launcher_ffa_proof import A, DOWN, UP, close_players, players_tab, pose_of, walk_to  # noqa: E402
+from native_launcher_ffa_proof import A, DOWN, LEFT, RIGHT, UP, close_players, players_tab, pose_of, walk_to  # noqa: E402
 from native_launcher_lobby4_proof import FourPlayerLobbyProof  # noqa: E402
 from native_launcher_newcomer_proof import LAB, LITTLEROOT, NO_POKEMON  # noqa: E402
 from native_launcher_soft_reset_proof import SoftResetProof  # noqa: E402
@@ -64,7 +65,7 @@ from emerald_multiplayer.menu_mailbox import unpack_screen  # noqa: E402
 from qualify_admission_cleanup import on_worker, require  # noqa: E402
 
 PLAYER_NAMES = ("New Host", "New Friend 1", "New Friend 2", "New Friend 3")
-SCENARIOS = ("lobby", "mixed", "busy", "trade")
+SCENARIOS = ("lobby", "mixed", "busy", "trade", "battle-trade")
 FORMATS = ("1v1v1v1", "2v2")
 MODES = {"1v1": 2, "2v2": 3, "1v1v1v1": 5, "1v1v1": 6}
 PEER_NO_POKEMON = "They have no Pokemon yet"
@@ -279,15 +280,31 @@ class NewcomersProof(SoftResetProof, ThreePlayerProof):
         before = {n: (await self.launcher(current[n]))["revision"] for n in pair}
         await probes[offerer].open_players()
         await probes[offerer].choose(host.accounts[answerer].display_name, prefix=True)
+        # The seconds from each player's choice to its trade window open again (its party prepared on the host),
+        # the time a player looks at the field meanwhile.
+        prepared = {}
+        if WALK[0]:
+            await self.count_exports(current[offerer])
+        chosen = time.monotonic()
         await probes[offerer].choose("Trading", wait=False)
-        offered = {offerer: await pick(probes[offerer])}
+        try:
+            if WALK[0]:
+                await self.walk_meanwhile(probes[offerer], record)
+            offered = {offerer: await pick(probes[offerer])}
+        finally:
+            if WALK[0]:
+                record("trade-exports", player=self.harness.names[offerer], statuses=await self.exports(current[offerer]))
+        prepared[offerer] = round(time.monotonic() - chosen, 1)
         if while_open is not None:
             await while_open()
         await probes[answerer].open_players()
         await probes[answerer].choose("Pending trade")
+        chosen = time.monotonic()
         await probes[answerer].choose("Choose your Pokemon", wait=False)
         offered[answerer] = await pick(probes[answerer])
-        record("trade-offers-chosen", offered={self.harness.names[n]: offered[n] for n in pair})
+        prepared[answerer] = round(time.monotonic() - chosen, 1)
+        record("trade-offers-chosen", offered={self.harness.names[n]: offered[n] for n in pair},
+               window_seconds={self.harness.names[n]: prepared[n] for n in pair})
         started, confirmed = time.monotonic(), set()
         while True:
             launchers = {n: await self.launcher(current[n]) for n in pair}
@@ -310,6 +327,49 @@ class NewcomersProof(SoftResetProof, ThreePlayerProof):
                 return
             require(elapsed < self.watch, f"the trade did not finish: {launchers}")
             await asyncio.sleep(1)
+
+    async def walk_meanwhile(self, probe, record):
+        """--walk-while-preparing: the offerer walks left and right on the field while its party is prepared (the
+        Players menu has closed; the owner's report of 2026-10-23, "it just kicks you out of the screen"), as a player
+        who moves on may: the game refuses to freeze a moving party, and the launcher must wait for a calm field."""
+        started = time.monotonic()
+        held = 0
+        while time.monotonic() - started < WALK[0]:
+            row = probe.read()
+            if row["active"] and not row["waiting"]:
+                try:
+                    screen = unpack_screen(row["screen"], allow_trade_reopen=True, allow_battle_admission=True)[1]
+                except ValueError:
+                    screen = None
+                if screen is not None and any(r.action for r in screen.rows):
+                    break                  # the trade window is open again ("Preparing your party" has no rows)
+            key = (KEYS[LEFT], KEYS[RIGHT])[held % 2]
+            await asyncio.to_thread(probe._chord, (key,), .4)
+            held += 1
+        record("walked-while-preparing", seconds=round(time.monotonic() - started, 1), holds=held)
+
+    async def count_exports(self, worker):
+        """--walk-while-preparing: the game's answers to this launcher's commands that need a calm field from now on
+        (live_trade.CALM_OPCODES: the ownership query and grant, BEGIN_TRADE_EXPORT), as (opcode, status): 0 OK, 1 busy,
+        2 unsafe (its field not calm yet)."""
+        async def install(s):
+            c = s._companion
+            if getattr(c, "_proof_exports", None) is None:
+                c._proof_exports, real = [], c.save_rpc
+
+                async def save_rpc(control, **options):
+                    response = await real(control, **options)
+                    if control.opcode in CALM_OPCODES:
+                        c._proof_exports.append((int(control.opcode), int(response.status)))
+                    return response
+                c.save_rpc = save_rpc
+            c._proof_exports.clear()
+        await on_worker(worker, install)
+
+    async def exports(self, worker):
+        async def read(s):
+            return list(getattr(s._companion, "_proof_exports", None) or ())
+        return await on_worker(worker, read)
 
     async def reset_page_refuses(self, n, current, probes, record, expected):
         screen = await self.open_reset_page(probes[n])
@@ -483,8 +543,8 @@ class NewcomersProof(SoftResetProof, ThreePlayerProof):
                 await self.lobby_battle(current, probes, symbols, record, tuple(range(count)), fmt, fmt)
             record("battle-seconds", seconds=round(time.monotonic() - started, 1), latency_ms=LATENCY_MS[0],
                    hold=HOLD[0])
-        elif self.scenario == "trade":
-            await self.trade_back_and_forth(current, probes, record)
+        elif self.scenario in ("trade", "battle-trade"):
+            await self.trade_back_and_forth(current, probes, record, symbols if self.scenario == "battle-trade" else None)
         elif self.scenario == "mixed":
             await self.mixed(current, probes, games, host, symbols, record)
         else:
@@ -493,15 +553,20 @@ class NewcomersProof(SoftResetProof, ThreePlayerProof):
         revisions = [(await self.launcher(w))["revision"] + 1 for w in current]
         return dict(parties=parties, revisions=revisions)
 
-    async def trade_back_and_forth(self, current, probes, record):
+    async def trade_back_and_forth(self, current, probes, record, symbols=None):
         """The owner's report (2026-10-23, "trading is also broken"): two new characters claim their starters (with
-        --no-save nobody saves: each new Pokemon is saved on the host by itself), trade them, and trade back."""
+        --no-save nobody saves: each new Pokemon is saved on the host by itself), trade them, and trade back.
+        With `symbols` (--scenario battle-trade) they first fight the Players menu's rival 1v1, as the owner did."""
         before = [(await self.launcher(w))["revision"] for w in current]
         await self.claims((0, 1), current, probes, record)
         if self.no_save:
             canonical = await self.auto_saved(current, record, "auto-saved-with-the-starters", before)
         else:
             canonical = await self.save_all(current, record, "saved-with-the-starters")
+        if symbols is not None:
+            await self.challenge_1v1(self.harness.host, probes, 0, 1)
+            await self.play(current, probes, symbols, record, (0, 1), "1v1", "rival-1v1")
+            canonical = await self.heads(current, self.harness.host)
         serials = [c["serials"] for c in canonical]
         for offerer, answerer, label in ((0, 1, "traded"), (1, 0, "traded-back")):
             await self.trade_between(current, probes, record, offerer, answerer)
@@ -611,7 +676,9 @@ class NewcomersProof(SoftResetProof, ThreePlayerProof):
         await self.across_route_101(3, current, probes, record)
 
 
-LATENCY_MS, HOLD, DISK_MS, REMOTE_ONLY, LATENCY_ALL = [0], [True], [0], [False], [False]
+LATENCY_MS, HOLD, DISK_MS, REMOTE_ONLY, LATENCY_ALL, WALK = [0], [True], [0], [False], [False], [0.0]
+# live_trade.CALM_OPCODES (QUERY_OWNERSHIP, GRANT_OWNERSHIP, BEGIN_TRADE_EXPORT), spelled out to run on older apps too.
+CALM_OPCODES = frozenset({10, 11, 12})
 
 
 def simulate_disk(disk_ms):
@@ -664,17 +731,18 @@ def simulate_internet(latency_ms, hold, host_player=None):
 
 async def run(args):
     LATENCY_MS[0], HOLD[0], DISK_MS[0], REMOTE_ONLY[0] = args.latency_ms, not args.no_hold, args.disk_ms, args.remote_only
-    LATENCY_ALL[0] = args.latency_all
+    LATENCY_ALL[0], WALK[0] = args.latency_all, args.walk_while_preparing
     count = len(args.source)
     require(2 <= count <= 4, "two to four sources (short-introduction saves)")
-    require(args.scenario == "lobby" or count == 4 or (args.scenario == "trade" and count == 2),
+    require(args.scenario == "lobby" or count == 4 or (args.scenario in ("trade", "battle-trade") and count == 2),
             f"--scenario {args.scenario} needs four players (trade: two)")
     if not args.display:
         require(WINDOWS, "an X display per player")
         args.display = [f"desktop-{n}" for n in range(count)]         # Windows: one desktop; names for the records
     proof = NewcomersProof(args.scenario, args.format, args.watch, args.match_seconds, args.no_save)
     await launcher_proof(args, names=PLAYER_NAMES[:count], sources=args.source, party_counts=(0,) * count,
-                         match=proof.match, version="Native newcomers proof", settings="windowScale=2\n",
+                         match=proof.match, version="Native newcomers proof",
+                         settings=LIGHT_3D_SETTINGS if args.light_3d else "windowScale=2\n",
                          scope=__doc__.split("\n\n")[0] + f" Scenario: {args.scenario}, {count} players.",
                          environment=dict(SDL_FRAMEBUFFER_ACCELERATION="0"), after_save=proof.after_save,
                          on_harness=proof.adopt)
@@ -710,6 +778,10 @@ def main():
     parser.add_argument("--latency-all", action="store_true",
                         help="--latency-ms on every message from the match on, not only the battle's")
     parser.add_argument("--no-hold", action="store_true", help="the host answers battle polls at once (before MS-62)")
+    parser.add_argument("--walk-while-preparing", type=float, default=0, metavar="SECONDS",
+                        help="trade: the offerer walks that long once its Players menu closed for the trade")
+    parser.add_argument("--light-3d", action="store_true",
+                        help="--game is the 3D build (native UI): the light 3D settings of the 3D battle proof")
     args = parser.parse_args()
     if args.format is None:
         args.format = "2v2" if args.scenario == "mixed" else "1v1v1v1"

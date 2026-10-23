@@ -1824,12 +1824,17 @@ class LauncherSession:
         held or written: the proposal is cancelled so the other player is not left waiting; returns None then."""
         from .companion import TradeError
         coordinator, c = trade_menu.coordinator, self._companion
+        # The Players menu has closed by now: the game's banner says what happened (the owner's report of 2026-10-23,
+        # "for trading it literally just kicks you out of the screen": the notice waited for the menu's next opening).
+        banner = getattr(c, "show_local_notice", None)
+        say = banner if callable(banner) else (lambda text: None)
         if not coordinator.trade_path.exists():
             try:
                 await c.trade_rpc("cancel", transaction_id=descriptor["transaction_id"], generation=descriptor["generation"])
             except (TradeError, ConnectionError, OSError, asyncio.TimeoutError, ValueError):
                 pass
             menu_session.menu.notice("Trade did not start: try again")
+            say("The trade did not start.|Try again from PLAYERS.")
             return None
         if not c.connected:
             raise error
@@ -1841,6 +1846,7 @@ class LauncherSession:
         trade_menu._completion(result)
         if isinstance(result, dict) and result.get("state") == "aborted":
             menu_session.menu.notice("Trade cancelled: nothing changed")
+            say("The trade was cancelled.|Nothing changed.")
         return result
 
     def _native_menu_refused_battle(self, menu_session):

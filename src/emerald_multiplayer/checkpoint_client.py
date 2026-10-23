@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import binascii
+from contextlib import aclosing
 from dataclasses import dataclass
 import hashlib
 import re
@@ -15,6 +16,11 @@ from typing import TYPE_CHECKING, Any
 from uuid import UUID, uuid4
 
 from .protocol import MAX_COUNTER, PROTOCOL_VERSION, ProtocolError, CHECKPOINT_CHUNK_BYTES
+
+# Chunk requests in flight at once (Companion.checkpoint_pipeline; the companion allows eight checkpoint requests
+# pending). Over the internet a whole save used to cost 33 round trips, one a chunk (the owner's report of 2026-10-23:
+# trading and saving over the internet were slow), now about nine.
+TRANSFER_WINDOW = 4
 
 if TYPE_CHECKING:
     from .companion import Companion, CompanionConfig
@@ -115,6 +121,18 @@ class CheckpointClient:
             raise ConnectionError("no authenticated checkpoint session")
         return c.world_id, c.session_epoch
 
+    async def _answers(self, operation, requests):
+        """The answers to `requests` (field dicts) in order: up to TRANSFER_WINDOW in flight through the companion's
+        checkpoint_pipeline, else one at a time."""
+        pipeline = getattr(self.companion, "checkpoint_pipeline", None)
+        if pipeline is None:
+            for fields in requests:
+                yield await self.companion.checkpoint_rpc(operation, **fields)
+            return
+        async with aclosing(pipeline(operation, requests, window=TRANSFER_WINDOW)) as answers:
+            async for answer in answers:
+                yield answer
+
     async def info(self) -> dict[str, Any] | None:
         return (await self.companion.checkpoint_rpc("info"))["checkpoint"]
 
@@ -126,13 +144,19 @@ class CheckpointClient:
             if metadata is None:
                 return None
             data = bytearray()
-            while len(data) < metadata["size"]:
-                if self._session() != session:
-                    raise ConnectionError("checkpoint session changed during download")
-                response = await self.companion.checkpoint_rpc("read", expected_revision=metadata["revision"], offset=len(data), length=CHECKPOINT_CHUNK_BYTES)
-                if response["checkpoint"] != metadata or response["offset"] != len(data):
-                    raise ProtocolError("invalid_server_message", "checkpoint changed during download")
-                data.extend(decode_chunk(response["data_b64"]))
+
+            def reads():
+                for offset in range(0, metadata["size"], CHECKPOINT_CHUNK_BYTES):
+                    if self._session() != session:
+                        raise ConnectionError("checkpoint session changed during download")
+                    yield dict(expected_revision=metadata["revision"], offset=offset, length=CHECKPOINT_CHUNK_BYTES)
+            async with aclosing(self._answers("read", reads())) as answers:
+                async for response in answers:
+                    if self._session() != session:
+                        raise ConnectionError("checkpoint session changed during download")
+                    if response["checkpoint"] != metadata or response["offset"] != len(data):
+                        raise ProtocolError("invalid_server_message", "checkpoint changed during download")
+                    data.extend(decode_chunk(response["data_b64"]))
             payload = bytes(data)
             if self._session() != session:
                 raise ConnectionError("checkpoint session changed before download completed")
@@ -164,14 +188,20 @@ class CheckpointClient:
             offset = result["next_offset"]
             if offset > len(payload):
                 raise ProtocolError("invalid_server_message", "server upload offset exceeds its payload")
-            while offset < len(payload):
-                if self._session() != session:
-                    raise ConnectionError("checkpoint session changed during upload")
-                chunk = payload[offset:offset + CHECKPOINT_CHUNK_BYTES]
-                result = await self.companion.checkpoint_rpc("chunk", upload_id=transaction_id, offset=offset, data_b64=base64.b64encode(chunk).decode("ascii"))
-                if result["upload_id"] != transaction_id or result["next_offset"] != offset + len(chunk):
-                    raise ProtocolError("invalid_server_message", "server did not acknowledge the exact checkpoint chunk")
-                offset += len(chunk)
+
+            def chunks():
+                for start in range(offset, len(payload), CHECKPOINT_CHUNK_BYTES):
+                    if self._session() != session:
+                        raise ConnectionError("checkpoint session changed during upload")
+                    chunk = payload[start:start + CHECKPOINT_CHUNK_BYTES]
+                    yield dict(upload_id=transaction_id, offset=start, data_b64=base64.b64encode(chunk).decode("ascii"))
+            acknowledged = offset
+            async with aclosing(self._answers("chunk", chunks())) as answers:
+                async for result in answers:
+                    end = min(acknowledged + CHECKPOINT_CHUNK_BYTES, len(payload))
+                    if result["upload_id"] != transaction_id or result["next_offset"] != end:
+                        raise ProtocolError("invalid_server_message", "server did not acknowledge the exact checkpoint chunk")
+                    acknowledged = end
             if self._session() != session:
                 raise ConnectionError("checkpoint session changed before commit")
             result = await self.companion.checkpoint_rpc("commit", upload_id=transaction_id, **fingerprint)

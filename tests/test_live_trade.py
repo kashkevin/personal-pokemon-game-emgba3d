@@ -15,6 +15,7 @@ import struct
 import tempfile
 from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 from uuid import UUID, uuid4
 import zlib
 
@@ -62,6 +63,8 @@ class TradeCompanion(FakeCompanion):
         self.import_tuple = None
         self.normal_saves = self.rom_commits = self.releases = self.aborts = 0
         self.faults, self.counts = {}, {}
+        # The commands the game refuses as unsafe first (its field not calm yet): BEGIN_TRADE_EXPORT, QUERY_OWNERSHIP.
+        self.unsafe_begins = self.unsafe_queries = 0
         self.command_hook = self.trade_hook = None
         self.desk = None
         self.window_sector = None
@@ -182,13 +185,19 @@ class TradeCompanion(FakeCompanion):
                 assert control.request_id == self.operation
                 assert control.revision == self.revision or (op == Opcode.BEGIN_IMPORT and not self.import_started and control.revision == self.revision+1)
                 assert not self.expired or op == Opcode.KEEP_TRADE
-            if op == Opcode.QUERY_OWNERSHIP:
+            if op == Opcode.QUERY_OWNERSHIP and self.unsafe_queries:
+                self.unsafe_queries -= 1   # multiplayer_save.c: refused before the query, nothing changed
+                result = SaveControl.unpack(replace(control, status=Status.UNSAFE, data=b"").pack()).validate_response()
+            elif op == Opcode.QUERY_OWNERSHIP:
                 assert self.phase == State.BOUND
                 owner = inspect_ownership(inspect_flash(self.rom_flash, save_profile=OWNERSHIP_PROFILE))
                 data = struct.pack("<IIII16s16s16sIIII", 3, 0, owner.end_exclusive-owner.next_serial,
                     len(owner.retirements), UUID(owner.world_id).bytes, UUID(owner.player_id).bytes,
                     UUID(owner.grant_id).bytes, owner.next_serial, owner.end_exclusive, self.session_epoch, self.save_incarnation)
                 result = self._reply(control, data=data)
+            elif op == Opcode.BEGIN_TRADE_EXPORT and self.unsafe_begins and not self.active:
+                self.unsafe_begins -= 1   # multiplayer_save.c: refused before Hold, nothing changed
+                result = SaveControl.unpack(replace(control, status=Status.UNSAFE, data=b"").pack()).validate_response()
             elif op == Opcode.BEGIN_TRADE_EXPORT:
                 if self.active:
                     assert not self.import_started and self.phase in (State.EXPORTING, State.TRADE_HELD)
@@ -365,6 +374,35 @@ class LiveTradeTests(unittest.IsolatedAsyncioTestCase):
         await self.replacement(1).prepare(self.tx, self.generation, 1)
         self.assertEqual(other.commands[0], other.commands[1])
         self.assertEqual(other.normal_saves, 1)
+
+    async def test_a_field_not_yet_calm_delays_the_preparation_instead_of_ending_the_trade(self):
+        # The owner's report (2026-10-23): the Players menu closes for the trade, the player walks on, and the game's
+        # first answers to the ownership query and to the export are "unsafe": the trade used to end there (and its
+        # cancellation, which prepares the party too, failed the same way and stopped saving; trade-walk-new-1).
+        c = self.companions[0]
+        c.unsafe_queries, c.unsafe_begins = 2, 3
+        with patch("emerald_multiplayer.live_trade.CALM_RETRY_SECONDS", .001):
+            await self.coordinators[0].prepare(self.tx, self.generation, 1)
+        self.assertEqual(self.ops().count(Opcode.QUERY_OWNERSHIP), 3)
+        self.assertEqual(self.ops().count(Opcode.BEGIN_TRADE_EXPORT), 4)
+        self.assertEqual((c.phase, c.normal_saves), (State.TRADE_HELD, 1))
+        self.assertEqual(self.intent()["phase"], "prepared")
+        # A game that never calms down still ends it, after CALM_PATIENCE_SECONDS, with nothing held.
+        other = self.companions[1]
+        other.unsafe_queries = 10**6
+        with patch("emerald_multiplayer.live_trade.CALM_RETRY_SECONDS", .001), \
+                patch("emerald_multiplayer.live_trade.CALM_PATIENCE_SECONDS", .05), \
+                self.assertRaises(LiveSaveError) as caught:
+            await self.coordinators[1].prepare(self.tx, self.generation, 1)
+        self.assertEqual(caught.exception.code, "rom_unsafe")
+        self.assertFalse(other.active)
+        self.assertEqual(other.normal_saves, 0)
+        # Its cancellation waits for the calm field the same way, then aborts with nothing changed.
+        other.unsafe_queries = 2
+        with patch("emerald_multiplayer.live_trade.CALM_RETRY_SECONDS", .001):
+            result = await self.coordinators[1].cancel()
+        self.assertEqual(result["state"], "aborted")
+        self.assertFalse(other.active)
 
     async def test_lost_begin_read_prefix_and_end_restarts_same_frozen_save(self):
         c = self.companions[0]

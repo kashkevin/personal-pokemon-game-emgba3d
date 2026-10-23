@@ -7,6 +7,7 @@ require the negotiated host plan and the original recipient's explicit review.
 """
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import json
@@ -31,6 +32,14 @@ class LiveTradeError(LiveSaveError):
 
 
 _FORMAT = "emerald-live-trade-v1"
+# The Players menu closes for a trade's preparation, and the game answers its ownership query and grant and freezes the
+# party only on a calm field (multiplayer_save.c FieldReady: not walking, no menu or fade). Its refusal then (busy or
+# unsafe: the player still walking, the START menu open) comes before it changes anything, and is asked again every
+# CALM_RETRY_SECONDS for up to CALM_PATIENCE_SECONDS a command instead of ending the trade (the owner's report of
+# 2026-10-23: "for trading it literally just kicks you out of the screen"; a walk then reproduced it, trade-walk-new-1).
+CALM_OPCODES = frozenset({Opcode.QUERY_OWNERSHIP, Opcode.GRANT_OWNERSHIP, Opcode.BEGIN_TRADE_EXPORT})
+CALM_RETRY_SECONDS = .1
+CALM_PATIENCE_SECONDS = 15
 _LIMIT = 16_384
 _SHA = re.compile(r"[0-9a-f]{64}\Z")
 _PHASES = {"intent", "starting", "frozen", "prepared", "committed", "applied", "acknowledged", "releasing", "aborting"}
@@ -391,6 +400,19 @@ class LiveTradeCoordinator(LiveCheckpointCoordinator):
             intent["export_ended"] = True
             self._save(intent)
         return metadata
+
+    async def _command(self, session, operation_id, revision, opcode, **options):
+        if opcode not in CALM_OPCODES:
+            return await super()._command(session, operation_id, revision, opcode, **options)
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + CALM_PATIENCE_SECONDS
+        while True:
+            try:
+                return await super()._command(session, operation_id, revision, opcode, **options)
+            except LiveSaveError as error:
+                if error.code not in {"rom_busy", "rom_unsafe"} or loop.time() >= deadline:
+                    raise
+            await asyncio.sleep(CALM_RETRY_SECONDS)
 
     @staticmethod
     def _crc(response, payload):

@@ -12,11 +12,11 @@ from emerald_multiplayer.launcher_session import LauncherSession
 class TradeSettlementTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.directory = Path(tempfile.mkdtemp())
-        self.cancelled, self.notices, self.abandoned = [], [], []
+        self.cancelled, self.notices, self.abandoned, self.banners = [], [], [], []
         async def trade_rpc(operation, **fields):
             self.cancelled.append((operation, fields))
             return {"trade": {"state": "aborted"}}
-        self.companion = SimpleNamespace(connected=True, trade_rpc=trade_rpc)
+        self.companion = SimpleNamespace(connected=True, trade_rpc=trade_rpc, show_local_notice=self.banners.append)
         self.session = object.__new__(LauncherSession)
         self.session._companion = self.companion
         self.menu = SimpleNamespace(menu=SimpleNamespace(notice=self.notices.append),
@@ -43,16 +43,24 @@ class TradeSettlementTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(await self.settle())
         self.assertEqual(self.cancelled, [("cancel", {"transaction_id": "t1", "generation": "g1"})])
         self.assertEqual(self.notices, ["Trade did not start: try again"])
+        # The menu has closed: the game's banner says it at once (the owner's report of 2026-10-23, "it just kicks
+        # you out of the screen"), within its two lines of 32 characters.
+        self.assertEqual(self.banners, ["The trade did not start.|Try again from PLAYERS."])
 
     async def test_a_held_trade_is_settled_by_the_hosts_answer(self):
         self.coordinator.trade_path.write_text("{}")
         self.assertEqual(await self.settle(), self.outcome)
         self.assertEqual(self.abandoned, [True])            # the dead dialog queue is dropped
         self.assertEqual(self.notices, ["Trade cancelled: nothing changed"])
+        self.assertEqual(self.banners, ["The trade was cancelled.|Nothing changed."])
         self.outcome = {"state": "applied", "checkpoint": {"revision": 3}}   # the host had committed: applied
         self.notices.clear()
+        self.banners.clear()
         self.assertEqual((await self.settle())["state"], "applied")
-        self.assertEqual(self.notices, [])
+        self.assertEqual((self.notices, self.banners), ([], []))
+        self.assertTrue(all(len(line) <= 32 for text in ("The trade did not start.|Try again from PLAYERS.",
+                                                          "The trade was cancelled.|Nothing changed.")
+                            for line in text.split("|")))
 
     async def test_an_unsettled_trade_keeps_its_original_failure(self):
         self.coordinator.trade_path.write_text("{}")
