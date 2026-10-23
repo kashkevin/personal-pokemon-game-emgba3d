@@ -590,10 +590,10 @@ class LauncherSession:
             development_teams=battles, development_battles=battles, **effects)
         if battles:
             lengths = self.installation.battle_string_lengths(self._manifest["battle_string_table_address"])
-            from .bridge_config import battle_peek_enabled
+            from .bridge_config import battle_peek_enabled, battle_receive_many_enabled
             self._server.enable_battle_execution(lengths, host.directory / "native-battle-execution",
                 resume_enabled=self._manifest.get("battle_resume_abi_version") == 1,
-                peek=battle_peek_enabled(self._manifest))
+                peek=battle_peek_enabled(self._manifest), receive_many=battle_receive_many_enabled(self._manifest))
             if self._manifest.get("rival_abi_version") == 1:
                 self._server.enable_rival_battle_environment()  # Update 31: rival battles use the checkpoint's environment
         from .bridge_config import tower_enabled

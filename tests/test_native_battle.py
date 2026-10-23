@@ -6,8 +6,8 @@ import zlib
 
 from emerald_multiplayer.battle_mailbox import BattleControl, BattleMailboxError, BattleQuery
 from emerald_multiplayer.native_battle import (
-    NativeBinding, NativeControl, NativeQuery, Preparation, Kind, Opcode,
-    validate_block_size,
+    MULTI_PHASE, NativeBinding, NativeControl, NativeQuery, Preparation, Kind, Opcode,
+    pack_receive_many, receive_many_entries, validate_block_size,
 )
 
 
@@ -212,3 +212,56 @@ class NativeEnvelopeTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ReceiveManyTests(unittest.TestCase):
+    """KNOWN_ISSUES MS-62: RECEIVE_MANY (opcode 26) carries a batch's whole small blocks for one core of a 2v2."""
+    BLOCKS = ((1, Kind.CONTROLLER, 40, bytes(range(28))), (3, Kind.RNG, 9, bytes(16)))
+
+    def many(self, blocks=BLOCKS, **changes):
+        return NativeControl(**{**dict(incarnation=20, session_epoch=7, battle_id=uid(90), sequence=5,
+            opcode=Opcode.RECEIVE_MANY, phase=MULTI_PHASE, source_slot=0, data=pack_receive_many(blocks)), **changes})
+
+    def test_blocks_go_in_order_with_their_source_kind_size_and_sequence(self):
+        data = pack_receive_many(self.BLOCKS)
+        self.assertEqual(data[:8], bytes((1, Kind.CONTROLLER, 28, 0, 40, 0, 0, 0)))
+        self.assertEqual(receive_many_entries(data, 4, 0), self.BLOCKS)
+        self.many().validate_command()
+        unpacked = NativeControl.unpack(self.many().pack())
+        self.assertEqual(unpacked, self.many())
+
+    def test_only_whole_small_blocks_from_other_cores_each_once(self):
+        for blocks in ((),                                                      # nothing
+                       ((0, Kind.RNG, 1, bytes(16)),),                          # the core's own block
+                       ((4, Kind.RNG, 1, bytes(16)),),                          # no such core
+                       ((1, Kind.RNG, 1, bytes(16)), (1, Kind.RNG, 2, bytes(16))),   # one player twice
+                       ((1, Kind.RNG, 0, bytes(16)),),                          # no block sequence
+                       ((1, Kind.RNG, 1, bytes(15)),),                          # not the kind's size
+                       ((1, Kind.PARTY_0, 1, bytes(200)[:128]),),               # part of a larger block
+                       ((1, Kind.CONTROLLER, 1, bytes(13)),)):                  # outside the command table
+            with self.assertRaises(BattleMailboxError, msg=blocks):
+                receive_many_entries(pack_receive_many(blocks), 4, 0)
+        data = pack_receive_many(self.BLOCKS)
+        for bad in (data[:-1], data + bytes(3), data[:8]):
+            with self.assertRaises(BattleMailboxError):
+                receive_many_entries(bad, 4, 0)
+        for bad in (dict(block_sequence=1), dict(kind=Kind.RNG), dict(total_size=16)):
+            with self.assertRaises(BattleMailboxError):
+                self.many(**bad).validate_command()
+
+    def test_it_runs_on_the_core_it_names(self):
+        bound = NativeBinding(uid(99), tuple(uid(10 + i) for i in range(4)), (7, 8, 9, 10), (20, 21, 22, 23), 0,
+                              mode=MULTI_PHASE)
+        self.many().validate_command(binding=bound, player_id=uid(10))
+        with self.assertRaises(BattleMailboxError):
+            self.many(source_slot=2, data=pack_receive_many(self.BLOCKS[:1])).validate_command(binding=bound)
+
+    def test_the_answer_counts_the_blocks_taken_and_names_what_stopped_the_rest(self):
+        request = self.many()
+        for data in (bytes((2, 0)), bytes((1, 1)), bytes((1, 5))):
+            replace(request, data=data).validate_response(request)
+        for data in (bytes((0, 1)), bytes((2, 1)), bytes((1, 0)), bytes((3, 0)), bytes((1, 11)), bytes((2,)), b""):
+            with self.assertRaises(BattleMailboxError, msg=data):
+                replace(request, data=data).validate_response(request)
+        replace(request, status=1, data=b"").validate_response(request)     # the first block refused: BUSY
+

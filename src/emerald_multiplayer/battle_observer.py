@@ -16,7 +16,7 @@ from __future__ import annotations
 import asyncio
 
 from .battle_execution_protocol import encode_control
-from .native_battle import NativeControl, Opcode, peek_parts
+from .native_battle import NativeControl, Opcode, ordinary_route, peek_parts
 from .protocol import ProtocolError
 
 OBSERVE_SECONDS = .004
@@ -47,7 +47,7 @@ class BattleObserver:
 
     def executed(self, command, response):
         # Only an ordinary command moves the core's sequence (suspension and renewal are out of band).
-        ordinary = not response.status and command.opcode not in (Opcode.QUERY, Opcode.PEEK) and command.opcode < Opcode.SUSPEND
+        ordinary = not response.status and command.opcode not in (Opcode.QUERY, Opcode.PEEK) and ordinary_route(command.opcode)
         if ordinary:
             self.base = (command.session_epoch, command.sequence)
             if command.opcode == Opcode.RELEASE:

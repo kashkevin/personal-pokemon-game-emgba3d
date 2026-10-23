@@ -96,6 +96,13 @@ class Opcode(IntEnum):
     ADMISSION_CANCEL_HANDOFF = 23
     ADMISSION_CANCEL_READY = 24
     PEEK = 25  # KNOWN_ISSUES MS-62: QUERY plus the outbound block's bytes (PC game, manifest battle_peek_abi_version 1)
+    RECEIVE_MANY = 26  # MS-62: a batch's whole small blocks for one core (PC game, battle_receive_many_abi_version 1)
+
+
+def ordinary_route(opcode):
+    """An ordinary route command, as against suspension, renewal, resume and admission (ARM_RESUME on): RECEIVE_MANY is
+    one, though numbered after them."""
+    return opcode < Opcode.ARM_RESUME or opcode == Opcode.RECEIVE_MANY
 
 
 class Kind(IntEnum):
@@ -120,6 +127,38 @@ def validate_block_size(kind, size):
             raise BattleMailboxError("controller size is outside the audited command table")
     elif kind not in sizes or size != sizes[kind]:
         raise BattleMailboxError("native block has the wrong exact size")
+
+
+_RECEIVE_MANY_ENTRY = struct.Struct("<BBHI")
+
+
+def pack_receive_many(blocks):
+    """KNOWN_ISSUES MS-62: a RECEIVE_MANY payload from (source, kind, block sequence, bytes) blocks, in delivery order."""
+    return b"".join(_RECEIVE_MANY_ENTRY.pack(source, kind, len(data), sequence) + data
+                    for source, kind, sequence, data in blocks)
+
+
+def receive_many_entries(data, player_count, local_slot):
+    """KNOWN_ISSUES MS-62: a RECEIVE_MANY payload's blocks, in order, as (source, kind, block sequence, bytes): each a whole
+    block of at most one chunk from another core (8 bytes: source, kind, size, block sequence; then the bytes), at most
+    one from each. The game applies them as their own RECEIVEs would be, until one is refused."""
+    entries, at = [], 0
+    while at < len(data):
+        if len(data) - at <= _RECEIVE_MANY_ENTRY.size:
+            raise BattleMailboxError("native receive-many entry is truncated")
+        source, kind, size, sequence = _RECEIVE_MANY_ENTRY.unpack_from(data, at)
+        at += _RECEIVE_MANY_ENTRY.size
+        if not 1 <= size <= 128 or size > len(data) - at:
+            raise BattleMailboxError("native receive-many block is not one whole chunk")
+        validate_block_size(kind, size)
+        if (not sequence or source >= player_count or source == local_slot
+                or any(entry[0] == source for entry in entries)):
+            raise BattleMailboxError("native receive-many names a wrong or repeated source")
+        entries.append((source, Kind(kind), sequence, data[at:at + size]))
+        at += size
+    if not entries:
+        raise BattleMailboxError("native receive-many carries no block")
+    return tuple(entries)
 
 
 class _NativeShape(BattleBinding):
@@ -359,7 +398,7 @@ class NativeControl:
             Opcode.SUSPEND: 0, Opcode.REAUTHORIZE: 140, Opcode.RESUME: 20,
             Opcode.RESUME_QUERY: 0, Opcode.ADMIT: 48, Opcode.RETIRE: 28, Opcode.HANDOFF: 28,
             Opcode.ADMISSION_CANCEL_HOLD: 84, Opcode.ADMISSION_CANCEL_HANDOFF: 84, Opcode.ADMISSION_CANCEL_READY: 52,
-            Opcode.PEEK: 0}
+            Opcode.PEEK: 0, Opcode.RECEIVE_MANY: len(self.data)}
         if len(self.data) != lengths[self.opcode]:
             raise BattleMailboxError("native command has the wrong exact payload length")
         if self.opcode == Opcode.BIND:
@@ -401,6 +440,8 @@ class NativeControl:
         elif self.opcode == Opcode.RELEASE:
             if struct.unpack_from("<I", self.data, 4)[0] not in outcomes_for_phase(self.phase):
                 raise BattleMailboxError("release needs a normalized win/loss/draw outcome")
+        elif self.opcode == Opcode.RECEIVE_MANY:
+            receive_many_entries(self.data, player_count_for_phase(self.phase), self.source_slot)
         elif self.opcode == Opcode.ACK_OUT:
             mask = (1 << player_count_for_phase(self.phase))-1
             if struct.unpack_from("<I", self.data, 4)[0] != (mask ^ (1 << self.source_slot)):
@@ -492,6 +533,14 @@ class NativeControl:
                     raise BattleMailboxError("preparation response changed the canonical revision")
         elif self.opcode == Opcode.PEEK:
             peek_parts(self)
+        elif self.opcode == Opcode.RECEIVE_MANY:
+            # [blocks applied (at least one), the refusal that stopped the rest or OK]
+            if len(self.data) != 2 or not 1 <= self.data[0] < player_count_for_phase(self.phase) or self.data[1] > Status.INTERNAL:
+                raise BattleMailboxError("native receive-many answer is malformed")
+            if request is not None:
+                count = len(receive_many_entries(request.data, player_count_for_phase(self.phase), request.source_slot))
+                if self.data[0] > count or (self.data[0] == count) != (self.data[1] == Status.OK):
+                    raise BattleMailboxError("native receive-many answer differs from its blocks")
         elif self.opcode == Opcode.READ_OUT:
             if len(self.data) != min(128, self.total_size-self.offset):
                 raise BattleMailboxError("native read response has the wrong chunk length")

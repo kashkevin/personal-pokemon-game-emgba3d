@@ -262,6 +262,7 @@ class CompanionConfig:
     tower_abi_version: int = field(init=False, default=0)  # PC game: Battle Tower: Legends (bridge.txt tower=1)
     host_save_page_abi_version: int = field(init=False, default=0)  # PC game: an in-game SAVE saves on the host (MS-61)
     battle_peek_abi_version: int = field(init=False, default=0)  # PC game: battle PEEK, pushed observations (MS-62)
+    battle_receive_many_abi_version: int = field(init=False, default=0)  # PC game: RECEIVE_MANY (MS-62)
 
     def __post_init__(self) -> None:
         rom_path, manifest_path = Path(self.rom_path).resolve(), Path(self.manifest_path).resolve()
@@ -314,6 +315,8 @@ class CompanionConfig:
         # launcher sends its core's state and each new block to the host as they happen (battle_session.py).
         from .bridge_config import battle_peek_enabled
         object.__setattr__(self, "battle_peek_abi_version", 1 if battle_peek_enabled(manifest) else 0)
+        from .bridge_config import battle_receive_many_enabled
+        object.__setattr__(self, "battle_receive_many_abi_version", 1 if battle_receive_many_enabled(manifest) else 0)
         object.__setattr__(self, "reset_enabled", manifest.get("reset_abi_version") in (1, 2))
         object.__setattr__(self, "reset_abi_version", manifest.get("reset_abi_version", 0))
         object.__setattr__(self, "reset_input_abi_version", manifest.get("reset_input_abi_version", 0))
@@ -1270,10 +1273,13 @@ class Companion:
                 or not isinstance(control, (BattleControl, NativeControl))
                 or (isinstance(control, NativeControl) and control.opcode > 13
                     and self.config.battle_resume_abi_version != 1)
-                or (isinstance(control, NativeControl) and control.opcode > 21 and control.opcode != NativeOpcode.PEEK
+                or (isinstance(control, NativeControl) and control.opcode > 21
+                    and control.opcode not in (NativeOpcode.PEEK, NativeOpcode.RECEIVE_MANY)
                     and getattr(self.config, "battle_admission_cleanup_abi_version", 0) != 1)
                 or (isinstance(control, NativeControl) and control.opcode == NativeOpcode.PEEK
                     and getattr(self.config, "battle_peek_abi_version", 0) != 1)
+                or (isinstance(control, NativeControl) and control.opcode == NativeOpcode.RECEIVE_MANY
+                    and getattr(self.config, "battle_receive_many_abi_version", 0) != 1)
                 or (isinstance(control, NativeControl) and control.opcode == Opcode.BIND
                     and len(control.data) == 116 and control.data[115]
                     and self.config.battle_resume_abi_version != 1)

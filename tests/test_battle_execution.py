@@ -9,6 +9,7 @@ import json
 import struct
 from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 from uuid import UUID, uuid4
 import zlib
 
@@ -20,7 +21,7 @@ from emerald_multiplayer.battle_journal import BattleJournalError
 from emerald_multiplayer.battle_protocol import challenge_view, validate_battle_request
 from emerald_multiplayer import battle_session
 from emerald_multiplayer.battle_session import NativeBattleSession
-from emerald_multiplayer.native_battle import Kind, NativeControl, Opcode
+from emerald_multiplayer.native_battle import Kind, NativeControl, Opcode, receive_many_entries
 from emerald_multiplayer.ownership import OWNERSHIP_PROFILE
 from emerald_multiplayer.protocol import ProtocolError
 import test_battle_arbitration as arbitration_fixture
@@ -40,6 +41,7 @@ class NativeFixture:
     IDLE_QUERIES = 0   # after START, this many queries see no outbound block (players choosing)
     GRACE = 0
     DELAYS = {}
+    PARTLY_BUSY_ONCE = False   # the first RECEIVE_MANY takes only its first block, the core busy with the next one's player
 
     def __init__(self, battle, slot):
         self.battle, self.slot = battle, slot
@@ -52,6 +54,8 @@ class NativeFixture:
         self.out_index, self.offset = 0, 0
         self.received = {}
         self.busy_once = False
+        self.partly_busy_once = self.PARTLY_BUSY_ONCE
+        self.many = 0
         header = bytearray(32)
         header[1], header[4] = 3, 255
         roster = battle.roster[slot]
@@ -102,7 +106,7 @@ class NativeFixture:
             return replace(command, data=data)
         if command.sequence != self.sequence + 1:
             raise AssertionError("native mutation sequence changed")
-        if command.opcode == Opcode.RECEIVE and self.busy_once:
+        if command.opcode in (Opcode.RECEIVE, Opcode.RECEIVE_MANY) and self.busy_once:
             self.busy_once = False
             return replace(command, status=1, data=b"")
         self.sequence += 1
@@ -120,6 +124,15 @@ class NativeFixture:
             self.offset += len(data)
         elif command.opcode == Opcode.RECEIVE:
             self.received[command.source_slot] = (command.block_sequence, command.offset + len(command.data))
+        elif command.opcode == Opcode.RECEIVE_MANY:
+            # KNOWN_ISSUES MS-62: each block as its own RECEIVE would be, until one is refused.
+            entries = receive_many_entries(command.data, len(self.battle.players), self.slot)
+            applied = 1 if self.partly_busy_once else len(entries)
+            self.partly_busy_once = False
+            for source, _, sequence, block in entries[:applied]:
+                self.received[source] = (sequence, len(block))
+            self.many += 1
+            data = bytes((applied, 0 if applied == len(entries) else 1))
         elif command.opcode == Opcode.ACK_OUT:
             # The PC game takes an ACK_OUT of a block it was never asked to READ_OUT (battle PEEK sent its bytes).
             if self.offset not in (0, len(self.blocks[self.out_index])):
@@ -193,10 +206,11 @@ class BattleExecutionNetworkTests(unittest.IsolatedAsyncioTestCase):
         await arbitration_fixture.BattleArbitrationTests.asyncTearDown(self)
 
     peek = False   # KNOWN_ISSUES MS-62: the observed router and its launchers' observers (ObservedExecutionTests)
+    receive_many = False   # ... and its RECEIVE_MANY (ReceiveManyExecutionTests)
 
     def enable(self):
         self.server.battle_execution = BattleExecutionService(self.desk, (None,) * 721, self.root / "execution",
-                                                              peek=self.peek)
+                                                              peek=self.peek, receive_many=self.receive_many)
         return self.server.battle_execution
 
     def accept(self, multi=False):
@@ -555,3 +569,36 @@ class ObservedExecutionTests(BattleExecutionNetworkTests):
         room = self.server.battle_execution.rooms[self.battle_id]
         self.assertEqual(room.state, "recovery_required")
         self.assertFalse(room.battle.started)
+
+
+class ReceiveManyExecutionTests(ObservedExecutionTests):
+    """KNOWN_ISSUES MS-62: every network test again on games with RECEIVE_MANY: a 2v2's batch of small blocks goes to each
+    core in one command; a 1v1 has nothing to pack (each core hears from one other)."""
+    receive_many = True
+
+    async def test_small_blocks_go_without_read_out_and_queries_only_end_the_battle(self):
+        await super().test_small_blocks_go_without_read_out_and_queries_only_end_the_battle()
+        self.assertEqual(sum(model.many for model in self.native_models.values()), 0)
+
+    async def test_a_batchs_small_blocks_reach_each_core_in_fewer_commands(self):
+        seen = []
+        original = NativeFixture.rpc
+
+        async def counted(model, command):
+            seen.append(command)
+            return await original(model, command)
+        with patch.object(NativeFixture, "rpc", counted):
+            await self.run_clients(multi=True)
+        many = [c for c in seen if c.opcode == Opcode.RECEIVE_MANY]
+        self.assertGreater(len(many), 0)
+        # Every core still took each other core's six blocks, in every core's one order, and restored (run_clients).
+        small = sum(1 for c in seen if c.opcode == Opcode.RECEIVE and c.total_size <= 128)
+        packed = sum(len(receive_many_entries(c.data, 4, c.source_slot)) for c in many)
+        self.assertEqual(small + packed, 4 * 3 * 3)      # trainer, start header and RNG blocks from three others
+        self.assertTrue(all(c.total_size == 200 for c in seen if c.opcode == Opcode.RECEIVE and c.offset))
+
+    async def test_a_core_that_takes_only_part_of_a_batch_gets_the_rest_next(self):
+        with patch.object(NativeFixture, "PARTLY_BUSY_ONCE", True):
+            await self.run_clients(multi=True)
+        self.assertTrue(all(not model.partly_busy_once for model in self.native_models.values()
+                            if model.many))

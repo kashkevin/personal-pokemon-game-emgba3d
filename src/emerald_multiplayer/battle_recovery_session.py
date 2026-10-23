@@ -20,7 +20,7 @@ from .battle_session import BattleCompletion, RenewedBattleSession
 from .checkpoint_client import CheckpointClient
 from .live_checkpoint import _atomic, _json_bytes, _sync_directory
 from .rival_catalogue import valid_preparation_word
-from .native_battle import COOP_PHASE, NativeBinding, NativeQuery, Opcode, Preparation, supports_native_phase
+from .native_battle import COOP_PHASE, NativeBinding, NativeQuery, Opcode, Preparation, ordinary_route, supports_native_phase
 from .native_battle_resume import ResumeAuthorization, ResumeQuery
 from .storage import Checkpoint
 
@@ -108,7 +108,7 @@ def _validate_record(value, intent):
         raise BattleJournalError("battle_recovery_required", "native binding exceeds authenticated renewal")
     command, response = _record_pair(value["command_b64"], value["response_b64"], value["dispatch_id"], intent, renewed)
     route, route_response = _record_pair(value["route_command_b64"], value["route_response_b64"], value["route_id"], intent, renewed)
-    if route is not None and route.opcode >= Opcode.ARM_RESUME:
+    if route is not None and not ordinary_route(route.opcode):
         raise BattleJournalError("battle_recovery_required", "retained ordinary route contains recovery commands")
     if value["stage"] == "route":
         if (command, response, value["dispatch_id"]) != (route, route_response, value["route_id"]):
@@ -348,7 +348,7 @@ class NativeBattleRecoverySession:
             self._route_id = value["dispatch_id"]
             self._route_command, self._route_response = _record_pair(value["command_b64"],
                 value["response_b64"], self._route_id, self.intent, original_session)
-            if self._route_command is None or self._route_command.opcode >= Opcode.ARM_RESUME:
+            if self._route_command is None or not ordinary_route(self._route_command.opcode):
                 raise BattleJournalError("battle_recovery_required", "ordinary execution evidence has no valid route command")
             if value["state"] == "closed":
                 _release(self._route_command, self._route_response, self.intent)
@@ -478,7 +478,7 @@ class NativeBattleRecoverySession:
             if command.source_slot != self.binding.local_slot:
                 raise BattleJournalError("battle_order", "recovery control changed the local participant")
         else:
-            if command.opcode >= Opcode.ARM_RESUME:
+            if not ordinary_route(command.opcode):
                 raise BattleJournalError("battle_order", "ordinary route cannot carry recovery controls")
             if dispatch == self._route_id:
                 previous = self._route_command

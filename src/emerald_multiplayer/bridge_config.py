@@ -16,7 +16,8 @@ def configure_native(manifest: dict, token: str, port: int) -> str:
     Battle Tower: Legends adds tower=1 (its screens, world action 7 and
     reward words 6-7, docs/battle-tower-legends.md 8.1); MS-61 adds
     host_save_page=1 (an in-game SAVE in a world saves on the host too);
-    MS-62 adds battle_peek=1 (battle PEEK, pushed battle observations)."""
+    MS-62 adds battle_peek=1 (battle PEEK, pushed battle observations) and
+    battle_receive_many=1 (RECEIVE_MANY: a batch's small blocks in one command)."""
     from .trade_effect_mailbox import (validate_effect_choice_manifest, validate_effect_prepare_manifest,
                                        validate_effect_save_manifest)
     if (not isinstance(token, str) or not re.fullmatch(r"[0-9a-f]{64}", token)
@@ -37,6 +38,8 @@ def configure_native(manifest: dict, token: str, port: int) -> str:
         lines.append("host_save_page=1")
     if battle_peek_enabled(manifest):
         lines.append("battle_peek=1")
+    if battle_receive_many_enabled(manifest):
+        lines.append("battle_receive_many=1")
     return "\n".join(lines) + "\n"
 
 
@@ -46,6 +49,14 @@ def battle_peek_enabled(manifest: dict) -> bool:
     same build, so the host's own manifest speaks for every game (battle_execution.BattleExecutionService.peek)."""
     version = manifest.get("battle_peek_abi_version")
     return type(version) is int and version == 1 and manifest.get("battle_abi_version") == 3
+
+
+def battle_receive_many_enabled(manifest: dict) -> bool:
+    """KNOWN_ISSUES MS-62: the native game's RECEIVE_MANY (opcode 26: a batch's whole small blocks for one core in one
+    command, manifest battle_receive_many_abi_version 1, beside battle PEEK). The host's 2v2 routes then deliver a batch
+    in one round trip to each player instead of one per block (battle_execution.BattleExecutionService.receive_many)."""
+    version = manifest.get("battle_receive_many_abi_version")
+    return type(version) is int and version == 1 and battle_peek_enabled(manifest)
 
 
 def menu_open_page_enabled(manifest: dict) -> bool:

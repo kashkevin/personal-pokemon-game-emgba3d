@@ -23,7 +23,7 @@ from .battle_execution_journal import RouteJournal
 from .battle_mailbox import Status
 from .battle_roster import validate_auxiliary_startup
 from .live_checkpoint import _atomic, _json_bytes
-from .native_battle import Kind, NativeControl, NativeQuery, Opcode
+from .native_battle import Kind, NativeControl, NativeQuery, Opcode, pack_receive_many
 
 # KEEP refreshes a core's native watchdog (MULTIPLAYER_BATTLE_DEADLINE, 600 frames) and the desk's
 # host deadline. Every accepted mutating command refreshes the native watchdog too; QUERY does not,
@@ -40,7 +40,8 @@ KEEP_EVERY_STEPS = 32
 KEEP_OBSERVED_FRAMES = 240
 KEEP_OBSERVED_COMMANDS = 64
 # The transport commands. With a route journal they need no room record of their own (the journal holds them).
-TRANSPORT = frozenset((Opcode.QUERY, Opcode.PEEK, Opcode.READ_OUT, Opcode.RECEIVE, Opcode.ACK_OUT, Opcode.KEEP))
+TRANSPORT = frozenset((Opcode.QUERY, Opcode.PEEK, Opcode.READ_OUT, Opcode.RECEIVE, Opcode.RECEIVE_MANY, Opcode.ACK_OUT,
+                       Opcode.KEEP))
 OBSERVE_SCOPE = "native-battle-observation-v1"
 
 
@@ -94,7 +95,8 @@ class BattleExecutionService:
     native RAM or invent route acknowledgments from this audit record.
     """
 
-    def __init__(self, desk, string_lengths, directory, *, observer=None, resume_enabled=False, peek=False):
+    def __init__(self, desk, string_lengths, directory, *, observer=None, resume_enabled=False, peek=False,
+                 receive_many=False):
         if desk is None:
             raise ValueError("native execution requires an enabled BattleDesk")
         ControllerValidator(string_lengths)
@@ -110,6 +112,10 @@ class BattleExecutionService:
         if type(peek) is not bool:
             raise ValueError("battle PEEK must be explicitly verified")
         self.peek = peek
+        # ... and RECEIVE_MANY (bridge_config.battle_receive_many_enabled): their 2v2s use journal v5.
+        if type(receive_many) is not bool or (receive_many and not peek):
+            raise ValueError("battle RECEIVE_MANY must be explicitly verified, beside PEEK")
+        self.receive_many = receive_many
         self.directory = Path(directory).resolve()
         self.directory.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.rooms = {}
@@ -292,12 +298,12 @@ class BattleExecutionService:
                 row = self.desk.store._connection.execute(
                     "SELECT * FROM battle_reservations WHERE battle_id=?", (b.battle_id,)).fetchone()
                 record = self.desk.reservations._read(row)
-                from .battle_execution_journal import OBSERVED_FORMAT
+                from .battle_execution_journal import MANY_FORMAT, OBSERVED_FORMAT
                 room.journal = RouteJournal(self.directory / (b.battle_id + ".events.jsonl"),
                     dict(record=record, battle_id=b.battle_id, generation=b.generation, players=list(b.players),
                         leases=list(b.leases), incarnations=[room.ready[p] for p in b.players], mode=b.mode,
                         initial_sequences=list(room.route.sequences)), create=True,
-                    format=OBSERVED_FORMAT if room.route.observed else None)
+                    format=(MANY_FORMAT if room.route.many else OBSERVED_FORMAT) if room.route.observed else None)
             room.journal.append("command", actor, dispatch_id, command)
             if command.opcode == Opcode.BIND and len(room.admitted) != len(b.players):
                 room.state = "admitting"
@@ -455,6 +461,7 @@ class _NativeRoute:
         self.started = False
         self.steps_since_keep = [0] * self.count
         self.observed = False   # run_observed (KNOWN_ISSUES MS-62): responses and observations arrive as events
+        self.many = False       # ... and packs RECEIVE_MANY (journal v5)
         self.events = None
 
     def call(self, method, slot, *args, **kwargs):
@@ -773,7 +780,7 @@ class _NativeRoute:
         self.busy[slot] = None
         opcode = command.opcode
         if response.status != Status.OK:
-            if opcode == Opcode.RECEIVE and response.status == Status.BUSY:
+            if opcode in (Opcode.RECEIVE, Opcode.RECEIVE_MANY) and response.status == Status.BUSY:
                 return  # delivered again by the next plan
             raise BattleError("native_refused", "native battle command was refused")
         if opcode != Opcode.QUERY:
@@ -806,6 +813,13 @@ class _NativeRoute:
                 self._admit_block(slot, reading["q"], reading["data"])
         elif opcode == Opcode.RECEIVE:
             what[1]["offsets"][slot] += len(command.data)
+        elif opcode == Opcode.RECEIVE_MANY:
+            applied, refusal = response.data
+            for block in what[1][:applied]:
+                block["offsets"][slot] = len(block["data"])
+            if refusal not in (Status.OK, Status.BUSY):
+                raise BattleError("native_refused", "native battle command was refused")
+            # the rest (the core is still busy with an earlier block from that player) go again with the next plan
         elif opcode == Opcode.ACK_OUT:
             self.outbound_changed[slot] = command.sequence
             block = what[1]
@@ -895,7 +909,13 @@ class _NativeRoute:
                 self._issue(slot, Opcode.READ_OUT, ("read",), block_sequence=q.outbound_sequence,
                     offset=len(reading["data"]), total_size=q.outbound_size, kind=q.outbound_kind)
                 continue
-            block = next((b for b in self.queue if b["source"] != slot and b["offsets"][slot] < len(b["data"])), None)
+            owed = [b for b in self.queue if b["source"] != slot and b["offsets"][slot] < len(b["data"])]
+            many = self._many(slot, owed)
+            if many:
+                self._issue(slot, Opcode.RECEIVE_MANY, ("receive_many", many), data=pack_receive_many(
+                    (b["source"], b["kind"], b["sequence"], b["data"]) for b in many))
+                continue
+            block = owed[0] if owed else None
             if block is not None:
                 offset = block["offsets"][slot]
                 self._issue(slot, Opcode.RECEIVE, ("receive", block), source_slot=block["source"],
@@ -915,8 +935,26 @@ class _NativeRoute:
                     and seen[0].remaining_frames < KEEP_OBSERVED_FRAMES)):
                 self._issue(slot, Opcode.KEEP, ("keep",))
 
+    def _many(self, slot, owed):
+        """KNOWN_ISSUES MS-62: the blocks a core is owed that go in one RECEIVE_MANY (at least two, else None): from the
+        first, in the order every core receives them, each whole and of at most one chunk, as many as fit in one command
+        (they always do but for the 92- and 156-byte controller blocks, a move's rare long messages)."""
+        if not self.many:
+            return None
+        many, size = [], 0
+        for block in owed:
+            size += 8 + len(block["data"])
+            if block["offsets"][slot] or len(block["data"]) > 128 or size > 192:
+                break
+            many.append(block)
+        return many if len(many) > 1 else None
+
     async def run_observed(self):
         self.observed = True
+        journal = self.room.journal
+        # A battle of three or four on games with RECEIVE_MANY packs (journal v5); a recovered one as its journal did.
+        self.many = journal.receive_many if journal is not None else (
+            getattr(self.service, "receive_many", False) and self.count > 2)
         self.events = asyncio.Queue()
         self.tasks = set()
         self.busy = [None] * self.count

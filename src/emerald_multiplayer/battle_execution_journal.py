@@ -29,13 +29,17 @@ from .native_battle_resume import ResumeAuthorization, ResumeQuery
 # battle PEEK: each launcher sends its core's state and each new block as they happen ("observation" events, PEEK
 # responses), and the router answers every response and observation in the order this journal records them, so
 # recovery replays them in that order.
+# v5 (2026-10-23, KNOWN_ISSUES MS-62): v4's router with RECEIVE_MANY (games with battle_receive_many_abi_version 1): with
+# three or four cores a batch's whole small blocks for one core go in one command, so recovery must pack them the same.
 FORMAT = "native-battle-route-events-v3"
 OBSERVED_FORMAT = "native-battle-route-events-v4"
+MANY_FORMAT = "native-battle-route-events-v5"
 LEGACY_FORMATS = ("native-battle-route-events-v1", "native-battle-route-events-v2")
 # Records a later command's fsync makes durable with it (KNOWN_ISSUES MS-62: a battle has thousands of commands, and each
 # fsync is slow on a player's Windows PC). A command is published only after its own record is fsynced, and that
 # flushes every record before it; a transport reply or an observation is only ever acted on by publishing such a command.
-_TRANSPORT = frozenset((Opcode.QUERY, Opcode.PEEK, Opcode.READ_OUT, Opcode.RECEIVE, Opcode.ACK_OUT, Opcode.KEEP))
+_TRANSPORT = frozenset((Opcode.QUERY, Opcode.PEEK, Opcode.READ_OUT, Opcode.RECEIVE, Opcode.RECEIVE_MANY, Opcode.ACK_OUT,
+                        Opcode.KEEP))
 MAX_LINE = 16384
 MAX_BYTES = 256 * 1024 * 1024
 MAX_EVENTS = 500000
@@ -63,7 +67,7 @@ class RouteJournal:
         # Every response and observation in journal order (observed router: what recovery replays it with).
         self.routed = []
         format = FORMAT if format is None else format
-        if format not in (FORMAT, OBSERVED_FORMAT):
+        if format not in (FORMAT, OBSERVED_FORMAT, MANY_FORMAT):
             raise ValueError("a new route journal takes a current format")
         self.format = format
         if create:
@@ -149,7 +153,7 @@ class RouteJournal:
                         raise ValueError("route evidence checksum or encoding changed")
                     value = row["value"]
                     if not self.events:
-                        if (type(value) is not dict or value.get("format") not in (FORMAT, OBSERVED_FORMAT) + LEGACY_FORMATS
+                        if (type(value) is not dict or value.get("format") not in (FORMAT, OBSERVED_FORMAT, MANY_FORMAT) + LEGACY_FORMATS
                                 or value != dict(kind="header", format=value["format"], value=self.header)):
                             raise ValueError("route evidence belongs to another immutable battle")
                         self.format = value["format"]
@@ -199,7 +203,8 @@ class RouteJournal:
         if (control.battle_id != self.header["battle_id"]
                 or control.incarnation != self.header["incarnations"][slot]
                 or control.session_epoch != self.leases[slot]
-                or control.phase != self.header["mode"]):
+                or control.phase != self.header["mode"]
+                or (control.opcode == Opcode.RECEIVE_MANY and not self.receive_many)):
             raise ValueError("route event changed its immutable battle binding")
         if response:
             pending = self.pending.get(actor)
@@ -220,7 +225,7 @@ class RouteJournal:
     def _validate_observation(self, value, *, apply):
         """An observed router's PEEK response from a launcher with no outstanding command (KNOWN_ISSUES MS-62)."""
         from .native_battle import peek_parts
-        if (self.format != OBSERVED_FORMAT or set(value) != {"kind", "actor", "control_b64"}
+        if (not self.observed or set(value) != {"kind", "actor", "control_b64"}
                 or value["actor"] not in self.header["players"] or value["actor"] in self.pending):
             raise ValueError("invalid native route observation")
         actor = value["actor"]
@@ -237,8 +242,13 @@ class RouteJournal:
 
     @property
     def observed(self):
-        """A v4 journal's router answered pushed observations (_NativeRoute.run_observed)."""
-        return self.format == OBSERVED_FORMAT
+        """A v4 or v5 journal's router answered pushed observations (_NativeRoute.run_observed)."""
+        return self.format in (OBSERVED_FORMAT, MANY_FORMAT)
+
+    @property
+    def receive_many(self):
+        """A v5 journal's router packed a batch's small blocks for a core into one RECEIVE_MANY."""
+        return self.format == MANY_FORMAT
 
     def observe(self, actor, control):
         self._append(dict(kind="observation", actor=actor, control_b64=encode_control(control)), sync=False)
@@ -311,7 +321,7 @@ class RouteJournal:
     @property
     def pipelined(self):
         """A v3 journal's router ran its rounds (_NativeRoute.round); v1 and v2 ran its lock-step steps."""
-        return self.format not in LEGACY_FORMATS and self.format != OBSERVED_FORMAT
+        return self.format not in LEGACY_FORMATS and not self.observed
 
     def append(self, kind, actor, dispatch_id, control):
         self._append(dict(kind=kind, actor=actor, dispatch_id=dispatch_id, control_b64=encode_control(control)),

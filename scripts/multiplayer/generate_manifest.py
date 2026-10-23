@@ -315,6 +315,13 @@ def generate(rom: Path, elf: Path, nm: str, engine_commit: str, *, trade_effect_
         if not four_byte_marker(peek) or manifest.get("battle_abi_version") != 3:
             raise ValueError("battle PEEK needs one four-byte marker and the native battle ABI 3")
         manifest.update(battle_peek_abi_version=1)
+    # ... and RECEIVE_MANY (opcode 26): a batch's whole small blocks for one core in one command, beside PEEK; the launcher
+    # opts in with bridge.txt battle_receive_many=1.
+    many = native_marker("gMultiplayerBattleReceiveManyAbiVersion", symbols + native_symbols)
+    if many:
+        if not four_byte_marker(many) or manifest.get("battle_peek_abi_version") != 1:
+            raise ValueError("battle RECEIVE_MANY needs one four-byte marker and battle PEEK")
+        manifest.update(battle_receive_many_abi_version=1)
     if len(objects) == 1:
         obj_address, obj_size = (int(value, 16) for value in objects[0])
         # Read-only test metadata for the pinned engine's 0x24-byte objects.

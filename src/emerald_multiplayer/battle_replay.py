@@ -94,6 +94,7 @@ class RouteReplay:
         self.remaining = len(journal.completed)
         self.blocked = {}
         self.peek = getattr(owner, "peek", False)
+        self.receive_many = getattr(owner, "receive_many", False)
         self.boundary, self.live = asyncio.Event(), asyncio.Event()
         self.error = None
         self.route = self.room.route = _NativeRoute(self, self.room)

@@ -361,7 +361,7 @@ class RetainedFixture(execution_fixture.NativeFixture):
         if command.opcode == Opcode.ADMIT:
             self.provisional = Admission.unpack(command.data)
             return replace(command, data=self.query())
-        if command.opcode >= Opcode.SUSPEND:
+        if command.opcode >= Opcode.SUSPEND and command.opcode != Opcode.RECEIVE_MANY:
             if not self.bound or command.incarnation != self.binding.incarnations[self.slot]:
                 raise AssertionError("replacement native core")
             if command.opcode == Opcode.SUSPEND:
@@ -404,6 +404,7 @@ class RetainedFixture(execution_fixture.NativeFixture):
 class BattleRecoveryNetworkTests(unittest.IsolatedAsyncioTestCase):
     asyncSetUp = fixture.BattleArbitrationTests.asyncSetUp
     peek = False   # KNOWN_ISSUES MS-62: the observed router, journal v4 and the clients' observers (ObservedRecoveryTests)
+    receive_many = False   # ... and RECEIVE_MANY, journal v5 in a 2v2 (ReceiveManyRecoveryTests)
 
     async def asyncTearDown(self):
         for observer in getattr(self, "observers", []):
@@ -476,7 +477,7 @@ class BattleRecoveryNetworkTests(unittest.IsolatedAsyncioTestCase):
 
     async def _interrupt(self, opcode, *, uncertain=True, multi=False):
         self.server.battle_execution = BattleExecutionService(self.desk, (None,)*721,
-            self.root/"execution", resume_enabled=True, peek=self.peek)
+            self.root/"execution", resume_enabled=True, peek=self.peek, receive_many=self.receive_many)
         self.accept(multi)
         battle = self.desk._active[self.battle_id]
         self.models = {actor: RetainedFixture(battle, slot) for slot, actor in enumerate(battle.players)}
@@ -554,7 +555,8 @@ class BattleRecoveryNetworkTests(unittest.IsolatedAsyncioTestCase):
         self.store = TradeCheckpointStore(self.root/"world.sqlite3", fixture.BUILD, fixture.RULES)
         self.server = WorldServer(ServerConfig(fixture.BUILD, fixture.RULES, heartbeat_interval=.05, idle_timeout=20),
             store=self.store, development_trades=True, development_battles=True)
-        self.server.enable_battle_execution((None,)*721, self.root/"execution", resume_enabled=True, peek=self.peek)
+        self.server.enable_battle_execution((None,)*721, self.root/"execution", resume_enabled=True, peek=self.peek,
+                                            receive_many=self.receive_many)
         await self.server.start(port=0)
         self.actors = [await fixture.Actor.connect(self.server.address, player) for player in self.players]
         self.desk = self.server.battle_desk
@@ -834,7 +836,8 @@ class ObservedRecoveryTests(BattleRecoveryNetworkTests):
         await self._interrupt(Opcode.KEEP, multi=True)
         journal = self.root/"execution"/(self.battle_id+".events.jsonl")
         lines = journal.read_text().splitlines()
-        self.assertEqual(json.loads(lines[0])["value"]["format"], "native-battle-route-events-v4")
+        self.assertEqual(json.loads(lines[0])["value"]["format"],
+                         "native-battle-route-events-v5" if self.receive_many else "native-battle-route-events-v4")
         events = [json.loads(line)["value"] for line in lines[1:]]
         self.assertTrue(any(event.get("kind") == "observation" for event in events))
         await self._recover(4)
@@ -853,3 +856,23 @@ class ObservedRecoveryTests(BattleRecoveryNetworkTests):
         with patch.object(asyncio, "sleep", sleep):
             await self._recover(4)
         self.assertEqual({delay for delay, replaying in waits if replaying} - {0}, set())   # it never waited
+
+
+class ReceiveManyRecoveryTests(ObservedRecoveryTests):
+    """KNOWN_ISSUES MS-62: every recovery again on games with RECEIVE_MANY: a 2v2's journal (v5) records the packed
+    batches, and the replay packs them the same."""
+    receive_many = True
+
+    async def test_four_cores_resume_after_an_uncertain_receive_many(self):
+        await self._interrupt(Opcode.RECEIVE_MANY, multi=True)
+        journal = self.root/"execution"/(self.battle_id+".events.jsonl")
+        lines = journal.read_text().splitlines()
+        self.assertEqual(json.loads(lines[0])["value"]["format"], "native-battle-route-events-v5")
+        await self._recover(4)
+
+    async def test_a_two_player_battle_keeps_journal_v4(self):
+        await self._interrupt(Opcode.RELEASE)
+        journal = self.root/"execution"/(self.battle_id+".events.jsonl")
+        self.assertEqual(json.loads(journal.read_text().splitlines()[0])["value"]["format"],
+                         "native-battle-route-events-v4")
+        await self._recover(2)
