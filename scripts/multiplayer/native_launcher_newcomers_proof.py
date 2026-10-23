@@ -216,9 +216,20 @@ class NewcomersProof(SoftResetProof, ThreePlayerProof):
                 commands = sum(room.dispatch_ids.values())
                 polls = sum(p["count"] for p in room.polls.values())
                 seconds = max(p["last"] for p in room.polls.values()) - min(p["first"] for p in room.polls.values())
+                # The last commands' hops (battle_execution.HOPS_KEPT a trainer): waiting for the trainer's poll to
+                # take the command (published to delivered), and from there to its answer (the trainer's launcher and
+                # game, both ways over the network), in median milliseconds.
+                hops = [h for kept in room.hops.values() for h in kept
+                        if h["delivered"] is not None and h["answered"] is not None]
+
+                def median(values):
+                    values = sorted(values)
+                    return round(1000 * values[len(values) // 2], 1) if values else None
                 out[battle_id[:8]] = dict(commands=commands, polls=polls, seconds=round(seconds, 1),
                                           polls_per_command=round(polls / max(commands, 1), 2),
-                                          ms_per_command=round(1000 * seconds / max(commands, 1), 1))
+                                          ms_per_command=round(1000 * seconds / max(commands, 1), 1),
+                                          hops=len(hops), take_ms=median([h["delivered"] - h["published"] for h in hops]),
+                                          answer_ms=median([h["answered"] - h["delivered"] for h in hops]))
             return out
         record(label + "-route", latency_ms=LATENCY_MS[0], hold=HOLD[0], rooms=await on_worker(current[0], route))
         if meanwhile is not None:
