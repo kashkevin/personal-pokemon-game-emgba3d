@@ -1402,6 +1402,11 @@ jobs:
           # each way, as over the internet; nosave-lag-nohold answers battle polls as before KNOWN_ISSUES MS-62's fix.
           - {name: nosave-lag, scenario: lobby, players: 2, format: 1v1v1v1, extra: "--no-save --latency-ms 40"}
           - {name: nosave-lag-nohold, scenario: lobby, players: 2, format: 1v1v1v1, extra: "--no-save --latency-ms 40 --no-hold"}
+          # The owner's report of 2026-10-23 on two PCs: both players confirm a trade from PLAYERS and the trade window
+          # closes with no message and nothing traded. Two new characters trade their starters and back, every message
+          # 40 ms late each way; battle-trade-lag first fights the rival 1v1, as the owner did.
+          - {name: trade-lag, scenario: trade, players: 2, format: 1v1v1v1, extra: "--no-save --latency-ms 40 --latency-all"}
+          - {name: battle-trade-lag, scenario: battle-trade, players: 2, format: 1v1v1v1, extra: "--no-save --latency-ms 40 --latency-all"}
     defaults:
       run:
         shell: bash
