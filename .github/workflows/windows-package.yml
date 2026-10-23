@@ -55,7 +55,7 @@ on:
         options: ["no", "yes"]
         default: "no"
       only:
-        description: "full: only these check jobs after the builds (job ids, comma-separated, e.g. abandon-check,rival-proof; no-climb: tower-proof without its climb; blank = every job, the installer too)"
+        description: "full: only these check jobs after the builds (job ids, comma-separated, e.g. abandon-check,rival-proof; no-climb: tower-proof without its climb; tower:<entry>, mp:<entry>: those entries alone; blank = every job, the installer too)"
         default: ""
       abandon_scenario:
         description: "full: the interrupted-battle check's scenario (all = the seven)"
@@ -1372,7 +1372,7 @@ jobs:
     # mode of native_launcher_battle_proof.py). Starters claimed at once, battle lobbies, mixed parties, a battle and a
     # trade at the same time, soft resets with others playing, what the others see while one is in a menu. One PC on
     # its own loopback: no second PC, router or Internet.
-    name: Multiplayer gameplay (Windows game processes, ${{ matrix.players }} players, ${{ matrix.scenario }})
+    name: Multiplayer gameplay (Windows game processes, ${{ matrix.players }} players, ${{ matrix.name }})
     needs: [engine, symbol-sizes]
     if: ${{ (inputs.mode || 'smoke') == 'full' && (!inputs.only || contains(format(',{0},', inputs.only), ',multiplayer-check,')) }}
     runs-on: windows-2022
@@ -1381,10 +1381,15 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - {scenario: busy, players: 4, format: 1v1v1v1}
-          - {scenario: mixed, players: 4, format: 2v2}
-          - {scenario: lobby, players: 4, format: 1v1v1v1}
-          - {scenario: lobby, players: 3, format: 1v1v1v1}
+          - {name: busy-4, scenario: busy, players: 4, format: 1v1v1v1}
+          - {name: mixed-4, scenario: mixed, players: 4, format: 2v2}
+          - {name: lobby-4, scenario: lobby, players: 4, format: 1v1v1v1}
+          - {name: lobby-3, scenario: lobby, players: 3, format: 1v1v1v1}
+          # The owner's reports of 2026-10-22: two new characters claim their starters and nobody saves (the games save
+          # on the host by themselves), then Rival Battle - 1v1 from the Players menu; every host message 40 ms late
+          # each way, as over the internet; nosave-lag-nohold answers battle polls as before KNOWN_ISSUES MS-62's fix.
+          - {name: nosave-lag, scenario: lobby, players: 2, format: 1v1v1v1, extra: "--no-save --latency-ms 40"}
+          - {name: nosave-lag-nohold, scenario: lobby, players: 2, format: 1v1v1v1, extra: "--no-save --latency-ms 40 --no-hold"}
     defaults:
       run:
         shell: bash
@@ -1418,10 +1423,13 @@ jobs:
           name: classic-linux-sizes
           path: symbols
       - name: New characters from the game's own short introduction (boys and girls)
+        # only: ...,mp:<name>,...: those entries alone (a quick check)
+        if: ${{ !contains(inputs.only, 'mp:') || contains(format(',{0},', inputs.only), format(',mp:{0},', matrix.name)) }}
         run: |
           .venv/Scripts/python scripts/multiplayer/make_intro_saves.py --exe mega-check-inputs/pokeemerald-mp-bfxtest.exe \
             --mega-check mega-check-inputs/mega_check.py --out "$RUNNER_TEMP/intro" --count ${{ matrix.players }}
-      - name: ${{ matrix.players }} new characters in one world (${{ matrix.scenario }})
+      - name: ${{ matrix.players }} new characters in one world (${{ matrix.name }})
+        if: ${{ !contains(inputs.only, 'mp:') || contains(format(',{0},', inputs.only), format(',mp:{0},', matrix.name)) }}
         run: |
           # make_intro_saves.py's names, in its order (no glob over a Windows path in bash)
           names=(boy-1 girl-1 boy-2 girl-2); sources=()
@@ -1429,8 +1437,8 @@ jobs:
           .venv/Scripts/python scripts/multiplayer/native_launcher_newcomers_proof.py --scenario ${{ matrix.scenario }} \
             --format ${{ matrix.format }} --game inputs/pokeemerald-mp.exe --sdl inputs/SDL2.dll --rom inputs/pokedev.gba \
             --manifest inputs/manifest.json --pe-symbols symbols/pokeemerald-mp.nm.txt \
-            --sizes symbols/pokeemerald-mp.sizes.txt --slow 1.5 "${sources[@]}" \
-            --output "$RUNNER_TEMP/multiplayer-proof/${{ matrix.scenario }}-${{ matrix.players }}"
+            --sizes symbols/pokeemerald-mp.sizes.txt --slow 1.5 "${sources[@]}" ${{ matrix.extra }} \
+            --output "$RUNNER_TEMP/multiplayer-proof/${{ matrix.name }}"
       - name: The proof's own diagnosis, in this log (only when it failed; scripts/multiplayer/proof_failure_summary.py)
         if: failure()
         run: python scripts/multiplayer/proof_failure_summary.py "$RUNNER_TEMP/multiplayer-proof"
@@ -1438,7 +1446,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: EmeraldTogether-multiplayer-check-${{ matrix.scenario }}-${{ matrix.players }}
+          name: EmeraldTogether-multiplayer-check-${{ matrix.name }}
           path: |
             ${{ runner.temp }}/multiplayer-proof/*/evidence.json
             ${{ runner.temp }}/multiplayer-proof/*/*.jsonl

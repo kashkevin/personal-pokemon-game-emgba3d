@@ -97,9 +97,9 @@ class NewcomersProof(SoftResetProof, ThreePlayerProof):
     lobby_page = FourPlayerLobbyProof.lobby_page
     accept = FourPlayerLobbyProof.accept
 
-    def __init__(self, scenario, fmt, watch, match_seconds):
+    def __init__(self, scenario, fmt, watch, match_seconds, no_save=False):
         super().__init__(watch, match_seconds)
-        self.scenario, self.format = scenario, fmt
+        self.scenario, self.format, self.no_save = scenario, fmt, no_save
 
     # The claims ---------------------------------------------------------------------------------------------------
     async def walk_to_lab(self, slot, current, probes, record):
@@ -135,6 +135,20 @@ class NewcomersProof(SoftResetProof, ThreePlayerProof):
             await self.saved(current[n], revision)
         canonical = await self.heads(current, self.harness.host)
         record(label, canonical=canonical, revisions=[(await self.launcher(w))["revision"] for w in current])
+        return canonical
+
+    async def auto_saved(self, current, record, label, before, seconds=90):
+        """--no-save (the owner's request of 2026-10-22): nobody presses Save now; each claimer's game asks for the host
+        save itself once its party changed (multiplayer_soft_reset.c, the party watch), so its launcher's revision
+        moves past `before` and the host save holds the starter."""
+        async with asyncio.timeout(seconds):
+            while True:
+                revisions = [(await self.launcher(w))["revision"] for w in current]
+                canonical = await self.heads(current, self.harness.host)
+                if all(r > b for r, b in zip(revisions, before)) and all(c["count"] == 1 for c in canonical):
+                    break
+                await asyncio.sleep(.5)
+        record(label, canonical=canonical, revisions=revisions, before=before)
         return canonical
 
     async def refused_with(self, probe, peer, action, record, slot, expected):
@@ -190,6 +204,23 @@ class NewcomersProof(SoftResetProof, ThreePlayerProof):
         require(modes == [MODES[fmt]], f"{label}: started {modes}, expected the {fmt} ({MODES[fmt]})")
         stops, drivers = self.drive(current, probes, symbols, battles, slots)
         results = await self.finish(current, probes, battles, slots, stops, drivers, record, label)
+
+        async def route(s):
+            # KNOWN_ISSUES MS-62: the native commands each battle's route issued, the trainers' polls that carried them,
+            # and the seconds from each trainer's first poll to its last (the host's own counters).
+            out = {}
+            for battle_id in battles:
+                room = s._server.battle_execution.rooms.get(battle_id)
+                if room is None:
+                    continue
+                commands = sum(room.dispatch_ids.values())
+                polls = sum(p["count"] for p in room.polls.values())
+                seconds = max(p["last"] for p in room.polls.values()) - min(p["first"] for p in room.polls.values())
+                out[battle_id[:8]] = dict(commands=commands, polls=polls, seconds=round(seconds, 1),
+                                          polls_per_command=round(polls / max(commands, 1), 2),
+                                          ms_per_command=round(1000 * seconds / max(commands, 1), 1))
+            return out
+        record(label + "-route", latency_ms=LATENCY_MS[0], hold=HOLD[0], rooms=await on_worker(current[0], route))
         if meanwhile is not None:
             await meanwhile
         await self.back_on_the_field(current, probes, before, record, label + "-everyone-back")
@@ -397,6 +428,7 @@ class NewcomersProof(SoftResetProof, ThreePlayerProof):
     # The scenarios ------------------------------------------------------------------------------------------------
     async def _match(self, current, probes, games, host, symbols, record):
         self.t0 = time.monotonic()
+        simulate_internet(LATENCY_MS[0], HOLD[0])
         count = len(current)
         for n, worker in enumerate(current):
             self.own_display(n, worker)
@@ -415,11 +447,23 @@ class NewcomersProof(SoftResetProof, ThreePlayerProof):
 
         if self.scenario == "lobby":
             await self.cut_and_rejoin(1, current, probes, games, record)
+            before = [(await self.launcher(w))["revision"] for w in current]
             await self.claims(range(count), current, probes, record)
-            canonical = await self.save_all(current, record, "saved-with-the-starters")
+            if self.no_save:
+                canonical = await self.auto_saved(current, record, "auto-saved-with-the-starters", before)
+            else:
+                canonical = await self.save_all(current, record, "saved-with-the-starters")
             require(all(c["count"] == 1 and len(c["serials"]) == 1 for c in canonical), f"the host's saves: {canonical}")
             fmt = {2: "1v1", 3: "1v1v1", 4: self.format}[count]
-            await self.lobby_battle(current, probes, symbols, record, tuple(range(count)), fmt, fmt)
+            started = time.monotonic()
+            if self.no_save and count == 2:
+                # The owner's report: right after the starters, the Players menu's "Rival Battle - 1v1" never began.
+                await self.challenge_1v1(self.harness.host, probes, 0, 1)
+                await self.play(current, probes, symbols, record, (0, 1), fmt, "rival-1v1")
+            else:
+                await self.lobby_battle(current, probes, symbols, record, tuple(range(count)), fmt, fmt)
+            record("battle-seconds", seconds=round(time.monotonic() - started, 1), latency_ms=LATENCY_MS[0],
+                   hold=HOLD[0])
         elif self.scenario == "mixed":
             await self.mixed(current, probes, games, host, symbols, record)
         else:
@@ -527,14 +571,46 @@ class NewcomersProof(SoftResetProof, ThreePlayerProof):
         await self.across_route_101(3, current, probes, record)
 
 
+LATENCY_MS, HOLD = [0], [True]
+
+
+def simulate_internet(latency_ms, hold):
+    """--latency-ms: every battle message between the host and a player arrives that much later, each way (the host's
+    receive and send, in its own event loop), as over the internet. --no-hold: the host answers a battle poll at once,
+    as before KNOWN_ISSUES MS-62's fix (for the comparison). From the match on: the world's set-up (enrollment) answers
+    each step at once."""
+    from emerald_multiplayer.server import WorldServer
+    if latency_ms:
+        delay, receive, control = latency_ms / 1000, WorldServer._receive, WorldServer._control
+
+        # Battle messages only (the challenge, its acceptance, Enter and every native command): a delayed connection
+        # handshake or rejoin is refused (wrong_world), as a real one never is.
+        def late_receive(self, session, message):
+            if str(message.get("type", "")).startswith("battle_"):
+                asyncio.get_running_loop().call_later(delay, receive, self, session, message)
+            else:
+                receive(self, session, message)
+
+        def late_control(self, session, message):
+            if str(message.get("type", "")).startswith("battle_"):
+                asyncio.get_running_loop().call_later(delay, control, self, session, message)
+            else:
+                control(self, session, message)
+        WorldServer._receive, WorldServer._control = late_receive, late_control
+    if not hold:
+        WorldServer._hold_execute_reply = lambda self, session, request, result: self._battle_reply(
+            session, request, result=result)
+
+
 async def run(args):
+    LATENCY_MS[0], HOLD[0] = args.latency_ms, not args.no_hold
     count = len(args.source)
     require(2 <= count <= 4, "two to four sources (short-introduction saves)")
     require(args.scenario == "lobby" or count == 4, f"--scenario {args.scenario} needs four players")
     if not args.display:
         require(WINDOWS, "an X display per player")
         args.display = [f"desktop-{n}" for n in range(count)]         # Windows: one desktop; names for the records
-    proof = NewcomersProof(args.scenario, args.format, args.watch, args.match_seconds)
+    proof = NewcomersProof(args.scenario, args.format, args.watch, args.match_seconds, args.no_save)
     await launcher_proof(args, names=PLAYER_NAMES[:count], sources=args.source, party_counts=(0,) * count,
                          match=proof.match, version="Native newcomers proof", settings="windowScale=2\n",
                          scope=__doc__.split("\n\n")[0] + f" Scenario: {args.scenario}, {count} players.",
@@ -562,6 +638,11 @@ def main():
     parser.add_argument("--sizes", type=Path, help="Windows: nm -S of the Linux build of the same engine commit")
     parser.add_argument("--wine", type=Path, action="append", help="(not used)")
     parser.add_argument("--elf", type=Path)
+    parser.add_argument("--no-save", action="store_true",
+                        help="lobby, two players: nobody saves after the claims (the games save by themselves), then "
+                             "the Players menu's Rival Battle - 1v1")
+    parser.add_argument("--latency-ms", type=float, default=0, help="each way, between the host and every player")
+    parser.add_argument("--no-hold", action="store_true", help="the host answers battle polls at once (before MS-62)")
     args = parser.parse_args()
     if args.format is None:
         args.format = "2v2" if args.scenario == "mixed" else "1v1v1v1"
