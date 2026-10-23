@@ -85,7 +85,7 @@ from emerald_multiplayer.launcher_session import GameInstallation  # noqa: E402
 from emerald_multiplayer.launcher_setup import create_world, export_friend_invitation, host_enrollment  # noqa: E402
 from emerald_multiplayer.menu_mailbox import unpack_screen  # noqa: E402
 
-KEYS = {1: "z", 2: "x", 8: "Return", 16: "Right", 32: "Left", 64: "Up", 128: "Down"}
+KEYS = {1: "z", 2: "x", 4: "backslash", 8: "Return", 16: "Right", 32: "Left", 64: "Up", 128: "Down"}
 PLAYER_OPTIONS, TRAINER_CARD, PLAYERS = 15, 16, 17
 PARTY_TASKS = ("Task_HandleChooseMonInput", "Task_HandleSelectionMenuInput", "Task_PrintAndWaitForText")
 NEEDED = ("sMultiplayerMenuActive", "sMultiplayerMenuWaiting", "sMultiplayerMenuCursor", "sMultiplayerMenuScreen",

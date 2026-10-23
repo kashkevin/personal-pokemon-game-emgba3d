@@ -201,7 +201,12 @@ class WindowsWorkflowTests(unittest.TestCase):
                 self.assertTrue(condition.endswith(
                     f"&& (!inputs.only || contains(format(',{{0}},', inputs.only), ',{key},')) }}}}"), condition)
         for name in ("engine", "symbol-sizes"):
-            self.assertNotIn("inputs.only", job(name))
+            # The builds always run: `only` never gates them (only: package merely leaves the check jobs' test builds
+            # and their uploads out of the engine job, for an installer alone).
+            self.assertNotIn("inputs.only", re.search(r"^    if: (.*)$", job(name), re.M).group(1))
+        steps = [line.strip() for line in job("engine").splitlines() if "inputs.only" in line]
+        self.assertEqual(steps, ["QUICK: ${{ inputs.only == 'package' && '1' || '' }}"]
+                         + ["if: ${{ inputs.only != 'package' }}"] * 3)
         self.assertIn("needs: package", job("install-check"))
 
     def test_the_interrupted_battle_check_repeats_a_scenario_on_request(self):

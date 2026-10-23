@@ -47,8 +47,9 @@ def option(command, prefix):
 class FakeTools:
     """Records the PyInstaller and iscc calls and produces what each would."""
 
-    def __init__(self, iscc):
-        self.iscc, self.calls = str(iscc), []
+    def __init__(self, iscc, unseen=("tower_floors",)):
+        # unseen: modules PyInstaller's import analysis misses (tower_data imports the floor table by name)
+        self.iscc, self.calls, self.unseen = str(iscc), [], unseen
 
     def __call__(self, command, **options):
         self.calls.append(command)
@@ -58,6 +59,15 @@ class FakeTools:
             assert Path(command[-1]).name == "EmeraldTogether.pyw"
             shutil.copytree(source, dist / "_internal")
             (dist / "EmeraldTogether.exe").write_bytes(b"MZ frozen launcher stand-in")
+            # PyInstaller's table of the frozen modules: the source's and every --hidden-import (build_launcher checks
+            # the Tower's floor table is in it).
+            work = Path(command[command.index("--workpath") + 1]) / "EmeraldTogether"
+            work.mkdir(parents=True, exist_ok=True)
+            paths = Path(command[command.index("--paths") + 1]) / "emerald_multiplayer"
+            frozen = ["emerald_multiplayer." + path.stem for path in sorted(paths.glob("*.py"))
+                      if path.stem not in self.unseen]
+            frozen += [command[i + 1] for i, part in enumerate(command) if part == "--hidden-import"]
+            (work / "PYZ-00.toc").write_text(repr([(name, "", "PYMODULE") for name in frozen]))
         elif command[0] == self.iscc:
             assert Path(command[-1]) == ISS and ISS.is_file()
             package = Path(option(command, "/DPackageDir="))
@@ -280,6 +290,18 @@ class BuildRefusalTests(unittest.TestCase):
             run_build(args, tools)
         self.assertEqual(tools.calls, [])
         self.assertFalse(args.output.exists())
+
+    def test_a_package_without_the_tower_floor_table_is_refused(self):
+        # The installed launcher said "Tower floor data is missing" when PyInstaller left the table out.
+        inputs, runtime = smoke_inputs(self.root)
+        (self.root / "iscc.exe").write_bytes(b"compiler stand-in")
+        args = build_args(self.root, inputs, runtime)
+        tools = FakeTools(args.iscc)
+        dropped = lambda command, **options: tools([part for i, part in enumerate(command)
+            if part != "--hidden-import" and (i == 0 or command[i - 1] != "--hidden-import")], **options)
+        with self.assertRaisesRegex(ValueError, "floor table"):
+            run_build(args, dropped)
+        self.assertFalse(any(call[0] == tools.iscc for call in tools.calls))   # no installer made
 
 
 if __name__ == "__main__":
