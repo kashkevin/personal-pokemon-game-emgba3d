@@ -22,6 +22,8 @@ FRAME = float(os.environ.get("BATTLE_BENCH_FRAME_MS", "16")) / 1000
 
 
 class RelayThroughputTests(unittest.IsolatedAsyncioTestCase):
+    peek = False
+
     async def asyncSetUp(self):
         # IsolatedAsyncioTestCase turns asyncio's debug mode on, which records a stack for every
         # callback and more than doubles the cost of a run: measure what production costs.
@@ -126,3 +128,29 @@ class RelayThroughputTests(unittest.IsolatedAsyncioTestCase):
         if not os.environ.get("BATTLE_BENCH_KEEP_EVERY_STEP"):
             self.assertLessEqual(counts["KEEP"], counts["QUERY"] // 3)
             self.assertGreater(counts["KEEP"], 0)
+
+
+class ObservedThroughputTests(RelayThroughputTests):
+    """KNOWN_ISSUES MS-62: the same start-ups with battle PEEK (the launchers report their cores; the observed router).
+    Run with -s for the numbers beside the lock-step ones above."""
+    peek = True
+
+    async def test_two_player_start_up_without_game_delay(self):
+        elapsed, counts = await self.measure(0)
+        self.report("2 players, instant core, observed", elapsed, counts)
+        # Small blocks are taken from the reports: only the three 200-byte party blocks of each core are read.
+        self.assertEqual(counts["READ_OUT"], 2 * 3 * 2)
+        self.assertEqual(counts["QUERY"], 2)   # the final query of each core
+        self.assertLess(elapsed, 4.0)
+
+    async def test_two_player_start_up_with_the_games_frame_delay(self):
+        elapsed, counts = await self.measure(FRAME)
+        self.report(f"2 players, {FRAME * 1000:.0f} ms game delay, observed", elapsed, counts)
+
+    async def test_four_player_start_up_with_the_games_frame_delay(self):
+        elapsed, counts = await self.measure(FRAME, multi=True)
+        self.report(f"4 players, {FRAME * 1000:.0f} ms game delay, observed", elapsed, counts)
+        self.assertEqual(counts["READ_OUT"], 4 * 3 * 2)
+
+    async def test_waiting_for_the_players_sends_a_keep_only_when_the_watchdog_needs_it(self):
+        self.skipTest("the observed route's KEEP pace: test_battle_execution.ObservedExecutionTests")

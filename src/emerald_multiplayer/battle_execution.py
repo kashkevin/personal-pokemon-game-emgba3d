@@ -34,6 +34,14 @@ from .native_battle import Kind, NativeControl, NativeQuery, Opcode
 # commands: a wall-clock throttle (tried first) made replay diverge from the journal.
 KEEP_BELOW_FRAMES = 480
 KEEP_EVERY_STEPS = 32
+# The observed router (KNOWN_ISSUES MS-62, run_observed): a launcher reports its core's state as it changes (it says when
+# fewer than KEEP_OBSERVED_FRAMES frames are left, and the core's own grace adds 20 s), and a slot gets KEEP then, or after
+# KEEP_OBSERVED_COMMANDS other commands (the desk's 180 s host deadline). Both come from journaled evidence.
+KEEP_OBSERVED_FRAMES = 240
+KEEP_OBSERVED_COMMANDS = 64
+# The transport commands. With a route journal they need no room record of their own (the journal holds them).
+TRANSPORT = frozenset((Opcode.QUERY, Opcode.PEEK, Opcode.READ_OUT, Opcode.RECEIVE, Opcode.ACK_OUT, Opcode.KEEP))
+OBSERVE_SCOPE = "native-battle-observation-v1"
 
 
 async def _independent(*commands):
@@ -71,6 +79,8 @@ class _Room:
     # route stops (<battle_id>.diagnosis.json). Never persisted with the intent, never read back.
     hops: dict = field(default_factory=dict)
     polls: dict = field(default_factory=dict)
+    # KNOWN_ISSUES MS-62: a held execute poll's wake-up when its player's next command is published (server.py).
+    waiters: dict = field(default_factory=dict)
 
 
 HOPS_KEPT = 48
@@ -84,7 +94,7 @@ class BattleExecutionService:
     native RAM or invent route acknowledgments from this audit record.
     """
 
-    def __init__(self, desk, string_lengths, directory, *, observer=None, resume_enabled=False):
+    def __init__(self, desk, string_lengths, directory, *, observer=None, resume_enabled=False, peek=False):
         if desk is None:
             raise ValueError("native execution requires an enabled BattleDesk")
         ControllerValidator(string_lengths)
@@ -95,6 +105,11 @@ class BattleExecutionService:
         if type(resume_enabled) is not bool:
             raise ValueError("resume capability must be explicitly verified")
         self.resume_enabled = resume_enabled
+        # KNOWN_ISSUES MS-62: the games have battle PEEK (bridge_config.battle_peek_enabled; every player of a world runs the
+        # same build): new battles use the observed router and journal v4.
+        if type(peek) is not bool:
+            raise ValueError("battle PEEK must be explicitly verified")
+        self.peek = peek
         self.directory = Path(directory).resolve()
         self.directory.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.rooms = {}
@@ -216,15 +231,19 @@ class BattleExecutionService:
                     room.journal.append("response", actor, request["response_id"], response)
                 room.acknowledged[actor] = acknowledged
                 del room.pending[actor]
-                try:
-                    self._persist(room)
-                except BaseException:
-                    room.pending[actor] = pending
-                    if previous is None:
-                        room.acknowledged.pop(actor, None)
-                    else:
-                        room.acknowledged[actor] = previous
-                    raise
+                if room.journal is None or command.opcode not in TRANSPORT:
+                    try:
+                        self._persist(room)
+                    except BaseException:
+                        room.pending[actor] = pending
+                        if previous is None:
+                            room.acknowledged.pop(actor, None)
+                        else:
+                            room.acknowledged[actor] = previous
+                        raise
+                route = room.route
+                if route is not None and route.observed:
+                    route.on_response(actor, command, response)
                 hop = next((h for h in room.hops.get(actor, ()) if h["dispatch"] == dispatch_id), None)
                 if hop is not None:
                     hop["answered"], hop["status"] = time.monotonic(), int(response.status)
@@ -273,14 +292,18 @@ class BattleExecutionService:
                 row = self.desk.store._connection.execute(
                     "SELECT * FROM battle_reservations WHERE battle_id=?", (b.battle_id,)).fetchone()
                 record = self.desk.reservations._read(row)
+                from .battle_execution_journal import OBSERVED_FORMAT
                 room.journal = RouteJournal(self.directory / (b.battle_id + ".events.jsonl"),
                     dict(record=record, battle_id=b.battle_id, generation=b.generation, players=list(b.players),
                         leases=list(b.leases), incarnations=[room.ready[p] for p in b.players], mode=b.mode,
-                        initial_sequences=list(room.route.sequences)), create=True)
+                        initial_sequences=list(room.route.sequences)), create=True,
+                    format=OBSERVED_FORMAT if room.route.observed else None)
             room.journal.append("command", actor, dispatch_id, command)
             if command.opcode == Opcode.BIND and len(room.admitted) != len(b.players):
                 room.state = "admitting"
-        self._persist(room)
+        if room.journal is None or command.opcode not in TRANSPORT:
+            self._persist(room)
+        self._wake(room, actor)
         try:
             return await asyncio.wait_for(asyncio.shield(future), 20)
         finally:
@@ -289,6 +312,59 @@ class BattleExecutionService:
 
     async def _dispatch(self, room, actor, command):
         return command, await self._command(room, actor, command)
+
+    @staticmethod
+    def _wake(room, actor):
+        for waiter in room.waiters.pop(actor, ()):
+            if not waiter.done():
+                waiter.set_result(None)
+
+    async def published(self, room, actor, timeout):
+        """KNOWN_ISSUES MS-62: wait (at most timeout seconds) until actor's next command is published, without polling."""
+        if actor in room.pending:
+            return
+        waiter = asyncio.get_running_loop().create_future()
+        room.waiters.setdefault(actor, []).append(waiter)
+        try:
+            await asyncio.wait_for(waiter, timeout)
+        except asyncio.TimeoutError:
+            pass
+        finally:
+            if actor in room.waiters and waiter in room.waiters[actor]:
+                room.waiters[actor].remove(waiter)
+
+    def observe(self, actor, lease, request):
+        """KNOWN_ISSUES MS-62: a launcher's report of its core's state and new block (a PEEK response), as it happens.
+
+        Only an observed route takes it, and only while that player has no outstanding command (its state could not
+        have changed since); it is journaled first, and the route answers it in journal order. Otherwise it is refused
+        (accepted false) and the launcher reports again."""
+        from .native_battle import peek_parts
+        self.admission.assert_not_canceled(request["battle_id"])
+        battle = self.desk._get(actor, lease, request["battle_id"], request["generation"])
+        room = self.rooms.get(battle.battle_id)
+        route = None if room is None else room.route
+        view = dict(scope=OBSERVE_SCOPE, battle_id=battle.battle_id, generation=battle.generation,
+                    accepted=False, routed=route is not None and route.observed)
+        if (room is None or room.battle is not battle or route is None or not route.observed
+                or room.state not in ("admitting", "executing") or room.error is not None
+                or room.ready.get(actor) != request["incarnation"] or actor in room.pending):
+            return view
+        slot = battle.players.index(actor)
+        response = decode_control(request["observation_b64"], response=True)
+        if (response.opcode != Opcode.PEEK or response.status or response.battle_id != battle.battle_id
+                or response.incarnation != request["incarnation"] or response.session_epoch != battle.leases[slot]
+                or response.source_slot != slot or response.phase != battle.mode):
+            raise BattleError("invalid_receipt", "native observation differs from this player's held core")
+        try:
+            peek_parts(response)
+        except ValueError as error:
+            raise BattleError("invalid_receipt", "native observation is inconsistent") from error
+        if room.journal is not None:
+            room.journal.observe(actor, response)
+        route.on_observation(actor, response)
+        view["accepted"] = True
+        return view
 
     async def _resumed_command(self, room, actor, command):
         pending = room.journal.pending.get(actor)
@@ -378,6 +454,8 @@ class _NativeRoute:
         self.running = False
         self.started = False
         self.steps_since_keep = [0] * self.count
+        self.observed = False   # run_observed (KNOWN_ISSUES MS-62): responses and observations arrive as events
+        self.events = None
 
     def call(self, method, slot, *args, **kwargs):
         return getattr(self.desk, method)(self.b.players[slot], self.b.leases[slot],
@@ -627,7 +705,268 @@ class _NativeRoute:
             self.running = True
         return False
 
+    # ------------------------------------------------------------------ the observed router (journal v4)
+    # KNOWN_ISSUES MS-62: battles over the internet were still far too slow (30-60 s between actions on two real PCs):
+    # every block cost several round trips to a remote player, each one after the other, and the host learned of a new
+    # block only by asking (QUERY), then read it (READ_OUT). With battle PEEK each launcher reports its core's state and
+    # new block itself, as soon as they appear (BattleExecutionService.observe), so the host routes a block the moment it
+    # exists: a RECEIVE to its other core, then its source's ACK_OUT. Nothing waits for another player's round trip but
+    # what needs its answer. The rules the rounds keep hold: each core's blocks in its own order, controller blocks only
+    # once running, every block delivered to every other core before its ACK_OUT, and every core receives the blocks in
+    # one global order. Two cores also take a new block while another is still in flight (each hears from the other
+    # only); three or four take new blocks only while none is in flight, as before. Decisions use only the
+    # journaled responses and observations, one at a time, in the order the journal records them, so recovery replays
+    # the same commands from the same events.
+
+    def on_response(self, actor, command, response):
+        self.events.put_nowait(("response", self.b.players.index(actor), command, response))
+
+    def on_observation(self, actor, response):
+        self.events.put_nowait(("observation", self.b.players.index(actor), None, response))
+
+    def _issue(self, slot, opcode, what, **fields):
+        source = fields.pop("source_slot", slot)
+        command = NativeControl(self.room.ready[self.b.players[slot]], self.b.leases[slot],
+            self.b.battle_id, self.sequences[slot] + 1, opcode, source_slot=source, phase=self.b.mode, **fields)
+        command.validate_command(binding=self.desk._binding(self.b, self.b.players[slot]),
+                                 player_id=self.b.players[slot])
+        self.busy[slot] = (command, what)
+        if opcode != Opcode.KEEP:
+            self.since_keep[slot] += 1
+
+        async def dispatch():
+            try:
+                await self.service._dispatch(self.room, self.b.players[slot], command)
+            except BaseException as error:  # noqa: BLE001 - the route fails with it, as an awaited command would
+                if not isinstance(error, asyncio.CancelledError):
+                    self.events.put_nowait(("error", slot, command, error))
+                raise
+        task = asyncio.create_task(dispatch(), name="native-battle-command")
+        self.tasks.add(task)
+        task.add_done_callback(self._settled)
+
+    def _settled(self, task):
+        self.tasks.discard(task)
+        if not task.cancelled():
+            task.exception()   # retrieved: the route already has it as an event
+
+    def _observation(self, slot, response):
+        from .native_battle import peek_parts
+        q, block = peek_parts(response)
+        if (not q.held or q.expired or q.recovery_required
+                or (q.generation, q.local_slot, q.mode) != (self.b.generation, slot, self.b.mode)):
+            raise BattleError("battle_recovery_required", "native observation differs from the held execution")
+        if q.last_sequence > self.sequences[slot]:
+            raise BattleError("battle_order", "native observation is ahead of its core's commands")
+        self.seen[slot] = (q, block)
+
+    def _fresh(self, slot):
+        """The slot's latest observation while nothing that changes its outbound block has run since (ACK_OUT, READ_OUT)."""
+        seen = self.seen[slot]
+        return seen if seen is not None and seen[0].last_sequence >= self.outbound_changed[slot] else None
+
+    def _response(self, slot, command, response):
+        if self.busy[slot] is None or (self.busy[slot][0].opcode, self.busy[slot][0].sequence) != (
+                command.opcode, command.sequence):
+            raise BattleError("battle_replay_mismatch", "native response for no outstanding route command")
+        _, what = self.busy[slot]
+        self.busy[slot] = None
+        opcode = command.opcode
+        if response.status != Status.OK:
+            if opcode == Opcode.RECEIVE and response.status == Status.BUSY:
+                return  # delivered again by the next plan
+            raise BattleError("native_refused", "native battle command was refused")
+        if opcode != Opcode.QUERY:
+            self.sequences[slot] = command.sequence
+        self.receipts[slot, opcode] = (command, response)
+        callback = {Opcode.BIND: "bound", Opcode.START: "started",
+                    Opcode.KEEP: "keepalive", Opcode.RELEASE: "released"}.get(opcode)
+        if callback:
+            if (opcode == Opcode.RELEASE and self.room.journal is not None
+                    and self.b.released | {self.b.players[slot]} == set(self.b.players)):
+                self.room.journal.verify_current()
+            self.call(callback, slot, command, response)
+        if opcode == Opcode.BIND:
+            preparation = self.call("preparation", slot)
+            self._issue(slot, Opcode.PREPARE, ("prepare",), data=preparation.pack())
+        elif opcode == Opcode.PREPARE:
+            self.prepared.add(slot)
+        elif opcode == Opcode.START:
+            self.start_done.add(slot)
+            if len(self.start_done) == self.count:
+                self.started = True
+        elif opcode == Opcode.KEEP:
+            self.since_keep[slot] = 0
+        elif opcode == Opcode.READ_OUT:
+            self.outbound_changed[slot] = command.sequence
+            reading = self.reading[slot]
+            reading["data"] += response.data
+            if len(reading["data"]) == reading["q"].outbound_size:
+                self.reading[slot] = None
+                self._admit_block(slot, reading["q"], reading["data"])
+        elif opcode == Opcode.RECEIVE:
+            what[1]["offsets"][slot] += len(command.data)
+        elif opcode == Opcode.ACK_OUT:
+            self.outbound_changed[slot] = command.sequence
+            block = what[1]
+            self.queue = [b for b in self.queue if b is not block]
+            self.next_block[slot] += 1
+            self.next_kind[slot] = min(8, self.next_kind[slot] + 1)
+        elif opcode == Opcode.QUERY:
+            q = self._query(slot, response)
+            self.final[slot] = q
+        elif opcode == Opcode.RELEASE:
+            self.released.add(slot)
+
+    def _admit_block(self, source, q, data):
+        self._admit(source, q, data)     # validates and records it as self.pending[source]
+        block = self.pending[source]
+        self.pending[source] = None
+        block["source"] = source
+        self.queue.append(block)
+
+    def _idle(self):
+        return not self.queue and not any(self.reading)
+
+    def _plan(self):
+        # Admission, in slot order: a core's next block once it may join (see above).
+        idle = self._idle()
+        for slot in range(self.count):
+            seen = self._fresh(slot)
+            if seen is None or self.reading[slot] is not None or any(b["source"] == slot for b in self.queue):
+                continue
+            q, block = seen
+            if not q.outbound_pending:
+                continue
+            if (q.outbound_sequence, q.outbound_kind, q.read_offset) != (
+                    self.next_block[slot], self.next_kind[slot], 0):
+                raise BattleError("battle_order", "native block order or read cursor differs")
+            if q.outbound_kind == Kind.CONTROLLER and not self.running:
+                continue
+            if q.outbound_kind >= Kind.START_HEADER and not self.started:
+                continue
+            # Two cores: each hears from the other only, so its next block may join at once. More: only into a batch
+            # that starts while no block is in flight (every core that has one now joins it).
+            if self.count != 2 and not idle:
+                continue
+            if block is not None:
+                self._admit_block(slot, q, block)
+            else:
+                self.reading[slot] = dict(q=q, data=b"")
+        # The lifecycle steps.
+        if (self._idle() and not self.started and not self.start_authorized
+                and self.prepared == set(range(self.count)) and self.next_kind == [3] * self.count):
+            self.desk.authorize_start(self.b.battle_id, self.b.generation)
+            self.start_authorized = True
+        if (self.started and not self.running and self._idle() and self.next_kind == [8] * self.count):
+            self.desk.authorize_running(self.b.battle_id, self.b.generation)
+            self.running = True
+        finishing = (self.running and self._idle()
+                     and all(seen is not None and seen[0].restored and seen[0].last_sequence == self.sequences[slot]
+                             for slot, seen in enumerate(self.seen)))
+        if finishing and not self.finishing:
+            self.finishing = True
+        if self.finishing and len(self.final) == self.count and not self.release_started:
+            if not all(q.restored for q in self.final.values()):
+                raise BattleError("battle_order", "a core restored, then its final query did not say so")
+            for slot in range(self.count):
+                # On the pinned ABI 2/3, restored is published only after native exact party-count/CRC checks
+                # against PREPARE and personal RNG restoration.
+                self.call("finish_native", slot, *self.receipts[slot, Opcode.QUERY])
+            self.release_started = True
+        # Each free core's command.
+        for slot in range(self.count):
+            if self.busy[slot] is not None:
+                continue
+            if self.release_started:
+                if slot not in self.released and all(s in self.released for s in range(slot)):
+                    self._issue(slot, Opcode.RELEASE, ("release",), data=struct.pack("<II",
+                        self.b.roster[slot].party_crc32, self.final[slot].outcome))
+                continue
+            own = next((b for b in self.queue if b["source"] == slot), None)
+            if own is not None and all(t == slot or own["offsets"][t] == len(own["data"]) for t in range(self.count)):
+                self._issue(slot, Opcode.ACK_OUT, ("ack", own), block_sequence=own["sequence"],
+                    offset=len(own["data"]), total_size=len(own["data"]), kind=own["kind"],
+                    data=struct.pack("<II", own["crc"], ((1 << self.count) - 1) ^ (1 << slot)))
+                continue
+            reading = self.reading[slot]
+            if reading is not None:
+                q = reading["q"]
+                self._issue(slot, Opcode.READ_OUT, ("read",), block_sequence=q.outbound_sequence,
+                    offset=len(reading["data"]), total_size=q.outbound_size, kind=q.outbound_kind)
+                continue
+            block = next((b for b in self.queue if b["source"] != slot and b["offsets"][slot] < len(b["data"])), None)
+            if block is not None:
+                offset = block["offsets"][slot]
+                self._issue(slot, Opcode.RECEIVE, ("receive", block), source_slot=block["source"],
+                    block_sequence=block["sequence"], offset=offset, total_size=len(block["data"]),
+                    kind=block["kind"], data=block["data"][offset:offset + 128])
+                continue
+            if self.start_authorized and slot not in self.start_issued:
+                self.start_issued.add(slot)
+                self._issue(slot, Opcode.START, ("start",))
+                continue
+            if self.finishing and slot not in self.final:
+                self._issue(slot, Opcode.QUERY, ("final",))
+                continue
+            seen = self.seen[slot]
+            if slot in self.prepared and (self.since_keep[slot] >= KEEP_OBSERVED_COMMANDS or (
+                    seen is not None and seen[0].last_sequence == self.sequences[slot]
+                    and seen[0].remaining_frames < KEEP_OBSERVED_FRAMES)):
+                self._issue(slot, Opcode.KEEP, ("keep",))
+
+    async def run_observed(self):
+        self.observed = True
+        self.events = asyncio.Queue()
+        self.tasks = set()
+        self.busy = [None] * self.count
+        self.seen = [None] * self.count
+        self.outbound_changed = [0] * self.count
+        self.reading = [None] * self.count
+        self.since_keep = [0] * self.count
+        self.queue = []
+        self.prepared, self.start_done, self.start_issued, self.released = set(), set(), set(), set()
+        self.final = {}
+        self.start_authorized = self.finishing = self.release_started = False
+        history = deque()
+        if getattr(self.service, "replaying", False) and self.room.journal is not None:
+            history.extend(self.room.journal.routed)
+        try:
+            for slot in range(self.count):
+                binding = self.call("authorize_bind", slot)
+                self._issue(slot, Opcode.BIND, ("bind",), data=binding.pack())
+            while len(self.released) < self.count:
+                if history:
+                    kind, actor, *rest = history.popleft()
+                    event = ((kind, self.b.players.index(actor), rest[1], rest[2]) if kind == "response"
+                             else (kind, self.b.players.index(actor), None, rest[0]))
+                else:
+                    if getattr(self.service, "replaying", False):
+                        for _ in range(3):
+                            await asyncio.sleep(0)   # the recorded commands' dispatches consume their history
+                        consumed = getattr(self.service, "history_consumed", None)
+                        if consumed is not None:
+                            consumed()
+                    event = await self.events.get()
+                kind, slot, command, response = event
+                if kind == "error":
+                    raise response
+                if kind == "response":
+                    self._response(slot, command, response)
+                else:
+                    self._observation(slot, response)
+                self._plan()
+        finally:
+            for task in list(self.tasks):
+                task.cancel()
+            if self.tasks:
+                await asyncio.gather(*self.tasks, return_exceptions=True)
+
     async def run(self):
+        journal = self.room.journal
+        if journal.observed if journal is not None else self.service.peek:
+            return await self.run_observed()
+
         async def prepare(slot):
             binding = self.call("authorize_bind", slot)
             await self.rpc(slot, Opcode.BIND, data=binding.pack())

@@ -95,6 +95,7 @@ class Opcode(IntEnum):
     ADMISSION_CANCEL_HOLD = 22
     ADMISSION_CANCEL_HANDOFF = 23
     ADMISSION_CANCEL_READY = 24
+    PEEK = 25  # KNOWN_ISSUES MS-62: QUERY plus the outbound block's bytes (PC game, manifest battle_peek_abi_version 1)
 
 
 class Kind(IntEnum):
@@ -357,7 +358,8 @@ class NativeControl:
             Opcode.ABORT_PRE_START: 0, Opcode.RELEASE: 8, Opcode.ARM_RESUME: 0,
             Opcode.SUSPEND: 0, Opcode.REAUTHORIZE: 140, Opcode.RESUME: 20,
             Opcode.RESUME_QUERY: 0, Opcode.ADMIT: 48, Opcode.RETIRE: 28, Opcode.HANDOFF: 28,
-            Opcode.ADMISSION_CANCEL_HOLD: 84, Opcode.ADMISSION_CANCEL_HANDOFF: 84, Opcode.ADMISSION_CANCEL_READY: 52}
+            Opcode.ADMISSION_CANCEL_HOLD: 84, Opcode.ADMISSION_CANCEL_HANDOFF: 84, Opcode.ADMISSION_CANCEL_READY: 52,
+            Opcode.PEEK: 0}
         if len(self.data) != lengths[self.opcode]:
             raise BattleMailboxError("native command has the wrong exact payload length")
         if self.opcode == Opcode.BIND:
@@ -488,9 +490,29 @@ class NativeControl:
             if request is not None and self.opcode == Opcode.PREPARE:
                 if query.checkpoint_revision != Preparation.unpack(request.data).checkpoint_revision:
                     raise BattleMailboxError("preparation response changed the canonical revision")
+        elif self.opcode == Opcode.PEEK:
+            peek_parts(self)
         elif self.opcode == Opcode.READ_OUT:
             if len(self.data) != min(128, self.total_size-self.offset):
                 raise BattleMailboxError("native read response has the wrong chunk length")
         elif self.data:
             raise BattleMailboxError("native acknowledgement must be empty")
         return self
+
+
+def peek_parts(response):
+    """KNOWN_ISSUES MS-62: a successful PEEK's query and, when its core has an outbound block of at most one chunk not yet
+    read, that block's exact bytes (None otherwise). The game sends the bytes only then; their CRC is the query's."""
+    data = response.data
+    if len(data) < 64:
+        raise BattleMailboxError("native peek requires its 64-byte query")
+    query = NativeQuery.unpack(data[:64])
+    if query.player_count and (query.local_slot != response.source_slot or query.mode != response.phase):
+        raise BattleMailboxError("native peek names the wrong local participant/phase")
+    block = data[64:]
+    if not block:
+        return query, None
+    if (not query.held or not query.outbound_pending or query.read_offset or len(block) != query.outbound_size
+            or len(block) > 128 or zlib.crc32(block) != query.outbound_crc32):
+        raise BattleMailboxError("native peek bytes differ from its outbound block")
+    return query, block

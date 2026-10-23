@@ -308,6 +308,13 @@ def generate(rom: Path, elf: Path, nm: str, engine_commit: str, *, trade_effect_
         if not four_byte_marker(host_save) or manifest.get("menu_open_page_abi_version") != 1:
             raise ValueError("the host save page needs one four-byte marker and the Players menu's named pages")
         manifest.update(host_save_page_abi_version=1)
+    # KNOWN_ISSUES MS-62: battle PEEK (opcode 25), a native query with the outbound block's bytes, and ACK_OUT without
+    # READ_OUT. Native PC game only, beside the native battle ABI 3; the launcher opts in with bridge.txt battle_peek=1.
+    peek = native_marker("gMultiplayerBattlePeekAbiVersion", symbols + native_symbols)
+    if peek:
+        if not four_byte_marker(peek) or manifest.get("battle_abi_version") != 3:
+            raise ValueError("battle PEEK needs one four-byte marker and the native battle ABI 3")
+        manifest.update(battle_peek_abi_version=1)
     if len(objects) == 1:
         obj_address, obj_size = (int(value, 16) for value in objects[0])
         # Read-only test metadata for the pinned engine's 0x24-byte objects.

@@ -79,6 +79,17 @@ class NativeFixture:
 
     async def rpc(self, command):
         command.validate_command()
+        if command.opcode == Opcode.PEEK:
+            # KNOWN_ISSUES MS-62: QUERY plus the outbound block's bytes while it fits one chunk and is unread; a launcher
+            # looks every few milliseconds, so one game frame passes per look.
+            if self.started and self.idle_left:
+                self.idle_left -= 1
+            data = self.query()
+            outbound = data[0] & 4
+            block = self.blocks[self.out_index] if outbound else b""
+            self.frames_used = min(600 + self.GRACE, self.frames_used + 1)
+            self.peeks = getattr(self, "peeks", 0) + 1
+            return replace(command, data=data + (block if outbound and not self.offset and len(block) <= 128 else b""))
         if command.opcode == Opcode.QUERY:
             if self.started and self.idle_left:
                 self.idle_queries += 1
@@ -110,8 +121,9 @@ class NativeFixture:
         elif command.opcode == Opcode.RECEIVE:
             self.received[command.source_slot] = (command.block_sequence, command.offset + len(command.data))
         elif command.opcode == Opcode.ACK_OUT:
-            if self.offset != len(self.blocks[self.out_index]):
-                raise AssertionError("unread outbound block acknowledged")
+            # The PC game takes an ACK_OUT of a block it was never asked to READ_OUT (battle PEEK sent its bytes).
+            if self.offset not in (0, len(self.blocks[self.out_index])):
+                raise AssertionError("partly read outbound block acknowledged")
             self.out_index += 1
             self.offset = 0
         elif command.opcode == Opcode.RELEASE:
@@ -180,8 +192,11 @@ class BattleExecutionNetworkTests(unittest.IsolatedAsyncioTestCase):
     async def asyncTearDown(self):
         await arbitration_fixture.BattleArbitrationTests.asyncTearDown(self)
 
+    peek = False   # KNOWN_ISSUES MS-62: the observed router and its launchers' observers (ObservedExecutionTests)
+
     def enable(self):
-        self.server.battle_execution = BattleExecutionService(self.desk, (None,) * 721, self.root / "execution")
+        self.server.battle_execution = BattleExecutionService(self.desk, (None,) * 721, self.root / "execution",
+                                                              peek=self.peek)
         return self.server.battle_execution
 
     def accept(self, multi=False):
@@ -217,7 +232,8 @@ class BattleExecutionNetworkTests(unittest.IsolatedAsyncioTestCase):
             if use_journal:
                 config = SimpleNamespace(player_id=actor.player.player_id, build_id=self.store.build_id,
                     ruleset_id=self.store.ruleset_id, ownership_enabled=True, development_battle_channel=True,
-                    battle_abi_version=3, server_credential=actor.player.credential)
+                    battle_abi_version=3, server_credential=actor.player.credential,
+                    battle_peek_abi_version=1 if self.peek else 0)
                 c = SimpleNamespace(config=config, world_id=self.store.metadata.world_id,
                     server_epoch=self.store.metadata.server_epoch, session_epoch=actor.lease,
                     battle_incarnation=100 + index, save_profile=OWNERSHIP_PROFILE, connected=True,
@@ -231,7 +247,7 @@ class BattleExecutionNetworkTests(unittest.IsolatedAsyncioTestCase):
                     return reply
                 session = NativeBattleSession(c, self.root / ("client-" + str(index)))
                 async def native(command):
-                    if command.opcode != Opcode.QUERY:
+                    if command.opcode not in (Opcode.QUERY, Opcode.PEEK):
                         self.assertTrue(session._authorizes(command))
                     reply = await model.rpc(command)
                     if mutate is not None:
@@ -469,3 +485,73 @@ class BattleExecutionNetworkTests(unittest.IsolatedAsyncioTestCase):
             for hop in answered:
                 self.assertGreaterEqual(hop["published"], hop["delivered"])
                 self.assertGreaterEqual(hop["delivered"], hop["answered"])
+
+
+class ObservedExecutionTests(BattleExecutionNetworkTests):
+    """KNOWN_ISSUES MS-62: every network test again with battle PEEK: the launchers report their cores' state and new
+    blocks themselves and the host's observed router answers them (raw clients that never report are not used)."""
+    peek = True
+
+    async def run_clients(self, **kwargs):
+        kwargs["use_journal"] = True
+        await super().run_clients(**kwargs)
+        commands = [opcode for model in self.native_models.values() for opcode in getattr(model, "opcodes", [])]
+        return commands
+
+    async def test_small_blocks_go_without_read_out_and_queries_only_end_the_battle(self):
+        seen = []
+        original = NativeFixture.rpc
+
+        async def counted(model, command):
+            seen.append((model.slot, Opcode(command.opcode)))
+            return await original(model, command)
+        NativeFixture.rpc = counted
+        try:
+            await self.run_clients()
+        finally:
+            NativeFixture.rpc = original
+        reads = [o for _, o in seen if o == Opcode.READ_OUT]
+        self.assertEqual(len(reads), 2 * 3 * 2)          # each core's three 200-byte party blocks, two chunks each
+        self.assertEqual(sum(1 for _, o in seen if o == Opcode.QUERY), 2)   # one final query a core
+        self.assertGreater(sum(1 for _, o in seen if o == Opcode.PEEK), 0)
+
+    async def test_a_pc_core_always_has_longer_than_the_routes_wait_before_it_gives_up(self):
+        # The observed route's KEEP pace: players choose for 400 looks (a frame each) with no block; the launchers say
+        # when fewer than KEEP_OBSERVED_FRAMES frames are left and the route sends KEEP, so no core comes near expiry.
+        self.core(grace=0, idle=400)
+        lowest = []
+        original = NativeFixture.query
+
+        def watched(model):
+            data = original(model)
+            if model.started and model.idle_left:
+                lowest.append(struct.unpack_from("<I", data, 52)[0])
+            return data
+        NativeFixture.query = watched
+        try:
+            await self.run_clients(multi=True)
+        finally:
+            NativeFixture.query = original
+        self.assertGreater(len(lowest), 400)
+        self.assertGreater(min(lowest), battle_execution.KEEP_OBSERVED_FRAMES // 2)   # far from expiring (0)
+
+    async def test_a_12_s_delay_on_the_way_to_a_pc_core_is_waited_out(self):
+        self.skipTest("the observed route sends no idle QUERY a delay could hold up; its KEEP pace is tested above")
+
+    async def test_the_same_delay_stops_the_battle_of_a_core_without_the_grace(self):
+        self.skipTest("the observed route sends no idle QUERY a delay could hold up; its KEEP pace is tested above")
+
+    async def test_corrupt_native_startup_never_starts_or_releases_battle(self):
+        # A core whose trainer block differs from its canonical save (its query's CRC agreeing): the host refuses it.
+        def corrupt(index, command, response, session):
+            if index == 0 and command.opcode == Opcode.PEEK and len(response.data) > 64 and response.data[32] == Kind.TRAINER:
+                block = b"x" + response.data[65:]
+                query = bytearray(response.data[:64])
+                struct.pack_into("<I", query, 40, zlib.crc32(block))
+                return replace(response, data=bytes(query) + block)
+            return response
+        with self.assertRaises(BattleJournalError):
+            await self.run_clients(use_journal=True, mutate=corrupt)
+        room = self.server.battle_execution.rooms[self.battle_id]
+        self.assertEqual(room.state, "recovery_required")
+        self.assertFalse(room.battle.started)

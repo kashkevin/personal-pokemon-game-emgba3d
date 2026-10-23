@@ -13,7 +13,7 @@ from .protocol import MAX_COUNTER, PROTOCOL_VERSION, ProtocolError, _fields, _in
 from .team_protocol import _uuid
 
 BATTLE_OPERATIONS = frozenset({"invite", "invite_multi", "invite_ffa", "invite_ffa3", "accept", "claim", "cancel", "cancel_admission", "admission_handoff", "status", "pending", "history", "waiting", "execute", "resume",
-                               "abandon", "fate"})
+                               "abandon", "fate", "observe"})
 BATTLE_TYPES = frozenset("battle_" + op for op in BATTLE_OPERATIONS)
 STATES = frozenset({"invited", "accepted", "prepared", "starting", "running", "finishing",
                     "release_authorized", "closed", "aborting", "aborted", "recovery_required"})
@@ -51,6 +51,8 @@ def validate_battle_request(message, epoch):
         "resume": {"battle_id", "generation", "incarnation", "response_b64", "response_id", "response_stage"},
         # An interrupted battle: abandon it (no result; battle_abandonment.py), or only read what became of it.
         "abandon": {"battle_id", "generation"}, "fate": {"battle_id", "generation"},
+        # KNOWN_ISSUES MS-62: a launcher's report of its core's state and new block (a PEEK response).
+        "observe": {"battle_id", "generation", "incarnation", "observation_b64"},
     }[operation]
     championship_match = False
     if operation == "pending" and "championship" in message:
@@ -123,11 +125,14 @@ def validate_battle_request(message, epoch):
     if operation in ("execute", "resume") and provisional_fields.intersection(message):
         extra = extra | provisional_fields
     _fields(message, {"type", "request_id", "session_epoch"} | extra)
-    for key in extra - {"opponents", "fingerprint", "incarnation", "response_b64", "response_id", "response_stage", "admission_sha256", "admission_b64", "admission_receipt_b64", "cleanup_receipt_b64", "cleanup_ready_b64", "handoff_receipt_b64", "admission_handoff_version", "abandon_version", "live_check_version", "live", "player_card_version", "championship", "rival", "battle_archive", "reset_history", "trade_archive"}:
+    for key in extra - {"opponents", "fingerprint", "incarnation", "observation_b64", "response_b64", "response_id", "response_stage", "admission_sha256", "admission_b64", "admission_receipt_b64", "cleanup_receipt_b64", "cleanup_ready_b64", "handoff_receipt_b64", "admission_handoff_version", "abandon_version", "live_check_version", "live", "player_card_version", "championship", "rival", "battle_archive", "reset_history", "trade_archive"}:
         _uuid(message[key], key)
     if operation == "execute":
         from .battle_execution_protocol import validate_execution_request
         validate_execution_request(message)
+    elif operation == "observe":
+        from .battle_execution_protocol import validate_observation_request
+        validate_observation_request(message)
     elif operation == "resume":
         from .battle_recovery_protocol import validate_recovery_request
         validate_recovery_request(message)
@@ -338,6 +343,9 @@ def validate_battle_reply(message, actor, world_id, epoch, request=None):
         elif op == "execute":
             from .battle_execution_protocol import validate_execution_view
             validate_execution_view(result, request=request)
+        elif op == "observe":
+            from .battle_execution_protocol import validate_observation_view
+            validate_observation_view(result, request=request)
         elif op in ("abandon", "fate"):
             from .battle_abandonment import validate_abandonment_view
             validate_abandonment_view(result, actor, request)
@@ -398,7 +406,7 @@ def validate_battle_reply(message, actor, world_id, epoch, request=None):
                 if message["player_card_version"] != request["player_card_version"]:
                     raise ProtocolError("invalid_server_message", "Trainer Card changed the requested version")
                 validate_player_card(message["player_card"], actor, request["card_player"])
-        if message["type"] == "battle_result" and op not in ("pending", "history", "waiting", "execute", "resume", "cancel_admission", "admission_handoff"):
+        if message["type"] == "battle_result" and op not in ("pending", "history", "waiting", "execute", "resume", "cancel_admission", "admission_handoff", "observe"):
             result = message["result"]
             if result["battle_id"] != request["battle_id"]:
                 raise ProtocolError("identity_mismatch", "battle reply changed the target")

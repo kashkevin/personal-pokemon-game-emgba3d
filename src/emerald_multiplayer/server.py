@@ -389,13 +389,14 @@ class WorldServer:
         session = self.sessions.get(player_id)
         return session.session_epoch if session is not None and not session.closed else None
 
-    def enable_battle_execution(self, string_lengths, directory, *, resume_enabled=False):
-        """Application-only setup using the installed, hash-verified ROM table."""
+    def enable_battle_execution(self, string_lengths, directory, *, resume_enabled=False, peek=False):
+        """Application-only setup using the installed, hash-verified ROM table. peek: the installed game has battle PEEK
+        (KNOWN_ISSUES MS-62, bridge_config.battle_peek_enabled); every player of a world runs the same build."""
         if self.battle_execution is not None or self._server is not None:
             raise ValueError("configure native execution once before starting the host")
         from .battle_execution import BattleExecutionService
         self.battle_execution = BattleExecutionService(self.battle_desk, string_lengths, directory,
-                                                       resume_enabled=resume_enabled)
+                                                       resume_enabled=resume_enabled, peek=peek)
 
     def enable_rival_battle_environment(self):
         """Application-only: the installed, hash-verified game reads a rival battle's environment (rival_abi_version 1).
@@ -1171,14 +1172,11 @@ class WorldServer:
         async def reply_when_issued():
             reply, execution = result, self.battle_execution
             try:
-                loop = asyncio.get_running_loop()
-                deadline = loop.time() + EXECUTE_HOLD_SECONDS
-                while loop.time() < deadline:
-                    await asyncio.sleep(.002)
-                    room = execution.rooms.get(request["battle_id"])
-                    if (room is None or session.player_id in room.pending
-                            or room.state not in ("admitting", "executing")):
-                        break
+                # Woken the moment the command is published (BattleExecutionService.published), not by polling: a
+                # sleep's tick is about 16 ms on Windows, on every command.
+                room = execution.rooms.get(request["battle_id"])
+                if room is not None and room.state in ("admitting", "executing"):
+                    await execution.published(room, session.player_id, EXECUTE_HOLD_SECONDS)
                 reply = execution.exchange(session.player_id, session.session_epoch, request)
             except (ProtocolError, StorageError) as error:
                 self._battle_reply(session, request, error=error)
@@ -1238,6 +1236,13 @@ class WorldServer:
                     and result.get("state") in ("admitting", "executing")):
                 self._hold_execute_reply(session, request, result)
                 return
+            self._battle_reply(session, request, result=result)
+            return
+        if operation == "observe":
+            # KNOWN_ISSUES MS-62: a launcher reports its core's state and new block as they happen.
+            if self.battle_execution is None:
+                raise ProtocolError("battle_execution_disabled", "this host has not enabled native battle execution")
+            result = self.battle_execution.observe(session.player_id, session.session_epoch, request)
             self._battle_reply(session, request, result=result)
             return
         if operation in ("abandon", "fate"):

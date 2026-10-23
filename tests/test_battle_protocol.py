@@ -33,6 +33,13 @@ def handoff_receipt():
                                   opcode=Opcode.ADMISSION_CANCEL_HANDOFF))
 
 
+def observation():
+    # KNOWN_ISSUES MS-62: one PEEK response (an empty query: no binding yet) of the requester's own core.
+    from emerald_multiplayer.battle_execution_protocol import encode_control
+    from emerald_multiplayer.native_battle import NativeControl, Opcode
+    return encode_control(NativeControl(1, 7, BATTLE, 1, Opcode.PEEK, data=bytes(64)))
+
+
 def request(op, **fields):
     extra = dict(
         invite=dict(peer=PEER, battle_id=BATTLE),
@@ -54,6 +61,7 @@ def request(op, **fields):
                     response_id=0, response_b64=None, response_stage=None),
         abandon=dict(battle_id=BATTLE, generation=GENERATION),
         fate=dict(battle_id=BATTLE, generation=GENERATION),
+        observe=dict(battle_id=BATTLE, generation=GENERATION, incarnation=1, observation_b64=observation()),
     )[op]
     return dict(type="battle_" + op, request_id=REQUEST, session_epoch=7, **(extra | fields))
 
@@ -83,6 +91,9 @@ def reply(op):
         from emerald_multiplayer.battle_admission_cleanup_protocol import handoff_view
         from emerald_multiplayer.battle_execution_protocol import decode_control
         result = handoff_view(decode_control(handoff_receipt(), response=True))
+    elif op == "observe":
+        from emerald_multiplayer.battle_execution_protocol import OBSERVE_SCOPE
+        result = dict(scope=OBSERVE_SCOPE, battle_id=BATTLE, generation=GENERATION, accepted=True, routed=True)
     elif op in ("abandon", "fate"):
         from emerald_multiplayer.battle_abandonment import abandonment_view
         result = abandonment_view(BATTLE, GENERATION, "abandoned", (ACTOR, PEER), "d" * 64)

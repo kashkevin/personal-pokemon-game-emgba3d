@@ -19,6 +19,7 @@ from .battle_protocol import _view
 from .battle_roster import CanonicalBattler
 from .checkpoint_client import CheckpointClient
 from .live_checkpoint import _atomic, _json_bytes, _sync_directory
+from .battle_mailbox import Status
 from .native_battle import NativeBinding, NativeControl, Opcode, Preparation
 from .storage import Checkpoint
 
@@ -26,6 +27,32 @@ from .storage import Checkpoint
 # Client poll interval for the next native command: 1 ms after activity, doubling to 10 ms when idle.
 IDLE_POLL_MIN = .001
 IDLE_POLL_MAX = .01
+# KNOWN_ISSUES MS-62: the transport commands (no client record of their answers; see NativeBattleSession.run).
+TRANSPORT = frozenset((Opcode.QUERY, Opcode.PEEK, Opcode.READ_OUT, Opcode.RECEIVE, Opcode.ACK_OUT, Opcode.KEEP))
+# A RECEIVE the core refuses as busy (it has not taken the previous block from that trainer yet) is tried again here,
+# each frame for up to this long, before its answer goes to the host (a round trip over the network each time).
+BUSY_RETRY_SECONDS = .5
+
+
+async def execute_command(companion, command, observer=None):
+    """Run one host command on the core (under the observer's lock: no PEEK interleaves)."""
+    async def run():
+        response = await companion.battle_rpc(command)
+        response.validate_response(command)
+        if command.opcode == Opcode.RECEIVE and response.status == Status.BUSY:
+            loop = asyncio.get_running_loop()
+            until = loop.time() + BUSY_RETRY_SECONDS
+            while response.status == Status.BUSY and loop.time() < until:
+                await asyncio.sleep(.008)
+                response = await companion.battle_rpc(command)
+                response.validate_response(command)
+        return response
+    if observer is None:
+        return await run()
+    async with observer.lock:
+        return await run()
+
+
 # How long an execute whose reply comes too late is asked again (KNOWN_ISSUES MS-17): the host takes a byte-identical
 # repeat as inert and hands the outstanding command again, and its route waits 20 s for each answer; longer than that
 # the battle is held for recovery, which the next reply says.
@@ -84,6 +111,9 @@ class NativeBattleSession:
         self._terminal_authority = None
         self.bridge = getattr(companion, "_bridge", None)
         self.admission_intent = self.admission_receipt = None
+
+    async def _execute(self, command, observer):
+        return await execute_command(self.companion, command, observer)
 
     def _persist(self, state="executing"):
         _atomic(self.path, _json_bytes(dict(format="native-battle-client-execution-v1",
@@ -198,6 +228,9 @@ class NativeBattleSession:
                 admission_sha256 = None
                 idle_polls = 0
                 late_since = None
+                from .battle_observer import BattleObserver
+                observer = (BattleObserver(c, challenge["battle_id"], challenge["generation"], c.battle_incarnation,
+                                           slot, challenge["mode"]) if BattleObserver.enabled(c) else None)
                 while True:
                     if self.journal._session() != captured:
                         raise BattleJournalError("battle_recovery_required", "retain the original held battle core")
@@ -309,14 +342,22 @@ class NativeBattleSession:
                                 preparation.rng, challenge.get("gym", 0) or challenge.get("environment", 0)):
                             raise BattleJournalError("canonical_head_mismatch", "native preparation changed the personal party")
                     self._command, self._dispatch_id, self._response = command, dispatch_id, None
+                    if observer is not None:
+                        observer.holding(command)
                     self._persist()
-                    response = await c.battle_rpc(command)
-                    response.validate_response(command)
+                    response = await self._execute(command, observer)
                     self._response = response
-                    self._persist()
+                    if command.opcode not in TRANSPORT:
+                        # KNOWN_ISSUES MS-62: a transport answer is not written again: the host journals it, and the
+                        # core answers a repeat of its last command exactly (recovery's uncertain dispatch).
+                        self._persist()
+                    if observer is not None:
+                        observer.executed(command, response)
                     admission_sha256 = None
                     self.admission_intent = self.admission_receipt = None
             finally:
+                if observer is not None:
+                    await observer.stop()
                 self._active = False
                 c._live_save_owner = c._live_battle_owner = None
                 c._live_battle_admission_control = None

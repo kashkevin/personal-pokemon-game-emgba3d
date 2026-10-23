@@ -15,7 +15,8 @@ def configure_native(manifest: dict, token: str, port: int) -> str:
     menu page opt-in (menu_open_page=1: the soft reset in a world);
     Battle Tower: Legends adds tower=1 (its screens, world action 7 and
     reward words 6-7, docs/battle-tower-legends.md 8.1); MS-61 adds
-    host_save_page=1 (an in-game SAVE in a world saves on the host too)."""
+    host_save_page=1 (an in-game SAVE in a world saves on the host too);
+    MS-62 adds battle_peek=1 (battle PEEK, pushed battle observations)."""
     from .trade_effect_mailbox import (validate_effect_choice_manifest, validate_effect_prepare_manifest,
                                        validate_effect_save_manifest)
     if (not isinstance(token, str) or not re.fullmatch(r"[0-9a-f]{64}", token)
@@ -34,7 +35,17 @@ def configure_native(manifest: dict, token: str, port: int) -> str:
         lines.append("tower=1")
     if host_save_page_enabled(manifest):
         lines.append("host_save_page=1")
+    if battle_peek_enabled(manifest):
+        lines.append("battle_peek=1")
     return "\n".join(lines) + "\n"
+
+
+def battle_peek_enabled(manifest: dict) -> bool:
+    """KNOWN_ISSUES MS-62: the native game's battle PEEK (opcode 25: QUERY with the outbound block's bytes) and an ACK_OUT
+    without READ_OUT (manifest battle_peek_abi_version 1, beside the native battle ABI 3). Every player of a world runs the
+    same build, so the host's own manifest speaks for every game (battle_execution.BattleExecutionService.peek)."""
+    version = manifest.get("battle_peek_abi_version")
+    return type(version) is int and version == 1 and manifest.get("battle_abi_version") == 3
 
 
 def menu_open_page_enabled(manifest: dict) -> bool:

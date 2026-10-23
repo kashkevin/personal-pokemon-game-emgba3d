@@ -64,7 +64,7 @@ from emerald_multiplayer.menu_mailbox import unpack_screen  # noqa: E402
 from qualify_admission_cleanup import on_worker, require  # noqa: E402
 
 PLAYER_NAMES = ("New Host", "New Friend 1", "New Friend 2", "New Friend 3")
-SCENARIOS = ("lobby", "mixed", "busy")
+SCENARIOS = ("lobby", "mixed", "busy", "trade")
 FORMATS = ("1v1v1v1", "2v2")
 MODES = {"1v1": 2, "2v2": 3, "1v1v1v1": 5, "1v1v1": 6}
 PEER_NO_POKEMON = "They have no Pokemon yet"
@@ -231,7 +231,7 @@ class NewcomersProof(SoftResetProof, ThreePlayerProof):
                                           hops=len(hops), take_ms=median([h["delivered"] - h["published"] for h in hops]),
                                           answer_ms=median([h["answered"] - h["delivered"] for h in hops]))
             return out
-        record(label + "-route", latency_ms=LATENCY_MS[0], hold=HOLD[0], rooms=await on_worker(current[0], route))
+        record(label + "-route", latency_ms=LATENCY_MS[0], hold=HOLD[0], disk_ms=DISK_MS[0], remote_only=REMOTE_ONLY[0], rooms=await on_worker(current[0], route))
         if meanwhile is not None:
             await meanwhile
         await self.back_on_the_field(current, probes, before, record, label + "-everyone-back")
@@ -439,7 +439,13 @@ class NewcomersProof(SoftResetProof, ThreePlayerProof):
     # The scenarios ------------------------------------------------------------------------------------------------
     async def _match(self, current, probes, games, host, symbols, record):
         self.t0 = time.monotonic()
-        simulate_internet(LATENCY_MS[0], HOLD[0])
+        host_player = None
+        if REMOTE_ONLY[0]:
+            async def player(s):
+                return s._companion.config.player_id
+            host_player = await on_worker(current[0], player)
+        simulate_internet(LATENCY_MS[0], HOLD[0], host_player)
+        simulate_disk(DISK_MS[0])
         count = len(current)
         for n, worker in enumerate(current):
             self.own_display(n, worker)
@@ -477,6 +483,8 @@ class NewcomersProof(SoftResetProof, ThreePlayerProof):
                 await self.lobby_battle(current, probes, symbols, record, tuple(range(count)), fmt, fmt)
             record("battle-seconds", seconds=round(time.monotonic() - started, 1), latency_ms=LATENCY_MS[0],
                    hold=HOLD[0])
+        elif self.scenario == "trade":
+            await self.trade_back_and_forth(current, probes, record)
         elif self.scenario == "mixed":
             await self.mixed(current, probes, games, host, symbols, record)
         else:
@@ -484,6 +492,25 @@ class NewcomersProof(SoftResetProof, ThreePlayerProof):
         parties = await self.heads(current, host)
         revisions = [(await self.launcher(w))["revision"] + 1 for w in current]
         return dict(parties=parties, revisions=revisions)
+
+    async def trade_back_and_forth(self, current, probes, record):
+        """The owner's report (2026-10-23, "trading is also broken"): two new characters claim their starters (with
+        --no-save nobody saves: each new Pokemon is saved on the host by itself), trade them, and trade back."""
+        before = [(await self.launcher(w))["revision"] for w in current]
+        await self.claims((0, 1), current, probes, record)
+        if self.no_save:
+            canonical = await self.auto_saved(current, record, "auto-saved-with-the-starters", before)
+        else:
+            canonical = await self.save_all(current, record, "saved-with-the-starters")
+        serials = [c["serials"] for c in canonical]
+        for offerer, answerer, label in ((0, 1, "traded"), (1, 0, "traded-back")):
+            await self.trade_between(current, probes, record, offerer, answerer)
+            for n in (0, 1):
+                await self.on_field(current[n])
+            heads = await self.heads(current, self.harness.host)
+            record(label, canonical=heads, games=[p.party_now() for p in probes])
+            expected = [serials[1], serials[0]] if label == "traded" else serials
+            require([h["serials"] for h in heads] == expected, f"{label}: the host's saves hold {heads}, not {expected}")
 
     async def cut_and_rejoin(self, n, current, probes, games, record):
         """The player's world connection is cut (a cable pulled); its launcher fences the link and keeps the save; it
@@ -584,10 +611,23 @@ class NewcomersProof(SoftResetProof, ThreePlayerProof):
         await self.across_route_101(3, current, probes, record)
 
 
-LATENCY_MS, HOLD = [0], [True]
+LATENCY_MS, HOLD, DISK_MS, REMOTE_ONLY = [0], [True], [0], [False]
 
 
-def simulate_internet(latency_ms, hold):
+def simulate_disk(disk_ms):
+    """--disk-ms: every fsync waits that much longer, as on a player's Windows PC (a consumer SSD's cache flush and the
+    virus scanner's look at each new file; the CI runners and this machine flush at once)."""
+    if disk_ms:
+        import os
+        real = os.fsync
+
+        def slow_fsync(fd):
+            time.sleep(disk_ms / 1000)
+            return real(fd)
+        os.fsync = slow_fsync
+
+
+def simulate_internet(latency_ms, hold, host_player=None):
     """--latency-ms: every battle message between the host and a player arrives that much later, each way (the host's
     receive and send, in its own event loop), as over the internet. --no-hold: the host answers a battle poll at once,
     as before KNOWN_ISSUES MS-62's fix (for the comparison). From the match on: the world's set-up (enrollment) answers
@@ -598,14 +638,19 @@ def simulate_internet(latency_ms, hold):
 
         # Battle messages only (the challenge, its acceptance, Enter and every native command): a delayed connection
         # handshake or rejoin is refused (wrong_world), as a real one never is.
+        def lagged(session, message):
+            # --remote-only: the host's own game talks to its server on the same PC, without the network's delay.
+            return (str(message.get("type", "")).startswith("battle_")
+                    and (host_player is None or getattr(session, "player_id", None) != host_player))
+
         def late_receive(self, session, message):
-            if str(message.get("type", "")).startswith("battle_"):
+            if lagged(session, message):
                 asyncio.get_running_loop().call_later(delay, receive, self, session, message)
             else:
                 receive(self, session, message)
 
         def late_control(self, session, message):
-            if str(message.get("type", "")).startswith("battle_"):
+            if lagged(session, message):
                 asyncio.get_running_loop().call_later(delay, control, self, session, message)
             else:
                 control(self, session, message)
@@ -616,10 +661,11 @@ def simulate_internet(latency_ms, hold):
 
 
 async def run(args):
-    LATENCY_MS[0], HOLD[0] = args.latency_ms, not args.no_hold
+    LATENCY_MS[0], HOLD[0], DISK_MS[0], REMOTE_ONLY[0] = args.latency_ms, not args.no_hold, args.disk_ms, args.remote_only
     count = len(args.source)
     require(2 <= count <= 4, "two to four sources (short-introduction saves)")
-    require(args.scenario == "lobby" or count == 4, f"--scenario {args.scenario} needs four players")
+    require(args.scenario == "lobby" or count == 4 or (args.scenario == "trade" and count == 2),
+            f"--scenario {args.scenario} needs four players (trade: two)")
     if not args.display:
         require(WINDOWS, "an X display per player")
         args.display = [f"desktop-{n}" for n in range(count)]         # Windows: one desktop; names for the records
@@ -655,6 +701,9 @@ def main():
                         help="lobby, two players: nobody saves after the claims (the games save by themselves), then "
                              "the Players menu's Rival Battle - 1v1")
     parser.add_argument("--latency-ms", type=float, default=0, help="each way, between the host and every player")
+    parser.add_argument("--remote-only", action="store_true",
+                        help="--latency-ms for the other players only (the host's own game is on its PC)")
+    parser.add_argument("--disk-ms", type=float, default=0, help="extra milliseconds on every fsync (a player's PC)")
     parser.add_argument("--no-hold", action="store_true", help="the host answers battle polls at once (before MS-62)")
     args = parser.parse_args()
     if args.format is None:

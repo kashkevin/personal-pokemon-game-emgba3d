@@ -590,6 +590,8 @@ class NativeBattleRecoverySession:
             self._active = True
             c._live_save_owner = c._live_battle_owner = self._owner
             c._live_battle_executor = self
+            from .battle_observer import BattleObserver
+            observer = None
             try:
                 while True:
                     self._retained()
@@ -644,10 +646,19 @@ class NativeBattleRecoverySession:
                             self._command, self._response = command, None
                             if stage == "route":
                                 self._route_id, self._route_command, self._route_response = dispatch, command, None
+                            if (stage == "route" and observer is None and self.binding is not None
+                                    and BattleObserver.enabled(c)):
+                                # KNOWN_ISSUES MS-62: the recovered route is the observed one too.
+                                observer = BattleObserver(c, self.intent.battle_id, self.intent.generation,
+                                    self.intent.incarnation, self.binding.local_slot, self.binding.mode)
+                            if observer is not None:
+                                observer.holding(command)
                             self._persist()
-                            response = await c.battle_rpc(command)
-                            response.validate_response(command)
+                            from .battle_session import execute_command
+                            response = await execute_command(c, command, observer)
                             self._response = response
+                            if observer is not None:
+                                observer.executed(command, response)
                             if stage == "route":
                                 self._route_response = response
                             if not response.status:
@@ -665,6 +676,8 @@ class NativeBattleRecoverySession:
                             raise  # A native/disk uncertainty is not permission to reconnect.
                         await asyncio.sleep(max(.25, c.config.reconnect_delay))
             finally:
+                if observer is not None:
+                    await observer.stop()
                 self._active = False
                 c._live_save_owner = c._live_battle_owner = None
                 if getattr(c, "_live_battle_executor", None) is self:

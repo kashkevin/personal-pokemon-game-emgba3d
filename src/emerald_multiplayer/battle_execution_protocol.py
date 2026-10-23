@@ -81,3 +81,31 @@ def validate_execution_view(value, *, request=None):
                 request["incarnation"], request["session_epoch"]):
             raise ProtocolError("identity_mismatch", "native command changed the authenticated incarnation")
     return value
+
+
+OBSERVE_SCOPE = "native-battle-observation-v1"
+
+
+def validate_observation_request(message):
+    """KNOWN_ISSUES MS-62: one successful PEEK response of the reporting player's own core."""
+    from .native_battle import peek_parts
+    _integer(message["incarnation"], "incarnation", 1, 0xFFFFFFFF)
+    response = decode_control(message["observation_b64"], response=True)
+    try:
+        if (response.opcode != Opcode.PEEK or response.status or response.battle_id != message["battle_id"]
+                or response.incarnation != message["incarnation"] or response.session_epoch != message["session_epoch"]):
+            raise ValueError()
+        peek_parts(response)
+    except ValueError as error:
+        raise ProtocolError("invalid_battle_control", "a battle observation is one exact PEEK response") from error
+
+
+def validate_observation_view(value, *, request=None):
+    _fields(value, {"scope", "battle_id", "generation", "accepted", "routed"})
+    _uuid(value["battle_id"], "battle_id"); _uuid(value["generation"], "generation")
+    if (value["scope"] != OBSERVE_SCOPE or type(value["accepted"]) is not bool or type(value["routed"]) is not bool
+            or (value["accepted"] and not value["routed"])):
+        raise ProtocolError("invalid_server_message", "unsupported native observation reply")
+    if request is not None and (value["battle_id"], value["generation"]) != (request["battle_id"], request["generation"]):
+        raise ProtocolError("identity_mismatch", "native observation changed battle identity")
+    return value

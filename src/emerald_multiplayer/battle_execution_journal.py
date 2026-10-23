@@ -25,8 +25,17 @@ from .native_battle_resume import ResumeAuthorization, ResumeQuery
 # step; recovery must replay a journal with the policy that wrote it, so the format names the policy.
 # v3 (2026-10-23, KNOWN_ISSUES MS-62): the pipelined router (battle_execution._NativeRoute.round): every core gets its
 # own next command each round, all at once, so one core's commands follow another order than v2's lock-step steps.
+# v4 (2026-10-23, KNOWN_ISSUES MS-62): the observed router (battle_execution._NativeRoute.run_observed), for PC games with
+# battle PEEK: each launcher sends its core's state and each new block as they happen ("observation" events, PEEK
+# responses), and the router answers every response and observation in the order this journal records them, so
+# recovery replays them in that order.
 FORMAT = "native-battle-route-events-v3"
+OBSERVED_FORMAT = "native-battle-route-events-v4"
 LEGACY_FORMATS = ("native-battle-route-events-v1", "native-battle-route-events-v2")
+# Records a later command's fsync makes durable with it (KNOWN_ISSUES MS-62: a battle has thousands of commands, and each
+# fsync is slow on a player's Windows PC). A command is published only after its own record is fsynced, and that
+# flushes every record before it; a transport reply or an observation is only ever acted on by publishing such a command.
+_TRANSPORT = frozenset((Opcode.QUERY, Opcode.PEEK, Opcode.READ_OUT, Opcode.RECEIVE, Opcode.ACK_OUT, Opcode.KEEP))
 MAX_LINE = 16384
 MAX_BYTES = 256 * 1024 * 1024
 MAX_EVENTS = 500000
@@ -34,7 +43,7 @@ ZERO_HASH = "0" * 64
 
 
 class RouteJournal:
-    def __init__(self, path, header, *, create=False):
+    def __init__(self, path, header, *, create=False, format=None):
         self.path = Path(path)
         self.header = header
         self.events = []
@@ -51,12 +60,17 @@ class RouteJournal:
         self.lineage = [self.leases]
         self.renewal_epoch = 0
         self.renewal_digest = None
-        self.format = FORMAT
+        # Every response and observation in journal order (observed router: what recovery replays it with).
+        self.routed = []
+        format = FORMAT if format is None else format
+        if format not in (FORMAT, OBSERVED_FORMAT):
+            raise ValueError("a new route journal takes a current format")
+        self.format = format
         if create:
             flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
             fd = os.open(self.path, flags, 0o600)
             try:
-                self._write_fd(fd, dict(kind="header", format=FORMAT, value=header))
+                self._write_fd(fd, dict(kind="header", format=format, value=header))
             finally:
                 os.close(fd)
             self._after_close()
@@ -94,7 +108,7 @@ class RouteJournal:
             raise BattleJournalError("battle_journal_limit", "native route event exceeds its byte bound")
         return raw, digest
 
-    def _write_fd(self, fd, value):
+    def _write_fd(self, fd, value, sync=True):
         raw, digest = self._record(len(self.events), self.digest, value)
         if len(self.events) >= MAX_EVENTS or self.size + len(raw) > MAX_BYTES:
             raise BattleJournalError("battle_journal_limit", "native route evidence reached its safe bound")
@@ -104,7 +118,8 @@ class RouteJournal:
             if not written:
                 raise OSError("native route journal write made no progress")
             view = view[written:]
-        os.fsync(fd)
+        if sync:
+            os.fsync(fd)
         self._stamp = self._identity(os.fstat(fd))
         self._tail = raw
         self._content_digest.update(raw)
@@ -134,7 +149,7 @@ class RouteJournal:
                         raise ValueError("route evidence checksum or encoding changed")
                     value = row["value"]
                     if not self.events:
-                        if (type(value) is not dict or value.get("format") not in (FORMAT,) + LEGACY_FORMATS
+                        if (type(value) is not dict or value.get("format") not in (FORMAT, OBSERVED_FORMAT) + LEGACY_FORMATS
                                 or value != dict(kind="header", format=value["format"], value=self.header)):
                             raise ValueError("route evidence belongs to another immutable battle")
                         self.format = value["format"]
@@ -170,6 +185,8 @@ class RouteJournal:
             return
         if type(value) is dict and value.get("kind") == "renewal":
             return self._validate_renewal(value, apply=apply)
+        if type(value) is dict and value.get("kind") == "observation":
+            return self._validate_observation(value, apply=apply)
         if (type(value) is not dict or set(value) != {"kind", "actor", "dispatch_id", "control_b64"}
                 or value["kind"] not in ("command", "response")
                 or value["actor"] not in self.header["players"]
@@ -191,6 +208,7 @@ class RouteJournal:
             control.validate_response(pending[1])
             if apply:
                 self.completed.append((actor, ident, pending[1], control))
+                self.routed.append(("response", actor, ident, pending[1], control))
                 del self.pending[actor]
         else:
             if actor in self.pending or ident != self.ids.get(actor, 0) + 1:
@@ -198,6 +216,32 @@ class RouteJournal:
             if apply:
                 self.ids[actor] = ident
                 self.pending[actor] = (ident, control)
+
+    def _validate_observation(self, value, *, apply):
+        """An observed router's PEEK response from a launcher with no outstanding command (KNOWN_ISSUES MS-62)."""
+        from .native_battle import peek_parts
+        if (self.format != OBSERVED_FORMAT or set(value) != {"kind", "actor", "control_b64"}
+                or value["actor"] not in self.header["players"] or value["actor"] in self.pending):
+            raise ValueError("invalid native route observation")
+        actor = value["actor"]
+        control = decode_control(value["control_b64"], response=True)
+        slot = self.header["players"].index(actor)
+        if (control.opcode != Opcode.PEEK or control.status or control.battle_id != self.header["battle_id"]
+                or control.incarnation != self.header["incarnations"][slot]
+                or control.session_epoch != self.leases[slot]
+                or control.phase != self.header["mode"] or control.source_slot != slot):
+            raise ValueError("route observation changed its immutable battle binding")
+        peek_parts(control)
+        if apply:
+            self.routed.append(("observation", actor, control))
+
+    @property
+    def observed(self):
+        """A v4 journal's router answered pushed observations (_NativeRoute.run_observed)."""
+        return self.format == OBSERVED_FORMAT
+
+    def observe(self, actor, control):
+        self._append(dict(kind="observation", actor=actor, control_b64=encode_control(control)), sync=False)
 
     @staticmethod
     def rebind(command, leases):
@@ -267,10 +311,11 @@ class RouteJournal:
     @property
     def pipelined(self):
         """A v3 journal's router ran its rounds (_NativeRoute.round); v1 and v2 ran its lock-step steps."""
-        return self.format not in LEGACY_FORMATS
+        return self.format not in LEGACY_FORMATS and self.format != OBSERVED_FORMAT
 
     def append(self, kind, actor, dispatch_id, control):
-        self._append(dict(kind=kind, actor=actor, dispatch_id=dispatch_id, control_b64=encode_control(control)))
+        self._append(dict(kind=kind, actor=actor, dispatch_id=dispatch_id, control_b64=encode_control(control)),
+                     sync=kind != "response" or control.opcode not in _TRANSPORT)
 
     def renew(self, epoch, leases, proofs):
         self._append(dict(kind="renewal", epoch=epoch, leases=list(leases), proofs=proofs))
@@ -303,7 +348,7 @@ class RouteJournal:
                     or self._identity(self.path.lstat()) != self._stamp):
                 raise BattleJournalError("battle_journal_changed", "native route evidence differs from its committed bytes")
 
-    def _append(self, value):
+    def _append(self, value, sync=True):
         self._validate_event(value, apply=False)
         info = self.path.lstat()
         if not stat.S_ISREG(info.st_mode) or self._identity(info) != self._stamp:
@@ -325,7 +370,7 @@ class RouteJournal:
                 tail.extend(data)
             if bytes(tail) != self._tail or self._identity(os.fstat(fd)) != self._stamp:
                 raise BattleJournalError("battle_journal_changed", "native route evidence tail changed before append")
-            self._write_fd(fd, value)
+            self._write_fd(fd, value, sync)
         finally:
             os.close(fd)
         self._after_close()

@@ -93,6 +93,7 @@ class RouteReplay:
         self.positions = dict.fromkeys(self.streams, 0)
         self.remaining = len(journal.completed)
         self.blocked = {}
+        self.peek = getattr(owner, "peek", False)
         self.boundary, self.live = asyncio.Event(), asyncio.Event()
         self.error = None
         self.route = self.room.route = _NativeRoute(self, self.room)
@@ -102,6 +103,11 @@ class RouteReplay:
     def replaying(self):
         """True while the route consumes durable history (before activation goes live)."""
         return not self.live.is_set()
+
+    def history_consumed(self):
+        """The observed router (journal v4) has answered every recorded response and observation and waits for live
+        ones: the boundary, as when the lock-step router blocks on its first command beyond history."""
+        self.boundary.set()
 
     def logical(self, actor, command):
         return self.journal._renew_control(actor, command, self.journal.header["leases"])

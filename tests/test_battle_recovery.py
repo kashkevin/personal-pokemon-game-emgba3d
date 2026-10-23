@@ -355,6 +355,8 @@ class RetainedFixture(execution_fixture.NativeFixture):
         return self.query()+struct.pack("<II", state | 256 | self.previous << 16, self.resume_epoch)+self.token
 
     async def rpc(self, command):
+        if command.opcode == Opcode.PEEK:   # an observation changes nothing (KNOWN_ISSUES MS-62)
+            return await execution_fixture.NativeFixture.rpc(self, command)
         self.calls.append(command)
         if command.opcode == Opcode.ADMIT:
             self.provisional = Admission.unpack(command.data)
@@ -401,7 +403,40 @@ class RetainedFixture(execution_fixture.NativeFixture):
 
 class BattleRecoveryNetworkTests(unittest.IsolatedAsyncioTestCase):
     asyncSetUp = fixture.BattleArbitrationTests.asyncSetUp
-    asyncTearDown = fixture.BattleArbitrationTests.asyncTearDown
+    peek = False   # KNOWN_ISSUES MS-62: the observed router, journal v4 and the clients' observers (ObservedRecoveryTests)
+
+    async def asyncTearDown(self):
+        for observer in getattr(self, "observers", []):
+            await observer.stop()
+        await fixture.BattleArbitrationTests.asyncTearDown(self)
+
+    def observer(self, index, model):
+        """A client's observer (battle_observer.py) on its synthetic core, reporting through its current connection."""
+        if not self.peek:
+            return None
+        from emerald_multiplayer.battle_observer import BattleObserver
+        from emerald_multiplayer.protocol import ProtocolError
+
+        async def challenge(operation, **fields):
+            reply = await self.actors[index].rpc("battle_" + operation, **fields)
+            if reply.get("type") != "battle_result":
+                raise ProtocolError(str(reply.get("code")), "refused")
+            return reply
+        companion = SimpleNamespace(config=SimpleNamespace(battle_peek_abi_version=1), battle_rpc=model.rpc,
+                                    battle_challenge_rpc=challenge)
+        observer = BattleObserver(companion, self.battle_id, self.generation, 100 + index, model.slot, model.battle.mode)
+        self.observers = getattr(self, "observers", []) + [observer]
+        return observer
+
+    @staticmethod
+    async def run_command(observer, model, command):
+        if observer is None:
+            return await model.rpc(command)
+        observer.holding(command)
+        async with observer.lock:
+            response = await model.rpc(command)
+        observer.executed(command, response)
+        return response
     actor = fixture.BattleArbitrationTests.actor
     call = fixture.BattleArbitrationTests.call
     accept = execution_fixture.BattleExecutionNetworkTests.accept
@@ -441,7 +476,7 @@ class BattleRecoveryNetworkTests(unittest.IsolatedAsyncioTestCase):
 
     async def _interrupt(self, opcode, *, uncertain=True, multi=False):
         self.server.battle_execution = BattleExecutionService(self.desk, (None,)*721,
-            self.root/"execution", resume_enabled=True)
+            self.root/"execution", resume_enabled=True, peek=self.peek)
         self.accept(multi)
         battle = self.desk._active[self.battle_id]
         self.models = {actor: RetainedFixture(battle, slot) for slot, actor in enumerate(battle.players)}
@@ -464,6 +499,7 @@ class BattleRecoveryNetworkTests(unittest.IsolatedAsyncioTestCase):
             actor = self.actors[index]
             response, ident = None, 0
             admission = {}
+            observer = self.observer(index, self.models[actor.player.player_id])
             while True:
                 result = await actor.rpc("battle_execute", battle_id=self.battle_id, generation=self.generation,
                     incarnation=100+index, response_id=ident if response else 0,
@@ -485,7 +521,7 @@ class BattleRecoveryNetworkTests(unittest.IsolatedAsyncioTestCase):
                     if selected and not uncertain:
                         stopped.set()
                         await asyncio.Future()
-                    response = await self.models[actor.player.player_id].rpc(command)
+                    response = await self.run_command(observer, self.models[actor.player.player_id], command)
                     ident = view["command_id"]
                     if selected:
                         stopped.set()
@@ -501,6 +537,9 @@ class BattleRecoveryNetworkTests(unittest.IsolatedAsyncioTestCase):
             for task in tasks:
                 task.cancel()
             results = await asyncio.gather(*tasks, return_exceptions=True)
+            for observer in getattr(self, "observers", []):
+                await observer.stop()   # the interrupted games: their launchers stop with them
+            self.observers = []
             for result in results:
                 if isinstance(result, Exception) and not isinstance(result, asyncio.CancelledError):
                     raise result
@@ -515,7 +554,7 @@ class BattleRecoveryNetworkTests(unittest.IsolatedAsyncioTestCase):
         self.store = TradeCheckpointStore(self.root/"world.sqlite3", fixture.BUILD, fixture.RULES)
         self.server = WorldServer(ServerConfig(fixture.BUILD, fixture.RULES, heartbeat_interval=.05, idle_timeout=20),
             store=self.store, development_trades=True, development_battles=True)
-        self.server.enable_battle_execution((None,)*721, self.root/"execution", resume_enabled=True)
+        self.server.enable_battle_execution((None,)*721, self.root/"execution", resume_enabled=True, peek=self.peek)
         await self.server.start(port=0)
         self.actors = [await fixture.Actor.connect(self.server.address, player) for player in self.players]
         self.desk = self.server.battle_desk
@@ -541,6 +580,8 @@ class BattleRecoveryNetworkTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(sum(len(model.calls) for model in self.models.values()), before)
         async def client(index):
             response, ident, stage = None, 0, None
+            model = self.models[self.players[index].player_id]
+            observer = None
             while True:
                 result = await exchange(index, response, ident, stage)
                 self.assertEqual(result["type"], "battle_result", result)
@@ -551,7 +592,9 @@ class BattleRecoveryNetworkTests(unittest.IsolatedAsyncioTestCase):
                     return
                 if view["command_b64"] is not None and (stage, ident) != (view["stage"], view["command_id"]):
                     command = decode_control(view["command_b64"])
-                    response = await self.models[self.players[index].player_id].rpc(command)
+                    if view["stage"] == "route" and observer is None:
+                        observer = self.observer(index, model)
+                    response = await self.run_command(observer, model, command)
                     ident, stage = view["command_id"], view["stage"]
                 await asyncio.sleep(.001)
         async with asyncio.timeout(50):
@@ -767,3 +810,46 @@ class BattleRecoveryNetworkTests(unittest.IsolatedAsyncioTestCase):
             result = await self.actors[0].rpc("battle_resume", **fields)
         self.assertEqual(result["type"], "battle_error")
         self.assertEqual(sum(len(model.calls) for model in self.models.values()), before)
+
+
+class ObservedRecoveryTests(BattleRecoveryNetworkTests):
+    """KNOWN_ISSUES MS-62: every recovery again on the observed router's journal (v4): the replay answers the recorded
+    responses and observations in journal order and then takes the cores' live reports."""
+    peek = True
+
+    async def test_a_journal_written_before_the_keep_change_recovers_with_a_keep_every_step(self):
+        self.skipTest("a v1 journal: BattleRecoveryNetworkTests")
+
+    async def test_a_journal_written_by_the_lock_step_router_recovers_with_its_steps(self):
+        self.skipTest("a v2 journal: BattleRecoveryNetworkTests")
+
+    async def test_the_pipelined_router_overlaps_one_cores_query_with_anothers_block_commands(self):
+        self.skipTest("a v3 journal: BattleRecoveryNetworkTests")
+
+    async def test_interrupted_at_a_deadline_keep_while_players_wait_replays_the_same_keep_decisions(self):
+        # Players choose for 600 looks with no block: the launchers report the frames running low, the route sends
+        # KEEP; interrupted at the first one, recovery replays the reports and makes the same decision.
+        self.addCleanup(setattr, RetainedFixture, "IDLE_QUERIES", 0)
+        RetainedFixture.IDLE_QUERIES = 600
+        await self._interrupt(Opcode.KEEP, multi=True)
+        journal = self.root/"execution"/(self.battle_id+".events.jsonl")
+        lines = journal.read_text().splitlines()
+        self.assertEqual(json.loads(lines[0])["value"]["format"], "native-battle-route-events-v4")
+        events = [json.loads(line)["value"] for line in lines[1:]]
+        self.assertTrue(any(event.get("kind") == "observation" for event in events))
+        await self._recover(4)
+
+    async def test_replaying_history_does_not_wait_between_historical_steps(self):
+        self.addCleanup(setattr, RetainedFixture, "IDLE_QUERIES", 0)
+        RetainedFixture.IDLE_QUERIES = 40
+        await self._interrupt(Opcode.RELEASE, multi=True)
+        real_sleep, waits = asyncio.sleep, []
+        async def sleep(delay, result=None):
+            caller = sys._getframe(1)
+            if caller.f_code.co_filename.endswith("battle_execution.py"):
+                replay = getattr(caller.f_locals.get("self"), "service", None)
+                waits.append((delay, getattr(replay, "replaying", False)))
+            return await real_sleep(delay, result)
+        with patch.object(asyncio, "sleep", sleep):
+            await self._recover(4)
+        self.assertEqual({delay for delay, replaying in waits if replaying} - {0}, set())   # it never waited

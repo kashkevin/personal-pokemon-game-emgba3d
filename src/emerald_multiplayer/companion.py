@@ -261,6 +261,7 @@ class CompanionConfig:
     rival_abi_version: int = field(init=False, default=0)
     tower_abi_version: int = field(init=False, default=0)  # PC game: Battle Tower: Legends (bridge.txt tower=1)
     host_save_page_abi_version: int = field(init=False, default=0)  # PC game: an in-game SAVE saves on the host (MS-61)
+    battle_peek_abi_version: int = field(init=False, default=0)  # PC game: battle PEEK, pushed observations (MS-62)
 
     def __post_init__(self) -> None:
         rom_path, manifest_path = Path(self.rom_path).resolve(), Path(self.manifest_path).resolve()
@@ -309,6 +310,10 @@ class CompanionConfig:
         object.__setattr__(self, "menu_open_page_abi_version", 1 if menu_open_page_enabled(manifest) else 0)
         from .bridge_config import host_save_page_enabled
         object.__setattr__(self, "host_save_page_abi_version", 1 if host_save_page_enabled(manifest) else 0)
+        # KNOWN_ISSUES MS-62: the PC game's battle PEEK (the launcher opts in with bridge.txt battle_peek=1): this game's
+        # launcher sends its core's state and each new block to the host as they happen (battle_session.py).
+        from .bridge_config import battle_peek_enabled
+        object.__setattr__(self, "battle_peek_abi_version", 1 if battle_peek_enabled(manifest) else 0)
         object.__setattr__(self, "reset_enabled", manifest.get("reset_abi_version") in (1, 2))
         object.__setattr__(self, "reset_abi_version", manifest.get("reset_abi_version", 0))
         object.__setattr__(self, "reset_input_abi_version", manifest.get("reset_input_abi_version", 0))
@@ -1260,12 +1265,15 @@ class Companion:
         """
         from .battle_mailbox import BattleControl, Opcode
         from .native_battle import FFA3_PHASE, NativeControl, supports_native_phase
+        from .native_battle import Opcode as NativeOpcode
         if (not self.config.development_battle_channel
                 or not isinstance(control, (BattleControl, NativeControl))
                 or (isinstance(control, NativeControl) and control.opcode > 13
                     and self.config.battle_resume_abi_version != 1)
-                or (isinstance(control, NativeControl) and control.opcode > 21
+                or (isinstance(control, NativeControl) and control.opcode > 21 and control.opcode != NativeOpcode.PEEK
                     and getattr(self.config, "battle_admission_cleanup_abi_version", 0) != 1)
+                or (isinstance(control, NativeControl) and control.opcode == NativeOpcode.PEEK
+                    and getattr(self.config, "battle_peek_abi_version", 0) != 1)
                 or (isinstance(control, NativeControl) and control.opcode == Opcode.BIND
                     and len(control.data) == 116 and control.data[115]
                     and self.config.battle_resume_abi_version != 1)
@@ -1275,7 +1283,8 @@ class Companion:
                     and not getattr(self.config, "battle_ffa3_enabled", False))):
             raise ValueError("battle channel requires explicit development opt-in and a matching ABI control")
         control.validate_command(player_id=self.config.player_id)
-        if control.opcode != Opcode.QUERY:
+        if control.opcode != Opcode.QUERY and not (isinstance(control, NativeControl)
+                                                    and control.opcode == NativeOpcode.PEEK):  # observations change nothing
             from .battle_journal import pending_battle
             from .battle_session import NativeBattleSession
             from .battle_recovery_session import NativeBattleRecoverySession
