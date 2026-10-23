@@ -196,8 +196,7 @@ class PageTests(unittest.IsolatedAsyncioTestCase):
         await self.click("Solo: floor 12")
         screen = self.menu.screen
         self.assertEqual((screen.title, screen.style, screen.style_arg), ("Floor 12", 3, 12))
-        self.assertEqual(self.labels, ["vs Ace Trainer Ace12", "Win: 2 BP, $1,200", "Exp cap: Lv30 (3 badges)",
-                                       "Start the battle"])
+        self.assertEqual(self.labels, ["vs Ace Trainer Ace12", "Win: 2 BP, $1,200", "Start the battle"])
         self.assertEqual(screen.status, "Lv12 Trainer, Hoenn")
         await self.click("Start the battle")
         self.assertEqual(self.calls[-1], ("solo", {"floor": 12}))

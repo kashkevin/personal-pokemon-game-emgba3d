@@ -20,7 +20,7 @@ This file is the contract between the engine and the app. Section 8 lists every 
   own game. **Duo:** exactly two players of the world, each controlling their own Pokemon (three each), against the floor's
   two trainers in the native co-op double battle (the co-op Gym's and the Battle Frontier's battle). Never three or more
   humans; PvP formats are unchanged.
-* Progress, prizes and experience caps are each player's own (Duo too). A Tower battle never sets story flags, never gives
+* Progress and prizes are each player's own (Duo too). A Tower battle never sets story flags, never gives
   badges, never whites out, costs no money and gives no trainer prize money (the host pays the Tower's prizes).
 * After every Tower battle the player's party is healed and its held items are restored (the Battle Frontier's rule).
 
@@ -59,15 +59,14 @@ This file is the contract between the engine and the app. Section 8 lists every 
     co-op Battle Frontier's owner default: no progress lost or gained); a battle that never started changes nothing.
   * A result is settled once; a repeated or contradicting result changes nothing.
 
-## 3. Experience caps (Tower battles only)
-Badges 0..8 -> cap 15, 20, 25, 30, 40, 45, 50, 55, 60; Champion (FLAG_SYS_GAME_CLEAR, 0x864: the Hall of Fame entered) ->
-100. Each game reads its own badge flags when it awards experience (a Duo: each game for its own party, so a teammate's
-badges never raise a cap). A Pokemon at
-or above its cap gains no experience from a Tower battle; one below gains normally but stops exactly at the cap's level. Levels
-are never reduced, Pokemon above the cap may still battle, and nothing changes outside Tower battles (Rare Candy, wild and
-trainer battles, the Day Care). Effort values are gained as in any battle.
-* Solo: the in-battle award (`Cmd_getexp`) is clamped by a PC-only Tower hook. Duo: the co-op award (`MultiplayerCoop_ExpReward`)
-  is clamped the same way. Both use `TowerLegends_ExpCap()`.
+## 3. Experience (no cap since 2026-10-23)
+Tower battles give the ordinary experience award, uncapped (the owner's request of 2026-10-23). Until then each game capped
+Tower experience by its own badges (0..8 -> level 15, 20, 25, 30, 40, 45, 50, 55, 60; a Champion 100). Only level 100 stops
+an award now, as anywhere in the game; effort values are gained as in any battle.
+* Solo: the in-battle award (`Cmd_getexp`) still passes the PC-only Tower hook, and Duo the co-op award
+  (`MultiplayerCoop_ExpReward`); `TowerLegends_ExpCap()` is `MAX_LEVEL` for every badge count, so the clamp keeps only the
+  level limit. The Tower screens and the solo confirmation no longer show a cap.
+* The badge levels above still limit a milestone Pokemon's level (section 4, `tower_rules.milestone_level`).
 
 ## 4. Prizes
 All prizes go through the wallet stream (exactly once per save and adjustment; the receipt says what really moved).
@@ -103,7 +102,7 @@ All prizes go through the wallet stream (exactly once per save and adjustment; t
 * **Milestone Pokemon** (25, 50, 75, 100): once per player permanently. The host picks the species when the floor is first
   cleared and records it before anything is sent; the game makes the Pokemon from that species and a seed of (milestone,
   species, the save's trainer ID), so a resend, a reload or a retry makes the same Pokemon (no rerolls). Level: the floor,
-  at most the player's Tower experience cap at the claim, legendary at most 70; the species is legal at that level (section
+  at most the badge level of section 3 at the claim, legendary at most 70; the species is legal at that level (section
   7's rules). Original trainer: the player; a Cherish Ball; met in the Battle Frontier at that level; its nature, ability
   (a regular one), gender and moves (its level-up moves at that level) from the seed. Party first, else the PC; when both are
   full nothing is made, the claim stays owed and is offered again (the Tower page says so).
@@ -283,7 +282,7 @@ Their trainer flags are never set by a Tower battle.
   Players UI.
 
 ## 11. Tests (plan)
-Engine `--selftest-tower` (the table: every floor and trainer, levels, legality, pictures, Megas; the exp cap; the reward words;
+Engine `--selftest-tower` (the table: every floor and trainer, levels, legality, pictures, Megas; no exp cap; the reward words;
 the record; milestone generation; the codes and commands); the test build's `PKMN_TEST_BATTLE=tower:<floor>` (the real solo start
 and end) driven by `tools/battle_env/tower_check.py` over all 100 floors, won and lost, on Linux and on the Windows runner; app
 unit tests; launcher proofs in real games (solo run with a loss and a checkpoint, Duo run, Megas, prizes, saves, reconnects).

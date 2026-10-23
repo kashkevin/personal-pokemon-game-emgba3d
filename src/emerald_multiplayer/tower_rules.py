@@ -11,11 +11,11 @@
   players apart: a player who has climbed higher joins a friend's lower floor (owner request 2026-10-22); the Duo's host -
   the player who invited - chooses the floor.
 * A floor the player has already cleared pays nothing again (owner request 2026-10-22): no Battle Points, money, items,
-  prize or milestone Pokemon; the battle still gives its Pokemon their experience (each game's own award, capped as
-  below). A floor above the highest the player ever cleared in this world pays its first-clear rewards, each player's
+  prize or milestone Pokemon; the battle still gives its Pokemon their experience (each game's own award). A floor above the highest the player ever cleared in this world pays its first-clear rewards, each player's
   reckoned on their own.
-* Experience caps (shown here, applied by each game itself): 0..8 badges cap Tower experience at level 15, 20, 25, 30, 40,
-  45, 50, 55, 60; a Champion (FLAG_SYS_GAME_CLEAR: the Hall of Fame entered) at 100.
+* Experience: a Tower battle gives each Pokemon the game's ordinary award, uncapped (the owner's request of 2026-10-23;
+  it stopped at a badge level before). The badge levels remain a milestone Pokemon's limit (milestone_level): 0..8
+  badges level 15, 20, 25, 30, 40, 45, 50, 55, 60; a Champion (FLAG_SYS_GAME_CLEAR: the Hall of Fame entered) 100.
 * Prizes and Battle Points: tower_rewards.py; ``win_reward`` combines them for one player's win.
 """
 from __future__ import annotations
@@ -30,7 +30,7 @@ from .frontier_service import BADGE_FLAGS, FLAGS_OFFSET, count_badges
 FLOORS = 100
 CLIMBED = FLOORS + 1                      # P once floor 100 is cleared: every floor is a replay
 CHECKPOINTS = (10, 20, 25, 30, 40, 50, 60, 70, 75, 80, 90, 100)
-EXP_CAPS = (15, 20, 25, 30, 40, 45, 50, 55, 60)   # by badges 0..8
+EXP_CAPS = (15, 20, 25, 30, 40, 45, 50, 55, 60)   # by badges 0..8: a milestone Pokemon's level limit
 CHAMPION_CAP = 100
 FLAG_SYS_GAME_CLEAR = 0x864               # engine include/constants/flags.h (SYSTEM_FLAGS + 0x4): the Hall of Fame entered
 OUTCOMES = ("won", "lost", "drew")

@@ -288,7 +288,7 @@ class TowerMenu:
         return TITLE, self._status_line(), actions, (STYLE_HOME, 0)
 
     def _render_solo(self, floor):
-        """The confirmation of a solo battle: who, where, what it pays, the player's experience cap (never the team)."""
+        """The confirmation of a solo battle: who, where and what it pays (its experience is uncapped since 2026-10-23)."""
         view, player = self._view, self._player()
         replay = floor != player["progress"]
         title = f"Floor {floor}" + (" (replay)" if replay else "")
@@ -296,10 +296,6 @@ class TowerMenu:
         status = f"Lv{floor} {kind}" + (f", {self._region(floor)}" if self._region(floor) else "")
         actions = [("vs " + self._trainer(floor), "", ())]
         actions.extend(self._reward_rows(floor))
-        save = view.get("save")
-        if save is not None:
-            actions.append((f"Exp cap: Lv{save['cap']}" + (" (Champion)" if save["champion"]
-                                                           else f" ({save['badges']} badges)"), "", ()))
         battle = view.get("battle")
         if battle is not None and (battle["mode"] != "solo" or battle["state"] == "issued"):
             status = self._status_line()
