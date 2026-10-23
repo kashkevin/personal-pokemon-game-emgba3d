@@ -778,17 +778,30 @@ class AbandonProof:
             return s._server.battle_execution.directory
 
         def count(path):
-            menus = 0
+            # Each block once, by its source and block sequence: read out (READ_OUT, its first chunk) or, on the
+            # observed router (journal v4/v5, KNOWN_ISSUES MS-62), reported with its bytes by its launcher (a PEEK
+            # observation, perhaps more than once).
+            from emerald_multiplayer.native_battle import peek_parts
+            menus = set()
             for line in path.read_text().splitlines():
                 value = json.loads(line)["value"]
-                if value.get("kind") != "response" or "control_b64" not in value:
+                if value.get("kind") not in ("response", "observation") or "control_b64" not in value:
                     continue
                 control = NativeControl.unpack(base64.b64decode(value["control_b64"]))
-                data = control.data
-                if (control.opcode == Opcode.READ_OUT and len(data) >= 10 and data[0] == 0
-                        and data[8] == 17 and data[9] == 13):
-                    menus += 1
-            return menus
+                if control.status:
+                    continue
+                if control.opcode == Opcode.READ_OUT and control.offset == 0:
+                    key, data = (value["actor"], control.block_sequence), control.data
+                elif control.opcode == Opcode.PEEK:
+                    query, data = peek_parts(control)
+                    if data is None:
+                        continue
+                    key = (value["actor"], query.outbound_sequence)
+                else:
+                    continue
+                if len(data) >= 10 and data[0] == 0 and data[8] == 17 and data[9] == 13:
+                    menus.add(key)
+            return len(menus)
         path = (await on_worker(current[0], directory)) / (battle_id + ".events.jsonl")
         menus = await asyncio.to_thread(count, path)
         require(menus, f"{label}: no action menu carried B_ACTION_NOTHING_FAINTED; the host was never out while the "
