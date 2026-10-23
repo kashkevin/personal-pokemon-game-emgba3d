@@ -94,11 +94,11 @@ class RelayThroughputTests(unittest.IsolatedAsyncioTestCase):
     async def test_two_player_start_up_without_game_delay(self):
         elapsed, counts = await self.measure(0)
         self.report("2 players, instant core", elapsed, counts)
-        # M25 regression bound: 76 native commands (96 while KEEP went out on every step; start-up
-        # moves a block every step, and an accepted block command already refreshes the watchdog);
-        # the time is a loose ceiling for slow machines.
+        # M25 regression bound: 70 native commands (76 under the lock-step router before MS-62, 96
+        # while KEEP went out on every step; start-up moves a block every step, and an accepted block
+        # command already refreshes the watchdog); the time is a loose ceiling for slow machines.
         if not os.environ.get("BATTLE_BENCH_KEEP_EVERY_STEP"):
-            self.assertEqual(sum(counts.values()), 76)
+            self.assertEqual(sum(counts.values()), 70)
             self.assertEqual(counts["KEEP"], 0)
         self.assertLess(elapsed, 4.0)
 
@@ -110,7 +110,10 @@ class RelayThroughputTests(unittest.IsolatedAsyncioTestCase):
         elapsed, counts = await self.measure(FRAME, multi=True)
         self.report(f"4 players, {FRAME * 1000:.0f} ms game delay", elapsed, counts)
         if not os.environ.get("BATTLE_BENCH_KEEP_EVERY_STEP"):
-            self.assertEqual(sum(counts.values()), 224)   # 264 with a KEEP on every step
+            # 224 under the lock-step router before MS-62: the pipelined router queries a core with
+            # nothing to do while the others receive (in the same round trip, so for free) and so
+            # runs more rounds, with a KEEP after 32 of them; 264 with a KEEP on every step.
+            self.assertEqual(sum(counts.values()), 260)
 
     async def test_waiting_for_the_players_sends_a_keep_only_when_the_watchdog_needs_it(self):
         # After START the cores wait 60 queries for their players (no outbound block): most of a

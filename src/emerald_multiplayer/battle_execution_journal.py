@@ -23,8 +23,10 @@ from .native_battle_resume import ResumeAuthorization, ResumeQuery
 # v2 (2026-10-15): the router sends KEEP only when the native deadline needs it (battle_execution
 # KEEP_BELOW_FRAMES / KEEP_EVERY_STEPS). v1 journals were written by a router that sent KEEP on every
 # step; recovery must replay a journal with the policy that wrote it, so the format names the policy.
-FORMAT = "native-battle-route-events-v2"
-LEGACY_FORMATS = ("native-battle-route-events-v1",)
+# v3 (2026-10-23, KNOWN_ISSUES MS-62): the pipelined router (battle_execution._NativeRoute.round): every core gets its
+# own next command each round, all at once, so one core's commands follow another order than v2's lock-step steps.
+FORMAT = "native-battle-route-events-v3"
+LEGACY_FORMATS = ("native-battle-route-events-v1", "native-battle-route-events-v2")
 MAX_LINE = 16384
 MAX_BYTES = 256 * 1024 * 1024
 MAX_EVENTS = 500000
@@ -260,7 +262,12 @@ class RouteJournal:
     @property
     def keeps_every_step(self):
         """A v1 journal's router sent KEEP on every step; replaying it needs the same."""
-        return self.format in LEGACY_FORMATS
+        return self.format == LEGACY_FORMATS[0]
+
+    @property
+    def pipelined(self):
+        """A v3 journal's router ran its rounds (_NativeRoute.round); v1 and v2 ran its lock-step steps."""
+        return self.format not in LEGACY_FORMATS
 
     def append(self, kind, actor, dispatch_id, control):
         self._append(dict(kind=kind, actor=actor, dispatch_id=dispatch_id, control_b64=encode_control(control)))

@@ -618,6 +618,34 @@ class BattleRecoveryNetworkTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(opcodes.count(Opcode.KEEP), opcodes.count(Opcode.QUERY))  # the old policy
         await self._recover(2)
 
+    async def test_a_journal_written_by_the_lock_step_router_recovers_with_its_steps(self):
+        # A battle interrupted under the v2 router (lock-step steps, KEEP when needed) must replay with
+        # those steps after the pipelined router (v3) ships, or its commands would differ from its journal.
+        from emerald_multiplayer import battle_execution_journal as route_journal
+        with unittest.mock.patch.object(route_journal, "FORMAT", route_journal.LEGACY_FORMATS[1]):
+            await self._interrupt(Opcode.RELEASE)
+        journal = self.root/"execution"/(self.battle_id+".events.jsonl")
+        header = json.loads(journal.read_text().splitlines()[0])["value"]
+        self.assertEqual(header["format"], "native-battle-route-events-v2")
+        await self._recover(2)
+
+    async def test_the_pipelined_router_overlaps_one_cores_query_with_anothers_block_commands(self):
+        # KNOWN_ISSUES MS-62: a v3 route gives every core its own command each round, so a core is
+        # queried while another core's block is read, received or acknowledged (v2 queried all first).
+        await self._interrupt(Opcode.RELEASE)
+        journal = self.root/"execution"/(self.battle_id+".events.jsonl")
+        lines = journal.read_text().splitlines()
+        self.assertEqual(json.loads(lines[0])["value"]["format"], "native-battle-route-events-v3")
+        events = [json.loads(line)["value"] for line in lines[1:]]
+        commands = [(event["actor"], decode_control(event["control_b64"]).opcode)
+                    for event in events if event.get("kind") == "command"]
+        opcodes = [opcode for _, opcode in commands]
+        self.assertLess(opcodes.count(Opcode.KEEP), opcodes.count(Opcode.QUERY))
+        overlapped = sum(1 for (a, x), (b, y) in zip(commands, commands[1:]) if a != b and Opcode.QUERY in (x, y)
+                         and {x, y} & {Opcode.READ_OUT, Opcode.RECEIVE, Opcode.ACK_OUT})
+        self.assertGreater(overlapped, 0)
+        await self._recover(2)
+
     async def test_original_unexecuted_first_bind_is_completed_only_after_all_reconnect(self):
         await self._interrupt(Opcode.BIND, uncertain=False)
         await self._recover(2)

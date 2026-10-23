@@ -501,6 +501,132 @@ class _NativeRoute:
             await _independent(*(self.rpc(slot, Opcode.KEEP) for slot in keep))
         return queries
 
+    # ------------------------------------------------------------------ the pipelined router (journal v3)
+    # KNOWN_ISSUES MS-62: battles over the internet were very slow. step() runs lock-step: every core's QUERY, then each
+    # source's READ_OUT, then each block's RECEIVEs, then its ACK_OUT, one after another, so a block took four round
+    # trips over the network and two blocks at once seven. A round gives every core its own most useful command and
+    # runs them all at once (the cores' mailboxes are independent): ACK_OUT for a delivered block, KEEP when its
+    # deadline needs it, RECEIVE for a block it is owed, READ_OUT for its new block, else QUERY. So the other core is
+    # queried while a block is acknowledged, and read while that core is queried: three round trips a block, two blocks
+    # at once in about four. The rules step() keeps hold: new blocks are admitted only with no block in flight, a
+    # core's blocks in its own order, controller blocks only once running, every block delivered to every other core
+    # before its ACK_OUT. The decisions use only the round's journaled answers, taken in slot order, so recovery
+    # replays the same commands.
+
+    def _choose(self, slot, idle):
+        q = self.fresh[slot]
+        if slot in self.ack_due:
+            return ("ack",)
+        if (q is not None and q.remaining_frames < KEEP_BELOW_FRAMES
+                or self.rounds_since_keep[slot] + 1 >= KEEP_EVERY_STEPS):
+            return ("keep",)
+        for source, block in enumerate(self.pending):
+            if block is not None and source != slot and block["offsets"][slot] < len(block["data"]):
+                return ("receive", source)
+        if idle and q is not None and q.outbound_pending and self.pending[slot] is None:
+            if (q.outbound_sequence, q.outbound_kind, q.read_offset) != (
+                    self.next_block[slot], self.next_kind[slot], 0):
+                raise BattleError("battle_order", "native block order or read cursor differs")
+            if not (q.outbound_kind == Kind.CONTROLLER and not self.running):
+                return ("read", q)
+        return ("query",)
+
+    async def _command(self, slot, what):
+        kind = what[0]
+        if kind == "query":
+            return await self.rpc(slot, Opcode.QUERY)
+        if kind == "start":
+            return await self.rpc(slot, Opcode.START)
+        if kind == "keep":
+            return await self.rpc(slot, Opcode.KEEP)
+        if kind == "read":
+            q, data = what[1], b""
+            for offset in range(0, q.outbound_size, 128):
+                data += (await self.rpc(slot, Opcode.READ_OUT, block_sequence=q.outbound_sequence,
+                    offset=offset, total_size=q.outbound_size, kind=q.outbound_kind)).data
+            return data
+        if kind == "receive":
+            block = self.pending[what[1]]
+            offset = block["offsets"][slot]
+            chunk = block["data"][offset:offset + 128]
+            reply = await self.rpc(slot, Opcode.RECEIVE, busy=True, source_slot=what[1],
+                block_sequence=block["sequence"], offset=offset, total_size=len(block["data"]),
+                kind=block["kind"], data=chunk)
+            return len(chunk), reply
+        block = self.pending[slot]      # "ack"
+        return await self.rpc(slot, Opcode.ACK_OUT, block_sequence=block["sequence"], offset=len(block["data"]),
+            total_size=len(block["data"]), kind=block["kind"], data=struct.pack("<II", block["crc"],
+            ((1 << self.count) - 1) ^ (1 << slot)))
+
+    def _admit(self, source, q, data):
+        if zlib.crc32(data) != q.outbound_crc32:
+            raise BattleError("native_crc", "native complete block checksum differs")
+        kind, roster = q.outbound_kind, self.b.roster[source]
+        if kind in (Kind.TRAINER, Kind.PARTY_0, Kind.PARTY_1, Kind.PARTY_2):
+            roster.verify_startup(kind, data)
+            if kind == Kind.TRAINER:
+                self.call("prepared", source, *self.receipts[source, Opcode.PREPARE], data)
+            else:
+                self.call("verify_startup", source, kind, q.outbound_sequence, data)
+        elif kind in (Kind.START_HEADER, Kind.RNG):
+            validate_auxiliary_startup(kind, data, issued_rng=roster.issued_rng(self.b.rng))
+        else:
+            self.validator.accept(data, source)
+        self.pending[source] = dict(sequence=q.outbound_sequence, kind=kind,
+            data=data, offsets=[0] * self.count, crc=q.outbound_crc32)
+        if self.service.observer is not None:
+            self.service.observer(dict(source=source, sequence=q.outbound_sequence,
+                kind=int(kind), data=data.hex()))
+
+    def _query(self, slot, response):
+        q = NativeQuery.unpack(response.data)
+        if (not q.held or q.expired or q.recovery_required
+                or (q.generation, q.local_slot, q.mode) != (self.b.generation, slot, self.b.mode)
+                or q.last_sequence != self.sequences[slot]):
+            raise BattleError("battle_recovery_required", "native query differs from the held execution")
+        return q
+
+    async def round(self):
+        """One round of the pipelined router; True once the battle is released."""
+        idle = not any(self.pending) and not self.ack_due
+        if idle and not self.started and self.next_kind == [3] * self.count:
+            self.desk.authorize_start(self.b.battle_id, self.b.generation)
+            plan = [(slot, ("start",)) for slot in range(self.count)]
+        elif idle and self.running and all(q is not None and q.restored for q in self.fresh):
+            for slot in range(self.count):
+                self.call("finish_native", slot, *self.receipts[slot, Opcode.QUERY])
+            for slot in range(self.count):
+                await self.rpc(slot, Opcode.RELEASE, data=struct.pack("<II",
+                    self.b.roster[slot].party_crc32, self.fresh[slot].outcome))
+            return True
+        else:
+            plan = [(slot, self._choose(slot, idle)) for slot in range(self.count)]
+        results = await _independent(*(self._command(slot, what) for slot, what in plan))
+        for (slot, what), result in zip(plan, results):
+            kind = what[0]
+            self.fresh[slot] = self._query(slot, result) if kind == "query" else None
+            self.rounds_since_keep[slot] = 0 if kind == "keep" else self.rounds_since_keep[slot] + 1
+            if kind == "start":
+                self.started = True
+            elif kind == "read":
+                self._admit(slot, what[1], result)
+            elif kind == "receive" and result[1].status == Status.OK:
+                self.pending[what[1]]["offsets"][slot] += result[0]
+            elif kind == "ack":
+                self.next_block[slot] += 1
+                self.next_kind[slot] = min(8, self.next_kind[slot] + 1)
+                self.pending[slot] = None
+                self.ack_due.discard(slot)
+        for source, block in enumerate(self.pending):
+            if block is not None and all(target == source or block["offsets"][target] == len(block["data"])
+                                         for target in range(self.count)):
+                self.ack_due.add(source)
+        if (self.started and not self.running and not any(self.pending) and not self.ack_due
+                and self.next_kind == [8] * self.count):
+            self.desk.authorize_running(self.b.battle_id, self.b.generation)
+            self.running = True
+        return False
+
     async def run(self):
         async def prepare(slot):
             binding = self.call("authorize_bind", slot)
@@ -508,6 +634,12 @@ class _NativeRoute:
             preparation = self.call("preparation", slot)
             await self.rpc(slot, Opcode.PREPARE, data=preparation.pack())
         await _independent(*(prepare(slot) for slot in range(self.count)))
+        journal = self.room.journal
+        if journal is None or journal.pipelined:
+            self.fresh, self.ack_due, self.rounds_since_keep = [None] * self.count, set(), [0] * self.count
+            while not await self.round():
+                await asyncio.sleep(0 if getattr(self.service, "replaying", False) else .001)
+            return
         while True:
             queries = await self.step()
             if self.running and all(q.restored for q in queries):
