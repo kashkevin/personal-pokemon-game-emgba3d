@@ -13,11 +13,14 @@ import base64
 from collections import deque
 import json
 from pathlib import Path
+import struct
 import sys
 import tempfile
 import time
 from types import SimpleNamespace
 import unittest
+from uuid import UUID
+import zlib
 
 ROOT = Path(__file__).resolve().parents[1]
 for _path in (ROOT / "src", ROOT / "scripts" / "multiplayer", ROOT / "scripts" / "windows-runtime"):
@@ -183,10 +186,20 @@ class DriverSeenTests(unittest.IsolatedAsyncioTestCase):
         self.assertLessEqual(seen["pressed"], time.monotonic())
 
 
-def journal_row(kind, opcode, data=b"", sequence=1):
-    control = NativeControl(1, 1, BATTLE, sequence, opcode, block_sequence=1, total_size=16, phase=FFA_PHASE,
+def journal_row(kind, opcode, data=b"", sequence=1, block=1):
+    control = NativeControl(1, 1, BATTLE, sequence, opcode, block_sequence=block, total_size=16, phase=FFA_PHASE,
                             kind=Kind.CONTROLLER, data=data)
     return json.dumps(dict(value=dict(kind=kind, actor=PLAYERS[0], dispatch_id=sequence,
+                                      control_b64=base64.b64encode(control.pack()).decode())))
+
+
+def peek_row(block, outbound, sequence):
+    # KNOWN_ISSUES MS-62: the observed router's journal row for a launcher's look at its core (PEEK): the query,
+    # held with an outbound block of one chunk, then that block's bytes.
+    query = struct.pack("<I16sBBBB10I", 5, UUID(BATTLE).bytes, 4, 0, FFA_PHASE, 0, 1, outbound, Kind.CONTROLLER,
+                        len(block), zlib.crc32(block), 0, 0, 600, 0, 0)
+    control = NativeControl(1, 1, BATTLE, sequence, Opcode.PEEK, phase=FFA_PHASE, data=query + block)
+    return json.dumps(dict(value=dict(kind="observation", actor=PLAYERS[0], dispatch_id=sequence,
                                       control_b64=base64.b64encode(control.pack()).decode())))
 
 
@@ -209,12 +222,28 @@ class HostOutTests(unittest.IsolatedAsyncioTestCase):
         out = bytes.fromhex("0001020308000502" "110d0000" "00000000")      # L knockout-fixed-1's block
         self.journal(
             journal_row("command", Opcode.READ_OUT, sequence=1),            # a command carries no block
-            journal_row("response", Opcode.READ_OUT, out, sequence=1),
-            journal_row("response", Opcode.READ_OUT, out[:9] + b"\x00" + out[10:], sequence=2),  # B_ACTION_USE_MOVE
-            journal_row("response", Opcode.READ_OUT, b"\x01" + out[1:8] + bytes((32, 13)) + out[10:], sequence=3),
-            journal_row("response", Opcode.READ_OUT, out, sequence=4))
+            journal_row("response", Opcode.READ_OUT, out, sequence=1, block=1),
+            journal_row("response", Opcode.READ_OUT, out[:9] + b"\x00" + out[10:], sequence=2, block=2),  # USE_MOVE
+            journal_row("response", Opcode.READ_OUT, b"\x01" + out[1:8] + bytes((32, 13)) + out[10:], sequence=3,
+                        block=3),
+            journal_row("response", Opcode.READ_OUT, out, sequence=4, block=4))
         await self.proof.host_was_out(self.current, BATTLE, self.record, "knockout-2v2")
         self.assertEqual(self.records, [dict(check="knockout-2v2-host-out", menus=2)])
+
+    async def test_each_block_counts_once_read_out_or_observed(self):
+        # The observed router (journal v4/v5) takes small blocks from its launchers' looks at their cores (PEEK),
+        # perhaps the same block more than once, and reads out the rest: a block counts once by its sequence
+        # (L multiko-2 found none when only read-out blocks counted).
+        out = bytes.fromhex("0001020308000502" "110d0000" "00000000")
+        self.journal(
+            peek_row(out, outbound=7, sequence=1),
+            peek_row(out, outbound=7, sequence=2),                          # block 7 observed again
+            peek_row(out[:9] + b"\x00" + out[10:], outbound=8, sequence=3),  # B_ACTION_USE_MOVE
+            peek_row(out, outbound=9, sequence=4),
+            journal_row("response", Opcode.READ_OUT, out, sequence=5, block=9),   # block 9 read out as well
+            journal_row("response", Opcode.READ_OUT, out, sequence=6, block=10))
+        await self.proof.host_was_out(self.current, BATTLE, self.record, "knockout-2v2")
+        self.assertEqual(self.records, [dict(check="knockout-2v2-host-out", menus=3)])
 
     def test_the_knockout_sources_have_their_own_party_profile(self):
         self.assertEqual(proof.party_counts("ffa-knockout"), (1, 2, 2, 4))
