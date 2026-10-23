@@ -138,9 +138,9 @@ class NewcomersProof(SoftResetProof, ThreePlayerProof):
         return canonical
 
     async def auto_saved(self, current, record, label, before, seconds=90):
-        """--no-save (the owner's request of 2026-10-22): nobody presses Save now; each claimer's game asks for the host
-        save itself once its party changed (multiplayer_soft_reset.c, the party watch), so its launcher's revision
-        moves past `before` and the host save holds the starter."""
+        """--no-save (the owner's request of 2026-10-22): nobody presses Save now; a game whose party's Pokemon changed
+        saves on the host by itself (multiplayer_soft_reset.c), so each launcher's revision moves past `before` and
+        the host save holds the starter."""
         async with asyncio.timeout(seconds):
             while True:
                 revisions = [(await self.launcher(w))["revision"] for w in current]
@@ -461,6 +461,8 @@ class NewcomersProof(SoftResetProof, ThreePlayerProof):
             before = [(await self.launcher(w))["revision"] for w in current]
             await self.claims(range(count), current, probes, record)
             if self.no_save:
+                # A new Pokemon is saved on the host at once (the owner's reports of 2026-10-22 and -23: no save before
+                # a battle, but no save on every small party change either).
                 canonical = await self.auto_saved(current, record, "auto-saved-with-the-starters", before)
             else:
                 canonical = await self.save_all(current, record, "saved-with-the-starters")

@@ -2178,8 +2178,10 @@ class LauncherSession:
                         continue
                     self._publish(SessionState.RUNNING, error.code, revision=self._revision)
                 break
-            say("Saved on the host.|A soft reset comes back here." if saved
-                else "Could not save on the host.|See the launcher window.")
+            # The owner's report (2026-10-23): a banner on every success was noise (the in-game SAVE says it saved,
+            # and the save before PLAYERS should not show at all); only a failure is said.
+            if not saved:
+                say("Could not save on the host.|See the launcher window.")
             return
         reason = self._native_menu_reset_blocker()
         if reason is None:

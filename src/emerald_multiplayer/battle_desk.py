@@ -183,7 +183,7 @@ class BattleDesk:
                 reason = "deadline"
             else:
                 try:
-                    for player, lease, frozen in zip(battle.players, battle.leases, battle.roster):
+                    for slot, (player, lease, frozen) in enumerate(zip(battle.players, battle.leases, battle.roster)):
                         # A correlated RELEASE has already proved this actor's
                         # native hold ended; later ordinary saves are legitimate.
                         # Still retain both captured network lease fences above.
@@ -192,6 +192,8 @@ class BattleDesk:
                         # Metadata only: this runs on every RPC and only compares the head.
                         head = self.store.checkpoint_head(player, lease)
                         if head is None or head != (frozen.revision, frozen.checkpoint_sha256):
+                            if head is not None and battle.state == "invited" and self._repin(battle, slot):
+                                continue
                             reason = "canonical_changed"
                             break
                 except StorageError:
@@ -201,6 +203,43 @@ class BattleDesk:
                     self._recover(battle, reason)
                 else:
                     self._abort(battle, reason)
+
+    def _repin(self, battle, slot):
+        """The owner's report (2026-10-23): opening PLAYERS saves a changed party on the host first, so the trainer who
+        opens it to accept a challenge saves after the challenge named their old save, which cancelled it ("a party was
+        saved"). Until everyone has accepted, nothing durable names the challenge (the accepted descriptor is persisted
+        first: battle_admission_host), so the challenge takes the trainer's new save instead: its roster entry and
+        fingerprint are made again; consent given so far stands. False: the new save cannot be battled with."""
+        player, lease, frozen = battle.players[slot], battle.leases[slot], battle.roster[slot]
+        try:
+            checkpoint = self._auth(player, lease)
+            pending = getattr(self.store, "pending_trade_recovery", None)
+            if checkpoint is None or (pending is not None and pending(player, lease)):
+                return False
+            descriptor = CanonicalBattler.from_checkpoint(checkpoint,
+                world_id=self.store.metadata.world_id, build_id=self.store.build_id,
+                ruleset_id=self.store.ruleset_id, source_slot=slot, mode=battle.mode, bring=frozen.bring)
+        except (StorageError, ValueError, BattleError):
+            return False
+        roster = list(battle.roster)
+        roster[slot] = descriptor
+        battle.roster = tuple(roster)
+        battle.fingerprint = self._fingerprint(battle.battle_id, battle.generation, battle.players, battle.leases,
+                                               battle.roster, battle.rng, battle.mode, battle.gym, battle.environment)
+        return True
+
+    def _fingerprint(self, battle_id, generation, players, leases, roster, rng, mode, gym, environment):
+        material = [self.store.metadata.world_id, battle_id, generation,
+            [[p, l, r.revision, r.checkpoint_sha256] for p, l, r in zip(players, leases, roster)], rng.hex()]
+        if mode == 4:
+            material.append(gym)  # consent names the exact Gym (Leader and partner)
+            material.append([r.bring for r in roster])   # ... and the exact team each trainer brings
+        if environment:
+            material.append(["rival", environment])  # consent names the rival checkpoint battle and its environment
+        domain = {2: b"EM-NATIVE-SINGLES-CONSENT-1\0", 3: b"EM-NATIVE-FULL-MULTI-CONSENT-1\0",
+                  4: b"EM-NATIVE-COOP-GYM-CONSENT-1\0", 5: b"EM-NATIVE-FFA-CONSENT-1\0",
+                  6: b"EM-NATIVE-FFA3-CONSENT-1\0"}[mode]
+        return hashlib.sha256(domain + json.dumps(material, separators=(",", ":")).encode("ascii")).hexdigest()
 
     def _get(self, actor, lease, battle_id, generation=None, *, historical=False):
         self._id(battle_id, "battle ID")
@@ -389,18 +428,7 @@ class BattleDesk:
         generation, rng = str(uuid4()), secrets.token_bytes(16)
         if not any(rng):
             raise BattleError("rng_unavailable", "could not issue a nonzero native battle RNG state")
-        material = [self.store.metadata.world_id, battle_id, generation,
-            [[p, l, r.revision, r.checkpoint_sha256] for p, l, r in zip(players, leases, roster)], rng.hex()]
-        if mode == 4:
-            material.append(gym)  # consent names the exact Gym (Leader and partner)
-            material.append([r.bring for r in roster])   # ... and the exact team each trainer brings
-        if environment:
-            material.append(["rival", environment])  # consent names the rival checkpoint battle and its environment
-        domain = {2: b"EM-NATIVE-SINGLES-CONSENT-1\0", 3: b"EM-NATIVE-FULL-MULTI-CONSENT-1\0",
-                  4: b"EM-NATIVE-COOP-GYM-CONSENT-1\0", 5: b"EM-NATIVE-FFA-CONSENT-1\0",
-                  6: b"EM-NATIVE-FFA3-CONSENT-1\0"}[mode]
-        fingerprint = hashlib.sha256(domain +
-            json.dumps(material, separators=(",", ":")).encode("ascii")).hexdigest()
+        fingerprint = self._fingerprint(battle_id, generation, players, leases, roster, rng, mode, gym, environment)
         battle = _Battle(battle_id, generation, actor, players, tuple(leases),
             tuple(roster), rng, fingerprint, self._now()+self.timeout, mode=mode, gym=gym, environment=environment,
             consent={actor})

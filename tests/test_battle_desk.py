@@ -181,6 +181,25 @@ class BattleDeskTests(unittest.TestCase):
         self.assert_code("battle_not_registered",self.call,"authorize_bind",0)
         self.assertFalse(first["prepared"])
 
+    def test_a_recipient_saving_before_it_accepts_moves_the_challenge_to_that_save(self):
+        """The owner's report (2026-10-23): opening PLAYERS saves a changed party first, after the challenge named the
+        old save. Before everyone accepted the challenge takes the new save (a new fingerprint); after, it is cancelled."""
+        old = self.heads[1]
+        new = self.store.commit_checkpoint(*self.actor(1), str(uuid4()), old.revision, old.payload,
+            self.store.build_id, self.store.ruleset_id, OWNERSHIP_PROFILE)
+        view = self.call("status", 0)
+        self.assertEqual(view["state"], "invited")
+        self.assertNotEqual(view["fingerprint"], self.view["fingerprint"])
+        self.assertEqual(self.descriptor(1).revision, new.revision)
+        self.assertEqual(view["consent"], [self.players[0].player_id])    # the challenger's consent stands
+        self.assert_code("battle_offer_changed", self.call, "accept", 1, self.view["fingerprint"])
+        self.assertEqual(self.call("accept", 1, view["fingerprint"])["state"], "accepted")
+        again = self.store.commit_checkpoint(*self.actor(0), str(uuid4()), self.heads[0].revision,
+            self.heads[0].payload, self.store.build_id, self.store.ruleset_id, OWNERSHIP_PROFILE)
+        self.assertGreater(again.revision, self.heads[0].revision)
+        status = self.call("status", 1)
+        self.assertEqual((status["state"], status["reason"]), ("aborted", "canonical_changed"))
+
     def test_exact_acceptance_replay_does_not_refresh_challenge_deadline(self):
         self.now = 1;self.accept()
         self.now = 10;self.accept()

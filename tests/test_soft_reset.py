@@ -445,7 +445,7 @@ class LauncherSoftResetTests(unittest.IsolatedAsyncioTestCase):
         s.save = save
         await s._native_menu_handoff("host_save", {}, self.menu)
         self.assertEqual(results, ["saved"])
-        self.assertEqual(self.notices[-1], "Saved on the host.|A soft reset comes back here.")
+        self.assertEqual(self.notices, [])                    # a success shows nothing
         async def refused():
             return False
         s.save = refused
@@ -469,7 +469,7 @@ class LauncherSoftResetTests(unittest.IsolatedAsyncioTestCase):
         s.save = save
         await s._native_menu_handoff("host_save", {}, self.menu)
         self.assertEqual(results, ["busy", "saved"])
-        self.assertEqual(self.notices[-1], "Saved on the host.|A soft reset comes back here.")
+        self.assertEqual(self.notices, [])
 
     async def test_a_failed_host_save_says_so(self):
         await self.game()
