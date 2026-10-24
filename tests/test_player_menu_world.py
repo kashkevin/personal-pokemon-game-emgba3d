@@ -26,7 +26,7 @@ class FakeCompanion:
         self.calls = []
 
     async def team_rpc(self, operation, **fields):
-        return {"result": {"team": None, "invitations": []}}
+        return {"result": {"team": None, "teams": [], "invitations": []}}
 
     async def battle_challenge_rpc(self, operation, **fields):
         self.calls.append((operation, fields))

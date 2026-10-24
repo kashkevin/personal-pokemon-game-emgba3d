@@ -5,7 +5,9 @@ defaults in `balance.py`. Like the outbreak settings, an unknown key or a bad va
 passes silently. Times are seconds of the world's active time (nobody online: nothing counts).
 
   {"first_delay": [60, 60], "interval": [300, 300], "duration": 600, "condition_chance": 1.0,
-   "category_weights": {"legendary": 100}}
+   "shiny_chance": 1.0, "category_weights": {"legendary": 100}}
+
+A shiny event has no timer: it stays until somebody catches it or knocks it out (`duration` does not apply to it).
 """
 from __future__ import annotations
 
@@ -24,6 +26,7 @@ class EventSettings:
     interval: tuple = BALANCE.event_interval
     duration: int = BALANCE.event_duration_seconds
     condition_chance: float = BALANCE.event_condition_chance
+    shiny_chance: float = BALANCE.event_shiny_chance
     category_weights: dict = field(default_factory=lambda: dict(BALANCE.event_category_weights))
 
     def __post_init__(self):
@@ -37,6 +40,8 @@ class EventSettings:
             raise ValueError("duration must be 30 to 86400 seconds")
         if type(self.condition_chance) not in (int, float) or not 0 <= self.condition_chance <= 1:
             raise ValueError("condition_chance must be between 0 and 1")
+        if type(self.shiny_chance) not in (int, float) or not 0 <= self.shiny_chance <= 1:
+            raise ValueError("shiny_chance must be between 0 and 1")
         weights = self.category_weights
         if (not isinstance(weights, dict) or not weights or set(weights) - set(CATEGORIES)
                 or any(type(v) not in (int, float) or v < 0 for v in weights.values()) or not sum(weights.values())):

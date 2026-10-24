@@ -8,6 +8,7 @@ import unittest
 from uuid import uuid4
 
 from emerald_multiplayer.balance import BALANCE
+from emerald_multiplayer.event_settings import EventSettings
 from emerald_multiplayer.protocol import ProtocolError
 from emerald_multiplayer.shared_world import (
     SharedWorld, SharedWorldError, _banner, load_event_catalogue,
@@ -496,6 +497,137 @@ class SharedWorldTests(unittest.TestCase):
             self.assertTrue({"name", "map_group", "map_number", "x", "y", "min_level"} <= set(location), location)
             self.assertTrue(0 <= location["x"] < 256 and 0 <= location["y"] < 256, location)
         self.assertTrue(any(location.get("min_level", 0) == 0 for location in catalogue["locations"]))
+
+
+class ShinyEventTests(unittest.TestCase):
+    """A shiny World Event has no timer: only a catch or a knockout ends it (owner request, Oct 24, 2026)."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.path = Path(self.temp.name) / "world.sqlite3.shared-world.sqlite3"
+        self.clock = FakeClock()
+        self.world = self.open()
+        self.world.set_active_players(1)
+
+    def tearDown(self):
+        self.world.close()
+        self.temp.cleanup()
+
+    def open(self, shiny_chance=1.0):
+        # condition_chance 1.0: a legendary would always start dormant, but a shiny never does.
+        settings = EventSettings(shiny_chance=shiny_chance, condition_chance=1.0)
+        return SharedWorld(self.path, WORLD, clock=self.clock, rng=random.Random(7),
+                           event_catalogue=CATALOGUE, locations=LOCATIONS, event_settings=settings)
+
+    def notices(self):
+        texts = []
+        while (notice := self.world.notice_view()) is not None:
+            texts.append(notice["text"])
+            self.clock.now += BALANCE.notice_seconds + 1
+        return texts
+
+    def wait(self, seconds, step=60):
+        """Let active time pass in ticks, as the host does."""
+        for _ in range(int(seconds // step)):
+            self.clock.now += step
+            self.world.tick_events(1, lambda: 40)
+
+    def test_a_shiny_event_is_out_at_once_and_has_no_timer(self):
+        event = self.world.spawn_event(progression_level=40, category="legendary")
+        self.assertTrue(event["shiny"])
+        self.assertIsNotNone(self.world.event_view())                 # never dormant
+        self.assertNotIn("awake", self.world._event)
+        self.assertEqual(event["seconds_left"], 0)
+        texts = self.notices()
+        self.assertTrue(texts[0].startswith("WORLD EVENT! SHINY GROUDON"), texts)
+        self.assertNotIn("left", texts[0])
+        self.assertEqual(texts[1], "It stays until someone|catches or beats it!")
+        self.assertEqual(self.world.event_status(), {"name": "SHINY GROUDON", "place": self.world._event["place"],
+                                                     "seconds_left": 0, "waiting": None})
+
+    def test_a_shiny_event_outlasts_its_duration_running_away_losing_and_a_restart(self):
+        a = str(uuid4())
+        event_id = self.world.spawn_event(progression_level=40, category="legendary")["event_id"]
+        self.notices()
+        self.wait(3 * BALANCE.event_duration_seconds)
+        self.assertEqual(self.world.event_view()["event_id"], event_id)
+        self.assertEqual(self.notices(), [])                          # no "10:00 left" and no "has disappeared"
+        for result in ("ran", "lost", "cancelled"):
+            self.assertEqual(self.world.claim_event(a, event_id), "granted")
+            self.assertEqual(self.world.event_result(a, event_id, result, "Alice"), "released")
+            self.assertEqual(self.world.event_view()["event_id"], event_id, result)
+        self.world.close()
+        self.clock.now += 99_999
+        self.world = self.open()
+        self.world.set_active_players(1)
+        self.wait(2 * BALANCE.event_duration_seconds)
+        self.assertEqual(self.world.event_view()["event_id"], event_id)
+        self.assertEqual(self.world.event_view()["seconds_left"], 0)
+        self.assertEqual(self.world.claim_event(a, event_id), "granted")
+        self.assertEqual(self.world.event_result(a, event_id, "caught", "Alice"), "consumed")
+        self.assertIsNone(self.world.event_view())
+        self.assertIn("ALICE caught the|SHINY GROUDON!", self.notices())
+
+    def test_a_knockout_ends_a_shiny_event_for_everybody(self):
+        a, b, c = str(uuid4()), str(uuid4()), str(uuid4())
+        event_id = self.world.spawn_event(progression_level=40, category="legendary")["event_id"]
+        self.notices()
+        self.assertEqual(self.world.claim_event(b, event_id), "granted")
+        self.assertEqual(self.world.event_result(b, event_id, "ran", "Bob"), "released")
+        self.assertEqual(self.world.claim_event(a, event_id), "granted")
+        self.assertEqual(self.world.event_result(c, event_id, "defeated", "Carol"), "not_claimant")   # never claimed it
+        self.assertIsNotNone(self.world.event_view())
+        self.assertEqual(self.world.event_result(a, event_id, "defeated", "Alice"), "defeated")
+        self.assertIsNone(self.world.event_view())
+        self.assertIn("ALICE knocked out the|SHINY GROUDON!", self.notices())
+        self.assertEqual(self.world.claim_event(b, event_id), "gone")
+        self.assertEqual(self.world.event_result(a, event_id, "defeated", "Alice"), "gone")    # a repeat changes nothing
+        self.assertEqual(self.world.reports(event_id), [(a, "defeated")])
+        # A claimant still in a battle of its own may catch it after all: the first report of a catch still decides.
+        self.assertEqual(self.world.event_result(b, event_id, "caught", "Bob"), "consumed")
+        self.assertEqual(self.world._resolution(event_id)["winner"], b)
+        # The next World Event comes as usual.
+        self.wait(BALANCE.event_interval[1] + 60)
+        self.assertIsNotNone(self.world.event_view())
+        self.assertNotEqual(self.world.event_view()["event_id"], event_id)
+
+    def test_a_knockout_while_another_trainer_battles_it_tells_that_trainer(self):
+        a, b = str(uuid4()), str(uuid4())
+        event_id = self.world.spawn_event(progression_level=40, category="legendary")["event_id"]
+        self.notices()
+        self.world.claim_event(a, event_id)
+        self.world.player_disconnected(a)
+        self.clock.now += BALANCE.event_claim_grace_seconds + 1
+        self.world.tick_events(1, lambda: 40)
+        self.assertEqual(self.world.claim_event(b, event_id), "granted")
+        self.assertEqual(self.world.event_result(a, event_id, "defeated", "Alice"), "defeated")
+        self.assertIsNone(self.world.event_view())
+        texts = [n["text"] for n in self.world._notice_queue] + [self.world.notice_view()["text"]]
+        self.assertTrue(any(t == "ALICE beat it first!|Your battle ends here." for t in texts), texts)
+
+    def test_a_shiny_event_that_restarts_dormant_from_an_older_host_keeps_the_old_timer(self):
+        event_id = self.world.spawn_event(progression_level=40, category="legendary")["event_id"]
+        self.world._event.update(awake=False, condition="sand")
+        self.world._save_event("active")
+        self.assertIsNone(self.world.event_view())
+        self.assertGreater(self.world.event_status()["seconds_left"], 0)
+        self.wait(BALANCE.event_duration_seconds + 120)
+        self.assertIsNone(self.world.event_status())                 # slipped away before it woke, as before
+        self.assertEqual(self.world.claim_event(str(uuid4()), event_id), "gone")
+
+    def test_an_ordinary_event_keeps_its_timer_and_a_knockout_leaves_it(self):
+        self.world.close()
+        self.world = self.open(shiny_chance=0.0)
+        self.world.set_active_players(1)
+        a = str(uuid4())
+        event = self.world.spawn_event(progression_level=20, category="rare")
+        self.assertFalse(event["shiny"])
+        self.assertGreater(event["seconds_left"], 0)
+        self.world.claim_event(a, event["event_id"])
+        self.assertEqual(self.world.event_result(a, event["event_id"], "defeated", "Alice"), "released")
+        self.assertIsNotNone(self.world.event_view())
+        self.wait(BALANCE.event_duration_seconds + 60)
+        self.assertIsNone(self.world.event_view())
 
 
 class ProtocolTests(unittest.TestCase):

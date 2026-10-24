@@ -337,6 +337,21 @@ class MenuTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Marked on the PokeNav map", self.labels(menu))
         self.assertTrue(all(len(r.label) <= 25 for r in menu.screen.rows))
 
+    async def test_a_shiny_world_event_says_it_stays_instead_of_a_countdown(self):
+        companion = FakeMenuCompanion()
+        companion.nav["event"] = {"name": "SHINY GROUDON", "place": "FIERY PATH", "seconds_left": 0}
+        menu = PlayerMenu(companion)
+        await menu.refresh()
+        await self.click(menu, "World and my base")
+        await self.click(menu, "Event: SHINY GROUDON")
+        self.assertEqual(menu.screen.status, "Stays until caught or beaten")
+        self.assertIn("Marked on the PokeNav map", self.labels(menu))
+        companion.nav["event"] = {"name": "ABSOL", "place": "ROUTE 120", "seconds_left": 0}
+        menu._page = ("world", None)
+        await menu.refresh()
+        await self.click(menu, "Event: ABSOL")
+        self.assertEqual(menu.screen.status, "0m 00s left")          # an ordinary event's timer ran out
+
     async def test_habitat_page_shows_host_tables_or_admits_no_data(self):
         companion = FakeMenuCompanion()
         menu = PlayerMenu(companion)

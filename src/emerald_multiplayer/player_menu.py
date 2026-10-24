@@ -1379,7 +1379,10 @@ class PlayerMenu:
             if entry is None:
                 status = "Nothing right now"
             else:
-                status = f"{entry['seconds_left'] // 60}m {entry['seconds_left'] % 60:02d}s left"
+                if page == "world_event" and not entry["seconds_left"] and entry["name"].startswith("SHINY "):
+                    status = "Stays until caught or beaten"   # a shiny World Event has no timer
+                else:
+                    status = f"{entry['seconds_left'] // 60}m {entry['seconds_left'] % 60:02d}s left"
                 actions.extend((line, "", ()) for line in wrap(entry["name"], 25)[:2])
                 if entry.get("waiting"):
                     actions.extend((line, "", ()) for line in wrap(entry["waiting"], 25)[:2])

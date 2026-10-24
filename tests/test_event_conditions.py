@@ -205,11 +205,13 @@ class EventSettingsTests(unittest.TestCase):
                               "condition_chance": 1, "category_weights": {"legendary": 100}})
         self.assertEqual((settings.first_delay, settings.interval, settings.duration), ((60, 60), (300, 400), 600))
         self.assertEqual(settings.category_weights, {"legendary": 100})
+        self.assertEqual(settings.shiny_chance, BALANCE.event_shiny_chance)
+        self.assertEqual(self.load({"shiny_chance": 1}).shiny_chance, 1)
 
     def test_mistakes_name_the_file_and_stop_the_host(self):
         for bad in ("[]", {"surprise": 1}, {"first_delay": [10]}, {"first_delay": [9, 3]}, {"duration": 5},
                     {"condition_chance": 2}, {"category_weights": {"nope": 1}}, {"category_weights": {"rare": 0}},
-                    {"interval": "soon"}):
+                    {"interval": "soon"}, {"shiny_chance": 1.5}, {"shiny_chance": "often"}):
             with self.assertRaises(ValueError, msg=bad) as caught:
                 self.load(bad)
             self.assertIn("world.events.json", str(caught.exception))

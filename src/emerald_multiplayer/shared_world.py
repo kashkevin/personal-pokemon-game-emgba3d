@@ -14,6 +14,8 @@ Owner decisions (Oct 9, 2026):
     hours) only while at least one player is connected;
   * World Events: the first player to catch the Pokemon wins it; running away,
     losing or defeating it leaves it for everyone until the timer ends;
+  * a shiny World Event has no timer (owner request, Oct 24, 2026): it stays
+    until somebody catches it or knocks it out, and never starts dormant;
   * balance values use the recommended defaults in ``balance.py``.
 """
 from __future__ import annotations
@@ -604,9 +606,17 @@ class SharedWorld:
             "shiny": event["shiny"], "mega": event["mega"], "map_group": event["map_group"],
             "map_number": event["map_number"], "x": event["x"], "y": event["y"],
             "held_item": event["held_item"], "perfect_ivs": event["perfect_ivs"],
-            "seconds_left": max(0, int(event["expires"] - self._active_now())),
+            "seconds_left": self._seconds_left(event),
             "claimant": None if self._claim is None else self._claim["player_id"],
         }
+
+    def _stays(self, event: dict) -> bool:
+        """A shiny World Event that is out has no timer: only a catch or a knockout ends it."""
+        return bool(event.get("shiny")) and not self._dormant(event)
+
+    def _seconds_left(self, event: dict) -> int:
+        """The countdown the games and the PokeNav show; 0 for a shiny that stays."""
+        return 0 if self._stays(event) else max(0, int(event["expires"] - self._active_now()))
 
     def _event_name(self, event: dict) -> str:
         return event.get("name", "RARE POKEMON")
@@ -617,6 +627,10 @@ class SharedWorld:
     def _announce(self, event: dict, seconds_left: float) -> None:
         label = self._event_label(event)
         first = f"WORLD EVENT! {label}" if len(label) <= LINE_CHARS - 13 else f"{label} appeared!"
+        if self._stays(event):
+            self.post_notice(_banner(first, f"near {event['place']}"))
+            self.post_notice(_banner("It stays until someone", "catches or beats it!"))
+            return
         self.post_notice(_banner(first, f"near {event['place']}  {_clock_text(seconds_left)} left"))
 
     def _announce_dormant(self, event: dict) -> None:
@@ -628,7 +642,7 @@ class SharedWorld:
         event = self._event
         if event is None:
             return None
-        left = max(0, int(event["expires"] - self._active_now()))
+        left = self._seconds_left(event)
         if self._dormant(event):
             return {"name": "Something stirs", "place": event["place"][:40], "seconds_left": left,
                     "waiting": "Wakes " + event_conditions.label(event["condition"])}
@@ -707,7 +721,7 @@ class SharedWorld:
         location = self._choose_location(progression_level, list(entry.get("types", ())))
         if location is None:
             return None
-        shiny = self._rng.random() < BALANCE.event_shiny_chance
+        shiny = self._rng.random() < self._events.shiny_chance
         event_id = int(self._kv("event_id", "0")) + 1
         with self._transaction():
             self._set_kv("event_id", str(event_id))
@@ -725,7 +739,7 @@ class SharedWorld:
         self._last_claimant = None
         self._claimant_away_since = None
         self._participants = set()
-        if legendary and self._condition_chance > 0 and self._rng.random() < self._condition_chance:
+        if legendary and not shiny and self._condition_chance > 0 and self._rng.random() < self._condition_chance:
             self._event["condition"] = event_conditions.condition_for_types(entry.get("types", ()))
             self._event["awake"] = False
         self._save_event("active")
@@ -744,7 +758,7 @@ class SharedWorld:
         wall = self._now()
         now = self._active_now()  # Phase 11: deadlines count only while someone is online
         changed = False
-        if self._event is not None and now >= self._event["expires"]:
+        if self._event is not None and not self._stays(self._event) and now >= self._event["expires"]:
             label = self._event_label(self._event)
             slept = self._dormant()
             self._save_event("expired")
@@ -754,7 +768,7 @@ class SharedWorld:
                              else _banner(f"The {label}", "has disappeared..."))
             self._next_event_at = now + self._rng.uniform(*self._events.interval)
             changed = True
-        if self._event is not None and not self._dormant():
+        if self._event is not None and not self._dormant() and not self._stays(self._event):
             left = self._event["expires"] - now
             reminded = self._event.setdefault("reminded", [])
             for mark in REMINDER_SECONDS:
@@ -800,7 +814,7 @@ class SharedWorld:
             "SELECT player_id, verdict FROM event_reports WHERE event_id=? ORDER BY report_id", (event_id,))]
 
     def _stored_event(self, event_id: int) -> dict | None:
-        """An event that already ended (expired or caught), as it was saved."""
+        """An event that already ended (expired, caught or knocked out), as it was saved."""
         row = self._db.execute("SELECT record, state FROM events WHERE event_id=?", (event_id,)).fetchone()
         if row is None or row[1] == "active":
             return None
@@ -911,6 +925,18 @@ class SharedWorld:
             self._event, self._claim = None, None
             self._next_event_at = self._active_now() + self._rng.uniform(*self._events.interval)
             return "consumed"
+        if result == "defeated" and self._stays(event) and (player_id == holder or player_id in event.get("claimants", ())):
+            # A shiny that stays leaves only when it is caught or knocked out (owner request, Oct 24, 2026).
+            self._log_report(event_id, player_id, "defeated")
+            self._save_event("defeated")
+            name = _ascii(display_name).upper()[:16] or "A TRAINER"
+            self.post_notice(_banner(f"{name} knocked out the", self._event_label(event) + "!"))
+            if holder is not None and holder != player_id:
+                self.post_notice(_banner(f"{name} beat it first!", "Your battle ends here."), to=[holder])
+            self._finish_participation(event_id)
+            self._event, self._claim = None, None
+            self._next_event_at = self._active_now() + self._rng.uniform(*self._events.interval)
+            return "defeated"
         if holder != player_id:
             return "not_claimant"
         self._claim = None
