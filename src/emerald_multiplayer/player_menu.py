@@ -26,9 +26,38 @@ ACTIVITY_LABELS = {"overworld": "On the field", "battle": "In battle", "menu": "
 ACTIVITY_SHORT = {"overworld": "Field", "battle": "Battle", "menu": "Menu", "transition": "Moving",
                   "unavailable": "Busy", "joining": "Joining"}
 _OPEN_BATTLE_STATES = ("invited", "accepted", "prepared")
-# "Cancel the challenge?" and "Leave the lobby?": a Yes this soon after the question appeared is the press before it
-# repeated (a double click, a key held), never an answer (the owner's report of 2026-10-24).
+# "Cancel the challenge?", "Leave the lobby?" and every other question below: a Yes pressed this soon after the question
+# appeared is the press before it repeated (a double click, a key held), never an answer (the owner's report of
+# 2026-10-24). Measured from when the question was sent to the game to when the press was made.
 ASK_GRACE_SECONDS = 0.6
+# Choices that end something for another player too (a challenge, a lobby, a team, a trade, a wager, a Frontier or
+# League run, a Tower Duo) ask first (the owner's reports of 2026-10-24, "it kicks us out back to start" and "Trade
+# cancelled"). Only the question's Yes sends them. The question puts No first (B is No too), and its Yes never sits where
+# the press that asked left the game's cursor: the game keeps its cursor row when the next screen comes (back to the top
+# when that screen is shorter), so the Yes moves one row down when the asking row was the second one.
+#   question: (title, what happens, Yes row, the choice Yes sends, its arguments or None for the asking row's own)
+QUESTIONS = {
+    "battle_cancel": ("Cancel the challenge?", "Nobody will battle", "Yes, cancel challenge", "battle_cancel", None),
+    "lobby_cancel": ("Cancel the lobby?", "It ends for everyone in it", "Yes, cancel the lobby", "lobby_leave", None),
+    "lobby_leave": ("Leave the lobby?", "You can be invited again", "Yes, leave the lobby", "lobby_leave", None),
+    "lobby_decline": ("Decline the lobby?", "You can be invited again", "Yes, decline it", "lobby_decline", None),
+    "team_leave": ("Leave the team?", "You can form a team again", "Yes, leave the team", "team_leave", None),
+    "team_decline": ("Decline the invitation?", "You can be invited again", "Yes, decline it", "team_decline", None),
+    "team_cancel": ("Cancel the invitation?", "You can invite again", "Yes, cancel it", "team_cancel", None),
+    "trade_cancel": ("Decline the trade?", "Nothing will be traded", "Yes, decline the trade", "trade_cancel", None),
+    "wager_remove": ("Remove the wager?", "The battle has no stake then", "Yes, remove it", "wager_remove", None),
+    "wager_decline": ("Decline the wager?", "The wager is removed for all", "Yes, decline it", "wager_decline", None),
+    "ladder_cancel": ("Cancel the invitation?", "You can invite again", "Yes, cancel it", "ladder_cancel", ()),
+    "ladder_decline": ("Decline the run?", "You can be invited again", "Yes, decline it", "ladder_cancel", ()),
+    "ladder_retire": ("Retire from the run?", "Your run ends here", "Yes, retire", "ladder_retire", ()),
+    "duo_cancel": ("Cancel the invitation?", "You can invite again", "Yes, cancel it", "tower_duo", ("duo_leave",)),
+    "duo_decline": ("Decline the Duo?", "You can be invited again", "Yes, decline it", "tower_duo", ("duo_decline",)),
+    "duo_leave": ("Leave the Duo?", "Your teammate is told", "Yes, leave the Duo", "tower_duo", ("duo_leave",)),
+}
+# The choices only a question's Yes may send (an older screen offering one directly is never acted on).
+_ASKED_OPS = frozenset({"battle_cancel", "lobby_leave", "lobby_decline", "team_leave", "team_decline", "team_cancel",
+                        "trade_cancel", "wager_remove", "wager_decline", "ladder_cancel", "ladder_retire"})
+_ASKED_TOWER = frozenset({("duo_leave",), ("duo_decline",)})
 # The battle modes as PLAYERS names them (a row's 25 characters, a title's 23).
 MODE_TITLES = {2: "Rival Battle - 1v1", 3: "Rival Battle - 2v2", 5: "Free-for-All: 4 Players", 6: "Free-for-All: 3 Players"}
 MODE_ROWS = {2: "Rival Battle - 1v1", 3: "Rival Battle - 2v2", 5: "Free-for-All - 4 Players", 6: "Free-for-All - 3 Players"}
@@ -249,15 +278,26 @@ class PlayerMenu:
         """A plain OPEN (START > PLAYER > PLAYERS). The soft reset page is RESET's own (open_page): PLAYERS opens on
         the Players home, never on that page, wherever an earlier RESET left the menu (it has no way back to home)."""
         async with self._lock:
+            if self._page[0] == "confirm":
+                self._page = self._page[1][3]       # a question left open is not asked again: the page it came from
             if self._page[0] in ("soft_reset", "soft_reset_confirm") or (self._page[0] == "tower"
                                                                         and self._tower.origin == "home"):
                 self._page, self._notice = ("home", None), ""   # a page the reset key or TOWER opened
             return await self._refresh()
 
-    async def open_page(self, page):
+    async def reshow(self):
+        """The current page again under a new revision: the answer to a press on a screen that a status refresh replaced
+        meanwhile (nothing is chosen; the game always takes a newer screen, and the player presses again on what is
+        really shown). Such a press used to close the window with "Reopen to check server status"."""
+        async with self._lock:
+            self._signature = None
+            return await self._refresh()
+
+    async def open_page(self, page, alive=None):
         """An OPEN that names its page (Update 32: the soft reset key opens the soft reset question; Battle Tower:
         Legends: START > PLAYER > TOWER opens the Tower, whose B goes back to the Players home; MS-61: an in-game SAVE in
-        a world opens the host save, which closes the window at once and saves on the host)."""
+        a world opens the host save, which closes the window at once and saves on the host). ``alive``: whether the
+        game's window that asked still waits for this answer (the Tower's next floor is never issued after it closed)."""
         if page not in ("soft_reset", "tower", "host_save", "tower_next"):
             raise PlayerMenuError("unknown_page")
         async with self._lock:
@@ -277,7 +317,7 @@ class PlayerMenu:
                 from .tower_menu import TowerMenuError
                 self._page = ("tower", None)
                 try:
-                    outcome = await self._tower.next_floor()
+                    outcome = await self._tower.next_floor(alive=alive)
                 except TowerMenuError as error:
                     raise PlayerMenuError(error.code) from error
                 if outcome is not None:
@@ -497,8 +537,7 @@ class PlayerMenu:
                 self._actions[back] = {"records": ("records_back", ()), "ffa": ("new_battle", ()),
                                        "new_battle": ("battles", ()), "lobby_pick": ("new_battle", ()),
                                        "lobby_2v2": ("lobby", ()), "tower": ("tower_back", ()),
-                                       "battle_cancel_confirm": ("battles", ()),
-                                       "lobby_leave_confirm": ("lobby", ())}.get(self._page[0], ("home", ()))
+                                       "confirm": ("ask_no", ())}.get(self._page[0], ("home", ()))   # a question's B is No
             self._screen = MenuScreen(revision, title, status,
                 tuple(MenuRow(i + 1 if op else 0, label) for i, (label, op, _) in enumerate(normalized)), back, admission,
                 *style)
@@ -638,14 +677,14 @@ class PlayerMenu:
                 actions.append(("Choose your Pokemon", "trade_enter", params))
             else:
                 status = refusal_text(trade_reason)
-            actions.append(("Decline trade", "trade_cancel", params))
+            actions.append(("Decline trade...", "ask", ("trade_cancel", *params)))
         elif page == "team" and self._team is not None:
             title = "Your team"
             own = self._team["team"]
             if own:
                 peer = next(p for p in own["members"] if p != actor)
                 actions.append((self._name(peer), "", ()))
-                actions.append(("Leave team", "team_leave", (own["team_id"], own["generation"])))
+                actions.append(("Leave team...", "ask", ("team_leave", own["team_id"], own["generation"])))
                 other = next((t for t in self._team["teams"] if t["team_id"] != own["team_id"]), None)
                 if other is not None and self._battles is not None and not self._battles:
                     actions.append((MODE_ROWS[3], "battle_multi", (peer, *other["members"])))
@@ -655,10 +694,14 @@ class PlayerMenu:
                 params = (invitation["invitation_id"], invitation["generation"])
                 if invitation["recipient"] == actor:
                     status = "From " + self._name(invitation["sender"])
-                    actions.extend((("Accept invitation", "team_accept", params), ("Decline invitation", "team_decline", params)))
+                    actions.extend((("Accept invitation", "team_accept", params),
+                                    ("Decline invitation...", "ask", ("team_decline", *params))))
                 else:
+                    # A row that does nothing first: the A that sent the invitation rests on it (it used to rest on
+                    # Cancel invitation, the page's only row).
                     status = "Waiting for " + self._name(invitation["recipient"])
-                    actions.append(("Cancel invitation", "team_cancel", params))
+                    actions.append((f"Invited {self._name(invitation['recipient'])[:17]}", "", ()))
+                    actions.append(("Cancel invitation...", "ask", ("team_cancel", *params)))
             else:
                 status = "Choose a player to invite"
         elif page == "battles":
@@ -723,7 +766,7 @@ class PlayerMenu:
                             else:
                                 status = refusal_text(reason)
                     actions.append(primary)
-                    actions.append(("Cancel challenge...", "battle_cancel_ask", params))
+                    actions.append(("Cancel challenge...", "ask", ("battle_cancel", *params)))
                 else:
                     status = {"aborting": "Cancelling safely", "recovery_required": "Battle needs recovery",
                               "running": "Battle in progress", "starting": "Starting battle"}.get(battle["state"], battle["state"])
@@ -816,14 +859,18 @@ class PlayerMenu:
                                         () if fmt == "2v2" else (*ids, fmt)))
                     if formats and not playable:
                         status = self._notice or f"Your game cannot play {formats[0]}"
-                    actions.append(("Cancel lobby...", "lobby_leave_ask", ids))
+                    if not playable:
+                        # Where Send invitations was when everyone was invited: the A that sent them rests on a row
+                        # that does nothing (it used to rest on Cancel lobby).
+                        actions.append(("Waiting for trainers", "", ()))
+                    actions.append(("Cancel lobby...", "ask", ("lobby_cancel", *ids)))
                 elif actor in joined:
                     # Where Join was: the A that joined rests on a row that does nothing (the cursor keeps its row).
                     actions.append(("Joined: wait for the leader", "", ()))
-                    actions.append(("Leave lobby...", "lobby_leave_ask", ids))
+                    actions.append(("Leave lobby...", "ask", ("lobby_leave", *ids)))
                 else:
                     actions.append(("Join lobby", "lobby_join", ids))
-                    actions.append(("Decline", "lobby_decline", ids))
+                    actions.append(("Decline...", "ask", ("lobby_decline", *ids)))
         elif page == "ffa":
             title, status = "Free-for-All", self._notice or "Who battles?"
             others = [p for p in self._players if p != actor]
@@ -838,15 +885,16 @@ class PlayerMenu:
                 for i, a in enumerate(others):
                     for b in others[i + 1:]:
                         actions.append((f"With {self._name(a)[:8]} & {self._name(b)[:8]}", "battle_ffa3", (a, b)))
-        elif page in ("battle_cancel_confirm", "lobby_leave_confirm"):
-            # Cancelling a challenge or leaving a lobby asks first, No first (B is No): a stray press never ends it.
-            battle = page == "battle_cancel_confirm"
-            title = "Cancel the challenge?" if battle else "Leave the lobby?"
-            status = self._notice or ("Nobody will battle" if battle else "You can be invited again")
-            back = "battles" if battle else "lobby"
-            actions.append(("No, keep it", back, ()))
-            actions.append(("Yes, cancel challenge" if battle else "Yes, leave the lobby",
-                            "battle_cancel" if battle else "lobby_leave", target))
+        elif page == "confirm":
+            # A choice that ends something for others asks first (QUESTIONS): No first, B is No, and Yes never where the
+            # asking press left the cursor (a second row's press finds a row that does nothing there instead).
+            question, cursor, params, _ = target
+            title, consequence, yes, yes_op, fixed = QUESTIONS[question]
+            status = self._notice or consequence
+            actions.append(("No, keep it", "ask_no", ()))
+            if cursor == 1:
+                actions.append(("B or No keeps it", "", ()))
+            actions.append((yes, yes_op, params if fixed is None else fixed))
         elif page in ("soft_reset", "soft_reset_confirm"):
             # The soft reset key (Update 32, MS-61): the game starts again from its last save on the host, in this
             # session; the world and the other players carry on. Nothing open may be cut short by it.
@@ -891,9 +939,11 @@ class PlayerMenu:
                     actions.append(("Proposed by " + self._name(wager["sender"])[:13], "", ()))
                     if actor not in wager["accepted"]:
                         actions.append((f"Accept {_money(wager['amount'])} wager", "wager_accept", (target, wager["amount"])))
-                        actions.append(("Decline wager", "wager_decline", (target,)))
+                        actions.append(("Decline wager...", "ask", ("wager_decline", target)))
                     elif actor == wager["sender"]:
-                        actions.append(("Remove wager", "wager_remove", (target,)))
+                        # Where Propose this wager was: the A that proposed it rests on a row that does nothing.
+                        actions.append(("Waiting for the others", "", ()))
+                        actions.append(("Remove wager...", "ask", ("wager_remove", target)))
                     else:
                         actions.append(("You accepted this wager", "", ()))
             actions.append(("Back to challenge", "battles", ()))
@@ -1234,12 +1284,14 @@ class PlayerMenu:
             partner = others[0] if others else "teammate"
             if run["state"] == "forming":
                 if actor in run["consent"]:
+                    # A row that does nothing first: the A that started the run rests on it (it used to rest on Cancel).
                     status = self._notice or "Waiting for " + partner
-                    actions.append(("Cancel the invitation", "ladder_cancel", ()))
+                    actions.append((f"Invited {partner[:17]}", "", ()))
+                    actions.append(("Cancel the invitation...", "ask", ("ladder_cancel",)))
                 else:
                     status = self._notice or partner + " invites you"
                     actions.extend((("Join the " + ("League run" if league else "Frontier run"), "ladder_accept", ()),
-                                    ("Decline", "ladder_cancel", ())))
+                                    ("Decline...", "ask", ("ladder_decline",))))
             else:
                 status = self._notice or (f"Round {run['round']} of {hall.get('rounds', 3)}" if league
                                           else f"Round {run['round']}  streak {run['streak']}")
@@ -1253,7 +1305,7 @@ class PlayerMenu:
                     actions.append(("Battle: open Challenges", "battles", ()))
                 else:
                     actions.append((f"Start round {run['round']}", "ladder_battle", ()))
-                    actions.append(("Retire" + ("" if league else " (keep streak)"), "ladder_retire", ()))
+                    actions.append(("Retire" + ("..." if league else " (keep streak)..."), "ask", ("ladder_retire",)))
         if league:
             actions.append((f"Cleared {hall.get('clears', 0)}x", "hall", ()))
         else:
@@ -1365,7 +1417,18 @@ class PlayerMenu:
             actions.append(("Back to World", "world", ()))
         return title, status, actions
 
-    async def choose(self, revision, action):
+    def _answered(self, op, args):
+        """The page the open question came from when this choice is that question's Yes, else None."""
+        if self._page[0] != "confirm":
+            return None
+        question, _, params, previous = self._page[1]
+        _, _, _, yes_op, fixed = QUESTIONS[question]
+        return previous if (op, tuple(args)) == (yes_op, tuple(params if fixed is None else fixed)) else None
+
+    async def choose(self, revision, action, *, pressed=None):
+        """``pressed``: when the game's press reached the launcher (loop time; now when not given). A question's grace
+        counts from when the question was sent to the game to that moment, not to when the choice is handled here (a
+        status refresh or the host's answers can come between)."""
         async with self._lock:
             if (type(revision) is not int or type(action) is not int or revision != self._screen.revision
                     or action not in self._actions):
@@ -1380,6 +1443,31 @@ class PlayerMenu:
             self._actions.clear()
             self._signature = None
             self._notice = ""
+            loop = asyncio.get_running_loop()
+            if op == "ask":
+                # A choice that ends something for others: its question first (QUESTIONS). The asking row's index is
+                # where the game's cursor stays, so the question keeps its Yes off that row.
+                if not args or args[0] not in QUESTIONS:
+                    raise PlayerMenuError("unknown_question")
+                self._page = ("confirm", (args[0], action - 1, tuple(args[1:]), self._page))
+                screen = await self._refresh()
+                self._ask_shown = loop.time()          # the question goes to the game now
+                return screen
+            if op == "ask_no":
+                # No, or B: back to the page that asked, nothing changed.
+                self._page = self._page[1][3] if self._page[0] == "confirm" else ("home", None)
+                return await self._refresh()
+            if op in _ASKED_OPS or (op == "tower_duo" and tuple(args) in _ASKED_TOWER):
+                previous = self._answered(op, args)
+                if previous is None:
+                    return await self._refresh()      # never sent without its question
+                if (pressed if pressed is not None else loop.time()) - getattr(self, "_ask_shown", 0.0) < ASK_GRACE_SECONDS:
+                    # The question stays: this Yes came with the press that asked (a double click, a key held). It is
+                    # shown again, and its grace starts again from then.
+                    screen = await self._refresh()
+                    self._ask_shown = loop.time()
+                    return screen
+                self._page = previous           # where the answer leads, unless the choice below says otherwise
             if op == "championship":
                 self._championship.open()
                 self._page = ("championship", None)
@@ -1538,7 +1626,10 @@ class PlayerMenu:
             elif op == "trade_enter":
                 trade = next((t for t in self._trades or () if (t["transaction_id"], t["generation"]) == args), None)
                 if trade is None:
-                    raise PlayerMenuError("trade_changed")
+                    # The friend ended it (or the host did) as this was chosen: said where the choice was made, the
+                    # window stays open (it used to close with "Reopen to check server status").
+                    self._notice, self._page = "That trade has ended", ("home", None)
+                    return await self._refresh()
                 self.handoff = ("trade", deepcopy(trade))
                 return self._show("Trade Pokemon", "Preparing your party", [])
             elif op == "trade_cancel":
@@ -1593,12 +1684,6 @@ class PlayerMenu:
                     # The host's answer, shown on the page the challenge was made from (Update 32: a trainer with
                     # no Pokemon yet).
                     self._notice = INVITE_NOTICES[error.code]
-            elif op in ("battle_cancel_ask", "lobby_leave_ask"):
-                self._page = ("battle_cancel_confirm" if op == "battle_cancel_ask" else "lobby_leave_confirm", args)
-                self._ask_shown = asyncio.get_running_loop().time()
-            elif (op in ("battle_cancel", "lobby_leave") and self._page[0] in ("battle_cancel_confirm", "lobby_leave_confirm")
-                  and asyncio.get_running_loop().time() - getattr(self, "_ask_shown", 0.0) < ASK_GRACE_SECONDS):
-                pass        # the question stays: this Yes came with the press that asked it
             elif op in ("battle_accept", "battle_cancel"):
                 if op == "battle_cancel":
                     self._page = ("battles", None)

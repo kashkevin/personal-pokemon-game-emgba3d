@@ -67,6 +67,18 @@ def _unique(pairs):
     return result
 
 
+async def automatic_cancel_fields(companion, transaction_id):
+    """The cancel's extra fields when the launcher, not the player, cancels a trade (after an error in its trade window):
+    {"cause": "automatic"} for a host that acknowledges end_reason_version 2, which records it as such and tells the
+    friend the trade stopped on this side; nothing for an older host, which would refuse the field (and the cancel)."""
+    from .companion import TradeError
+    try:
+        reply = await companion.trade_rpc("status", transaction_id=transaction_id, end_reason_version=2)
+    except (TradeError, ConnectionError, OSError, asyncio.TimeoutError, TimeoutError, ValueError):
+        return {}
+    return {"cause": "automatic"} if isinstance(reply, dict) and reply.get("end_reason_version") == 2 else {}
+
+
 class LiveTradeCoordinator(LiveCheckpointCoordinator):
     """Prepare, offer and confirm this actor; explicitly reconcile durable fate.
 
@@ -693,10 +705,15 @@ class LiveTradeCoordinator(LiveCheckpointCoordinator):
         await self._terminal(intent, session, Opcode.ABORT_TRADE, intent["expected_revision"]+1)
         return self._finish(intent, "aborted")
 
-    async def cancel(self):
+    async def cancel(self, *, automatic=False):
+        """``automatic``: the launcher cancels on its own after an error in the trade window, not the player; a host
+        that can record that (end_reason_version 2) tells the friend so instead of "Your friend cancelled the trade"."""
         async with self._own():
             session = self._session(); intent = self._load(session)
-            view = (await self._rpc(session, "cancel", transaction_id=intent["transaction_id"], generation=intent["generation"]))["trade"]
+            cause = await automatic_cancel_fields(self.companion, intent["transaction_id"]) if automatic else {}
+            self._same_session(session)
+            view = (await self._rpc(session, "cancel", transaction_id=intent["transaction_id"], generation=intent["generation"],
+                                    **cause))["trade"]
             if view["state"] == "committed":
                 self._record_fate(intent, view)
                 return await self._apply(intent, session)

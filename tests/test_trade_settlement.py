@@ -13,8 +13,11 @@ class TradeSettlementTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.directory = Path(tempfile.mkdtemp())
         self.cancelled, self.notices, self.abandoned, self.banners = [], [], [], []
+        self.host_version = None          # the end_reason_version the host acknowledges (2: it records automatic cancels)
         async def trade_rpc(operation, **fields):
             self.cancelled.append((operation, fields))
+            if operation == "status" and self.host_version is not None:
+                return {"trade": {"state": "offering"}, "end_reason_version": self.host_version}
             return {"trade": {"state": "aborted"}}
         self.companion = SimpleNamespace(connected=True, trade_rpc=trade_rpc, show_local_notice=self.banners.append)
         self.session = object.__new__(LauncherSession)
@@ -22,7 +25,9 @@ class TradeSettlementTests(unittest.IsolatedAsyncioTestCase):
         self.menu = SimpleNamespace(menu=SimpleNamespace(notice=self.notices.append),
                                     abandon_trade_dialog=lambda: self.abandoned.append(True))
         self.outcome = {"state": "aborted", "checkpoint": {"revision": 2}}
-        async def cancel():
+        self.automatic = []
+        async def cancel(*, automatic=False):
+            self.automatic.append(automatic)
             if isinstance(self.outcome, Exception):
                 raise self.outcome
             return self.outcome
@@ -41,7 +46,9 @@ class TradeSettlementTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_a_trade_that_never_held_cancels_its_proposal(self):
         self.assertIsNone(await self.settle())
-        self.assertEqual(self.cancelled, [("cancel", {"transaction_id": "t1", "generation": "g1"})])
+        # The launcher's own cancel: an older host (no end_reason_version 2) gets the plain cancel it knows.
+        self.assertEqual(self.cancelled, [("status", {"transaction_id": "t1", "end_reason_version": 2}),
+                                          ("cancel", {"transaction_id": "t1", "generation": "g1"})])
         self.assertEqual(self.notices, ["Trade did not start: try again"])
         # The menu has closed: the game's banner says it at once (the owner's report of 2026-10-23, "it just kicks
         # you out of the screen"), and why (the error's code), within its two lines of 32 characters.
@@ -51,6 +58,16 @@ class TradeSettlementTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(await self.settle(LiveTradeError("trade_preparation_mismatch", "changed")))
         self.assertEqual(self.banners, ["Trade did not start (retry).|Code: trade_preparation_mismatch"])
         self.assertTrue(all(len(line) <= 32 for line in self.banners[0].split("|")))
+
+    async def test_an_automatic_cancel_is_never_sent_as_the_players_choice(self):
+        # The owner's reports of 2026-10-24: a failure on one side made the other's banner say "Your friend cancelled
+        # the trade" although nobody chose it. A host that records it (end_reason_version 2) is told the cause.
+        self.host_version = 2
+        self.assertIsNone(await self.settle())
+        self.assertEqual(self.cancelled[-1], ("cancel", {"transaction_id": "t1", "generation": "g1", "cause": "automatic"}))
+        self.coordinator.trade_path.write_text("{}")
+        await self.settle()
+        self.assertEqual(self.automatic, [True])         # the coordinator's cancel is marked as the launcher's own
 
     async def test_a_held_trade_is_settled_by_the_hosts_answer(self):
         self.coordinator.trade_path.write_text("{}")
@@ -98,6 +115,7 @@ class TradeSettlementTests(unittest.IsolatedAsyncioTestCase):
         # Why the host ended it, when it could say (the owner's report of 2026-10-24: "it kicked us out and said trade
         # cancelled", with no word of who or why).
         for reason, first in (("partner_cancelled", "Your friend cancelled the trade."),
+                              ("partner_stopped", "Trade stopped on friend's side."),
                               ("expired", "The trade timed out."),
                               ("partner_disconnected", "Your friend lost connection."),
                               ("you_disconnected", "Lost connection to the host.")):

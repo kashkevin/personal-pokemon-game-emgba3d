@@ -106,7 +106,8 @@ class PlayerMenuWorldTests(unittest.IsolatedAsyncioTestCase):
         await self.click(menu, "Propose this wager")
         self.assertIn(("wager_set", dict(battle_id="battle", amount=WAGER_CHOICES[2])), companion.calls)
         await menu.refresh()
-        self.assertIn("Remove wager", self.labels(menu))
+        # Where Propose was, a row that does nothing; removing it asks first.
+        self.assertEqual(self.labels(menu)[2:4], ["Waiting for the others", "Remove wager..."])
         await self.click(menu, "Back to challenge")
         self.assertEqual(menu.screen.status, "Everyone must accept the wager")
         # Bob sees the exact amount and accepts it.

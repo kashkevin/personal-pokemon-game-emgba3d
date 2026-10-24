@@ -61,9 +61,15 @@ def validate_trade_request(message: Any, session_epoch: int) -> dict[str, Any]:
         raise ProtocolError("trade_effect_negotiation_required", "native effect receipts require explicit negotiation")
     for feature in ("inspection_version", "effect_source_version", "end_reason_version"):
         if feature in message:
-            if operation != "status" or type(message[feature]) is not int or message[feature] != 1:
+            if (operation != "status" or type(message[feature]) is not int
+                    or message[feature] not in ((1, 2) if feature == "end_reason_version" else (1,))):
                 raise ProtocolError("invalid_field", "unsupported read-only trade feature negotiation")
             common.add(feature)
+    if "cause" in message:
+        # A cancel the launcher sent on its own after an error (only to a host that acknowledged end_reason_version 2)
+        if operation != "cancel" or message["cause"] != "automatic":
+            raise ProtocolError("invalid_field", "unsupported trade cancel cause")
+        common.add("cause")
     if operation in PREPARATION_OPERATIONS or "preparation_version" in message:
         if type(message.get("preparation_version")) is not int or message["preparation_version"] != PREPARATION_VERSION:
             raise ProtocolError("trade_preparation_unsupported", "recipient preparation version 1 is required before offering or consenting")
@@ -149,7 +155,8 @@ def _trade(value: Any, operation: str, actor: str) -> None:
         # end_reason_version 1: why the host ended it, as this participant sees it (trade_desk.END_REASONS)
         _fields(value, common, {"reason"})
         if "reason" in value and value["reason"] not in {"you_cancelled", "partner_cancelled", "expired",
-                                                         "you_disconnected", "partner_disconnected"}:
+                                                         "you_disconnected", "partner_disconnected",
+                                                         "you_stopped", "partner_stopped"}:
             raise ProtocolError("invalid_server_message", "unknown trade end reason")
     elif state == "recipient_preparation":
         _fields(value, common | {"preparation"})
@@ -249,7 +256,8 @@ def validate_trade_reply(message: Any, config, profile: str, world_id: str, epoc
         raise ProtocolError("trade_preparation_unsupported", "host did not negotiate recipient preparation before consent")
     for feature in ("inspection_version", "effect_source_version", "end_reason_version"):
         if feature in message:
-            if operation != "status" or message["type"] != "trade_result" or type(message[feature]) is not int or message[feature] != 1:
+            if (operation != "status" or message["type"] != "trade_result" or type(message[feature]) is not int
+                    or message[feature] not in ((1, 2) if feature == "end_reason_version" else (1,))):
                 raise ProtocolError("invalid_server_message", "invalid read-only trade capability acknowledgement")
             common.add(feature)
     if message["type"] == "trade_error":

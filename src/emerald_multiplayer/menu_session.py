@@ -1,11 +1,20 @@
 """One bounded native menu session on one authenticated bridge incarnation."""
 import asyncio
 from dataclasses import replace
+import inspect
 
 from .battle_admission_session import BattleAdmissionRefused
 from .bridge_protocol import BridgeError
 from .menu_mailbox import OPEN_PAGES, MenuRequest, pack_screen
-from .player_menu import MenuScreen, PlayerMenu, battle_admission_enabled, refusal_text
+from .player_menu import MenuScreen, PlayerMenu, PlayerMenuError, battle_admission_enabled, refusal_text
+
+
+def _takes(function, name):
+    """Whether a menu's method takes this keyword (the menus of older tests and tools do not)."""
+    try:
+        return name in inspect.signature(function).parameters
+    except (TypeError, ValueError):
+        return False
 
 
 class MenuSession:
@@ -29,6 +38,7 @@ class MenuSession:
         self._battle_preparing = False
         self._battle_admission_failed = False
         self._window_closing = False   # a Tower command or Hyper Training screen closed the game's window
+        self._arrivals = {}            # request sequence -> when it reached the launcher (loop time)
 
     def _tower_capable(self):
         """The game has Battle Tower: Legends (tower_abi_version 1, bridge.txt tower=1): its page, its command and Hyper
@@ -57,6 +67,11 @@ class MenuSession:
         self.sequence = request.sequence
         self._last_request = request
         self._window_closing = False
+        # When the press was made, as near as the launcher can tell: a question's grace counts to here, not to when the
+        # menu gets round to the choice (a status refresh or a host round trip can come between).
+        self._arrivals[request.sequence] = asyncio.get_running_loop().time()
+        while len(self._arrivals) > 8:
+            del self._arrivals[next(iter(self._arrivals))]
         if self._dialog_queue is not None:
             if request.kind == 3:
                 self.open = False
@@ -107,6 +122,15 @@ class MenuSession:
             self._admission_display = None
         self._task = asyncio.create_task(self._handle(request), name="native-players-menu")
 
+    def arrival(self, request):
+        """When this request reached the launcher (loop time), or None when it is no longer remembered."""
+        return self._arrivals.get(getattr(request, "sequence", None))
+
+    def _alive(self, request):
+        """Whether the game's window that sent this request still waits for its answer."""
+        return (not self._closed and not self._battle_latched and self.open and request.sequence == self.sequence
+                and self.companion._bridge is self.bridge)
+
     def _send(self, request, screen, *, close=False, tower=None):
         """``tower``: the PlayerMenu's Tower reply, ("command", TowerCommand) or ("hyper_training", None), sent as the
         game's flags-4 or flags-5 screen (only to a game with the Tower)."""
@@ -143,13 +167,27 @@ class MenuSession:
                         continue
                     elif request.kind == 1 and request.action:
                         # A named page (Update 32): the reset key's question, the Tower, the in-game SAVE's host save.
-                        screen = await self.menu.open_page(OPEN_PAGES[request.action])
+                        # The Tower's next floor is asked for only while this window still waits for it.
+                        opener = self.menu.open_page
+                        screen = await (opener(OPEN_PAGES[request.action], alive=lambda: self._alive(request))
+                                        if _takes(opener, "alive") else opener(OPEN_PAGES[request.action]))
                     elif request.kind == 1:
                         # START > PLAYER > PLAYERS: the menu's home, not a page RESET left open
                         opener = getattr(self.menu, "open", None)
                         screen = await (opener() if callable(opener) else self.menu.refresh())
                     else:
-                        screen = await self.menu.choose(request.screen, request.action)
+                        chooser = self.menu.choose
+                        try:
+                            screen = await (chooser(request.screen, request.action, pressed=self.arrival(request))
+                                            if _takes(chooser, "pressed") else chooser(request.screen, request.action))
+                        except PlayerMenuError as error:
+                            # A press on a screen the 2 s status refresh replaced meanwhile chose nothing: the current
+                            # page again, under a newer revision the game takes (the window used to close on it with
+                            # "Reopen to check server status").
+                            reshow = getattr(self.menu, "reshow", None)
+                            if error.code != "stale_menu" or not callable(reshow):
+                                raise
+                            screen = await reshow()
                     handoff = getattr(self.menu, "handoff", None)
                     tower = getattr(self.menu, "tower_reply", None)
                     if tower is not None:

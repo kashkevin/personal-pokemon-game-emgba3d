@@ -22,9 +22,55 @@ class PlayerMenuNetworkTests(unittest.IsolatedAsyncioTestCase):
         await menus[1].refresh()
         await self.click(menus[1], "Team invitation")
         await self.click(menus[1], "Accept invitation")
-        self.assertIn("Leave team", [r.label for r in menus[1].screen.rows])
-        await self.click(menus[1], "Leave team")
+        self.assertIn("Leave team...", [r.label for r in menus[1].screen.rows])
+        screen = await self.click(menus[1], "Leave team...")                 # it asks first (No first)
+        self.assertEqual(screen.title, "Leave the team?")
+        with unittest.mock.patch("emerald_multiplayer.player_menu.ASK_GRACE_SECONDS", 0):
+            await self.click(menus[1], "Yes, leave the team")
         self.assertEqual(menus[1].screen.status, "Choose a player to invite")
+
+    async def test_no_team_page_leaves_a_destructive_row_under_the_cursor(self):
+        # The game keeps its cursor row when the next screen comes (back to the top when that is shorter). With two
+        # players, Invite to team rested on Cancel invitation, Team invitation on Decline invitation and Your team on
+        # Leave team, each acting at once. Now none of the rows under the cursor ends anything, each of those asks
+        # first, and the question's Yes is never under the cursor either: two stray presses change nothing.
+        from emerald_multiplayer.player_menu import _ASKED_OPS
+        from test_team_network import wait_until
+        for companion in self.companions[2:]:
+            await companion.close()
+        await wait_until(lambda: all(len(c._players) == 2 for c in self.companions[:2]))
+        a, b = PlayerMenu(self.companions[0]), PlayerMenu(self.companions[1])
+
+        async def stray_twice(menu, label):
+            """A on ``label``, then two more A presses wherever the kept cursor lands: the labels they landed on."""
+            landed = []
+            index = [r.label for r in menu.screen.rows].index(label)
+            screen = await self.click(menu, label)
+            for _ in range(2):
+                row = screen.rows[index if index < len(screen.rows) else 0] if screen.rows else None
+                if row is None:
+                    break
+                op = menu._actions.get(row.action, ("", ()))[0]
+                self.assertNotIn(op, _ASKED_OPS, (label, row.label))
+                landed.append(row.label)
+                if not row.action:
+                    break
+                index = [r.label for r in screen.rows].index(row.label)
+                screen = await menu.choose(screen.revision, row.action)
+            return landed
+
+        await a.refresh(); await self.click(a, "Trainer 1")
+        self.assertEqual(await stray_twice(a, "Invite to team"), ["Cancel invitation...", "B or No keeps it"])
+        self.assertEqual(len(self.server.team_desk._invitations), 1)            # still invited
+        await b.refresh()
+        self.assertEqual(await stray_twice(b, "Team invitation"), ["Decline invitation...", "B or No keeps it"])
+        self.assertEqual(len(self.server.team_desk._invitations), 1)
+        await b.choose(b.screen.revision, 7)                                     # B on the question: No
+        await self.click(b, "Accept invitation")
+        while b.screen.back:
+            await b.choose(b.screen.revision, b.screen.back)
+        self.assertEqual(await stray_twice(b, "Your team"), ["Leave team...", "B or No keeps it"])
+        self.assertIsNotNone((await self.companions[1].team_rpc("status"))["result"]["team"])   # still a team
 
     async def test_changed_menu_and_double_click_cannot_repeat_mutation(self):
         menu = PlayerMenu(self.companions[0]); await menu.refresh()
@@ -52,7 +98,7 @@ class PlayerMenuNetworkTests(unittest.IsolatedAsyncioTestCase):
         screen = await self.click(b, "Cancel challenge...")
         self.assertEqual(screen.title, "Cancel the challenge?")
         self.assertEqual([row.label for row in screen.rows], ["No, keep it", "Yes, cancel challenge"])
-        self.assertEqual(b._actions[screen.back], ("battles", ()))          # B is No
+        self.assertEqual(b._actions[screen.back], ("ask_no", ()))            # B is No
         screen = await self.click(b, "Yes, cancel challenge")              # the press that asked, repeated: nothing
         self.assertEqual(screen.title, "Cancel the challenge?")
         self.assertTrue(self.server.battle_desk._active)
@@ -350,7 +396,7 @@ class PlayerMenuEnterTests(PlayerMenuAdmissionTests):
         for screen in (after, blocked, waiting):
             ops = [op for _, op in rows(screen)]
             self.assertNotIn("battle_cancel", ops)
-            self.assertIn("battle_cancel_ask", ops)
+            self.assertIn("ask", ops)                                       # Cancel challenge... asks first
 
     def test_pending_statuses_say_who_is_awaited(self):
         self.assertEqual(self.render(consent=["a"]).status, "Waiting for opponent")

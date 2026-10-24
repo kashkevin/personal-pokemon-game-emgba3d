@@ -63,6 +63,27 @@ class MenuSessionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.session.menu.calls, 1)
         self.assertFalse(self.bridge.outbox.controls)
 
+    async def test_a_press_carries_when_it_arrived_and_a_stale_one_reshows_instead_of_closing(self):
+        # A question's grace counts to when the press reached the launcher, not to when the menu got round to it; a
+        # press on a screen a status refresh replaced shows the page again (it used to close the window).
+        from emerald_multiplayer.player_menu import PlayerMenuError
+        await self.open()
+        seen = []
+        async def choose(screen, action, *, pressed=None):
+            seen.append(pressed)
+            await asyncio.sleep(0.05)                  # handled a little later than it arrived
+            raise PlayerMenuError("stale_menu")
+        async def reshow():
+            return MenuScreen(5, "Players", "Ready", (MenuRow(1, "Accept"),), 0)
+        self.session.menu.choose, self.session.menu.reshow = choose, reshow
+        before = asyncio.get_running_loop().time()
+        self.feed(2, 1, 1, 2)
+        await self.session._task
+        self.assertTrue(before <= seen[0] <= before + 0.04)
+        ack, screen, close = await self.result()
+        self.assertEqual((ack, screen.revision, close), (2, 5, False))
+        self.assertTrue(self.session.open)
+
     async def test_repeated_or_overlapping_choices_are_refused(self):
         await self.open()
         with self.assertRaises(ValueError): self.feed(1)

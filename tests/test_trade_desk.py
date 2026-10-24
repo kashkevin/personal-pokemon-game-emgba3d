@@ -218,13 +218,48 @@ class TradeDeskTests(unittest.TestCase):
         ready = self.ready()
         for step in range(1, 6):
             self.now = step * 8                       # past the 10 s lifetime of the offers, many times over
-            self.assertEqual(self.desk.status(*self.actor(step % 2), self.transaction)['state'], 'offering')
+            for index in (step % 2, 1 - step % 2):    # both trade windows poll
+                self.assertEqual(self.desk.status(*self.actor(index), self.transaction)['state'], 'offering')
         self.now += 8
         view = self.confirm(0, ready)
+        self.desk.status(*self.actor(1), self.transaction)    # the other window keeps polling meanwhile
         self.now += 8
         view = self.confirm(1, ready)
+        self.desk.status(*self.actor(0), self.transaction)
         self.now += 8
         self.assertEqual(self.finish_preparation(view)['state'], 'committed')
+
+    def test_one_window_polling_alone_never_keeps_an_unanswered_proposal(self):
+        # The opener's own status polls (about once a second) kept a proposal the friend never entered alive for ever:
+        # both players stayed busy, and the friend's soft reset was refused with "Finish the trade first".
+        self.ready()                                  # both offered at time 0: 10 s left
+        for step in range(1, 4):
+            self.now = step * 3
+            self.assertEqual(self.desk.status(*self.actor(0), self.transaction)['state'], 'offering')
+        self.now = 11                                 # 10 s after the last offer, the other window silent all along
+        self.assertEqual(self.desk.status(*self.actor(0), self.transaction)['state'], 'aborted')
+        self.assertEqual(self.desk.end_reason(self.players[1].player_id, self.transaction), 'expired')
+        # A friend who did enter and then went silent: the proposal ends one lifetime after their last request.
+        fresh = str(uuid4())
+        self.now = 20
+        self.desk.open(*self.actor(0), self.players[1].player_id, fresh)
+        self.desk.status(*self.actor(1), fresh)       # t=20: the friend's window, once
+        for t in (25, 29):
+            self.now = t
+            self.assertEqual(self.desk.status(*self.actor(0), fresh)['state'], 'offering')
+        self.now = 31
+        self.assertEqual(self.desk.status(*self.actor(0), fresh)['state'], 'aborted')
+
+    def test_an_automatic_cancel_is_recorded_as_such_and_never_as_the_players_choice(self):
+        # A launcher that cancels on its own after an error in its trade window (end_reason_version 2): the friend is
+        # told the trade stopped on the other side, not "Your friend cancelled the trade". An older trade window
+        # (version 1) is told no reason for it rather than a wrong one.
+        player0, player1 = self.players[0].player_id, self.players[1].player_id
+        self.desk.cancel(*self.actor(1), self.transaction, self.view['generation'], automatic=True)
+        self.assertEqual((self.desk.end_reason(player0, self.transaction), self.desk.end_reason(player1, self.transaction)),
+                         ('partner_stopped', 'you_stopped'))
+        self.assertIsNone(self.desk.end_reason(player0, self.transaction, 1))
+        self.assertIsNone(self.desk.end_reason(player1, self.transaction, 1))
 
     def test_the_host_remembers_why_each_participant_s_trade_ended(self):
         player0, player1 = self.players[0].player_id, self.players[1].player_id

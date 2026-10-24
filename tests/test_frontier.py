@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 from types import SimpleNamespace
 from uuid import uuid4
@@ -885,14 +886,14 @@ class MenuTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.labels, ["Start a Frontier run", "Best 4  runs 2", "Back"])
         await self.click("Start a Frontier run")
         self.assertEqual(self.menu.screen.status, "Waiting for Bob")
-        self.assertIn("Cancel the invitation", self.labels)
+        self.assertEqual(self.labels[:2], ["Invited Bob", "Cancel the invitation..."])   # the A rests on the first
         self.state["run"]["consent"] = ["a", "b"]
         self.state["run"].update(state="active", next=dict(round=1, level=42, label="Roxanne & Brawly", brain=False,
                                                           set=1, prize=1050))
         await self.menu.refresh()
         self.assertEqual(self.menu.screen.status, "Round 1  streak 0")
         self.assertEqual(self.labels[:4], ["vs Roxanne & Brawly", "Lv42  prize $1,050", "Start round 1",
-                                           "Retire (keep streak)"])
+                                           "Retire (keep streak)..."])
         await self.click("Start round 1")
         self.assertIn("battle", self.calls)
         self.assertIn("Recent battle results", self.labels)                        # on to the Challenges page
@@ -902,7 +903,7 @@ class MenuTests(unittest.IsolatedAsyncioTestCase):
         await self.click("Frontier and League")
         await self.click("Battle Frontier")
         self.assertIn("Battle: open Challenges", self.labels)
-        self.assertNotIn("Retire (keep streak)", self.labels)                     # not during a battle
+        self.assertNotIn("Retire (keep streak)...", self.labels)                  # not during a battle
         self.assertTrue(all(len(label) <= 25 for label in self.labels))
 
     def shop_state(self, balance=40):
@@ -1001,7 +1002,11 @@ class MenuTests(unittest.IsolatedAsyncioTestCase):
         await self.click("Join the Frontier run")
         self.assertIn("accept", self.calls)
         self.assertEqual(self.menu.screen.status, "Round 1  streak 0")
-        await self.click("Retire (keep streak)")
+        await self.click("Retire (keep streak)...")                      # it asks first (No first)
+        self.assertEqual(self.menu.screen.title, "Retire from the run?")
+        self.assertNotIn("retire", self.calls)
+        with unittest.mock.patch("emerald_multiplayer.player_menu.ASK_GRACE_SECONDS", 0):
+            await self.click("Yes, retire")
         self.assertIn("Last: Retired, streak 0", self.labels)
 
     async def test_a_brain_round_is_named_and_a_refusal_is_shown_not_hidden(self):

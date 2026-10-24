@@ -52,11 +52,17 @@ class FourPlayerLobbyProof(AbandonProof):
         require(screen.status == f"Waiting for {len(names)} to answer", f"the new lobby says {screen.status!r}")
         await close_players(probe)
 
-    async def answer(self, probe, choice):
+    async def answer(self, probe, choice, yes=None):
+        """``yes``: the choice asks first (Decline..., Leave lobby...): its question's Yes, pressed after the grace in
+        which a Yes counts as the asking press repeated (player_menu.ASK_GRACE_SECONDS)."""
         await probe.open_players()
         _, screen = await probe.choose("Battle lobby")
         require(choice in [r.label for r in screen.rows], f"no {choice!r} row: {[r.label for r in screen.rows]}")
-        await probe.choose(choice)
+        _, screen = await probe.choose(choice)
+        if yes is not None:
+            require(screen.rows and screen.rows[0].label == "No, keep it", f"{choice!r} did not ask: {screen.title!r}")
+            await asyncio.sleep(0.8)
+            await probe.choose(yes)
         await close_players(probe)
 
     async def lobby_page(self, probe):
@@ -82,7 +88,7 @@ class FourPlayerLobbyProof(AbandonProof):
         await self.send_lobby(probes[0], names[1:], record, "lobby-of-four-sent")
         await self.answer(probes[1], "Join lobby")
         await self.answer(probes[2], "Join lobby")
-        await self.answer(probes[3], "Decline")
+        await self.answer(probes[3], "Decline...", "Yes, decline it")     # declining asks first (No first)
         status, rows = await self.lobby_page(probes[0])
         record("lobby-after-a-decline", status=status, rows=rows)
         require(status == "1v1v1: 3 joined" and "Start 1v1v1" in rows and f"{names[3][:15]}: declined" in rows
