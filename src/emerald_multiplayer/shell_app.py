@@ -301,6 +301,16 @@ class ShellApp:
         except OSError:
             pass
 
+    def _record_failure(self, text):
+        """A session's failure (its reason line, no traceback: the session keeps that to itself) and the newest game launch's
+        reports, in shell/last-error.txt."""
+        try:
+            folder = self.private_root / "shell"
+            folder.mkdir(parents=True, exist_ok=True, mode=0o700)
+            (folder / "last-error.txt").write_text(text + self._last_launch_report(), encoding="utf-8")
+        except OSError:
+            pass
+
     def _last_launch_report(self):
         try:
             launches = [p for p in (self.private_root / "launches").iterdir() if p.is_dir()]
@@ -1192,7 +1202,7 @@ class ShellApp:
         self.window(self.session_window)
         state = dict(code="installation", state="validating", autosave=None, is_host=request.mode == "host", save=False,
                      battle=False, cleanup=False, abandon=False, restart=False, trade=False, connected=False, complete=None,
-                     note=note, flash=None, router=None, relay=None, detail=None)
+                     note=note, flash=None, router=None, relay=None, detail=None, failure=None)
 
         def absorb():
             changed = False
@@ -1204,6 +1214,7 @@ class ShellApp:
                 if event.kind == "complete":
                     state["complete"] = event.code
                     state["detail"] = getattr(event, "detail", None)
+                    state["failure"] = getattr(event, "failure", None)
                     changed = True
                 elif event.kind == "status":
                     state.update(code=event.code, state=event.state, autosave=event.autosave_enabled, save=bool(event.save_available),
@@ -1313,6 +1324,11 @@ class ShellApp:
             if state["detail"]:
                 explanation = describe(state["detail"])
                 text = f"{explanation.title}. {explanation.message}"
+            elif state["failure"] and outcome not in ("cancelled", "graphics_failed"):
+                # The reason itself, not only "The game could not open" (a friend's join of 2026-10-24 said nothing more).
+                detail = getattr(worker, "last_failure_detail", None) or state["failure"]
+                self._record_failure(f"{request.mode} session ended: {outcome}\nReason: {detail}\n")
+                text = f"{text} Reason: {state['failure'][:160]}. {DETAILS}"
             self.notice = ("error" if outcome not in ("cancelled", "graphics_failed") else "warn", text)
         return outcome
 

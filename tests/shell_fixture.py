@@ -126,13 +126,16 @@ class FakeWorker:
         self.saves = 0
         self.autosave = []
         self.busy = False
+        self.last_failure_detail = None
 
     def start(self, request):
         request.options()                                # the same validation the real worker applies
         self.requests.append(request)
         self.events.put(UiEvent("status", "running", "running", True, save_available=True, is_host=request.mode == "host",
                                 connected=True))
-        self.events.put(UiEvent("complete", self.behaviour(request)))
+        outcome = self.behaviour(request)
+        code, failure, self.last_failure_detail = (outcome + (None,) * 3)[:3] if isinstance(outcome, tuple) else (outcome, None, None)
+        self.events.put(UiEvent("complete", code, failure=failure))
         return True
 
     def request_save(self):

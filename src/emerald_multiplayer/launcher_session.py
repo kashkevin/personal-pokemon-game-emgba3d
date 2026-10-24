@@ -108,15 +108,33 @@ class LauncherSessionError(ValueError):
     """``code`` is the stable session code; ``reason`` (a connection_diagnostics code) says why a connection could not be made,
     when that is known (for example connection_timeout with reason "refused")."""
 
-    def __init__(self, code, reason=None):
+    def __init__(self, code, reason=None, cause=None):
         self.code = code if code in _MESSAGES else "session_failed"
         self.reason = reason if type(reason) is str and len(reason) <= 64 else None
+        # What actually failed, for the launcher's troubleshooting file and the end of its message (an error's class, code and
+        # message; never a credential): a friend who could not join back saw only "The game could not open" (2026-10-24).
+        self.cause = cause[:300] if type(cause) is str and cause else None
+        self.cause_name = self.cause.split(":", 1)[0] if self.cause else None
         super().__init__(_MESSAGES[self.code])
+
+
+def failure_name(error):
+    """An unexpected failure's class and stable code ("ColdStartError pending_trade"): identifiers only, safe to show."""
+    code = getattr(error, "code", None)
+    code = code if type(code) is str and re.fullmatch(r"[a-z0-9_]{1,64}", code) else None
+    return type(error).__name__ + (f" {code}" if code else "")
+
+
+def _failure_cause(error):
+    """One line naming an unexpected failure: its class and code, then its message (private: the troubleshooting file only)."""
+    text = " ".join(str(error).split())
+    return failure_name(error) + (f": {text}" if text else "")
 
 
 def _safe_error(error):
     if isinstance(error, LauncherSessionError):
-        return LauncherSessionError(error.code, error.reason)
+        return LauncherSessionError(error.code, error.reason, error.cause)
+    cause = _failure_cause(error)
     code = getattr(error, "code", None)
     if code == "trade_disabled":
         code = "trade_recovery_unavailable"
@@ -127,7 +145,7 @@ def _safe_error(error):
         code = "recovery_required"
     elif isinstance(error, ConnectionError):
         code = "connection_lost"
-    return LauncherSessionError(code)
+    return LauncherSessionError(code, cause=cause)
 
 
 # The game's banner for a trade the host ended, by the reason it gave (trade_desk.END_REASONS): two lines of at most
@@ -314,6 +332,8 @@ class LauncherSession:
         self._on_status = on_status
         self.observer_errors = 0
         self._status = SessionStatus(SessionState.NEW, "new")
+        self.failure_cause = None           # what the last failure was (LauncherSessionError.cause), for the troubleshooting file
+        self.failure_name = None            # its class and code only (LauncherSessionError.cause_name), safe to show
         self._store = self._server = self._companion = self._runtime = None
         self._binding = None
         self._profile_directory = None
@@ -926,6 +946,7 @@ class LauncherSession:
             revision = await self._ready()
         except Exception as error:
             safe = _safe_error(error)
+            self.failure_cause, self.failure_name = safe.cause, safe.cause_name
             self._publish(SessionState.BLOCKED, safe.code)
         else:
             self._publish(SessionState.READY, "ready", revision=revision)
@@ -1025,6 +1046,7 @@ class LauncherSession:
             raise
         except Exception as error:
             safe = _safe_error(error)
+            self.failure_cause, self.failure_name = safe.cause, safe.cause_name
             self._publish(SessionState.BLOCKED, safe.code)
             raise safe from None
         finally:
@@ -2413,6 +2435,7 @@ class LauncherSession:
             except Exception as error:
                 failed = True
                 safe = _safe_error(error)
+                self.failure_cause, self.failure_name = safe.cause, safe.cause_name
                 self._publish(SessionState.FAILED, safe.code, detail=safe.reason)
                 raise safe from None
             yield self
@@ -2421,9 +2444,9 @@ class LauncherSession:
             cleanup = asyncio.create_task(self._cleanup())
             try:
                 _, cancelled = await _finish_even_if_cancelled(cleanup)
-            except Exception:
+            except Exception as error:
                 self._publish(SessionState.FAILED, "session_failed")
-                raise LauncherSessionError("session_failed") from None
+                raise LauncherSessionError("session_failed", cause="closing: " + _failure_cause(error)) from None
             finally:
                 self._open = False
             if not failed:

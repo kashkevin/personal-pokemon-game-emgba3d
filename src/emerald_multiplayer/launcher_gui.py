@@ -170,6 +170,22 @@ _TEXT = {
 }
 
 
+def exit_description(exit_code):
+    """A game's non-zero exit code in words (Windows reports a crash as a large code such as 0xC0000005; Linux a signal as a negative
+    one)."""
+    if type(exit_code) is not int:
+        return f"the game ended with exit code {exit_code!r}"
+    if exit_code < 0:
+        return f"the game was stopped by signal {-exit_code}"
+    if exit_code > 0xFFFF:
+        known = {0xC0000005: "a crash (access violation)", 0xC00000FD: "a crash (stack overflow)", 0xC0000409: "a crash (stack buffer)",
+                 0xC0000374: "a crash (heap corruption)", 0xC0000135: "a missing DLL", 0xC0000142: "a DLL that failed to start",
+                 0xC000001D: "a crash (illegal instruction)", 0xC0000094: "a crash (division by zero)"}
+        word = known.get(exit_code & 0xFFFFFFFF, "a crash")
+        return f"the game ended with exit code 0x{exit_code & 0xFFFFFFFF:08X}: {word}"
+    return f"the game ended with exit code {exit_code}"
+
+
 def status_text(code):
     """Never put exception text, credentials, endpoints or paths into status UI."""
     return _TEXT.get(code, _TEXT["session_failed"])
@@ -277,6 +293,7 @@ class UiEvent:
     reset_snapshot: dict | None = None
     trade_recovery_available: bool = False
     detail: str | None = None             # connection_diagnostics code behind a connection failure (describe() explains it)
+    failure: str | None = None            # complete: what failed: an error's class and code (never its message), or an exit code
     router: object | None = None          # host: port_mapping.MappingResult (.code, .ok, .message, .external_address)
     relay: object | None = None           # host: relay.RelayAgentStatus (.code, .ready, .message, .friends)
 
@@ -295,6 +312,8 @@ class SessionWorker:
         self._lock = threading.Lock()
         self._thread = self._loop = self._task = None
         self._cancel_requested = False
+        self._failure = None
+        self.last_failure_detail = None     # the last failure's whole line (private: never queued; the menu's troubleshooting file)
         self._state = SessionState.NEW
         self._status_code = "new"
         self._active_session = self._save_future = None
@@ -840,6 +859,9 @@ class SessionWorker:
         async with session.open():
             current = session.status
             if current.state != SessionState.READY:
+                stopped = f"the session stopped before the game opened ({current.code})"
+                self._failure = getattr(session, "failure_name", None) or stopped
+                self.last_failure_detail = getattr(session, "failure_cause", None) or stopped
                 return current.code if current.code in _TEXT else "session_failed"
             with self._lock:
                 self._active_session = session
@@ -870,6 +892,8 @@ class SessionWorker:
                     return "trade_recovery_reopen"
                 if exit_code == EXIT_GRAPHICS_UNAVAILABLE:
                     return "graphics_failed"  # the game showed its own message first
+                if exit_code != 0:
+                    self._failure = self.last_failure_detail = exit_description(exit_code)
                 return "game_closed" if exit_code == 0 else "session_failed"
             finally:
                 if not play.done():
@@ -921,6 +945,7 @@ class SessionWorker:
     def _run(self, options):
         code = "session_failed"
         detail = None
+        self._failure = self.last_failure_detail = None
         try:
             code = asyncio.run(self._execute(options))
         except asyncio.CancelledError:
@@ -930,6 +955,12 @@ class SessionWorker:
             code = candidate if candidate in _TEXT else "session_failed"
             reason = getattr(error, "reason", None)
             detail = reason if type(reason) is str and len(reason) <= 64 else None
+            # On the menu: the class and code only (an error's message can hold a private path; it never enters the queue). The
+            # whole line stays here for the menu's private troubleshooting file (shell/last-error.txt).
+            from .launcher_session import _failure_cause, failure_name
+            cause, name = getattr(error, "cause", None), getattr(error, "cause_name", None)
+            self._failure = name if type(name) is str and name else failure_name(error)
+            self.last_failure_detail = cause if type(cause) is str and cause else _failure_cause(error)[:300]
         finally:
             with self._lock:
                 self._loop = self._task = None
@@ -950,7 +981,8 @@ class SessionWorker:
                 self._championship_future = None
                 self._championship_pending = False
             # asyncio.run has drained its loop before completion becomes visible.
-            self.events.put(UiEvent("complete", code, detail=detail))
+            failure = self._failure if code not in ("game_closed", "cancelled") else None
+            self.events.put(UiEvent("complete", code, detail=detail, failure=failure))
 
 
 class LauncherWindow:

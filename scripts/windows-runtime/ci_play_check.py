@@ -20,6 +20,9 @@ What it does, as two players on one PC would (two new profiles: a host and a fri
   5. friend: Join Friend > Join with an invite code, types the copied code, Check and join: the friend's character enters the
      host's world over the connection (the host's world records the friend's account at revision 1), then the friend's game:
      CONTINUE, "Save now" (revision 2 in the host's world). The friend closes the game, then the host.
+  5b. with --rejoin N the friend then joins again N times from the saved server (Join Friend > the server > Join: no character to
+     bring in, CONTINUE, Save now); with --second-character the friend then creates another character, joins with it (it takes
+     the account's place over: the registration game, CONTINUE) and joins once more. The host's world stays open throughout.
   6. both menus Exit with code 0; no error was recorded (shell/last-error.txt) and every character's latest save is the one
      its world holds.
 
@@ -441,9 +444,10 @@ def revision(world, slot):
 # ------------------------------------------------------------------ the steps
 
 class PlayCheck:
-    def __init__(self, desk, work, label, report, lines, loopback=False):
+    def __init__(self, desk, work, label, report, lines, loopback=False, rejoin_count=0, second_character=False):
         self.desk, self.work, self.label, self.report, self.lines = desk, work, label, report, lines
         self.loopback = loopback
+        self.rejoin_count, self.second_character = rejoin_count, second_character
         self.pictures = work / f"{label}-pictures"
         self.pictures.mkdir(exist_ok=True)
         self.count = 0
@@ -456,7 +460,7 @@ class PlayCheck:
         self.count += 1
         self.desk.picture(self.pictures / f"{self.count:02d}-{label}.png")
 
-    def create_character(self, player):
+    def create_character(self, player, existing=0):
         main = player.expect("main")
         player.choose(main, "characters")
         player.choose(player.expect("characters"), "create")
@@ -476,9 +480,10 @@ class PlayCheck:
                        f"(runtime.log: {log_file.read_text('utf-8', 'replace')[-600:] if log_file.is_file() else 'none'})")
         time.sleep(3)
         player.desk.close_game(game[0], game[1])
-        made = wait(lambda: player.characters(), 90)
+        made = wait(lambda: len(player.characters()) > existing and player.characters(), 90)
         require(made, f"{player.name}: no character after the New Game was closed (last screen {player.current()['id']})")
-        (character,) = made
+        character = max(made, key=lambda c: c.get("created_at") or c.get("created") or "") if existing else made[0]
+        require(len(made) == existing + 1, f"{player.name}: Characters holds {len(made)} after creating one")
         player.expect("characters", 30)
         player.log(f"created character {character['name']} (party from the New Game; {len(made)} in the library)")
         self.report.setdefault("characters", {})[player.name] = character["name"]
@@ -503,6 +508,11 @@ class PlayCheck:
             raise CheckFailed(f"{player.name}: the registration game ended and the world has no save of the character "
                               f"(revision {first}); the menu shows {after['id']}: {after['title']} {after['notes'][:4]}")
         player.log(f"the character entered {world['name']} (the world saved it: revision {first}); the game closed by itself")
+        return self.play(player, world, slot, first, host_world=host_world, keep_open=keep_open, registered=first)
+
+    def play(self, player, world, slot, first, *, host_world=None, keep_open=False, registered=None):
+        """The session game: CONTINUE, then Save now until the world holds a revision after ``first``."""
+        record = host_world or world
         player.graphics_choice()
         game = player.game()
         player.log(f"playing {world['name']}: the game opened (pid {game[0]}); choosing CONTINUE")
@@ -520,7 +530,7 @@ class PlayCheck:
         session = player.current()
         player.log(f"Save now: the world saved the character (revision {first} -> {saved}); "
                    f"the menu says: {' '.join(session['notes'][1:3])}")
-        result = dict(world=world["name"], slot=slot, registered=first, saved=saved, notes=session["notes"][:4])
+        result = dict(world=world["name"], slot=slot, registered=registered, saved=saved, notes=session["notes"][:4])
         if keep_open:
             return game, result
         self.close(player, game)
@@ -608,6 +618,36 @@ class PlayCheck:
         friend.expect("join_list", 60)
         return result
 
+    def rejoin(self, friend, host_world, slot, *, new_character=None):
+        """Join Friend again from the saved server (the host's world still open): the game opens on the character with nothing to
+        register, CONTINUE, Save now. ``new_character``: the friend made another character first, which takes the place over."""
+        world = dict(name=host_world["name"])
+        friend.expect(("join_list", "main"), 60)
+        if friend.current()["id"] == "main":
+            friend.choose(friend.current(), "join")
+        screen = friend.expect("join_list", 60)
+        rows = [item for item in screen["items"] if item[1] not in ("new", "back")]
+        require(len(rows) == 1, f"{friend.name}: the Join Friend list should hold the one saved server: {[i[2] for i in screen['items']]}")
+        friend.choose(screen, rows[0][1])
+        friend.choose(friend.expect("server"), "join")
+        friend.log(f"Join Friend: chose the saved server {rows[0][2]!r}, Join")
+        before = revision(host_world, slot) or 0
+        screen = friend.expect(("bring_character", "graphics", "session", "message", "join_list"), 180,
+                               where=lambda s: s["id"] != "join_list" or (s["status"] or ("", ""))[0] not in ("", "busy"))
+        if screen["id"] in ("message", "join_list"):
+            raise CheckFailed(f"{friend.name}: joining again failed before the game opened: {screen['title']} {screen['status']} "
+                              f"{screen['notes'][:4]}")
+        if screen["id"] == "bring_character":
+            require(new_character is not None, f"{friend.name}: joining again asked to bring the character in again: {screen['notes'][:3]}")
+            friend.log(f"{new_character['name']} takes the place over: {' '.join(screen['notes'][:2])}")
+            _, result = self.enter_and_play(friend, world, slot, host_world=host_world)
+        else:
+            require(new_character is None, f"{friend.name}: the new character was not brought in (screen {screen['id']})")
+            _, result = self.play(friend, world, slot, before, host_world=host_world)
+        after = friend.expect("join_list", 60)
+        require((after["status"] or ("", ""))[0] != "error", f"{friend.name}: after joining again the menu says {after['status']}")
+        return result
+
     def finish(self, player):
         """Back to the main menu and Exit."""
         for _ in range(4):
@@ -634,11 +674,27 @@ def run(check, host, friend):
     world, code, slot, host_game, report["host"] = check.host(host)
     report["join"] = check.join(friend, code, world, slot)
     check.picture("after-join")
+    friend_characters = [friend_character]
+    if check.rejoin_count:
+        for attempt in range(check.rejoin_count):
+            report.setdefault("rejoin", []).append(check.rejoin(friend, world, slot))
+            check.picture(f"after-rejoin-{attempt + 1}")
+    if check.second_character:
+        friend.key("escape")
+        second = check.create_character(friend, existing=1)
+        friend_characters.append(second)
+        friend_character = second
+        report["second_character"] = check.rejoin(friend, world, slot, new_character=second)
+        report.setdefault("rejoin", []).append(check.rejoin(friend, world, slot))
+        check.picture("after-second-character")
     check.close(host, host_game)
     host.expect("host_list", 60)
     # Every character's latest save is its world's.
     for player, character, name in ((host, host_character, world["name"]), (friend, friend_character, world["name"])):
-        (latest,) = player.characters()
+        latest = next((c for c in player.characters() if c["character_id"] == character["character_id"]), None)
+        require(latest is not None, f"{player.name}: the character is missing from Characters")
+        if player is friend:
+            require(len(player.characters()) == len(friend_characters), f"{player.name}: Characters holds {len(player.characters())}")
         require(latest["character_id"] == character["character_id"], f"{player.name}: the character changed identity")
         require(latest["current"]["world_id"] == world["world_id"],
                 f"{player.name}: the character's latest save is not from {name} ({latest['current']['world_id']})")
@@ -710,6 +766,10 @@ def main():
     parser.add_argument("--display", action="append", default=[])
     parser.add_argument("--loopback", action="store_true",
                         help="host on this PC only (a PC whose only address is not one invitations take, e.g. 192.0.2.x)")
+    parser.add_argument("--rejoin", type=int, default=0, metavar="N",
+                        help="the friend joins again N times from the saved server, the host's world still open")
+    parser.add_argument("--second-character", action="store_true",
+                        help="then the friend creates another character, which takes the place over, and joins again")
     parser.add_argument("--linux-app", nargs=2, metavar=("INSTALLATION", "PROFILE"), help=argparse.SUPPRESS)
     args = parser.parse_args()
     if args.linux_app:
@@ -734,7 +794,8 @@ def main():
             env = dict(os.environ, LOCALAPPDATA=str(work / "host-profile"))
             w.install(args.setup.resolve(), target, env, work, args.label)
             desk = WindowsDesk(target / "EmeraldTogether.exe")
-        check = PlayCheck(desk, work, args.label, report, lines, loopback=args.loopback)
+        check = PlayCheck(desk, work, args.label, report, lines, loopback=args.loopback, rejoin_count=args.rejoin,
+                          second_character=args.second_character)
         report["hosted_on"] = "this PC only (--loopback)" if args.loopback else "this PC's local-network address"
         check.log(f"{report['platform']}: {'installed ' + args.setup.name + ' into ' + str(target) if not args.linux else 'Linux game'}")
         host = Player(check, "host", work / "host-profile")

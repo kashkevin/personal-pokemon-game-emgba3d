@@ -29,6 +29,7 @@ class ControlledSession:
         self.release_cleanup.set()
         self.blocked = False
         self.error = None
+        self.exit_code = 0
         self.play_cancelled = False
         self.save_started = threading.Event()
         self.release_save = threading.Event()
@@ -67,7 +68,7 @@ class ControlledSession:
             while not self.release_game.is_set():
                 await asyncio.sleep(.005)
             self.publish(SessionState.FINISHED, "game_closed")
-            return 0
+            return self.exit_code
         except asyncio.CancelledError:
             self.play_cancelled = True
             raise
@@ -233,6 +234,53 @@ class GuiWorkerTests(unittest.TestCase):
         self.assertEqual(events[-1].code, "session_failed")
         self.assertNotIn("secret", repr(events))
         self.assertNotIn("secret", status_text("secret credential"))
+
+    def test_a_failure_names_its_class_and_code_and_keeps_its_message_off_the_queue(self):
+        # A friend who could not join back was told only "The game could not open" (2026-10-24): the menu now also gets the
+        # failure's class and stable code, and the whole line (with its message) stays on the worker for the private file.
+        class StartupProblem(ValueError):
+            def __init__(self, code, message):
+                self.code = code
+                super().__init__(message)
+        session = self.launch()
+        session.error = StartupProblem("pending_conflict", "secret credential and C:/private/save.sav")
+        session.release_connect.set()
+        events = self.finish_events()
+        self.assertEqual((events[-1].code, events[-1].failure), ("session_failed", "StartupProblem pending_conflict"))
+        self.assertNotIn("secret", repr(events))
+        self.assertEqual(self.worker.last_failure_detail,
+                         "StartupProblem pending_conflict: secret credential and C:/private/save.sav")
+
+    def test_a_session_error_carries_the_cause_it_replaced(self):
+        from emerald_multiplayer.launcher_session import LauncherSessionError, _safe_error
+        safe = _safe_error(KeyError("journal"))
+        self.assertEqual((safe.code, safe.cause_name, safe.cause), ("session_failed", "KeyError", "KeyError: 'journal'"))
+        self.assertEqual(_safe_error(safe).cause, safe.cause)
+        session = self.launch()
+        session.error = safe
+        session.release_connect.set()
+        events = self.finish_events()
+        self.assertEqual(events[-1].failure, "KeyError")
+        self.assertEqual(self.worker.last_failure_detail, "KeyError: 'journal'")
+        self.assertIsNone(LauncherSessionError("session_failed").cause_name)
+
+    def test_a_game_that_crashes_says_so(self):
+        session = self.launch()
+        session.exit_code = 0xC0000005
+        session.release_connect.set()
+        self.assertTrue(session.played.wait(2))
+        session.release_game.set()
+        events = self.finish_events()
+        self.assertEqual((events[-1].code, events[-1].failure),
+                         ("session_failed", "the game ended with exit code 0xC0000005: a crash (access violation)"))
+
+    def test_a_closed_game_has_no_failure(self):
+        session = self.launch()
+        session.release_connect.set()
+        self.assertTrue(session.played.wait(2))
+        session.release_game.set()
+        events = self.finish_events()
+        self.assertEqual((events[-1].code, events[-1].failure, self.worker.last_failure_detail), ("game_closed", None, None))
 
     def test_connection_change_is_observed_without_stopping_game(self):
         session = self.launch()

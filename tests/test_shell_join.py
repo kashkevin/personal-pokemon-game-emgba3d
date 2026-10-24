@@ -116,6 +116,34 @@ class JoinNewServerTests(JoinFixture):
         self.assertEqual([r.mode for r in worker.requests], ["join", "join"])
         self.assertEqual({r.selection for r in worker.requests}, {invitation_path(pc.private, self.entry.world_id, self.account())})
 
+    def test_a_join_whose_game_cannot_open_says_why_and_writes_the_troubleshooting_file(self):
+        # The owner's friend could not join back and saw only "The game could not open" (2026-10-24).
+        pc = self.friend()
+        driver = Driver(*self.join_steps(self.code(1), then=[("bring_character", select("go")), ("join_list", BACK), main_exit()]))
+        pc.app(driver, lan=LOOPBACK_LAN)[0].run()
+        self.assertTrue(driver.done(), driver.steps)
+        worker = FakeWorker(lambda request: ("session_failed", "ColdStartError pending_conflict",
+                                             "ColdStartError pending_conflict: the pending checkpoint does not match"))
+        seen = {}
+
+        def after(screen):
+            seen["status"] = screen.status
+            return BACK
+        driver = Driver(("main", select("join")), ("join_list", lambda s: select(label_id(s, "Player 2's server"))),
+                        ("server", select("join")), ("join_list", after), main_exit())
+        app, _ = pc.app(driver, worker=worker, lan=LOOPBACK_LAN)
+        app.run()
+        self.assertTrue(driver.done(), driver.steps)
+        kind, text = seen["status"]
+        self.assertEqual(kind, "error")
+        self.assertIn("The game could not open", text)
+        self.assertIn("Reason: ColdStartError pending_conflict.", text)
+        self.assertIn("last-error.txt", text)
+        report = (pc.private / "shell" / "last-error.txt").read_text(encoding="utf-8")
+        self.assertIn("join session ended: session_failed", report)
+        self.assertIn("Reason: ColdStartError pending_conflict: the pending checkpoint does not match", report)
+        self.assertIn("Game launch", report)
+
     def test_two_friends_each_get_their_own_account_with_their_own_character(self):
         results = {}
         for slot in (1, 2):
