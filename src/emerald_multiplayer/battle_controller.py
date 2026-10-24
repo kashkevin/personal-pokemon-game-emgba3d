@@ -19,7 +19,12 @@ MASTER_LENGTHS = {
     23: 4, 25: 5, 26: 6, 36: 4, 37: 4, 38: 4, 39: 4,
     40: 4, 41: 2, 42: 4, 43: 52, 44: 4, 45: 4,
     46: 4, 47: 12, 48: 4, 49: 2, 50: 6,
+    60: 36,
 }
+# The PC game's stat stages (engine platform/battle_stat_stages.h CONTROLLER_PC_STAT_STAGES): only the master runs the
+# battle, so whenever a battler's stat stages change it sends every battler's to every game, which shows them beside the
+# healthboxes. Bytes: 60, the battler count, 0, 0, then four battlers' eight stages (0-12, 6 = no change).
+_STAT_STAGES = 60
 SET_FIELDS = {1: 2, 2: 2, 3: 16, 8: 5, 9: 1, 10: 1, 11: 1, 12: 1, 40: 4, 42: 2}
 REPLY_LENGTHS = {28: 144, 32: 6, 33: 5}
 _NEEDS_REPLY = frozenset((0, 17, 19, 21))
@@ -210,6 +215,8 @@ class ControllerValidator:
         if command == 47: return p[1] < 65 and _animation_valid(p[4:12])
         if command == 48: return p[1] <= 2 and not any(p[2:4])
         if command == 49: return p[1] <= 2
+        if command == _STAT_STAGES:
+            return p[1] == self._count and not any(p[2:4]) and all(stage <= 12 for stage in p[4:36])
         if command == 50:
             # Free-for-all: byte 2 names the winner's battler (255: a draw) and each core works out its own result from it.
             # The winner is one of the trainers' battlers (never the 1v1v1's empty place).

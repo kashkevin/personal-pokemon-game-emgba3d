@@ -224,6 +224,33 @@ class NativeControllerTests(unittest.TestCase):
             with self.subTest(mark=mark), self.assertRaises(BattleMailboxError):
                 validator().accept(wire(bytes(choice)), 0)
 
+    def test_the_stat_stages_command_names_every_battler_and_bounded_stages(self):
+        stages = bytearray(36)
+        stages[0], stages[1] = 60, 2
+        stages[4:36] = bytes((6,)*32)
+        stages[4 + 1] = 8                 # battler 0 Attack +2
+        stages[4 + 8 + 3] = 4             # battler 1 Speed -2
+        v = validator()
+        v.accept(wire(bytes(stages)), 0)
+        self.assertEqual(v.pending, (60, None))
+        v.accept(done(0), 0)
+        v.accept(done(1), 1)              # no reply: both games only show it
+        self.assertEqual(v.pending, (None, None))
+        for bad in ((1, 4), (1, 0), (2, 1), (3, 1), (5, 13), (35, 255)):
+            wrong = bytearray(stages)
+            wrong[bad[0]] = bad[1]
+            with self.subTest(bad=bad), self.assertRaises(BattleMailboxError):
+                validator().accept(wire(bytes(wrong)), 0)
+        with self.assertRaises(BattleMailboxError):   # only the master sends it
+            validator().accept(wire(bytes(stages)), 1)
+        with self.assertRaises(BattleMailboxError):   # its exact length
+            validator().accept(wire(bytes(stages) + b"\1"), 0)
+        ffa = bytearray(stages)
+        ffa[1] = 4
+        ffa_validator(MULTI_PHASE).accept(wire(bytes(ffa)), 0)
+        with self.assertRaises(BattleMailboxError):
+            ffa_validator(MULTI_PHASE).accept(wire(bytes(stages)), 0)
+
     def test_animation_pid_is_not_a_timer_and_bitfields_are_bounded(self):
         anim = struct.pack("<IBBBB", 0xFFEEDDCC, 5, 5, 15, 0)
         validator().accept(wire(bytes((47, 1, 0, 0))+anim), 0)
