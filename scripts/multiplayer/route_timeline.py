@@ -338,6 +338,51 @@ def install(timeline: Timeline, name_of) -> None:
         return view
     BattleExecutionService.exchange = exchange
 
+    # KNOWN_ISSUES MS-62: when each pushed observation reached the route (the journal records them without a time), and
+    # every observe call the host answered (accepted or not: a refused one is sent again later).
+    original_observe = RouteJournal.observe
+
+    @functools.wraps(original_observe)
+    def journal_observe(self, actor, control):
+        result = original_observe(self, actor, control)
+        timeline.write("observation", who=name_of(actor) or actor)
+        return result
+    RouteJournal.observe = journal_observe
+
+    original_service_observe = BattleExecutionService.observe
+
+    @functools.wraps(original_service_observe)
+    def service_observe(self, actor, lease, request):
+        room = self.rooms.get(request.get("battle_id"))
+        pending = None if room is None or actor not in room.pending else room.pending[actor][2]
+        view = original_service_observe(self, actor, lease, request)
+        if not view.get("accepted"):
+            timeline.write("observe_refused", who=name_of(actor) or actor, pending=pending)
+        return view
+    BattleExecutionService.observe = service_observe
+
+    # Every fsync, by thread (the host's route journal, the launchers' records, the stores): counted and timed, written
+    # as a running total every 10 s by the monitor below.
+    import os as _os
+    fsyncs = {}
+    real_fsync = _os.fsync
+
+    def counted_fsync(fd):
+        began = time.perf_counter()
+        try:
+            return real_fsync(fd)
+        finally:
+            name = threading.current_thread().name
+            count, seconds = fsyncs.get(name, (0, 0.0))
+            fsyncs[name] = (count + 1, seconds + time.perf_counter() - began)
+    _os.fsync = counted_fsync
+
+    def fsync_totals():
+        while True:
+            time.sleep(10)
+            timeline.write("fsyncs", totals={name: [count, round(seconds, 3)] for name, (count, seconds) in fsyncs.items()})
+    threading.Thread(target=fsync_totals, name="route-timeline-fsyncs", daemon=True).start()
+
     original_append = RouteJournal.append
 
     @functools.wraps(original_append)
