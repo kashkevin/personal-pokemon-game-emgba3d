@@ -290,6 +290,7 @@ class WindowsWorkflowTests(unittest.TestCase):
         self.assertIn("mega_check.py --exe $exe --make-save $save", checks)    # a save of the short introduction
         self.assertIn('foreach ($check in "move_switch_check", "shiny_check", "casino_check")', checks)
         self.assertIn('throw "failed:', checks)                                # any failed check fails the job
+        self.assertIn("if (-not (Test-Path $save))", checks)                   # the save is made (mega_check exits 1 on 0 of 0)
         self.assertNotIn(".sav", checks.split("upload-artifact")[1])           # reports and pictures, never the save
         self.assertIn("for check in move_switch_check shiny_check casino_check; do", job("engine"))
 

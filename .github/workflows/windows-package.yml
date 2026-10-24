@@ -623,7 +623,8 @@ jobs:
           $out = Join-Path $env:RUNNER_TEMP "feature-checks"
           $save = Join-Path $env:RUNNER_TEMP "town.sav"
           python mega-check-inputs\mega_check.py --exe $exe --make-save $save --out (Join-Path $out "save") --no-cases
-          if ($LASTEXITCODE -ne 0) { throw "the short introduction's save failed ($LASTEXITCODE)" }
+          # mega_check exits 1 when it ran no case ("passed 0 of 0", run 217): only the save matters here.
+          if (-not (Test-Path $save)) { throw "the short introduction's save was not made ($LASTEXITCODE)" }
           $failed = @()
           foreach ($check in "move_switch_check", "shiny_check", "casino_check") {
             if (-not (Test-Path "mega-check-inputs\$check.py")) {
