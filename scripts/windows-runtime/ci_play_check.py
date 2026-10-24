@@ -189,11 +189,16 @@ class LinuxDesk:
         return dict(os.environ, DISPLAY=self._display(pid))
 
     def _display(self, pid):
+        # A process's display is its player's, found through its parents while it runs and kept: a game that closes itself
+        # has no /proc entry any more, and the first display (the host's) was then taken for the friend's game - its key up
+        # went to the host's display and the friend's A stayed held, repeating into the friend's menu (L rj-1).
+        start = pid
         while pid not in self.display_of:
             try:
                 pid = int(Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[1])
             except (OSError, ValueError, IndexError):
                 return self.displays[0]
+        self.display_of[start] = self.display_of[pid]
         return self.display_of[pid]
 
     def children(self, pid):
@@ -228,15 +233,18 @@ class LinuxDesk:
         subprocess.run(["xdotool", "type", "--delay", "40", text], env=self._env(handle[0]), check=True)
 
     def game_key(self, handle, name, hold=0.12):
-        self._focus(handle)
+        env = self._env(handle[0])                # one display for the whole press: the game may close while the key is down
+        subprocess.run(["xdotool", "windowfocus", "--sync", handle[1]], env=env, capture_output=True, timeout=10)
         # Keys go to the focused window: when the game has just closed, the menu has the focus and would take the key.
-        focused = subprocess.run(["xdotool", "getwindowfocus"], env=self._env(handle[0]), capture_output=True, text=True)
+        focused = subprocess.run(["xdotool", "getwindowfocus"], env=env, capture_output=True, text=True)
         if focused.stdout.strip() != handle[1]:
             raise CheckFailed("the game window does not have the focus")
         key = self.GAME_KEYS[name]
-        subprocess.run(["xdotool", "keydown", key], env=self._env(handle[0]), check=True)
-        time.sleep(hold)
-        subprocess.run(["xdotool", "keyup", key], env=self._env(handle[0]), check=True)
+        subprocess.run(["xdotool", "keydown", key], env=env, check=True)
+        try:
+            time.sleep(hold)
+        finally:
+            subprocess.run(["xdotool", "keyup", key], env=env, check=True)
 
     def close_game(self, pid, handle):
         os.kill(pid, signal.SIGTERM)                              # SDL turns it into a quit, as a close button does
