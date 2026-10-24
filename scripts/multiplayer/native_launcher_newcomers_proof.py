@@ -202,9 +202,7 @@ class NewcomersProof(SoftResetProof, ThreePlayerProof):
         for step in ("Challenges", "New battle", "Battle lobby", f"{names[1][:19]}: No"):
             await leader.choose(step)
         await leader.choose("Send invitations")
-        seen = await self.stray_presses(leader, 1, record, label + "-leader-stray")
-        require(seen[0]["on"] == "Waiting for trainers" and not seen[0]["active"] and seen[0]["then"] == "Battle lobby",
-                f"the leader's next A after Send invitations: {seen}")
+        led = await self.stray_presses(leader, 1, record, label + "-leader-stray")
         await close_players(leader)
         await friend.open_players()
         await friend.choose("Battle lobby")
@@ -213,6 +211,8 @@ class NewcomersProof(SoftResetProof, ThreePlayerProof):
                 f"a stray press landed on a decline: {seen}")
         require(seen[-1]["then"] == "Battle lobby" and "Join lobby" in seen[-1]["rows"],
                 f"after two stray presses the friend's lobby is gone: {seen}")
+        require(led[0]["on"] == "Waiting for trainers" and not led[0]["active"] and led[0]["then"] == "Battle lobby",
+                f"the leader's next A after Send invitations: {led}")
         await friend.choose("Join lobby")
         await close_players(friend)
 
