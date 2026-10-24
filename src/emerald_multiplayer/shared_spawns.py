@@ -21,6 +21,10 @@ not add 12 on top of 8. When an outbreak ends the map returns to 8: the
 director retires the open Pokemon above the limit (``trim``, outbreak ones
 first, oldest first), never one that somebody is battling, and new spawns wait
 until fewer than 8 remain, so nothing is duplicated.
+
+Shiny Pokemon never despawn (the owner's request of 2026-10-24): a shiny slot does not expire, is not retired for being far
+from every player and is not trimmed when an outbreak ends. It stays until somebody catches or defeats it; running from it
+or losing to it leaves it where it was, as for any slot.
 """
 
 from __future__ import annotations
@@ -128,7 +132,7 @@ class SpawnBoard:
         excess = self.live_count() - self.limit()
         if excess <= 0:
             return []
-        candidates = sorted((s for s in self.slots.values() if s.state == OPEN),
+        candidates = sorted((s for s in self.slots.values() if s.state == OPEN and not s.shiny),
                             key=lambda s: (s.kind != KIND_OUTBREAK, s.created_at, s.spawn_id))
         retired = []
         for slot in candidates[:excess]:
@@ -193,9 +197,9 @@ class SpawnBoard:
         return True
 
     def retire(self, spawn_id: int, reason: str = "despawned") -> bool:
-        """Remove an open Pokemon that wandered off (never a claimed one)."""
+        """Remove an open Pokemon that wandered off (never a claimed one, never a shiny one)."""
         slot = self.get(spawn_id)
-        if slot is None or slot.state != OPEN:
+        if slot is None or slot.state != OPEN or slot.shiny:
             return False
         slot.state = REMOVED
         slot.end_reason = reason
@@ -285,7 +289,7 @@ class SpawnBoard:
         now = self.clock()
         changed: list[int] = []
         for slot in self.slots.values():
-            if slot.state == OPEN and now >= slot.expires_at:
+            if slot.state == OPEN and not slot.shiny and now >= slot.expires_at:
                 slot.state = REMOVED
                 slot.end_reason = "expired"
                 changed.append(slot.spawn_id)
@@ -293,7 +297,7 @@ class SpawnBoard:
                 slot.state = OPEN
                 slot.claimant = None
                 slot.grace_until = None
-                if now >= slot.expires_at:  # its lifetime ran out during the battle
+                if now >= slot.expires_at and not slot.shiny:  # its lifetime ran out during the battle
                     slot.state = REMOVED
                     slot.end_reason = "expired"
                 changed.append(slot.spawn_id)

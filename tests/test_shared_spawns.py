@@ -31,6 +31,63 @@ def add(board, **kw):
     return board.create(**args)
 
 
+class ShinyStaysTests(unittest.TestCase):
+    """Shiny Pokemon never despawn (the owner's request of 2026-10-24): only a catch or a win removes one."""
+
+    def test_a_shiny_outlives_its_lifetime_and_a_plain_one_does_not(self):
+        board, clock = make_board()
+        shiny, plain = add(board, shiny=True, lifetime=60), add(board, lifetime=60)
+        clock.now += 10_000
+        board.tick()
+        self.assertEqual([s.spawn_id for s in board.live()], [shiny])
+        self.assertNotIn(plain, [s.spawn_id for s in board.live()])
+
+    def test_a_shiny_is_never_retired_or_trimmed(self):
+        board, clock = make_board()
+        shiny = add(board, shiny=True)
+        self.assertFalse(board.retire(shiny, "wandered_off"))
+        board.set_outbreak(True)
+        for _ in range(ss.OUTBREAK_SLOT_LIMIT - 1):
+            add(board, kind=ss.KIND_OUTBREAK)
+        board.set_outbreak(False)
+        retired = board.trim()
+        self.assertNotIn(shiny, retired)
+        self.assertIn(shiny, [s.spawn_id for s in board.live()])
+        self.assertEqual(len(retired), ss.OUTBREAK_SLOT_LIMIT - ss.NORMAL_SLOT_LIMIT)
+
+    def test_running_from_a_shiny_leaves_it_and_catching_it_removes_it(self):
+        board, clock = make_board()
+        shiny = add(board, shiny=True, lifetime=60)
+        self.assertEqual(board.claim("a", shiny), ss.GRANTED)
+        clock.now += 1_000
+        self.assertEqual(board.result("a", shiny, "ran"), ss.RELEASED)
+        board.tick()
+        self.assertIn(shiny, [s.spawn_id for s in board.live()])
+        self.assertEqual(board.claim("b", shiny), ss.GRANTED)
+        self.assertEqual(board.result("b", shiny, "caught"), ss.CONSUMED)
+        self.assertNotIn(shiny, [s.spawn_id for s in board.live()])
+
+    def test_a_shiny_whose_claimant_never_came_back_stays(self):
+        board, clock = make_board()
+        shiny = add(board, shiny=True, lifetime=60)
+        board.claim("a", shiny)
+        board.player_disconnected("a", grace=30)
+        clock.now += 10_000
+        board.tick()
+        (slot,) = board.live()
+        self.assertEqual((slot.spawn_id, slot.state), (shiny, ss.OPEN))
+
+    def test_a_shiny_survives_a_save_and_restore(self):
+        board, clock = make_board()
+        shiny = add(board, shiny=True, lifetime=60)
+        clock.now += 10_000
+        state = board.to_state()
+        again = SpawnBoard.from_state(state, clock)
+        clock.now += 10_000
+        again.tick()
+        self.assertEqual([s.spawn_id for s in again.live()], [shiny])
+
+
 class LimitTests(unittest.TestCase):
     def test_normal_limit_is_eight(self):
         board, _ = make_board()
