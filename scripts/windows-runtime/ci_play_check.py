@@ -174,7 +174,8 @@ class LinuxDesk:
 
     def __init__(self, application, displays):
         self.application, self.displays = application, displays
-        self.display_of = {}
+        self.display_of = {}            # each player's launcher process: its display (launch() hands them out in order)
+        self.found = {}                 # any other process of a player's (a menu, a game): (display, start time), kept once found
 
     def launch(self, profile, screen_log):
         display = self.displays[len(self.display_of)]
@@ -192,14 +193,28 @@ class LinuxDesk:
         # A process's display is its player's, found through its parents while it runs and kept: a game that closes itself
         # has no /proc entry any more, and the first display (the host's) was then taken for the friend's game - its key up
         # went to the host's display and the friend's A stayed held, repeating into the friend's menu (L rj-1).
-        start = pid
+        # The process's start time tells a process that ended (kept display) from a new one with the same number (looked up
+        # again): process numbers come round again (pid_max 32768 here) and every key is a few xdotool processes.
+        start, began = pid, self._started(pid)
+        kept = self.found.get(start)
+        if kept is not None and (began is None or began == kept[1]):
+            return kept[0]
         while pid not in self.display_of:
             try:
                 pid = int(Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[1])
             except (OSError, ValueError, IndexError):
                 return self.displays[0]
-        self.display_of[start] = self.display_of[pid]
+        if start != pid:
+            self.found[start] = (self.display_of[pid], began)
         return self.display_of[pid]
+
+    @staticmethod
+    def _started(pid):
+        """The process's start time (/proc/PID/stat field 22), or None once it has ended."""
+        try:
+            return Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[19]
+        except (OSError, IndexError):
+            return None
 
     def children(self, pid):
         found = []
