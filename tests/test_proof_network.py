@@ -44,6 +44,21 @@ class RoughLinkTests(unittest.TestCase):
         self.assertAlmostEqual(link.delay(31.0, "b"), 2.0)   # the next stall (30-33 s)
         self.assertAlmostEqual(link.delay(33.0, "b"), 0.05)
 
+    def test_messages_held_by_a_stall_are_delivered_in_order_by_an_event_loop(self):
+        # Run 214's trade-rough: the save's chunks sent during a stall were all due at the stall's end, and the loop ran
+        # them in another order ("chunks must be sequential"). Each now has its own later time.
+        import asyncio
+
+        async def run():
+            loop = asyncio.get_running_loop()
+            link = RoughLink(0, stall_every=10, stall_ms=200, start=loop.time())
+            delivered = []
+            for n in range(200):
+                loop.call_at(link.arrival(loop.time(), "up"), delivered.append, n)
+            await asyncio.sleep(0.35)
+            return delivered
+        self.assertEqual(asyncio.run(run()), list(range(200)))
+
     def test_no_settings_means_no_delay(self):
         self.assertEqual(RoughLink().delay(5.0, "a"), 0.0)
         self.assertEqual(RoughLink(stall_every=30).delay(1.0, "a"), 0.0)   # a stall needs its length too

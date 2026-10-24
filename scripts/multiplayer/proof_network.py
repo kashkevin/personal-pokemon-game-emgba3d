@@ -43,16 +43,24 @@ class RoughLink:
         self.every, self.stall = (stall_every, stall_ms / 1000) if stall_every and stall_ms else (0.0, 0.0)
         self.start, self.rng, self.last = start, rng or random.Random(0), {}
 
-    def delay(self, now, key):
-        """Seconds from `now` until the message of `key` (session, direction) is delivered."""
+    def arrival(self, now, key):
+        """When (on `now`'s clock) the message of `key` (session, direction) is delivered: strictly after the one before
+        it, so timers due at once (every message held by a stall) still run in order, as on TCP (an event loop runs
+        timers due at the same instant in no fixed order: run 214's trade-rough had its save's chunks overtake)."""
         at = now + self.latency + (self.rng.uniform(0, self.jitter) if self.jitter else 0.0)
         if self.every:
             phase = (at - self.start) % self.every
             if phase < self.stall:
                 at += self.stall - phase          # sent during a stall: it goes when the stall ends
-        at = max(at, self.last.get(key, 0.0))    # in order, as on TCP
+        previous = self.last.get(key)
+        if previous is not None and at <= previous:
+            at = previous + 1e-6
         self.last[key] = at
-        return max(0.0, at - now)
+        return at
+
+    def delay(self, now, key):
+        """Seconds from `now` until the message of `key` is delivered."""
+        return max(0.0, self.arrival(now, key) - now)
 
 
 def simulate_internet(latency_ms, hold=True, host_player=None, everything=False, *, jitter_ms=0.0, stall_every=0.0,
@@ -74,7 +82,9 @@ def simulate_internet(latency_ms, hold=True, host_player=None, everything=False,
 
         def later(session, direction, call, *args):
             loop = asyncio.get_running_loop()
-            loop.call_later(link.delay(loop.time(), (id(session), direction)), call, *args)
+            # call_at, not call_later: arrival times strictly increase per direction, and a relative delay would add
+            # each call's own reading of the clock.
+            loop.call_at(link.arrival(loop.time(), (id(session), direction)), call, *args)
 
         def late_receive(self, session, message):
             if lagged(session, message):
