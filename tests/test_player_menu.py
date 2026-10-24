@@ -409,3 +409,123 @@ class PlayerMenuEnterTests(PlayerMenuAdmissionTests):
         self.assertEqual(self.render(consent=["a", "b", "c", "d"], state="starting", **four).status, "Starting battle")
         self.assertEqual(self.render(mode=5, consent=["a", "b", "c", "d"], players=["a", "b", "c", "d"]).title,
                          "Free-for-All: 4 Players")
+
+
+class _ThroughBridge:
+    """The companion as a MenuSession sees it, with a test bridge as its game bridge."""
+    def __init__(self, companion, bridge):
+        self._companion, self._bridge = companion, bridge
+
+    def __getattr__(self, name):
+        return getattr(self._companion, name)
+
+
+class PlayerMenuTeamRaceTests(unittest.IsolatedAsyncioTestCase):
+    """A team question's page is static: the friend can end what it asks about while it is shown (A cancels the
+    invitation B is asked to decline, A leaves the team B is asked to leave, B accepts the invitation A is asked to
+    cancel). Its Yes then meets the host's refusal (team_invitation_missing, team_not_member...): the team page again
+    with why, and the window stays open (the refusal used to close it with "Reopen to check server status")."""
+    asyncSetUp = fixtures.BattleChallengeNetworkTests.asyncSetUp
+    asyncTearDown = fixtures.BattleChallengeNetworkTests.asyncTearDown
+
+    async def click(self, menu, label):
+        screen = menu.screen
+        return await menu.choose(screen.revision, next(row.action for row in screen.rows if row.label == label))
+
+    async def yes(self, menu, label):
+        import emerald_multiplayer.player_menu as player_menu
+        with unittest.mock.patch.object(player_menu, "ASK_GRACE_SECONDS", 0):
+            return await self.click(menu, label)
+
+    async def invited(self):
+        """A (Trainer 0) has invited B (Trainer 1): both menus on the team page, and the invitation."""
+        a, b = PlayerMenu(self.companions[0]), PlayerMenu(self.companions[1])
+        await a.refresh(); await self.click(a, "Trainer 1"); await self.click(a, "Invite to team")
+        await b.refresh(); await self.click(b, "Team invitation")
+        invitation = (await self.companions[1].team_rpc("status"))["result"]["invitations"][0]
+        return a, b, invitation
+
+    async def test_the_invitation_cancelled_while_its_decline_question_is_open(self):
+        a, b, invitation = await self.invited()
+        screen = await self.click(b, "Decline invitation...")
+        self.assertEqual(screen.title, "Decline the invitation?")
+        await self.companions[0].team_rpc("cancel", invitation_id=invitation["invitation_id"],
+                                          generation=invitation["generation"])        # A cancels meanwhile
+        screen = await self.yes(b, "Yes, decline it")
+        self.assertEqual((screen.title, screen.status), ("Your team", "The team changed: try again"))
+        self.assertEqual(b._page, ("team", None))
+        self.assertFalse(self.server.team_desk._invitations)
+        self.assertEqual((await b.refresh()).status, "The team changed: try again")   # until the next choice
+
+    async def test_the_invitation_accepted_while_its_cancel_question_is_open(self):
+        a, b, invitation = await self.invited()
+        screen = await self.click(a, "Cancel invitation...")
+        self.assertEqual(screen.title, "Cancel the invitation?")
+        await self.click(b, "Accept invitation")                                       # B accepts meanwhile
+        screen = await self.yes(a, "Yes, cancel it")
+        self.assertEqual((screen.title, screen.status), ("Your team", "The team changed: try again"))
+        self.assertIn("Leave team...", [row.label for row in screen.rows])             # the team B's accept formed
+        self.assertTrue(self.server.team_desk._teams)
+
+    async def test_the_partner_leaves_while_the_leave_question_is_open(self):
+        a, b, invitation = await self.invited()
+        await self.click(b, "Accept invitation")
+        team = (await self.companions[0].team_rpc("status"))["result"]["team"]
+        screen = await self.click(b, "Leave team...")
+        self.assertEqual(screen.title, "Leave the team?")
+        await self.companions[0].team_rpc("leave", team_id=team["team_id"], generation=team["generation"])
+        screen = await self.yes(b, "Yes, leave the team")
+        self.assertEqual((screen.title, screen.status), ("Your team", "The team changed: try again"))
+        self.assertEqual(b._page, ("team", None))
+
+    async def test_an_accept_after_the_invitation_was_cancelled(self):
+        a, b, invitation = await self.invited()
+        await self.companions[0].team_rpc("cancel", invitation_id=invitation["invitation_id"],
+                                          generation=invitation["generation"])
+        screen = await self.click(b, "Accept invitation")
+        self.assertEqual((screen.title, screen.status), ("Your team", "The team changed: try again"))
+        self.assertFalse(self.server.team_desk._teams)
+
+    async def test_the_window_stays_open_on_the_overtaken_yes(self):
+        # The same race through the game's window (MenuSession): the Yes answers with the team page, no close.
+        import asyncio
+        import emerald_multiplayer.player_menu as player_menu
+        from emerald_multiplayer.bridge_protocol import BridgeOutbox
+        from emerald_multiplayer.menu_mailbox import MenuRequest, unpack_screen
+        from emerald_multiplayer.menu_session import MenuSession
+        a = PlayerMenu(self.companions[0])
+        await a.refresh(); await self.click(a, "Trainer 1"); await self.click(a, "Invite to team")
+        closed = []
+        bridge = SimpleNamespace(outbox=BridgeOutbox(), writer=SimpleNamespace(close=lambda: closed.append(True)))
+        session = MenuSession(_ThroughBridge(self.companions[1], bridge), bridge)
+        sequence, shown = 0, None
+
+        async def send(screen_revision=0, action=0, kind=1):
+            nonlocal sequence, shown
+            sequence += 1
+            session.feed(MenuRequest(sequence, screen_revision, action, kind).pack())
+            await session._task
+            frame = await asyncio.wait_for(bridge.outbox.get(), 1)
+            ack, shown, close = unpack_screen(frame[5:])
+            self.assertEqual(ack, sequence)
+            return shown, close
+
+        async def press(label):
+            return await send(shown.revision, next(row.action for row in shown.rows if row.label == label), 2)
+
+        try:
+            await send()                                                       # START > PLAYER > PLAYERS
+            await press("Team invitation")
+            screen, close = await press("Decline invitation...")
+            self.assertEqual((screen.title, close), ("Decline the invitation?", False))
+            invitation = (await self.companions[1].team_rpc("status"))["result"]["invitations"][0]
+            await self.companions[0].team_rpc("cancel", invitation_id=invitation["invitation_id"],
+                                              generation=invitation["generation"])
+            with unittest.mock.patch.object(player_menu, "ASK_GRACE_SECONDS", 0):
+                screen, close = await press("Yes, decline it")
+            self.assertFalse(close)
+            self.assertEqual((screen.title, screen.status), ("Your team", "The team changed: try again"))
+            self.assertTrue(session.open)
+            self.assertFalse(closed)
+        finally:
+            await session.close()

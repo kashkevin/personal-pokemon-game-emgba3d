@@ -120,6 +120,12 @@ LOBBY_NOTICES = {"lobby_busy": "Someone is in another lobby", "battle_busy": "So
                  "lobby_answered": "You already answered"}
 LOBBY_ENDINGS = {"cancelled": "The lobby was cancelled", "creator_left": "The lobby's leader left",
                  "timed_out": "The lobby timed out", "nobody_joined": "Nobody joined the lobby"}
+# The host's refusals of a team choice (team_desk.py) shown on the team page: the friend changed the team while its page
+# or question was shown.
+TEAM_NOTICES = {code: "The team changed: try again" for code in (
+    "team_invitation_missing", "team_generation_mismatch", "team_not_member", "team_not_participant",
+    "team_not_recipient", "team_not_sender", "team_already_member")} | {
+    "player_offline": "That player is offline", "team_capacity": "Too many teams: try later"}
 # A lobby format's challenge (battle_desk.py operations) and the game capability it needs.
 LOBBY_INVITES = {"1v1": "invite", "1v1v1": "invite_ffa3", "1v1v1v1": "invite_ffa", "2v2": "invite_multi"}
 
@@ -693,17 +699,17 @@ class PlayerMenu:
                 invitation = self._team["invitations"][0]
                 params = (invitation["invitation_id"], invitation["generation"])
                 if invitation["recipient"] == actor:
-                    status = "From " + self._name(invitation["sender"])
+                    status = self._notice or "From " + self._name(invitation["sender"])
                     actions.extend((("Accept invitation", "team_accept", params),
                                     ("Decline invitation...", "ask", ("team_decline", *params))))
                 else:
                     # A row that does nothing first: the A that sent the invitation rests on it (it used to rest on
                     # Cancel invitation, the page's only row).
-                    status = "Waiting for " + self._name(invitation["recipient"])
+                    status = self._notice or "Waiting for " + self._name(invitation["recipient"])
                     actions.append((f"Invited {self._name(invitation['recipient'])[:17]}", "", ()))
                     actions.append(("Cancel invitation...", "ask", ("team_cancel", *params)))
             else:
-                status = "Choose a player to invite"
+                status = self._notice or "Choose a player to invite"
         elif page == "battles":
             title = "Challenges"
             if self._battles:
@@ -1642,10 +1648,19 @@ class PlayerMenu:
             elif op == "team_invite":
                 await self.companion.team_rpc("invite", peer=args[0], invitation_id=str(uuid4()))
                 self._page = ("team", None)
-            elif op == "team_leave":
-                await self.companion.team_rpc("leave", team_id=args[0], generation=args[1])
-            elif op in ("team_accept", "team_decline", "team_cancel"):
-                await self.companion.team_rpc(op.removeprefix("team_"), invitation_id=args[0], generation=args[1])
+            elif op in ("team_leave", "team_accept", "team_decline", "team_cancel"):
+                try:
+                    if op == "team_leave":
+                        await self.companion.team_rpc("leave", team_id=args[0], generation=args[1])
+                    else:
+                        await self.companion.team_rpc(op.removeprefix("team_"), invitation_id=args[0],
+                                                      generation=args[1])
+                except TeamError as error:
+                    # The friend changed the team while its page or question was shown (cancelled the invitation,
+                    # accepted it first, left the team): the host's answer, shown on the team page again (the window
+                    # used to close on it with "Reopen to check server status").
+                    self._notice = TEAM_NOTICES.get(error.code, "The host refused: try again")
+                    self._page = ("team", None)
             elif op == "lobby_toggle":
                 chosen = args[0]
                 self._lobby_pick = ([p for p in self._lobby_pick if p != chosen] if chosen in self._lobby_pick
