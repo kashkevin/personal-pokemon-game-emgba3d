@@ -72,7 +72,9 @@ _TEXT = {
     "connection_lost": "Connection to the host was lost. Keep the game open while its save or battle recovery status is checked.",
     "host_loss_preserving": "Host connection lost. Preserving your game locally; keep the game open.",
     "host_loss_preserved": "Host connection lost. Your local save is preserved. Close the game and rejoin when the host returns.",
-    "host_loss_unsaved_held": "Host connection lost. Saving could not be verified. Keep this paused game open for recovery.",
+    "host_loss_unsaved_held": "Host connection lost. Your progress since your last save could not be kept. Close the game; "
+                              "when you join again you continue from your last save.",
+    "unsaved_progress_set_aside": "The host left before your latest progress could be kept, so you continue from your last save.",
     "host_loss_battle_waiting": "Battle interrupted. Keep the game open; the battle is waiting for all players.",
     "host_loss_trade_waiting": "Trade interrupted. Keep this game open. Once the host is back, Resolve interrupted trade cancels an unfinished exchange or verifies an already committed result.",
     "trade_recovery_checking": "Checking the exact trade and saved bytes. An unfinished trade will be canceled. Keep the original game open.",

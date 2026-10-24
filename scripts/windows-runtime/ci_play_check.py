@@ -89,7 +89,7 @@ def wait(condition, seconds, step=1.0):
 class WindowsDesk:
     """The installed program; keys are posted to the windows (ci_world_check's helpers)."""
 
-    GAME_KEYS = dict(a=0x5A, b=0x58, start=0x0D)
+    GAME_KEYS = dict(a=0x5A, b=0x58, start=0x0D, up=0x26, down=0x28, left=0x25, right=0x27)
 
     def __init__(self, exe):
         self.exe = exe
@@ -170,7 +170,7 @@ class LinuxDesk:
     """The launcher's own code with the Linux game (a rehearsal of the Windows check); xdotool on each player's X display."""
 
     KEYS = dict(down="Down", up="Up", home="Home", end="End", enter="Return", escape="Escape", tab="Tab", backspace="BackSpace")
-    GAME_KEYS = dict(a="z", b="x", start="Return")
+    GAME_KEYS = dict(a="z", b="x", start="Return", up="Up", down="Down", left="Left", right="Right")
 
     def __init__(self, application, displays):
         self.application, self.displays = application, displays
@@ -467,10 +467,13 @@ def revision(world, slot):
 # ------------------------------------------------------------------ the steps
 
 class PlayCheck:
-    def __init__(self, desk, work, label, report, lines, loopback=False, rejoin_count=0, second_character=False):
+    def __init__(self, desk, work, label, report, lines, loopback=False, rejoin_count=0, second_character=False, host_leaves=False,
+                 friend_menu=False):
         self.desk, self.work, self.label, self.report, self.lines = desk, work, label, report, lines
         self.loopback = loopback
         self.rejoin_count, self.second_character = rejoin_count, second_character
+        self.host_leaves_first = host_leaves
+        self.friend_menu = friend_menu
         self.pictures = work / f"{label}-pictures"
         self.pictures.mkdir(exist_ok=True)
         self.count = 0
@@ -626,7 +629,7 @@ class PlayCheck:
         game, result = self.enter_and_play(host, world, 0, keep_open=True)
         return world, code, decoded.slot, game, result
 
-    def join(self, friend, code, host_world, slot):
+    def join(self, friend, code, host_world, slot, keep_open=False):
         main = friend.expect("main")
         friend.choose(main, "join")
         friend.choose(friend.expect("join_list"), "new")
@@ -637,9 +640,73 @@ class PlayCheck:
         friend.key("enter")                        # Check and join
         friend.log("Join Friend: typed the invite code, Check and join")
         world = dict(name=host_world["name"])
-        _, result = self.enter_and_play(friend, world, slot, host_world=host_world)
+        game, result = self.enter_and_play(friend, world, slot, host_world=host_world, keep_open=keep_open)
+        if keep_open:
+            return game, result
         friend.expect("join_list", 60)
         return result
+
+    def host_leaves(self, host, host_game, friend, friend_game, host_world, slot):
+        """The host closes the hosted game while the friend plays on with progress it has not saved (the owner's friend could not join
+        back after that, 2026-10-24); the friend then closes their game too, the host hosts again and the friend joins back."""
+        before = revision(host_world, slot)
+        for key in ("down", "down", "right", "right", "up", "left"):  # a few steps: progress since the friend's last save
+            friend.desk.game_key(friend_game[1], key, hold=0.3)
+            time.sleep(0.4)
+        if self.friend_menu:
+            friend.desk.game_key(friend_game[1], "start")             # in a menu, the game cannot stop for an emergency save
+            time.sleep(1.5)
+            friend.log("opened the START menu in the game")
+        self.close(host, host_game)
+        host.log("closed the hosted game while the friend plays on unsaved")
+        seen, deadline, settled = [], time.time() + 150, None
+        while time.time() < deadline:
+            current = friend.current()
+            status = current and current.get("status")
+            text = status[1] if status else ""
+            if text and (not seen or seen[-1] != text):
+                seen.append(text)
+                friend.log(f"the menu says: {text}")
+            if current and current["id"] != "session":
+                break
+            if any(word in text for word in ("preserved", "could not be verified", "interrupted", "Close the game")):
+                settled = text
+                time.sleep(3)
+                break
+            time.sleep(0.5)
+        self.picture("friend-after-host-left")
+        players = friend.private / "players" / host_world["world_id"]
+        journals = {str(p.relative_to(friend.private)): json.loads(p.read_text(encoding="utf-8")).get("state")
+                    for p in players.glob("*/pending-emergency.json")} if players.is_dir() else {}
+        friend.log(f"recovery journals while the game is open: {journals or 'none'}")
+        if friend.desk.alive(friend_game[0]):
+            self.close(friend, friend_game)
+        after = friend.expect(("join_list", "message", "main"), 120)
+        friend.log(f"after closing the game the menu shows {after['id']}: {after['status']} {after['notes'][:2]}")
+        journals_after = {str(p.relative_to(friend.private)): json.loads(p.read_text(encoding="utf-8")).get("state")
+                          for p in players.glob("*/pending-emergency.json")} if players.is_dir() else {}
+        friend.log(f"recovery journals after the game closed: {journals_after or 'none'}")
+        if after["id"] == "message":
+            friend.key("enter")
+        # The host hosts the same world again.
+        screen = host.expect(("host_list", "main"), 60)
+        if screen["id"] == "main":
+            host.choose(screen, "host")
+            screen = host.expect("host_list", 60)
+        host.choose(screen, host_world["world_id"])
+        host.choose(host.expect("world"), "host")
+        host_game, hosted = self.play(host, host_world, 0, revision(host_world, 0) or 0, keep_open=True)
+        host.log("hosting the world again")
+        result = dict(friend_statuses=seen, settled=settled, journals_open=journals, journals_closed=journals_after,
+                      friend_revision_before=before, friend_revision_after_host_left=revision(host_world, slot),
+                      menu_after_close=[after["id"], after["status"]])
+        try:
+            result["rejoin"] = self.rejoin(friend, host_world, slot)
+        except CheckFailed as error:
+            result["rejoin"] = f"failed: {error}"
+            self.report["host_leaves"] = result
+            raise
+        return host_game, result
 
     def rejoin(self, friend, host_world, slot, *, new_character=None):
         """Join Friend again from the saved server (the host's world still open): the game opens on the character with nothing to
@@ -695,7 +762,11 @@ def run(check, host, friend):
     friend_character = check.create_character(friend)
     report["solo"] = check.solo(host)
     world, code, slot, host_game, report["host"] = check.host(host)
-    report["join"] = check.join(friend, code, world, slot)
+    if check.host_leaves_first:
+        friend_game, report["join"] = check.join(friend, code, world, slot, keep_open=True)
+        host_game, report["host_leaves"] = check.host_leaves(host, host_game, friend, friend_game, world, slot)
+    else:
+        report["join"] = check.join(friend, code, world, slot)
     check.picture("after-join")
     friend_characters = [friend_character]
     if check.rejoin_count:
@@ -793,6 +864,11 @@ def main():
                         help="the friend joins again N times from the saved server, the host's world still open")
     parser.add_argument("--second-character", action="store_true",
                         help="then the friend creates another character, which takes the place over, and joins again")
+    parser.add_argument("--host-leaves", action="store_true",
+                        help="the host closes the hosted game while the friend has unsaved progress; the friend closes too, the "
+                             "host hosts again and the friend joins back")
+    parser.add_argument("--friend-menu", action="store_true",
+                        help="with --host-leaves: the friend has the START menu open when the host leaves")
     parser.add_argument("--linux-app", nargs=2, metavar=("INSTALLATION", "PROFILE"), help=argparse.SUPPRESS)
     args = parser.parse_args()
     if args.linux_app:
@@ -818,7 +894,8 @@ def main():
             w.install(args.setup.resolve(), target, env, work, args.label)
             desk = WindowsDesk(target / "EmeraldTogether.exe")
         check = PlayCheck(desk, work, args.label, report, lines, loopback=args.loopback, rejoin_count=args.rejoin,
-                          second_character=args.second_character)
+                          second_character=args.second_character, host_leaves=args.host_leaves,
+                          friend_menu=args.friend_menu)
         report["hosted_on"] = "this PC only (--loopback)" if args.loopback else "this PC's local-network address"
         check.log(f"{report['platform']}: {'installed ' + args.setup.name + ' into ' + str(target) if not args.linux else 'Linux game'}")
         host = Player(check, "host", work / "host-profile")

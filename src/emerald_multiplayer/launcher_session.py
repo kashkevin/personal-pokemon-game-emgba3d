@@ -141,7 +141,7 @@ def _safe_error(error):
     elif code == "game_changed":
         code = "installation_changed"
     elif code in {"pending_export", "pending_trade", "invalid_journal", "revision_conflict",
-                  "journal_changed", "trade_conflict", "mirror_changed"}:
+                  "journal_changed", "trade_conflict", "mirror_changed", "emergency_recovery_required", "pending_conflict"}:
         code = "recovery_required"
     elif isinstance(error, ConnectionError):
         code = "connection_lost"
@@ -976,7 +976,9 @@ class LauncherSession:
                     recovered_trade = getattr(game.startup, "trade_result", None)
                     code = (("trade_recovered" if recovered_trade["state"] == "applied" else "trade_aborted_recovered")
                             if recovered_trade else "battle_abandoned" if self._resolved_at_start
-                            else "soft_reset_done" if self._reset_at_start else "running")
+                            else "soft_reset_done" if self._reset_at_start
+                            else "unsaved_progress_set_aside" if getattr(game.startup, "emergency_set_aside", None)
+                            else "running")
                     self._resolved_at_start, self._reset_at_start = (), False
                     self._publish(SessionState.RUNNING, code, revision=self._revision)
                     self._autosave_task = asyncio.create_task(self._schedule_autosave(), name="launcher-autosave")

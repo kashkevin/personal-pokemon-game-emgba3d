@@ -1,5 +1,6 @@
 import unittest
 import unittest.mock
+from uuid import uuid4
 from types import SimpleNamespace
 
 from emerald_multiplayer.player_menu import PlayerMenu, PlayerMenuError, refusal_text
@@ -466,6 +467,51 @@ class PlayerMenuTeamRaceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((screen.title, screen.status), ("Your team", "The team changed: try again"))
         self.assertIn("Leave team...", [row.label for row in screen.rows])             # the team B's accept formed
         self.assertTrue(self.server.team_desk._teams)
+
+    async def team_up(self, first, second):
+        """Players ``first`` and ``second`` form a team through the host."""
+        await self.companions[first].team_rpc("invite", peer=self.players[second].player_id, invitation_id=str(uuid4()))
+        invitation = (await self.companions[second].team_rpc("status"))["result"]["invitations"][0]
+        await self.companions[second].team_rpc("accept", invitation_id=invitation["invitation_id"],
+                                               generation=invitation["generation"])
+
+    async def player_page(self, menu, name):
+        menu._page = ("home", None)
+        await menu.refresh()
+        return await self.click(menu, name)
+
+    async def test_no_invite_row_while_an_invitation_waits_or_for_a_player_in_a_team(self):
+        # The review of 2026-10-24: the row was offered where the host always refuses it, and the refusal closed the window.
+        a, b, invitation = await self.invited()                                          # A's invitation to B waits
+        self.assertNotIn("Invite to team", [row.label for row in (await self.player_page(a, "Trainer 2")).rows])
+        await self.team_up(2, 3)
+        c = PlayerMenu(self.companions[0])
+        await self.companions[0].team_rpc("cancel", invitation_id=invitation["invitation_id"],
+                                          generation=invitation["generation"])
+        await c.refresh()
+        self.assertIn("Invite to team", [row.label for row in (await self.player_page(c, "Trainer 1")).rows])
+        self.assertNotIn("Invite to team", [row.label for row in (await self.player_page(c, "Trainer 2")).rows])
+
+    async def test_an_invite_the_host_refuses_says_why_on_that_players_page(self):
+        a = PlayerMenu(self.companions[0])
+        await a.refresh()
+        screen = await self.player_page(a, "Trainer 2")
+        self.assertIn("Invite to team", [row.label for row in screen.rows])
+        await self.companions[2].team_rpc("invite", peer=self.players[3].player_id, invitation_id=str(uuid4()))  # meanwhile
+        screen = await self.click(a, "Invite to team")
+        self.assertEqual((a._page, screen.status), (("player", self.players[2].player_id), "An invitation is waiting"))
+        self.assertFalse(self.server.team_desk._teams)
+
+    async def test_the_row_an_overtaken_cancel_leaves_under_the_cursor_does_nothing(self):
+        await self.team_up(2, 3)
+        a, b, invitation = await self.invited()
+        screen = await self.click(a, "Cancel invitation...")
+        yes_row = next(i for i, row in enumerate(screen.rows) if row.label == "Yes, cancel it")
+        await self.click(b, "Accept invitation")                                       # B accepts meanwhile
+        screen = await self.yes(a, "Yes, cancel it")
+        self.assertEqual(screen.title, "Your team")
+        self.assertIn("Rival Battle - 2v2", [row.label for row in screen.rows])
+        self.assertEqual(screen.rows[yes_row].action, 0)                                # a second press does nothing
 
     async def test_the_partner_leaves_while_the_leave_question_is_open(self):
         a, b, invitation = await self.invited()

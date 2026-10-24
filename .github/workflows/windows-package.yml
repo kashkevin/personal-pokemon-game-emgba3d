@@ -1038,7 +1038,7 @@ jobs:
           $tests = @("party-order", "battle-names", "cry-stop", "shake-anim", "line-break", "wild-weather", "legend",
                      "shiny", "coins", "breeding", "rival", "update32", "clock", "keybinds", "mp-objects", "spawn-claims",
                      "secret-base", "rewards", "catch-reconcile", "pokenav-map", "ladder", "coop-exp", "coop-controller",
-                     "tower", "start-menu")
+                     "tower", "start-menu", "hm-box", "move-switch", "summary-ivev", "link-replay")
           # only: ...,new-only: the MS-61 check alone (the START menu, its 3D names, the soft reset key)
           if (",${{ inputs.only }}," -like "*,new-only,*") { $tests = @("start-menu") }
           $runs = @($tests | ForEach-Object { @{ test = $_; exe = "inputs\pokeemerald-mp.exe"; name = $_ } })

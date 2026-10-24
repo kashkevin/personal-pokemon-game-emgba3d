@@ -126,6 +126,8 @@ TEAM_NOTICES = {code: "The team changed: try again" for code in (
     "team_invitation_missing", "team_generation_mismatch", "team_not_member", "team_not_participant",
     "team_not_recipient", "team_not_sender", "team_already_member")} | {
     "player_offline": "That player is offline", "team_capacity": "Too many teams: try later"}
+# ... and of an invitation, shown on that player's page.
+TEAM_INVITE_NOTICES = {"team_invite_busy": "An invitation is waiting", "team_already_member": "Already in a team"}
 # A lobby format's challenge (battle_desk.py operations) and the game capability it needs.
 LOBBY_INVITES = {"1v1": "invite", "1v1v1": "invite_ffa3", "1v1v1v1": "invite_ffa", "2v2": "invite_multi"}
 
@@ -664,7 +666,9 @@ class PlayerMenu:
                     actions.append((TRADE_ROW, "trade_open", (target,)))
                 else:
                     actions.append(("Trading: unavailable", "", ()))
-            if self._team is not None and self._team["team"] is None:
+            # Not while an invitation of this player's is waiting or the player chosen is in a team: the host refuses both.
+            if (self._team is not None and self._team["team"] is None and not self._team["invitations"]
+                    and not any(target in team["members"] for team in self._team["teams"])):
                 actions.append(("Invite to team", "team_invite", (target,)))
             if self._battles is not None and not self._battles:
                 actions.append((MODE_ROWS[2], "battle_invite", (target,)))
@@ -693,6 +697,9 @@ class PlayerMenu:
                 actions.append(("Leave team...", "ask", ("team_leave", own["team_id"], own["generation"])))
                 other = next((t for t in self._team["teams"] if t["team_id"] != own["team_id"]), None)
                 if other is not None and self._battles is not None and not self._battles:
+                    # A row that does nothing first: this page can come right after a question's Yes on its fourth row (an
+                    # invitation the friend accepted first), and a second press there must not send the 2v2 challenge.
+                    actions.append(("Teams are ready", "", ()))
                     actions.append((MODE_ROWS[3], "battle_multi", (peer, *other["members"])))
                 status = self._notice or "Separate parties and items"
             elif self._team["invitations"]:
@@ -1646,8 +1653,13 @@ class PlayerMenu:
                     self._notice = "The host refused: try again"
                 self._page = ("home", None)
             elif op == "team_invite":
-                await self.companion.team_rpc("invite", peer=args[0], invitation_id=str(uuid4()))
-                self._page = ("team", None)
+                try:
+                    await self.companion.team_rpc("invite", peer=args[0], invitation_id=str(uuid4()))
+                    self._page = ("team", None)
+                except TeamError as error:
+                    # Someone was invited or teamed up meanwhile: said on the player's page (it used to close the window).
+                    self._notice = TEAM_INVITE_NOTICES.get(error.code) or TEAM_NOTICES.get(error.code, "The host refused: try again")
+                    self._page = ("player", args[0])
             elif op in ("team_leave", "team_accept", "team_decline", "team_cancel"):
                 try:
                     if op == "team_leave":

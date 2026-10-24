@@ -96,6 +96,34 @@ def load_closed_emergency(directory, session):
     return ({k: record[k] for k in ("schema", *identity_keys, "operation_id", "expected_revision", "sha256", "size")}, payload)
 
 
+UNFINISHED_STATES = ("holding", "bytes_durable", "uncertain")
+
+
+def unfinished_emergency(directory, session):
+    """The operation id of this character's emergency preservation that a host loss left unfinished (its journal still
+    "holding", "bytes_durable" or "uncertain": the game refused to stop for it, or a disk or receipt step failed), else None.
+
+    Its core held the progress made since the last save, frozen, and nothing can ever adopt it again: a held core never
+    reconnects (Companion's reconnect fence is lifted only to abandon a battle). Once that game is closed - a cold start
+    holds the save lease and no bridge, so no core of this launcher still runs on the save - the journal only stopped
+    every later start (the owner's friend could not join back, 2026-10-24). ColdStartRecovery sets such a journal aside
+    (kept in closed-recoveries, with any bytes it wrote) and starts from the canonical save; a "preserved" journal is
+    never set aside."""
+    try:
+        record = _read_json(Path(directory) / "pending-emergency.json")
+    except (OSError, ValueError):
+        return None
+    identity_keys = ("world_id", "player_id", "build_id", "ruleset_id", "save_profile")
+    if (not isinstance(record, dict) or record.get("schema") != 1 or record.get("state") not in UNFINISHED_STATES
+            or tuple(record.get(k) for k in identity_keys) != (session[0], session[4], session[5], session[6], session[3])):
+        return None
+    operation = record.get("operation_id")
+    try:
+        return operation if type(operation) is str and str(UUID(operation)) == operation and UUID(operation).int else None
+    except ValueError:
+        return None
+
+
 class EmergencySaveController:
     """One controller per running leased character, explicitly armed online.
 

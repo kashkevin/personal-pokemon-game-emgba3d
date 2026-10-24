@@ -17,7 +17,8 @@ from emerald_multiplayer.cold_start import ColdStartError, ColdStartRecovery
 from emerald_multiplayer.companion import Companion
 from emerald_multiplayer.emergency_save import EmergencyAuthority, EmergencySaveController, load_closed_emergency
 from emerald_multiplayer.flash import FLASH_SIZE, inspect_flash
-from emerald_multiplayer.live_checkpoint import LiveCheckpointCoordinator, _atomic, _json_bytes
+from emerald_multiplayer.checkpoint_mirror import MirrorError, MirrorLease
+from emerald_multiplayer.live_checkpoint import LiveCheckpointCoordinator, LiveSaveError, _atomic, _json_bytes
 from emerald_multiplayer.ownership import OWNERSHIP_PROFILE
 from emerald_multiplayer.save_mailbox import Opcode, SaveControl, State, Status
 from emerald_multiplayer.trade_storage import TradeCheckpointStore
@@ -187,7 +188,9 @@ class EmergencySaveTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(receipts), 2)
         self.assertEqual(receipts[0], receipts[1])
 
-    async def test_unsafe_core_remains_unsaved_and_blocks_new_core(self):
+    async def test_unsafe_core_stays_frozen_and_a_start_after_it_closed_continues_from_the_last_save(self):
+        # The owner's friend (2026-10-24): the host closed while the friend's game could not stop for its emergency save; the
+        # friend closed the frozen game, and every later join was refused ("The game could not open", journal "uncertain").
         await self.arm()
         self.c.unsafe = True
         result = await self.preserve()
@@ -195,10 +198,78 @@ class EmergencySaveTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(result.can_close)
         self.assertTrue(self.c.emergency_active)
         self.assertFalse((self.private / "pending-export.json").exists())
+        journal = json.loads(self.controller.path.read_text())
+        self.assertEqual(journal["state"], "uncertain")
+        self.assertNotIn("sha256", journal)
         fresh = self.closed()
-        with self.assertRaises(ColdStartError):
-            async with ColdStartRecovery(fresh, self.private, self.save).open():
-                self.fail("unsafe core must remain retained")
+        # While that game runs, its launcher holds the save's lease: no second start, and the journal stays as it is.
+        with MirrorLease(self.save):
+            with self.assertRaises(MirrorError):
+                async with ColdStartRecovery(fresh, self.private, self.save).open():
+                    self.fail("a running core's save lease must stop a second start")
+        self.assertEqual(json.loads(self.controller.path.read_text()), journal)
+        # Once it closed, the next start sets the unfinished preservation aside and continues from the world's save.
+        async with ColdStartRecovery(fresh, self.private, self.save).open() as recovered:
+            self.assertEqual(recovered.mirror.revision, 1)
+            self.assertEqual(recovered.emergency_set_aside, journal["operation_id"])
+        self.assertFalse(self.controller.path.exists())
+        kept = list((self.private / "closed-recoveries").glob("*/pending-emergency.json"))
+        self.assertEqual([json.loads(path.read_text()) for path in kept], [journal])
+        self.assertEqual(self.store.read_checkpoint(self.player.player_id, self.lease).revision, 1)
+        self.store.integrity_check()
+
+    async def test_bytes_written_without_the_native_receipt_are_set_aside_with_their_journal(self):
+        await self.arm()
+        original = EmergencySaveController._command
+
+        async def no_receipt(controller, authority, opcode, offset=0):
+            if opcode == Opcode.PRESERVE_EMERGENCY:
+                raise LiveSaveError("final_crc", "no preservation receipt")
+            return await original(controller, authority, opcode, offset)
+        with patch.object(EmergencySaveController, "_command", no_receipt):
+            result = await self.preserve()
+        self.assertEqual(result.state, "unsaved_held")
+        journal = json.loads(self.controller.path.read_text())
+        self.assertEqual(journal["state"], "uncertain")
+        flash = self.private / (journal["operation_id"] + ".flash")
+        self.assertEqual(hashlib.sha256(flash.read_bytes()).hexdigest(), journal["sha256"])
+        self.assertTrue((self.private / "pending-export.json").exists())   # made durable before the receipt step
+        fresh = self.closed()
+        async with ColdStartRecovery(fresh, self.private, self.save).open() as recovered:
+            # The durable export is uploaded like any interrupted save: the progress is kept, so nothing is reported lost.
+            self.assertEqual((recovered.mirror.revision, recovered.emergency_set_aside), (2, None))
+        self.assertFalse(self.controller.path.exists())
+        self.assertEqual(len(list((self.private / "closed-recoveries").glob("*/pending-emergency.json"))), 1)
+        head = self.store.read_checkpoint(self.player.player_id, self.lease)
+        self.assertEqual((head.revision, head.sha256), (2, journal["sha256"]))
+        self.store.integrity_check()
+
+    async def test_a_preserved_journal_whose_bytes_changed_is_never_set_aside(self):
+        await self.arm()
+        result = await self.preserve()
+        self.assertEqual(result.state, "preserved")
+        flash = self.private / (result.operation_id + ".flash")
+        changed = bytearray(flash.read_bytes())
+        changed[100] ^= 0xFF
+        flash.write_bytes(bytes(changed))
+        with self.assertRaises((ColdStartError, LiveSaveError)):
+            async with ColdStartRecovery(self.closed(), self.private, self.save).open():
+                self.fail("changed preserved bytes must not start")
+        self.assertTrue(self.controller.path.exists())
+        self.assertEqual(self.store.read_checkpoint(self.player.player_id, self.lease).revision, 1)
+
+    async def test_an_unfinished_journal_of_another_character_is_never_set_aside(self):
+        await self.arm()
+        self.c.unsafe = True
+        await self.preserve()
+        record = json.loads(self.controller.path.read_text())
+        record["player_id"] = str(uuid4())
+        self.controller.path.write_text(json.dumps(record))
+        with self.assertRaises(ColdStartError) as raised:
+            async with ColdStartRecovery(self.closed(), self.private, self.save).open():
+                self.fail("another character's journal must not be set aside")
+        self.assertEqual(raised.exception.code, "emergency_recovery_required")
+        self.assertTrue(self.controller.path.exists())
 
     async def test_neutral_reset_drain_precedes_freeze_under_the_same_authority(self):
         await self.arm()

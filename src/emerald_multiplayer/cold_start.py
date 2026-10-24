@@ -38,6 +38,7 @@ class ClosedStartResult:
     lease: MirrorLease
     evidence_path: Path
     trade_result: dict | None = None
+    emergency_set_aside: str | None = None    # an unfinished host-loss preservation set aside (emergency_save.unfinished_emergency)
 
 
 class _ClosedTradeReader(LiveTradeCoordinator):
@@ -176,15 +177,24 @@ class ColdStartRecovery:
                 _atomic(archive / path.name, data)
         ordinary = LiveCheckpointCoordinator(self.companion, self.directory)
         exported = ordinary._load_pending((session[0], session[1], None)) if raw[0][1] is not None else None
+        set_aside = None
         if raw[2][1] is not None:
-            from .emergency_save import load_closed_emergency
+            from .emergency_save import load_closed_emergency, unfinished_emergency
             try:
                 emergency_export = load_closed_emergency(self.directory, session)
             except (ValueError, TypeError, AttributeError, KeyError, OSError) as error:
-                raise ColdStartError("emergency_recovery_required", "retain the interrupted core and its emergency evidence") from error
-            if raw[1][1] is not None or exported is not None and exported != emergency_export:
-                raise ColdStartError("pending_conflict", "emergency preservation conflicts with another recovery intent")
-            exported = emergency_export
+                # A preservation the host loss left unfinished held its progress in a core that is gone now (this start holds
+                # the save lease and no bridge): set it aside, archived above, and start from the canonical save.
+                set_aside = unfinished_emergency(self.directory, session)
+                if set_aside is None:
+                    raise ColdStartError("emergency_recovery_required", "retain the interrupted core and its emergency evidence") from error
+                if raw[1][1] is not None:
+                    raise ColdStartError("pending_conflict", "emergency preservation conflicts with another recovery intent") from error
+                emergency_export = None
+            if emergency_export is not None:
+                if raw[1][1] is not None or exported is not None and exported != emergency_export:
+                    raise ColdStartError("pending_conflict", "emergency preservation conflicts with another recovery intent")
+                exported = emergency_export
         trade = _ClosedTradeReader(self.companion, self.directory)
         intent = trade._load((session[0], session[1], None)) if raw[1][1] is not None else None
         self._unchanged(raw)
@@ -253,7 +263,7 @@ class ColdStartRecovery:
             raise ColdStartError("revision_conflict", "canonical head changed during closed restore")
         record = dict(operation_id=operation_id, mirror=asdict(mirror), session_epoch=session[1],
                       server_epoch=session[2], resolved_export=resolved_export,
-                      resolved_prepare=resolved_prepare, trade_fate=fate,
+                      resolved_prepare=resolved_prepare, trade_fate=fate, emergency_set_aside=set_aside,
                       journal_sha256={path.name: hashlib.sha256(data).hexdigest()
                                       for path, data, _ in raw if data is not None})
         self._unchanged(raw)
@@ -287,12 +297,20 @@ class ColdStartRecovery:
             self._unchanged(raw)
             self._closed(session)
         self._record(archive / "completed.json", dict(record, trade_ack=acknowledgment))
+        if set_aside is not None and resolved_export is None:
+            try:                                   # bytes it wrote that nothing took up go with its journal
+                (self.directory / (set_aside + ".flash")).replace(archive / (set_aside + ".flash"))
+            except FileNotFoundError:
+                pass
         for path, original, _ in raw:
             if original is not None:
                 path.unlink()
         _sync_directory(self.directory)
         self._closed(session)
-        return ClosedStartResult(mirror, lease, archive / "completed.json", trade_result)
+        # An export it had already made durable (pending-export.json) was uploaded above like any interrupted save: then nothing
+        # was lost, and only a set-aside with nothing uploaded is the player's to hear about.
+        return ClosedStartResult(mirror, lease, archive / "completed.json", trade_result,
+                                 set_aside if resolved_export is None else None)
 
     @asynccontextmanager
     async def open(self, *, expected_session=None):
