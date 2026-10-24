@@ -269,6 +269,20 @@ class WindowsWorkflowTests(unittest.TestCase):
         self.assertIn('throw "the catch check failed', catch)                  # a failed step fails the job
         self.assertIn("tools/battle_env/catch_check.py ../mega-check-inputs/", job("engine"))
 
+    def test_every_multiplayer_entrys_flags_are_ones_the_proof_takes(self):
+        proof = (ROOT / "scripts" / "multiplayer" / "native_launcher_newcomers_proof.py").read_text()
+        taken = set(re.findall(r'parser\.add_argument\("(--[a-z0-9-]+)"', proof))
+        extras = re.findall(r'\{name: ([a-z0-9-]+), scenario: [a-z-]+, players: \d, format: [0-9v]+(?:, extra: "([^"]*)")?\}',
+                            job("multiplayer-check"))
+        names = {name for name, _ in extras}
+        self.assertTrue({"trade-lag", "trade-rough", "battle-rough"} <= names, names)
+        for name, extra in extras:
+            with self.subTest(entry=name):
+                self.assertEqual(sorted(set(re.findall(r"--[a-z0-9-]+", extra)) - taken), [])
+        rough = dict(extras)["trade-rough"]
+        self.assertIn("--jitter-ms 80", rough)
+        self.assertIn("--stall-every 45 --stall-ms 2500", rough)
+
     def test_move_switching_shiny_spawns_and_the_game_corner_run_in_windows_game_processes(self):
         checks = job("feature-checks")
         self.assertIn("runs-on: windows-2022", checks)

@@ -274,7 +274,7 @@ class NewcomersProof(SoftResetProof, ThreePlayerProof):
                                           hops=len(hops), take_ms=median([h["delivered"] - h["published"] for h in hops]),
                                           answer_ms=median([h["answered"] - h["delivered"] for h in hops]))
             return out
-        record(label + "-route", latency_ms=LATENCY_MS[0], hold=HOLD[0], disk_ms=DISK_MS[0], remote_only=REMOTE_ONLY[0], rooms=await on_worker(current[0], route))
+        record(label + "-route", latency_ms=LATENCY_MS[0], hold=HOLD[0], disk_ms=DISK_MS[0], remote_only=REMOTE_ONLY[0], rough=ROUGH[0], rooms=await on_worker(current[0], route))
         if meanwhile is not None:
             await meanwhile
         await self.back_on_the_field(current, probes, before, record, label + "-everyone-back")
@@ -570,7 +570,9 @@ class NewcomersProof(SoftResetProof, ThreePlayerProof):
             async def player(s):
                 return s._companion.config.player_id
             host_player = await on_worker(current[0], player)
-        simulate_internet(LATENCY_MS[0], HOLD[0], host_player, everything=LATENCY_ALL[0])
+        jitter_ms, stall_every, stall_ms = ROUGH[0]
+        simulate_internet(LATENCY_MS[0], HOLD[0], host_player, everything=LATENCY_ALL[0], jitter_ms=jitter_ms,
+                          stall_every=stall_every, stall_ms=stall_ms)
         simulate_disk(DISK_MS[0])
         count = len(current)
         for n, worker in enumerate(current):
@@ -743,6 +745,7 @@ class NewcomersProof(SoftResetProof, ThreePlayerProof):
 
 
 LATENCY_MS, HOLD, DISK_MS, REMOTE_ONLY, LATENCY_ALL, WALK, MASH = [0], [True], [0], [False], [False], [0.0], [False]
+ROUGH = [(0.0, 0.0, 0.0)]   # --jitter-ms, --stall-every, --stall-ms (proof_network.RoughLink)
 STRAY = [False]
 # live_trade.CALM_OPCODES (QUERY_OWNERSHIP, GRANT_OWNERSHIP, BEGIN_TRADE_EXPORT), spelled out to run on older apps too.
 CALM_OPCODES = frozenset({10, 11, 12})
@@ -752,6 +755,7 @@ async def run(args):
     LATENCY_MS[0], HOLD[0], DISK_MS[0], REMOTE_ONLY[0] = args.latency_ms, not args.no_hold, args.disk_ms, args.remote_only
     LATENCY_ALL[0], WALK[0], MASH[0] = args.latency_all, args.walk_while_preparing, args.mash_after_confirm
     STRAY[0] = args.stray_presses
+    ROUGH[0] = (args.jitter_ms, args.stall_every, args.stall_ms)
     count = len(args.source)
     require(2 <= count <= 4, "two to four sources (short-introduction saves)")
     require(args.scenario == "lobby" or count == 4 or (args.scenario in ("trade", "battle-trade") and count == 2),
@@ -798,6 +802,11 @@ def main():
     parser.add_argument("--latency-all", action="store_true",
                         help="--latency-ms on every message from the match on, not only the battle's")
     parser.add_argument("--no-hold", action="store_true", help="the host answers battle polls at once (before MS-62)")
+    parser.add_argument("--jitter-ms", type=float, default=0,
+                        help="each message up to this much later again, at random (in order; a rough connection)")
+    parser.add_argument("--stall-every", type=float, default=0, metavar="SECONDS",
+                        help="the connection stalls this often (with --stall-ms; a Wi-Fi hiccup)")
+    parser.add_argument("--stall-ms", type=float, default=0, help="how long each stall holds every message")
     parser.add_argument("--mash-after-confirm", action="store_true",
                         help="trade: after its Confirm each player presses A and B by turns while its trade window is "
                              "open (the owner's report of 2026-10-24)")

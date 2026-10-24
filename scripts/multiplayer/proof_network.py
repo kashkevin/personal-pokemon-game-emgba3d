@@ -6,15 +6,19 @@ simulated in the host's own process (its WorldServer), from the match on: the wo
 step at once, and a delayed connection handshake or rejoin would be refused (wrong_world), as a real one never is.
 
 native_launcher_newcomers_proof.py has flags for them (--latency-ms, --remote-only, --latency-all, --disk-ms,
---no-hold); every other proof built on native_launcher_battle_proof.launcher_proof reads the same from the environment
-(PROOF_LATENCY_MS, PROOF_REMOTE_ONLY=1, PROOF_LATENCY_ALL=1, PROOF_DISK_MS), so its battles can be run at internet speed
-too without a flag of its own. (PROOF_LIGHT_3D=1, read by launcher_proof itself: --game is the 3D build, with the
+--no-hold, --jitter-ms, --stall-every, --stall-ms); every other proof built on native_launcher_battle_proof.launcher_proof
+reads the same from the environment (PROOF_LATENCY_MS, PROOF_REMOTE_ONLY=1, PROOF_LATENCY_ALL=1, PROOF_DISK_MS,
+PROOF_JITTER_MS, PROOF_STALL_EVERY, PROOF_STALL_MS), so its battles can be run at internet speed too without a flag of
+its own. A rough connection (owner priority 2026-10-24: trades and battles between two real PCs): each message is late
+by the latency plus a random share of the jitter, and every `stall_every` seconds the connection stalls for `stall_ms`
+(a Wi-Fi hiccup); a message never overtakes an earlier one of the same session and direction, as on TCP. (PROOF_LIGHT_3D=1, read by launcher_proof itself: --game is the 3D build, with the
 light settings of native_launcher_battle_3d_proof.py.)
 """
 from __future__ import annotations
 
 import asyncio
 import os
+import random
 import time
 
 
@@ -30,29 +34,57 @@ def simulate_disk(disk_ms):
         os.fsync = slow_fsync
 
 
-def simulate_internet(latency_ms, hold=True, host_player=None, everything=False):
+class RoughLink:
+    """When each message arrives: `latency_ms` plus a random share of `jitter_ms` late, held to the end of a stall of
+    `stall_ms` every `stall_every` seconds, and never before an earlier message of the same session and direction."""
+
+    def __init__(self, latency_ms=0.0, jitter_ms=0.0, stall_every=0.0, stall_ms=0.0, *, start=0.0, rng=None):
+        self.latency, self.jitter = latency_ms / 1000, jitter_ms / 1000
+        self.every, self.stall = (stall_every, stall_ms / 1000) if stall_every and stall_ms else (0.0, 0.0)
+        self.start, self.rng, self.last = start, rng or random.Random(0), {}
+
+    def delay(self, now, key):
+        """Seconds from `now` until the message of `key` (session, direction) is delivered."""
+        at = now + self.latency + (self.rng.uniform(0, self.jitter) if self.jitter else 0.0)
+        if self.every:
+            phase = (at - self.start) % self.every
+            if phase < self.stall:
+                at += self.stall - phase          # sent during a stall: it goes when the stall ends
+        at = max(at, self.last.get(key, 0.0))    # in order, as on TCP
+        self.last[key] = at
+        return max(0.0, at - now)
+
+
+def simulate_internet(latency_ms, hold=True, host_player=None, everything=False, *, jitter_ms=0.0, stall_every=0.0,
+                      stall_ms=0.0, seed=0):
     """Every battle message between the host and a player arrives `latency_ms` later, each way (the host's receive and
     send, in its own event loop), as over the internet. `host_player`: the host's own game talks to its server on the
     same PC, without the network's delay. `everything`: every message from the match on (trades, saves, presence), not
-    only the battle's. `hold` False: the host answers a battle poll at once, as before MS-62's fix (for a comparison)."""
+    only the battle's. `hold` False: the host answers a battle poll at once, as before MS-62's fix (for a comparison).
+    `jitter_ms`, `stall_every` (seconds) and `stall_ms`: a rough connection (RoughLink)."""
     from emerald_multiplayer.server import WorldServer
-    if latency_ms:
-        delay, receive, control = latency_ms / 1000, WorldServer._receive, WorldServer._control
+    if latency_ms or jitter_ms or (stall_every and stall_ms):
+        receive, control = WorldServer._receive, WorldServer._control
+        link = RoughLink(latency_ms, jitter_ms, stall_every, stall_ms, start=time.monotonic(), rng=random.Random(seed))
 
         def lagged(session, message):
             kind = str(message.get("type", ""))
             return ((kind.startswith("battle_") or (everything and kind not in ("hello", "welcome")))
                     and (host_player is None or getattr(session, "player_id", None) != host_player))
 
+        def later(session, direction, call, *args):
+            loop = asyncio.get_running_loop()
+            loop.call_later(link.delay(loop.time(), (id(session), direction)), call, *args)
+
         def late_receive(self, session, message):
             if lagged(session, message):
-                asyncio.get_running_loop().call_later(delay, receive, self, session, message)
+                later(session, "in", receive, self, session, message)
             else:
                 receive(self, session, message)
 
         def late_control(self, session, message):
             if lagged(session, message):
-                asyncio.get_running_loop().call_later(delay, control, self, session, message)
+                later(session, "out", control, self, session, message)
             else:
                 control(self, session, message)
         WorldServer._receive, WorldServer._control = late_receive, late_control
@@ -67,11 +99,18 @@ def from_environment():
             os.environ.get("PROOF_LATENCY_ALL") == "1", float(os.environ.get("PROOF_DISK_MS") or 0))
 
 
+def rough_from_environment():
+    """(jitter_ms, stall_every, stall_ms) the environment asks for; all off when unset."""
+    return (float(os.environ.get("PROOF_JITTER_MS") or 0), float(os.environ.get("PROOF_STALL_EVERY") or 0),
+            float(os.environ.get("PROOF_STALL_MS") or 0))
+
+
 async def apply_environment(current, record):
     """launcher_proof, once the first phase's players are ready: the environment's PC and internet (none by default).
     `current[0]` is the host's launcher worker (its player is the one --remote-only spares)."""
     latency_ms, remote_only, everything, disk_ms = from_environment()
-    if not (latency_ms or disk_ms):
+    jitter_ms, stall_every, stall_ms = rough_from_environment()
+    if not (latency_ms or disk_ms or jitter_ms or (stall_every and stall_ms)):
         return
     host_player = None
     if remote_only:
@@ -80,7 +119,8 @@ async def apply_environment(current, record):
         async def player(s):
             return s._companion.config.player_id
         host_player = await on_worker(current[0], player)
-    simulate_internet(latency_ms, host_player=host_player, everything=everything)
+    simulate_internet(latency_ms, host_player=host_player, everything=everything, jitter_ms=jitter_ms,
+                      stall_every=stall_every, stall_ms=stall_ms)
     simulate_disk(disk_ms)
     record("simulated-network", latency_ms=latency_ms, remote_only=remote_only, everything=everything,
-           disk_ms=disk_ms)
+           disk_ms=disk_ms, jitter_ms=jitter_ms, stall_every=stall_every, stall_ms=stall_ms)

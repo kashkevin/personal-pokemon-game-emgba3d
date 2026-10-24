@@ -1461,6 +1461,11 @@ jobs:
           # 40 ms late each way; battle-trade-lag first fights the rival 1v1, as the owner did.
           - {name: trade-lag, scenario: trade, players: 2, format: 1v1v1v1, extra: "--no-save --latency-ms 40 --latency-all"}
           - {name: battle-trade-lag, scenario: battle-trade, players: 2, format: 1v1v1v1, extra: "--no-save --latency-ms 40 --latency-all"}
+          # A rough connection between the players (owner priorities of 2026-10-24: trading and multiplayer battles on
+          # two real PCs): every message 120 ms late plus up to 80 ms of jitter (in order), a 2.5 s stall every 45 s
+          # (a Wi-Fi hiccup) and 20 ms on every disk sync; the same trade and back, and the rival 1v1.
+          - {name: trade-rough, scenario: trade, players: 2, format: 1v1v1v1, extra: "--no-save --latency-ms 120 --latency-all --jitter-ms 80 --stall-every 45 --stall-ms 2500 --disk-ms 20"}
+          - {name: battle-rough, scenario: lobby, players: 2, format: 1v1v1v1, extra: "--no-save --latency-ms 120 --latency-all --jitter-ms 80 --stall-every 45 --stall-ms 2500 --disk-ms 20"}
     defaults:
       run:
         shell: bash
