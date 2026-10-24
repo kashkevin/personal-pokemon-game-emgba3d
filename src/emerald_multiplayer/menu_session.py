@@ -40,8 +40,15 @@ class MenuSession:
         host_save_page=1)."""
         return getattr(getattr(self.companion, "config", None), "host_save_page_abi_version", 0) == 1
 
+    def _tower_next_capable(self):
+        """The game asks "go on to floor N?" after a solo Tower floor (tower_next_page_abi_version 1, bridge.txt
+        tower_next_page=1): its OPEN of page 4 is answered with that floor's command."""
+        return (self._tower_capable()
+                and getattr(getattr(self.companion, "config", None), "tower_next_page_abi_version", 0) == 1)
+
     def feed(self, payload):
-        request = MenuRequest.unpack(payload, allow_tower=self._tower_capable(), allow_host_save=self._host_save_capable())
+        request = MenuRequest.unpack(payload, allow_tower=self._tower_capable(), allow_host_save=self._host_save_capable(),
+                                     allow_tower_next=self._tower_next_capable())
         if self._closed or request.sequence <= self.sequence:
             raise ValueError("native menu request was repeated or regressed")
         if (request.kind == 1 and request.action

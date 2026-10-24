@@ -39,6 +39,9 @@ PER_PAGE = 4
 # The game pays for an order and receives it (and a milestone Pokemon) on the field, never while the Players menu is
 # open (engine multiplayer.c FieldReady): the player closes it (windows-package run 121, L tower-solo-8).
 CLOSE_TO_FINISH = "Close the menu to finish"
+# "Go on to floor N?" answered YES: how long the host is asked again while the last floor's result is still arriving.
+NEXT_FLOOR_WAIT_SECONDS = 10.0
+NEXT_FLOOR_STEP_SECONDS = 0.5
 
 class TowerMenuError(ValueError):
     def __init__(self, code):
@@ -118,6 +121,45 @@ class TowerMenu:
             return False
         self._supported, self._view = True, view
         return view
+
+    async def next_floor(self, wait=NEXT_FLOOR_WAIT_SECONDS):
+        """The game's "go on to floor N?" answered YES (the owner's request of 2026-10-24; the game saved on the host
+        first): the climb's next floor as the game's window takes it, ("command", TowerCommand), or None with the reason
+        on the Tower's home page. The floor just fought may still be on its way to the host (the game posts its result
+        as the battle ends): while the host has it open, or says the game is still applying its answer, the host is asked
+        again for up to ``wait`` seconds - never asked for a new floor over an open one, which would count it as lost."""
+        from .menu_mailbox import TowerCommand
+        from .protocol import ProtocolError
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + wait
+        self.open("home")
+        while True:
+            await self.refresh()
+            if self._view is None or self._supported is False:
+                return None
+            player, battle = self._player(), self._view.get("battle")
+            if player["progress"] > FLOORS:
+                self._notice = "The Tower is climbed!"
+                return None
+            if battle is None:
+                try:
+                    view = await self.companion.tower_rpc("solo", floor=player["progress"])
+                except ProtocolError as error:
+                    if error.code not in ("tower_saving", "tower_result_pending") or loop.time() >= deadline:
+                        self._notice = _text(error.message, 31)
+                        return None
+                except (ConnectionError, OSError, asyncio.TimeoutError):
+                    self._notice = "Host did not answer: refresh"
+                    return None
+                else:
+                    self._view = view
+                    command = view.get("command") if isinstance(view, dict) else None
+                    if command:
+                        return ("command", TowerCommand(command["ticket"], command["table_hash"], command["floor"]))
+                    return None
+            elif loop.time() >= deadline:
+                return None                  # the home page says what the host is waiting for
+            await asyncio.sleep(NEXT_FLOOR_STEP_SECONDS)
 
     # --------------------------------------------------------------- helpers
     def _data(self):

@@ -7,6 +7,7 @@ that nobody else is pulled in. Simulated clients, not games.
 """
 from types import SimpleNamespace
 import unittest
+import unittest.mock
 from uuid import uuid4
 
 from emerald_multiplayer.battle_lobby import LobbyDesk, LobbyError, detected_formats
@@ -299,7 +300,9 @@ class LobbyMenuNetworkTests(unittest.IsolatedAsyncioTestCase):
         screen = await self.lobby_page(menus[0])
         self.assertEqual(screen.status, "Your game cannot play 1v1v1")      # the fixture game has no 1v1v1 marker
         self.assertNotIn("Start 1v1v1", self.labels(menus[0]))
-        await self.click(menus[0], "Cancel lobby")
+        await self.click(menus[0], "Cancel lobby...")               # it asks first (No first)
+        with unittest.mock.patch("emerald_multiplayer.player_menu.ASK_GRACE_SECONDS", 0):
+            await self.click(menus[0], "Yes, leave the lobby")
         screen = await self.lobby_page(menus[1])
         self.assertEqual(screen.status, "The lobby was cancelled")
         self.assertEqual((await self.companions[1].battle_challenge_rpc("pending"))["result"], [])

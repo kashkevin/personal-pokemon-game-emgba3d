@@ -14,9 +14,12 @@ REQUEST_SIZE = 16
 # PLAYER > TOWER) exists only in games with the Battle Tower (tower_abi_version 1): a request naming it needs allow_tower.
 # Page 3 (MS-61: the host save after an in-game SAVE in a world) only in games with host_save_page_abi_version 1: a
 # request naming it needs allow_host_save.
-OPEN_PAGES = {1: "soft_reset", 2: "tower", 3: "host_save"}
+# Page 4 (the Tower's "go on to floor N?" after a solo floor) only in games with tower_next_page_abi_version 1: a request
+# naming it needs allow_tower_next; the launcher answers it with the next floor's command (flags 4) or the Tower's page.
+OPEN_PAGES = {1: "soft_reset", 2: "tower", 3: "host_save", 4: "tower_next"}
 TOWER_PAGE = 2
 HOST_SAVE_PAGE = 3
+TOWER_NEXT_PAGE = 4
 FIELDS = frozenset({"menu_abi_version", "menu_abi_address", "menu_mailbox_address", "menu_mailbox_size"})
 _REQUEST = struct.Struct("<IIHB5s")
 # Battle Tower: Legends (docs/battle-tower-legends.md 8.2), only for a game with the Tower: a screen with flags 4 starts a
@@ -58,9 +61,10 @@ class MenuRequest:
     action: int
     kind: int
 
-    def pack(self, *, allow_tower=False, allow_host_save=False):
+    def pack(self, *, allow_tower=False, allow_host_save=False, allow_tower_next=False):
         """``allow_tower``: the game has the Battle Tower, so an OPEN may name its page (TOWER_PAGE); ``allow_host_save``:
-        the game asks for the host save after an in-game SAVE (HOST_SAVE_PAGE)."""
+        the game asks for the host save after an in-game SAVE (HOST_SAVE_PAGE); ``allow_tower_next``: the game asks
+        "go on to floor N?" after a solo floor (TOWER_NEXT_PAGE)."""
         _uint(self.sequence, 0xFFFFFFFF, 1)
         _uint(self.screen, 0xFFFFFFFF)
         _uint(self.kind, 3, 1)
@@ -71,21 +75,22 @@ class MenuRequest:
             raise ValueError("menu close cannot choose an action")
         if self.kind == 1 and self.action and (self.action not in OPEN_PAGES
                                                or self.action == TOWER_PAGE and allow_tower is not True
-                                               or self.action == HOST_SAVE_PAGE and allow_host_save is not True):
+                                               or self.action == HOST_SAVE_PAGE and allow_host_save is not True
+                                               or self.action == TOWER_NEXT_PAGE and allow_tower_next is not True):
             raise ValueError("menu open names an unknown page")
         if self.kind == 1 and self.screen:
             raise ValueError("menu open cannot claim a previous screen")
         return _REQUEST.pack(self.sequence, self.screen, self.action, self.kind, bytes(5))
 
     @classmethod
-    def unpack(cls, value, *, allow_tower=False, allow_host_save=False):
+    def unpack(cls, value, *, allow_tower=False, allow_host_save=False, allow_tower_next=False):
         if type(value) is not bytes or len(value) != REQUEST_SIZE:
             raise ValueError("menu request must have exactly 16 bytes")
         sequence, screen, action, kind, reserved = _REQUEST.unpack(value)
         if any(reserved):
             raise ValueError("menu request reserved bytes must be zero")
         result = cls(sequence, screen, action, kind)
-        result.pack(allow_tower=allow_tower, allow_host_save=allow_host_save)
+        result.pack(allow_tower=allow_tower, allow_host_save=allow_host_save, allow_tower_next=allow_tower_next)
         return result
 
 

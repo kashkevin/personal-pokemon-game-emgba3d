@@ -224,10 +224,21 @@ def in_battle(probe) -> bool:
     return field_state(probe).get("callback2") not in ("CB2_Overworld", None)
 
 
+def field_question_up(probe) -> bool:
+    """A script's YES/NO box takes input on the field (Task_HandleYesNoInput): the Tower's "Go on to floor N?" after a
+    solo floor (the owner's request of 2026-10-24). Its script waits, so it would read as calm."""
+    address = probe.symbols.get("Task_HandleYesNoInput", (None,))[0]
+    if address is None:
+        return False
+    tasks = probe.mem("gTasks", 640)
+    return any(tasks[o + 4] and probe.code(int.from_bytes(tasks[o:o + 4], "little")) & ~1 == address & ~1
+               for o in range(0, 640, 40))
+
+
 def calm(probe) -> bool:
     state = field_state(probe)
     return (state.get("callback2") == "CB2_Overworld" and state.get("script_status") != 0
-            and not state.get("players_menu_active"))
+            and not state.get("players_menu_active") and not field_question_up(probe))
 
 
 def battle_question_up(probe) -> bool:
@@ -238,12 +249,37 @@ def battle_question_up(probe) -> bool:
     return address is not None and funcs == address
 
 
-async def play_local_battle(probe, record, slot, label, seconds=600):
+async def play_local_battle(probe, record, slot, label, seconds=600, *, go_on=False, worker=None):
     """The floor's intro, its battle and its result as a player plays them: B through the field's messages, A in the
     battle (FIGHT, the first move, its messages), until the field has been calm for three seconds after a battle. The
     Shift style's question after a foe faints is answered NO (B) as a player keeping the lead in; a party screen opened
-    from the battle by anything else is left with B."""
+    from the battle by anything else is left with B. B also answers NO to "Go on to floor N?" after the result;
+    ``go_on``: A there instead (YES), until the host has issued the next floor (its view's battle)."""
     deadline, battled, calm_since, screens, questions = time.monotonic() + seconds, False, None, [], 0
+    if go_on:
+        number = int(label.split()[-1])
+        while time.monotonic() < deadline:
+            if in_battle(probe):
+                if battle_question_up(probe):
+                    await probe.press(B, frames=8, release=30)
+                elif field_state(probe).get("callback2") == "CB2_UpdatePartyMenu":
+                    await probe.press(B, frames=8, release=30)
+                else:
+                    await probe.press(A, frames=8, release=16)
+                battled = True
+                continue
+            if battled:
+                view = await tower_view(worker)
+                battle = view.get("battle")
+                if battle is not None and battle.get("floor") == number + 1:
+                    record("tower-go-on-issued-the-next-floor", slot=slot, floor=number + 1, state=battle.get("state"))
+                    return screens
+                # The result's message, then the question: A (YES). Nothing else on the field takes A here.
+                await probe.press(A, frames=8, release=20)
+                await asyncio.sleep(.3)
+                continue
+            await probe.press(B, frames=8, release=20)
+        raise AssertionError(f"slot {slot} {label}: YES to go on never issued floor {number + 1}: {field_state(probe)}")
     while time.monotonic() < deadline:
         state = field_state(probe)
         screen = state.get("callback2")
@@ -302,10 +338,15 @@ async def choose_paged(probe, prefix, more):
     raise AssertionError(f"no row {prefix!r} on any page")
 
 
-async def solo_floor(probe, worker, record, slot, floor, *, won=True, replay=False):
-    """One solo floor through the menus (a replay: Replay a floor > its row), played, settled."""
+async def solo_floor(probe, worker, record, slot, floor, *, won=True, replay=False, go_on=False, opened=False):
+    """One solo floor through the menus (a replay: Replay a floor > its row), played, settled. ``go_on``: "Go on to
+    floor N?" after it is answered YES (A), and this returns once the host has issued that next floor; ``opened``: the
+    floor was started by the YES before (no menus)."""
     before = tower_record(probe)
     party_before = own_party(probe)
+    if opened:
+        await play_local_battle(probe, record, slot, f"floor {floor}")
+        return await _settle_floor(probe, worker, record, slot, floor, before, party_before, won, replay)
     screen = await open_tower(probe)
     record("tower-home", slot=slot, status=screen.status, rows=[r.label for r in screen.rows],
            style=[screen.style, screen.style_arg])
@@ -323,7 +364,11 @@ async def solo_floor(probe, worker, record, slot, floor, *, won=True, replay=Fal
     await probe.choose("Start the battle", wait=False)
     await probe.snapshot(lambda r: not r["active"], timeout=30)
     record("tower-command-taken", slot=slot, floor=floor)
-    await play_local_battle(probe, record, slot, f"floor {floor}")
+    await play_local_battle(probe, record, slot, f"floor {floor}", go_on=go_on, worker=worker)
+    return await _settle_floor(probe, worker, record, slot, floor, before, party_before, won, replay)
+
+
+async def _settle_floor(probe, worker, record, slot, floor, before, party_before, won, replay):
     party_after = own_party(probe)
     highest = max(before.highest if before else 0, floor) if won else (before.highest if before else 0)
     checkpoint = max((c for c in tower_rewards.PRIZE_FLOORS if c <= highest), default=0)
@@ -607,6 +652,40 @@ class TowerScenario:
             end = tower_record(probes[1])
             self.loser = (end.progress, end.highest)
         return dict(expected=[p.party_now() for p in probes])
+
+    async def next(self, current, probes, games, host, symbols, record):
+        """The owner's request (2026-10-24): after a solo floor the game asks "Go on to floor N?". Player 1 wins its
+        progress floor P and answers YES (A): the host saves the game (its canonical revision moves on) and floor P + 1
+        starts at once through the host (the Players menu's page 4, answered with the floor's command; no menu to
+        open); it is won and answered NO (B): saved on the host again, back on the field. Both floors are settled."""
+        player = host.accounts[0].player_id
+
+        async def revision():
+            async def read(s):
+                return s._store._connection.execute("SELECT latest_revision FROM players WHERE player_id=?",
+                                                    (player,)).fetchone()[0]
+            return await on_worker(current[0], read)
+        async def head(s):
+            return inspect_closed_head(s._store, player)
+        self.before = wallet_of((await on_worker(current[0], head)).payload)
+        start = tower_record(probes[0])
+        first = start.progress if start else 1
+        revisions = [await revision()]
+        await solo_floor(probes[0], current[0], record, 0, first, go_on=True)
+        revisions.append(await revision())
+        record("tower-next-saved-before-the-next-floor", revisions=revisions)
+        require(revisions[1] > revisions[0], f"no host save between the floors: revisions {revisions}")
+        await solo_floor(probes[0], current[0], record, 0, first + 1, opened=True)
+        deadline = time.monotonic() + 60
+        while await revision() <= revisions[1] and time.monotonic() < deadline:
+            await asyncio.sleep(1)                     # NO: the host save of the second floor's experience
+        revisions.append(await revision())
+        record("tower-next-saved-after-no", revisions=revisions)
+        require(revisions[2] > revisions[1], f"no host save after NO: revisions {revisions}")
+        self.paid = dict(expected_solo_pay(range(first, first + 2)), hp_up=0)
+        self.milestones = 0
+        # The harness's closing manual save comes after these host saves (player 2's is its first after enrollment).
+        return dict(expected=[p.party_now() for p in probes], revisions=[revisions[2] + 1, 2])
 
     async def climb(self, current, probes, games, host, symbols, record):
         async def head(s, slot):
@@ -1039,7 +1118,7 @@ async def run(args):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--scenario", choices=("solo", "duo", "join", "mega", "forfeit", "ui", "climb", "duo-climb"),
+    parser.add_argument("--scenario", choices=("solo", "duo", "join", "mega", "forfeit", "ui", "climb", "duo-climb", "next"),
                         required=True)
     parser.add_argument("--test-env", action="append", default=[],
                         help="NAME=VALUE for the games (the test build's switches: the climb's accelerated set-up)")

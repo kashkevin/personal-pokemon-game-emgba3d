@@ -17,7 +17,8 @@ def configure_native(manifest: dict, token: str, port: int) -> str:
     reward words 6-7, docs/battle-tower-legends.md 8.1); MS-61 adds
     host_save_page=1 (an in-game SAVE in a world saves on the host too);
     MS-62 adds battle_peek=1 (battle PEEK, pushed battle observations) and
-    battle_receive_many=1 (RECEIVE_MANY: a batch's small blocks in one command)."""
+    battle_receive_many=1 (RECEIVE_MANY: a batch's small blocks in one command);
+    the Tower's "go on to floor N?" adds tower_next_page=1 (OPEN page 4)."""
     from .trade_effect_mailbox import (validate_effect_choice_manifest, validate_effect_prepare_manifest,
                                        validate_effect_save_manifest)
     if (not isinstance(token, str) or not re.fullmatch(r"[0-9a-f]{64}", token)
@@ -40,6 +41,8 @@ def configure_native(manifest: dict, token: str, port: int) -> str:
         lines.append("battle_peek=1")
     if battle_receive_many_enabled(manifest):
         lines.append("battle_receive_many=1")
+    if tower_next_page_enabled(manifest):
+        lines.append("tower_next_page=1")
     return "\n".join(lines) + "\n"
 
 
@@ -70,6 +73,14 @@ def host_save_page_enabled(manifest: dict) -> bool:
     does (manifest host_save_page_abi_version 1, beside the named pages)."""
     version = manifest.get("host_save_page_abi_version")
     return type(version) is int and version == 1 and menu_open_page_enabled(manifest)
+
+
+def tower_next_page_enabled(manifest: dict) -> bool:
+    """The owner's request (2026-10-24): after a solo Tower floor the native game asks "go on to floor N?"; YES opens the
+    Players menu on page 4, which the launcher answers with that floor's command (manifest tower_next_page_abi_version 1,
+    beside the Tower)."""
+    version = manifest.get("tower_next_page_abi_version")
+    return type(version) is int and version == 1 and tower_enabled(manifest)
 
 
 def tower_enabled(manifest: dict) -> bool:

@@ -8,6 +8,7 @@ import asyncio
 from copy import deepcopy
 from types import SimpleNamespace
 import unittest
+import unittest.mock
 
 from emerald_multiplayer import tower_data, tower_rewards
 from emerald_multiplayer.bridge_protocol import BridgeOutbox
@@ -462,6 +463,66 @@ class SessionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((sequence, flags, command, screen.rows), (3, 4, TowerCommand(0x2A0501, TABLE_HASH, 12), ()))
         self.session.feed(MenuRequest(4, 0, 0, 3).pack())                              # the game closed its window
         self.assertFalse(self.session.open)
+
+    async def test_go_on_to_the_next_floor_answers_page_four_with_its_command(self):
+        # The owner's request (2026-10-24): after a solo floor the game asks "go on to floor N?"; YES saves on the host and
+        # opens page 4, which starts the next floor at once - the game's window takes its command (flags 4).
+        with self.assertRaises(ValueError):
+            self.session.feed(MenuRequest(1, 0, 4, 1).pack(allow_tower=True))      # not without the capability
+        self.companion.config.tower_next_page_abi_version = 1
+        self.session.feed(MenuRequest(1, 0, 4, 1).pack(allow_tower=True, allow_tower_next=True))
+        await self.session._task
+        sequence, screen, flags, command = await self.frame()
+        self.assertEqual((sequence, flags, command, screen.rows), (1, 4, TowerCommand(0x2A0501, TABLE_HASH, 12), ()))
+        self.assertEqual(self.calls[-1], ("solo", {"floor": 12}))                    # the host's own progress floor
+
+    async def test_go_on_waits_for_the_last_result_and_never_forfeits_it(self):
+        import emerald_multiplayer.tower_menu as tower_menu
+        self.companion.config.tower_next_page_abi_version = 1
+        # The floor just fought is still open on the host (its result on the way): asked again, never a new floor over it.
+        self.view = host_view(battle={"mode": "solo", "floor": 11, "state": "started"})
+        answers = iter((self.view, self.view, host_view()))
+        original = self.companion.tower_rpc
+        async def tower_rpc(op="status", **fields):
+            if op == "status":
+                self.view = next(answers, self.view)
+            return await original(op, **fields)
+        self.companion.tower_rpc = tower_rpc
+        with unittest.mock.patch.object(tower_menu, "NEXT_FLOOR_STEP_SECONDS", 0):
+            outcome = await self.session.menu._tower.next_floor()
+        self.assertEqual(outcome, ("command", TowerCommand(0x2A0501, TABLE_HASH, 12)))
+        self.assertEqual([op for op, _ in self.calls].count("solo"), 1)
+        # Still open when the wait ends: the home page says so, and no solo request was made.
+        self.calls.clear()
+        self.view = host_view(battle={"mode": "solo", "floor": 11, "state": "started"})
+        answers = iter(())
+        with unittest.mock.patch.object(tower_menu, "NEXT_FLOOR_STEP_SECONDS", 0):
+            self.assertIsNone(await self.session.menu._tower.next_floor(wait=0))
+        self.assertNotIn("solo", [op for op, _ in self.calls])
+        # The game still applying the host's answer: asked again until it can start; a refusal of another kind is shown.
+        self.view, self.refuse = host_view(), ("tower_saving", "Your game is saving a result")
+        with unittest.mock.patch.object(tower_menu, "NEXT_FLOOR_STEP_SECONDS", 0):
+            self.assertIsNone(await self.session.menu._tower.next_floor(wait=0))
+        self.assertEqual(self.session.menu._tower._notice, "Your game is saving a result")
+        self.view, self.refuse = host_view(progress=101, highest=100), None
+        self.assertIsNone(await self.session.menu._tower.next_floor())
+        self.assertEqual(self.session.menu._tower._notice, "The Tower is climbed!")
+
+
+class TowerNextPageCapabilityTests(unittest.TestCase):
+    def test_the_next_floor_page_needs_its_marker_and_the_tower(self):
+        from emerald_multiplayer.bridge_config import configure_native, tower_next_page_enabled
+        token = "ab" * 32
+        manifest = dict(menu_abi_version=2, menu_open_page_abi_version=1, world_abi_version=1, tower_abi_version=1,
+                        tower_next_page_abi_version=1)
+        self.assertTrue(tower_next_page_enabled(manifest))
+        self.assertIn("tower_next_page=1", configure_native(manifest, token, 9).splitlines())
+        for other in (dict(manifest, tower_abi_version=0), dict(manifest, tower_next_page_abi_version=2),
+                      dict(manifest, tower_next_page_abi_version=True), {k: v for k, v in manifest.items()
+                                                                         if k != "tower_next_page_abi_version"}):
+            with self.subTest(other=other):
+                self.assertFalse(tower_next_page_enabled(other))
+                self.assertNotIn("tower_next_page=1", configure_native(other, token, 9).splitlines())
 
 
 if __name__ == "__main__":

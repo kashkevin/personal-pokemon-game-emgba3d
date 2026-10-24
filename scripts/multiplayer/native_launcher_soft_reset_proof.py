@@ -192,7 +192,9 @@ class SoftResetProof(NewcomerProof):
         await close_players(probes[0])
         await probes[1].open_players()
         await probes[1].choose("Pending challenge")
-        await probes[1].choose("Cancel challenge")
+        await probes[1].choose("Cancel challenge...")      # it asks first (No first; a quick Yes counts for nothing)
+        await asyncio.sleep(0.8)
+        await probes[1].choose("Yes, cancel challenge")
         await close_players(probes[1])
 
         parties = await on_worker(current[0], heads)

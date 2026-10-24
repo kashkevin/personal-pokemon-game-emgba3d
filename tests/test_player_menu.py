@@ -1,4 +1,5 @@
 import unittest
+import unittest.mock
 from types import SimpleNamespace
 
 from emerald_multiplayer.player_menu import PlayerMenu, PlayerMenuError, refusal_text
@@ -42,6 +43,26 @@ class PlayerMenuNetworkTests(unittest.IsolatedAsyncioTestCase):
         room = next(iter(self.server.battle_desk._active.values()))
         self.assertEqual(len(room.consent), 2)
         self.assertFalse(room.bind_intent)
+
+    async def test_cancel_asks_and_a_yes_in_the_moment_it_asked_cancels_nothing(self):
+        import emerald_multiplayer.player_menu as player_menu
+        a, b = (PlayerMenu(self.companions[i]) for i in (0, 1))
+        await a.refresh(); await self.click(a, "Trainer 1"); await self.click(a, "Rival Battle - 1v1")
+        await b.refresh(); await self.click(b, "Pending challenge")
+        screen = await self.click(b, "Cancel challenge...")
+        self.assertEqual(screen.title, "Cancel the challenge?")
+        self.assertEqual([row.label for row in screen.rows], ["No, keep it", "Yes, cancel challenge"])
+        self.assertEqual(b._actions[screen.back], ("battles", ()))          # B is No
+        screen = await self.click(b, "Yes, cancel challenge")              # the press that asked, repeated: nothing
+        self.assertEqual(screen.title, "Cancel the challenge?")
+        self.assertTrue(self.server.battle_desk._active)
+        screen = await self.click(b, "No, keep it")
+        self.assertIn("Accept challenge", [row.label for row in screen.rows])
+        await self.click(b, "Cancel challenge...")
+        with unittest.mock.patch.object(player_menu, "ASK_GRACE_SECONDS", 0):
+            screen = await self.click(b, "Yes, cancel challenge")
+        self.assertEqual(screen.status, "Challenge cancelled")
+        self.assertFalse(self.server.battle_desk._active)
 
     async def test_a_challenge_to_a_trainer_with_no_pokemon_yet_is_refused_where_it_was_made(self):
         # Update 32: a new character has no Pokemon until it claims its starter in Birch's lab.
@@ -118,7 +139,7 @@ class PlayerMenuNetworkTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(screen.title, "Free-for-All: 4 Players")
         labels = [row.label for row in screen.rows]
         self.assertFalse([label for label in labels if label.startswith("Wager")])    # no wager in a free-for-all
-        self.assertIn("Cancel challenge", labels)
+        self.assertIn("Cancel challenge...", labels)
         self.assertNotIn("Accept challenge", labels)                                   # the challenger's consent is given
         for i in (1, 2, 3):
             await menus[i].refresh()
@@ -151,7 +172,7 @@ class PlayerMenuNetworkTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(screen.title, "Free-for-All: 3 Players")
         labels = [row.label for row in screen.rows]
         self.assertFalse([label for label in labels if label.startswith("Wager")])
-        self.assertIn("Cancel challenge", labels)
+        self.assertIn("Cancel challenge...", labels)
         pending = (await self.companions[0].battle_challenge_rpc("pending"))["result"][0]
         self.assertEqual((pending["mode"], len(pending["players"]), pending["players"][0]),
                          (6, 3, self.companions[0].config.player_id))
@@ -305,10 +326,31 @@ class PlayerMenuEnterTests(PlayerMenuAdmissionTests):
         screen = self.render()
         self.assertEqual(screen.status, "Saving stopped: restart game")
         self.assertNotIn("Enter battle", [row.label for row in screen.rows])
-        self.assertIn("Cancel challenge", [row.label for row in screen.rows])
+        self.assertIn("Cancel challenge...", [row.label for row in screen.rows])
         self.assertEqual(screen.admission_action, 0)
         self.companion._native_menu_battle_blocker = lambda battle: None
         self.assertIn("Enter battle", [row.label for row in self.render().rows])
+
+    def test_the_row_accept_leaves_under_the_cursor_enters_and_never_cancels(self):
+        # The owner's report of 2026-10-24: "when clicking start battle it shows battle, however when clicked again it
+        # kicks us out back to start". The game keeps its cursor row on the next screen: Accept challenge's row became
+        # Cancel challenge once accepted. Now it becomes Enter battle (or a row that does nothing), and Cancel asks.
+        def rows(screen):
+            return [(row.label, self.menu._actions.get(row.action, ("", ()))[0]) for row in screen.rows]
+        before = self.render(actor="b", consent=["a"], state="invited")
+        index = [label for label, _ in rows(before)].index("Accept challenge")
+        after = self.render(actor="b", consent=["a", "b"], state="accepted")
+        self.assertEqual(rows(after)[index], ("Enter battle", "battle_enter"))
+        self.assertEqual(after.admission_action, after.rows[index].action)
+        self.companion._native_menu_battle_blocker = lambda battle: "save_recovery_required"
+        blocked = self.render(actor="b", consent=["a", "b"], state="accepted")
+        self.assertEqual(blocked.rows[index].action, 0)                    # a row that does nothing
+        waiting = self.render(actor="a", consent=["a"], state="invited")    # the challenger before the answer
+        self.assertEqual(waiting.rows[index].action, 0)
+        for screen in (after, blocked, waiting):
+            ops = [op for _, op in rows(screen)]
+            self.assertNotIn("battle_cancel", ops)
+            self.assertIn("battle_cancel_ask", ops)
 
     def test_pending_statuses_say_who_is_awaited(self):
         self.assertEqual(self.render(consent=["a"]).status, "Waiting for opponent")

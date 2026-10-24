@@ -26,6 +26,9 @@ ACTIVITY_LABELS = {"overworld": "On the field", "battle": "In battle", "menu": "
 ACTIVITY_SHORT = {"overworld": "Field", "battle": "Battle", "menu": "Menu", "transition": "Moving",
                   "unavailable": "Busy", "joining": "Joining"}
 _OPEN_BATTLE_STATES = ("invited", "accepted", "prepared")
+# "Cancel the challenge?" and "Leave the lobby?": a Yes this soon after the question appeared is the press before it
+# repeated (a double click, a key held), never an answer (the owner's report of 2026-10-24).
+ASK_GRACE_SECONDS = 0.6
 # The battle modes as PLAYERS names them (a row's 25 characters, a title's 23).
 MODE_TITLES = {2: "Rival Battle - 1v1", 3: "Rival Battle - 2v2", 5: "Free-for-All: 4 Players", 6: "Free-for-All: 3 Players"}
 MODE_ROWS = {2: "Rival Battle - 1v1", 3: "Rival Battle - 2v2", 5: "Free-for-All - 4 Players", 6: "Free-for-All - 3 Players"}
@@ -255,7 +258,7 @@ class PlayerMenu:
         """An OPEN that names its page (Update 32: the soft reset key opens the soft reset question; Battle Tower:
         Legends: START > PLAYER > TOWER opens the Tower, whose B goes back to the Players home; MS-61: an in-game SAVE in
         a world opens the host save, which closes the window at once and saves on the host)."""
-        if page not in ("soft_reset", "tower", "host_save"):
+        if page not in ("soft_reset", "tower", "host_save", "tower_next"):
             raise PlayerMenuError("unknown_page")
         async with self._lock:
             screen = await self._refresh()      # the binding, the player's open challenges and trades
@@ -268,6 +271,19 @@ class PlayerMenu:
                 self._tower.open("home")
                 self._page = ("tower", None)
                 return await self._refresh()
+            if page == "tower_next":
+                # The Tower's "go on to floor N?" answered YES: the next floor starts at once (the game's window takes
+                # its command); a refusal shows the Tower's home page with the reason.
+                from .tower_menu import TowerMenuError
+                self._page = ("tower", None)
+                try:
+                    outcome = await self._tower.next_floor()
+                except TowerMenuError as error:
+                    raise PlayerMenuError(error.code) from error
+                if outcome is not None:
+                    self.tower_reply = outcome
+                    return self._show("Battle Tower", f"Floor {outcome[1].floor}: good luck!", [])
+                return self._render()
             if page == "host_save":
                 # MS-61: the launcher's own, as its Save now: the window closes first, then it saves on the host and
                 # the game's banner says how that went (launcher_session._native_menu_reset_handoff).
@@ -480,7 +496,9 @@ class PlayerMenu:
             if back:
                 self._actions[back] = {"records": ("records_back", ()), "ffa": ("new_battle", ()),
                                        "new_battle": ("battles", ()), "lobby_pick": ("new_battle", ()),
-                                       "lobby_2v2": ("lobby", ()), "tower": ("tower_back", ())}.get(self._page[0], ("home", ()))
+                                       "lobby_2v2": ("lobby", ()), "tower": ("tower_back", ()),
+                                       "battle_cancel_confirm": ("battles", ()),
+                                       "lobby_leave_confirm": ("lobby", ())}.get(self._page[0], ("home", ()))
             self._screen = MenuScreen(revision, title, status,
                 tuple(MenuRow(i + 1 if op else 0, label) for i, (label, op, _) in enumerate(normalized)), back, admission,
                 *style)
@@ -681,10 +699,14 @@ class PlayerMenu:
                         label = f"Wager {_money(wager['amount'])} {len(wager['accepted'])}/{len(wager['players'])} OK"
                     actions.append((label, "wager", (battle["battle_id"],)))
                 if battle["state"] in _OPEN_BATTLE_STATES:
+                    # One row is Accept, then Enter battle, and a row that does nothing until then; Cancel is below it
+                    # and asks first. The game keeps its cursor row when the next screen comes, so the A that accepted
+                    # rests on Enter battle (the owner's report of 2026-10-24: "when clicked again it kicks us out back
+                    # to start" - Cancel challenge had moved up under the cursor).
+                    primary = ("Enter battle: not yet", "", ())
                     if actor not in battle["consent"] and actor != battle["sender"]:
-                        actions.append(("Accept challenge", "battle_accept", (*params, battle["fingerprint"])))
-                    actions.append(("Cancel challenge", "battle_cancel", params))
-                    if battle["state"] == "accepted" and not wager_ready:
+                        primary = ("Accept challenge", "battle_accept", (*params, battle["fingerprint"]))
+                    elif battle["state"] == "accepted" and not wager_ready:
                         status = "Everyone must accept the wager"
                     elif battle["state"] == "accepted":
                         status = "Waiting for battle coordinator"
@@ -697,9 +719,11 @@ class PlayerMenu:
                             reason = blocker(battle) if callable(blocker) else None
                             if reason is None:
                                 status = self._notice or pending_status
-                                actions.append(("Enter battle", "battle_enter", (*params, battle["fingerprint"])))
+                                primary = ("Enter battle", "battle_enter", (*params, battle["fingerprint"]))
                             else:
                                 status = refusal_text(reason)
+                    actions.append(primary)
+                    actions.append(("Cancel challenge...", "battle_cancel_ask", params))
                 else:
                     status = {"aborting": "Cancelling safely", "recovery_required": "Battle needs recovery",
                               "running": "Battle in progress", "starting": "Starting battle"}.get(battle["state"], battle["state"])
@@ -792,9 +816,11 @@ class PlayerMenu:
                                         () if fmt == "2v2" else (*ids, fmt)))
                     if formats and not playable:
                         status = self._notice or f"Your game cannot play {formats[0]}"
-                    actions.append(("Cancel lobby", "lobby_leave", ids))
+                    actions.append(("Cancel lobby...", "lobby_leave_ask", ids))
                 elif actor in joined:
-                    actions.append(("Leave lobby", "lobby_leave", ids))
+                    # Where Join was: the A that joined rests on a row that does nothing (the cursor keeps its row).
+                    actions.append(("Joined: wait for the leader", "", ()))
+                    actions.append(("Leave lobby...", "lobby_leave_ask", ids))
                 else:
                     actions.append(("Join lobby", "lobby_join", ids))
                     actions.append(("Decline", "lobby_decline", ids))
@@ -812,6 +838,15 @@ class PlayerMenu:
                 for i, a in enumerate(others):
                     for b in others[i + 1:]:
                         actions.append((f"With {self._name(a)[:8]} & {self._name(b)[:8]}", "battle_ffa3", (a, b)))
+        elif page in ("battle_cancel_confirm", "lobby_leave_confirm"):
+            # Cancelling a challenge or leaving a lobby asks first, No first (B is No): a stray press never ends it.
+            battle = page == "battle_cancel_confirm"
+            title = "Cancel the challenge?" if battle else "Leave the lobby?"
+            status = self._notice or ("Nobody will battle" if battle else "You can be invited again")
+            back = "battles" if battle else "lobby"
+            actions.append(("No, keep it", back, ()))
+            actions.append(("Yes, cancel challenge" if battle else "Yes, leave the lobby",
+                            "battle_cancel" if battle else "lobby_leave", target))
         elif page in ("soft_reset", "soft_reset_confirm"):
             # The soft reset key (Update 32, MS-61): the game starts again from its last save on the host, in this
             # session; the world and the other players carry on. Nothing open may be cut short by it.
@@ -1558,7 +1593,15 @@ class PlayerMenu:
                     # The host's answer, shown on the page the challenge was made from (Update 32: a trainer with
                     # no Pokemon yet).
                     self._notice = INVITE_NOTICES[error.code]
+            elif op in ("battle_cancel_ask", "lobby_leave_ask"):
+                self._page = ("battle_cancel_confirm" if op == "battle_cancel_ask" else "lobby_leave_confirm", args)
+                self._ask_shown = asyncio.get_running_loop().time()
+            elif (op in ("battle_cancel", "lobby_leave") and self._page[0] in ("battle_cancel_confirm", "lobby_leave_confirm")
+                  and asyncio.get_running_loop().time() - getattr(self, "_ask_shown", 0.0) < ASK_GRACE_SECONDS):
+                pass        # the question stays: this Yes came with the press that asked it
             elif op in ("battle_accept", "battle_cancel"):
+                if op == "battle_cancel":
+                    self._page = ("battles", None)
                 fields = dict(battle_id=args[0], generation=args[1])
                 if op == "battle_accept": fields["fingerprint"] = args[2]
                 try:

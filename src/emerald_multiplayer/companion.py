@@ -263,6 +263,7 @@ class CompanionConfig:
     host_save_page_abi_version: int = field(init=False, default=0)  # PC game: an in-game SAVE saves on the host (MS-61)
     battle_peek_abi_version: int = field(init=False, default=0)  # PC game: battle PEEK, pushed observations (MS-62)
     battle_receive_many_abi_version: int = field(init=False, default=0)  # PC game: RECEIVE_MANY (MS-62)
+    tower_next_page_abi_version: int = field(init=False, default=0)  # PC game: the Tower's "go on?" page 4
 
     def __post_init__(self) -> None:
         rom_path, manifest_path = Path(self.rom_path).resolve(), Path(self.manifest_path).resolve()
@@ -335,6 +336,10 @@ class CompanionConfig:
         # bridge.txt tower=1, bridge_config.configure_native); without them none of it is ever sent to the game.
         from .bridge_config import tower_enabled
         object.__setattr__(self, "tower_abi_version", 1 if self.world_enabled and tower_enabled(manifest) else 0)
+        # ... and its "go on to floor N?" after a solo floor: OPEN page 4 (bridge.txt tower_next_page=1).
+        from .bridge_config import tower_next_page_enabled
+        object.__setattr__(self, "tower_next_page_abi_version",
+                           1 if self.tower_abi_version == 1 and tower_next_page_enabled(manifest) else 0)
         if type(self.development_battle_channel) is not bool:
             raise ValueError("development_battle_channel must be a boolean")
         if self.development_battle_channel and (not self.battle_enabled or self.server_credential is None):

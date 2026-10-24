@@ -98,7 +98,7 @@ EXTRA_NEEDED = ("gMain", "CB2_StarterChoose", "CB2_Overworld", "CB2_TrainerCard"
                 "CB2_UpdatePartyMenu", "sBattleAdmissionLatched", "gBattleTypeFlags", "gBattlersCount", "gBattleMons",
                 "sRemotes", "sGlobalScriptContextStatus", "HandleInputChooseMove", "BattleMainCB2",
                 "gSaveBlock1Ptr", "gSaveBlock2Ptr", "gSaveBlock3Ptr", "PlayerHandleYesNoInput", "sCoopAward", "sCoopExp",
-                "gBattleStruct", "gSaveCounter", "sLockFieldControls")
+                "gBattleStruct", "gSaveCounter", "sLockFieldControls", "Task_HandleYesNoInput")
 WINDOWS = sys.platform == "win32"
 
 
@@ -616,8 +616,12 @@ class LauncherHarness:
             (staging / "pokeemerald-mp.exe").write_bytes(game.read_bytes())
             (staging / "pokeemerald-mp.exe").chmod(0o755)
             (staging / "SDL2.dll").write_bytes(b"Linux harness: the Linux game links the system's libSDL2.\n")
+            # PROOF_BATTLE_EFFECTS: the engine's battlefx/ folder, so a 3D game draws its HD battle effects as a
+            # player's does (the launcher's bundle pins it in runtime.json "data"); without it moves play their GBA
+            # animations.
+            effects = os.environ.get("PROOF_BATTLE_EFFECTS")
             info = collect(staging / "pokeemerald-mp.exe", staging / "SDL2.dll", args.rom,
-                           output / "application" / "runtime")
+                           output / "application" / "runtime", battle_effects=Path(effects) if effects else None)
             # The collector copies bytes only; a Linux executable also needs its mode
             # (the bundle's pins are content hashes, unchanged by this).
             (Path(info["directory"]) / "pokeemerald-mp.exe").chmod(0o755)
