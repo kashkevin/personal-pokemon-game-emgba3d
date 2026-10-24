@@ -1006,7 +1006,7 @@ async def launcher_proof(args, *, names, sources, party_counts, match, version, 
 
 async def run(args):
     await launcher_proof(args, names=("Battle Host", "Battle Friend"), sources=(args.source_a, args.source_b),
-                         party_counts=(2, 1), match=native_menu_match, version="Native 1v1 proof")
+                         party_counts=tuple(args.party_counts), match=native_menu_match, version="Native 1v1 proof")
 
 
 def main():
@@ -1023,6 +1023,7 @@ def main():
     parser.add_argument("--wine", type=Path, action="append", help="a Wine prefix per player: Windows clients")
     parser.add_argument("--sdl", type=Path, help="SDL2.dll for the Windows game")
     parser.add_argument("--elf", type=Path, help="the Linux build of the same engine commit (symbol sizes)")
+    parser.add_argument("--party-counts", type=int, nargs=2, default=(2, 1), help="the sources' party sizes (host, friend)")
     asyncio.run(run(parser.parse_args()))
 
 
