@@ -389,16 +389,18 @@ class WorldServer:
         session = self.sessions.get(player_id)
         return session.session_epoch if session is not None and not session.closed else None
 
-    def enable_battle_execution(self, string_lengths, directory, *, resume_enabled=False, peek=False, receive_many=False):
+    def enable_battle_execution(self, string_lengths, directory, *, resume_enabled=False, peek=False, receive_many=False,
+                                deliver=False):
         """Application-only setup using the installed, hash-verified ROM table. peek: the installed game has battle PEEK
         (KNOWN_ISSUES MS-62, bridge_config.battle_peek_enabled); every player of a world runs the same build. receive_many:
-        it has RECEIVE_MANY too (bridge_config.battle_receive_many_enabled)."""
+        it has RECEIVE_MANY too (bridge_config.battle_receive_many_enabled); deliver: and DELIVER (MS-62's battle speed,
+        bridge_config.battle_deliver_enabled)."""
         if self.battle_execution is not None or self._server is not None:
             raise ValueError("configure native execution once before starting the host")
         from .battle_execution import BattleExecutionService
         self.battle_execution = BattleExecutionService(self.battle_desk, string_lengths, directory,
                                                        resume_enabled=resume_enabled, peek=peek,
-                                                       receive_many=receive_many)
+                                                       receive_many=receive_many, deliver=deliver)
 
     def enable_rival_battle_environment(self):
         """Application-only: the installed, hash-verified game reads a rival battle's environment (rival_abi_version 1).

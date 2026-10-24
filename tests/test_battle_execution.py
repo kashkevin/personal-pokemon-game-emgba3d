@@ -21,7 +21,7 @@ from emerald_multiplayer.battle_journal import BattleJournalError
 from emerald_multiplayer.battle_protocol import challenge_view, validate_battle_request
 from emerald_multiplayer import battle_session
 from emerald_multiplayer.battle_session import NativeBattleSession
-from emerald_multiplayer.native_battle import Kind, NativeControl, Opcode, receive_many_entries
+from emerald_multiplayer.native_battle import Kind, NativeControl, Opcode, deliver_entries, receive_many_entries
 from emerald_multiplayer.ownership import OWNERSHIP_PROFILE
 from emerald_multiplayer.protocol import ProtocolError
 import test_battle_arbitration as arbitration_fixture
@@ -56,6 +56,7 @@ class NativeFixture:
         self.busy_once = False
         self.partly_busy_once = self.PARTLY_BUSY_ONCE
         self.many = 0
+        self.delivers = 0   # DELIVER commands taken (KNOWN_ISSUES MS-62, battle speed)
         header = bytearray(32)
         header[1], header[4] = 3, 255
         roster = battle.roster[slot]
@@ -106,7 +107,8 @@ class NativeFixture:
             return replace(command, data=data)
         if command.sequence != self.sequence + 1:
             raise AssertionError("native mutation sequence changed")
-        if command.opcode in (Opcode.RECEIVE, Opcode.RECEIVE_MANY) and self.busy_once:
+        if (command.opcode in (Opcode.RECEIVE, Opcode.RECEIVE_MANY)
+                or (command.opcode == Opcode.DELIVER and not command.block_sequence)) and self.busy_once:
             self.busy_once = False
             return replace(command, status=1, data=b"")
         self.sequence += 1
@@ -133,6 +135,25 @@ class NativeFixture:
                 self.received[source] = (sequence, len(block))
             self.many += 1
             data = bytes((applied, 0 if applied == len(entries) else 1))
+        elif command.opcode == Opcode.DELIVER:
+            # KNOWN_ISSUES MS-62, battle speed: the acknowledgement as an ACK_OUT, then each block as its own RECEIVE.
+            entries = deliver_entries(command.data, len(self.battle.players), self.slot,
+                                      ack=bool(command.block_sequence))
+            acknowledged = 0
+            if command.block_sequence:
+                if (command.block_sequence != self.out_index + 1
+                        or self.offset not in (0, len(self.blocks[self.out_index]))):
+                    raise AssertionError("acknowledged another or a partly read outbound block")
+                self.out_index += 1
+                self.offset = 0
+                acknowledged = 1
+            applied = min(1, len(entries)) if self.partly_busy_once and len(entries) > 1 else len(entries)
+            if applied < len(entries):
+                self.partly_busy_once = False
+            for source, _, sequence, block in entries[:applied]:
+                self.received[source] = (sequence, len(block))
+            self.delivers += 1
+            data = bytes((acknowledged, applied, 0 if applied == len(entries) else 1))
         elif command.opcode == Opcode.ACK_OUT:
             # The PC game takes an ACK_OUT of a block it was never asked to READ_OUT (battle PEEK sent its bytes).
             if self.offset not in (0, len(self.blocks[self.out_index])):
@@ -207,10 +228,13 @@ class BattleExecutionNetworkTests(unittest.IsolatedAsyncioTestCase):
 
     peek = False   # KNOWN_ISSUES MS-62: the observed router and its launchers' observers (ObservedExecutionTests)
     receive_many = False   # ... and its RECEIVE_MANY (ReceiveManyExecutionTests)
+    deliver = False   # ... and the delivering router (DeliverExecutionTests, test_battle_delivery.py)
+    fixture = NativeFixture   # each core's synthetic mailbox
 
     def enable(self):
         self.server.battle_execution = BattleExecutionService(self.desk, (None,) * 721, self.root / "execution",
-                                                              peek=self.peek, receive_many=self.receive_many)
+                                                              peek=self.peek, receive_many=self.receive_many,
+                                                              deliver=self.deliver)
         return self.server.battle_execution
 
     def accept(self, multi=False):
@@ -233,7 +257,7 @@ class BattleExecutionNetworkTests(unittest.IsolatedAsyncioTestCase):
         service = self.server.battle_execution if reuse else self.enable()
         self.accept(multi)
         battle = self.desk._active[self.battle_id]
-        models = {p: NativeFixture(battle, slot) for slot, p in enumerate(battle.players)}
+        models = {p: self.fixture(battle, slot) for slot, p in enumerate(battle.players)}
         if reuse:
             for player, model in models.items():
                 model.sequence = self.native_models[player].sequence
@@ -602,3 +626,39 @@ class ReceiveManyExecutionTests(ObservedExecutionTests):
             await self.run_clients(multi=True)
         self.assertTrue(all(not model.partly_busy_once for model in self.native_models.values()
                             if model.many))
+
+
+class DeliverExecutionTests(ReceiveManyExecutionTests):
+    """KNOWN_ISSUES MS-62, battle speed: every network test again on games with DELIVER: the delivering router (journal v6)
+    acknowledges each block as soon as it holds it and hands each core its acknowledgement and the blocks it is owed in
+    one command, in every format (the controller exchange itself: test_battle_delivery.py)."""
+    deliver = True
+
+    async def test_small_blocks_go_without_read_out_and_queries_only_end_the_battle(self):
+        await ObservedExecutionTests.test_small_blocks_go_without_read_out_and_queries_only_end_the_battle(self)
+        self.assertEqual(sum(model.many for model in self.native_models.values()), 0)
+        self.assertGreater(sum(model.delivers for model in self.native_models.values()), 0)
+
+    async def test_a_batchs_small_blocks_reach_each_core_in_fewer_commands(self):
+        seen = []
+        original = NativeFixture.rpc
+
+        async def counted(model, command):
+            seen.append(command)
+            return await original(model, command)
+        with patch.object(NativeFixture, "rpc", counted):
+            await self.run_clients(multi=True)
+        self.assertFalse([c for c in seen if c.opcode in (Opcode.RECEIVE_MANY, Opcode.ACK_OUT)])
+        delivered = [c for c in seen if c.opcode == Opcode.DELIVER]
+        self.assertGreater(len(delivered), 0)
+        # Every core took each other core's three small startup blocks (and acknowledged its own six), in every core's
+        # one order; the party blocks went by RECEIVE in their two chunks.
+        small = sum(len(deliver_entries(c.data, 4, c.source_slot, ack=bool(c.block_sequence))) for c in delivered)
+        self.assertEqual(small, 4 * 3 * 3)
+        self.assertEqual(sum(1 for c in delivered if c.block_sequence), 4 * 6)
+        self.assertTrue(all(c.total_size == 200 for c in seen if c.opcode == Opcode.RECEIVE))
+
+    async def test_a_core_that_takes_only_part_of_a_batch_gets_the_rest_next(self):
+        with patch.object(NativeFixture, "PARTLY_BUSY_ONCE", True):
+            await self.run_clients(multi=True)
+        self.assertTrue(any(not model.partly_busy_once for model in self.native_models.values()))

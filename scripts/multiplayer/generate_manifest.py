@@ -322,6 +322,13 @@ def generate(rom: Path, elf: Path, nm: str, engine_commit: str, *, trade_effect_
         if not four_byte_marker(many) or manifest.get("battle_peek_abi_version") != 1:
             raise ValueError("battle RECEIVE_MANY needs one four-byte marker and battle PEEK")
         manifest.update(battle_receive_many_abi_version=1)
+    # ... and DELIVER (opcode 27, MS-62's battle speed): a core's acknowledgement and every block it is owed in one command,
+    # beside RECEIVE_MANY; the launcher opts in with bridge.txt battle_deliver=1.
+    deliver = native_marker("gMultiplayerBattleDeliverAbiVersion", symbols + native_symbols)
+    if deliver:
+        if not four_byte_marker(deliver) or manifest.get("battle_receive_many_abi_version") != 1:
+            raise ValueError("battle DELIVER needs one four-byte marker and battle RECEIVE_MANY")
+        manifest.update(battle_deliver_abi_version=1)
     # The Tower's "go on to floor N?" (the owner's request of 2026-10-24): OPEN page 4, answered with the next floor's
     # command. Native PC game only, beside the Tower; the launcher opts in with bridge.txt tower_next_page=1.
     tower_next = native_marker("gMultiplayerTowerNextPageAbiVersion", symbols + native_symbols)

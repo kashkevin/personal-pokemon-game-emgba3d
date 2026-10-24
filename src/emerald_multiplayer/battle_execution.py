@@ -23,7 +23,7 @@ from .battle_execution_journal import RouteJournal
 from .battle_mailbox import Status
 from .battle_roster import validate_auxiliary_startup
 from .live_checkpoint import _atomic, _json_bytes
-from .native_battle import Kind, NativeControl, NativeQuery, Opcode, pack_receive_many
+from .native_battle import DELIVER_ACK, DELIVER_MAX_BYTES, Kind, NativeControl, NativeQuery, Opcode, pack_deliver, pack_receive_many
 
 # KEEP refreshes a core's native watchdog (MULTIPLAYER_BATTLE_DEADLINE, 600 frames) and the desk's
 # host deadline. Every accepted mutating command refreshes the native watchdog too; QUERY does not,
@@ -40,9 +40,11 @@ KEEP_EVERY_STEPS = 32
 KEEP_OBSERVED_FRAMES = 240
 KEEP_OBSERVED_COMMANDS = 64
 # The transport commands. With a route journal they need no room record of their own (the journal holds them).
-TRANSPORT = frozenset((Opcode.QUERY, Opcode.PEEK, Opcode.READ_OUT, Opcode.RECEIVE, Opcode.RECEIVE_MANY, Opcode.ACK_OUT,
-                       Opcode.KEEP))
+TRANSPORT = frozenset((Opcode.QUERY, Opcode.PEEK, Opcode.READ_OUT, Opcode.RECEIVE, Opcode.RECEIVE_MANY, Opcode.DELIVER,
+                       Opcode.ACK_OUT, Opcode.KEEP))
 OBSERVE_SCOPE = "native-battle-observation-v1"
+# The master's last command of a battle (engine CONTROLLER_ENDLINKBATTLE): the delivering router defers nothing after it.
+CONTROLLER_ENDLINKBATTLE = 50
 
 
 async def _independent(*commands):
@@ -96,7 +98,7 @@ class BattleExecutionService:
     """
 
     def __init__(self, desk, string_lengths, directory, *, observer=None, resume_enabled=False, peek=False,
-                 receive_many=False):
+                 receive_many=False, deliver=False):
         if desk is None:
             raise ValueError("native execution requires an enabled BattleDesk")
         ControllerValidator(string_lengths)
@@ -116,6 +118,11 @@ class BattleExecutionService:
         if type(receive_many) is not bool or (receive_many and not peek):
             raise ValueError("battle RECEIVE_MANY must be explicitly verified, beside PEEK")
         self.receive_many = receive_many
+        # ... and DELIVER (bridge_config.battle_deliver_enabled, KNOWN_ISSUES MS-62's battle speed): new battles of every
+        # format use the delivering router and journal v6.
+        if type(deliver) is not bool or (deliver and not receive_many):
+            raise ValueError("battle DELIVER must be explicitly verified, beside RECEIVE_MANY")
+        self.deliver = deliver
         self.directory = Path(directory).resolve()
         self.directory.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.rooms = {}
@@ -298,12 +305,14 @@ class BattleExecutionService:
                 row = self.desk.store._connection.execute(
                     "SELECT * FROM battle_reservations WHERE battle_id=?", (b.battle_id,)).fetchone()
                 record = self.desk.reservations._read(row)
-                from .battle_execution_journal import MANY_FORMAT, OBSERVED_FORMAT
+                from .battle_execution_journal import DELIVER_FORMAT, MANY_FORMAT, OBSERVED_FORMAT
+                route = room.route
                 room.journal = RouteJournal(self.directory / (b.battle_id + ".events.jsonl"),
                     dict(record=record, battle_id=b.battle_id, generation=b.generation, players=list(b.players),
                         leases=list(b.leases), incarnations=[room.ready[p] for p in b.players], mode=b.mode,
-                        initial_sequences=list(room.route.sequences)), create=True,
-                    format=(MANY_FORMAT if room.route.many else OBSERVED_FORMAT) if room.route.observed else None)
+                        initial_sequences=list(route.sequences)), create=True,
+                    format=(DELIVER_FORMAT if route.deliver else MANY_FORMAT if route.many else OBSERVED_FORMAT)
+                    if route.observed else None)
             room.journal.append("command", actor, dispatch_id, command)
             if command.opcode == Opcode.BIND and len(room.admitted) != len(b.players):
                 room.state = "admitting"
@@ -344,7 +353,11 @@ class BattleExecutionService:
 
         Only an observed route takes it, and only while that player has no outstanding command (its state could not
         have changed since); it is journaled first, and the route answers it in journal order. Otherwise it is refused
-        (accepted false) and the launcher reports again."""
+        (accepted false) and the launcher reports again. The delivering route (journal v6) also takes one while a command
+        is outstanding: a report made before the launcher ran that command (it never looks while it holds one) is of the
+        state the route knows, and the route ignores what the command may have changed (_fresh, a report older than the
+        core's last command); one made after it ran, which overtook the command's answer, is taken right after the
+        answer (_NativeRoute._observation)."""
         from .native_battle import peek_parts
         self.admission.assert_not_canceled(request["battle_id"])
         battle = self.desk._get(actor, lease, request["battle_id"], request["generation"])
@@ -354,7 +367,7 @@ class BattleExecutionService:
                     accepted=False, routed=route is not None and route.observed)
         if (room is None or room.battle is not battle or route is None or not route.observed
                 or room.state not in ("admitting", "executing") or room.error is not None
-                or room.ready.get(actor) != request["incarnation"] or actor in room.pending):
+                or room.ready.get(actor) != request["incarnation"] or (actor in room.pending and not route.deliver)):
             return view
         slot = battle.players.index(actor)
         response = decode_control(request["observation_b64"], response=True)
@@ -462,6 +475,7 @@ class _NativeRoute:
         self.steps_since_keep = [0] * self.count
         self.observed = False   # run_observed (KNOWN_ISSUES MS-62): responses and observations arrive as events
         self.many = False       # ... and packs RECEIVE_MANY (journal v5)
+        self.deliver = False    # ... or acknowledges and delivers everything a core is owed in one DELIVER (journal v6)
         self.events = None
 
     def call(self, method, slot, *args, **kwargs):
@@ -764,6 +778,12 @@ class _NativeRoute:
                 or (q.generation, q.local_slot, q.mode) != (self.b.generation, slot, self.b.mode)):
             raise BattleError("battle_recovery_required", "native observation differs from the held execution")
         if q.last_sequence > self.sequences[slot]:
+            busy = self.busy[slot]
+            if self.deliver and busy is not None and busy[0].sequence == q.last_sequence:
+                # The delivering router takes reports while a command is outstanding: this one was made after that
+                # command ran and reached the host before its answer, so it is taken right after the answer.
+                self.held[slot] = response
+                return
             raise BattleError("battle_order", "native observation is ahead of its core's commands")
         self.seen[slot] = (q, block)
 
@@ -780,7 +800,9 @@ class _NativeRoute:
         self.busy[slot] = None
         opcode = command.opcode
         if response.status != Status.OK:
-            if opcode in (Opcode.RECEIVE, Opcode.RECEIVE_MANY) and response.status == Status.BUSY:
+            if opcode in (Opcode.RECEIVE, Opcode.RECEIVE_MANY, Opcode.DELIVER) and response.status == Status.BUSY:
+                if opcode == Opcode.DELIVER and what[1] is not None:
+                    what[1]["ack_sent"] = False   # nothing applied (a busy core consumes no acknowledgement)
                 return  # delivered again by the next plan
             raise BattleError("native_refused", "native battle command was refused")
         if opcode != Opcode.QUERY:
@@ -813,6 +835,19 @@ class _NativeRoute:
                 self._admit_block(slot, reading["q"], reading["data"])
         elif opcode == Opcode.RECEIVE:
             what[1]["offsets"][slot] += len(command.data)
+            if self.deliver:
+                self._retire_delivered()
+        elif opcode == Opcode.DELIVER:
+            acknowledged, applied, refusal = response.data
+            _, ack, entries = what
+            if acknowledged:
+                self._acknowledged(slot, ack, command)
+            for block in entries[:applied]:
+                block["offsets"][slot] = len(block["data"])
+            if refusal not in (Status.OK, Status.BUSY):
+                raise BattleError("native_refused", "native battle command was refused")
+            # the rest (the core's link buffer is full) go again with the next plan
+            self._retire_delivered()
         elif opcode == Opcode.RECEIVE_MANY:
             applied, refusal = response.data
             for block in what[1][:applied]:
@@ -837,12 +872,42 @@ class _NativeRoute:
         block = self.pending[source]
         self.pending[source] = None
         block["source"] = source
+        if self.deliver:
+            # The delivering router (journal v6): the block is the host's now; its core may send the next once it is
+            # acknowledged, which is due at once (or with the next delivery, _ack_deferrable).
+            block["acked"] = block["ack_sent"] = False
+            block["role"] = block["data"][0] if block["kind"] == Kind.CONTROLLER else None
+            if block["role"] == 0:
+                self.last_command[block["data"][1]] = block
+                if block["data"][8] == CONTROLLER_ENDLINKBATTLE:
+                    self.flush = True
+            self.awaiting_ack[source] = block
         self.queue.append(block)
 
     def _idle(self):
         return not self.queue and not any(self.reading)
 
     def _plan(self):
+        if self.deliver:
+            self._admit_delivered()
+        else:
+            self._admit_observed()
+        self._lifecycle()
+        # Each free core's command.
+        for slot in range(self.count):
+            if self.busy[slot] is not None:
+                continue
+            if self.release_started:
+                if slot not in self.released and all(s in self.released for s in range(slot)):
+                    self._issue(slot, Opcode.RELEASE, ("release",), data=struct.pack("<II",
+                        self.b.roster[slot].party_crc32, self.final[slot].outcome))
+                continue
+            if self.deliver:
+                self._next_delivered(slot)
+            else:
+                self._next_observed(slot)
+
+    def _admit_observed(self):
         # Admission, in slot order: a core's next block once it may join (see above).
         idle = self._idle()
         for slot in range(self.count):
@@ -867,6 +932,8 @@ class _NativeRoute:
                 self._admit_block(slot, q, block)
             else:
                 self.reading[slot] = dict(q=q, data=b"")
+
+    def _lifecycle(self):
         # The lifecycle steps.
         if (self._idle() and not self.started and not self.start_authorized
                 and self.prepared == set(range(self.count)) and self.next_kind == [3] * self.count):
@@ -888,52 +955,188 @@ class _NativeRoute:
                 # against PREPARE and personal RNG restoration.
                 self.call("finish_native", slot, *self.receipts[slot, Opcode.QUERY])
             self.release_started = True
-        # Each free core's command.
+
+    def _next_observed(self, slot):
+        """A free core's command on the observed router (journal v4 and v5)."""
+        own = next((b for b in self.queue if b["source"] == slot), None)
+        if own is not None and all(t == slot or own["offsets"][t] == len(own["data"]) for t in range(self.count)):
+            self._issue(slot, Opcode.ACK_OUT, ("ack", own), block_sequence=own["sequence"],
+                offset=len(own["data"]), total_size=len(own["data"]), kind=own["kind"],
+                data=struct.pack("<II", own["crc"], ((1 << self.count) - 1) ^ (1 << slot)))
+            return
+        reading = self.reading[slot]
+        if reading is not None:
+            q = reading["q"]
+            self._issue(slot, Opcode.READ_OUT, ("read",), block_sequence=q.outbound_sequence,
+                offset=len(reading["data"]), total_size=q.outbound_size, kind=q.outbound_kind)
+            return
+        owed = [b for b in self.queue if b["source"] != slot and b["offsets"][slot] < len(b["data"])]
+        many = self._many(slot, owed)
+        if many:
+            self._issue(slot, Opcode.RECEIVE_MANY, ("receive_many", many), data=pack_receive_many(
+                (b["source"], b["kind"], b["sequence"], b["data"]) for b in many))
+            return
+        block = owed[0] if owed else None
+        if block is not None:
+            offset = block["offsets"][slot]
+            self._issue(slot, Opcode.RECEIVE, ("receive", block), source_slot=block["source"],
+                block_sequence=block["sequence"], offset=offset, total_size=len(block["data"]),
+                kind=block["kind"], data=block["data"][offset:offset + 128])
+            return
+        if self.start_authorized and slot not in self.start_issued:
+            self.start_issued.add(slot)
+            self._issue(slot, Opcode.START, ("start",))
+            return
+        if self.finishing and slot not in self.final:
+            self._issue(slot, Opcode.QUERY, ("final",))
+            return
+        seen = self.seen[slot]
+        if slot in self.prepared and (self.since_keep[slot] >= KEEP_OBSERVED_COMMANDS or (
+                seen is not None and seen[0].last_sequence == self.sequences[slot]
+                and seen[0].remaining_frames < KEEP_OBSERVED_FRAMES)):
+            self._issue(slot, Opcode.KEEP, ("keep",))
+
+
+    # ------------------------------------------------------------------ the delivering router (journal v6)
+    # KNOWN_ISSUES MS-62, battle speed: battles over the internet were still slow, and 2v2s most of all. On the observed
+    # router a block's core could send its next block only once every other core had received it (its ACK_OUT followed
+    # the last delivery), so the master's next command waited a round trip to every other player for each of its own
+    # blocks; each core took one command a round trip (a block's RECEIVE, then the next block's, then its own block's
+    # ACK_OUT, one after another); three or four cores took new blocks only between batches; and a launcher's report
+    # crossing the host's next command to it was refused and sent again a round trip later. With DELIVER (games with
+    # battle_deliver_abi_version 1) the route:
+    #   - acknowledges a block as soon as it holds it (the block is the host's to deliver: its bytes are in the journal's
+    #     observation or READ_OUT records, made durable by the acknowledgement's own fsync), so its core goes on at once;
+    #   - hands each core, in one DELIVER a round trip, its own block's acknowledgement and every block it is owed that
+    #     fits, in the one global order every core receives the blocks in (no batches: each block joins that order when
+    #     the route takes it);
+    #   - lets a slave core (not the master, slot 0, the only one running the battle) receive the others' replies and
+    #     DONEs together with the master's next command, which is the first thing that needs them there, and lets a
+    #     slave's DONE be acknowledged with that delivery while the slave owes nothing else (its next block can only answer
+    #     that command); nothing is held back once the master's end command is taken, or for a core whose deadline runs
+    #     low (the KEEP rule: it gets everything it is owed instead of a KEEP);
+    #   - takes a launcher's report while a command to it is outstanding (BattleExecutionService.observe).
+    # Every decision uses only journaled responses and observations in journal order, so recovery replays the same
+    # commands from the same events (battle_replay.py).
+
+    def _stalled(self, slot):
+        """The core's latest report is of its present state and says its deadline runs low (the observed KEEP rule)."""
+        seen = self.seen[slot]
+        return (seen is not None and seen[0].last_sequence == self.sequences[slot]
+                and seen[0].remaining_frames < KEEP_OBSERVED_FRAMES)
+
+    def _liveness(self, slot):
+        """Nothing is held back for a core whose deadline runs low: it gets everything it is owed instead of a KEEP (a
+        held-back block can then never wait longer than that for a command to carry it)."""
+        return self._stalled(slot)
+
+    def _deferrable(self, block, target):
+        """A block the target core need not have before the master's next command: another core's controller reply or
+        DONE, to a core that is not the master (its game runs no battle; a reply goes to the master's battle and a DONE
+        gates only the master's next command for that battler, which follows it in the one order)."""
+        return (self.running and not self.flush and target != 0 and block["role"] in (1, 2)
+                and not self._liveness(target))
+
+    def _ack_deferrable(self, slot, block):
+        """A slave's DONE can wait for its acknowledgement until the next delivery to it while it owes no other block:
+        its next block can only answer a command it does not hold yet, whose delivery then carries the acknowledgement."""
+        if not self.running or self.flush or slot == 0 or block["role"] != 2 or self._liveness(slot):
+            return False
+        for battler in self.validator.owed_done(slot):
+            command = self.last_command.get(battler)
+            if command is None or command["offsets"][slot] == len(command["data"]):
+                return False   # it holds that command and will answer it: its block needs the acknowledgement
+        return True
+
+    def _acknowledged(self, slot, block, command):
+        block["acked"] = True
+        self.awaiting_ack[slot] = None
+        self.outbound_changed[slot] = command.sequence
+        self.next_block[slot] += 1
+        self.next_kind[slot] = min(8, self.next_kind[slot] + 1)
+
+    def _retire_delivered(self):
+        """Blocks every other core holds and their own core had acknowledged leave the order."""
+        self.queue = [b for b in self.queue if not (b["acked"] and all(
+            t == b["source"] or b["offsets"][t] == len(b["data"]) for t in range(self.count)))]
+
+    def _admit_delivered(self):
+        """Admission, in slot order: a core's next block as soon as its last one was acknowledged."""
         for slot in range(self.count):
-            if self.busy[slot] is not None:
+            seen = self._fresh(slot)
+            if seen is None or self.reading[slot] is not None or self.awaiting_ack[slot] is not None:
                 continue
-            if self.release_started:
-                if slot not in self.released and all(s in self.released for s in range(slot)):
-                    self._issue(slot, Opcode.RELEASE, ("release",), data=struct.pack("<II",
-                        self.b.roster[slot].party_crc32, self.final[slot].outcome))
+            q, block = seen
+            if not q.outbound_pending:
                 continue
-            own = next((b for b in self.queue if b["source"] == slot), None)
-            if own is not None and all(t == slot or own["offsets"][t] == len(own["data"]) for t in range(self.count)):
-                self._issue(slot, Opcode.ACK_OUT, ("ack", own), block_sequence=own["sequence"],
-                    offset=len(own["data"]), total_size=len(own["data"]), kind=own["kind"],
-                    data=struct.pack("<II", own["crc"], ((1 << self.count) - 1) ^ (1 << slot)))
+            if (q.outbound_sequence, q.outbound_kind, q.read_offset) != (
+                    self.next_block[slot], self.next_kind[slot], 0):
+                raise BattleError("battle_order", "native block order or read cursor differs")
+            if q.outbound_kind == Kind.CONTROLLER and not self.running:
                 continue
-            reading = self.reading[slot]
-            if reading is not None:
-                q = reading["q"]
-                self._issue(slot, Opcode.READ_OUT, ("read",), block_sequence=q.outbound_sequence,
-                    offset=len(reading["data"]), total_size=q.outbound_size, kind=q.outbound_kind)
+            if q.outbound_kind >= Kind.START_HEADER and not self.started:
                 continue
-            owed = [b for b in self.queue if b["source"] != slot and b["offsets"][slot] < len(b["data"])]
-            many = self._many(slot, owed)
-            if many:
-                self._issue(slot, Opcode.RECEIVE_MANY, ("receive_many", many), data=pack_receive_many(
-                    (b["source"], b["kind"], b["sequence"], b["data"]) for b in many))
-                continue
-            block = owed[0] if owed else None
             if block is not None:
+                self._admit_block(slot, q, block)
+            else:
+                self.reading[slot] = dict(q=q, data=b"")
+
+    def _next_delivered(self, slot):
+        """A free core's command on the delivering router."""
+        reading = self.reading[slot]
+        if reading is not None:
+            q = reading["q"]
+            self._issue(slot, Opcode.READ_OUT, ("read",), block_sequence=q.outbound_sequence,
+                offset=len(reading["data"]), total_size=q.outbound_size, kind=q.outbound_kind)
+            return
+        own = self.awaiting_ack[slot]
+        ack = own if own is not None and not own["ack_sent"] else None
+        owed = [b for b in self.queue if b["source"] != slot and b["offsets"][slot] < len(b["data"])]
+        last = max((i for i, b in enumerate(owed) if not self._deferrable(b, slot)), default=-1)
+        owed = owed[:last + 1]   # up to the last block it needs now, in the one order
+        if ack is not None and self._ack_deferrable(slot, ack) and not owed:
+            ack = None
+        if owed and (len(owed[0]["data"]) > 128 or owed[0]["offsets"][slot]):
+            # A block of more than one chunk (a party block, a long controller message) goes by RECEIVE; an
+            # acknowledgement that is due goes first.
+            if ack is None or self._ack_deferrable(slot, ack):
+                block = owed[0]
                 offset = block["offsets"][slot]
                 self._issue(slot, Opcode.RECEIVE, ("receive", block), source_slot=block["source"],
                     block_sequence=block["sequence"], offset=offset, total_size=len(block["data"]),
                     kind=block["kind"], data=block["data"][offset:offset + 128])
-                continue
-            if self.start_authorized and slot not in self.start_issued:
-                self.start_issued.add(slot)
-                self._issue(slot, Opcode.START, ("start",))
-                continue
-            if self.finishing and slot not in self.final:
-                self._issue(slot, Opcode.QUERY, ("final",))
-                continue
-            seen = self.seen[slot]
-            if slot in self.prepared and (self.since_keep[slot] >= KEEP_OBSERVED_COMMANDS or (
-                    seen is not None and seen[0].last_sequence == self.sequences[slot]
-                    and seen[0].remaining_frames < KEEP_OBSERVED_FRAMES)):
-                self._issue(slot, Opcode.KEEP, ("keep",))
+                return
+            owed = []
+        entries, size, sources = [], DELIVER_ACK.size if ack is not None else 0, set()
+        for block in owed:
+            if len(block["data"]) > 128:
+                break
+            if not self.running and block["source"] in sources:
+                break   # before the battle runs, a core's receive slot empties only when its startup reads it
+            size += 8 + len(block["data"])
+            if size > DELIVER_MAX_BYTES:
+                break
+            entries.append(block)
+            sources.add(block["source"])
+        if ack is not None or entries:
+            fields = {}
+            if ack is not None:
+                ack["ack_sent"] = True
+                fields = dict(block_sequence=ack["sequence"], offset=len(ack["data"]), total_size=len(ack["data"]),
+                              kind=ack["kind"])
+            self._issue(slot, Opcode.DELIVER, ("deliver", ack, entries), data=pack_deliver(
+                ((b["source"], b["kind"], b["sequence"], b["data"]) for b in entries),
+                None if ack is None else (ack["crc"], ((1 << self.count) - 1) ^ (1 << slot))), **fields)
+            return
+        if self.start_authorized and slot not in self.start_issued:
+            self.start_issued.add(slot)
+            self._issue(slot, Opcode.START, ("start",))
+            return
+        if self.finishing and slot not in self.final:
+            self._issue(slot, Opcode.QUERY, ("final",))
+            return
+        if slot in self.prepared and (self.since_keep[slot] >= KEEP_OBSERVED_COMMANDS or self._stalled(slot)):
+            self._issue(slot, Opcode.KEEP, ("keep",))
 
     def _many(self, slot, owed):
         """KNOWN_ISSUES MS-62: the blocks a core is owed that go in one RECEIVE_MANY (at least two, else None): from the
@@ -955,6 +1158,14 @@ class _NativeRoute:
         # A battle of three or four on games with RECEIVE_MANY packs (journal v5); a recovered one as its journal did.
         self.many = journal.receive_many if journal is not None else (
             getattr(self.service, "receive_many", False) and self.count > 2)
+        # Games with DELIVER use the delivering router (journal v6) in every format; a recovered battle as its journal did.
+        self.deliver = journal.deliver if journal is not None else getattr(self.service, "deliver", False)
+        if self.deliver:
+            self.many = False
+        self.awaiting_ack = [None] * self.count   # the delivering router: each core's block awaiting its acknowledgement
+        self.held = [None] * self.count           # ... a report made after a command whose answer is still on its way
+        self.last_command = {}                     # ... the master's last command for each battler
+        self.flush = False                         # ... the master's end command taken: nothing is held back any more
         self.events = asyncio.Queue()
         self.tasks = set()
         self.busy = [None] * self.count
@@ -991,6 +1202,9 @@ class _NativeRoute:
                     raise response
                 if kind == "response":
                     self._response(slot, command, response)
+                    held, self.held[slot] = self.held[slot], None
+                    if held is not None:
+                        self._observation(slot, held)
                 else:
                     self._observation(slot, response)
                 self._plan()

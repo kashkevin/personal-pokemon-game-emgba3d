@@ -361,7 +361,7 @@ class RetainedFixture(execution_fixture.NativeFixture):
         if command.opcode == Opcode.ADMIT:
             self.provisional = Admission.unpack(command.data)
             return replace(command, data=self.query())
-        if command.opcode >= Opcode.SUSPEND and command.opcode != Opcode.RECEIVE_MANY:
+        if command.opcode >= Opcode.SUSPEND and command.opcode not in (Opcode.RECEIVE_MANY, Opcode.DELIVER):
             if not self.bound or command.incarnation != self.binding.incarnations[self.slot]:
                 raise AssertionError("replacement native core")
             if command.opcode == Opcode.SUSPEND:
@@ -405,6 +405,7 @@ class BattleRecoveryNetworkTests(unittest.IsolatedAsyncioTestCase):
     asyncSetUp = fixture.BattleArbitrationTests.asyncSetUp
     peek = False   # KNOWN_ISSUES MS-62: the observed router, journal v4 and the clients' observers (ObservedRecoveryTests)
     receive_many = False   # ... and RECEIVE_MANY, journal v5 in a 2v2 (ReceiveManyRecoveryTests)
+    deliver = False   # ... and DELIVER, the delivering router's journal v6 (DeliverRecoveryTests)
 
     async def asyncTearDown(self):
         for observer in getattr(self, "observers", []):
@@ -477,7 +478,8 @@ class BattleRecoveryNetworkTests(unittest.IsolatedAsyncioTestCase):
 
     async def _interrupt(self, opcode, *, uncertain=True, multi=False):
         self.server.battle_execution = BattleExecutionService(self.desk, (None,)*721,
-            self.root/"execution", resume_enabled=True, peek=self.peek, receive_many=self.receive_many)
+            self.root/"execution", resume_enabled=True, peek=self.peek, receive_many=self.receive_many,
+            deliver=self.deliver)
         self.accept(multi)
         battle = self.desk._active[self.battle_id]
         self.models = {actor: RetainedFixture(battle, slot) for slot, actor in enumerate(battle.players)}
@@ -556,7 +558,7 @@ class BattleRecoveryNetworkTests(unittest.IsolatedAsyncioTestCase):
         self.server = WorldServer(ServerConfig(fixture.BUILD, fixture.RULES, heartbeat_interval=.05, idle_timeout=20),
             store=self.store, development_trades=True, development_battles=True)
         self.server.enable_battle_execution((None,)*721, self.root/"execution", resume_enabled=True, peek=self.peek,
-                                            receive_many=self.receive_many)
+                                            receive_many=self.receive_many, deliver=self.deliver)
         await self.server.start(port=0)
         self.actors = [await fixture.Actor.connect(self.server.address, player) for player in self.players]
         self.desk = self.server.battle_desk
@@ -836,7 +838,7 @@ class ObservedRecoveryTests(BattleRecoveryNetworkTests):
         await self._interrupt(Opcode.KEEP, multi=True)
         journal = self.root/"execution"/(self.battle_id+".events.jsonl")
         lines = journal.read_text().splitlines()
-        self.assertEqual(json.loads(lines[0])["value"]["format"],
+        self.assertEqual(json.loads(lines[0])["value"]["format"], "native-battle-route-events-v6" if self.deliver else
                          "native-battle-route-events-v5" if self.receive_many else "native-battle-route-events-v4")
         events = [json.loads(line)["value"] for line in lines[1:]]
         self.assertTrue(any(event.get("kind") == "observation" for event in events))
@@ -875,4 +877,37 @@ class ReceiveManyRecoveryTests(ObservedRecoveryTests):
         journal = self.root/"execution"/(self.battle_id+".events.jsonl")
         self.assertEqual(json.loads(journal.read_text().splitlines()[0])["value"]["format"],
                          "native-battle-route-events-v4")
+        await self._recover(2)
+
+
+class DeliverRecoveryTests(ReceiveManyRecoveryTests):
+    """KNOWN_ISSUES MS-62, battle speed: every recovery again on games with DELIVER: the delivering router's journal (v6)
+    records each core's acknowledgement and blocks in one command and the observations taken while one was
+    outstanding, and the replay routes them the same, in every format."""
+    deliver = True
+
+    async def test_four_cores_resume_after_an_uncertain_receive_many(self):
+        self.skipTest("the delivering router sends no RECEIVE_MANY (test_four_cores_resume_after_an_uncertain_delivery)")
+
+    async def test_a_two_player_battle_keeps_journal_v4(self):
+        self.skipTest("the delivering router's journal is v6 in every format (test_two_cores_resume_...)")
+
+    async def test_four_cores_resume_after_an_uncertain_delivery(self):
+        await self._interrupt(Opcode.DELIVER, multi=True)
+        journal = self.root/"execution"/(self.battle_id+".events.jsonl")
+        lines = journal.read_text().splitlines()
+        self.assertEqual(json.loads(lines[0])["value"]["format"], "native-battle-route-events-v6")
+        await self._recover(4)
+
+    async def test_two_cores_resume_after_an_uncertain_delivery(self):
+        await self._interrupt(Opcode.DELIVER)
+        journal = self.root/"execution"/(self.battle_id+".events.jsonl")
+        events = [json.loads(line)["value"] for line in journal.read_text().splitlines()]
+        self.assertEqual(events[0]["format"], "native-battle-route-events-v6")
+        opcodes = [decode_control(event["control_b64"]).opcode for event in events[1:] if event.get("kind") == "command"]
+        self.assertNotIn(Opcode.ACK_OUT, opcodes)
+        await self._recover(2)
+
+    async def test_two_cores_resume_after_an_unexecuted_delivery(self):
+        await self._interrupt(Opcode.DELIVER, uncertain=False)
         await self._recover(2)

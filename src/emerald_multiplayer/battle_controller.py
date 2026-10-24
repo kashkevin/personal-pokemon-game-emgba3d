@@ -103,6 +103,14 @@ class ControllerValidator:
     def pending(self):
         return tuple(self._pending)
 
+    def owed_done(self, source):
+        """The battlers whose pending command still waits for `source`'s DONE (and its reply first, if it owns one that
+        needs one): what that core has yet to send for the commands already accepted (KNOWN_ISSUES MS-62, battle speed:
+        the delivering router acknowledges such a core's blocks at once)."""
+        _integer(source, 0, self._cores-1, "authenticated controller source")
+        return tuple(battler for battler in range(self._count)
+                     if self._pending[battler] is not None and not self._done[battler] & (1 << source))
+
     def _text_valid(self, p):
         if p[0] != 253:
             return _string_valid(p)
