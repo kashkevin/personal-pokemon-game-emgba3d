@@ -7,7 +7,7 @@ import zlib
 from emerald_multiplayer.battle_mailbox import BattleControl, BattleMailboxError, BattleQuery
 from emerald_multiplayer.native_battle import (
     MULTI_PHASE, NativeBinding, NativeControl, NativeQuery, Preparation, Kind, Opcode,
-    pack_receive_many, receive_many_entries, validate_block_size,
+    pack_receive_many, peek_parts, receive_many_entries, validate_block_size,
 )
 
 
@@ -106,7 +106,7 @@ class NativeEnvelopeTests(unittest.TestCase):
     def test_party_and_controller_chunks_have_exact_boundaries_and_lengths(self):
         for kind, size in ((Kind.TRAINER, 28), (Kind.START_HEADER, 32),
                            (Kind.PARTY_0, 200), (Kind.PARTY_1, 200), (Kind.PARTY_2, 200),
-                           (Kind.RNG, 16), (Kind.CONTROLLER, 156)):
+                           (Kind.RNG, 16), (Kind.CONTROLLER, 156), (Kind.CONTROLLER, 48)):
             for offset in range(0, size, 128):
                 length = min(128, size-offset)
                 received = control(opcode=Opcode.RECEIVE, kind=kind, total_size=size,
@@ -123,9 +123,28 @@ class NativeEnvelopeTests(unittest.TestCase):
                 with self.assertRaises(BattleMailboxError):
                     replace(read, data=bytes(length-1)).validate_response(read)
         for kind, size in ((Kind.NONE, 0), (Kind.PARTY_0, 100), (Kind.RNG, 32),
+                           (Kind.CONTROLLER, 44), (Kind.CONTROLLER, 52),
                            (Kind.CONTROLLER, 128), (Kind.CONTROLLER, 256)):
             with self.assertRaises(BattleMailboxError):
                 validate_block_size(kind, size)
+
+    def test_stat_stages_block_passes_query_and_peek(self):
+        """The PC game's stat stages command (60, 36 bytes; battle_controller.py): its whole block (the 8-byte header,
+        the payload padded to 40) is a size the host takes, so a core holding one still answers QUERY and PEEK. Without
+        it every battle between players stopped at its first stat change: the launcher could not read its own game's
+        state, and the host never routed the block."""
+        stages = [6] * 32
+        stages[8 + 1] = 8   # battler 1: Attack +2
+        block = bytes([0, 1, 1, 1, 40, 0, 0, 1]) + bytes([60, 2, 0, 0] + stages) + bytes(4)
+        self.assertEqual(len(block), 48)
+        validate_block_size(Kind.CONTROLLER, len(block))
+        raw = query(flags=29, revision=3, seq=5, out_seq=9, kind=Kind.CONTROLLER, size=48, crc=zlib.crc32(block))
+        held = NativeQuery.unpack(raw)
+        self.assertTrue(held.outbound_pending and held.outbound_size == 48)
+        peek = control(sequence=6, opcode=Opcode.PEEK, data=b"")
+        answer = replace(peek, data=raw + block)
+        answer.validate_response(peek)
+        self.assertEqual(peek_parts(answer), (held, block))
 
     def test_ack_requires_full_read_offset_and_only_other_trainer(self):
         for local in (0, 1):

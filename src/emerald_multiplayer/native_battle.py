@@ -123,7 +123,8 @@ def validate_block_size(kind, size):
     sizes = {Kind.TRAINER: 28, Kind.START_HEADER: 32, Kind.PARTY_0: 200,
              Kind.PARTY_1: 200, Kind.PARTY_2: 200, Kind.RNG: 16}
     if kind == Kind.CONTROLLER:
-        if size not in (12, 16, 20, 24, 28, 36, 56, 64, 92, 156):
+        # 48: the PC game's stat stages (battle_controller.py _STAT_STAGES, 36 bytes padded to 40, and the 8-byte header)
+        if size not in (12, 16, 20, 24, 28, 36, 48, 56, 64, 92, 156):
             raise BattleMailboxError("controller size is outside the audited command table")
     elif kind not in sizes or size != sizes[kind]:
         raise BattleMailboxError("native block has the wrong exact size")
