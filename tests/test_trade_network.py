@@ -314,6 +314,22 @@ class TradeNetworkTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await self.finish_preparation(await self.confirm(0, fresh)))["state"], "committed")
         self.store.integrity_check()
 
+    async def test_a_trade_window_learns_why_its_trade_ended(self):
+        # end_reason_version 1 (the owner's report of 2026-10-24: "it kicked us out and said trade cancelled"): the
+        # host says who cancelled, from each side, to a status that asks, and acknowledges the feature.
+        view = await self.ready()
+        await self.confirm(0, view)
+        cancelled = (await self.rpc(1, "cancel", transaction_id=self.transaction, generation=view["generation"]))["trade"]
+        self.assertEqual(cancelled, {"transaction_id": self.transaction, "state": "aborted"})
+        for index, reason in ((0, "partner_cancelled"), (1, "you_cancelled")):
+            reply = await self.rpc(index, "status", transaction_id=self.transaction, end_reason_version=1)
+            self.assertEqual(reply["end_reason_version"], 1)
+            self.assertEqual(reply["trade"], {"transaction_id": self.transaction, "state": "aborted", "reason": reason})
+        # A status that does not ask gets the reply as before.
+        reply = await self.rpc(0, "status", transaction_id=self.transaction)
+        self.assertNotIn("end_reason_version", reply)
+        self.assertEqual(reply["trade"], {"transaction_id": self.transaction, "state": "aborted"})
+
     async def test_restart_keeps_committed_fate_and_both_apply_receipts(self):
         result = await self.commit()
         await self.restart()

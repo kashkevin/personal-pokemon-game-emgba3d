@@ -94,7 +94,31 @@ class TradeSettlementTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(all(len(line) <= 32 for line in expected.split("|")))
         self.banners.clear()
         self.session._trade_outcome_banner(SimpleNamespace(peer_species=None, cancelled_here=True), {"state": "aborted"})
-        self.assertEqual(self.banners, ["Trade cancelled.|Nothing changed."])
+        self.assertEqual(self.banners, ["You cancelled the trade.|Nothing changed."])
+        # Why the host ended it, when it could say (the owner's report of 2026-10-24: "it kicked us out and said trade
+        # cancelled", with no word of who or why).
+        for reason, first in (("partner_cancelled", "Your friend cancelled the trade."),
+                              ("expired", "The trade timed out."),
+                              ("partner_disconnected", "Your friend lost connection."),
+                              ("you_disconnected", "Lost connection to the host.")):
+            self.banners.clear()
+            self.session._trade_outcome_banner(
+                SimpleNamespace(peer_species=None, cancelled_here=False, end_reason=reason), {"state": "aborted"})
+            self.assertEqual(self.banners, [first + "|Nothing changed."])
+            self.assertTrue(all(len(line) <= 32 for line in self.banners[0].split("|")))
+
+    async def test_a_trade_the_host_had_ended_says_why(self):
+        self.coordinator.trade_path.write_text("{}")
+        async def fetch_end_reason():
+            return "expired"
+        self.trade_menu.fetch_end_reason = fetch_end_reason
+        from emerald_multiplayer.companion import TradeError
+        await self.settle(TradeError("trade_aborted", "no uncommitted proposal remains"))
+        self.assertEqual(self.banners, ["The trade timed out.|Code: trade_aborted"])
+        # This side's own error keeps the generic line and its code.
+        self.banners.clear()
+        await self.settle(TradeError("revision_conflict", "a participant's checkpoint changed"))
+        self.assertEqual(self.banners, ["Trade cancelled; no change.|Code: revision_conflict"])
 
 
 if __name__ == "__main__":

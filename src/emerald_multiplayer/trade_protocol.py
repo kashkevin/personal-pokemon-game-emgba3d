@@ -59,7 +59,7 @@ def validate_trade_request(message: Any, session_epoch: int) -> dict[str, Any]:
         common.add("effects_version")
     if operation == "effect_prepared" and message.get("effects_version") != 1:
         raise ProtocolError("trade_effect_negotiation_required", "native effect receipts require explicit negotiation")
-    for feature in ("inspection_version", "effect_source_version"):
+    for feature in ("inspection_version", "effect_source_version", "end_reason_version"):
         if feature in message:
             if operation != "status" or type(message[feature]) is not int or message[feature] != 1:
                 raise ProtocolError("invalid_field", "unsupported read-only trade feature negotiation")
@@ -146,7 +146,11 @@ def _trade(value: Any, operation: str, actor: str) -> None:
         if value["source"]["transaction_id"] != value["transaction_id"]:
             raise ProtocolError("identity_mismatch", "effect source names another trade")
     elif state == "aborted":
-        _fields(value, common)
+        # end_reason_version 1: why the host ended it, as this participant sees it (trade_desk.END_REASONS)
+        _fields(value, common, {"reason"})
+        if "reason" in value and value["reason"] not in {"you_cancelled", "partner_cancelled", "expired",
+                                                         "you_disconnected", "partner_disconnected"}:
+            raise ProtocolError("invalid_server_message", "unknown trade end reason")
     elif state == "recipient_preparation":
         _fields(value, common | {"preparation"})
         from .trade_preparation import TradePreparationError, validate_preparation
@@ -243,7 +247,7 @@ def validate_trade_reply(message: Any, config, profile: str, world_id: str, epoc
         common.add("preparation_version")
     elif message["type"] == "trade_result" and operation in PREPARATION_OPERATIONS:
         raise ProtocolError("trade_preparation_unsupported", "host did not negotiate recipient preparation before consent")
-    for feature in ("inspection_version", "effect_source_version"):
+    for feature in ("inspection_version", "effect_source_version", "end_reason_version"):
         if feature in message:
             if operation != "status" or message["type"] != "trade_result" or type(message[feature]) is not int or message[feature] != 1:
                 raise ProtocolError("invalid_server_message", "invalid read-only trade capability acknowledgement")

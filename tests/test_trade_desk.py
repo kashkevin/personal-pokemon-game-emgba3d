@@ -211,6 +211,43 @@ class TradeDeskTests(unittest.TestCase):
         self.assert_code('trade_aborted',self.confirm,1,ready)
         self.assertEqual(self.store.read_checkpoint(*self.actor(0)),self.heads[0])
 
+    def test_participants_at_work_keep_the_proposal_alive(self):
+        # The owner's report of 2026-10-24: the lifetime counted from the last offer only, and two players reading
+        # details, confirming and preparing over the internet outlived it. Each trade window's status poll (about
+        # once a second), confirmation, inspection and preparation now count; discovery still does not.
+        ready = self.ready()
+        for step in range(1, 6):
+            self.now = step * 8                       # past the 10 s lifetime of the offers, many times over
+            self.assertEqual(self.desk.status(*self.actor(step % 2), self.transaction)['state'], 'offering')
+        self.now += 8
+        view = self.confirm(0, ready)
+        self.now += 8
+        view = self.confirm(1, ready)
+        self.now += 8
+        self.assertEqual(self.finish_preparation(view)['state'], 'committed')
+
+    def test_the_host_remembers_why_each_participant_s_trade_ended(self):
+        player0, player1 = self.players[0].player_id, self.players[1].player_id
+        self.assertIsNone(self.desk.end_reason(player0, self.transaction))
+        self.desk.cancel(*self.actor(1), self.transaction, self.view['generation'])
+        self.assertEqual((self.desk.end_reason(player0, self.transaction), self.desk.end_reason(player1, self.transaction)),
+                         ('partner_cancelled', 'you_cancelled'))
+        self.assertIsNone(self.desk.end_reason(self.players[2].player_id, self.transaction))
+        expired = str(uuid4())
+        self.desk.open(*self.actor(0), player1, expired)
+        self.now += 11
+        self.assertEqual(self.desk.status(*self.actor(0), expired)['state'], 'aborted')
+        self.assertEqual(self.desk.end_reason(player1, expired), 'expired')
+        dropped = str(uuid4())
+        self.desk.open(*self.actor(0), player1, dropped)
+        self.store.release_lease(player1, self.leases[player1])
+        self.leases[player1] = self.store.acquire_lease(player1, self.players[1].credential)
+        self.assertEqual(self.desk.status(*self.actor(0), dropped)['state'], 'aborted')
+        self.assertEqual((self.desk.end_reason(player0, dropped), self.desk.end_reason(player1, dropped)),
+                         ('partner_disconnected', 'you_disconnected'))
+        self.now += 601                                # kept ten minutes
+        self.assertIsNone(self.desk.end_reason(player0, dropped))
+
     def test_restart_drops_uncommitted_consent_but_retains_committed_fate(self):
         ready=self.ready();self.confirm(0,ready)
         self.desk=TradeDesk(self.store,self.leases.get)

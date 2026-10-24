@@ -53,6 +53,13 @@ class _Proposal:
     effectful: bool = False
 
 
+# Why a proposal ended, as each participant sees it (the trade window's banner; the owner's report of 2026-10-24,
+# "it kicked us out and said trade cancelled"): kept a while after it ends, a bounded number of them.
+END_REASONS = frozenset({"you_cancelled", "partner_cancelled", "expired", "you_disconnected", "partner_disconnected"})
+_ENDED_KEEP_SECONDS = 600
+_ENDED_LIMIT = 64
+
+
 class TradeDesk:
     """Each authenticated participant confirms only its own current offer view.
 
@@ -69,6 +76,7 @@ class TradeDesk:
         self.store, self.lease_for = store, lease_for
         self.timeout, self.clock = timeout, clock
         self._proposals: dict[str, _Proposal] = {}
+        self._ended: dict[str, tuple[float, dict[str, str]]] = {}
         # Host friendship bookkeeping after a committed exact swap (no Lucky
         # conversion: an exact swap never changes either Pokémon).
         self.on_commit = None
@@ -86,9 +94,40 @@ class TradeDesk:
                 # Persisted native-effect consent has an explicit terminal fate;
                 # lease loss/timeout cannot erase it during original-core recovery.
                 continue
-            if (proposal.expires <= now or any(self.lease_for(player) != lease
-                    for player, lease in zip(proposal.players, proposal.leases))):
-                del self._proposals[key]
+            lost = {player for player, lease in zip(proposal.players, proposal.leases)
+                    if self.lease_for(player) != lease}
+            if lost:
+                self._end(proposal, {player: "you_disconnected" if player in lost else "partner_disconnected"
+                                     for player in proposal.players})
+            elif proposal.expires <= now:
+                self._end(proposal, dict.fromkeys(proposal.players, "expired"))
+            else:
+                continue
+            del self._proposals[key]
+
+    def _touch(self, proposal: _Proposal) -> None:
+        """A participant at work on the proposal keeps it alive: its lifetime counts from the last request either
+        trade window made (each polls its status about once a second), not from the last offer. Two players reading
+        the offers' details, confirming and preparing over the internet took longer than the three minutes an offer
+        gave them, and the host dropped the trade under them (the owner's report of 2026-10-24)."""
+        if not proposal.effectful:
+            proposal.expires = self.clock()+self.timeout
+
+    def _end(self, proposal: _Proposal, reasons: dict[str, str]) -> None:
+        now = self.clock()
+        for key, (when, _) in tuple(self._ended.items()):
+            if when + _ENDED_KEEP_SECONDS <= now:
+                del self._ended[key]
+        while len(self._ended) >= _ENDED_LIMIT:
+            del self._ended[next(iter(self._ended))]
+        self._ended[proposal.transaction_id] = (now, reasons)
+
+    def end_reason(self, player: str, transaction_id: str) -> str | None:
+        """Why this participant's trade ended (END_REASONS), while the host remembers it; None otherwise."""
+        ended = self._ended.get(transaction_id)
+        if ended is None or ended[0] + _ENDED_KEEP_SECONDS <= self.clock():
+            return None
+        return ended[1].get(player)
 
     def _fingerprint(self, proposal: _Proposal) -> str | None:
         if len(proposal.offers) != 2:
@@ -237,14 +276,18 @@ class TradeDesk:
         self._prune()
         if transaction_id not in self._proposals:
             return dict(transaction_id=transaction_id, state="aborted")
-        return self._public(self._pending(player, lease, transaction_id))
+        proposal = self._pending(player, lease, transaction_id)
+        self._touch(proposal)
+        return self._public(proposal)
 
     def cancel(self, player: str, lease: int, transaction_id: str, generation: str) -> dict:
         current = self.status(player, lease, transaction_id)
         if current["state"] not in {"offering", "preparing"}:
             return current
-        self._pending(player, lease, transaction_id, generation)
+        proposal = self._pending(player, lease, transaction_id, generation)
         del self._proposals[transaction_id]
+        self._end(proposal, {participant: "you_cancelled" if participant == player else "partner_cancelled"
+                             for participant in proposal.players})
         return dict(transaction_id=transaction_id, state="aborted")
 
     def confirm(self, player: str, lease: int, transaction_id: str,
@@ -253,6 +296,7 @@ class TradeDesk:
         if current["state"] == "committed":
             return current
         proposal = self._pending(player, lease, transaction_id, generation)
+        self._touch(proposal)
         if not isinstance(fingerprint, str) or fingerprint != self._fingerprint(proposal):
             raise StorageError("trade_offer_changed", "confirm the current complete two-player offer")
         if proposal.preparations is not None:
@@ -289,6 +333,7 @@ class TradeDesk:
         if current["state"] == "committed":
             return current
         proposal = self._pending(player, lease, transaction_id, generation)
+        self._touch(proposal)
         if proposal.preparations is None or proposal.confirmed != set(proposal.players):
             raise StorageError("trade_consent_required", "both exact offers must be confirmed before preparing")
         self._check_preparation_heads(proposal)
@@ -300,6 +345,7 @@ class TradeDesk:
     def inspect(self, player, lease, transaction_id, generation, fingerprint):
         """Read the exact two offered party records without granting consent."""
         proposal = self._pending(player, lease, transaction_id, generation)
+        self._touch(proposal)
         if len(proposal.offers) != 2 or fingerprint != self._fingerprint(proposal):
             raise StorageError("trade_offer_changed", "inspect the current complete offered pair")
         self._check_preparation_heads(proposal)
@@ -343,6 +389,7 @@ class TradeDesk:
                 raise StorageError("request_conflict", "prepared receipt differs from the committed recipient")
             return current
         proposal = self._pending(player, lease, transaction_id, generation)
+        self._touch(proposal)
         if proposal.preparations is None or proposal.candidates is None:
             raise StorageError("trade_preparation_required", "the exact consent pair has not been prepared")
         description = proposal.preparations[proposal.players.index(player)]

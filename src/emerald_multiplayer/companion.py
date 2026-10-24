@@ -2021,7 +2021,7 @@ class Companion:
         if pending is None:
             return  # A timed-out RPC remains uncertain until an explicit status.
         request, future = pending
-        for feature in ("inspection_version", "effect_source_version", "effects_version"):
+        for feature in ("inspection_version", "effect_source_version", "effects_version", "end_reason_version"):
             if feature in validated and request.get(feature) != validated[feature]:
                 raise ProtocolError("invalid_server_message", "unsolicited trade feature acknowledgement")
         if (validated["operation"] != request["type"].removeprefix("trade_")

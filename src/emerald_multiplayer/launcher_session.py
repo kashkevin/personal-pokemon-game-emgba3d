@@ -130,6 +130,17 @@ def _safe_error(error):
     return LauncherSessionError(code)
 
 
+# The game's banner for a trade the host ended, by the reason it gave (trade_desk.END_REASONS): two lines of at most
+# 32 characters.
+TRADE_END_BANNERS = {
+    "you_cancelled": "You cancelled the trade.",
+    "partner_cancelled": "Your friend cancelled the trade.",
+    "expired": "The trade timed out.",
+    "partner_disconnected": "Your friend lost connection.",
+    "you_disconnected": "Lost connection to the host.",
+}
+
+
 def _trade_reason(error) -> str:
     """A failed trade's reason for the game's banner: its error code (or the exception's kind), at most 26 characters."""
     code = getattr(error, "code", None)
@@ -1860,7 +1871,13 @@ class LauncherSession:
         trade_menu._completion(result)
         if isinstance(result, dict) and result.get("state") == "aborted":
             menu_session.menu.notice("Trade cancelled: nothing changed")
-            say(f"Trade cancelled; no change.|Code: {reason}")
+            # A trade the host had already ended (it timed out, the friend cancelled or lost connection) says so;
+            # this side's own error keeps its code.
+            ended = await trade_menu.fetch_end_reason() if reason == "trade_aborted" else None
+            if ended in TRADE_END_BANNERS and ended != "you_cancelled":
+                say(f"{TRADE_END_BANNERS[ended]}|Code: {reason}")
+            else:
+                say(f"Trade cancelled; no change.|Code: {reason}")
         elif isinstance(result, dict) and result.get("state") == "applied":
             self._trade_outcome_banner(trade_menu, result)
         return result
@@ -1880,7 +1897,9 @@ class LauncherSession:
             self._trade_banner("Trade complete!|" + (f"You received {species_label(species)}." if species else
                                                        "Your party is saved."))
         elif getattr(trade_menu, "cancelled_here", False):
-            self._trade_banner("Trade cancelled.|Nothing changed.")
+            self._trade_banner(TRADE_END_BANNERS["you_cancelled"] + "|Nothing changed.")
+        elif getattr(trade_menu, "end_reason", None) in TRADE_END_BANNERS:
+            self._trade_banner(TRADE_END_BANNERS[trade_menu.end_reason] + "|Nothing changed.")
         else:
             self._trade_banner("Trade ended by friend or host.|Nothing changed.")
 

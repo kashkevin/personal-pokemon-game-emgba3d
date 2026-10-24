@@ -1389,7 +1389,7 @@ class WorldServer:
         if request.get("effects_version") == 1 and self.trade_effects is not None and self.trade_effects.ready:
             fields["effects_version"] = 1
         if error is None and request["type"] == "trade_status":
-            for feature in ("inspection_version", "effect_source_version"):
+            for feature in ("inspection_version", "effect_source_version", "end_reason_version"):
                 if request.get(feature) == 1:
                     fields[feature] = 1
         self._control(session, dict(
@@ -1494,6 +1494,11 @@ class WorldServer:
             result = desk.cancel(*actor, txid, request["generation"])
         else:
             result = desk.status(*actor, txid)
+            # The trade window asks why its trade ended, to say so in the game's banner (end_reason_version 1).
+            if request.get("end_reason_version") == 1 and result["state"] == "aborted":
+                reason = desk.end_reason(session.player_id, txid)
+                if reason is not None:
+                    result = dict(result, reason=reason)
         self._trade_reply(session, request, trade=result)
 
     def _checkpoint_reply(self, session: PlayerSession, request: dict[str, Any], **fields: Any) -> None:

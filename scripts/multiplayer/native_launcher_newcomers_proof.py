@@ -307,27 +307,51 @@ class NewcomersProof(SoftResetProof, ThreePlayerProof):
         record("trade-offers-chosen", offered={self.harness.names[n]: offered[n] for n in pair},
                window_seconds={self.harness.names[n]: prepared[n] for n in pair})
         started, confirmed = time.monotonic(), set()
+        mashers = {}
+        try:
+            while True:
+                launchers = {n: await self.launcher(current[n]) for n in pair}
+                for n in pair:
+                    row = probes[n].read()
+                    if n not in confirmed and row["active"] and not row["waiting"]:
+                        try:
+                            screen = unpack_screen(row["screen"], allow_trade_reopen=True, allow_battle_admission=True)[1]
+                        except ValueError:
+                            continue
+                        if any(r.label == "Confirm this trade" for r in screen.rows):
+                            await pick(probes[n], "Confirm this trade")
+                            confirmed.add(n)
+                            record("trade-confirmed", player=self.harness.names[n],
+                                   seconds=round(time.monotonic() - started, 1))
+                            if MASH[0]:
+                                mashers[n] = asyncio.create_task(self.mash(probes[n]))
+                elapsed = round(time.monotonic() - started)
+                if all(v.get("interaction") is None and v.get("trade") is None and v.get("revision") == before[n] + 2
+                       for n, v in launchers.items()):
+                    record("trade-applied", seconds=elapsed,
+                           revisions={self.harness.names[n]: [before[n], launchers[n]["revision"]] for n in pair})
+                    return
+                require(elapsed < self.watch, f"the trade did not finish: {launchers}")
+                await asyncio.sleep(1)
+        finally:
+            for n, task in mashers.items():
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+                record("mashed-after-confirm", player=self.harness.names[n], presses=self.mashed.pop(id(probes[n]), 0))
+
+    async def mash(self, probe):
+        """--mash-after-confirm: after its Confirm, a player presses A and B by turns while the trade window is open
+        (the owner's report of 2026-10-24: "when trade was being done it kicked us out and said trade cancelled"; once
+        both had confirmed, the one row left under the cursor and B were Cancel trade)."""
+        self.mashed = getattr(self, "mashed", {})
+        key = 1
         while True:
-            launchers = {n: await self.launcher(current[n]) for n in pair}
-            for n in pair:
-                row = probes[n].read()
-                if n not in confirmed and row["active"] and not row["waiting"]:
-                    try:
-                        screen = unpack_screen(row["screen"], allow_trade_reopen=True, allow_battle_admission=True)[1]
-                    except ValueError:
-                        continue
-                    if any(r.label == "Confirm this trade" for r in screen.rows):
-                        await pick(probes[n], "Confirm this trade")
-                        confirmed.add(n)
-                        record("trade-confirmed", player=self.harness.names[n], seconds=round(time.monotonic() - started, 1))
-            elapsed = round(time.monotonic() - started)
-            if all(v.get("interaction") is None and v.get("trade") is None and v.get("revision") == before[n] + 2
-                   for n, v in launchers.items()):
-                record("trade-applied", seconds=elapsed,
-                       revisions={self.harness.names[n]: [before[n], launchers[n]["revision"]] for n in pair})
-                return
-            require(elapsed < self.watch, f"the trade did not finish: {launchers}")
-            await asyncio.sleep(1)
+            if probe.read()["active"]:
+                await probe.press(key)
+                self.mashed[id(probe)] = self.mashed.get(id(probe), 0) + 1
+                key = 3 - key                      # A, then B
+            else:
+                await asyncio.sleep(.2)
 
     async def walk_meanwhile(self, probe, record):
         """--walk-while-preparing: the offerer walks left and right on the field while its party is prepared (the
@@ -677,14 +701,14 @@ class NewcomersProof(SoftResetProof, ThreePlayerProof):
         await self.across_route_101(3, current, probes, record)
 
 
-LATENCY_MS, HOLD, DISK_MS, REMOTE_ONLY, LATENCY_ALL, WALK = [0], [True], [0], [False], [False], [0.0]
+LATENCY_MS, HOLD, DISK_MS, REMOTE_ONLY, LATENCY_ALL, WALK, MASH = [0], [True], [0], [False], [False], [0.0], [False]
 # live_trade.CALM_OPCODES (QUERY_OWNERSHIP, GRANT_OWNERSHIP, BEGIN_TRADE_EXPORT), spelled out to run on older apps too.
 CALM_OPCODES = frozenset({10, 11, 12})
 
 
 async def run(args):
     LATENCY_MS[0], HOLD[0], DISK_MS[0], REMOTE_ONLY[0] = args.latency_ms, not args.no_hold, args.disk_ms, args.remote_only
-    LATENCY_ALL[0], WALK[0] = args.latency_all, args.walk_while_preparing
+    LATENCY_ALL[0], WALK[0], MASH[0] = args.latency_all, args.walk_while_preparing, args.mash_after_confirm
     count = len(args.source)
     require(2 <= count <= 4, "two to four sources (short-introduction saves)")
     require(args.scenario == "lobby" or count == 4 or (args.scenario in ("trade", "battle-trade") and count == 2),
@@ -731,6 +755,9 @@ def main():
     parser.add_argument("--latency-all", action="store_true",
                         help="--latency-ms on every message from the match on, not only the battle's")
     parser.add_argument("--no-hold", action="store_true", help="the host answers battle polls at once (before MS-62)")
+    parser.add_argument("--mash-after-confirm", action="store_true",
+                        help="trade: after its Confirm each player presses A and B by turns while its trade window is "
+                             "open (the owner's report of 2026-10-24)")
     parser.add_argument("--walk-while-preparing", type=float, default=0, metavar="SECONDS",
                         help="trade: the offerer walks that long once its Players menu closed for the trade")
     parser.add_argument("--light-3d", action="store_true",

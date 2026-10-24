@@ -27,6 +27,10 @@ class PartyChoice:
     reason: str = ""
 
 
+# A Yes on "Cancel the trade?" chosen sooner than this after the page appeared is a second press of the one that
+# opened it, not a choice (the owner's report of 2026-10-24).
+ASK_CANCEL_GRACE_SECONDS = 0.6
+
 BLOCKED_REASONS = {
     "egg_unsupported": "Eggs cannot be traded yet.",
     "mail_unsupported": "Pokemon carrying Mail cannot be traded yet.",
@@ -86,6 +90,10 @@ class NativeTradeMenu:
         self.effect_paused = False
         self.peer_species = None      # the friend's offered species, as last seen (the banner's "You received ...")
         self.cancelled_here = False   # this player chose Cancel trade
+        self.end_reason = None        # why the host ended the trade, when it could say (trade_desk.END_REASONS)
+        self.transaction_id = None
+        self.return_page = "review"   # the page "No, keep trading" goes back to
+        self.ask_shown = None         # when "Cancel the trade?" was put on screen (loop time)
 
     async def _inspect(self, view, player):
         """Negotiate through a known operation before sending the new request."""
@@ -134,14 +142,31 @@ class NativeTradeMenu:
             if self.page == "details":
                 self.page = "review"
                 self.notice = "Offers changed; review again"
-        if view["state"] == "preparing":
-            status = "Preparing trade" if actor not in view["prepared"] else "Ready; waiting for friend"
+        # The owner's report of 2026-10-24 ("when trade was being done it kicked us out and said trade cancelled"):
+        # Cancel trade was one A press away. The game keeps its cursor row when a new screen comes (back to the top
+        # when the new one is shorter), and once both players confirmed, the one row left was Cancel trade, under the
+        # cursor; B was Cancel too, on every page. Cancelling now takes its own page ("Cancel the trade?", No first,
+        # and a Yes chosen in the moment it appeared counts for nothing); B opens that page; and the first three rows
+        # of the pages a confirmation leads to say what is happening and choose nothing.
+        if self.page == "ask_cancel":
+            title, status = "Cancel the trade?", "Nothing will be traded"
+            actions.extend((("No, keep trading", "keep", None), ("Yes, cancel trade", "cancel", None)))
+            back = ("keep", None)
+        elif view["state"] == "preparing":
+            status = "Trading: please wait" if actor not in view["prepared"] else "Ready; waiting for friend"
+            actions.append(("Both players confirmed", "", None))
+            actions.append(("Keep the game open", "", None))
             if self.effect_paused and actor not in view["prepared"]:
                 status = "Evolution review paused"
                 actions.append(("Resume evolution review", "resume_effect", None))
-            actions.append(("Cancel trade", "cancel", None))
+            else:
+                actions.append(("Saving the trade...", "", None))
+            actions.append(("Cancel trade...", "ask_cancel", None))
+            back = ("ask_cancel", None)
         elif self.page == "party":
-            status = "Pick; [X] blocked; B: cancel"
+            own = next((o for o in view["offers"] if o["player_id"] == actor), None)
+            status = "Pick; [X] blocked; B: back" if own is not None else "Pick; [X] blocked; B: cancel"
+            back = ("review", None) if own is not None else ("ask_cancel", None)
             for mon in choices:
                 label = f"{species_label(mon.species)} Lv{mon.level}"
                 actions.append((label if mon.eligible else "[X] " + label,
@@ -172,11 +197,15 @@ class NativeTradeMenu:
                 actions.append((label + ": " + (species_label(offer["species"]) if offer else "Waiting"),
                     "inspect" if offer and view["fingerprint"] is not None else "",
                     offer["player_id"] if offer else None))
-            if view["fingerprint"] is not None and actor not in view["confirmations"]:
-                actions.append(("Confirm this trade", "confirm", view["fingerprint"]))
             if actor in view["confirmations"]:
                 status = "Confirmed; waiting for friend"
-            actions.extend((("Change your Pokemon", "party", None), ("Cancel trade", "cancel", None)))
+                actions.append(("Confirmed: waiting", "", None))
+            elif view["fingerprint"] is not None:
+                actions.append(("Confirm this trade", "confirm", view["fingerprint"]))
+            else:
+                actions.append(("Waiting for both offers", "", None))
+            actions.extend((("Change your Pokemon", "party", None), ("Cancel trade...", "ask_cancel", None)))
+            back = ("ask_cancel", None)
         signature = (self.page, title, status, tuple(actions), back, view.get("fingerprint"))
         if signature != self.signature:
             if len(actions) > 6:
@@ -195,6 +224,7 @@ class NativeTradeMenu:
         if proposal["state"] not in {"offering", "preparing"} or self.companion.config.player_id not in proposal["players"]:
             raise ValueError("trade menu requires this actor's live proposal")
         tx, generation = proposal["transaction_id"], proposal["generation"]
+        self.transaction_id = tx
         if self.coordinator.trade_path.exists():
             async with self.coordinator._own():
                 session = self.coordinator._session()
@@ -263,7 +293,17 @@ class NativeTradeMenu:
                 continue
             op, value = self.actions.pop(choice.action)
             self.signature = None
-            if op == "offer":
+            loop = asyncio.get_running_loop()
+            if op == "ask_cancel":
+                if self.page != "ask_cancel":
+                    self.return_page = self.page if self.page in {"party", "review", "details"} else "review"
+                self.page, self.ask_shown = "ask_cancel", loop.time()
+            elif op == "keep":
+                self.page = self.return_page
+            elif op == "cancel" and (self.page != "ask_cancel" or self.ask_shown is None
+                                     or loop.time() - self.ask_shown < ASK_CANCEL_GRACE_SECONDS):
+                pass   # a Yes chosen in the moment its page appeared (a second press of the one that opened it)
+            elif op == "offer":
                 view = await self.coordinator.offer(value)
                 self.page = "review"
             elif op == "inspect":
@@ -301,4 +341,21 @@ class NativeTradeMenu:
         return result
 
     async def _resume(self):
-        return self._completion(await self.coordinator.resume())
+        result = self._completion(await self.coordinator.resume())
+        if isinstance(result, dict) and result.get("state") == "aborted" and not self.cancelled_here:
+            await self.fetch_end_reason()
+        return result
+
+    async def fetch_end_reason(self):
+        """Why the host ended this trade (end_reason_version 1: cancelled by whom, timed out, a lost connection), for
+        the game's banner; None when the host cannot say (an older host, or no longer connected)."""
+        if self.end_reason is None and self.transaction_id is not None:
+            try:
+                reply = await self.companion.trade_rpc("status", transaction_id=self.transaction_id,
+                                                       end_reason_version=1)
+            except (TradeError, ConnectionError, OSError, asyncio.TimeoutError, TimeoutError, ValueError):
+                return None
+            trade = reply.get("trade") if isinstance(reply, dict) else None
+            if isinstance(trade, dict) and trade.get("state") == "aborted":
+                self.end_reason = trade.get("reason")
+        return self.end_reason
