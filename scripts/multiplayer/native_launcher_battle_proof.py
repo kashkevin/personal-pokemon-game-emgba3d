@@ -881,8 +881,16 @@ class LauncherHarness:
 
     async def save(self, player, revision):
         async def save(s):
-            require(await s.save(), "manual save did not finish: " + json.dumps(dict(
-                code=s.status.code, error=getattr(s, "last_save_error", None))))
+            # The launcher refuses a save while another transaction still holds the game's checkpoint (a trade's
+            # settlement can be finishing as the proof gets here: run 211's trade-lag) and says a later click may
+            # retry; a player clicks Save again, and so does the proof, for up to 30 s. Any other refusal fails.
+            loop = asyncio.get_running_loop()
+            deadline = loop.time() + 30
+            while not await s.save():
+                error = getattr(s, "last_save_error", None)
+                require(str(error).startswith("busy:") and loop.time() < deadline,
+                        "manual save did not finish: " + json.dumps(dict(code=s.status.code, error=error)))
+                await asyncio.sleep(.5)
             require(s.status.revision == revision, "manual save revision differs")
         await on_worker(player.worker, save)
 
