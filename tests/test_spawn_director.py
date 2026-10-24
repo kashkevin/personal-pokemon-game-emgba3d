@@ -224,6 +224,24 @@ class WanderTests(DirectorTestCase):
         self.assertTrue(all(board.slots.get(i) is None or board.slots[i].state == ss.REMOVED for i in ids))
 
 
+class ShinyStaysDirectorTests(DirectorTestCase):
+    """Shiny Pokemon never despawn (the owner's request of 2026-10-24), through the director's own rules."""
+
+    def test_shiny_spawns_outlive_their_lifetime_far_players_and_the_outbreaks_end(self):
+        x, y = route101_player_tile(self.director)
+        outbreak = {ROUTE101: {"species": 263, "share": 1.0, "shiny_odds": 1}}   # every spawn of this outbreak is shiny
+        self.fill({"p": presence(x, y)}, outbreaks=outbreak)
+        board = self.boards.board(ROUTE101)
+        shinies = {s.spawn_id for s in board.live() if s.shiny}
+        self.assertTrue(shinies)
+        far = {"p": presence(x, y, map_number=17), "q": presence(x + 40, y + 40)}   # one left, one far away
+        longest = self.director.tuning.lifetime[1] + self.director.tuning.retire_age + 60
+        for _ in range(int(longest // 30) + 2):
+            self.step(far, seconds=30)                                              # the outbreak is over meanwhile
+        self.assertTrue(shinies <= {s.spawn_id for s in board.live()})
+        self.assertTrue(all(board.slots[i].state == ss.OPEN for i in shinies))
+
+
 class ClaimCleanupTests(DirectorTestCase):
     def setUp(self):
         super().setUp()
