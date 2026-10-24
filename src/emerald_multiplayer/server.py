@@ -1389,9 +1389,12 @@ class WorldServer:
         if request.get("effects_version") == 1 and self.trade_effects is not None and self.trade_effects.ready:
             fields["effects_version"] = 1
         if error is None and request["type"] == "trade_status":
-            for feature in ("inspection_version", "effect_source_version", "end_reason_version"):
+            for feature in ("inspection_version", "effect_source_version"):
                 if request.get(feature) == 1:
                     fields[feature] = 1
+            if request.get("end_reason_version") in (1, 2):
+                # 2: this host records a launcher's automatic cancel as such (the cancel's cause), and says so
+                fields["end_reason_version"] = request["end_reason_version"]
         self._control(session, dict(
             type="trade_error" if error is not None else "trade_result",
             protocol=PROTOCOL_VERSION, session_epoch=session.session_epoch,
@@ -1491,12 +1494,15 @@ class WorldServer:
             result = desk.prepared(*actor, txid, request["generation"], request["fingerprint"],
                                    request["preparation_id"], request["candidate_sha256"])
         elif kind == "cancel":
-            result = desk.cancel(*actor, txid, request["generation"])
+            # cause "automatic": the launcher cancelled on its own after an error, never the player's choice
+            result = desk.cancel(*actor, txid, request["generation"], automatic=request.get("cause") == "automatic")
         else:
             result = desk.status(*actor, txid)
-            # The trade window asks why its trade ended, to say so in the game's banner (end_reason_version 1).
-            if request.get("end_reason_version") == 1 and result["state"] == "aborted":
-                reason = desk.end_reason(session.player_id, txid)
+            # The trade window asks why its trade ended, to say so in the game's banner (end_reason_version 1; 2 also
+            # knows a cancel the other launcher made on its own after an error).
+            version = request.get("end_reason_version")
+            if version in (1, 2) and result["state"] == "aborted":
+                reason = desk.end_reason(session.player_id, txid, version)
                 if reason is not None:
                     result = dict(result, reason=reason)
         self._trade_reply(session, request, trade=result)

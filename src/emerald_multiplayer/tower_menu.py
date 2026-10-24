@@ -42,6 +42,9 @@ CLOSE_TO_FINISH = "Close the menu to finish"
 # "Go on to floor N?" answered YES: how long the host is asked again while the last floor's result is still arriving.
 NEXT_FLOOR_WAIT_SECONDS = 10.0
 NEXT_FLOOR_STEP_SECONDS = 0.5
+# ... and what to do when the game is still applying the last result as that wait ends (it cannot while the window is
+# open): close it, then START > PLAYER > TOWER > Solo.
+SAVING_CLOSE_AND_RETRY = "Close the menu, then Solo again"
 
 class TowerMenuError(ValueError):
     def __init__(self, code):
@@ -122,18 +125,24 @@ class TowerMenu:
         self._supported, self._view = True, view
         return view
 
-    async def next_floor(self, wait=NEXT_FLOOR_WAIT_SECONDS):
+    async def next_floor(self, wait=NEXT_FLOOR_WAIT_SECONDS, alive=None):
         """The game's "go on to floor N?" answered YES (the owner's request of 2026-10-24; the game saved on the host
         first): the climb's next floor as the game's window takes it, ("command", TowerCommand), or None with the reason
         on the Tower's home page. The floor just fought may still be on its way to the host (the game posts its result
         as the battle ends): while the host has it open, or says the game is still applying its answer, the host is asked
-        again for up to ``wait`` seconds - never asked for a new floor over an open one, which would count it as lost."""
+        again for up to ``wait`` seconds - never asked for a new floor over an open one, which would count it as lost.
+
+        ``alive``: whether the game's window that asked still waits for the answer. Once it has closed (B on "Waiting for
+        server...", the launcher's autosave holding the save) no floor is asked for: the command could not reach the game,
+        and the host would hold its ticket as "Floor N: starting" for two minutes."""
         from .menu_mailbox import TowerCommand
         from .protocol import ProtocolError
         loop = asyncio.get_running_loop()
         deadline = loop.time() + wait
         self.open("home")
         while True:
+            if alive is not None and not alive():
+                return None
             await self.refresh()
             if self._view is None or self._supported is False:
                 return None
@@ -142,11 +151,16 @@ class TowerMenu:
                 self._notice = "The Tower is climbed!"
                 return None
             if battle is None:
+                if alive is not None and not alive():
+                    return None              # the window closed during the refresh: no floor is asked for
                 try:
                     view = await self.companion.tower_rpc("solo", floor=player["progress"])
                 except ProtocolError as error:
                     if error.code not in ("tower_saving", "tower_result_pending") or loop.time() >= deadline:
-                        self._notice = _text(error.message, 31)
+                        # tower_saving to the end: the game applies the last result only on the field, never while this
+                        # window is open (engine multiplayer.c FieldReady), so the way on is to close it and choose Solo.
+                        self._notice = (SAVING_CLOSE_AND_RETRY if error.code == "tower_saving"
+                                        else _text(error.message, 31))
                         return None
                 except (ConnectionError, OSError, asyncio.TimeoutError):
                     self._notice = "Host did not answer: refresh"
@@ -545,12 +559,13 @@ class TowerMenu:
         mine = next(member for member in members if member["player_id"] == actor)
         if duo["state"] == "invited":
             if duo["proposer"] == actor:
+                # Cancelling, declining and leaving ask first (player_menu.QUESTIONS: No first, B is No).
                 status = f"Waiting for {members[1]['name'][:12]}"
-                actions.append(("Cancel the invitation", "tower_duo", ("duo_leave",)))
+                actions.append(("Cancel the invitation...", "ask", ("duo_cancel",)))
             else:
                 status = f"{members[0]['name'][:12]} invites you"
                 actions.append((f"Accept: floor {floor}", "tower_duo", ("duo_accept",)))
-                actions.append(("Decline", "tower_duo", ("duo_decline",)))
+                actions.append(("Decline...", "ask", ("duo_decline",)))
             return f"Duo: floor {floor}", status, actions, (STYLE_DUO, floor)
         if duo["state"] == "battle":
             status = NATIVE_STATES.get(duo.get("native"), "Open Challenges to battle")
@@ -571,7 +586,7 @@ class TowerMenu:
                                                                                  else "duo_ready",)))
         if duo["proposer"] == actor:      # the Duo's host chooses its floor
             actions.append(("Change floor", "tower_page", ("duo_floor", 0)))
-        actions.append(("Leave the Duo", "tower_duo", ("duo_leave",)))
+        actions.append(("Leave the Duo...", "ask", ("duo_leave",)))
         return f"Duo: floor {floor}", status, actions, (STYLE_DUO, floor)
 
     def _render_duo_floor(self, page_no):

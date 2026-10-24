@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 from textwrap import wrap
+import time
 
 from .companion import TradeError
 from .flash import FLASH_SIZE, POKEMON_SIZE, SAVED_PARTY_OFFSET, inspect_flash
@@ -27,9 +28,20 @@ class PartyChoice:
     reason: str = ""
 
 
-# A Yes on "Cancel the trade?" chosen sooner than this after the page appeared is a second press of the one that
-# opened it, not a choice (the owner's report of 2026-10-24).
+# A Yes on "Cancel the trade?" pressed sooner than this after the page appeared is a second press of the one that
+# opened it, not a choice (the owner's report of 2026-10-24). Counted from when the page was sent to the game to when the
+# press reached the launcher.
 ASK_CANCEL_GRACE_SECONDS = 0.6
+# The host's refusals that only say the friend's offer or Confirm came first: the window shows the trade as it now is
+# instead of ending it (they used to escape the window, and the launcher then cancelled the whole trade for both).
+RACE_CODES = frozenset({"trade_offer_changed", "trade_preparing"})
+
+
+def _now():
+    try:
+        return asyncio.get_running_loop().time()
+    except RuntimeError:
+        return time.monotonic()
 
 BLOCKED_REASONS = {
     "egg_unsupported": "Eggs cannot be traded yet.",
@@ -94,6 +106,7 @@ class NativeTradeMenu:
         self.transaction_id = None
         self.return_page = "review"   # the page "No, keep trading" goes back to
         self.ask_shown = None         # when "Cancel the trade?" was put on screen (loop time)
+        self.ask_cursor = None        # the row that asked it (where the game's cursor stays); None: B, any row
 
     async def _inspect(self, view, player):
         """Negotiate through a known operation before sending the new request."""
@@ -149,8 +162,16 @@ class NativeTradeMenu:
         # and a Yes chosen in the moment it appeared counts for nothing); B opens that page; and the first three rows
         # of the pages a confirmation leads to say what is happening and choose nothing.
         if self.page == "ask_cancel":
+            # Yes is never where the press that asked left the game's cursor. A row's press: the row is known, and a
+            # second row's press finds a row that does nothing there. B: the cursor could be on any row, so the page
+            # first has No alone (the cursor goes to it) and Yes comes below it once the grace has passed.
             title, status = "Cancel the trade?", "Nothing will be traded"
-            actions.extend((("No, keep trading", "keep", None), ("Yes, cancel trade", "cancel", None)))
+            actions.append(("No, keep trading", "keep", None))
+            if self.ask_cursor == 1:
+                actions.append(("B or No keeps trading", "", None))
+            if self.ask_cursor is not None or (self.ask_shown is not None
+                                               and _now() - self.ask_shown >= ASK_CANCEL_GRACE_SECONDS):
+                actions.append(("Yes, cancel trade", "cancel", None))
             back = ("keep", None)
         elif view["state"] == "preparing":
             status = "Trading: please wait" if actor not in view["prepared"] else "Ready; waiting for friend"
@@ -294,17 +315,29 @@ class NativeTradeMenu:
             op, value = self.actions.pop(choice.action)
             self.signature = None
             loop = asyncio.get_running_loop()
+            arrival = getattr(self.menu_session, "arrival", None)
+            pressed = arrival(choice) if callable(arrival) else None
+            pressed = loop.time() if pressed is None else pressed
             if op == "ask_cancel":
                 if self.page != "ask_cancel":
                     self.return_page = self.page if self.page in {"party", "review", "details"} else "review"
-                self.page, self.ask_shown = "ask_cancel", loop.time()
+                # B (action 7) leaves the cursor wherever it was; a row's press leaves it on that row.
+                self.page, self.ask_shown = "ask_cancel", None
+                self.ask_cursor = None if choice.action == 7 else choice.action - 1
             elif op == "keep":
                 self.page = self.return_page
             elif op == "cancel" and (self.page != "ask_cancel" or self.ask_shown is None
-                                     or loop.time() - self.ask_shown < ASK_CANCEL_GRACE_SECONDS):
-                pass   # a Yes chosen in the moment its page appeared (a second press of the one that opened it)
+                                     or pressed - self.ask_shown < ASK_CANCEL_GRACE_SECONDS):
+                self.ask_shown = None   # a Yes pressed in the moment its page appeared: asked again, grace anew
             elif op == "offer":
-                view = await self.coordinator.offer(value)
+                try:
+                    view = await self.coordinator.offer(value)
+                except TradeError as error:
+                    if error.code not in RACE_CODES:
+                        raise
+                    # The friend's Confirm froze both offers first: the trade goes on with the confirmed pair.
+                    self.notice = "Offers already confirmed"
+                    view = await self.coordinator.status()
                 self.page = "review"
             elif op == "inspect":
                 await self._inspect(view, value)
@@ -315,7 +348,15 @@ class NativeTradeMenu:
             elif op == "review":
                 self.page = "review"
             elif op == "confirm":
-                view = await self.coordinator.confirm(value)
+                try:
+                    view = await self.coordinator.confirm(value)
+                except TradeError as error:
+                    if error.code not in RACE_CODES:
+                        raise
+                    # The friend changed their offer (or confirmed) as this Confirm went: nothing is confirmed, the
+                    # page shows the offers as they now are with a fresh Confirm.
+                    self.notice = "Offers changed; review again"
+                    view = await self.coordinator.status()
             elif op == "resume_effect":
                 self.effect_paused = False
             elif op == "cancel":
@@ -329,6 +370,8 @@ class NativeTradeMenu:
                 self.page = "party"
             if view["state"] in {"offering", "preparing"}:
                 self.menu_session.show_dialog(self._render(view, choices))
+                if self.page == "ask_cancel" and self.ask_shown is None:
+                    self.ask_shown = loop.time()    # the question reached the game now: its grace starts here
 
     def _completion(self, result):
         if isinstance(result, dict) and result.get("state") == "applied":
@@ -347,14 +390,21 @@ class NativeTradeMenu:
         return result
 
     async def fetch_end_reason(self):
-        """Why the host ended this trade (end_reason_version 1: cancelled by whom, timed out, a lost connection), for
-        the game's banner; None when the host cannot say (an older host, or no longer connected)."""
+        """Why the host ended this trade (end_reason_version 1: cancelled by whom, timed out, a lost connection; 2 also:
+        stopped by the other launcher after an error, which its player never chose), for the game's banner; None when
+        the host cannot say (an older host, or no longer connected). A host that knows only version 1 is asked that."""
         if self.end_reason is None and self.transaction_id is not None:
-            try:
-                reply = await self.companion.trade_rpc("status", transaction_id=self.transaction_id,
-                                                       end_reason_version=1)
-            except (TradeError, ConnectionError, OSError, asyncio.TimeoutError, TimeoutError, ValueError):
-                return None
+            reply = None
+            for version in (2, 1):
+                try:
+                    reply = await self.companion.trade_rpc("status", transaction_id=self.transaction_id,
+                                                           end_reason_version=version)
+                    break
+                except TradeError as error:
+                    if error.code not in ("invalid_field", "invalid_fields"):
+                        return None
+                except (ConnectionError, OSError, asyncio.TimeoutError, TimeoutError, ValueError):
+                    return None
             trade = reply.get("trade") if isinstance(reply, dict) else None
             if isinstance(trade, dict) and trade.get("state") == "aborted":
                 self.end_reason = trade.get("reason")

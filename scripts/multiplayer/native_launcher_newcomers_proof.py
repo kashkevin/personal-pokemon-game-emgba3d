@@ -178,13 +178,54 @@ class NewcomersProof(SoftResetProof, ThreePlayerProof):
         require(left == dict(battles=0, trades=0), f"{label}: a refused challenge or trade stayed open: {left}")
 
     # Battles ------------------------------------------------------------------------------------------------------
+    async def stray_presses(self, probe, presses, record, label):
+        """--stray-presses: A pressed `presses` times where the game's cursor already is, as a player clicking again
+        (the owner's "when clicked again it kicks us out back to start"): each press, the row it landed on and the
+        screen it led to. A press on a row that does nothing changes nothing."""
+        seen = []
+        for _ in range(presses):
+            row, screen = await probe.ready()
+            cursor = row["cursor"]
+            landed = screen.rows[cursor].label if cursor < len(screen.rows) else None
+            await probe.press(1)
+            _, after = await probe.ready()
+            seen.append(dict(on=landed, active=bool(cursor < len(screen.rows) and screen.rows[cursor].action),
+                             then=after.title, rows=[r.label for r in after.rows]))
+        record(label, presses=seen)
+        return seen
+
+    async def stray_lobby(self, probes, names, record, label):
+        """--stray-presses, two players: the leader's A on Send invitations, and the friend's A on Battle lobby, each
+        followed by more presses without moving. No row they land on may end the lobby (MS-69 on the lobby path)."""
+        leader, friend = probes
+        await leader.open_players()
+        for step in ("Challenges", "New battle", "Battle lobby", f"{names[1][:19]}: No"):
+            await leader.choose(step)
+        await leader.choose("Send invitations")
+        seen = await self.stray_presses(leader, 1, record, label + "-leader-stray")
+        require(seen[0]["on"] == "Waiting for trainers" and not seen[0]["active"] and seen[0]["then"] == "Battle lobby",
+                f"the leader's next A after Send invitations: {seen}")
+        await close_players(leader)
+        await friend.open_players()
+        await friend.choose("Battle lobby")
+        seen = await self.stray_presses(friend, 2, record, label + "-friend-stray")
+        require(all(s["on"] not in ("Decline", "Yes, decline it") for s in seen),
+                f"a stray press landed on a decline: {seen}")
+        require(seen[-1]["then"] == "Battle lobby" and "Join lobby" in seen[-1]["rows"],
+                f"after two stray presses the friend's lobby is gone: {seen}")
+        await friend.choose("Join lobby")
+        await close_players(friend)
+
     async def lobby_battle(self, current, probes, symbols, record, slots, fmt, label):
         """The host's lobby of `slots` (all join), started as `fmt`; accepted, entered, played to its end."""
         names = [a.display_name for a in self.harness.host.accounts]
         invited = [n for n in slots if n != 0]
-        await self.send_lobby(probes[0], [names[n] for n in invited], record, label + "-lobby-sent")
-        for n in invited:
-            await self.answer(probes[n], "Join lobby")
+        if STRAY[0] and len(slots) == 2:
+            await self.stray_lobby([probes[n] for n in slots], [names[n] for n in slots], record, label)
+        else:
+            await self.send_lobby(probes[0], [names[n] for n in invited], record, label + "-lobby-sent")
+            for n in invited:
+                await self.answer(probes[n], "Join lobby")
         status, rows = await self.lobby_page(probes[0])
         record(label + "-lobby", status=status, rows=rows)
         offered = {2: ["1v1"], 3: ["1v1v1"], 4: ["1v1v1v1", "2v2"]}[len(slots)]
@@ -642,7 +683,7 @@ class NewcomersProof(SoftResetProof, ThreePlayerProof):
         require(screen.status == PEER_NO_POKEMON, f"starting with a trainer without a Pokemon said {screen.status!r}")
         await close_players(probes[0])
         await self.nothing_open(current, record, "nothing-open-after-the-refused-start")
-        await self.answer(probes[3], "Leave lobby")
+        await self.answer(probes[3], "Leave lobby...", "Yes, leave the lobby")   # leaving asks first (No first)
         status, rows = await self.lobby_page(probes[0])
         record("lobby-after-the-fourth-left", status=status, rows=rows)
         require(status == "1v1v1: 3 joined" and "Start 1v1v1" in rows, f"the lobby says {status!r} {rows}")
@@ -702,6 +743,7 @@ class NewcomersProof(SoftResetProof, ThreePlayerProof):
 
 
 LATENCY_MS, HOLD, DISK_MS, REMOTE_ONLY, LATENCY_ALL, WALK, MASH = [0], [True], [0], [False], [False], [0.0], [False]
+STRAY = [False]
 # live_trade.CALM_OPCODES (QUERY_OWNERSHIP, GRANT_OWNERSHIP, BEGIN_TRADE_EXPORT), spelled out to run on older apps too.
 CALM_OPCODES = frozenset({10, 11, 12})
 
@@ -709,6 +751,7 @@ CALM_OPCODES = frozenset({10, 11, 12})
 async def run(args):
     LATENCY_MS[0], HOLD[0], DISK_MS[0], REMOTE_ONLY[0] = args.latency_ms, not args.no_hold, args.disk_ms, args.remote_only
     LATENCY_ALL[0], WALK[0], MASH[0] = args.latency_all, args.walk_while_preparing, args.mash_after_confirm
+    STRAY[0] = args.stray_presses
     count = len(args.source)
     require(2 <= count <= 4, "two to four sources (short-introduction saves)")
     require(args.scenario == "lobby" or count == 4 or (args.scenario in ("trade", "battle-trade") and count == 2),
@@ -758,6 +801,9 @@ def main():
     parser.add_argument("--mash-after-confirm", action="store_true",
                         help="trade: after its Confirm each player presses A and B by turns while its trade window is "
                              "open (the owner's report of 2026-10-24)")
+    parser.add_argument("--stray-presses", action="store_true",
+                        help="lobby, two players: the leader's and the friend's A presses land again where the game's "
+                             "cursor stays (the owner's report of 2026-10-24, MS-69 on the lobby path)")
     parser.add_argument("--walk-while-preparing", type=float, default=0, metavar="SECONDS",
                         help="trade: the offerer walks that long once its Players menu closed for the trade")
     parser.add_argument("--light-3d", action="store_true",

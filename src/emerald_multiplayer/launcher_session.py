@@ -138,6 +138,9 @@ TRADE_END_BANNERS = {
     "expired": "The trade timed out.",
     "partner_disconnected": "Your friend lost connection.",
     "you_disconnected": "Lost connection to the host.",
+    # end_reason_version 2: the other launcher cancelled on its own after an error; its player chose nothing
+    "partner_stopped": "Trade stopped on friend's side.",
+    "you_stopped": "Trade stopped on your side.",
 }
 
 
@@ -1851,9 +1854,15 @@ class LauncherSession:
         # of at most 32 characters).
         say = self._trade_banner
         reason = _trade_reason(error)
+        # These cancels are the launcher's own, never the player's choice: a host that can record that (end_reason_version
+        # 2, the cancel's cause "automatic") tells the friend the trade stopped on this side, not "Your friend cancelled
+        # the trade" (the owner's reports of 2026-10-24).
         if not coordinator.trade_path.exists():
+            from .live_trade import automatic_cancel_fields
             try:
-                await c.trade_rpc("cancel", transaction_id=descriptor["transaction_id"], generation=descriptor["generation"])
+                cause = await automatic_cancel_fields(c, descriptor["transaction_id"])
+                await c.trade_rpc("cancel", transaction_id=descriptor["transaction_id"], generation=descriptor["generation"],
+                                  **cause)
             except (TradeError, ConnectionError, OSError, asyncio.TimeoutError, ValueError):
                 pass
             menu_session.menu.notice("Trade did not start: try again")
@@ -1864,7 +1873,7 @@ class LauncherSession:
             raise error
         menu_session.abandon_trade_dialog()
         try:
-            result = await asyncio.wait_for(coordinator.cancel(), 120)
+            result = await asyncio.wait_for(coordinator.cancel(automatic=True), 120)
         except (Exception, asyncio.CancelledError):
             say(f"Trade stopped; keep game open|Code: {reason}")
             raise error from None

@@ -51,11 +51,16 @@ class _Proposal:
     candidates: tuple[bytes, bytes] | None = field(default=None, repr=False)
     prepared: set[str] = field(default_factory=set)
     effectful: bool = False
+    seen: dict[str, float] = field(default_factory=dict)   # each participant's last request on it (clock time)
 
 
 # Why a proposal ended, as each participant sees it (the trade window's banner; the owner's report of 2026-10-24,
 # "it kicked us out and said trade cancelled"): kept a while after it ends, a bounded number of them.
-END_REASONS = frozenset({"you_cancelled", "partner_cancelled", "expired", "you_disconnected", "partner_disconnected"})
+# "you_stopped"/"partner_stopped" (end_reason_version 2): the launcher cancelled on its own after an error in its trade
+# window (cause "automatic"), which the player never chose; older trade windows are told no reason for it.
+END_REASONS = frozenset({"you_cancelled", "partner_cancelled", "expired", "you_disconnected", "partner_disconnected",
+                         "you_stopped", "partner_stopped"})
+END_REASONS_V1 = frozenset({"you_cancelled", "partner_cancelled", "expired", "you_disconnected", "partner_disconnected"})
 _ENDED_KEEP_SECONDS = 600
 _ENDED_LIMIT = 64
 
@@ -105,13 +110,18 @@ class TradeDesk:
                 continue
             del self._proposals[key]
 
-    def _touch(self, proposal: _Proposal) -> None:
-        """A participant at work on the proposal keeps it alive: its lifetime counts from the last request either
-        trade window made (each polls its status about once a second), not from the last offer. Two players reading
-        the offers' details, confirming and preparing over the internet took longer than the three minutes an offer
-        gave them, and the host dropped the trade under them (the owner's report of 2026-10-24)."""
-        if not proposal.effectful:
-            proposal.expires = self.clock()+self.timeout
+    def _touch(self, proposal: _Proposal, player: str) -> None:
+        """Participants at work on the proposal keep it alive: once both trade windows have made requests on it (each
+        polls its status about once a second), its lifetime counts from the less recent of their last requests, not
+        from the last offer. Two players reading the offers' details, confirming and preparing over the internet took
+        longer than the three minutes an offer gave them, and the host dropped the trade under them (the owner's report
+        of 2026-10-24). One window polling alone never does: a proposal the friend never enters still ends three
+        minutes after the last offer, instead of holding both players (and the friend's soft reset) for ever."""
+        if proposal.effectful:
+            return
+        proposal.seen[player] = self.clock()
+        if set(proposal.seen) >= set(proposal.players):
+            proposal.expires = max(proposal.expires, min(proposal.seen[p] for p in proposal.players) + self.timeout)
 
     def _end(self, proposal: _Proposal, reasons: dict[str, str]) -> None:
         now = self.clock()
@@ -122,12 +132,14 @@ class TradeDesk:
             del self._ended[next(iter(self._ended))]
         self._ended[proposal.transaction_id] = (now, reasons)
 
-    def end_reason(self, player: str, transaction_id: str) -> str | None:
-        """Why this participant's trade ended (END_REASONS), while the host remembers it; None otherwise."""
+    def end_reason(self, player: str, transaction_id: str, version: int = 2) -> str | None:
+        """Why this participant's trade ended (END_REASONS), while the host remembers it; None otherwise. A trade window
+        that asked with end_reason_version 1 knows only END_REASONS_V1 and is told no reason for the others."""
         ended = self._ended.get(transaction_id)
         if ended is None or ended[0] + _ENDED_KEEP_SECONDS <= self.clock():
             return None
-        return ended[1].get(player)
+        reason = ended[1].get(player)
+        return reason if version >= 2 or reason in END_REASONS_V1 else None
 
     def _fingerprint(self, proposal: _Proposal) -> str | None:
         if len(proposal.offers) != 2:
@@ -265,6 +277,7 @@ class TradeDesk:
             proposal.edit += 1
             proposal.confirmed.clear()
         proposal.expires = self.clock()+self.timeout
+        proposal.seen[player] = self.clock()
         return self._public(proposal)
 
     def status(self, player: str, lease: int, transaction_id: str) -> dict:
@@ -277,17 +290,20 @@ class TradeDesk:
         if transaction_id not in self._proposals:
             return dict(transaction_id=transaction_id, state="aborted")
         proposal = self._pending(player, lease, transaction_id)
-        self._touch(proposal)
+        self._touch(proposal, player)
         return self._public(proposal)
 
-    def cancel(self, player: str, lease: int, transaction_id: str, generation: str) -> dict:
+    def cancel(self, player: str, lease: int, transaction_id: str, generation: str, *, automatic: bool = False) -> dict:
+        """``automatic``: the player's launcher cancelled on its own after an error in its trade window (the cancel's
+        cause "automatic"), recorded as such and never as the player's choice: the friend is told the trade stopped on
+        the other side, not that their friend cancelled it."""
         current = self.status(player, lease, transaction_id)
         if current["state"] not in {"offering", "preparing"}:
             return current
         proposal = self._pending(player, lease, transaction_id, generation)
         del self._proposals[transaction_id]
-        self._end(proposal, {participant: "you_cancelled" if participant == player else "partner_cancelled"
-                             for participant in proposal.players})
+        mine, theirs = ("you_stopped", "partner_stopped") if automatic else ("you_cancelled", "partner_cancelled")
+        self._end(proposal, {participant: mine if participant == player else theirs for participant in proposal.players})
         return dict(transaction_id=transaction_id, state="aborted")
 
     def confirm(self, player: str, lease: int, transaction_id: str,
@@ -296,7 +312,7 @@ class TradeDesk:
         if current["state"] == "committed":
             return current
         proposal = self._pending(player, lease, transaction_id, generation)
-        self._touch(proposal)
+        self._touch(proposal, player)
         if not isinstance(fingerprint, str) or fingerprint != self._fingerprint(proposal):
             raise StorageError("trade_offer_changed", "confirm the current complete two-player offer")
         if proposal.preparations is not None:
@@ -333,7 +349,7 @@ class TradeDesk:
         if current["state"] == "committed":
             return current
         proposal = self._pending(player, lease, transaction_id, generation)
-        self._touch(proposal)
+        self._touch(proposal, player)
         if proposal.preparations is None or proposal.confirmed != set(proposal.players):
             raise StorageError("trade_consent_required", "both exact offers must be confirmed before preparing")
         self._check_preparation_heads(proposal)
@@ -345,7 +361,7 @@ class TradeDesk:
     def inspect(self, player, lease, transaction_id, generation, fingerprint):
         """Read the exact two offered party records without granting consent."""
         proposal = self._pending(player, lease, transaction_id, generation)
-        self._touch(proposal)
+        self._touch(proposal, player)
         if len(proposal.offers) != 2 or fingerprint != self._fingerprint(proposal):
             raise StorageError("trade_offer_changed", "inspect the current complete offered pair")
         self._check_preparation_heads(proposal)
@@ -389,7 +405,7 @@ class TradeDesk:
                 raise StorageError("request_conflict", "prepared receipt differs from the committed recipient")
             return current
         proposal = self._pending(player, lease, transaction_id, generation)
-        self._touch(proposal)
+        self._touch(proposal, player)
         if proposal.preparations is None or proposal.candidates is None:
             raise StorageError("trade_preparation_required", "the exact consent pair has not been prepared")
         description = proposal.preparations[proposal.players.index(player)]

@@ -231,6 +231,75 @@ class LobbyMenuNetworkTests(unittest.IsolatedAsyncioTestCase):
         await self.click(menu, "Battle lobby")
         return await self.click(menu, label)
 
+    async def two_players(self):
+        """Only Trainer 0 and Trainer 1 stay connected (the owner's two PCs)."""
+        from test_team_network import wait_until
+        for companion in self.companions[2:]:
+            await companion.close()
+        await wait_until(lambda: all(len(c._players) == 2 for c in self.companions[:2]))
+        return [PlayerMenu(c) for c in self.companions[:2]]
+
+    async def stray(self, menu, label):
+        """A on ``label``; the game keeps its cursor row on the next screen (back to the top when that is shorter):
+        the screen and the row under the cursor, with the choice it would send."""
+        index = self.labels(menu).index(label)
+        screen = await self.click(menu, label)
+        row = screen.rows[index if index < len(screen.rows) else 0]
+        return screen, row, menu._actions.get(row.action, ("", ()))
+
+    def lobby(self, player):
+        return self.server.lobby_desk.status(player.config.player_id, player.session_epoch)["lobbies"][0]
+
+    async def test_the_press_that_opens_the_lobby_never_lands_on_decline(self):
+        # MS-69 on the lobby path (the owner's "click again ... kicks us out back to start"): with two players and
+        # teams on, home is [leader, Your team, Battle lobby, ...] and the lobby page put Decline in Battle lobby's
+        # row, under the kept cursor; one more A declined at once and ended the lobby (nobody_joined).
+        from emerald_multiplayer.player_menu import QUESTIONS, _ASKED_OPS
+        menus = await self.two_players()
+        await self.open_lobby(menus[0], "Trainer 1")
+        await self.home(menus[1])
+        self.assertEqual(self.labels(menus[1])[1:3], ["Your team", "Battle lobby"])
+        screen, row, (op, args) = await self.stray(menus[1], "Battle lobby")
+        self.assertNotIn(op, _ASKED_OPS)
+        self.assertEqual((row.label, op, args[0]), ("Decline...", "ask", "lobby_decline"))   # it only asks
+        index = [r.label for r in screen.rows].index(row.label)
+        question = await menus[1].choose(screen.revision, row.action)                  # the stray A: the question
+        self.assertEqual(question.title, QUESTIONS["lobby_decline"][0])
+        under = question.rows[index if index < len(question.rows) else 0]
+        self.assertEqual(under.label, "No, keep it")                                   # never its Yes
+        await menus[1].choose(question.revision, under.action)                         # one more A: No
+        self.assertEqual(self.lobby(self.companions[1])["state"], "open")
+        self.assertNotIn(self.companions[1].config.player_id, self.lobby(self.companions[1])["declined"])
+        self.assertIn("Join lobby", self.labels(menus[1]))
+
+    async def test_send_invitations_rests_on_a_row_that_does_nothing_and_cancel_asks_with_a_real_grace(self):
+        # The leader's A on Send invitations used to rest on Cancel lobby (no Start row before anyone joins), whose
+        # question then opened on Yes; its grace was measured before the host round trips (and never checked at all
+        # for leaving a lobby).
+        import emerald_multiplayer.player_menu as player_menu
+        menus = await self.two_players()
+        await menus[0].refresh()
+        await self.click(menus[0], "Challenges")
+        await self.click(menus[0], "New battle")
+        await self.click(menus[0], "Battle lobby")
+        await self.click(menus[0], "Trainer 1: No")
+        self.assertEqual(self.labels(menus[0]), ["Trainer 1: Yes", "Send invitations"])
+        screen, row, (op, _) = await self.stray(menus[0], "Send invitations")
+        self.assertEqual((row.label, row.action, op), ("Waiting for trainers", 0, ""))
+        self.assertEqual(self.labels(menus[0]), ["Trainer 1: invited", "Waiting for trainers", "Cancel lobby..."])
+        question, row, (op, _) = await self.stray(menus[0], "Cancel lobby...")
+        self.assertEqual((question.title, row.label), ("Cancel the lobby?", "No, keep it"))
+        shown = menus[0]._ask_shown
+        yes = next(r.action for r in question.rows if r.label == "Yes, cancel the lobby")
+        # Pressed 0.1 s after the question appeared, however late it is handled: the press that asked, repeated.
+        question = await menus[0].choose(question.revision, yes, pressed=shown + 0.1)
+        self.assertEqual(question.title, "Cancel the lobby?")
+        self.assertEqual(self.lobby(self.companions[0])["state"], "open")
+        shown = menus[0]._ask_shown                                         # shown again: the grace starts again
+        yes = next(r.action for r in question.rows if r.label == "Yes, cancel the lobby")
+        await menus[0].choose(question.revision, yes, pressed=shown + player_menu.ASK_GRACE_SECONDS + 0.1)
+        self.assertEqual(self.lobby(self.companions[0])["state"], "ended")
+
     async def test_two_join_one_declines_and_the_leader_starts_a_1v1v1_only_for_them(self):
         menus = [PlayerMenu(c) for c in self.companions]
         for companion in self.companions:
@@ -243,7 +312,9 @@ class LobbyMenuNetworkTests(unittest.IsolatedAsyncioTestCase):
                          ["Trainer 1: invited", "Trainer 2: invited", "Trainer 3: invited"])
         await self.answer(menus[1], "Join lobby")
         await self.answer(menus[2], "Join lobby")
-        await self.answer(menus[3], "Decline")
+        await self.answer(menus[3], "Decline...")                    # it asks first (No first)
+        with unittest.mock.patch("emerald_multiplayer.player_menu.ASK_GRACE_SECONDS", 0):
+            await self.click(menus[3], "Yes, decline it")
         screen = await self.lobby_page(menus[0])
         self.assertEqual(screen.status, "1v1v1: 3 joined")
         self.assertIn("Trainer 3: declined", self.labels(menus[0]))
@@ -300,9 +371,10 @@ class LobbyMenuNetworkTests(unittest.IsolatedAsyncioTestCase):
         screen = await self.lobby_page(menus[0])
         self.assertEqual(screen.status, "Your game cannot play 1v1v1")      # the fixture game has no 1v1v1 marker
         self.assertNotIn("Start 1v1v1", self.labels(menus[0]))
-        await self.click(menus[0], "Cancel lobby...")               # it asks first (No first)
+        screen = await self.click(menus[0], "Cancel lobby...")      # it asks first (No first)
+        self.assertEqual((screen.title, screen.status), ("Cancel the lobby?", "It ends for everyone in it"))
         with unittest.mock.patch("emerald_multiplayer.player_menu.ASK_GRACE_SECONDS", 0):
-            await self.click(menus[0], "Yes, leave the lobby")
+            await self.click(menus[0], "Yes, cancel the lobby")
         screen = await self.lobby_page(menus[1])
         self.assertEqual(screen.status, "The lobby was cancelled")
         self.assertEqual((await self.companions[1].battle_challenge_rpc("pending"))["result"], [])

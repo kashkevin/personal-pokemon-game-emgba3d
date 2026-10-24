@@ -14,7 +14,7 @@ from emerald_multiplayer import tower_data, tower_rewards
 from emerald_multiplayer.bridge_protocol import BridgeOutbox
 from emerald_multiplayer.menu_mailbox import MenuRequest, TowerCommand, pack_screen, unpack_screen
 from emerald_multiplayer.menu_session import MenuSession
-from emerald_multiplayer.player_menu import PlayerMenu
+from emerald_multiplayer.player_menu import QUESTIONS, PlayerMenu
 from emerald_multiplayer.protocol import ProtocolError
 from test_tower_rules import TABLE_HASH, synthetic_data
 
@@ -167,10 +167,11 @@ class PageTests(unittest.IsolatedAsyncioTestCase):
                     self.assertLessEqual(len(title), 23, title)
                     self.assertLessEqual(len(status), 31, status)
                     self.assertLessEqual(len(actions), 6)
-                    for label, op, _ in actions:
+                    for label, op, args in actions:
                         self.assertLessEqual(len(label), 25, label)
                         self.assertTrue(all(32 <= ord(c) <= 126 for c in label + title + status))
-                        self.assertTrue(op == "" or op.startswith("tower_"), op)
+                        # the Tower's own choices, or a question the Players menu asks first (player_menu.QUESTIONS)
+                        self.assertTrue(op == "" or op.startswith("tower_") or op == "ask" and args[0] in QUESTIONS, op)
                     self.assertIn(style, range(1, 9))
                     self.assertTrue(0 <= style_arg <= 100 and (style_arg == 0 or style in (2, 3, 5, 8)))
 
@@ -319,11 +320,18 @@ class PageTests(unittest.IsolatedAsyncioTestCase):
         await self.click(" 11 Ace Trainer Ace11")
         self.assertIn(("duo_invite", {"floor": 11}), self.calls)
         self.assertEqual((self.menu.screen.title, self.menu.screen.status), ("Duo: floor 12", "Waiting for Bob"))
-        self.assertEqual(self.labels, ["Alice: prizes", "Bob: Exp only", "Cancel the invitation"])
+        self.assertEqual(self.labels, ["Alice: prizes", "Bob: Exp only", "Cancel the invitation..."])
+        # Cancelling asks first (No first, B is No): No goes back to the Duo page and nothing is sent.
+        screen = await self.click("Cancel the invitation...")
+        self.assertEqual((screen.title, [row.label for row in screen.rows]),
+                         ("Cancel the invitation?", ["No, keep it", "Yes, cancel it"]))
+        await self.click("No, keep it")
+        self.assertEqual(self.labels, ["Alice: prizes", "Bob: Exp only", "Cancel the invitation..."])
+        self.assertNotIn(("duo_leave", {}), self.calls)
         self.view = host_view(teammate=TEAMMATE, duo=DUO_VIEWS["forming"])
         await self.menu.refresh()
         self.assertEqual(self.labels, ["Alice: prizes, ready", "Bob: Exp only", "Team: Mudkip", "Not ready",
-                                       "Change floor", "Leave the Duo"])
+                                       "Change floor", "Leave the Duo..."])
         self.assertEqual((self.menu.screen.status, self.menu.screen.style, self.menu.screen.style_arg),
                          ("Floor 12: 1/2 ready", 5, 12))
         await self.click("Team: Mudkip")
@@ -346,7 +354,7 @@ class PageTests(unittest.IsolatedAsyncioTestCase):
         await self.open_tower()
         await self.click("Duo: floor 12 (forming)")
         self.assertEqual(self.labels, ["Bob: Exp only", "Alice: prizes, ready", "Team: Mudkip", "Not ready",
-                                       "Leave the Duo"])
+                                       "Leave the Duo..."])
         self.assertNotIn("Change floor", self.labels)
         # A re-climb after a loss is progression but pays nothing: the row says so.
         duo["members"][1] = member(ME, "Alice", 12, 14, progression=True, first_clear=False)
@@ -503,10 +511,57 @@ class SessionTests(unittest.IsolatedAsyncioTestCase):
         self.view, self.refuse = host_view(), ("tower_saving", "Your game is saving a result")
         with unittest.mock.patch.object(tower_menu, "NEXT_FLOOR_STEP_SECONDS", 0):
             self.assertIsNone(await self.session.menu._tower.next_floor(wait=0))
-        self.assertEqual(self.session.menu._tower._notice, "Your game is saving a result")
+        self.assertEqual(self.session.menu._tower._notice, "Close the menu, then Solo again")   # what to do
         self.view, self.refuse = host_view(progress=101, highest=100), None
         self.assertIsNone(await self.session.menu._tower.next_floor())
         self.assertEqual(self.session.menu._tower._notice, "The Tower is climbed!")
+
+
+class WindowRaceTests(SessionTests):
+    """Presses and closes that race the launcher's own work (the owner's reports of 2026-10-24)."""
+
+    async def test_no_floor_is_issued_after_the_go_on_window_closed(self):
+        # YES on "go on to floor N?" while the last result is still on its way: the window waits ("Waiting for
+        # server..."), the player presses B and it closes. The wait used to go on and issue the floor anyway: a ticket
+        # no game could take, and the Tower showed "Floor N: starting" for two minutes.
+        import emerald_multiplayer.tower_menu as tower_menu
+        self.companion.config.tower_next_page_abi_version = 1
+        self.view = host_view(battle={"mode": "solo", "floor": 11, "state": "started"})
+        statuses = 0
+        original = self.companion.tower_rpc
+        async def tower_rpc(op="status", **fields):
+            nonlocal statuses
+            if op == "status":
+                statuses += 1
+                if statuses == 2:
+                    self.session.feed(MenuRequest(2, 0, 0, 3).pack())     # B: the waiting window closed
+                    self.view = host_view()                             # and the host is free for a floor again
+            return await original(op, **fields)
+        self.companion.tower_rpc = tower_rpc
+        with unittest.mock.patch.object(tower_menu, "NEXT_FLOOR_STEP_SECONDS", 0):
+            self.session.feed(MenuRequest(1, 0, 4, 1).pack(allow_tower=True, allow_tower_next=True))
+            await self.session._task
+        self.assertGreaterEqual(statuses, 2)
+        self.assertNotIn("solo", [op for op, _ in self.calls])
+        self.assertFalse(self.bridge.outbox.controls)                   # nothing for a window that is gone
+
+    async def test_a_press_during_the_status_refresh_shows_the_page_again_and_never_closes_the_window(self):
+        # The 2 s status refresh made a new revision while the press on the one shown was on its way: the press was
+        # "stale" and the window closed with "Reopen to check server status" (the friend walking through a door is
+        # enough to change the home page). Nothing is chosen; the page comes back under a newer revision.
+        self.session.feed(MenuRequest(1, 0, 0, 1).pack())                 # START > PLAYER > PLAYERS
+        await self.session._task
+        _, shown, flags, _ = await self.frame()
+        self.assertEqual((shown.title, flags), ("Players", 0))
+        refreshed = await self.session.menu.reshow()                    # what the refresh made meanwhile (not sent)
+        self.assertGreater(refreshed.revision, shown.revision)
+        row = next(r for r in shown.rows if r.label == "World and my base")
+        self.session.feed(MenuRequest(2, shown.revision, row.action, 2).pack())
+        await self.session._task
+        sequence, screen, flags, _ = await self.frame()
+        self.assertEqual((sequence, flags, screen.title), (2, 0, "Players"))   # flags 0: not a close
+        self.assertGreater(screen.revision, refreshed.revision)
+        self.assertTrue(self.session.open)
 
 
 class TowerNextPageCapabilityTests(unittest.TestCase):

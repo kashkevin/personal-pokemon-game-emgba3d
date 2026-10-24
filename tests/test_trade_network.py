@@ -330,6 +330,29 @@ class TradeNetworkTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("end_reason_version", reply)
         self.assertEqual(reply["trade"], {"transaction_id": self.transaction, "state": "aborted"})
 
+    async def test_a_launchers_own_cancel_is_never_told_as_the_friends_choice(self):
+        # end_reason_version 2: a launcher that cancels on its own after an error in its trade window says so (cause
+        # "automatic"); the friend's window learns the trade stopped on the other side, not "Your friend cancelled the
+        # trade" (the owner's reports of 2026-10-24). A window asking with version 1 is told no reason rather than a
+        # wrong one, and the coordinator's helper only sends the cause to a host that acknowledged version 2.
+        from emerald_multiplayer.live_trade import automatic_cancel_fields
+        view = await self.ready()
+        self.assertEqual(await automatic_cancel_fields(self.companions[1], self.transaction), {"cause": "automatic"})
+        await self.rpc(1, "cancel", transaction_id=self.transaction, generation=view["generation"], cause="automatic")
+        for index, reason in ((0, "partner_stopped"), (1, "you_stopped")):
+            reply = await self.rpc(index, "status", transaction_id=self.transaction, end_reason_version=2)
+            self.assertEqual(reply["end_reason_version"], 2)
+            self.assertEqual(reply["trade"]["reason"], reason)
+            reply = await self.rpc(index, "status", transaction_id=self.transaction, end_reason_version=1)
+            self.assertEqual(reply["end_reason_version"], 1)
+            self.assertNotIn("reason", reply["trade"])
+        # A cause on anything but a cancel, or another cause, is refused before it reaches the host.
+        from emerald_multiplayer.protocol import ProtocolError
+        with self.assertRaises(ProtocolError):
+            await self.rpc(0, "status", transaction_id=self.transaction, cause="automatic")
+        with self.assertRaises(ProtocolError):
+            await self.rpc(0, "cancel", transaction_id=self.transaction, generation=view["generation"], cause="player")
+
     async def test_restart_keeps_committed_fate_and_both_apply_receipts(self):
         result = await self.commit()
         await self.restart()
