@@ -202,6 +202,11 @@ jobs:
           if [ -f tools/battle_env/shop_check.py ]; then cp tools/battle_env/shop_check.py ../mega-check-inputs/; fi
           # Wild Pokemon caught (into the party, into the PC), from an engine that has the check.
           if [ -f tools/battle_env/catch_check.py ]; then cp tools/battle_env/catch_check.py ../mega-check-inputs/; fi
+          # Move switching, shiny wild Pokemon seen before the battle and the Game Corner's RARE GOODS (the feature-checks
+          # job), from an engine that has the checks.
+          for check in move_switch_check shiny_check casino_check; do
+            if [ -f tools/battle_env/$check.py ]; then cp tools/battle_env/$check.py ../mega-check-inputs/; fi
+          done
           # The rival checkpoints and the short introduction through the game's own scripts (the rival-check job): the
           # flag and variable numbers from this engine's headers, as the Windows runner has none.
           if grep -q -- "--write-facts" tools/pc_port/rival_check.py 2>/dev/null; then
@@ -590,6 +595,54 @@ jobs:
             ${{ runner.temp }}/catch-check/**/*.json
             ${{ runner.temp }}/catch-check/**/test.log
             ${{ runner.temp }}/catch-check/**/*.png
+          retention-days: 7
+          if-no-files-found: warn
+
+  feature-checks:
+    # The owner's requests of 2026-10-24 in real Windows game processes of the test build (a GitHub-hosted runner, not a
+    # player's PC): move switching from the party menu (tools/battle_env/move_switch_check.py), shiny wild Pokemon seen
+    # before the battle (shiny_check.py) and the Game Corner's RARE GOODS (casino_check.py), each read from the game's own
+    # log, from a save of the game's own short introduction made on the runner.
+    name: Move switching, shiny wild Pokemon and the Game Corner (Windows game processes)
+    needs: engine
+    if: ${{ (inputs.mode || 'smoke') == 'full' && (!inputs.only || contains(format(',{0},', inputs.only), ',feature-checks,')) }}
+    runs-on: windows-2022
+    timeout-minutes: 60
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@v4
+        with:
+          name: mega-check-inputs
+          path: mega-check-inputs
+      - name: A character from the short introduction, then each check from that save
+        shell: pwsh
+        run: |
+          $exe = "mega-check-inputs\pokeemerald-mp-bfxtest.exe"
+          $out = Join-Path $env:RUNNER_TEMP "feature-checks"
+          $save = Join-Path $env:RUNNER_TEMP "town.sav"
+          python mega-check-inputs\mega_check.py --exe $exe --make-save $save --out (Join-Path $out "save") --no-cases
+          if ($LASTEXITCODE -ne 0) { throw "the short introduction's save failed ($LASTEXITCODE)" }
+          $failed = @()
+          foreach ($check in "move_switch_check", "shiny_check", "casino_check") {
+            if (-not (Test-Path "mega-check-inputs\$check.py")) {
+              Write-Output "::notice::this engine has no $check (tools/battle_env/$check.py)"
+              continue
+            }
+            python "mega-check-inputs\$check.py" --exe $exe --save $save --out (Join-Path $out $check)
+            if ($LASTEXITCODE -ne 0) { $failed += "$check (exit $LASTEXITCODE)" }
+          }
+          if ($failed) { throw "failed: $($failed -join ', ')" }
+      - name: Upload the reports (private to this repository, 7 days; no save)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: EmeraldTogether-feature-checks
+          path: |
+            ${{ runner.temp }}/feature-checks/**/*.json
+            ${{ runner.temp }}/feature-checks/**/test.log
+            ${{ runner.temp }}/feature-checks/**/*.png
           retention-days: 7
           if-no-files-found: warn
 

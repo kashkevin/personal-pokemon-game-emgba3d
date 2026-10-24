@@ -269,6 +269,16 @@ class WindowsWorkflowTests(unittest.TestCase):
         self.assertIn('throw "the catch check failed', catch)                  # a failed step fails the job
         self.assertIn("tools/battle_env/catch_check.py ../mega-check-inputs/", job("engine"))
 
+    def test_move_switching_shiny_spawns_and_the_game_corner_run_in_windows_game_processes(self):
+        checks = job("feature-checks")
+        self.assertIn("runs-on: windows-2022", checks)
+        self.assertIn("needs: engine", checks)
+        self.assertIn("mega_check.py --exe $exe --make-save $save", checks)    # a save of the short introduction
+        self.assertIn('foreach ($check in "move_switch_check", "shiny_check", "casino_check")', checks)
+        self.assertIn('throw "failed:', checks)                                # any failed check fails the job
+        self.assertNotIn(".sav", checks.split("upload-artifact")[1])           # reports and pictures, never the save
+        self.assertIn("for check in move_switch_check shiny_check casino_check; do", job("engine"))
+
     def test_the_rival_checkpoints_run_in_windows_game_processes(self):
         rival = job("rival-check")
         self.assertIn("runs-on: windows-2022", rival)
