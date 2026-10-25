@@ -3,6 +3,7 @@ from types import SimpleNamespace
 import unittest
 
 from emerald_multiplayer.battle_admission_session import BattleAdmissionRefused
+from emerald_multiplayer.battle_journal import BattleJournalError
 from emerald_multiplayer.bridge_protocol import BridgeOutbox
 from emerald_multiplayer.menu_mailbox import MenuRequest, unpack_screen
 from emerald_multiplayer.menu_session import MenuSession
@@ -264,6 +265,18 @@ class MenuSessionTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(self.closed)
         with self.assertRaises(ValueError): self.feed(3)
         self.assertEqual(self.session.menu.calls, 0)
+
+    async def test_battle_that_ended_before_it_started_cancels_the_entry_without_abandoning(self):
+        async def handoff(kind, value, owner):
+            self.events.append("handoff")
+            raise BattleJournalError("battle_entry_unstarted", "the battle ended before it started")
+        await self.admission_menu(handoff=handoff)
+        self.feed(2, 1, 1, 2)
+        await self.session._task
+        # The handoff itself scheduled the neutral cancel; abandoning too would hold the game with saving stopped.
+        self.assertEqual(self.events, ["claim", "prepare", "handoff"])
+        self.assertTrue(self.session._battle_admission_failed)
+        self.assertFalse(self.session._battle_preparing)
 
     async def test_admission_failed_local_claim_preserves_native_latch(self):
         await self.admission_menu()

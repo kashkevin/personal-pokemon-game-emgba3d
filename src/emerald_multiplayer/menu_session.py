@@ -270,6 +270,7 @@ class MenuSession:
         waiter = None
         succeeded = False
         failure = None
+        handing_off = False
         try:
             selection, self._admission_selection = self._admission_selection, None
             if (not self._battle_preparing or not self._battle_latched or self._battle_admission_failed
@@ -289,6 +290,7 @@ class MenuSession:
             if (self._closed or self.open or self.companion._bridge is not self.bridge
                     or closed.kind != 3 or closed.sequence <= request.sequence):
                 raise ConnectionError("native battle admission close acknowledgment changed")
+            handing_off = True
             await self.companion._native_menu_handoff("battle", descriptor, self)
             succeeded = True
         except BaseException as error:
@@ -303,6 +305,13 @@ class MenuSession:
                     waiter.exception()  # Observe cleanup failure even if preparation failed first.
             if not succeeded and isinstance(failure, BattleAdmissionRefused) and self._release_capable():
                 # Refused before any ADMIT: _handle releases the window (_release_refused); nothing to retain.
+                self._queued_open = None
+            elif not succeeded and handing_off and getattr(failure, "code", None) == "battle_entry_unstarted":
+                # The battle ended before it started (the other trainer was refused or cancelled while this Enter's
+                # handoff was running): the handoff has released its ownership and scheduled the neutral cancel of
+                # this entry (cancel_battle_entry). Abandoning here would also mark the recovery failed and hold the
+                # game with saving stopped, which the cancel then cannot undo (KNOWN_ISSUES, stale-save round 2).
+                self._battle_admission_failed = True
                 self._queued_open = None
             elif not succeeded:
                 self._battle_admission_failed = True
