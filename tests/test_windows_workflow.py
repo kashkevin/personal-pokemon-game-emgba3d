@@ -288,11 +288,19 @@ class WindowsWorkflowTests(unittest.TestCase):
         self.assertIn("runs-on: windows-2022", checks)
         self.assertIn("needs: engine", checks)
         self.assertIn("mega_check.py --exe $exe --make-save $save", checks)    # a save of the short introduction
-        self.assertIn('foreach ($check in "move_switch_check", "shiny_check", "casino_check")', checks)
+        for check in ("move_switch_check", "shiny_check"):
+            self.assertIn(f'{check} = "mega-check-inputs\\{check}.py"', checks)
+        # The RARE GOODS check beside the engine files it reads (run 219: none on the runner).
+        self.assertIn('casino_check = "mega-check-inputs\\casino\\tools\\battle_env\\casino_check.py"', checks)
         self.assertIn('throw "failed:', checks)                                # any failed check fails the job
         self.assertIn("if (-not (Test-Path $save))", checks)                   # the save is made (mega_check exits 1 on 0 of 0)
         self.assertNotIn(".sav", checks.split("upload-artifact")[1])           # reports and pictures, never the save
-        self.assertIn("for check in move_switch_check shiny_check casino_check; do", job("engine"))
+        engine = job("engine")
+        self.assertIn("for check in move_switch_check shiny_check; do", engine)
+        for file in ("tools/battle_env/casino_check.py", "tools/battle_env/mega_check.py", "include/constants/items.h",
+                     "src/platform/mp_rare_goods_prices.h", "data/scripts/mp_rare_goods_shop.inc"):
+            self.assertIn(file, engine)
+        self.assertIn('cp "$file" "../mega-check-inputs/casino/$file"', engine)
 
     def test_the_rival_checkpoints_run_in_windows_game_processes(self):
         rival = job("rival-check")

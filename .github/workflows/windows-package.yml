@@ -204,9 +204,18 @@ jobs:
           if [ -f tools/battle_env/catch_check.py ]; then cp tools/battle_env/catch_check.py ../mega-check-inputs/; fi
           # Move switching, shiny wild Pokemon seen before the battle and the Game Corner's RARE GOODS (the feature-checks
           # job), from an engine that has the checks.
-          for check in move_switch_check shiny_check casino_check; do
+          for check in move_switch_check shiny_check; do
             if [ -f tools/battle_env/$check.py ]; then cp tools/battle_env/$check.py ../mega-check-inputs/; fi
           done
+          # The RARE GOODS check reads the generated lists and the item numbers from the engine's own files, three folders
+          # above itself (run 219 found none on the runner): it goes with those files at their engine paths.
+          if [ -f tools/battle_env/casino_check.py ]; then
+            for file in tools/battle_env/casino_check.py tools/battle_env/mega_check.py include/constants/items.h \
+                src/platform/mp_rare_goods_prices.h data/scripts/mp_rare_goods_shop.inc; do
+              mkdir -p "../mega-check-inputs/casino/$(dirname "$file")"
+              cp "$file" "../mega-check-inputs/casino/$file"
+            done
+          fi
           # The rival checkpoints and the short introduction through the game's own scripts (the rival-check job): the
           # flag and variable numbers from this engine's headers, as the Windows runner has none.
           if grep -q -- "--write-facts" tools/pc_port/rival_check.py 2>/dev/null; then
@@ -626,12 +635,16 @@ jobs:
           # mega_check exits 1 when it ran no case ("passed 0 of 0", run 217): only the save matters here.
           if (-not (Test-Path $save)) { throw "the short introduction's save was not made ($LASTEXITCODE)" }
           $failed = @()
-          foreach ($check in "move_switch_check", "shiny_check", "casino_check") {
-            if (-not (Test-Path "mega-check-inputs\$check.py")) {
+          # casino_check sits with the engine files it reads (the engine job).
+          $checks = [ordered]@{ move_switch_check = "mega-check-inputs\move_switch_check.py"
+                                shiny_check = "mega-check-inputs\shiny_check.py"
+                                casino_check = "mega-check-inputs\casino\tools\battle_env\casino_check.py" }
+          foreach ($check in $checks.Keys) {
+            if (-not (Test-Path $checks[$check])) {
               Write-Output "::notice::this engine has no $check (tools/battle_env/$check.py)"
               continue
             }
-            python "mega-check-inputs\$check.py" --exe $exe --save $save --out (Join-Path $out $check)
+            python $checks[$check] --exe $exe --save $save --out (Join-Path $out $check)
             if ($LASTEXITCODE -ne 0) { $failed += "$check (exit $LASTEXITCODE)" }
           }
           if ($failed) { throw "failed: $($failed -join ', ')" }
