@@ -619,10 +619,24 @@ class AbandonProof:
         await self.challenge_1v1(host, probes, 2, 3)
         battles = await self.enter(current, probes, range(4), record, "two-1v1-battles")
         stops, drivers = self.drive(current, probes, symbols, battles, range(4))
-        await asyncio.sleep(self.interrupt_after)
+        started = time.monotonic()
         interrupted = next(b for b, v in battles.items() if host.accounts[3].player_id in v["players"])
+        # Battles are fast now (2026-10-24): a 1v1 driven for the whole minute can end before the crash (Windows run
+        # 222: the room closed with a result first, so no abandon was ever offered). The crashing player stops
+        # choosing once the battle is under way, and its game crashes while the battle waits on it.
+        async with asyncio.timeout(self.interrupt_after):
+            while self.seen[3].get("presses", 0) < 3:
+                await asyncio.sleep(.1)
         stops[3].set()
         await drivers[3]
+        await asyncio.sleep(max(0, self.interrupt_after - (time.monotonic() - started)))
+
+        async def state(s):
+            room = s._server.battle_execution.rooms.get(interrupted)
+            return None if room is None else room.state
+        if await on_worker(current[0], state) != "executing":
+            room = await on_worker(current[0], self.room_view(interrupted))
+            raise AssertionError(f"the battle to interrupt is no longer running: {room}")
         await self.interrupt("crash", 3, current, games, record)
         finished = await self.finish(current, probes, battles, (0, 1), stops, drivers, record, "uninterrupted-1v1")
         record("the-other-battle-finished-normally", results=finished)

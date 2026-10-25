@@ -10,8 +10,11 @@ saves the game once its Players menu is closed.
 Two native games through the whole launcher (native_launcher_battle_proof.py's harness: the real LauncherWindow,
 SessionWorker and LauncherSession per player, production world creation and enrollment, the real world server and
 store), driven by ordinary key presses. The friend's unsaved progress is the game's own START > SAVE, as a player makes
-it: a save to the game's own flash only (the launcher's Save now and its autosave are the host saves), after which the
-game's save counter is ahead of its host save. Steps:
+it. Since MS-61 that save in a world is also a host save (the game opens the Players menu's host save page and the
+launcher saves), so on its own it no longer leaves a game ahead of its host save (Windows run 222: no refusal came).
+The proof injects the one fault that still does: the friend's launcher drops the in-game SAVE's host save handoff, as
+when a host save fails ("Could not save on the host"), and records each one dropped ("host-save-withheld"). The game's
+own flash save goes ahead, and its save counter is then ahead of its host save. Steps:
 
   round 1  The friend saves in the game. The host challenges the friend (1v1), the friend accepts and enters first: the
            friend's Enter is refused ("Not saved: close menu to save") and the challenge ends (aborted, save_needed)
@@ -237,14 +240,39 @@ async def saved_by_its_launcher(current, revision, timeout=180):
             await asyncio.sleep(.5)
 
 
+async def withhold_host_saves(s):
+    """The injected fault: this launcher drops the in-game SAVE's host save handoff (MS-61's Players page 3), as when
+    that host save fails, and counts each one dropped. The game's own flash save is untouched."""
+    original = s._native_menu_reset_handoff
+
+    async def handoff(kind, menu_session):
+        if kind == "host_save":
+            s.withheld_host_saves = getattr(s, "withheld_host_saves", 0) + 1
+            return None
+        return await original(kind, menu_session)
+    s.withheld_host_saves = 0
+    s._native_menu_reset_handoff = handoff
+
+
+async def withheld(s):
+    return s.withheld_host_saves
+
+
 async def stale_save_match(current, probes, games, host, symbols, record):
     friend = probes[FRIEND]
     revision = 1
+    await on_worker(current[FRIEND], withhold_host_saves)
     for round_, first in ((1, FRIEND), (2, HOST)):
         # The friend saves in the game only: its save counter moves on, its host save does not.
         launcher_before = await on_worker(current[FRIEND], launcher_state)
+        dropped = await on_worker(current[FRIEND], withheld)
         before, after = await save_in_game(friend)
         require(after > before, "the game's own save did not move its save counter on")
+        # The game asks its launcher for the host save once its Players page has closed (normally the next frame).
+        async with asyncio.timeout(30):
+            while await on_worker(current[FRIEND], withheld) == dropped:
+                await asyncio.sleep(.2)
+        record("host-save-withheld", round=round_, withheld=await on_worker(current[FRIEND], withheld))
         canonical, battler = await on_worker(current[HOST], canonical_of(host, FRIEND))
         launcher_after = await on_worker(current[FRIEND], launcher_state)
         require(canonical["revision"] == revision and launcher_after["revision"] == revision
