@@ -461,7 +461,7 @@ summary disagrees with a source, the source wins and this file should be correct
 | Lucky | Lucky trade chance 5/8/12/20/30% by friendship level; Lucky IV floor 12 (never lowered, max 31); Lucky Friends chance 10% per eligible Best Friends interaction, 12 h cooldown | [bal] [eng-bal] |
 | Wagers | 100 to 100,000 in-game money | [bal] |
 | Shiny odds and Charm | personal roll 1/4096 (Gen 6); the Charm gives 1/2500 (Update 30), the Safari Zone 1 extra roll (1/2048.3, with the Charm 1/1024.4); eggs 1/4096, 1/1365.7 with a shiny parent or the Charm, 1/683 with both; the Charm costs 100,000 Game Corner coins (Update 29; the Coin Case holds up to 999,999) and is guaranteed | [eng-bal] |
-| Mega Stones | 30,000-100,000 Game Corner coins each by Mega form (Update 29), sold by the Mauville City Poké Mart dealer once the player has the Mega Ring (25,000 coins at the Game Corner prize counter) | [eng-bal] |
+| Mega Stones | 4,500-15,000 Game Corner coins each by Mega form (Update 29; every Game Corner coin price cut to 15% on 2026-10-25), sold by the Mauville City Poké Mart dealer once the player has the Mega Ring (3,750 coins at the Game Corner prize counter; the Shiny Charm 15,000) | [eng-bal] |
 
 The code cites `docs/balance-defaults.md` as the written copy of these values; that file
 does not exist [audit]. This section is the written record until it does.
