@@ -438,25 +438,23 @@ class NewcomersProof(SoftResetProof, ThreePlayerProof):
         return await on_worker(worker, read)
 
     async def reset_page_refuses(self, n, current, probes, record, expected):
-        screen = await self.open_reset_page(probes[n])
+        screen = await self.open_reset_page(probes[n], refused=True)
         labels = [r.label for r in screen.rows]
         record("reset-page-refused", player=self.harness.names[n], status=screen.status, rows=labels)
-        require(screen.status == expected and "Reset to last host save" not in labels,
+        require(screen.status == expected and "Yes, reset now" not in labels,
                 f"{self.harness.names[n]}'s RESET page showed {screen.status!r} {labels}, expected {expected!r}")
         await close_players(probes[n])
         await self.on_field(current[n])
 
     async def reset_once(self, n, current, probes, games, record, label, battle):
-        """RESET > "Reset to last host save" > "Yes, reset now": the launcher starts the game again from the host save
+        """The reset key > "Yes, reset now" (MS-61): the launcher starts the game again from the host save
         in the same session; the others' connections carry on; the party is the host save's."""
         others = [m for m in range(len(current)) if m != n]
         epochs = {m: (await self.launcher(current[m]))["epoch"] for m in others}
         canonical = (await self.heads(current, self.harness.host))[n]
         old_pid = games[n].process.pid
-        await self.open_reset_page(probes[n])
-        await probes[n].choose("Reset to last host save")
-        _, screen = await shown(probes[n])
-        require([r.label for r in screen.rows] == ["No, go back", "Yes, reset now"], f"the question: {screen}")
+        screen = await self.open_reset_page(probes[n])
+        require([r.label for r in screen.rows][:2] == ["No, keep playing", "Yes, reset now"], f"the question: {screen}")
         running = battle is not None and not battle.done()
         await self.final_choice(probes[n], "Yes, reset now")
         code, revision = await self.restarted(n, current, probes, games, old_pid, record)

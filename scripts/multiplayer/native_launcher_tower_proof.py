@@ -849,15 +849,22 @@ class TowerScenario:
                     _, screen = await probes[0].ready()
                     record("tower-join-save-asked", slot=0, floor=floor, status=screen.status,
                            rows=[r.label for r in screen.rows])
-                    require(screen.status == "Save first: START > SAVE",
+                    # A party change saves on the host by itself (since 2026-10-22), so the floor's experience may
+                    # be in player 1's host save already: the host asks whoever still needs a save.
+                    require(screen.status in ("Save first: START > SAVE", f"{NAMES[1][:10]} must save first"),
                             f"player 1's Duo page asks for a save first: {screen.status!r}")
-                    await probes[0].choose("Ready")
-                    _, screen = await probes[0].ready()
-                    record("tower-join-ready-refused", slot=0, floor=floor, status=screen.status)
-                    require(screen.status == "Save your game first", f"Ready before the save: {screen.status!r}")
+                    if screen.status == "Save first: START > SAVE":
+                        await probes[0].choose("Ready")
+                        _, screen = await probes[0].ready()
+                        record("tower-join-ready-refused", slot=0, floor=floor, status=screen.status)
+                        require(screen.status == "Save your game first", f"Ready before the save: {screen.status!r}")
                     await close_players(probes[0])
+
+                async def host_revision(s):
+                    return s.status.revision
                 for slot in (0, 1):
-                    revisions[slot] += 1
+                    # The next save after any the host made by itself.
+                    revisions[slot] = await on_worker(harness.players[slot].worker, host_revision) + 1
                     if slot == 1:
                         await harness.save(harness.players[slot], revisions[slot])
                         continue
@@ -865,8 +872,6 @@ class TowerScenario:
                     # game opens its host save page, the launcher saves as Save now does.
                     from native_launcher_stale_save_proof import save_in_game
 
-                    async def host_revision(s):
-                        return s.status.revision
                     counters = await save_in_game(probes[0])
                     async with asyncio.timeout(90):
                         while (seen := await on_worker(harness.players[0].worker, host_revision)) != revisions[0]:

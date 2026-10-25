@@ -984,7 +984,15 @@ async def launcher_proof(args, *, names, sources, party_counts, match, version, 
                     expected[:] = outcome["parties"]
                     revisions = list(outcome["revisions"])
                     record("expected-parties-after-the-match", parties=expected, revisions=revisions)
+                async def host_revision(s):
+                    return s.status.revision
                 for slot, player in enumerate(players):
+                    now = await on_worker(player.worker, host_revision)
+                    if now >= revisions[slot]:
+                        # The host saved this player by itself meanwhile (a party change saves on the host since
+                        # 2026-10-22: a won battle's experience): the closing save is the next one.
+                        record("host-saved-during-the-match", slot=slot, revision=now, expected=revisions[slot])
+                        revisions[slot] = now + 1
                     await harness.save(player, revisions[slot])
                 record("all-saved-after-the-battle", revisions=revisions, players=harness.count)
                 if after_save is not None:

@@ -60,11 +60,13 @@ class SoftResetProof(NewcomerProof):
             await probe.press(DOWN)
         raise AssertionError(f"the START menu cursor did not reach {wanted}: {row['actions'][:row['count']]}")
 
-    async def open_reset_page(self, probe):
-        """MS-61: the soft reset key, as a player presses it: the Players menu opens on its question."""
+    async def open_reset_page(self, probe, refused=False):
+        """MS-61: the soft reset key, as a player presses it: the Players menu opens on its question ("Reset the game?",
+        No first) or, when the reset would cut something open short (refused), on the Soft reset page saying why."""
         await probe.press_reset_key()
         _, screen = await shown(probe)
-        require(screen.title == "Reset the game?", f"the reset key opened {screen.title!r}: {[r.label for r in screen.rows]}")
+        title = "Soft reset" if refused else "Reset the game?"
+        require(screen.title == title, f"the reset key opened {screen.title!r}: {[r.label for r in screen.rows]}")
         return screen
 
     @staticmethod
