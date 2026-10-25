@@ -17,8 +17,9 @@ def configure_native(manifest: dict, token: str, port: int) -> str:
     reward words 6-7, docs/battle-tower-legends.md 8.1); MS-61 adds
     host_save_page=1 (an in-game SAVE in a world saves on the host too);
     MS-62 adds battle_peek=1 (battle PEEK, pushed battle observations) and
-    battle_receive_many=1 (RECEIVE_MANY: a batch's small blocks in one command);
-    the Tower's "go on to floor N?" adds tower_next_page=1 (OPEN page 4)."""
+    battle_receive_many=1 (RECEIVE_MANY: a batch's small blocks in one command), and battle speed battle_deliver=1
+    (DELIVER: a core's acknowledgement and its blocks in one command); the Tower's "go on to floor N?" adds
+    tower_next_page=1 (OPEN page 4)."""
     from .trade_effect_mailbox import (validate_effect_choice_manifest, validate_effect_prepare_manifest,
                                        validate_effect_save_manifest)
     if (not isinstance(token, str) or not re.fullmatch(r"[0-9a-f]{64}", token)
@@ -41,6 +42,8 @@ def configure_native(manifest: dict, token: str, port: int) -> str:
         lines.append("battle_peek=1")
     if battle_receive_many_enabled(manifest):
         lines.append("battle_receive_many=1")
+    if battle_deliver_enabled(manifest):
+        lines.append("battle_deliver=1")
     if tower_next_page_enabled(manifest):
         lines.append("tower_next_page=1")
     return "\n".join(lines) + "\n"
@@ -60,6 +63,15 @@ def battle_receive_many_enabled(manifest: dict) -> bool:
     in one round trip to each player instead of one per block (battle_execution.BattleExecutionService.receive_many)."""
     version = manifest.get("battle_receive_many_abi_version")
     return type(version) is int and version == 1 and battle_peek_enabled(manifest)
+
+
+def battle_deliver_enabled(manifest: dict) -> bool:
+    """KNOWN_ISSUES MS-62, battle speed: the native game's DELIVER (opcode 27: a core's acknowledgement and every block it is
+    owed in one command, manifest battle_deliver_abi_version 1, beside battle PEEK and RECEIVE_MANY). The host's routes
+    then acknowledge each block as soon as they hold it and hand each core everything in one command a round trip
+    (battle_execution.BattleExecutionService.deliver, route journal v6). Every player of a world runs the same build."""
+    version = manifest.get("battle_deliver_abi_version")
+    return type(version) is int and version == 1 and battle_receive_many_enabled(manifest)
 
 
 def menu_open_page_enabled(manifest: dict) -> bool:

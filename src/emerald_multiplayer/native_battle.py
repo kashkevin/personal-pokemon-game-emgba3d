@@ -97,12 +97,13 @@ class Opcode(IntEnum):
     ADMISSION_CANCEL_READY = 24
     PEEK = 25  # KNOWN_ISSUES MS-62: QUERY plus the outbound block's bytes (PC game, manifest battle_peek_abi_version 1)
     RECEIVE_MANY = 26  # MS-62: a batch's whole small blocks for one core (PC game, battle_receive_many_abi_version 1)
+    DELIVER = 27  # MS-62, battle speed: a core's acknowledgement and its blocks in one command (battle_deliver_abi_version 1)
 
 
 def ordinary_route(opcode):
-    """An ordinary route command, as against suspension, renewal, resume and admission (ARM_RESUME on): RECEIVE_MANY is
-    one, though numbered after them."""
-    return opcode < Opcode.ARM_RESUME or opcode == Opcode.RECEIVE_MANY
+    """An ordinary route command, as against suspension, renewal, resume and admission (ARM_RESUME on): RECEIVE_MANY and
+    DELIVER are, though numbered after them."""
+    return opcode < Opcode.ARM_RESUME or opcode in (Opcode.RECEIVE_MANY, Opcode.DELIVER)
 
 
 class Kind(IntEnum):
@@ -159,6 +160,45 @@ def receive_many_entries(data, player_count, local_slot):
         at += size
     if not entries:
         raise BattleMailboxError("native receive-many carries no block")
+    return tuple(entries)
+
+
+# KNOWN_ISSUES MS-62, battle speed: DELIVER (opcode 27) is one command for everything a core is owed: its own outbound
+# block's acknowledgement (ACK_OUT's block fields; the payload starts with that block's CRC and the mask of every other
+# core) and then other cores' whole small blocks in the host's order, RECEIVE_MANY's entries, several from one core too
+# (in that core's order). Either part may be absent, not both. Its answer: [acknowledged 0/1, blocks applied, the refusal
+# that stopped the rest or OK] when anything applied, else the acknowledgement's or first block's refusal.
+DELIVER_ACK = struct.Struct("<II")
+DELIVER_MAX_BYTES = 192
+
+
+def pack_deliver(blocks, ack=None):
+    """A DELIVER payload: ack (crc, peer mask) or None, then (source, kind, block sequence, bytes) blocks in order."""
+    return (b"" if ack is None else DELIVER_ACK.pack(*ack)) + pack_receive_many(blocks)
+
+
+def deliver_entries(data, player_count, local_slot, *, ack):
+    """KNOWN_ISSUES MS-62: a DELIVER payload's blocks, in order, as (source, kind, block sequence, bytes): each a whole block
+    of at most one chunk from another core; one core's blocks in its own consecutive order."""
+    if len(data) > DELIVER_MAX_BYTES or (ack and len(data) < DELIVER_ACK.size):
+        raise BattleMailboxError("native delivery payload is outside its bounds")
+    at, entries, last = DELIVER_ACK.size if ack else 0, [], {}
+    while at < len(data):
+        if len(data) - at <= _RECEIVE_MANY_ENTRY.size:
+            raise BattleMailboxError("native delivery entry is truncated")
+        source, kind, size, sequence = _RECEIVE_MANY_ENTRY.unpack_from(data, at)
+        at += _RECEIVE_MANY_ENTRY.size
+        if not 1 <= size <= 128 or size > len(data) - at:
+            raise BattleMailboxError("native delivery block is not one whole chunk")
+        validate_block_size(kind, size)
+        if not sequence or source >= player_count or source == local_slot or (
+                source in last and sequence != last[source] + 1):
+            raise BattleMailboxError("native delivery names a wrong source or skips a block")
+        last[source] = sequence
+        entries.append((source, Kind(kind), sequence, data[at:at + size]))
+        at += size
+    if not ack and not entries:
+        raise BattleMailboxError("native delivery carries nothing")
     return tuple(entries)
 
 
@@ -376,7 +416,12 @@ class NativeControl:
                    size, phase, source, kind, status, payload[:length])
 
     def _validate_block(self):
-        if self.opcode in (Opcode.READ_OUT, Opcode.ACK_OUT, Opcode.RECEIVE):
+        if self.opcode == Opcode.DELIVER and self.block_sequence:
+            # its acknowledgement's block fields, as ACK_OUT's
+            validate_block_size(self.kind, self.total_size)
+            if self.offset != self.total_size:
+                raise BattleMailboxError("native acknowledgement must follow complete readback")
+        elif self.opcode in (Opcode.READ_OUT, Opcode.ACK_OUT, Opcode.RECEIVE):
             validate_block_size(self.kind, self.total_size)
             if not self.block_sequence:
                 raise BattleMailboxError("native block sequence must be nonzero")
@@ -399,7 +444,7 @@ class NativeControl:
             Opcode.SUSPEND: 0, Opcode.REAUTHORIZE: 140, Opcode.RESUME: 20,
             Opcode.RESUME_QUERY: 0, Opcode.ADMIT: 48, Opcode.RETIRE: 28, Opcode.HANDOFF: 28,
             Opcode.ADMISSION_CANCEL_HOLD: 84, Opcode.ADMISSION_CANCEL_HANDOFF: 84, Opcode.ADMISSION_CANCEL_READY: 52,
-            Opcode.PEEK: 0, Opcode.RECEIVE_MANY: len(self.data)}
+            Opcode.PEEK: 0, Opcode.RECEIVE_MANY: len(self.data), Opcode.DELIVER: len(self.data)}
         if len(self.data) != lengths[self.opcode]:
             raise BattleMailboxError("native command has the wrong exact payload length")
         if self.opcode == Opcode.BIND:
@@ -443,6 +488,11 @@ class NativeControl:
                 raise BattleMailboxError("release needs a normalized win/loss/draw outcome")
         elif self.opcode == Opcode.RECEIVE_MANY:
             receive_many_entries(self.data, player_count_for_phase(self.phase), self.source_slot)
+        elif self.opcode == Opcode.DELIVER:
+            deliver_entries(self.data, player_count_for_phase(self.phase), self.source_slot, ack=bool(self.block_sequence))
+            mask = (1 << player_count_for_phase(self.phase))-1
+            if self.block_sequence and DELIVER_ACK.unpack_from(self.data)[1] != (mask ^ (1 << self.source_slot)):
+                raise BattleMailboxError("native acknowledgement must name exactly all peers")
         elif self.opcode == Opcode.ACK_OUT:
             mask = (1 << player_count_for_phase(self.phase))-1
             if struct.unpack_from("<I", self.data, 4)[0] != (mask ^ (1 << self.source_slot)):
@@ -534,6 +584,17 @@ class NativeControl:
                     raise BattleMailboxError("preparation response changed the canonical revision")
         elif self.opcode == Opcode.PEEK:
             peek_parts(self)
+        elif self.opcode == Opcode.DELIVER:
+            # [acknowledged 0/1, blocks applied, the refusal that stopped the rest or OK], something applied
+            if (len(self.data) != 3 or self.data[0] > 1 or not (self.data[0] or self.data[1])
+                    or self.data[2] > Status.INTERNAL):
+                raise BattleMailboxError("native delivery answer is malformed")
+            if request is not None:
+                count = len(deliver_entries(request.data, player_count_for_phase(self.phase), request.source_slot,
+                                            ack=bool(request.block_sequence)))
+                if (self.data[0] != bool(request.block_sequence) or self.data[1] > count
+                        or (self.data[1] == count) != (self.data[2] == Status.OK)):
+                    raise BattleMailboxError("native delivery answer differs from its command")
         elif self.opcode == Opcode.RECEIVE_MANY:
             # [blocks applied (at least one), the refusal that stopped the rest or OK]
             if len(self.data) != 2 or not 1 <= self.data[0] < player_count_for_phase(self.phase) or self.data[1] > Status.INTERNAL:

@@ -24,6 +24,7 @@ FRAME = float(os.environ.get("BATTLE_BENCH_FRAME_MS", "16")) / 1000
 class RelayThroughputTests(unittest.IsolatedAsyncioTestCase):
     peek = False
     receive_many = False
+    deliver = False
 
     async def asyncSetUp(self):
         # IsolatedAsyncioTestCase turns asyncio's debug mode on, which records a stack for every
@@ -38,6 +39,7 @@ class RelayThroughputTests(unittest.IsolatedAsyncioTestCase):
     accept = fixture.BattleExecutionNetworkTests.accept
     exchange = fixture.BattleExecutionNetworkTests.exchange
     run_clients = fixture.BattleExecutionNetworkTests.run_clients
+    fixture = fixture.NativeFixture   # (last: it rebinds the module's name inside this class body)
 
     async def measure(self, frame, *, multi=False):
         counts, original = Counter(), fixture.NativeFixture.rpc
@@ -174,3 +176,22 @@ class ReceiveManyThroughputTests(ObservedThroughputTests):
         # most of them packed; the party blocks still go chunk by chunk (4 cores x 3 others x 3 blocks x 2 chunks).
         self.assertLess(counts["RECEIVE"] + counts["RECEIVE_MANY"], 36 + 72)
 
+
+
+class DeliverThroughputTests(ReceiveManyThroughputTests):
+    """KNOWN_ISSUES MS-62, battle speed: the same start-ups on games with DELIVER: every core's acknowledgements and small
+    blocks go in DELIVERs (the party blocks still chunk by chunk), fewer commands than with RECEIVE_MANY."""
+    deliver = True
+
+    async def test_two_player_start_up_without_game_delay(self):
+        await ObservedThroughputTests.test_two_player_start_up_without_game_delay(self)
+
+    async def test_four_player_start_up_with_the_games_frame_delay(self):
+        elapsed, counts = await self.measure(FRAME, multi=True)
+        self.report(f"4 players, {FRAME * 1000:.0f} ms game delay, deliver", elapsed, counts)
+        self.assertEqual(counts["READ_OUT"], 4 * 3 * 2)
+        self.assertEqual(counts["ACK_OUT"] + counts["RECEIVE_MANY"], 0)
+        self.assertGreater(counts["DELIVER"], 0)
+        # 36 small deliveries and 24 acknowledgements in DELIVERs, the 72 party chunks by RECEIVE.
+        self.assertEqual(counts["RECEIVE"], 72)
+        self.assertLess(counts["DELIVER"], 36 + 24)

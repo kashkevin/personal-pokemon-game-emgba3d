@@ -7,7 +7,7 @@ import zlib
 from emerald_multiplayer.battle_mailbox import BattleControl, BattleMailboxError, BattleQuery
 from emerald_multiplayer.native_battle import (
     MULTI_PHASE, NativeBinding, NativeControl, NativeQuery, Preparation, Kind, Opcode,
-    pack_receive_many, peek_parts, receive_many_entries, validate_block_size,
+    pack_deliver, deliver_entries, pack_receive_many, peek_parts, receive_many_entries, validate_block_size,
 )
 
 
@@ -284,3 +284,73 @@ class ReceiveManyTests(unittest.TestCase):
                 replace(request, data=data).validate_response(request)
         replace(request, status=1, data=b"").validate_response(request)     # the first block refused: BUSY
 
+
+
+class DeliverTests(unittest.TestCase):
+    """KNOWN_ISSUES MS-62, battle speed: DELIVER (opcode 27) carries a core's acknowledgement (ACK_OUT's block fields; the
+    payload starts with that block's CRC and the mask of every other core) and the blocks it is owed, several from one
+    core too, in that core's order."""
+    BLOCKS = ((1, Kind.CONTROLLER, 40, bytes(range(16))), (1, Kind.CONTROLLER, 41, bytes(16)),
+              (3, Kind.CONTROLLER, 9, bytes(range(12))))
+
+    def deliver(self, blocks=BLOCKS, ack=(0x12345678, 0b1110), **changes):
+        fields = dict(incarnation=20, session_epoch=7, battle_id=uid(90), sequence=5, opcode=Opcode.DELIVER,
+                      phase=MULTI_PHASE, source_slot=0, data=pack_deliver(blocks, ack))
+        if ack is not None:
+            fields.update(block_sequence=12, offset=16, total_size=16, kind=Kind.CONTROLLER)
+        return NativeControl(**{**fields, **changes})
+
+    def test_an_acknowledgement_and_blocks_in_one_command(self):
+        command = self.deliver()
+        command.validate_command()
+        self.assertEqual(command.data[:8], bytes.fromhex("7856341" + "20e000000"))
+        self.assertEqual(deliver_entries(command.data, 4, 0, ack=True), self.BLOCKS)
+        self.assertEqual(NativeControl.unpack(command.pack()), command)
+        self.deliver(ack=None).validate_command()                  # the blocks alone
+        self.deliver(blocks=()).validate_command()                 # the acknowledgement alone
+        self.deliver(blocks=(), ack=(1, 0b1110), block_sequence=3, offset=200, total_size=200,
+                     kind=Kind.PARTY_0).validate_command()        # of a party block read out in chunks
+
+    def test_refused_shapes(self):
+        for blocks in (((0, Kind.CONTROLLER, 1, bytes(16)),),                    # the core's own block
+                       ((4, Kind.CONTROLLER, 1, bytes(16)),),                    # no such core
+                       ((1, Kind.CONTROLLER, 1, bytes(16)), (1, Kind.CONTROLLER, 3, bytes(16))),  # a skipped block
+                       ((1, Kind.CONTROLLER, 2, bytes(16)), (1, Kind.CONTROLLER, 1, bytes(16))),  # out of order
+                       ((1, Kind.RNG, 0, bytes(16)),),                           # no block sequence
+                       ((1, Kind.CONTROLLER, 1, bytes(13)),),                    # outside the command table
+                       ((1, Kind.PARTY_0, 1, bytes(128)),)):                     # part of a larger block
+            with self.assertRaises(BattleMailboxError, msg=blocks):
+                self.deliver(blocks=blocks).validate_command()
+        with self.assertRaises(BattleMailboxError):
+            self.deliver(blocks=(), ack=None).validate_command()                 # nothing at all
+        with self.assertRaises(BattleMailboxError):
+            self.deliver(ack=(1, 0b0110)).validate_command()                     # not every other core
+        with self.assertRaises(BattleMailboxError):
+            self.deliver(offset=0).validate_command()                            # not the whole block
+        with self.assertRaises(BattleMailboxError):
+            self.deliver(ack=None, block_sequence=0, kind=Kind.CONTROLLER).validate_command()   # block fields, no ack
+        with self.assertRaises(BattleMailboxError):
+            self.deliver(blocks=tuple((1, Kind.CONTROLLER, 40 + n, bytes(16)) for n in range(8))).validate_command()
+
+    def test_it_runs_on_the_core_it_names(self):
+        bound = NativeBinding(uid(99), tuple(uid(10 + i) for i in range(4)), (7, 8, 9, 10), (20, 21, 22, 23), 0,
+                              mode=MULTI_PHASE)
+        self.deliver().validate_command(binding=bound, player_id=uid(10))
+        with self.assertRaises(BattleMailboxError):
+            self.deliver(source_slot=2, ack=(1, 0b1011),
+                         blocks=self.BLOCKS[:2]).validate_command(binding=bound)
+
+    def test_the_answer_says_what_was_acknowledged_and_applied(self):
+        request = self.deliver()
+        for data in (bytes((1, 3, 0)), bytes((1, 0, 1)), bytes((1, 2, 1))):
+            replace(request, data=data).validate_response(request)
+        for data in (bytes((0, 3, 0)), bytes((1, 3, 1)), bytes((1, 2, 0)), bytes((1, 4, 0)), bytes((2, 3, 0)),
+                     bytes((1, 1, 11)), bytes((1, 3)), b""):
+            with self.assertRaises(BattleMailboxError, msg=data):
+                replace(request, data=data).validate_response(request)
+        blocks_only = self.deliver(ack=None)
+        replace(blocks_only, data=bytes((0, 1, 1))).validate_response(blocks_only)
+        for data in (bytes((0, 0, 1)), bytes((1, 3, 0))):
+            with self.assertRaises(BattleMailboxError, msg=data):
+                replace(blocks_only, data=data).validate_response(blocks_only)
+        replace(blocks_only, status=1, data=b"").validate_response(blocks_only)   # the first block refused: BUSY

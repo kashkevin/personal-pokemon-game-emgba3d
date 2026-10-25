@@ -73,6 +73,19 @@ class NativeBridgeFileTests(unittest.TestCase):
             with self.subTest(changes=changes):
                 self.assertEqual(configure_native({**full, **changes}, TOKEN, 1).splitlines()[2:], lines)
 
+    def test_battle_deliver_follows_the_manifest(self):
+        # KNOWN_ISSUES MS-62, battle speed: DELIVER only beside RECEIVE_MANY (and so PEEK).
+        full = dict(battle_abi_version=3, battle_peek_abi_version=1, battle_receive_many_abi_version=1,
+                    battle_deliver_abi_version=1)
+        self.assertEqual(configure_native(full, TOKEN, 1).splitlines()[2:],
+                         ["battle_peek=1", "battle_receive_many=1", "battle_deliver=1"])
+        for changes, lines in ((dict(battle_deliver_abi_version=0), ["battle_peek=1", "battle_receive_many=1"]),
+                               (dict(battle_deliver_abi_version=True), ["battle_peek=1", "battle_receive_many=1"]),
+                               (dict(battle_receive_many_abi_version=0), ["battle_peek=1"]),
+                               (dict(battle_peek_abi_version=0), [])):
+            with self.subTest(changes=changes):
+                self.assertEqual(configure_native({**full, **changes}, TOKEN, 1).splitlines()[2:], lines)
+
     def test_invalid_token_or_port_refused(self):
         for token, port in ((TOKEN.upper(), 1), (TOKEN[:-1], 1), (TOKEN, 0), (TOKEN, 65536), (TOKEN, "1")):
             with self.subTest(token=token, port=port):

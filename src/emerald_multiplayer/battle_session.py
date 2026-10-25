@@ -28,8 +28,8 @@ from .storage import Checkpoint
 IDLE_POLL_MIN = .001
 IDLE_POLL_MAX = .01
 # KNOWN_ISSUES MS-62: the transport commands (no client record of their answers; see NativeBattleSession.run).
-TRANSPORT = frozenset((Opcode.QUERY, Opcode.PEEK, Opcode.READ_OUT, Opcode.RECEIVE, Opcode.RECEIVE_MANY, Opcode.ACK_OUT,
-                       Opcode.KEEP))
+TRANSPORT = frozenset((Opcode.QUERY, Opcode.PEEK, Opcode.READ_OUT, Opcode.RECEIVE, Opcode.RECEIVE_MANY, Opcode.DELIVER,
+                       Opcode.ACK_OUT, Opcode.KEEP))
 # A RECEIVE the core refuses as busy (it has not taken the previous block from that trainer yet) is tried again here,
 # each frame for up to this long, before its answer goes to the host (a round trip over the network each time).
 BUSY_RETRY_SECONDS = .5
@@ -40,7 +40,7 @@ async def execute_command(companion, command, observer=None):
     async def run():
         response = await companion.battle_rpc(command)
         response.validate_response(command)
-        if command.opcode in (Opcode.RECEIVE, Opcode.RECEIVE_MANY) and response.status == Status.BUSY:
+        if command.opcode in (Opcode.RECEIVE, Opcode.RECEIVE_MANY, Opcode.DELIVER) and response.status == Status.BUSY:
             loop = asyncio.get_running_loop()
             until = loop.time() + BUSY_RETRY_SECONDS
             while response.status == Status.BUSY and loop.time() < until:
