@@ -22,6 +22,9 @@ director retires the open Pokemon above the limit (``trim``, outbreak ones
 first, oldest first), never one that somebody is battling, and new spawns wait
 until fewer than 8 remain, so nothing is duplicated.
 
+Each board also remembers the species of its last RECENT_SPAWNS Pokemon (``recent``, kept with its state), so the director
+can avoid repeating them (spawn_director.py).
+
 Shiny Pokemon never despawn (the owner's request of 2026-10-24): a shiny slot does not expire, is not retired for being far
 from every player and is not trimmed when an outbreak ends. It stays until somebody catches or defeats it; running from it
 or losing to it leaves it where it was, as for any slot.
@@ -39,6 +42,7 @@ MAX_SLOTS = OUTBREAK_SLOT_LIMIT
 # battle that was running when the link dropped can still report its result
 # (see docs: a longer absence can let another player catch it).
 CLAIM_GRACE_SECONDS = 600.0
+RECENT_SPAWNS = 6   # MPOWE_RECENT_SPAWNS: a map's last spawns that a new one avoids repeating
 FRESH_SECONDS = 3.0  # a slot younger than this plays its appear animation
 
 OPEN = "open"
@@ -109,6 +113,7 @@ class SpawnBoard:
     outbreak_active: bool = False
     slots: dict[int, Slot] = field(default_factory=dict)
     last_fill: float = float("-inf")
+    recent: list[int] = field(default_factory=list)  # species of the last RECENT_SPAWNS Pokemon, the newest last
 
     # ------------------------------------------------------------ limits
     def limit(self) -> int:
@@ -175,6 +180,7 @@ class SpawnBoard:
             spawn_id=spawn_id, species=int(species), level=int(level), personality=int(personality),
             shiny=bool(shiny), kind=kind, x=int(x), y=int(y), facing=facing,
             expires_at=now + float(lifetime), created_at=now, form=int(form))
+        self.recent = (self.recent + [int(species)])[-RECENT_SPAWNS:]
         return spawn_id
 
     def get(self, spawn_id: int) -> Slot | None:
@@ -344,7 +350,7 @@ class SpawnBoard:
                 "grace_remaining": None if slot.grace_until is None else max(0.0, slot.grace_until - now),
             })
         return {"version": STATE_VERSION, "map_key": self.map_key, "outbreak_active": self.outbreak_active,
-                "next_id": self.next_id, "slots": slots}
+                "next_id": self.next_id, "slots": slots, "recent": list(self.recent)}
 
     @classmethod
     def from_state(cls, state: dict, clock: Callable[[], float],
@@ -358,7 +364,8 @@ class SpawnBoard:
         if type(state) is not dict or state.get("version") != STATE_VERSION:
             raise ValueError("unsupported spawn board state")
         board = cls(map_key=str(state["map_key"]), clock=clock, allocate_id=allocate_id,
-                    next_id=int(state.get("next_id", 1)), outbreak_active=bool(state.get("outbreak_active")))
+                    next_id=int(state.get("next_id", 1)), outbreak_active=bool(state.get("outbreak_active")),
+                    recent=[int(species) for species in state.get("recent", [])][-RECENT_SPAWNS:])
         now = clock()
         for item in state.get("slots", []):
             claimant = item.get("claimant")

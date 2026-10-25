@@ -5,7 +5,7 @@ import unittest
 from emerald_multiplayer import shared_spawns as ss
 from emerald_multiplayer.shared_spawn_catalogue import CATALOGUE
 from emerald_multiplayer.shared_spawns import SpawnBoards
-from emerald_multiplayer.spawn_director import SpawnDirector, SpawnTuning, WEATHER_TYPES
+from emerald_multiplayer.spawn_director import REPEAT_TRIES, SpawnDirector, SpawnTuning, WEATHER_TYPES
 
 ROUTE101 = "0.16"
 ROUTE102 = "0.17"
@@ -161,6 +161,38 @@ class WeightTests(DirectorTestCase):
         bug, tier = self.family_index("TYPE_BUG", "TYPE_BUG")
         self.assertEqual(self.weight(woods, bug), CATALOGUE["tier_weights"][tier] * 3)
 
+    def timed_family(self, time, *types):
+        for index, (first, count, tier, habitat, family_time, type1, type2) in enumerate(CATALOGUE["families"]):
+            if (family_time == time and habitat & 1 and index not in CATALOGUE.get("safari_only", ())
+                    and (not types or set(types) & {type1, type2})):
+                return index, tier
+        self.skipTest(f"no land family for time {time} and types {types}")
+
+    def test_time_of_day_only_makes_a_family_less_likely(self):
+        # The owner's report of 2026-10-25 ("the same 30 pokemon are spawning"): in its time of day a family is as
+        # likely as any other of its tier (no x3), out of it a third as likely.
+        tiers = CATALOGUE["tier_weights"]
+        day_family, tier = self.timed_family(2)
+        self.assertEqual(self.weight(ROUTE101, day_family), tiers[tier])
+        self.assertEqual(self.weight(ROUTE101, day_family, night=True), max(1, tiers[tier] // 3))
+        night_family, tier = self.timed_family(1)
+        self.assertEqual(self.weight(ROUTE101, night_family, night=True), tiers[tier])
+        self.assertEqual(self.weight(ROUTE101, night_family), max(1, tiers[tier] // 3))
+
+    def test_time_of_day_and_area_types_never_go_above_three_times_the_tier(self):
+        woods = next(key for key, entry in CATALOGUE["maps"].items() if entry["constant"] == "MAP_PETALBURG_WOODS")
+        tiers = CATALOGUE["tier_weights"]
+        bug, tier = self.timed_family(2, "TYPE_BUG")          # a day Bug family in the Bug and Grass woods
+        self.assertEqual(self.weight(woods, bug), tiers[tier] * 3)          # was x9
+        self.assertEqual(self.weight(woods, bug, night=True), tiers[tier])  # a third, then the area's x3
+        for night in (False, True):
+            for index, weight in self.director.species_weights(woods, 10, night, None):
+                self.assertLessEqual(weight, tiers[self.director.family_tier(index)] * 3)
+
+    def test_the_most_likely_families_hold_a_smaller_share_by_day(self):
+        weights = sorted((w for _, w in self.director.species_weights(ROUTE101, 3, False, None)), reverse=True)
+        self.assertLess(sum(weights[:28]) / sum(weights), 0.25)   # 38 % before the change
+
     def test_underground_maps_ignore_the_weather(self):
         cave = next(key for key, entry in CATALOGUE["maps"].items() if entry["underground"])
         water, _ = self.family_index("TYPE_WATER", "TYPE_WATER")
@@ -176,6 +208,69 @@ class WeightTests(DirectorTestCase):
         self.assertEqual(self.director.weather_for(ROUTE101, players), "WEATHER_RAIN")
         self.assertEqual(self.director.weather_for(ROUTE101, [presence(1, 1)]),
                          CATALOGUE["maps"][ROUTE101]["weather"])
+
+
+class ScriptedRandom(random.Random):
+    """A random source whose next randrange results are given in advance."""
+
+    def __init__(self, rolls):
+        super().__init__(5)
+        self.rolls = list(rolls)
+
+    def randrange(self, *args, **kw):
+        return self.rolls.pop(0) if self.rolls else super().randrange(*args, **kw)
+
+
+class RepeatTests(DirectorTestCase):
+    """No repeats on a map (2026-10-25): a family already there, or among the map's last few spawns, is rolled again."""
+
+    def first_two(self):
+        weights = self.director.species_weights(ROUTE101, 3, False, None)
+        return weights[0][0], weights[1][0], weights[0][1]
+
+    def species_for(self, rolls, avoid):
+        self.director.rng = ScriptedRandom(rolls)
+        return self.director.choose_species(ROUTE101, 3, False, None, avoid=avoid)
+
+    def test_an_avoided_family_is_rolled_again(self):
+        first, second, first_weight = self.first_two()
+        self.assertIn(first, self.director.families_of(self.species_for([0, first_weight], set())))
+        got = self.species_for([0, first_weight], {first})
+        self.assertEqual(self.director.families_of(got) & {first, second}, {second})
+
+    def test_the_last_try_is_kept_whatever_it_is(self):
+        first, _second, _weight = self.first_two()
+        got = self.species_for([0] * REPEAT_TRIES + [1], {first})
+        self.assertIn(first, self.director.families_of(got))
+
+    def test_the_map_avoids_what_it_shows_and_what_it_spawned_last(self):
+        board = self.boards.board(ROUTE101)
+        board.create(species=10, level=3, personality=1, shiny=False, x=1, y=1, lifetime=60)   # Caterpie, on the map
+        board.recent = [16, 19]                                                                # Pidgey, Rattata
+        avoid = self.director.avoided_families(board)
+        self.assertEqual(avoid, self.director.families_of(10) | self.director.families_of(16)
+                         | self.director.families_of(19))
+        self.assertIn(next(iter(self.director.families_of(11))), avoid)   # Metapod is Caterpie's family
+
+    def test_a_long_session_rarely_repeats_a_family(self):
+        x, y = route101_player_tile(self.director)
+        players = {"p": presence(x, y)}
+        board = self.boards.board(ROUTE101)
+        repeats = spawns = 0
+        seen = set()
+        for _ in range(3600):
+            avoid = self.director.avoided_families(board)
+            self.step(players)
+            for slot in board.live():
+                if slot.spawn_id not in seen:
+                    seen.add(slot.spawn_id)
+                    spawns += 1
+                    repeats += bool(self.director.families_of(slot.species) & avoid)
+            for slot in list(board.live()):
+                if slot.state == ss.OPEN and self.clock.now - slot.created_at > 20:
+                    board.retire(slot.spawn_id)   # keep new Pokemon coming
+        self.assertGreater(spawns, 300)
+        self.assertLessEqual(repeats, spawns // 100)
 
 
 class WanderTests(DirectorTestCase):

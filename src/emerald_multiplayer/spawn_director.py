@@ -8,9 +8,20 @@ the pinned engine by tools/mp/gen_shared_spawns.py), a random source and the
 shared world's active clock; the shared world owns it and persists its state.
 
 Species choice ports src/mp_wild_random.c (MPWild_RandomizeSpecies for land
-encounters) exactly: the same families, rarity weights, time-of-day factors,
-area type boosts, the Phase 2 weather table and the lower-stage chance; the
-level comes from the map's own land encounter slots as it does offline.
+encounters, as the PC game computes it) exactly: the same families, rarity
+weights, time-of-day factors, area type boosts, the Phase 2 weather table and
+the lower-stage chance; the level comes from the map's own land encounter slots
+as it does offline.
+
+Variety (the owner's report of 2026-10-25, "the same 30 pokemon are spawning"):
+a family out of its time of day is a third as likely and one in it is as likely
+as any other (it used to be three times as likely, so the same few dozen day or
+night families filled every route); the time of day and the area's types
+together never make a family more than MAX_BOOST times as likely as its rarity
+tier; and a new Pokemon avoids the families already on its map and those of the
+map's last few spawns (SpawnBoard.recent): the roll is made again up to
+REPEAT_TRIES times in all, and the last one is kept whatever it is. The game's
+own visible spawns (offline, and while surfing in a world) follow the same rules.
 
 Map instances: the key "group.number" (one instance per map; every player in a
 world shares it). Tiles are map coordinates without MAP_OFFSET, as in presence.
@@ -27,6 +38,8 @@ from .shared_spawns import (
 )
 
 TIME_ANY, TIME_NOCTURNAL, TIME_DIURNAL = 0, 1, 2
+MAX_BOOST = 3      # MP_WILD_MAX_BOOST: time of day and area types together, at most this times the tier's weight
+REPEAT_TRIES = 4   # MP_WILD_REPEAT_TRIES: rolls for a family the map does not already show, the last one kept
 SHINY_ODDS = 4096  # MP_GEN6_SHINY_ODDS: the approved Gen 6 odds (docs/master-spec.md)
 
 # Phase 2 weather table (src/mp_wild_random.c GetWeatherWeight): weather ->
@@ -102,6 +115,11 @@ class SpawnDirector:
             members = [tuple(m) for m in catalogue["members"][first:first + count]]
             families.append((tier, habitat, time, {type1, type2}, members))
         self._families = families
+        # Species -> the families it belongs to (a species can be listed in more than one).
+        self._family_of: dict[int, set[int]] = {}
+        for index, (_tier, _habitat, _time, _types, members) in enumerate(families):
+            for species, _min_level, _depth in members:
+                self._family_of.setdefault(species, set()).add(index)
         self._tier_weight = catalogue["tier_weights"]
         # Update 29: families found only inside the Safari Zone (never shared, so never picked for a shared spawn)
         self._safari_only = frozenset(catalogue.get("safari_only", ()))
@@ -156,12 +174,13 @@ class SpawnDirector:
             weight = (tier_weights or self._tier_weight).get(tier, 0)
             if tier_weights is not None and weight == 0:
                 continue  # a rarity tier the outbreak settings leave out
-            if time == TIME_NOCTURNAL:
-                weight = weight * 3 if night else weight // 3
-            elif time == TIME_DIURNAL:
-                weight = weight // 3 if night else weight * 3
+            most = weight * MAX_BOOST
+            # Out of its time of day a family is a third as likely; in it, as likely as any other.
+            if (time == TIME_NOCTURNAL and not night) or (time == TIME_DIURNAL and night):
+                weight //= 3
             if boost & types:
                 weight *= 3
+            weight = min(weight, most)
             if weight == 0:
                 weight = 1
             if main in types:
@@ -184,16 +203,36 @@ class SpawnDirector:
             return members[0][0]
         return self.rng.choice(eligible)
 
+    def families_of(self, species: int) -> set[int]:
+        return self._family_of.get(int(species), set())
+
+    def avoided_families(self, board: SpawnBoard) -> set[int]:
+        """The families a new Pokemon on this board should not repeat: those on
+        the map now and those of its last few spawns."""
+        avoid: set[int] = set()
+        for species in [slot.species for slot in board.live()] + list(board.recent):
+            avoid |= self.families_of(species)
+        return avoid
+
     def choose_species(self, map_key: str, level: int, night: bool, weather: str | None,
-                       outbreak: dict | None = None) -> int:
+                       outbreak: dict | None = None, avoid: set[int] | frozenset = frozenset()) -> int:
+        """A species for a new Pokemon. A family in ``avoid`` is rolled again,
+        REPEAT_TRIES rolls in all; the last roll is kept whatever it is."""
         if outbreak is not None and self.rng.random() < outbreak.get("share", 0.0):
             return int(outbreak["species"])
         weights = self.species_weights(map_key, level, night, weather)
         total = sum(weight for _, weight in weights)
+        for _ in range(REPEAT_TRIES):
+            index = self._roll_family(weights, total)
+            if index not in avoid:
+                break
+        return self.choose_member(index, level)
+
+    def _roll_family(self, weights: list[tuple[int, int]], total: int) -> int:
         roll = self.rng.randrange(total)
         for index, weight in weights:
             if roll < weight:
-                return self.choose_member(index, level)
+                return index
             roll -= weight
         raise AssertionError("weighted roll fell outside the table")
 
@@ -355,7 +394,8 @@ class SpawnDirector:
                 species, kind = int(outbreak["species"]), KIND_OUTBREAK
                 odds = int(outbreak.get("shiny_odds", SHINY_ODDS))
             else:
-                species, kind = self.choose_species(map_key, level, night, weather), KIND_NORMAL
+                species = self.choose_species(map_key, level, night, weather, avoid=self.avoided_families(board))
+                kind = KIND_NORMAL
                 odds = SHINY_ODDS
             shiny = self.rng.randrange(max(1, odds)) == 0
             spawn_id = board.create(

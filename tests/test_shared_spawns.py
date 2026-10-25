@@ -408,6 +408,42 @@ class PersistenceTests(unittest.TestCase):
             SpawnBoards.from_state({"version": 99}, ActiveClock())
 
 
+class RecentSpawnTests(unittest.TestCase):
+    """A board remembers its last few species, so the director can avoid repeating them (2026-10-25)."""
+
+    def test_a_board_keeps_the_species_of_its_last_six_spawns(self):
+        board, clock = make_board()
+        for species in range(1, 9):
+            add(board, species=species, lifetime=1)
+            clock.now += 5
+            board.tick()   # each one expires before the next: the history is about spawns, not live slots
+        self.assertEqual(board.recent, [3, 4, 5, 6, 7, 8])
+        self.assertEqual(len(board.recent), ss.RECENT_SPAWNS)
+
+    def test_a_refused_spawn_is_not_remembered(self):
+        board, _clock = make_board()
+        add(board, species=1, x=3, y=3)
+        self.assertIsNone(add(board, species=2, x=3, y=3))   # the tile is taken
+        self.assertEqual(board.recent, [1])
+
+    def test_the_history_survives_a_restart(self):
+        clock = ActiveClock()
+        boards = SpawnBoards(clock)
+        for species in (10, 13, 16):
+            add(boards.board("0.16"), species=species)
+        again = SpawnBoards.from_state(boards.to_state(), ActiveClock())
+        self.assertEqual(again.board("0.16").recent, [10, 13, 16])
+
+    def test_a_state_saved_before_the_history_loads_without_one(self):
+        clock = ActiveClock()
+        boards = SpawnBoards(clock)
+        add(boards.board("0.16"), species=10)
+        state = boards.to_state()
+        for item in state["boards"]:
+            del item["recent"]
+        self.assertEqual(SpawnBoards.from_state(state, clock).board("0.16").recent, [])
+
+
 class IsolationTests(unittest.TestCase):
     def test_map_instances_do_not_share_slots_or_limits(self):
         clock = ActiveClock()
