@@ -560,6 +560,39 @@ Recorded guidance the code no longer follows (not binding decisions):
 | 1v1v1v1 and 2v2 through PLAYERS > Challenges > New battle | Implemented and tested (Linux, four real games: a 2v2 from a lobby, lobby4-1; the free-for-all of four through the new page, ffa-qf7-1 and mega-5; not on Windows or a PC) | app `172b85e` |
 | Battle lobby: the format follows who joined (2: 1v1, 3: 1v1v1, 4: 1v1v1v1 or 2v2) | Implemented and tested (Linux, three and four real games: lobby-1, lobby4-1 with a decline and a 2v2 start; the 1v1 lobby of two is unit-tested only; not on Windows or a PC) | app `172b85e`, `tests/test_battle_lobby.py` |
 
+## Multiplayer and 3D repair update (2026-10-26, `docs/mp-3d-update-20261026.md`)
+
+| Feature | Status | Evidence |
+| --- | --- | --- |
+| Battles between players answer at once: the move page on FIGHT, "Choice sent. Waiting for the other player(s)...", A or B goes on from a message (KNOWN_ISSUES MS-88) | Implemented and tested (Linux 3D, the real launcher and world server over a simulated connection: an A press to the first thing on screen 2,983 -> 32 ms median; the round trip itself unchanged; not on two real PCs) | engine `bee47749`; `docs/mp-3d-update-20261026.md` section 1 |
+| Battles between players: Imposter and Transform no longer stop the battle (MS-96) | Implemented and tested (Linux 3D, real games: a 3v3 with Ditto stopped 5 of 5 before, ran to its result 3 of 3 after; `--selftest-coop-controller`; not on Windows: run 231 was cancelled; not on two real PCs) | engine `aecb1896` |
+| A battle core that stops itself says which check, in runtime.log and errors.log | Implemented and tested (Linux 3D: it named MS-96's check in 5 of 5 runs) | engine `a038c3ea` |
+| Crash reports for mid-battle crashes: crash.log's last 256 events, the engine commit, aborts and fatal errors; release symbols kept 90 days; a Windows crash-check job | Implemented and tested (Linux; the Windows runner's crash-check job, runs 230 and 231) | engine `c33a7fb8`, app `29e2fdc` |
+| After U-turn and the like, the other game no longer shows the last Pokemon's status on the next one or loses a sprite (MS-90) | Implemented and tested (Linux 3D, real games: reproduced twice before, passed after; not on two real PCs) | engine `9fa975a2` |
+| Trades: presses after Confirm no longer get the game's link refused when the trade commits (MS-95) | Implemented and tested (Linux, real games over a simulated connection: 2 of 3 failed before, 5 of 5 passed after; `tests/test_menu_session.py`; not on two real PCs) | app `2df8f0d` |
+| A player who leaves mid-encounter lets go of a shared wild Pokemon (MS-92) | Implemented but unverified (unit test; not driven in real games) | app `f829cb9`, `tests/test_outbreaks.py` |
+| Mr. Briney's cottage opens with a friend connected (MS-91) | Implemented and tested (Linux 2D: `rival_check.py` route104-briney-door, 26 of 26 rival scenarios; not on two real PCs) | engine `312585fe` |
+| The sound never falls further behind the longer one plays (MS-89) | Implemented but unverified (no sound device on the Linux test machine; not on a PC) | engine `ea8595b8` |
+| 3D: Route 111's rock plateau stands on its rock (MS-76 update) | Implemented and tested (Linux 3D test build, software GL pictures; not on a GPU or PC) | engine `5ec3d26f` |
+
+## Small updates, UI overhaul and rendering fixes (2026-10-26, `docs/ui-overhaul-and-fixes-20261026.md`)
+
+| Feature | Status | Evidence |
+| --- | --- | --- |
+| A roulette table opens its own question, not the coin counter (KNOWN_ISSUES MS-99) | Implemented and tested (Linux 3D, the real Game Corner; not on Windows or a PC) | engine `ef762adc` |
+| The casino screens show the whole Coin Case (the table's stake and the reserve), counting with every bet and payout (MS-100) | Implemented and tested (Linux 3D, up to a save and CONTINUE; not on Windows or a PC) | engine `ef762adc` |
+| 3D water: one open-sea level, the map's sea edge drawn as sea (MS-102) | Implemented and tested (Linux 3D test build, software GL: heights of 33 maps, pictures; not on a GPU or PC) | engine `d654b78a` |
+| 3D render distance the same for every camera and quality setting; maps two away loaded; the camera's view in runtime.log (MS-87) | Implemented and tested (Linux 3D test build, software GL, the owner's camera settings; not on the owner's PC) | engine `b13e0f9e` |
+| The location pop-up as the design's wooden sign | Implemented and tested (Linux 3D, pictures) | engine `dd416dd0` |
+| Battle transitions and the trainer's last line in the design's shapes and box | Implemented and tested (Linux 3D view, every transition with a trainer's line; MS-106 to MS-108 open) | engine `9c3e08e5`, `d08d4573` |
+| A field move's cut-in in the design (seen in the 3D view at last, MS-103) | Implemented and tested (Linux, both views, indoors and out) | engine `9c3e08e5` |
+| PokeNav calls in the design's message box | Implemented and tested (Linux, both views) | engine `57dbedc2` |
+| The Fly map and a Pokemon Center's wall map in the current UI (clicks move the cursor and fly) | Implemented and tested (Linux, both views; a fly to Oldale) | engine `db0e2547` |
+| Egg hatching on the design's stage | Implemented and tested (Linux, both views, both answers) | engine `7c2e2d0f` |
+| The wall clock in the current UI (setting and looking) | Implemented and tested (Linux 3D) | engine `bfd5ff6f` |
+| The PC renderer's second GBA window (the condition graph whole, MS-104) | Implemented and tested (Linux, classic view) | engine `f36530ee` |
+| Every remaining GBA screen in the current UI | Partially implemented (the screens still GBA: KNOWN_ISSUES MS-105) | `docs/ui-overhaul-and-fixes-20261026.md` section 3 |
+
 ## How to update
 
 1. Change a row only with new evidence: a recorded run (a doc in `docs/` or
