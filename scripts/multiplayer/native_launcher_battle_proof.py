@@ -421,7 +421,9 @@ async def drive_battle_input(probe, view, symbols, stop, seen=None):
         if stop.is_set():
             return
         if action == "next-party":
-            await probe.press(128, frames=12, release=18)
+            # RIGHT from the first slot: the 3D party screen is a grid of two columns, where DOWN from the first slot
+            # of a party of two goes to Cancel (the Classic screen's RIGHT also goes to the second slot); DOWN after.
+            await probe.press(16 if state["cursor"] == 0 else 128, frames=12, release=18)
             moved = await probe.battle()
             current = await view()
             if (not stop.is_set() and current["state"] == "executing" and current["pending"] == 21
