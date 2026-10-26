@@ -842,6 +842,12 @@ class LauncherHarness:
         selection = self.host.directory / "world.json" if slot == 0 else self.invitations[slot]
         require(worker.start(LaunchRequest(mode, selection)), "real GUI worker did not start")
         await self.poll_until(lambda: worker._active_session is not None or not worker.busy)
+        if worker._active_session is None:
+            # Windows run 225's climb: after 180 minutes and a normal close, the fresh Continue's worker ended with no
+            # session and the log said no more than this; keep why (the launcher's own status and failure line).
+            self.record("launcher-worker-failed", phase=phase, slot=slot, state=str(worker._state),
+                        status=worker._status_code, failure=None if worker._failure is None else str(worker._failure),
+                        detail=worker.last_failure_detail)
         require(worker._active_session is not None, "launcher worker failed before play")
         async def prepare(s):
             async with asyncio.timeout(30):

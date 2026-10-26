@@ -19,18 +19,35 @@ from __future__ import annotations
 import asyncio
 import os
 import random
+import threading
 import time
+import traceback
 
 
 def simulate_disk(disk_ms):
     """Every fsync waits `disk_ms` longer, as on a player's Windows PC (a consumer SSD's cache flush and the virus
-    scanner's look at each new file; the CI runners and this machine flush at once)."""
-    if disk_ms:
+    scanner's look at each new file; the CI runners and this machine flush at once). PROOF_FSYNC_TRACE=<file>: each
+    fsync of the proof process (the host's and the launchers' journals) is also written there as "fsync START_MS
+    DURATION_MS THREAD CALLERS", START_MS on the monotonic clock the games' PKMN_LINK_TRACE lines use (Linux), for
+    tools/pc_port/link_latency.py --fsync."""
+    trace = os.environ.get("PROOF_FSYNC_TRACE")
+    if disk_ms or trace:
         real = os.fsync
+        out = open(trace, "a", buffering=1) if trace else None
 
         def slow_fsync(fd):
-            time.sleep(disk_ms / 1000)
-            return real(fd)
+            started = time.monotonic()
+            try:
+                if disk_ms:
+                    time.sleep(disk_ms / 1000)
+                return real(fd)
+            finally:
+                if out is not None:
+                    # who asked (the nearest emerald_multiplayer functions): which journal or record it was
+                    callers = [f"{os.path.basename(f.filename)[:-3]}.{f.name}" for f in traceback.extract_stack(limit=8)
+                               if "emerald_multiplayer" in f.filename][-3:]
+                    out.write(f"fsync {started * 1000:.2f} {(time.monotonic() - started) * 1000:.2f} "
+                              f"{threading.current_thread().name.replace(' ', '_')} {'<'.join(reversed(callers)) or '-'}\n")
         os.fsync = slow_fsync
 
 
@@ -120,7 +137,7 @@ async def apply_environment(current, record):
     `current[0]` is the host's launcher worker (its player is the one --remote-only spares)."""
     latency_ms, remote_only, everything, disk_ms = from_environment()
     jitter_ms, stall_every, stall_ms = rough_from_environment()
-    if not (latency_ms or disk_ms or jitter_ms or (stall_every and stall_ms)):
+    if not (latency_ms or disk_ms or jitter_ms or (stall_every and stall_ms) or os.environ.get("PROOF_FSYNC_TRACE")):
         return
     host_player = None
     if remote_only:
