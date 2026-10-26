@@ -271,6 +271,22 @@ class SharedWorldOutbreakTests(unittest.TestCase):
     def board(self):
         return self.world.spawn_boards.board(ROUTE101)
 
+    def test_a_disconnected_claimant_lets_go_of_its_spawn_after_the_grace(self):
+        # The host's disconnect reached the World Event claim only (the spawn lines sat after another method's
+        # return): the shared Pokemon a player left mid-encounter stayed busy for everyone until they came back.
+        a, b = str(uuid4()), str(uuid4())
+        self.world.set_active_players(2)
+        presences = self.presences(a, b)
+        self.run_for(60, presences)
+        spawn = self.world.spawn_view(a, presences[a])["slots"][0]["spawn_id"]
+        self.assertEqual(self.world.spawn_action(a, "claim", spawn, None), ss.GRANTED)
+        self.assertEqual(self.world.spawn_action(b, "claim", spawn, None), ss.BUSY)
+        self.world.player_disconnected(a)
+        self.now += ss.CLAIM_GRACE_SECONDS + 1
+        self.world.tick_spawns({b: presences[b]}, lambda: 10)
+        # no longer held: back to everyone, or gone with its lifetime (an ordinary spawn's runs out first)
+        self.assertIn(self.world.spawn_action(b, "claim", spawn, None), (ss.GRANTED, ss.GONE))
+
     def test_an_outbreak_fills_exactly_twelve_shared_slots_with_its_species(self):
         a, b = str(uuid4()), str(uuid4())
         self.world.set_active_players(2)

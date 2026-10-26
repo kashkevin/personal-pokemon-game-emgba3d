@@ -945,6 +945,12 @@ class SharedWorld:
     def player_disconnected(self, player_id: str) -> None:
         if self._claim is not None and self._claim["player_id"] == player_id:
             self._claim["released_at"] = self._active_now() + BALANCE.event_claim_grace_seconds
+        # The shared wild Pokemon it was battling go back to everyone after their grace period (shared_spawns.py).
+        # These lines had ended up after tick_event_claim's return (audit fix 369a858) and never ran: a player who
+        # left mid-encounter held the spawn until they came back, everyone else told it was busy.
+        if getattr(self, "spawns_enabled", False):
+            for board in self.spawn_boards.boards():
+                board.player_disconnected(player_id)
 
     def tick_event_claim(self, presences: dict[str, dict | None]) -> bool:
         """Let go of an event claim whose connected claimant left the event's map.
@@ -977,9 +983,6 @@ class SharedWorld:
         self._claim, self._claimant_away_since = None, None
         self._save_event("active")
         return True
-        if getattr(self, "spawns_enabled", False):
-            for board in self.spawn_boards.boards():
-                board.player_disconnected(player_id)
 
 
 def spawn_rng_or(rng: random.Random | None) -> random.Random:
