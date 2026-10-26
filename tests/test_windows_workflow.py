@@ -254,6 +254,17 @@ class WindowsWorkflowTests(unittest.TestCase):
         self.assertIn('throw "the evolution check failed', evolve)              # a failed step fails the job
         self.assertIn("tools/battle_env/evolve_check.py ../mega-check-inputs/", job("engine"))
 
+    def test_the_crash_report_runs_in_windows_game_processes(self):
+        crash = job("crash-check")
+        self.assertIn("runs-on: windows-2022", crash)
+        self.assertIn("needs: engine", crash)
+        self.assertIn("crash_check.py --exe mega-check-inputs\\pokeemerald-mp-bfxtest.exe --out", crash)
+        self.assertIn('throw "the crash report check failed', crash)            # a failed step fails the job
+        self.assertIn("tools/battle_env/crash_check.py ../mega-check-inputs/", job("engine"))
+        # the packaged games' symbol tables stay for their crash reports
+        self.assertIn("name: EmeraldTogether-release-symbols", job("engine"))
+        self.assertIn("retention-days: 90", job("engine"))
+
     def test_a_poke_mart_runs_in_windows_game_processes(self):
         shop = job("shop-check")
         self.assertIn("runs-on: windows-2022", shop)
