@@ -454,7 +454,8 @@ class LiveTradeTests(unittest.IsolatedAsyncioTestCase):
                 c.trade_hook = None
                 raise asyncio.TimeoutError("paired commit reply lost")
         c.trade_hook = lose_confirm
-        with self.assertRaises(asyncio.TimeoutError):
+        # No patience: the lost reply surfaces (the retry with patience: test_lost_host_replies_are_asked_again).
+        with self.assertRaises(asyncio.TimeoutError), patch("emerald_multiplayer.live_trade.HOST_PATIENCE_SECONDS", 0):
             await self.coordinators[1].prepare_recipient()
         self.assertEqual(c.head().revision, 3)
         c.reconnect()
@@ -531,7 +532,7 @@ class LiveTradeTests(unittest.IsolatedAsyncioTestCase):
                 c.trade_hook = None
                 raise asyncio.TimeoutError("durable apply acknowledgment lost")
         c.trade_hook = lose_ack
-        with self.assertRaises(asyncio.TimeoutError):
+        with self.assertRaises(asyncio.TimeoutError), patch("emerald_multiplayer.live_trade.HOST_PATIENCE_SECONDS", 0):
             await self.coordinators[0].resume()
         self.assertEqual(self.intent()["phase"], "applied")
         self.assertEqual(c.phase, State.COMMITTED)
@@ -557,7 +558,7 @@ class LiveTradeTests(unittest.IsolatedAsyncioTestCase):
                 c.trade_hook = None
                 raise asyncio.TimeoutError("authoritative cancel reply lost")
         c.trade_hook = uncertain_cancel
-        with self.assertRaises(asyncio.TimeoutError):
+        with self.assertRaises(asyncio.TimeoutError), patch("emerald_multiplayer.live_trade.HOST_PATIENCE_SECONDS", 0):
             await self.coordinators[0].cancel()
         self.assertTrue(c.active)
         self.assertNotIn(Opcode.ABORT_TRADE, self.ops())
@@ -570,6 +571,67 @@ class LiveTradeTests(unittest.IsolatedAsyncioTestCase):
         aborts = [cmd for cmd in c.commands if cmd.opcode == Opcode.ABORT_TRADE]
         self.assertEqual(aborts[0], aborts[1])
         self.assertEqual(c.aborts, 1)
+
+    async def test_lost_host_replies_are_asked_again_and_the_hold_kept(self):
+        # 2026-10-26: one host reply later than 5 s ended the trade for both players and left the game held. The first
+        # reply of every kind of host request is lost here, on both sides: each is asked again (the host's answer to
+        # the same request again is the same), the game's hold kept alive between the tries, and the trade completes
+        # exactly once for both without a reconnect.
+        lost = []
+        def losing(index):
+            async def hook(operation, reply):
+                if (index, operation) not in lost and operation in {"status", "pending", "offer", "confirm", "prepare",
+                                                                    "prepared", "ack"}:
+                    lost.append((index, operation))
+                    raise asyncio.TimeoutError("host reply lost")
+            return hook
+        for index, c in enumerate(self.companions):
+            c.trade_hook = losing(index)
+        with patch("emerald_multiplayer.live_trade.HOST_RETRY_SECONDS", .001):
+            await self.committed()
+            for index in range(2):
+                result = await self.coordinators[index].resume()
+                self.assertEqual(result["state"], "applied")
+        for index in range(2):
+            self.assertEqual({op for i, op in lost if i == index},
+                             {"status", "pending", "offer", "confirm", "prepare", "prepared", "ack"})
+            c = self.companions[index]
+            self.assertIn(Opcode.KEEP_TRADE, self.ops(index))
+            self.assertNotIn(Opcode.REBIND_TRADE, self.ops(index))
+            self.assertEqual((c.normal_saves, c.rom_commits, c.releases, c.aborts), (1, 1, 1, 0))
+            self.assertFalse(self.coordinators[index].trade_path.exists())
+            owned = inspect_ownership(inspect_flash(c.rom_flash, save_profile=OWNERSHIP_PROFILE))
+            self.assertEqual({record.serial for record in owned.records}, {self.grants[1-index].start, self.grants[index].start+1})
+        self.store.integrity_check()
+
+    async def test_host_patience_ends_and_a_new_lease_is_never_asked_again(self):
+        await self.coordinators[0].prepare(self.tx, self.generation, 1)
+        c = self.companions[0]
+        calls = []
+        async def silent(operation, reply):
+            calls.append(operation)
+            raise asyncio.TimeoutError("host silent")
+        c.trade_hook = silent
+        with patch("emerald_multiplayer.live_trade.HOST_RETRY_SECONDS", .001), \
+                patch("emerald_multiplayer.live_trade.HOST_PATIENCE_SECONDS", .05), self.assertRaises(asyncio.TimeoutError):
+            await self.coordinators[0].status()
+        self.assertGreater(len(calls), 1)
+        self.assertTrue(c.active)
+        # A reconnect while the reply is awaited: the old lease's proposal is gone at the host, so the request is not
+        # sent again under the new one (the trade resumes against its fate instead).
+        calls.clear()
+        async def reconnecting(operation, reply):
+            calls.append(operation)
+            c.trade_hook = None
+            c.reconnect()
+            raise asyncio.TimeoutError("reply lost as the connection was replaced")
+        c.trade_hook = reconnecting
+        with patch("emerald_multiplayer.live_trade.HOST_RETRY_SECONDS", .001), self.assertRaises(ConnectionError):
+            await self.coordinators[0].status()
+        self.assertEqual(calls, ["status"])
+        result = await self.replacement().resume()
+        self.assertEqual(result["state"], "aborted")
+        self.assertFalse(c.active)
 
     async def test_changed_incarnation_new_companion_and_unproved_inactive_hold_fail_closed(self):
         await self.coordinators[0].prepare(self.tx, self.generation, 1)

@@ -41,6 +41,15 @@ _FORMAT = "emerald-live-trade-v1"
 CALM_OPCODES = frozenset({Opcode.QUERY_OWNERSHIP, Opcode.GRANT_OWNERSHIP, Opcode.BEGIN_TRADE_EXPORT})
 CALM_RETRY_SECONDS = .1
 CALM_PATIENCE_SECONDS = 15
+# A host request whose reply does not come in time (lost, or late over a slow link or from a busy host) is sent again
+# every HOST_RETRY_SECONDS for up to HOST_PATIENCE_SECONDS instead of ending the trade, the game's trade hold kept alive
+# meanwhile (KEEP_TRADE). Each of these is idempotent at the host: status, pending, prepare and the checkpoint head only
+# read; the same offer, confirmation, recipient receipt, cancel or acknowledgment again changes nothing (trade_desk,
+# trade_storage). One reply later than 5 s used to end the trade for both players and leave this game held (2026-10-26,
+# the owner's "trades freeze, fail, take too long").
+HOST_RETRY_OPERATIONS = frozenset({"status", "pending", "offer", "confirm", "prepare", "prepared", "cancel", "ack"})
+HOST_RETRY_SECONDS = 1.0
+HOST_PATIENCE_SECONDS = 40.0
 _LIMIT = 16_384
 _SHA = re.compile(r"[0-9a-f]{64}\Z")
 _PHASES = {"intent", "starting", "frozen", "prepared", "committed", "applied", "acknowledged", "releasing", "aborting"}
@@ -98,6 +107,9 @@ class LiveTradeCoordinator(LiveCheckpointCoordinator):
         companion._live_trade_pending_path = self.trade_path
         if getattr(companion, "_live_trade_runtime_id", None) is None:
             companion._live_trade_runtime_id = str(uuid4())
+        # The game's trade hold as last queried (session, transaction, revision): kept alive while a host request is
+        # asked again (_patiently); None once it ends or fails.
+        self._kept = None
 
     def _session(self):
         c = self.companion
@@ -263,9 +275,37 @@ class LiveTradeCoordinator(LiveCheckpointCoordinator):
             _atomic(path, data)
 
     async def _rpc(self, session, operation, **fields):
+        if operation in HOST_RETRY_OPERATIONS:
+            return await self._patiently(session, lambda: self.companion.trade_rpc(operation, **fields))
         result = await self.companion.trade_rpc(operation, **fields)
         self._same_session(session)
         return result
+
+    async def _info(self, session):
+        """The canonical checkpoint head (a read), asked again as _rpc asks."""
+        return await self._patiently(session, self.client.info)
+
+    async def _patiently(self, session, request):
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + HOST_PATIENCE_SECONDS
+        while True:
+            try:
+                result = await request()
+            except TimeoutError:
+                # A new lease (a reconnect) ends the proposal at the host: that is resumed, not asked again.
+                self._same_session(session)
+                if loop.time() + HOST_RETRY_SECONDS > deadline:
+                    raise
+                await self._keep_hold(session)
+                await asyncio.sleep(HOST_RETRY_SECONDS)
+                continue
+            self._same_session(session)
+            return result
+
+    async def _keep_hold(self, session):
+        kept = self._kept
+        if kept is not None and kept[0] == session and getattr(self.companion, "_live_binding", None) == session:
+            await self._command(session, kept[1], kept[2], Opcode.KEEP_TRADE)
 
     async def _fate(self, intent, session):
         view = (await self._rpc(session, "status", transaction_id=intent["transaction_id"]))["trade"]
@@ -289,11 +329,14 @@ class LiveTradeCoordinator(LiveCheckpointCoordinator):
         response = await self.companion.save_rpc(command)
         self._same_session(session)
         hold = TradeHold.parse(self._ok(response))
+        self._kept = None
         if hold.incarnation != session[2] or hold.session_epoch > session[1]:
             raise LiveTradeError("recovery_required", "ROM trade binding does not match this running game")
         if hold.active and (hold.transaction_id != intent["transaction_id"]
                 or hold.revision not in (intent["expected_revision"]+1, intent["expected_revision"]+2)):
             raise LiveTradeError("recovery_required", "a different trade owns the ROM hold")
+        if hold.active and hold.phase != State.ERROR and hold.session_epoch == session[1]:
+            self._kept = (session, intent["transaction_id"], hold.revision)
         return hold
 
     async def _held(self, intent, session):
@@ -315,6 +358,7 @@ class LiveTradeCoordinator(LiveCheckpointCoordinator):
             self.companion._live_binding, self.companion._live_sequence = session, 1
             intent["control"] = None
             self._save(intent)
+            self._kept = (session, intent["transaction_id"], hold.revision)
         elif getattr(self.companion, "_live_binding", None) != session:
             raise LiveTradeError("recovery_required", "the live command sequence cannot be proved for this ROM binding")
         if hold.expired:
@@ -347,7 +391,7 @@ class LiveTradeCoordinator(LiveCheckpointCoordinator):
                     raise LiveTradeError("trade_changed", "a current unoffered proposal is required before preparing")
                 if (await self._rpc(session, "pending"))["recoveries"]:
                     raise LiveTradeError("recovery_required", "apply the previous canonical trade first")
-                head = await self.client.info(); self._same_session(session)
+                head = await self._info(session)
                 if head is None or head["revision"] != expected_revision:
                     raise LiveTradeError("revision_conflict", "the locally verified trade base differs from the canonical head")
                 intent = dict(schema=2, world_id=session[0], player_id=self.companion.config.player_id,
@@ -451,7 +495,7 @@ class LiveTradeCoordinator(LiveCheckpointCoordinator):
             if not intent["export_ended"] or intent["prepared"] is None or intent["fate"] is not None:
                 raise LiveTradeError("preparation_required", "durably prepare this character before offering")
             await self._held(intent, session)
-            head = await self.client.info(); self._same_session(session)
+            head = await self._info(session)
             if head != intent["prepared"]:
                 raise LiveTradeError("revision_conflict", "the canonical preparation changed before offering")
             payload = self._bytes(intent["prepare_id"] + ".flash", intent["frozen_sha256"], FLASH_SIZE)
@@ -559,9 +603,8 @@ class LiveTradeCoordinator(LiveCheckpointCoordinator):
         prefix = intent["transaction_id"] + "." + intent["generation"]
         self._immutable(prefix + ".recipient-candidate.flash", candidate)
         self._immutable(prefix + ".recipient-preparation.json", _json_bytes(record))
-        if await self.client.info() != intent["prepared"]:
+        if await self._info(session) != intent["prepared"]:
             raise LiveTradeError("revision_conflict", "canonical preparation changed before recipient acknowledgment")
-        self._same_session(session)
         await self._held(intent, session)
         view = (await self._rpc(session, "prepared", transaction_id=intent["transaction_id"],
             generation=intent["generation"], fingerprint=description["fingerprint"],
@@ -585,9 +628,8 @@ class LiveTradeCoordinator(LiveCheckpointCoordinator):
         candidate, receipt = retained_effect_candidate(self, intent, session, description)
         self._immutable(prefix + ".recipient-candidate.flash", candidate)
         self._immutable(prefix + ".recipient-preparation.json", _json_bytes(record))
-        if await self.client.info() != intent["prepared"]:
+        if await self._info(session) != intent["prepared"]:
             raise LiveTradeError("revision_conflict", "canonical source changed before effect acknowledgement")
-        self._same_session(session)
         await self._held(intent, session)
         view = (await self._rpc(session, "effect_prepared", transaction_id=intent["transaction_id"],
             generation=intent["generation"], fingerprint=description["fingerprint"],
@@ -636,6 +678,7 @@ class LiveTradeCoordinator(LiveCheckpointCoordinator):
             return await self._submit_effect_recipient(intent, session, description)
 
     async def _terminal(self, intent, session, opcode, revision):
+        self._kept = None   # the hold ends with this command
         previous = None if intent["control"] is None else SaveControl.unpack(base64.b64decode(intent["control"]))
         if previous is not None and previous.opcode == opcode and previous.session_epoch == session[1]:
             command = previous
@@ -652,6 +695,7 @@ class LiveTradeCoordinator(LiveCheckpointCoordinator):
         return self._ok(response)
 
     def _finish(self, intent, outcome):
+        self._kept = None
         # An explicitly canceled proposal may reopen the same transaction UUID
         # with a fresh generation. Preserve each consent generation's outcome.
         self._immutable(intent["transaction_id"] + "." + intent["generation"] + ".trade-complete.json",
@@ -697,7 +741,7 @@ class LiveTradeCoordinator(LiveCheckpointCoordinator):
         if hold.import_started:
             raise LiveTradeError("recovery_required", "an imported trade cannot be aborted; recover its canonical outcome")
         await self._prepare(intent, session)
-        head = await self.client.info(); self._same_session(session)
+        head = await self._info(session)
         if head != intent["prepared"]:
             raise LiveTradeError("revision_conflict", "preparation is no longer the current canonical character")
         await self._held(intent, session)
@@ -726,7 +770,7 @@ class LiveTradeCoordinator(LiveCheckpointCoordinator):
         if fate is None:
             raise LiveTradeError("trade_conflict", "canonical import requires committed server fate")
         pending = (await self._rpc(session, "pending"))["recoveries"]
-        head = await self.client.info(); self._same_session(session)
+        head = await self._info(session)
         if head is None or (head["request_id"], head["revision"], head["sha256"]) != (
                 intent["transaction_id"], intent["expected_revision"]+2, fate["sha256"]):
             raise LiveTradeError("revision_conflict", "never apply historical trade fate over a newer canonical head")
@@ -773,9 +817,8 @@ class LiveTradeCoordinator(LiveCheckpointCoordinator):
             await self._command(session, intent["transaction_id"], head["revision"], Opcode.BEGIN_IMPORT,
                 data=struct.pack("<IIII", zlib.crc32(payload), parsed.metadata.counter, rotation, parsed.metadata.trainer_id))
             await self._write_flash(session, intent["transaction_id"], head["revision"], payload, error=LiveTradeError)
-            if await self.client.info() != head:
+            if await self._info(session) != head:
                 raise LiveTradeError("revision_conflict", "canonical trade changed before Flash publication")
-            self._same_session(session)
             await self._held(intent, session)
             await self._command(session, intent["transaction_id"], head["revision"], Opcode.COMMIT, offset=FLASH_SIZE, timeout=20)
             applied = await self._read_flash(session, intent["transaction_id"], head["revision"])
@@ -787,9 +830,8 @@ class LiveTradeCoordinator(LiveCheckpointCoordinator):
                 operation_id=receipt_id, rom_request_id=intent["transaction_id"], session_epoch=session[1], incarnation=session[2])
             intent["receipt_id"], intent["applied_sha256"], intent["phase"] = receipt_id, hashlib.sha256(applied).hexdigest(), "applied"
             self._save(intent)
-        if await self.client.info() != head:
+        if await self._info(session) != head:
             raise LiveTradeError("revision_conflict", "canonical trade changed before recovery acknowledgment")
-        self._same_session(session)
         await self._rpc(session, "ack", transaction_id=intent["transaction_id"], revision=head["revision"], sha256=head["sha256"])
         intent["phase"] = "acknowledged"; self._save(intent)
         await self._held(intent, session)

@@ -33,6 +33,14 @@ from .server import WILDCARD, ServerConfig, WorldServer, is_local_address
 
 
 BATTLE_SAVE_WAIT = 600  # KNOWN_ISSUES MS-60: how long a refused Enter's save waits for the Players menu to close
+# A failed trade's settlement (the coordinator's cancel) is tried this many times, TRADE_SETTLE_RETRY_SECONDS apart, when
+# it fails for a passing reason (no reply in time, a reconnect it can resume after, a busy game): one try left the game
+# held with saving off until a restart (2026-10-26). The cancel is journal-driven: a retry picks up where the last ended.
+TRADE_SETTLE_ATTEMPTS = 3
+TRADE_SETTLE_RETRY_SECONDS = 5.0
+# A trade chosen while a save is under way (an autosave, the in-game SAVE's host save) waits up to this long for it
+# instead of being refused with its proposal left open for the friend (2026-10-26).
+TRADE_SAVE_WAIT = 60.0
 _MESSAGES = {
     "invalid_configuration": "The development launcher configuration is invalid.",
     "installation_changed": "The installed game differs from its application pins.",
@@ -1871,7 +1879,6 @@ class LauncherSession:
         applies a trade the host committed or aborts it (the game's hold ends, the pre-trade party stays). Either way
         both players end with the same outcome and no Pokemon is lost or duplicated. Without a journal nothing was
         held or written: the proposal is cancelled so the other player is not left waiting; returns None then."""
-        from .companion import TradeError
         coordinator, c = trade_menu.coordinator, self._companion
         # The Players menu has closed by now: the game's banner says what happened and why (the owner's reports of
         # 2026-10-23, "for trading it literally just kicks you out of the screen", then after both confirmed: closed
@@ -1883,13 +1890,7 @@ class LauncherSession:
         # 2, the cancel's cause "automatic") tells the friend the trade stopped on this side, not "Your friend cancelled
         # the trade" (the owner's reports of 2026-10-24).
         if not coordinator.trade_path.exists():
-            from .live_trade import automatic_cancel_fields
-            try:
-                cause = await automatic_cancel_fields(c, descriptor["transaction_id"])
-                await c.trade_rpc("cancel", transaction_id=descriptor["transaction_id"], generation=descriptor["generation"],
-                                  **cause)
-            except (TradeError, ConnectionError, OSError, asyncio.TimeoutError, ValueError):
-                pass
+            await self._cancel_unstarted_trade(descriptor)
             menu_session.menu.notice("Trade did not start: try again")
             say(f"Trade did not start (retry).|Code: {reason}")
             return None
@@ -1897,11 +1898,22 @@ class LauncherSession:
             say(f"Trade stopped: host lost.|Code: {reason}")
             raise error
         menu_session.abandon_trade_dialog()
-        try:
-            result = await asyncio.wait_for(coordinator.cancel(automatic=True), 120)
-        except (Exception, asyncio.CancelledError):
-            say(f"Trade stopped; keep game open|Code: {reason}")
-            raise error from None
+        for attempt in range(1, TRADE_SETTLE_ATTEMPTS + 1):
+            try:
+                result = await asyncio.wait_for(coordinator.cancel(automatic=True), 120)
+                break
+            except asyncio.CancelledError:
+                say(f"Trade stopped; keep game open|Code: {reason}")
+                raise error from None
+            except Exception as failure:
+                passing = (isinstance(failure, TimeoutError) or isinstance(failure, ConnectionError)
+                           or getattr(failure, "code", None) in {"rom_busy", "rom_unsafe"})
+                if attempt == TRADE_SETTLE_ATTEMPTS or not passing or not c.connected:
+                    say(f"Trade stopped; keep game open|Code: {reason}")
+                    raise error from None
+                if attempt == 1:
+                    say(f"Ending the trade: please wait|Code: {reason}")
+            await asyncio.sleep(TRADE_SETTLE_RETRY_SECONDS)
         trade_menu._completion(result)
         if isinstance(result, dict) and result.get("state") == "aborted":
             menu_session.menu.notice("Trade cancelled: nothing changed")
@@ -1915,6 +1927,19 @@ class LauncherSession:
         elif isinstance(result, dict) and result.get("state") == "applied":
             self._trade_outcome_banner(trade_menu, result)
         return result
+
+    async def _cancel_unstarted_trade(self, descriptor):
+        """Cancel a proposal this side never started (no journal: nothing held or written), as the launcher's own cancel
+        (the friend is told the trade stopped on this side); a host it cannot reach changes nothing here."""
+        from .companion import TradeError
+        from .live_trade import automatic_cancel_fields
+        c = self._companion
+        try:
+            cause = await automatic_cancel_fields(c, descriptor["transaction_id"])
+            await c.trade_rpc("cancel", transaction_id=descriptor["transaction_id"], generation=descriptor["generation"],
+                              **cause)
+        except (TradeError, ConnectionError, OSError, asyncio.TimeoutError, ValueError):
+            pass
 
     def _trade_banner(self, text):
         banner = getattr(self._companion, "show_local_notice", None)
@@ -2106,6 +2131,12 @@ class LauncherSession:
         if kind in ("soft_reset", "host_save"):
             return await self._native_menu_reset_handoff(kind, menu_session)
         self._assert_session()
+        if kind == "trade" and self._save_task is not None and not self._save_task.done():
+            try:
+                await asyncio.wait_for(asyncio.shield(self._save_task), TRADE_SAVE_WAIT)
+            except Exception:
+                pass    # a failed or slow save refuses the trade below
+            self._assert_session()
         prepared = self._battle_menu_preparation
         prepared_battle = (prepared is not None and kind == "battle"
             and prepared[0] is asyncio.current_task() and prepared[1] is menu_session
@@ -2116,6 +2147,11 @@ class LauncherSession:
                 or kind == "battle" and self._manifest.get("battle_resume_abi_version") == 1 and not prepared_battle
                 or self._save_task is not None and not self._save_task.done()
                 or self._companion._bridge is not menu_session.bridge):
+            if kind == "trade" and not (self._profile_directory / "pending-trade.json").exists():
+                # Nothing was held or written for it: the proposal is cancelled so the friend is not left waiting on
+                # it until the host's time limit (it stayed open when the handoff was refused).
+                await self._cancel_unstarted_trade(descriptor)
+                self._trade_banner("Trade did not start (retry).|Code: game_active")
             raise LauncherSessionError("game_active")
         self._interaction = asyncio.current_task()
         self._autosave_wake.set()

@@ -142,6 +142,38 @@ class LauncherHandoffTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue((self.session._profile_directory/'pending-trade.json').exists())
         self.assertFalse(self.session.can_save)
 
+    async def test_a_trade_that_cannot_start_cancels_its_proposal_and_waits_for_a_save(self):
+        # 2026-10-26: a trade chosen while the game was busy was refused with its proposal left open at the host, the
+        # friend waiting on it until the host's time limit. Nothing was held or written: the proposal is cancelled as
+        # the launcher's own cancel, and the game's banner says so.
+        calls, banners = [], []
+        async def trade_rpc(operation, **fields):
+            calls.append((operation, fields))
+            return {"trade": {"state": "aborted"}}
+        self.session._companion.trade_rpc = trade_rpc
+        self.session._companion.show_local_notice = banners.append
+        self.session._interaction = object()           # another operation owns the game
+        with self.assertRaises(LauncherSessionError) as raised:
+            await self.trade(lambda *args: self.fail("a refused trade never runs"))
+        self.assertEqual(raised.exception.code, 'game_active')
+        self.assertEqual([op for op, _ in calls], ['status', 'cancel'])
+        self.assertEqual(calls[-1][1], {'transaction_id': 'transaction', 'generation': 'generation'})
+        self.assertEqual(banners, ["Trade did not start (retry).|Code: game_active"])
+        # A save under way when the trade was chosen finishes first; then the trade runs.
+        self.session._interaction = None
+        saved = asyncio.Event()
+        async def saving():
+            await asyncio.sleep(0)
+            saved.set()
+        self.session._save_task = asyncio.create_task(saving())
+        async def complete(*args):
+            self.assertTrue(saved.is_set())
+            return self.receipt
+        calls.clear()
+        await self.trade(complete)
+        self.assertEqual(calls, [])
+        self.assertEqual(self.session.status.code, 'trade_finished')
+
     async def test_cancellation_of_dispatched_operation_requires_recovery(self):
         async def canceled(*args): raise asyncio.CancelledError()
         with self.assertRaises(asyncio.CancelledError): await self.trade(canceled)

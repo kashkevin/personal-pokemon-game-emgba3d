@@ -5,6 +5,7 @@ from pathlib import Path
 import tempfile
 from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 
 from emerald_multiplayer.launcher_session import LauncherSession
 
@@ -26,8 +27,11 @@ class TradeSettlementTests(unittest.IsolatedAsyncioTestCase):
                                     abandon_trade_dialog=lambda: self.abandoned.append(True))
         self.outcome = {"state": "aborted", "checkpoint": {"revision": 2}}
         self.automatic = []
+        self.failures = []                # raised by the first cancels, one each, before self.outcome
         async def cancel(*, automatic=False):
             self.automatic.append(automatic)
+            if self.failures:
+                raise self.failures.pop(0)
             if isinstance(self.outcome, Exception):
                 raise self.outcome
             return self.outcome
@@ -87,15 +91,38 @@ class TradeSettlementTests(unittest.IsolatedAsyncioTestCase):
         self.coordinator.trade_path.write_text("{}")
         self.outcome = ConnectionError("host lost")
         original = ValueError("trade_offer_changed")
-        with self.assertRaises(ValueError) as raised:
+        with self.assertRaises(ValueError) as raised, \
+                patch("emerald_multiplayer.launcher_session.TRADE_SETTLE_RETRY_SECONDS", 0):
             await self.settle(original)
         self.assertIs(raised.exception, original)
-        self.assertEqual(self.banners, ["Trade stopped; keep game open|Code: ValueError"])
+        self.assertEqual(self.automatic, [True, True, True])    # tried TRADE_SETTLE_ATTEMPTS times
+        self.assertEqual(self.banners, ["Ending the trade: please wait|Code: ValueError",
+                                        "Trade stopped; keep game open|Code: ValueError"])
         self.companion.connected = False                    # offline: cold start recovers it after a restart
         with self.assertRaises(ValueError):
             await self.settle(original)
         self.assertEqual(self.banners[-1], "Trade stopped: host lost.|Code: ValueError")
         self.assertTrue(all(len(line) <= 32 for text in self.banners for line in text.split("|")))
+
+    async def test_a_passing_failure_of_the_settlement_is_tried_again(self):
+        # 2026-10-26: one failed try (a reply too late, a reconnect it can resume after, a busy game) left the game held
+        # with saving off until a restart. The cancel is journal-driven: the next try picks up where this one ended.
+        from emerald_multiplayer.live_trade import LiveTradeError
+        self.coordinator.trade_path.write_text("{}")
+        self.failures = [TimeoutError(), LiveTradeError("rom_busy", "the game is busy")]
+        with patch("emerald_multiplayer.launcher_session.TRADE_SETTLE_RETRY_SECONDS", 0):
+            self.assertEqual(await self.settle(), self.outcome)
+        self.assertEqual(self.automatic, [True, True, True])
+        self.assertEqual(self.banners, ["Ending the trade: please wait|Code: ValueError",
+                                        "Trade cancelled; no change.|Code: ValueError"])
+        # A failure that another try cannot change (the journal or the game's hold disagree) is not tried again.
+        self.automatic.clear()
+        self.banners.clear()
+        self.outcome = LiveTradeError("recovery_required", "ROM trade binding does not match this running game")
+        with self.assertRaises(ValueError), patch("emerald_multiplayer.launcher_session.TRADE_SETTLE_RETRY_SECONDS", 0):
+            await self.settle()
+        self.assertEqual(self.automatic, [True])
+        self.assertEqual(self.banners, ["Trade stopped; keep game open|Code: ValueError"])
 
     def test_every_finished_trade_says_how_it_ended(self):
         # After both confirmed, the trade window closes before the import: the banner says the outcome (it used to say
