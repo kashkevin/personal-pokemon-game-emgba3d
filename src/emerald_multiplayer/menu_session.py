@@ -76,15 +76,21 @@ class MenuSession:
             if request.kind == 3:
                 self.open = False
                 if self._close_waiter is not None and not self._close_waiter.done():
+                    # The CLOSE a handoff waits for is the waiter's alone (close_dialog drops the queue after it).
                     self._close_waiter.set_result(request)
+                    return
             elif request.kind == 1:
                 self.open = True
             elif not self.open:
                 raise ValueError("trade menu choice has no open session")
-            try:
-                self._dialog_queue.put_nowait(request)
-            except asyncio.QueueFull:
-                raise ValueError("native trade menu issued overlapping requests") from None
+            if self._dialog_queue.full():
+                # Presses made while the menu waited on the host (A or B pressed again after Confirm, a slow
+                # connection) pile up here; the oldest is stale (each choice is checked against the screen it
+                # answers) and goes. Refusing it refused this game's bridge and with it the host connection: the
+                # trade's CLOSE found two such presses queued and the player was left with "This save needs
+                # recovery" after both had confirmed (KNOWN_ISSUES MS-95).
+                self._dialog_queue.get_nowait()
+            self._dialog_queue.put_nowait(request)
             return
         if request.kind == 3:
             self.open = False

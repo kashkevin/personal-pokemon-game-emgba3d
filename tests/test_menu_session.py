@@ -203,6 +203,30 @@ class MenuSessionTests(unittest.IsolatedAsyncioTestCase):
         await closing
         self.assertIsNone(self.session._dialog_queue)
 
+    async def test_presses_queued_during_a_trade_never_refuse_its_close(self):
+        # trade-traced-1 (2026-10-26, 120 ms each way): two presses after Confirm sat unread while the menu waited on
+        # the host; the commit's CLOSE then overflowed the queue and the game's bridge was refused.
+        await self.open()
+        self.feed(2, 1, 0, 3)
+        self.companion.config = SimpleNamespace(menu_abi_version=2)
+        screen = MenuScreen(3, "Trade", "Waiting", (MenuRow(1, "Back"),))
+        opening = asyncio.create_task(self.session.open_trade_dialog(screen))
+        await asyncio.wait_for(self.bridge.outbox.get(), 1)
+        self.feed(3)
+        await opening
+        await self.result()
+        for seq in (4, 5, 6):                       # more presses than the queue holds: the oldest goes
+            self.feed(seq, 3, 1, 2)
+        self.assertEqual([self.session._dialog_queue.get_nowait().sequence for _ in range(2)], [5, 6])
+        self.feed(7, 3, 1, 2)
+        self.feed(8, 3, 1, 2)
+        closing = asyncio.create_task(self.session.close_dialog(screen))
+        self.assertTrue((await self.result())[2])
+        self.feed(9, 3, 0, 3)                       # the CLOSE with the queue full: the waiter's, no refusal
+        await asyncio.wait_for(closing, 1)
+        self.assertIsNone(self.session._dialog_queue)
+        self.assertFalse(self.session.open)
+
     async def admission_menu(self, prepare=None, handoff=None):
         self.events = []
         self.bridge.battle_capable = True
