@@ -336,7 +336,7 @@ its south edge: without Go-Goggles in the Bag, "The sandstorm is vicious. It's i
 player is pushed back; with them, the player walks on into the desert (pictures, scratchpad `goggles/`). The check is
 the map's own script (`checkitem ITEM_GO_GOGGLES`).
 
-## The Devon Scope in the real game, and MS-156 (after the package)
+## The Devon Scope and the Wailmer Pail in the real game, and MS-156 (after the package)
 
 A hidden Kecleon on Route 120 (20,11) talked to in real game processes (engine `c624a2d4`, the Classic 2D test build):
 without the Devon Scope, "Something unseeable is in the way."; with it, "Want to use the DEVON SCOPE?", YES, "DARREN
@@ -345,6 +345,12 @@ scratchpad `devonscope/`). The battle that should follow did not start: the game
 these optional static encounters ask the Local Soft Reset's admission first, which refuses offline (**MS-156**, open,
 in `KNOWN_ISSUES.md`: the same for the Regis, the weather legendaries, the Electrodes, Voltorbs, Sudowoodo, the
 Latis, Lugia, Ho-Oh, Mew and Deoxys offline; the story's bridge Kecleon is not affected).
+
+**Fixed after the package** (engine `223d15e1`, PC only): a save no world has enrolled meets these as ordinary battles
+(no admission, no reset in them); an enrolled save keeps the admission. In the same real-game run offline, the
+Kecleon's battle then starts ("You encountered a wild Kecleon!"), and so does Sudowoodo's at the Battle Frontier after
+the Wailmer Pail from the Bag ("The weird tree doesn't like the WAILMER PAIL!", "The weird tree attacked!", "You
+encountered a wild Sudowoodo!"; scratchpad `ms156/`).
 
 ## A held item in a real battle of the PC game (after the package)
 
@@ -465,6 +471,7 @@ to `cure_status.c` and `restore_hp.c`, which are tested.
 After the package (above): a Master Ball thrown in a real battle and used up, items used from the Bag and refused,
 bought and sold, each saved and loaded (the real-game checks), the rods cast from the Bag, Focus Band, the form-change
 key items, the Itemfinder, the Heal Ball's and Friend Ball's effects on the Pokemon caught, Leftovers in a real
-battle, the DNA Splicers, the Go-Goggles, the Devon Scope (and MS-156 found). Still not done: any item's multiplayer
-sync; a real battle in the PC game with held items other than Leftovers; the other key items (the Wailmer Pail, the
-Soot Sack...) and the other charms; the held items still with no test.
+battle, the DNA Splicers, the Go-Goggles, the Devon Scope (MS-156 found and fixed), the Wailmer Pail on Sudowoodo.
+Still not done: any item's multiplayer sync; a real battle in the PC game with held items other than Leftovers; the
+other key items (the Wailmer Pail on a berry tree, the Soot Sack...) and the other charms; the held items still with
+no test.

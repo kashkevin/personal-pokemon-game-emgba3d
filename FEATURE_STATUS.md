@@ -635,8 +635,9 @@ Recorded guidance the code no longer follows (not binding decisions):
 | The DNA Splicers: Kyurem fused with Reshiram and split again, from the Bag | Tested (real game, Linux 2D test build); not in the package | engine `c624a2d4` |
 | A held item in a real battle of the PC game: Leftovers | Tested (real game, Linux 2D test build, pictures); not in the package | engine `c624a2d4` |
 | The Go-Goggles: into Route 111's desert, refused without them | Tested (real game, Linux 2D test build, pictures); not in the package | engine `c624a2d4` |
-| The Devon Scope: a hidden Kecleon revealed | Tested (real game, Linux 2D test build); **its battle does not start offline (MS-156, open)**; in a world not run | engine `c624a2d4` |
-| Optional static encounters (the Regis, the legendaries, Kecleon, Electrode, Voltorb, Sudowoodo) offline, outside a world | **Broken** (MS-156): no battle; in a world the Local Soft Reset's admission is the designed path | `KNOWN_ISSUES.md` MS-156 |
+| The Devon Scope: a hidden Kecleon revealed | Tested (real game, Linux 2D test build); its battle offline: with MS-156's fix (later build) | engines `c624a2d4`, `223d15e1` |
+| The Wailmer Pail on Sudowoodo | Tested (real game, Linux 2D test build, with MS-156's fix); a berry tree not run | engine `223d15e1` |
+| Optional static encounters (the Regis, the legendaries, Kecleon, Electrode, Voltorb, Sudowoodo) offline, outside a world | **Broken** in the 2026-10-27 package (MS-156: no battle); fixed for a later build (Kecleon and Sudowoodo tried offline; the rest not one by one) | engine `223d15e1`, `KNOWN_ISSUES.md` MS-156 |
 | The rest of the item audit (the other key items' uses, charms; a real battle in the PC game with held items, an item's multiplayer sync) | Not done (next session) | `docs/item-audit-20261027.md` |
 
 ## Battle transitions in 3D (2026-10-27, `docs/battle-transitions-3d-20261027.md`)

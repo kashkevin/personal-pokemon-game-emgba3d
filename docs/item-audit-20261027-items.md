@@ -14,11 +14,11 @@ session.
 
 | What checked it | Items |
 | --- | --- |
-| a self-test of today's audit (L), some also the expansion's tests | 217 |
+| a self-test of today's audit (L), some also the expansion's tests | 218 |
 | the expansion's tests: tests that name it, or of its effect (T) | 350 |
 | no test names it; its effect's own test still to be written upstream | 22 |
 | not audited yet | 66 |
-| key items, not audited yet | 54 |
+| key items, not audited yet | 53 |
 | no use from the bag, in battle or held (sold, traded, or given to someone: fossils, shards, Heart Scales) | 114 |
 | spare TM numbers (TM51-TM100): no move, given nowhere | 50 |
 | all | 873 |
@@ -878,7 +878,7 @@ session.
 | 717 | ウエ Box Link | 0 | PokemonBoxLink | - | - | not audited (key items: next session) |
 | 718 | Coin Case | 0 | CoinCase | - | - | not audited (key items: next session) |
 | 719 | Powder Jar | 0 | PowderJar | - | - | not audited (key items: next session) |
-| 720 | Wailmer Pail | 0 | WailmerPail | - | - | not audited (key items: next session) |
+| 720 | Wailmer Pail | 0 | WailmerPail | - | - | used on Sudowoodo from the Bag in the real game (engine `223d15e1`, after the package); a berry tree not run |
 | 721 | Poké Radar | 0 | - | - | - | not audited (key items: next session) |
 | 722 | オカキクケ Case | 0 | PokeblockCase | - | - | not audited (key items: next session) |
 | 723 | Soot Sack | 0 | - | - | - | not audited (key items: next session) |
@@ -893,7 +893,7 @@ session.
 | 732 | Letter | 0 | - | - | - | not audited (key items: next session) |
 | 733 | Devon Parts | 0 | - | - | - | not audited (key items: next session) |
 | 734 | Go-Goggles | 0 | - | - | - | into Route 111's desert in the real game, refused without them (engine `c624a2d4`, after the package) |
-| 735 | Devon Scope | 0 | - | - | - | a hidden Kecleon revealed in the real game; its battle refused offline, MS-156 (engine `c624a2d4`, after the package) |
+| 735 | Devon Scope | 0 | - | - | - | a hidden Kecleon revealed in the real game; its battle refused offline (MS-156), fixed on engine `223d15e1` (after the package) |
 | 736 | Basement Key | 0 | - | - | - | not audited (key items: next session) |
 | 737 | Scanner | 0 | - | - | - | not audited (key items: next session) |
 | 738 | Storage Key | 0 | - | - | - | not audited (key items: next session) |
