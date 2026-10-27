@@ -339,4 +339,45 @@ code; a lost connection does not replay it.
 
 ## 6. Testing and what remains unverified
 
-(in progress)
+Everything here ran on **L** (this Linux machine): self-tests through the game's own functions, real game processes of
+the Classic 2D and 3D test builds (the 3D view through Mesa's software OpenGL), and the app's unit tests. **No W run
+covers today's commits**: the Windows runner builds and checks them only in the packaging run. Nothing ran on the
+owner's PCs, on a real graphics card, or between two real PCs.
+
+### The checks on the day's last engine and app commits
+
+| Check | Head | Result |
+|---|---|---|
+| `check-native` (the platform's unit suites, the PNG writer) | engine `4474883b` | passes (9 of 9 pictures decoded) |
+| `--selftest-legend` | engine `4474883b` | **65 checks, 0 failed** |
+| `--selftest-shiny` | engine `4474883b` | **12, 0 failed** |
+| `--selftest-breeding` (section 1) | engine `4474883b` | **77, 0 failed** |
+| `--selftest-ride` (section 2) | engine `4474883b` | **3, 0 failed** |
+| `--selftest-frontier-saves` (section 3) | engine `4474883b` | **21, 0 failed** |
+| `--selftest-carriers` (section 4) | engine `4474883b` | **50, 0 failed** |
+| `--selftest-wild-items` (section 5) | engine `4474883b` | **76, 0 failed** |
+| `--selftest-hm-box`, `--selftest-spawn-claims`, `--selftest-wild-weather` | engine `4474883b` | **59, 23 and 154, 0 failed** |
+| `--selftest-shiny-paths` (`docs/spawns-legends-shiny-20261027.md`) | engine `4474883b` | **20, 0 failed** |
+| `--selftest-balls` (`docs/item-audit-20261027.md`) | engine `6a575072` | **61, 0 failed** (60 of 60 on `4474883b`) |
+| `check-diorama` (3D unit tests: compositor goldens, rules) | engine `bb8ef78f` | passes |
+| GBA ROM; 2D and 3D builds | engine `6a575072` | ROM **unchanged** (`f214735b...`); both build |
+| The app's whole suite (`pytest`) | app `02edaf6` | **2,896 passed**, 73 skipped, 12 failed: 11 window tests that need a display (under a virtual display their two files pass, 25 of 25) and `test_reset_emergency_integration`'s race test, which fails the same way since before this work (open in `TEST_LEDGER.md`) |
+
+The self-tests ran one after another on a copy of the 2D game built from `4474883b`; `6a575072` changed only the Poke
+Ball code and its self-test since then.
+
+### What remains unverified
+
+* **Windows, the owner's PCs, a real graphics card, two real PCs**: none of today's work (above).
+* **Section 1**: an Egg hatching in the PC inside a connected world.
+* **Section 2**: bridges and other changes of level than a ledge; caves; riding in a connected world over the internet.
+* **Section 3**: the list at the end of section 3 (a whole Frontier challenge to its Brain, the Factory's swap, the
+  Dome's tree, the Pyramid's bag, Trainer Hill floors, the Trick House puzzles, the higher contest ranks...).
+* **Section 4**: other players do not see the carrier yet (the multiplayer record has no carrier field); the NPC
+  fly-aways and Waterfall were not run in the game.
+* **Section 5**: the owner decisions listed there; a lure on land in a connected world.
+* The day's other reports keep their own lists: `docs/spawns-legends-shiny-20261027.md` (the keep list across a
+  restart, MS-145; a world's shared Legendary in a real connected world), `docs/fortree-gym-puzzle-20261027.md`, and
+  `docs/item-audit-20261027.md` (only the Poke Balls; no ball thrown in a real battle).
+
+None of this means the game is free of bugs; it means these checks passed.
