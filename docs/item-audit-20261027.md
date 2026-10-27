@@ -324,6 +324,14 @@ paralysed, its move at 3 PP, has its HP full, no status and its PP full (35); ca
 three; a Friend Ball gives it 200 friendship (Gen 6; the expansion's Gen 8 rule would give 150), a Poke Ball the
 species' own. The Luxury Ball's bonus to friendship gained is the healing self-test's (above, MS-150).
 
+## A held item in a real battle of the PC game (after the package)
+
+A wild battle in the Classic 2D test build (engine `c624a2d4`; the battle the PC game runs, its screens and its
+controller), the lead a level-14 Zigzagoon holding Leftovers against a wild Poochyena, both knowing Tackle (the test
+build's own party and move settings), pictures every 15 frames: the Zigzagoon at 38/38 HP takes a Tackle (31/38),
+the end of the turn shows "Zigzagoon's Leftovers" and its HP rises to 33/38, a sixteenth of 38 (scratchpad
+`leftovers/`). The other held items' effects are the battle code's, tested in the GBA test ROM (above).
+
 ## The Bag in the real game (after the package)
 
 The game's existing real-game checks (`tools/battle_env/*_check.py`: real game processes, the presses a person makes,
@@ -434,6 +442,7 @@ to `cure_status.c` and `restore_hp.c`, which are tested.
 
 After the package (above): a Master Ball thrown in a real battle and used up, items used from the Bag and refused,
 bought and sold, each saved and loaded (the real-game checks), the rods cast from the Bag, Focus Band, the form-change
-key items, the Itemfinder, the Heal Ball's and Friend Ball's effects on the Pokemon caught. Still not done: any item's
-multiplayer sync; a real battle in the PC game with held items; the other key items (the Wailmer Pail, the Soot Sack,
-the Go-Goggles, the Devon Scope, the DNA Splicers...) and the other charms; the held items still with no test.
+key items, the Itemfinder, the Heal Ball's and Friend Ball's effects on the Pokemon caught, Leftovers in a real
+battle. Still not done: any item's multiplayer sync; a real battle in the PC game with held items other than
+Leftovers; the other key items (the Wailmer Pail, the Soot Sack, the Go-Goggles, the Devon Scope, the DNA Splicers...)
+and the other charms; the held items still with no test.
