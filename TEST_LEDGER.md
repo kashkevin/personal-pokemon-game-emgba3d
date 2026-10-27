@@ -934,10 +934,11 @@ commit (test code only since the last game change, `dbaf6923`); the package itse
 | GBA ROM | engine `6320c77d` | L | **unchanged** (`f214735b...`) | scratchpad `bag/rom-bell.log` | - | Reuse |
 | The tests that read the documents (24 files) | app `d79786a` | L | **615 passed**, 20 skipped | scratchpad `bag/doc-tests-ms151.log` | docs only since | Reuse |
 
-## 3D jump ledges, and the item audit after the package (2026-10-27; engine `claude/feature-update-engine` `c212b61f`; `docs/ledge-overhaul-20261027.md`, `docs/item-audit-20261027.md`)
+## 3D jump ledges, and the item audit after the first candidate (2026-10-27; engine `claude/feature-update-engine` `c212b61f`; `docs/ledge-overhaul-20261027.md`, `docs/item-audit-20261027.md`)
 
 **L** this Linux machine (native Linux builds; the 3D view on Mesa's software OpenGL). All of it came after the
-package was fixed and is **not in the 2026-10-27 package** (engine `6320c77d`). Nothing here ran on Windows, a
+first candidate (engine `6320c77d`). The item audit's part is in the 2026-10-27 package (engine `a5013203`: the owner
+made the audit the package's gate); the 3D jump ledges are not. Nothing here ran on Windows, a
 graphics card or a player's PC.
 
 | Test | Build / head | Where | Last result | Evidence | Changed since | Rerun? |
@@ -976,4 +977,25 @@ graphics card or a player's PC.
 | Every engine check target (51) and `check-diorama` | engine `aebcf98d` (MS-157's fix, the Exp. Charm's tests) | L | **52 of 52 exit 0** (`check-diorama` 480 s; no edits while it ran) | scratchpad `final-checks12/summary.txt` | - | Reuse |
 | GBA test ROM, the whole suite (`make check`) with the 6 new tests (Focus Band 3, the balls 3) | engine `99b9a03d` | T | **6,101 tests: 5,598 passed (the 6 new among them), 39 failed: exactly the expected 39** (`check_gba_test_failures.py`, exit 0), 15 failed assumptions, 19 known failing, 421 to do, 9 expected failing; 979 s | scratchpad `gbatests4/check.log`, `gbatests4/gate.txt` | - | Reuse |
 | The tests that read the documents (24 files), on a live display | app `e51f395` | L | **615 passed**, 20 skipped | scratchpad `bag/doc-tests-e51f395.log` | docs only since | Reuse |
-| The tests that read the documents (24 files), on a live display | app `7fb1f3c` (the item audit's documents after the package) | L | **615 passed**, 20 skipped | scratchpad `ms157/doc-tests.log` | docs only since | Reuse |
+| The tests that read the documents (24 files), on a live display | app `7fb1f3c` (the item audit's documents after the first candidate) | L | **615 passed**, 20 skipped | scratchpad `ms157/doc-tests.log` | docs only since | Reuse |
+
+## Step 14, the full item audit, and the package's final checks (2026-10-27, engine `a5013203`)
+
+**L** this Linux machine; **T** the GBA test ROM on it. The owner made the full item audit the package's gate (19:28
+UTC), then moved the deadline to 5:30 PM ET. The package's engine `a5013203` is the first candidate `6320c77d` with the
+item audit's 15 commits and without the 3D ledges (`git diff`: the nine ledge files as in `6320c77d`, every other file
+as in `3c9e3088`). Nothing here ran on Windows, a graphics card or a player's PC; the package is checked on Windows by
+its own run.
+
+| Test | Build / head | Where | Last result | Evidence | Changed since | Rerun? |
+| --- | --- | --- | --- | --- | --- | --- |
+| The Escape Rope in Rusturf Tunnel and Honey in Route 101's grass, used from the Bag in real game processes | engine `4f841321` (Classic 2D test build) | L | out by the tunnel on Route 116, the rope gone from the Bag; Honey: a wild battle | scratchpad `field14/escrope-sheet.png`, `field14/escrope3-bag.png`, `field14/honey-sheet.png` | test code and MS-158's Mail fix since | Reuse |
+| The Mach Bike and the Acro Bike got on from the Bag and ridden; the Powder Jar and the Pokeblock Case opened from the Bag; New Mauville's door with and without the Basement Key | engine `812d7bf3` (Classic 2D test build) | L | ridden; "POWDER QTY: 0" and the case's screen; "Use the BASEMENT KEY?", "The door opened!", locked without it | scratchpad `field14/bikes-sheet.png`, `field14/jar-case-sheet.png`, `keyitems/basement-sheet.png` | test code only since | Reuse |
+| `train_check.py` again (Bottle Caps, Gold Bottle Cap, Ability Patch used and refused, saved and loaded) | engine `812d7bf3` (Classic 2D test build) | L | **passed**, 8 steps | scratchpad `shop14/train-check.out`, `shop14/train-check/` | test code only since | Reuse |
+| CHECK on an Orange Mail in the Bag, in real game processes | engine `6dcc0760` (Classic 2D test build) | L | **asserted** "invalid species: 12917" (MS-158) | scratchpad `field14/mail/test.log`, `field14/mail-sheet.png` | MS-158 fixed on `812d7bf3` | Reuse |
+| MS-158's fix: CHECK on the Orange Mail again | engine `812d7bf3` (Classic 2D test build) | L | the Mail's design shown, B back to the Bag, no assert; ROM unchanged (`item_use.c` rebuilt) | scratchpad `ms158/mail-after-sheet.png`, `ms158/rom.log` | - | Reuse |
+| `--selftest-mail` (new, `check-mail`): each of the twelve Mails given and taken back, the party's six mail slots, a seventh refused | engine `6dcc0760` (2D game) | L | **27 checks, 0 failed** | scratchpad `held14/selftest-mail.log` | again in the battery below | Reuse |
+| `--selftest-rare-goods` (new, `check-rare-goods`): the coin shop's items and the four Nectars | engine `3c9e3088` (2D game) | L | **46 checks, 0 failed** | scratchpad `shop14/selftest-rare-goods.log` | again in the battery below | Reuse |
+| `--selftest-evo-items` with the level-up evolutions holding an item at a time of day (Oval Stone, Razor Claw, Razor Fang) | engine `059e906e` (2D game) | L | **42 checks, 0 failed** | the battery below | - | Reuse |
+| 5 new GBA tests: a Plate on another type's move, each Plate's and each Memory's type, Heavy-Duty Boots against Stealth Rock and Toxic Spikes | engine `47e47359` | T | **5 of 5 passed** (`make check TESTS=...`) | scratchpad `held14/gba2-*.log` | again in the suite below | Reuse |
+| A held item through a world trade: two native game processes through a real world server (`native_trade_proof.py`), A's Torchic holding Leftovers for B's Treecko | engine `3c9e3088` (2D game); app `d068c09`'s server and scripts | L (two games on one machine) | the trade applied in both games, ownership conserved, each party equal to its canonical save; B's saved party: Torchic Lv5 holding Leftovers (255, 472). The proof's next step, backing out of a second trade, **timed out**: the proof predates MS-68's "Cancel the trade?" page and never answers it | scratchpad `mp/multiplayer-proof/trade-held-4/`, `mpsync/trade-held-4-parties.txt` | - | Reuse; the back-out step: fix the proof, then rerun |

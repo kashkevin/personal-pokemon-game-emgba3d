@@ -3,9 +3,11 @@
 The owner's request "Full item audit" (every item of Gen 1-6: Poke Balls and their capture math, healing, held items,
 berries, TMs and HMs, evolution items, charms, mints, Mega Stones, key items and so on). It asks for an item-by-item
 report, with each item's effect, usage conditions, consumption, interactions, multiplayer sync and saving checked
-against real behaviour. Existing balance must not change silently. The 2026-10-27 package is built from engine
-`6320c77d`, which has everything here except the sections marked "after the package" (written after the package was
-fixed, for a later build: tests, and MS-156's fix).
+against real behaviour. Existing balance must not change silently. The 2026-10-27 package was first to be built from
+engine `6320c77d` (the first candidate); the owner then made this audit the package's gate (19:28 UTC, "step 14"), so
+the package is built from engine `a5013203`: that candidate with every later commit of this audit (tests, and the
+fixes of MS-156, MS-157 and MS-158, PC only) and without the unfinished 3D ledge work. The sections marked "after the
+first candidate" came after `6320c77d`; all of them are in the package.
 
 Where a result comes from: **L** this Linux machine (the game's own functions in self-tests); **T** the engine's GBA
 test ROM (`make check`, the expansion's own battle tests, run on this Linux machine). Nothing here was tried on
@@ -29,11 +31,11 @@ the built game, with what checked each one today (and which are not audited yet)
   Soothe Bell's friendship.
 * **Mints: done** (below): each mint's nature and what a mint does to the stats.
 * **Trade evolution items: done** (below): the Gen 1-6 trade evolutions and the items held for them.
-* **The Ability Capsule and the Ability Patch: done after the package** (below): what each does to a Pokemon's ability.
-* **Focus Band and the fishing rods: done after the package** (below): the band's effect in battles of the test ROM;
+* **The Ability Capsule and the Ability Patch: done after the first candidate** (below): what each does to a Pokemon's ability.
+* **Focus Band and the fishing rods: done after the first candidate** (below): the band's effect in battles of the test ROM;
   the rods' bites and slots through the game's code, and each rod cast from the Bag in the real game.
-* **What a ball does to the Pokemon it catches (Heal Ball, Friend Ball): done after the package** (below).
-* **The form-change key items and the Itemfinder: done after the package** (below): the Meteorite, the Gracidea, the
+* **What a ball does to the Pokemon it catches (Heal Ball, Friend Ball): done after the first candidate** (below).
+* **The form-change key items and the Itemfinder: done after the first candidate** (below): the Meteorite, the Gracidea, the
   Reveal Glass and the Prison Bottle through the game's code; the Itemfinder used from the Bag in the real game.
 * **Held items no test checked: 18 new GBA tests** (below): the Plates, Light Clay, Wide Lens, Lax Incense, Bright
   Powder, Soul Dew, the confusion berries, the Macho Brace's and Power items' halved Speed, Focus Sash, Flame Orb,
@@ -41,12 +43,11 @@ the built game, with what checked each one today (and which are not audited yet)
 * **Held items, battle items, Mega Stones in battle: the expansion's own tests** (below): the GBA test ROM's 860 tests
   for them, run on this build (806 passed, 3 expected failures, the rest to do or known upstream); 32 held-item files
   there have no test yet (listed).
-* **Key items: their data only** (in the table of every item): all 72 are "important" (they cannot be tossed or sold)
-  and have no price. Where the Bikes and the Escape Rope can be used, read from the maps' data (below). What the
-  other key items do in the field (the rods, the Itemfinder, the Wailmer Pail, the form-change items...) was not
-  audited.
-* **Not audited yet** (kept for the next session): the key items' uses, the other charms; a real battle with the items
-  above; the bag taking an item away, an item's multiplayer sync and its save (see "Not done").
+* **Key items** (in the table of every item): all 72 are "important" (they cannot be tossed or sold) and have no
+  price. Where the Bikes and the Escape Rope can be used, read from the maps' data (below); what each does from the Bag
+  or in the story was checked after the first candidate (below), and step 14 finished them.
+* **Every row checked or classified** (step 14, below): nothing in the table of every item is left "not audited". What
+  is still not done as such is under "Not done".
 
 ## Poke Balls
 
@@ -257,10 +258,10 @@ friend's trade today; mail is refused there too. Not checked: the evolutions tha
 need a held item at a level up (Happiny's Oval Stone by day, Gligar's Razor Fang and Sneasel's Razor Claw at night),
 which depend on the game's clock.
 
-## The Ability Capsule and the Ability Patch (after the package)
+## The Ability Capsule and the Ability Patch (after the first candidate)
 
-`--selftest-ability-items` (new; `make -f Makefile_pc check-ability-items`; engine `8db6561e`, test code only, not in
-the 2026-10-27 package). **16 checks, 0 failed.** What each item does to a Pokemon's ability, by the rules the party
+`--selftest-ability-items` (new; `make -f Makefile_pc check-ability-items`; engine `8db6561e`, test code only, in the
+2026-10-27 package). **16 checks, 0 failed.** What each item does to a Pokemon's ability, by the rules the party
 menu checks before it changes it (`party_menu.c` `Task_AbilityCapsule` and `Task_AbilityPatch`; their conditions are
 copied into the test, because the tasks ask and answer through the menu's windows), checked against the species'
 data through `GetMonAbility`. The Capsule switches between a species' two abilities (Geodude's Rock Head and Sturdy,
@@ -270,9 +271,9 @@ Magnemite's Analytic, Bulbasaur's Chlorophyll) and takes it back to the first, a
 no hidden ability (Unown, Shedinja) or on an Egg. The new ability is kept in the Pokemon's stored data (its box form,
 as saved). Not run: the menu's screens and the item leaving the bag.
 
-## Focus Band (after the package)
+## Focus Band (after the first candidate)
 
-Three new GBA tests (`test/battle/hold_effect/item_audit_untested.c`, engine `fc8c5f76`, test code only, not in the
+Three new GBA tests (`test/battle/hold_effect/item_audit_untested.c`, engine `fc8c5f76`, test code only, in the
 2026-10-27 package): **3 of 3 passed**. The band's roll is a plain `Random() % 100` below its 10 (`battle_util.c`),
 which the test runner cannot steer, and measured over the runner's 50 seeds it held on 7 times (14%; within chance of
 10%, but outside the runner's 2% tolerance), so the tests fix the seed instead, as the expansion's own Final Gambit
@@ -280,9 +281,9 @@ test of the band does: on a seed whose roll succeeds, a holder below full HP han
 Focus Band!") and keeps the band (it is not used up, unlike the Focus Sash); a Pokemon without a band faints on the
 same seed; on a seed whose roll fails, the holder faints. Its 10% is the item's data (checked by the test).
 
-## The fishing rods (after the package)
+## The fishing rods (after the first candidate)
 
-`--selftest-rods` (new; `make -f Makefile_pc check-rods`; engine `7054b688`, test code and two PC-only wrappers, not in
+`--selftest-rods` (new; `make -f Makefile_pc check-rods`; engine `7054b688`, test code and two PC-only wrappers, in
 the 2026-10-27 package): **41 checks, 0 failed.** Through the game's own code: the Old, Good and Super Rods get a bite
 25, 50 and 75% of the time (the Gen 4+ odds the game is set to; Emerald had 50% for each), doubled by a lead with
 Suction Cups or Sticky Hold (50, 100, 100), not by an Egg; each rod picks only its own slots of a map's fishing table
@@ -298,9 +299,9 @@ rod's own slots (Old Rod a level-8 Tympole, Good Rod a level-18 Goldeen, Super R
 Bag: **PASS in both builds**. The species is not the map's own: the PC game draws a fished Pokemon from its fishing
 pool (`mp_wild_random.c`), keeping the slot's level (a custom rule, unchanged).
 
-## The form-change key items and the Itemfinder (after the package)
+## The form-change key items and the Itemfinder (after the first candidate)
 
-`--selftest-form-items` (new; `make -f Makefile_pc check-form-items`; engine `993496aa`, test code only, not in the
+`--selftest-form-items` (new; `make -f Makefile_pc check-form-items`; engine `993496aa`, test code only, in the
 2026-10-27 package): **22 checks, 0 failed.** Through `TryFormChange` with the item as the one used, the call the party
 menu makes before its animation: the Meteorite turns Deoxys Normal, Attack, Defense, Speed and back (ORAS), its stats
 worked out again for each form (Attack 155 -> 185 as the Attack form) and the form kept in its stored data; the
@@ -321,7 +322,7 @@ ITEMFINDER's responding!", the player turning, "There's an item buried around he
 nothing, "...Nope! There's no response." (pictures, scratchpad `itemfinder/`). Its messages still call it the
 ITEMFINDER while the Bag names it the Dowsing Machine (text, not changed).
 
-## What a ball does to the Pokemon it catches (after the package)
+## What a ball does to the Pokemon it catches (after the first candidate)
 
 Three new GBA tests (`test/battle/item_effect/item_audit_balls.c`, engine `99b9a03d`, test code only; the catch made
 sure of as the expansion's own capture tests do): **3 of 3 passed.** A Caterpie caught in a Heal Ball at 1 HP,
@@ -329,14 +330,14 @@ paralysed, its move at 3 PP, has its HP full, no status and its PP full (35); ca
 three; a Friend Ball gives it 200 friendship (Gen 6; the expansion's Gen 8 rule would give 150), a Poke Ball the
 species' own. The Luxury Ball's bonus to friendship gained is the healing self-test's (above, MS-150).
 
-## The Go-Goggles in the real game (after the package)
+## The Go-Goggles in the real game (after the first candidate)
 
 Route 111's desert in real game processes (engine `c624a2d4`, the Classic 2D test build), walking north into it from
 its south edge: without Go-Goggles in the Bag, "The sandstorm is vicious. It's impossible to keep going." and the
 player is pushed back; with them, the player walks on into the desert (pictures, scratchpad `goggles/`). The check is
 the map's own script (`checkitem ITEM_GO_GOGGLES`).
 
-## The Devon Scope and the Wailmer Pail in the real game, and MS-156 (after the package)
+## The Devon Scope and the Wailmer Pail in the real game, and MS-156 (after the first candidate)
 
 A hidden Kecleon on Route 120 (20,11) talked to in real game processes (engine `c624a2d4`, the Classic 2D test build):
 without the Devon Scope, "Something unseeable is in the way."; with it, "Want to use the DEVON SCOPE?", YES, "DARREN
@@ -346,24 +347,24 @@ these optional static encounters ask the Local Soft Reset's admission first, whi
 in `KNOWN_ISSUES.md`: the same for the Regis, the weather legendaries, the Electrodes, Voltorbs, Sudowoodo, the
 Latis, Lugia, Ho-Oh, Mew and Deoxys offline; the story's bridge Kecleon is not affected).
 
-**Fixed after the package** (engine `223d15e1`, PC only): a save no world has enrolled meets these as ordinary battles
+**Fixed after the first candidate** (engine `223d15e1`, PC only): a save no world has enrolled meets these as ordinary battles
 (no admission, no reset in them); an enrolled save keeps the admission. In the same real-game run offline, the
 Kecleon's battle then starts ("You encountered a wild Kecleon!"), and so does Sudowoodo's at the Battle Frontier after
 the Wailmer Pail from the Bag ("The weird tree doesn't like the WAILMER PAIL!", "The weird tree attacked!", "You
 encountered a wild Sudowoodo!"; scratchpad `ms156/`).
 
-## The Soot Sack in the real game (after the package)
+## The Soot Sack in the real game (after the first candidate)
 
 Route 113 in real game processes, offline: the Classic 2D test build (engine `223d15e1`) and a 3D test build made at
-16:46 UTC (the ash's code, `field_tasks.c`, and the Glass Workshop's script are the same in both and in the package's
-engine `6320c77d`). The Soot Sack in the Bag, the ash count set to 0 and the workshop's state to "has the Soot Sack"
-(the test build's variable settings): five steps east through ash grass, the same five back over the tiles they
+16:46 UTC (the ash's code, `field_tasks.c`, and the Glass Workshop's script are the same in both, in the first
+candidate `6320c77d` and in the package's `a5013203`). The Soot Sack in the Bag, the ash count set to 0 and the
+workshop's state to "has the Soot Sack" (the test build's variable settings): five steps east through ash grass, the same five back over the tiles they
 cleared (grass now), then into the Glass Workshop to its owner: "Let's see... 245 is the number of steps you'll need
 to walk for me to make you a BLUE FLUTE", 250 less the 5 steps, the same in 2D and 3D; the steps back added nothing
 (pictures, scratchpad `sootsack/`). A walk without the Soot Sack was not run (the owner then asks for the Soot Sack
 and does not say the count).
 
-## The Wailmer Pail on a berry tree (after the package)
+## The Wailmer Pail on a berry tree (after the first candidate)
 
 Route 104's empty soil plot (35,6) in real game processes, the Classic 2D test build (engine `223d15e1`), with an Oran
 Berry and the Wailmer Pail in the Bag: "It's soft, loamy soil. Want to plant a BERRY?", YES, the Bag's Berries pocket,
@@ -380,7 +381,7 @@ Bag call (`ObjectEventInteractionWaterBerryTree`), 500 trees for each number of 
 the band Gen 3's rule gives (the minimum plus a quarter of the range for each watered stage); watering twice in each of
 two stages counts once (3 to 4); a tree with its berries and empty soil refuse water. 10 checks, 0 failed.
 
-## The Mega Ring in the real game (after the package)
+## The Mega Ring in the real game (after the first candidate)
 
 Mega Evolution asks for the Mega Ring in the Bag (`battle_util.c` `CanMegaEvolve`); the GBA test ROM skips that
 check, so its tests cannot show it. Two wild battles in real game processes (the Classic 2D test build, engine
@@ -390,16 +391,16 @@ trigger turned on and Charizard became Mega Charizard X (Fire/Dragon, Tough Claw
 stone after the battle; without it, the menu did not offer Mega Evolution and Charizard fought as itself. 2 of 2 cases
 passed (scratchpad `megaring/run2d/mega_check.json`).
 
-## The Town Map and the Coin Case from the Bag, and MS-157 (after the package)
+## The Town Map and the Coin Case from the Bag, and MS-157 (after the first candidate)
 
 Both used from the Bag's Key Items in real game processes (the Classic 2D test build, engine `223d15e1`, Route 104):
 the Town Map, "DARREN took a closer look at the HOENN region map.", the region map at ROUTE 104, B back to the field;
 the Coin Case with 123,456 coins (the test build's coin setting), "Your COINS: 123456", the PC wallet's six digits
 (pictures, scratchpad `keyitems/`). Its description still said "A case that holds up to 9,999 Coins." although the PC
-game's wallet holds up to 999,999 coins since Update 29 (**MS-157**, in `KNOWN_ISSUES.md`); fixed after the package
+game's wallet holds up to 999,999 coins since Update 29 (**MS-157**, in `KNOWN_ISSUES.md`); fixed after the first candidate
 (engine `4f841321`, PC only): "A case that holds up to 999,999 Coins."; the GBA ROM keeps its own text.
 
-## The Exp. Charm (after the package)
+## The Exp. Charm (after the first candidate)
 
 Two new GBA tests (`test/battle/item_effect/item_audit_key_items.c`, engine `aebcf98d`), made as the expansion's own
 Lucky Egg test is: the same wild battle with and without the Exp. Charm in the Bag, the experience gained half again
@@ -407,7 +408,57 @@ as much with it; and with a held Lucky Egg in both, the charm's boost still appl
 (`make check TESTS="Exp. Charm"`). The co-op battles' rewards take the same path (`--selftest-coop-exp` compares
 them with and without the charm).
 
-## A held item in a real battle of the PC game (after the package)
+## Step 14 finished: every item's row (after the first candidate)
+
+The owner made the full item audit the package's gate (19:28 UTC): the package waits for it and includes it. Every
+row of the items table that still said "not audited" is now checked or classified: 274 rows by a self-test or a
+real-game check of today (L), 373 by the GBA test ROM (T), 15 story key items (code read), 47 not obtainable, 114 with
+no use and 50 spare TM numbers; none left (`docs/item-audit-20261027-items.md`). Engine commits `47e47359` ..
+`3c9e3088` (tests, and MS-158's fix, PC only); the GBA ROM is unchanged (`f214735b...`).
+
+* **In the real game** (real game processes and the presses a person makes, the Classic 2D test build; pictures,
+  scratchpad `field14/`, `keyitems/`): the Escape Rope used in Rusturf Tunnel, out by the tunnel on Route 116 and the
+  rope gone from the Bag; Honey used in Route 101's grass, a wild battle as Sweet Scent's (both engine `4f841321`); the
+  Mach Bike and the Acro Bike got on from the Bag and ridden; the Powder Jar ("POWDER QTY: 0") and the Pokeblock Case
+  opened from the Bag; New Mauville's door, "Use the BASEMENT KEY?" and opened with the Basement Key, locked without
+  it (engine `812d7bf3`).
+* **Mail and MS-158** (found here): `--selftest-mail` (new, `check-mail`, engine `6dcc0760`): each of the twelve
+  Mails given to a Pokemon and taken back into the PC; the party's six mail slots filled in turn and a seventh Mail
+  refused; **27 checks, 0 failed**. In the real game
+  (engine `6dcc0760`) CHECK on an Orange Mail in the Bag stopped the test build on an assert ("invalid species:
+  12917"): the Bag handed the Mail screen a Mail on its stack, which the screen reads again after the Bag's function
+  has returned. Fixed (engine `812d7bf3`, PC only): the Orange Mail's design shows and B returns to the Bag (scratchpad
+  `ms158/mail-after-sheet.png`). A player's PC game logged that error to `errors.log` and went on (MS-71); the GBA ROM
+  is unchanged (`KNOWN_ISSUES.md` MS-158).
+* **The coin shop's items** (`--selftest-rare-goods`, new, `check-rare-goods`, engines `a6b653a8`, `3c9e3088`): the
+  Exp. Candies, the Mochi and the Fresh-Start Mochi, the Linking Cord (a trade-alone evolution only), the Black
+  Augurite, the Rotom Catalog's and the Zygarde Cube's choices, and the four Nectars a wild Oricorio holds, each to its
+  style: **46 checks, 0 failed**. The Bottle Caps in the real game again (`train_check.py`, 8 of 8 steps).
+* **Evolutions on a level up holding an item at a time of day** (`--selftest-evo-items`, engine `059e906e`, now 42
+  checks, 0 failed): Happiny holding an Oval Stone by day, Sneasel holding a Razor Claw and Gligar holding a Razor
+  Fang at night, none at the other time.
+* **New GBA tests** (T, engine `47e47359`, 5 of 5 passed): a Plate does not boost a move of another type; each Plate
+  is its own type's, with a 20% boost; each Memory is its own type's; Heavy-Duty Boots against Stealth Rock and
+  against Toxic Spikes, a Pokemon switching in with and without them.
+* **The story's key items** (15, code read): the scripts that give, check and take each one, traced; as in Emerald
+  (the Scanner and the Storage Key are item balls, the rooms' keys are hidden items). None of the 15 was used in the
+  real game: the S.S. Ticket, the Eon, Mystic and Aurora Tickets, the Old Sea Map, the Letter, the Devon Parts, the
+  Scanner, the Storage Key, the Keys to Rooms 1, 2, 4 and 6, the Magma Emblem and the Contest Pass (the next session).
+* **Not obtainable** (47): nothing gives, sells or drops them (the scripts, the maps' item balls and hidden items, the
+  marts, the PC's shops and the wild Pokemon's held items, read out); Kanto's items need Kanto, whose maps this game
+  never reaches. Two key items the GBA tests name, the Silph Scope and the Poke Flute, are also given only by Kanto's
+  maps.
+* **An item's multiplayer sync** (L, two native game processes through a real world server, engine `3c9e3088`;
+  `scripts/multiplayer/native_trade_proof.py`): A's Torchic holding Leftovers traded for B's Treecko through the
+  in-game Players menu. The proof's own checks passed: both offers shown, A's confirmation alone commits nothing, the
+  trade applied in both running games, ownership conserved, each party equal to its canonical save. B's saved party
+  after it: Torchic, level 5, holding Leftovers (species 255, item 472); A's: Treecko with no item (scratchpad
+  `mp/multiplayer-proof/trade-held-4/`, `mpsync/trade-held-4-parties.txt`). The proof's next step, B backing out of a
+  second trade, timed out: it presses B and waits, but since MS-68's fix (2026-10-24) backing out opens "Cancel the
+  trade?" with No first, which the proof (last changed 2026-10-21) never answers. That step is for the next session;
+  the trade above does not depend on it.
+
+## A held item in a real battle of the PC game (after the first candidate)
 
 A wild battle in the Classic 2D test build (engine `c624a2d4`; the battle the PC game runs, its screens and its
 controller), the lead a level-14 Zigzagoon holding Leftovers against a wild Poochyena, both knowing Tackle (the test
@@ -415,7 +466,7 @@ build's own party and move settings), pictures every 15 frames: the Zigzagoon at
 the end of the turn shows "Zigzagoon's Leftovers" and its HP rises to 33/38, a sixteenth of 38 (scratchpad
 `leftovers/`). The other held items' effects are the battle code's, tested in the GBA test ROM (above).
 
-## The Bag in the real game (after the package)
+## The Bag in the real game (after the first candidate)
 
 The game's existing real-game checks (`tools/battle_env/*_check.py`: real game processes, the presses a person makes,
 the counts read from the game's own log) were run again on engine `c624a2d4` (the Classic 2D test build; not on
@@ -507,9 +558,10 @@ Punching Glove. Of these, today's new tests (above) cover the confusion berries,
 Macho Brace and Power items, Flame and Toxic Orb, Focus Sash, Light Clay, Wide Lens, Soul Dew, the plates, Amulet Coin
 and Luck Incense; the Power items' and Macho Brace's effort values, the Soothe Bell, the Everstone and Cleanse Tag have
 today's self-tests; other expansion tests cover Smoke Ball (`ability/arena_trap.c`), Exp. Share, Lucky Egg, Grip Claw
-and Power Herb; Mega Evolution and Primal Reversion are tested in `form_change`. **Still with no test** (as packaged): Focus Band (its
-roll cannot be steered by the tests; tested after the package on fixed seeds, above), the drives and memories (Gen 5 and 7), and three later items (Heavy-Duty Boots,
-Loaded Dice, Punching Glove): the next session's held-item work. The cure berries' and the HP berries' own files point
+and Power Herb; Mega Evolution and Primal Reversion are tested in `form_change`. **Still with no test** (in the first candidate): Focus Band (its
+roll cannot be steered by the tests; tested after the first candidate on fixed seeds, above), the drives and memories (Gen 5 and 7), and three later items (Heavy-Duty Boots,
+Loaded Dice, Punching Glove). Step 14 (above) added tests of the Memories' types and of Heavy-Duty Boots; the drives',
+Loaded Dice's and Punching Glove's own files are still "to do" upstream (other tests that name these items pass). The cure berries' and the HP berries' own files point
 to `cure_status.c` and `restore_hp.c`, which are tested.
 
 ## Not done (this round)
@@ -523,12 +575,16 @@ to `cure_status.c` and `restore_hp.c`, which are tested.
   ROM runs the same battle code, without the PC parts).
 * Key items and the other charms.
 
-After the package (above): a Master Ball thrown in a real battle and used up, items used from the Bag and refused,
-bought and sold, each saved and loaded (the real-game checks), the rods cast from the Bag, Focus Band, the form-change
-key items, the Itemfinder, the Heal Ball's and Friend Ball's effects on the Pokemon caught, Leftovers in a real
-battle, the DNA Splicers, the Go-Goggles, the Devon Scope (MS-156 found and fixed), the Wailmer Pail on Sudowoodo and
-on a berry tree, the Soot Sack, the Mega Ring, the Town Map, the Coin Case (MS-157 found and fixed). Still not done:
-an item's multiplayer sync beyond a world trade (a traded Pokemon carries its held item: the trade exchanges the whole
-party record, `tests/test_trade_eligibility.py` keeps held items and refuses mail; not run between two games today); a
-real battle in the PC game with held items other than Leftovers; the other key items and charms (those the items table
-marks not audited); the held items still with no test.
+After the first candidate (above): a Master Ball thrown in a real battle and used up, items used from the Bag and
+refused, bought and sold, each saved and loaded (the real-game checks), the rods cast from the Bag, Focus Band, the
+form-change key items, the Itemfinder, the Heal Ball's and Friend Ball's effects on the Pokemon caught, Leftovers in a
+real battle, the DNA Splicers, the Go-Goggles, the Devon Scope (MS-156 found and fixed), the Wailmer Pail on Sudowoodo
+and on a berry tree, the Soot Sack, the Mega Ring, the Town Map, the Coin Case (MS-157 found and fixed); then step 14
+(above): the Escape Rope, Honey, the Bikes, the Powder Jar, the Pokeblock Case, the Basement Key, Mail (MS-158 found
+and fixed), the coin shop's items, the held-item evolutions, the Plates, the Memories and Heavy-Duty Boots, the story's
+key items, the items nothing gives, and a held item carried by a trade between two running games. Nothing in the
+items table is left unaudited. Still not done as such: the 15 story key items used in the real game (their scripts
+were read, step 14 above); a real battle in the PC game with held items other than Leftovers (their effects are the
+battle code's, tested in the GBA test ROM); the expansion's own hold-effect files
+still "to do" for the drives, Loaded Dice and Punching Glove; the trade proof's later step that backs out of a second
+trade (it predates MS-68's "Cancel the trade?" page and never answers it); nothing ran on Windows or a player's PC.

@@ -1,7 +1,8 @@
 # Item audit (2026-10-27): every item, one by one
 
 Every item in the game's item list (873, Gen 1-9 as the expansion has them), read out of the built game (engine
-`9b8df5c3`, the 2D game's own item table, with gdb), and what checked it today. **L** this Linux
+`9b8df5c3`, the 2D game's own item table, with gdb), and what checked it today. "After the first candidate" marks a
+check made after engine `6320c77d`; the package (engine `a5013203`) has all of them. **L** this Linux
 machine; **T** the GBA test ROM (`make check` on engine `6320c77d`, the expansion's own battle tests and today's new ones, Gen 6 rules).
 Summary and findings: `docs/item-audit-20261027.md`; the test files' numbers: `docs/item-audit-20261027-tests.md`.
 
@@ -14,11 +15,10 @@ session.
 
 | What checked it | Items |
 | --- | --- |
-| a self-test of today's audit (L), some also the expansion's tests | 222 |
-| the expansion's tests: tests that name it, or of its effect (T) | 351 |
-| no test names it; its effect's own test still to be written upstream | 22 |
-| not audited yet | 66 |
-| key items, not audited yet | 48 |
+| a self-test or a real-game check of today's audit (L), some also the expansion's tests | 274 |
+| the GBA test ROM: the expansion's tests that name it or test its effect, and today's new ones (T) | 373 |
+| a story key item: the scripts that give, check and take it read (code read) | 15 |
+| not obtainable in this game (nothing gives, sells or drops it; Kanto's items: Kanto is never reached) | 47 |
 | no use from the bag, in battle or held (sold, traded, or given to someone: fossils, shards, Heart Scales) | 114 |
 | spare TM numbers (TM51-TM100): no move, given nowhere | 50 |
 | all | 873 |
@@ -32,7 +32,7 @@ session.
 | 3 | Ultra Ball | 1200 | - | throw | - | Poke Balls self-test; GBA tests that name it: 7 passed; in battle: `item_effect/throw_ball.c` 0 passed, 4 to do |
 | 4 | Master Ball | 0 | - | throw | - | Poke Balls self-test; GBA tests that name it: 7 passed; in battle: `item_effect/throw_ball.c` 0 passed, 4 to do |
 | 5 | Premier Ball | 200 | - | throw | - | Poke Balls self-test; in battle: `item_effect/throw_ball.c` 0 passed, 4 to do |
-| 6 | Heal Ball | 300 | - | throw | - | Poke Balls self-test; in battle: `item_effect/throw_ball.c` 0 passed, 4 to do; after the catch: a new GBA test (engine `99b9a03d`, after the package) passed |
+| 6 | Heal Ball | 300 | - | throw | - | Poke Balls self-test; in battle: `item_effect/throw_ball.c` 0 passed, 4 to do; after the catch: a new GBA test (engine `99b9a03d`, after the first candidate) passed |
 | 7 | Net Ball | 1000 | - | throw | - | Poke Balls self-test; in battle: `item_effect/throw_ball.c` 0 passed, 4 to do |
 | 8 | Nest Ball | 1000 | - | throw | - | Poke Balls self-test; in battle: `item_effect/throw_ball.c` 0 passed, 4 to do |
 | 9 | Dive Ball | 1000 | - | throw | - | Poke Balls self-test; in battle: `item_effect/throw_ball.c` 0 passed, 4 to do |
@@ -44,7 +44,7 @@ session.
 | 15 | Level Ball | 300 | - | throw | - | Poke Balls self-test; in battle: `item_effect/throw_ball.c` 0 passed, 4 to do |
 | 16 | Lure Ball | 300 | - | throw | - | Poke Balls self-test; in battle: `item_effect/throw_ball.c` 0 passed, 4 to do |
 | 17 | Moon Ball | 300 | - | throw | - | Poke Balls self-test; in battle: `item_effect/throw_ball.c` 0 passed, 4 to do |
-| 18 | Friend Ball | 300 | - | throw | - | Poke Balls self-test; in battle: `item_effect/throw_ball.c` 0 passed, 4 to do; after the catch: a new GBA test (engine `99b9a03d`, after the package) passed |
+| 18 | Friend Ball | 300 | - | throw | - | Poke Balls self-test; in battle: `item_effect/throw_ball.c` 0 passed, 4 to do; after the catch: a new GBA test (engine `99b9a03d`, after the first candidate) passed |
 | 19 | Love Ball | 300 | - | throw | - | Poke Balls self-test; in battle: `item_effect/throw_ball.c` 0 passed, 4 to do |
 | 20 | Fast Ball | 300 | - | throw | - | Poke Balls self-test; GBA tests that name it: 1 passed; in battle: `item_effect/throw_ball.c` 0 passed, 4 to do |
 | 21 | Heavy Ball | 300 | - | throw | - | Poke Balls self-test; GBA tests that name it: 4 passed; in battle: `item_effect/throw_ball.c` 0 passed, 4 to do |
@@ -111,8 +111,8 @@ session.
 | 76 | Genius Feather | 3000 | Medicine | - | - | bag items self-test |
 | 77 | Clever Feather | 3000 | Medicine | - | - | bag items self-test |
 | 78 | Swift Feather | 3000 | Medicine | - | - | bag items self-test |
-| 79 | Ability Capsule | 1000 | AbilityCapsule | - | - | Ability items self-test (engine `8db6561e`, after the package) |
-| 80 | Ability Patch | 20 | AbilityPatch | - | - | Ability items self-test (engine `8db6561e`, after the package) |
+| 79 | Ability Capsule | 1000 | AbilityCapsule | - | - | Ability items self-test (engine `8db6561e`, after the first candidate) |
+| 80 | Ability Patch | 20 | AbilityPatch | - | - | Ability items self-test (engine `8db6561e`, after the first candidate) |
 | 81 | Lonely Mint | 20 | Mint | - | - | mints self-test |
 | 82 | Adamant Mint | 20 | Mint | - | - | mints self-test |
 | 83 | Naughty Mint | 20 | Mint | - | - | mints self-test |
@@ -135,12 +135,12 @@ session.
 | 100 | Naive Mint | 20 | Mint | - | - | mints self-test |
 | 101 | Serious Mint | 20 | Mint | - | - | mints self-test |
 | 102 | Rare Candy | 4800 | RareCandy | - | - | bag items self-test |
-| 103 | Exp. Candy XS | 20 | RareCandy | - | - | not audited (next session) |
-| 104 | Exp. Candy S | 240 | RareCandy | - | - | not audited (next session) |
-| 105 | Exp. Candy M | 1000 | RareCandy | - | - | not audited (next session) |
-| 106 | Exp. Candy L | 3000 | RareCandy | - | - | not audited (next session) |
-| 107 | Exp. Candy XL | 10000 | RareCandy | - | - | not audited (next session) |
-| 108 | Dynamax Candy | 0 | DynamaxCandy | - | - | not audited (next session) |
+| 103 | Exp. Candy XS | 20 | RareCandy | - | - | Exp. Candy XS: 100 experience, coin-shop self-test `check-rare-goods` (engine `3c9e3088`, after the first candidate) |
+| 104 | Exp. Candy S | 240 | RareCandy | - | - | Exp. Candy S: 800 experience, coin-shop self-test `check-rare-goods` (engine `3c9e3088`, after the first candidate) |
+| 105 | Exp. Candy M | 1000 | RareCandy | - | - | Exp. Candy M: 3,000 experience, coin-shop self-test `check-rare-goods` (engine `3c9e3088`, after the first candidate) |
+| 106 | Exp. Candy L | 3000 | RareCandy | - | - | Exp. Candy L: 10,000 experience, coin-shop self-test `check-rare-goods` (engine `3c9e3088`, after the first candidate) |
+| 107 | Exp. Candy XL | 10000 | RareCandy | - | - | Exp. Candy XL: 30,000 experience, none at level 100, coin-shop self-test `check-rare-goods` (engine `3c9e3088`, after the first candidate) |
+| 108 | Dynamax Candy | 0 | DynamaxCandy | - | - | not obtainable in this game: nothing gives, sells or drops it (the scripts, the maps, the marts, the PC game's shops, wild Pokemon) (after the first candidate) |
 | 109 | Blue Flute | 100 | Medicine | cure status | - | healing self-test; in battle: `item_effect/cure_status.c` 23 passed |
 | 110 | Yellow Flute | 300 | - | cure status | - | in battle: `item_effect/cure_status.c` 23 passed |
 | 111 | Red Flute | 200 | - | cure status | - | in battle: `item_effect/cure_status.c` 23 passed |
@@ -152,7 +152,7 @@ session.
 | 117 | Lure | 400 | Lure | - | - | wild item audit (gameplay report section 5) |
 | 118 | Super Lure | 700 | Lure | - | - | wild item audit (gameplay report section 5) |
 | 119 | Max Lure | 900 | Lure | - | - | wild item audit (gameplay report section 5) |
-| 120 | Escape Rope | 550 | EscapeRope | - | - | not audited (next session) |
+| 120 | Escape Rope | 550 | EscapeRope | - | - | used in Rusturf Tunnel in the real game: back on Route 116 by the tunnel, the rope used up (engine `4f841321`, after the first candidate) |
 | 121 | X Attack | 500 | - | raise a stat | - | GBA tests that name it: 4 passed; in battle: `item_effect/increase_stat.c` 14 passed |
 | 122 | X Defense | 550 | - | raise a stat | - | GBA tests that name it: 4 passed; in battle: `item_effect/increase_stat.c` 14 passed |
 | 123 | X Sp. Atk | 350 | - | raise a stat | - | GBA tests that name it: 3 passed; in battle: `item_effect/increase_stat.c` 14 passed |
@@ -165,8 +165,8 @@ session.
 | 130 | Fluffy Tail | 1000 | - | escape | - | in battle: `item_effect/escape.c` 3 passed |
 | 131 | Poké Toy | 1000 | - | escape | - | GBA tests that name it: 3 passed; in battle: `item_effect/escape.c` 3 passed |
 | 132 | Max Mushrooms | 8000 | - | raise all stats | - | GBA tests that name it: 7 passed; in battle: `item_effect/increase_stat.c` 14 passed |
-| 133 | Bottle Cap | 5000 | HyperTraining | - | - | not audited (next session) |
-| 134 | Gold Bottle Cap | 10000 | HyperTraining | - | - | not audited (next session) |
+| 133 | Bottle Cap | 5000 | HyperTraining | - | - | Hyper Training in the real game, `train_check.py` 8 of 8 (one stat; refused at 31; saved and loaded; engine `812d7bf3`, after the first candidate) |
+| 134 | Gold Bottle Cap | 10000 | HyperTraining | - | - | Hyper Training in the real game, `train_check.py` 8 of 8 (every stat; engine `812d7bf3`, after the first candidate) |
 | 135 | Nugget | 10000 | - | - | - | GBA tests that name it: 2 passed |
 | 136 | Big Nugget | 20000 | - | - | - | GBA tests that name it: 1 passed |
 | 137 | Tiny Mushroom | 500 | - | - | - | GBA tests that name it: 1 passed |
@@ -185,7 +185,7 @@ session.
 | 150 | Yellow Shard | 200 | - | - | - | no use from the bag, in battle or held |
 | 151 | Green Shard | 200 | - | - | - | no use from the bag, in battle or held |
 | 152 | Heart Scale | 100 | - | - | - | no use from the bag, in battle or held |
-| 153 | Honey | 100 | Honey | - | - | not audited (next session) |
+| 153 | Honey | 100 | Honey | - | - | used in Route 101's grass in the real game: a wild battle, as Sweet Scent (engine `4f841321`, after the first candidate) |
 | 154 | Rare Bone | 10000 | - | - | - | no use from the bag, in battle or held |
 | 155 | Odd Keystone | 2100 | - | - | - | no use from the bag, in battle or held |
 | 156 | Pretty Feather | 200 | - | - | - | bag items self-test |
@@ -231,18 +231,18 @@ session.
 | 196 | Galarica Twig | 20 | - | - | - | no use from the bag, in battle or held |
 | 197 | Armorite Ore | 20 | - | - | - | no use from the bag, in battle or held |
 | 198 | Dynite Ore | 20 | - | - | - | no use from the bag, in battle or held |
-| 199 | Orange Mail | 50 | Mail | - | - | not audited (next session) |
-| 200 | Harbor Mail | 50 | Mail | - | - | not audited (next session) |
-| 201 | Glitter Mail | 50 | Mail | - | - | not audited (next session) |
-| 202 | Mech Mail | 50 | Mail | - | - | not audited (next session) |
-| 203 | Wood Mail | 50 | Mail | - | - | not audited (next session) |
-| 204 | Wave Mail | 50 | Mail | - | - | not audited (next session) |
-| 205 | Bead Mail | 50 | Mail | - | - | not audited (next session) |
-| 206 | Shadow Mail | 50 | Mail | - | - | not audited (next session) |
-| 207 | Tropic Mail | 50 | Mail | - | - | not audited (next session) |
-| 208 | Dream Mail | 50 | Mail | - | - | not audited (next session) |
-| 209 | Fab Mail | 50 | Mail | - | - | not audited (next session) |
-| 210 | Retro Mail | 50 | Mail | - | - | not audited (next session) |
+| 199 | Orange Mail | 50 | Mail | - | - | given to a Pokemon and taken back into the PC, the mail self-test `check-mail` (engine `6dcc0760`, after the first candidate); CHECK from the Bag in the real game, which asserted (MS-158, fixed on engine `812d7bf3`) |
+| 200 | Harbor Mail | 50 | Mail | - | - | given to a Pokemon and taken back into the PC, the mail self-test `check-mail` (engine `6dcc0760`, after the first candidate) |
+| 201 | Glitter Mail | 50 | Mail | - | - | given to a Pokemon and taken back into the PC, the mail self-test `check-mail` (engine `6dcc0760`, after the first candidate) |
+| 202 | Mech Mail | 50 | Mail | - | - | given to a Pokemon and taken back into the PC, the mail self-test `check-mail` (engine `6dcc0760`, after the first candidate) |
+| 203 | Wood Mail | 50 | Mail | - | - | given to a Pokemon and taken back into the PC, the mail self-test `check-mail` (engine `6dcc0760`, after the first candidate) |
+| 204 | Wave Mail | 50 | Mail | - | - | given to a Pokemon and taken back into the PC, the mail self-test `check-mail` (engine `6dcc0760`, after the first candidate) |
+| 205 | Bead Mail | 50 | Mail | - | - | given to a Pokemon and taken back into the PC, the mail self-test `check-mail` (engine `6dcc0760`, after the first candidate) |
+| 206 | Shadow Mail | 50 | Mail | - | - | given to a Pokemon and taken back into the PC, the mail self-test `check-mail` (engine `6dcc0760`, after the first candidate) |
+| 207 | Tropic Mail | 50 | Mail | - | - | given to a Pokemon and taken back into the PC, the mail self-test `check-mail` (engine `6dcc0760`, after the first candidate) |
+| 208 | Dream Mail | 50 | Mail | - | - | given to a Pokemon and taken back into the PC, the mail self-test `check-mail` (engine `6dcc0760`, after the first candidate) |
+| 209 | Fab Mail | 50 | Mail | - | - | given to a Pokemon and taken back into the PC, the mail self-test `check-mail` (engine `6dcc0760`, after the first candidate) |
+| 210 | Retro Mail | 50 | Mail | - | - | given to a Pokemon and taken back into the PC, the mail self-test `check-mail` (engine `6dcc0760`, after the first candidate) (not obtainable in this game) |
 | 211 | Fire Stone | 2100 | EvolutionStone | - | - | bag items self-test |
 | 212 | Water Stone | 2100 | EvolutionStone | - | - | bag items self-test |
 | 213 | Thunder Stone | 2100 | EvolutionStone | - | - | bag items self-test |
@@ -253,51 +253,51 @@ session.
 | 218 | Shiny Stone | 2100 | EvolutionStone | - | - | bag items self-test |
 | 219 | Dusk Stone | 2100 | EvolutionStone | - | - | bag items self-test |
 | 220 | Dawn Stone | 2100 | EvolutionStone | - | - | bag items self-test |
-| 221 | Sweet Apple | 2200 | EvolutionStone | - | - | its evolution use not audited |
-| 222 | Tart Apple | 2200 | EvolutionStone | - | - | its evolution use not audited |
-| 223 | Cracked Pot | 1600 | EvolutionStone | - | - | its evolution use not audited |
-| 224 | Chipped Pot | 38000 | EvolutionStone | - | - | its evolution use not audited |
-| 225 | Galarica Cuff | 6000 | EvolutionStone | - | - | its evolution use not audited |
-| 226 | Galarica Wreath | 6000 | EvolutionStone | - | - | its evolution use not audited |
-| 227 | Dragon Scale | 2100 | - | - | - | its evolution use not audited |
-| 228 | Upgrade | 2100 | - | - | - | its evolution use not audited |
-| 229 | Protector | 2100 | - | - | - | its evolution use not audited |
-| 230 | Electirizer | 2100 | - | - | - | its evolution use not audited |
-| 231 | Magmarizer | 2100 | - | - | - | its evolution use not audited |
-| 232 | Dubious Disc | 2100 | - | - | - | its evolution use not audited |
-| 233 | Reaper Cloth | 2100 | - | - | - | its evolution use not audited |
-| 234 | Prism Scale | 500 | - | - | - | its evolution use not audited |
-| 235 | Whipped Dream | 2100 | - | - | - | its evolution use not audited |
-| 236 | Sachet | 2100 | - | - | - | its evolution use not audited |
-| 237 | Oval Stone | 2100 | - | - | - | its evolution use not audited |
-| 238 | Strawberry Sweet | 500 | - | - | - | its evolution use not audited |
-| 239 | Love Sweet | 500 | - | - | - | its evolution use not audited |
-| 240 | Berry Sweet | 500 | - | - | - | its evolution use not audited |
-| 241 | Clover Sweet | 500 | - | - | - | its evolution use not audited |
-| 242 | Flower Sweet | 500 | - | - | - | its evolution use not audited |
-| 243 | Star Sweet | 500 | - | - | - | its evolution use not audited |
-| 244 | Ribbon Sweet | 500 | - | - | - | its evolution use not audited |
+| 221 | Sweet Apple | 2200 | EvolutionStone | - | - | not obtainable in this game: nothing gives, sells or drops it (the scripts, the maps, the marts, the PC game's shops, wild Pokemon) (after the first candidate) |
+| 222 | Tart Apple | 2200 | EvolutionStone | - | - | not obtainable in this game: nothing gives, sells or drops it (the scripts, the maps, the marts, the PC game's shops, wild Pokemon) (after the first candidate) |
+| 223 | Cracked Pot | 1600 | EvolutionStone | - | - | not obtainable in this game: nothing gives, sells or drops it (the scripts, the maps, the marts, the PC game's shops, wild Pokemon) (after the first candidate) |
+| 224 | Chipped Pot | 38000 | EvolutionStone | - | - | not obtainable in this game: nothing gives, sells or drops it (the scripts, the maps, the marts, the PC game's shops, wild Pokemon) (after the first candidate) |
+| 225 | Galarica Cuff | 6000 | EvolutionStone | - | - | not obtainable in this game: nothing gives, sells or drops it (the scripts, the maps, the marts, the PC game's shops, wild Pokemon) (after the first candidate) |
+| 226 | Galarica Wreath | 6000 | EvolutionStone | - | - | not obtainable in this game: nothing gives, sells or drops it (the scripts, the maps, the marts, the PC game's shops, wild Pokemon) (after the first candidate) |
+| 227 | Dragon Scale | 2100 | - | - | - | held in a trade: Seadra -> Kingdra, not without it or with another's (the trade evolutions' self-test `check-evo-items`, in the package) |
+| 228 | Upgrade | 2100 | - | - | - | held in a trade: Porygon -> Porygon2, not without it or with another's (the trade evolutions' self-test `check-evo-items`, in the package) |
+| 229 | Protector | 2100 | - | - | - | held in a trade: Rhydon -> Rhyperior, not without it or with another's (the trade evolutions' self-test `check-evo-items`, in the package) |
+| 230 | Electirizer | 2100 | - | - | - | held in a trade: Electabuzz -> Electivire, not without it or with another's (the trade evolutions' self-test `check-evo-items`, in the package) |
+| 231 | Magmarizer | 2100 | - | - | - | held in a trade: Magmar -> Magmortar, not without it or with another's (the trade evolutions' self-test `check-evo-items`, in the package) |
+| 232 | Dubious Disc | 2100 | - | - | - | held in a trade: Porygon2 -> Porygon-Z, not without it or with another's (the trade evolutions' self-test `check-evo-items`, in the package) |
+| 233 | Reaper Cloth | 2100 | - | - | - | held in a trade: Dusclops -> Dusknoir, not without it or with another's (the trade evolutions' self-test `check-evo-items`, in the package) |
+| 234 | Prism Scale | 500 | - | - | - | held in a trade: Feebas -> Milotic, not without it or with another's (the trade evolutions' self-test `check-evo-items`, in the package) |
+| 235 | Whipped Dream | 2100 | - | - | - | held in a trade: Swirlix -> Slurpuff, not without it or with another's (the trade evolutions' self-test `check-evo-items`, in the package) |
+| 236 | Sachet | 2100 | - | - | - | held in a trade: Spritzee -> Aromatisse, not without it or with another's (the trade evolutions' self-test `check-evo-items`, in the package) |
+| 237 | Oval Stone | 2100 | - | - | - | Happiny holding it evolves on a level up by day, not at night (evolution self-test `check-evo-items`, engine `059e906e`, after the first candidate) |
+| 238 | Strawberry Sweet | 500 | - | - | - | not obtainable in this game: nothing gives, sells or drops it (the scripts, the maps, the marts, the PC game's shops, wild Pokemon) (after the first candidate) |
+| 239 | Love Sweet | 500 | - | - | - | not obtainable in this game: nothing gives, sells or drops it (the scripts, the maps, the marts, the PC game's shops, wild Pokemon) (after the first candidate) |
+| 240 | Berry Sweet | 500 | - | - | - | not obtainable in this game: nothing gives, sells or drops it (the scripts, the maps, the marts, the PC game's shops, wild Pokemon) (after the first candidate) |
+| 241 | Clover Sweet | 500 | - | - | - | not obtainable in this game: nothing gives, sells or drops it (the scripts, the maps, the marts, the PC game's shops, wild Pokemon) (after the first candidate) |
+| 242 | Flower Sweet | 500 | - | - | - | not obtainable in this game: nothing gives, sells or drops it (the scripts, the maps, the marts, the PC game's shops, wild Pokemon) (after the first candidate) |
+| 243 | Star Sweet | 500 | - | - | - | not obtainable in this game: nothing gives, sells or drops it (the scripts, the maps, the marts, the PC game's shops, wild Pokemon) (after the first candidate) |
+| 244 | Ribbon Sweet | 500 | - | - | - | not obtainable in this game: nothing gives, sells or drops it (the scripts, the maps, the marts, the PC game's shops, wild Pokemon) (after the first candidate) |
 | 245 | Everstone | 200 | - | - | prevent evolve | bag items self-test; GBA tests that name it: 15 passed; held: `hold_effect/prevent_evolve.c` 0 passed, 1 to do |
-| 246 | Red Nectar | 300 | FormChange_ConsumedOnUse | - | - | not audited (next session) |
-| 247 | Yellow Nectar | 300 | FormChange_ConsumedOnUse | - | - | not audited (next session) |
-| 248 | Pink Nectar | 300 | FormChange_ConsumedOnUse | - | - | not audited (next session) |
-| 249 | Purple Nectar | 300 | FormChange_ConsumedOnUse | - | - | not audited (next session) |
+| 246 | Red Nectar | 300 | FormChange_ConsumedOnUse | - | - | Oricorio to Baile, coin-shop self-test `check-rare-goods` (engine `3c9e3088`, after the first candidate) |
+| 247 | Yellow Nectar | 300 | FormChange_ConsumedOnUse | - | - | Oricorio to Pom-Pom, coin-shop self-test `check-rare-goods` (engine `3c9e3088`, after the first candidate) |
+| 248 | Pink Nectar | 300 | FormChange_ConsumedOnUse | - | - | Oricorio to Pa'u, coin-shop self-test `check-rare-goods` (engine `3c9e3088`, after the first candidate) |
+| 249 | Purple Nectar | 300 | FormChange_ConsumedOnUse | - | - | Oricorio to Sensu, coin-shop self-test `check-rare-goods` (engine `3c9e3088`, after the first candidate) |
 | 250 | Flame Plate | 1000 | - | - | plate | GBA tests that name it: 1 passed; held: `hold_effect/plate.c` 0 passed, 1 to do |
 | 251 | Splash Plate | 1000 | - | - | plate | GBA tests that name it: 2 passed; held: `hold_effect/plate.c` 0 passed, 1 to do |
 | 252 | Zap Plate | 1000 | - | - | plate | GBA tests that name it: 7 passed; held: `hold_effect/plate.c` 0 passed, 1 to do |
 | 253 | Meadow Plate | 1000 | - | - | plate | GBA tests that name it: 1 passed; held: `hold_effect/plate.c` 0 passed, 1 to do |
 | 254 | Icicle Plate | 1000 | - | - | plate | GBA tests that name it: 1 passed; held: `hold_effect/plate.c` 0 passed, 1 to do |
 | 255 | Fist Plate | 1000 | - | - | plate | GBA tests that name it: 1 passed; held: `hold_effect/plate.c` 0 passed, 1 to do |
-| 256 | Toxic Plate | 1000 | - | - | plate | held: `hold_effect/plate.c` 0 passed, 1 to do; (no test written yet) |
-| 257 | Earth Plate | 1000 | - | - | plate | held: `hold_effect/plate.c` 0 passed, 1 to do; (no test written yet) |
+| 256 | Toxic Plate | 1000 | - | - | plate | held: its type's moves x1.2 (`item_audit_untested.c`, in the package); its data and another type unboosted (engine `47e47359`, after the first candidate) |
+| 257 | Earth Plate | 1000 | - | - | plate | held: its type's moves x1.2 (`item_audit_untested.c`, in the package); its data and another type unboosted (engine `47e47359`, after the first candidate) |
 | 258 | Sky Plate | 1000 | - | - | plate | GBA tests that name it: 5 passed; held: `hold_effect/plate.c` 0 passed, 1 to do |
-| 259 | Mind Plate | 1000 | - | - | plate | held: `hold_effect/plate.c` 0 passed, 1 to do; (no test written yet) |
-| 260 | Insect Plate | 1000 | - | - | plate | held: `hold_effect/plate.c` 0 passed, 1 to do; (no test written yet) |
-| 261 | Stone Plate | 1000 | - | - | plate | held: `hold_effect/plate.c` 0 passed, 1 to do; (no test written yet) |
-| 262 | Spooky Plate | 1000 | - | - | plate | held: `hold_effect/plate.c` 0 passed, 1 to do; (no test written yet) |
-| 263 | Draco Plate | 1000 | - | - | plate | held: `hold_effect/plate.c` 0 passed, 1 to do; (no test written yet) |
-| 264 | Dread Plate | 1000 | - | - | plate | held: `hold_effect/plate.c` 0 passed, 1 to do; (no test written yet) |
-| 265 | Iron Plate | 1000 | - | - | plate | held: `hold_effect/plate.c` 0 passed, 1 to do; (no test written yet) |
+| 259 | Mind Plate | 1000 | - | - | plate | held: its type's moves x1.2 (`item_audit_untested.c`, in the package); its data and another type unboosted (engine `47e47359`, after the first candidate) |
+| 260 | Insect Plate | 1000 | - | - | plate | held: its type's moves x1.2 (`item_audit_untested.c`, in the package); its data and another type unboosted (engine `47e47359`, after the first candidate) |
+| 261 | Stone Plate | 1000 | - | - | plate | held: its type's moves x1.2 (`item_audit_untested.c`, in the package); its data and another type unboosted (engine `47e47359`, after the first candidate) |
+| 262 | Spooky Plate | 1000 | - | - | plate | held: its type's moves x1.2 (`item_audit_untested.c`, in the package); its data and another type unboosted (engine `47e47359`, after the first candidate) |
+| 263 | Draco Plate | 1000 | - | - | plate | held: its type's moves x1.2 (`item_audit_untested.c`, in the package); its data and another type unboosted (engine `47e47359`, after the first candidate) |
+| 264 | Dread Plate | 1000 | - | - | plate | held: its type's moves x1.2 (`item_audit_untested.c`, in the package); its data and another type unboosted (engine `47e47359`, after the first candidate) |
+| 265 | Iron Plate | 1000 | - | - | plate | held: its type's moves x1.2 (`item_audit_untested.c`, in the package); its data and another type unboosted (engine `47e47359`, after the first candidate) |
 | 266 | Pixie Plate | 1000 | - | - | plate | GBA tests that name it: 1 passed; held: `hold_effect/plate.c` 0 passed, 1 to do |
 | 267 | Douse Drive | 1000 | - | - | drive | GBA tests that name it: 2 passed; held: `hold_effect/drive.c` 0 passed, 1 to do |
 | 268 | Shock Drive | 1000 | - | - | drive | GBA tests that name it: 7 passed; held: `hold_effect/drive.c` 0 passed, 1 to do |
@@ -306,20 +306,20 @@ session.
 | 271 | Fire Memory | 1000 | - | - | memory | GBA tests that name it: 3 passed; held: `hold_effect/memory.c` 0 passed, 1 to do |
 | 272 | Water Memory | 1000 | - | - | memory | GBA tests that name it: 2 passed; held: `hold_effect/memory.c` 0 passed, 1 to do |
 | 273 | Electric Memory | 1000 | - | - | memory | GBA tests that name it: 6 passed; held: `hold_effect/memory.c` 0 passed, 1 to do |
-| 274 | Grass Memory | 1000 | - | - | memory | held: `hold_effect/memory.c` 0 passed, 1 to do; (no test written yet) |
+| 274 | Grass Memory | 1000 | - | - | memory | its type for Multi-Attack and RKS System: the data checked (`test/item_audit_data.c`, engine `47e47359`, after the first candidate); Multi-Attack's own test passes; not obtainable in this game: nothing gives, sells or drops it (the scripts, the maps, the marts, the PC game's shops, wild Pokemon) (after the first candidate) |
 | 275 | Ice Memory | 1000 | - | - | memory | GBA tests that name it: 1 passed; held: `hold_effect/memory.c` 0 passed, 1 to do |
 | 276 | Fighting Memory | 1000 | - | - | memory | GBA tests that name it: 1 passed; held: `hold_effect/memory.c` 0 passed, 1 to do |
-| 277 | Poison Memory | 1000 | - | - | memory | held: `hold_effect/memory.c` 0 passed, 1 to do; (no test written yet) |
-| 278 | Ground Memory | 1000 | - | - | memory | held: `hold_effect/memory.c` 0 passed, 1 to do; (no test written yet) |
-| 279 | Flying Memory | 1000 | - | - | memory | held: `hold_effect/memory.c` 0 passed, 1 to do; (no test written yet) |
-| 280 | Psychic Memory | 1000 | - | - | memory | held: `hold_effect/memory.c` 0 passed, 1 to do; (no test written yet) |
-| 281 | Bug Memory | 1000 | - | - | memory | held: `hold_effect/memory.c` 0 passed, 1 to do; (no test written yet) |
-| 282 | Rock Memory | 1000 | - | - | memory | held: `hold_effect/memory.c` 0 passed, 1 to do; (no test written yet) |
-| 283 | Ghost Memory | 1000 | - | - | memory | held: `hold_effect/memory.c` 0 passed, 1 to do; (no test written yet) |
-| 284 | Dragon Memory | 1000 | - | - | memory | held: `hold_effect/memory.c` 0 passed, 1 to do; (no test written yet) |
-| 285 | Dark Memory | 1000 | - | - | memory | held: `hold_effect/memory.c` 0 passed, 1 to do; (no test written yet) |
-| 286 | Steel Memory | 1000 | - | - | memory | held: `hold_effect/memory.c` 0 passed, 1 to do; (no test written yet) |
-| 287 | Fairy Memory | 1000 | - | - | memory | held: `hold_effect/memory.c` 0 passed, 1 to do; (no test written yet) |
+| 277 | Poison Memory | 1000 | - | - | memory | its type for Multi-Attack and RKS System: the data checked (`test/item_audit_data.c`, engine `47e47359`, after the first candidate); Multi-Attack's own test passes; not obtainable in this game: nothing gives, sells or drops it (the scripts, the maps, the marts, the PC game's shops, wild Pokemon) (after the first candidate) |
+| 278 | Ground Memory | 1000 | - | - | memory | its type for Multi-Attack and RKS System: the data checked (`test/item_audit_data.c`, engine `47e47359`, after the first candidate); Multi-Attack's own test passes; not obtainable in this game: nothing gives, sells or drops it (the scripts, the maps, the marts, the PC game's shops, wild Pokemon) (after the first candidate) |
+| 279 | Flying Memory | 1000 | - | - | memory | its type for Multi-Attack and RKS System: the data checked (`test/item_audit_data.c`, engine `47e47359`, after the first candidate); Multi-Attack's own test passes; not obtainable in this game: nothing gives, sells or drops it (the scripts, the maps, the marts, the PC game's shops, wild Pokemon) (after the first candidate) |
+| 280 | Psychic Memory | 1000 | - | - | memory | its type for Multi-Attack and RKS System: the data checked (`test/item_audit_data.c`, engine `47e47359`, after the first candidate); Multi-Attack's own test passes; not obtainable in this game: nothing gives, sells or drops it (the scripts, the maps, the marts, the PC game's shops, wild Pokemon) (after the first candidate) |
+| 281 | Bug Memory | 1000 | - | - | memory | its type for Multi-Attack and RKS System: the data checked (`test/item_audit_data.c`, engine `47e47359`, after the first candidate); Multi-Attack's own test passes; not obtainable in this game: nothing gives, sells or drops it (the scripts, the maps, the marts, the PC game's shops, wild Pokemon) (after the first candidate) |
+| 282 | Rock Memory | 1000 | - | - | memory | its type for Multi-Attack and RKS System: the data checked (`test/item_audit_data.c`, engine `47e47359`, after the first candidate); Multi-Attack's own test passes; not obtainable in this game: nothing gives, sells or drops it (the scripts, the maps, the marts, the PC game's shops, wild Pokemon) (after the first candidate) |
+| 283 | Ghost Memory | 1000 | - | - | memory | its type for Multi-Attack and RKS System: the data checked (`test/item_audit_data.c`, engine `47e47359`, after the first candidate); Multi-Attack's own test passes; not obtainable in this game: nothing gives, sells or drops it (the scripts, the maps, the marts, the PC game's shops, wild Pokemon) (after the first candidate) |
+| 284 | Dragon Memory | 1000 | - | - | memory | its type for Multi-Attack and RKS System: the data checked (`test/item_audit_data.c`, engine `47e47359`, after the first candidate); Multi-Attack's own test passes; not obtainable in this game: nothing gives, sells or drops it (the scripts, the maps, the marts, the PC game's shops, wild Pokemon) (after the first candidate) |
+| 285 | Dark Memory | 1000 | - | - | memory | its type for Multi-Attack and RKS System: the data checked (`test/item_audit_data.c`, engine `47e47359`, after the first candidate); Multi-Attack's own test passes; not obtainable in this game: nothing gives, sells or drops it (the scripts, the maps, the marts, the PC game's shops, wild Pokemon) (after the first candidate) |
+| 286 | Steel Memory | 1000 | - | - | memory | its type for Multi-Attack and RKS System: the data checked (`test/item_audit_data.c`, engine `47e47359`, after the first candidate); Multi-Attack's own test passes; not obtainable in this game: nothing gives, sells or drops it (the scripts, the maps, the marts, the PC game's shops, wild Pokemon) (after the first candidate) |
+| 287 | Fairy Memory | 1000 | - | - | memory | its type for Multi-Attack and RKS System: the data checked (`test/item_audit_data.c`, engine `47e47359`, after the first candidate); Multi-Attack's own test passes; not obtainable in this game: nothing gives, sells or drops it (the scripts, the maps, the marts, the PC game's shops, wild Pokemon) (after the first candidate) |
 | 288 | Rusted Sword | 0 | - | - | - | GBA tests that name it: 5 passed |
 | 289 | Rusted Shield | 0 | - | - | - | GBA tests that name it: 7 passed |
 | 290 | Red Orb | 0 | - | - | primal orb | GBA tests that name it: 41 passed, 1 failed (expected); Primal Reversion: `form_change/primal_reversion.c` 15 passed |
@@ -430,8 +430,8 @@ session.
 | 395 | Lucky Punch | 10 | - | - | lucky punch | GBA tests that name it: 1 passed; held: `hold_effect/lucky_punch.c` 1 passed |
 | 396 | Metal Powder | 10 | - | - | metal powder | GBA tests that name it: 3 passed; held: `hold_effect/metal_powder.c` 3 passed |
 | 397 | Quick Powder | 10 | - | - | quick powder | GBA tests that name it: 3 passed; held: `hold_effect/quick_powder.c` 3 passed |
-| 398 | Deep Sea Scale | 200 | - | - | deep sea scale | GBA tests that name it: 2 passed; held: `hold_effect/deep_sea_scale.c` 2 passed; its evolution use not audited |
-| 399 | Deep Sea Tooth | 200 | - | - | deep sea tooth | GBA tests that name it: 2 passed; held: `hold_effect/deep_sea_tooth.c` 2 passed; its evolution use not audited |
+| 398 | Deep Sea Scale | 200 | - | - | deep sea scale | GBA tests that name it: 2 passed; held: `hold_effect/deep_sea_scale.c` 2 passed; its evolution use: Clamperl -> Gorebyss in a trade (`check-evo-items`, in the package) |
+| 399 | Deep Sea Tooth | 200 | - | - | deep sea tooth | GBA tests that name it: 2 passed; held: `hold_effect/deep_sea_tooth.c` 2 passed; its evolution use: Clamperl -> Huntail in a trade (`check-evo-items`, in the package) |
 | 400 | Soul Dew | 200 | - | - | soul dew | GBA tests that name it: 1 passed; held: `hold_effect/soul_dew.c` 0 passed, 1 to do |
 | 401 | Adamant Orb | 10000 | - | - | adamant orb | GBA tests that name it: 1 passed; held: `hold_effect/adamant_orb.c` 1 passed |
 | 402 | Lustrous Orb | 10000 | - | - | lustrous orb | GBA tests that name it: 1 passed; held: `hold_effect/lustrous_orb.c` 1 passed |
@@ -473,7 +473,7 @@ session.
 | 438 | Spell Tag | 100 | - | - | type power | held: `hold_effect/type_power.c` 2 passed |
 | 439 | Dragon Fang | 100 | - | - | type power | held: `hold_effect/type_power.c` 2 passed |
 | 440 | Black Glasses | 100 | - | - | type power | held: `hold_effect/type_power.c` 2 passed |
-| 441 | Metal Coat | 100 | - | - | type power | held: `hold_effect/type_power.c` 2 passed; its evolution use not audited |
+| 441 | Metal Coat | 100 | - | - | type power | held: `hold_effect/type_power.c` 2 passed; its evolution use: Onix -> Steelix, Scyther -> Scizor in a trade (`check-evo-items`, in the package) |
 | 442 | Choice Band | 100 | - | - | choice band | GBA tests that name it: 25 passed; held: `hold_effect/choice_band.c` 3 passed |
 | 443 | Choice Specs | 100 | - | - | choice specs | GBA tests that name it: 11 passed; held: `hold_effect/choice_specs.c` 3 passed |
 | 444 | Choice Scarf | 100 | - | - | choice scarf | GBA tests that name it: 13 passed; held: `hold_effect/choice_scarf.c` 3 passed |
@@ -497,11 +497,11 @@ session.
 | 462 | Quick Claw | 100 | - | - | quick claw | GBA tests that name it: 3 passed; held: `hold_effect/quick_claw.c` 1 passed |
 | 463 | Soothe Bell | 100 | - | - | friendship up | GBA tests that name it: 1 passed; held: `hold_effect/friendship_up.c` 0 passed, 1 to do |
 | 464 | Mental Herb | 100 | - | - | mental herb | GBA tests that name it: 10 passed; held: `hold_effect/mental_herb.c` 8 passed |
-| 465 | King’s Rock | 100 | - | - | flinch | GBA tests that name it: 11 passed; held: `hold_effect/flinch.c` 5 passed; its evolution use not audited |
+| 465 | King’s Rock | 100 | - | - | flinch | GBA tests that name it: 11 passed; held: `hold_effect/flinch.c` 5 passed; its evolution use: Poliwhirl -> Politoed, Slowpoke -> Slowking in a trade (`check-evo-items`, in the package) |
 | 466 | Amulet Coin | 100 | - | - | double prize | GBA tests that name it: 4 passed; held: `hold_effect/double_prize.c` 0 passed, 1 to do |
 | 467 | Cleanse Tag | 200 | - | - | repel | wild item audit (gameplay report section 5); held: `hold_effect/repel.c` 0 passed, 1 to do |
 | 468 | Smoke Ball | 200 | - | - | can always run | GBA tests that name it: 1 passed; held: `hold_effect/can_always_run.c` 0 passed, 1 to do |
-| 469 | Focus Band | 200 | - | - | focus band | GBA tests that name it: 4 passed, and 3 new (engine `fc8c5f76`, after the package) passed; held: `hold_effect/focus_band.c` 0 passed, 1 to do |
+| 469 | Focus Band | 200 | - | - | focus band | GBA tests that name it: 4 passed, and 3 new (engine `fc8c5f76`, after the first candidate) passed; held: `hold_effect/focus_band.c` 0 passed, 1 to do |
 | 470 | Lucky Egg | 200 | - | - | lucky egg | GBA tests that name it: 3 passed; held: `hold_effect/lucky_egg.c` 0 passed, 1 to do |
 | 471 | Scope Lens | 100 | - | - | scope lens | GBA tests that name it: 4 passed; held: `hold_effect/scope_lens.c` 1 passed |
 | 472 | Leftovers | 200 | - | - | leftovers | GBA tests that name it: 36 passed; held: `hold_effect/leftovers.c` 3 passed |
@@ -524,8 +524,8 @@ session.
 | 489 | Sticky Barb | 200 | - | - | sticky barb | GBA tests that name it: 4 passed; held: `hold_effect/sticky_barb.c` 2 passed |
 | 490 | Shed Shell | 100 | - | - | shed shell | GBA tests that name it: 6 passed; held: `hold_effect/shed_shell.c` 4 passed |
 | 491 | Big Root | 200 | - | - | big root | GBA tests that name it: 6 passed; held: `hold_effect/big_root.c` 3 passed |
-| 492 | Razor Claw | 2100 | - | - | scope lens | GBA tests that name it: 9 passed; held: `hold_effect/scope_lens.c` 1 passed; its evolution use not audited |
-| 493 | Razor Fang | 2100 | - | - | flinch | GBA tests that name it: 2 passed; held: `hold_effect/flinch.c` 5 passed; its evolution use not audited |
+| 492 | Razor Claw | 2100 | - | - | scope lens | GBA tests that name it: 9 passed; held: `hold_effect/scope_lens.c` 1 passed; its evolution use: Sneasel -> Weavile on a level up at night (`check-evo-items`, engine `059e906e`, after the first candidate) |
+| 493 | Razor Fang | 2100 | - | - | flinch | GBA tests that name it: 2 passed; held: `hold_effect/flinch.c` 5 passed; its evolution use: Gligar -> Gliscor on a level up at night (`check-evo-items`, engine `059e906e`, after the first candidate) |
 | 494 | Eviolite | 200 | - | - | eviolite | GBA tests that name it: 9 passed; held: `hold_effect/eviolite.c` 3 passed |
 | 495 | Float Stone | 200 | - | - | float stone | GBA tests that name it: 2 passed; held: `hold_effect/float_stone.c` 2 passed |
 | 496 | Rocky Helmet | 200 | - | - | rocky helmet | GBA tests that name it: 21 passed; held: `hold_effect/rocky_helmet.c` 2 passed, 1 to do |
@@ -542,7 +542,7 @@ session.
 | 507 | Protective Pads | 4000 | - | - | protective pads | GBA tests that name it: 11 passed; held: `hold_effect/protective_pads.c` 5 passed |
 | 508 | Throat Spray | 4000 | - | - | throat spray | GBA tests that name it: 15 passed, 1 assumption failed; held: `hold_effect/throat_spray.c` 10 passed, 1 assumption failed |
 | 509 | Eject Pack | 4000 | - | - | eject pack | GBA tests that name it: 36 passed; held: `hold_effect/eject_pack.c` 16 passed |
-| 510 | Heavy-Duty Boots | 4000 | - | - | heavy duty boots | held: `hold_effect/heavy_duty_boots.c` 0 passed, 1 to do; (no test written yet) |
+| 510 | Heavy-Duty Boots | 4000 | - | - | heavy duty boots | held: no Stealth Rock damage and no Toxic Spikes poison on switching in (`item_audit_plates_boots.c`, engine `47e47359`, after the first candidate); sold in the PC game's coin shop |
 | 511 | Blunder Policy | 4000 | - | - | blunder policy | GBA tests that name it: 11 passed; held: `hold_effect/blunder_policy.c` 11 passed |
 | 512 | Room Service | 4000 | - | - | room service | GBA tests that name it: 5 passed; held: `hold_effect/room_service.c` 1 passed |
 | 513 | Utility Umbrella | 4000 | - | - | utility umbrella | GBA tests that name it: 16 passed; held: `hold_effect/utility_umbrella.c` 2 passed |
@@ -551,12 +551,12 @@ session.
 | 760 | Punching Glove | 15000 | - | - | punching glove | GBA tests that name it: 6 passed; held: `hold_effect/punching_glove.c` 0 passed, 1 to do |
 | 761 | Covert Cloak | 20000 | - | - | covert cloak | GBA tests that name it: 15 passed; held: `hold_effect/covert_cloak.c` 7 passed |
 | 762 | Loaded Dice | 20000 | - | - | loaded dice | GBA tests that name it: 9 passed; held: `hold_effect/loaded_dice.c` 0 passed, 1 to do |
-| 763 | Auspicious Armor | 3000 | EvolutionStone | - | - | its evolution use not audited |
+| 763 | Auspicious Armor | 3000 | EvolutionStone | - | - | not obtainable in this game: nothing gives, sells or drops it (the scripts, the maps, the marts, the PC game's shops, wild Pokemon) (after the first candidate) |
 | 764 | Booster Energy | 0 | - | - | booster energy | GBA tests that name it: 26 passed; held: `hold_effect/booster_energy.c` 13 passed |
 | 765 | Big Bamboo Shoot | 3000 | - | - | - | no use from the bag, in battle or held |
 | 766 | Gimmighoul Coin | 400 | - | - | - | no use from the bag, in battle or held |
 | 767 | Leader’s Crest | 3000 | - | - | - | GBA tests that name it: 7 passed |
-| 768 | Malicious Armor | 3000 | EvolutionStone | - | - | its evolution use not audited |
+| 768 | Malicious Armor | 3000 | EvolutionStone | - | - | not obtainable in this game: nothing gives, sells or drops it (the scripts, the maps, the marts, the PC game's shops, wild Pokemon) (after the first candidate) |
 | 769 | Mirror Herb | 30000 | - | - | mirror herb | GBA tests that name it: 16 passed; held: `hold_effect/mirror_herb.c` 9 passed |
 | 773 | Tiny Bamboo Shoot | 750 | - | - | - | no use from the bag, in battle or held |
 | 774 | Bug Tera Shard | 0 | - | - | - | no use from the bag, in battle or held |
@@ -580,25 +580,25 @@ session.
 | 792 | Adamant Crystal | 0 | - | - | adamant orb | held: `hold_effect/adamant_orb.c` 1 passed |
 | 793 | Griseous Core | 0 | - | - | griseous orb | GBA tests that name it: 4 passed; held: `hold_effect/griseous_orb.c` 1 passed |
 | 794 | Lustrous Globe | 0 | - | - | lustrous orb | held: `hold_effect/lustrous_orb.c` 1 passed |
-| 795 | Black Augurite | 8000 | EvolutionStone | - | - | its evolution use not audited |
-| 796 | Linking Cord | 8000 | EvolutionStone | - | - | its evolution use not audited |
-| 797 | Peat Block | 10000 | EvolutionStone | - | - | its evolution use not audited |
+| 795 | Black Augurite | 8000 | EvolutionStone | - | - | Scyther -> Kleavor, coin-shop self-test `check-rare-goods` (engine `3c9e3088`, after the first candidate) |
+| 796 | Linking Cord | 8000 | EvolutionStone | - | - | each trade-alone evolution (Kadabra, Machoke, Graveler, Haunter, Boldore, Gurdurr, Phantump), not a held item's, coin-shop self-test `check-rare-goods` (engine `3c9e3088`, after the first candidate) |
+| 797 | Peat Block | 10000 | EvolutionStone | - | - | not obtainable in this game: nothing gives, sells or drops it (the scripts, the maps, the marts, the PC game's shops, wild Pokemon) (after the first candidate) |
 | 798 | Berserk Gene | 20 | - | - | berserk gene | GBA tests that name it: 13 passed; held: `hold_effect/berserk_gene.c` 12 passed |
 | 799 | Fairy Feather | 1000 | - | - | type power | held: `hold_effect/type_power.c` 2 passed |
-| 800 | Syrupy Apple | 2200 | EvolutionStone | - | - | its evolution use not audited |
-| 801 | Unremarkable Teacup | 1600 | EvolutionStone | - | - | GBA tests that name it: 3 passed; its evolution use not audited |
-| 802 | Masterpiece Teacup | 38000 | EvolutionStone | - | - | GBA tests that name it: 1 passed; its evolution use not audited |
+| 800 | Syrupy Apple | 2200 | EvolutionStone | - | - | not obtainable in this game: nothing gives, sells or drops it (the scripts, the maps, the marts, the PC game's shops, wild Pokemon) (after the first candidate) |
+| 801 | Unremarkable Teacup | 1600 | EvolutionStone | - | - | GBA tests that name it: 3 passed; its evolution use: not obtainable in this game: nothing gives, sells or drops it (the scripts, the maps, the marts, the PC game's shops, wild Pokemon) (after the first candidate) |
+| 802 | Masterpiece Teacup | 38000 | EvolutionStone | - | - | GBA tests that name it: 1 passed; its evolution use: not obtainable in this game: nothing gives, sells or drops it (the scripts, the maps, the marts, the PC game's shops, wild Pokemon) (after the first candidate) |
 | 803 | Cornerstone Mask | 0 | - | - | ogerpon mask | GBA tests that name it: 6 passed; held: `hold_effect/ogerpon_mask.c` 1 passed |
 | 804 | Wellspring Mask | 0 | - | - | ogerpon mask | GBA tests that name it: 6 passed; held: `hold_effect/ogerpon_mask.c` 1 passed |
 | 805 | Hearthflame Mask | 0 | - | - | ogerpon mask | GBA tests that name it: 9 passed; held: `hold_effect/ogerpon_mask.c` 1 passed |
-| 806 | Health Mochi | 500 | Medicine | - | - | not audited (next session) |
-| 807 | Muscle Mochi | 500 | Medicine | - | - | not audited (next session) |
-| 808 | Resist Mochi | 500 | Medicine | - | - | not audited (next session) |
-| 809 | Genius Mochi | 500 | Medicine | - | - | not audited (next session) |
-| 810 | Clever Mochi | 500 | Medicine | - | - | not audited (next session) |
-| 811 | Swift Mochi | 500 | Medicine | - | - | not audited (next session) |
-| 812 | Fresh-Start Mochi | 300 | ResetEVs | - | - | not audited (next session) |
-| 814 | Metal Alloy | 6000 | EvolutionStone | - | - | its evolution use not audited |
+| 806 | Health Mochi | 500 | Medicine | - | - | +10 HP base points, coin-shop self-test `check-rare-goods` (engine `3c9e3088`, after the first candidate) |
+| 807 | Muscle Mochi | 500 | Medicine | - | - | +10 Attack base points, coin-shop self-test `check-rare-goods` (engine `3c9e3088`, after the first candidate) |
+| 808 | Resist Mochi | 500 | Medicine | - | - | +10 Defense base points, coin-shop self-test `check-rare-goods` (engine `3c9e3088`, after the first candidate) |
+| 809 | Genius Mochi | 500 | Medicine | - | - | +10 Sp. Atk base points, coin-shop self-test `check-rare-goods` (engine `3c9e3088`, after the first candidate) |
+| 810 | Clever Mochi | 500 | Medicine | - | - | +10 Sp. Def base points, coin-shop self-test `check-rare-goods` (engine `3c9e3088`, after the first candidate) |
+| 811 | Swift Mochi | 500 | Medicine | - | - | +10 Speed base points, up to 252, coin-shop self-test `check-rare-goods` (engine `3c9e3088`, after the first candidate) |
+| 812 | Fresh-Start Mochi | 300 | ResetEVs | - | - | every base point to 0, coin-shop self-test `check-rare-goods` (engine `3c9e3088`, after the first candidate) |
+| 814 | Metal Alloy | 6000 | EvolutionStone | - | - | not obtainable in this game: nothing gives, sells or drops it (the scripts, the maps, the marts, the PC game's shops, wild Pokemon) (after the first candidate) |
 | 815 | Stellar Tera Shard | 0 | - | - | - | no use from the bag, in battle or held |
 | 816 | Jubilife Muffin | 250 | Medicine | cure status | - | GBA tests that name it: 3 passed; in battle: `item_effect/cure_status.c` 23 passed |
 | 817 | Remedy | 150 | Medicine | restore HP | - | in battle: `item_effect/restore_hp.c` 11 passed |
@@ -851,73 +851,73 @@ session.
 | 690 | Oval Charm | 0 | - | - | - | wild item audit (gameplay report section 5) |
 | 691 | Shiny Charm | 0 | - | - | - | wild item audit (gameplay report section 5) |
 | 692 | Catching Charm | 0 | - | - | - | wild item audit (gameplay report section 5) |
-| 693 | Exp. Charm | 0 | - | - | - | 2 new GBA tests (engine `aebcf98d`, after the package) passed: the experience gained half again as much with it in the Bag, alone and with a held Lucky Egg |
-| 694 | Rotom Catalog | 0 | RotomCatalog | - | - | not audited (key items: next session) |
-| 695 | Gracidea | 0 | FormChange | - | - | Form items self-test (engine `993496aa`, after the package) |
-| 696 | Reveal Glass | 0 | FormChange | - | - | Form items self-test (engine `993496aa`, after the package) |
-| 697 | DNA Splicers | 0 | Fusion | - | - | used from the Bag in the real game: Kyurem and Reshiram fused and split again (engine `c624a2d4`, after the package) |
-| 698 | Zygarde Cube | 0 | ZygardeCube | - | - | not audited (key items: next session) |
-| 699 | Prison Bottle | 0 | FormChange | - | - | Form items self-test (engine `993496aa`, after the package) |
-| 700 | N-Solarizer | 0 | Fusion | - | - | not audited (key items: next session) |
-| 701 | N-Lunarizer | 0 | Fusion | - | - | not audited (key items: next session) |
-| 702 | Reins of Unity | 0 | Fusion | - | - | not audited (key items: next session) |
-| 703 | Mega Ring | 0 | - | - | - | Mega Evolution offered and done with it in the Bag, not offered without it, in the real game (`mega_check.py` cases `wild` and `no-mega-ring`, engine `223d15e1`, after the package) |
-| 704 | Z-Power Ring | 0 | - | - | - | not audited (key items: next session) |
-| 705 | Dynamax Band | 0 | - | - | - | not audited (key items: next session) |
-| 706 | Bike | 0 | Bike | - | - | not audited (key items: next session) |
-| 707 | Mach Bike | 0 | Bike | - | - | not audited (key items: next session) |
-| 708 | Acro Bike | 0 | Bike | - | - | not audited (key items: next session) |
-| 709 | Old Rod | 0 | Rod | - | - | Rods self-test; cast from the Bag in the real game (engines `7054b688`, `c624a2d4`, after the package) |
-| 710 | Good Rod | 0 | Rod | - | - | Rods self-test; cast from the Bag in the real game (engines `7054b688`, `c624a2d4`, after the package) |
-| 711 | Super Rod | 0 | Rod | - | - | Rods self-test; cast from the Bag in the real game (engines `7054b688`, `c624a2d4`, after the package) |
-| 712 | Dowsing Machine | 0 | Itemfinder | - | - | used from the Bag in the real game, by a hidden item and away from any (engine `c624a2d4`, after the package; its messages still call it the ITEMFINDER) |
-| 713 | Town Map | 0 | TownMap | - | - | used from the Bag in the real game: "took a closer look at the HOENN region map", the map at Route 104, B back to the field (engine `223d15e1`, after the package) |
-| 714 | Vs. Seeker | 0 | - | - | - | not audited (key items: next session) |
-| 715 | TM Case | 0 | - | - | - | not audited (key items: next session) |
-| 716 | Berry Pouch | 0 | - | - | - | not audited (key items: next session) |
-| 717 | ウエ Box Link | 0 | PokemonBoxLink | - | - | not audited (key items: next session) |
-| 718 | Coin Case | 0 | CoinCase | - | - | used from the Bag in the real game: "Your COINS: 123456" (the PC wallet's six digits); its description said 9,999 (MS-157, fixed on engine `4f841321`, after the package) |
-| 719 | Powder Jar | 0 | PowderJar | - | - | not audited (key items: next session) |
-| 720 | Wailmer Pail | 0 | WailmerPail | - | - | used on Sudowoodo and on a planted Oran Berry (from the tree and from the Bag) in the real game (engine `223d15e1`); the yield each watered stage gives, a self-test (engine `bbf722b7`); after the package |
-| 721 | Poké Radar | 0 | - | - | - | not audited (key items: next session) |
-| 722 | オカキクケ Case | 0 | PokeblockCase | - | - | not audited (key items: next session) |
-| 723 | Soot Sack | 0 | - | - | - | five steps in Route 113's ash grass in the real game, 2D and 3D: the Glass Workshop counts 5 (engine `223d15e1`, after the package) |
-| 724 | Poké Flute | 0 | PokeFlute | Poke Flute | - | GBA tests that name it: 5 passed; in battle: `item_effect/poke_flute.c` 2 passed |
-| 725 | Fame Checker | 0 | - | - | - | not audited (key items: next session) |
-| 726 | Teachy TV | 0 | - | - | - | not audited (key items: next session) |
-| 727 | S.S. Ticket | 0 | - | - | - | not audited (key items: next session) |
-| 728 | Eon Ticket | 0 | - | - | - | not audited (key items: next session) |
-| 729 | Mystic Ticket | 0 | - | - | - | not audited (key items: next session) |
-| 730 | Aurora Ticket | 0 | - | - | - | not audited (key items: next session) |
-| 731 | Old Sea Map | 0 | - | - | - | not audited (key items: next session) |
-| 732 | Letter | 0 | - | - | - | not audited (key items: next session) |
-| 733 | Devon Parts | 0 | - | - | - | not audited (key items: next session) |
-| 734 | Go-Goggles | 0 | - | - | - | into Route 111's desert in the real game, refused without them (engine `c624a2d4`, after the package) |
-| 735 | Devon Scope | 0 | - | - | - | a hidden Kecleon revealed in the real game; its battle refused offline (MS-156), fixed on engine `223d15e1` (after the package) |
-| 736 | Basement Key | 0 | - | - | - | not audited (key items: next session) |
-| 737 | Scanner | 0 | - | - | - | not audited (key items: next session) |
-| 738 | Storage Key | 0 | - | - | - | not audited (key items: next session) |
-| 739 | Key to Room 1 | 0 | - | - | - | not audited (key items: next session) |
-| 740 | Key to Room 2 | 0 | - | - | - | not audited (key items: next session) |
-| 741 | Key to Room 4 | 0 | - | - | - | not audited (key items: next session) |
-| 742 | Key to Room 6 | 0 | - | - | - | not audited (key items: next session) |
-| 743 | Meteorite | 0 | FormChange | - | - | Form items self-test (engine `993496aa`, after the package) |
-| 744 | Magma Emblem | 0 | - | - | - | not audited (key items: next session) |
-| 745 | Contest Pass | 0 | - | - | - | not audited (key items: next session) |
-| 746 | Parcel | 0 | - | - | - | not audited (key items: next session) |
-| 747 | Secret Key | 0 | - | - | - | not audited (key items: next session) |
-| 748 | Bike Voucher | 0 | - | - | - | not audited (key items: next session) |
-| 749 | Gold Teeth | 0 | - | - | - | not audited (key items: next session) |
-| 750 | Card Key | 0 | - | - | - | not audited (key items: next session) |
-| 751 | Lift Key | 0 | - | - | - | not audited (key items: next session) |
-| 752 | Silph Scope | 0 | - | - | - | GBA tests that name it: 2 passed |
-| 753 | Tri-Pass | 0 | - | - | - | not audited (key items: next session) |
-| 754 | Rainbow Pass | 0 | - | - | - | not audited (key items: next session) |
-| 755 | Tea | 0 | - | - | - | not audited (key items: next session) |
-| 756 | Ruby | 0 | - | - | - | not audited (key items: next session) |
-| 757 | Sapphire | 0 | - | - | - | not audited (key items: next session) |
-| 770 | Scroll of Darkness | 0 | EvolutionStone | - | - | its evolution use not audited |
-| 771 | Scroll of Waters | 0 | EvolutionStone | - | - | its evolution use not audited |
-| 772 | Tera Orb | 0 | - | - | - | not audited (key items: next session) |
-| 813 | Glimmering Charm | 0 | - | - | - | not audited (key items: next session) |
+| 693 | Exp. Charm | 0 | - | - | - | 2 new GBA tests (engine `aebcf98d`, after the first candidate) passed: the experience gained half again as much with it in the Bag, alone and with a held Lucky Egg |
+| 694 | Rotom Catalog | 0 | RotomCatalog | - | - | each of Rotom's six forms and back, coin-shop self-test `check-rare-goods` (engine `3c9e3088`, after the first candidate) |
+| 695 | Gracidea | 0 | FormChange | - | - | Form items self-test (engine `993496aa`, after the first candidate) |
+| 696 | Reveal Glass | 0 | FormChange | - | - | Form items self-test (engine `993496aa`, after the first candidate) |
+| 697 | DNA Splicers | 0 | Fusion | - | - | used from the Bag in the real game: Kyurem and Reshiram fused and split again (engine `c624a2d4`, after the first candidate) |
+| 698 | Zygarde Cube | 0 | ZygardeCube | - | - | Zygarde's two choices, coin-shop self-test `check-rare-goods` (engine `3c9e3088`, after the first candidate) |
+| 699 | Prison Bottle | 0 | FormChange | - | - | Form items self-test (engine `993496aa`, after the first candidate) |
+| 700 | N-Solarizer | 0 | Fusion | - | - | not obtainable in this game: nothing gives, sells or drops it (the scripts, the maps, the marts, the PC game's shops, wild Pokemon) (after the first candidate) |
+| 701 | N-Lunarizer | 0 | Fusion | - | - | not obtainable in this game: nothing gives, sells or drops it (the scripts, the maps, the marts, the PC game's shops, wild Pokemon) (after the first candidate) |
+| 702 | Reins of Unity | 0 | Fusion | - | - | not obtainable in this game: nothing gives, sells or drops it (the scripts, the maps, the marts, the PC game's shops, wild Pokemon) (after the first candidate) |
+| 703 | Mega Ring | 0 | - | - | - | Mega Evolution offered and done with it in the Bag, not offered without it, in the real game (`mega_check.py` cases `wild` and `no-mega-ring`, engine `223d15e1`, after the first candidate) |
+| 704 | Z-Power Ring | 0 | - | - | - | not obtainable in this game: nothing gives, sells or drops it (the scripts, the maps, the marts, the PC game's shops, wild Pokemon) (after the first candidate) |
+| 705 | Dynamax Band | 0 | - | - | - | not obtainable in this game: nothing gives, sells or drops it (the scripts, the maps, the marts, the PC game's shops, wild Pokemon) (after the first candidate) |
+| 706 | Bike | 0 | Bike | - | - | not obtainable in this game: nothing gives, sells or drops it (the scripts, the maps, the marts, the PC game's shops, wild Pokemon) (after the first candidate) |
+| 707 | Mach Bike | 0 | Bike | - | - | ridden from the Bag in the real game, faster than walking (engine `812d7bf3`, after the first candidate) |
+| 708 | Acro Bike | 0 | Bike | - | - | ridden from the Bag in the real game (engine `812d7bf3`, after the first candidate) |
+| 709 | Old Rod | 0 | Rod | - | - | Rods self-test; cast from the Bag in the real game (engines `7054b688`, `c624a2d4`, after the first candidate) |
+| 710 | Good Rod | 0 | Rod | - | - | Rods self-test; cast from the Bag in the real game (engines `7054b688`, `c624a2d4`, after the first candidate) |
+| 711 | Super Rod | 0 | Rod | - | - | Rods self-test; cast from the Bag in the real game (engines `7054b688`, `c624a2d4`, after the first candidate) |
+| 712 | Dowsing Machine | 0 | Itemfinder | - | - | used from the Bag in the real game, by a hidden item and away from any (engine `c624a2d4`, after the first candidate; its messages still call it the ITEMFINDER) |
+| 713 | Town Map | 0 | TownMap | - | - | used from the Bag in the real game: "took a closer look at the HOENN region map", the map at Route 104, B back to the field (engine `223d15e1`, after the first candidate) |
+| 714 | Vs. Seeker | 0 | - | - | - | not obtainable in this game: only Kanto's maps give it, and no map, warp or script of this game reaches Kanto (after the first candidate) |
+| 715 | TM Case | 0 | - | - | - | not obtainable in this game: nothing gives, sells or drops it (the scripts, the maps, the marts, the PC game's shops, wild Pokemon) (after the first candidate) |
+| 716 | Berry Pouch | 0 | - | - | - | not obtainable in this game: nothing gives, sells or drops it (the scripts, the maps, the marts, the PC game's shops, wild Pokemon) (after the first candidate) |
+| 717 | Pokemon Box Link | 0 | PokemonBoxLink | - | - | not obtainable in this game: nothing gives, sells or drops it (the scripts, the maps, the marts, the PC game's shops, wild Pokemon) (after the first candidate) |
+| 718 | Coin Case | 0 | CoinCase | - | - | used from the Bag in the real game: "Your COINS: 123456" (the PC wallet's six digits); its description said 9,999 (MS-157, fixed on engine `4f841321`, after the first candidate) |
+| 719 | Powder Jar | 0 | PowderJar | - | - | used from the Bag in the real game: "POWDER QTY: 0" (engine `812d7bf3`, after the first candidate) |
+| 720 | Wailmer Pail | 0 | WailmerPail | - | - | used on Sudowoodo and on a planted Oran Berry (from the tree and from the Bag) in the real game (engine `223d15e1`); the yield each watered stage gives, a self-test (engine `bbf722b7`); after the first candidate |
+| 721 | Poké Radar | 0 | - | - | - | not obtainable in this game: nothing gives, sells or drops it (the scripts, the maps, the marts, the PC game's shops, wild Pokemon) (after the first candidate) |
+| 722 | Pokeblock Case | 0 | PokeblockCase | - | - | used from the Bag in the real game: the case opens (engine `812d7bf3`, after the first candidate) |
+| 723 | Soot Sack | 0 | - | - | - | five steps in Route 113's ash grass in the real game, 2D and 3D: the Glass Workshop counts 5 (engine `223d15e1`, after the first candidate) |
+| 724 | Poké Flute | 0 | PokeFlute | Poke Flute | - | GBA tests that name it: 5 passed; in battle: `item_effect/poke_flute.c` 2 passed; not obtainable in this game: only Kanto's maps give it, and no map, warp or script of this game reaches Kanto (after the first candidate) |
+| 725 | Fame Checker | 0 | - | - | - | not obtainable in this game: only Kanto's maps give it, and no map, warp or script of this game reaches Kanto (after the first candidate) |
+| 726 | Teachy TV | 0 | - | - | - | not obtainable in this game: only Kanto's maps give it, and no map, warp or script of this game reaches Kanto (after the first candidate) |
+| 727 | S.S. Ticket | 0 | - | - | - | story key item, the scripts read: given, checked and taken as in Emerald (code read, after the first candidate) |
+| 728 | Eon Ticket | 0 | - | - | - | story key item, the scripts read: given, checked and taken as in Emerald (code read, after the first candidate) |
+| 729 | Mystic Ticket | 0 | - | - | - | story key item, the scripts read: given, checked and taken as in Emerald (code read, after the first candidate) |
+| 730 | Aurora Ticket | 0 | - | - | - | story key item, the scripts read: given, checked and taken as in Emerald (code read, after the first candidate) |
+| 731 | Old Sea Map | 0 | - | - | - | story key item, the scripts read: given, checked and taken as in Emerald (code read, after the first candidate) |
+| 732 | Letter | 0 | - | - | - | story key item, the scripts read: given, checked and taken as in Emerald (code read, after the first candidate) |
+| 733 | Devon Parts | 0 | - | - | - | story key item, the scripts read: given, checked and taken as in Emerald (code read, after the first candidate) |
+| 734 | Go-Goggles | 0 | - | - | - | into Route 111's desert in the real game, refused without them (engine `c624a2d4`, after the first candidate) |
+| 735 | Devon Scope | 0 | - | - | - | a hidden Kecleon revealed in the real game; its battle refused offline (MS-156), fixed on engine `223d15e1` (after the first candidate) |
+| 736 | Basement Key | 0 | - | - | - | New Mauville's door in the real game: "Use the BASEMENT KEY?", "The door opened!", in; without it, locked (engine `812d7bf3`, after the first candidate) |
+| 737 | Scanner | 0 | - | - | - | story key item, the scripts read: given, checked and taken as in Emerald (code read, after the first candidate) |
+| 738 | Storage Key | 0 | - | - | - | story key item, the scripts read: given, checked and taken as in Emerald (code read, after the first candidate) |
+| 739 | Key to Room 1 | 0 | - | - | - | story key item, the scripts read: given, checked and taken as in Emerald (code read, after the first candidate) |
+| 740 | Key to Room 2 | 0 | - | - | - | story key item, the scripts read: given, checked and taken as in Emerald (code read, after the first candidate) |
+| 741 | Key to Room 4 | 0 | - | - | - | story key item, the scripts read: given, checked and taken as in Emerald (code read, after the first candidate) |
+| 742 | Key to Room 6 | 0 | - | - | - | story key item, the scripts read: given, checked and taken as in Emerald (code read, after the first candidate) |
+| 743 | Meteorite | 0 | FormChange | - | - | Form items self-test (engine `993496aa`, after the first candidate) |
+| 744 | Magma Emblem | 0 | - | - | - | story key item, the scripts read: given, checked and taken as in Emerald (code read, after the first candidate) |
+| 745 | Contest Pass | 0 | - | - | - | story key item, the scripts read: given, checked and taken as in Emerald (code read, after the first candidate) |
+| 746 | Parcel | 0 | - | - | - | not obtainable in this game: nothing gives, sells or drops it (the scripts, the maps, the marts, the PC game's shops, wild Pokemon) (after the first candidate) |
+| 747 | Secret Key | 0 | - | - | - | not obtainable in this game: only Kanto's maps give it, and no map, warp or script of this game reaches Kanto (after the first candidate) |
+| 748 | Bike Voucher | 0 | - | - | - | not obtainable in this game: only Kanto's maps give it, and no map, warp or script of this game reaches Kanto (after the first candidate) |
+| 749 | Gold Teeth | 0 | - | - | - | not obtainable in this game: only Kanto's maps give it, and no map, warp or script of this game reaches Kanto (after the first candidate) |
+| 750 | Card Key | 0 | - | - | - | not obtainable in this game: only Kanto's maps give it, and no map, warp or script of this game reaches Kanto (after the first candidate) |
+| 751 | Lift Key | 0 | - | - | - | not obtainable in this game: only Kanto's maps give it, and no map, warp or script of this game reaches Kanto (after the first candidate) |
+| 752 | Silph Scope | 0 | - | - | - | GBA tests that name it: 2 passed; not obtainable in this game: only Kanto's maps give it, and no map, warp or script of this game reaches Kanto (after the first candidate) |
+| 753 | Tri-Pass | 0 | - | - | - | not obtainable in this game: only Kanto's maps give it, and no map, warp or script of this game reaches Kanto (after the first candidate) |
+| 754 | Rainbow Pass | 0 | - | - | - | not obtainable in this game: only Kanto's maps give it, and no map, warp or script of this game reaches Kanto (after the first candidate) |
+| 755 | Tea | 0 | - | - | - | not obtainable in this game: only Kanto's maps give it, and no map, warp or script of this game reaches Kanto (after the first candidate) |
+| 756 | Ruby | 0 | - | - | - | not obtainable in this game: only Kanto's maps give it, and no map, warp or script of this game reaches Kanto (after the first candidate) |
+| 757 | Sapphire | 0 | - | - | - | not obtainable in this game: only Kanto's maps give it, and no map, warp or script of this game reaches Kanto (after the first candidate) |
+| 770 | Scroll of Darkness | 0 | EvolutionStone | - | - | not obtainable in this game: nothing gives, sells or drops it (the scripts, the maps, the marts, the PC game's shops, wild Pokemon) (after the first candidate) |
+| 771 | Scroll of Waters | 0 | EvolutionStone | - | - | not obtainable in this game: nothing gives, sells or drops it (the scripts, the maps, the marts, the PC game's shops, wild Pokemon) (after the first candidate) |
+| 772 | Tera Orb | 0 | - | - | - | not obtainable in this game: nothing gives, sells or drops it (the scripts, the maps, the marts, the PC game's shops, wild Pokemon) (after the first candidate) |
+| 813 | Glimmering Charm | 0 | - | - | - | not obtainable in this game: nothing gives, sells or drops it (the scripts, the maps, the marts, the PC game's shops, wild Pokemon) (after the first candidate) |
 
