@@ -49,7 +49,50 @@ must respect, unchanged personality and OT ID, is kept by construction); Windows
 
 ## 2. Pokemon riding: animations and positioning
 
-(in progress)
+**Done** (engine `9d773a92`, PC only; the GBA ROM unchanged). Looked for in pictures of the running game (2D and 3D, every
+facing, walking, hops, a ledge, a battle, a door) and in a session of two games through a real world server. What was
+wrong and what changed:
+
+| Seen | Cause | Now |
+|---|---|---|
+| The rider floated over small backs and sank into tall ones | one lift for every mount, from its picture's size: 7 px for all 67 rideable species (all have 32x32 pictures) | the seat is read from each mount's own picture: the top of its back in the rear half of the side view (the lower quartile of that edge, at most 68 % of the drawn height up, the rider 3 px into the back), per facing and per trainer picture: **6 to 18 px** (Tyranitar and Pyroar 6, Venusaur and Arcanine 13, Dodrio and Aerodactyl 17, Noivern 18) |
+| Seen from the side the rider sat over the middle (over the head of some) | no sideways place | over the back, 1-5 px toward the tail, mirrored facing east |
+| Facing the camera the rider was drawn over the mount's head | the rider always in front | the mount in front (the rider's head and shoulders show behind its head); facing away or sideways the rider in front |
+| The rider popped onto the seat and off it | the lift applied at once | it rises over the hop on and comes down over the hop off (12 frames each) |
+| Two shadows; a dust puff at the mount's feet as the rider landed on its back | the rider's own shadow and landing were the ground's | no shadow of the rider's own; no dust on the hop on (the hop off keeps it: that one lands on the ground) |
+| 3D: the rider sank into the mount as the camera tilted, and the two could drift apart in a step | two separately placed cards; the lift was a height in the world | the rider's card is drawn on the mount's (same place and step, the seat along the card's lean), sorted just in front of it (just behind it facing the camera); mounts get the silhouette shown through walls, as the player and the follower do |
+| Riding into a building: the rider went through the door and the mount stood outside until the screen faded; inside, the seated pose for a moment | a script's steps (the door's step in) were not taken by the mount; the seated look was put back on a map where riding is not allowed | the mount takes the step with its rider and hides in the same frame; inside, the walking look from the first frame (riding ends indoors, as before) |
+| After a battle (the owner's report of 2026-10-23) the trainer walked on the ground, then popped onto the mount | the mount and the look came back once the field was calm | back on the mount from the first frame of the fade-in |
+| **Another player** hopping on: their follower vanished and the mount appeared under them after their hop | the mount state was published after the hop | published as the hop starts; their Pokemon walks under them, then the seat rises; the walking look until then |
+| Another player seated and standing still was **drawn as nothing** until they moved (older than this request) | their picture changed without a new animation frame | the new picture shows at once (also for their Pokemon) |
+| Another player hopping off: the mount vanished for half a second, the rider dropped at once | their own follower is hidden during the hop, so the copy was removed | the Pokemon stays drawn, steps back as the local mount does, the seat comes down, the rider in front |
+| A rider coming into view mid-step: the mount walked a tile past them and snapped back | the mount's step started from the rider's new tile | it starts from where the rider's step starts |
+
+Unchanged: where riding is allowed, the riding pace, that riding grants no Surf or Fly, the multiplayer record (the
+same two values), the camera (it follows the player as before; no fault found), the scale (the mounts are the
+follower pictures, the rider the trainer's seated picture, as before). The rider's seated pose is the original surfing
+pose, which has no walking frames: the rider sits still while the mount walks (not changed).
+
+Tests (**L**). The door and the two-game 2D check used the final code (engine `9d773a92`'s test build); the others used
+test builds from earlier in this work, before the door change (the frame-by-frame hop, the battle, the ledge, the 3D
+captures and the 3D two-game run) or before the dust change too (the six-mount 2D captures); each change was tested on
+its own after it was made.
+
+| Test | Result |
+|---|---|
+| `--selftest-ride` (new; `make check-ride`): the 67 roster species' seats for both trainers, and a contact sheet of the old and the new seat in all four facings | **3 checks, 0 failed**; seats 6-18 px; the sheet looked over for all 67 species |
+| Riding in the 2D game (Classic 2D test build), six mounts of different shapes (Arcanine, Rapidash, Dragonite, Tropius, Noivern, Rhyhorn): hop on, the four facings, walking, hop off; the hops frame by frame | as in the table above; no dust on the hop on |
+| The same in the 3D game (Mesa software OpenGL) | the rider on the mount's card in every pose, in step while walking, hop off |
+| Riding south over Route 101's ledge (2D) | rider and mount jump together, one shadow, dust only from the mount's landing |
+| A visible wild Pokemon bumps into the rider; Run (2D) | back on the field on the mount from the first frame of the fade-in |
+| Riding into a house in Oldale Town (2D and 3D) | the mount goes through the door with the rider, nothing left outside; inside in the walking look |
+| Two games, a real world server, real companions (`scripts/multiplayer/native_ride_check.py`, 2D test build): B mounts north of A, rides two tiles west and back, dismounts; A takes 128 pictures | **passed** (one machine, no simulated internet): B's mount state reached A's game in 21 and 20 ms; the pictures show B's Pokemon walking under B, the seat rising, B seated standing and riding, the hop off with B in front |
+| The same two-game run with the 3D test build (once, the same harness by hand) | the same, in 3D |
+| GBA ROM, `check_gba_lines.py`, `check-native`, `check-diorama`, 2D and 3D builds | ROM **unchanged** (`f214735b...`); 0 moved lines; 1512 + 15 + 176 checks, 0 failures; compositor goldens passed; both build |
+
+Not tested: bridges and other changes of level than a ledge; caves (riding is allowed underground where bikes are);
+scripted moves other than a door's step (the same code takes them); a rider and a mount seen by three or four players;
+Windows; a player's PC; two real PCs.
 
 ## 3. Building minigames: every one playable
 
