@@ -627,7 +627,9 @@ Recorded guidance the code no longer follows (not binding decisions):
 | Trade evolution in a friend's (world) trade | **Not available**: the 29 species that evolve by trade are refused there (MS-151) | app `trade_eligibility.py` |
 | Held items no test checked (Plates, Light Clay, Wide Lens, Lax Incense, Bright Powder, Soul Dew, the confusion berries, the Macho Brace's and Power items' Speed, Focus Sash, Flame Orb, Toxic Orb, Amulet Coin, Luck Incense) | Tested (18 new GBA tests in battles of the test ROM) | engines `800015dd`, `6320c77d` |
 | The Ability Capsule and the Ability Patch: what each does to a Pokemon's ability (the party menu's rules) | Tested (`--selftest-ability-items`, 16 checks; the menu's screens not run); not in the 2026-10-27 package | engine `8db6561e` |
-| The rest of the item audit (key items' uses, charms; Focus Band; a real battle in the PC game, the bag taking an item, its multiplayer sync and save) | Not done (next session) | `docs/item-audit-20261027.md` |
+| Focus Band: holding on at 1 HP below full HP, kept after use (a fixed roll) | Tested (3 new GBA tests); not in the 2026-10-27 package | engine `fc8c5f76` |
+| The fishing rods: bite odds (Gen 4+, Suction Cups and Sticky Hold), each rod's slots and rates, lures, every map's fishing table; each rod cast from the Bag in the real game | Tested (`--selftest-rods`, 41 checks; `rods_check.py` in the Linux 2D and 3D test builds; not on Windows); not in the package | engines `7054b688`, `c624a2d4` |
+| The rest of the item audit (the other key items' uses, charms; a real battle in the PC game with held items, an item's multiplayer sync) | Not done (next session) | `docs/item-audit-20261027.md` |
 
 ## Battle transitions in 3D (2026-10-27, `docs/battle-transitions-3d-20261027.md`)
 

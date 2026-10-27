@@ -14,11 +14,11 @@ session.
 
 | What checked it | Items |
 | --- | --- |
-| a self-test of today's audit (L), some also the expansion's tests | 206 |
+| a self-test of today's audit (L), some also the expansion's tests | 209 |
 | the expansion's tests: tests that name it, or of its effect (T) | 350 |
 | no test names it; its effect's own test still to be written upstream | 22 |
 | not audited yet | 66 |
-| key items, not audited yet | 65 |
+| key items, not audited yet | 62 |
 | no use from the bag, in battle or held (sold, traded, or given to someone: fossils, shards, Heart Scales) | 114 |
 | spare TM numbers (TM51-TM100): no move, given nowhere | 50 |
 | all | 873 |
@@ -501,7 +501,7 @@ session.
 | 466 | Amulet Coin | 100 | - | - | double prize | GBA tests that name it: 4 passed; held: `hold_effect/double_prize.c` 0 passed, 1 to do |
 | 467 | Cleanse Tag | 200 | - | - | repel | wild item audit (gameplay report section 5); held: `hold_effect/repel.c` 0 passed, 1 to do |
 | 468 | Smoke Ball | 200 | - | - | can always run | GBA tests that name it: 1 passed; held: `hold_effect/can_always_run.c` 0 passed, 1 to do |
-| 469 | Focus Band | 200 | - | - | focus band | GBA tests that name it: 4 passed; held: `hold_effect/focus_band.c` 0 passed, 1 to do |
+| 469 | Focus Band | 200 | - | - | focus band | GBA tests that name it: 4 passed, and 3 new (engine `fc8c5f76`, after the package) passed; held: `hold_effect/focus_band.c` 0 passed, 1 to do |
 | 470 | Lucky Egg | 200 | - | - | lucky egg | GBA tests that name it: 3 passed; held: `hold_effect/lucky_egg.c` 0 passed, 1 to do |
 | 471 | Scope Lens | 100 | - | - | scope lens | GBA tests that name it: 4 passed; held: `hold_effect/scope_lens.c` 1 passed |
 | 472 | Leftovers | 200 | - | - | leftovers | GBA tests that name it: 36 passed; held: `hold_effect/leftovers.c` 3 passed |
@@ -867,9 +867,9 @@ session.
 | 706 | Bike | 0 | Bike | - | - | not audited (key items: next session) |
 | 707 | Mach Bike | 0 | Bike | - | - | not audited (key items: next session) |
 | 708 | Acro Bike | 0 | Bike | - | - | not audited (key items: next session) |
-| 709 | Old Rod | 0 | Rod | - | - | not audited (key items: next session) |
-| 710 | Good Rod | 0 | Rod | - | - | not audited (key items: next session) |
-| 711 | Super Rod | 0 | Rod | - | - | not audited (key items: next session) |
+| 709 | Old Rod | 0 | Rod | - | - | Rods self-test; cast from the Bag in the real game (engines `7054b688`, `c624a2d4`, after the package) |
+| 710 | Good Rod | 0 | Rod | - | - | Rods self-test; cast from the Bag in the real game (engines `7054b688`, `c624a2d4`, after the package) |
+| 711 | Super Rod | 0 | Rod | - | - | Rods self-test; cast from the Bag in the real game (engines `7054b688`, `c624a2d4`, after the package) |
 | 712 | Dowsing Machine | 0 | Itemfinder | - | - | not audited (key items: next session) |
 | 713 | Town Map | 0 | TownMap | - | - | not audited (key items: next session) |
 | 714 | Vs. Seeker | 0 | - | - | - | not audited (key items: next session) |

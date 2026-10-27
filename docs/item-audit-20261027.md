@@ -30,6 +30,8 @@ the built game, with what checked each one today (and which are not audited yet)
 * **Mints: done** (below): each mint's nature and what a mint does to the stats.
 * **Trade evolution items: done** (below): the Gen 1-6 trade evolutions and the items held for them.
 * **The Ability Capsule and the Ability Patch: done after the package** (below): what each does to a Pokemon's ability.
+* **Focus Band and the fishing rods: done after the package** (below): the band's effect in battles of the test ROM;
+  the rods' bites and slots through the game's code, and each rod cast from the Bag in the real game.
 * **Held items no test checked: 18 new GBA tests** (below): the Plates, Light Clay, Wide Lens, Lax Incense, Bright
   Powder, Soul Dew, the confusion berries, the Macho Brace's and Power items' halved Speed, Focus Sash, Flame Orb,
   Toxic Orb, Amulet Coin and Luck Incense.
@@ -265,6 +267,52 @@ Magnemite's Analytic, Bulbasaur's Chlorophyll) and takes it back to the first, a
 no hidden ability (Unown, Shedinja) or on an Egg. The new ability is kept in the Pokemon's stored data (its box form,
 as saved). Not run: the menu's screens and the item leaving the bag.
 
+## Focus Band (after the package)
+
+Three new GBA tests (`test/battle/hold_effect/item_audit_untested.c`, engine `fc8c5f76`, test code only, not in the
+2026-10-27 package): **3 of 3 passed**. The band's roll is a plain `Random() % 100` below its 10 (`battle_util.c`),
+which the test runner cannot steer, and measured over the runner's 50 seeds it held on 7 times (14%; within chance of
+10%, but outside the runner's 2% tolerance), so the tests fix the seed instead, as the expansion's own Final Gambit
+test of the band does: on a seed whose roll succeeds, a holder below full HP hangs on at 1 HP ("... hung on using its
+Focus Band!") and keeps the band (it is not used up, unlike the Focus Sash); a Pokemon without a band faints on the
+same seed; on a seed whose roll fails, the holder faints. Its 10% is the item's data (checked by the test).
+
+## The fishing rods (after the package)
+
+`--selftest-rods` (new; `make -f Makefile_pc check-rods`; engine `7054b688`, test code and two PC-only wrappers, not in
+the 2026-10-27 package): **41 checks, 0 failed.** Through the game's own code: the Old, Good and Super Rods get a bite
+25, 50 and 75% of the time (the Gen 4+ odds the game is set to; Emerald had 50% for each), doubled by a lead with
+Suction Cups or Sticky Hold (50, 100, 100), not by an Egg; each rod picks only its own slots of a map's fishing table
+(Old 0-1, Good 2-4, Super 5-9) at Emerald's rates (70/30; 60/20/20; 40/40/15/4/1; 200,000 bites each), and with a lure
+a fifth of them are swapped end for end (the expansion's lure rule); all 53 maps' fishing tables have a Pokemon in
+every slot, its levels in order.
+
+`tools/battle_env/rods_check.py` (new, engine `c624a2d4`, test builds only): each rod cast **from the Bag in real game
+processes** (START > BAG > KEY ITEMS > the rod > USE, on Route 109's beach facing the sea; a test-only switch answers
+"Oh! A bite!" in time, as a person reacting to it): every rod hooked a Pokemon and its battle started, at a level of the
+rod's own slots (Old Rod a level-8 Tympole, Good Rod a level-18 Goldeen, Super Rod a level-25 Tentacool in the Classic
+2D test build; a level-6 Barboach, a level-23 Basculin and a level-34 Goldeen in the 3D one), and the rod stayed in the
+Bag: **PASS in both builds**. The species is not the map's own: the PC game draws a fished Pokemon from its fishing
+pool (`mp_wild_random.c`), keeping the slot's level (a custom rule, unchanged).
+
+## The Bag in the real game (after the package)
+
+The game's existing real-game checks (`tools/battle_env/*_check.py`: real game processes, the presses a person makes,
+the counts read from the game's own log) were run again on engine `c624a2d4` (the Classic 2D test build; not on
+Windows): **all four passed**.
+
+* `train_check.py` (8 steps): a Bottle Cap, a Gold Bottle Cap and an Ability Patch used from the Bag on the lead; each
+  used item left the Bag (Bottle Caps 3 -> 2, the Gold Bottle Cap 1 -> 0, the patches 2 -> 1 -> 0); an item refused
+  ("It won't have any effect": nothing left to train, every IV 31) left nothing used; the counts and the Pokemon the
+  same after the save was loaded.
+* `evolve_check.py` (8 steps): a Rare Candy (Zigzagoon 19 -> Linoone 20), the evolution stopped with B (still a level-20
+  Zigzagoon), a Fire Stone (Vulpix -> Ninetales), an evolution after a won battle; each saved and loaded. (It reads the
+  Pokemon, not the Bag's counts.)
+* `catch_check.py` (4 steps): a Master Ball thrown from the battle's Bag at a wild Magikarp and Poochyena: caught, the
+  ball used (1 -> 0), the catch in the party or sent to the PC, saved and loaded.
+* `shop_check.py` (4 steps): a Potion bought at the Oldale Mart (money 3,000 -> 2,700, Potions 0 -> 1) and sold back
+  (2,850, 0), each saved and loaded.
+
 ## Held items no test checked: new GBA tests
 
 `test/battle/hold_effect/item_audit_untested.c` (new; the GBA test ROM only, engines `800015dd` and `6320c77d`):
@@ -339,8 +387,8 @@ Punching Glove. Of these, today's new tests (above) cover the confusion berries,
 Macho Brace and Power items, Flame and Toxic Orb, Focus Sash, Light Clay, Wide Lens, Soul Dew, the plates, Amulet Coin
 and Luck Incense; the Power items' and Macho Brace's effort values, the Soothe Bell, the Everstone and Cleanse Tag have
 today's self-tests; other expansion tests cover Smoke Ball (`ability/arena_trap.c`), Exp. Share, Lucky Egg, Grip Claw
-and Power Herb; Mega Evolution and Primal Reversion are tested in `form_change`. **Still with no test:** Focus Band (its
-roll cannot be steered by the tests), the drives and memories (Gen 5 and 7), and three later items (Heavy-Duty Boots,
+and Power Herb; Mega Evolution and Primal Reversion are tested in `form_change`. **Still with no test** (as packaged): Focus Band (its
+roll cannot be steered by the tests; tested after the package on fixed seeds, above), the drives and memories (Gen 5 and 7), and three later items (Heavy-Duty Boots,
 Loaded Dice, Punching Glove): the next session's held-item work. The cure berries' and the HP berries' own files point
 to `cure_status.c` and `restore_hp.c`, which are tested.
 
@@ -354,3 +402,9 @@ to `cure_status.c` and `restore_hp.c`, which are tested.
 * The held items listed above as still with no test; a real battle in the PC game with any held item (the GBA test
   ROM runs the same battle code, without the PC parts).
 * Key items and the other charms.
+
+After the package (above): a Master Ball thrown in a real battle and used up, items used from the Bag and refused,
+bought and sold, each saved and loaded (the real-game checks), the rods cast from the Bag, Focus Band. Still not done:
+a Poke Ball's effect after the catch (Heal, Friend, Luxury) in the real game; any item's multiplayer sync; a real
+battle in the PC game with held items; the other key items (the Itemfinder, the Wailmer Pail, the Soot Sack, the
+form-change items...) and the other charms; the held items still with no test.
