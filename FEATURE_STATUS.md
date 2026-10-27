@@ -626,6 +626,7 @@ Recorded guidance the code no longer follows (not binding decisions):
 | Trade evolution items: the Gen 1-6 trade evolutions with their items, the Everstone and Kadabra, Karrablast and Shelmet | Tested (`--selftest-evo-items`, 33 checks; the trade itself not run) | engine `acea1d3f` |
 | Trade evolution in a friend's (world) trade | **Not available**: the 29 species that evolve by trade are refused there (MS-151) | app `trade_eligibility.py` |
 | Held items no test checked (Plates, Light Clay, Wide Lens, Lax Incense, Bright Powder, Soul Dew, the confusion berries, the Macho Brace's and Power items' Speed, Focus Sash, Flame Orb, Toxic Orb, Amulet Coin, Luck Incense) | Tested (18 new GBA tests in battles of the test ROM) | engines `800015dd`, `6320c77d` |
+| The Ability Capsule and the Ability Patch: what each does to a Pokemon's ability (the party menu's rules) | Tested (`--selftest-ability-items`, 16 checks; the menu's screens not run); not in the 2026-10-27 package | engine `8db6561e` |
 | The rest of the item audit (key items' uses, charms; Focus Band; a real battle in the PC game, the bag taking an item, its multiplayer sync and save) | Not done (next session) | `docs/item-audit-20261027.md` |
 
 ## Battle transitions in 3D (2026-10-27, `docs/battle-transitions-3d-20261027.md`)
@@ -642,6 +643,16 @@ Recorded guidance the code no longer follows (not binding decisions):
 | --- | --- | --- |
 | Another player surfing is drawn on the Pokemon that used Surf (species, shiny, female), in 2D and 3D | Implemented and tested (two Linux games on one machine, real server and companions; not between two real PCs, not on Windows) | engine `dbaf6923`, `scripts/multiplayer/native_surf_check.py` |
 | Another player under the water (Dive) on their carrier; Fly's take-off and landing for other players | Not done (next session) | - |
+
+## 3D jump ledges, hills and ramps (2026-10-27, `docs/ledge-overhaul-20261027.md`; after the package)
+
+| Feature | Status | Evidence |
+| --- | --- | --- |
+| Every terrain jump ledge (959 in 38 layouts) drawn in 3D as a bank: grass rising from the side it is jumped from to a crest, the drawn rock face falling to the side it lands on, on the grounds of the cells either side; no walls or floating slabs (MS-152) | Implemented and tested (Linux 3D test build: 108 spots pictured before and after, 5 jumps frame by frame; not on Windows or a graphics card); **not in the 2026-10-27 package** | engine `f0f795f9` |
+| The walker's shadow on the bank while it jumps; another player and their Pokemon standing on the crest | Implemented and tested (Linux 3D test build; two games on one machine through a real world server); not in the package | engines `f0f795f9`, `939d63a5` |
+| Slopes rising between levels in 3D (Jagged Pass, the Safari Zone, Routes 115 and 119, Granite Cave B1F, Sootopolis Gym's slides) | Not done: 37 lie flat (MS-153); Route 111's 8 rise as ramps | `docs/ledge-overhaul-20261027.md` |
+| The 46 ledges that land a level higher in the 3D view's terrace levels | Not done (MS-154) | `docs/ledge-overhaul-20261027.md` |
+| The 48 ledges in the four modelled rooms (Fortree Gym, Lavaridge Gym 1F and B1F, the Trick House's fourth puzzle) | Not changed: they keep their rooms' models | `docs/ledge-overhaul-20261027.md` |
 
 ## How to update
 

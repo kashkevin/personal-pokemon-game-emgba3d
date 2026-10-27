@@ -3,7 +3,9 @@
 The owner's request "Full item audit" (every item of Gen 1-6: Poke Balls and their capture math, healing, held items,
 berries, TMs and HMs, evolution items, charms, mints, Mega Stones, key items and so on). It asks for an item-by-item
 report, with each item's effect, usage conditions, consumption, interactions, multiplayer sync and saving checked
-against real behaviour. Existing balance must not change silently. Nothing here is packaged.
+against real behaviour. Existing balance must not change silently. The 2026-10-27 package is built from engine
+`6320c77d`, which has everything here except the Ability Capsule and Ability Patch self-test (engine `8db6561e`, test
+code only, written after the package was fixed).
 
 Where a result comes from: **L** this Linux machine (the game's own functions in self-tests); **T** the engine's GBA
 test ROM (`make check`, the expansion's own battle tests, run on this Linux machine). Nothing here was tried on
@@ -27,6 +29,7 @@ the built game, with what checked each one today (and which are not audited yet)
   Soothe Bell's friendship.
 * **Mints: done** (below): each mint's nature and what a mint does to the stats.
 * **Trade evolution items: done** (below): the Gen 1-6 trade evolutions and the items held for them.
+* **The Ability Capsule and the Ability Patch: done after the package** (below): what each does to a Pokemon's ability.
 * **Held items no test checked: 18 new GBA tests** (below): the Plates, Light Clay, Wide Lens, Lax Incense, Bright
   Powder, Soul Dew, the confusion berries, the Macho Brace's and Power items' halved Speed, Focus Sash, Flame Orb,
   Toxic Orb, Amulet Coin and Luck Incense.
@@ -248,6 +251,19 @@ their item ("Trade evolution is not enabled for this build", `trade_eligibility.
 friend's trade today; mail is refused there too. Not checked: the evolutions that
 need a held item at a level up (Happiny's Oval Stone by day, Gligar's Razor Fang and Sneasel's Razor Claw at night),
 which depend on the game's clock.
+
+## The Ability Capsule and the Ability Patch (after the package)
+
+`--selftest-ability-items` (new; `make -f Makefile_pc check-ability-items`; engine `8db6561e`, test code only, not in
+the 2026-10-27 package). **16 checks, 0 failed.** What each item does to a Pokemon's ability, by the rules the party
+menu checks before it changes it (`party_menu.c` `Task_AbilityCapsule` and `Task_AbilityPatch`; their conditions are
+copied into the test, because the tasks ask and answer through the menu's windows), checked against the species'
+data through `GetMonAbility`. The Capsule switches between a species' two abilities (Geodude's Rock Head and Sturdy,
+both ways; Magnemite's Sturdy to Magnet Pull) and has no effect on a species with one ability (Bulbasaur, Unown,
+Shedinja) or on a Pokemon that has its hidden ability. The Patch gives the hidden ability (Geodude's Sand Veil,
+Magnemite's Analytic, Bulbasaur's Chlorophyll) and takes it back to the first, and has no effect where a species has
+no hidden ability (Unown, Shedinja) or on an Egg. The new ability is kept in the Pokemon's stored data (its box form,
+as saved). Not run: the menu's screens and the item leaving the bag.
 
 ## Held items no test checked: new GBA tests
 

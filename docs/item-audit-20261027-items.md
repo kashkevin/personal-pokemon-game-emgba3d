@@ -14,10 +14,10 @@ session.
 
 | What checked it | Items |
 | --- | --- |
-| a self-test of today's audit (L), some also the expansion's tests | 204 |
+| a self-test of today's audit (L), some also the expansion's tests | 206 |
 | the expansion's tests: tests that name it, or of its effect (T) | 350 |
 | no test names it; its effect's own test still to be written upstream | 22 |
-| not audited yet | 68 |
+| not audited yet | 66 |
 | key items, not audited yet | 65 |
 | no use from the bag, in battle or held (sold, traded, or given to someone: fossils, shards, Heart Scales) | 114 |
 | spare TM numbers (TM51-TM100): no move, given nowhere | 50 |
@@ -111,8 +111,8 @@ session.
 | 76 | Genius Feather | 3000 | Medicine | - | - | bag items self-test |
 | 77 | Clever Feather | 3000 | Medicine | - | - | bag items self-test |
 | 78 | Swift Feather | 3000 | Medicine | - | - | bag items self-test |
-| 79 | Ability Capsule | 1000 | AbilityCapsule | - | - | not audited (next session) |
-| 80 | Ability Patch | 20 | AbilityPatch | - | - | not audited (next session) |
+| 79 | Ability Capsule | 1000 | AbilityCapsule | - | - | Ability items self-test (engine `8db6561e`, after the package) |
+| 80 | Ability Patch | 20 | AbilityPatch | - | - | Ability items self-test (engine `8db6561e`, after the package) |
 | 81 | Lonely Mint | 20 | Mint | - | - | mints self-test |
 | 82 | Adamant Mint | 20 | Mint | - | - | mints self-test |
 | 83 | Naughty Mint | 20 | Mint | - | - | mints self-test |
