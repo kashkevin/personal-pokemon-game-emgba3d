@@ -451,11 +451,13 @@ no use and 50 spare TM numbers; none left (`docs/item-audit-20261027-items.md`).
   attendant (game clear and the island's ship flag set, as each ticket's event leaves them), the ferry taking the
   player to Southern Island, Navel Rock, Birth Island and Faraway Island, and without the Eon Ticket no trip
   (scratchpad `keys15/tickets-sheet.png`); and the Letter handed to Steven in Granite Cave ("DARREN handed over the
-  Letter.", TM47 Steel Wing obtained). Not used in the real game: the Devon Parts and the Scanner (Captain Stern is
-  hidden by the story's flags when the test build starts, and the test build sets them only after the map is
-  drawn), the Magma Emblem
-  (tried at Jagged Pass; no result, the test harness sets the story's variable after the map's own scripts ran) and
-  the Contest Pass (given, but no script of this game asks for it) (the next session).
+  Letter.", TM47 Steel Wing obtained). Then, once the test harness set the story's flags, variables and Bag before
+  its warp (test code, engine `ca0c588a`; the game code the 2D view runs is the package's): the
+  Scanner given to Captain Stern at Slateport's harbor ("That's a SCANNER!", the Deep Sea Tooth obtained; without it
+  he talks about the ferry), the Devon Parts at the Oceanic Museum (two Team Aqua grunts beaten, Archie's scene,
+  "DARREN handed over the Devon Parts.", the Devon Parts gone from the Bag) and the Magma Emblem at Jagged Pass ("Oh!
+  This boulder is shaking in response to the MAGMA EMBLEM!", the hideout's entrance opening; without it nothing).
+  Not used in the real game: the Contest Pass (given, but no script of this game asks for it).
 * **Not obtainable** (47): nothing gives, sells or drops them (the scripts, the maps' item balls and hidden items, the
   marts, the PC's shops and the wild Pokemon's held items, read out); Kanto's items need Kanto, whose maps this game
   never reaches. Two key items the GBA tests name, the Silph Scope and the Poke Flute, are also given only by Kanto's
@@ -619,9 +621,8 @@ and on a berry tree, the Soot Sack, the Mega Ring, the Town Map, the Coin Case (
 (above): the Escape Rope, Honey, the Bikes, the Powder Jar, the Pokeblock Case, the Basement Key, Mail (MS-158 found
 and fixed), the coin shop's items, the held-item evolutions, the Plates, the Memories and Heavy-Duty Boots, the story's
 key items, the items nothing gives, and a held item carried by a trade between two running games. Nothing in the
-items table is left unaudited. Still not done as such: 4 of the 15 story key items used in the real game (their
-scripts were read; the Storage Key, four room keys, the S.S. Ticket, the three event tickets, the Old Sea Map and the
-Letter were used, step 14 above); balls other than the Master Ball and the Quick Ball thrown in a real battle; a real battle in
+items table is left unaudited. Still not done as such: the Contest Pass used in the real game (its scripts were read;
+no script of this game asks for it; the other 14 story key items were used, step 14 above); balls other than the Master Ball and the Quick Ball thrown in a real battle; a real battle in
 the PC game with held items other than Leftovers, the Focus Sash and the Sitrus Berry (their effects are the battle
 code's, tested in the GBA test ROM); the expansion's own hold-effect files
 still "to do" for the drives, Loaded Dice and Punching Glove; nothing ran on Windows or a player's PC.
