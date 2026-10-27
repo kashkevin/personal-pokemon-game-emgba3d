@@ -647,9 +647,9 @@ Recorded guidance the code no longer follows (not binding decisions):
 | The coin shop's items: Exp. Candies, Mochi, Fresh-Start Mochi, Linking Cord, Black Augurite, Rotom Catalog, Zygarde Cube; the Nectars | Tested (`--selftest-rare-goods`, 46 checks); in the package | engines `a6b653a8`, `3c9e3088` |
 | Evolutions on a level up holding an item at a time of day (Oval Stone, Razor Claw, Razor Fang) | Tested (`--selftest-evo-items`, 42 checks); in the package | engine `059e906e` |
 | Plates and Memories (each its own type's), Heavy-Duty Boots | Tested (5 new GBA tests); in the package | engine `47e47359` |
-| The story's key items; the items nothing gives in this game (47) | Code read (the scripts that give, check and take each one; every source of items read out of the maps and scripts) | `docs/item-audit-20261027-items.md` |
+| The story's key items; the items nothing gives in this game (47) | Code read (the scripts that give, check and take each one; every source of items read out of the maps and scripts); the Storage Key and the Keys to Rooms 1, 2, 4 and 6 also used in the real game (Linux 2D test build), the other 10 not | `docs/item-audit-20261027-items.md` |
 | A held item carried by a world trade between two games (Leftovers) | Tested (two Linux games on one machine through a real world server; not between two real PCs, not on Windows); in the package | engine `3c9e3088`, `scripts/multiplayer/native_trade_proof.py` |
-| The rest of the item audit (a real battle in the PC game with held items other than Leftovers; the trade proof's step backing out of a second trade, which predates MS-68's "Cancel the trade?" page) | Not done (next session) | `docs/item-audit-20261027.md` |
+| The rest of the item audit (10 story key items in the real game; the Strange Ball's catch odds; balls other than the Master Ball thrown in a real battle; the Luxury Ball's friendship bonus; a real battle in the PC game with held items other than Leftovers; the trade proof's step backing out of a second trade, which predates MS-68's "Cancel the trade?" page) | Not done (next session) | `docs/item-audit-20261027.md` |
 
 ## Battle transitions in 3D (2026-10-27, `docs/battle-transitions-3d-20261027.md`)
 

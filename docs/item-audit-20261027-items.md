@@ -40,7 +40,7 @@ session.
 | 11 | Timer Ball | 1000 | - | throw | - | Poke Balls self-test; in battle: `item_effect/throw_ball.c` 0 passed, 4 to do |
 | 12 | Quick Ball | 1000 | - | throw | - | Poke Balls self-test; GBA tests that name it: 2 passed; in battle: `item_effect/throw_ball.c` 0 passed, 4 to do |
 | 13 | Repeat Ball | 1000 | - | throw | - | Poke Balls self-test; in battle: `item_effect/throw_ball.c` 0 passed, 4 to do |
-| 14 | Luxury Ball | 1000 | - | throw | - | Poke Balls self-test; in battle: `item_effect/throw_ball.c` 0 passed, 4 to do |
+| 14 | Luxury Ball | 1000 | - | throw | - | Poke Balls self-test; in battle: `item_effect/throw_ball.c` 0 passed, 4 to do; its friendship bonus after the catch not tested |
 | 15 | Level Ball | 300 | - | throw | - | Poke Balls self-test; in battle: `item_effect/throw_ball.c` 0 passed, 4 to do |
 | 16 | Lure Ball | 300 | - | throw | - | Poke Balls self-test; in battle: `item_effect/throw_ball.c` 0 passed, 4 to do |
 | 17 | Moon Ball | 300 | - | throw | - | Poke Balls self-test; in battle: `item_effect/throw_ball.c` 0 passed, 4 to do |
@@ -54,7 +54,7 @@ session.
 | 25 | Park Ball | 0 | - | throw | - | Poke Balls self-test; in battle: `item_effect/throw_ball.c` 0 passed, 4 to do |
 | 26 | Beast Ball | 0 | - | throw | - | Poke Balls self-test; in battle: `item_effect/throw_ball.c` 0 passed, 4 to do |
 | 27 | Cherish Ball | 0 | - | throw | - | Poke Balls self-test; in battle: `item_effect/throw_ball.c` 0 passed, 4 to do |
-| 828 | Strange Ball | 0 | - | throw | - | GBA tests that name it: 3 passed; in battle: `item_effect/throw_ball.c` 0 passed, 4 to do |
+| 828 | Strange Ball | 0 | - | throw | - | GBA tests that name it: 3 passed; in battle: `item_effect/throw_ball.c` 0 passed, 4 to do; its catch odds are not in the Poke Balls self-test; sold in the PC game's coin shop |
 
 ## Items (597)
 
@@ -896,11 +896,11 @@ session.
 | 735 | Devon Scope | 0 | - | - | - | a hidden Kecleon revealed in the real game; its battle refused offline (MS-156), fixed on engine `223d15e1` (after the first candidate) |
 | 736 | Basement Key | 0 | - | - | - | New Mauville's door in the real game: "Use the BASEMENT KEY?", "The door opened!", in; without it, locked (engine `812d7bf3`, after the first candidate) |
 | 737 | Scanner | 0 | - | - | - | story key item, the scripts read: given, checked and taken as in Emerald (code read, after the first candidate) |
-| 738 | Storage Key | 0 | - | - | - | story key item, the scripts read: given, checked and taken as in Emerald (code read, after the first candidate) |
-| 739 | Key to Room 1 | 0 | - | - | - | story key item, the scripts read: given, checked and taken as in Emerald (code read, after the first candidate) |
-| 740 | Key to Room 2 | 0 | - | - | - | story key item, the scripts read: given, checked and taken as in Emerald (code read, after the first candidate) |
-| 741 | Key to Room 4 | 0 | - | - | - | story key item, the scripts read: given, checked and taken as in Emerald (code read, after the first candidate) |
-| 742 | Key to Room 6 | 0 | - | - | - | story key item, the scripts read: given, checked and taken as in Emerald (code read, after the first candidate) |
+| 738 | Storage Key | 0 | - | - | - | story key item, the scripts read: given, checked and taken as in Emerald (code read, after the first candidate); in the real game (engine `a5013203`, the package's, Classic 2D test build): its Abandoned Ship door opened with it ("The inserted KEY stuck fast, but the door opened."), locked without it |
+| 739 | Key to Room 1 | 0 | - | - | - | story key item, the scripts read: given, checked and taken as in Emerald (code read, after the first candidate); in the real game (engine `a5013203`, the package's, Classic 2D test build): its Abandoned Ship door opened with it ("The inserted KEY stuck fast, but the door opened."), locked without it |
+| 740 | Key to Room 2 | 0 | - | - | - | story key item, the scripts read: given, checked and taken as in Emerald (code read, after the first candidate); in the real game (engine `a5013203`, the package's, Classic 2D test build): its Abandoned Ship door opened with it ("The inserted KEY stuck fast, but the door opened.") |
+| 741 | Key to Room 4 | 0 | - | - | - | story key item, the scripts read: given, checked and taken as in Emerald (code read, after the first candidate); in the real game (engine `a5013203`, the package's, Classic 2D test build): its Abandoned Ship door opened with it ("The inserted KEY stuck fast, but the door opened.") |
+| 742 | Key to Room 6 | 0 | - | - | - | story key item, the scripts read: given, checked and taken as in Emerald (code read, after the first candidate); in the real game (engine `a5013203`, the package's, Classic 2D test build): its Abandoned Ship door opened with it ("The inserted KEY stuck fast, but the door opened.") |
 | 743 | Meteorite | 0 | FormChange | - | - | Form items self-test (engine `993496aa`, after the first candidate) |
 | 744 | Magma Emblem | 0 | - | - | - | story key item, the scripts read: given, checked and taken as in Emerald (code read, after the first candidate) |
 | 745 | Contest Pass | 0 | - | - | - | story key item, the scripts read: given, checked and taken as in Emerald (code read, after the first candidate) |
