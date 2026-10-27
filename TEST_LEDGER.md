@@ -845,3 +845,16 @@ this commit. Nothing ran on a player's PC.
 | The puzzle walked from the door to Winona (96 steps from the game's gate rules, ported), then her battle | engine `bb8ef78f` test builds | L | **3D**: the tile below Winona at the predicted frame, gates pushed and turning, her battle on the 3D stage, won ("Obtained the TM40!"); **2D**: the same route, her battle won, "received the FEATHER BADGE" | scratchpad `gym/route-3d`, `full-*`, `win-*` | - | Reuse |
 | The Trick House's sixth puzzle, both views | engine `bb8ef78f` test builds | L | 11 gates drawn in 3D, matching the 2D picture | scratchpad `gym/trick-*` | - | Reuse |
 | `check-diorama` (3D unit tests), `check_gba_lines.py`, GBA ROM, 2D and 3D builds | engine `bb8ef78f` | L | **passes** (compositor goldens, rules valid); 0 moved lines; ROM **unchanged** (`f214735b...`) | scratchpad `gym/check-diorama.log`, `gym/rom.log` | - | Reuse |
+
+## Item audit: Poke Balls (2026-10-27; engine `claude/feature-update-engine`; `docs/item-audit-20261027.md`)
+
+**L** this Linux machine (the game's own capture functions in a self-test of the Classic 2D build). No **W** run covers
+these commits. No ball was thrown in a real battle; nothing ran on a player's PC.
+
+| Test | Build / head | Where | Last result | Evidence | Changed since | Rerun? |
+| --- | --- | --- | --- | --- | --- | --- |
+| `--selftest-balls` (new, `check-balls`): every ball's odds through `ComputeCaptureOdds` against its Gen 6 rule, the shake check through `ComputeBallShakeOdds`, the catch chances | engine `6a575072` (2D game) | L | **61 checks, 0 failed**; a throw at odds 0 catches 0.025%, at odds 1 1.64% | scratchpad `st-balls2.log`, `st-balls2b.log` | - | Reuse |
+| The same 61 checks on the old shake code (the division by zero through the fault handler) | engine `6a575072` with `ComputeBallShakeOdds` as before, a scratch build | L | **61, 0 failed**, the same lines; `[compat] unsigned division by zero` logged once | scratchpad `balls-prefix/st-balls-handler.log` | - | Reuse |
+| An earlier 60-check version on a build without either change, and on `4474883b` | engine `4474883b` with both changes taken out (a scratch build); `4474883b` | L | **Without**: 5 failed (the Heavy Ball on Latias, Jirachi, Uxie: odds 11,930,452, a sure catch; Uxie at 1 HP 11,930,427; a Beast Ball check expecting the floor withdrawn in `6a575072`); the other 55 lines identical to the fixed build's. `4474883b`: 60, 0 failed | scratchpad `balls-prefix/st-balls-nofix.log`, `st-balls.log` | `6a575072` (odds 0 unchanged instead of raised to 1) | Done (first row) |
+| GBA ROM, `check_gba_lines.py` (`battle_script_commands.c`), 2D and 3D builds | engine `4474883b`, `6a575072` | L | ROM **unchanged** (`f214735b...`) both; 0 moved lines; both build | scratchpad `rom-balls.log`, `rom-balls2.log`, `pc3d-balls2.log` | - | Reuse |
+| A ball thrown in a real battle; a ball used up from the bag; Heal, Friend and Luxury Balls after the catch; multiplayer sync and save of a caught Pokemon's ball | - | - | **Not run** | - | - | Next session |
