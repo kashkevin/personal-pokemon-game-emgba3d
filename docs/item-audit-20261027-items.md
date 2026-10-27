@@ -14,11 +14,11 @@ session.
 
 | What checked it | Items |
 | --- | --- |
-| a self-test of today's audit (L), some also the expansion's tests | 209 |
+| a self-test of today's audit (L), some also the expansion's tests | 214 |
 | the expansion's tests: tests that name it, or of its effect (T) | 350 |
 | no test names it; its effect's own test still to be written upstream | 22 |
 | not audited yet | 66 |
-| key items, not audited yet | 62 |
+| key items, not audited yet | 57 |
 | no use from the bag, in battle or held (sold, traded, or given to someone: fossils, shards, Heart Scales) | 114 |
 | spare TM numbers (TM51-TM100): no move, given nowhere | 50 |
 | all | 873 |
@@ -853,11 +853,11 @@ session.
 | 692 | Catching Charm | 0 | - | - | - | wild item audit (gameplay report section 5) |
 | 693 | Exp. Charm | 0 | - | - | - | not audited (key items: next session) |
 | 694 | Rotom Catalog | 0 | RotomCatalog | - | - | not audited (key items: next session) |
-| 695 | Gracidea | 0 | FormChange | - | - | not audited (key items: next session) |
-| 696 | Reveal Glass | 0 | FormChange | - | - | not audited (key items: next session) |
+| 695 | Gracidea | 0 | FormChange | - | - | Form items self-test (engine `993496aa`, after the package) |
+| 696 | Reveal Glass | 0 | FormChange | - | - | Form items self-test (engine `993496aa`, after the package) |
 | 697 | DNA Splicers | 0 | Fusion | - | - | not audited (key items: next session) |
 | 698 | Zygarde Cube | 0 | ZygardeCube | - | - | not audited (key items: next session) |
-| 699 | Prison Bottle | 0 | FormChange | - | - | not audited (key items: next session) |
+| 699 | Prison Bottle | 0 | FormChange | - | - | Form items self-test (engine `993496aa`, after the package) |
 | 700 | N-Solarizer | 0 | Fusion | - | - | not audited (key items: next session) |
 | 701 | N-Lunarizer | 0 | Fusion | - | - | not audited (key items: next session) |
 | 702 | Reins of Unity | 0 | Fusion | - | - | not audited (key items: next session) |
@@ -870,7 +870,7 @@ session.
 | 709 | Old Rod | 0 | Rod | - | - | Rods self-test; cast from the Bag in the real game (engines `7054b688`, `c624a2d4`, after the package) |
 | 710 | Good Rod | 0 | Rod | - | - | Rods self-test; cast from the Bag in the real game (engines `7054b688`, `c624a2d4`, after the package) |
 | 711 | Super Rod | 0 | Rod | - | - | Rods self-test; cast from the Bag in the real game (engines `7054b688`, `c624a2d4`, after the package) |
-| 712 | Dowsing Machine | 0 | Itemfinder | - | - | not audited (key items: next session) |
+| 712 | Dowsing Machine | 0 | Itemfinder | - | - | used from the Bag in the real game, by a hidden item and away from any (engine `c624a2d4`, after the package; its messages still call it the ITEMFINDER) |
 | 713 | Town Map | 0 | TownMap | - | - | not audited (key items: next session) |
 | 714 | Vs. Seeker | 0 | - | - | - | not audited (key items: next session) |
 | 715 | TM Case | 0 | - | - | - | not audited (key items: next session) |
@@ -901,7 +901,7 @@ session.
 | 740 | Key to Room 2 | 0 | - | - | - | not audited (key items: next session) |
 | 741 | Key to Room 4 | 0 | - | - | - | not audited (key items: next session) |
 | 742 | Key to Room 6 | 0 | - | - | - | not audited (key items: next session) |
-| 743 | Meteorite | 0 | FormChange | - | - | not audited (key items: next session) |
+| 743 | Meteorite | 0 | FormChange | - | - | Form items self-test (engine `993496aa`, after the package) |
 | 744 | Magma Emblem | 0 | - | - | - | not audited (key items: next session) |
 | 745 | Contest Pass | 0 | - | - | - | not audited (key items: next session) |
 | 746 | Parcel | 0 | - | - | - | not audited (key items: next session) |
