@@ -389,7 +389,9 @@ Audit of what exists (the engine's Day Care, eggs and hatching; PC storage; part
   the loop read past its four-move array): MS-31, engine `af9b33dd` (PC only).
 - **Reported, not changed** (they are owner decisions or missing content, not faults of the code that exists):
   - MS-42: the PC's hatch speed is 87.5% fewer steps than this game's Gen 6 cycle (257), not the 75% Update 30 asked for.
-  - Items breeding uses that a player cannot get: the Power items, seven of the nine incenses (Full, Luck, Odd, Pure,
+  - Items breeding uses that a player cannot get (until 2026-10-24: since then the Game Corner prize clerk's RARE GOODS
+    sell for coins every item no player can get anywhere else, `eng:data/scripts/mp_rare_goods_shop.inc`, the Oval Charm
+    and Pure Incense among them; the 2026-10-27 wild item audit): the Power items, seven of the nine incenses (Full, Luck, Odd, Pure,
     Rock, Rose, Wave), the Oval Charm and the Mirror Herb; the Destiny Knot only from Pickup (about 1% at level 21 and
     up). So Munchlax, Happiny, Mime Jr., Chingling, Bonsly, Budew and Mantyke cannot be bred.
   - The Masuda method does not exist (by the project's rules: shiny parents add rolls instead).

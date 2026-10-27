@@ -226,3 +226,52 @@ still locked by the closing session (6 s earlier) folding a large write-ahead lo
 disk. Open until the next occurrence names it.
 
 **MS-71** (the owner's crash in a battle between two PCs): still not reproduced; its diagnostics stand.
+
+## 6. Test campaign and what remains
+
+Every run below is **L**: this Linux machine, real game processes (the multiplayer runs: two real Linux games, their
+real launchers and a real host in one machine, the internet between them simulated by `scripts/multiplayer/proof_network.py`:
+120 ms each way, up to 80 ms of jitter, a 2.5 s stall every 45 s, 20 ms per disk sync). No Windows run covers these
+commits (a full Windows run builds the installer; none was started), and nothing ran on a player's PC or between two
+real PCs. The rows are in `TEST_LEDGER.md` (section "Movement lag, multiplayer stability, trades and battles").
+
+| Run | Build | Result |
+|---|---|---|
+| Mauville's map crossings, running (before / after) | engine `18ad922c` → `0738fcaf` | worst crossing sync 180-185 ms → 24 ms |
+| Route 111 with the Mirage Tower shimmering | engine `055a8e2a` | sync p50 21.9 → 1.4-1.8 ms; 8,240 chunk checks, 0 stale |
+| 17-map region sweep, old and new build interleaved | engine `1868c1c4` | chunks built -82 %; p50 and p90 down; p99 unchanged (MS-118) |
+| Terrain and mesh self-checks over 20 crossings, 8 maps, a warp, a battle start | engine `1868c1c4` | 520,890 chunk checks 0 stale; 5,152 meshes 0 differ |
+| **Hour-long session**: Mauville ↔ Route 117 at running speed, 108,000 game frames (68 min on this machine) | engine `7dbbb1c8` | **ended normally; memory 255-259 MB in every fifth; sync p50 3.1-3.3 ms, p99 21.1-22.0 ms in every fifth: no growth, no leak** |
+| trade-rough-1, trade-rough-2: two new characters claim starters, trade, trade back | app `89a27d5` / `4e0bcd6`, engine `7dbbb1c8` / `891b9e78` | **passed twice**: both trades applied (18-26 s from the first confirmation), ownership the same in both games and both saves, normal close, fresh Continue, store integrity |
+| battle-rough-1, battle-rough-2: a player's connection cut and rejoined, then Rival Battle 1v1 | app `4e0bcd6`, engine `891b9e78` | **passed twice**: rejoined; battles of 160 s and 213 s (416 and 555 commands), both players back with the same parties, saved, store integrity |
+| App suites (trade, launcher, menu, recovery; server, companion, transport, persistence; storage) | app `4e0bcd6` | 469 + 62 + 50 passed (GUI setup-window tests: 13 passed under a virtual display) |
+| Engine: `check-native`, `check-diorama`, 2D and 3D builds, GBA ROM | engine `891b9e78` | pass; ROM `f214735b...` unchanged |
+
+**Latency, measured** (battle-rough-1/2, the route timer of the proof): a battle command took **380-381 ms** on a link of
+120 ms each way plus up to 80 ms of jitter (the round trip's floor there is about 320 ms); of that, the host's handling and
+its disk syncs are about 25 ms (`take_ms` 23-26) and the rest is the network. The two ways left to shorten it were
+measured and not taken:
+
+* **Group the host's disk syncs** (one sync for several commands): saves about 20 ms of 380 per command (5 %), and a host
+  that crashes would lose commands it already acknowledged, so the games and the host's journal could disagree after a
+  restart: the "recovery required" stops this round worked to remove.
+* **Send link blocks without waiting for the acknowledgment**: the link protocol keeps both games in lockstep by
+  acknowledging each block; sending ahead risks a desynchronized battle, the worst failure for a battle between players.
+
+So battles between players are bound by the network's round trip; what the player waits for on screen was cut instead
+(MS-88: a press answered in about 32 ms; "Choice sent. Waiting for the other player(s)...").
+
+**Unresolved** (none of them claimed fixed):
+
+1. Nothing here was tried on a real graphics card, on the owner's PCs or between two real PCs over the internet.
+2. MS-118: 1 % of the 3D game's syncs still exceed 16 ms on this machine's CPU when many chunks come into view at once or
+   the atlas is redrawn.
+3. MS-93: the Windows proof's failed fresh Continue after a 180-minute climb; diagnostics now name SQLite's cause; open
+   until it happens again.
+4. MS-71: the owner's crash in a battle between two PCs is not reproduced; its diagnostics stand.
+5. MS-126: no turn timer (a rule change; the owner's decision).
+6. The Classic 2D game shows no message when a battle stops itself (the 3D game does, MS-125).
+7. A battle's bridge lost mid-battle is not reconnected; the launcher keeps the battle for recovery (by design).
+8. Battle commands remain network-bound (above).
+
+The game was not packaged after these updates.

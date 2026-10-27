@@ -27,7 +27,8 @@ can avoid repeating them (spawn_director.py).
 
 Shiny Pokemon never despawn (the owner's request of 2026-10-24): a shiny slot does not expire, is not retired for being far
 from every player and is not trimmed when an outbreak ends. It stays until somebody catches or defeats it; running from it
-or losing to it leaves it where it was, as for any slot.
+or losing to it leaves it where it was, as for any slot. That includes a Pokemon that is shiny only for a Shiny Charm owner
+(``charm_shiny``, the 2026-10-27 wild item audit): the host cannot see bags, so it keeps every such Pokemon (``Slot.kept``).
 """
 
 from __future__ import annotations
@@ -72,6 +73,25 @@ STEP = {DIR_SOUTH: (0, 1), DIR_NORTH: (0, -1), DIR_WEST: (-1, 0), DIR_EAST: (1, 
 
 STATE_VERSION = 1
 
+# The Shiny Charm on a shared Pokemon (Updates 29/30; the engine's multiplayer_spawns.c MultiplayerSpawns_CharmHash, bit
+# for bit): the Pokemon is shiny for a Charm owner when this hash of its id and personality is below CHARM_THRESHOLD of
+# 2^32 (the host's 1/4096 roll and this make 1 in 2500). It is the same answer on every game and for every Charm owner.
+CHARM_THRESHOLD = 669574
+_MASK64 = (1 << 64) - 1
+
+
+def charm_hash(spawn_id: int, personality: int) -> int:
+    z = (((spawn_id & 0xFFFFFFFF) << 32 | (personality & 0xFFFFFFFF)) + 0x9E3779B97F4A7C15) & _MASK64
+    z = ((z ^ (z >> 30)) * 0xBF58476D1CE4E5B9) & _MASK64
+    z = ((z ^ (z >> 27)) * 0x94D049BB133111EB) & _MASK64
+    z ^= z >> 31
+    return z >> 32
+
+
+def charm_shiny(spawn_id: int, personality: int) -> bool:
+    """Shiny for a player with the Shiny Charm (and only for such a player, when the host's own roll was not shiny)."""
+    return charm_hash(spawn_id, personality) < CHARM_THRESHOLD
+
 
 @dataclass
 class Slot:
@@ -100,6 +120,11 @@ class Slot:
     # a reconnect or another player's claim never rolls it again.
     legend_rolled: bool = False
     legend: bool = False   # it was turned into a Legendary/Mythical at its claim
+
+    @property
+    def kept(self) -> bool:
+        """Never expires, is never retired or trimmed: shiny for everybody, or for a Shiny Charm owner."""
+        return self.shiny or charm_shiny(self.spawn_id, self.personality)
 
 
 @dataclass
@@ -137,7 +162,7 @@ class SpawnBoard:
         excess = self.live_count() - self.limit()
         if excess <= 0:
             return []
-        candidates = sorted((s for s in self.slots.values() if s.state == OPEN and not s.shiny),
+        candidates = sorted((s for s in self.slots.values() if s.state == OPEN and not s.kept),
                             key=lambda s: (s.kind != KIND_OUTBREAK, s.created_at, s.spawn_id))
         retired = []
         for slot in candidates[:excess]:
@@ -203,9 +228,9 @@ class SpawnBoard:
         return True
 
     def retire(self, spawn_id: int, reason: str = "despawned") -> bool:
-        """Remove an open Pokemon that wandered off (never a claimed one, never a shiny one)."""
+        """Remove an open Pokemon that wandered off (never a claimed one, never a kept (shiny) one)."""
         slot = self.get(spawn_id)
-        if slot is None or slot.state != OPEN or slot.shiny:
+        if slot is None or slot.state != OPEN or slot.kept:
             return False
         slot.state = REMOVED
         slot.end_reason = reason
@@ -295,7 +320,7 @@ class SpawnBoard:
         now = self.clock()
         changed: list[int] = []
         for slot in self.slots.values():
-            if slot.state == OPEN and not slot.shiny and now >= slot.expires_at:
+            if slot.state == OPEN and not slot.kept and now >= slot.expires_at:
                 slot.state = REMOVED
                 slot.end_reason = "expired"
                 changed.append(slot.spawn_id)
@@ -303,7 +328,7 @@ class SpawnBoard:
                 slot.state = OPEN
                 slot.claimant = None
                 slot.grace_until = None
-                if now >= slot.expires_at and not slot.shiny:  # its lifetime ran out during the battle
+                if now >= slot.expires_at and not slot.kept:  # its lifetime ran out during the battle
                     slot.state = REMOVED
                     slot.end_reason = "expired"
                 changed.append(slot.spawn_id)

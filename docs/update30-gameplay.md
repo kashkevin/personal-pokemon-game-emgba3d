@@ -19,10 +19,10 @@ All of it is `src/pokemon.c` `ComputePlayerShinyOdds` (PC only; the GBA ROM keep
 `src/multiplayer_spawns.c`. The Charm adds nothing to the Legendary/Mythical chance (1,018 in 6,000,000 Route 101 encounters, expected 1,000 ± 32). Random Legendaries and
 Mythicals use the same rolls, so a Safari Charm owner has 1/1024 for them too. A shiny already owned is never rerolled or rewritten; nothing changes a stored Pokémon. `--selftest-shiny`: 12 checks, 0 failed.
 
-**The Charm.** A Key Item in the player's own bag: individual, never shared, not tradable (key items cannot be held or sold), not tossable. It costs **100,000
-Game Corner coins** at the Mauville prize clerk (the Coin Case holds up to 999,999; coins can also be bought with money), is guaranteed, and the clerk's list marks it owned once the player has it
-so it cannot be bought twice. `tools/pc_port/economy_check.py` runs the purchase headless. The coin economy audit of Update 29 stands (Mega Ring 25,000; common stones 30–40k, rare
-60–100k; each stone's price is a fixed function of the stone).
+**The Charm.** A Key Item in the player's own bag: individual, never shared, not tradable (key items cannot be held or sold), not tossable. It costs **15,000
+Game Corner coins** (100,000 until every Game Corner coin price was cut to 15% on 2026-10-25) at the Mauville prize clerk (the Coin Case holds up to 999,999; coins can also be bought with money), is guaranteed, and the clerk's list marks it owned once the player has it
+so it cannot be bought twice. `tools/pc_port/economy_check.py` runs the purchase headless. The coin economy audit of Update 29 stands, at 15% of its prices since 2026-10-25 (Mega Ring 3,750; stones
+4,500-15,000; each stone's price is a fixed function of the stone).
 
 ## 2. Breeding and eggs (phases 6–8)
 

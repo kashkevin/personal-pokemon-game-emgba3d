@@ -206,6 +206,9 @@ The Charm is a Key Item in the player's own bag (per player, never shared in mul
 and the Roulette are the GBA's (four digits, stop at 9,999): a table takes the wallet whole below 9,999 coins and a **5,000-coin stake** from 9,999 up, and puts the stake and the winnings back
 on leaving; the rest waits in reserve, and the save is not touched until you leave the table (as before).
 
+> **Prices since 2026-10-25:** every Game Corner coin price is 15% of the Update 29 price below (the owner: "way too high"):
+> Mega Ring 3,750, Shiny Charm 15,000, stones 4,500-15,000 (`include/constants/multiplayer_balance.h`).
+
 | Item | Where | Price |
 |---|---|---:|
 | Mega Ring | Mauville Game Corner, prize counter (the clerk next to the Shiny Charm) | **25,000 coins** |

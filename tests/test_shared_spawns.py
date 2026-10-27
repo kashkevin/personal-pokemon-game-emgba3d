@@ -77,6 +77,32 @@ class ShinyStaysTests(unittest.TestCase):
         (slot,) = board.live()
         self.assertEqual((slot.spawn_id, slot.state), (shiny, ss.OPEN))
 
+    def test_a_pokemon_shiny_only_for_shiny_charm_owners_is_kept_too(self):
+        """The 2026-10-27 wild item audit: the host keeps a Pokemon the Shiny Charm makes shiny (it cannot see bags)."""
+        board, clock = make_board()
+        charm, plain = None, None
+        for personality in range(200_000):   # find a personality the Charm makes shiny for the next spawn id
+            if ss.charm_shiny(board.next_id, personality):
+                charm = add(board, personality=personality, lifetime=60)
+                break
+        self.assertIsNotNone(charm)
+        plain = add(board, personality=0, lifetime=60)
+        self.assertFalse(ss.charm_shiny(plain, 0))
+        self.assertFalse(board.retire(charm, "wandered_off"))
+        clock.now += 10_000
+        board.tick()
+        self.assertEqual([s.spawn_id for s in board.live()], [charm])
+        (slot,) = board.live()
+        self.assertFalse(slot.shiny)   # the host's own roll is unchanged: it is shiny only for a Charm owner
+        self.assertTrue(slot.kept)
+
+    def test_the_charm_hash_is_the_engines_bit_for_bit(self):
+        # multiplayer_spawns.c MultiplayerSpawns_CharmHash, compiled and run (2026-10-27)
+        for spawn_id, personality, expected in ((1, 0, 3291240986), (65, 0x12345678, 4188010237), (129, 0xDEADBEEF, 1050170200),
+                                                (65535, 0xFFFFFFFF, 3317913772), (4000000000, 0x00ABCDEF, 3674487299)):
+            self.assertEqual(ss.charm_hash(spawn_id, personality), expected)
+        self.assertEqual(ss.CHARM_THRESHOLD, 669574)
+
     def test_a_shiny_survives_a_save_and_restore(self):
         board, clock = make_board()
         shiny = add(board, shiny=True, lifetime=60)
