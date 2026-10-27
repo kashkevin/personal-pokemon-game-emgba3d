@@ -445,9 +445,11 @@ no use and 50 spare TM numbers; none left (`docs/item-audit-20261027-items.md`).
   game (the package's engine `a5013203`, Classic 2D test build; pictures, scratchpad `keys15/`): the Storage Key and
   the Keys to Rooms 1, 2, 4 and 6 each opened their Abandoned Ship door ("DARREN inserted and turned the STORAGE
   KEY.", "The inserted KEY stuck fast, but the door opened."), and without the Storage Key or the Key to Room 1 the
-  door stayed locked ("The door is locked."). Not used in the real game: the S.S. Ticket, the Eon, Mystic and Aurora
-  Tickets, the Old Sea Map, the Letter, the Devon Parts, the Scanner, the Magma Emblem and the Contest Pass (the next
-  session).
+  door stayed locked ("The door is locked."); and the S.S. Ticket at the Battle Frontier's ferry ("DARREN flashed the
+  TICKET.", "Perfect! That's all you need!"; without it "DARREN doesn't have the TICKET..."). Not used in the real
+  game: the Eon, Mystic and Aurora Tickets, the Old Sea Map, the Letter, the Devon Parts, the Scanner, the Magma Emblem
+  (tried at Jagged Pass; no result, the test harness sets the story's variable after the map's own scripts ran) and
+  the Contest Pass (given, but no script of this game asks for it) (the next session).
 * **Not obtainable** (47): nothing gives, sells or drops them (the scripts, the maps' item balls and hidden items, the
   marts, the PC's shops and the wild Pokemon's held items, read out); Kanto's items need Kanto, whose maps this game
   never reaches. Two key items the GBA tests name, the Silph Scope and the Poke Flute, are also given only by Kanto's
@@ -600,8 +602,8 @@ and on a berry tree, the Soot Sack, the Mega Ring, the Town Map, the Coin Case (
 (above): the Escape Rope, Honey, the Bikes, the Powder Jar, the Pokeblock Case, the Basement Key, Mail (MS-158 found
 and fixed), the coin shop's items, the held-item evolutions, the Plates, the Memories and Heavy-Duty Boots, the story's
 key items, the items nothing gives, and a held item carried by a trade between two running games. Nothing in the
-items table is left unaudited. Still not done as such: 10 of the 15 story key items used in the real game (their
-scripts were read; the Storage Key and four room keys were used, step 14 above); a ball other than the Master Ball
+items table is left unaudited. Still not done as such: 9 of the 15 story key items used in the real game (their
+scripts were read; the Storage Key, four room keys and the S.S. Ticket were used, step 14 above); a ball other than the Master Ball
 thrown in a real battle; a real battle in the PC game with held items other than Leftovers (their effects are the
 battle code's, tested in the GBA test ROM); the expansion's own hold-effect files
 still "to do" for the drives, Loaded Dice and Punching Glove; nothing ran on Windows or a player's PC.

@@ -885,7 +885,7 @@ session.
 | 724 | Poké Flute | 0 | PokeFlute | Poke Flute | - | GBA tests that name it: 5 passed; in battle: `item_effect/poke_flute.c` 2 passed; not obtainable in this game: only Kanto's maps give it, and no map, warp or script of this game reaches Kanto (after the first candidate) |
 | 725 | Fame Checker | 0 | - | - | - | not obtainable in this game: only Kanto's maps give it, and no map, warp or script of this game reaches Kanto (after the first candidate) |
 | 726 | Teachy TV | 0 | - | - | - | not obtainable in this game: only Kanto's maps give it, and no map, warp or script of this game reaches Kanto (after the first candidate) |
-| 727 | S.S. Ticket | 0 | - | - | - | story key item, the scripts read: given, checked and taken as in Emerald (code read, after the first candidate) |
+| 727 | S.S. Ticket | 0 | - | - | - | story key item, the scripts read: given, checked and taken as in Emerald (code read, after the first candidate); in the real game (engine `a5013203`, the package's, Classic 2D test build): the Battle Frontier's ferry attendant, "DARREN flashed the TICKET.", "Perfect! That's all you need!"; without it "DARREN doesn't have the TICKET..." |
 | 728 | Eon Ticket | 0 | - | - | - | story key item, the scripts read: given, checked and taken as in Emerald (code read, after the first candidate) |
 | 729 | Mystic Ticket | 0 | - | - | - | story key item, the scripts read: given, checked and taken as in Emerald (code read, after the first candidate) |
 | 730 | Aurora Ticket | 0 | - | - | - | story key item, the scripts read: given, checked and taken as in Emerald (code read, after the first candidate) |

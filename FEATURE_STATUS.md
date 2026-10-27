@@ -647,10 +647,10 @@ Recorded guidance the code no longer follows (not binding decisions):
 | The coin shop's items: Exp. Candies, Mochi, Fresh-Start Mochi, Linking Cord, Black Augurite, Rotom Catalog, Zygarde Cube; the Nectars | Tested (`--selftest-rare-goods`, 46 checks); in the package | engines `a6b653a8`, `3c9e3088` |
 | Evolutions on a level up holding an item at a time of day (Oval Stone, Razor Claw, Razor Fang) | Tested (`--selftest-evo-items`, 42 checks); in the package | engine `059e906e` |
 | Plates and Memories (each its own type's), Heavy-Duty Boots | Tested (5 new GBA tests); in the package | engine `47e47359` |
-| The story's key items; the items nothing gives in this game (47) | Code read (the scripts that give, check and take each one; every source of items read out of the maps and scripts); the Storage Key and the Keys to Rooms 1, 2, 4 and 6 also used in the real game (Linux 2D test build), the other 10 not | `docs/item-audit-20261027-items.md` |
+| The story's key items; the items nothing gives in this game (47) | Code read (the scripts that give, check and take each one; every source of items read out of the maps and scripts); the Storage Key, the Keys to Rooms 1, 2, 4 and 6 and the S.S. Ticket also used in the real game (Linux 2D test build), the other 9 not | `docs/item-audit-20261027-items.md` |
 | A held item carried by a world trade between two games (Leftovers) | Tested (two Linux games on one machine through a real world server; not between two real PCs, not on Windows); in the package | engine `3c9e3088`, `scripts/multiplayer/native_trade_proof.py` |
 | The Strange Ball's catch odds (x1) and the Luxury Ball's friendship bonus on a gain | Tested after the package (`--selftest-balls` 62 checks, `--selftest-held-items` 23 checks); their game code is the same in the package | engines `9842a793`, `e6c8f2d8` |
-| The rest of the item audit (10 story key items in the real game; balls other than the Master Ball thrown in a real battle; a real battle in the PC game with held items other than Leftovers) | Not done (next session) | `docs/item-audit-20261027.md` |
+| The rest of the item audit (9 story key items in the real game; balls other than the Master Ball thrown in a real battle; a real battle in the PC game with held items other than Leftovers) | Not done (next session) | `docs/item-audit-20261027.md` |
 
 ## Battle transitions in 3D (2026-10-27, `docs/battle-transitions-3d-20261027.md`)
 
