@@ -14,11 +14,11 @@ session.
 
 | What checked it | Items |
 | --- | --- |
-| a self-test of today's audit (L), some also the expansion's tests | 221 |
-| the expansion's tests: tests that name it, or of its effect (T) | 350 |
+| a self-test of today's audit (L), some also the expansion's tests | 222 |
+| the expansion's tests: tests that name it, or of its effect (T) | 351 |
 | no test names it; its effect's own test still to be written upstream | 22 |
 | not audited yet | 66 |
-| key items, not audited yet | 50 |
+| key items, not audited yet | 48 |
 | no use from the bag, in battle or held (sold, traded, or given to someone: fossils, shards, Heart Scales) | 114 |
 | spare TM numbers (TM51-TM100): no move, given nowhere | 50 |
 | all | 873 |
@@ -851,7 +851,7 @@ session.
 | 690 | Oval Charm | 0 | - | - | - | wild item audit (gameplay report section 5) |
 | 691 | Shiny Charm | 0 | - | - | - | wild item audit (gameplay report section 5) |
 | 692 | Catching Charm | 0 | - | - | - | wild item audit (gameplay report section 5) |
-| 693 | Exp. Charm | 0 | - | - | - | not audited (key items: next session) |
+| 693 | Exp. Charm | 0 | - | - | - | 2 new GBA tests (engine `aebcf98d`, after the package) passed: the experience gained half again as much with it in the Bag, alone and with a held Lucky Egg |
 | 694 | Rotom Catalog | 0 | RotomCatalog | - | - | not audited (key items: next session) |
 | 695 | Gracidea | 0 | FormChange | - | - | Form items self-test (engine `993496aa`, after the package) |
 | 696 | Reveal Glass | 0 | FormChange | - | - | Form items self-test (engine `993496aa`, after the package) |
@@ -876,7 +876,7 @@ session.
 | 715 | TM Case | 0 | - | - | - | not audited (key items: next session) |
 | 716 | Berry Pouch | 0 | - | - | - | not audited (key items: next session) |
 | 717 | ウエ Box Link | 0 | PokemonBoxLink | - | - | not audited (key items: next session) |
-| 718 | Coin Case | 0 | CoinCase | - | - | not audited (key items: next session) |
+| 718 | Coin Case | 0 | CoinCase | - | - | used from the Bag in the real game: "Your COINS: 123456" (the PC wallet's six digits); its description said 9,999 (MS-157, fixed on engine `4f841321`, after the package) |
 | 719 | Powder Jar | 0 | PowderJar | - | - | not audited (key items: next session) |
 | 720 | Wailmer Pail | 0 | WailmerPail | - | - | used on Sudowoodo and on a planted Oran Berry (from the tree and from the Bag) in the real game (engine `223d15e1`); the yield each watered stage gives, a self-test (engine `bbf722b7`); after the package |
 | 721 | Poké Radar | 0 | - | - | - | not audited (key items: next session) |

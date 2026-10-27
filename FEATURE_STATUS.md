@@ -639,6 +639,8 @@ Recorded guidance the code no longer follows (not binding decisions):
 | The Wailmer Pail on Sudowoodo and on berry trees | Tested after the package (real game, Linux 2D test build: Sudowoodo with MS-156's fix; an Oran Berry planted and watered from the tree and from the Bag); the yield each watered stage gives: self-test, 10 of 10 | engines `223d15e1`, `bbf722b7` |
 | The Soot Sack: ash gathered on Route 113's ash grass | Tested after the package (real game, Linux 2D and 3D test builds: 5 steps counted by the Glass Workshop); its code is the same in the package | engine `223d15e1` |
 | The Mega Ring: Mega Evolution only with it in the Bag | Tested after the package (real game, Linux 2D test build: with and without it, 2 of 2); its code is the same in the package | engine `223d15e1` |
+| The Town Map and the Coin Case from the Bag | Tested after the package (real game, Linux 2D test build); the Coin Case's description fixed for the PC wallet (MS-157, later build) | engines `223d15e1`, `4f841321` |
+| The Exp. Charm: half again as much experience | Tested after the package (2 new GBA tests, 2 of 2) | engine `aebcf98d` |
 | Optional static encounters (the Regis, the legendaries, Kecleon, Electrode, Voltorb, Sudowoodo) offline, outside a world | **Broken** in the 2026-10-27 package (MS-156: no battle); fixed for a later build (Kecleon and Sudowoodo tried offline; the rest not one by one) | engine `223d15e1`, `KNOWN_ISSUES.md` MS-156 |
 | The rest of the item audit (the other key items' uses, charms; a real battle in the PC game with held items, an item's multiplayer sync) | Not done (next session) | `docs/item-audit-20261027.md` |
 

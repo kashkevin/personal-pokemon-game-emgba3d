@@ -390,6 +390,23 @@ trigger turned on and Charizard became Mega Charizard X (Fire/Dragon, Tough Claw
 stone after the battle; without it, the menu did not offer Mega Evolution and Charizard fought as itself. 2 of 2 cases
 passed (scratchpad `megaring/run2d/mega_check.json`).
 
+## The Town Map and the Coin Case from the Bag, and MS-157 (after the package)
+
+Both used from the Bag's Key Items in real game processes (the Classic 2D test build, engine `223d15e1`, Route 104):
+the Town Map, "DARREN took a closer look at the HOENN region map.", the region map at ROUTE 104, B back to the field;
+the Coin Case with 123,456 coins (the test build's coin setting), "Your COINS: 123456", the PC wallet's six digits
+(pictures, scratchpad `keyitems/`). Its description still said "A case that holds up to 9,999 Coins." although the PC
+game's wallet holds up to 999,999 coins since Update 29 (**MS-157**, in `KNOWN_ISSUES.md`); fixed after the package
+(engine `4f841321`, PC only): "A case that holds up to 999,999 Coins."; the GBA ROM keeps its own text.
+
+## The Exp. Charm (after the package)
+
+Two new GBA tests (`test/battle/item_effect/item_audit_key_items.c`, engine `aebcf98d`), made as the expansion's own
+Lucky Egg test is: the same wild battle with and without the Exp. Charm in the Bag, the experience gained half again
+as much with it; and with a held Lucky Egg in both, the charm's boost still applies on top of the egg's. 2 of 2 pass
+(`make check TESTS="Exp. Charm"`). The co-op battles' rewards take the same path (`--selftest-coop-exp` compares
+them with and without the charm).
+
 ## A held item in a real battle of the PC game (after the package)
 
 A wild battle in the Classic 2D test build (engine `c624a2d4`; the battle the PC game runs, its screens and its
@@ -510,8 +527,8 @@ After the package (above): a Master Ball thrown in a real battle and used up, it
 bought and sold, each saved and loaded (the real-game checks), the rods cast from the Bag, Focus Band, the form-change
 key items, the Itemfinder, the Heal Ball's and Friend Ball's effects on the Pokemon caught, Leftovers in a real
 battle, the DNA Splicers, the Go-Goggles, the Devon Scope (MS-156 found and fixed), the Wailmer Pail on Sudowoodo and
-on a berry tree, the Soot Sack, the Mega Ring. Still not done: an item's multiplayer sync beyond a world trade (a
-traded Pokemon carries its held item: the trade exchanges the whole party record, `tests/test_trade_eligibility.py`
-keeps held items and refuses mail; not run between two games today); a real battle in the PC game with held items
-other than Leftovers; the other key items and charms (those the items table marks not audited); the held items still
-with no test.
+on a berry tree, the Soot Sack, the Mega Ring, the Town Map, the Coin Case (MS-157 found and fixed). Still not done:
+an item's multiplayer sync beyond a world trade (a traded Pokemon carries its held item: the trade exchanges the whole
+party record, `tests/test_trade_eligibility.py` keeps held items and refuses mail; not run between two games today); a
+real battle in the PC game with held items other than Leftovers; the other key items and charms (those the items table
+marks not audited); the held items still with no test.
