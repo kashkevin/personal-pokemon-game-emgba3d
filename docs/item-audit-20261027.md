@@ -472,6 +472,7 @@ After the package (above): a Master Ball thrown in a real battle and used up, it
 bought and sold, each saved and loaded (the real-game checks), the rods cast from the Bag, Focus Band, the form-change
 key items, the Itemfinder, the Heal Ball's and Friend Ball's effects on the Pokemon caught, Leftovers in a real
 battle, the DNA Splicers, the Go-Goggles, the Devon Scope (MS-156 found and fixed), the Wailmer Pail on Sudowoodo.
-Still not done: any item's multiplayer sync; a real battle in the PC game with held items other than Leftovers; the
-other key items (the Wailmer Pail on a berry tree, the Soot Sack...) and the other charms; the held items still with
-no test.
+Still not done: an item's multiplayer sync beyond a world trade (a traded Pokemon carries its held item: the trade
+exchanges the whole party record, `tests/test_trade_eligibility.py` keeps held items and refuses mail; not run between
+two games today); a real battle in the PC game with held items other than Leftovers; the other key items (the Wailmer
+Pail on a berry tree, the Soot Sack...) and the other charms; the held items still with no test.
