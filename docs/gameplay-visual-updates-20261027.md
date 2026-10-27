@@ -101,7 +101,7 @@ only; the GBA ROM unchanged). **Three wireless minigames need an owner decision*
 
 Every activity was played in the real game: the Classic 2D test build, the player put in front of the attendant, keys
 pressed on exact frames, and pictures taken and looked at. The save was enrolled with a test world, as a connected
-player's is, so a world's save rules applied. Hoenn only: this build's Kanto maps are empty (KNOWN_ISSUES M14). The
+player's is, so a world's save rules applied. Hoenn only: the other regions are not in the game yet (its Kanto maps are empty, KNOWN_ISSUES M14). The
 Game Corner's casino is left out, as asked. Nothing was replaced by a generic minigame; each activity is the original.
 
 ### What was wrong, and what changed
@@ -162,6 +162,26 @@ The original has no single-player version and no computer partners. Making them 
 3. **Leave them as they are**: the attendants say what a GBA without the adapter says.
 
 Nothing is changed until the owner chooses.
+
+### Parts of the request not done in this round
+
+* **Modernize the minigame interfaces to the current UI: not done.** The contest screens, the Berry Blender, the
+  Pokeblock case and feeding, the Frontier's screens (the Frontier Pass, the Dome's tourney tree, the Factory's rental
+  and swap, the Pyramid's bag, the Pike and Arena screens, the Ranking Hall, the Exchange Service Corner), the Battle
+  Arena's judgment and Trainer Hill's records are still drawn as the GBA's (KNOWN_ISSUES MS-105). They belong to the
+  larger task of replacing every remaining GBA screen, which comes after these smaller updates, as the owner asked.
+  The Safari Zone's battle is already in the current UI.
+* **All six regions**: only Hoenn is in the game (`PROJECT_SPEC.md`: Hoenn first, the other regions one at a time
+  later), so only Hoenn's buildings exist to inspect.
+* **Rewards**: seen for the Berry Blender (a Pokeblock), the Glass Workshop (a Blue Flute) and the Safari Zone (the
+  caught Pokemon). Not reached in the runs: contest ribbons (the test contest was lost), Battle Points and symbols, the
+  Trick House's prizes, the Seashore House's Soda Pops, a lottery prize (the draw did not match).
+* **Finish, retry, exit**: a contest finished and returned to the lobby; the blender finished, blended again and was
+  left; the Dome's rest saved and resumed. Not seen: retiring from or losing a Frontier challenge, leaving the Safari
+  Zone when its steps run out, finishing a Trick House puzzle.
+* **Multiplayer**: the original's multi-player versions (link contests, the link Berry Blender, the Union Room, the
+  wireless minigames, the Battle Tower's multi battles with a linked friend) are not available on the PC game (above).
+  The Tower's multi battles with a computer partner were not run.
 
 ### Tests
 
