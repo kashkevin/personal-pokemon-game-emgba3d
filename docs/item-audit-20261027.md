@@ -4,8 +4,8 @@ The owner's request "Full item audit" (every item of Gen 1-6: Poke Balls and the
 berries, TMs and HMs, evolution items, charms, mints, Mega Stones, key items and so on). It asks for an item-by-item
 report, with each item's effect, usage conditions, consumption, interactions, multiplayer sync and saving checked
 against real behaviour. Existing balance must not change silently. The 2026-10-27 package is built from engine
-`6320c77d`, which has everything here except the Ability Capsule and Ability Patch self-test (engine `8db6561e`, test
-code only, written after the package was fixed).
+`6320c77d`, which has everything here except the sections marked "after the package" (written after the package was
+fixed, for a later build: tests, and MS-156's fix).
 
 Where a result comes from: **L** this Linux machine (the game's own functions in self-tests); **T** the engine's GBA
 test ROM (`make check`, the expansion's own battle tests, run on this Linux machine). Nothing here was tried on
