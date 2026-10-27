@@ -32,7 +32,7 @@ session.
 | 3 | Ultra Ball | 1200 | - | throw | - | Poke Balls self-test; GBA tests that name it: 7 passed; in battle: `item_effect/throw_ball.c` 0 passed, 4 to do |
 | 4 | Master Ball | 0 | - | throw | - | Poke Balls self-test; GBA tests that name it: 7 passed; in battle: `item_effect/throw_ball.c` 0 passed, 4 to do |
 | 5 | Premier Ball | 200 | - | throw | - | Poke Balls self-test; in battle: `item_effect/throw_ball.c` 0 passed, 4 to do |
-| 6 | Heal Ball | 300 | - | throw | - | Poke Balls self-test; in battle: `item_effect/throw_ball.c` 0 passed, 4 to do |
+| 6 | Heal Ball | 300 | - | throw | - | Poke Balls self-test; in battle: `item_effect/throw_ball.c` 0 passed, 4 to do; after the catch: a new GBA test (engine `99b9a03d`, after the package) passed |
 | 7 | Net Ball | 1000 | - | throw | - | Poke Balls self-test; in battle: `item_effect/throw_ball.c` 0 passed, 4 to do |
 | 8 | Nest Ball | 1000 | - | throw | - | Poke Balls self-test; in battle: `item_effect/throw_ball.c` 0 passed, 4 to do |
 | 9 | Dive Ball | 1000 | - | throw | - | Poke Balls self-test; in battle: `item_effect/throw_ball.c` 0 passed, 4 to do |
@@ -44,7 +44,7 @@ session.
 | 15 | Level Ball | 300 | - | throw | - | Poke Balls self-test; in battle: `item_effect/throw_ball.c` 0 passed, 4 to do |
 | 16 | Lure Ball | 300 | - | throw | - | Poke Balls self-test; in battle: `item_effect/throw_ball.c` 0 passed, 4 to do |
 | 17 | Moon Ball | 300 | - | throw | - | Poke Balls self-test; in battle: `item_effect/throw_ball.c` 0 passed, 4 to do |
-| 18 | Friend Ball | 300 | - | throw | - | Poke Balls self-test; in battle: `item_effect/throw_ball.c` 0 passed, 4 to do |
+| 18 | Friend Ball | 300 | - | throw | - | Poke Balls self-test; in battle: `item_effect/throw_ball.c` 0 passed, 4 to do; after the catch: a new GBA test (engine `99b9a03d`, after the package) passed |
 | 19 | Love Ball | 300 | - | throw | - | Poke Balls self-test; in battle: `item_effect/throw_ball.c` 0 passed, 4 to do |
 | 20 | Fast Ball | 300 | - | throw | - | Poke Balls self-test; GBA tests that name it: 1 passed; in battle: `item_effect/throw_ball.c` 0 passed, 4 to do |
 | 21 | Heavy Ball | 300 | - | throw | - | Poke Balls self-test; GBA tests that name it: 4 passed; in battle: `item_effect/throw_ball.c` 0 passed, 4 to do |

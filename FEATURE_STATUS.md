@@ -631,6 +631,7 @@ Recorded guidance the code no longer follows (not binding decisions):
 | The fishing rods: bite odds (Gen 4+, Suction Cups and Sticky Hold), each rod's slots and rates, lures, every map's fishing table; each rod cast from the Bag in the real game | Tested (`--selftest-rods`, 41 checks; `rods_check.py` in the Linux 2D and 3D test builds; not on Windows); not in the package | engines `7054b688`, `c624a2d4` |
 | The form-change key items: the Meteorite (Deoxys), the Gracidea (Shaymin, by day), the Reveal Glass (the forces of nature), the Prison Bottle (Hoopa) | Tested (`--selftest-form-items`, 22 checks; the party menu's screens not run); not in the package | engine `993496aa` |
 | The Itemfinder (Dowsing Machine) from the Bag: by a hidden item and away from any | Tested (real game, Linux 2D test build, pictures); not in the package | engine `c624a2d4` |
+| What a ball does to the Pokemon it catches: the Heal Ball's HP, status and PP, the Friend Ball's friendship | Tested (3 new GBA tests; not thrown in the PC game's own battle screen); not in the package | engine `99b9a03d` |
 | The rest of the item audit (the other key items' uses, charms; a real battle in the PC game with held items, an item's multiplayer sync) | Not done (next session) | `docs/item-audit-20261027.md` |
 
 ## Battle transitions in 3D (2026-10-27, `docs/battle-transitions-3d-20261027.md`)

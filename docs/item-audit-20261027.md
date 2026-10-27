@@ -32,6 +32,7 @@ the built game, with what checked each one today (and which are not audited yet)
 * **The Ability Capsule and the Ability Patch: done after the package** (below): what each does to a Pokemon's ability.
 * **Focus Band and the fishing rods: done after the package** (below): the band's effect in battles of the test ROM;
   the rods' bites and slots through the game's code, and each rod cast from the Bag in the real game.
+* **What a ball does to the Pokemon it catches (Heal Ball, Friend Ball): done after the package** (below).
 * **The form-change key items and the Itemfinder: done after the package** (below): the Meteorite, the Gracidea, the
   Reveal Glass and the Prison Bottle through the game's code; the Itemfinder used from the Bag in the real game.
 * **Held items no test checked: 18 new GBA tests** (below): the Plates, Light Clay, Wide Lens, Lax Incense, Bright
@@ -315,6 +316,14 @@ ITEMFINDER's responding!", the player turning, "There's an item buried around he
 nothing, "...Nope! There's no response." (pictures, scratchpad `itemfinder/`). Its messages still call it the
 ITEMFINDER while the Bag names it the Dowsing Machine (text, not changed).
 
+## What a ball does to the Pokemon it catches (after the package)
+
+Three new GBA tests (`test/battle/item_effect/item_audit_balls.c`, engine `99b9a03d`, test code only; the catch made
+sure of as the expansion's own capture tests do): **3 of 3 passed.** A Caterpie caught in a Heal Ball at 1 HP,
+paralysed, its move at 3 PP, has its HP full, no status and its PP full (35); caught in a Poke Ball it keeps all
+three; a Friend Ball gives it 200 friendship (Gen 6; the expansion's Gen 8 rule would give 150), a Poke Ball the
+species' own. The Luxury Ball's bonus to friendship gained is the healing self-test's (above, MS-150).
+
 ## The Bag in the real game (after the package)
 
 The game's existing real-game checks (`tools/battle_env/*_check.py`: real game processes, the presses a person makes,
@@ -424,8 +433,7 @@ to `cure_status.c` and `restore_hp.c`, which are tested.
 * Key items and the other charms.
 
 After the package (above): a Master Ball thrown in a real battle and used up, items used from the Bag and refused,
-bought and sold, each saved and loaded (the real-game checks), the rods cast from the Bag, Focus Band, the
-form-change key items, the Itemfinder. Still not done:
-a Poke Ball's effect after the catch (Heal, Friend, Luxury) in the real game; any item's multiplayer sync; a real
-battle in the PC game with held items; the other key items (the Wailmer Pail, the Soot Sack, the Go-Goggles, the
-Devon Scope, the DNA Splicers...) and the other charms; the held items still with no test.
+bought and sold, each saved and loaded (the real-game checks), the rods cast from the Bag, Focus Band, the form-change
+key items, the Itemfinder, the Heal Ball's and Friend Ball's effects on the Pokemon caught. Still not done: any item's
+multiplayer sync; a real battle in the PC game with held items; the other key items (the Wailmer Pail, the Soot Sack,
+the Go-Goggles, the Devon Scope, the DNA Splicers...) and the other charms; the held items still with no test.
