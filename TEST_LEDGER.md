@@ -833,3 +833,15 @@ these commits. Nothing ran on a player's PC or between two real PCs.
 | Host: the shared spawns' shiny rate through `SpawnDirector._fill`, a million Pokemon each (Route 101; an outbreak) | app (this commit) | L | 1 in 4651 (-1.9 sigma), Charm owner 1 in 2618 (-0.9 sigma); outbreak 1 in 4016 (+0.3 sigma), Charm owner 1 in 2494 (+0.0 sigma): all as documented | scratchpad `hostsim/` | - | Reuse |
 | GBA ROM, `check_gba_lines.py` (`wild_encounter_ow.c`, `safari_zone.c`), 2D, 3D and 2D test builds | engine `11f8be05` | L | ROM **unchanged** (`f214735b...`); 0 moved lines; all three build | scratchpad `rom-legend.log`, `pc3d-legend.log` | - | Reuse |
 | A Legendary caught, a Legendary fleeing on its own, the team beaten by one; a world's shared Legendary in a real connected world | - | - | **Not run** (code paths shared with the tested ones; host side by unit tests only) | - | - | Next session |
+
+## The Flying-type Gym's puzzle in 3D (2026-10-27; engine `claude/feature-update-engine`; `docs/fortree-gym-puzzle-20261027.md`)
+
+**L** this Linux machine (real game processes of the 3D and Classic 2D test builds; software OpenGL). No **W** run covers
+this commit. Nothing ran on a player's PC.
+
+| Test | Build / head | Where | Last result | Evidence | Changed since | Rerun? |
+| --- | --- | --- | --- | --- | --- | --- |
+| Fortree Gym pictured at the door, before and after, both views | engine `bb8ef78f` test builds (before: `11f8be05`) | L | Before: the gate in 2D, none in 3D; after: the gate in 3D where 2D draws it, as a low rail | scratchpad `gym/w-*` | - | Reuse |
+| The puzzle walked from the door to Winona (96 steps from the game's gate rules, ported), then her battle | engine `bb8ef78f` test builds | L | **3D**: the tile below Winona at the predicted frame, gates pushed and turning, her battle on the 3D stage, won ("Obtained the TM40!"); **2D**: the same route, her battle won, "received the FEATHER BADGE" | scratchpad `gym/route-3d`, `full-*`, `win-*` | - | Reuse |
+| The Trick House's sixth puzzle, both views | engine `bb8ef78f` test builds | L | 11 gates drawn in 3D, matching the 2D picture | scratchpad `gym/trick-*` | - | Reuse |
+| `check-diorama` (3D unit tests), `check_gba_lines.py`, GBA ROM, 2D and 3D builds | engine `bb8ef78f` | L | **passes** (compositor goldens, rules valid); 0 moved lines; ROM **unchanged** (`f214735b...`) | scratchpad `gym/check-diorama.log`, `gym/rom.log` | - | Reuse |

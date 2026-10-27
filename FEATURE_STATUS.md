@@ -604,6 +604,12 @@ Recorded guidance the code no longer follows (not binding decisions):
 | Shiny odds of every way a Pokemon is made, as documented | Tested (`--selftest-shiny-paths`, the game's own code) | engine `11f8be05` |
 | One spawn timer for the player's own visible Pokemon and the world's shared ones | Not done: an owner decision (MS-146) | `docs/spawns-legends-shiny-20261027.md` section 2 |
 
+## The Flying-type Gym's puzzle in 3D (2026-10-27, `docs/fortree-gym-puzzle-20261027.md`)
+
+| Feature | Status | Evidence |
+| --- | --- | --- |
+| Rotating gates (Fortree City Gym, the Trick House's sixth puzzle) drawn in the 3D view as low rails, turning when pushed (MS-147) | Implemented and tested (Linux 3D and 2D test builds; the puzzle walked to Winona and her battle won in both; not on Windows or a PC) | engine `bb8ef78f` |
+
 ## How to update
 
 1. Change a row only with new evidence: a recorded run (a doc in `docs/` or
