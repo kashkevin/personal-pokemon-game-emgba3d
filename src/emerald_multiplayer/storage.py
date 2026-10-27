@@ -261,8 +261,11 @@ class CheckpointStore:
             if isinstance(error, sqlite3.DatabaseError):
                 code = getattr(error, "sqlite_errorcode", 0) & 255
                 corrupt = code in (sqlite3.SQLITE_CORRUPT, sqlite3.SQLITE_NOTADB)
+                # Which failure it was (a locked database, a full disk, an I/O error, a constraint): KNOWN_ISSUES MS-93's
+                # fresh Continue after a 100-floor climb failed here and the log could not say why.
+                cause = getattr(error, "sqlite_errorname", None) or type(error).__name__
                 raise StorageError("storage_corrupt" if corrupt else "storage_error",
-                                   "checkpoint transaction failed") from error
+                                   f"checkpoint transaction failed ({cause})") from error
             raise
 
     @contextmanager
