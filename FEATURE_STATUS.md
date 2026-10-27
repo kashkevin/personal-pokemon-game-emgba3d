@@ -618,7 +618,12 @@ Recorded guidance the code no longer follows (not binding decisions):
 | The Heavy Ball on a light Pokemon with a catch rate of 20 or less: catch rate 1, no longer a sure catch (MS-148) | Implemented and tested (self-test, before and after) | engine `4474883b` |
 | A throw at odds 0: the GBA's result written out, no undefined division, the chance unchanged (MS-149) | Implemented and tested (self-test on the new and the old code) | engine `6a575072` |
 | Every healing item's effect as its Gen 6 rule says (HP, statuses, revival, PP, friendship; the game's own code) | Tested (`--selftest-healing`, 70 checks; not used in a real battle); MS-150 open (owner decision) | engine `000d7556` |
-| The rest of the item audit (held items, berries, TMs and HMs, evolution items, mints, Mega Stones, key items, charms, battle items) | Not done (next session) | `docs/item-audit-20261027.md` |
+| Berries, vitamins, wings, PP Up and PP Max, Rare Candy, evolution stones: each item's effect as its Gen 6 rule says (the game's own code) | Tested (`--selftest-bag-items`; through the game's functions, not the bag's screens) | engine `228dbada` |
+| TMs and HMs: Emerald's numbering, the HM moves, who can learn them | Tested (the same self-test); the learnsets are the later games', not Emerald's (owner decision) | engine `228dbada` |
+| The EV-training held items: Macho Brace, the Power items, Pokerus (the effort values gained) | Tested (`--selftest-held-items`, 17 checks; their halved Speed in battle not checked) | engine `2ea6e093` |
+| Held items, items used in battle, item moves and abilities, Mega Evolution in battle | Tested by the expansion's own tests (GBA test ROM: 806 of 860 passed, 3 expected failures, the rest to do or known upstream); 32 held-item files have no test yet | engine `000d7556` |
+| Mints: each mint's nature, its effect on the stats, the Pokemon's own nature kept, the stored data | Tested (`--selftest-mints`, 7 checks; the menu's refusal of the same nature not run) | engine `9b8df5c3` |
+| The rest of the item audit (key items, charms; the held items with no test; a real battle with held items, the bag taking an item, its multiplayer sync and save) | Not done (next session) | `docs/item-audit-20261027.md` |
 
 ## Battle transitions in 3D (2026-10-27, `docs/battle-transitions-3d-20261027.md`)
 

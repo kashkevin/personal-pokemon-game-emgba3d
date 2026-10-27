@@ -1,12 +1,16 @@
-# Item audit (2026-10-27): Poke Balls and healing items
+# Item audit (2026-10-27): Poke Balls, healing, bag items, TMs and HMs, mints, held items
 
 The owner's request "Full item audit" (every item of Gen 1-6: Poke Balls and their capture math, healing, held items,
 berries, TMs and HMs, evolution items, charms, mints, Mega Stones, key items and so on). It asks for an item-by-item
 report, with each item's effect, usage conditions, consumption, interactions, multiplayer sync and saving checked
 against real behaviour. Existing balance must not change silently. Nothing here is packaged.
 
-Where a result comes from: **L** this Linux machine (the game's own functions in self-tests). Nothing here was tried
-on Windows or on a player's PC.
+Where a result comes from: **L** this Linux machine (the game's own functions in self-tests); **T** the engine's GBA
+test ROM (`make check`, the expansion's own battle tests, run on this Linux machine). Nothing here was tried on
+Windows or on a player's PC.
+
+**Every item, one by one:** `docs/item-audit-20261027-items.md` lists all 873 items of the game's list, read out of
+the built game, with what checked each one today (and which are not audited yet).
 
 ## What this round covers
 
@@ -15,9 +19,20 @@ on Windows or on a player's PC.
 * **Items that touch wild Pokemon: done earlier today**: the Shiny Charm, lures and Repels, the flutes, Cleanse Tag,
   Pure Incense, the encounter-rate abilities, Synchronize, Cute Charm, Magnet Pull and Static, Keen Eye, Hustle, Compound
   Eyes, the Catching and Oval Charms (`docs/gameplay-visual-updates-20261027.md` section 5).
-* **Not audited yet** (kept for the next session): held items in battle, berries (beyond the status berries below),
-  TMs and HMs, evolution items, mints, Mega Stones, key items, the other charms, and the battle items. A ball's consumption, its multiplayer
-  sync and its save were not looked at either, nor was a real throw in a battle (see "Not done").
+* **Berries, vitamins, wings, PP Up and PP Max, Rare Candy, evolution stones: done** (below), through the game's own
+  item code.
+* **TMs and HMs: done** (below): numbering, the HM moves, who can learn them. A TM's reuse, its sale and forgetting an
+  HM move were checked earlier (`--selftest-move-switch`).
+* **The EV-training held items: done** (below): the Macho Brace, the Power items and Pokerus.
+* **Mints: done** (below): each mint's nature and what a mint does to the stats.
+* **Held items, battle items, Mega Stones in battle: the expansion's own tests** (below): the GBA test ROM's 860 tests
+  for them, run on this build (806 passed, 3 expected failures, the rest to do or known upstream); 32 held-item files
+  there have no test yet (listed).
+* **Key items: their data only** (in the table of every item): all 72 are "important" (they cannot be tossed or sold)
+  and have no price. What each does in the field (the Bikes, the rods, the Itemfinder, the Wailmer Pail, the
+  form-change items...) was not audited.
+* **Not audited yet** (kept for the next session): the key items' uses, the other charms; a real battle with the items
+  above; the bag taking an item away, an item's multiplayer sync and its save (see "Not done").
 
 ## Poke Balls
 
@@ -134,9 +149,121 @@ elsewhere, in a plain ball.
 Not checked here: an item used in battle (the same function, with the battler's own HP and status), the bag taking the
 item away, the multiplayer save of the result, and the berries a Pokemon eats by itself in battle (the berries part).
 
+## Berries, vitamins, wings, PP Up and PP Max, Rare Candy, evolution stones
+
+`--selftest-bag-items` (new; `make -f Makefile_pc check-bag-items`; engine `228dbada`, test code only): each item used
+on a party Pokemon (a level 50 Snorlax, 220 HP) through `PokemonUseItemEffects`, what the bag's USE calls out of
+battle; a stone through `GetEvolutionTargetSpecies`, the evolution that function asks for before it starts the
+evolution scene (the Pokemon is left as it was). The rules are the ones this build is set to (`include/config/item.h`,
+Gen 6). **121 checks, 0 failed** (with the TM and HM checks below).
+
+| Items | Rule (this build, Gen 6) | Checked |
+| --- | --- | --- |
+| Oran Berry; Sitrus Berry | 10 HP; a quarter of the maximum (Gen 4+) | 1 -> 11; 1 -> 56 of 220; no effect at full HP |
+| Leppa Berry | 10 PP to the move chosen | Tackle 0 -> 10, the other moves untouched; no effect on a full move |
+| Persim Berry; Figy Berry | confusion, only in battle; eaten only when held (no use from the bag) | no effect from the bag |
+| HP Up, Protein, Iron, Calcium, Zinc, Carbos | +10 effort values in the stat, up to 100 (Gen 8's cap of 252 is off), never past 510 in all | 0 -> 10 each; 95 -> 100; at 100 no effect; with 505 in the other stats +5 (to 510); with 510 no effect |
+| Health, Muscle, Resist, Genius, Clever, Swift Wings; Pretty Wing | +1 up to 252, never past 510 in all; nothing | 0 -> 1 each; 100 -> 101 (past a vitamin's limit); 251 -> 252; at 252, or 510 in all, no effect; Pretty Wing no effect |
+| Pomeg, Kelpsy, Qualot, Hondew, Grepa, Tamato Berries | -10 effort values (not Gen 4's drop to 100), not below 0; friendship +10 / +5 / +2 | 100 -> 90 each; 252 -> 242; 5 -> 0; at 0 only the friendship (150 -> 155); at 0 with friendship 255 nothing changes and the bag keeps the berry ("It won't have any effect") |
+| Friendship (under 100 / 100-199 / 200 and over) | vitamins, PP Up, PP Max, Rare Candy +5 / +3 / +2; wings +3 / +2 / +1; those berries +10 / +5 / +2; never past 255 | each tier as the rule (HP Up, Health Wing and Pomeg Berry at 50, 150 and 250; PP Up, PP Max, Rare Candy once each); 254 -> 255 |
+| PP Up; PP Max | a fifth of the move's base PP more, three times at most; all three at once; not on a move under 5 PP | Tackle 35 -> 42 -> 49 -> 56, a fourth no effect; Surf 15 -> 24 with PP Max, then PP Up no effect; Hyper Beam 5 -> 6 -> 8; Sketch (1 PP) no effect; the PP left rises by the same amount (10 -> 17) |
+| Rare Candy | the next level's experience, the HP the level adds | level 50 -> 51 at level 51's experience, HP +4 with the maximum; 99 -> 100; at 100 no effect and no friendship |
+| Evolution stones | the evolutions in the species data | Pikachu -> Raichu (not Alola's), Eevee -> Jolteon, Vaporeon, Flareon, Leafeon, Glaceon; Growlithe, Vulpix, Lombre, Staryu, Nuzleaf, Gloom (both stones), Sunkern, Skitty, Clefairy, Togetic, Roselia, Murkrow, Misdreavus, a male Kirlia, a female Snorunt each to its evolution; none for a female Kirlia or a male Snorunt (Dawn Stone), Eevee with a Moon Stone, Charmander, Pikachu with a Water Stone, Raichu, or a Pokemon holding an Everstone (Emerald's rule) |
+
+Measured and reported, not changed (each as the game's own data has it):
+
+* **A Rare Candy revives a fainted Pokemon** with the HP the level adds (level 50 -> 51, HP 0 -> 4): Emerald's own
+  Rare Candy data (a revive with the level-up HP).
+* **Eevee evolves with a Leaf Stone or an Ice Stone** (Gen 8's rule), besides the Hoenn places this build gives
+  Leafeon and Glaceon (Petalburg Woods, Shoal Cave's ice room).
+* A Soothe Bell makes a vitamin's +3 a +4 (half again, rounded down).
+
+## TMs and HMs
+
+The same self-test. TM01-TM50 and HM01-HM08 are Emerald's (TM01 Focus Punch to TM50 Overheat, HM01 Cut to HM08 Dive):
+58 items, each teaching its number's move (checked against a separate list of Emerald's), each in the TM pocket. The
+eight HM moves are the only moves the game treats as HMs. Mew can learn all 58; Magikarp, Ditto, Smeargle, Caterpie,
+Metapod, Kakuna, Wurmple, Silcoon, Cascoon and Beldum none; Snorlax Surf and Earthquake, Machamp Strength, Pidgeot and
+Charizard Fly, Gyarados Waterfall, Wailmer Dive, Geodude Rock Smash, Zigzagoon Cut and Pikachu Thunderbolt yes;
+Gyarados, Bulbasaur and Pikachu not Fly. On PC a TM is never used up and cannot be sold (`I_REUSABLE_TMS`, as in
+Gens 5-8), and an HM move can be switched out while the HM is in the bag: `--selftest-move-switch` (84 checks), run
+again on `228dbada` (the engine checks in `TEST_LEDGER.md`).
+
+**Reported, not changed (owner decision):** who can learn a TM comes from the expansion's learnsets, which are the
+later games', not Emerald's: Pikachu can learn Surf, Wobbuffet TM20 Safeguard and Unown TM10 Hidden Power, none of
+which Emerald allows. Going back to Emerald's lists would take moves away from players' Pokemon.
+
+## The EV-training held items: Macho Brace, the Power items, Pokerus
+
+`--selftest-held-items` (new; `make -f Makefile_pc check-held-items`; engine `2ea6e093`, test code only): the effort
+values a Pokemon gains for a defeated Pokemon, through `MonGainEVs` (what a battle calls for each Pokemon that gains
+experience), against Gen 6's rules (`I_POWER_ITEM_BOOST` below Gen 7: a Power item adds 4). The defeated Pokemon, a
+Zigzagoon, yields 1 Speed. **17 checks, 0 failed.** The expansion's own tests have none for these items (below).
+
+| Held | Rule (Gen 6) | Checked |
+| --- | --- | --- |
+| Nothing | the defeated Pokemon's yield | Speed +1 |
+| Macho Brace; Pokerus (also once cured) | doubled; both together four times | +2; +2 (cured too); +4 |
+| Power Weight, Bracer, Belt, Anklet, Lens, Band | 4 more in the item's stat, on top of the yield | each +4 in its stat, and Speed +1 |
+| A Power item and Pokerus | (yield + 4) x 2 | Power Anklet: Speed +10; Power Bracer: Attack +8, Speed +2 |
+| Limits | 252 in a stat, 510 in all | at 252 nothing; 250 with a Power Anklet: to 252; 509 in all: +1; 510: nothing |
+
+Not checked: the Speed these items halve in battle, the experience a Lucky Egg or an Exp. Share gives, and the money
+an Amulet Coin doubles (all worked out in the battle's own scripts; no test of their own upstream either).
+
+## Mints
+
+`--selftest-mints` (new; `make -f Makefile_pc check-mints`; engine `9b8df5c3`, test code only). **7 checks, 0
+failed.** Each of the 21 mints gives the nature it is named after (its item data, checked against a separate list).
+What the bag does with a mint (`Task_Mint` in `party_menu.c`, after the YES: the Pokemon's stat nature set to the
+mint's, its stats worked out again) was run on a Hardy level 100 Snorlax: an Adamant Mint raises Attack by a tenth and
+lowers Sp. Atk by a tenth, rounded down (225 -> 247, 135 -> 121), the other stats unchanged; a Jolly, then a Modest
+Mint move the changes to their stats; a Serious Mint (neutral) gives every stat back. The Pokemon's own nature, which
+Synchronize and breeding read, stays Hardy, and the stat nature is kept in the Pokemon's stored data (its box form, as
+saved). The menu's "It won't have any effect" for a mint of the nature the Pokemon already has was not run (it is a
+comparison in the menu's task).
+
+## Held items, battle items, Mega Stones in battle: the expansion's own tests
+
+The engine carries the expansion's battle tests (`test/battle/`), built into a GBA test ROM with this build's rules
+(Gen 6) and run by `make check`. On engine `000d7556` (2026-10-27, 1,077 s): **6,077 tests, 5,574 passed; the 39 that
+failed are exactly the 39 expected** (tests written for later generations' rules, `docs/gba-test-expected-failures.txt`,
+compared name by name by `scripts/diagnostics/check_gba_test_failures.py`: 0 new); 19 known failing upstream, 15
+failed assumptions, 421 still to be written upstream, 9 expected to fail. The test ROM leaves out the PC-only code, so
+the result stands for the later commits too (`228dbada`, `2ea6e093` and `9b8df5c3` add PC self-tests only).
+
+The item tests among them (each test's title looked up in its file):
+
+| Group | Files | Tests | Passed | Failed | Known failing | Failed assumption | To do |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Held items in battle (`test/battle/hold_effect`) | 129 | 454 | 415 | 3 | 0 | 1 | 35 |
+| Items used from the bag in battle (`test/battle/item_effect`) | 11 | 84 | 78 | 0 | 0 | 0 | 6 |
+| Moves that use or move items (Fling, Knock Off, Trick, Bestow, Recycle, Natural Gift, Embargo, Magic Room...) | 13 | 144 | 140 | 0 | 1 | 0 | 3 |
+| Abilities that use or move items (Pickup, Harvest, Frisk, Klutz, Unburden, Pickpocket, Symbiosis...) | 13 | 119 | 115 | 0 | 1 | 0 | 3 |
+| Mega Evolution and Primal Reversion (Mega Stones, the orbs) | 5 | 56 | 55 | 0 | 1 | 0 | 0 |
+| The bag (sorting) | 1 | 3 | 3 | 0 | 0 | 0 | 0 |
+
+The three failures are among the 39 expected: White Herb with Weak Armor (two tests), where the tests expect Gen 7's
++2 Speed and Gen 6 gives +1, and Air Balloon with Disguise (Gen 8's Disguise rules). Each file's numbers:
+`docs/item-audit-20261027-tests.md`.
+
+**Held items with no test of their own there** (their file is an upstream "to do" placeholder; some are used in other
+tests, as Focus Sash is in Endure's): Smoke Ball; the five confusion berries (Figy, Wiki, Mago, Aguav, Iapapa); Amulet
+Coin and Luck Incense; Bright Powder and Lax Incense; Exp. Share and Lucky Egg; Macho Brace and the Power items (their
+effort values checked above, not their halved Speed); Flame Orb and Toxic Orb; Focus Band and Focus Sash; Soothe Bell;
+Grip Claw; Light Clay; Power Herb; Wide Lens; Soul Dew; the plates, drives and memories; Everstone (checked above
+against the stones); Cleanse Tag (the wild item audit); the Mega Stone and primal orb hold effects (Mega Evolution and
+Primal Reversion themselves are tested in `form_change`); three later items (Heavy-Duty Boots, Loaded Dice, Punching
+Glove). The cure berries' and the HP berries' own files point to `cure_status.c` and `restore_hp.c`, which are tested.
+These are the next session's held-item work.
+
 ## Not done (this round)
 
 * A ball thrown in a real battle (the self-test calls the same function the throw does; a battle's bag was not
   driven). A ball's consumption, its effect after the catch (Heal, Friend, Luxury), its multiplayer sync and its save
   were not checked in this round.
-* Every other item category (listed at the top).
+* The bag items, TMs and HMs above were used through the game's functions, not through the bag's screens; the bag
+  taking the item away, an item's multiplayer sync and its save were not checked.
+* The held items listed above with no test of their own; a real battle in the PC game with any held item (the GBA
+  test ROM runs the same battle code, without the PC parts).
+* Key items and the other charms.
