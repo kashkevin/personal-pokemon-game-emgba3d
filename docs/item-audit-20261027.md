@@ -34,8 +34,9 @@ the built game, with what checked each one today (and which are not audited yet)
   for them, run on this build (806 passed, 3 expected failures, the rest to do or known upstream); 32 held-item files
   there have no test yet (listed).
 * **Key items: their data only** (in the table of every item): all 72 are "important" (they cannot be tossed or sold)
-  and have no price. What each does in the field (the Bikes, the rods, the Itemfinder, the Wailmer Pail, the
-  form-change items...) was not audited.
+  and have no price. Where the Bikes and the Escape Rope can be used, read from the maps' data (below). What the
+  other key items do in the field (the rods, the Itemfinder, the Wailmer Pail, the form-change items...) was not
+  audited.
 * **Not audited yet** (kept for the next session): the key items' uses, the other charms; a real battle with the items
   above; the bag taking an item away, an item's multiplayer sync and its save (see "Not done").
 
@@ -233,15 +234,18 @@ comparison in the menu's task).
 ## Trade evolution items
 
 `--selftest-evo-items` (new; `make -f Makefile_pc check-evo-items`; engine `acea1d3f`, test code only). **33 checks, 0
-failed.** The evolution a trade starts, through `GetEvolutionTargetSpecies` in its trade mode (what both the classic
-trade and a world's trade ask; the Pokemon is left as it was): Kadabra, Machoke, Graveler, Haunter, Boldore, Gurdurr
+failed.** The evolution a trade starts, through `GetEvolutionTargetSpecies` in its trade mode (what the classic link
+trade asks, and a world trade's read-only preview; the Pokemon is left as it was): Kadabra, Machoke, Graveler, Haunter, Boldore, Gurdurr
 and Phantump evolve by trade alone; Onix and Scyther holding a Metal Coat, Poliwhirl and Slowpoke a King's Rock,
 Seadra a Dragon Scale, Porygon an Up-Grade, Porygon2 a Dubious Disc, Rhydon a Protector, Electabuzz an Electirizer,
 Magmar a Magmarizer, Dusclops a Reaper Cloth, Clamperl a Deep Sea Tooth or Scale, Feebas a Prism Scale, Swirlix a
 Whipped Dream and Spritzee a Sachet each evolve; none evolves without its item or with another's, or holding an
 Everstone, except Kadabra (Gen 4+); Karrablast and Shelmet evolve only when traded for each other. The GBA test ROM's
 own tests of a world trade's evolution (the item kept by the preview, the Everstone and Kadabra, a partner-specific
-evolution) passed: 8 of 8 (`test/multiplayer_trade_effects.c`, engine `000d7556`). Not checked: the evolutions that
+evolution) passed: 8 of 8 (`test/multiplayer_trade_effects.c`, engine `000d7556`). **But a world trade does not
+evolve anyone (MS-151, open):** its trade menu refuses the 29 species that can evolve by trade, with or without
+their item ("Trade evolution is not enabled for this build", `trade_eligibility.py`), so these items do nothing in a
+friend's trade today; mail is refused there too. Not checked: the evolutions that
 need a held item at a level up (Happiny's Oval Stone by day, Gligar's Razor Fang and Sneasel's Razor Claw at night),
 which depend on the game's clock.
 
@@ -268,6 +272,24 @@ own test is still "to do" upstream, against the Gen 6 rules. Three were also run
 Not testable this way: Focus Band's 10% (its roll is an untagged random number the test framework cannot steer).
 Already tested elsewhere in the expansion: Smoke Ball (`ability/arena_trap.c`), Grip Claw
 (`move_effect_secondary/wrap.c`), Power Herb (`geomancy.c` and others), Lucky Egg and Exp. Share (`exp.c`).
+
+## Where the Bikes and the Escape Rope can be used (the maps' data)
+
+The game lets a Bike be ridden where the map allows cycling (`Overworld_IsBikingAllowed`, the map's `allow_cycling`)
+and an Escape Rope, or Dig, be used where it allows escaping (`CanUseDigOrEscapeRopeOnCurMap`, `allow_escaping`).
+Read from all 520 Hoenn maps' `map.json` (the FRLG copies left out; **L**, data only, not run in a game):
+
+| Maps | Count | Escape Rope | Bike |
+| --- | --- | --- | --- |
+| Caves and dungeons (underground) | 105 | yes in 85 | yes in 80 |
+| Routes, towns, cities, the sea, under the water | 82 | no | yes in 80 |
+| Buildings and rooms (indoor), secret bases | 333 | no | yes in 5 |
+
+The exceptions follow the places' design: Navel Rock's 20 caves allow neither an Escape Rope nor a Bike;
+the legendary chambers (Cave of Origin B1F, the ends of Marine Cave and Terra Cave, Seafloor Cavern's Room 9) and
+Marine Cave's entrance allow no Bike; Sky Pillar's top and an unused prototype of Route 104 allow no Bike; the two
+Cycling Road gatehouses, Faraway Island's two maps and Navel Rock's outside allow a Bike although they are counted as
+indoor maps. Not checked in a game: riding, the Dad's advice when a Bike cannot be used, an Escape Rope's warp.
 
 ## Held items, battle items, Mega Stones in battle: the expansion's own tests
 

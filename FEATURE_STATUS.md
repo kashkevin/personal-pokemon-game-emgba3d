@@ -624,6 +624,7 @@ Recorded guidance the code no longer follows (not binding decisions):
 | Held items, items used in battle, item moves and abilities, Mega Evolution in battle | Tested by the expansion's own tests (GBA test ROM: 806 of 860 passed, 3 expected failures, the rest to do or known upstream); 32 held-item files have no test yet | engine `000d7556` |
 | Mints: each mint's nature, its effect on the stats, the Pokemon's own nature kept, the stored data | Tested (`--selftest-mints`, 7 checks; the menu's refusal of the same nature not run) | engine `9b8df5c3` |
 | Trade evolution items: the Gen 1-6 trade evolutions with their items, the Everstone and Kadabra, Karrablast and Shelmet | Tested (`--selftest-evo-items`, 33 checks; the trade itself not run) | engine `acea1d3f` |
+| Trade evolution in a friend's (world) trade | **Not available**: the 29 species that evolve by trade are refused there (MS-151) | app `trade_eligibility.py` |
 | Held items no test checked (Plates, Light Clay, Wide Lens, Lax Incense, Bright Powder, Soul Dew, the confusion berries, the Macho Brace's and Power items' Speed, Focus Sash, Flame Orb, Toxic Orb, Amulet Coin, Luck Incense) | Tested (18 new GBA tests in battles of the test ROM) | engines `800015dd`, `6320c77d` |
 | The rest of the item audit (key items' uses, charms; Focus Band; a real battle in the PC game, the bag taking an item, its multiplayer sync and save) | Not done (next session) | `docs/item-audit-20261027.md` |
 
