@@ -1018,3 +1018,12 @@ its own run.
 | `native_trade_proof.py` with its back-out step answering MS-68's "Cancel the trade?" page ("Yes, cancel trade"): A's Torchic holding Leftovers for B's Treecko, then B backing out of a second trade, both games restarted | engine `e6c8f2d8` (2D game), the app's fixed script | L (two games on one machine) | **passed, 9 of 9 checks**: the trade, the back-out aborted with nothing moved, the restarted games hold their latest saves' parties, the host's store intact; B's Torchic still holding Leftovers | scratchpad `mp/multiplayer-proof/trade-held-5/`, `mpsync/trade-held-5-parties.txt` | - | Reuse |
 | Every engine check target (53) and `check-diorama`, on the branch head after the package (the ledge work back, the two tests above) | engine `e6c8f2d8` | L | **54 of 54 exit 0** (`check-balls` 62, `check-held-items` 23; `check-diorama` 495 s); builds without new warnings; the GBA ROM unchanged (`f214735b...`) | scratchpad `final-checks14/summary.txt` | - | Reuse |
 | The tests that read the documents (24 files), on a live display | app `4889cfa` (with the package's report) | L | **615 passed**, 20 skipped, exit 0 | scratchpad `doc-tests-4889cfa.log` | docs only since | Reuse |
+
+## The package runs (2026-10-27)
+
+**W** the windows-package run (GitHub-hosted runners); **L** this Linux machine.
+
+| Test | Build / head | Where | Last result | Evidence | Changed since | Rerun? |
+| --- | --- | --- | --- | --- | --- | --- |
+| windows-package run 233 (full): the build job (Linux cross-compile of the GBA ROM and the Windows games) | engine `a5013203`, app `d068c09` | W | **failed**: the Windows 3D game did not compile (`native_ui.c`, "conflicting types for 'ScrollWindow'", MS-159); every Windows job skipped, no installer | run 233's build job log | MS-159 fixed on `06ba39c2` | Rerun (second package run) |
+| The four Windows builds of the package job, made with MinGW i686 and SDL 2.30.7 (the 3D game, the Classic 2D game, their two test builds) | engine `eb83e633` | L | **all four built, 0 errors** (30-32 warnings each, all of kinds seen before; none in `native_ui.c`); they were compiled, not run | scratchpad `winfix/summary.txt`, `winfix/build-*.log` | - | Reuse |
