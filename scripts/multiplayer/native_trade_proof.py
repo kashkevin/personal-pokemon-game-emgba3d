@@ -445,6 +445,13 @@ async def run(args: argparse.Namespace) -> None:
         await choose(0, players[1].display_name, prefix=True)  # "Trader B - New": name and friendship
         await choose(0, "Trading")
         await press(0, 2)
+        # Since MS-68's fix (2026-10-24) B opens "Cancel the trade?": No first, Yes below it once its grace has passed.
+        deadline = loop.time() + 10
+        while not any(r.label == "Yes, cancel trade" for r in (await ready(0))[3].rows):
+            if loop.time() >= deadline:
+                raise AssertionError(("no Yes on the cancel page", [r.label for r in (await ready(0))[3].rows]))
+            await asyncio.sleep(.2)
+        await choose(0, "Yes, cancel trade", wait=False)
         await until("the backed-out trade ended", lambda: results[0] is not None, 90)
         assert results[0]["state"] == "aborted" and revisions == [4, 3], (results[0], revisions)
         record("B backs out of an unconfirmed trade: aborted, nothing transferred", revisions=revisions)
