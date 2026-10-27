@@ -450,8 +450,10 @@ no use and 50 spare TM numbers; none left (`docs/item-audit-20261027-items.md`).
   started, on the same engine: the Eon, Mystic and Aurora Tickets and the Old Sea Map shown to Lilycove's ferry
   attendant (game clear and the island's ship flag set, as each ticket's event leaves them), the ferry taking the
   player to Southern Island, Navel Rock, Birth Island and Faraway Island, and without the Eon Ticket no trip
-  (scratchpad `keys15/tickets-sheet.png`). Not used in the real game: the Letter, the Devon Parts, the Scanner, the
-  Magma Emblem
+  (scratchpad `keys15/tickets-sheet.png`); and the Letter handed to Steven in Granite Cave ("DARREN handed over the
+  Letter.", TM47 Steel Wing obtained). Not used in the real game: the Devon Parts and the Scanner (Captain Stern is
+  hidden by the story's flags when the test build starts, and the test build sets them only after the map is
+  drawn), the Magma Emblem
   (tried at Jagged Pass; no result, the test harness sets the story's variable after the map's own scripts ran) and
   the Contest Pass (given, but no script of this game asks for it) (the next session).
 * **Not obtainable** (47): nothing gives, sells or drops them (the scripts, the maps' item balls and hidden items, the
@@ -480,6 +482,17 @@ now checks that (odds 15 for a catch rate 45 Pokemon at full HP, the rule's 15; 
 `9842a793`). The Luxury Ball's friendship bonus was measured only on a loss (MS-150); `--selftest-held-items` now
 checks a gain: a level up under 100 gives +6 instead of +5 for a Pokemon caught in one, at 100-199 +4 instead of +3
 (**23 checks, 0 failed**, engine `e6c8f2d8`).
+
+## A ball and two more held items in real battles (after the package was started)
+
+The package's engine `a5013203`, the Classic 2D test build, real battles of the PC game (its screens and controller);
+the game code is the package's. **A Quick Ball** (scratchpad `balls14/`, a copy of `catch_check.py` with the Quick
+Ball): thrown on the first turn at a wild level-5 Magikarp (catch rate 255, x5 on the first turn: odds 425, a sure
+catch), "Gotcha!", the Magikarp in the party in a Quick Ball (ball 12), the Quick Ball used up, saved and loaded with
+the same party: passed. **A Focus Sash** (scratchpad `held15/sash-sheet.png`): a level-14 Zigzagoon at 38/38 took a
+level-50 Poochyena's Hyper Beam, "Zigzagoon's Focus Sash", 1/38, "Zigzagoon hung on using its Focus Sash!"; the sash
+used up, the next Hyper Beam knocked it out. **A Sitrus Berry** (scratchpad `held15/sitrus-frames.png`): at 19/38,
+exactly half, "Zigzagoon's Sitrus Berry", 28/38, a quarter of its HP (Gen 4 and later).
 
 ## A held item in a real battle of the PC game (after the first candidate)
 
@@ -606,9 +619,9 @@ and on a berry tree, the Soot Sack, the Mega Ring, the Town Map, the Coin Case (
 (above): the Escape Rope, Honey, the Bikes, the Powder Jar, the Pokeblock Case, the Basement Key, Mail (MS-158 found
 and fixed), the coin shop's items, the held-item evolutions, the Plates, the Memories and Heavy-Duty Boots, the story's
 key items, the items nothing gives, and a held item carried by a trade between two running games. Nothing in the
-items table is left unaudited. Still not done as such: 5 of the 15 story key items used in the real game (their
-scripts were read; the Storage Key, four room keys, the S.S. Ticket, the three event tickets and the Old Sea Map were
-used, step 14 above); a ball other than the Master Ball
-thrown in a real battle; a real battle in the PC game with held items other than Leftovers (their effects are the
-battle code's, tested in the GBA test ROM); the expansion's own hold-effect files
+items table is left unaudited. Still not done as such: 4 of the 15 story key items used in the real game (their
+scripts were read; the Storage Key, four room keys, the S.S. Ticket, the three event tickets, the Old Sea Map and the
+Letter were used, step 14 above); balls other than the Master Ball and the Quick Ball thrown in a real battle; a real battle in
+the PC game with held items other than Leftovers, the Focus Sash and the Sitrus Berry (their effects are the battle
+code's, tested in the GBA test ROM); the expansion's own hold-effect files
 still "to do" for the drives, Loaded Dice and Punching Glove; nothing ran on Windows or a player's PC.

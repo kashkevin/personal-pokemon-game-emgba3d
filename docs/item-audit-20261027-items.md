@@ -38,7 +38,7 @@ session.
 | 9 | Dive Ball | 1000 | - | throw | - | Poke Balls self-test; in battle: `item_effect/throw_ball.c` 0 passed, 4 to do |
 | 10 | Dusk Ball | 1000 | - | throw | - | Poke Balls self-test; in battle: `item_effect/throw_ball.c` 0 passed, 4 to do |
 | 11 | Timer Ball | 1000 | - | throw | - | Poke Balls self-test; in battle: `item_effect/throw_ball.c` 0 passed, 4 to do |
-| 12 | Quick Ball | 1000 | - | throw | - | Poke Balls self-test; GBA tests that name it: 2 passed; in battle: `item_effect/throw_ball.c` 0 passed, 4 to do |
+| 12 | Quick Ball | 1000 | - | throw | - | Poke Balls self-test; GBA tests that name it: 2 passed; in battle: `item_effect/throw_ball.c` 0 passed, 4 to do; thrown in a real battle (engine `a5013203`, the package's, Classic 2D test build): on the first turn a wild level-5 Magikarp caught (x5: a sure catch), in the party in a Quick Ball, the ball used up, saved and loaded |
 | 13 | Repeat Ball | 1000 | - | throw | - | Poke Balls self-test; in battle: `item_effect/throw_ball.c` 0 passed, 4 to do |
 | 14 | Luxury Ball | 1000 | - | throw | - | Poke Balls self-test; in battle: `item_effect/throw_ball.c` 0 passed, 4 to do; its friendship bonus: on a loss measured by the healing self-test (MS-150, an owner decision); on a gain, 1 more, the held-items self-test after the package (engine `e6c8f2d8`; its game code the same in the package) |
 | 15 | Level Ball | 300 | - | throw | - | Poke Balls self-test; in battle: `item_effect/throw_ball.c` 0 passed, 4 to do |
@@ -513,7 +513,7 @@ session.
 | 478 | Light Clay | 200 | - | - | light clay | GBA tests that name it: 1 passed; held: `hold_effect/light_clay.c` 0 passed, 1 to do |
 | 479 | Life Orb | 200 | - | - | life orb | GBA tests that name it: 29 passed, 1 known failing; held: `hold_effect/life_orb.c` 10 passed |
 | 480 | Power Herb | 100 | - | - | power herb | GBA tests that name it: 12 passed; held: `hold_effect/power_herb.c` 0 passed, 1 to do |
-| 481 | Focus Sash | 200 | - | - | focus sash | GBA tests that name it: 31 passed; held: `hold_effect/focus_sash.c` 0 passed, 1 to do |
+| 481 | Focus Sash | 200 | - | - | focus sash | GBA tests that name it: 31 passed; held: `hold_effect/focus_sash.c` 0 passed, 1 to do; in a real battle (engine `a5013203`, Classic 2D test build): a level-14 Zigzagoon at full HP took a level-50 Hyper Beam, 38/38 -> 1/38, "Zigzagoon hung on using its Focus Sash!", the sash gone (the next Hyper Beam knocked it out) |
 | 482 | Zoom Lens | 200 | - | - | zoom lens | GBA tests that name it: 2 passed; held: `hold_effect/zoom_lens.c` 2 passed |
 | 483 | Metronome | 200 | - | - | metronome | GBA tests that name it: 6 passed; held: `hold_effect/metronome.c` 6 passed |
 | 484 | Iron Ball | 200 | - | - | iron ball | GBA tests that name it: 11 passed, 2 failed (expected), 1 known failing; held: `hold_effect/iron_ball.c` 1 passed |
@@ -671,7 +671,7 @@ session.
 | 520 | Oran Berry | 20 | Medicine | restore HP | restore hp | bag items self-test; GBA tests that name it: 57 passed; held: `hold_effect/restore_hp.c` 7 passed; in battle: `item_effect/restore_hp.c` 11 passed |
 | 521 | Persim Berry | 20 | - | cure status | cure confusion | bag items self-test; GBA tests that name it: 4 passed; held: `hold_effect/cure_status.c` 15 passed; in battle: `item_effect/cure_status.c` 23 passed |
 | 522 | Lum Berry | 20 | Medicine | cure status | cure status | healing self-test; GBA tests that name it: 36 passed; held: `hold_effect/cure_status.c` 15 passed; in battle: `item_effect/cure_status.c` 23 passed |
-| 523 | Sitrus Berry | 20 | Medicine | restore HP | restore pct hp | bag items self-test; GBA tests that name it: 63 passed; held: `hold_effect/restore_hp.c` 7 passed; in battle: `item_effect/restore_hp.c` 11 passed |
+| 523 | Sitrus Berry | 20 | Medicine | restore HP | restore pct hp | bag items self-test; GBA tests that name it: 63 passed; held: `hold_effect/restore_hp.c` 7 passed; in battle: `item_effect/restore_hp.c` 11 passed; in a real battle (engine `a5013203`, Classic 2D test build): at 19/38 (half) the berry eaten, 19/38 -> 28/38 (a quarter of its HP) |
 | 524 | Figy Berry | 20 | - | - | confuse flavor | bag items self-test; GBA tests that name it: 2 passed; held: `hold_effect/confuse_*.c` (no test written yet) |
 | 525 | Wiki Berry | 20 | - | - | confuse flavor | GBA tests that name it: 1 passed; held: `hold_effect/confuse_*.c` (no test written yet) |
 | 526 | Mago Berry | 20 | - | - | confuse flavor | GBA tests that name it: 1 passed; held: `hold_effect/confuse_*.c` (no test written yet) |
@@ -890,7 +890,7 @@ session.
 | 729 | Mystic Ticket | 0 | - | - | - | story key item, the scripts read: given, checked and taken as in Emerald (code read, after the first candidate); in the real game (engine `a5013203`, the package's, Classic 2D test build; game clear and its island's ship flag set, as its event leaves them): shown to Lilycove's ferry attendant, the ferry took the player to Navel Rock |
 | 730 | Aurora Ticket | 0 | - | - | - | story key item, the scripts read: given, checked and taken as in Emerald (code read, after the first candidate); in the real game (engine `a5013203`, the package's, Classic 2D test build; game clear and its island's ship flag set, as its event leaves them): shown to Lilycove's ferry attendant, the ferry took the player to Birth Island |
 | 731 | Old Sea Map | 0 | - | - | - | story key item, the scripts read: given, checked and taken as in Emerald (code read, after the first candidate); in the real game (engine `a5013203`, the package's, Classic 2D test build; game clear and its island's ship flag set, as its event leaves them): shown to Lilycove's ferry attendant, the ferry took the player to Faraway Island |
-| 732 | Letter | 0 | - | - | - | story key item, the scripts read: given, checked and taken as in Emerald (code read, after the first candidate) |
+| 732 | Letter | 0 | - | - | - | story key item, the scripts read: given, checked and taken as in Emerald (code read, after the first candidate); in the real game (engine `a5013203`, Classic 2D test build): handed to Steven in Granite Cave, "DARREN handed over the Letter.", TM47 Steel Wing obtained |
 | 733 | Devon Parts | 0 | - | - | - | story key item, the scripts read: given, checked and taken as in Emerald (code read, after the first candidate) |
 | 734 | Go-Goggles | 0 | - | - | - | into Route 111's desert in the real game, refused without them (engine `c624a2d4`, after the first candidate) |
 | 735 | Devon Scope | 0 | - | - | - | a hidden Kecleon revealed in the real game; its battle refused offline (MS-156), fixed on engine `223d15e1` (after the first candidate) |
