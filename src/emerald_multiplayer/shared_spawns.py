@@ -29,6 +29,11 @@ Shiny Pokemon never despawn (the owner's request of 2026-10-24): a shiny slot do
 from every player and is not trimmed when an outbreak ends. It stays until somebody catches or defeats it; running from it
 or losing to it leaves it where it was, as for any slot. That includes a Pokemon that is shiny only for a Shiny Charm owner
 (``charm_shiny``, the 2026-10-27 wild item audit): the host cannot see bags, so it keeps every such Pokemon (``Slot.kept``).
+
+Legendary and Mythical Pokemon are kept the same way (the owner's request of 2026-10-27): a slot that became one at its
+first claim (``legend``, Update 29) stays for everybody, through its lifetime, players walking away, an outbreak's end and a
+host restart (its state is saved with the flag), until somebody catches or defeats it. The first claim still wins, a
+claimant who disconnects keeps it for CLAIM_GRACE_SECONDS, and a battle run from, lost or cancelled leaves it where it was.
 """
 
 from __future__ import annotations
@@ -123,8 +128,9 @@ class Slot:
 
     @property
     def kept(self) -> bool:
-        """Never expires, is never retired or trimmed: shiny for everybody, or for a Shiny Charm owner."""
-        return self.shiny or charm_shiny(self.spawn_id, self.personality)
+        """Never expires, is never retired or trimmed: shiny for everybody, or for a Shiny Charm owner, or a Legendary or
+        Mythical Pokemon (turned into one at its first claim)."""
+        return self.shiny or self.legend or charm_shiny(self.spawn_id, self.personality)
 
 
 @dataclass

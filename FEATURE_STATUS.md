@@ -594,6 +594,16 @@ Recorded guidance the code no longer follows (not binding decisions):
 | The PC renderer's second GBA window (the condition graph whole, MS-104) | Implemented and tested (Linux, classic view) | engine `f36530ee` |
 | Every remaining GBA screen in the current UI | Partially implemented (the screens still GBA: KNOWN_ISSUES MS-105) | `docs/ui-overhaul-and-fixes-20261026.md` section 3 |
 
+## Legendary persistence, spawn timers and shiny odds (2026-10-27, `docs/spawns-legends-shiny-20261027.md`)
+
+| Feature | Status | Evidence |
+| --- | --- | --- |
+| A Legendary or Mythical met in the wild stays until caught or knocked out: the player's own visible Pokemon (run from, after leaving the map and coming back; not across closing the game, MS-145) | Implemented and tested (Linux 2D test build, real game runs; not on Windows or a PC) | engine `11f8be05` |
+| A world's shared Legendary stays until caught or knocked out, through its lifetime, players leaving, an outbreak's end and a host restart | Implemented and tested (unit tests; not in a real connected world) | app (this commit) |
+| A shiny caught in the Safari Zone is gone for good (it came back after the next battle: MS-142) | Implemented and tested (Linux 2D test build, before and after) | engine `11f8be05` |
+| Shiny odds of every way a Pokemon is made, as documented | Tested (`--selftest-shiny-paths`, the game's own code) | engine `11f8be05` |
+| One spawn timer for the player's own visible Pokemon and the world's shared ones | Not done: an owner decision (MS-146) | `docs/spawns-legends-shiny-20261027.md` section 2 |
+
 ## How to update
 
 1. Change a row only with new evidence: a recorded run (a doc in `docs/` or

@@ -210,7 +210,37 @@ inside a real connected world (a test world's enrollment, no host); Windows; a p
 
 ## 4. The real Pokemon for Surf, Fly and Dive
 
-(in progress)
+**Done for the player's own game** (engine `dd7e8f92`, PC only; `src/field_carrier.c`). The generic surf blob, the
+blob drawn into the underwater picture and the generic fly bird are replaced by the Pokemon that used the move: its
+own overworld picture (species and form, shiny, gender), its own animations, and the player seated on it where the
+riding seats put a rider.
+
+* **Which Pokemon**: the move's user, from the party or the PC boxes (HMs from the boxes); a save loaded while surfing
+  takes the first that knows the move. The rival's and Steven's fly-aways use a flier of their own team (Tropius in
+  Lilycove; Skarmory on Routes 120 and 128).
+* **Surf**: every rule of surfing is the original's; only the picture, its place and its drawing order change. It sits
+  under the rider (the Pokemon is drawn lower rather than the rider raised, so every jump on and off lines up), treads
+  the water standing still and paddles moving, turns with the player, and is drawn in front of the rider facing the
+  camera and behind otherwise. Facing the camera it sits low enough that the rider's head and face show over a tall
+  picture (Wailord's body, Lapras' neck hid the rider before).
+* **Dive**: under the water the Pokemon that dove carries the player, both drawn as the original's silhouette; the
+  save keeps the original's underwater look.
+* **Fly**: the flier leaves its Poke Ball, swoops and carries the player out and in, the player on its back.
+* **3D**: the carrier stands on the water at its 2D place (attached by its bottom rows).
+* A species without an overworld picture would keep the original blob or bird; none of the 440 species and forms that
+  learn Surf, Dive or Fly lacks one (420 their own, 20 their base form's).
+
+Tests (**L**): `--selftest-carriers` (`make check-carriers`), **50 checks, 0 failed** (pictures for every species and
+form that learns the moves; seats in bounds; the user's choice, the boxes, a released user; the sprite slot, palettes
+shiny and silhouette, place, animations, drawing order, palette freed; the underwater look and its save; the NPC
+fliers). In the game (Classic 2D test build): Surf on Route 109 with Lapras and a shiny Lapras in all four facings,
+moving and standing, back onto the beach; Dive on Route 124 with Wailord in four facings; Fly from Oldale Town with
+Pidgeot, out and in. 3D test build: the Surf run with the shiny Lapras. `check-ride`, `check-frontier-saves`,
+`check-hm-box`, `check-native` pass; GBA ROM unchanged.
+
+**Not done yet** (kept for the next session): other players still see the surfing pose without the carrier (the
+multiplayer record has no carrier field yet); the NPC fly-aways, Waterfall and most other species were not run in the
+game (only through the self-test); nothing was tried on Windows or a player's PC.
 
 ## 5. Wild Pokemon item audit
 

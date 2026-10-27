@@ -31,6 +31,75 @@ def add(board, **kw):
     return board.create(**args)
 
 
+class LegendStaysTests(unittest.TestCase):
+    """Legendary and Mythical Pokemon never despawn (the owner's request of 2026-10-27): only a catch or a win removes one."""
+
+    def legend(self, board, **kw):
+        spawn_id = add(board, **kw)
+        board.get(spawn_id).legend_rolled = True
+        board.get(spawn_id).legend = True
+        board.get(spawn_id).species = 380   # as roll_legend_on_claim leaves a slot that became one (here Latias)
+        return spawn_id
+
+    def test_a_legend_outlives_its_lifetime_and_a_plain_one_does_not(self):
+        board, clock = make_board()
+        legend, plain = self.legend(board, lifetime=60), add(board, lifetime=60)
+        clock.now += 100_000
+        board.tick()
+        self.assertEqual([s.spawn_id for s in board.live()], [legend])
+
+    def test_a_legend_is_never_retired_for_distance_or_trimmed(self):
+        board, clock = make_board()
+        legend = self.legend(board)
+        self.assertFalse(board.retire(legend, "wandered_off"))
+        board.set_outbreak(True)
+        for _ in range(ss.OUTBREAK_SLOT_LIMIT - 1):
+            add(board, kind=ss.KIND_OUTBREAK)
+        board.set_outbreak(False)
+        retired = board.trim()
+        self.assertNotIn(legend, retired)
+        self.assertIn(legend, [s.spawn_id for s in board.live()])
+
+    def test_running_or_losing_leaves_it_catching_or_defeating_removes_it(self):
+        board, clock = make_board()
+        legend = self.legend(board, lifetime=60)
+        for result in ("ran", "fled", "lost", "cancelled"):
+            self.assertEqual(board.claim("a", legend), ss.GRANTED)
+            clock.now += 1_000
+            self.assertEqual(board.result("a", legend, result), ss.RELEASED)
+            board.tick()
+            self.assertIn(legend, [s.spawn_id for s in board.live()], result)
+        self.assertEqual(board.claim("b", legend), ss.GRANTED)
+        self.assertEqual(board.claim("a", legend), ss.BUSY)   # one claimant at a time
+        self.assertEqual(board.result("b", legend, "defeated"), ss.CONSUMED)
+        self.assertNotIn(legend, [s.spawn_id for s in board.live()])
+
+    def test_a_claimant_who_disconnects_keeps_it_for_the_grace_then_it_reopens(self):
+        board, clock = make_board()
+        legend = self.legend(board, lifetime=60)
+        board.claim("a", legend)
+        board.player_disconnected("a", grace=30)
+        clock.now += 100_000
+        board.tick()
+        (slot,) = board.live()
+        self.assertEqual((slot.spawn_id, slot.state, slot.species, slot.legend), (legend, ss.OPEN, 380, True))
+
+    def test_a_legend_survives_a_save_and_restore_once(self):
+        board, clock = make_board()
+        legend = self.legend(board, lifetime=60, shiny=True, personality=0xCAFEBABE, level=37)
+        clock.now += 100_000
+        state = board.to_state()
+        clock2 = ActiveClock()
+        restored = SpawnBoard.from_state(state, clock2)   # a host restart: the active clock starts again
+        clock2.now += 100_000
+        restored.tick()
+        live = restored.live()
+        self.assertEqual(len(live), 1)   # restored once, not duplicated
+        (slot,) = live
+        self.assertEqual((slot.spawn_id, slot.species, slot.level, slot.shiny, slot.personality, slot.legend, slot.legend_rolled),
+                         (legend, 380, 37, True, 0xCAFEBABE, True, True))
+
+
 class ShinyStaysTests(unittest.TestCase):
     """Shiny Pokemon never despawn (the owner's request of 2026-10-24): only a catch or a win removes one."""
 
