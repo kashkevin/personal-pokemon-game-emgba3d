@@ -921,3 +921,15 @@ before the packaging run.
 | New GBA tests `test/battle/hold_effect/item_audit_untested.c`: Plates, Light Clay, Wide Lens, Lax Incense, Bright Powder, Soul Dew, the confusion berries, the Macho Brace's and Power items' Speed, Focus Sash, Flame Orb, Toxic Orb | engine `800015dd` | T | **15 tests, all passing** (`make check TESTS=...`); Light Clay, Wide Lens and Focus Sash also fail with the item's effect taken away (then restored) | scratchpad `bag/new-tests.log`, `bag/t-neg.log`, `bag/t-neg2.log` | - | Reuse |
 | GBA test ROM, the whole suite with those tests | engine `800015dd` | T | **6,092 tests: 5,589 passed (the 15 new ones among them), 39 failed: exactly the expected 39** (`check_gba_test_failures.py`, exit 0), 15 failed assumptions, 19 known failing, 421 to do, 9 expected failing; 835 s | scratchpad `gbatests2/check.log`, `gbatests2/gate.txt`, `gbatests2/new-tests.txt` | `6320c77d` adds 3 tests (run alone, passing) | Reuse |
 | 3 more GBA tests (Amulet Coin and Luck Incense double the prize money once, not an opponent's); `--selftest-held-items` with the Soothe Bell | engine `6320c77d` | T, L | **3 tests passing**; **21 checks, 0 failed**; ROM unchanged, 3D builds | scratchpad `bag/rom-bell.log`, `bag/build-3d-bell.log` | - | Reuse |
+
+## The packaging candidate's final checks (2026-10-27, engine `6320c77d`)
+
+**L** this Linux machine; **T** the GBA test ROM on it. The candidate is the engine head after the item audit's last
+commit (test code only since the last game change, `dbaf6923`); the package itself is checked on Windows by its run.
+
+| Test | Build / head | Where | Last result | Evidence | Changed since | Rerun? |
+| --- | --- | --- | --- | --- | --- | --- |
+| Every engine check target (47: `check-native` to `check-frontier-saves`, every self-test, `check-bag-items`, `check-held-items`, `check-mints`, `check-evo-items` included) and `check-diorama` | engine `6320c77d` | L | **48 of 48 exit 0** (`check-diorama` 526 s; no edits while it ran) | scratchpad `final-checks7/summary.txt` | - | Reuse |
+| GBA test ROM, the whole suite (`make check`) | engine `6320c77d` | T | **6,095 tests: 5,592 passed (the 18 new item tests among them), 39 failed: exactly the expected 39** (`check_gba_test_failures.py`, exit 0), 15 failed assumptions, 19 known failing, 421 to do, 9 expected failing; 829 s | scratchpad `gbatests3/check.log`, `gbatests3/gate.txt`, `gbatests3/new-tests.txt` | - | Reuse |
+| GBA ROM | engine `6320c77d` | L | **unchanged** (`f214735b...`) | scratchpad `bag/rom-bell.log` | - | Reuse |
+| The tests that read the documents (24 files) | app `d79786a` | L | **615 passed**, 20 skipped | scratchpad `bag/doc-tests-ms151.log` | docs only since | Reuse |

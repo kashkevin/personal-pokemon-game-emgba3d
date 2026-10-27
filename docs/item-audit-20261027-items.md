@@ -2,7 +2,7 @@
 
 Every item in the game's item list (873, Gen 1-9 as the expansion has them), read out of the built game (engine
 `9b8df5c3`, the 2D game's own item table, with gdb), and what checked it today. **L** this Linux
-machine; **T** the GBA test ROM (`make check` on engine `800015dd`, the expansion's own battle tests and today's new ones, Gen 6 rules).
+machine; **T** the GBA test ROM (`make check` on engine `6320c77d`, the expansion's own battle tests and today's new ones, Gen 6 rules).
 Summary and findings: `docs/item-audit-20261027.md`; the test files' numbers: `docs/item-audit-20261027-tests.md`.
 
 Columns: the item's number and name; its price (what a shop asks; it sells for half); what using it from the bag does
@@ -15,8 +15,8 @@ session.
 | What checked it | Items |
 | --- | --- |
 | a self-test of today's audit (L), some also the expansion's tests | 204 |
-| the expansion's tests: tests that name it, or of its effect (T) | 349 |
-| no test names it; its effect's own test still to be written upstream | 23 |
+| the expansion's tests: tests that name it, or of its effect (T) | 350 |
+| no test names it; its effect's own test still to be written upstream | 22 |
 | not audited yet | 68 |
 | key items, not audited yet | 65 |
 | no use from the bag, in battle or held (sold, traded, or given to someone: fossils, shards, Heart Scales) | 114 |
@@ -443,7 +443,7 @@ session.
 | 408 | Full Incense | 9600 | - | - | lagging tail | held: `hold_effect/lagging_tail.c` 1 passed |
 | 409 | Wave Incense | 9600 | - | - | type power | held: `hold_effect/type_power.c` 2 passed |
 | 410 | Rose Incense | 9600 | - | - | type power | held: `hold_effect/type_power.c` 2 passed |
-| 411 | Luck Incense | 9600 | - | - | double prize | GBA tests that name it: 0 passed; held: `hold_effect/double_prize.c` 0 passed, 1 to do; (no test written yet) |
+| 411 | Luck Incense | 9600 | - | - | double prize | GBA tests that name it: 1 passed; held: `hold_effect/double_prize.c` 0 passed, 1 to do |
 | 412 | Pure Incense | 9600 | - | - | repel | wild item audit (gameplay report section 5); held: `hold_effect/repel.c` 0 passed, 1 to do |
 | 413 | Red Scarf | 100 | - | - | - | no use from the bag, in battle or held |
 | 414 | Blue Scarf | 100 | - | - | - | no use from the bag, in battle or held |
@@ -498,7 +498,7 @@ session.
 | 463 | Soothe Bell | 100 | - | - | friendship up | GBA tests that name it: 1 passed; held: `hold_effect/friendship_up.c` 0 passed, 1 to do |
 | 464 | Mental Herb | 100 | - | - | mental herb | GBA tests that name it: 10 passed; held: `hold_effect/mental_herb.c` 8 passed |
 | 465 | King’s Rock | 100 | - | - | flinch | GBA tests that name it: 11 passed; held: `hold_effect/flinch.c` 5 passed; its evolution use not audited |
-| 466 | Amulet Coin | 100 | - | - | double prize | GBA tests that name it: 1 passed; held: `hold_effect/double_prize.c` 0 passed, 1 to do |
+| 466 | Amulet Coin | 100 | - | - | double prize | GBA tests that name it: 4 passed; held: `hold_effect/double_prize.c` 0 passed, 1 to do |
 | 467 | Cleanse Tag | 200 | - | - | repel | wild item audit (gameplay report section 5); held: `hold_effect/repel.c` 0 passed, 1 to do |
 | 468 | Smoke Ball | 200 | - | - | can always run | GBA tests that name it: 1 passed; held: `hold_effect/can_always_run.c` 0 passed, 1 to do |
 | 469 | Focus Band | 200 | - | - | focus band | GBA tests that name it: 4 passed; held: `hold_effect/focus_band.c` 0 passed, 1 to do |
