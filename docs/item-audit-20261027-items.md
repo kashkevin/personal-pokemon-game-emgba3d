@@ -40,7 +40,7 @@ session.
 | 11 | Timer Ball | 1000 | - | throw | - | Poke Balls self-test; in battle: `item_effect/throw_ball.c` 0 passed, 4 to do |
 | 12 | Quick Ball | 1000 | - | throw | - | Poke Balls self-test; GBA tests that name it: 2 passed; in battle: `item_effect/throw_ball.c` 0 passed, 4 to do |
 | 13 | Repeat Ball | 1000 | - | throw | - | Poke Balls self-test; in battle: `item_effect/throw_ball.c` 0 passed, 4 to do |
-| 14 | Luxury Ball | 1000 | - | throw | - | Poke Balls self-test; in battle: `item_effect/throw_ball.c` 0 passed, 4 to do; its friendship bonus after the catch not tested |
+| 14 | Luxury Ball | 1000 | - | throw | - | Poke Balls self-test; in battle: `item_effect/throw_ball.c` 0 passed, 4 to do; its friendship bonus: on a loss measured by the healing self-test (MS-150, an owner decision); on a gain, 1 more, the held-items self-test after the package (engine `e6c8f2d8`; its game code the same in the package) |
 | 15 | Level Ball | 300 | - | throw | - | Poke Balls self-test; in battle: `item_effect/throw_ball.c` 0 passed, 4 to do |
 | 16 | Lure Ball | 300 | - | throw | - | Poke Balls self-test; in battle: `item_effect/throw_ball.c` 0 passed, 4 to do |
 | 17 | Moon Ball | 300 | - | throw | - | Poke Balls self-test; in battle: `item_effect/throw_ball.c` 0 passed, 4 to do |
@@ -54,7 +54,7 @@ session.
 | 25 | Park Ball | 0 | - | throw | - | Poke Balls self-test; in battle: `item_effect/throw_ball.c` 0 passed, 4 to do |
 | 26 | Beast Ball | 0 | - | throw | - | Poke Balls self-test; in battle: `item_effect/throw_ball.c` 0 passed, 4 to do |
 | 27 | Cherish Ball | 0 | - | throw | - | Poke Balls self-test; in battle: `item_effect/throw_ball.c` 0 passed, 4 to do |
-| 828 | Strange Ball | 0 | - | throw | - | GBA tests that name it: 3 passed; in battle: `item_effect/throw_ball.c` 0 passed, 4 to do; its catch odds are not in the Poke Balls self-test; sold in the PC game's coin shop |
+| 828 | Strange Ball | 0 | - | throw | - | GBA tests that name it: 3 passed; in battle: `item_effect/throw_ball.c` 0 passed, 4 to do; sold in the PC game's coin shop; Poke Balls self-test after the package (engine `9842a793`): x1, the odds the rule gives (its game code the same in the package) |
 
 ## Items (597)
 

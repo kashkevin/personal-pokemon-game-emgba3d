@@ -459,8 +459,21 @@ no use and 50 spare TM numbers; none left (`docs/item-audit-20261027-items.md`).
   after it: Torchic, level 5, holding Leftovers (species 255, item 472); A's: Treecko with no item (scratchpad
   `mp/multiplayer-proof/trade-held-4/`, `mpsync/trade-held-4-parties.txt`). The proof's next step, B backing out of a
   second trade, timed out: it presses B and waits, but since MS-68's fix (2026-10-24) backing out opens "Cancel the
-  trade?" with No first, which the proof (last changed 2026-10-21) never answers. That step is for the next session;
-  the trade above does not depend on it.
+  trade?" with No first, which the proof (last changed 2026-10-21) never answered. Fixed after the package (the proof
+  now chooses "Yes, cancel trade"; a test script, not the game): the whole proof passed (9 of 9 checks, engine
+  `e6c8f2d8`, scratchpad `mp/multiplayer-proof/trade-held-5/`): the trade, B backing out of a second one (aborted,
+  nothing moved), both games restarted with the parties of their latest saves, the host's store intact; B's Torchic
+  still holding Leftovers (`mpsync/trade-held-5-parties.txt`).
+
+## The Strange Ball and the Luxury Ball (after the package)
+
+Two gaps found while answering the owner's questions, closed with tests after the package was fixed (test code only;
+the game code they test is the same in the package, engine `a5013203`): the Strange Ball, sold in the PC game's coin
+shop, was missing from `--selftest-balls`; the capture code has no rule for it, so it is a plain x1 ball, and the self-test
+now checks that (odds 15 for a catch rate 45 Pokemon at full HP, the rule's 15; **62 checks, 0 failed**, engine
+`9842a793`). The Luxury Ball's friendship bonus was measured only on a loss (MS-150); `--selftest-held-items` now
+checks a gain: a level up under 100 gives +6 instead of +5 for a Pokemon caught in one, at 100-199 +4 instead of +3
+(**23 checks, 0 failed**, engine `e6c8f2d8`).
 
 ## A held item in a real battle of the PC game (after the first candidate)
 
@@ -588,9 +601,7 @@ and on a berry tree, the Soot Sack, the Mega Ring, the Town Map, the Coin Case (
 and fixed), the coin shop's items, the held-item evolutions, the Plates, the Memories and Heavy-Duty Boots, the story's
 key items, the items nothing gives, and a held item carried by a trade between two running games. Nothing in the
 items table is left unaudited. Still not done as such: 10 of the 15 story key items used in the real game (their
-scripts were read; the Storage Key and four room keys were used, step 14 above); the Strange Ball's catch odds (sold
-in the coin shop, not in the Poke Balls self-test); a ball other than the Master Ball thrown in a real battle; the
-Luxury Ball's friendship bonus after the catch; a real battle in the PC game with held items other than Leftovers (their effects are the
+scripts were read; the Storage Key and four room keys were used, step 14 above); a ball other than the Master Ball
+thrown in a real battle; a real battle in the PC game with held items other than Leftovers (their effects are the
 battle code's, tested in the GBA test ROM); the expansion's own hold-effect files
-still "to do" for the drives, Loaded Dice and Punching Glove; the trade proof's later step that backs out of a second
-trade (it predates MS-68's "Cancel the trade?" page and never answers it); nothing ran on Windows or a player's PC.
+still "to do" for the drives, Loaded Dice and Punching Glove; nothing ran on Windows or a player's PC.
