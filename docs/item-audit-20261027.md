@@ -23,8 +23,13 @@ the built game, with what checked each one today (and which are not audited yet)
   item code.
 * **TMs and HMs: done** (below): numbering, the HM moves, who can learn them. A TM's reuse, its sale and forgetting an
   HM move were checked earlier (`--selftest-move-switch`).
-* **The EV-training held items: done** (below): the Macho Brace, the Power items and Pokerus.
+* **The EV-training held items and the Soothe Bell: done** (below): the Macho Brace, the Power items, Pokerus, the
+  Soothe Bell's friendship.
 * **Mints: done** (below): each mint's nature and what a mint does to the stats.
+* **Trade evolution items: done** (below): the Gen 1-6 trade evolutions and the items held for them.
+* **Held items no test checked: 18 new GBA tests** (below): the Plates, Light Clay, Wide Lens, Lax Incense, Bright
+  Powder, Soul Dew, the confusion berries, the Macho Brace's and Power items' halved Speed, Focus Sash, Flame Orb,
+  Toxic Orb, Amulet Coin and Luck Incense.
 * **Held items, battle items, Mega Stones in battle: the expansion's own tests** (below): the GBA test ROM's 860 tests
   for them, run on this build (806 passed, 3 expected failures, the rest to do or known upstream); 32 held-item files
   there have no test yet (listed).
@@ -193,12 +198,13 @@ again on `228dbada` (the engine checks in `TEST_LEDGER.md`).
 later games', not Emerald's: Pikachu can learn Surf, Wobbuffet TM20 Safeguard and Unown TM10 Hidden Power, none of
 which Emerald allows. Going back to Emerald's lists would take moves away from players' Pokemon.
 
-## The EV-training held items: Macho Brace, the Power items, Pokerus
+## The EV-training held items and the Soothe Bell: Macho Brace, the Power items, Pokerus
 
 `--selftest-held-items` (new; `make -f Makefile_pc check-held-items`; engine `2ea6e093`, test code only): the effort
 values a Pokemon gains for a defeated Pokemon, through `MonGainEVs` (what a battle calls for each Pokemon that gains
 experience), against Gen 6's rules (`I_POWER_ITEM_BOOST` below Gen 7: a Power item adds 4). The defeated Pokemon, a
-Zigzagoon, yields 1 Speed. **17 checks, 0 failed.** The expansion's own tests have none for these items (below).
+Zigzagoon, yields 1 Speed. With the Soothe Bell's friendship (engine `6320c77d`): **21 checks, 0 failed.** The
+expansion's own tests have none for these items' effort values or the Soothe Bell (below).
 
 | Held | Rule (Gen 6) | Checked |
 | --- | --- | --- |
@@ -207,6 +213,7 @@ Zigzagoon, yields 1 Speed. **17 checks, 0 failed.** The expansion's own tests ha
 | Power Weight, Bracer, Belt, Anklet, Lens, Band | 4 more in the item's stat, on top of the yield | each +4 in its stat, and Speed +1 |
 | A Power item and Pokerus | (yield + 4) x 2 | Power Anklet: Speed +10; Power Bracer: Attack +8, Speed +2 |
 | Limits | 252 in a stat, 510 in all | at 252 nothing; 250 with a Power Anklet: to 252; 509 in all: +1; 510: nothing |
+| Soothe Bell (`AdjustFriendship`) | a friendship gain half again, rounded down (Gen 4+); a loss unchanged | a level up +5 -> +7, +3 -> +4, +2 -> +3 by tier; fainting -1 stays -1 |
 
 Not checked: the Speed these items halve in battle, the experience a Lucky Egg or an Exp. Share gives, and the money
 an Amulet Coin doubles (all worked out in the battle's own scripts; no test of their own upstream either).
@@ -222,6 +229,45 @@ Mint move the changes to their stats; a Serious Mint (neutral) gives every stat 
 Synchronize and breeding read, stays Hardy, and the stat nature is kept in the Pokemon's stored data (its box form, as
 saved). The menu's "It won't have any effect" for a mint of the nature the Pokemon already has was not run (it is a
 comparison in the menu's task).
+
+## Trade evolution items
+
+`--selftest-evo-items` (new; `make -f Makefile_pc check-evo-items`; engine `acea1d3f`, test code only). **33 checks, 0
+failed.** The evolution a trade starts, through `GetEvolutionTargetSpecies` in its trade mode (what both the classic
+trade and a world's trade ask; the Pokemon is left as it was): Kadabra, Machoke, Graveler, Haunter, Boldore, Gurdurr
+and Phantump evolve by trade alone; Onix and Scyther holding a Metal Coat, Poliwhirl and Slowpoke a King's Rock,
+Seadra a Dragon Scale, Porygon an Up-Grade, Porygon2 a Dubious Disc, Rhydon a Protector, Electabuzz an Electirizer,
+Magmar a Magmarizer, Dusclops a Reaper Cloth, Clamperl a Deep Sea Tooth or Scale, Feebas a Prism Scale, Swirlix a
+Whipped Dream and Spritzee a Sachet each evolve; none evolves without its item or with another's, or holding an
+Everstone, except Kadabra (Gen 4+); Karrablast and Shelmet evolve only when traded for each other. The GBA test ROM's
+own tests of a world trade's evolution (the item kept by the preview, the Everstone and Kadabra, a partner-specific
+evolution) passed: 8 of 8 (`test/multiplayer_trade_effects.c`, engine `000d7556`). Not checked: the evolutions that
+need a held item at a level up (Happiny's Oval Stone by day, Gligar's Razor Fang and Sneasel's Razor Claw at night),
+which depend on the game's clock.
+
+## Held items no test checked: new GBA tests
+
+`test/battle/hold_effect/item_audit_untested.c` (new; the GBA test ROM only, engines `800015dd` and `6320c77d`):
+**18 tests, all passing** (`make check TESTS="..."`; the first 15 also in the whole suite, below). Each checks a Gen 1-6 held item that no test of the expansion named or whose
+own test is still "to do" upstream, against the Gen 6 rules. Three were also run with the item's effect taken away
+(Light Clay, Wide Lens, Focus Sash) and then fail, so they test the item.
+
+| Item | Checked (Gen 6) |
+| --- | --- |
+| The 17 Plates | 20% more power for their type's moves |
+| Light Clay | Reflect lasts 8 turns (5 without it) |
+| Wide Lens | the holder's accuracy x1.1 (Sing 55 -> 60%) |
+| Lax Incense, Bright Powder | the accuracy against the holder x0.9 (Sing 55 -> 49%) |
+| Soul Dew | Latios's special moves x1.5, another Pokemon's unchanged |
+| Figy, Wiki, Mago, Aguav, Iapapa Berries | 1/8 of the maximum HP at half HP; not eaten above half |
+| Macho Brace, the six Power items | the holder's Speed halved (100 moves after 60) |
+| Focus Sash | at full HP survives a knock-out hit with 1 HP, used up; does nothing below full HP |
+| Flame Orb, Toxic Orb | burns / badly poisons the holder at the end of the turn, not used up; not a Fire type / a Steel or Poison type |
+| Amulet Coin, Luck Incense | a trainer battle's prize money doubled when the player's Pokemon holds one; once however many hold one; not for an opponent's |
+
+Not testable this way: Focus Band's 10% (its roll is an untagged random number the test framework cannot steer).
+Already tested elsewhere in the expansion: Smoke Ball (`ability/arena_trap.c`), Grip Claw
+(`move_effect_secondary/wrap.c`), Power Herb (`geomancy.c` and others), Lucky Egg and Exp. Share (`exp.c`).
 
 ## Held items, battle items, Mega Stones in battle: the expansion's own tests
 
@@ -247,15 +293,18 @@ The three failures are among the 39 expected: White Herb with Weak Armor (two te
 +2 Speed and Gen 6 gives +1, and Air Balloon with Disguise (Gen 8's Disguise rules). Each file's numbers:
 `docs/item-audit-20261027-tests.md`.
 
-**Held items with no test of their own there** (their file is an upstream "to do" placeholder; some are used in other
-tests, as Focus Sash is in Endure's): Smoke Ball; the five confusion berries (Figy, Wiki, Mago, Aguav, Iapapa); Amulet
-Coin and Luck Incense; Bright Powder and Lax Incense; Exp. Share and Lucky Egg; Macho Brace and the Power items (their
-effort values checked above, not their halved Speed); Flame Orb and Toxic Orb; Focus Band and Focus Sash; Soothe Bell;
-Grip Claw; Light Clay; Power Herb; Wide Lens; Soul Dew; the plates, drives and memories; Everstone (checked above
-against the stones); Cleanse Tag (the wild item audit); the Mega Stone and primal orb hold effects (Mega Evolution and
-Primal Reversion themselves are tested in `form_change`); three later items (Heavy-Duty Boots, Loaded Dice, Punching
-Glove). The cure berries' and the HP berries' own files point to `cure_status.c` and `restore_hp.c`, which are tested.
-These are the next session's held-item work.
+**Held items whose own upstream test file is still "to do"**: Smoke Ball; the five confusion berries; Amulet Coin and
+Luck Incense; Bright Powder and Lax Incense; Exp. Share and Lucky Egg; Macho Brace and the Power items; Flame Orb and
+Toxic Orb; Focus Band and Focus Sash; Soothe Bell; Grip Claw; Light Clay; Power Herb; Wide Lens; Soul Dew; the plates,
+drives and memories; Everstone; Cleanse Tag; the Mega Stone and primal orb hold effects; Heavy-Duty Boots, Loaded Dice,
+Punching Glove. Of these, today's new tests (above) cover the confusion berries, Bright Powder and Lax Incense, the
+Macho Brace and Power items, Flame and Toxic Orb, Focus Sash, Light Clay, Wide Lens, Soul Dew, the plates, Amulet Coin
+and Luck Incense; the Power items' and Macho Brace's effort values, the Soothe Bell, the Everstone and Cleanse Tag have
+today's self-tests; other expansion tests cover Smoke Ball (`ability/arena_trap.c`), Exp. Share, Lucky Egg, Grip Claw
+and Power Herb; Mega Evolution and Primal Reversion are tested in `form_change`. **Still with no test:** Focus Band (its
+roll cannot be steered by the tests), the drives and memories (Gen 5 and 7), and three later items (Heavy-Duty Boots,
+Loaded Dice, Punching Glove): the next session's held-item work. The cure berries' and the HP berries' own files point
+to `cure_status.c` and `restore_hp.c`, which are tested.
 
 ## Not done (this round)
 
@@ -264,6 +313,6 @@ These are the next session's held-item work.
   were not checked in this round.
 * The bag items, TMs and HMs above were used through the game's functions, not through the bag's screens; the bag
   taking the item away, an item's multiplayer sync and its save were not checked.
-* The held items listed above with no test of their own; a real battle in the PC game with any held item (the GBA
-  test ROM runs the same battle code, without the PC parts).
+* The held items listed above as still with no test; a real battle in the PC game with any held item (the GBA test
+  ROM runs the same battle code, without the PC parts).
 * Key items and the other charms.

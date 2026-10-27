@@ -620,10 +620,12 @@ Recorded guidance the code no longer follows (not binding decisions):
 | Every healing item's effect as its Gen 6 rule says (HP, statuses, revival, PP, friendship; the game's own code) | Tested (`--selftest-healing`, 70 checks; not used in a real battle); MS-150 open (owner decision) | engine `000d7556` |
 | Berries, vitamins, wings, PP Up and PP Max, Rare Candy, evolution stones: each item's effect as its Gen 6 rule says (the game's own code) | Tested (`--selftest-bag-items`; through the game's functions, not the bag's screens) | engine `228dbada` |
 | TMs and HMs: Emerald's numbering, the HM moves, who can learn them | Tested (the same self-test); the learnsets are the later games', not Emerald's (owner decision) | engine `228dbada` |
-| The EV-training held items: Macho Brace, the Power items, Pokerus (the effort values gained) | Tested (`--selftest-held-items`, 17 checks; their halved Speed in battle not checked) | engine `2ea6e093` |
+| The EV-training held items: Macho Brace, the Power items, Pokerus (the effort values gained); the Soothe Bell's friendship | Tested (`--selftest-held-items`, 21 checks; their halved Speed: the GBA tests below) | engines `2ea6e093`, `6320c77d` |
 | Held items, items used in battle, item moves and abilities, Mega Evolution in battle | Tested by the expansion's own tests (GBA test ROM: 806 of 860 passed, 3 expected failures, the rest to do or known upstream); 32 held-item files have no test yet | engine `000d7556` |
 | Mints: each mint's nature, its effect on the stats, the Pokemon's own nature kept, the stored data | Tested (`--selftest-mints`, 7 checks; the menu's refusal of the same nature not run) | engine `9b8df5c3` |
-| The rest of the item audit (key items, charms; the held items with no test; a real battle with held items, the bag taking an item, its multiplayer sync and save) | Not done (next session) | `docs/item-audit-20261027.md` |
+| Trade evolution items: the Gen 1-6 trade evolutions with their items, the Everstone and Kadabra, Karrablast and Shelmet | Tested (`--selftest-evo-items`, 33 checks; the trade itself not run) | engine `acea1d3f` |
+| Held items no test checked (Plates, Light Clay, Wide Lens, Lax Incense, Bright Powder, Soul Dew, the confusion berries, the Macho Brace's and Power items' Speed, Focus Sash, Flame Orb, Toxic Orb, Amulet Coin, Luck Incense) | Tested (18 new GBA tests in battles of the test ROM) | engines `800015dd`, `6320c77d` |
+| The rest of the item audit (key items' uses, charms; Focus Band; a real battle in the PC game, the bag taking an item, its multiplayer sync and save) | Not done (next session) | `docs/item-audit-20261027.md` |
 
 ## Battle transitions in 3D (2026-10-27, `docs/battle-transitions-3d-20261027.md`)
 
