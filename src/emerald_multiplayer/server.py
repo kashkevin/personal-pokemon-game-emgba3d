@@ -72,6 +72,11 @@ class ServerConfig:
     presence_timeout: float = 3.0
     handshake_timeout: float = 5.0
     send_timeout: float = 1.0
+    # How long one write to a player may wait for the network to take it before the player is dropped as a slow
+    # consumer (closing and refusing a connection keep send_timeout). 1 s dropped players on lossy links: TCP's
+    # retransmissions after a few lost packets stall a stream for seconds (2026-10-26); a dead peer is still found by
+    # idle_timeout and a full outbox.
+    drain_timeout: float = 10.0
     monitor_interval: float = 0.1
     reliable_limit: int = 8
     checkpoint_upload_timeout: float = 30.0
@@ -82,7 +87,7 @@ class ServerConfig:
         validate_identity(self.ruleset_id, "ruleset_id")
         for name in (
             "heartbeat_interval", "idle_timeout", "presence_timeout",
-            "handshake_timeout", "send_timeout", "monitor_interval", "checkpoint_upload_timeout",
+            "handshake_timeout", "send_timeout", "drain_timeout", "monitor_interval", "checkpoint_upload_timeout",
         ):
             value = getattr(self, name)
             if isinstance(value, bool) or not isinstance(value, (float, int)) or not math.isfinite(value) or value <= 0:
@@ -2124,7 +2129,7 @@ class WorldServer:
                 session.writer.write(frame)
                 # Never allow the transport buffer to grow through repeated writes
                 # without completing (or timing out) the previous drain.
-                await asyncio.wait_for(session.writer.drain(), timeout=self.config.send_timeout)
+                await asyncio.wait_for(session.writer.drain(), timeout=self.config.drain_timeout)
         except (OutboundClosed, ConnectionError, OSError, asyncio.TimeoutError):
             session.close("slow_or_disconnected_consumer")
 

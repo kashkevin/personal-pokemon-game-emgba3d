@@ -217,6 +217,10 @@ class CompanionConfig:
     connect_timeout: float = _diagnostics.DEFAULT_TIMEOUT
     remote_timeout: float = 20.0
     send_timeout: float = 1.0
+    # One write's wait for the host's network (or the game's bridge) to take it before the connection is given up;
+    # closing keeps send_timeout. 1 s gave up on lossy links, where TCP's retransmissions stall a stream for seconds
+    # (2026-10-26); a dead host is still found by remote_timeout.
+    drain_timeout: float = 10.0
     server_credential: bytes | None = field(default=None, repr=False)
     server_tls: ClientTlsConfig | None = None
     public_server: bool = False
@@ -387,7 +391,7 @@ class CompanionConfig:
                 raise ValueError("a relay route requires a valid relay address, pinned TLS, a credential and the expected world")
         for name in (
             "pause_timeout", "pose_interval", "snapshot_interval", "reconnect_delay",
-            "handshake_timeout", "remote_timeout", "send_timeout", "connect_timeout",
+            "handshake_timeout", "remote_timeout", "send_timeout", "drain_timeout", "connect_timeout",
         ):
             value = getattr(self, name)
             if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value <= 0:
@@ -1060,7 +1064,7 @@ class Companion:
                 if frame is None:
                     return
                 bridge.writer.write(frame)
-                await asyncio.wait_for(bridge.writer.drain(), self.config.send_timeout)
+                await asyncio.wait_for(bridge.writer.drain(), self.config.drain_timeout)
         except (ConnectionError, OSError, asyncio.TimeoutError):
             bridge.writer.close()
 
@@ -1396,7 +1400,7 @@ class Companion:
     async def _send_remote(self, writer: asyncio.StreamWriter, message: dict[str, Any]) -> None:
         async with self._remote_lock:
             writer.write(encode_message(message))
-            await asyncio.wait_for(writer.drain(), self.config.send_timeout)
+            await asyncio.wait_for(writer.drain(), self.config.drain_timeout)
 
     def _disconnect_remote(self) -> None:
         from .battle_journal import pending_battle, path_present

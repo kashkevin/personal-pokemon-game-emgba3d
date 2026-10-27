@@ -220,7 +220,7 @@ class ServerTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_stalled_consumer_is_removed_other_player_continues(self):
         await self.server.close()
-        self.server = WorldServer(ServerConfig(BUILD, RULESET, send_timeout=0.08))
+        self.server = WorldServer(ServerConfig(BUILD, RULESET, send_timeout=0.08, drain_timeout=0.08))
         await self.server.start(port=0)
         slow, _ = await self.connect()
         observer, _ = await self.connect()
@@ -240,6 +240,35 @@ class ServerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(find_player(world, observer.player_id)["presence"]["x"], 55)
         self.assertEqual(session.close_reason, "slow_or_disconnected_consumer")
         self.assertEqual(len(self.server.sessions), 1)
+
+    async def test_a_consumer_whose_writes_stall_for_seconds_stays(self):
+        # 2026-10-26: a write that could not drain within 1 s dropped the player; on a lossy link TCP's retransmissions
+        # stall a stream for seconds. With the default drain_timeout a 1.5 s stall keeps the player connected.
+        slow, _ = await self.connect()
+        observer, _ = await self.connect()
+        await slow.world(lambda message: len(message["players"]) == 2)
+        session = self.server.sessions[slow.player_id]
+        original, release = session.writer.drain, asyncio.Event()
+
+        async def stalled_drain():
+            await release.wait()
+            await original()
+
+        session.writer.drain = stalled_drain
+        self.server._control(session, {"type": "test-control"})
+        await asyncio.sleep(1.5)
+        session.writer.drain = original
+        release.set()
+        await observer.move(x=44)
+
+        def moved(message):
+            player = find_player(message, observer.player_id)
+            return player is not None and (player.get("presence") or {}).get("x") == 44
+
+        world = await slow.world(moved)
+        self.assertIsNotNone(find_player(world, slow.player_id))
+        self.assertFalse(session.closed)
+        self.assertIn(slow.player_id, self.server.sessions)
 
     async def test_control_flood_is_bounded_and_other_client_remains_connected(self):
         flooded, _ = await self.connect()

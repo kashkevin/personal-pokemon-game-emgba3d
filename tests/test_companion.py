@@ -195,6 +195,7 @@ class CompanionIntegrationTests(unittest.IsolatedAsyncioTestCase):
             pause_timeout=0.12, pose_interval=0.005, snapshot_interval=0.01,
             reconnect_delay=0.025, handshake_timeout=0.1,
             remote_timeout=0.3, send_timeout=changes.pop("send_timeout", 0.08),
+            drain_timeout=changes.pop("drain_timeout", 0.08),
             **changes,
         )
         companion = Companion(config)
@@ -312,7 +313,7 @@ class CompanionIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(companion.connected)
 
     async def test_binary_slow_consumer_is_bounded_and_removed(self):
-        companion = await self.add_companion(1, send_timeout=0.04)
+        companion = await self.add_companion(1, send_timeout=0.04, drain_timeout=0.04)
         bridge = await self.add_bridge(companion)
         await bridge.snapshot()
         session = companion._bridge
