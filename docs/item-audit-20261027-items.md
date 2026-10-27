@@ -14,11 +14,11 @@ session.
 
 | What checked it | Items |
 | --- | --- |
-| a self-test of today's audit (L), some also the expansion's tests | 218 |
+| a self-test of today's audit (L), some also the expansion's tests | 221 |
 | the expansion's tests: tests that name it, or of its effect (T) | 350 |
 | no test names it; its effect's own test still to be written upstream | 22 |
 | not audited yet | 66 |
-| key items, not audited yet | 53 |
+| key items, not audited yet | 50 |
 | no use from the bag, in battle or held (sold, traded, or given to someone: fossils, shards, Heart Scales) | 114 |
 | spare TM numbers (TM51-TM100): no move, given nowhere | 50 |
 | all | 873 |
@@ -861,7 +861,7 @@ session.
 | 700 | N-Solarizer | 0 | Fusion | - | - | not audited (key items: next session) |
 | 701 | N-Lunarizer | 0 | Fusion | - | - | not audited (key items: next session) |
 | 702 | Reins of Unity | 0 | Fusion | - | - | not audited (key items: next session) |
-| 703 | Mega Ring | 0 | - | - | - | not audited (key items: next session) |
+| 703 | Mega Ring | 0 | - | - | - | Mega Evolution offered and done with it in the Bag, not offered without it, in the real game (`mega_check.py` cases `wild` and `no-mega-ring`, engine `223d15e1`, after the package) |
 | 704 | Z-Power Ring | 0 | - | - | - | not audited (key items: next session) |
 | 705 | Dynamax Band | 0 | - | - | - | not audited (key items: next session) |
 | 706 | Bike | 0 | Bike | - | - | not audited (key items: next session) |
@@ -871,17 +871,17 @@ session.
 | 710 | Good Rod | 0 | Rod | - | - | Rods self-test; cast from the Bag in the real game (engines `7054b688`, `c624a2d4`, after the package) |
 | 711 | Super Rod | 0 | Rod | - | - | Rods self-test; cast from the Bag in the real game (engines `7054b688`, `c624a2d4`, after the package) |
 | 712 | Dowsing Machine | 0 | Itemfinder | - | - | used from the Bag in the real game, by a hidden item and away from any (engine `c624a2d4`, after the package; its messages still call it the ITEMFINDER) |
-| 713 | Town Map | 0 | TownMap | - | - | not audited (key items: next session) |
+| 713 | Town Map | 0 | TownMap | - | - | used from the Bag in the real game: "took a closer look at the HOENN region map", the map at Route 104, B back to the field (engine `223d15e1`, after the package) |
 | 714 | Vs. Seeker | 0 | - | - | - | not audited (key items: next session) |
 | 715 | TM Case | 0 | - | - | - | not audited (key items: next session) |
 | 716 | Berry Pouch | 0 | - | - | - | not audited (key items: next session) |
 | 717 | ウエ Box Link | 0 | PokemonBoxLink | - | - | not audited (key items: next session) |
 | 718 | Coin Case | 0 | CoinCase | - | - | not audited (key items: next session) |
 | 719 | Powder Jar | 0 | PowderJar | - | - | not audited (key items: next session) |
-| 720 | Wailmer Pail | 0 | WailmerPail | - | - | used on Sudowoodo from the Bag in the real game (engine `223d15e1`, after the package); a berry tree not run |
+| 720 | Wailmer Pail | 0 | WailmerPail | - | - | used on Sudowoodo and on a planted Oran Berry (from the tree and from the Bag) in the real game (engine `223d15e1`); the yield each watered stage gives, a self-test (engine `bbf722b7`); after the package |
 | 721 | Poké Radar | 0 | - | - | - | not audited (key items: next session) |
 | 722 | オカキクケ Case | 0 | PokeblockCase | - | - | not audited (key items: next session) |
-| 723 | Soot Sack | 0 | - | - | - | not audited (key items: next session) |
+| 723 | Soot Sack | 0 | - | - | - | five steps in Route 113's ash grass in the real game, 2D and 3D: the Glass Workshop counts 5 (engine `223d15e1`, after the package) |
 | 724 | Poké Flute | 0 | PokeFlute | Poke Flute | - | GBA tests that name it: 5 passed; in battle: `item_effect/poke_flute.c` 2 passed |
 | 725 | Fame Checker | 0 | - | - | - | not audited (key items: next session) |
 | 726 | Teachy TV | 0 | - | - | - | not audited (key items: next session) |

@@ -352,6 +352,44 @@ Kecleon's battle then starts ("You encountered a wild Kecleon!"), and so does Su
 the Wailmer Pail from the Bag ("The weird tree doesn't like the WAILMER PAIL!", "The weird tree attacked!", "You
 encountered a wild Sudowoodo!"; scratchpad `ms156/`).
 
+## The Soot Sack in the real game (after the package)
+
+Route 113 in real game processes, offline: the Classic 2D test build (engine `223d15e1`) and a 3D test build made at
+16:46 UTC (the ash's code, `field_tasks.c`, and the Glass Workshop's script are the same in both and in the package's
+engine `6320c77d`). The Soot Sack in the Bag, the ash count set to 0 and the workshop's state to "has the Soot Sack"
+(the test build's variable settings): five steps east through ash grass, the same five back over the tiles they
+cleared (grass now), then into the Glass Workshop to its owner: "Let's see... 245 is the number of steps you'll need
+to walk for me to make you a BLUE FLUTE", 250 less the 5 steps, the same in 2D and 3D; the steps back added nothing
+(pictures, scratchpad `sootsack/`). A walk without the Soot Sack was not run (the owner then asks for the Soot Sack
+and does not say the count).
+
+## The Wailmer Pail on a berry tree (after the package)
+
+Route 104's empty soil plot (35,6) in real game processes, the Classic 2D test build (engine `223d15e1`), with an Oran
+Berry and the Wailmer Pail in the Bag: "It's soft, loamy soil. Want to plant a BERRY?", YES, the Bag's Berries pocket,
+the Oran Berry: "DARREN planted one Oran Berry in the soft, loamy soil."; talked to again: "One Oran Berry was planted
+here.", "Want to water the Oran with the WAILMER PAIL?" (the berry's short name, as the script fills it in), YES:
+"DARREN watered the Oran.", "The plant seems to be delighted."; then from the Bag (Key Items, the Wailmer Pail, USE)
+facing the plant: the same watering and "The plant seems to be delighted." (pictures, scratchpad `berrypail/`).
+
+What watering does takes hours of the game's clock, so it is checked with a self-test instead, `--selftest-berry-water`
+(`make check-berry-water`, engine `bbf722b7`): a Pomeg Berry (Gen 3 yields, 2 to 6) planted as the field plants one,
+grown stage by stage with the game's own `BerryTreeGrow` and watered through the function the tree's script and the
+Bag call (`ObjectEventInteractionWaterBerryTree`), 500 trees for each number of watered stages: never watered, yields
+2 to 2 (mean 2.00); one stage, 2 to 3 (2.56); two, 3 to 4 (3.57); three, 4 to 5 (4.63); all four, 5 to 6 (5.62), each
+the band Gen 3's rule gives (the minimum plus a quarter of the range for each watered stage); watering twice in each of
+two stages counts once (3 to 4); a tree with its berries and empty soil refuse water. 10 checks, 0 failed.
+
+## The Mega Ring in the real game (after the package)
+
+Mega Evolution asks for the Mega Ring in the Bag (`battle_util.c` `CanMegaEvolve`); the GBA test ROM skips that
+check, so its tests cannot show it. Two wild battles in real game processes (the Classic 2D test build, engine
+`223d15e1`; `tools/battle_env/mega_check.py --only wild --only no-mega-ring`): a level-50 Charizard holding
+Charizardite X against a wild Poochyena. With the Mega Ring in the Bag, the move menu offered Mega Evolution, the
+trigger turned on and Charizard became Mega Charizard X (Fire/Dragon, Tough Claws), won, and was Charizard holding its
+stone after the battle; without it, the menu did not offer Mega Evolution and Charizard fought as itself. 2 of 2 cases
+passed (scratchpad `megaring/run2d/mega_check.json`).
+
 ## A held item in a real battle of the PC game (after the package)
 
 A wild battle in the Classic 2D test build (engine `c624a2d4`; the battle the PC game runs, its screens and its
@@ -471,8 +509,9 @@ to `cure_status.c` and `restore_hp.c`, which are tested.
 After the package (above): a Master Ball thrown in a real battle and used up, items used from the Bag and refused,
 bought and sold, each saved and loaded (the real-game checks), the rods cast from the Bag, Focus Band, the form-change
 key items, the Itemfinder, the Heal Ball's and Friend Ball's effects on the Pokemon caught, Leftovers in a real
-battle, the DNA Splicers, the Go-Goggles, the Devon Scope (MS-156 found and fixed), the Wailmer Pail on Sudowoodo.
-Still not done: an item's multiplayer sync beyond a world trade (a traded Pokemon carries its held item: the trade
-exchanges the whole party record, `tests/test_trade_eligibility.py` keeps held items and refuses mail; not run between
-two games today); a real battle in the PC game with held items other than Leftovers; the other key items (the Wailmer
-Pail on a berry tree, the Soot Sack...) and the other charms; the held items still with no test.
+battle, the DNA Splicers, the Go-Goggles, the Devon Scope (MS-156 found and fixed), the Wailmer Pail on Sudowoodo and
+on a berry tree, the Soot Sack, the Mega Ring. Still not done: an item's multiplayer sync beyond a world trade (a
+traded Pokemon carries its held item: the trade exchanges the whole party record, `tests/test_trade_eligibility.py`
+keeps held items and refuses mail; not run between two games today); a real battle in the PC game with held items
+other than Leftovers; the other key items and charms (those the items table marks not audited); the held items still
+with no test.
