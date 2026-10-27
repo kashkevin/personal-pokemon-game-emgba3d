@@ -1,4 +1,4 @@
-# Item audit (2026-10-27): Poke Balls
+# Item audit (2026-10-27): Poke Balls and healing items
 
 The owner's request "Full item audit" (every item of Gen 1-6: Poke Balls and their capture math, healing, held items,
 berries, TMs and HMs, evolution items, charms, mints, Mega Stones, key items and so on). It asks for an item-by-item
@@ -11,11 +11,12 @@ on Windows or on a player's PC.
 ## What this round covers
 
 * **Poke Balls: done** (below), every ball of the game's list through the game's own capture code.
+* **Healing items: done** (below), every healing item through the game's own item code.
 * **Items that touch wild Pokemon: done earlier today**: the Shiny Charm, lures and Repels, the flutes, Cleanse Tag,
   Pure Incense, the encounter-rate abilities, Synchronize, Cute Charm, Magnet Pull and Static, Keen Eye, Hustle, Compound
   Eyes, the Catching and Oval Charms (`docs/gameplay-visual-updates-20261027.md` section 5).
-* **Not audited yet** (kept for the next session): healing items, held items in battle, berries, TMs and HMs, evolution
-  items, mints, Mega Stones, key items, the other charms, and the battle items. A ball's consumption, its multiplayer
+* **Not audited yet** (kept for the next session): held items in battle, berries (beyond the status berries below),
+  TMs and HMs, evolution items, mints, Mega Stones, key items, the other charms, and the battle items. A ball's consumption, its multiplayer
   sync and its save were not looked at either, nor was a real throw in a battle (see "Not done").
 
 ## Poke Balls
@@ -99,6 +100,39 @@ caught are not touched.
   21 or less has a catch rate of 1 with that ball, which the integer odds make 0 at any HP or status (the Beast Ball
   likewise on low catch rates). Giving such throws a minimum (odds 1: about 1 in 61) would be a balance change, so it
   was not made; the owner's choice.
+
+## Healing items
+
+`--selftest-healing` (new; `make -f Makefile_pc check-healing`; engine `000d7556`, test code only): each item used on a
+party Pokemon (a level 100 Snorlax, 430 HP) through `PokemonUseItemEffects`, what the bag's USE calls out of battle,
+against the Gen 6 rule this build is set to (`include/config/item.h`: `I_HEALTH_RECOVERY` = Gen 6). **70 checks,
+0 failed.**
+
+| Items | Rule (Gen 6) | Checked |
+| --- | --- | --- |
+| Potion, Berry Juice, Sweet Heart | 20 HP | 1 -> 21 HP |
+| Super Potion, Fresh Water | 50 HP (Gen 7: 60 and 30) | 1 -> 51 |
+| Soda Pop | 60 HP (Gen 7: 50) | 1 -> 61 |
+| Lemonade | 80 HP (Gen 7: 70) | 1 -> 81 |
+| Moomoo Milk | 100 HP | 1 -> 101 |
+| Hyper Potion | 200 HP (Gen 7: 120) | 1 -> 201; 10 short of full: to the maximum |
+| Energy Powder, Energy Root | 50 and 200 HP (Gen 7: 60 and 120); friendship -5 / -5 / -10 and -10 / -10 / -15 (under 100, 100-199, 200 and over) | as the rule, friendship never below 0 |
+| Max Potion; Full Restore | all HP; all HP and the status | 430; 430 and paralysis cured |
+| Antidote (and bad poison), Burn Heal, Ice Heal, Awakening, Paralyze Heal, Blue Flute; Pecha, Rawst, Aspear, Chesto, Cheri Berries | their one status | each cured; no effect on another status or a healthy Pokemon |
+| Full Heal, Heal Powder (friendship -5 / -5 / -10), Lava Cookie, Rage Candy Bar, Old Gateau, Casteliacone, Lumiose Galette, Shalour Sable, Lum Berry | every status | sleep, poison, burn, freezing, paralysis and bad poison each cured |
+| Revive; Max Revive, Revival Herb (friendship -15 / -15 / -20), Sacred Ash | a fainted Pokemon back with half; with all its HP | 0 -> 215; 0 -> 430 |
+| Ether, Max Ether; Elixir, Max Elixir | 10 PP / all PP to one move; to every move | as the rule, never past a move's maximum |
+| No effect | an item that would do nothing is not used | Potion or Max Potion at full HP, Potion or Full Restore on a fainted Pokemon, Revive on one that has not fainted, Ether on a full move: no effect |
+
+**A finding (MS-150, not changed: the owner's decision).** The game's friendship bonuses for an item - +1 for a Pokemon
+met on the map it is on, +1 in a Luxury Ball (`CalculateFriendshipBonuses`) - are also added to a friendship loss, so a
+herbal medicine costs 1 less there (Energy Powder on a Pokemon met on the current map: 150 -> 146, the official
+rule 145; Energy Root on one in a Luxury Ball: 150 -> 141, the rule 140). The official games add them only to a gain.
+Following the rule would cost those players 1 friendship more per medicine; the other checks above use a Pokemon met
+elsewhere, in a plain ball.
+
+Not checked here: an item used in battle (the same function, with the battler's own HP and status), the bag taking the
+item away, the multiplayer save of the result, and the berries a Pokemon eats by itself in battle (the berries part).
 
 ## Not done (this round)
 

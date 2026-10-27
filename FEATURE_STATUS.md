@@ -617,7 +617,8 @@ Recorded guidance the code no longer follows (not binding decisions):
 | Every Poke Ball's capture odds as its Gen 6 rule says (the game's own code) | Tested (`--selftest-balls`, 61 checks; not thrown in a real battle) | engine `6a575072` |
 | The Heavy Ball on a light Pokemon with a catch rate of 20 or less: catch rate 1, no longer a sure catch (MS-148) | Implemented and tested (self-test, before and after) | engine `4474883b` |
 | A throw at odds 0: the GBA's result written out, no undefined division, the chance unchanged (MS-149) | Implemented and tested (self-test on the new and the old code) | engine `6a575072` |
-| The rest of the item audit (healing, held items, berries, TMs and HMs, evolution items, mints, Mega Stones, key items, charms, battle items) | Not done (next session) | `docs/item-audit-20261027.md` |
+| Every healing item's effect as its Gen 6 rule says (HP, statuses, revival, PP, friendship; the game's own code) | Tested (`--selftest-healing`, 70 checks; not used in a real battle); MS-150 open (owner decision) | engine `000d7556` |
+| The rest of the item audit (held items, berries, TMs and HMs, evolution items, mints, Mega Stones, key items, charms, battle items) | Not done (next session) | `docs/item-audit-20261027.md` |
 
 ## Battle transitions in 3D (2026-10-27, `docs/battle-transitions-3d-20261027.md`)
 

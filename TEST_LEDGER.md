@@ -887,3 +887,14 @@ machine, no simulated internet). No **W** run covers this commit. Nothing ran be
 | `test_mp_bridge` (`world_peer_carrier_accepted`, new), `check-native`; app `test_world_mailbox`, `test_protocol` (carrier state round trip, bounds) | engine `dbaf6923`; app this commit | L | **0 failures** (the new bridge check fails on the old bound); 59 app tests passed | - | - | Reuse |
 | `--selftest-carriers`, `-ride`, `-hm-box`, `-spawn-claims`; `check_gba_lines.py`; GBA ROM | engine `dbaf6923` | L | **50, 3, 59, 23, 0 failed**; 0 moved lines; ROM **unchanged** (`f214735b...`) | scratchpad `surf/rom.log` | - | Reuse |
 | Under the water and Fly relayed; two real PCs; Windows | - | - | **Not done / not run** | - | - | Next session |
+
+## Item audit: healing items, and the packaging heads' final checks (2026-10-27)
+
+**L** this Linux machine. No **W** run covers these commits before the packaging run.
+
+| Test | Build / head | Where | Last result | Evidence | Changed since | Rerun? |
+| --- | --- | --- | --- | --- | --- | --- |
+| `--selftest-healing` (new, `check-healing`): every healing item through `PokemonUseItemEffects`, Gen 6 rules | engine `000d7556` (2D game) | L | **70 checks, 0 failed**; MS-150 measured (146 and 141 where the rule gives 145 and 140) | scratchpad `heal/st-healing.log` | - | Reuse |
+| Every engine check target (42: `check-native` to `check-frontier-saves`, every self-test) and `check-diorama` | engine `dbaf6923` | L | **43 of 43 exit 0** (no edits while it ran) | scratchpad `final-checks3/summary.txt` | `000d7556` adds the healing self-test only | Reuse |
+| GBA ROM; 2D and 3D builds | engine `000d7556` | L | ROM **unchanged** (`f214735b...`); both build | scratchpad `heal/rom.log`, `heal/build-3d.log` | - | Reuse |
+| The app's whole suite under a virtual display (`xvfb-run pytest tests`) | app `ef6223d` | L | **2,960 passed**, 22 skipped, **1 failed**: `test_reset_emergency_integration`'s race test, the same failure as before this work (open above) | scratchpad `app-suite-final.log` | docs only since | Reuse |
