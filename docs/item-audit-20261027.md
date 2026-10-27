@@ -329,6 +329,13 @@ paralysed, its move at 3 PP, has its HP full, no status and its PP full (35); ca
 three; a Friend Ball gives it 200 friendship (Gen 6; the expansion's Gen 8 rule would give 150), a Poke Ball the
 species' own. The Luxury Ball's bonus to friendship gained is the healing self-test's (above, MS-150).
 
+## The Go-Goggles in the real game (after the package)
+
+Route 111's desert in real game processes (engine `c624a2d4`, the Classic 2D test build), walking north into it from
+its south edge: without Go-Goggles in the Bag, "The sandstorm is vicious. It's impossible to keep going." and the
+player is pushed back; with them, the player walks on into the desert (pictures, scratchpad `goggles/`). The check is
+the map's own script (`checkitem ITEM_GO_GOGGLES`).
+
 ## A held item in a real battle of the PC game (after the package)
 
 A wild battle in the Classic 2D test build (engine `c624a2d4`; the battle the PC game runs, its screens and its
@@ -448,6 +455,6 @@ to `cure_status.c` and `restore_hp.c`, which are tested.
 After the package (above): a Master Ball thrown in a real battle and used up, items used from the Bag and refused,
 bought and sold, each saved and loaded (the real-game checks), the rods cast from the Bag, Focus Band, the form-change
 key items, the Itemfinder, the Heal Ball's and Friend Ball's effects on the Pokemon caught, Leftovers in a real
-battle, the DNA Splicers. Still not done: any item's multiplayer sync; a real battle in the PC game with held items
-other than Leftovers; the other key items (the Wailmer Pail, the Soot Sack, the Go-Goggles, the Devon Scope...) and
+battle, the DNA Splicers, the Go-Goggles. Still not done: any item's multiplayer sync; a real battle in the PC game
+with held items other than Leftovers; the other key items (the Wailmer Pail, the Soot Sack, the Devon Scope...) and
 the other charms; the held items still with no test.
