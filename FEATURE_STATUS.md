@@ -619,6 +619,14 @@ Recorded guidance the code no longer follows (not binding decisions):
 | A throw at odds 0: the GBA's result written out, no undefined division, the chance unchanged (MS-149) | Implemented and tested (self-test on the new and the old code) | engine `6a575072` |
 | The rest of the item audit (healing, held items, berries, TMs and HMs, evolution items, mints, Mega Stones, key items, charms, battle items) | Not done (next session) | `docs/item-audit-20261027.md` |
 
+## Battle transitions in 3D (2026-10-27, `docs/battle-transitions-3d-20261027.md`)
+
+| Feature | Status | Evidence |
+| --- | --- | --- |
+| The Frontier's squares transitions cover the 3D window as squares (no black frame or stripes, MS-106) | Implemented and tested (Linux 3D build, pictures; not in a real Frontier battle, not on Windows) | engine `739817fe` |
+| The flash's peak plain in its colour over the 3D field (MS-107) | Implemented and tested (Linux 3D build, frame by frame) | engine `739817fe` |
+| The battle's opening camera clear of the scenery it swoops past (MS-109) | Not done: cause found, open | `docs/battle-transitions-3d-20261027.md` |
+
 ## How to update
 
 1. Change a row only with new evidence: a recorded run (a doc in `docs/` or

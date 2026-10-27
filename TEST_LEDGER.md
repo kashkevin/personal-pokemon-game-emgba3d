@@ -858,3 +858,17 @@ these commits. No ball was thrown in a real battle; nothing ran on a player's PC
 | An earlier 60-check version on a build without either change, and on `4474883b` | engine `4474883b` with both changes taken out (a scratch build); `4474883b` | L | **Without**: 5 failed (the Heavy Ball on Latias, Jirachi, Uxie: odds 11,930,452, a sure catch; Uxie at 1 HP 11,930,427; a Beast Ball check expecting the floor withdrawn in `6a575072`); the other 55 lines identical to the fixed build's. `4474883b`: 60, 0 failed | scratchpad `balls-prefix/st-balls-nofix.log`, `st-balls.log` | `6a575072` (odds 0 unchanged instead of raised to 1) | Done (first row) |
 | GBA ROM, `check_gba_lines.py` (`battle_script_commands.c`), 2D and 3D builds | engine `4474883b`, `6a575072` | L | ROM **unchanged** (`f214735b...`) both; 0 moved lines; both build | scratchpad `rom-balls.log`, `rom-balls2.log`, `pc3d-balls2.log` | - | Reuse |
 | A ball thrown in a real battle; a ball used up from the bag; Heal, Friend and Luxury Balls after the catch; multiplayer sync and save of a caught Pokemon's ball | - | - | **Not run** | - | - | Next session |
+
+## Battle transitions and the battle's opening in 3D (2026-10-27; engine `claude/feature-update-engine`; `docs/battle-transitions-3d-20261027.md`)
+
+**L** this Linux machine (real game processes of the 3D build and the 3D test build; software OpenGL). No **W** run
+covers this commit. Nothing ran on a real graphics card or a player's PC.
+
+| Test | Build / head | Where | Last result | Evidence | Changed since | Rerun? |
+| --- | --- | --- | --- | --- | --- | --- |
+| The Frontier's squares transitions (`PKMN_DEBUG_TRANSITION` 27, 28, 29), pictured every 3 or 6 frames | engine `6a575072` (before), `739817fe` code (after), 3D build | L | Before (28; today): stripes and bands (the black frame of 27 and 29: MS-106's pictures of 2026-10-26). After (all three): squares over the whole window, whole squares only, erased to black | scratchpad `trans/t28-pre`, `t27-fix3`, `t28-fix3`, `t29-fix2` | - | Reuse |
+| The flash's peaks, every frame (138-169), and the same transition in the Classic 2D view | the same | L | Before: one frame of the field lit grey. After: the peaks plain grey, as in 2D | scratchpad `trans/flash-fix`, `t28-2d` | - | Reuse |
+| Transitions 0, 3, 12, 22, 31 after the change | `739817fe` code, 3D build | L | as before | scratchpad `trans/t*-fix2` | - | Reuse |
+| A real wild battle's start: Route 104 (24, 57), Oldale (6, 13) and (15, 3) | `739817fe` code, 3D test build | L | the flash, the transition, the opening; MS-109 seen at Oldale (15, 3), not on Route 104 | scratchpad `ms109/` | - | Reuse |
+| `check-diorama`, GBA ROM, Classic 2D build | `739817fe` code | L | passes; ROM **unchanged** (`f214735b...`); builds | scratchpad `trans/check-diorama.log`, `trans/rom.log` | - | Reuse |
+| MS-109 fixed; a Frontier battle's real start; Windows, a real graphics card | - | - | **Not run / not done** | - | - | Next session |
