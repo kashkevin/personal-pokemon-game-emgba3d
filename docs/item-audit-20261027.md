@@ -336,6 +336,16 @@ its south edge: without Go-Goggles in the Bag, "The sandstorm is vicious. It's i
 player is pushed back; with them, the player walks on into the desert (pictures, scratchpad `goggles/`). The check is
 the map's own script (`checkitem ITEM_GO_GOGGLES`).
 
+## The Devon Scope in the real game, and MS-156 (after the package)
+
+A hidden Kecleon on Route 120 (20,11) talked to in real game processes (engine `c624a2d4`, the Classic 2D test build):
+without the Devon Scope, "Something unseeable is in the way."; with it, "Want to use the DEVON SCOPE?", YES, "DARREN
+used the DEVON SCOPE.", "An invisible POKeMON became completely visible!", "The startled POKeMON attacked!" (pictures,
+scratchpad `devonscope/`). The battle that should follow did not start: the game was not connected to a world, and
+these optional static encounters ask the Local Soft Reset's admission first, which refuses offline (**MS-156**, open,
+in `KNOWN_ISSUES.md`: the same for the Regis, the weather legendaries, the Electrodes, Voltorbs, Sudowoodo, the
+Latis, Lugia, Ho-Oh, Mew and Deoxys offline; the story's bridge Kecleon is not affected).
+
 ## A held item in a real battle of the PC game (after the package)
 
 A wild battle in the Classic 2D test build (engine `c624a2d4`; the battle the PC game runs, its screens and its
@@ -455,6 +465,6 @@ to `cure_status.c` and `restore_hp.c`, which are tested.
 After the package (above): a Master Ball thrown in a real battle and used up, items used from the Bag and refused,
 bought and sold, each saved and loaded (the real-game checks), the rods cast from the Bag, Focus Band, the form-change
 key items, the Itemfinder, the Heal Ball's and Friend Ball's effects on the Pokemon caught, Leftovers in a real
-battle, the DNA Splicers, the Go-Goggles. Still not done: any item's multiplayer sync; a real battle in the PC game
-with held items other than Leftovers; the other key items (the Wailmer Pail, the Soot Sack, the Devon Scope...) and
-the other charms; the held items still with no test.
+battle, the DNA Splicers, the Go-Goggles, the Devon Scope (and MS-156 found). Still not done: any item's multiplayer
+sync; a real battle in the PC game with held items other than Leftovers; the other key items (the Wailmer Pail, the
+Soot Sack...) and the other charms; the held items still with no test.
