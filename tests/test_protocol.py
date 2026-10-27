@@ -113,11 +113,16 @@ class ValidationTests(unittest.TestCase):
             {"map_group": 256}, {"map_number": -1}, {"direction": 0},
             {"elevation": 16}, {"avatar_gender": 2}, {"seq": -1},
             {"activity": "trading"}, {"movement_mode": "teleport"},
-            {"activity": []}, {"session_epoch": 2}, {"money": 100},
+            {"activity": []}, {"session_epoch": 2}, {"money": 100}, {"mount_state": 3},
         ):
             with self.subTest(changes=changes):
                 with self.assertRaises(ProtocolError):
                     validate_presence(presence(**changes), 1)
+
+    def test_presence_carries_a_surf_carrier(self):
+        # mount_state 2: surfing on the Pokemon that used Surf (world_mailbox.MOUNT_CARRIER), relayed like a mount
+        validated = validate_presence(presence(mount_state=2, mount_species=131, mount_flags=1), 1)
+        self.assertEqual((validated["mount_state"], validated["mount_species"], validated["mount_flags"]), (2, 131, 1))
 
     def test_heartbeat_is_bound_to_protocol_and_session(self):
         message = {"type": "pong", "protocol": PROTOCOL_VERSION, "session_epoch": 9, "nonce": 42}

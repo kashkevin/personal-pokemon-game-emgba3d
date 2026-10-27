@@ -9,7 +9,8 @@ import unittest
 
 from emerald_multiplayer.world_mailbox import (
     ACTION_APPEARANCE, ACTION_CLAIM, ACTION_COOP_GYM, ACTION_KINDS, ACTION_RESULT, ACTION_WALLET,
-    EVENT_MEGA, EVENT_MINE, EVENT_SHINY, EVENT_VISIBLE, FLAG_CLOCK_VALID, FLAG_EVENTS, WALLET_OFFSET,
+    EVENT_MEGA, EVENT_MINE, EVENT_SHINY, EVENT_VISIBLE, FLAG_CLOCK_VALID, FLAG_EVENTS, FOLLOWER_FEMALE, FOLLOWER_SHINY,
+    MOUNT_CARRIER, WALLET_OFFSET,
     WORLD_INBOUND_OFFSET, WORLD_INBOUND_SIZE, WORLD_LOCAL_OFFSET, WORLD_LOCAL_SIZE, WORLD_MAILBOX_SIZE,
     WorldAction, WorldEventView, WorldInbound, WorldMailboxError, WorldState, capability_matches,
     unpack_local, validate_world_manifest,
@@ -56,7 +57,7 @@ class StateAndActionTests(unittest.TestCase):
         self.assertEqual(state.pack()[7], 0)
 
     def test_state_bounds(self):
-        for changes in (dict(follower_species=1701), dict(follower_flags=8), dict(mount_state=2),
+        for changes in (dict(follower_species=1701), dict(follower_flags=8), dict(mount_state=3),
                         dict(mount_species=-1), dict(mount_flags=4), dict(wallet_seq=256),
                         dict(appearance=bytes(7)), dict(appearance=bytearray(8)), dict(follower_species=True)):
             with self.subTest(changes=changes), self.assertRaises(WorldMailboxError):
@@ -76,6 +77,15 @@ class StateAndActionTests(unittest.TestCase):
             WorldAction.unpack(bytes(raw))
         for kind in (ACTION_APPEARANCE, ACTION_COOP_GYM):
             self.assertEqual(WorldAction.unpack(WorldAction(3, kind, 0, 0, 4).pack()).kind, kind)
+
+    def test_carrier_mount_round_trips(self):
+        # A player surfing on the Pokemon that used Surf (the engine's MP_WORLD_MOUNT_CARRIER): its species and its
+        # shiny and female flags go to every other game as a mount does.
+        state = WorldState(0, 0, MOUNT_CARRIER, 131, FOLLOWER_SHINY | FOLLOWER_FEMALE, LOOK)
+        self.assertEqual(WorldState.unpack(state.pack()), state)
+        fields = state.network_fields()
+        self.assertEqual((fields["mount_state"], fields["mount_species"], fields["mount_flags"]), (2, 131, 3))
+        self.assertEqual(WorldState.from_network(fields, LOOK), state)
 
     def test_network_state_defaults_and_peer_appearance(self):
         state = WorldState.from_network({"follower_species": 6, "follower_flags": 4, "mount_state": 0,

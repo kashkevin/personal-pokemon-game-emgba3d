@@ -238,9 +238,19 @@ moving and standing, back onto the beach; Dive on Route 124 with Wailord in four
 Pidgeot, out and in. 3D test build: the Surf run with the shiny Lapras. `check-ride`, `check-frontier-saves`,
 `check-hm-box`, `check-native` pass; GBA ROM unchanged.
 
-**Not done yet** (kept for the next session): other players still see the surfing pose without the carrier (the
-multiplayer record has no carrier field yet); the NPC fly-aways, Waterfall and most other species were not run in the
-game (only through the self-test); nothing was tried on Windows or a player's PC.
+**Other players' carriers** (engine `dbaf6923`, app this commit; PC only): a game surfing on its carrier publishes it in
+the shared-world record as a new mount state (`MOUNT_CARRIER`, 2: the species and its shiny / female flags), and every
+other game draws that player on it as it draws its own (under their seat, turned and swimming as they move, in front
+facing the camera and behind otherwise; in 3D with its rider). The host's validation and the game's bridge accept the
+new state (the bridge closed the session on the first such record before its fix). Tested (**L**, one machine, no
+simulated internet): `scripts/multiplayer/native_surf_check.py`, two games, a real world server and real companions,
+in the Classic 2D and the 3D test builds: B's shiny Lapras published and received within 50 ms, both games stayed
+connected, and A's 77 pictures show B on it facing south, west and east; `native_ride_check.py` still passes;
+`test_mp_bridge` (a new check that fails on the old bridge), the app's world mailbox and protocol tests.
+
+**Not done yet** (kept for the next session): under the water another player keeps the original's underwater look,
+and Fly's take-off and landing are not relayed (the player warps); the NPC fly-aways, Waterfall and most other species
+were not run in the game (only through the self-test); nothing was tried on Windows, a player's PC or two real PCs.
 
 ## 5. Wild Pokemon item audit
 

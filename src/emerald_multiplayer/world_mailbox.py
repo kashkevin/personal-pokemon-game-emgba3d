@@ -30,6 +30,7 @@ FOLLOWER_VISIBLE = 4
 
 MOUNT_NONE = 0
 MOUNT_RIDING = 1
+MOUNT_CARRIER = 2  # surfing on the Pokemon that used Surf (the engine's field_carrier.c), drawn under the player
 
 FLAG_CLOCK_VALID = 1
 FLAG_EVENTS = 2
@@ -100,7 +101,7 @@ class WorldState:
     def __post_init__(self):
         _bound(self.follower_species, 0, MAX_SPECIES, "follower species")
         _bound(self.follower_flags, 0, 7, "follower flags")
-        _bound(self.mount_state, 0, 1, "mount state")
+        _bound(self.mount_state, MOUNT_NONE, MOUNT_CARRIER, "mount state")
         _bound(self.mount_species, 0, MAX_SPECIES, "mount species")
         _bound(self.mount_flags, 0, 3, "mount flags")
         _bound(self.wallet_seq, 0, 255, "wallet sequence")

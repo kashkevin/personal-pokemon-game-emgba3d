@@ -872,3 +872,18 @@ covers this commit. Nothing ran on a real graphics card or a player's PC.
 | A real wild battle's start: Route 104 (24, 57), Oldale (6, 13) and (15, 3) | `739817fe` code, 3D test build | L | the flash, the transition, the opening; MS-109 seen at Oldale (15, 3), not on Route 104 | scratchpad `ms109/` | - | Reuse |
 | `check-diorama`, GBA ROM, Classic 2D build | `739817fe` code | L | passes; ROM **unchanged** (`f214735b...`); builds | scratchpad `trans/check-diorama.log`, `trans/rom.log` | - | Reuse |
 | MS-109 fixed; a Frontier battle's real start; Windows, a real graphics card | - | - | **Not run / not done** | - | - | Next session |
+
+## Other players' Surf carriers (2026-10-27; engine `claude/feature-update-engine`; `docs/gameplay-visual-updates-20261027.md` section 4)
+
+**L** this Linux machine (two game processes of the 2D and 3D test builds, a real world server and real companions on one
+machine, no simulated internet). No **W** run covers this commit. Nothing ran between two real PCs.
+
+| Test | Build / head | Where | Last result | Evidence | Changed since | Rerun? |
+| --- | --- | --- | --- | --- | --- | --- |
+| `scripts/multiplayer/native_surf_check.py` (new): A on Route 109's beach, B surfs on a shiny Lapras, 77 pictures | engine `dbaf6923` 2D test build | L | **passed**: carrier published and received within 50 ms (state 2, Lapras, shiny), both bridges connected; B drawn on it facing south, west, east | scratchpad `multiplayer-proof/native-surf-final-2d` | - | Reuse |
+| The same, 3D test build (`--slow 2`) | engine `dbaf6923` code, 3D test build | L | **passed**; in 3D B on the shiny Lapras, its head in front facing the camera, B in front facing west | scratchpad `multiplayer-proof/native-surf-3d-1` | - | Reuse |
+| The first run, before the bridge accepted mount state 2 | the same without the `mp_bridge.c` change | L | the network check passed but A's bridge closed ("invalid shared-world update") and A never saw B; the check now reads each game's log | scratchpad `multiplayer-proof/native-surf-1` | bridge fixed | Done (rows above) |
+| `native_ride_check.py` (riding relay regression) | engine `dbaf6923` 2D test build | L | **passed**, no bridge closed | scratchpad `multiplayer-proof/native-ride-carrier-1` | - | Reuse |
+| `test_mp_bridge` (`world_peer_carrier_accepted`, new), `check-native`; app `test_world_mailbox`, `test_protocol` (carrier state round trip, bounds) | engine `dbaf6923`; app this commit | L | **0 failures** (the new bridge check fails on the old bound); 59 app tests passed | - | - | Reuse |
+| `--selftest-carriers`, `-ride`, `-hm-box`, `-spawn-claims`; `check_gba_lines.py`; GBA ROM | engine `dbaf6923` | L | **50, 3, 59, 23, 0 failed**; 0 moved lines; ROM **unchanged** (`f214735b...`) | scratchpad `surf/rom.log` | - | Reuse |
+| Under the water and Fly relayed; two real PCs; Windows | - | - | **Not done / not run** | - | - | Next session |

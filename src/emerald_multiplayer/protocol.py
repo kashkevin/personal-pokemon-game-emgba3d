@@ -197,7 +197,7 @@ def validate_presence(message: dict[str, Any], session_epoch: int) -> dict[str, 
         raise ProtocolError("invalid_field", "activity is unsupported")
     if not isinstance(result["movement_mode"], str) or result["movement_mode"] not in MOVEMENT_MODES:
         raise ProtocolError("invalid_field", "movement_mode is unsupported")
-    for name, high in (("follower_species", 1700), ("follower_flags", 7), ("mount_state", 1),
+    for name, high in (("follower_species", 1700), ("follower_flags", 7), ("mount_state", 2),
                        ("mount_species", 1700), ("mount_flags", 3), ("wallet_seq", 255)):
         result[name] = _integer(message.get(name, 0), name, 0, high)
     # The overworld weather the game shows (shared spawns weigh species by it).

@@ -627,6 +627,13 @@ Recorded guidance the code no longer follows (not binding decisions):
 | The flash's peak plain in its colour over the 3D field (MS-107) | Implemented and tested (Linux 3D build, frame by frame) | engine `739817fe` |
 | The battle's opening camera clear of the scenery it swoops past (MS-109) | Not done: cause found, open | `docs/battle-transitions-3d-20261027.md` |
 
+## Other players' Surf carriers (2026-10-27, `docs/gameplay-visual-updates-20261027.md` section 4)
+
+| Feature | Status | Evidence |
+| --- | --- | --- |
+| Another player surfing is drawn on the Pokemon that used Surf (species, shiny, female), in 2D and 3D | Implemented and tested (two Linux games on one machine, real server and companions; not between two real PCs, not on Windows) | engine `dbaf6923`, `scripts/multiplayer/native_surf_check.py` |
+| Another player under the water (Dive) on their carrier; Fly's take-off and landing for other players | Not done (next session) | - |
+
 ## How to update
 
 1. Change a row only with new evidence: a recorded run (a doc in `docs/` or
