@@ -14,11 +14,11 @@ session.
 
 | What checked it | Items |
 | --- | --- |
-| a self-test of today's audit (L), some also the expansion's tests | 214 |
+| a self-test of today's audit (L), some also the expansion's tests | 215 |
 | the expansion's tests: tests that name it, or of its effect (T) | 350 |
 | no test names it; its effect's own test still to be written upstream | 22 |
 | not audited yet | 66 |
-| key items, not audited yet | 57 |
+| key items, not audited yet | 56 |
 | no use from the bag, in battle or held (sold, traded, or given to someone: fossils, shards, Heart Scales) | 114 |
 | spare TM numbers (TM51-TM100): no move, given nowhere | 50 |
 | all | 873 |
@@ -855,7 +855,7 @@ session.
 | 694 | Rotom Catalog | 0 | RotomCatalog | - | - | not audited (key items: next session) |
 | 695 | Gracidea | 0 | FormChange | - | - | Form items self-test (engine `993496aa`, after the package) |
 | 696 | Reveal Glass | 0 | FormChange | - | - | Form items self-test (engine `993496aa`, after the package) |
-| 697 | DNA Splicers | 0 | Fusion | - | - | not audited (key items: next session) |
+| 697 | DNA Splicers | 0 | Fusion | - | - | used from the Bag in the real game: Kyurem and Reshiram fused and split again (engine `c624a2d4`, after the package) |
 | 698 | Zygarde Cube | 0 | ZygardeCube | - | - | not audited (key items: next session) |
 | 699 | Prison Bottle | 0 | FormChange | - | - | Form items self-test (engine `993496aa`, after the package) |
 | 700 | N-Solarizer | 0 | Fusion | - | - | not audited (key items: next session) |

@@ -307,8 +307,13 @@ worked out again for each form (Attack 155 -> 185 as the Attack form) and the fo
 Gracidea makes Shaymin its Sky Forme at noon but not at 22:00 or while it is frozen; the Reveal Glass turns Tornadus,
 Thundurus and Landorus from Incarnate to Therian and back; the Prison Bottle unbinds Hoopa; each does nothing for
 another species, another form species or an Egg. On Hoopa Unbound the Prison Bottle does nothing (it goes back by
-being put in the PC or after three days: the Gen 6 rule, unchanged). Not run: the party menu's screens; the DNA
-Splicers (a party-menu task of two Pokemon and the PC's fusion storage).
+being put in the PC or after three days: the Gen 6 rule, unchanged). Not run: the party menu's screens for these.
+
+The DNA Splicers (a party-menu task of two Pokemon and the PC's fusion storage) **used from the Bag in real game
+processes** (engine `c624a2d4`, the Classic 2D test build, the presses a person makes, the party read from the game's
+log): Kyurem and Reshiram in the party, "Use on which POKeMON?" Kyurem, "Choose ... to fuse with." Reshiram, "Kyurem
+transformed!": the party is White Kyurem alone (level 50); the Splicers again on White Kyurem: "Kyurem transformed!",
+the party Kyurem and Reshiram again (scratchpad `splicers/`).
 
 The Itemfinder (the Bag calls it the Dowsing Machine) **used from the Bag in real game processes** (engine `c624a2d4`,
 the Classic 2D test build, the presses a person makes): two tiles from Route 104's hidden Potion, "Huh? The
@@ -443,6 +448,6 @@ to `cure_status.c` and `restore_hp.c`, which are tested.
 After the package (above): a Master Ball thrown in a real battle and used up, items used from the Bag and refused,
 bought and sold, each saved and loaded (the real-game checks), the rods cast from the Bag, Focus Band, the form-change
 key items, the Itemfinder, the Heal Ball's and Friend Ball's effects on the Pokemon caught, Leftovers in a real
-battle. Still not done: any item's multiplayer sync; a real battle in the PC game with held items other than
-Leftovers; the other key items (the Wailmer Pail, the Soot Sack, the Go-Goggles, the Devon Scope, the DNA Splicers...)
-and the other charms; the held items still with no test.
+battle, the DNA Splicers. Still not done: any item's multiplayer sync; a real battle in the PC game with held items
+other than Leftovers; the other key items (the Wailmer Pail, the Soot Sack, the Go-Goggles, the Devon Scope...) and
+the other charms; the held items still with no test.
