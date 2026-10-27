@@ -38,8 +38,16 @@ so it cannot be bought twice. `tools/pc_port/economy_check.py` runs the purchase
   only the oldest. The queue is **part of the save**: 412 bytes after the 600-byte ownership profile in SaveBlock3 (a magic, a count, five eggs of 80 bytes each, a CRC-32), so it survives
   saving, quitting, host reconnects and the server's checkpoints (the Python save validator and the engine's multiplayer import both check it, and refuse a damaged queue). A save from before this
   update has zeros there and reads as an empty queue; the old "an egg is waiting" flag without a queue still gives one egg. The shape is checked by `check-abi` and the GBA ROM is untouched.
-* **Eggs in the PC** stay eggs: they cannot hatch there, spend no cycles (20,000 steps changed nothing), cannot battle and cannot be released (the storage system refuses an egg), and
-  come out of the PC still an egg with their progress. **Eggs cannot be traded** (a pre-existing rule in `trade_eligibility.py`: "traded eggs require native hatch/origin support"); that is unchanged.
+* **Eggs in the PC hatch too** (the owner's decision of 2026-10-27; until then they never hatched there). Every Egg in all 14 boxes spends its cycles on the same 32-step check as the
+  party's Eggs, at the same rate: the party's Flame Body or Magma Armor halves the cycles for the boxes too, and an Egg never hatches sooner in a box than it would in the party
+  (`--selftest-breeding`: the same step count as a party Egg for 0, 1, 7 and 20 cycles, with and without Flame Body). An Egg whose cycles have run out hatches **in its own box slot**:
+  its species, form, IVs, nature, ability, moves, shininess, Poké Ball and personality are kept; it gets what a party hatch gives (the species name, the "hatched at" met data of the
+  player's map, friendship 120, full PP, the Pokédex entry, the hatched-eggs count), except that it never changes the Pokémon's OT ID (the world's host treats a Pokémon's
+  personality and OT ID as fixed; every Egg a player can have already carries their own). A banner names it ("PC EGG HATCHED! Pichu hatched in your PC.", or the count and names
+  when several hatch on one step). Only the player's own steps count: another player's movement never moves anyone else's Eggs, and nothing accumulates while the game is closed (the
+  game has no offline progress, so none was added). The progress is the Egg's own cycle counter, so it is saved with the box and survives quitting and loading. Eggs in the PC still
+  cannot battle or be released (the storage system refuses an egg), and come out of the PC still Eggs with their progress. **Eggs cannot be traded** (a pre-existing rule in
+  `trade_eligibility.py`: "traded eggs require native hatch/origin support"); that is unchanged.
 * **A fixed old defect:** the Day Care's `offspringPersonality` was never written, so the sex flip of the Nidoran and Illumise lines (a male line egg that hatches either sex) never happened.
   It is written now (`--selftest-breeding`: Nidoran eggs come out either sex, about half each).
 

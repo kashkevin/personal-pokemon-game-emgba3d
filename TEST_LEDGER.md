@@ -753,3 +753,41 @@ after the owner asked for no packaging). Nothing ran on a player's PC.
 | GBA ROM and `check_gba_lines.py` over the 14 GBA files changed by this request | engine `cf23908c` | L | **Unchanged**: sha256 `f214735b64e113fd10730eacca5764d757f2c93a3685230aa905af7a7cdd3387`; 0 moved lines | - | - | Reuse |
 | Windows full run | - | W | **Not run** for these commits | - | - | When the owner asks (it builds the installer) |
 | The owner's PC (render distance on the owner's camera, water and the new screens on a GPU) | - | PC | **Not run** | - | - | Owner |
+
+## Movement lag, multiplayer stability, trades and battles (2026-10-26/27; app `claude/admiring-bohr-dpxzuy`, engine `claude/feature-update-engine`; `docs/movement-mp-stability-20261026.md`)
+
+**L** this Linux machine: real game processes (the 3D game through Mesa's software OpenGL, so frame times are a
+CPU's); the multiplayer runs are two real Linux games, their real launchers and a real host in one machine, the
+internet between them simulated (`scripts/multiplayer/proof_network.py`). No **W** run covers these commits (a full
+Windows run builds the installer; none was started). Nothing ran on a player's PC or between two real PCs.
+
+| Test | Build / head | Where | Last result | Evidence | Changed since | Rerun? |
+| --- | --- | --- | --- | --- | --- | --- |
+| The Mauville walk's worst map-crossing sync (4 crossings, running) | engine `18ad922c` to `0738fcaf` | L, software GL | **180-185 ms before, 24 ms after**; syncs over 16 ms 12 to 5 | scratchpad `lag/cmp-c*` | - | Reuse |
+| Route 111 with the Mirage Tower shown, run east and back | engine `055a8e2a` | L, software GL | **Sync p50 21.9 to 1.4-1.8 ms, p99 33.8 to 12.0-13.1 ms**; terrain check 8,240 chunks 0 stale | scratchpad `lag/r111m-*` | - | Reuse |
+| Region sweep, 17 maps, old and new build interleaved | engine `1868c1c4` | L, software GL | **Chunks built 4,072 to 720; p50 1.41 to 1.08 ms; p90 8.5 to 5.8 ms; p99 and syncs over 16 ms unchanged** (49 / 49) | scratchpad `lag/sweep/ab-c11-c13` | - | Reuse |
+| Terrain and mesh checks: 20 map crossings, 8 maps (tree-heavy too), a door warp, a wild battle's start | engine `1868c1c4` (warp, battle: `055a8e2a`) | L, software GL | **0 stale in 520,890 chunk checks; 0 of 5,152 meshes differ** | scratchpad `lag/sweep/cross-c13`, `lag/warp-c10`, `lag/bat-c10` | - | Reuse |
+| Long session: Mauville and Route 117, 30,000 game frames, 121 map changes | engine `0738fcaf` build | L, software GL | **Memory 256-260 MB, flat; sync p99 16.5-18.0 ms per fifth, no growth** | scratchpad `lag/long/c7` | the later lag commits | Hour-long on the final build: below |
+| `check-diorama`, `check-native` (incl. the new `save_response_waits_for_a_full_queue`), 2D and 3D builds | engine `891b9e78` | L | **Pass**; the new bridge test fails on the old code | - | - | Reuse |
+| GBA ROM and `check_gba_lines.py` (`multiplayer_save.c`, `multiplayer_battle.c`) | engine `891b9e78` | L | **Unchanged**: sha256 `f214735b...`; 0 moved lines | - | - | Reuse |
+| Trade, launcher, menu, recovery suites (with the new retry tests) | app `5955acb` | L | **469 passed**, 623 subtests, 43 skipped; setup-window GUI tests 13 passed under a virtual display | - | - | Reuse |
+| Server, companion, transport, persistence suites (with the 1.5 s stall test) | app `89a27d5` | L | **62 passed**, 86 subtests | - | - | Reuse |
+| Storage suites | app `4e0bcd6` | L | **50 passed** | - | - | Reuse |
+| trade-rough-1: two new characters claim starters, trade and trade back; 120 ms each way, up to 80 ms jitter, a 2.5 s stall every 45 s, 20 ms disk syncs | app `89a27d5`, engine `7dbbb1c8` (2D Linux game) | L, simulated internet | **Passed**: both trades applied (18 s and 19 s from the first confirmation), ownership the same in both games and both canonical saves, saved, normal close, fresh Continue, store integrity | scratchpad `mp/multiplayer-proof/trade-rough-1` | - | Reuse |
+| battle-rough-1: the lobby scenario (a player's connection cut and rejoined), then Rival Battle 1v1; the same rough link | app `4e0bcd6`, engine `891b9e78` (2D Linux game) | L, simulated internet | **Passed**: rejoined; the battle finished in 160 s (416 commands, 380 ms each), both back with the same parties, saved, store integrity | scratchpad `mp/multiplayer-proof/battle-rough-1` | - | Reuse |
+| trade-rough-2: trade-rough-1 again (the second of two runs) | app `4e0bcd6`, engine `891b9e78` (2D Linux game) | L, simulated internet | **Passed**: both trades applied (26 s and 20 s), ownership the same in both games and both canonical saves, store integrity | scratchpad `mp/multiplayer-proof/trade-rough-2` | - | Reuse |
+| battle-rough-2: battle-rough-1 again (the second of two runs) | app `4e0bcd6`, engine `891b9e78` plus a draft of the PC-Egg change (2D Linux game) | L, simulated internet | **Passed**: rejoined; the battle finished in 213 s (555 commands, 381 ms each), both back with the same parties, saved, store integrity | scratchpad `mp/multiplayer-proof/battle-rough-2` | - | Reuse |
+| Windows full run | - | W | **Not run** for these commits | - | - | When the owner asks (it builds the installer) |
+| Two real PCs over the internet | - | PC | **Not run** | - | - | Owner |
+
+## Gameplay updates and visual fixes (2026-10-27; app `claude/admiring-bohr-dpxzuy`, engine `claude/feature-update-engine`; `docs/gameplay-visual-updates-20261027.md`)
+
+**L** this Linux machine (real game processes; the 3D view through Mesa's software OpenGL). No **W** run covers these
+commits. Nothing ran on a player's PC or between two real PCs.
+
+| Test | Build / head | Where | Last result | Evidence | Changed since | Rerun? |
+| --- | --- | --- | --- | --- | --- | --- |
+| `--selftest-breeding` (section 5 rewritten for PC Eggs: box vs. party steps for 0/1/7/20 cycles with and without Flame Body, attributes kept, three boxes at once, non-Eggs and Bad Eggs untouched) | engine `c3506ff8` (2D game) | L | **77 checks, 0 failed** | scratchpad `eggs/selftest-breeding.txt` | - | Reuse |
+| `breed_check.py`, real game processes of the Classic 2D test build: steps 1-5 (Day Care Egg, save/load, hatch, Light Ball) and the new 6-10 (a PC Egg walked, saved and loaded, hatched in place with its banner, saved and loaded; three PC Eggs at once) | engine `c3506ff8` | L | **Passed, 10 of 10** | scratchpad `eggs/breed-1` | - | Reuse |
+| GBA ROM, `check_gba_lines.py` (`daycare.c`, `multiplayer_world.c`), 2D and 3D builds | engine `c3506ff8` | L | ROM **unchanged** (`f214735b...`); 0 moved lines; both build | scratchpad `eggs/*.out` | - | Reuse |
+| A PC Egg hatching inside a connected world | - | - | **Not run** | - | - | With the next multiplayer proof that carries Eggs |

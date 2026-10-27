@@ -449,6 +449,7 @@ summary disagrees with a source, the source wins and this file should be correct
 | 9 | An interrupted battle waits for every player to reconnect. | 2026-10-08, listed again 2026-10-09 | [spec] [audit] |
 | 10 | Autosave every 5 minutes, plus manual save, plus a persistent per-character on/off toggle (on by default). | 2026-10-08, listed again 2026-10-09 | [spec] [audit] |
 | 11 | Missing legacy trade-handler friendship values use the Gen 6 species base; known values are kept. | 2026-10-09 | [hand] |
+| 12 | Eggs stored in the PC accumulate hatch progress from the player's own steps, at the party's rate (never faster), all at once, and hatch in their box slot with a notice; no progress while offline. | 2026-10-27 | `docs/update30-gameplay.md` |
 
 ### Approved default values (decision 5)
 
@@ -542,6 +543,7 @@ Owner decisions and directives that are not `docs/project-*.txt` files:
 | 2026-10-09 | [hand] | Missing legacy trade-handler friendship uses the Gen 6 species base. |
 | 2026-10-09 | Code comments [bal] [sw] [tf] [eng-bal] [eng-owe] [eng-rtc]; summarized in [audit] | Clock rate and pause; personal spawns; running leaves the Pokémon; first catch wins; balance defaults; later-generation moves trade as-is. First written up in this file (section 7). |
 | 2026-10-09 (newest) | Not yet a file [dir]; referred to by [base] and [audit] | Native PC migration (section 6). It lists shared wild spawns, which conflicts with decision 2. |
+| 2026-10-27 | `docs/gameplay-visual-updates-20261027.md` | Eggs hatch in the PC (decision 12); riding, building minigames, the real Pokémon for Surf/Fly/Dive, the wild item audit and jump ledges (recorded there as they are done). |
 
 [brief]: docs/project-brief.txt
 [gen6]: docs/project-update-gen6.txt
