@@ -133,6 +133,30 @@ What the ledges were in 3D, from the same data:
 | A jump over a ledge, frame by frame: Route 102 (south), Route 104 (west), Route 113 on a lowered terrace, Route 113 down a level, Route 123 up a level | The walker clears each bank with no clipping and lands where the game puts it (L) |
 | Two games through a real world server (`two_ledge.py`, from the riding check): player B jumps Route 101's ledge, player A watches in 3D | B is replayed across the ledge's cell and stands on its crest, then steps down; B's Pokemon the same (L) |
 
+## Slopes and hills: where the next session starts (read from the map data, nothing changed)
+
+Each slope run, its foot and its top (scratchpad `slopes/classify.py`: the region at its top flood-filled without the
+slope, the GBA's walking rules: one elevation or an "any level" cell, a ledge one way only):
+
+| Slope | Top / foot in the 3D view | The region at its top | What it needs |
+| --- | --- | --- | --- |
+| Route 111 (2 runs, muddy) | 16 / 0 | 213 cells, reached only up the slope | nothing: already a ramp to its plateau |
+| Route 115 (28,8-9), muddy | 0 / 0 | 86 cells, only up the slope | the top region raised a level, the slope a ramp, its rock raised round it |
+| Granite Cave B1F (9,9-10), muddy | 0 / 0 | 135 cells, only up the slope | the same |
+| Safari Zone Southwest (8,2-3), muddy | 0 / 0 | 8 cells, then the map's north edge (the next Safari area) | a level across two maps: left flat |
+| Route 119 (6,54-55), muddy | -1 / -1 | reached another way (1,858 cells) | the level change sits a row north of it (the GBA's elevations 3 and 4 meet there): the slope stays a shortcut |
+| Safari Zone North (22,21-23), bumpy | -1 / -2 | reached another way | a mound ringed by ledges on three sides: its levels need the ledges (below) |
+| Jagged Pass (5 runs, bumpy) | 0 / 0 | 3 reached another way, 2 only up the slope | the whole pass lies on one level (below) |
+
+Jagged Pass (no map connections: it is reached by warps, so no seam to match): its walkable regions cut by its ledges
+and slopes, each ledge asking its take-off region to stand a level over its landing and each slope its top over its
+foot (`slopes/ledge_graph.py`), solve to a staircase of six levels from the Mt. Chimney end down to the Lavaridge end,
+with 54 of the 76 asks contradicting at the small islands ringed by ledges (rows 9-11, 14-16, 22-33), where the GBA's art
+has no single height. A level solver for such a pass (ledges as "at least as high", the islands' contradictions
+resolved by the fewest steps), its rock walls raised with the terraces and the pictures checked spot by spot is the next
+session's work; the 46 ledges that land higher (Routes 113, 118 and 123) need the same solver, where the General
+terrace art and the ledges disagree.
+
 ## Not done
 
 * **The 37 flat slopes**: both ends of each lie on one level in the 3D view's terrace levels, so there is no height for
