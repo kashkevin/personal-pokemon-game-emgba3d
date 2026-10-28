@@ -178,6 +178,67 @@ class StorageTests(unittest.TestCase):
         self.assertEqual(self.store._connection.execute("PRAGMA busy_timeout").fetchone()[0], BUSY_TIMEOUT * 1000)
         self.assertEqual(self.store.metadata.world_id, self.boot.world_id)
 
+    def test_an_integrity_check_does_not_hold_the_write_lock(self):
+        # KNOWN_ISSUES MS-93's cause: the launcher window checks every world in the background (when it opens and when a
+        # game ends), the check reads every checkpoint again (seconds for a 100-floor climb's world), and it held the
+        # write lock: the host's own open, starting meanwhile, gave up after its busy timeout. It is a snapshot now.
+        self.commit()
+        checking, checked = threading.Event(), []
+
+        def slow_extra():
+            checking.set()
+            time.sleep(1.5)
+
+        def background():
+            with CheckpointStore(self.path, BUILD, RULESET, PROFILE) as other:
+                other._verified = None
+                other._integrity_extra = slow_extra
+                other.integrity_check()
+                checked.append(True)
+        thread = threading.Thread(target=background)
+        thread.start()
+        try:
+            self.assertTrue(checking.wait(10))
+            self.store.set_busy_timeout(0.3)
+            started = time.monotonic()
+            self.commit("save-two", 1)                        # a write while the other connection checks
+            CheckpointStore(self.path, BUILD, RULESET, PROFILE, busy_timeout=0.3).close()   # and another open
+            self.assertLess(time.monotonic() - started, 1.2)
+        finally:
+            thread.join()
+        self.assertEqual(checked, [True])
+
+    def test_a_repeated_integrity_check_reads_again_only_after_a_change(self):
+        # A host's start checked its world four times in a row (the world descriptor's open and its second check, the
+        # host store's open, the world server's); with nothing committed in between the answer is the same.
+        full = []
+        self.store._integrity_extra = lambda: full.append(1)
+        self.store.integrity_check()                         # setUp wrote after the open's check
+        self.store.integrity_check()
+        self.assertEqual(len(full), 1)
+        self.commit()                                        # a row changed through this connection
+        self.store.integrity_check()
+        self.store.integrity_check()
+        self.assertEqual(len(full), 2)
+        other = sqlite3.connect(self.path, isolation_level=None)
+        try:
+            other.execute("UPDATE world_metadata SET singleton = singleton")   # a commit by another connection
+        finally:
+            other.close()
+        self.store.integrity_check()
+        self.assertEqual(len(full), 3)
+        self.store._connection.execute("CREATE TABLE extra (value)")          # a schema change, no row changed
+        self.assert_code("schema_incompatible", self.store.integrity_check)
+        self.assert_code("schema_incompatible", self.store.integrity_check)   # a failed check is not remembered
+        self.store._connection.execute("DROP TABLE extra")
+        self.store.integrity_check()
+        self.assertEqual(len(full), 4)
+        version = self.store._connection.execute("PRAGMA user_version").fetchone()[0]
+        self.store._connection.execute(f"PRAGMA user_version = {version + 1}")
+        self.assert_code("schema_incompatible", self.store.integrity_check)
+        self.store._connection.execute(f"PRAGMA user_version = {version}")
+        self.store.integrity_check()                         # exactly as last verified again
+
     def test_second_live_host_rejected_then_new_boot_fences_old_lease(self):
         newer = CheckpointStore(self.path, BUILD, RULESET, PROFILE)
         try:

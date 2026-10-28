@@ -196,6 +196,7 @@ class CheckpointStore:
         self._boot_epoch: int | None = None
         self._owner_lock: _ExclusiveFileLock | None = None
         self._closed = False
+        self._verified: tuple[int, int, int, int] | None = None   # integrity_check's last pass (_change_marker)
         self._base_schema = self._schema
         self._base_schema_version = self._schema_version
         new = not self.path.exists() or self.path.stat().st_size == 0
@@ -604,7 +605,16 @@ class CheckpointStore:
         return result
 
     def integrity_check(self) -> None:
-        with self._transaction():
+        # A read-only snapshot, not the write lock (KNOWN_ISSUES MS-93): the check reads every checkpoint again (about
+        # 5 s for the 144 of a 100-floor climb's world), and the launcher window checks each world in the background
+        # as a host starts, so holding the lock made the host's own open give up after its busy timeout.
+        with self._read_transaction():
+            # Nothing committed since this connection last passed the check (no row or schema changed through it, no
+            # commit by another connection): the same answer again, without reading every checkpoint once more (a
+            # host's start checked its world four times).
+            marker = self._change_marker()
+            if marker == self._verified:
+                return
             self._validate_schema()
             self._validate_metadata()
             if [row[0] for row in self._connection.execute("PRAGMA integrity_check")] != ["ok"]:
@@ -632,6 +642,14 @@ class CheckpointStore:
             if self.reset_attempts_enabled:
                 from .reset_attempts import ResetAttempts
                 ResetAttempts(self)._integrity()
+        self._verified = marker
+
+    def _change_marker(self) -> tuple[int, int, int, int]:
+        """Changes whenever anything is committed: by another connection (SQLite's data_version), through this one (its
+        changed rows, and its schema version and user version, which a schema change moves without changing a row)."""
+        values = tuple(self._connection.execute(f"PRAGMA {name}").fetchone()[0]
+                       for name in ("data_version", "schema_version", "user_version"))
+        return (*values, self._connection.total_changes)
 
     def backup(self, path: str | Path) -> Path:
         """Create a consistent new SQLite backup; never overwrite a destination."""

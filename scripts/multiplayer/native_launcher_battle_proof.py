@@ -974,6 +974,14 @@ class LauncherHarness:
             export_friend_invitation(self.installation, host.directory, slot, invitation)
             self.invitations.append(invitation)
 
+    async def settle_world_scans(self):
+        """Every launcher window lists the PC's worlds in the background when it opens and when its game ends, checking
+        each world's whole history (seconds for a 100-floor climb's world, KNOWN_ISSUES MS-93). A player starts a game
+        once the list names the world (Continue Adventure), and a fresh Continue in a launcher started again, not beside
+        the last phase's windows, which this proof keeps open in one process: wait for the lists first."""
+        await self.poll_until(lambda: all(w.worker is None or w.worker.events.empty() for w in self.windows)
+                              and not any(w._scanning for w in self.windows), 120)
+
     async def start(self, phase, slot):
         """Host Game (slot 0) or Join Game through a real launcher worker and window; boot to the field."""
         worker = SessionWorker(self.installation, self.private)
@@ -987,6 +995,7 @@ class LauncherHarness:
         self.windows.append(window)
         mode = "host" if slot == 0 else "join"
         selection = self.host.directory / "world.json" if slot == 0 else self.invitations[slot]
+        await self.settle_world_scans()
         require(worker.start(LaunchRequest(mode, selection)), "real GUI worker did not start")
         await self.poll_until(lambda: worker._active_session is not None or not worker.busy)
         if worker._active_session is None:
