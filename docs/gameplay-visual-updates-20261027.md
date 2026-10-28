@@ -146,7 +146,7 @@ with a test world). *(before)* marks a run made before fix 2, 4 or 5 where that 
 | **Mauville Old Man** | Mauville Pokemon Center | the Bard, Hipster, Trader, Storyteller or Giddy (one per save) | **Yes** (Storyteller seen) | "I'm the STORYTELLER. I'll tell you tales of legendary..."; the other four not seen |
 | Winstrate family's house | Route 111 | the family at home | **Yes** (dialogue) | "You're the first TRAINER I've seen who deploys POKeMON so masterfully..."; their four battles happen outside on Route 111, not in the house (not run) |
 | Pokemon Jump, Dodrio Berry Picking | Mossdeep City's minigame building | 2-5 (Dodrio 3-5) players linked by the GBA Wireless Adapter | **No: owner decision** | "Hi, welcome! Are you here to play games using Wireless Communication?" → "The Wireless Adapter isn't connected. Come back when it's hooked up!" (what a GBA without the adapter says) |
-| Berry Crush | the Pokemon Centers' wireless club | 2-5 players, wireless only | **No: owner decision** | not offered without the adapter (the attendant goes straight to the cable club) |
+| Berry Crush | the Pokemon Centers' wireless club | 2-5 players, wireless only | **With computer partners** (built 2026-10-28, below) | the Direct Corner's attendant: "Play BERRY CRUSH with computer partners?" → "How many players in all?" → "I'll direct you to your room now." → the crusher with the player and the partners → a Berry from the Bag → the crushing → the results → the BERRY POWDER → "SAVING..." → "Want to play BERRY CRUSH again?" (a second round; "no": back out of the link room) |
 | Union Room, Record Corner, link contests, link Berry Blender, cable trades and battles | Pokemon Centers 2F, Contest Lobby | GBA link cable or wireless | Not available (unchanged) | the multiplayer has its own trades and battles between players |
 | Game Corner | Mauville City | slots, roulette | Excluded by the request | - |
 
@@ -161,7 +161,28 @@ The original has no single-player version and no computer partners. Making them 
    with computer players).
 3. **Leave them as they are**: the attendants say what a GBA without the adapter says.
 
-Nothing is changed until the owner chooses.
+**Decided** (the owner, 2026-10-27): both, computer partners and the world's players, the easier first.
+
+**Built so far: Berry Crush with computer partners** (2026-10-28, engine `04079e45`, PC only; KNOWN_ISSUES MS-141):
+
+* With the POWDER JAR and a Berry (what the Direct Corner itself asks for Berry Crush), the Direct Corner's attendant first
+  asks "Play BERRY CRUSH with computer partners?", then "How many players in all?" (2 to 5). "No" goes on to the cable
+  club as before.
+* The player leads the group. The partners are LADDIE, LASSIE, DUDE and MISS (names in the style of the Berry Blender's
+  computer players). Each crushes a common Berry (Cheri to Aspear), presses A at a person's pace (5 to 8 presses a second,
+  with short rests) and answers "yes" to playing again; the player's "no" ends the session ("A member dropped out. The
+  game will be canceled.", as the original says to everyone) and they walk out of the link room.
+* Everything else is the original game: the player's game counts the presses, the results pages, the BERRY POWDER (the
+  original formula: every player's Berry's powder, times the group's size, times the silkiness, so a group of 5 gives what
+  5 friends would), the pressing-speed record for the group's size, the Berry Crush count on the Trainer Card, and a save
+  after each round. The partners' names are not written to the trainer records.
+* Found and fixed on the way: the game froze once the wireless link was set (a GBA wait loop that never ends on PC), and
+  the game closed at the end of every session (Berry Crush read its own freed memory: harmless on the GBA).
+
+Tested in real game processes of the Classic 2D Linux test build (5 players on an offline save; 2 on a save enrolled with a
+test world, which loaded again afterwards with one Berry fewer) and by `--selftest-minigame-partners`. Not on Windows, not
+in 3D, not in a real world with other players present. Still to build: Pokemon Jump and Dodrio Berry Picking with computer
+partners, then all three between the world's players.
 
 ### Parts of the request not done in this round
 
