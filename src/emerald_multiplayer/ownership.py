@@ -18,7 +18,7 @@ from .flash import (
     BOX_CAPACITY, BOX_COUNT, BOX_POKEMON_SIZE, FUSION_CAPACITY, FUSIONS_OFFSET,
     FlashError, FlashSnapshot, LAYOUT_ID, OWNERSHIP_LAYOUT_ID,
     OWNERSHIP_SAVE_BLOCK_3_SIZE, PARTY_SIZE, POKEMON_SIZE, SAVED_PARTY_COUNT_OFFSET,
-    SAVED_PARTY_OFFSET, SAVE_BLOCK_1_SIZE, STORAGE_SIZE, _box_species, _inspect_party,
+    SAVED_PARTY_OFFSET, SAVE_BLOCK_1_SIZE, STORAGE_SIZE, _RecentResults, _box_species, _inspect_party,
 )
 
 OWNERSHIP_PROFILE = OWNERSHIP_LAYOUT_ID
@@ -216,8 +216,27 @@ def _inspect_inventory(block1: bytes, storage: bytes, *, require_ids: bool,
     return tuple(records)
 
 
+# KNOWN_ISSUES MS-161: a world's integrity check reads each save's owned inventory up to three times (its newer bank, its
+# older bank, which is usually the last save's newer one, and inspect_ownership the newer one again). The answer depends
+# only on these bytes and is immutable, so the most recent answers are kept, by content. A strict answer (every Pokemon
+# with its serial) also answers a request that would allow unassigned ones: it is the same snapshot.
+_recent_components = _RecentResults(32)
+
+
 def _inspect_components(block3: bytes, block1: bytes, storage: bytes, *,
                         allow_unassigned_inventory: bool = False) -> OwnershipSnapshot:
+    if not (type(block3) is bytes and type(block1) is bytes and type(storage) is bytes):
+        return _inspect_components_now(block3, block1, storage, allow_unassigned_inventory=allow_unassigned_inventory)
+    strict = _recent_components.get((block3, block1, storage, False))
+    if strict is not None:
+        return strict
+    key = (block3, block1, storage, allow_unassigned_inventory)
+    return _recent_components.get(key) or _recent_components.put(
+        key, _inspect_components_now(block3, block1, storage, allow_unassigned_inventory=allow_unassigned_inventory))
+
+
+def _inspect_components_now(block3: bytes, block1: bytes, storage: bytes, *,
+                            allow_unassigned_inventory: bool = False) -> OwnershipSnapshot:
     metadata = _parse_metadata(block3)
     records = _inspect_inventory(block1, storage, require_ids=True,
                                  allow_unassigned=allow_unassigned_inventory)

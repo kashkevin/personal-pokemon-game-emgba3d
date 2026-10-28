@@ -4,9 +4,11 @@ from dataclasses import replace
 from itertools import permutations
 import struct
 import unittest
+from unittest import mock
 import uuid
 import zlib
 
+from emerald_multiplayer import flash as flash_module, ownership as ownership_module
 from emerald_multiplayer.flash import FlashError, LAYOUT_ID, inspect_flash
 from emerald_multiplayer.ownership import (
     OWNED_SLOT_COUNT, OWNERSHIP_PROFILE, OwnershipError,
@@ -352,6 +354,58 @@ class OwnershipTests(unittest.TestCase):
         self.assertNotEqual(a.container_sha256, b.container_sha256)
         self.assertEqual(inspect_ownership(a).manifest_sha256, inspect_ownership(b).manifest_sha256)
         self.assertEqual(len(inspect_ownership(a).manifest_sha256), 64)
+
+
+
+class ParseCacheTests(unittest.TestCase):
+    """KNOWN_ISSUES MS-161: a world's integrity check reads each save several times (its newer bank, its older bank, which
+    is usually the last save's newer one, and inspect_ownership the newer one again); the parses are kept by content."""
+
+    def setUp(self):
+        flash_module._recent_banks._results.clear()
+        ownership_module._recent_components._results.clear()
+        self.parses = []
+        original = ownership_module._inspect_components_now
+
+        def counting(*args, **kwargs):
+            self.parses.append(kwargs.get("allow_unassigned_inventory", False))
+            return original(*args, **kwargs)
+        patcher = mock.patch.object(ownership_module, "_inspect_components_now", counting)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def parse(self, data: bytes):
+        return inspect_ownership(inspect_flash(data, save_profile=OWNERSHIP_PROFILE))
+
+    def test_equal_bytes_are_answered_from_the_cache_and_changed_bytes_are_read_again(self):
+        data = make_ownership_flash(records=(("party:0", 7), ("party:1", 8)))
+        first = self.parse(data)
+        # One read: the older bank holds the same Pokemon as the newer one (equal bytes: the strict answer serves it),
+        # and inspect_ownership asks for the newer one again.
+        self.assertEqual(self.parses, [False])
+        self.assertEqual(self.parse(bytes(bytearray(data))), first)   # equal bytes in new objects
+        self.assertEqual(self.parses, [False])
+        changed = _rewrite(data, 0, 1, 0x238, make_owned_mon(9, personality=7))   # the newer bank's first Pokemon
+        self.assertEqual(tuple(record.serial for record in self.parse(changed).records), (9, 8))
+        self.assertEqual(self.parses, [False, False])   # the newer bank read again; the older bank as before
+        broken = bytearray(make_owned_mon(7, personality=7))
+        broken[40] ^= 1                                  # its checksum no longer matches: a corrupted save
+        with self.assertRaisesRegex(FlashError, "checksum mismatch"):
+            self.parse(_rewrite(data, 0, 1, 0x238, bytes(broken)))
+
+    def test_a_strict_answer_serves_a_lenient_request_but_not_the_other_way(self):
+        data = make_ownership_flash(unassigned_previous=True, records=(("party:0", 7), ("party:1", 8)))
+        self.parse(data)
+        self.assertEqual(self.parses, [False, True])   # the older bank's Pokemon have no serials yet: allowed there
+        older = flash_module._extract_bank(flash_module._inspect_bank(data[:131072], 1, OWNERSHIP_PROFILE))
+        block1, _, block3, storage, _ = older
+        with self.assertRaisesRegex(FlashError, "missing its instance serial"):
+            ownership_module._inspect_components(block3, block1, storage)   # strict: read, not the lenient answer
+        newer = flash_module._extract_bank(flash_module._inspect_bank(data[:131072], 0, OWNERSHIP_PROFILE))
+        block1, _, block3, storage, _ = newer
+        before = len(self.parses)
+        ownership_module._inspect_components(block3, block1, storage, allow_unassigned_inventory=True)
+        self.assertEqual(len(self.parses), before)   # lenient: the strict answer for these bytes, not read again
 
 
 if __name__ == "__main__":

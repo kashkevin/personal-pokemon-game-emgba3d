@@ -11,10 +11,12 @@ sectors 30/31; transport hashes preserve those bytes without claiming otherwise.
 
 from __future__ import annotations
 
+from collections import OrderedDict
 from dataclasses import dataclass
 from datetime import date
 import hashlib
 import struct
+import threading
 import zlib
 
 LAYOUT_ID = "rhh-1.17.1-bb1093-presence-v1"
@@ -174,6 +176,32 @@ class _Bank:
     sections: tuple[bytes, ...]
     save_block3_size: int = SAVE_BLOCK_3_SIZE
     tower: TowerRecord | None = None
+
+
+class _RecentResults:
+    """The most recent results of a pure function of immutable bytes, kept by content (KNOWN_ISSUES MS-161: a world's
+    integrity check reads each save several times: its older bank is usually the last save's newer one)."""
+
+    def __init__(self, size: int):
+        self._size, self._results, self._lock = size, OrderedDict(), threading.Lock()
+
+    def get(self, key):
+        with self._lock:
+            if key in self._results:
+                self._results.move_to_end(key)
+                return self._results[key]
+        return None
+
+    def put(self, key, value):
+        with self._lock:
+            self._results[key] = value
+            self._results.move_to_end(key)
+            while len(self._results) > self._size:
+                self._results.popitem(last=False)
+        return value
+
+
+_recent_banks = _RecentResults(32)
 
 
 def _checksum(data: bytes) -> int:
@@ -344,6 +372,11 @@ def _inspect_party(mon: bytes, label: str) -> bool:
 
 
 def _extract_bank(bank: _Bank) -> tuple[bytes, bytes, bytes, bytes, FlashMetadata]:
+    key = (bank.index, bank.counter, bank.save_block3_size, bank.sections)
+    return _recent_banks.get(key) or _recent_banks.put(key, _extract_bank_now(bank))
+
+
+def _extract_bank_now(bank: _Bank) -> tuple[bytes, bytes, bytes, bytes, FlashMetadata]:
     data = tuple(sector[:size] for sector, size in zip(bank.sections, SECTION_LENGTHS))
     block2 = data[0]
     block1 = b"".join(data[1:5])
