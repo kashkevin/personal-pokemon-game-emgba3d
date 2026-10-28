@@ -87,6 +87,50 @@ class FreeForAllControllerTests(unittest.TestCase):
             ffa_validator().accept(self.end(2, 1), 1)
 
 
+FORFEIT = bytes((0xF0, 0, 0, 0))
+
+
+def forfeit(battler, **fields):
+    return wire(FORFEIT, role=3, battler=battler, target=fields.pop("target", 0), **fields)
+
+
+class ForfeitNoticeTests(unittest.TestCase):
+    """KNOWN_ISSUES MS-126: a player gives up with a forfeit notice for their own battler, at any time, once."""
+
+    def test_the_owner_gives_up_while_the_other_still_chooses(self):
+        v = validator()
+        v.accept(wire(bytes((17, 0, 0, 0)), battler=0), 0).accept(wire(bytes((17, 0, 0, 0)), battler=1), 0)
+        v.accept(wire(bytes((32, 0, 0, 0, 0, 0)), role=1, battler=1), 1).accept(done(0, 1), 0).accept(done(1, 1), 1)
+        v.accept(forfeit(1), 1)                                   # battler 1's player waits on battler 0's, and gives up
+        self.assertEqual(v.pending, (17, None))                   # the notice answers and changes no request
+        # the other game answers its open choice with an ordinary reply (a pass), then finishes it as always
+        v.accept(wire(bytes((32, 13, 0, 0, 0, 0)), role=1, battler=0), 0).accept(done(0, 0), 0).accept(done(1, 0), 1)
+        self.assertEqual(v.pending, (None, None))
+        v.accept(wire(bytes((50, 2, 0, 0, 0, 0))), 0)              # and the master's end of the battle goes on
+
+    def test_only_the_battlers_owner_once_and_nothing_else(self):
+        v = validator()
+        for block, source in ((forfeit(1), 0), (forfeit(0), 1), (forfeit(1, attacker=1), 1), (forfeit(1, absent=1), 1),
+                              (forfeit(1, effect=1), 1), (forfeit(1, target=1), 1),
+                              (wire(bytes((0xF0, 1, 0, 0)), role=3, battler=1, target=0), 1),
+                              (wire(bytes((0xF0,)) + bytes(8), role=3, battler=1, target=0), 1),
+                              (wire(bytes((0xF1, 0, 0, 0)), role=3, battler=1, target=0), 1)):
+            with self.subTest(block=block.hex(), source=source), self.assertRaises(BattleMailboxError):
+                v.validate(block, source)
+        v.accept(forfeit(1), 1)
+        with self.assertRaises(BattleMailboxError):
+            v.accept(forfeit(1), 1)
+        v.accept(forfeit(0), 0)                                   # the other player's own notice (a race) is still one
+
+    def test_a_free_for_all_has_no_forfeit_and_its_team_modes_do(self):
+        with self.assertRaises(BattleMailboxError):
+            ffa_validator().accept(forfeit(2), 2)
+        ffa_validator(MULTI_PHASE).accept(forfeit(3), 3)
+        ffa_validator(COOP_PHASE).accept(forfeit(2), 1)
+        with self.assertRaises(BattleMailboxError):      # the master's AI foes are no player's
+            ffa_validator(COOP_PHASE).accept(forfeit(1), 0)
+
+
 class NativeControllerTests(unittest.TestCase):
     def test_request_reply_and_both_done_barrier(self):
         v = validator()

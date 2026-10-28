@@ -87,6 +87,56 @@ class ForfeitDriverTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(forfeit, {})
 
 
+class StandbyProbe:
+    """A game whose player waits on the other ("Link standby..."): B asks the question (sForfeitAsking 1: printing,
+    then 2: the Yes/No box), UP moves to Yes, A answers."""
+
+    def __init__(self, question=True):
+        self.question, self.asking, self.cursor, self.keys = question, 0, 1, []
+
+    async def battle(self):
+        return dict(state=5, active=frozenset(), cursor=0, count=1)
+
+    def mem(self, name, size=None, offset=0):
+        assert name == "sForfeitAsking"
+        value = self.asking
+        if self.asking == 1:
+            self.asking = 2          # the question has printed: the box is up at the next read
+        return bytes([value])
+
+    async def press(self, key, frames=None, release=None):
+        self.keys.append(key)
+        if key == 2 and self.asking == 0 and self.question:
+            self.asking = 1
+        elif key == 64 and self.asking == 2:
+            self.cursor = 0
+        elif key == 1 and self.asking == 2:
+            self.asking = 0
+
+
+class GiveUpWhileWaitingTests(unittest.IsolatedAsyncioTestCase):
+    async def test_a_move_then_b_up_a_on_the_waiting_screen(self):
+        probe = StandbyProbe()
+        own = views(*[dict(state="executing", pending=p) for p in (17, 19, None)]
+                    + [dict(state="executing", pending=None), dict(state="closed", pending=None)])
+        give_up = dict(wait_for=17)
+        await asyncio.wait_for(proof.drive_battle_input(probe, own, SYMBOLS, asyncio.Event(), give_up=give_up,
+                                                        other_view=views(*[dict(state="executing", pending=17)] * 3)), 2)
+        self.assertEqual(probe.keys, [1, 1, 2, 64, 1, 1])     # Fight, a move, then B, UP, A; then A for a message
+        self.assertIn("chosen", give_up)
+        self.assertEqual(give_up["other_pending"], 17)
+
+    async def test_no_question_yet_means_b_again_later_and_nothing_else(self):
+        probe = StandbyProbe(question=False)
+        own = views(*[dict(state="executing", pending=p) for p in (19, None, None)] + [dict(state="closed", pending=None)])
+        give_up = dict(wait_for=17)
+        await asyncio.wait_for(proof.drive_battle_input(probe, own, SYMBOLS, asyncio.Event(), give_up=give_up,
+                                                        other_view=views(*[dict(state="executing", pending=17)] * 3)), 3)
+        self.assertEqual(probe.keys, [1, 2, 2])                 # never UP or A without the question
+        self.assertNotIn("chosen", give_up)
+        self.assertEqual(give_up["b_without_question"], 2)
+
+
 class ChoosingActionTests(unittest.TestCase):
     def probe(self, funcs):
         native = proof.NativeProbe.__new__(proof.NativeProbe)

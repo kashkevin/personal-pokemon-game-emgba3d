@@ -33,6 +33,12 @@ _SPECIES, _MOVES, _ABILITIES, _ITEMS, _TYPES = 1573, 935, 320, 874, 21
 # the master works out who may Mega Evolve, so it tells each player's game (engine battle_gimmick.c).
 _MEGA_MARK = 0x80 | 1
 _STRINGS, _STRING_BUFFER = 721, 256
+# KNOWN_ISSUES MS-126 (engine multiplayer_battle.h B_COMM_PC_FORFEIT / MP_FORFEIT_NOTICE): a player gives up a battle
+# between players. The notice is a block of its own role for the giver's own battler: once per core, no other field, not
+# in a free-for-all; it answers no request and changes none (every game then answers its own choices itself, with
+# ordinary replies, and the master ends the battle as if the giver had chosen Run).
+FORFEIT_ROLE = 3
+FORFEIT_NOTICE = bytes((0xF0,)) + bytes(7)   # padded as every 4-byte payload (size - size % 4 + 4)
 
 
 def _half(p, offset=0): return struct.unpack_from("<H", p, offset)[0]
@@ -103,6 +109,7 @@ class ControllerValidator:
         self._pending = [None]*self._count
         self._done = [0]*self._count
         self._replied = [False]*self._count
+        self._forfeits = 0   # the cores that sent a forfeit notice (MS-126)
 
     @property
     def pending(self):
@@ -254,6 +261,12 @@ class ControllerValidator:
             valid = (padded == 8 and p[0] == source and not any(p[1:])
                 and pending is not None and not self._done[battler] & (1 << source)
                 and (source != battler_owner(self._mode, battler) or pending not in _NEEDS_REPLY or self._replied[battler]))
+        elif role == FORFEIT_ROLE:
+            # a player's own battler: in co-op Gym battles the master also owns the AI foes (battlers 1 and 3)
+            valid = (padded == 8 and p == FORFEIT_NOTICE and source == battler_owner(self._mode, battler)
+                     and not (self._mode == COOP_PHASE and battler & 1)
+                     and not (attacker or target or absent or effect) and self._mode not in FFA_PHASES
+                     and not self._forfeits & (1 << source))
         else:
             command = p[0]
             raw = (3+SET_FIELDS[p[1]] if command == 2 and p[1] in SET_FIELDS
@@ -288,6 +301,8 @@ class ControllerValidator:
             self._pending[battler], self._done[battler], self._replied[battler] = data[8], 0, False
         elif role == 1:
             self._replied[battler] = True
+        elif role == FORFEIT_ROLE:
+            self._forfeits |= 1 << source
         else:
             self._done[battler] |= 1 << source
             if self._done[battler] == self._done_mask:

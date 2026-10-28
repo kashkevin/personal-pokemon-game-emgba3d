@@ -100,7 +100,8 @@ EXTRA_NEEDED = ("gMain", "CB2_StarterChoose", "CB2_Overworld", "CB2_TrainerCard"
                 "CB2_UpdatePartyMenu", "sBattleAdmissionLatched", "gBattleTypeFlags", "gBattlersCount", "gBattleMons",
                 "sRemotes", "sGlobalScriptContextStatus", "HandleInputChooseMove", "BattleMainCB2",
                 "gSaveBlock1Ptr", "gSaveBlock2Ptr", "gSaveBlock3Ptr", "PlayerHandleYesNoInput", "sCoopAward", "sCoopExp",
-                "gBattleStruct", "gSaveCounter", "sLockFieldControls", "Task_HandleYesNoInput")
+                "gBattleStruct", "gSaveCounter", "sLockFieldControls", "Task_HandleYesNoInput",
+                "sForfeitAsking")
 WINDOWS = sys.platform == "win32"
 
 
@@ -413,6 +414,8 @@ class WindowsProbe(NativeProbe):
 
 
 CHOOSE_ACTION_REQUEST = 17  # CONTROLLER_CHOOSEACTION: the player picks Fight, Bag, Pokemon or Run
+CHOOSE_MOVE_REQUEST, CHOOSE_POKEMON_REQUEST = 19, 21
+FORFEIT_ROLE = 3            # engine B_COMM_PC_FORFEIT: a player gives up (KNOWN_ISSUES MS-126)
 
 
 async def choose_run(probe, battler):
@@ -423,12 +426,54 @@ async def choose_run(probe, battler):
     return cursor == 3
 
 
-async def drive_battle_input(probe, view, symbols, stop, seen=None, forfeit=None):
+async def give_up_from_standby(probe, give_up, picture=None):
+    """MS-126: on the waiting screen ("Link standby..."), B asks "Give up the battle?" (No first): UP to Yes, then A. The
+    question is read from the game (sForfeitAsking) before Yes is chosen; `picture` (a path) keeps how it looked.
+    True once Yes was chosen."""
+    if picture is not None and "standby_picture" not in give_up:
+        give_up["standby_picture"] = await asyncio.to_thread(game_picture, probe, picture.with_name("forfeit-standby.png"))
+    await probe.press(2, frames=12, release=30)
+    if not probe.mem("sForfeitAsking", 1)[0]:
+        give_up["b_without_question"] = give_up.get("b_without_question", 0) + 1
+        return False
+    async with asyncio.timeout(5):          # the question prints, then the Yes/No box comes (2: FORFEIT_QUESTION_UP)
+        while probe.mem("sForfeitAsking", 1)[0] != 2:
+            await asyncio.sleep(.05)
+    if picture is not None and "picture" not in give_up:
+        give_up["picture"] = await asyncio.to_thread(game_picture, probe, picture)
+    await probe.press(64, frames=12, release=18)
+    await probe.press(1, frames=12, release=30)
+    give_up.update(chosen=time.monotonic(), asking_after=probe.mem("sForfeitAsking", 1)[0])
+    return True
+
+
+async def idle_battle_input(probe, view, stop, party=False):
+    """MS-126: a player who walks away from the battle: nothing pressed at all, or (party=True) first the keys to the
+    party menu (Pokemon on the action menu: Fight 0, Bag 1, Pokemon 2, Run 3), then nothing."""
+    opened = False
+    while not stop.is_set():
+        room = await view()
+        if room["state"] in ("closed", "aborted", "recovery_required"):
+            return
+        if party and not opened and room["state"] == "executing" and room["pending"] == CHOOSE_ACTION_REQUEST:
+            battler = probe.choosing_action()
+            if battler is not None:
+                cursor = probe.mem("gActionSelectionCursor", 1, battler)[0]
+                await probe.press(1 if cursor == 2 else 128 if cursor == 0 else 32, frames=12, release=18)
+                opened = cursor == 2
+                continue
+        await asyncio.sleep(.1)
+
+
+async def drive_battle_input(probe, view, symbols, stop, seen=None, forfeit=None, give_up=None, other_view=None,
+                             picture=None):
     """qualify_menu_battle.py's input policy: one key owner per game. `seen` (a dict, if given) keeps what the driver
     last read and did, for a proof's record while the battle runs: the room's state and pending request, the game's
     battle phase, the action, the presses so far and when the last one was (time.monotonic()).
     `forfeit` (a dict, if given): this player gives up at their first action choice, choosing Run as a player would
-    (MS-126: in a link battle Run is the forfeit); the dict gets the battler and when Run was chosen."""
+    (MS-126: in a link battle Run is the forfeit); the dict gets the battler and when Run was chosen.
+    `give_up` (a dict, if given, with `other_view`): this player makes their first choice as usual, then gives up from
+    the waiting screen while the other player still has to choose (MS-126); the dict gets when."""
     if seen is not None:
         seen.update(presses=0, pressed=None)
     while not stop.is_set():
@@ -438,6 +483,17 @@ async def drive_battle_input(probe, view, symbols, stop, seen=None, forfeit=None
         if room["state"] in ("closed", "aborted", "recovery_required"):
             return
         state = await probe.battle()
+        if give_up is not None and "chosen" not in give_up and room["state"] == "executing":
+            if room["pending"] == CHOOSE_MOVE_REQUEST:
+                give_up["asked_move"] = True
+            if give_up.get("asked_move") and room["pending"] is None:
+                other = await other_view()
+                if other["state"] == "executing" and other["pending"] == give_up.get("wait_for", CHOOSE_ACTION_REQUEST):
+                    # its move is chosen and the other player has not chosen: the waiting screen
+                    give_up.setdefault("other_pending", other["pending"])
+                    if not await give_up_from_standby(probe, give_up, picture):
+                        await asyncio.sleep(.3)
+                    continue
         if (forfeit is not None and "chosen" not in forfeit and room["state"] == "executing"
                 and room["pending"] == CHOOSE_ACTION_REQUEST and state["state"] == 5):
             # A would choose Fight here: only the keys to Run, once the action menu is up.
@@ -470,9 +526,13 @@ async def drive_battle_input(probe, view, symbols, stop, seen=None, forfeit=None
             await asyncio.sleep(.05)
 
 
-async def native_menu_match(current, probes, games, host, symbols, record, forfeit=None):
+async def native_menu_match(current, probes, games, host, symbols, record, forfeit=None, give_up_waiting=None,
+                            idle_in="action", output=None):
     """Both Enter operations remain entirely owned by production MenuSession. `forfeit`: the index of the player (0 the
-    host, 1 the friend) who chooses Run at their first action choice; that player must lose, with no move used."""
+    host, 1 the friend) who chooses Run at their first action choice; that player must lose, with no move used.
+    `give_up_waiting`: the index of the player who chooses a move, then gives up from the waiting screen while the other
+    player has walked away (`idle_in` "action": at their action menu; "party": in the party menu); the giver must lose
+    and the other game must have answered its open choice by itself (MS-126)."""
     async def identity(s):
         c = s._companion
         return (s._game, s._runtime, c._bridge, c._bridge.incarnation, c._live_battle_runtime_id)
@@ -512,8 +572,20 @@ async def native_menu_match(current, probes, games, host, symbols, record, forfe
         return await on_worker(current[0], read)
     stop = asyncio.Event()
     forfeits = [{} if index == forfeit else None for index in range(len(probes))]
-    drivers = [asyncio.create_task(drive_battle_input(p, lambda slot=slot: view(slot), symbols, stop, forfeit=f))
-               for p, slot, f in zip(probes, slots, forfeits)]
+    # the giver waits until the other player has walked away where asked: at the action menu or in the party menu
+    give_ups = [dict(wait_for=CHOOSE_POKEMON_REQUEST if idle_in == "party" else CHOOSE_ACTION_REQUEST)
+                if index == give_up_waiting else None for index in range(len(probes))]
+    drivers = []
+    for index, (p, slot, f) in enumerate(zip(probes, slots, forfeits)):
+        if give_up_waiting is not None and index != give_up_waiting:
+            drivers.append(asyncio.create_task(idle_battle_input(p, lambda slot=slot: view(slot), stop,
+                                                                 party=idle_in == "party")))
+            continue
+        other = slots[1 - index] if len(slots) == 2 else None
+        picture = None if output is None else output / "forfeit-question.png"
+        drivers.append(asyncio.create_task(drive_battle_input(
+            p, lambda slot=slot: view(slot), symbols, stop, forfeit=f, give_up=give_ups[index],
+            other_view=None if other is None else (lambda other=other: view(other)), picture=picture)))
     started = time.monotonic()
     async def finished(s):
         if (s._save_failed and s._interaction is None
@@ -576,6 +648,30 @@ async def native_menu_match(current, probes, games, host, symbols, record, forfe
         require(replies == [3], f"the forfeiting player's replies were not one Run: {replies}")
         record("forfeit-by-run", player=forfeit, slot=slots[forfeit], battler=chosen["battler"],
                seconds_after_enter=round(chosen["chosen"] - started, 1), winner_team=results[0]["outcome"])
+    if give_up_waiting is not None:
+        given = give_ups[give_up_waiting]
+        giver, other = slots[give_up_waiting], slots[1 - give_up_waiting]
+        require("chosen" in given, "the waiting player never chose Yes on the question: " + json.dumps(given, default=str))
+        require(results[0]["outcome"] == 2 - giver % 2, f"the player who gave up did not lose: outcome {results[0]['outcome']}")
+        def replies(source):
+            # (command, first byte) of a core's choice replies (role 1: TWORETURNVALUES 32, CHOSENMONRETURNVALUE 33; not
+            # the mon data every game sends at the start)
+            return [tuple(bytes.fromhex(b["data"])[8:10]) for b in blocks if b["kind"] == 8 and b["source"] == source
+                    and bytes.fromhex(b["data"])[0] == 1 and bytes.fromhex(b["data"])[8] in (32, 33)]
+        notices = [b for b in blocks if b["kind"] == 8 and bytes.fromhex(b["data"])[0] == FORFEIT_ROLE]
+        require(len(notices) == 1 and notices[0]["source"] == giver and bytes.fromhex(notices[0]["data"])[1] == giver,
+                f"expected one forfeit notice from the giver's game: {[n['source'] for n in notices]}")
+        # the giver: Fight (action 0) and a move (10), no Run; the other: its open choice answered by its game alone - a
+        # pass (13) at the action menu, or Pokemon (2) then the party menu's own pick (33)
+        require(replies(giver) == [(32, 0), (32, 10)], f"the giver's replies differ: {replies(giver)}")
+        expected = [(32, 13)] if idle_in == "action" else [(32, 2), (33,)]
+        got = replies(other)
+        require([r[:len(e)] for r, e in zip(got, expected)] == expected and len(got) == len(expected),
+                f"the other game's own answer differs: {got}")
+        record("forfeit-while-waiting", player=give_up_waiting, slot=giver, idle_in=idle_in,
+               other_was_asked=given.get("other_pending"), seconds_after_enter=round(given["chosen"] - started, 1),
+               winner_team=results[0]["outcome"], giver_replies=replies(giver), other_replies=got,
+               question_picture=given.get("picture"), presses_of_b_before_the_question=given.get("b_without_question", 0))
     selected = [dict(owner=b["source"], slot=bytes.fromhex(b["data"])[9]) for b in blocks
                 if b["kind"] == 8 and len(bytes.fromhex(b["data"])) > 9 and bytes.fromhex(b["data"])[0] == 1
                 and bytes.fromhex(b["data"])[8] == 33]
@@ -1079,8 +1175,10 @@ async def launcher_proof(args, *, names, sources, party_counts, match, version, 
 
 async def run(args):
     forfeit = None if args.forfeit is None else ("host", "friend").index(args.forfeit)
+    give_up = None if args.give_up_waiting is None else ("host", "friend").index(args.give_up_waiting)
     async def match(*values):
-        return await native_menu_match(*values, forfeit=forfeit)
+        return await native_menu_match(*values, forfeit=forfeit, give_up_waiting=give_up, idle_in=args.idle_in,
+                                       output=args.output)
     await launcher_proof(args, names=("Battle Host", "Battle Friend"), sources=(args.source_a, args.source_b),
                          party_counts=tuple(args.party_counts), match=match, version="Native 1v1 proof")
 
@@ -1102,6 +1200,12 @@ def main():
     parser.add_argument("--party-counts", type=int, nargs=2, default=(2, 1), help="the sources' party sizes (host, friend)")
     parser.add_argument("--forfeit", choices=("host", "friend"),
                         help="that player chooses Run at their first action choice and must lose (MS-126)")
+    parser.add_argument("--give-up-waiting", choices=("host", "friend"),
+                        help="that player chooses a move, then gives up from the waiting screen while the other player "
+                             "has walked away; the giver must lose (MS-126)")
+    parser.add_argument("--idle-in", choices=("action", "party"), default="action",
+                        help="with --give-up-waiting: where the other player walked away (their action menu, or the "
+                             "party menu)")
     asyncio.run(run(parser.parse_args()))
 
 
