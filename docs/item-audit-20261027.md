@@ -219,8 +219,16 @@ again on `228dbada` (the engine checks in `TEST_LEDGER.md`).
 later games', not Emerald's: Pikachu can learn Surf, Wobbuffet TM20 Safeguard and Unown TM10 Hidden Power, none of
 which Emerald allows. Going back to Emerald's lists would take moves away from players' Pokemon. **Decided** (the owner,
 after the package): a TM teaches a move only where an official game teaches it by TM; a move a Pokemon gets only some
-special way (an event, a special tutor) is learnt only that way, and not at all where this game has no such way. Not
-built yet (the next session); moves Pokemon already know are kept (saves are not changed).
+special way (an event, a special tutor) is learnt only that way, and not at all where this game has no such way.
+**Built** (engine `f134137a`, PC only): a TM or a tutor (both teach) keeps a move only where one of the 22 games of the
+porymoves files teaches that species the move by TM or tutor; a move it gets only by level, egg or a pre-evolution is
+learnt only that way. 2,295 of the 36,670 TM and tutor pairs go (704 of the 1,101 learnsets, used by 1,011 species
+and forms; mostly later forms and species given old TMs and tutors no game teaches them: Secret Power, Shock Wave,
+Snatch, Hidden Power, Frustration, Return, Counter, Mimic); nothing is added. The three examples above stay: Pikachu's Surf is a TM from Sword/Shield on, Wobbuffet's
+Safeguard and Unown's Hidden Power from X/Y on. Moves Pokemon already know are kept (saves are not changed). The
+species-data check (it compares every species' data with the data before the update) now lists the 1,011 species and
+forms the rule changes as a reviewed change; a build with the rule off differs from that baseline only by Mega
+Chimecho's earlier reviewed change, so the rule changes the TM and tutor lists and nothing else.
 
 ## The EV-training held items and the Soothe Bell: Macho Brace, the Power items, Pokerus
 
