@@ -17,7 +17,7 @@ from .ownership import extract_source_inventory, inspect_ownership
 from .ownership_protocol import MAX_OWNED_RECORDS, MAX_SERIAL, OWNERSHIP_PROFILE
 from .protocol import MAX_COUNTER
 from .storage import (
-    Checkpoint, CheckpointStore, MAX_CHECKPOINT_BYTES, StorageError, _SCHEMA,
+    BUSY_TIMEOUT, Checkpoint, CheckpointStore, MAX_CHECKPOINT_BYTES, StorageError, _SCHEMA,
     _counter, _player_id,
 )
 
@@ -132,10 +132,12 @@ class OwnershipCheckpointStore(CheckpointStore):
     _supports_battle_reservations = True
 
     def __init__(self, path: str | Path, build_id: str, ruleset_id: str,
-                 save_profile: str = OWNERSHIP_PROFILE, *, max_payload_bytes: int = MAX_CHECKPOINT_BYTES):
+                 save_profile: str = OWNERSHIP_PROFILE, *, max_payload_bytes: int = MAX_CHECKPOINT_BYTES,
+                 busy_timeout: float = BUSY_TIMEOUT):
         if save_profile != OWNERSHIP_PROFILE:
             raise StorageError("save_profile_mismatch", "ownership store requires its explicit save profile")
-        super().__init__(path, build_id, ruleset_id, save_profile, max_payload_bytes=max_payload_bytes)
+        super().__init__(path, build_id, ruleset_id, save_profile, max_payload_bytes=max_payload_bytes,
+                         busy_timeout=busy_timeout)
 
     def _initialize_extra_schema(self) -> None:
         self._connection.execute("INSERT INTO ownership_allocator VALUES (1, 1)")

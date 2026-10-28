@@ -16,6 +16,7 @@ from .invitations import (Invitation, InvitationError, _bytes, _certificate, _en
                           _hash, _json, _name, _read, _regular, _uuid, _write_new)
 from .ownership import OWNERSHIP_PROFILE
 from .secure_transport import ServerTlsConfig
+from .storage import BUSY_TIMEOUT
 from .trade_storage import TradeCheckpointStore
 
 HOST_FORMAT = "emerald-private-host-v1"
@@ -225,10 +226,12 @@ class HostWorld:
         return cls(root.resolve(), value["world_id"], build, rules, OWNERSHIP_PROFILE,
                    value["endpoint"], value["port"], value["certificate_sha256"], tuple(accounts))
 
-    def open_store(self):
-        """Return an unbooted store; the caller owns its lifetime and boot."""
+    def open_store(self, *, busy_timeout=BUSY_TIMEOUT):
+        """Return an unbooted store; the caller owns its lifetime and boot. `busy_timeout`: how long its transactions
+        wait for another connection's lock (a host's start waits longer: storage.STARTUP_BUSY_TIMEOUT)."""
         _regular(self.database_path)
-        store = TradeCheckpointStore(self.database_path, self.build_id, self.ruleset_id, self.save_profile)
+        store = TradeCheckpointStore(self.database_path, self.build_id, self.ruleset_id, self.save_profile,
+                                     busy_timeout=busy_timeout)
         if store.metadata.world_id != self.world_id:
             store.close()
             raise HostWorldError("world_invalid", "database world identity changed")

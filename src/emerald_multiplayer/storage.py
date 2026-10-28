@@ -15,6 +15,8 @@ from pathlib import Path
 import re
 import secrets
 import sqlite3
+import sys
+import time
 from typing import Iterator
 import uuid
 
@@ -23,6 +25,13 @@ from .protocol import MAX_COUNTER
 SCHEMA_VERSION = 1
 APPLICATION_ID = 0x454D4350
 MAX_CHECKPOINT_BYTES = 131_088
+# How long a transaction waits for another connection's lock (SQLite's busy timeout), in seconds: while a host plays (its
+# event loop must not stall long, KNOWN_ISSUES MS-17) and while it starts, before anything else runs on it (MS-93: a fresh
+# Continue right after the 100-floor climb's close met a lock still held after 5 s). A wait of LOCK_WAIT_REPORT seconds
+# or more is reported on stderr with the write-ahead log's size.
+BUSY_TIMEOUT = 5
+STARTUP_BUSY_TIMEOUT = 60
+LOCK_WAIT_REPORT = 1
 _IDENTIFIER = re.compile(r"[A-Za-z0-9_.:-]{1,128}\Z")
 
 
@@ -175,7 +184,8 @@ class CheckpointStore:
     _supports_battle_reservations = False
 
     def __init__(self, path: str | Path, build_id: str, ruleset_id: str,
-                 save_profile: str, *, max_payload_bytes: int = MAX_CHECKPOINT_BYTES):
+                 save_profile: str, *, max_payload_bytes: int = MAX_CHECKPOINT_BYTES,
+                 busy_timeout: float = BUSY_TIMEOUT):
         self.path = Path(path).resolve()
         self.build_id = _identifier(build_id, "build_id")
         self.ruleset_id = _identifier(ruleset_id, "ruleset_id")
@@ -191,7 +201,7 @@ class CheckpointStore:
         new = not self.path.exists() or self.path.stat().st_size == 0
         self.path.parent.mkdir(parents=True, exist_ok=True)
         try:
-            self._connection = sqlite3.connect(self.path, isolation_level=None, timeout=5)
+            self._connection = sqlite3.connect(self.path, isolation_level=None, timeout=busy_timeout)
             self._connection.row_factory = sqlite3.Row
             self._connection.execute("PRAGMA foreign_keys = ON")
             self._connection.execute("PRAGMA synchronous = FULL")
@@ -246,12 +256,33 @@ class CheckpointStore:
                 raise StorageError("storage_corrupt", "checkpoint database could not be opened safely") from error
             raise
 
+    def set_busy_timeout(self, seconds: float) -> None:
+        """How long a transaction waits for another connection's lock before SQLITE_BUSY (KNOWN_ISSUES MS-93: a host's
+        start waits longer, then play goes back to BUSY_TIMEOUT)."""
+        self._connection.execute(f"PRAGMA busy_timeout = {int(seconds * 1000)}")
+
+    def _lock_files(self) -> str:
+        """The write-ahead log's and its index's sizes, for a report of a wait on the database's lock (MS-93)."""
+        sizes = []
+        for suffix in ("-wal", "-shm"):
+            try:
+                sizes.append(f"{suffix[1:]} {os.stat(str(self.path) + suffix).st_size} bytes")
+            except OSError:
+                sizes.append(f"no {suffix[1:]}")
+        return ", ".join(sizes)
+
     @contextmanager
     def _transaction(self) -> Iterator[None]:
         if self._closed:
             raise StorageError("storage_closed", "checkpoint store is closed")
+        started = time.monotonic()
         try:
             self._connection.execute("BEGIN IMMEDIATE")
+            waited = time.monotonic() - started
+            if waited >= LOCK_WAIT_REPORT:
+                # KNOWN_ISSUES MS-93: who held the lock is not known; how long and the log's size are.
+                print(f"[launcher] checkpoint store: waited {waited:.1f} s for the database lock ({self._lock_files()})",
+                      file=sys.stderr)
             yield
             self._connection.execute("COMMIT")
         except BaseException as error:
@@ -264,6 +295,8 @@ class CheckpointStore:
                 # Which failure it was (a locked database, a full disk, an I/O error, a constraint): KNOWN_ISSUES MS-93's
                 # fresh Continue after a 100-floor climb failed here and the log could not say why.
                 cause = getattr(error, "sqlite_errorname", None) or type(error).__name__
+                if code in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED):
+                    cause += f" after {time.monotonic() - started:.1f} s; {self._lock_files()}"
                 raise StorageError("storage_corrupt" if corrupt else "storage_error",
                                    f"checkpoint transaction failed ({cause})") from error
             raise

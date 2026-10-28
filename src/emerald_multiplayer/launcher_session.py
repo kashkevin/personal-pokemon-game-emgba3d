@@ -624,7 +624,10 @@ class LauncherSession:
         """The session owns the real service/store on its original event loop."""
         if self._server is not None or self._store is not None:
             raise LauncherSessionError("host_restart_failed")
-        self._store = host.open_store()
+        # KNOWN_ISSUES MS-93: the store's first transactions may meet a lock another connection still holds (a fresh
+        # Continue right after a long session's close); nothing runs on this loop yet, so they wait longer than in play.
+        from .storage import BUSY_TIMEOUT, STARTUP_BUSY_TIMEOUT
+        self._store = host.open_store(busy_timeout=STARTUP_BUSY_TIMEOUT)
         from .reset_attempts import require_reset_ledger
         require_reset_ledger(self._store, self._manifest)
         from .ownership_protocol import OWNERSHIP_PROFILE
@@ -655,6 +658,7 @@ class LauncherSession:
         await self._server.start(self._bind_address, host.port, allow_lan=True,
                                  public=self._public, tls=host.server_tls, wildcard=self._bind_address == WILDCARD,
                                  relay=self._network is not None and self._network.relay_enabled)
+        self._store.set_busy_timeout(BUSY_TIMEOUT)   # play: the world server's loop must not wait long (MS-17)
 
     async def _start_reachability(self, host):
         """Automatic router setup (only while the world allows Internet connections and the host did not turn it off) and the

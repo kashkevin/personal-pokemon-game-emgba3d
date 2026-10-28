@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import contextlib
 import hashlib
+import io
 from pathlib import Path
 import sqlite3
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 import uuid
@@ -13,7 +16,7 @@ from process_fixture import direct_python
 
 from emerald_multiplayer.protocol import MAX_COUNTER
 from emerald_multiplayer.storage import (
-    APPLICATION_ID, CheckpointStore, MAX_CHECKPOINT_BYTES, SCHEMA_VERSION, StorageError,
+    APPLICATION_ID, BUSY_TIMEOUT, CheckpointStore, MAX_CHECKPOINT_BYTES, SCHEMA_VERSION, StorageError,
 )
 
 
@@ -115,6 +118,65 @@ class StorageTests(unittest.TestCase):
             writer.close()
         self.assertTrue(self.store.release_lease(self.owner.player_id, self.lease))
         self.assertFalse(self.store.lease_is_current(self.owner.player_id, self.lease))
+
+    def hold_lock(self, seconds):
+        """Another connection in the middle of a write for `seconds` (a thread ends it)."""
+        writer = sqlite3.connect(self.path, isolation_level=None, timeout=5, check_same_thread=False)
+        writer.execute("BEGIN IMMEDIATE")
+        writer.execute("UPDATE world_metadata SET singleton = singleton")
+
+        def release():
+            writer.execute("ROLLBACK")
+            writer.close()
+        timer = threading.Timer(seconds, release)
+        timer.start()
+        return timer
+
+    def test_a_lock_held_for_a_while_is_waited_for_and_the_wait_reported(self):
+        # KNOWN_ISSUES MS-93: the host's first transaction after a long session met a lock another connection still held.
+        # Within the busy timeout the transaction waits; a wait of a second or more is reported with the log's size.
+        timer = self.hold_lock(1.5)
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            started = time.monotonic()
+            self.assertEqual(self.store.metadata.world_id, self.boot.world_id)
+            waited = time.monotonic() - started
+        timer.join()
+        self.assertGreaterEqual(waited, 1.2)
+        self.assertRegex(stderr.getvalue(), r"checkpoint store: waited \d+\.\d s for the database lock "
+                                            r"\(wal \d+ bytes, shm \d+ bytes\)")
+
+    def test_a_lock_held_past_the_busy_timeout_names_the_wait_and_the_log(self):
+        # MS-93's failure line said only SQLITE_BUSY; it now says how long the transaction waited and how big the
+        # write-ahead log was.
+        self.store.set_busy_timeout(0.3)
+        timer = self.hold_lock(1.5)
+        try:
+            with self.assertRaises(StorageError) as caught:
+                self.store.metadata
+        finally:
+            timer.join()
+        self.assertEqual(caught.exception.code, "storage_error")
+        self.assertRegex(str(caught.exception), r"checkpoint transaction failed \(SQLITE_BUSY after 0\.\d s; "
+                                                r"wal \d+ bytes, shm \d+ bytes\)")
+
+    def test_a_store_opened_with_a_longer_busy_timeout_outwaits_a_lock_the_default_does_not(self):
+        # A host's start opens its store with STARTUP_BUSY_TIMEOUT (launcher_session), play goes back to BUSY_TIMEOUT.
+        self.store.close()
+        timer = self.hold_lock(1.5)
+        try:
+            with self.assertRaises(StorageError):
+                CheckpointStore(self.path, BUILD, RULESET, PROFILE, busy_timeout=0.5)
+        finally:
+            timer.join()
+        timer = self.hold_lock(1.5)
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.store = CheckpointStore(self.path, BUILD, RULESET, PROFILE, busy_timeout=4)
+        timer.join()
+        self.assertEqual(self.store._connection.execute("PRAGMA busy_timeout").fetchone()[0], 4000)
+        self.store.set_busy_timeout(BUSY_TIMEOUT)
+        self.assertEqual(self.store._connection.execute("PRAGMA busy_timeout").fetchone()[0], BUSY_TIMEOUT * 1000)
+        self.assertEqual(self.store.metadata.world_id, self.boot.world_id)
 
     def test_second_live_host_rejected_then_new_boot_fences_old_lease(self):
         newer = CheckpointStore(self.path, BUILD, RULESET, PROFILE)
