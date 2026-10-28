@@ -602,7 +602,7 @@ Recorded guidance the code no longer follows (not binding decisions):
 | A world's shared Legendary stays until caught or knocked out, through its lifetime, players leaving, an outbreak's end and a host restart | Implemented and tested (unit tests; not in a real connected world) | app (this commit) |
 | A shiny caught in the Safari Zone is gone for good (it came back after the next battle: MS-142) | Implemented and tested (Linux 2D test build, before and after) | engine `11f8be05` |
 | Shiny odds of every way a Pokemon is made, as documented | Tested (`--selftest-shiny-paths`, the game's own code) | engine `11f8be05` |
-| One spawn timer for the player's own visible Pokemon and the world's shared ones | Not done: an owner decision (MS-146) | `docs/spawns-legends-shiny-20261027.md` section 2 |
+| One spawn timer for the player's own visible Pokemon and the world's shared ones | Not wanted: the owner kept both timers (MS-146, decided 2026-10-27 after the package) | `docs/spawns-legends-shiny-20261027.md` section 2 |
 
 ## The Flying-type Gym's puzzle in 3D (2026-10-27, `docs/fortree-gym-puzzle-20261027.md`)
 
@@ -614,10 +614,10 @@ Recorded guidance the code no longer follows (not binding decisions):
 
 | Feature | Status | Evidence |
 | --- | --- | --- |
-| Every Poke Ball's capture odds as its Gen 6 rule says (the game's own code) | Tested (`--selftest-balls`, 61 checks; not thrown in a real battle) | engine `6a575072` |
+| Every Poke Ball's capture odds as its Gen 6 rule says (the game's own code) | Tested (`--selftest-balls`, 61 checks; not thrown in a real battle). After the package, by the owner's decisions: the Dream Ball x4 on a sleeping Pokemon, the Sport Ball x1, the Park, Sport and Cherish Balls described as having no effect, the Beast Ball no longer sold (62 checks; engine `d0d57e2a`, a later build); the catch chances the test prints corrected to four shake checks | engine `6a575072` |
 | The Heavy Ball on a light Pokemon with a catch rate of 20 or less: catch rate 1, no longer a sure catch (MS-148) | Implemented and tested (self-test, before and after) | engine `4474883b` |
 | A throw at odds 0: the GBA's result written out, no undefined division, the chance unchanged (MS-149) | Implemented and tested (self-test on the new and the old code) | engine `6a575072` |
-| Every healing item's effect as its Gen 6 rule says (HP, statuses, revival, PP, friendship; the game's own code) | Tested (`--selftest-healing`, 70 checks; not used in a real battle); MS-150 open (owner decision) | engine `000d7556` |
+| Every healing item's effect as its Gen 6 rule says (HP, statuses, revival, PP, friendship; the game's own code) | Tested (`--selftest-healing`, 70 checks; not used in a real battle); MS-150 fixed after the package by the owner's choice of the official rule (72 checks; engine `d0d57e2a`, a later build) | engine `000d7556` |
 | Berries, vitamins, wings, PP Up and PP Max, Rare Candy, evolution stones: each item's effect as its Gen 6 rule says (the game's own code) | Tested (`--selftest-bag-items`; through the game's functions, not the bag's screens) | engine `228dbada` |
 | TMs and HMs: Emerald's numbering, the HM moves, who can learn them | Tested (the same self-test); the learnsets are the later games', not Emerald's (owner decision) | engine `228dbada` |
 | The EV-training held items: Macho Brace, the Power items, Pokerus (the effort values gained); the Soothe Bell's friendship | Tested (`--selftest-held-items`, 21 checks; their halved Speed: the GBA tests below) | engines `2ea6e093`, `6320c77d` |
@@ -659,7 +659,7 @@ Recorded guidance the code no longer follows (not binding decisions):
 | --- | --- | --- |
 | The Frontier's squares transitions cover the 3D window as squares (no black frame or stripes, MS-106) | Implemented and tested (Linux 3D build, pictures; not in a real Frontier battle, not on Windows) | engine `739817fe` |
 | The flash's peak plain in its colour over the 3D field (MS-107) | Implemented and tested (Linux 3D build, frame by frame) | engine `739817fe` |
-| The battle's opening camera clear of the scenery it swoops past (MS-109) | Not done: cause found, open | `docs/battle-transitions-3d-20261027.md` |
+| The battle's opening camera clear of the scenery it swoops past (MS-109) | Fixed after the package (engine `2b13a343`): the camera no longer follows the intro's scanline scroll; the camera's path traced in its log (L), not pictured; a later build | `docs/battle-transitions-3d-20261027.md` |
 
 ## Other players' Surf carriers (2026-10-27, `docs/gameplay-visual-updates-20261027.md` section 4)
 
