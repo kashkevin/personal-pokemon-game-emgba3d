@@ -296,6 +296,29 @@ its top meets its foot at a bridge's elevation, B1F's); the compiled rules' (31:
 half, no rock over the rock beside it with nothing under it). Pictured before and after in the 3D test build with Flash
 lit (4 spots): the slope a ramp up through the rock face, the raised half's floor and walls together.
 
+## A slope's top: Route 119 (engine `f1391374`, 2026-10-28; MS-153)
+
+Route 119's muddy slope (6,54-55) climbs to a row (5-8,53) at its foot's elevation (3), which the GBA draws on the
+plateau, a row of elevation 0 joining it to the rest of the plateau (elevation 4). The terrace solver joins cells of one
+elevation, so the row lay on the foot's level, a level under the plateau beside it, a step across the plateau's edge,
+and the slope flat (the earlier reading, below, took the step for the slope's own level change). A slope's top region
+apart from its foot's and on its level, whose walkable cells round it all lie a level up, now takes that level and the
+slope rises to it (`terrace_topology.py` `slope_tops`); the mountain's rock beside the slope and under the row stands on
+the foot as before (left to the lift of blocked cells, beside two levels, it stood a tile over the plateau: seen in the
+first picture and fixed). A top with nothing round it (Route 115's, the Safari Zone's at its map's edge) or with ground
+round it at another level keeps its level, so nothing else moves. Records change on Route 119 only (10: the row, the
+slope, four cells of rock beside the row); the open steps between cells are the 115 there were; the rules parity test's
+mismatches (a known failure) change only at those cells, 70,532 to 70,524. Tests (L): the terrace solver's (22: a
+slope's top joining the level round it, its face on the foot; none with nothing round it, with ground round it on the
+foot's level, or one region with its foot; Route 119's); the compiled rules' (32: Route 119's heights and the rock
+beside the slope). Pictured before and after in the 3D test build from three spots (the slope's foot, west and east of
+it): the slope a ramp up to the plateau, the step across the plateau gone, the rock on both sides of the ramp from its
+foot to the plateau's top.
+
+Sootopolis Gym's 12 slides (`MB_SLIDE_SOUTH`, 6 runs on its two floors), counted with the flat slopes, are flat ice in
+the GBA's own drawing (Gym 1F pictured in the 2D build; one tile, 527, on both floors), and the 3D view draws the gym's
+rooms from that drawing (modelled rooms): no height to show, so they leave the count.
+
 ## Slopes and hills: where the next session starts (read from the map data, nothing changed)
 
 Each slope run, its foot and its top (scratchpad `slopes/classify.py`: the region at its top flood-filled without the
@@ -307,7 +330,7 @@ slope, the GBA's walking rules: one elevation or an "any level" cell, a ledge on
 | Route 115 (28,8-9), muddy | 0 / 0 | 86 cells, only up the slope | the top region raised a level, the slope a ramp, its rock raised round it: **done** (engine `563c0f77`, above) |
 | Granite Cave B1F (9,9-10), muddy | 0 / 0 | 135 cells, only up the slope | the same: **done** (engine `a23e77e0`, above) |
 | Safari Zone Southwest (8,2-3), muddy | 0 / 0 | 8 cells, then the map's north edge (the next Safari area) | a level across two maps: left flat |
-| Route 119 (6,54-55), muddy | -1 / -1 | reached another way (1,858 cells) | the level change sits a row north of it (the GBA's elevations 3 and 4 meet there): the slope stays a shortcut |
+| Route 119 (6,54-55), muddy | -1 / -1 | reached another way (1,858 cells) | the level change sits a row north of it (the GBA's elevations 3 and 4 meet there), but that row is the plateau's in the GBA's drawing: **done**, the row on the plateau's level and the slope a ramp (engine `f1391374`, above) |
 | Safari Zone North (22,21-23), bumpy | -1 / -2 | reached another way | a mound ringed by ledges on three sides: its levels need the ledges (below) |
 | Jagged Pass (5 runs, bumpy) | 0 / 0 | 3 reached another way, 2 only up the slope | the whole pass lies on one level (below) |
 
@@ -322,10 +345,11 @@ session's work. Route 113's and Route 123's ledges that landed higher are fixed 
 
 ## Not done
 
-* **The 33 flat slopes** (Route 115's 2 and Granite Cave B1F's 2 rise since their climbs, above): both ends of each lie
-  on one level in the 3D view's terrace levels, so there is no height for a slope to climb; the terrace solver
-  (`tools/diorama_rules/terrace_topology.py`) has to split them first. Next: Route 119's (the row at its top, which the
-  GBA draws on the plateau).
+* **The 19 flat slopes** (Route 115's 2, Granite Cave B1F's 2 and Route 119's 2 rise since their climbs and top, above;
+  Sootopolis Gym's 12 slides are flat ice in the GBA's own drawing): both ends of each lie on one level in the 3D view's
+  terrace levels, so there is no height for a slope to climb; the terrace solver
+  (`tools/diorama_rules/terrace_topology.py`) has to split them first. Next: the Safari Zone's (levels across two maps,
+  with MS-162's Safari seams) and Jagged Pass's (its ledges contradict).
 * **Route 118's 6 ledges that land a level higher** than they are jumped from (MS-154): none of them can be jumped
   (rock behind each, by its lake's plateau). Its seams with Mauville City, Route 119 and Route 123 are level since
   MS-162 (above); four other land seams are still a level apart (Mauville City and Route 111, the Battle Frontier's
