@@ -334,7 +334,16 @@ the Pokemon's own numbers, so claiming, releasing and claiming it again or recon
 and a player without the Charm sees the host's roll. An item is used up in the player's bag once, by the game's own item
 code; a lost connection does not replay it.
 
-### Owner decisions (reported, not changed)
+### Owner decisions (reported, not changed in the package; the owner's direction after it: fix them)
+
+**After the package** (the owner, 2026-10-27: "doesn't seem like questions", so fixed as proposed; engine `0624b03b`,
+PC only, a later build): (1) the lure's extra shiny roll is made only for wild Pokemon (hidden encounters, visible
+ones, DexNav, outbreaks), not gifts, Eggs or static encounters; (2) unchanged: the lure's description ("Makes Pokemon
+more likely to appear") is what it does here, and its slot swap only changes levels; (3) using a Repel while a Lure
+lasts, or a Lure while a Repel lasts, now asks first ("A Lure is still active. A REPEL would end it. Use it?"); keeping
+both at once was not built: they work against each other, and it would need two more save variables and a
+conversion of existing saves; (4) in a connected world a lure's steps are not spent on land, where the Pokemon are
+the host's, and are spent while surfing or underwater.
 
 1. **The lure's extra shiny roll** reaches every Pokemon made for the player while a lure lasts, gifts and static
    encounters included (not Eggs, not Local Soft Reset hunts, not a world's shared Pokemon). It comes from
