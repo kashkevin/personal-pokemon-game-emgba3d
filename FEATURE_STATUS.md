@@ -678,7 +678,7 @@ Recorded guidance the code no longer follows (not binding decisions):
 | Every terrain jump ledge (959 in 38 layouts) drawn in 3D as a bank: grass rising from the side it is jumped from to a crest, the drawn rock face falling to the side it lands on, on the grounds of the cells either side; no walls or floating slabs (MS-152) | Implemented and tested (Linux 3D test build: 108 spots pictured before and after, 5 jumps frame by frame; not on Windows or a graphics card); **not in the 2026-10-27 package** | engine `f0f795f9` |
 | The walker's shadow on the bank while it jumps; another player and their Pokemon standing on the crest | Implemented and tested (Linux 3D test build; two games on one machine through a real world server); not in the package | engines `f0f795f9`, `939d63a5` |
 | Slopes rising between levels in 3D (Jagged Pass, the Safari Zone, Routes 115 and 119, Granite Cave B1F, Sootopolis Gym's slides) | Not done: 37 lie flat (MS-153); Route 111's 8 rise as ramps | `docs/ledge-overhaul-20261027.md` |
-| The 46 ledges that land a level higher in the 3D view's terrace levels | Not done (MS-154) | `docs/ledge-overhaul-20261027.md` |
+| Jump ledges that land a level higher in the 3D view's terrace levels | Route 113's 9 and Route 123's 18 fixed (the terrace solver; Linux 3D test build, pictured before and after); Route 118's 19, which the player cannot jump, open (MS-154); **not in the 2026-10-27 package** | engine `1291d718`; `docs/ledge-overhaul-20261027.md` |
 | The 48 ledges in the four modelled rooms (Fortree Gym, Lavaridge Gym 1F and B1F, the Trick House's fourth puzzle) | Not changed: they keep their rooms' models | `docs/ledge-overhaul-20261027.md` |
 
 ## How to update

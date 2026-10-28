@@ -43,7 +43,8 @@ What the ledges were in 3D, from the same data:
   Safari Zone's north 5, Route 123 4): walls 22 voxels high.
 * Between the two cells each ledge joins: 912 have both on one level; **49 drop a level** (Route 113 19, Route 118 14,
   Route 123 6, Route 116 5, the Frontier 3, the Safari Zone 2); **46 land a level higher than they are jumped from**
-  (Route 118 19, Route 123 18, Route 113 9): the 3D view's terrace levels disagree with the jump there.
+  (Route 118 19, Route 123 18, Route 113 9): the 3D view's terrace levels disagree with the jump there. (Since engine
+  `1291d718`: 19 land higher, all on Route 118, and 24 drop a level; see "The ledges that landed higher" below.)
 
 | Layout (maps) | Ledges | S | W | E | SW | SE | Were walls | Were slabs | Drop a level | Land higher | Cave rock | Slopes (flat / ramp) |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
@@ -108,7 +109,8 @@ What the ledges were in 3D, from the same data:
   you land on.
 * **The grounds are the neighbours'** (`rules.c` `DioramaRules_LedgeGrounds`): a ledge on a lowered terrace stands
   on it (the 66 walls and 81 slabs are gone); one a level over its landing has its face down to it (49). The 46 that
-  land higher keep the terrace levels they are given, the bank between the two.
+  land higher keep the terrace levels they are given, the bank between the two (Route 113's and Route 123's 27 no
+  longer land higher since engine `1291d718`: below).
 * **Corners** are the higher of their two straight banks and meet the runs either side; **a run's end** shows its
   cross-section; ground on a higher level beside a bank hangs a side down to it, a pixel at a time.
 * **Jumping**: the jump is the GBA's own arc. The walker's shadow lies on what is under it while it jumps a ledge (it
@@ -133,6 +135,59 @@ What the ledges were in 3D, from the same data:
 | A jump over a ledge, frame by frame: Route 102 (south), Route 104 (west), Route 113 on a lowered terrace, Route 113 down a level, Route 123 up a level | The walker clears each bank with no clipping and lands where the game puts it (L) |
 | Two games through a real world server (`two_ledge.py`, from the riding check): player B jumps Route 101's ledge, player A watches in 3D | B is replayed across the ledge's cell and stands on its crest, then steps down; B's Pokemon the same (L) |
 
+## The ledges that landed higher: Route 113 and Route 123 (engine `1291d718`, 2026-10-28; MS-154)
+
+**The cause.** The terrace solver (`tools/diorama_rules/terrace_topology.py` `solve_layout`) joins each run of the
+General tileset's terrace art and the walkable ground it borders into one component and puts the component's highest
+point on the top level (0). On Route 113 and Route 123 that highest point was only terrace art no one walks on (the
+top of a cliff), so every walkable cell of the component lay a level below the top: Route 113's whole route (717
+cells) and Route 123's tall grass under its mountain (79). Ground no terrace reaches lies on the top level, and there
+it is the ground those ledges land on: Route 113's plateau east of its ledges at x 68 and the rest of Route 123. So
+the 3D view showed every ledge from the sunken ground onto it rising a level (Route 113 9, Route 123 18), and 25
+ledges the other way dropping a full level (Route 113 19, Route 123 6).
+
+**The change.** Where a ledge leaves a component's walkable ground for ground no terrace reaches, the component's
+highest walkable ground lies on the top level instead, the art's top a level over it (17 cliff cells: Route 113 11,
+Route 123 6). The solver's answer changes on these two maps only (every layout compared, the committed solver and
+the change: 813 entries), and so do the compiled rules (Route 113 1,088 records, Route 123 118: the ground, and the
+trees and rock standing on it).
+
+**Results (L).**
+
+* The ledge count, as in the audit above: **19 land higher** (46 before), all on Route 118; Route 113 and Route 123
+  none. The 25 that dropped a level now join ground on one level, as 912 others do; 24 drop a level.
+* The seams: Route 113's ends now meet Fallarbor Town and Route 111 on one level (a level apart before: 26 pairs of
+  cells). Across every seam, walkable cell pairs a level apart: 480 (506 before), none new.
+* Neighbouring cells a level apart, before and after: Route 123 74 fewer, none new; Route 113 297 fewer and 8 new.
+  Three of the new ones are flat cells inside the rock mass east of the route, holes 16 voxels deep before and now
+  level with the rock's top (the count compares each cell's ground, and a rock cell's ground is below its top).
+  The fourth is at a pocket of seven cells at (41-46, 15-16) with its own terrace art: it stays a level below that
+  art, so it is now a level below the route. Pictured, it looks as it did.
+* Pictures, the 3D test build before and after from the same places (software OpenGL): Route 123 at six (the
+  grass, its pond, its west end, the path south of the grass, the grass's west side, the ground east of the pond) and
+  Route 113 at nine (its ledges at x 68, the plateau from two places, both ends, the grass, the pocket, the rock,
+  the south). Route 123: the dark walls where the grass met the route are gone; the ledges are banks; nothing else
+  changed. Route 113: the steps at both ends are gone, and so are the grey see-through sides of the sunken route.
+  The rock and the pocket look as before. The plateau is buried inside the rock mass in both builds (not changed
+  here).
+* Jumps frame by frame on both builds: Route 113 from the terrace at (22,3) and from the plateau at (75,6), south;
+  Route 123 from (57,12) south and from (49,6) west. The walker clears each bank with no clipping and lands where the
+  game puts it.
+* Tests: `test_terrace_topology` (15 pass, 2 new): a cliff whose top no one walks on with a ledge from its low ground
+  onto ground no terrace reaches (the ground on the top level, the cliff's top over it; with a wall for the ledge, as
+  before); Route 113 and Route 123 (no ledge lands higher than it leaves, their ground on the top level, Route 113's
+  ends at 0, the mountain's top a level over). Every engine check target and `check-diorama`: all 60 passed (5 builds,
+  the ROM unchanged, the 54 targets, `check-diorama`); `test_compile_rules` (28) passes; `test_rules_parity` fails as
+  before (KNOWN_ISSUES V2), with no new mismatch and 1,205 fewer (Route 113's and 123's records now agree with the C
+  reader).
+
+**Tried first and dropped.** Lowering the ground the ledges land on to the level they leave from instead (down
+chains of ledges; a pond and a doorway inside it with it). It moved 638 walkable cells, and 1,208 records with the
+trees and rock on them. The pictures showed terrace corner pieces left a level up like posts. They also showed the
+forest along Route 123's north and south edges lowered while the area beyond a map's edge is drawn on the top level,
+a step along each edge. Raising the terraces moves fewer cells and leaves the rest of each route, the map edges and
+the neighbouring maps where they were.
+
 ## Slopes and hills: where the next session starts (read from the map data, nothing changed)
 
 Each slope run, its foot and its top (scratchpad `slopes/classify.py`: the region at its top flood-filled without the
@@ -154,14 +209,17 @@ foot (`slopes/ledge_graph.py`), solve to a staircase of six levels from the Mt. 
 with 54 of the 76 asks contradicting at the small islands ringed by ledges (rows 9-11, 14-16, 22-33), where the GBA's art
 has no single height. A level solver for such a pass (ledges as "at least as high", the islands' contradictions
 resolved by the fewest steps), its rock walls raised with the terraces and the pictures checked spot by spot is the next
-session's work; the 46 ledges that land higher (Routes 113, 118 and 123) need the same solver, where the General
-terrace art and the ledges disagree.
+session's work. Route 113's and Route 123's ledges that landed higher are fixed (above); Route 118's 19, which the
+player cannot jump, are left.
 
 ## Not done
 
 * **The 37 flat slopes**: both ends of each lie on one level in the 3D view's terrace levels, so there is no height for
   a slope to climb; the terrace solver (`tools/diorama_rules/terrace_topology.py`) has to split them first.
-* **The 46 ledges that land a level higher** than they are jumped from: the same solver's levels.
+* **Route 118's 19 ledges that land a level higher** than they are jumped from (MS-154): none of them can be jumped
+  (the cell behind each is blocked); 13 face its sea, which lies a level over its land in the terrace levels, 6 face
+  rock. Route 118's land also lies a level below Mauville City, Route 119 and Route 123 where it meets them (a step
+  at each seam, as before).
 * **The 48 ledges in modelled rooms** keep their rooms' models.
 * The grass side of an east or west ledge shows faint lines between its steps in the sun (each step's shadow).
 * Not run: a graphics card, Windows, the owner's PCs.
