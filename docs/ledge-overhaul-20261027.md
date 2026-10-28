@@ -188,6 +188,22 @@ forest along Route 123's north and south edges lowered while the area beyond a m
 a step along each edge. Raising the terraces moves fewer cells and leaves the rest of each route, the map edges and
 the neighbouring maps where they were.
 
+## The stripes on a bank jumped west (engine `32d7bcd5`, 2026-10-28; MS-155)
+
+The grass side of a ledge jumped west showed faint dark lines between its steps in the sun. The same spot on Route 104
+pictured with the shadows off (`PKMN_DIORAMA_SHADOWS=0`) has none, so they were the sun's shadow: the sun is in the
+west-north-west (`gl_shadow.c`), the grass of a bank jumped west faces away from it nearly along its rays (a few
+degrees apart), and the bank's own voxel steps shaded the steps below them. A bank's faces now carry a mark
+(`DIORAMA_TERRAIN_BANK_MASK`, in the vertex's reflection mask, under the reflection pass's 0.5), and the terrain
+shader's sun shadow takes a bias of about 13 voxels along the sun for them (0.006 of the shadow map's depth; 0.0015
+elsewhere, as before): a bank no longer shades itself, and trees and buildings, much taller, still shade it.
+
+Tests (L): `test_terrain_mesh` (a bank's faces carry the mark, a chunk without ledges none; both terrain paths the
+same); 21 ledge spots pictured before and after (11 jumped east or west, 10 south, the player three tiles south of each as
+in the audit): the stripes are gone on those jumped west, one very faint line left along the bank's foot; banks jumped east,
+north and south, and the ground and tree shadows round them, as before. Every engine check target and
+`check-diorama`: all 60 passed (5 builds, the ROM unchanged, the 54 targets, `check-diorama`).
+
 ## Slopes and hills: where the next session starts (read from the map data, nothing changed)
 
 Each slope run, its foot and its top (scratchpad `slopes/classify.py`: the region at its top flood-filled without the
@@ -221,5 +237,4 @@ player cannot jump, are left.
   rock. Route 118's land also lies a level below Mauville City, Route 119 and Route 123 where it meets them (a step
   at each seam, as before).
 * **The 48 ledges in modelled rooms** keep their rooms' models.
-* The grass side of an east or west ledge shows faint lines between its steps in the sun (each step's shadow).
 * Not run: a graphics card, Windows, the owner's PCs.
