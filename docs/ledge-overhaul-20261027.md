@@ -284,6 +284,18 @@ Pictured before and after in the 3D test build (12 spots): Route 115 from its pl
 slope, its grass at the foot of the stairs and its south mountain; Route 114's mountain at four spots; Routes 111, 112
 and 119 the same as before (their pictures differing only where walkers moved, in sparkles and Route 111's sandstorm).
 
+## A cave's slope: Granite Cave B1F (engine `a23e77e0`, 2026-10-28; MS-153)
+
+Granite Cave B1F's halves, at one elevation, are joined only by its muddy slope (9,9-10), and a cave's levels come from
+its floors' elevations (`terrace_topology.py` `cave_levels`), so the cave lay on one level and the slope flat. The half
+at the slope's top (north: the GBA draws the face it climbs on the higher half's south, two rows) now stands a level up,
+the slope rising over its rows, and the cave's rock round that half stands on it (`cave_climbs`; its rules are the
+mountain's, the code shared). Records change in that cave only (296); the open steps between cells are the 115 there
+were. Tests (L): the terrace solver's (21: a cave's slope between two parts of its floor, none without one, none where
+its top meets its foot at a bridge's elevation, B1F's); the compiled rules' (31: B1F's heights, its rock on its raised
+half, no rock over the rock beside it with nothing under it). Pictured before and after in the 3D test build with Flash
+lit (4 spots): the slope a ramp up through the rock face, the raised half's floor and walls together.
+
 ## Slopes and hills: where the next session starts (read from the map data, nothing changed)
 
 Each slope run, its foot and its top (scratchpad `slopes/classify.py`: the region at its top flood-filled without the
@@ -293,7 +305,7 @@ slope, the GBA's walking rules: one elevation or an "any level" cell, a ledge on
 | --- | --- | --- | --- |
 | Route 111 (2 runs, muddy) | 16 / 0 | 213 cells, reached only up the slope | nothing: already a ramp to its plateau |
 | Route 115 (28,8-9), muddy | 0 / 0 | 86 cells, only up the slope | the top region raised a level, the slope a ramp, its rock raised round it: **done** (engine `563c0f77`, above) |
-| Granite Cave B1F (9,9-10), muddy | 0 / 0 | 135 cells, only up the slope | the same |
+| Granite Cave B1F (9,9-10), muddy | 0 / 0 | 135 cells, only up the slope | the same: **done** (engine `a23e77e0`, above) |
 | Safari Zone Southwest (8,2-3), muddy | 0 / 0 | 8 cells, then the map's north edge (the next Safari area) | a level across two maps: left flat |
 | Route 119 (6,54-55), muddy | -1 / -1 | reached another way (1,858 cells) | the level change sits a row north of it (the GBA's elevations 3 and 4 meet there): the slope stays a shortcut |
 | Safari Zone North (22,21-23), bumpy | -1 / -2 | reached another way | a mound ringed by ledges on three sides: its levels need the ledges (below) |
@@ -310,10 +322,10 @@ session's work. Route 113's and Route 123's ledges that landed higher are fixed 
 
 ## Not done
 
-* **The 35 flat slopes** (Route 115's 2 rise since its mountain's levels, above): both ends of each lie on one level
-  in the 3D view's terrace levels, so there is no height for a slope to climb; the terrace solver
-  (`tools/diorama_rules/terrace_topology.py`) has to split them first. Next: Granite Cave B1F's (a cave of one floor,
-  its halves joined only by the slope).
+* **The 33 flat slopes** (Route 115's 2 and Granite Cave B1F's 2 rise since their climbs, above): both ends of each lie
+  on one level in the 3D view's terrace levels, so there is no height for a slope to climb; the terrace solver
+  (`tools/diorama_rules/terrace_topology.py`) has to split them first. Next: Route 119's (the row at its top, which the
+  GBA draws on the plateau).
 * **Route 118's 6 ledges that land a level higher** than they are jumped from (MS-154): none of them can be jumped
   (rock behind each, by its lake's plateau). Its seams with Mauville City, Route 119 and Route 123 are level since
   MS-162 (above); four other land seams are still a level apart (Mauville City and Route 111, the Battle Frontier's
