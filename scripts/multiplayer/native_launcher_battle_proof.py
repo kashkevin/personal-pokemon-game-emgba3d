@@ -47,7 +47,9 @@ battle ends; both launchers report battle_finished, the durable result is the
 same for both, each player's full personal party is back, and each game's
 "Recent battle results" shows it; both save (revision 2); both games close
 normally; fresh launchers Continue onto the same canonical saves; the store
-passes its integrity check.
+passes its integrity check. With `--forfeit host|friend` (KNOWN_ISSUES MS-126)
+that player chooses Run at their first action choice instead (Run is the
+forfeit in a link battle): they must lose, with Run their only reply.
 
     PYTHONPATH=src:scripts/multiplayer:scripts/windows-runtime \\
       python scripts/multiplayer/native_launcher_battle_proof.py \\
@@ -327,6 +329,16 @@ class NativeProbe:
         funcs = self.code(int.from_bytes(self.mem("gBattlerControllerFuncs", 4), "little")) & ~1
         return funcs in self.choose_action
 
+    def choosing_action(self):
+        """The battler whose controller waits on its action menu, or None. In a link battle a game's own player is
+        battler 0 on the master's game and battler 1 on the other's (each of the four slots is one code pointer)."""
+        size = self.symbols["gBattlerControllerFuncs"][1] // 4
+        funcs = self.mem("gBattlerControllerFuncs")
+        for battler in range(4):
+            if self.code(int.from_bytes(funcs[battler * size:battler * size + 4], "little")) & ~1 in self.choose_action:
+                return battler
+        return None
+
     async def run_from_wild_battle(self, in_field, timeout=120):
         """A wild Pokemon walked up to the player: Run, as a player would (no move is used, so
         nothing in the party changes). Text is advanced with B, which selects nothing."""
@@ -400,10 +412,23 @@ class WindowsProbe(NativeProbe):
         self._windows.chord(self._window(), keys, seconds)
 
 
-async def drive_battle_input(probe, view, symbols, stop, seen=None):
+CHOOSE_ACTION_REQUEST = 17  # CONTROLLER_CHOOSEACTION: the player picks Fight, Bag, Pokemon or Run
+
+
+async def choose_run(probe, battler):
+    """One key towards Run on the action menu (Fight 0, Bag 1, Pokemon 2, Run 3, two by two), A once it is there.
+    True when A was pressed on Run."""
+    cursor = probe.mem("gActionSelectionCursor", 1, battler)[0]
+    await probe.press(1 if cursor == 3 else 128 if cursor == 1 else 16, frames=12, release=18)
+    return cursor == 3
+
+
+async def drive_battle_input(probe, view, symbols, stop, seen=None, forfeit=None):
     """qualify_menu_battle.py's input policy: one key owner per game. `seen` (a dict, if given) keeps what the driver
     last read and did, for a proof's record while the battle runs: the room's state and pending request, the game's
-    battle phase, the action, the presses so far and when the last one was (time.monotonic())."""
+    battle phase, the action, the presses so far and when the last one was (time.monotonic()).
+    `forfeit` (a dict, if given): this player gives up at their first action choice, choosing Run as a player would
+    (MS-126: in a link battle Run is the forfeit); the dict gets the battler and when Run was chosen."""
     if seen is not None:
         seen.update(presses=0, pressed=None)
     while not stop.is_set():
@@ -413,6 +438,15 @@ async def drive_battle_input(probe, view, symbols, stop, seen=None):
         if room["state"] in ("closed", "aborted", "recovery_required"):
             return
         state = await probe.battle()
+        if (forfeit is not None and "chosen" not in forfeit and room["state"] == "executing"
+                and room["pending"] == CHOOSE_ACTION_REQUEST and state["state"] == 5):
+            # A would choose Fight here: only the keys to Run, once the action menu is up.
+            battler = probe.choosing_action()
+            if battler is None:
+                await asyncio.sleep(.05)
+            elif await choose_run(probe, battler):
+                forfeit.update(battler=battler, chosen=time.monotonic())
+            continue
         action = party_action(room["pending"], state, symbols) if room["state"] == "executing" else "wait"
         if seen is not None:
             seen.update(phase=state["state"], action=action)
@@ -436,8 +470,9 @@ async def drive_battle_input(probe, view, symbols, stop, seen=None):
             await asyncio.sleep(.05)
 
 
-async def native_menu_match(current, probes, games, host, symbols, record):
-    """Both Enter operations remain entirely owned by production MenuSession."""
+async def native_menu_match(current, probes, games, host, symbols, record, forfeit=None):
+    """Both Enter operations remain entirely owned by production MenuSession. `forfeit`: the index of the player (0 the
+    host, 1 the friend) who chooses Run at their first action choice; that player must lose, with no move used."""
     async def identity(s):
         c = s._companion
         return (s._game, s._runtime, c._bridge, c._bridge.incarnation, c._live_battle_runtime_id)
@@ -476,8 +511,9 @@ async def native_menu_match(current, probes, games, host, symbols, record):
             return dict(state=room.state, pending=None if room.route is None else room.route.validator.pending[slot])
         return await on_worker(current[0], read)
     stop = asyncio.Event()
-    drivers = [asyncio.create_task(drive_battle_input(p, lambda slot=slot: view(slot), symbols, stop))
-               for p, slot in zip(probes, slots)]
+    forfeits = [{} if index == forfeit else None for index in range(len(probes))]
+    drivers = [asyncio.create_task(drive_battle_input(p, lambda slot=slot: view(slot), symbols, stop, forfeit=f))
+               for p, slot, f in zip(probes, slots, forfeits)]
     started = time.monotonic()
     async def finished(s):
         if (s._save_failed and s._interaction is None
@@ -527,6 +563,19 @@ async def native_menu_match(current, probes, games, host, symbols, record):
                 "original full personal party was not restored")
         record("launcher-native-battle-completed", slot=slot, pid=games[slot].process.pid, **details)
     require(results[0] == results[1], "players disagree on durable result")
+    if forfeit is not None:
+        chosen = forfeits[forfeit]
+        require("chosen" in chosen, "the forfeiting player never reached Run")
+        winner = 2 - slots[forfeit] % 2  # the other player's team
+        require(results[0]["outcome"] == winner, f"the player who chose Run did not lose: outcome {results[0]['outcome']}")
+        # The forfeiting player's replies (role 1, CONTROLLER_TWORETURNVALUES): one action, Run (B_ACTION_RUN 3), and no
+        # move choice (10).
+        replies = [bytes.fromhex(b["data"])[9] for b in blocks if b["kind"] == 8 and b["source"] == slots[forfeit]
+                   and len(bytes.fromhex(b["data"])) > 9 and bytes.fromhex(b["data"])[0] == 1
+                   and bytes.fromhex(b["data"])[8] == 32]
+        require(replies == [3], f"the forfeiting player's replies were not one Run: {replies}")
+        record("forfeit-by-run", player=forfeit, slot=slots[forfeit], battler=chosen["battler"],
+               seconds_after_enter=round(chosen["chosen"] - started, 1), winner_team=results[0]["outcome"])
     selected = [dict(owner=b["source"], slot=bytes.fromhex(b["data"])[9]) for b in blocks
                 if b["kind"] == 8 and len(bytes.fromhex(b["data"])) > 9 and bytes.fromhex(b["data"])[0] == 1
                 and bytes.fromhex(b["data"])[8] == 33]
@@ -1029,8 +1078,11 @@ async def launcher_proof(args, *, names, sources, party_counts, match, version, 
 
 
 async def run(args):
+    forfeit = None if args.forfeit is None else ("host", "friend").index(args.forfeit)
+    async def match(*values):
+        return await native_menu_match(*values, forfeit=forfeit)
     await launcher_proof(args, names=("Battle Host", "Battle Friend"), sources=(args.source_a, args.source_b),
-                         party_counts=tuple(args.party_counts), match=native_menu_match, version="Native 1v1 proof")
+                         party_counts=tuple(args.party_counts), match=match, version="Native 1v1 proof")
 
 
 def main():
@@ -1048,6 +1100,8 @@ def main():
     parser.add_argument("--sdl", type=Path, help="SDL2.dll for the Windows game")
     parser.add_argument("--elf", type=Path, help="the Linux build of the same engine commit (symbol sizes)")
     parser.add_argument("--party-counts", type=int, nargs=2, default=(2, 1), help="the sources' party sizes (host, friend)")
+    parser.add_argument("--forfeit", choices=("host", "friend"),
+                        help="that player chooses Run at their first action choice and must lose (MS-126)")
     asyncio.run(run(parser.parse_args()))
 
 
