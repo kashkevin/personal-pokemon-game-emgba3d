@@ -181,8 +181,33 @@ The original has no single-player version and no computer partners. Making them 
 
 Tested in real game processes of the Classic 2D Linux test build (5 players on an offline save; 2 on a save enrolled with a
 test world, which loaded again afterwards with one Berry fewer) and by `--selftest-minigame-partners`. Not on Windows, not
-in 3D, not in a real world with other players present. Still to build: Pokemon Jump and Dodrio Berry Picking with computer
-partners, then all three between the world's players.
+in 3D, not in a real world with other players present.
+
+**Built next: Pokemon Jump and Dodrio Berry Picking with computer partners** (2026-10-28, engine `6d9079d8`, PC only;
+KNOWN_ISSUES MS-141):
+
+* In Mossdeep City's minigame building, after the old man's welcome, the PC game says "You can play with computer
+  partners. Which game will it be?": POKEMON JUMP, DODRIO BERRY-PICKING or EXIT. Then, as the lobby asks, a Pokemon that
+  can play it ("Which POKEMON would you like to enter?") and how many players in all (Pokemon Jump 2 to 5, Dodrio Berry
+  Picking 3 to 5), and into the minigame room as after the wireless lobby. The partners are LADDIE, LASSIE, DUDE and MISS.
+* Pokemon Jump: each partner has a Pokemon that can play (Pikachu, Marill, Skitty, Spinda, Plusle, Minun, Azurill or
+  Wooper) and jumps once a swing, timed from the vine's speed so that it is in the air as the vine passes, give or take 3
+  frames (near its jump's top, so jumps together earn the bonuses). Now and then one jumps too late (never in a game's
+  first 10 jumps; 1 swing in 300 at the vine's slowest stage, up to 1 in 75 at its fastest) and the game ends, as when a
+  friend misses. Partners whose Pokemon jump slowly can also be caught when the vine is at its fastest, as a person
+  would.
+* Dodrio Berry Picking: each partner picks a Berry in reach of one of its Dodrio's heads after a person's reaction
+  (sometimes too slow for the fastest Berries) and leaves the columns it shares with the player's Dodrio to the player.
+* Both answer "yes" to playing again; the player's "no" ends the session for everyone ("Somebody dropped out. The link
+  will be canceled.", as the original says) and they walk out of the room. Everything else is the original game: the
+  player's game decides every jump, pick, score, bonus and prize (a Pokemon Jump score of 5,000 or more wins Berries, as
+  the original gives them) and saves as the original does.
+* Found and fixed on the way: Dodrio Berry Picking never started (the original takes a member's "ready" only when the
+  leader's own last command was a packet, and the leader sends none while it waits for everyone), and it closed at
+  every game's start natively (it set up its screen before allocating it: harmless on the GBA).
+
+Tested in real game processes of the Classic 2D Linux test build (TEST_LEDGER). Not on Windows, not in 3D, not in a real
+world with other players present. Still to build: all three games between the world's players.
 
 ### Parts of the request not done in this round
 
