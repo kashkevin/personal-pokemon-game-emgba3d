@@ -239,6 +239,51 @@ and after in the 3D test build (12 spots): the four seams level (a step along ea
 tunnel mouth and its stairs as before a level up, Route 118's ledges and its corner by Mauville; Route 118's lake plateau
 now stands two levels over the sea round it (one before: that water is the sea's to the renderer).
 
+## Mountains of several tops: Route 115's slope (engine `563c0f77`, 2026-10-28; MS-153)
+
+Route 115's muddy slope (28,8-9) lay flat. The mountain's step (`terrace_topology.py` `mountain_ledges`), which
+stands a mountain's walkable top a level over the ground its stairs climb from (Route 112's plateau, Route 111's),
+kept the whole layout's levels wherever stairs climb from one top to another, and Route 115's mountain has three tops:
+its plateau up two rows of stairs from the grass, a lower top a row of stairs under it, and the top the slope climbs
+to. Route 114's mountain (seven flights of stairs between seven tops) stayed flat the same way.
+
+The step now gives each region its level from the ground up, a level a climb: Route 115's plateau a level up, the
+lower top on the grass's level, the slope's top two levels up and the slope a ramp between them; Route 114's mountain
+five levels (0 to 4). A top beside walkable ground of another elevation (the game lets no one cross there) stands
+over it at its north edge or its side, where the game draws the top's edge (Route 114 at (12,36), Route 115 at
+(19,16)). Where the climbs give one region two levels, put a top under the ground, put a top's south edge on lower
+walkable ground with no face drawn for it, or make a step where the game lets one walk across (elevation 15, a
+bridge's), the layout keeps its levels: Route 119's mountain of two tops runs onto its bridge over the forest, and
+raised, the bridge's end rose with it, a step in the bridge, the trees beside it lifted onto pillars (pictured); it
+stays as it was.
+
+The rock: a mountain piece that meets a top two levels up or more stands on its lowest ground as one mass, each rock
+cell as high as the walkable ground nearest it asks (level with a path on the mountain's top, a level over other
+ground) or on a face down from a higher top, a level a cell (`rock_tops`); a pocket of a top no one walks into
+(blocked all round) lies where that rock does. In the renderer a taller rock cell rises from the lower one beside it
+as from ground, rounded (`gl_terrain_renderer.c` `RockMassFoot`; no mass had cells of two tops before, so no other
+map changes). Left cell by cell (Route 114's mountain touches its river, and a piece beside water kept its cells'
+levels), its rock stood with its foot a level over the rock beside it, nothing under it: the sky showed through in
+the first pictures.
+
+The GBA draws a face a tile a level and its stairs a row a tile: Route 115's stairs climb two rows to its plateau and
+one down to the lower top, Route 112's three rows, Route 111's slopes two. A level a row was tried and pictured: Route
+112's plateau three levels up and Route 111's two, but the forest beside Route 112's stairs then stood three levels
+up on its own, a teal wall under it; a level a climb keeps those two plateaus a level up, as they were (raising them
+is the owner's decision).
+
+Tests (L): the terrace solver's tests (20; changed: a second top up stairs from the first, a top beside other ground
+at its north edge or side and not at its south edge, Route 115's and Route 114's levels, Route 119 kept; new:
+`rock_tops` - a face three rows down from a top three levels up, a block of rock inside a top level with it, rock no
+ground reaches); the compiled rules' (30; new: Route 115's tops, slope, stairs and rock, Route 114's levels, Route 119
+kept, and no rock cell of Route 114's or Route 115's standing more than a voxel over the top of the rock beside it;
+the mountain rock taller than a block only on Routes 114 and 115). The compiled rules compared with engine
+`723d7506`'s: records change on Route 114 (1,204) and Route 115 (766) only; the map seams as before; the steps the
+mesh would leave open between cells (the sky showing) 115 in 8 layouts, the same as before, none on these routes.
+Pictured before and after in the 3D test build (12 spots): Route 115 from its plateau, its lower top, its top up the
+slope, its grass at the foot of the stairs and its south mountain; Route 114's mountain at four spots; Routes 111, 112
+and 119 the same as before (their pictures differing only where walkers moved, in sparkles and Route 111's sandstorm).
+
 ## Slopes and hills: where the next session starts (read from the map data, nothing changed)
 
 Each slope run, its foot and its top (scratchpad `slopes/classify.py`: the region at its top flood-filled without the
@@ -247,7 +292,7 @@ slope, the GBA's walking rules: one elevation or an "any level" cell, a ledge on
 | Slope | Top / foot in the 3D view | The region at its top | What it needs |
 | --- | --- | --- | --- |
 | Route 111 (2 runs, muddy) | 16 / 0 | 213 cells, reached only up the slope | nothing: already a ramp to its plateau |
-| Route 115 (28,8-9), muddy | 0 / 0 | 86 cells, only up the slope | the top region raised a level, the slope a ramp, its rock raised round it |
+| Route 115 (28,8-9), muddy | 0 / 0 | 86 cells, only up the slope | the top region raised a level, the slope a ramp, its rock raised round it: **done** (engine `563c0f77`, above) |
 | Granite Cave B1F (9,9-10), muddy | 0 / 0 | 135 cells, only up the slope | the same |
 | Safari Zone Southwest (8,2-3), muddy | 0 / 0 | 8 cells, then the map's north edge (the next Safari area) | a level across two maps: left flat |
 | Route 119 (6,54-55), muddy | -1 / -1 | reached another way (1,858 cells) | the level change sits a row north of it (the GBA's elevations 3 and 4 meet there): the slope stays a shortcut |
@@ -265,8 +310,10 @@ session's work. Route 113's and Route 123's ledges that landed higher are fixed 
 
 ## Not done
 
-* **The 37 flat slopes**: both ends of each lie on one level in the 3D view's terrace levels, so there is no height for
-  a slope to climb; the terrace solver (`tools/diorama_rules/terrace_topology.py`) has to split them first.
+* **The 35 flat slopes** (Route 115's 2 rise since its mountain's levels, above): both ends of each lie on one level
+  in the 3D view's terrace levels, so there is no height for a slope to climb; the terrace solver
+  (`tools/diorama_rules/terrace_topology.py`) has to split them first. Next: Granite Cave B1F's (a cave of one floor,
+  its halves joined only by the slope).
 * **Route 118's 6 ledges that land a level higher** than they are jumped from (MS-154): none of them can be jumped
   (rock behind each, by its lake's plateau). Its seams with Mauville City, Route 119 and Route 123 are level since
   MS-162 (above); four other land seams are still a level apart (Mauville City and Route 111, the Battle Frontier's

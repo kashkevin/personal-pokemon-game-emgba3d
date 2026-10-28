@@ -35,9 +35,10 @@ card, Windows, the owner's PCs, night, weather.
 | Caves, underwater | 96 | 96 (rock masses; Victory Road's floors dark until Flash, as in the game) | - | - | - |
 | Outdoor | 67 | 67, with the open issues below | - | - | - |
 
-Open issues that touch depth outdoors and in caves (each in `KNOWN_ISSUES.md`): 37 slopes that lie flat (MS-153),
-three map seams a level apart (MS-162: Mauville City and Route 111, the Battle Frontier's halves, the Safari Zone's
-two), 6 decorative ledges of Route 118's that land a level higher (MS-154).
+Open issues that touch depth outdoors and in caves (each in `KNOWN_ISSUES.md`): 37 slopes that lie flat (MS-153; Route
+115's 2 rise since engine `563c0f77`, later the same day), three map seams a level apart (MS-162: Mauville City and
+Route 111, the Battle Frontier's halves, the Safari Zone's two), 6 decorative ledges of Route 118's that land a level
+higher (MS-154).
 
 **Partly flat** means the walls stand and most of the room does, but some furniture is drawn on the floor; **flat**
 means the room's main features are. These 35 rooms are step 16's list. Most share a few tilesets (the Battle
