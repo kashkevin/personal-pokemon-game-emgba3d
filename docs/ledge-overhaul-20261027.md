@@ -204,6 +204,41 @@ in the audit): the stripes are gone on those jumped west, one very faint line le
 north and south, and the ground and tree shadows round them, as before. Every engine check target and
 `check-diorama`: all 60 passed (5 builds, the ROM unchanged, the 54 targets, `check-diorama`).
 
+## Where maps meet: Route 118 and Route 116 (engine `723d7506`, 2026-10-28; MS-162)
+
+Each layout's levels are solved alone, its top level 0, so a map whose top is its cliffs' tops lay under its
+neighbours: Route 118's route a level under Mauville City, Route 119 and Route 123, a step along each seam, and Route
+116 a level under Rustboro City. Counted from the compiled rules there were 23 such seams; 15 of them are the open sea
+on both sides, which the renderer lays at one level whatever the rules say (pictured level at Routes 104/105 and
+Slateport/Route 134), so 8 were real steps, all land.
+
+The rules compiler now solves every layout, then moves a map's ground to meet the next map's
+(`terrace_topology.py` `seam_shifts`, `compile_rules.py` `_seam_pairs`) and solves the layouts that move again. Ground
+moves in groups that keep their levels to each other: a terrace component; the components a walkable pair or a jump
+ledge joins; the ground round one mountain (Route 116's grass, its east plateau and the top of its mountain, whose
+stairs and boulders stand on it); water with its banks (Route 118's lake and its plateau), but not the sea the next maps
+share. A group moves only when every land cell pair it has with other ground, across the seams and in its own map,
+asks the same, and no ledge between it and other ground would then jump up. Ground no terrace reaches (a town) is
+where the others move to, and a group a mountain or water ties to it stays. Doorways of the game's "any level" take
+their level from the ground they are entered from afterwards (Rusturf Tunnel's mouth on Route 116's grass).
+
+Moved a level up: Route 118 and Route 116. Level now: Route 118 with Mauville City, Route 119 and Route 123, Route 116
+with Rustboro City. Route 118's ledges that landed higher than they are jumped from: 19 → 6 (13 face its sea, which now
+lies under the route, or are level banks; the 6 left stand by its lake's plateau, rock behind each, and none can be
+jumped). Still a level apart: Mauville City and Route 111 (the lake at Route 111's south end touches ground the
+terrace solver cannot level, so that end stays), the Battle Frontier's halves (the west walkway's terrace area also
+lies flat with the plaza north of it, which meets the east half at its own level: moving it would open a step across
+that plaza) and the Safari Zone's two.
+
+Tests (L): the terrace solver's tests (19, 4 new: a component's shift, the ground meeting the next map's, a move that
+would make a ledge jump up refused, the ground round a mountain moving together); the compiled rules' (a new test: the
+four seams level, no ledge of Route 118's jumping up between walkable cells; Route 116's mountain a level up, its
+tunnel mouth on the grass); the seams recounted from the compiled rules (land: 8 → 4, the sea's unchanged and leveled by
+the renderer); the compiled rules compared with the last build's: only Route 116 and Route 118 change. Pictured before
+and after in the 3D test build (12 spots): the four seams level (a step along each before), Route 116's mountain, its
+tunnel mouth and its stairs as before a level up, Route 118's ledges and its corner by Mauville; Route 118's lake plateau
+now stands two levels over the sea round it (one before: that water is the sea's to the renderer).
+
 ## Slopes and hills: where the next session starts (read from the map data, nothing changed)
 
 Each slope run, its foot and its top (scratchpad `slopes/classify.py`: the region at its top flood-filled without the
@@ -225,16 +260,16 @@ foot (`slopes/ledge_graph.py`), solve to a staircase of six levels from the Mt. 
 with 54 of the 76 asks contradicting at the small islands ringed by ledges (rows 9-11, 14-16, 22-33), where the GBA's art
 has no single height. A level solver for such a pass (ledges as "at least as high", the islands' contradictions
 resolved by the fewest steps), its rock walls raised with the terraces and the pictures checked spot by spot is the next
-session's work. Route 113's and Route 123's ledges that landed higher are fixed (above); Route 118's 19, which the
-player cannot jump, are left.
+session's work. Route 113's and Route 123's ledges that landed higher are fixed (above), and 13 of Route 118's 19; its
+6 left, which the player cannot jump, stand by its lake's plateau.
 
 ## Not done
 
 * **The 37 flat slopes**: both ends of each lie on one level in the 3D view's terrace levels, so there is no height for
   a slope to climb; the terrace solver (`tools/diorama_rules/terrace_topology.py`) has to split them first.
-* **Route 118's 19 ledges that land a level higher** than they are jumped from (MS-154): none of them can be jumped
-  (the cell behind each is blocked); 13 face its sea, which lies a level over its land in the terrace levels, 6 face
-  rock. Route 118's land also lies a level below Mauville City, Route 119 and Route 123 where it meets them (a step
-  at each seam, as before).
+* **Route 118's 6 ledges that land a level higher** than they are jumped from (MS-154): none of them can be jumped
+  (rock behind each, by its lake's plateau). Its seams with Mauville City, Route 119 and Route 123 are level since
+  MS-162 (above); four other land seams are still a level apart (Mauville City and Route 111, the Battle Frontier's
+  halves, the Safari Zone's two).
 * **The 48 ledges in modelled rooms** keep their rooms' models.
 * Not run: a graphics card, Windows, the owner's PCs.
