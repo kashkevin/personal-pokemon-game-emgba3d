@@ -319,6 +319,47 @@ Sootopolis Gym's 12 slides (`MB_SLIDE_SOUTH`, 6 runs on its two floors), counted
 the GBA's own drawing (Gym 1F pictured in the 2D build; one tile, 527, on both floors), and the 3D view draws the gym's
 rooms from that drawing (modelled rooms): no height to show, so they leave the count.
 
+## Plateaus at the game's heights: Routes 112 and 111 (engine `00c72acc`, 2026-10-29; MS-153)
+
+The GBA draws a cliff's face a tile a level and a staircase a row a tile: Route 112's stairs up to its plateau (the
+cable car station, the Fiery Path's mouth) are three rows long and Route 111's muddy slopes two, so in the game's art
+the plateaus stand three and two levels over the ground round them. The 3D view stood each a level up (a level a climb).
+The owner's decision of 2026-10-29, "Raise to the GBA heights": with `per_row`, `terrace_topology.py`
+`mountain_ledges` gives each region its level a row of each climb, and each climb's rows a level each (Route 112's
+stairs 0-1, 1-2, 2-3; Route 111's slopes 0-1, 1-2), for the layouts in `compile_rules.py` `GBA_HEIGHT_LAYOUTS`:
+Route 112's and Route 111's two layouts. What else that took:
+
+- **Route 112's forest.** West of the plateau a forest runs from the plateau's edge down to the grass with no face
+  between them in the game's drawing. Each blocked cell takes the level of the walkable cell nearest it
+  (`lift_blocked_cells`), so the forest's north part stood on the plateau's level (a raised block a level up before;
+  three levels up a wall of the trees' own sides). A group of trees between a raised top and lower ground now stays on
+  its ground (`_grounded_forests`: a quarter or more of its cells the classifier's tree hulls; not the mountain's own
+  cells or jump ledges; Route 114's rock edge east of its plateau, not trees, is lifted as before).
+- **The rock by the forest.** Level with the plateau, the mountain's edge by the grounded forest rose three levels in
+  its one row, and its face was the tree crowns the GBA draws over that rock, stretched down it in stripes. The rock
+  there now stands a level over the trees and climbs from them a level a cell, never above its top
+  (`_mountain_masses`, `forest`).
+- **No wall inside the rock.** `rock_tops` gives each rock cell the level its nearest walkable ground asks; Route
+  112's mountain, nearest the plateau's paths (three levels) on the south and the grass north of it (a level) beyond,
+  stood two levels over itself across its middle. A rock cell now rises to a level under any higher rock beside it.
+  The same rule takes away 31 such steps on Route 114 and 7 on Route 115 (their rock only).
+- **Route 115 left a level a climb.** At a level a row its tops stood four, two and one levels up and its rock two
+  levels over Route 114's across their seam: a see-through wall on Route 114 (pictured). So `per_row` is for Routes
+  112 and 111 only.
+
+Records change on Routes 111 (1,635 terrace entries in each of its two layouts), 112 (759), 114 (31 rock cells) and
+115 (7 rock cells) only; neither map's edges meet another map where their tops changed. Tests (L): the terrace solver's
+23 (a level a row on stairs and a slope; Route 112's plateau and stairs; Route 111's plateau, slopes and pockets; the
+rock row between a low and a high ask with no two-level step); the compiled rules' 35 (new: the grounded forest and
+what is not one; the rock by it climbing from it; Route 112's records: the plateau, the stairs, the rock down its face,
+by the station's paved ground, far north, by the forest); the other rules tools' tests; `check-diorama`; the rules
+parity test's known mismatches (heightQ16) 62,442 to 65,070, all on Route 111's two layouts; the ROM unchanged.
+Pictured before and after in the 3D test build: Route 112 from the forest by the plateau, the plateau, below its stairs
+and the mountain path by the station; Route 111 north and south; Route 115; Route 114 by Route 115's seam. Left: along
+the forest's north edge the rock's one-level face shows the crowns the GBA draws over that rock, stretched into
+stripes (the same as a mountain tree's cell elsewhere on a face; the renderer draws a rock cell's sides from its whole
+drawing).
+
 ## Slopes and hills: where the next session starts (read from the map data, nothing changed)
 
 Each slope run, its foot and its top (scratchpad `slopes/classify.py`: the region at its top flood-filled without the
