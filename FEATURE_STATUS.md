@@ -684,6 +684,14 @@ Recorded guidance the code no longer follows (not binding decisions):
 | Rooms in 3D against the depth standard (walls, counters, machines and furniture standing) | Audited 2026-10-28 (L, the 3D sweep's pictures): 179 rooms with a modelled interior and 65 of the 103 others meet it; 30 partly flat and 5 flat (furniture on the floor, MS-164: step 16's list); 3 not seen | `docs/3d-depth-audit-20261028.md` |
 | The 48 ledges in the four modelled rooms (Fortree Gym, Lavaridge Gym 1F and B1F, the Trick House's fourth puzzle) | Not changed: they keep their rooms' models | `docs/ledge-overhaul-20261027.md` |
 
+## Multiplayer stability (2026-10-28, `docs/stability-audit-20261028.md`)
+
+| Feature | Status | Evidence |
+| --- | --- | --- |
+| A battle between players survives a player's game held up a few seconds | Implemented and tested (L, two Linux games, a real host and launchers on one machine: a game stopped 10 s, 20 s into Rival Battle 1v1, and the battle went on to its end with app `ff3cafb`; with the old 5 s wait it stopped the battle, MS-165; a stop of 15 s or more still holds the battle for recovery). Not in the 2026-10-27 package; not on Windows or two PCs | `docs/stability-audit-20261028.md` section 3 |
+| A trade a player's launcher or game stalls in | Implemented and tested (L: a launcher frozen 8 s or a game stopped 15 s cancels the trade on both sides, nothing traded; a launcher frozen 30 s, past the host's 20 s, leaves Resolve interrupted trade, which verified the trade and the character opened again; the trade then made). Not on Windows or two PCs | `docs/stability-audit-20261028.md` section 2 |
+| Memory over long play, battles and trades | Implemented and tested (L: flat over long walks, 2D 75 minutes and 3D 44; over 6 rounds of battles and trades in one session each game flat and the host 2.8 MB a round, bounded by the 64 finished battles it keeps, not run to the bound) | `docs/stability-audit-20261028.md` section 1 |
+
 ## How to update
 
 1. Change a row only with new evidence: a recorded run (a doc in `docs/` or
