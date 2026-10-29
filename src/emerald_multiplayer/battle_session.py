@@ -10,9 +10,13 @@ import asyncio
 from dataclasses import asdict, dataclass
 import hashlib
 import json
+import os
 from pathlib import Path
 import stat
+import threading
+import time
 
+from .battle_execution_journal import FLUSH_SECONDS
 from .battle_execution_protocol import decode_control, encode_control, validate_execution_view
 from .battle_journal import BattleJournal, BattleJournalError, path_present, read_battle_intent
 from .battle_protocol import _view
@@ -116,15 +120,51 @@ class NativeBattleSession:
         self._terminal_authority = None
         self.bridge = getattr(companion, "_bridge", None)
         self.admission_intent = self.admission_receipt = None
+        # Step 10: the record's background flush (one at a time)
+        self._flush_lock = threading.Lock()
+        self._flushing = False
+        self._last_flush = time.monotonic()
 
     async def _execute(self, command, observer):
         return await execute_command(self.companion, command, observer)
 
-    def _persist(self, state="executing"):
+    def _persist(self, state="executing", sync=True):
+        """The client's record of its outstanding command. Step 10 (the owner's decision of 2026-10-29): before a
+        transport command it is written without an fsync (sync=False), as the host's journal records are, and made
+        durable in the background about every other turn or by the next synced write; a lifecycle command's record
+        and every state change are still fsynced."""
         _atomic(self.path, _json_bytes(dict(format="native-battle-client-execution-v1",
             state=state, intent=self.intent.value(), dispatch_id=self._dispatch_id,
             command_b64=encode_control(self._command),
-            response_b64=None if self._response is None else encode_control(self._response))))
+            response_b64=None if self._response is None else encode_control(self._response))), sync=sync)
+        if not sync:
+            self._flush_later()
+
+    def _flush_record(self):
+        """The record as it now is, and its directory, made durable (a thread of its own). On Windows a command's next
+        record replacing the file while it is open here waits that moment out (windows_files.replace_file)."""
+        try:
+            fd = os.open(self.path, os.O_RDWR | getattr(os, "O_BINARY", 0))
+            try:
+                os.fsync(fd)
+            finally:
+                os.close(fd)
+            _sync_directory(self.path.parent)
+        except OSError:
+            pass  # the battle ended and its record went away: nothing is left to keep
+        finally:
+            with self._flush_lock:
+                self._flushing = False
+
+    def _flush_later(self):
+        if time.monotonic() - self._last_flush < FLUSH_SECONDS:
+            return
+        with self._flush_lock:
+            if self._flushing:
+                return
+            self._flushing = True
+        self._last_flush = time.monotonic()
+        threading.Thread(target=self._flush_record, name="battle-record-flush", daemon=True).start()
 
     def _authorizes(self, control):
         """Companion-only mutation capability; a pending filename is no grant."""
@@ -349,7 +389,7 @@ class NativeBattleSession:
                     self._command, self._dispatch_id, self._response = command, dispatch_id, None
                     if observer is not None:
                         observer.holding(command)
-                    self._persist()
+                    self._persist(sync=command.opcode not in TRANSPORT)
                     response = await self._execute(command, observer)
                     self._response = response
                     if command.opcode not in TRANSPORT:

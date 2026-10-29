@@ -52,15 +52,19 @@ def _sync_directory(path: Path) -> None:
             os.close(descriptor)
 
 
-def _atomic(path: Path, payload: bytes) -> None:
+def _atomic(path: Path, payload: bytes, *, sync: bool = True) -> None:
+    """Replace `path` with `payload` in one step. With sync=False (step 10: a battle's per-command records) neither the
+    payload nor the directory is fsynced: a crash of the process keeps it (the system holds it), a power cut may not."""
     descriptor, temporary = tempfile.mkstemp(dir=path.parent, prefix=path.name + ".", suffix=".stage")
     try:
         with os.fdopen(descriptor, "wb") as target:
             target.write(payload)
             target.flush()
-            os.fsync(target.fileno())
+            if sync:
+                os.fsync(target.fileno())
         replace_file(temporary, path)
-        _sync_directory(path.parent)
+        if sync:
+            _sync_directory(path.parent)
     finally:
         with suppress(FileNotFoundError):
             Path(temporary).unlink()

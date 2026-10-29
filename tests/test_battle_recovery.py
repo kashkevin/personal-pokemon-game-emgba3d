@@ -618,6 +618,54 @@ class BattleRecoveryNetworkTests(unittest.IsolatedAsyncioTestCase):
         await self._interrupt(Opcode.RELEASE)
         await self._recover(2)
 
+    async def test_a_journal_behind_its_cores_after_a_power_cut_is_refused_not_resumed(self):
+        # Step 10 (2026-10-29): a transport command's record goes out before an fsync and is made durable in the
+        # background, so a power cut or a system crash can lose the newest records. The cores then stand past the
+        # journal: recovery must refuse (battle_order: the battle is abandoned with no result), never guess the lost
+        # commands, and run no gameplay command on any core.
+        from emerald_multiplayer.battle_execution_journal import _TRANSPORT
+        self.addCleanup(setattr, RetainedFixture, "IDLE_QUERIES", 0)
+        RetainedFixture.IDLE_QUERIES = 12
+        await self._interrupt(Opcode.READ_OUT)
+        journal = self.root/"execution"/(self.battle_id+".events.jsonl")
+        lines = journal.read_bytes().splitlines(keepends=True)
+        values = [json.loads(line)["value"] for line in lines]
+        # the READ_OUT the first core ran (its reply lost) and every record after it: not yet flushed when the power went
+        executed = max(i for i, v in enumerate(values) if v.get("kind") == "command"
+                       and v["actor"] == self.players[0].player_id
+                       and decode_control(v["control_b64"]).opcode == Opcode.READ_OUT)
+        for value in values[executed:]:
+            self.assertIn(value["kind"], ("command", "response", "observation"))
+            if value["kind"] != "observation":
+                self.assertIn(decode_control(value["control_b64"], response=value["kind"] == "response").opcode,
+                              _TRANSPORT)                       # only records the background flush covers
+        journal.write_bytes(b"".join(lines[:executed]))
+        before = {actor: len(model.calls) for actor, model in self.models.items()}
+
+        async def client(index):
+            response, ident, stage = None, 0, None
+            model = self.models[self.players[index].player_id]
+            while True:
+                request = dict(battle_id=self.battle_id, generation=self.generation, incarnation=100+index,
+                               response_id=ident if response else 0,
+                               response_b64=encode_control(response) if response else None,
+                               response_stage=stage if response else None)
+                result = await self.actors[index].rpc("battle_resume", **request)
+                if result.get("type") != "battle_result" or result["result"]["state"] in ("recovery_required", "closed"):
+                    return result
+                view = result["result"]
+                if view["command_b64"] is not None and (stage, ident) != (view["stage"], view["command_id"]):
+                    response = await model.rpc(decode_control(view["command_b64"]))
+                    ident, stage = view["command_id"], view["stage"]
+                await asyncio.sleep(.001)
+        async with asyncio.timeout(30):
+            results = await asyncio.gather(*(client(i) for i in range(2)))
+        room = self.server.battle_execution.recovery.rooms[self.battle_id]
+        self.assertEqual(getattr(room.error, "code", None), "battle_order", (results, room.error))
+        for actor, model in self.models.items():
+            run = {NativeControl.unpack(c.pack()).opcode if hasattr(c, "pack") else c.opcode for c in model.calls[before[actor]:]}
+            self.assertLessEqual(run, {Opcode.QUERY, Opcode.SUSPEND}, run)
+
     async def test_interrupted_at_a_deadline_keep_while_players_wait_replays_the_same_keep_decisions(self):
         # The router now sends KEEP only when a core's watchdog needs it (battle_execution
         # KEEP_BELOW_FRAMES). Interrupt four cores at the first such KEEP, after idle steps that

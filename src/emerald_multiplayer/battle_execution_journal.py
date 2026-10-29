@@ -12,6 +12,8 @@ import json
 import os
 from pathlib import Path
 import stat
+import threading
+import time
 
 from .battle_execution_protocol import decode_control, encode_control
 from .battle_journal import BattleJournalError
@@ -40,11 +42,19 @@ OBSERVED_FORMAT = "native-battle-route-events-v4"
 MANY_FORMAT = "native-battle-route-events-v5"
 DELIVER_FORMAT = "native-battle-route-events-v6"
 LEGACY_FORMATS = ("native-battle-route-events-v1", "native-battle-route-events-v2")
-# Records a later command's fsync makes durable with it (KNOWN_ISSUES MS-62: a battle has thousands of commands, and each
-# fsync is slow on a player's Windows PC). A command is published only after its own record is fsynced, and that
-# flushes every record before it; a transport reply or an observation is only ever acted on by publishing such a command.
+# Records written without their own fsync (KNOWN_ISSUES MS-62: a battle has thousands of commands, and each fsync is slow
+# on a player's Windows PC). Step 10 (the owner's decision of 2026-10-29: "do every other turn but do it as a background
+# save, don't make players wait"): a transport command's record no longer waits for its fsync either. It is written
+# before the command goes out, so a crash of a game, a launcher or the host itself loses nothing (the system holds what
+# was written), and it is made durable in the background (FLUSH_SECONDS, flush()) or by the next lifecycle command's own
+# fsync (BIND, RELEASE, ...: still fsynced before they go out, with every record before them). Only a power cut or a
+# system crash can lose the newest records; recovery then finds a core past its journal and refuses (battle_order):
+# the battle is abandoned with no result, as the owner accepted.
 _TRANSPORT = frozenset((Opcode.QUERY, Opcode.PEEK, Opcode.READ_OUT, Opcode.RECEIVE, Opcode.RECEIVE_MANY, Opcode.DELIVER,
                         Opcode.ACK_OUT, Opcode.KEEP))
+# The background flush's interval while records wait for it: about every other turn (a turn between players takes several
+# seconds of commands); it never holds a command back.
+FLUSH_SECONDS = 10.0
 MAX_LINE = 16384
 MAX_BYTES = 256 * 1024 * 1024
 MAX_EVENTS = 500000
@@ -71,6 +81,11 @@ class RouteJournal:
         self.renewal_digest = None
         # Every response and observation in journal order (observed router: what recovery replays it with).
         self.routed = []
+        # Step 10: how many records an fsync has made durable, and the background flush (one at a time)
+        self._synced = 0
+        self._flush_lock = threading.Lock()
+        self._flushing = False
+        self._last_flush = time.monotonic()
         format = FORMAT if format is None else format
         if format not in (FORMAT, OBSERVED_FORMAT, MANY_FORMAT, DELIVER_FORMAT):
             raise ValueError("a new route journal takes a current format")
@@ -134,6 +149,9 @@ class RouteJournal:
         self._content_digest.update(raw)
         self.events.append(value)
         self.digest, self.size = digest, self.size + len(raw)
+        if sync:
+            with self._flush_lock:
+                self._synced = len(self.events)
 
     def _load(self):
         if not stat.S_ISREG(self.path.lstat().st_mode):
@@ -337,7 +355,45 @@ class RouteJournal:
 
     def append(self, kind, actor, dispatch_id, control):
         self._append(dict(kind=kind, actor=actor, dispatch_id=dispatch_id, control_b64=encode_control(control)),
-                     sync=kind != "response" or control.opcode not in _TRANSPORT)
+                     sync=control.opcode not in _TRANSPORT)
+
+    @property
+    def unsynced(self):
+        """Records written that no fsync has made durable yet (step 10)."""
+        return self._synced < len(self.events)
+
+    def flush(self):
+        """Make every record written so far durable (step 10): the background flush's work, also usable directly."""
+        upto = len(self.events)
+        flags = os.O_RDWR | os.O_APPEND | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
+        fd = os.open(self.path, flags)
+        try:
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+        with self._flush_lock:
+            self._synced = max(self._synced, upto)
+
+    def _flush_in_background(self):
+        try:
+            self.flush()
+        except OSError:
+            pass  # the battle's files went away (closed and cleaned up): nothing is left to keep
+        finally:
+            with self._flush_lock:
+                self._flushing = False
+
+    def _flush_later(self):
+        """After a record written without its fsync: a background flush once FLUSH_SECONDS have passed since the last
+        one, in a thread of its own, so the command it follows goes out at once."""
+        if not self.unsynced or time.monotonic() - self._last_flush < FLUSH_SECONDS:
+            return
+        with self._flush_lock:
+            if self._flushing:
+                return
+            self._flushing = True
+        self._last_flush = time.monotonic()
+        threading.Thread(target=self._flush_in_background, name="battle-journal-flush", daemon=True).start()
 
     def renew(self, epoch, leases, proofs):
         self._append(dict(kind="renewal", epoch=epoch, leases=list(leases), proofs=proofs))
@@ -399,3 +455,5 @@ class RouteJournal:
         self._validate_event(value, apply=True)
         if value["kind"] == "renewal":
             self.renewal_digest = self.digest
+        if not sync:
+            self._flush_later()
