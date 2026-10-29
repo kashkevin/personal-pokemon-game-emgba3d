@@ -33,19 +33,23 @@ TRANSPORT = frozenset((Opcode.QUERY, Opcode.PEEK, Opcode.READ_OUT, Opcode.RECEIV
 # A RECEIVE the core refuses as busy (it has not taken the previous block from that trainer yet) is tried again here,
 # each frame for up to this long, before its answer goes to the host (a round trip over the network each time).
 BUSY_RETRY_SECONDS = .5
+# How long the game has to answer a host command before the battle is held for recovery (KNOWN_ISSUES MS-165): a game
+# that stops for a few seconds (a hitch on the player's PC) answers when it runs again, and the host's route waits 20 s
+# for each answer. With the companion's own 5 s, a game stopped 15 s stopped the battle for both players.
+GAME_ANSWER_SECONDS = 15
 
 
 async def execute_command(companion, command, observer=None):
     """Run one host command on the core (under the observer's lock: no PEEK interleaves)."""
     async def run():
-        response = await companion.battle_rpc(command)
+        response = await companion.battle_rpc(command, timeout=GAME_ANSWER_SECONDS)
         response.validate_response(command)
         if command.opcode in (Opcode.RECEIVE, Opcode.RECEIVE_MANY, Opcode.DELIVER) and response.status == Status.BUSY:
             loop = asyncio.get_running_loop()
             until = loop.time() + BUSY_RETRY_SECONDS
             while response.status == Status.BUSY and loop.time() < until:
                 await asyncio.sleep(.008)
-                response = await companion.battle_rpc(command)
+                response = await companion.battle_rpc(command, timeout=GAME_ANSWER_SECONDS)
                 response.validate_response(command)
         return response
     if observer is None:

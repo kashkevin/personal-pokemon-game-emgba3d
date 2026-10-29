@@ -45,9 +45,13 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
+import os
 from pathlib import Path
+import signal
 import sys
 import time
+import tracemalloc
 
 ROOT = Path(__file__).resolve().parents[2]
 for _path in (ROOT / "src", ROOT / "scripts" / "multiplayer", ROOT / "scripts" / "windows-runtime"):
@@ -238,15 +242,28 @@ class NewcomersProof(SoftResetProof, ThreePlayerProof):
         await self.accept(probes, invited)
         return await self.play(current, probes, symbols, record, slots, fmt, label)
 
-    async def play(self, current, probes, symbols, record, slots, fmt, label, meanwhile=None):
+    async def play(self, current, probes, symbols, record, slots, fmt, label, meanwhile=None, freeze=None):
         """Enter, drive and finish the accepted battle of `slots`; `meanwhile` (a task of the others') ends before
-        everyone's PLAYERS is looked at."""
+        everyone's PLAYERS is looked at; `freeze` (--freeze ...:battle) runs FREEZE_INTO_BATTLE seconds into it."""
         before = {n: await probes[n].battle() for n in slots}
         battles = await self.enter(current, probes, slots, record, label)
         modes = [v["mode"] for v in battles.values()]
         require(modes == [MODES[fmt]], f"{label}: started {modes}, expected the {fmt} ({MODES[fmt]})")
         stops, drivers = self.drive(current, probes, symbols, battles, slots)
-        results = await self.finish(current, probes, battles, slots, stops, drivers, record, label)
+        freezing = None
+        if freeze is not None:
+            async def later():
+                await asyncio.sleep(FREEZE_INTO_BATTLE)
+                await freeze()
+            freezing = asyncio.create_task(later())
+        try:
+            results = await self.finish(current, probes, battles, slots, stops, drivers, record, label)
+        finally:
+            if freezing is not None:
+                if not freezing.done():
+                    record("battle-ended-before-the-freeze", label=label)
+                    freezing.cancel()
+                await asyncio.gather(freezing, return_exceptions=True)
 
         async def route(s):
             # KNOWN_ISSUES MS-62: the native commands each battle's route issued, the trainers' polls that carried them,
@@ -314,9 +331,12 @@ class NewcomersProof(SoftResetProof, ThreePlayerProof):
         record(label, sessions=[v["epoch"] for v in states], same_parties=[self.harness.names[n] for n in before])
 
     # Trades and resets --------------------------------------------------------------------------------------------
-    async def trade_between(self, current, probes, record, offerer, answerer, while_open=None):
+    async def trade_between(self, current, probes, record, offerer, answerer, while_open=None, freeze=None):
         """The offerer offers the answerer a trade from PLAYERS; `while_open` runs while the offer waits; the answerer
-        picks its Pokemon from Pending trade; both confirm; the host applies it (each save two revisions on)."""
+        picks its Pokemon from Pending trade; both confirm; the host applies it (each save two revisions on):
+        "applied". `freeze` (--freeze ...:trade) runs once the first player confirmed; a trade it ends, aborted on
+        both sides with nothing left open, is "cancelled"; one that leaves a player's launcher without the host,
+        holding the trade (`self.interrupted`), is "interrupted"."""
         host = self.harness.host
         pair = (offerer, answerer)
         before = {n: (await self.launcher(current[n]))["revision"] for n in pair}
@@ -349,6 +369,7 @@ class NewcomersProof(SoftResetProof, ThreePlayerProof):
                window_seconds={self.harness.names[n]: prepared[n] for n in pair})
         started, confirmed = time.monotonic(), set()
         mashers = {}
+        freezing, calm = None, 0
         try:
             while True:
                 launchers = {n: await self.launcher(current[n]) for n in pair}
@@ -366,15 +387,41 @@ class NewcomersProof(SoftResetProof, ThreePlayerProof):
                                    seconds=round(time.monotonic() - started, 1))
                             if MASH[0]:
                                 mashers[n] = asyncio.create_task(self.mash(probes[n]))
+                            if freeze is not None and freezing is None:
+                                freezing = asyncio.create_task(freeze())
                 elapsed = round(time.monotonic() - started)
                 if all(v.get("interaction") is None and v.get("trade") is None and v.get("revision") == before[n] + 2
                        for n, v in launchers.items()):
                     record("trade-applied", seconds=elapsed,
                            revisions={self.harness.names[n]: [before[n], launchers[n]["revision"]] for n in pair})
-                    return
+                    return "applied"
+                # After a freeze: a launcher the host dropped meanwhile holds the trade until the player resolves it
+                # (launcher_gui.py host_loss_trade_waiting), once nothing is open for the others.
+                lost = [n for n, v in launchers.items() if v.get("code") == "host_loss_trade_waiting"]
+                if (freezing is not None and freezing.done() and lost
+                        and all(v.get("trade") is None for n, v in launchers.items() if n not in lost)):
+                    record("trade-interrupted", players=[self.harness.names[n] for n in lost],
+                           launchers={self.harness.names[n]: dict(code=v.get("code"), revision=v.get("revision"),
+                                                                  connected=v.get("connected"))
+                                      for n, v in launchers.items()})
+                    self.interrupted = lost
+                    return "interrupted"
+                # After a freeze: the trade aborted on both sides (each save one revision on, its abort recorded:
+                # launcher_session.py), nothing left open, for 3 s on end.
+                ended = (freezing is not None and freezing.done()
+                         and all(v.get("interaction") is None and v.get("trade") is None
+                                 and v.get("code") == "trade_cancelled" and v.get("revision") == before[n] + 1
+                                 for n, v in launchers.items()))
+                calm = calm + 1 if ended else 0
+                if calm >= 3:
+                    record("trade-cancelled", seconds=elapsed, launchers={self.harness.names[n]: dict(
+                        revision=launchers[n].get("revision"), notice=launchers[n].get("notice")) for n in pair})
+                    return "cancelled"
                 require(elapsed < self.watch, f"the trade did not finish: {launchers}")
                 await asyncio.sleep(1)
         finally:
+            if freezing is not None:
+                await asyncio.gather(freezing, return_exceptions=True)
             for n, task in mashers.items():
                 task.cancel()
                 await asyncio.gather(task, return_exceptions=True)
@@ -563,6 +610,17 @@ class NewcomersProof(SoftResetProof, ThreePlayerProof):
     # The scenarios ------------------------------------------------------------------------------------------------
     async def _match(self, current, probes, games, host, symbols, record):
         self.t0 = time.monotonic()
+        self.current, self.games = current, games
+        sampler = asyncio.create_task(self.sample_memory(games, SAMPLE[0])) if SAMPLE[0] else None
+        try:
+            return await self._scenario(current, probes, games, host, symbols, record)
+        finally:
+            if sampler is not None:
+                sampler.cancel()
+                await asyncio.gather(sampler, return_exceptions=True)
+                self.memory_sampled(record)
+
+    async def _scenario(self, current, probes, games, host, symbols, record):
         host_player = None
         if REMOTE_ONLY[0]:
             async def player(s):
@@ -622,26 +680,141 @@ class NewcomersProof(SoftResetProof, ThreePlayerProof):
     async def trade_back_and_forth(self, current, probes, record, symbols=None):
         """The owner's report (2026-10-23, "trading is also broken"): two new characters claim their starters (with
         --no-save nobody saves: each new Pokemon is saved on the host by itself), trade them, and trade back.
-        With `symbols` (--scenario battle-trade) they first fight the Players menu's rival 1v1, as the owner did."""
+        With `symbols` (--scenario battle-trade) they first fight the Players menu's rival 1v1, as the owner did.
+        With --rounds all of it that many times over in one session (the stability audit's long session through the
+        host); --freeze freezes a player's launcher session or game in one round's first trade or battle (`freeze`):
+        a trade the freeze ends is applied on both sides or on neither, then made again."""
         before = [(await self.launcher(w))["revision"] for w in current]
         await self.claims((0, 1), current, probes, record)
         if self.no_save:
             canonical = await self.auto_saved(current, record, "auto-saved-with-the-starters", before)
         else:
             canonical = await self.save_all(current, record, "saved-with-the-starters")
-        if symbols is not None:
-            await self.challenge_1v1(self.harness.host, probes, 0, 1)
-            await self.play(current, probes, symbols, record, (0, 1), "1v1", "rival-1v1")
-            canonical = await self.heads(current, self.harness.host)
-        serials = [c["serials"] for c in canonical]
-        for offerer, answerer, label in ((0, 1, "traded"), (1, 0, "traded-back")):
-            await self.trade_between(current, probes, record, offerer, answerer)
-            for n in (0, 1):
-                await self.on_field(current[n])
-            heads = await self.heads(current, self.harness.host)
-            record(label, canonical=heads, games=[p.party_now() for p in probes])
-            expected = [serials[1], serials[0]] if label == "traded" else serials
-            require([h["serials"] for h in heads] == expected, f"{label}: the host's saves hold {heads}, not {expected}")
+        for round_ in range(1, ROUNDS[0] + 1):
+            suffix = "" if ROUNDS[0] == 1 else f"-{round_}"
+            if symbols is not None:
+                await self.challenge_1v1(self.harness.host, probes, 0, 1)
+                await self.play(current, probes, symbols, record, (0, 1), "1v1", "rival-1v1" + suffix,
+                                freeze=self.freeze_for("battle", round_, record))
+                if round_ == 1:
+                    canonical = await self.heads(current, self.harness.host)
+            if round_ == 1:
+                serials = [c["serials"] for c in canonical]
+            for offerer, answerer, label in ((0, 1, "traded"), (1, 0, "traded-back")):
+                freeze = self.freeze_for("trade", round_, record) if label == "traded" else None
+                expected = [serials[1], serials[0]] if label == "traded" else serials
+                while True:
+                    outcome = await self.trade_between(current, probes, record, offerer, answerer, freeze=freeze)
+                    if outcome == "interrupted":
+                        for n in self.interrupted:
+                            await self.resolve_interrupted_trade(n, current, probes, record)
+                    for n in (0, 1):
+                        await self.on_field(current[n])
+                    heads = await self.heads(current, self.harness.host)
+                    if outcome == "applied":
+                        break
+                    # Ended by the freeze (cancelled, or resolved after the host dropped a player): nothing traded on
+                    # either side; made again.
+                    record("trade-not-made" + suffix, canonical=heads, games=[p.party_now() for p in probes])
+                    unchanged = [expected[1], expected[0]]
+                    require([h["serials"] for h in heads] == unchanged,
+                            f"a trade ended by the freeze changed the host's saves: {heads}, not {unchanged}")
+                    freeze = None
+                record(label + suffix, canonical=heads, games=[p.party_now() for p in probes])
+                require([h["serials"] for h in heads] == expected, f"{label}: the host's saves hold {heads}, not {expected}")
+
+    async def resolve_interrupted_trade(self, n, current, probes, record):
+        """What the launcher tells a player whose trade lost the host (launcher_gui.py host_loss_trade_waiting):
+        Resolve interrupted trade (the launcher verifies the trade's fate and the saved bytes: trade_recovery_close),
+        then close the game normally and open the same character again (its recovery runs before Continue)."""
+        name = self.harness.names[n]
+        worker = current[n]
+        async with asyncio.timeout(120):
+            while not worker.request_trade_recovery():
+                await asyncio.sleep(1)
+        record("resolve-interrupted-trade", player=name)
+        async with asyncio.timeout(240):
+            while (code := (await self.launcher(worker)).get("code")) not in ("trade_recovery_close",
+                                                                               "trade_recovery_held"):
+                await asyncio.sleep(1)
+        record("trade-recovery", player=name, code=code)
+        require(code == "trade_recovery_close", f"{name}: the interrupted trade was not verified ({code})")
+        await self.rejoin(n, current, probes, self.games, record)
+
+    def freeze_for(self, step, round_, record):
+        """The --freeze of this round's `step` (trade, battle) as a coroutine function, or None."""
+        for kind, slot, when, seconds, at in FREEZES:
+            if when == step and at == round_:
+                async def freeze():
+                    await self.freeze(kind, slot, seconds, record, f"{step}, round {round_}")
+                return freeze
+        return None
+
+    async def freeze(self, kind, slot, seconds, record, where):
+        """A player's launcher session frozen (worker: its event loop runs nothing for `seconds`, so its companion
+        neither reads nor writes, to the host or to its game, as when the launcher stalls) or its game stopped
+        (game: SIGSTOP, then SIGCONT: the game process stalls)."""
+        name = self.harness.names[slot]
+        started = time.monotonic()
+        record("frozen", kind=kind, player=name, seconds=seconds, where=where, at=round(started - self.t0, 1))
+        if kind == "worker":
+            loop = self.current[slot]._loop
+            require(loop is not None, f"{name}'s worker has no event loop to freeze")
+            loop.call_soon_threadsafe(time.sleep, seconds)
+            await asyncio.sleep(seconds)
+        else:
+            pid = self.games[slot].process.pid
+            os.kill(pid, signal.SIGSTOP)
+            try:
+                await asyncio.sleep(seconds)
+            finally:
+                os.kill(pid, signal.SIGCONT)
+        record("thawed", kind=kind, player=name, seconds=round(time.monotonic() - started, 1), where=where)
+
+    async def sample_memory(self, games, every):
+        """--sample-every: each game's memory (resident, anonymous: its own), threads and open files, and this
+        process's (the host and every launcher session), to samples.jsonl."""
+        def status(pid):
+            out = dict(pid=pid)
+            try:
+                for line in Path(f"/proc/{pid}/status").read_text().splitlines():
+                    name, _, value = line.partition(":")
+                    if name in ("VmRSS", "RssAnon", "RssFile", "Threads"):
+                        out[name] = int(value.split()[0])
+                out["files"] = len(os.listdir(f"/proc/{pid}/fd"))
+            except OSError:
+                out["gone"] = True
+            return out
+        self.memory_samples = []
+        path = self.harness.output / "samples.jsonl"
+        if TRACE[0]:
+            tracemalloc.start(1)
+        while True:
+            row = dict(t=round(time.monotonic() - self.t0, 1), games=[status(g.process.pid) for g in games],
+                       proof=dict(status(os.getpid()), tasks=len(asyncio.all_tasks())))
+            if TRACE[0]:
+                # --trace-memory: where this process's Python memory is, by allocating line (the largest 40)
+                top = tracemalloc.take_snapshot().statistics("lineno")[:40]
+                row["traced"] = [[str(stat.traceback[0]), stat.size // 1024, stat.count] for stat in top]
+            self.memory_samples.append(row)
+            with path.open("a") as out:
+                out.write(json.dumps(row) + "\n")
+            await asyncio.sleep(every)
+
+    def memory_sampled(self, record):
+        """The samples' first, last, lowest and highest of each process, in the evidence."""
+        rows = getattr(self, "memory_samples", [])
+        if not rows:
+            return
+        def span(values):
+            values = [v for v in values if v is not None]
+            return dict(first=values[0], last=values[-1], low=min(values), high=max(values)) if values else None
+        summary = {}
+        for key in ("VmRSS", "RssAnon", "Threads", "files"):
+            summary[key] = dict(games=[span([r["games"][n].get(key) for r in rows]) for n in range(len(rows[0]["games"]))],
+                                proof=span([r["proof"].get(key) for r in rows]))
+        summary["tasks"] = span([r["proof"]["tasks"] for r in rows])
+        record("memory-over-the-session", samples=len(rows), seconds=rows[-1]["t"] - rows[0]["t"], **summary)
 
     async def cut_and_rejoin(self, n, current, probes, games, record):
         """The player's world connection is cut (a cable pulled); its launcher fences the link and keeps the save; it
@@ -745,6 +918,8 @@ class NewcomersProof(SoftResetProof, ThreePlayerProof):
 LATENCY_MS, HOLD, DISK_MS, REMOTE_ONLY, LATENCY_ALL, WALK, MASH = [0], [True], [0], [False], [False], [0.0], [False]
 ROUGH = [(0.0, 0.0, 0.0)]   # --jitter-ms, --stall-every, --stall-ms (proof_network.RoughLink)
 STRAY = [False]
+ROUNDS, SAMPLE, FREEZES, TRACE = [1], [0.0], [], [False]
+FREEZE_INTO_BATTLE = 20          # seconds into a battle that --freeze ...:battle starts
 # live_trade.CALM_OPCODES (QUERY_OWNERSHIP, GRANT_OWNERSHIP, BEGIN_TRADE_EXPORT), spelled out to run on older apps too.
 CALM_OPCODES = frozenset({10, 11, 12})
 
@@ -754,6 +929,21 @@ async def run(args):
     LATENCY_ALL[0], WALK[0], MASH[0] = args.latency_all, args.walk_while_preparing, args.mash_after_confirm
     STRAY[0] = args.stray_presses
     ROUGH[0] = (args.jitter_ms, args.stall_every, args.stall_ms)
+    ROUNDS[0], SAMPLE[0], TRACE[0] = args.rounds, args.sample_every, args.trace_memory
+    for spec in args.freeze:
+        parts = spec.split(":")
+        require(len(parts) in (4, 5) and parts[0] in ("worker", "game") and parts[2] in ("trade", "battle"),
+                f"--freeze {spec}: KIND:PLAYER:STEP:SECONDS[:ROUND], KIND worker or game, STEP trade or battle")
+        FREEZES.append((parts[0], int(parts[1]), parts[2], float(parts[3]), int(parts[4]) if len(parts) == 5 else 1))
+    require(args.rounds >= 1 and (args.rounds == 1 or args.scenario in ("trade", "battle-trade")),
+            "--rounds: the trade and battle-trade scenarios")
+    require(not args.freeze or args.scenario in ("trade", "battle-trade"), "--freeze: the trade and battle-trade scenarios")
+    require(not (args.freeze or args.sample_every) or not WINDOWS, "--freeze and --sample-every: Linux games only")
+    require(not args.trace_memory or args.sample_every, "--trace-memory: with --sample-every")
+    if args.game_answer_seconds is not None:
+        # The launchers run in this process: their battle sessions read it at each command (KNOWN_ISSUES MS-165).
+        from emerald_multiplayer import battle_session
+        battle_session.GAME_ANSWER_SECONDS = args.game_answer_seconds
     count = len(args.source)
     require(2 <= count <= 4, "two to four sources (short-introduction saves)")
     require(args.scenario == "lobby" or count == 4 or (args.scenario in ("trade", "battle-trade") and count == 2),
@@ -815,6 +1005,22 @@ def main():
                         help="trade: the offerer walks that long once its Players menu closed for the trade")
     parser.add_argument("--light-3d", action="store_true",
                         help="--game is the 3D build (native UI): the light 3D settings of the 3D battle proof")
+    parser.add_argument("--rounds", type=int, default=1,
+                        help="trade, battle-trade: the battle (battle-trade) and both trades this many times over in one "
+                             "session")
+    parser.add_argument("--sample-every", type=float, default=0, metavar="SECONDS",
+                        help="Linux: each game's and this process's memory, threads and open files to samples.jsonl "
+                             "this often")
+    parser.add_argument("--game-answer-seconds", type=float, default=None,
+                        help="how long a launcher waits for its game's answer to a battle command "
+                             "(battle_session.GAME_ANSWER_SECONDS; 5 was the companion's own before KNOWN_ISSUES MS-165)")
+    parser.add_argument("--trace-memory", action="store_true",
+                        help="with --sample-every: this process's Python memory by allocating line in each sample "
+                             "(tracemalloc; slows the process)")
+    parser.add_argument("--freeze", action="append", default=[], metavar="KIND:PLAYER:STEP:SECONDS[:ROUND]",
+                        help="trade, battle-trade (Linux): freeze a player's launcher session (worker) or its game "
+                             "(game: SIGSTOP) for SECONDS, in ROUND's (1 by default) first trade once a player "
+                             "confirmed (trade) or 20 s into its battle (battle)")
     args = parser.parse_args()
     if args.format is None:
         args.format = "2v2" if args.scenario == "mixed" else "1v1v1v1"

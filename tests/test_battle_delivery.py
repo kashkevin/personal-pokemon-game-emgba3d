@@ -141,7 +141,7 @@ class ScriptFixture(NativeFixture):
             2 if restored and not self.released else 0)
 
     # ---- the mailbox
-    async def rpc(self, command):
+    async def rpc(self, command, **_):
         self.frame()
         if command.opcode not in (Opcode.RECEIVE, Opcode.RECEIVE_MANY, Opcode.DELIVER):
             return await super().rpc(command)

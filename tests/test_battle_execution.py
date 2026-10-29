@@ -82,7 +82,7 @@ class NativeFixture:
             self.battle.roster[self.slot].revision if self.prepared and not self.released else 0,
             2 if restored and not self.released else 0)
 
-    async def rpc(self, command):
+    async def rpc(self, command, **_):
         command.validate_command()
         if command.opcode == Opcode.PEEK:
             # KNOWN_ISSUES MS-62: QUERY plus the outbound block's bytes while it fits one chunk and is unread; a launcher
@@ -284,7 +284,7 @@ class BattleExecutionNetworkTests(unittest.IsolatedAsyncioTestCase):
                         raise TimeoutError      # the host's reply came after the companion's own timeout
                     return reply
                 session = NativeBattleSession(c, self.root / ("client-" + str(index)))
-                async def native(command):
+                async def native(command, **_):
                     if command.opcode not in (Opcode.QUERY, Opcode.PEEK):
                         self.assertTrue(session._authorizes(command))
                     reply = await model.rpc(command)

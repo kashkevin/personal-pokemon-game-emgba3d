@@ -354,7 +354,7 @@ class RetainedFixture(execution_fixture.NativeFixture):
         state = 1 if self.released else 9 if self.suspended else 5 if self.started else 4 if self.prepared else 2
         return self.query()+struct.pack("<II", state | 256 | self.previous << 16, self.resume_epoch)+self.token
 
-    async def rpc(self, command):
+    async def rpc(self, command, **_):
         if command.opcode == Opcode.PEEK:   # an observation changes nothing (KNOWN_ISSUES MS-62)
             return await execution_fixture.NativeFixture.rpc(self, command)
         self.calls.append(command)
