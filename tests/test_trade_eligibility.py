@@ -80,16 +80,20 @@ class TradeEligibilityTests(unittest.TestCase):
         self.assertEqual(validate_party_offer(offer_flash(held_item=198), 1).held_item, 198)
         self.assertEqual(validate_party_offer(offer_flash(held_item=211), 1).held_item, 211)
 
-    def test_all_pinned_trade_evolution_species_including_forms_are_refused(self):
-        # Independent audited table, including every item/counterpart case and
-        # native form ID. Reject even when conditions presently do not match.
+    def test_trade_evolution_species_are_offered_like_any_other(self):
+        # KNOWN_ISSUES MS-151: the exchange stays exact and the receiving game
+        # evolves its new Pokemon itself. Independent audited table; the forms
+        # (968, 1157-1159) stay outside the standard range.
         species = (61,64,67,75,79,93,95,112,117,123,125,126,137,233,349,
-                   356,366,525,533,588,616,682,684,708,710,968,1157,1158,1159)
+                   356,366,525,533,588,616,682,684,708,710)
         for value in species:
-            for held_item in (0, 245):  # No held item and Everstone.
+            for held_item in (0, 245, 441):  # No held item, Everstone, Metal Coat.
                 with self.subTest(species=value, held_item=held_item):
-                    self.assert_code("trade_evolution_unsupported",
-                        offer_flash(species=value, held_item=held_item))
+                    result = validate_party_offer(offer_flash(species=value, held_item=held_item), 1)
+                    self.assertEqual((result.species, result.held_item), (value, held_item))
+        for value in (968, 1157, 1158, 1159):
+            with self.subTest(species=value):
+                self.assert_code("species_unsupported", offer_flash(species=value))
 
     def test_nonstandard_namespace_is_an_explicit_temporary_capability_limit(self):
         for species in (722, 871, 1104, 1105, 1487, 1572):

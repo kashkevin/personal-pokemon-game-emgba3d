@@ -1,5 +1,7 @@
 # Native trade eligibility boundary
 
+**Update 2026-10-29 (KNOWN_ISSUES MS-151):** the species that evolve by trade are no longer refused. The exchange stays exactly the record exchange described here; the receiving game evolves the Pokémon it received by itself once the trade's save is loaded (engine `62154337`, `src/platform/mp_trade_evolution.c`: the native `EVO_MODE_TRADE` rule with the given-away Pokémon as its partner, the evolution scene, the held item it needs used up, the Everstone and its Kadabra exception), and its next checkpoint carries the evolution as any evolution. The four forms with a trade evolution stay outside the standard range below. The sections that follow describe the gate as it was audited; where they say the trade-evolution species are rejected, read this update.
+
 The new `trade_eligibility.py` gate accepts only a simple, owned party-record exchange for development. `TradeDesk.offer()` applies it before changing an offer or its confirmations; `TradeDesk.confirm()` rechecks both complete current checkpoints before recording either actor's consent. The low-level `trade_flash.py` and schema-3 history/recovery remain unchanged. Trading is still disabled by default and has no player-facing offer UI. Passing this gate does not mean the complete native trade mechanics are implemented.
 
 ## Exact source audit
@@ -9,7 +11,7 @@ The inspected engine is trade-hold source `b2cdd466abb8b142c3b75384133b5e6b3c3b9
 | Native seam | Actual behavior | Current exact exchange |
 | --- | --- | --- |
 | `src/trade.c:3096` `TradeMons` | Exchanges whole party records, resets received non-egg friendship to 70, clears outgoing mail, installs incoming mail through the recipient's mail array, and updates received Pokémon's Pokédex records. | Exchanges the offered 100-byte records only. Friendship is preserved; recipient mail/Pokédex effects are absent. |
-| `src/trade.c:4428` `CB2_TryLinkTradeEvolution` | Evaluates `EVO_MODE_TRADE` after receipt, then invokes the ordinary evolution scene. | Evolution and held-item consumption are absent. |
+| `src/trade.c:4428` `CB2_TryLinkTradeEvolution` | Evaluates `EVO_MODE_TRADE` after receipt, then invokes the ordinary evolution scene. | Since 2026-10-29 the receiving game does the same once the trade's save is loaded (`mp_trade_evolution.c`); the exchange itself is unchanged. |
 | `src/pokemon.c:4507` and `DoesMonMeetAdditionalConditions` | Every trade evolution uses `EVO_TRADE`; held-item and trade-counterpart requirements are additional conditions. The native evaluator also considers Everstone, including its configured Kadabra exception. Qualifying evolution can consume the held item. | The gate rejects every species with any `EVO_TRADE` entry, including unmatched item/partner conditions or an Everstone. It does not predict, suppress, or simulate evolution. |
 | `src/egg_hatch.c:308` `AddHatchedMonToParty` | Clears egg status, sets hatch name/language/location/friendship, updates Pokédex, changes OT ID/name/gender to the hatching player, restores PP, and recalculates stats. | Traded eggs are rejected. The immutable OT guard needs an explicit authorized hatch transition before this can be enabled. |
 | `SaveTradeGiftRibbons`, `CheckPartnersMonForRibbons`, native save callbacks | Merge gift-ribbon presentation data, update ribbon/game statistics and applicable Mystery Gift trade statistics, and perform link saves. | These ancillary effects are absent. Native link saves must not replace the existing paired canonical transaction. |
@@ -24,7 +26,7 @@ The gate refuses:
 
 - Eggs marked in either the native header or encrypted miscellaneous substructure; malformed/bad-egg/checksum/UID records already fail the shared parser.
 - Any attached mail index other than native `MAIL_NONE` (`0xFF`), or any held mail item (exact internal item IDs 199–210). A mail index refers to the sender's mail array and cannot safely be copied alone.
-- All 29 pinned `EVO_TRADE` source IDs: 25 standard species plus Alolan Graveler and three additional Pumpkaboo sizes. The encrypted held-item field is masked to its native ten bits, so the ownership UID bits are never mistaken for an item.
+- (Until 2026-10-29: all 29 pinned `EVO_TRADE` source IDs, 25 standard species plus Alolan Graveler and three additional Pumpkaboo sizes. The 25 are now accepted; the four forms fall under the standard range below.) The encrypted held-item field is masked to its native ten bits, so the ownership UID bits are never mistaken for an item.
 - Species outside the exact standard native IDs 1–721. The source enum explicitly assigns those values; alternate forms use other internal IDs. All native `cannotBeTraded` entries lie outside this conservative range. Form support and later internal namespaces require a new explicit capability audit, rather than accidental admission through a National Dex assumption.
 - Absent/non-party offers, different worlds, the same owner, or shared instance IDs anywhere in the two source inventories.
 

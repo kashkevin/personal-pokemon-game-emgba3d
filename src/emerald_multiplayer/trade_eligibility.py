@@ -20,9 +20,12 @@ MAIL_NONE = 0xFF
 MAIL_ITEMS = frozenset(range(199, 211))
 
 # Exact internal IDs from the audited include/constants/species.h and all
-# species_info/* EVO_TRADE entries. Item/partner conditions and Everstone are
-# deliberately not simulated: any potential native trade evolution is outside
-# this temporary capability. Include forms explicitly, before the form gate.
+# species_info/* EVO_TRADE entries. Since KNOWN_ISSUES MS-151 (2026-10-29) they
+# are traded like any other: the exchange stays exact, and the receiving game
+# evolves its new Pokemon itself once the trade's save is loaded (the engine's
+# mp_trade_evolution.c: item/partner conditions and the Everstone as a link
+# trade has them), an ordinary evolution its next checkpoint carries. The forms
+# here (968, 1157-1159) stay outside the standard range below.
 TRADE_EVOLUTION_SPECIES = frozenset((
     61,    # Poliwhirl
     64,    # Kadabra
@@ -109,8 +112,6 @@ def _inspect_offer(payload: bytes, serial: int):
     held_item = struct.unpack_from("<H", growth, 2)[0] & 0x3FF
     if mon[85] != MAIL_NONE or held_item in MAIL_ITEMS:
         raise TradeEligibilityError("mail_unsupported", "attached mail requires native mail-array transfer support")
-    if record.species in TRADE_EVOLUTION_SPECIES:
-        raise TradeEligibilityError("trade_evolution_unsupported", "this species requires audited native trade-evolution support")
     # The pinned enum explicitly numbers the standard species 1..721. Its
     # alternate/form namespace is not a National Dex number; no unreviewed form
     # or later-generation record is enabled by this first capability. Every
@@ -122,7 +123,7 @@ def _inspect_offer(payload: bytes, serial: int):
 
 
 def validate_party_offer(payload: bytes, serial: int) -> EligibleTradeMon:
-    """Accept only simple owned, non-egg, non-mail, non-trade-evolving offers.
+    """Accept only simple owned, non-egg, non-mail offers of the standard range.
 
     Ordinary friendship, IVs, shiny/PID/OT, moves and other data are preserved.
     Passing this gate does not apply native friendship/Pokédex/ribbon effects.
