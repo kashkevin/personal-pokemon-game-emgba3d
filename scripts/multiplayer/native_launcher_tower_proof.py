@@ -249,19 +249,56 @@ def battle_question_up(probe) -> bool:
     return address is not None and funcs == address
 
 
+PARTY_ACTION_SEND_OUT = 1     # include/constants/party_menu.h: the party screen a fainted Pokemon's battler needs
+
+
+def party_send_out(probe) -> bool:
+    """The battle's party screen is the one after the player's Pokemon fainted (gPartyMenu.action is SEND_OUT: byte 11
+    of the 32-bit PartyMenu, after its two pointers, the type and layout bits and the two slots): B does not leave it,
+    the battle needs the next Pokemon."""
+    return probe.mem("gPartyMenu", 20)[11] == PARTY_ACTION_SEND_OUT
+
+
+async def send_out_next(probe):
+    """One step toward the next Pokemon on a SEND_OUT party screen, as a player chooses it: the cursor DOWN to the next
+    slot and A, then A on the selection menu's first action (SEND OUT); a refusal's message (no will to battle, already
+    out) is closed with B and the next slot tried. The tasks and the cursor are only read (native_execution_proof.py's
+    drive_party_menu)."""
+    def task(name):
+        address = probe.symbols.get(name, (None,))[0]
+        return None if address is None else address & ~1
+    state = await probe.battle()
+    if task("Task_PrintAndWaitForText") in state["active"]:
+        await probe.press(B, frames=8, release=30)
+    elif task("Task_HandleSelectionMenuInput") in state["active"]:
+        await probe.press(A, frames=8, release=30)
+    elif task("Task_HandleChooseMonInput") in state["active"]:
+        await probe.press(DOWN, frames=8, release=30)
+        moved = await probe.battle()
+        if task("Task_HandleChooseMonInput") in moved["active"] and moved["cursor"] != state["cursor"] \
+                and 0 <= moved["cursor"] < moved["count"]:
+            await probe.press(A, frames=8, release=30)
+    else:
+        await asyncio.sleep(.1)
+
+
 async def play_local_battle(probe, record, slot, label, seconds=600, *, go_on=False, worker=None):
     """The floor's intro, its battle and its result as a player plays them: B through the field's messages, A in the
     battle (FIGHT, the first move, its messages), until the field has been calm for three seconds after a battle. The
-    Shift style's question after a foe faints is answered NO (B) as a player keeping the lead in; a party screen opened
+    Shift style's question after a foe faints is answered NO (B) as a player keeping the lead in; after the player's
+    Pokemon faints, the party screen's next Pokemon the game accepts is sent out (send_out_next); a party screen opened
     from the battle by anything else is left with B. B also answers NO to "Go on to floor N?" after the result;
     ``go_on``: A there instead (YES), until the host has issued the next floor (its view's battle)."""
     deadline, battled, calm_since, screens, questions = time.monotonic() + seconds, False, None, [], 0
+    sending_out = False
     if go_on:
         number = int(label.split()[-1])
         while time.monotonic() < deadline:
             if in_battle(probe):
                 if battle_question_up(probe):
                     await probe.press(B, frames=8, release=30)
+                elif field_state(probe).get("callback2") == "CB2_UpdatePartyMenu" and party_send_out(probe):
+                    await send_out_next(probe)
                 elif field_state(probe).get("callback2") == "CB2_UpdatePartyMenu":
                     await probe.press(B, frames=8, release=30)
                 else:
@@ -287,10 +324,18 @@ async def play_local_battle(probe, record, slot, label, seconds=600, *, go_on=Fa
             screens.append(screen)
         if in_battle(probe):
             battled, calm_since = True, None
+            if screen != "CB2_UpdatePartyMenu":
+                sending_out = False
             if battle_question_up(probe):
                 questions += 1
                 record("tower-switch-question-declined", slot=slot, label=label, count=questions, quiet=questions > 1)
                 await probe.press(B, frames=8, release=30)
+            elif screen == "CB2_UpdatePartyMenu" and party_send_out(probe):
+                if not sending_out:
+                    record("tower-party-send-out", slot=slot, label=label)
+                sending_out = True
+                await send_out_next(probe)
+                continue
             elif screen == "CB2_UpdatePartyMenu":
                 record("tower-party-screen-left", slot=slot, label=label)
                 await probe.press(B, frames=8, release=30)
