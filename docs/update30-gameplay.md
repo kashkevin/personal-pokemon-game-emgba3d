@@ -38,6 +38,20 @@ so it cannot be bought twice. `tools/pc_port/economy_check.py` runs the purchase
   only the oldest. The queue is **part of the save**: 412 bytes after the 600-byte ownership profile in SaveBlock3 (a magic, a count, five eggs of 80 bytes each, a CRC-32), so it survives
   saving, quitting, host reconnects and the server's checkpoints (the Python save validator and the engine's multiplayer import both check it, and refuse a damaged queue). A save from before this
   update has zeros there and reads as an empty queue; the old "an egg is waiting" flag without a queue still gives one egg. The shape is checked by `check-abi` and the GBA ROM is untouched.
+* **The Day Care's eggs come to the player** (the owner's request of 2026-10-29): nobody needs to talk to the Day Care
+  man any more. Once the field is calm (no script, menu, fade or battle) each egg the Day Care made goes to the party's
+  first free slot, as the man would give it, or with the party full to the PC as a gift Pokémon goes (the first free slot
+  from the current box on), and a banner says where: "DAY CARE EGG! / An Egg joined your party.", "DAY CARE EGG! / Sent
+  to your PC (BOX1).", "2 DAY CARE EGGS! / 1 to your party, 1 to your PC.". Nothing of an egg changes on the way. With
+  the party and the PC both full it waits in the queue as before (a banner says so once: "DAY CARE EGG waiting: / make
+  room in your party or PC."), the man still offers it, and it comes by itself as soon as there is room. None is handed
+  over during a Frontier or Battle Tent challenge (a few chosen Pokémon or rentals may be the party then), on the Trainer
+  Hill, in the Union Room or during link play: it comes when that ends. A save from before Update 30 whose egg was
+  pending without a queue has it made at the next step and handed over the same way. **Lavaridge Town's gift egg** (the
+  woman by the hot springs) goes to the PC too when the party is full ("EGG was transferred to SOMEONE'S PC."); she
+  refuses only when the PC is full as well. The Mystery Gift Pichu egg (an event that teaches the egg Surf in its party
+  slot) still needs a free party slot, and Kanto's Togepi egg is not in this game. PC only; the GBA ROM is unchanged
+  (engine `4cda71a9`, `mp_breeding.c` `MPDaycare_DeliveryTick`).
 * **Eggs in the PC hatch too** (the owner's decision of 2026-10-27; until then they never hatched there). Every Egg in all 14 boxes spends its cycles on the same 32-step check as the
   party's Eggs, at the same rate: the party's Flame Body or Magma Armor halves the cycles for the boxes too, and an Egg never hatches sooner in a box than it would in the party
   (`--selftest-breeding`: the same step count as a party Egg for 0, 1, 7 and 20 cycles, with and without Flame Body). An Egg whose cycles have run out hatches **in its own box slot**:
