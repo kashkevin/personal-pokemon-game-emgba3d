@@ -195,7 +195,8 @@ presses (`src/native_ui/README.md`). The classic 2D game (the separate 2D build)
 
 Found by the audit log or the game's screen list, not replaced in this update (each is a screen of its own):
 
-- PokeNav: its menus, zoomable region map, condition (and its search), match call list, ribbons.
+- PokeNav: its menus, zoomable region map, condition (and its search), match call list, ribbons. (Replaced on
+  2026-10-29, step 13: `docs/pokenav-revamp-20261029.md`.)
 - Easy Chat (the Lilycove fan club interviewer, Gabby and Ty, the Berry Master's wife, the trendy phrase).
 - The Hall of Fame and the credits.
 - Contests: the contest, its results, the painting.
@@ -204,7 +205,8 @@ Found by the audit log or the game's screen list, not replaced in this update (e
   the Pike and Arena screens, the Ranking Hall's records, the Exchange Service Corner's lists, the Battle Tower lobby's
   YES / NO.
 - Trainer Hill records; mail; decorations (secret base and room); the trade animation of an in-game trade; a script's picture
-  box and its YES / NO (the starter in Birch's lab); the start menu a script draws for the PokeNav tutorial in Rustboro; the
+  box and its YES / NO (the starter in Birch's lab); the start menu a script draws for the PokeNav tutorial in Rustboro
+  (replaced on 2026-10-29, step 13); the
   Lilycove department store elevator's floors; the cable car.
 - In battle: the Battle Arena's judgment and the ability pop-ups.
 

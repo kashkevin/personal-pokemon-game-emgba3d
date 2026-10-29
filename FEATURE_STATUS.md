@@ -595,7 +595,7 @@ Recorded guidance the code no longer follows (not binding decisions):
 | Egg hatching on the design's stage | Implemented and tested (Linux, both views, both answers) | engine `7c2e2d0f` |
 | The wall clock in the current UI (setting and looking) | Implemented and tested (Linux 3D) | engine `bfd5ff6f` |
 | The PC renderer's second GBA window (the condition graph whole, MS-104) | Implemented and tested (Linux, classic view) | engine `f36530ee` |
-| Every remaining GBA screen in the current UI | Partially implemented (the screens still GBA: KNOWN_ISSUES MS-105) | `docs/ui-overhaul-and-fixes-20261026.md` section 3 |
+| Every remaining GBA screen in the current UI | Partially implemented (the screens still GBA: KNOWN_ISSUES MS-105; the PokéNav done in step 13, below) | `docs/ui-overhaul-and-fixes-20261026.md` section 3 |
 
 ## Legendary persistence, spawn timers and shiny odds (2026-10-27, `docs/spawns-legends-shiny-20261027.md`)
 
@@ -691,6 +691,19 @@ Recorded guidance the code no longer follows (not binding decisions):
 | A battle between players survives a player's game held up a few seconds | Implemented and tested (L, two Linux games, a real host and launchers on one machine: a game stopped 10 s, 20 s into Rival Battle 1v1, and the battle went on to its end with app `ff3cafb`; with the old 5 s wait it stopped the battle, MS-165; a stop of 15 s or more still holds the battle for recovery). Not in the 2026-10-27 package; not on Windows or two PCs | `docs/stability-audit-20261028.md` section 3 |
 | A trade a player's launcher or game stalls in | Implemented and tested (L: a launcher frozen 8 s or a game stopped 15 s cancels the trade on both sides, nothing traded; a launcher frozen 30 s, past the host's 20 s, leaves Resolve interrupted trade, which verified the trade and the character opened again; the trade then made). Not on Windows or two PCs | `docs/stability-audit-20261028.md` section 2 |
 | Memory over long play, battles and trades | Implemented and tested (L: flat over long walks, 2D 75 minutes and 3D 44; over 6 rounds of battles and trades in one session each game flat and the host 2.8 MB a round, bounded by the 64 finished battles it keeps, not run to the bound) | `docs/stability-audit-20261028.md` section 1 |
+
+## The PokéNav in the current UI (2026-10-29, step 13, `docs/pokenav-revamp-20261029.md`; after the package)
+
+| Feature | Status | Evidence |
+| --- | --- | --- |
+| The PokéNav's menus (main, CONDITION's, its search's) and MATCH CALL (the list, a trainer's menu, the check page, calls) | Implemented and tested (Linux 3D test build, pictures; not on Windows or a PC) | engine `08b58055`, `6f6a59e9` |
+| CONDITION: the party's or a search's Pokemon, the graph, sheen, the markings menu | Implemented and tested (Linux 3D test build, pictures; not on Windows or a PC) | engine `6f6a59e9` |
+| A condition search's ranked results | Implemented and tested (Linux 3D test build, 12 Pokemon; not on Windows or a PC) | engine `6f6a59e9` |
+| RIBBONS: the Pokemon with ribbons and a Pokemon's ribbon case (the game's ribbon art) | Implemented and tested (Linux 3D test build, a full case; not on Windows or a PC) | engine `676ef1ef` |
+| The HOENN MAP: zoom, a visited town's own map and key, a route's landmarks, off the map | Implemented and tested (Linux 3D test build, pictures; not on Windows or a PC) | engine `d560a355` |
+| The Rustboro tutorial: its START menu as the field menu, the PokéNav's menu as the tutorial allows | Implemented and tested (Linux 3D test build, the tutorial played to the field; not on Windows or a PC) | engine `87799768`, `95dea6b6` |
+| Clicks on the PokéNav (a press at a time as the game reads them) | Implemented and tested (Linux 3D test build, real mouse clicks on the menu, a list and the ribbon case; not every page) | engine `676ef1ef` |
+| Mark glyphs in the game's order on the summary and storage screens (MS-168) | Implemented and tested (Linux 3D test build, the summary pictured) | engine `6f6a59e9` |
 
 ## How to update
 
