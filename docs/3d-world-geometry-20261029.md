@@ -220,7 +220,7 @@ basement (its e-Reader trainer's team made from no data: a stack overflow; Myste
 Room (wireless data; no wireless on PC) and the Battle Tower's multi-battle partner room (its candidates, set up only
 by the Tower's challenge).
 
-### Phase C2, second part: where the sky still showed through (done 2026-10-30 03:47-05:00; engine `00d58e6b`)
+### Phase C2, second part: where the sky still showed through (done 2026-10-30 03:47-04:35; engine `00d58e6b`)
 
 After C1's sweep and `4d94b864`, 31 places still showed the probe's magenta sky somewhere in their pictures. Each
 was looked at in the probe's pictures and again in the game's own sky (the same places, the same cameras,
@@ -256,3 +256,34 @@ place:
 
 (With the probe as it was - the air on, the void drawn as nothing - `4d94b864` had 23 such places: 11 of them were
 the void and the air, not holes.) The whole world's sweep of this build comes next.
+
+### Phase C2, third part: Sootopolis's crater (2026-10-30 05:04-05:50; engine `3ed7b0a2`)
+
+The largest groups of blocked cells still drawn flat after C1 were the white rock of two tilesets no rule names:
+Route 126's crater round Sootopolis (1,225 cells: a low terraced island with its dark mouth level with the rock) and
+Sootopolis's own crater walls and terrace ledges (1,500: painted on a flat white plane). The classifier left them as
+flat ground, and no cliff of the General tileset stood beside them to start a rock band (Mossdeep City's brown
+cliffs had one, so C1 stood those).
+
+A tileset file may now say which of its metatiles are rock wherever a cell drawn with them is blocked ("rockArt"):
+walked, the same art stays ground - Sootopolis paves its streets with its white rock, 1,214 walked cells against 574
+blocked of one metatile. With it, "pits": rock that shapes its band but lies on its ground (Route 126's crater mouth:
+the rim rises to it and the mouth sinks between walls), and "capTiles": how high that rock may stand (four tiles
+over its ground). The Mossdeep and Sootopolis tilesets list their white rock, its tops, faces and shore rock (not
+their trees, houses, striped walls or the sea's brown rocks; each one's blocked and walked uses counted over every
+map that draws with it).
+
+The 15 places of Mossdeep City, Sootopolis and Routes 124-129, against `00d58e6b` (the probe; pictures looked at
+for each):
+
+| Map | fin | spike | flat-blocked |
+| --- | --- | --- | --- |
+| Route 126 | 18 -> 6 | 32 -> 7 | 1,225 -> 47 |
+| Sootopolis City | 19 -> 81 | 6 -> 66 | 1,500 -> 170 |
+| Mossdeep City, Routes 124, 125, 127, 128, 129 | unchanged | unchanged | unchanged |
+| all 15 places | 82 -> 132 | 132 -> 167 | 3,011 -> 503 |
+
+No sky shows through any of them. Sootopolis's fins and spikes are its terrace ledges: one or two cells of rock
+between streets the terrace solver lays on one level (the GBA gives the streets one elevation; the ledges are drawn
+as steps), now walls a tile high where they were paint. Steps between street levels are the level solve's work,
+still to come. Linux and Mesa's software renderer only.
