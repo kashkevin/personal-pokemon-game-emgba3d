@@ -188,11 +188,14 @@ jobs:
           mkdir -p ../diorama-check-inputs
           cp pokeemerald-mp-diorama-bfxtest.exe "$GITHUB_WORKSPACE/sdl/SDL2-${SDL_VERSION}/i686-w64-mingw32/bin/SDL2.dll" ../diorama-check-inputs/
           # The world-geometry probe (step 16, tools/qa/geometry_check.py) for the graphics-3d job's pictures, at the
-          # engine's paths: it imports mega_check and the map inventory from them. From an engine that has it.
+          # engine's paths: it imports mega_check and the map inventory from them, and reads the 3D rules' header
+          # when it starts (run 244 stopped there without it). From an engine that has it.
           if [ -f tools/qa/geometry_check.py ]; then
-            mkdir -p ../diorama-check-inputs/geo/tools/qa ../diorama-check-inputs/geo/tools/battle_env
+            mkdir -p ../diorama-check-inputs/geo/tools/qa ../diorama-check-inputs/geo/tools/battle_env \
+              ../diorama-check-inputs/geo/include/diorama
             cp tools/qa/geometry_check.py tools/qa/geometry_inventory.py tools/qa/inventory.py ../diorama-check-inputs/geo/tools/qa/
             cp tools/battle_env/mega_check.py ../diorama-check-inputs/geo/tools/battle_env/
+            cp include/diorama/rules.h ../diorama-check-inputs/geo/include/diorama/
           fi
           mkdir -p ../mega-check-inputs
           cp pokeemerald-mp-bfxtest.exe tools/battle_env/mega_check.py tools/battle_env/feature_check.py ../mega-check-inputs/
