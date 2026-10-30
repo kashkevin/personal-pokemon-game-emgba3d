@@ -54,11 +54,16 @@ only, never committed) keeps the standard range.
 | ... each of the six forms leading a wild battle against its own form: the 3D battle's picture (its back, the foe's front: each form's own sprite), won with the first move (the signature move), still that form afterwards | L, 3D | passed |
 | Two real games through the real host and launchers (`native_launcher_newcomers_proof.py --scenario trade-forms`): a Heat Rotom traded for a Fan Rotom; the host's saves hold the swapped forms under the same serials; closing saves, a fresh Continue of both and the store's integrity check | L, Classic 2D | passed |
 | The app's trade tests (`test_trade_eligibility.py`: the five forms accepted with their held item, 1063 and 1069 refused, a pair of forms; `test_trade_forms.py`) | L | passed |
-| The Windows jobs (`windows-package`, mode full: the self-test in the Windows build; `rotom_check.py` in Windows game processes of the Classic 2D test build on a GitHub-hosted runner) | Windows CI | see `TEST_LEDGER.md` |
+| The Windows jobs (`windows-package` run 249, mode full, engine `ee84a646`): `--selftest-rotom-catalog` in the Windows build | Windows CI (GitHub-hosted runner) | 73 of 73 |
+| ... `rotom_check.py` in Windows game processes of the Classic 2D test build, its default steps: bought and loaded, every form and back and loaded, the second Rotom, the paths that change nothing, four moves, the six forms' wild battles | Windows CI (GitHub-hosted runner) | passed (no problems) |
+| The Windows build's self-test under Wine | Wine on Linux (not Windows) | 73 of 73 |
 
 ## Not verified
 
-* On the owner's PC or any player's PC: nothing here. The Windows jobs run on a GitHub-hosted runner, not a player's PC.
+* On the owner's PC or any player's PC: nothing here. The Windows jobs run on a GitHub-hosted runner, not a player's PC;
+  they ran the Classic 2D test build (the 3D game's battle pictures were taken on Linux only).
+* The first Windows run (248) stopped at its build, on step 16's code, not the catalog's: a variable named `far`,
+  which Windows' headers define away. Fixed in engine `ee84a646`; run 249 is the one above.
 * Moving a Rotom through the PC's own storage screens by hand: the storage's own deposit and withdrawal (the code those
   screens call) are checked in the self-test; the screens themselves were not driven.
 * A battle between two players with a Rotom form: the battle code is the same one the wild battles above ran, and a

@@ -791,3 +791,17 @@ trees) named a loop variable `far`, and Windows' headers define `far` and `near`
 since); the Linux builds have no such macro. The variable is `distant` now (`ee84a646`); the Windows 3D game, the
 Classic 2D game and both test builds were built here with MinGW and the pinned SDL 2.30.7, and run 249's build job
 passed on GitHub's runner.
+
+### The building models went stale in the local builds (found 2026-10-30 19:10; engine `5ea03aec`)
+
+The sky at the foot of the Pokemon League's west side (the probe's magenta, 181 pixels from the Adventure camera)
+was not the League's: the building search reads `props.c` (a detail object beside a building is not the building's
+cell), but the build did not list `props.c` among the models' inputs. When `00458735` made Ever Grande's garden
+wall a prop, the incremental 3D builds kept the building models made at 01:51 that morning - the League still
+claimed the wall's cells beside it, and neither stood there. The models are made again now when `props.c` or the
+metatile behaviours change; with them made again the gap is gone (0 pixels; the steep view's two thin lines at the
+League's back corners, 106 pixels, remain). A fresh build - CI's and the package's - was never stale. **The local
+builds from 10:31 to 18:04 used the stale models** (`props.c` changed at 10:31, 11:36, 14:37 and 15:22: the white
+walls, Ever Grande's wall and bushes, Fortree's palms), so their pictures and phase D's speed passes may differ from a
+fresh build wherever a building meets one of those props; the step's last sweep and speed check are taken with fresh
+models.

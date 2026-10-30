@@ -709,8 +709,8 @@ Recorded guidance the code no longer follows (not binding decisions):
 
 | Feature | Status | Evidence |
 | --- | --- | --- |
-| The Rotom Catalog at the Game Corner's RARE GOODS (EVOLUTION) for 15,000 coins, a Key Item: one each (SOLD OUT once owned), never used up | Implemented and tested (Linux 3D and Classic 2D test builds, bought through the clerk's menus, saved and loaded; Windows CI job added) | engine `ba6638dc` |
-| Using it from the Bag: Rotom only, its six forms by name, the form's type asked before it changes (YES / NO), the signature moves by the game's own rules, not in battle | Implemented and tested (Linux 3D and 2D test builds: every form and back, the second Rotom, NO, already that form, four moves; `--selftest-rotom-catalog` 73 checks) | engine `ba6638dc` |
+| The Rotom Catalog at the Game Corner's RARE GOODS (EVOLUTION) for 15,000 coins, a Key Item: one each (SOLD OUT once owned), never used up | Implemented and tested (Linux 3D and Classic 2D test builds, bought through the clerk's menus, saved and loaded; Windows CI run 249 on a GitHub-hosted runner: the same steps passed in Windows game processes) | engine `ba6638dc` (`ee84a646` for the Windows build) |
+| Using it from the Bag: Rotom only, its six forms by name, the form's type asked before it changes (YES / NO), the signature moves by the game's own rules, not in battle | Implemented and tested (Linux 3D and 2D test builds: every form and back, the second Rotom, NO, already that form, four moves; `--selftest-rotom-catalog` 73 checks; the same on Windows CI, run 249: 73 of 73 and the check's steps passed) | engine `ba6638dc` |
 | Rotom's forms kept through saves, restarts, the PC and battles; each form's own sprite in the 3D battle | Implemented and tested (Linux: saves and loads in real games; the PC's storage in the self-test; six battles pictured) | engine `ba6638dc` |
 | World trades of Rotom's five appliance forms (exact exchange, named in the menus) | Implemented and tested (Linux: two real games through the real host and launchers, Heat Rotom for Fan Rotom; not between two PCs) | app (this change) |
 
