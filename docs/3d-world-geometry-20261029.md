@@ -847,3 +847,69 @@ The holes are the same nine places; the largest are at Battle Palace's battle ro
 camera), New Mauville's entrance (56) and Fortree City (112 from the Diorama camera: at one tree house's sides under
 its canopy - a floor under the canopies was tried and did not change it). Seams and walk-steps are MS-162's (phase
 C1); fins and spikes the rock that stands; the rooms' flat-blocked their furniture and walls (phase C5).
+
+### Phase F: the evidence (2026-10-30 23:20-23:40)
+
+**The whole world, before step 16 and now** (the probe's check over the same 537 places: the baseline of phase B,
+engine `9f032173`, against the sweep of 21:42 with fresh building models, engine `5ea03aec`; Linux, Mesa):
+
+| Check | before step 16 | now | outdoors before | outdoors now |
+| --- | --- | --- | --- | --- |
+| card-tree (a tree as a flat cut-out) | 16,957 | 0 | 16,957 | 0 |
+| flat-blocked (a blocked cell drawn flat) | 26,304 | 14,284 | 13,175 | 2,582 |
+| fin (rock standing over both neighbours, in runs) | 2,038 | 1,757 | 1,205 | 937 |
+| spike (the same, alone) | 1,135 | 919 | 745 | 540 |
+| hole (places with the sky showing through) | 54 | 9 | 38 | 6 |
+| water-wall (water standing over its banks) | 45 | 24 | 42 | 24 |
+| water-drop (land far over the water beside it) | 1,528 | 1,499 | 1,459 | 1,428 |
+| seam (map edges a level apart) | 64 | 64 | 64 | 64 |
+| walk-step (a step walked over with no stairs) | 72 | 72 | 20 | 20 |
+
+The per-map list - every map, its places, how much of it they reached and each check's count - is
+`docs/3d-geometry-report-20261030.md`.
+
+**The owner's six defects, before and after** (sheets of the probe's pictures, the same place and camera from the
+two sweeps side by side; game art, kept in the scratchpad `c6/evidence/`, not committed). What each sheet shows, and
+where it shows little, what the counts say:
+
+1. *Tall, narrow, rectangular cliffs* - Mossdeep City (the Diorama camera): the cliff that stood as a row of
+   pillars is one band of rock between its two grounds. Outdoors fins 1,205 -> 937, spikes 745 -> 540.
+2. *Inconsistent cliff heights, Route 120's cliff painted flat* - at the sweep's places on Routes 120 and 111 the two
+   sweeps look much alike from these cameras; the painted cliffs standing are phase C4's first part's pictures, and
+   outdoors flat-blocked fell 13,175 -> 2,582.
+3. *Flat trees and vegetation* - 16,957 cut-out tree cells -> 0. Route 113 (sheet 4): its ash-covered trees, flat
+   before, stand as solids. Petalburg Woods and Route 119 look much alike at this distance: General's trees were
+   partly voxel trees already.
+4. *Abrupt height transitions* - Route 104 looks much alike; walk-steps 72 -> 72 (most in caves, where a cave's
+   elevations meet without stairs) and the sea still lies a level under every coast (E1's choice): **open**.
+5. *Large featureless blue rectangles* - Route 110: its cycling road's low white walls stand; water standing over
+   its banks 45 -> 24.
+6. *Seams and gaps* - holes to the sky at 54 places -> 9: Route 113's and Route 118's, magenta in the baseline's
+   pictures, are gone. **Still open**: the four seams (the Battle Frontier's halves - a visible one-level step;
+   Mauville with Route 111; the Safari Zone's two), MS-162; seams 64 -> 64.
+
+What is left is listed with its map and place: the per-map list above, KNOWN_ISSUES MS-162 (the seams), MS-164
+(the rooms' furniture), MS-172 (what step 16 leaves flat or simplified), and this file's phases.
+
+**Speed, the last check** (the same 12 places, the build before step 16 against `cca519e8` with fresh building models,
+one game at a time; medians; L, Mesa llvmpipe, 4 cores). The machine ran slower overall than at 17:25 (the "before"
+build too), and the first five places of this pass overlapped work of mine (the evidence sheets), so those five were
+measured again with nothing else running; the table has the idle pass for them:
+
+| Place | before step 16 | now (`cca519e8`) | change |
+| --- | --- | --- | --- |
+| Battle Frontier, west | 28.6 (220k) | 31.5 (191k) | +10% |
+| Sootopolis City | 37.8 (64k) | 42.8 (83k) | +13% |
+| Route 120 | 34.7 (134k) | 40.9 (80k) | +18% |
+| Mossdeep City | 31.2 (213k) | 38.5 (200k) | +23% |
+| Route 110 | 33.7 (152k) | 44.1 (118k) | +31% |
+| Petalburg Woods | 35.5 (131k) | 46.5 (70k) | +31% |
+| Fortree City | 30.8 (113k) | 28.6 (100k) | -7% |
+| Lilycove City | 20.9 (180k) | 30.1 (137k) | +44% |
+| Slateport City | 22.7 (348k) | 29.3 (235k) | +29% |
+| Route 104 | 20.3 (238k) | 33.0 (97k) | +63% |
+| Route 119 | 22.2 (212k) | 33.8 (101k) | +52% |
+| Route 112 | 11.1 (1049k) | 29.3 (189k) | +164% |
+
+Faster at eleven places; Fortree -7% here, +4% at 17:25 - level within the spread (the same build up to 17% apart in
+two passes). The software renderer only: nothing about a graphics card.
