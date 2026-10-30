@@ -187,6 +187,13 @@ jobs:
           i686-w64-mingw32-strip --strip-all pokeemerald-mp-diorama-bfxtest.exe
           mkdir -p ../diorama-check-inputs
           cp pokeemerald-mp-diorama-bfxtest.exe "$GITHUB_WORKSPACE/sdl/SDL2-${SDL_VERSION}/i686-w64-mingw32/bin/SDL2.dll" ../diorama-check-inputs/
+          # The world-geometry probe (step 16, tools/qa/geometry_check.py) for the graphics-3d job's pictures, at the
+          # engine's paths: it imports mega_check and the map inventory from them. From an engine that has it.
+          if [ -f tools/qa/geometry_check.py ]; then
+            mkdir -p ../diorama-check-inputs/geo/tools/qa ../diorama-check-inputs/geo/tools/battle_env
+            cp tools/qa/geometry_check.py tools/qa/geometry_inventory.py tools/qa/inventory.py ../diorama-check-inputs/geo/tools/qa/
+            cp tools/battle_env/mega_check.py ../diorama-check-inputs/geo/tools/battle_env/
+          fi
           mkdir -p ../mega-check-inputs
           cp pokeemerald-mp-bfxtest.exe tools/battle_env/mega_check.py tools/battle_env/feature_check.py ../mega-check-inputs/
           # Battle Tower: Legends' floor check and its floor table, from an engine that has the Tower.
@@ -1240,6 +1247,31 @@ jobs:
           Get-Content $log | Write-Output
           $row = Get-Content $log | Where-Object { $_ -match "^1280x720\s+\d" } | Select-Object -First 1
           "- 3D frame rate through Mesa llvmpipe (informational): ``$row``" >> $env:GITHUB_STEP_SUMMARY
+      - name: The world's geometry in 3D (step 16's probe; the showcase places' pictures through Mesa)
+        shell: pwsh
+        run: |
+          # The probe of docs/3d-world-geometry-20261029.md on a Windows runner: each place warped to, drawn from four
+          # cameras (pictures) and its cells dumped (heights as drawn). The places the owner's defects were seen at,
+          # and two caves. What it says: those places are drawn so in a Windows process with Mesa; nothing about a GPU.
+          $probe = "diorama-check-inputs\geo\tools\qa\geometry_check.py"
+          if (-not (Test-Path $probe)) { "- Geometry probe: not in this engine" >> $env:GITHUB_STEP_SUMMARY; exit 0 }
+          $out = Join-Path $env:RUNNER_TEMP "graphics-3d\geometry"
+          $save = Join-Path $env:RUNNER_TEMP "graphics-3d.sav"
+          $tour = Join-Path $env:RUNNER_TEMP "geometry-showcase.txt"
+          @(
+            "# key group num x y (tools/qa/geometry_check.py tour)",
+            "MossdeepCity_40_20 0 6 40 20", "SafariZone_Northwest_20_20 26 0 20 20", "Route120_20_52 0 35 20 52",
+            "PetalburgWoods_26_22 24 11 26 22", "Route112_20_33 0 27 20 33", "JaggedPass_15_22 24 13 15 22",
+            "Route113_38_8 0 28 38 8", "Route110_4_28 0 25 4 28", "BattleFrontier_OutsideWest_35_37 26 4 35 37",
+            "SootopolisCity_29_32 0 7 29 32", "Route126_40_61 0 41 40 61", "Route119_20_52 0 34 20 52",
+            "GraniteCave_1F_21_7 24 7 21 7", "MeteorFalls_1F_1R_14_21 24 0 14 21"
+          ) | Set-Content -Path $tour -Encoding ascii
+          python $probe run --exe diorama-check-inputs\pokeemerald-mp-diorama-bfxtest.exe --save $save --tour $tour `
+            --out $out --jobs 1 --chunk 14
+          if ($LASTEXITCODE -ne 0) { throw "the geometry probe failed ($LASTEXITCODE)" }
+          $shots = @(Get-ChildItem (Join-Path $out "shots") -Filter *.png -ErrorAction SilentlyContinue).Count
+          "- Geometry probe through Mesa llvmpipe: $shots pictures of 14 showcase places (geometry/shots)" >> $env:GITHUB_STEP_SUMMARY
+          if ($shots -lt 14 * 4) { throw "the geometry probe drew $shots pictures, not the 56 of its 14 places" }
       - name: Upload the report and the pictures (private to this repository, 7 days; no save)
         if: always()
         uses: actions/upload-artifact@v4
@@ -1249,6 +1281,7 @@ jobs:
             ${{ runner.temp }}/graphics-3d/**/*.json
             ${{ runner.temp }}/graphics-3d/**/test.log
             ${{ runner.temp }}/graphics-3d/**/*.png
+            ${{ runner.temp }}/graphics-3d/**/*.tsv.gz
             ${{ runner.temp }}/graphics-3d/benchmark.log
           retention-days: 7
           if-no-files-found: warn
