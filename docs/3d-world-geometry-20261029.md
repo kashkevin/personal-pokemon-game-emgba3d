@@ -372,3 +372,34 @@ What remains flat outdoors (6,733 cells), by the art (the most common metatiles 
 brown rock on level ground (about 900 cells: Route 120's and others' rock the rock bands did not reach), white
 fences and posts (about 600), the volcanic and Lavaridge rock, Lilycove's railing, signs, the sea's boulders,
 Mauville's posts, a Lavaridge tree, the Frontier's bushes: phase C4 (objects).
+
+### Phase C4, first part: the General tileset's rock, and a truer check (2026-10-30 08:17-08:53; engine `18f6759f`, `88ab17f6`)
+
+The General tileset's brown rock that no class stands - Route 120's long cliff painted on level ground (the audit's
+R2), the Safari Zone's and the Battle Frontier's cliffs, the rock round Lilycove, the shore rock of Rustboro and
+Routes 119, 125 and 126 - now starts and joins rock bands wherever it is blocked (the General tileset file's
+"rockArt": the 26 metatiles a blocked cell drew flat in the sweep, not its cave mouths or white ledges; walked, the
+same art stays ground). The painted cliffs are now rock walls a tile high along their art (pictures looked at:
+walls along the drawing, not pillars); Route 119's plateau edge is its rock face where its cells lay dark and flat.
+
+The check was also made truer, and the sweeps checked again with it:
+
+- **Detail objects.** A blocked cell a detail object stands on (a fence, a sign, a lamp, a rock, a bush, a crate:
+  the props) was counted as a blocked cell drawn flat. 1,351 of the outdoor maps' flat-blocked cells were such:
+  fences 784, rocks 209, signs 135, crates and pots 110, bushes 69. They are now counted as objects.
+- **The scene's far edge.** A pocket of the probe's sky that opens onto the scene's far edge (drawn wholly in the
+  edge fog's colour) is past the loaded scene, not a hole; the solid trees on the far skyline left many such pockets
+  between their crowns. Holes, places: baseline 60 -> 54, C1 31 -> 26, C2 9 (as it was).
+
+The 87 outdoor places after C3 and now (the same check for both):
+
+| Outdoors | fin | spike | flat-blocked | card-tree | walk-step | seam | water-wall | water-drop | hole (places) |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| C2 (`3ed7b0a2`, the old check) | 928 | 546 | 7,435 | 16,957 | 20 | 64 | 24 | 1,464 | 6 |
+| C3 (`f696f71a`) | 928 | 546 | 6,733 | 0 | 20 | 64 | 24 | 1,464 | 7 |
+| C4 rock (`18f6759f`), props counted as objects | 1,045 | 584 | 4,313 | 0 | 20 | 64 | 24 | 1,428 | 6 |
+
+Of the 2,420 fewer flat-blocked cells, about 1,070 are this rock standing (Route 120 419 -> 146, the Safari Zone's
+North 73 -> 10, Northwest 58 -> 3, Southwest 106 -> 3, Lilycove 155 -> 83, Mossdeep 186 -> 133) and 1,351 the
+props now counted. The 117 more fin cells are those painted cliffs standing as one- and two-cell-thick ridges a
+tile high. Linux and Mesa's software renderer only.
