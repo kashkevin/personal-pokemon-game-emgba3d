@@ -805,3 +805,45 @@ builds from 10:31 to 18:04 used the stale models** (`props.c` changed at 10:31, 
 walls, Ever Grande's wall and bushes, Fortree's palms), so their pictures and phase D's speed passes may differ from a
 fresh build wherever a building meets one of those props; the step's last sweep and speed check are taken with fresh
 models.
+
+### Phase C5, second part: roofs (2026-10-30 21:45-22:10; engine `cca519e8`)
+
+"Most route houses keep a flat roof" (section 3) was checked building by building. The hand-made models (the
+3DS project's houses, Centers, Marts, the labs) carry real hipped roofs. Of the 107 buildings modelled from their own
+drawing (`auto_buildings.py`), 82 have a real roof (pitched, domes, cones, pyramids, tents, parapets) and 25 kept
+their drawn roof laid flat on top: sixteen are the Battle Frontier's modern blocks, three were left so on purpose
+(the Weather Institute, the Cove Lily Motel, the Battle Tower's own roofs) and one is a Mauville house the search
+draws with its neighbour. Of the rest, five are drawn by the GBA with a flat roof inside a raised rim - Route 110's
+two Cycling Road gatehouses, the gatehouse on Route 111 to Route 112, the glass workshop and Lanette's house - and
+take the roof tool's "flat" roof now: the drawing on top and a parapet standing round the edge. Each proves exactly
+against its drawing; the probe's pictures show the parapets and nothing else changed. **Lavaridge's Gym was tried
+with a pitched roof and not taken**: the roof the drawing gave covered only the part over the door and left its lower
+wing flat beside it. The three "route houses left flat" in the building tool's log (Routes 112, 114, 115) are not
+houses: they are doors in cliff faces (the Fiery Path's on Route 112, Meteor Falls' on Routes 114 and 115), which the
+tool rightly leaves to the rock.
+
+### The whole world again, with fresh building models (sweep 2026-10-30 21:42-22:42; engine `5ea03aec`)
+
+The same 537 places as the sweep of 10:40 (the probe, 4 cameras each), now with the building models made again
+(the earlier local sweeps had the 01:51 models): 535 of 537 places, 501 of 503 maps - the Union Room and the Battle
+Tower's multi partner room stop the game when the probe warps straight into them, as at 10:40 (a scripted room
+entered without the state a player arrives with). Against the 10:40 sweep (engine `05136fb6`):
+
+| Check | 10:40 | now |
+| --- | --- | --- |
+| flat-blocked (all) | 15,566 | 14,284 |
+| ... outdoors | 3,077 | 2,582 |
+| ... rooms | 9,263 | 8,476 |
+| ... caves | 3,127 | 3,127 |
+| fin | 1,761 | 1,757 |
+| spike | 925 | 919 |
+| water-drop | 1,499 | 1,499 |
+| walk-step | 72 | 72 |
+| seam | 64 | 64 |
+| water-wall | 24 | 24 |
+| holes to the sky (places) | 9 | 9 |
+
+The holes are the same nine places; the largest are at Battle Palace's battle room (81 pixels from the Adventure
+camera), New Mauville's entrance (56) and Fortree City (112 from the Diorama camera: at one tree house's sides under
+its canopy - a floor under the canopies was tried and did not change it). Seams and walk-steps are MS-162's (phase
+C1); fins and spikes the rock that stands; the rooms' flat-blocked their furniture and walls (phase C5).
