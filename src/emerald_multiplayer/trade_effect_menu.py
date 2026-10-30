@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from textwrap import wrap
 
 from .player_menu import MenuRow, MenuScreen
-from .species_labels import species_label
+from .trade_forms import species_label
 from .trade_inspection import item_label, move_label, summarize_record
 
 # Pinned constants/pokemon.h enum, presentation only. This does not enable a type.

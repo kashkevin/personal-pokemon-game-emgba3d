@@ -1953,7 +1953,7 @@ class LauncherSession:
     def _trade_outcome_banner(self, trade_menu, result):
         """The game's banner for a finished trade: the received Pokemon, or who ended it (a trade used to close its window
         with nothing said; the menu's own notice waited for PLAYERS to open again)."""
-        from .species_labels import species_label
+        from .trade_forms import species_label
         if result.get("state") == "applied":
             received = result.get("received")
             species = received["species"] if received is not None else getattr(trade_menu, "peer_species", None)

@@ -1,5 +1,10 @@
 # Native trade eligibility boundary
 
+**Update 2026-10-30 (the Rotom Catalog):** Rotom's five appliance forms (internal IDs 1064-1068) are exchanged like the
+standard species: `trade_forms.py` lists them one by one (`REVIEWED_FORMS`, each with the standard species whose Pokédex
+number it has and its menu label); every other form stays outside the standard range below. None is `cannotBeTraded`,
+none evolves; the exact exchange carries the form as it is. `docs/rotom-catalog-20261030.md`.
+
 **Update 2026-10-29 (KNOWN_ISSUES MS-151):** the species that evolve by trade are no longer refused. The exchange stays exactly the record exchange described here; the receiving game evolves the Pokémon it received by itself once the trade's save is loaded (engine `62154337`, `src/platform/mp_trade_evolution.c`: the native `EVO_MODE_TRADE` rule with the given-away Pokémon as its partner, the evolution scene, the held item it needs used up, the Everstone and its Kadabra exception), and its next checkpoint carries the evolution as any evolution. The four forms with a trade evolution stay outside the standard range below. The sections that follow describe the gate as it was audited; where they say the trade-evolution species are rejected, read this update.
 
 The new `trade_eligibility.py` gate accepts only a simple, owned party-record exchange for development. `TradeDesk.offer()` applies it before changing an offer or its confirmations; `TradeDesk.confirm()` rechecks both complete current checkpoints before recording either actor's consent. The low-level `trade_flash.py` and schema-3 history/recovery remain unchanged. Trading is still disabled by default and has no player-facing offer UI. Passing this gate does not mean the complete native trade mechanics are implemented.

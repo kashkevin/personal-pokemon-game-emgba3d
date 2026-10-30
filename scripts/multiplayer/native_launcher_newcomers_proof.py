@@ -35,6 +35,10 @@ workers and native games, driven by ordinary key presses:
             evolution scene, its text advanced with B, which stops nothing in a trade evolution), the field comes
             back; everyone saves: the host's saves hold the species in --expect-species (one per player), and a held
             item a trade evolution uses up (a Metal Coat) is gone.
+    trade-forms  (two; as trade-evolve, for Pokemon that do not evolve: the Rotom Catalog's forms, trade_forms.py)
+            everyone saves; the first player offers its first Pokemon to the second, who offers its own; both confirm
+            and the host applies the exact exchange; the field comes back; everyone saves: the host's saves hold the
+            species in --expect-species (one per player), each Pokemon under its own serial.
   then the harness's closing saves and a fresh Continue of everyone.
 
 What it cannot say: one PC plays every player over its own loopback; on the hosted Windows runner the games run in
@@ -80,7 +84,7 @@ from qualify_admission_cleanup import on_worker, require  # noqa: E402
 from qualify_launcher_session import inspect_closed_head  # noqa: E402
 
 PLAYER_NAMES = ("New Host", "New Friend 1", "New Friend 2", "New Friend 3")
-SCENARIOS = ("lobby", "mixed", "busy", "trade", "battle-trade", "trade-evolve")
+SCENARIOS = ("lobby", "mixed", "busy", "trade", "battle-trade", "trade-evolve", "trade-forms")
 FORMATS = ("1v1v1v1", "2v2")
 MODES = {"1v1": 2, "2v2": 3, "1v1v1v1": 5, "1v1v1": 6}
 PEER_NO_POKEMON = "They have no Pokemon yet"
@@ -648,8 +652,8 @@ class NewcomersProof(SoftResetProof, ThreePlayerProof):
         for n, probe in enumerate(probes):
             status, rows = await players_tab(probe)
             require(status.startswith(f"Connected: {count}/"), f"player {n}'s PLAYERS: {status} {rows}")
-        if self.scenario == "trade-evolve":
-            await self.trade_evolve(current, probes, record)
+        if self.scenario in ("trade-evolve", "trade-forms"):
+            await self.trade_evolve(current, probes, record, evolves=self.scenario == "trade-evolve")
             parties = await self.heads(current, host)
             revisions = [(await self.launcher(w))["revision"] + 1 for w in current]
             return dict(parties=parties, revisions=revisions)
@@ -725,8 +729,8 @@ class NewcomersProof(SoftResetProof, ThreePlayerProof):
         record("through-the-evolution", player=self.harness.names[n], seconds=round(time.monotonic() - started, 1),
                game=probes[n].party_now())
 
-    async def trade_evolve(self, current, probes, record):
-        """KNOWN_ISSUES MS-151: the scenario's docstring (trade-evolve)."""
+    async def trade_evolve(self, current, probes, record, evolves=True):
+        """KNOWN_ISSUES MS-151: the scenario's docstring (trade-evolve); with evolves False, trade-forms."""
         canonical = await self.save_all(current, record, "saved-with-their-pokemon")
         require(all(c["count"] >= 1 for c in canonical), f"a player without a Pokemon: {canonical}")
         before = await self.party_species(current)
@@ -736,9 +740,12 @@ class NewcomersProof(SoftResetProof, ThreePlayerProof):
         traded = await self.heads(current, self.harness.host)
         record("traded", canonical=traded, species=await self.party_species(current),
                games=[p.party_now() for p in probes])
-        await asyncio.gather(*(self.through_evolution(n, current, probes, record, traded[n]["box_crc"])
-                               for n in (0, 1)))
-        canonical = await self.save_all(current, record, "saved-after-the-evolutions")
+        if evolves:
+            await asyncio.gather(*(self.through_evolution(n, current, probes, record, traded[n]["box_crc"])
+                                   for n in (0, 1)))
+        else:
+            await asyncio.sleep(3)                    # the trade's banner, the field back
+        canonical = await self.save_all(current, record, "saved-after-the-evolutions" if evolves else "saved-after-the-trade")
         after = await self.party_species(current)
         record("species-after", species=after, expected=list(self.expect_species))
         require(tuple(p[0][0] for p in after) == self.expect_species,
@@ -1017,17 +1024,19 @@ async def run(args):
         battle_session.GAME_ANSWER_SECONDS = args.game_answer_seconds
     count = len(args.source)
     require(2 <= count <= 4, "two to four sources (short-introduction saves)")
-    require(args.scenario == "lobby" or count == 4 or (args.scenario in ("trade", "battle-trade", "trade-evolve")
+    require(args.scenario == "lobby" or count == 4 or (args.scenario in ("trade", "battle-trade", "trade-evolve",
+                                                                          "trade-forms")
                                                        and count == 2),
             f"--scenario {args.scenario} needs four players (trade: two)")
     expect = tuple(int(x) for x in args.expect_species.split(",")) if args.expect_species else ()
-    require(args.scenario != "trade-evolve" or len(expect) == count, "trade-evolve: --expect-species, one per player")
+    require(args.scenario not in ("trade-evolve", "trade-forms") or len(expect) == count,
+            f"{args.scenario}: --expect-species, one per player")
     if not args.display:
         require(WINDOWS, "an X display per player")
         args.display = [f"desktop-{n}" for n in range(count)]         # Windows: one desktop; names for the records
     proof = NewcomersProof(args.scenario, args.format, args.watch, args.match_seconds, args.no_save, expect)
     await launcher_proof(args, names=PLAYER_NAMES[:count], sources=args.source,
-                         party_counts=(1,) * count if args.scenario == "trade-evolve" else (0,) * count,
+                         party_counts=(1,) * count if args.scenario in ("trade-evolve", "trade-forms") else (0,) * count,
                          match=proof.match, version="Native newcomers proof",
                          settings=LIGHT_3D_SETTINGS if args.light_3d else "windowScale=2\n",
                          scope=__doc__.split("\n\n")[0] + f" Scenario: {args.scenario}, {count} players.",
@@ -1039,7 +1048,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--scenario", choices=SCENARIOS, required=True)
     parser.add_argument("--expect-species", default="",
-                        help="trade-evolve: the species each player's first Pokemon is after the trade, e.g. 589,617")
+                        help="trade-evolve, trade-forms: the species each player's first Pokemon is after the trade, "
+                             "e.g. 589,617")
     parser.add_argument("--format", choices=FORMATS, default=None,
                         help="the battle of four (lobby: 1v1v1v1 by default; mixed: 2v2 by default)")
     parser.add_argument("--game", type=Path, required=True,

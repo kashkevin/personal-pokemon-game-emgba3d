@@ -291,7 +291,7 @@ class RecordArchivePanel:
             else:
                 import base64
                 from .trade_inspection import summarize_record
-                from .species_labels import species_label
+                from .trade_forms import species_label
                 names = [species_label(summarize_record(base64.b64decode(row[key], validate=True)).species) for key in ("sent", "received")]
                 values = (row["sequence"], "Acknowledged" if row["applied"] else "Recovery pending", *names)
             table.insert("", "end", iid=str(index), values=values)

@@ -16,7 +16,7 @@ from .live_trade import LiveTradeCoordinator
 from .ownership import OWNERSHIP_PROFILE, inspect_ownership
 from .player_menu import MenuRow, MenuScreen
 from .trade_eligibility import TradeEligibilityError, validate_party_offer
-from .species_labels import species_label
+from .trade_forms import species_label
 
 
 @dataclass(frozen=True)

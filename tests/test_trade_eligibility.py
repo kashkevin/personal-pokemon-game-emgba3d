@@ -103,6 +103,22 @@ class TradeEligibilityTests(unittest.TestCase):
         # broad allowance for later internal form IDs.
         self.assertEqual(validate_party_offer(offer_flash(species=721), 1).species, 721)
 
+    def test_rotoms_reviewed_forms_are_exchanged_exactly(self):
+        # The Rotom Catalog (2026-10-30): Rotom's five appliance forms (engine
+        # SPECIES_ROTOM_HEAT 1064 .. SPECIES_ROTOM_MOW 1068) are offered as the
+        # standard species are, the record unchanged; the forms on either side
+        # of them, and every other form, stay outside.
+        for value in (479, 1064, 1065, 1066, 1067, 1068):
+            with self.subTest(species=value):
+                payload = offer_flash(species=value, held_item=158)
+                result = validate_party_offer(payload, 1)
+                self.assertEqual((result.species, result.held_item), (value, 158))
+        for value in (1063, 1069):
+            with self.subTest(species=value):
+                self.assert_code("species_unsupported", offer_flash(species=value))
+        first, second = offer_flash(species=1064), offer_flash(species=1067, serial=2, personality=9)
+        self.assertEqual(tuple(mon.species for mon in validate_trade_pair(first, 1, second, 2)), (1064, 1067))
+
     def test_full_parser_rejects_checksum_uid_and_party_corruption(self):
         payload = offer_flash()
         for offset, value in ((32, b"\x00"), (19, b"\x03"), (84, b"\x00")):

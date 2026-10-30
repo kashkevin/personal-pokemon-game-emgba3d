@@ -13,7 +13,7 @@ from textwrap import wrap
 from .flash import _inspect_party
 from .ownership import _SUBSTRUCT_OFFSETS, _decode_box
 from .protocol import ProtocolError, _fields
-from .species_labels import species_label
+from .trade_forms import species_label
 from .trade_labels import ITEM_NAMES, LATIN_CHARS, MOVE_NAMES, NATURE_NAMES
 
 

@@ -13,6 +13,7 @@ from .flash import FlashError, POKEMON_SIZE, SAVED_PARTY_OFFSET, inspect_flash
 from .ownership import (
     OWNERSHIP_PROFILE, SERIAL_MAX, _SUBSTRUCT_OFFSETS, inspect_ownership,
 )
+from .trade_forms import tradable_species
 
 AUDITED_ENGINE_COMMIT = "b2cdd466abb8b142c3b75384133b5e6b3c3b982c"
 CAPABILITY_ID = "simple-owned-party-exchange-v1"
@@ -116,14 +117,17 @@ def _inspect_offer(payload: bytes, serial: int):
     # alternate/form namespace is not a National Dex number; no unreviewed form
     # or later-generation record is enabled by this first capability. Every
     # native cannotBeTraded entry also lies outside this conservative range.
-    if not 1 <= record.species <= 721:
+    # The forms reviewed one by one (trade_forms.py: Rotom's appliance forms,
+    # 2026-10-30) are exchanged exactly like the standard species.
+    if not tradable_species(record.species):
         raise TradeEligibilityError("species_unsupported", "this species or form is outside the audited exchange capability")
     return EligibleTradeMon(owned.world_id, owned.player_id, snapshot.container_sha256,
         serial, slot, record.species, record.personality, record.ot_id, held_item, growth[9]), owned
 
 
 def validate_party_offer(payload: bytes, serial: int) -> EligibleTradeMon:
-    """Accept only simple owned, non-egg, non-mail offers of the standard range.
+    """Accept only simple owned, non-egg, non-mail offers of the standard range
+    or a reviewed form (trade_forms.py).
 
     Ordinary friendship, IVs, shiny/PID/OT, moves and other data are preserved.
     Passing this gate does not apply native friendship/Pokédex/ribbon effects.

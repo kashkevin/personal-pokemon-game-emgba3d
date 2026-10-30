@@ -11,7 +11,7 @@ from .record_views import battle_outcome
 from .reset_history import (ResetHistoryUnsupported, default_reset_history_request,
                            read_reset_history)
 from .reset_protocol import SOURCES
-from .species_labels import species_label
+from .trade_forms import species_label
 from .trade_archive import (TradeArchiveUnsupported, default_trade_archive_request,
                            fetch_trade_archive)
 from .trade_inspection import summarize_record
