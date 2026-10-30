@@ -477,3 +477,55 @@ under the land (KNOWN_ISSUES E1: every map's sea on one level, so maps meet at t
 water-drop at every coast (1,428 cells outdoors); on beaches it reads as a low bank, not a box, and changing it would
 move every coast, pier and seam - not done here. Fortree City's tree houses and Ever Grande's flower beds are left
 for later.
+
+### Phase C4, fourth part: the white walls of the other tilesets (2026-10-30 10:57-11:31; engine `8afd8a4e`)
+
+The same white stones are drawn into other tilesets' metatiles, which stayed painted: Slateport's harbour and beach
+walls, the Battle Frontier's walls round its plazas, pools and paths (its two halves' tilesets), Route 110's by the
+water (the Mauville tileset) and Southern Island's and Faraway Island's docks (the Rustboro tileset). They stand as
+the General tileset's do: only the stones' palette, only on blocked cells. The Frontier's half wall, half planter
+(General `0x005`-`0x006`, 10 cells) is left out: as a block it hid the planter's bushes (seen in the pictures).
+
+The probe over 19 places against the build before, pictures looked at for each:
+
+| Map | flat-blocked |
+| --- | --- |
+| Slateport City | 161 -> 63 |
+| Battle Frontier, west | 292 -> 195 (spikes 17 -> 13) |
+| Battle Frontier, east | 254 -> 206 |
+| Route 110 | 135 -> 127 |
+| Faraway Island | 96 -> 90 |
+| Southern Island | 27 -> 21 |
+
+Fins unchanged. Linux and Mesa's software renderer only.
+
+### The whole world again (sweep 2026-10-30 10:40-11:47; engine `05136fb6`)
+
+The full sweep of the build with C3 and C4's first three parts (all but the walls just above): 534 of the 537 places
+in one run, 3 games stopped. Two are the rooms that stop the game when warped into (the Union Room and the Battle
+Tower's multi-battle partner room, as before). The third, the Battle Pike's normal room, waited for ever: the room
+picks its trainer from the challenge's battle number when it is entered, which the game sets before it lets the
+player in; warped in with none, the GBA's own loop never ends (`battle_pike.c` `PrepareOneTrainer`). Earlier sweeps
+passed it only because places before it in the same game had set the number. Not reachable this way in play; the
+probe now sets the number for that room (engine `0066c637`, test builds only) and drew it in 36 frames. The same
+commit fixes the sweep cutting one place's cell dump short (Rustboro's flat, 3F): its runner compressed a dump
+another game was still writing. That place was drawn again; 501 of the 503 maps are wholly seen, as after C2.
+
+| Sweep | fin | spike | flat-blocked | card-tree | walk-step | seam | water-wall | water-drop | hole (places) | not-3d |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| baseline (2026-10-29) | 2,038 | 1,135 | 26,304 | 16,957 | 72 | 64 | 45 | 1,528 | 54 | 2 |
+| C2 (`3ed7b0a2`) | 1,761 | 936 | 20,558 | 16,957 | 72 | 64 | 24 | 1,535 | 9 | 2 |
+| now (`05136fb6`) | 1,761 | 925 | 15,566 | 0 | 72 | 64 | 24 | 1,499 | 9 | 2 |
+
+By kind of map (now; baseline in brackets): outdoors fin 941 (1,205), spike 546 (745), flat-blocked 3,077
+(13,175), water-drop 1,428 (1,459), holes 6 places (38); rooms flat-blocked 9,263 (9,860); caves fin 789 (802),
+spike 372 (383), flat-blocked 3,127 (3,170). The baseline's and C2's flat-blocked count every detail object's cell
+(their dumps have no column for them); the check of C4's first part counts those as objects, about 1,350 cells
+outdoors, so the outdoors' 13,175 -> 3,077 is about 8,750 cells now standing and 1,350 counted truly. The holes
+column is the check of C4's first part for all three (the baseline's 60 was 54 with it).
+
+What is left of flat-blocked: rooms 9,263 (their furniture and walls: C5), caves 3,127 (rock and boulders in the
+caves' own tilesets), outdoors 3,077: the next ones are the Mossdeep tileset's round trees (Mossdeep City and Route
+127's grove, 435 cells, painted flat), Fortree's trees and tree houses, Lilycove's and Route 121's iron fences,
+Sootopolis's white ledges, Ever Grande's stone walls, and the boulders, Rock Smash rocks and Cut trees, which are
+map objects drawn as upright cut-outs like the people.
