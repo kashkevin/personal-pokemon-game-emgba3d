@@ -287,3 +287,30 @@ No sky shows through any of them. Sootopolis's fins and spikes are its terrace l
 between streets the terrace solver lays on one level (the GBA gives the streets one elevation; the ledges are drawn
 as steps), now walls a tile high where they were paint. Steps between street levels are the level solve's work,
 still to come. Linux and Mesa's software renderer only.
+
+### Phase C2: the whole world again (sweep 2026-10-30 05:55-06:40; engine `3ed7b0a2`, then `97663b8f`)
+
+The full sweep of `3ed7b0a2`: 535 of the 537 places, 501 of the 503 maps wholly seen (the same two rooms stop the
+game when warped into, and Sootopolis's Mystery Events basement crashes as before and is restarted after - all three
+not reachable this way in play, as written above). The whole world, the baseline, C1 and now:
+
+| Sweep | fin | spike | flat-blocked | card-tree | walk-step | seam | water-wall | water-drop | hole (places) | not-3d |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| baseline (2026-10-29) | 2,038 | 1,135 | 26,304 | 16,957 | 72 | 64 | 45 | 1,528 | 60 | 2 |
+| C1 (`242e3764`) | 1,711 | 901 | 23,053 | 16,957 | 72 | 64 | 24 | 1,535 | 31 | 3 |
+| C2 (`3ed7b0a2`) | 1,761 | 936 | 20,558 | 16,957 | 72 | 64 | 24 | 1,535 | 9 | 2 |
+
+Since C1: outdoors 2,508 fewer blocked cells drawn flat (Route 126 and Sootopolis), 22 places fewer with a hole
+(18 of them caves: their void is now drawn as the GBA's black in the probe, test builds only), and 50 more fin and
+35 more spike cells: Sootopolis's terrace ledges, now walls (above). The 9 places left with a hole are the ones
+listed as left as they are. Caves, underwater and rooms are otherwise as after C1.
+
+`97663b8f` (after the sweep): the tall faces of C1's rock bands (Route 126's crater, Route 115's and Ever Grande's
+cliffs) showed one pixel's colour drawn down the whole face, a stripe; a side three quarters of a tile tall or more
+now shows the cell's drawing, as a cliff's face does. Shorter sides keep the pixel's colour (Route 104's terraces,
+the owner's report of 2026-10-24). Six places probed before and after: only rock faces differ. Linux and Mesa's
+software renderer only.
+
+Next: the trees (C3). Every tree of the General tileset is still the 3DS project's cut-out (16,957 cells, the
+default the owner chose on 2026-10-10): each crown becomes a solid of voxels made from that same art, with a trunk
+under it.
