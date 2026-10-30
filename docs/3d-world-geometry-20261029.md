@@ -403,3 +403,47 @@ Of the 2,420 fewer flat-blocked cells, about 1,070 are this rock standing (Route
 North 73 -> 10, Northwest 58 -> 3, Southwest 106 -> 3, Lilycove 155 -> 83, Mossdeep 186 -> 133) and 1,351 the
 props now counted. The 117 more fin cells are those painted cliffs standing as one- and two-cell-thick ridges a
 tile high. Linux and Mesa's software renderer only.
+
+### Phase C4, second part: the volcano's rock, and the Lavaridge tileset's trees (2026-10-30 08:53-10:13; engine `f000fc64`)
+
+The largest groups of blocked cells still drawn flat outdoors were the Fallarbor and Lavaridge tilesets' own rock:
+the brown volcanic rock round Fallarbor and on Routes 113 and 114, Route 115's rock in the sea, and the pink rock of
+Jagged Pass and Mt Chimney's summit. Their tileset files now list it as rock art (not their trees, sand, lava or
+towns), so it stands as rock bands like the General tileset's. The 9 volcanic places, flat-blocked cells before and
+after (pictures looked at for each):
+
+| Map | flat-blocked | fin | spike |
+| --- | --- | --- | --- |
+| Fallarbor Town | 55 -> 8 | | |
+| Jagged Pass | 190 -> 26 | 42 -> 21 | 34 -> 25 |
+| Mt Chimney | 230 -> 76 | 47 -> 19 | 26 -> 9 |
+| Route 113 | 81 -> 27 | | |
+| Route 114 | 251 -> 59 | | |
+| Route 115 | 79 -> 19 | | |
+| Lavaridge Town, Route 112 | unchanged | | |
+
+Standing that rock swallowed the trees drawn on it, which showed that the Lavaridge tileset's trees had never been
+solid: they are the General tileset's large and small trees drawn with its own tiles on the volcano's ground, and
+they were drawn as rock columns painted with the tree (Route 112's terraces) or as the tree painted flat. They now
+stand as the solid trees do, with the General crowns, each cell showing the ground under it; a crown's top over the
+cliff above keeps that cliff's height. The rules compiler stands each such tree on the walkable ground within two
+cells of it (the level most of it meets, the lower of two), else on the rock's top: at the foot of the rock its cells
+had joined, a tree stood in a pit up to three levels deep (seen on the first try, and fixed before this commit).
+
+Probed against the build before (14 places: Route 112 five times, Jagged Pass three, Lavaridge Town, Mt Chimney, and
+Route 113, Petalburg Woods and Routes 116 and 120 as controls):
+
+| Map | flat-blocked | fin | spike |
+| --- | --- | --- | --- |
+| Route 112 | 110 -> 22 | 9 -> 6 | 28 -> 23 |
+| Jagged Pass (three places) | 26 -> 14 | 21 -> 17 | 25 -> 16 |
+| the controls | unchanged | unchanged | unchanged |
+
+Route 113 is the same pixel for pixel; Petalburg Woods and Routes 116 and 120 differ only in their visible wild
+Pokemon. Route 112 also got cheaper to draw - 12.4-12.8 frames a second before, 18.4-18.9 after, 1,083k vertices a
+frame down to 555k - because the painted columns cost more than the solid trees. Linux and Mesa's software renderer
+only: nothing here was measured on Windows or a graphics card.
+
+Still flat outdoors after this, the largest groups: Mt Chimney's lava (its edge pieces), the white walls and curbs of
+the Battle Frontier and Route 110's cycling road, Route 119's jungle trees (the Fortree tileset's), flower beds, and
+the broken floor on Sky Pillar's top.
