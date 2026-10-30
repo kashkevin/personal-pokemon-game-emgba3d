@@ -219,3 +219,40 @@ it when entered so, before C1 as after (not reachable this way in play): Sootopo
 basement (its e-Reader trainer's team made from no data: a stack overflow; Mystery Events are not on PC), the Union
 Room (wireless data; no wireless on PC) and the Battle Tower's multi-battle partner room (its candidates, set up only
 by the Tower's challenge).
+
+### Phase C2, second part: where the sky still showed through (done 2026-10-30 03:47-05:00; engine `00d58e6b`)
+
+After C1's sweep and `4d94b864`, 31 places still showed the probe's magenta sky somewhere in their pictures. Each
+was looked at in the probe's pictures and again in the game's own sky (the same places, the same cameras,
+`PKMN_TEST_GEO_SKY=0`), and sorted:
+
+- **Not holes: the GBA's black between rooms.** The Abandoned Ship's cabins and corridors, New Mauville, Mirage
+  Tower's corners and the Mossdeep Gym have cells the GBA draws black between their rooms. The 3D view draws nothing
+  there, and the room's dark shows: in play the same near-black as the void round the map (pictured both ways). So the
+  probe now draws those cells as the black floor the GBA shows (test builds only: the game itself is unchanged), and
+  takes its pictures with the air's dust, light rays and gloom off (drawn over the scene, not part of it: the dust
+  read as stars in the void and the rays lifted its black). Its sky then shows only where the scene itself is open.
+- **Holes, fixed.** Meteor Falls 1F's bridge kept the water under it at the water's nominal level while the cave's
+  pools round it are sunk 6/16 of a tile: a band of sky under its deck, and Victory Road's bridges the same at their
+  sides. The water under a bridge now lies at the level of the water beside it, and the ground beside a bridge hangs
+  its side down to that water. The Abandoned Ship's outside stairs on Route 108 stand on its deck's level, a level
+  over the sea, and reached only a voxel under it: the sky showed under them. Stairs going up now hang a side down to
+  lower ground beside them, as ground does. (A player surfing under such a bridge now stays at the river's level
+  too, where it rose 6/16 of a tile under the deck.)
+- **Left as they are (looked at, not holes in play or too small to matter):** the far edge of the loaded scene in the
+  low 15-degree view - sky seen past the last cells, between beach umbrellas or behind a rock (Routes 109, 124 and
+  131, Pacifidlog): in play the scene's edge fades into the sky's own haze there, so nothing shows. Fortree's east
+  tree house (slivers between its crown and its platform, 112 pixels), the Battle Palace battle room (a hairline
+  along its two pools' back edges), New Mauville's entrance (its door model's light slits are see-through) and
+  Faraway Island's entrance (a hairline beside a small object): open, small.
+
+The same 31 places, the probe's pictures with the air off and the void drawn black, the worst of the four views per
+place:
+
+| Build | places with 40 or more sky pixels | sky pixels |
+| --- | --- | --- |
+| `4d94b864` (the probe's changes only) | 12 | 2,519 |
+| this part | 9 | 1,033 |
+
+(With the probe as it was - the air on, the void drawn as nothing - `4d94b864` had 23 such places: 11 of them were
+the void and the air, not holes.) The whole world's sweep of this build comes next.
