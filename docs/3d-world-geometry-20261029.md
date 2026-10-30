@@ -314,3 +314,38 @@ software renderer only.
 Next: the trees (C3). Every tree of the General tileset is still the 3DS project's cut-out (16,957 cells, the
 default the owner chose on 2026-10-10): each crown becomes a solid of voxels made from that same art, with a trunk
 under it.
+
+### Phase C3, first part: the trees stand as solids (2026-10-30 06:48-07:50; engine `29c95198`)
+
+"Trees must have actual 3D trunks and canopy volume." The 3DS trees the owner chose on 2026-10-10 keep their art
+and their place, but each crown is now a solid of voxels made from that art, where the cut-out stood: each leaf
+pixel a column through the crown's plane, longest where it is furthest inside the outline (a rounded crown about
+1.5 tiles thick for the large tree, the art on its front and back, each pixel's colour down its sides, every face
+shaded by the way it looks), and a trunk of bark stands under it, its foot on the trunk's art and its top inside
+the crown (the small trees' drawn trunk replaced by it). From the field's cameras the forests read as rows of
+round crowns with shaded sides, short trunks under the nearest, and broad shadows; from the low camera, solid
+masses where the cut-outs were paper. The cut-outs are still drawn with `PKMN_DIORAMA_TREE_CARDS=1`, for
+comparisons (the same pictures as before).
+
+The 87 places of every outdoor map, swept with the solids: card-tree 16,957 -> 0; fins, spikes, flat-blocked
+cells, seams, steps and water as before; two places' far skyline (Route 105, the Safari Zone's south-west) leave a
+little more sky between the crowns' outlines past the scene's edge, counted as holes there (looked at: not gaps
+in the trees).
+
+**Speed** (Mesa's software renderer, a 640x360 scene, Linux; no graphics card measured, so nothing claimed for
+one): a solid crown is a few hundred faces where a cut-out was one, so only the tree cells on screen are drawn,
+the nearest first, without the faces no camera of the field sees and with the faces looking away culled; the sun's
+shadows are cast by the cut-outs as before.
+
+| Place | Before (cut-outs) | Solids |
+| --- | --- | --- |
+| Petalburg Woods | 49 fps, 17 ms a frame, 132k vertices | 27-28 fps, 29 ms, 234k vertices (403 of 5,829 tree cells drawn) |
+| Route 120 | 48 fps, 17 ms, 143k vertices | 40-45 fps, 18-20 ms, 149k vertices |
+
+The densest wood costs the software renderer about 12 ms a frame more: it is bound by vertices there, which a
+graphics card handles far faster, but that is not measured here. Phase D measures the walks again; if the owner's
+PC shows the forests slower, the cut-outs can come back as an option (a setting), or far trees can be drawn
+simpler.
+
+Still flat: the ash-covered trees of Route 113, Route 114 and Fallarbor Town (the Fallarbor tileset's own
+trees, laid out as the General tileset's dense forest), next.
