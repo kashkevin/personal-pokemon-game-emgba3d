@@ -678,3 +678,65 @@ asked for about the crash (MS-169), so the owner's next log of normal play carri
 and a long session's lines show whether frames grow slower. The profile (`PKMN_DIORAMA_PROFILE=1`) now also counts
 each pass's draws and vertices, which showed that the Frontier's remaining cost is the terrain (173k vertices a
 frame) and its rounded props (104k: the mounds' meshes, a quad a pixel on top - the next to merge).
+
+### Phase D, second part: the terrain drawn three times, and the props in runs (2026-10-30 15:30-17:30; engine `190f7176`, `ff6f8528`)
+
+The per-pass profile (phase E's second part) said where the Frontier's west side spent its frame: the terrain
+173k vertices, the props 104k. Both had a cause that was not the new geometry itself.
+
+* **The terrain was drawn three times a frame** (`ff6f8528`). After the picture, the terrain renderer drew every
+  chunk on screen twice more, with colour and depth writes off, to mark the stencil: where water reflects (the
+  objects' reflections are drawn only there) and where the terrain shows pixel colour (the layer-3 models, which
+  an object in front of is drawn over). The shader keeps only those pixels, but every triangle was still shaded and
+  filled in both passes: the 173k were 58k three times. Each chunk now keeps, after its own indices, the two short
+  lists of triangles those passes can mark, and they draw only those, nothing for a chunk with none. The marks are
+  the same by construction - a triangle the lists leave out is one the shader leaves out whole - and the probe's
+  pictures at 12 places with reflecting water, ice and pixel models (Sootopolis, the Safari Zone, Routes 117, 120
+  and 123, Southern Island, Shoal Cave's ice room, Mossdeep, Fortree, Route 110, the Frontier) differ from the
+  build before only where flowers, water, tall grass, the map's name and wild Pokemon moved; Sootopolis's and the
+  Safari Zone's are the same to the pixel. This was in the build before step 16 too; the taller terrain of step 16
+  made it cost more.
+* **Rounded props in runs** (`190f7176`): a mound prop (round bushes, rock heaps, the sea rocks, Fortree's fronds)
+  was a quad for each pixel of its top and one for each side of a pixel over a lower neighbour; the round bushes by
+  the Battle Tower were 1,932 vertices each, and the 34 seen from the Frontier's west 66k of its props' 104k. A
+  run of a row's pixels at one height is now one quad, and the sides go in runs as a wall's do: 1,284 vertices a
+  bush, the Frontier's props 71k. The probe's pictures (the Frontier's east and west, Ever Grande, Granite Cave,
+  Mossdeep, Fortree) differ from the build before only where the water, the flowers and a wild Pokemon moved.
+
+The same 12 places, measured as in the first part (L, Mesa llvmpipe on 4 otherwise idle cores; medians of the
+profile's windows after the map has loaded; frames a second, vertices a frame in brackets). The first three columns
+are the first part's last pass; the last three a new pass with its own "before" column, the build before step 16
+measured again in the same run:
+
+| Place | before step 16 | step 16 at `b4ce6755` | change | before step 16 (again) | now (`ff6f8528`) | change |
+| --- | --- | --- | --- | --- | --- | --- |
+| Battle Frontier, west | 36.9 (221k) | 22.2 (345k) | -40% | 32.0 (221k) | 36.6 (196k) | +14% |
+| Sootopolis City | 46.8 (65k) | 30.5 (193k) | -35% | 41.3 (65k) | 48.0 (84k) | +16% |
+| Route 120 | 42.5 (134k) | 32.1 (150k) | -24% | 42.9 (134k) | 49.8 (80k) | +16% |
+| Mossdeep City | 32.9 (214k) | 27.5 (323k) | -16% | 31.8 (214k) | 43.2 (201k) | +36% |
+| Route 110 | 40.5 (153k) | 37.9 (151k) | -7% | 36.3 (153k) | 48.2 (119k) | +33% |
+| Petalburg Woods | 38.8 (132k) | 39.5 (109k) | +2% | 45.5 (132k) | 59.3 (71k) | +30% |
+| Fortree City | 32.5 (114k) | 28.3 (86k) | -13% | 33.6 (114k) | 34.9 (101k) | +4% |
+| Lilycove City | 25.0 (181k) | 20.2 (282k) | -19% | 26.0 (181k) | 40.0 (138k) | +54% |
+| Slateport City | 25.0 (349k) | 24.6 (325k) | -2% | 25.1 (349k) | 35.3 (236k) | +41% |
+| Route 104 | 23.9 (239k) | 28.0 (199k) | +17% | 22.6 (239k) | 38.5 (98k) | +71% |
+| Route 119 | 23.8 (214k) | 29.2 (164k) | +23% | 25.0 (214k) | 43.0 (102k) | +72% |
+| Route 112 | 11.9 (1050k) | 17.3 (415k) | +45% | 11.9 (1050k) | 34.4 (190k) | +190% |
+
+**Now no slower than before step 16 at any of the 12 places** on this renderer. The build before step 16, measured
+in both passes, differed by up to 17% (Petalburg Woods 38.8 and 45.5, the Frontier's west 36.9 and 32.0,
+Sootopolis 46.8 and 41.3), so only the larger differences say something:
+
+* Clearly faster: Route 112 (+190%: its trees were voxel hulls), Route 119 (+72%), Route 104 (+71%), Lilycove
+  (+54%), Slateport (+41%), Mossdeep (+36%), Route 110 (+33%), Petalburg Woods (+30%), Route 120 (+16%, both
+  "before" passes 42.5 and 42.9).
+* Level, within what the same build varies: the Frontier's west (36.6 now; 36.9 and 32.0 before), Sootopolis (48.0;
+  46.8 and 41.3) and Fortree (34.9; 32.5 and 33.6) - where step 16 stood the rock up (the Frontier's west,
+  Sootopolis's crater) or made the trees solids (Fortree).
+
+The marking fix would have made the build before step 16 faster too; the comparison is the player's - the game
+before step 16 against the game now. Where the frame goes now (the per-pass profile): the Frontier's west 58k
+terrain, 71k props, 64k buildings; Slateport's props 181k: 251 upright slabs (the signs, lamps and fences' form,
+66 quads each whatever its art, as the walls were before `a367e474`: 99k) and 49 rounded heaps (74k) - the next
+to look at if a graphics card needs it.
+Nothing here says how fast a graphics card is (phase E's frame-time lines are for that).
