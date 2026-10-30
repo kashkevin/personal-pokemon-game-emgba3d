@@ -76,7 +76,7 @@ Pictures taken today (L, engine `9f032173`, 20 maps, scratchpad `geo/base1/`; ga
 | What the owner described | Seen here | Root cause |
 | --- | --- | --- |
 | Tall, narrow, rectangular cliffs | Mossdeep's cliff a row of pillars; the Safari Zone's cliffs thin slabs | **R1** |
-| | Route 120's one long cliff three thin ridges | **R2** |
+| | Route 120's one long cliff painted flat on the ground | **R2** |
 | Inconsistent cliff heights | the same rock drawn as a step on one map and flat on the next | **R1, R2, R3** |
 | Flat trees and vegetation | every route's trees (the default cut-outs) | **R5** |
 | Abrupt height transitions | whole-tile steps with vertical sides; the sea a full tile under every coast | **R1, R4** |
@@ -91,8 +91,9 @@ Pictures taken today (L, engine `9f032173`, 20 maps, scratchpad `geo/base1/`; ga
   the audit's count from the compiled tables; phase B counts them as drawn).
 * **R2. Rock drawn on level ground is read pixel by pixel.** Route 120 (checked): its cliff is a band of General's
   rock (0x72, 0x75) and the secondary tileset's 0x3A between two areas the GBA keeps on one level; the compiler calls
-  the cells flat ground, and the drawn strata become ridges. Rock, in Emerald's art, is a mass seen from above - a
-  ridge, a hill or the face between two levels - and the 3D shape must follow the mass, not the stripes.
+  the cells flat ground, so the cliff is only paint on level ground (phase B's pictures; an earlier reading of this
+  doc said its strata stood as ridges - they do not). Rock, in Emerald's art, is a mass seen from above - a ridge, a
+  hill or the face between two levels - and the 3D shape must follow the mass, not the stripes.
 * **R3. Levels come from too little.** Only General's terrace pieces make a level; other tilesets' cliffs (Fallarbor,
   Sootopolis, Mossdeep, Lavaridge, Fortree, the Safari Zone) and the GBA's own height levels where it has them are
   ignored; contradictory groups are dropped flat; each map is solved alone, so neighbours meet a level apart.
@@ -137,3 +138,84 @@ remaining defect listed with its map and place; the owner's six defects shown be
 (the game's own); no slower than now on the same walks; the Windows results stated for what was run (CI's software
 renderer) and what was not (a graphics card). Not claimed: that the world is free of defects, or anything about a
 graphics card or the owner's PCs until they are tried there.
+
+## 7. Progress
+
+### Phase B: the inspection tool and the baseline (done 2026-10-29 21:42-22:45; engine `71aff298`)
+
+`tools/qa/geometry_check.py` with the geometry probe in the 3D test build: 537 places whose scenes cover every cell
+of the 503 maps, each written cell by cell as the terrain mesh is built (ground, top, per-pixel rock heights, kind,
+model) and photographed from four cameras (the Adventure and Diorama cameras, fixed 15 and 75 degree views) against
+a magenta sky, so any hole to the sky is a colour the game never draws. The checks per map: fins and spikes (terrain
+three quarters of a tile over both neighbours on a side - in runs, or alone), blocked cells drawn flat, cut-out
+trees, steps between walkable cells, seams at map connections, water standing over its banks, drops to water, holes
+to the sky, places not drawn in 3D; a coverage manifest (`manifest.json`), a report and contact sheets.
+
+The baseline (the build of 2026-10-29, before any phase C change): 535 of the 537 places, 501 of the 503 maps wholly
+seen (the Union Room - no wireless on PC - and the Battle Tower's multi-battle partner room stop the game when
+warped into). Cells found: fins 2,038, spikes 1,135, blocked cells drawn flat 26,304, cut-out trees 16,957, drops to
+water 1,528, water over its banks 45, seams 64, steps 72; holes to the sky at 107 places; 2 places not in 3D.
+
+| Map kind | Maps | fin | spike | flat-blocked | card-tree | walk-step | seam | water-wall | water-drop | hole (places) |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| outdoor | 67 | 1,205 | 745 | 13,175 | 16,957 | 20 | 64 | 42 | 1,459 | 38 |
+| cave | 99 | 802 | 383 | 3,170 | 0 | 49 | 0 | 0 | 69 | 19 |
+| underwater | 14 | 31 | 7 | 61 | 0 | 0 | 0 | 0 | 0 | 0 |
+| indoor | 299 | 0 | 0 | 9,860 | 0 | 3 | 0 | 3 | 0 | 50 |
+| secret base | 24 | 0 | 0 | 38 | 0 | 0 | 0 | 0 | 0 | 0 |
+
+### Phase C1, first part: rock bands (done 2026-10-30 02:31; engine `242e3764`, with the crash fixes `42daa2b6`)
+
+The rules' rock - cliffs, mounds, walls, mountains' art, and the blocked plain cells drawn in a palette their rock is
+drawn in - is cut into bands, each one surface over the ground and water round it (`tools/diorama_rules/rock_bands.py`):
+one ground per band (the lowest level it meets along a real share of its edge); a band between two levels a cliff,
+its top level with the higher of the levels near each cell and its face down to the lower; rock near one level only a
+tile over it, never above the band's top; a band on one level a ridge or mountain, a tile over it and half a tile more
+each cell in, at most two tiles over its ground. What the player walks on keeps its height (a mountain's walkable
+art, and the mountains of several tops settled on 2026-10-24 for Routes 111-116). A pond lies no higher than its
+lowest bank; a ground cell beside rock hangs its side down to the rock's own pixel heights.
+
+Before and after, the same 17 places across 14 maps (the probe, the same cameras):
+
+| | fin | spike | flat-blocked | water-wall | water-drop | sky through (pixels) |
+| --- | --- | --- | --- | --- | --- | --- |
+| baseline | 299 | 202 | 2,645 | 42 | 413 | 7,106 |
+| C1 | 166 | 150 | 1,829 | 24 | 418 | 755 |
+
+The whole world, the full sweep of the C1 build (`242e3764`; 534 of the 537 places - the Union Room and the Battle
+Tower's multi-battle partner room stop the game, the Battle Pike's room did this time) against the baseline:
+
+| Map kind | fin | spike | flat-blocked | water-wall | water-drop | places with sky through |
+| --- | --- | --- | --- | --- | --- | --- |
+| outdoor (67 maps) | 1,205 -> 878 | 745 -> 511 | 13,175 -> 9,943 | 42 -> 24 | 1,459 -> 1,464 | 38 -> 9 |
+| cave (99) | 802 -> 802 | 383 -> 383 | 3,170 -> 3,170 | 0 -> 0 | 69 -> 69 | 19 -> 19 |
+| indoor (299) | 0 -> 0 | 0 -> 0 | 9,847 -> 9,841 | 3 -> 0 | 0 -> 2 | 50 -> 50 |
+| all (503) | 2,038 -> 1,711 | 1,135 -> 901 | 26,291 -> 23,053 | 45 -> 24 | 1,528 -> 1,535 | 107 -> 78 |
+
+Cut-out trees (16,957), steps between walkable cells (72) and seams (64) are unchanged: they are C3's, C1's level
+solve's and MS-162's. Engine `4d94b864` (phase C2's first fix) then hangs rock's sides down to rock on a lower ground:
+on the 17 places above the sky through fell from 755 to 47 pixels (Mt Pyre's summit's pit, Ever Grande City); its
+own full sweep comes with the next part.
+
+The owner's defects this reaches: Mossdeep's cliff, a row of pillars a tile over its plateau and two over the street,
+is one face from the street to the plateau; Ever Grande's rock has no sky through it; the Safari Zone's north-west
+pond is sunk between its banks, not a raised blue box. Mt Pyre's summit keeps the original's even walls. Pictures were
+looked at for every place above, not only the counts.
+
+Eight versions were tried; the rejected ones taught: one ground for a whole band took a maze of rock down to a pit
+two levels down beside it, and the water round it with it (Mt Pyre's summit as a sunken blue box); each cell on its
+own ground left the sky between them, and rising inside wide masses stood them as columns; heights summed over a
+band bulged a maze's junctions to two tiles; a face laid smoothly between its levels became a ramp, Ever Grande's
+mountain a slope down to Victory Road's mouth; rock rising over the upper level inward stood Route 114's mountains
+taller than the game draws them; rock a tile over its level next to a face at that level stood in steps.
+
+Not fixed by this part (still open): walkable mountain-top pockets inside a mountain drawn a tile up (Ever Grande
+round Victory Road: small notches); caves (802 fins and 383 spikes in the baseline: their rock is the caves' own
+rule); trees (C3), objects (C4), rooms (C5); the four map seams of MS-162. Linux and Mesa's software renderer only:
+nothing is claimed for Windows or a graphics card until it is run there.
+
+The tool warps the game straight into every place, and three rooms the game reaches only through its own flows crash
+it when entered so, before C1 as after (not reachable this way in play): Sootopolis's Mystery Events house's
+basement (its e-Reader trainer's team made from no data: a stack overflow; Mystery Events are not on PC), the Union
+Room (wireless data; no wireless on PC) and the Battle Tower's multi-battle partner room (its candidates, set up only
+by the Tower's challenge).
