@@ -740,3 +740,54 @@ terrain, 71k props, 64k buildings; Slateport's props 181k: 251 upright slabs (th
 66 quads each whatever its art, as the walls were before `a367e474`: 99k) and 49 rounded heaps (74k) - the next
 to look at if a graphics card needs it.
 Nothing here says how fast a graphics card is (phase E's frame-time lines are for that).
+
+### Phase C5, first part: the furnished rooms (2026-10-30 17:50-18:40; engine `131de763`)
+
+The depth audit of 2026-10-28 (MS-164) listed 35 rooms whose furniture the generic 3D rules leave as a picture on
+the floor: the Battle Frontier's nine lounges, six lobbies, the Pike's corridor and three-path room, the Exchange
+Service Corner, the Ranking Hall, the reception gate and Scott's house; the Hall of Fame, the Department Store's
+rooftop, the Mauville bike shop, the two Game Corners, the diving treasure hunters' house, Devon Corporation's 1F,
+the Safari Zone's rest house, the Sootopolis Mystery Events house; Ever Grande City's five halls - 26 layouts (the
+lounges share two, the halls two; Mossdeep's Game Corner B1F was taken with its 1F).
+
+The tool that models the rooms battles are fought in (`tools/battle_env/auto_rooms.py`: each room read off its
+cells - walls, edges, furniture - every piece built as a model and proved against its drawing, then the room with
+every piece standing in it proved against the room's drawing, pixel for pixel; `--repair 3` leaves out the pieces
+whose cells differ) proved 23 of the 26. Its own two pictures of each (a battle camera and a field camera) looked
+right. **The game's pictures did not all agree**: the geometry probe took the 23 rooms from the field's cameras
+with the build before and with them modelled, and six looked worse or wrong - the Battle Arena's lobby (its wooden
+stage's edge stood as tall walls), the Battle Palace's lobby (its back wall broke into slabs), the two lounge
+layouts (only their walls stood: the sofas the audit meant stay pictures), the reception gate (its stools stood as
+glass boxes, and a counter cell drew a piece of the Factory's lobby), the Sootopolis Mystery Events house (its table
+stood as a cabinet). They are not taken. A room's pieces also stand in the other listed rooms that repeat them, so
+the list is proved as a whole; without those six, five more no longer proved (the Factory's lobby, Scott's house,
+the Pike's three-path room, Mossdeep's Game Corner B1F, the diving treasure hunters' house). Not proved at all: the
+Battle Dome's lobby, the Exchange Service Corner, Devon Corporation's 1F.
+
+**Twelve rooms are modelled now** (`battle_room_specs.AUTO_ROOMS`, proved together with no repair: 12 of 12, every
+model exact): the Battle Pike's lobby (its chairs) and corridor (its chairs and pedestals), the Battle Pyramid's
+lobby (the stair rails, the pools' edges, the torches and the back wall), the Ranking Hall (its record machines),
+the Hall of Fame (its machine and back wall), the Department Store's rooftop (planters, benches, vending
+machines), the Mauville bike shop (its counters; the bikes stay pictures), the Mauville Game Corner (slot machines,
+chairs, roulette tables, the prize counter), Mossdeep's Game Corner 1F (the counter, the tables), the Safari Zone's
+rest house (its walls; the table and chairs as before), and Ever Grande's halls (their back walls only - **their
+stairs and railings are a level change the room tool does not make, and stay drawn on the floor**, MS-172).
+
+Evidence (L, the 3D test build, Mesa): the probe's pictures of all 23 rooms before and after - the twelve as looked
+at, the eleven not taken the same as before to the pixel (the reception gate but for an NPC's "!" bubble);
+check-diorama passed; the building tool's tests 39 passed. Of MS-164's 35 rooms, the furniture now stands in
+eight (the Pike's lobby and corridor, the Pyramid's lobby, the Ranking Hall, the Hall of Fame, the rooftop, both
+Game Corners) and partly in the bike shop (its counters, not its bikes). MS-164 stays open for the rest: the nine
+lounges' sofas, the Dome's, Arena's, Palace's and Factory's lobbies, the reception gate, the Exchange Service
+Corner, Scott's house, the Pike's three-path room, the diving treasure hunters' house, Devon Corporation's 1F, the
+Safari Zone's rest house (its table and chairs), the Sootopolis house, the bike shop's bikes and the five halls'
+stairs.
+
+### Phase E, third part: the Windows builds stopped, and built again (2026-10-30 17:32-17:49; engine `ee84a646`)
+
+The Windows package's run 248 (dispatched for the Rotom Catalog) stopped at its build: `299a5b04` (phase D's far
+trees) named a loop variable `far`, and Windows' headers define `far` and `near` as nothing, so MinGW read
+`int ;`. Every Windows build of the engine from `299a5b04` until `ee84a646` stopped there (run 248 was the first
+since); the Linux builds have no such macro. The variable is `distant` now (`ee84a646`); the Windows 3D game, the
+Classic 2D game and both test builds were built here with MinGW and the pinned SDL 2.30.7, and run 249's build job
+passed on GitHub's runner.
