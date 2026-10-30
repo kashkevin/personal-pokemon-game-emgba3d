@@ -447,3 +447,33 @@ only: nothing here was measured on Windows or a graphics card.
 Still flat outdoors after this, the largest groups: Mt Chimney's lava (its edge pieces), the white walls and curbs of
 the Battle Frontier and Route 110's cycling road, Route 119's jungle trees (the Fortree tileset's), flower beds, and
 the broken floor on Sky Pillar's top.
+
+### Phase C4, third part: the low white walls (2026-10-30 10:13-10:31; engine `05136fb6`)
+
+The General tileset's low white walls - along Route 110's cycling road, round the Battle Frontier's plazas and pools,
+in Slateport and on Southern Island's dock - were painted on the ground: after the volcano's rock, the largest flat
+groups left outdoors (the Frontier's two halves 777 flat-blocked cells, Route 110 356). They are drawn on the same
+layer as the grass or paving beside them, so the detail objects learned to stand only one palette's tiles of a
+drawing (the walls' stones) and to stand only where a cell is blocked: the same art is walked on Southern Island's and
+Faraway Island's docks (6 cells), where it stays paint. The walls are now low blocks, under half a tile high.
+
+The 10 places of Route 110, the Battle Frontier, Route 123, Slateport and Southern Island against the build before
+(pictures looked at for each):
+
+| Map | flat-blocked | fin |
+| --- | --- | --- |
+| Battle Frontier, west | 454 -> 292 | 80 -> 32 |
+| Battle Frontier, east | 323 -> 254 | 14 -> 14 |
+| Route 110 | 309 -> 135 | |
+| Slateport City | 175 -> 161 | |
+| Southern Island | 35 -> 27 | |
+
+Spikes on the Frontier's west half went 15 -> 17. Linux and Mesa's software renderer only.
+
+What this phase leaves, looked at and kept as it is: Mt Chimney's lava is flat because it is a liquid (56 and 18
+cells of its two metatiles); Sky Pillar's top already stands its rubble, its flat cells are its floor; Route 119's
+largest flat group (165 cells) is the river's blocked water art, which reads as water. The sea still lies a level
+under the land (KNOWN_ISSUES E1: every map's sea on one level, so maps meet at their seams), which the check counts as
+water-drop at every coast (1,428 cells outdoors); on beaches it reads as a low bank, not a box, and changing it would
+move every coast, pier and seam - not done here. Fortree City's tree houses and Ever Grande's flower beds are left
+for later.
