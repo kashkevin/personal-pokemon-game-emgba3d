@@ -529,3 +529,40 @@ caves' own tilesets), outdoors 3,077: the next ones are the Mossdeep tileset's r
 127's grove, 435 cells, painted flat), Fortree's trees and tree houses, Lilycove's and Route 121's iron fences,
 Sootopolis's white ledges, Ever Grande's stone walls, and the boulders, Rock Smash rocks and Cut trees, which are
 map objects drawn as upright cut-outs like the people.
+
+### Phase E, first part: the Windows 3D job draws the world's showcase places (run 246, 2026-10-30 12:17-12:38)
+
+The Windows package's 3D graphics job now runs the geometry probe in Windows game processes through Mesa's software
+OpenGL (llvmpipe) on a hosted Windows runner: 14 places - those the owner's defects were seen at (Mossdeep's cliff,
+the Safari Zone's pond and cliffs, Route 120's painted cliff, the forests and the volcano's trees, Route 110's and the
+Frontier's walls, Sootopolis, Route 126's crater) and two caves - four cameras each, uploaded with the job's other
+pictures. Run 244 stopped at the probe's first line (it reads the rules' header, which the job did not have; app
+`ba318dc`); run 246 drew all 14 places (`done: 14 of 14 places`) and passed the job's own check of at least 56
+pictures. What that shows: those places are drawn in a Windows process, by a software renderer, with the engine of
+that hour (`0066c637`). Not shown: anything about a graphics card or the owner's PCs. The pictures were not looked
+at from here (this environment cannot download the run's artifacts); they are in the run's
+`EmeraldTogether-graphics-3d` artifact for 7 days.
+
+### Phase C3/C4, more: Mossdeep's round trees, and the boulders, rocks and Cut trees (2026-10-30 12:18-12:56; engine `8e4ee6f4`, `c647a796`)
+
+**The Mossdeep tileset's round tree** (Mossdeep City, the grove on Route 127's shallows, two on Route 128: 435 cells)
+was painted on the ground. It now stands as the General tileset's trees do since C3: a solid crown with a trunk,
+made from its own art - cut from the game's tileset when the tree texture is packed (no art added to the
+repository). Where two of its trees overlap (a grove's rows stand a column apart), the cell is the lower tree's
+upper quarter, as the GBA draws that crown over the other tree's trunk; each cell shows its own ground (grass,
+rock, the shallows) and keeps the height the rules gave it - drawn as the shallows' art without that, the grove
+stood on a box of water a level over the shallows round it (seen in the low camera's pictures, fixed before the
+commit). The probe at 10 places against the build before: Mossdeep City flat-blocked 128 -> 24 (fins, spikes and
+water walls as they were), Route 127 31 -> 1 (spikes 21 -> 13), the controls (Petalburg Woods, Routes 119 and 128)
+unchanged. Left flat: Mossdeep's large three-wide tree (4 of them).
+
+**Strength's boulders, Rock Smash's rocks and the trees Cut fells** are map objects the GBA draws as sprites; they
+stood as upright cards like the people. Each picture of one now stands as a solid of voxels made from it, the way
+the crowns are: as deep as a ball inside its outline, its art on its faces, leaning back as the crowns do, its depth
+along the field camera's line of sight, so that from that camera it is its own picture and from any other it has
+its volume. Two other ways were tried and dropped from the pictures: the sprite's dark outline as deep as the rest
+(a dark rim round every rock and tree), and the depth level with the ground (boulders half again as tall as their
+pictures). Probed at 10 places (Routes 104, 111, 114, 116, 120, Petalburg Woods, Rusturf Tunnel, Fiery Path,
+Victory Road B1F, Seafloor Cavern); objects are not cells, so the cell checks are unchanged.
+
+Linux and Mesa's software renderer only for both.
