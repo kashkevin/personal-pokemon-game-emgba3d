@@ -349,3 +349,26 @@ simpler.
 
 Still flat: the ash-covered trees of Route 113, Route 114 and Fallarbor Town (the Fallarbor tileset's own
 trees, laid out as the General tileset's dense forest), next.
+
+### Phase C3, second part: the ash-covered trees, and trees cut by a wood's edge (2026-10-30 07:50-08:17; engine `f696f71a`)
+
+The Fallarbor tileset's ash-covered wood is laid out as the General tileset's dense forest, in sixteen metatiles of
+its own (on the ash and on the volcanic sand; inside a wood, beside open ground, at a wood's foot). Each is now
+the quarter of a 2x2 tree it plays (worked out from how they lie beside and over one another on the three maps),
+and stands as the same solid crown and trunk, the crown in the ash trees' colours (its outline, shade, leaf and
+light as Route 113's trees draw them), on its own ash or sand.
+
+A large tree's quarter whose other half or other row is not a tree - a wood's edge cut by a cliff, a house or a
+map's border: 1.4% and 2.2% of the tree cells in the outdoor sweep - now rounds off on that side as at its outline,
+not cut flat (seen from the side the cut-off half trees were slabs).
+
+The 87 outdoor places, against `29c95198`: blocked cells drawn flat 7,435 -> 6,733 (Route 113 602 -> 107,
+Route 114 444 -> 256, Fallarbor Town 81 -> 62); everything else as before, except that three places' low camera
+(Lavaridge Town, Route 112, Route 114) now sees the neighbouring maps' ash crowns standing on the far skyline, and
+the sky between them counts as holes there (looked at: no gap in the world; the check's holes are being made to
+tell those skyline pockets apart).
+
+What remains flat outdoors (6,733 cells), by the art (the most common metatiles drawn): the General tileset's
+brown rock on level ground (about 900 cells: Route 120's and others' rock the rock bands did not reach), white
+fences and posts (about 600), the volcanic and Lavaridge rock, Lilycove's railing, signs, the sea's boulders,
+Mauville's posts, a Lavaridge tree, the Frontier's bushes: phase C4 (objects).
