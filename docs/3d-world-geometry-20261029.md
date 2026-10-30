@@ -566,3 +566,115 @@ pictures). Probed at 10 places (Routes 104, 111, 114, 116, 120, Petalburg Woods,
 Victory Road B1F, Seafloor Cavern); objects are not cells, so the cell checks are unchanged.
 
 Linux and Mesa's software renderer only for both.
+
+### Phase C4, fifth part: cave mouths cut into the rock, the Regi tombs' doors, Ever Grande (2026-10-30 13:40-14:40; engine `b4ce6755`, `00458735`)
+
+**Cave mouths** were painted on. The GBA draws a mouth's dark arch over two cells: the mouth's own (a door walked
+into) and the bottom of the rock's cell north of it. In 3D the mouth's cell was a gap in the mountain's face with
+the arch on its floor, and the rock behind it a slope with the arch's top painted on - a dark shape, not an
+opening. Now, where the rock north of a mouth rises at least a tile over the mouth's ground and there is rock on
+both sides of it, that rock stands as an upright face and a tunnel is cut into it: half a tile deep, as wide as the
+arch, its top following the arch's curve in the rock's drawing, dark inside. The mouth's cell stays the ground the
+player stands on, so a walker going in or coming out is never inside the rock. Found by the probe's pictures and a
+sheet of all 63 doors walked into on outdoor maps (scratchpad `c4/mouths-all.png`, game art): about 23 are cave
+mouths, the rest doors into buildings and gaps between trees, which are not touched. Seen cut in: Routes 106 and
+116, Verdanturf, Victory Road's mouth in Ever Grande, Mt Pyre, Meteor Falls (its face rises from two levels under
+the mouth; a light seam crosses its opening). **Left as they were**: Route 110's mouth, Shoal Cave's, the Fiery
+Path's and the Cave of Origin's - there the rock does not rise over the mouth's ground (the heights' solve puts the
+mouth on the rock's top level, or the cell over the mouth is ground), so there is nothing to cut into; that is the
+levels' work (MS-162's kind).
+
+**The Regi tombs' doors** (Routes 105, 111, 120) are rock walls until the Sealed Chamber is solved: a script
+redraws them on the map's load, collision on. The 3D rules were made for the open door, so the shut door lay flat
+- a notch through the mound with the wall's picture on its floor (the "ghost doorway" in the pictures). A cell a
+script redraws that the game blocks, with a mountain's rock on both sides at its ground, now stands as that rock.
+All three tombs are whole in the pictures.
+
+**Ever Grande City**: the round bushes beside the League's path stand as bushes and the garden's stone wall as a
+wall - its cobbled top a block a tile high, its dark front standing at its foot.
+
+Linux and Mesa's software renderer only.
+
+### Phase D, first part: speed (2026-10-30 13:05-15:00; engine `a367e474`, `299a5b04`, `c8037c2a`)
+
+The same 12 places with the build from before step 16 (the baseline's, `9f032173`) and the current one, one game at
+a time: the player standing at each place for 1,200 game frames, the game's own profile (frame time, vertices a
+frame) every two seconds, the median over the windows after the map has loaded. Mesa's software renderer
+(llvmpipe) on 4 processor cores: it does a graphics card's work on the processor, so every vertex a change adds
+shows. A graphics card does the same work far faster; **nothing is claimed for one** (phase E's frame-time lines are
+for that).
+
+**A first comparison was wrong and is not used**: three game processes left over from earlier test runs (a timeout
+had ended their `xvfb-run`, not them) held about three of the four cores while it ran. They were stopped, and the
+measuring scripts now run each game in its own process group and end the whole group (scratchpad `trees/perf.py`,
+`c4/longwalk.py`). The runs below had the machine to themselves. Run to run the same build differs by up to about
+8% (the build before step 16 at Petalburg Woods: 43.8 and 40.2 frames a second in two passes), so differences that
+small say little.
+
+Frames a second (vertices a frame); "before phase D" is step 16's work up to `c647a796` with the far trees as
+cut-outs past 9 tiles, measured in an earlier pass with its own "before" column:
+
+| Place | before step 16 | before phase D | change | now | change |
+| --- | --- | --- | --- | --- | --- |
+| Battle Frontier, west | 36.9 (221k) | 18.8 (474k) | -46% | 22.2 (345k) | -40% |
+| Sootopolis City | 46.8 (65k) | 29.4 (225k) | -34% | 30.5 (193k) | -35% |
+| Route 120 | 42.5 (134k) | 31.6 (166k) | -24% | 32.1 (150k) | -24% |
+| Mossdeep City | 32.9 (214k) | 25.4 (356k) | -18% | 27.5 (323k) | -16% |
+| Route 110 | 40.5 (153k) | 33.2 (196k) | -18% | 37.9 (151k) | -7% |
+| Petalburg Woods | 38.8 (132k) | 36.9 (149k) | -16% | 39.5 (109k) | +2% |
+| Fortree City | 32.5 (114k) | 27.2 (114k) | -15% | 28.3 (86k) | -13% |
+| Lilycove City | 25.0 (181k) | 20.5 (299k) | -15% | 20.2 (282k) | -19% |
+| Slateport City | 25.0 (349k) | 25.3 (387k) | +0% | 24.6 (325k) | -2% |
+| Route 104 | 23.9 (239k) | 25.9 (204k) | +5% | 28.0 (199k) | +17% |
+| Route 119 | 23.8 (214k) | 25.6 (198k) | +8% | 29.2 (164k) | +23% |
+| Route 112 | 11.9 (1050k) | 16.1 (503k) | +38% | 17.3 (415k) | +45% |
+
+What was done, from where the vertices went (the terrain chunks a place builds, `PKMN_DIORAMA_CHUNK_LOG=1`, and the
+per-pass profile):
+
+* **Walls and hedges** (`a367e474`): every block prop - the white walls of Slateport, Route 110 and the Frontier, the
+  hedges, the stone walls - was drawn with the slab's mesh, 66 quads whatever its art. Each art piece now has a mesh
+  of its own: its top one quad and its sides only along its outline (a whole wall piece is 5 quads). The probe's
+  pictures of the walls look as before.
+* **Far trees** (`299a5b04`): a tree more than 6 tiles from where the camera looks is its cut-out with its trunk.
+  From the field's cameras the cut-out is the solid's front: the pictures of the woods at 6 tiles and at 9 look the
+  same. Petalburg Woods with every tree solid: 30.7 frames a second; at 6 tiles 41.1 (before step 16: 43.8).
+* **The mountains' slopes in steps of two voxels** (`c8037c2a`): the rock that stands since C1 and C2 is most of the
+  terrain's new cost - Sootopolis's crater went from 300 cells of mountain rock to 2,334, its terrain from 207k to
+  422k vertices. In steps of two: 370k there, Lilycove 224k -> 206k, Mossdeep 366k -> 329k, Route 120 206k -> 196k,
+  the Frontier's west 254k -> 236k; the pictures look the same side by side, enlarged.
+
+**What is still slower on the software renderer**: the places whose rock now stands - the Frontier's west (-40%),
+Sootopolis (-35%), Route 120 (-24%), Lilycove (-19%), Mossdeep (-16%) - and Fortree (-13%). There the terrain
+pass takes two to three times its old time (the Frontier's west 4.3 -> 13.5 ms a frame, Mossdeep 3.9 -> 7.3), far
+more than its terrain's vertices grew (+52%, +10%), so the vertices are not the whole cost; the next look is per
+pass (the profile now counts each pass's draws and vertices), then a lighter mesh for far terrain if it is them.
+Faster than before: Route 112 (+45%: its trees were voxel hulls), Route 119 (+23%), Route 104 (+17%); level:
+Petalburg Woods, Slateport, Route 110 (-7%).
+
+**A long session** (the 12-town loop of 2026-10-26 again, engine `99dee3de`'s build: 12 towns 15 times in one game
+process, 180 places, 627 profile windows, L): frames a second by round 12.5 (the first: first loads), then 13.3 to
+15.2 with no trend (the last 14.3); the busy frame's processor time 52.9 ms in the first round, 42.5 to 49.7 after,
+45.9 in the last; each town's first three rounds against its last three: some up, some down, none steadily; memory
+in use 302 -> 304 MB, the game's graphics memory 61.4 -> 62.9 MB (108 textures, 1,042 buffers throughout). What
+grows over a session is not a frame's cost here; on the owner's PC that is still to be seen (phase E).
+
+### Phase C3, more: Fortree's palms (2026-10-30 14:40-15:20; engine `99dee3de`)
+
+Fortree City's five palms - the three-wide crowns outside the tree houses - lay flat among the solid trees, fronds
+painted over the forest. They stand now as Birth Island's round trees do: the fronds a heap of leaves lifted on the
+trunk, the frond tips of the row north of them its back, the trunk standing up under them (the probe's pictures:
+the crowns over the canopy; the trunk reads a little boxy, mostly hidden among the trees). The tree houses' crowns
+are their buildings' and were already modelled.
+
+### Phase E, second part: the 3D view's speed in a player's own log (2026-10-30 15:00-15:20; engine `69db86a5`, `83b05b40`)
+
+Nothing about a graphics card is claimed from this environment. So that the owner's PC can say it without any extra
+step, the game now writes a line to its log whenever the map changes and when it closes: the 3D frames on that map,
+the median time from one to the next, the time 95 in 100 came within, the slowest, and the graphics card's name as
+the driver gives it - for example, here, `frame times on map 0.9: 61 frames in 3D, median 34 ms, 95% within 106 ms,
+slowest 150 ms (llvmpipe ...)`. The launcher keeps the game's output as each launch's `runtime.log`, the file already
+asked for about the crash (MS-169), so the owner's next log of normal play carries real numbers for the maps played,
+and a long session's lines show whether frames grow slower. The profile (`PKMN_DIORAMA_PROFILE=1`) now also counts
+each pass's draws and vertices, which showed that the Frontier's remaining cost is the terrain (173k vertices a
+frame) and its rounded props (104k: the mounds' meshes, a quad a pixel on top - the next to merge).
