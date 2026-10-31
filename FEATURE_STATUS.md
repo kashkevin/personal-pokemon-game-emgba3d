@@ -743,6 +743,14 @@ Recorded guidance the code no longer follows (not binding decisions):
 | Which Pokemon a TM teaches: a species that learned the move by TM in any Gen 1-6 game (the owner's rule), plus the owner's extension (Ferroseed and Ferrothorn: Stealth Rock); forms by their Gen 1-6 form; Pokemon first seen after Gen 6 by their own games' list (decided here); HMs and tutors unchanged; moves already known kept - in the Bag, the party menu, Switch Moves and the 3D prize and item screens | Implemented and tested (the self-test: the table, 1,536 species and 52,684 pairs, and samples; `tm_catalogue_check.py`: a Pikachu taught TM165 Detect from the Bag, the TM kept; `move_switch_check.py`) | engine `9e033b5d` |
 | TM51 and up kept through saves: a 36-byte TM record after the Tower record (SaveBlock3 1076-1111); the save's 64 TM slots for TM01-TM50 and the HMs as before (an older save byte for byte the same); the launcher's checker reads the record and refuses a damaged one | Implemented and tested (the self-test's round trips, all 176 machines; the game's own save after a purchase read by `flash.py`; `tests/test_tm_record.py`) | engine `9e033b5d`, app (this change) |
 
+## The Game Corner's item hub (2026-10-31, `docs/item-hub-20261031.md`; the owner's decisions 30-31)
+
+| Feature | Status | Evidence |
+| --- | --- | --- |
+| The prize counter's ITEMS in the owner's ten kinds - HELD ITEMS 62, BATTLE ITEMS 96, MEGA STONES (the dealer's 82, with a MEGA RING), EVOLUTION & FORMS 44, POKé BALLS 27, HEALING 44, BERRIES 67, TRAINING 63, TMs (the catalogue), OTHER 45: the 249 RARE GOODS at their prices, unchanged, and 199 items found elsewhere at the owner's approved prices (Master Ball 200,000 and again, Rare Candy and Ability Capsule 5,000, Bottle Cap 2,500, the vitamins 300, competitive staples 10,000, everyday consumables at money / 20; the Town Map 1,000, one per save) | Implemented and tested (`--selftest-item-hub` 21 checks: L, both test builds; `item_hub_check.py` in the 3D and Classic 2D test builds: two Master Balls bought, saved and loaded, the Town Map then sold out, Mega Stones refused without a ring, a TM through the hub) | engine `cc78b9e9` |
+| The RARE GOODS inside the hub (the Ability Patch, a charm SOLD OUT, the longest list; the Rotom Catalog in EVOLUTION & FORMS) | Implemented and tested (`casino_check.py`, `rotom_check.py`'s purchase: L, both builds) | engine `cc78b9e9` |
+| The Emerald Expansion features report (which of the expansion's features this game uses) | Written | `docs/expansion-features-20261031.md` |
+
 ## How to update
 
 1. Change a row only with new evidence: a recorded run (a doc in `docs/` or
