@@ -237,6 +237,15 @@ jobs:
             if [ -f tools/battle_env/rotom_check.py ]; then
               cp tools/battle_env/rotom_check.py ../mega-check-inputs/casino/tools/battle_env/
             fi
+            # The TM catalogue's check (the owner's TM request of 2026-10-31: bought at the TM counter, SOLD OUT, saved and
+            # loaded, the TM PRIZES, taught from the Bag) reads the catalogue's lists and the move numbers too.
+            if [ -f tools/battle_env/tm_catalogue_check.py ]; then
+              for file in tools/battle_env/tm_catalogue_check.py include/constants/moves.h \
+                  data/scripts/mp_tm_catalogue_lists.inc; do
+                mkdir -p "../mega-check-inputs/casino/$(dirname "$file")"
+                cp "$file" "../mega-check-inputs/casino/$file"
+              done
+            fi
           fi
           # The rival checkpoints and the short introduction through the game's own scripts (the rival-check job): the
           # flag and variable numbers from this engine's headers, as the Windows runner has none.
@@ -650,9 +659,10 @@ jobs:
     # before the battle (shiny_check.py) and the Game Corner's RARE GOODS (casino_check.py), and the Rotom Catalog (the
     # owner's request of 2026-10-30, rotom_check.py: bought there, its six forms, the battles), and the Acro Bike on the
     # Safari Zone South's rails (the owner's choice of 2026-10-31, acro_check.py: the original's crossing and the PC's
-    # easier rails), and Fly from the Town Map (the owner's request of 2026-10-31, flymap_check.py), each read from the
-    # game's own log, from a save of the game's own short introduction made on the runner.
-    name: Move switching, shiny wild Pokemon, the Game Corner, the Rotom Catalog, the Acro Bike and Fly from the Town Map (Windows game processes)
+    # easier rails), Fly from the Town Map (the owner's request of 2026-10-31, flymap_check.py) and the TM catalogue (the
+    # owner's TM request of 2026-10-31, tm_catalogue_check.py: bought, SOLD OUT, saved, the TM PRIZES, taught), each read
+    # from the game's own log, from a save of the game's own short introduction made on the runner.
+    name: Move switching, shiny wild Pokemon, the Game Corner, the Rotom Catalog, the Acro Bike, Fly from the Town Map and the TM catalogue (Windows game processes)
     needs: engine
     if: ${{ (inputs.mode || 'smoke') == 'full' && (!inputs.only || contains(format(',{0},', inputs.only), ',feature-checks,')) }}
     runs-on: windows-2022
@@ -681,7 +691,8 @@ jobs:
                                 casino_check = "mega-check-inputs\casino\tools\battle_env\casino_check.py"
                                 rotom_check = "mega-check-inputs\casino\tools\battle_env\rotom_check.py"
                                 acro_check = "mega-check-inputs\acro_check.py"
-                                flymap_check = "mega-check-inputs\flymap_check.py" }
+                                flymap_check = "mega-check-inputs\flymap_check.py"
+                                tm_catalogue_check = "mega-check-inputs\casino\tools\battle_env\tm_catalogue_check.py" }
           foreach ($check in $checks.Keys) {
             if (-not (Test-Path $checks[$check])) {
               Write-Output "::notice::this engine has no $check (tools/battle_env/$check.py)"
@@ -1148,7 +1159,8 @@ jobs:
           $tests = @("party-order", "battle-names", "cry-stop", "shake-anim", "line-break", "wild-weather", "legend",
                      "shiny", "coins", "breeding", "rival", "update32", "clock", "keybinds", "mp-objects", "spawn-claims",
                      "secret-base", "rewards", "catch-reconcile", "pokenav-map", "ladder", "coop-exp", "coop-controller",
-                     "tower", "start-menu", "hm-box", "move-switch", "summary-ivev", "link-replay", "rotom-catalog")
+                     "tower", "start-menu", "hm-box", "move-switch", "summary-ivev", "link-replay", "rotom-catalog",
+                     "tm-catalogue")
           # only: ...,new-only: the MS-61 check alone (the START menu, its 3D names, the soft reset key)
           if (",${{ inputs.only }}," -like "*,new-only,*") { $tests = @("start-menu") }
           $runs = @($tests | ForEach-Object { @{ test = $_; exe = "inputs\pokeemerald-mp.exe"; name = $_ } })

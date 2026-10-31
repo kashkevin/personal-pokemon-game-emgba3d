@@ -46,7 +46,16 @@ TOWER_RECORD_OFFSET = EGG_QUEUE_OFFSET + EGG_QUEUE_SIZE
 TOWER_RECORD_SIZE = 64
 TOWER_RECORD_MAGIC = 0x314C5754  # "TWL1"
 TOWER_PENDING_OUTCOMES = {0: None, 2: "won", 3: "lost", 5: "drew"}
-SAVE_BLOCK_3_FULL_SIZE = TOWER_RECORD_OFFSET + TOWER_RECORD_SIZE
+# The TM catalogue (docs/owner-decisions.md 26-29, 2026-10-31): the save's TM pocket keeps its 64 slots (TM01-TM50 and the
+# HMs); TM51 and up are one bit each in the TM record after the Tower record (engine struct MPTmRecord, PC game only):
+# magic "PTM1", version 1, the bits' count, two reserved bytes, 24 bytes of bits (bit n - 51: TMn), CRC-32 of the 32 bytes
+# before. All zeros (every older save) means no TM past TM50.
+TM_RECORD_OFFSET = TOWER_RECORD_OFFSET + TOWER_RECORD_SIZE
+TM_RECORD_SIZE = 36
+TM_RECORD_MAGIC = 0x314D5450  # "PTM1"
+TM_RECORD_FIRST = 51
+TM_RECORD_LAST = 168          # the highest TM the game has; bits past it are refused
+SAVE_BLOCK_3_FULL_SIZE = TM_RECORD_OFFSET + TM_RECORD_SIZE
 STORAGE_SIZE = 34144
 PARTY_SIZE = 6
 POKEMON_SIZE = 100
@@ -68,6 +77,8 @@ _FOOTER = struct.Struct("<HHII")
 # magic, version, highest, progress, pendingOutcome, pendingTicket, pendingFloor, reserved0, claims, revision, reserved1,
 # reserved[40], crc32 (of bytes 0-59): all little-endian
 _TOWER_RECORD = struct.Struct("<IBBBBIBBHHH40sI")
+# magic, version, count, reserved, owned[24], crc32 (of bytes 0-31): all little-endian
+_TM_RECORD = struct.Struct("<IBBH24sI")
 _UINT32 = 0xFFFFFFFF
 _ERASED_SECTOR = bytes([0xFF]) * SECTOR_SIZE
 # Generated factual bounds from pinned data/maps/map_groups.json.
@@ -255,8 +266,8 @@ def _inspect_bank(flash: bytes, bank_index: int, save_profile: str = LAYOUT_ID) 
             raise FlashError("save bank section checksum mismatch")
         if any(sector[size:SECTOR_DATA_SIZE]):
             raise FlashError("save section padding does not match the pinned layout")
-        # Both profiles may carry the egg queue (offset 600) and the Tower record after it: bytes below their end are
-        # checked as a whole after the bank is assembled.
+        # Both profiles may carry the egg queue (offset 600), the Tower record and the TM record after it: bytes below
+        # their end are checked as a whole after the bank is assembled.
         chunk_used = max(0, min(SAVE_BLOCK_3_FULL_SIZE - section_id * 116, 116))
         if any(sector[SECTOR_DATA_SIZE + chunk_used:4084]):
             raise FlashError("SaveBlock3 padding does not match the pinned layout")
@@ -271,7 +282,8 @@ def _inspect_bank(flash: bytes, bank_index: int, save_profile: str = LAYOUT_ID) 
     size = SAVE_BLOCK_3_SIZE
     full_block3 = b"".join(sector[3968:4084] for sector in sections)[:SAVE_BLOCK_3_FULL_SIZE]  # type: ignore[index]
     _check_egg_queue(full_block3[EGG_QUEUE_OFFSET:EGG_QUEUE_OFFSET + EGG_QUEUE_SIZE])
-    tower = parse_tower_record(full_block3[TOWER_RECORD_OFFSET:])
+    tower = parse_tower_record(full_block3[TOWER_RECORD_OFFSET:TM_RECORD_OFFSET])
+    parse_tm_record(full_block3[TM_RECORD_OFFSET:SAVE_BLOCK_3_FULL_SIZE])
     if save_profile != OWNERSHIP_LAYOUT_ID and any(full_block3[SAVE_BLOCK_3_SIZE:EGG_QUEUE_OFFSET]):
         raise FlashError("SaveBlock3 padding does not match the pinned layout")
     if save_profile == OWNERSHIP_LAYOUT_ID:
@@ -320,6 +332,22 @@ def parse_tower_record(record: bytes) -> TowerRecord | None:
     if highest > 100 or not 1 <= progress <= 101 or outcome not in TOWER_PENDING_OUTCOMES:
         raise FlashError("the Tower record's floors or result are out of bounds")
     return TowerRecord(progress, highest, claims, TOWER_PENDING_OUTCOMES[outcome], ticket, floor, revision)
+
+
+def parse_tm_record(record: bytes) -> frozenset[int]:
+    """The TM record (the TM catalogue of 2026-10-31): the TMs past TM50 the save owns, an empty set for all zeros (a save
+    from before the catalogue). Like the Tower record it is never repaired, only refused (FlashError)."""
+    if len(record) != TM_RECORD_SIZE:
+        raise FlashError("the TM record has the wrong size")
+    if not any(record):
+        return frozenset()
+    magic, version, count, reserved, owned, crc = _TM_RECORD.unpack(record)
+    if (magic != TM_RECORD_MAGIC or version != 1 or reserved or crc != zlib.crc32(record[:TM_RECORD_SIZE - 4])):
+        raise FlashError("the TM record is damaged or unsupported")
+    tms = frozenset(TM_RECORD_FIRST + bit for bit in range(len(owned) * 8) if owned[bit // 8] >> (bit % 8) & 1)
+    if not tms or count != len(tms) or max(tms) > TM_RECORD_LAST:
+        raise FlashError("the TM record's TMs are out of bounds")
+    return tms
 
 
 def _inspect_special_sectors(flash: bytes) -> None:

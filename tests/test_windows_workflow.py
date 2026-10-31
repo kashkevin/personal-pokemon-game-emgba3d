@@ -103,7 +103,7 @@ class WindowsWorkflowTests(unittest.TestCase):
         tests = job("selftests")
         self.assertIn("runs-on: windows-2022", tests)
         self.assertIn('-ArgumentList "--selftest-$test"', tests)
-        for name in ("tower", "breeding", "shiny", "rewards", "coop-exp"):
+        for name in ("tower", "breeding", "shiny", "rewards", "coop-exp", "rotom-catalog", "tm-catalogue"):
             self.assertIn(f'"{name}"', tests)
         self.assertIn('throw "self-tests failed in the Windows build', tests)
         # their output in files (the Windows game's own console is slow and unreadable: run 129's update32 timed out)
@@ -315,6 +315,11 @@ class WindowsWorkflowTests(unittest.TestCase):
                      "src/platform/mp_rare_goods_prices.h", "data/scripts/mp_rare_goods_shop.inc"):
             self.assertIn(file, engine)
         self.assertIn('cp "$file" "../mega-check-inputs/casino/$file"', engine)
+        # The TM catalogue's check (2026-10-31) beside the catalogue's lists and the move numbers it reads.
+        self.assertIn('tm_catalogue_check = "mega-check-inputs\\casino\\tools\\battle_env\\tm_catalogue_check.py"', checks)
+        for file in ("tools/battle_env/tm_catalogue_check.py", "include/constants/moves.h",
+                     "data/scripts/mp_tm_catalogue_lists.inc"):
+            self.assertIn(file, engine)
 
     def test_the_rival_checkpoints_run_in_windows_game_processes(self):
         rival = job("rival-check")

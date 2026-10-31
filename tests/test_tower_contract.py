@@ -407,7 +407,8 @@ class DuoCodeTests(unittest.TestCase):
 
 class SaveRecordTests(unittest.TestCase):
     def test_older_saves_have_no_record_and_the_block_grows_by_64(self):
-        self.assertEqual((TOWER_RECORD_OFFSET, TOWER_RECORD_SIZE, SAVE_BLOCK_3_FULL_SIZE), (1012, 64, 1076))
+        # the TM catalogue's record (tests/test_tm_record.py) follows it: 36 bytes more since 2026-10-31
+        self.assertEqual((TOWER_RECORD_OFFSET, TOWER_RECORD_SIZE, SAVE_BLOCK_3_FULL_SIZE), (1012, 64, 1112))
         self.assertIsNone(inspect_flash(make_flash()).tower)
         self.assertIsNone(parse_tower_record(bytes(64)))
 
@@ -446,8 +447,10 @@ class SaveRecordTests(unittest.TestCase):
                     inspect_flash(with_record(record))
         with self.assertRaises(FlashError):
             parse_tower_record(bytes(63))
-        with self.assertRaisesRegex(FlashError, "padding"):                            # byte 1076 is past the record
+        with self.assertRaisesRegex(FlashError, "TM record"):                          # byte 1076 is the TM record's
             inspect_flash(test_flash.FlashTests._put_block3(with_record(tower_record()), 1076, b"\1"))
+        with self.assertRaisesRegex(FlashError, "padding"):                            # byte 1112 is past both records
+            inspect_flash(test_flash.FlashTests._put_block3(with_record(tower_record()), 1112, b"\1"))
 
 
 class CapabilityTests(unittest.TestCase):

@@ -235,12 +235,18 @@ class OwnershipTests(unittest.TestCase):
         self.assertEqual(self.parse(opaque).world_id, str(uuid.UUID(bytes=b"\x01" * 16)))
 
     def test_padding_outside_the_profile_and_the_egg_queue_is_rejected(self):
-        # Update 30: bytes 600..1011 of SaveBlock3 are the Day Care egg queue (flash.py) and, Battle Tower: Legends, bytes
-        # 1012..1075 the Tower record; what follows them is still padding.
+        # Update 30: bytes 600..1011 of SaveBlock3 are the Day Care egg queue (flash.py), Battle Tower: Legends, bytes
+        # 1012..1075 the Tower record and, the TM catalogue (2026-10-31), bytes 1076..1111 the TM record; what follows them
+        # is still padding.
         data = bytearray(make_ownership_flash())
-        offset = _sector_offset(data, 0, 9) + 3968 + 32
-        data[offset] = 1  # 9*116+32 = 1076: the first byte after the Tower record.
+        offset = _sector_offset(data, 0, 9) + 3968 + 68
+        data[offset] = 1  # 9*116+68 = 1112: the first byte after the TM record.
         with self.assertRaisesRegex(FlashError, "padding"):
+            self.parse(bytes(data))
+        # A stray byte where the TM record lives is refused as a damaged record, not read as one.
+        data = bytearray(make_ownership_flash())
+        data[_sector_offset(data, 0, 9) + 3968 + 32] = 1  # 9*116+32 = 1076: the record's magic is not there.
+        with self.assertRaisesRegex(FlashError, "TM record"):
             self.parse(bytes(data))
         # A stray byte where the Tower record lives is refused as a damaged record, not read as one.
         data = bytearray(make_ownership_flash())
