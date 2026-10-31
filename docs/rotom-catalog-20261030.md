@@ -32,7 +32,9 @@ In the game (`src/party_menu.c`, PC only):
   Electric/Fire." with YES / NO. YES changes it through the catalog's own code (the form table, the animation and cry,
   "Rotom transformed!", the last form's signature move taken out and the new one taught; with four moves the usual
   "make room for Overheat?" question). NO goes back to the list. The form it has already: "Rotom is already Heat Rotom!"
-  and back to the list.
+  and back to the list. **Update 2026-10-31** (KNOWN_ISSUES MS-174, `docs/switch-moves-audit-20261031.md`): the form's
+  move is on the Switch Moves level-up list of a Rotom in that form whatever the question's answer, and the new move
+  takes the slot of the one it replaces (it went last before).
 * The 3D party screen shows the question's YES / NO and the list's prompt again after it.
 
 In the launcher and host (`trade_forms.py`): world trades take Rotom's five appliance forms. The trade is the exact

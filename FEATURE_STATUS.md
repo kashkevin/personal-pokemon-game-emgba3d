@@ -726,6 +726,14 @@ Recorded guidance the code no longer follows (not binding decisions):
 | --- | --- | --- |
 | The Town Map (from the Bag or registered on SELECT) opens the Fly map when Fly could be used there: the Feather Badge, a place Fly can be used from, a Pokemon that knows Fly in the party or the PC boxes; a place chosen there is flown to with that Pokemon, B goes back to the field; otherwise the map to look at, as before (Fly's own rules unchanged) | Implemented and tested (Linux 3D and Classic 2D test builds: `flymap_check.py` 6 of 6 - Oldale Town to Littleroot Town with a party Pokemon and with a boxed one, B back to the field, no Fly and no badge the map to look at; the Bag's path by its keys in the 3D test build); not run on Windows or the owner's PC | engine `4acac6f7` |
 
+## Switch Moves: form moves and the audit of every species (2026-10-31, KNOWN_ISSUES MS-174, `docs/switch-moves-audit-20261031.md`)
+
+| Feature | Status | Evidence |
+| --- | --- | --- |
+| A form's own move on that form's Switch Moves level-up list, first, tagged FORM, switchable back in, on no other form's list: Rotom-Heat Overheat, Rotom-Wash Hydro Pump, Rotom-Frost Blizzard, Rotom-Fan Air Slash, Rotom-Mow Leaf Storm (Normal Rotom none); Necrozma Dusk Mane Sunsteel Strike, Dawn Wings Moongeist Beam | Implemented and tested (the self-test, 127 checks: L, and the Windows build under Wine; `move_switch_check.py`'s Rotom-Wash step and `rotom_check.py`, L, 3D and Classic 2D test builds) | engine `987c9268` |
+| The Rotom Catalog's moves: the game's own lines and question kept; the new form's move in the replaced one's slot; a form's move known already kept where it is; the move on the Switch Moves list whatever the question's answer | Implemented and tested (`--selftest-move-switch`, `--selftest-rotom-catalog` 73 checks; `rotom_check.py` L, 3D and Classic 2D) | engine `987c9268` |
+| The audit: every species and form (1571) at Lv 1, 5, 50 and 100 - learnsets in level order, every move of its own learnset to its level on the list, nothing later, no move cut off; every move a form change teaches on its form's list; Mewtwo (the owner's case, Gen 6 learnsets: Recover, Barrier, Aura Sphere at Lv 70, Mist at 86, Calm Mind by TM04) | Tested (`--selftest-move-switch`; Mewtwo also in the game, `move_switch_check.py` L) | engine `987c9268` |
+
 ## How to update
 
 1. Change a row only with new evidence: a recorded run (a doc in `docs/` or
