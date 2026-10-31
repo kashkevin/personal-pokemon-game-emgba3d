@@ -381,8 +381,13 @@ class Player:
 
     # The games ---------------------------------------------------------
     def game(self, seconds=90):
-        """The game the menu just started (not the menu, not the 3D check): (pid, window)."""
-        known = {pid for pid, _ in self.games}
+        """The game the menu just started (not the menu, not the 3D check): (pid, window).
+
+        An earlier game is passed over only while that process still has that window: Windows gives a new process the
+        number of one that has ended, and a number alone would pass over the new game (one explanation of run 262's
+        installation check, where the friend's game ran, connected and waited for CONTINUE while no window was found for
+        90 s; the friend's only earlier game had ended). When none is found, the launcher's processes are in the failure."""
+        known = {pid for pid, window in self.games if self.desk.alive(pid) and self.desk.window(pid) == window}
 
         def started():
             for pid, command in self.desk.children(self.process.pid):
@@ -392,9 +397,19 @@ class Player:
                         return pid, window
             return None
         found = wait(started, seconds, step=1.0)
-        require(found, f"{self.name}: no game window opened (last screen {self.current() and self.current()['id']})")
+        if not found:
+            raise CheckFailed(f"{self.name}: no game window opened (last screen {self.current() and self.current()['id']}); "
+                              f"{self.launcher_processes(known)}")
         self.games.append(found)
         return found
+
+    def launcher_processes(self, known=()):
+        """The launcher's child processes as a failure shows them: each one's number, what it is, its window, its command's end."""
+        rows = []
+        for pid, command in self.desk.children(self.process.pid):
+            what = "the menu" if pid == self.shell_pid else "an earlier game" if pid in known else "new"
+            rows.append(f"{pid} ({what}, {'a window' if self.desk.window(pid) else 'no window'}): ...{command[-70:]}")
+        return f"the launcher's processes: {'; '.join(rows) if rows else 'none found'}"
 
     def press_until(self, game, key, until, seconds, every=0.8):
         """Press a game key every ``every`` seconds until ``until()`` (or the game ends); returns until()'s last value."""

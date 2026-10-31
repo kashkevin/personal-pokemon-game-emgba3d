@@ -69,5 +69,83 @@ class LinuxDeskDisplayTests(unittest.TestCase):
         self.assertEqual((desk.display_of[host.pid], desk.display_of[friend.pid]), (":70", ":71"))
 
 
+class _Desk:
+    """A desk whose processes and windows are a table: {pid: (parent, command, window or None, alive)}."""
+
+    def __init__(self, table):
+        self.table = table
+
+    def children(self, pid):
+        return [(child, row[1]) for child, row in self.table.items() if row[0] == pid]
+
+    def window(self, pid):
+        row = self.table.get(pid)
+        return row[2] if row and row[3] else None
+
+    def alive(self, pid):
+        row = self.table.get(pid)
+        return bool(row and row[3])
+
+
+class PlayerGameTests(unittest.TestCase):
+    """Player.game(): which of the launcher's processes is the game the menu just started (run 262's installation check: the
+    friend's game ran and connected, and no window was found for it in 90 s)."""
+
+    LAUNCHER, MENU = 100, 101
+
+    def player(self, table, games):
+        import ci_play_check
+        from types import SimpleNamespace
+        player = ci_play_check.Player.__new__(ci_play_check.Player)
+        player.desk, player.name, player.games = _Desk(table), "friend", list(games)
+        player.process, player.shell_pid = SimpleNamespace(pid=self.LAUNCHER), self.MENU
+        player.screen_log = Path("/nonexistent/friend-screens.jsonl")      # no screens: current() is None
+        return player
+
+    def base(self):
+        return {self.MENU: (self.LAUNCHER, "EmeraldTogether.exe --shell", "menu-window", True),
+                150: (self.LAUNCHER, "pokeemerald-mp-diorama.exe --probe-graphics", None, False)}
+
+    def test_a_new_game_with_an_ended_games_number_is_found(self):
+        # Windows gives a new process the number of one that has ended: the friend's earlier game 200 (window w-old) ended,
+        # and the new game has the number 200 with its own window.
+        table = self.base()
+        table[200] = (self.LAUNCHER, "pokeemerald-mp.exe --save new.sav", "w-new", True)
+        player = self.player(table, [(200, "w-old")])
+        self.assertEqual(player.game(seconds=0), (200, "w-new"))
+        self.assertEqual(player.games, [(200, "w-old"), (200, "w-new")])
+
+    def test_an_earlier_game_still_running_with_its_window_is_passed_over(self):
+        table = self.base()
+        table[200] = (self.LAUNCHER, "pokeemerald-mp.exe --save old.sav", "w-old", True)    # still closing
+        table[300] = (self.LAUNCHER, "pokeemerald-mp.exe --save new.sav", "w-new", True)
+        self.assertEqual(self.player(table, [(200, "w-old")]).game(seconds=0), (300, "w-new"))
+
+    def test_the_menu_and_the_graphics_check_are_never_the_game(self):
+        table = self.base()
+        table[150] = (self.LAUNCHER, "pokeemerald-mp-diorama.exe --probe-graphics", "probe-window", True)
+        import ci_play_check
+        with self.assertRaises(ci_play_check.CheckFailed):
+            self.player(table, []).game(seconds=0)
+
+    def test_no_window_names_the_launchers_processes(self):
+        table = self.base()
+        table[300] = (self.LAUNCHER, "pokeemerald-mp.exe --save new.sav", None, True)      # started, no window yet
+        import ci_play_check
+        with self.assertRaises(ci_play_check.CheckFailed) as failure:
+            self.player(table, [(200, "w-old")]).game(seconds=0)
+        message = str(failure.exception)
+        self.assertIn("friend: no game window opened (last screen None)", message)
+        self.assertIn(f"{self.MENU} (the menu, a window)", message)
+        self.assertIn("300 (new, no window): ...pokeemerald-mp.exe --save new.sav", message)
+        self.assertIn("150 (new, no window)", message)
+
+    def test_no_child_at_all_says_so(self):
+        import ci_play_check
+        with self.assertRaises(ci_play_check.CheckFailed) as failure:
+            self.player({}, []).game(seconds=0)
+        self.assertIn("the launcher's processes: none found", str(failure.exception))
+
+
 if __name__ == "__main__":
     unittest.main()
