@@ -913,3 +913,14 @@ measured again with nothing else running; the table has the idle pass for them:
 
 Faster at eleven places; Fortree -7% here, +4% at 17:25 - level within the spread (the same build up to 17% apart in
 two passes). The software renderer only: nothing about a graphics card.
+
+### Phase E, fourth part: the Windows 3D job with step 16's last parts (run 250, 2026-10-31 00:00-00:22; engine `cca519e8`)
+
+The Windows package's 3D graphics job again (`only`: graphics-3d), with the engine of step 16's last parts
+(`cca519e8`: the fresh building models, the parapets): the probe drew all 14 showcase places in Windows game
+processes through Mesa's llvmpipe (`done: 14 of 14 places`) and passed the job's check of at least 56 pictures; in
+the same job the Mega Evolution picture series and parade passed, and the 3D view ran 14.5 frames a second at
+1280x720 on the runner's 4 cores (informational). What that shows: those places are drawn in a Windows process by a
+software renderer with this engine. Not shown: anything about a graphics card or the owner's PCs. The pictures were
+not looked at from here (the artifact store's host is not allowed by this environment's network policy); they are in
+run 250's `EmeraldTogether-graphics-3d` artifact for 7 days.
