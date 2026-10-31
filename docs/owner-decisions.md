@@ -58,3 +58,16 @@ below was decided or built by assumption; each row says what is waiting and a re
 | 23 | **Loudness.** The audio audit showed music about -18 dBFS peak at full volume; the make-up gain went from 2 to 4 (+6 dB, no clipping measured). Needs your ears. | Built; your call |
 | 24 | **BP shop prices** differ from the game's Exchange Service Corner (vitamins 16 vs 1 BP; Quick Claw 32 vs 48; King's Rock and Focus Band 32 vs 64) and BP rates look generous (39 BP for 21 rounds). `docs/balance-and-controls-review.md`. | Open |
 | 25 | **Location privacy** is in the PokeNav Players page (default ON, per character). A launcher checkbox was not built. A hidden player is still visible to the host's operator and to players on the same map. | Built |
+
+## Decided 2026-10-31 (the owner's answers on the TM catalogue and the Game Corner item hub)
+
+The proposals: `docs/` will hold them with the implementation; the TM proposal (168 TMs, prices, categories) and the
+item hub proposal (198 items) were sent to the owner on 2026-10-31.
+
+| # | Decision | The owner's answer |
+| --- | --- | --- |
+| 26 | **TM prices** | The tiers as written: 1,000 / 2,500 / 5,000 / 7,500 / 10,000 coins (not the 15% scale of 2026-10-25). The five TM prizes keep their prices. |
+| 27 | **Which Pokemon a TM teaches** | "any pokemon that can actually learn the tm, from gen 1-6 ... if it was able to learn some from gen 1-6 they can learn it": a TM teaches a move to a species that learned that move by TM in any Gen 1-6 game (the union of those games). Replaces the 2026-10-27 rule for TMs (tutors keep it); the original request's custom extension, Ferrothorn and Stealth Rock, stays, documented. Pokemon that already know a move keep it. |
+| 28 | **The save** | Yes: a PC-only "TMs owned" record so all 168 TMs and 8 HMs fit (the Bag's TM pocket has 64 slots). |
+| 29 | **When the TMs are sold** | All tiers from the start. |
+| 30 | **New items' prices** | "dont change existing price ... make items cost appropriate if their good items not cheap": existing prices unchanged; new items priced by how good they are. Master Ball sold for 200,000 coins; Rare Candy 5,000; Bottle Cap 2,500 and Ability Capsule 5,000 (the "cheaper" choice). The revised table goes to the owner before it is applied. |
