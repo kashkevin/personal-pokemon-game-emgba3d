@@ -714,6 +714,12 @@ Recorded guidance the code no longer follows (not binding decisions):
 | Rotom's forms kept through saves, restarts, the PC and battles; each form's own sprite in the 3D battle | Implemented and tested (Linux: saves and loads in real games; the PC's storage in the self-test; six battles pictured) | engine `ba6638dc` |
 | World trades of Rotom's five appliance forms (exact exchange, named in the menus) | Implemented and tested (Linux: two real games through the real host and launchers, Heat Rotom for Fan Rotom; not between two PCs) | app (this change) |
 
+## The Acro Bike's easier rails, PC only (2026-10-31, KNOWN_ISSUES MS-171; after the package)
+
+| Feature | Status | Evidence |
+| --- | --- | --- |
+| Hopping on a rail (X held), the way across it toward a rail beside it jumps there and the hop goes on - X never let go; an arrow tapped during a hop counts at the hop's end; the standing jump takes the arrow and X up to 0.1 s apart in either order (the original: rules unchanged on the GBA ROM) | Implemented and tested (Linux 3D and Classic 2D test builds: `acro_check.py` 24 of 24 on the Safari Zone South's rails; real keyboard events in the 3D test build); the Windows builds compile - **not run on Windows, not on the owner's PC, not with a controller** | engine `2b577798` |
+
 ## How to update
 
 1. Change a row only with new evidence: a recorded run (a doc in `docs/` or
