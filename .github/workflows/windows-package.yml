@@ -222,6 +222,8 @@ jobs:
           # The Acro Bike on the Safari Zone South's rails (the feature-checks job; KNOWN_ISSUES MS-171), beside the
           # mega_check it imports, from an engine that has the check.
           if [ -f tools/battle_env/acro_check.py ]; then cp tools/battle_env/acro_check.py ../mega-check-inputs/; fi
+          # Fly from the Town Map (the feature-checks job; the owner's request of 2026-10-31), beside mega_check too.
+          if [ -f tools/battle_env/flymap_check.py ]; then cp tools/battle_env/flymap_check.py ../mega-check-inputs/; fi
           # The RARE GOODS check reads the generated lists and the item numbers from the engine's own files, three folders
           # above itself (run 219 found none on the runner): it goes with those files at their engine paths.
           if [ -f tools/battle_env/casino_check.py ]; then
@@ -648,9 +650,9 @@ jobs:
     # before the battle (shiny_check.py) and the Game Corner's RARE GOODS (casino_check.py), and the Rotom Catalog (the
     # owner's request of 2026-10-30, rotom_check.py: bought there, its six forms, the battles), and the Acro Bike on the
     # Safari Zone South's rails (the owner's choice of 2026-10-31, acro_check.py: the original's crossing and the PC's
-    # easier rails), each read from the game's own log, from a save of the game's own short introduction made on the
-    # runner.
-    name: Move switching, shiny wild Pokemon, the Game Corner, the Rotom Catalog and the Acro Bike (Windows game processes)
+    # easier rails), and Fly from the Town Map (the owner's request of 2026-10-31, flymap_check.py), each read from the
+    # game's own log, from a save of the game's own short introduction made on the runner.
+    name: Move switching, shiny wild Pokemon, the Game Corner, the Rotom Catalog, the Acro Bike and Fly from the Town Map (Windows game processes)
     needs: engine
     if: ${{ (inputs.mode || 'smoke') == 'full' && (!inputs.only || contains(format(',{0},', inputs.only), ',feature-checks,')) }}
     runs-on: windows-2022
@@ -678,7 +680,8 @@ jobs:
                                 shiny_check = "mega-check-inputs\shiny_check.py"
                                 casino_check = "mega-check-inputs\casino\tools\battle_env\casino_check.py"
                                 rotom_check = "mega-check-inputs\casino\tools\battle_env\rotom_check.py"
-                                acro_check = "mega-check-inputs\acro_check.py" }
+                                acro_check = "mega-check-inputs\acro_check.py"
+                                flymap_check = "mega-check-inputs\flymap_check.py" }
           foreach ($check in $checks.Keys) {
             if (-not (Test-Path $checks[$check])) {
               Write-Output "::notice::this engine has no $check (tools/battle_env/$check.py)"

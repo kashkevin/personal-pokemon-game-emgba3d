@@ -299,7 +299,7 @@ class WindowsWorkflowTests(unittest.TestCase):
         self.assertIn("runs-on: windows-2022", checks)
         self.assertIn("needs: engine", checks)
         self.assertIn("mega_check.py --exe $exe --make-save $save", checks)    # a save of the short introduction
-        for check in ("move_switch_check", "shiny_check", "acro_check"):
+        for check in ("move_switch_check", "shiny_check", "acro_check", "flymap_check"):
             self.assertIn(f'{check} = "mega-check-inputs\\{check}.py"', checks)
         # The RARE GOODS check beside the engine files it reads (run 219: none on the runner).
         self.assertIn('casino_check = "mega-check-inputs\\casino\\tools\\battle_env\\casino_check.py"', checks)
@@ -310,6 +310,7 @@ class WindowsWorkflowTests(unittest.TestCase):
         self.assertIn("for check in move_switch_check shiny_check; do", engine)
         # The Acro Bike's check beside the mega_check it imports (MS-171).
         self.assertIn("cp tools/battle_env/acro_check.py ../mega-check-inputs/", engine)
+        self.assertIn("cp tools/battle_env/flymap_check.py ../mega-check-inputs/", engine)    # Fly from the Town Map
         for file in ("tools/battle_env/casino_check.py", "tools/battle_env/mega_check.py", "include/constants/items.h",
                      "src/platform/mp_rare_goods_prices.h", "data/scripts/mp_rare_goods_shop.inc"):
             self.assertIn(file, engine)

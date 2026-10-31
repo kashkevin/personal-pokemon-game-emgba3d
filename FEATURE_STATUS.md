@@ -720,6 +720,12 @@ Recorded guidance the code no longer follows (not binding decisions):
 | --- | --- | --- |
 | Hopping on a rail (X held), the way across it toward a rail beside it jumps there and the hop goes on - X never let go; an arrow tapped during a hop counts at the hop's end; the standing jump takes the arrow and X up to 0.1 s apart in either order (the original: rules unchanged on the GBA ROM) | Implemented and tested (Linux 3D and Classic 2D test builds: `acro_check.py` 24 of 24 on the Safari Zone South's rails; real keyboard events in the 3D test build); the Windows builds compile - **not run on Windows, not on the owner's PC, not with a controller** | engine `2b577798` |
 
+## Fly from the Town Map, PC only (2026-10-31, the owner's request; after the package)
+
+| Feature | Status | Evidence |
+| --- | --- | --- |
+| The Town Map (from the Bag or registered on SELECT) opens the Fly map when Fly could be used there: the Feather Badge, a place Fly can be used from, a Pokemon that knows Fly in the party or the PC boxes; a place chosen there is flown to with that Pokemon, B goes back to the field; otherwise the map to look at, as before (Fly's own rules unchanged) | Implemented and tested (Linux 3D and Classic 2D test builds: `flymap_check.py` 6 of 6 - Oldale Town to Littleroot Town with a party Pokemon and with a boxed one, B back to the field, no Fly and no badge the map to look at; the Bag's path by its keys in the 3D test build); not run on Windows or the owner's PC | engine `4acac6f7` |
+
 ## How to update
 
 1. Change a row only with new evidence: a recorded run (a doc in `docs/` or

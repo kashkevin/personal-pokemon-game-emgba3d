@@ -924,3 +924,25 @@ the same job the Mega Evolution picture series and parade passed, and the 3D vie
 software renderer with this engine. Not shown: anything about a graphics card or the owner's PCs. The pictures were
 not looked at from here (the artifact store's host is not allowed by this environment's network policy); they are in
 run 250's `EmeraldTogether-graphics-3d` artifact for 7 days.
+
+### After the owner's look at the update (2026-10-31 03:30-04:40; engine `5169d96c`)
+
+The owner installed run 253's build and found two things that looked worse than before: Lilycove's cliffs by the
+Department Store "look like walls", and the Mauville Game Corner's furniture ("if ur gonna 3d everything at least make it
+look nice"). Pictured against the build before step 16, both were step 16's: C1's rock bands stood a band of rock that
+parts no levels as a ridge a tile over the ground on both sides of it, and where the GBA paints a cliff on level ground
+(Lilycove, Route 120, Fallarbor, Route 121, the Safari Zone) that is a wall, the stairs sunk between two of them; C4's
+rule for the General tileset's brown rock (`18f6759f`) stood more such cliffs; and C5's twelve rooms (`131de763`),
+proved exact from the GBA's camera, showed from the game's camera boxes with their drawing smeared down them, the Game
+Corner's counter hiding its clerks. The metric step 16 worked to - blocked cells drawn flat - counted the painted cliffs
+as defects; drawn flat with the GBA's perspective they read as cliffs, stood up they read as walls.
+
+The fix (`5169d96c`): a thin band (no cell more than two in from its edge) that parts no levels, on land more than in
+water, lies as drawn, as before step 16; `18f6759f` and `131de763` are reverted. Bands between two levels (Mossdeep's
+cliff, one face where it was pillars), mountains and rocks in the sea stand as step 16 made them. The probe at 53 places
+(the 35 the changes touch, 18 more towns and routes), four cameras, against the build before step 16 and run 253's:
+the cliffs and the rooms as before step 16; Mossdeep, Routes 119, 125 and 126 and Ever Grande keep step 16's fixes, their
+holes closed. The owner was sent the before/after pictures of Lilycove, the Game Corner, the Safari Zone and Route 120.
+check-diorama, test_compile_rules (35) and test_rock_bands (11) passed. Linux, Mesa's software renderer only. The
+counts of phase F (flat-blocked cells and the rest) are those of `cca519e8`, before this; the furniture of MS-164 is
+open again for the twelve rooms.
