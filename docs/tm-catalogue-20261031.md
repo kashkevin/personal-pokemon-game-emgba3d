@@ -5,8 +5,8 @@ the price tiers, "any pokemon that can actually learn the tm, from gen 1-6", a P
 start). Engines `9e033b5d` and `19bb9c63` (PC only: the GBA ROM's sha256 is unchanged), app (this change).
 
 **L** below means the Linux test builds (the 3D one with Mesa's software OpenGL, and the Classic 2D one); **Wine** means
-the Windows build run under Wine on Linux, not Windows. Nothing here was run on Windows or on a player's PC unless it
-says so.
+the Windows build run under Wine on Linux, not Windows; **W** means the Windows CI's GitHub-hosted runners (windows-2022),
+not a player's PC. Nothing here was run on a player's PC.
 
 ## What a player gets
 
@@ -97,10 +97,13 @@ every save and read after a load.
 | App tests: `tests/test_tm_record.py` (the record's place, older saves, sealed records in both profiles, everything else refused, padding after it, a character leaving its world keeps its TMs) and the save tests that pin the end of SaveBlock3 | L | passed |
 | The GBA ROM; `check_gba_lines.py` | L | the ROM's sha256 `f214735b...3387` as pinned; no GBA line moved |
 | The Windows builds (the 3D game, the Classic 2D game and its test build) | MinGW (built; the test build's TM self-test under Wine, above) | built |
+| `--selftest-tm-catalogue` and every other self-test the Windows job runs, on the Windows build | W: run [260](https://github.com/kashkevin/personal-pokemon-game-emgba3d/actions/runs/41239302015) (engine `19bb9c63`), run [262](https://github.com/kashkevin/personal-pokemon-game-emgba3d/actions/runs/41243017387) (engine `cc78b9e9`, with the item hub) | **passed**: the TM catalogue 57 of 57 in both; run 262 every self-test, 33 of 33 (coins, the Rotom Catalog, Switch Moves, the item hub, the Battle Tower...) |
+| `tools/battle_env/tm_catalogue_check.py` in Windows game processes (the feature checks job: the Windows Classic 2D test build, a character from the game's own short introduction) | W: runs 260 and 262 | **passed** in both, every step, beside the other feature checks (move switching, shiny wild Pokemon, the Game Corner, the Rotom Catalog, the Acro Bike 24 of 24, Fly from the maps 12 of 12, and in run 262 the item hub) |
 
 ## Not verified
 
-* On Windows (the next Windows CI run has the self-test and the in-game check) or on the owner's PC.
+* On the owner's PC. Windows only through the CI's GitHub-hosted runners (runs 260 and 262, above); the 3D game's
+  shop rows only in the Linux 3D test build (the Windows checks use the Classic 2D test build).
 * Every one of the 168 TMs bought and taught in a real game: one TM of each counter was, and the self-test checks all of
   them through the game's own tables.
 * A world trade of a Pokemon after this change: a Pokemon's bytes do not change (the TM rule is read only to teach).
