@@ -760,6 +760,13 @@ Recorded guidance the code no longer follows (not binding decisions):
 | Opening the pass's FRONTIER MAP no longer closes the PC game (MS-176) | Implemented and tested (Linux: the crash reproduced, then gone in the 3D and Classic 2D test builds; not on Windows) | engine `90c230ff` |
 | Placing and putting away a decoration in 3D: the decoration where the cursor is, the putting-away cursor, the player; the plate with the decoration's picture, name and whether it can go there; Move / Place / Cancel (MS-177) | Implemented and tested (Linux 3D test build: a doll placed in the player's room and put away by keys, pictures; not on Windows or a PC; a secret base not tried) | engine `48298d2e` |
 
+## The Safari Zone's entrance in 3D, PC only (2026-11-01; KNOWN_ISSUES MS-178)
+
+| Feature | Status | Evidence |
+| --- | --- | --- |
+| The entrance's enclosure a terrace a level up: its stairs climb to it, its walls are rock faces, not blocks or flat strips; the edges the next Safari areas meet as they were | Implemented and tested (Linux 3D test build: the probe at the six Safari areas, pictures, a walk up the stairs; not on Windows or a PC) | engine `f01959dd` |
+| The terrace solver's options for the other dropped terraces (stairs through rock as steps, a course's open end at its foot) | Implemented, not switched on (the probe found new steps and seams where tried) | engine `1988ec7d`, `f01959dd` |
+
 ## How to update
 
 1. Change a row only with new evidence: a recorded run (a doc in `docs/` or
