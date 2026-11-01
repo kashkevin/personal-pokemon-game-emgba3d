@@ -595,7 +595,7 @@ Recorded guidance the code no longer follows (not binding decisions):
 | Egg hatching on the design's stage | Implemented and tested (Linux, both views, both answers) | engine `7c2e2d0f` |
 | The wall clock in the current UI (setting and looking) | Implemented and tested (Linux 3D) | engine `bfd5ff6f` |
 | The PC renderer's second GBA window (the condition graph whole, MS-104) | Implemented and tested (Linux, classic view) | engine `f36530ee` |
-| Every remaining GBA screen in the current UI | Partially implemented (the screens still GBA: KNOWN_ISSUES MS-105; the PokéNav done in step 13, below) | `docs/ui-overhaul-and-fixes-20261026.md` section 3 |
+| Every remaining GBA screen in the current UI | Implemented for every screen a player can reach on PC (steps 13, 15, 15b and 15c, below; KNOWN_ISSUES MS-105); the boot screens stay the game's art | `docs/ui-overhaul-and-fixes-20261026.md` section 3, `docs/native-ui.md` |
 
 ## Legendary persistence, spawn timers and shiny odds (2026-10-27, `docs/spawns-legends-shiny-20261027.md`)
 
@@ -769,6 +769,14 @@ Recorded guidance the code no longer follows (not binding decisions):
 | The north and north-west: the rock edges round their raised ground its rim, not fins and pillars a level over it; the north's bumpy slope a ramp up to its sand; its ring of ledges on the sand | Implemented and tested (Linux 3D test build: the probe at the six Safari areas, pictures; not on Windows or a PC) | engine `e8eaf583` |
 | Tall edges as rock (the owner's choices, "Rock faces" and "Grass banks rock"): outdoors, a side of plain ground a level or more tall, and the skirt under a ledge or rock edge that tall, show General's rock wall, not the grass drawn down them; grass and path banks down to the water too; a beach's sand keeps its look | Implemented and tested (Linux 3D test build: the terrain mesh test, the probe at 12 places on 8 maps and the six Safari areas, pictures; the beaches of Routes 104, 109, 115, Slateport and Lilycove; the Windows build compiles; not run on Windows or a PC) | engine `cf2a830a`, `90e58db6` |
 | The terrace solver's options for the other dropped terraces (stairs through rock as steps, a course's open end at its foot) | Implemented, switched on at the Safari Zone's entrance, north-east and south-east only (elsewhere the probe found new steps and seams where tried) | engine `1988ec7d`, `f01959dd`, `d705a8b5` |
+
+## The last GBA screens in the current UI, PC only (2026-11-01, step 15c; KNOWN_ISSUES MS-105)
+
+| Feature | Status | Evidence |
+| --- | --- | --- |
+| Berry Crush, Pokemon Jump and Dodrio Berry Picking with computer partners in the 3D UI: the game's picture kept; the players' names the design's plates (the player's lit), the boards and lines the design's boxes in the game's colours, Berry Crush's message box the field's, "play again?" the design's YES / NO; in play a click is A | Implemented and tested (Linux 3D test build: each game played with computer partners by keys, pictures; not on Windows or a PC; clicks in play not tried) | engine `b1a94915` |
+| The cable car's ride: the game's scene, the design's location sign naming where it goes | Implemented and tested (Linux 3D test build: the ride up to Mt. Chimney, pictures; the ride down not pictured; not on Windows or a PC) | engine `b1a94915` |
+| Every `dynmultichoice` menu as the field's scrolling list (the design's menu box, six rows at a time, its arrows): the minigame lobbies' "Which game will it be?" and "How many players in all?", the Game Corner's MAJOR PRIZES / ITEMS / EXIT, the item hub's ten kinds, the TM counter's choices and kinds; keys, real mouse clicks on a row and on the arrows, a right click as B | Implemented and tested (Linux 3D test build: keys and xdotool clicks, pictures; `item_hub_check.py` and `tm_catalogue_check.py` by keys; not on Windows or a PC) | engine `b1a94915` |
 
 ## How to update
 

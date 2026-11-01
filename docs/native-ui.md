@@ -135,6 +135,24 @@ picture and whether it can go there (the game's own check, the answer A would ge
 putting away, what to do; Move / Place / Cancel (Choose / Done) prompts, whose clicks press
 A and B. The game's lines and YES / NO are the field's message box.
 
+**Step 15c** (2026-11-01; engine `b1a94915`; PC only, tested in the Linux 3D test build,
+not on Windows): the last GBA screens a player can reach on PC. The three wireless
+minigames with computer partners (MS-141: Berry Crush, Pokémon Jump, Dodrio Berry Picking;
+`screens/ui_minigame.c`) keep the game's picture - the crusher, the vine, the Dodrio, their
+timers and counters - and their windows on the window layer are the design's where the game
+puts them: a window showing one player's name alone is that player's plate (the player's
+own lit), a framed window the design's box with the game's lines as printed, in their
+colours (the text transcripts now keep each line's colours), an unframed one its lines;
+Berry Crush's message box is the field's, and "play again?" the design's YES / NO. In play
+a click is A (a press of the crusher, a jump). The cable car's ride (`screens/ui_cable_car.c`)
+is the game's scene with the design's wooden location sign naming where it goes. And every
+`dynmultichoice` menu, which kept the GBA's look because the field screen read only the
+classic multichoices: the minigame lobbies ("Which game will it be?", "How many players in
+all?") and the Game Corner's own counters (MAJOR PRIZES / ITEMS / EXIT, the item hub's ten
+kinds, the TM counter's choices and kinds) are now the field's scrolling list
+(`ScriptMenu_NativeUiDynamicList`: six rows at a time, the design's arrows; keys, clicks,
+the wheel and a right click are the game's presses).
+
 ## Input
 
 * Keyboard: the game's keys (Z = A, X = B, Enter = START, `\` = SELECT, A = L, S = R,
