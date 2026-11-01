@@ -751,6 +751,15 @@ Recorded guidance the code no longer follows (not binding decisions):
 | The RARE GOODS inside the hub (the Ability Patch, a charm SOLD OUT, the longest list; the Rotom Catalog in EVOLUTION & FORMS) | Implemented and tested (`casino_check.py`, `rotom_check.py`'s purchase: L, both builds; both also in Windows CI run 262: passed) | engine `cc78b9e9` |
 | The Emerald Expansion features report (which of the expansion's features this game uses) | Written | `docs/expansion-features-20261031.md` |
 
+## The last three GBA screens in the current UI, PC only (2026-11-01, step 15b; KNOWN_ISSUES MS-105, MS-176, MS-177)
+
+| Feature | Status | Evidence |
+| --- | --- | --- |
+| The Battle Arena in the battle HUD: the referee's lines in the message plate (REFEREE), the judgment card after the third turn (both Pokemon, MIND, SKILL and BODY with each side's mark as the referee calls them, the points as the game counts them, the winner's plate lit), the foe's pips counting a Pokemon the judgment beat as fainted | Implemented and tested (Linux 3D test build: an Arena battle played to its judgment, pictures; not on Windows or a PC; a whole Arena challenge not played; the foe's pips after a judgment the foe loses not seen) | engine `7f7cd483` |
+| The FRONTIER PASS (the symbols earned, the battle record, the Battle Points, FRONTIER MAP, TRAINER CARD, CANCEL, the game's line) and its Frontier map (the facilities on the island's plan, their list, the lines); the game's keys, clicks walking the game's cursor, the wheel on the map | Implemented and tested (Linux 3D test build: keys and real mouse clicks, pictures; not on Windows or a PC) | engine `90c230ff` |
+| Opening the pass's FRONTIER MAP no longer closes the PC game (MS-176) | Implemented and tested (Linux: the crash reproduced, then gone in the 3D and Classic 2D test builds; not on Windows) | engine `90c230ff` |
+| Placing and putting away a decoration in 3D: the decoration where the cursor is, the putting-away cursor, the player; the plate with the decoration's picture, name and whether it can go there; Move / Place / Cancel (MS-177) | Implemented and tested (Linux 3D test build: a doll placed in the player's room and put away by keys, pictures; not on Windows or a PC; a secret base not tried) | engine `48298d2e` |
+
 ## How to update
 
 1. Change a row only with new evidence: a recorded run (a doc in `docs/` or
