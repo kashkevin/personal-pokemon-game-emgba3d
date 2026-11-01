@@ -760,12 +760,14 @@ Recorded guidance the code no longer follows (not binding decisions):
 | Opening the pass's FRONTIER MAP no longer closes the PC game (MS-176) | Implemented and tested (Linux: the crash reproduced, then gone in the 3D and Classic 2D test builds; not on Windows) | engine `90c230ff` |
 | Placing and putting away a decoration in 3D: the decoration where the cursor is, the putting-away cursor, the player; the plate with the decoration's picture, name and whether it can go there; Move / Place / Cancel (MS-177) | Implemented and tested (Linux 3D test build: a doll placed in the player's room and put away by keys, pictures; not on Windows or a PC; a secret base not tried) | engine `48298d2e` |
 
-## The Safari Zone's hills in 3D: its entrance and north-east, PC only (2026-11-01; KNOWN_ISSUES MS-178)
+## The Safari Zone's hills in 3D and tall edges as rock, PC only (2026-11-01; KNOWN_ISSUES MS-178)
 
 | Feature | Status | Evidence |
 | --- | --- | --- |
 | The entrance's enclosure a terrace a level up: its stairs climb to it, its walls are rock faces, not blocks or flat strips; the edges the next Safari areas meet as they were | Implemented and tested (Linux 3D test build: the probe at the six Safari areas, pictures, a walk up the stairs; not on Windows or a PC) | engine `f01959dd` |
 | The north-east as real terraces (the owner's choice, "Real terraces + slope at edge"): its terraces step down three levels to the south, its stairs climb, three rows of ramp at its south edge climb back to where the south-east meets it; its courses no longer blocks, its stairs no longer flat | Implemented and tested (Linux 3D test build: the probe at the six Safari areas, pictures; not on Windows or a PC) | engine `d705a8b5` |
+| The north and north-west: the rock edges round their raised ground its rim, not fins and pillars a level over it; the north's bumpy slope a ramp up to its sand; its ring of ledges on the sand | Implemented and tested (Linux 3D test build: the probe at the six Safari areas, pictures; not on Windows or a PC) | engine `e8eaf583` |
+| Tall edges as rock (the owner's choices, "Rock faces" and "Grass banks rock"): outdoors, a side of plain ground a level or more tall, and the skirt under a ledge or rock edge that tall, show General's rock wall, not the grass drawn down them; grass and path banks down to the water too; a beach's sand keeps its look | Implemented and tested (Linux 3D test build: the terrain mesh test, the probe at 12 places on 8 maps and the six Safari areas, pictures; the Windows build compiles; not run on Windows or a PC) | engine `cf2a830a` |
 | The terrace solver's options for the other dropped terraces (stairs through rock as steps, a course's open end at its foot) | Implemented, switched on at the Safari Zone's entrance, north-east and south-east only (elsewhere the probe found new steps and seams where tried) | engine `1988ec7d`, `f01959dd`, `d705a8b5` |
 
 ## How to update
