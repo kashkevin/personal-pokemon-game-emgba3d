@@ -68,8 +68,8 @@ message 40 ms late, the CI's `nosave-lag`) passed with the fix.
 | Limit | Where | Past it |
 | --- | --- | --- |
 | 3 s | the game: its companion silent while its trade window is open | the window closes; the trade is cancelled for both |
-| 15 s (5 s before MS-165) | the launcher: its game's answer to a battle command | the battle is held for recovery |
 | 12 s (20 s for COMMIT and END) | the companion: its game's answer to a save command (a checkpoint, about every 5 minutes of play) | the checkpoint is cancelled and tried again later; before MS-12's fix (2026-11-03, engine `c7d86031`) that cancel disconnected the game from the world until it restarted |
+| 15 s (5 s before MS-165) | the launcher: its game's answer to a battle command | the battle is held for recovery |
 | 20 s | the host: a player's companion silent | the player is dropped; a trade in hand waits for Resolve interrupted trade, a battle is held for recovery |
 | 20 s | the host's battle route: one player's answer | the battle is held for recovery |
 | 45 s | the game: a held trade with no command | the game ends the trade |
