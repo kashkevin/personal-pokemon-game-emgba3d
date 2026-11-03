@@ -53,6 +53,7 @@ if tradeEnabled then
         and emu:read32(cfg.trade_abi_address) == 1, "Invalid trade capability marker")
 end
 local savePending, saveGeneration, capabilitySent = nil, nil, false
+local saveCancel = nil -- KNOWN_ISSUES MS-12: the outstanding command's operation's CANCEL, waiting
 local emergencyEnabled = cfg.emergency_save_abi ~= nil or cfg.emergency_save_abi_address ~= nil
 if emergencyEnabled then
     assert(tradeEnabled and (cfg.emergency_save_abi == 1 or cfg.emergency_save_abi == 2)
@@ -554,6 +555,7 @@ local function stop(reason, fatal)
     rx, tx, latestPose = "", "", nil
     controls, controlBurst = {}, 0
     savePending, saveGeneration, capabilitySent = nil, nil, false
+    saveCancel = nil
     windowCapabilitySent = false
     emergencyCapabilitySent = false
     tradeEffectPrepareCapabilitySent = false
@@ -576,6 +578,17 @@ local function reliable(payload)
     if #controls >= 4 then stop("save control backpressure", true); return false end
     controls[#controls + 1] = frame(payload)
     return true
+end
+
+-- The outstanding save command's answer has gone out. KNOWN_ISSUES MS-12: a CANCEL of its operation that came
+-- meanwhile goes to the game now.
+local function saveAnswered()
+    savePending = nil
+    if saveCancel then
+        local cancel = saveCancel
+        saveCancel = nil
+        if commitSave(cancel.payload) then savePending = cancel end
+    end
 end
 
 local function pollSave()
@@ -610,8 +623,8 @@ local function pollSave()
             or generation ~= emu:read32(saveAddr + 268) or state ~= emu:read32(saveAddr + 12) then
             stop("save window changed before readback", true); return
         end
-        if reliable("F" .. payload .. bytes) then savePending = nil end
-    elseif reliable("R" .. payload) then savePending = nil end
+        if reliable("F" .. payload .. bytes) then saveAnswered() end
+    elseif reliable("R" .. payload) then saveAnswered() end
 end
 
 local function pollBattle()
@@ -834,9 +847,20 @@ local function receive()
                 -- Flash publication; these controls cannot release the hold.
                 local recovery = command.opcode == 1 or command.opcode == 16 or command.opcode == 17 or command.opcode == 21 or command.opcode == 22 or command.opcode == 25
                 if savePending and not recovery and command.payload ~= savePending.payload then
-                    stop("multiple outstanding save commands", true); return
+                    -- KNOWN_ISSUES MS-12: the companion gives a command 12 s (20 s for COMMIT and END), then
+                    -- cancels its operation; a game that ran no frames that long has not answered it yet. That
+                    -- operation's CANCEL waits for the answer (saveAnswered); anything else still stops the bridge.
+                    if command.opcode == 8 and not saveCancel and command.incarnation == savePending.incarnation
+                        and command.epoch == savePending.epoch and command.request == savePending.request then
+                        saveCancel = command
+                    else
+                        stop("multiple outstanding save commands", true); return
+                    end
+                elseif commitSave(command.payload) then
+                    -- a recovery control replaced the outstanding command: that one's CANCEL goes with it
+                    if recovery then saveCancel = nil end
+                    savePending = command
                 end
-                if commitSave(command.payload) then savePending = command end
             elseif payload:sub(1, 1) == "D" then
                 local command = battleControl(payload:sub(2), true)
                 if not command or not battleHeaderReady() then stop("invalid battle command", true); return end
@@ -903,6 +927,7 @@ local function onFrame()
         latestWorld, poseSentLast = nil, false
         controls, controlBurst = {}, 0
         savePending, saveGeneration, capabilitySent = nil, nil, false
+        saveCancel = nil
         windowCapabilitySent = false
         emergencyCapabilitySent = false
         tradeEffectPrepareCapabilitySent = false

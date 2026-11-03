@@ -10,12 +10,13 @@ import struct
 import subprocess
 import tempfile
 import unittest
+import uuid
 
 from emerald_multiplayer.bridge_protocol import (
     BridgeBackpressure, BridgeError, BridgeOutbox, encode_packet, read_packet,
 )
 from emerald_multiplayer.mailbox import MAILBOX_MAGIC, Pose, Snapshot
-from emerald_multiplayer.save_mailbox import Opcode, SaveControl, capability_packet, command_packet, response_packet
+from emerald_multiplayer.save_mailbox import Opcode, SaveControl, Status, capability_packet, command_packet, response_packet
 from test_save_mailbox import control
 
 
@@ -216,6 +217,48 @@ assert(poses>0 and #console.errors==0)
         # Delayed old-session ACK must not satisfy the new rebind waiter.
         late = replace(begin, data=bytes(40))
         script += f'loadBytes(0x02002110,unhex("{late.pack().hex()}"));loadBytes(0x0200210c,string.pack("<I4",2));advance(100);assert(savePending~=nil)\n'
+        self.run_lua(script)
+
+    def test_an_operations_cancel_waits_for_its_unanswered_command(self):
+        """KNOWN_ISSUES MS-12: the companion cancels an operation once it has given up on a command (12 s, 20 s for
+        COMMIT and END), and a game that ran no frames that long has not answered the command yet. That operation's
+        CANCEL waits for the answer, then goes to the game; another operation's CANCEL, a command or a second CANCEL
+        behind it still stop the bridge; a recovery control replacing the command takes the waiting CANCEL with it."""
+        begin = control(sequence=2, opcode=Opcode.BEGIN_EXPORT, revision=2)
+        cancel = replace(begin, sequence=3, opcode=Opcode.CANCEL)
+        answer = replace(begin, data=bytes(range(40)))
+        canceled = replace(cancel, status=Status.CANCELED)
+
+        def feed(*commands):
+            return "".join(f'inbox=unhex("{encode_packet(command_packet(command)).hex()}");advance(80)\n'
+                           for command in commands)
+
+        def holds(command):
+            return f'assert(range(0x0200201c,240)==unhex("{command.pack().hex()}"))\n'
+
+        def answers(response, generation):
+            return (f'loadBytes(0x02002110,unhex("{response.pack().hex()}"));'
+                    f'loadBytes(0x0200210c,string.pack("<I4",{generation}));advance(100)\n')
+
+        script = self.fixture(live=True) + feed(begin, cancel)
+        script += 'assert(not stopped and #console.errors==0)\n' + holds(begin)
+        script += answers(answer, 2) + holds(cancel) + answers(canceled, 4)
+        script += f'local first,second=unhex("{response_packet(answer).hex()}"),unhex("{response_packet(canceled).hex()}")\n'
+        script += r"""
+local order={}
+for _,p in ipairs(decoded()) do
+    if p==first then order[#order+1]=1 elseif p==second then order[#order+1]=2 end
+end
+assert(#order==2 and order[1]==1 and order[2]==2 and not stopped and #console.errors==0)
+"""
+        self.run_lua(script)
+        other = replace(cancel, request_id=str(uuid.UUID(int=2)))
+        for behind in ((other,), (cancel, replace(begin, sequence=4, opcode=Opcode.READ)), (cancel, replace(cancel, sequence=4))):
+            with self.subTest(behind=[command.opcode for command in behind]):
+                self.run_lua(self.fixture(live=True) + feed(begin, *behind) + 'assert(stopped and #console.errors==1)\n')
+        bind = control(sequence=4, request_id=str(uuid.UUID(int=3)))
+        script = self.fixture(live=True) + feed(begin, cancel, bind) + 'assert(not stopped)\n' + holds(bind)
+        script += answers(bind, 2) + holds(bind) + 'assert(saveCancel==nil and savePending==nil and #console.errors==0)\n'
         self.run_lua(script)
 
     def test_live_commands_stale_response_crc_rejection_and_write_limits(self):
