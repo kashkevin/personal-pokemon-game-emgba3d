@@ -392,7 +392,12 @@ session's work. Route 113's and Route 123's ledges that landed higher are fixed 
   (`tools/diorama_rules/terrace_topology.py`) has to split them first. Next: the Safari Zone's (levels across two maps,
   with MS-162's Safari seams). Jagged Pass's 14 rise since engine `f5f1486f` (below).
 * **Route 118's 6 ledges that land a level higher** than they are jumped from (MS-154): none of them can be jumped
-  (rock behind each, by its lake's plateau). Its seams with Mauville City, Route 119 and Route 123 are level since
+  (rock behind each, by its lake's plateau). Looked at on 2026-11-03 (the probe at the whole route and close at its
+  north-west corner and its garden, four cameras each): by the probe's own heights 8 of its 84 ledges land higher, and
+  only two of those (29,0-1) have a walkable side, the sand strip north of the rock mound by the water, which stands
+  as the lake's plateau a level over the beach south of the mound (the mound, rock and water part them: no step to
+  walk). In the pictures a raised sandbank beside the mound under the cliff's trees, the garden's fence and the rest
+  as drawn: nothing reads wrong, so they stay. Its seams with Mauville City, Route 119 and Route 123 are level since
   MS-162 (above); four other land seams are still a level apart (Mauville City and Route 111, the Battle Frontier's
   halves, the Safari Zone's two).
 * **The 48 ledges in modelled rooms** keep their rooms' models.
