@@ -4,12 +4,13 @@ These tests cover host-loss ordering, not an ordinary-route authored hunt.
 The native endpoint remains the explicitly synthetic emergency Flash fixture.
 """
 import asyncio
+import json
 import struct
 import unittest
 from unittest.mock import patch
 from uuid import uuid4
 
-from emerald_multiplayer.cold_start import ColdStartError, ColdStartRecovery
+from emerald_multiplayer.cold_start import ColdStartRecovery
 from emerald_multiplayer.reset_attempts import ResetAttempts, enable_reset_attempts
 from emerald_multiplayer.reset_mailbox import ResetRequest
 from emerald_multiplayer.reset_session import ResetSession
@@ -154,10 +155,26 @@ class ResetEmergencyIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(self.c.emergency_active)
         self.assertEqual(self.count(), 1)
         self.assertFalse((self.private / "pending-export.json").exists())
+        journal = json.loads(self.controller.path.read_text())
+        self.assertEqual(journal["state"], "uncertain")
         fresh = self.closed()
-        with self.assertRaises(ColdStartError):
-            async with ColdStartRecovery(fresh, self.private, self.save).open():
-                self.fail("a generated encounter cannot be replaced by its older save")
+        # The generated encounter lived only in the held core, and a closed game's held core is gone: nothing can save it
+        # any more. A later start sets the unfinished preservation aside and continues from the world's save, telling the
+        # player (KNOWN_ISSUES MS-73; refusing every start locked the character out for good) - the save itself untouched.
+        async with ColdStartRecovery(fresh, self.private, self.save).open() as recovered:
+            self.assertEqual(recovered.mirror.revision, 1)
+            self.assertEqual(recovered.emergency_set_aside, journal["operation_id"])
+        self.assertEqual(self.store.read_checkpoint(self.player.player_id, self.lease).revision, 1)
+        kept = list((self.private / "closed-recoveries").glob("*/pending-emergency.json"))
+        self.assertEqual([json.loads(path.read_text()) for path in kept], [journal])
+        # The generation is still never undone on the host: its attempt stays counted, so starting from the older save
+        # gives no free try - the next one is the second.
+        self.assertEqual(self.count(), 1)
+        reply = ResetAttempts(self.store).begin(self.player.player_id, self.lease,
+            dict(type="reset_begin", request_id=str(uuid4()), session_epoch=self.lease,
+                 incarnation=3, sequence=1, encounter_id=0x1001, observed_count=0))
+        self.assertEqual(reply["attempt"], 2)
+        self.store.integrity_check()
 
 
 if __name__ == "__main__":
