@@ -1010,3 +1010,42 @@ The tileset also paints that tree's crown top over other ground: the town's, a p
 Evidence (L, the 3D test build, Mesa): the geometry probe at Fortree City (800 cells, four cameras, and three close places), before and after: flat-blocked 90 -> 63, the rest as before; at Routes 119 and 120 (9600 cells) every count unchanged and 54 crown tops shown as their ground, their heights unchanged. `check-diorama` passed; the three files compile for Windows (MinGW). Pictures: scratchpad `ftree/` (game art, not committed). Still flat there: the shadowed copies (on purpose) and the palms' lower trunk under a crown top (no metatile draws it without one). The cells Routes 119 and 120 still draw flat (450 and 524) are mostly Route 119's river art and thin painted cliffs that lie as drawn (MS-173), not trees.
 
 Other tilesets paint the same crown top over their own ground, above a General small tree that stands as a solid: the Mauville tileset's (Route 111's cliff foot and edges 22 cells, Route 110 by the Cycling Road 7, Verdanturf Town 21), the Lilycove tileset's (Route 123, 2), the Rustboro tileset's (Southern Island 8, Route 104 2) and the Ever Grande tileset's (2). Looked at before giving them their ground as Fortree's (2026-11-03 12:30-12:50, the geometry probe's four cameras at Routes 110, 111 (two places) and 123, Southern Island and Verdanturf Town): each lies behind its tree's solid crown, which covers it from every camera, so none is seen; left as drawn (Route 104's and Ever Grande's four cells not looked at). Six of these metatiles have an exact ground (Mauville 21E, 21F, 36E, 36F, Lilycove 277, Rustboro 2C0) should a camera ever show them; the rest have none (Mauville 243's ground metatile has another behaviour). Pictures: scratchpad `crowns2/` and `crowns/` (game art, not committed).
+
+### Ever Grande's halls and the Frontier lobbies' upper floors (2026-11-03 18:40-20:10; engine `7b130765`)
+
+**Ever Grande City's halls** between the Elite Four's rooms (Halls 1, 2, 3 and 5 share one layout of 11 x 13
+cells; Hall 4, before the Champion's room, is 11 x 34) lay flat: the staircase up to the next room's door was a
+picture of steps on the floor, its red railings and the landing before the door at the height of the dark floor
+either side. The GBA gives the steps, the landing and the door one elevation, so nothing in its data says the
+landing stands higher; the drawing does (the landing's grey lip and the olive face under it either side of the
+steps). The steps now rise from the hall's south end to the landing a level every four rows - a short hall's eight
+rows two levels, Hall 4's 29 seven, the same slope in both - as a mountain's stairs do, each row its share; the
+landing, the door and the wall behind them stand on that top level; the railings beside the steps stand on the
+steps' ground row by row; the dark floor with its lamps stays where it was, the staircase over it
+(`terrace_topology.py` `hall_stairs`: the Elite Four tileset's steps under a landing; the Champion's room's two
+rows of steps up to its door have no landing and are left alone). The landing's face over the dark floor is the
+mesh's, drawn with the lip's own grey: in Hall 4 seven bands of it. Nothing the game does changes.
+
+**The Battle Frontier's lobbies.** The Battle Pyramid's lobby draws an upper floor - the Pyramid's door, the
+braziers - over two dark pits, steps between balustrades climbing to it from the floor where its attendant waits;
+the Battle Arena's draws a tatami stage, its attendant on it, a stone step before the attendant and the two doors
+the player is led to behind it. Both lay flat, at one elevation in the GBA's data as in the drawing's 3D. They are now
+given by hand (`compile_rules.py` `INDOOR_LEVELS`, `terrace_topology.py` `indoor_levels`): rectangles of the
+room on a raised level, the steps a ramp climbing north to it a share a row, the balustrades on the steps' ground.
+The Pyramid's upper floor (with the rims of the pits and the alcoves either side) stands two levels over the lower
+floor, the steps (7, 8-12) climbing to it, the pits on the lower floor; the Arena's stage (the wall and doors
+behind it too) a level up, the step (7, 8-9) climbing to it, the attendant on the stage. When the attendants lead
+the player to the doors (scripted walks over the stage and up the steps) the player walks the slopes. The Battle
+Dome's lobby was looked at: its counters, rope barriers and machines already stand and it has no level to give.
+The Battle Factory's and Battle Palace's lobbies have no levels either; their counters and tables still lie on
+the floor (MS-164, open: they need a hand-cut room as the lounges were).
+
+Evidence (L, the 3D test build, Mesa): the compiled rules against those before (engine `c4ba12d1`'s), layout by
+layout: records change in the two hall layouts (99 of 143, 204 of 374) and the two lobbies (Arena 112 of 208,
+Pyramid 166 of 270) only. The geometry probe, four cameras, before and after: the halls at four places (the short
+hall's foot and middle, Hall 4's middle and top), the lobbies at six (the Pyramid's lower floor, steps and upper
+floor; the Arena's floor, step and side): the steps rise to the landing and the upper floors, the player and the
+attendants on them, no hole, no new walk-step, flat-blocked unchanged (348 and 259: the rooms' painted walls).
+`check-diorama` passed (`compile_rules --check`), `test_terrace_topology` 33 tests (two new: the halls read from
+the repository's layouts and the Champion's room left alone; a raised floor given by hand); the Windows 3D build
+compiles (MinGW, not run). Pictures: scratchpad `halls/`, `lobby2/` (game art, not committed).
