@@ -1527,3 +1527,17 @@ or on the owner's PCs.
 | The building tools' tests (window glow 22, auto buildings 25, dimensional 14, page crop 5, battle room auto 4), after each room | engines `020bbf30`, `a78c8118` | L | **passed** | scratchpad `fac/building-tests.log`, `fac/building-tests2.log` | - | - |
 | The Windows 3D build (MinGW, `DIORAMA=1`) with the new building models | engine `a78c8118` | L (cross-compiled) | **compiles** (not run) | scratchpad `fac/mingw.log` | - | in the next package run |
 
+## The Battle Pyramid's top and the Contest Hall's stages (2026-11-03; engine `claude/feature-update-engine`; the 3D geometry doc)
+
+**L** = this Linux machine; nothing here ran on Windows or on the owner's PCs.
+
+| Test | Build / head | Where | Last result | Evidence | Changed since | Rerun? |
+| --- | --- | --- | --- | --- | --- | --- |
+| The compiled 3D rules against those before, layout by layout | engines `6244408e`, `8359f889` | L | **as expected**: the Pyramid's top 714 of 782 records, then the Contest Hall 450 of 1,683; nothing else | scratchpad `top/rules-before.c`, `top/rules-pyramid.c` | - | - |
+| The geometry probe at the Pyramid's top (the arrival band 17,17, half way, the top, a side), four cameras, before and after | engine `6244408e` | L, 3D test build | **passed**: the tiers stand a level each up to the top, the steps up the middle, the player and the attendant on them; no hole, no walk-step; flat-blocked 534 -> 534 (the faces stand on their levels, drawn as they were) | scratchpad `top/pyr-before`, `top/pyr-after` (game art, not committed) | - | with the package build |
+| The same probe at the Contest Hall (before the middle stage, before each front stage, on the middle stage), before and after | engine `8359f889` | L, 3D test build | **passed**: the three stages a level up, their steps ramps, the people on them; no hole, no walk-step; flat-blocked 444 -> 444; the front band's bows show twice (the stage's edge and its face) | scratchpad `top/contest-before`, `top/contest-after` (game art, not committed) | - | with the package build |
+| `make check-diorama` after each | engines `6244408e`, `8359f889` | L | **passed** (both) | scratchpad `top/check-diorama.log`, `top/check-diorama2.log` | - | - |
+| `test_compile_rules.py`, `test_terrace_topology.py` (one new test: a room of several levels) | engine `6244408e` | L | **passed**, 35 and 34 | scratchpad `top/test_compile_rules.log` | - | - |
+| The Windows 3D build (MinGW, `DIORAMA=1`) with the new tables | engine `8359f889` | L (cross-compiled) | **compiles** (not run) | scratchpad `top/mingw.log` | - | in the next package run |
+| A look at the other rooms with the most blocked cells drawn flat (Stern's shipyard, Slateport's harbor, the Fortree Gym, the Lilycove Museum, the Sootopolis Gym B1F, the Fossil Maniac's tunnel, the Aqua Hideout B1F, the Trick House's fifth puzzle), the probe's default camera | engine `8359f889` | L, 3D test build | **looked at**: their walls and structures stand; what lies flat is floor-like (a puzzle's panels, ice, water) or paintings and display cases; nothing done | scratchpad `top/more`, `top/more-sheet.png` (game art, not committed) | - | - |
+

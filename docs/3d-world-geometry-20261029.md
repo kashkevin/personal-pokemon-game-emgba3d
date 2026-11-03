@@ -1070,3 +1070,29 @@ tools' tests pass; the Windows 3D build compiles (MinGW, not run). Pictures: scr
 committed). With these, all 35 rooms of MS-164's list are done: 27 cut by hand, Ever Grande's 5 halls and the
 Pyramid's and Arena's lobbies on their levels (their furniture as the generic rules stand it), the Dome's as it was.
 
+### The Battle Pyramid's top and the Contest Hall's stages (2026-11-03 20:45-21:40; engines `6244408e`, `8359f889`)
+
+**The Battle Pyramid's top**, where the Pyramid's master waits for a challenger who has climbed its seven floors,
+is drawn as a stepped pyramid seen from the front, the sunset behind it: a tier every two rows, its face (rows 10,
+12, ..., 22) under the band of its top, steps up its middle. In the GBA's data every band is one elevation, the
+faces blocked, so it lay flat - a picture of a pyramid on the floor (534 blocked cells drawn flat, the most of
+any room). Each tier now stands a level over the one below it, the top six levels over the band the player is
+put on (17, 17), the sky behind on the top level; the steps up the middle and the walkable cells at the ends of
+the faces climb a level each (`compile_rules.py` `INDOOR_LEVELS`, `terrace_topology.py` `indoor_levels`, which
+now takes several levels: "steps", rectangles on given levels in order, and "slopes", the walkable cells of a
+row climbing from one level to the next). The sandstone flanks step down with the tiers; their faces show the
+sandstone's own stripes.
+
+**Lilycove's Contest Hall** has three stages, each a grey platform round a fenced green floor with steps at its
+front: they lay flat (the platform's edge stood, the floor inside did not). Each now stands a level over the
+hall's floor, its steps a ramp up to it, the people on it standing on it (the same `INDOOR_LEVELS`). The front
+band's bows show twice, on the stage's edge and on its face (the mesh's face is drawn with the band's own art).
+
+Evidence (L, the 3D test build, Mesa): the compiled rules against those before, layout by layout: records change
+in the Pyramid's top (714 of 782) and the Contest Hall (450 of 1,683) only. The geometry probe, four cameras,
+before and after: the Pyramid's top at four places (the arrival band, half way, the top, a side) and the Contest
+Hall at four (before the middle stage, before each front stage, on the middle stage): the tiers and stages stand,
+the player and the people on them, no hole, no walk-step, flat-blocked unchanged (534 and 444: their blocked cells
+now stand on their levels, still drawn as they were). `check-diorama` passed for each; `test_compile_rules` 35
+and `test_terrace_topology` 34 (one new) passed; the Windows 3D build compiles (MinGW, not run). Pictures:
+scratchpad `top/` (game art, not committed).
