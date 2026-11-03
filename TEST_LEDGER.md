@@ -1566,3 +1566,16 @@ or on the owner's PCs.
 | `test_terrace_topology.py` (the seam-ramp test covers both Safari ramps) | engine `539a3045` | L | **passed**, 35 tests | - | - | - |
 | `make check-diorama` | engines `f73f1a6a`, `539a3045` | L | **passed** | scratchpad `ns/check-diorama2.log` | - | - |
 | The Windows 3D build (MinGW, `DIORAMA=1`) | engines `f73f1a6a`, `539a3045` | L (cross-compiled) | **compiles** (not run) | scratchpad `ns/mingw2.log` | - | in the next package run |
+
+## Route 119's mountain and its long bridge (2026-11-03; engine `claude/feature-update-engine`; KNOWN_ISSUES MS-153)
+
+**L** = this Linux machine; nothing here ran on Windows or on the owner's PCs.
+
+| Test | Build / head | Where | Last result | Evidence | Changed since | Rerun? |
+| --- | --- | --- | --- | --- | --- | --- |
+| The compiled 3D rules against those before (engine `539a3045`'s table), layout by layout | engine `5b117d2c` | L | **as expected**: records change on Route 119 only (228 of 5,600; the first try, the bridge laid with the tops, changed 372: the river beside it and trees rose to it - not kept); the table's size unchanged (325,079 records) | scratchpad `lobby2/cmp_rules.py`, `r119b/rules-before.c` | - | - |
+| The geometry probe at Route 119 (the bridge's middle, on it over a path, the path south of it, each top, the north bridge), four cameras, before (engine `539a3045`'s 3D test build) and after | engine `5b117d2c` | L, 3D test build | **passed**: fins 15 -> 13, spikes 27 -> 22, flat-blocked 450 -> 435, walk-steps 2 -> 0, water-drops 77 unchanged, no hole, no pixel of the probe's sky in the field views; the tops level with their rock (no longer pits), the bridge a deck | scratchpad `r119b/now`, `r119b/after` (first try), `r119b/after2` (game art, not committed) | - | with the package build |
+| Walking on Route 119: south on the path (13) under the bridge at elevation 3, east across the bridge at elevation 4, south up the west stairs (`PKMN_TEST_WARP`, `PKMN_TEST_FIELD_KEYS`, `PKMN_TEST_FIELD_SHOTS`, `PKMN_TEST_BIKE_LOG`) | engine `5b117d2c` | L, 3D test build | **passed**: under the deck (seen through it), on the deck over the path, up the stairs onto the top; the game's own moves and elevations as logged (3 under, 4 across, 3 -> 0 -> 4 up the stairs) | scratchpad `vrb/run-r119-under-after`, `vrb/run-r119-across-after`, `vrb/run-r119-stairs-after` (game art, not committed) | - | with the package build |
+| `test_terrace_topology.py` (one new test: Route 119's mountain and bridge given by hand, read from the repository) | engine `5b117d2c` | L | **passed**, 36 tests | - | - | - |
+| `make check-diorama` | engine `5b117d2c` | L | **passed** | scratchpad `r119b/check-diorama.log` | - | - |
+| The Windows 3D build (MinGW, `DIORAMA=1`) | engine `5b117d2c` | L (cross-compiled) | **compiles** (not run) | scratchpad `r119b/mingw.log` | - | in the next package run |

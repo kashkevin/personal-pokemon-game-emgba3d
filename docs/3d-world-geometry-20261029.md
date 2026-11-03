@@ -1150,3 +1150,30 @@ Shoal Cave's low-tide inner room and Meteor Falls 1F at seven places, every coun
 walked south under Victory Road 1F's bridge at (8, 25-26), elevation 3 - before, on the deck; after, under it - and
 east across it at elevation 4, on the deck. `test_terrace_topology` 35, `check-diorama` passed; the Windows 3D build
 compiles (MinGW, not run). Pictures: scratchpad `ns/`, `vrb/` (game art, not committed).
+
+### Route 119's mountain and its long bridge (2026-11-03 22:40-23:20; engine `5b117d2c`)
+
+Route 119's south half has two hills - a dirt top west of the river (3-6, 81-85), reached by stairs from the grass
+north of it, and one of two tiers east of it (30-38, 83-96), reached by stairs from the ground south of it - joined by
+a long wooden bridge (rows 84-85) over the forest, two paths (13 and 26-27) and the river (21-23), trainers on it. The
+GBA gives the tops and the bridge elevation 4 and its cells over the paths and the river 15 (one walks across those at
+either). In 3D all of it lay on the ground: the rock round each top stood a level over it (the tops read as pits), and
+the bridge lay on the ground, the paths running through it at its height. The terrace solver could not raise it: the
+climbs give the east hill's upper tier two levels and the west hill one, and the bridge would step (`mountain_ledges`
+leaves such a layout as it is). It is now given by hand (`compile_rules.py` `MOUNTAIN_LEVELS`, `terrace_topology.py`
+`mountain_by_hand`): the tops, both east tiers and the bridge a level up, level with the rock round them; the bridge a
+deck over the forest, the paths and the river (the renderer lays the water under it at the river's level and, since
+engine `f73f1a6a`, the ground under it at the paths' with their elevation, so a person on a path walks under it); the
+stairs between the east tiers lie flat; the west stairs climb from the grass north of them (which the terrace solver
+lays a level under the ground) over their row and the grass row before it, the east ones from the ground. The bridge
+is laid after the passes that stand water, rock and trees on the ground beside it: laid with the tops (the first try),
+the river beside it rose to it, a block of water with rock sides, and trees beside it stood on it.
+
+Evidence (L, the 3D test build, Mesa): the compiled rules against those before, layout by layout: records change on
+Route 119 only (228 of 5,600). The geometry probe at six places (the bridge's middle, on it over a path, the path south
+of it, each top, the north bridge over the river), four cameras, before and after: fins 15 -> 13, spikes 27 -> 22,
+flat-blocked 450 -> 435, walk-steps 2 -> 0, water-drops 77 unchanged, no hole, no pixel of the probe's sky in the field
+views. In the game: walking south on the path (13) under the bridge at elevation 3 - under the deck, seen through it;
+walking east across it at elevation 4 - on the deck, over the path; walking south up the west stairs onto the top.
+`test_terrace_topology` 36 (one new), `check-diorama` passed; the Windows 3D build compiles (MinGW, not run). Pictures:
+scratchpad `r119b/` (game art, not committed).
