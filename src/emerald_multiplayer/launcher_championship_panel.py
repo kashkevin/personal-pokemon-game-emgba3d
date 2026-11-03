@@ -3,6 +3,12 @@
 Only opaque, single-use actions cross from Tk. Their retained parameters bind
 the displayed bracket and original session/core; the network request is built
 here from those parameters. No action accepts or enters a native battle.
+
+Championship protocol version 2 (step 18, docs/championships-eight.md): two to
+four connected Trainers and the computer trainers that fill the other places of
+eight. A match against a computer trainer is started from the game's own
+PLAYER > Championship page (its answer is the game window's battle command), so
+the panel shows it and points there.
 """
 from __future__ import annotations
 
@@ -12,7 +18,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from uuid import uuid4
 
-from .championship_protocol import VERSION, validate_championship_reply
+from .championship8_protocol import (MAX_PLAYERS, MIN_PLAYERS, STAGE_NAMES, VERSION, match_players,
+                                     validate_championship_reply)
 from .companion import BattleChallengeError
 
 
@@ -74,6 +81,7 @@ class ChampionshipPanelController:
                 "battle_disabled": "unsupported", "championship_roster_changed": "roster_changed",
                 "championship_changed": "stale", "championship_busy": "busy",
                 "championship_cancel_pending": "cancel_pending", "championship_not_ready": "not_ready",
+                "championship_unavailable": "computers_unavailable", "championship_ineligible": "ineligible",
                 "battle_original_core_required": "not_ready", "player_offline": "roster_changed",
                 "battle_busy": "busy", "player_busy": "busy",
             }.get(error.code, "refused")
@@ -119,9 +127,9 @@ class ChampionshipPanelController:
             if operation == "preview":
                 roster = {p["player_id"]: p["display_name"] for p in self._roster()}
                 actor = self.session.companion.config.player_id
-                if len(roster) != 4 or actor not in roster:
+                if len(roster) < MIN_PLAYERS or actor not in roster:
                     raise ChampionshipPanelError("roster_changed")
-                players = [actor, *sorted(player for player in roster if player != actor)]
+                players = [actor, *sorted(player for player in roster if player != actor)][:MAX_PLAYERS]
                 self._preview = dict(championship_id=str(uuid4()), players=players,
                                      names=[roster[player] for player in players])
                 return self._project("preview")
@@ -133,8 +141,7 @@ class ChampionshipPanelController:
                 if preview is None or parameters != (preview["championship_id"], *preview["players"]):
                     raise ChampionshipPanelError("stale")
                 roster = {p["player_id"]: p["display_name"] for p in self._roster()}
-                if (set(roster) != set(preview["players"])
-                        or [roster.get(player) for player in preview["players"]] != preview["names"]):
+                if [roster.get(player) for player in preview["players"]] != preview["names"]:
                     self._preview = None
                     raise ChampionshipPanelError("roster_changed")
                 self._preview = None
@@ -164,8 +171,8 @@ class ChampionshipPanelController:
                           if actor in self._current["cancel_consent"] else "ready")
             elif operation == "match":
                 match = current["matches"][parameters[3]]
-                if (current["state"] != "active" or current["cancel_consent"]
-                        or actor not in match["players"] or match["attempt"] != parameters[4]
+                if (current["state"] != "active" or current["cancel_consent"] or match["kind"] != "players"
+                        or actor not in match_players(current["entrants"], match) or match["attempt"] != parameters[4]
                         or match["state"] not in {"ready", "draw", "canceled"}):
                     raise ChampionshipPanelError("stale")
                 reply = await self._rpc("match", **fields, round=match["round"], attempt=match["attempt"])
@@ -174,7 +181,7 @@ class ChampionshipPanelController:
                 notice = "challenge_ready" if latest["state"] == "invited" and pending else "match_waiting"
             elif operation == "recover":
                 match = current["matches"][parameters[3]]
-                if (current["state"] != "active" or actor not in match["players"]
+                if (current["state"] != "active" or actor not in match_players(current["entrants"], match)
                         or match["state"] != "waiting" or match["attempt"] != parameters[4]
                         or match["battle_id"] != parameters[5]):
                     raise ChampionshipPanelError("stale")
@@ -216,8 +223,8 @@ class ChampionshipPanelController:
                 add("Create and accept these pairings", "create", (self._preview["championship_id"], *self._preview["players"]))
                 add("Discard preview", "discard")
             elif current is None or current["state"] in {"completed", "canceled"}:
-                if len(self._roster()) == 4:
-                    add("Review new four-Trainer bracket", "preview")
+                if len(self._roster()) >= MIN_PLAYERS:
+                    add("Review a new Championship", "preview")
             else:
                 parameters = self._params(current)
                 if current["state"] == "proposed":
@@ -230,12 +237,12 @@ class ChampionshipPanelController:
                     else:
                         add("Vote to cancel this bracket", "cancel", parameters)
                     for match in current["matches"]:
-                        if actor in match["players"]:
+                        if match["kind"] == "players" and actor in match_players(current["entrants"], match):
                             if match["state"] == "waiting":
                                 add("Recover waiting match", "recover", (*parameters, match["round"],
                                     match["attempt"], match["battle_id"]))
                             elif not current["cancel_consent"] and match["state"] in {"ready", "draw", "canceled"}:
-                                label = ("Semifinal 1", "Semifinal 2", "Final")[match["round"]]
+                                label = match_title(current, match)
                                 add(("Propose rematch: " if match["attempt"] else "Propose 1v1: ") + label,
                                     "match", (*parameters, match["round"], match["attempt"]))
         return deepcopy(dict(snapshot_id=self._snapshot_id, player_id=actor,
@@ -243,9 +250,25 @@ class ChampionshipPanelController:
             mutable=mutable, actions=actions, notice=notice))
 
 
+def match_title(view, match):
+    """"Quarterfinal 2", "Semifinal 1", "Final"."""
+    same = [m["round"] for m in view["matches"] if m["stage"] == match["stage"]]
+    return STAGE_NAMES[match["stage"]] + ("" if len(same) == 1 else f" {same.index(match['round']) + 1}")
+
+
+def place_name(view, seed):
+    """A place as the panel names it: the Trainer, or the computer trainer with its class and floor."""
+    if seed is None:
+        return "—"
+    entrant = view["entrants"][seed]
+    if entrant["player"] is not None:
+        return entrant["name"]
+    return f"{entrant['title']} {entrant['name']} (floor {entrant['floor']})"
+
+
 _MESSAGES = {
     "ready": "Host bracket refreshed. Refresh again for later changes.",
-    "preview": "Review both semifinal pairings below. Create records your acceptance; each other Trainer must accept separately.",
+    "preview": "Review the places below: the connected Trainers first, computer trainers (Battle Tower floors under the host's entry rule) fill the rest of the eight. Create records your acceptance; each other Trainer must accept separately.",
     "proposal_created": "Proposal recorded with your acceptance. Waiting for the other Trainers to review and accept.",
     "accepted": "Your bracket acceptance is recorded. Each match still needs normal battle consent and Enter in the game.",
     "cancel_voted": "Your cancel vote is recorded. All four must agree, and outstanding matches must settle safely. No forfeit is assigned.",
@@ -258,7 +281,9 @@ _MESSAGES = {
     "unsupported": "This host version does not provide Championships or has disabled new battle challenges.",
     "uncertain": "The request's outcome is unknown. Refresh host status before choosing again; do not assume it was canceled or retry it.",
     "stale": "The displayed action or session changed. Refresh and review the bracket before choosing again.",
-    "roster_changed": "The four connected Trainers changed. Refresh and review the pairings again.",
+    "roster_changed": "The connected Trainers changed. Refresh and review the places again.",
+    "computers_unavailable": "Computer trainers need the current game on the host (or four Trainers for the four-player bracket).",
+    "ineligible": "A Trainer's last saved party breaks the bracket's entry rule. Change the party, save, then refresh.",
     "connection_lost": "Host connection unavailable. Displayed records are an earlier snapshot; retain any game waiting for recovery.",
     "busy": "A player or launcher operation is busy. Finish it, then refresh the bracket.",
     "cancel_pending": "Resolve the pending bracket cancellation votes before proposing another match.",
@@ -282,7 +307,7 @@ class ChampionshipPanel:
         self.frame.pack(fill="both", expand=True)
         header = ttk.Frame(self.frame)
         header.pack(fill="x")
-        ttk.Label(header, text="Four-Trainer Championship", font=("Segoe UI", 13, "bold")).pack(side="left")
+        ttk.Label(header, text="Championship", font=("Segoe UI", 13, "bold")).pack(side="left")
         self.refresh_button = ttk.Button(header, text="Refresh", state="disabled", command=self.refresh)
         self.refresh_button.pack(side="right")
         self.message = tk.StringVar(value="Open your character, then refresh the host bracket.")
@@ -300,16 +325,16 @@ class ChampionshipPanel:
         canvas.bind("<Configure>", lambda event: canvas.itemconfigure(item, width=event.width))
         self.heading = tk.StringVar(value="No bracket snapshot")
         ttk.Label(content, textvariable=self.heading, font=("Segoe UI", 11, "bold"), wraplength=530).pack(anchor="w")
-        self.participants = self._table(content, (("seed", "Pairing", 65), ("name", "Trainer", 220),
-            ("accepted", "Accepted", 75), ("cancel", "Cancel vote", 90)), height=4)
-        self.pairings = self._table(content, (("round", "Match", 85), ("first", "Trainer 1", 130),
-            ("second", "Trainer 2", 130), ("state", "State", 95), ("winner", "Winner", 115)), height=3)
+        self.participants = self._table(content, (("seed", "Place", 50), ("name", "Trainer", 260),
+            ("accepted", "Accepted", 75), ("cancel", "Cancel vote", 90)), height=8)
+        self.pairings = self._table(content, (("round", "Match", 95), ("first", "Trainer 1", 150),
+            ("second", "Trainer 2", 150), ("state", "State", 70), ("winner", "Winner", 100)), height=7)
         self.match_detail = tk.StringVar(value="Select a match to read its participants and result.")
         ttk.Label(content, textvariable=self.match_detail, wraplength=530).pack(anchor="w", pady=(5, 6))
         self.pairings.bind("<<TreeviewSelect>>", self._select_match)
         self.actions = ttk.Frame(content)
         self.actions.pack(fill="x", pady=(4, 8))
-        ttk.Label(content, text="Bracket choices do not enter a battle. Use Players → Challenges in the game for each match's normal Accept and Enter. Draws need a fresh mutual rematch; no fees, prizes or automatic forfeits.",
+        ttk.Label(content, text="Bracket choices do not enter a battle. Between two Trainers, use Players → Challenges in the game for the match's normal Accept and Enter. Against a computer trainer, open Players → Championship in the game: the battle runs in your own game (no experience, no money). Two computer trainers never battle: the higher seed goes on. Draws are played again; no fees or prizes.",
                   wraplength=530).pack(anchor="w", pady=(0, 10))
         ttk.Label(content, text="Your latest four completed or canceled brackets", font=("Segoe UI", 10, "bold")).pack(anchor="w")
         self.history = self._table(content, (("number", "Record", 65), ("state", "Status", 100),
@@ -339,6 +364,13 @@ class ChampionshipPanel:
     def _name(view, player):
         return view["names"][view["players"].index(player)] if player is not None else "—"
 
+    @staticmethod
+    def _preview_places(preview):
+        """The preview's places before the host chooses the computer trainers: the Trainers, then the open places."""
+        rows = [(str(index + 1), name, "—", "—") for index, name in enumerate(preview["names"])]
+        return rows + [(str(index + 1), "Computer trainer (the host chooses)", "—", "—")
+                       for index in range(len(rows), 8)]
+
     def _enable(self):
         available = self._connected and not self._pending and not self._closed and not self._suspended
         self.refresh_button.configure(state="normal" if available else "disabled")
@@ -367,29 +399,35 @@ class ChampionshipPanel:
     def _render(self, snapshot):
         from tkinter import ttk
         self._snapshot = snapshot
-        current = snapshot["preview"] or snapshot["current"]
         preview = snapshot["preview"] is not None
-        if current is None:
-            self.heading.set(f"No current bracket — {len(snapshot['players'])}/4 Trainers connected")
+        current = None if preview else snapshot["current"]
+        if preview:
+            self.heading.set("Preview — not submitted")
+            self._replace(self.participants, self._preview_places(snapshot["preview"]))
+            self._replace(self.pairings, [])
+        elif current is None:
+            self.heading.set(f"No current bracket — {len(snapshot['players'])} Trainers connected")
             self._replace(self.participants, [])
             self._replace(self.pairings, [])
         else:
-            state = "Preview — not submitted" if preview else current["state"].capitalize()
-            champion = "" if preview or current["champion"] is None else " · Champion: " + self._name(current, current["champion"])
-            self.heading.set(state + champion)
-            self._replace(self.participants, [
-                (f"SF{1 + index // 2}", name + (" (you)" if player == snapshot["player_id"] else ""),
-                 "—" if preview else "Yes" if player in current["consent"] else "No",
-                 "—" if preview else "Yes" if player in current["cancel_consent"] else "No")
-                for index, (player, name) in enumerate(zip(current["players"], current["names"]))])
-            self._replace(self.pairings, [] if preview else [
-                (("Semifinal 1", "Semifinal 2", "Final")[match["round"]],
-                 self._name(current, match["players"][0]) if match["players"] else "SF1 winner",
-                 self._name(current, match["players"][1]) if match["players"] else "SF2 winner",
-                 match["state"], self._name(current, match["winner"])) for match in current["matches"]])
-        self.match_detail.set("Select a match for full Trainer names and its recorded attempt." if not preview else
-                              "SF1 is the first two Trainers; SF2 is the last two. Their winners meet in the final.")
-        self._replace(self.history, [(index + 1, record["state"].capitalize(), self._name(record, record["champion"]))
+            champion = "" if current["champion"] is None else " · Champion: " + place_name(current, current["champion"])
+            self.heading.set(current["state"].capitalize() + champion)
+            rows = []
+            for entrant in current["entrants"]:
+                player = entrant["player"]
+                rows.append((str(entrant["seed"] + 1),
+                             place_name(current, entrant["seed"]) + (" (you)" if player == snapshot["player_id"] else ""),
+                             "—" if player is None else "Yes" if player in current["consent"] else "No",
+                             "—" if player is None else "Yes" if player in current["cancel_consent"] else "No"))
+            self._replace(self.participants, rows)
+            self._replace(self.pairings, [
+                (match_title(current, match),
+                 place_name(current, match["seeds"][0]) if match["seeds"] else "Earlier winner",
+                 place_name(current, match["seeds"][1]) if match["seeds"] else "Earlier winner",
+                 match["state"], place_name(current, match["winner"])) for match in current["matches"]])
+        self.match_detail.set("Select a match for its places and recorded attempt." if not preview else
+                              "Quarterfinals: places 1 v 8, 4 v 5, 2 v 7, 3 v 6; then the semifinals and the final.")
+        self._replace(self.history, [(index + 1, record["state"].capitalize(), record["champion_name"] or "—")
                                     for index, record in enumerate(snapshot["history"])])
         self.history_detail.set("Stored history snapshot. Refresh to include later completed brackets.")
         self._clear_actions()
@@ -409,18 +447,22 @@ class ChampionshipPanel:
         if not selection or current is None or self._snapshot["preview"] is not None:
             return
         match = current["matches"][int(selection[0])]
-        names = " vs ".join(self._name(current, player) for player in match["players"]) or "Waiting for both semifinal winners"
-        winner = "" if match["winner"] is None else " · Winner: " + self._name(current, match["winner"])
-        self.match_detail.set(f"{names} · {match['state']} · Attempt {match['attempt']}{winner}")
+        names = " vs ".join(place_name(current, seed) for seed in match["seeds"]) or "Waiting for the earlier winners"
+        winner = "" if match["winner"] is None else " · Winner: " + place_name(current, match["winner"])
+        how = {"computer": " · in the Trainer's own game", "auto": " · no battle (the higher seed goes on)"}.get(
+            match["kind"], "")
+        self.match_detail.set(f"{match_title(current, match)}: {names} · {match['state']} · Attempt {match['attempt']}"
+                              f"{winner}{how}")
 
     def _select_history(self, _event=None):
         selection = self.history.selection()
         if not selection or self._snapshot is None:
             return
         record = self._snapshot["history"][int(selection[0])]
-        names = record["names"]
-        self.history_detail.set(f"SF1: {names[0]} vs {names[1]}\nSF2: {names[2]} vs {names[3]}\n"
-            + ("Champion: " + self._name(record, record["champion"]) if record["champion"] else "Canceled; no champion assigned."))
+        names = ", ".join(record["names"])
+        computers = 8 - len(record["names"]) if record["format"] == 8 else 0
+        self.history_detail.set(f"Trainers: {names}" + (f" and {computers} computer trainers" if computers else "") + "\n"
+            + ("Champion: " + record["champion_name"] if record["champion_name"] else "Canceled; no champion assigned."))
 
     def handle_event(self, event):
         if self._closed:

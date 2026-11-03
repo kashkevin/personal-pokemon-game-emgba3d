@@ -652,9 +652,11 @@ class LauncherSession:
                 deliver=battle_deliver_enabled(self._manifest))
             if self._manifest.get("rival_abi_version") == 1:
                 self._server.enable_rival_battle_environment()  # Update 31: rival battles use the checkpoint's environment
-        from .bridge_config import tower_enabled
+        from .bridge_config import championship_computers_enabled, tower_enabled
         if tower_enabled(self._manifest):
             self._server.enable_tower()     # Battle Tower: Legends: the installed game has it (its solo battles need no desk)
+        if championship_computers_enabled(self._manifest):
+            self._server.enable_championship_computers()   # step 18: computer places in a Championship
         await self._server.start(self._bind_address, host.port, allow_lan=True,
                                  public=self._public, tls=host.server_tls, wildcard=self._bind_address == WILDCARD,
                                  relay=self._network is not None and self._network.relay_enabled)

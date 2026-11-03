@@ -269,6 +269,7 @@ class CompanionConfig:
     battle_receive_many_abi_version: int = field(init=False, default=0)  # PC game: RECEIVE_MANY (MS-62)
     battle_deliver_abi_version: int = field(init=False, default=0)  # PC game: DELIVER (MS-62, battle speed)
     tower_next_page_abi_version: int = field(init=False, default=0)  # PC game: the Tower's "go on?" page 4
+    championship_abi_version: int = field(init=False, default=0)  # PC game: Championship matches against computers
 
     def __post_init__(self) -> None:
         rom_path, manifest_path = Path(self.rom_path).resolve(), Path(self.manifest_path).resolve()
@@ -347,6 +348,10 @@ class CompanionConfig:
         from .bridge_config import tower_next_page_enabled
         object.__setattr__(self, "tower_next_page_abi_version",
                            1 if self.tower_abi_version == 1 and tower_next_page_enabled(manifest) else 0)
+        # ... and step 18's Championship match against a computer trainer (the solo command's mode 2).
+        from .bridge_config import championship_computers_enabled
+        object.__setattr__(self, "championship_abi_version",
+                           1 if self.tower_abi_version == 1 and championship_computers_enabled(manifest) else 0)
         if type(self.development_battle_channel) is not bool:
             raise ValueError("development_battle_channel must be a boolean")
         if self.development_battle_channel and (not self.battle_enabled or self.server_credential is None):

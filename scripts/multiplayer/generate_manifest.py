@@ -336,6 +336,14 @@ def generate(rom: Path, elf: Path, nm: str, engine_commit: str, *, trade_effect_
         if not four_byte_marker(tower_next) or manifest.get("tower_abi_version") != 1:
             raise ValueError("the Tower's next floor page needs one four-byte marker and the Tower")
         manifest.update(tower_next_page_abi_version=1)
+    # Step 18: a Championship match against a computer trainer (the Tower's solo command, mode 2: the round's intro and
+    # result, no "go on?", no experience unless asked). Native PC game only, beside the Tower; the host serves
+    # computer places in a Championship only when its installed game has it (docs/championships-eight.md).
+    championship = native_marker("gMultiplayerChampionshipAbiVersion", symbols + native_symbols)
+    if championship:
+        if not four_byte_marker(championship) or manifest.get("tower_abi_version") != 1:
+            raise ValueError("the Championship's computer matches need one four-byte marker and the Tower")
+        manifest.update(championship_abi_version=1)
     if len(objects) == 1:
         obj_address, obj_size = (int(value, 16) for value in objects[0])
         # Read-only test metadata for the pinned engine's 0x24-byte objects.

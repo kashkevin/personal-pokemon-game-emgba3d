@@ -288,6 +288,45 @@ class SoloTests(unittest.TestCase):
         self.assertEqual(self.words()[-1], (6, rewards.tower_progress(49, 50, 0x7F)))
         self.assertEqual(self.world.tower.player(A)["battles"], 0)
 
+    def test_a_championship_computer_match_reports_to_the_championship_and_its_result_is_cleared(self):
+        """Step 18: a Championship match against a computer trainer is the Tower's solo command in mode 2 with the
+        Championship's own ticket. Its reports go to the Championship; a won / lost / drew one is answered with the state
+        word that clears the game's kept result (the ledger's progress, nothing else); while the match is out, the Tower
+        issues no battle (one Tower battle at a time)."""
+        reports, busy = [], {A: "Finish your Championship match"}
+
+        class Championships:
+            def computer_result(self, actor, number, floor, outcome):
+                if number != 0x0A0B0C7F:
+                    return None
+                reports.append((actor, number, floor, outcome))
+                return dict(state={"started": "started", "refused": "void"}.get(outcome, outcome), settled=True,
+                            stage=1, won=outcome == "won")
+
+            def computer_busy(self, player):
+                return busy.get(player)
+
+        self.server._championships = Championships()
+        self.assertEqual(self.refused("solo", "tower_busy", floor=1), "Finish your Championship match")
+        self.assertEqual(self.report("started", 0x0A0B0C7F, 20)["state"], "started")
+        self.assertEqual(self.words(), [])                     # "started" keeps nothing in the save: no word
+        self.assertEqual(self.report("won", 0x0A0B0C7F, 20, seq=2)["state"], "won")
+        self.assertEqual(reports, [(A, 0x0A0B0C7F, 20, "started"), (A, 0x0A0B0C7F, 20, "won")])
+        self.assertEqual(self.words(), [(6, rewards.tower_progress(0, 1, 0x7F))])     # cleared; P and H unchanged
+        self.assertEqual(self.world.tower.player(A)["battles"], 0)
+        self.report("won", 0x0A0B0C7F, 20, seq=3)                                      # repeated: still one word
+        self.assertEqual(len(self.words()), 1)
+        self.assertEqual(self.report("refused", 0x0A0B0C7F, 20, seq=4)["state"], "void")
+        self.assertIn(("CHAMPIONSHIP", "Your game refused the match"), self.notices())
+        # Until the game has applied the clearing word it still keeps the result: no Tower battle before that.
+        busy.clear()
+        self.refused("solo", "tower_saving", floor=1)
+        self.apply()
+        # Any other ticket is the Tower's own, as before.
+        ticket = self.solo(1)
+        self.assertEqual(self.report("started", ticket, 1, seq=5)["state"], "started")
+        self.assertEqual(reports[-1][3], "refused")
+
     def test_with_no_readable_save_and_no_row_the_report_waits(self):
         del self.store.saves[A]
         self.assertEqual(self.report("won", 0x0102037F, 50)["state"], "unknown")

@@ -11,6 +11,7 @@ from emerald_multiplayer.battle_desk import BattleDesk, BattleError
 from emerald_multiplayer.battle_execution import BattleExecutionService
 from emerald_multiplayer.championship import Championships
 from emerald_multiplayer.championship_protocol import validate_championship_reply, validate_championship_request
+from emerald_multiplayer.championship8_protocol import four_player_view
 from emerald_multiplayer.championship_menu import ChampionshipMenu
 from emerald_multiplayer.launcher_championship_panel import ChampionshipPanelController, ChampionshipPanelError
 from emerald_multiplayer.protocol import ProtocolError
@@ -239,17 +240,18 @@ class ChampionshipRecoveryTests(unittest.TestCase):
                 _players=[dict(player_id=p,display_name=n) for p,n in self.roster.items()])
             menu = ChampionshipMenu(companion)
             menu._binding = menu._session(); menu._supported = True
-            menu._current = deepcopy(self.view); menu._page = ("round",0)
+            # Protocol version 2 (step 18) shows the four players' bracket in its own shape.
+            menu._current = four_player_view(self.view); menu._page = ("match",0)
             title, status, actions = menu.render()
             self.assertLessEqual(len(actions),6)
             action = next(a for a in actions if a[1]=="champ_recover")
             request = []
             async def rpc(operation, **fields):
                 request.append((operation,fields))
-                menu._current = self.call(operation, **fields)["current"]
-                return True
+                menu._current = four_player_view(self.call(operation, **fields)["current"])
+                return dict(current=menu._current)
             menu._rpc = rpc
-            self.assertFalse(await menu.choose(action[1], action[2]))
+            self.assertIsNone(await menu.choose(action[1], action[2]))
             self.assertEqual(request[0][0],"recover")
             self.assertEqual(menu._current["matches"][0]["state"],"canceled")
             self.assertFalse(self.invites)
@@ -270,7 +272,15 @@ class ChampionshipRecoveryTests(unittest.TestCase):
                 request = dict(championship)
                 op = request.pop("operation"); request.pop("version")
                 extension = self.call(op, **request)
-                return dict(championship=extension, result=[])
+                # The host answers protocol version 2 with the four players' bracket in that version's shape.
+                current = extension["current"]
+                return dict(championship=dict(version=2, operation=extension["operation"],
+                    current=None if current is None else four_player_view(current),
+                    history=[dict(championship_id=h["championship_id"], format=4, players=h["players"],
+                                  names=h["names"], champion=h["champion"],
+                                  champion_name=None if h["champion"] is None
+                                  else h["names"][h["players"].index(h["champion"])], state=h["state"])
+                             for h in extension["history"]]), result=[])
             companion.battle_challenge_rpc = rpc
             panel = ChampionshipPanelController(session)
             snapshot = await panel.dispatch()

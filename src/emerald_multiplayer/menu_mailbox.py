@@ -34,6 +34,9 @@ TOWER_FLOORS = 100
 # 5 Duo status, 6 records, 7 Hyper Training information, 8 prizes
 TOWER_STYLES = range(9)
 _COMMAND = struct.Struct("<IIIBB18s")
+CHAMPIONSHIP_MODE = 2          # step 18: a Championship match against a computer trainer (docs/championships-eight.md)
+CHAMPIONSHIP_ROUNDS = 3        # 1 quarterfinal, 2 semifinal, 3 final
+CHAMPIONSHIP_FLAG_EXP = 1      # the match gives experience (the host's choice; off by default)
 
 
 def _uint(value, maximum, minimum=0):
@@ -97,11 +100,16 @@ class MenuRequest:
 @dataclass(frozen=True)
 class TowerCommand:
     """The solo Tower battle a flags-4 screen starts (32 bytes at screen offset 68): magic "TWR1", the host's ticket (low
-    byte nonzero), the floor table's hash (the game refuses another table), the floor and mode 1 (solo), 18 zero bytes."""
+    byte nonzero), the floor table's hash (the game refuses another table), the floor, the mode and 18 bytes: mode 1, a
+    Tower floor, all zero; mode 2 (step 18, games with championship_abi_version 1), a Championship match against the
+    floor's solo trainer: byte 0 its round (1 quarterfinal, 2 semifinal, 3 final), byte 1 its flags (bit 0: the battle gives
+    experience), the other 16 zero."""
     ticket: int
     table_hash: int
     floor: int
     mode: int = 1
+    round: int = 0
+    flags: int = 0
 
     def pack(self):
         _uint(self.ticket, 0xFFFFFFFF, 1)
@@ -109,17 +117,23 @@ class TowerCommand:
             raise ValueError("a Tower ticket's low byte is never zero")
         _uint(self.table_hash, 0xFFFFFFFF)
         _uint(self.floor, TOWER_FLOORS, 1)
-        _uint(self.mode, 1, 1)
-        return _COMMAND.pack(TOWER_MAGIC, self.ticket, self.table_hash, self.floor, self.mode, bytes(18))
+        _uint(self.mode, CHAMPIONSHIP_MODE, 1)
+        if self.mode == CHAMPIONSHIP_MODE:
+            _uint(self.round, CHAMPIONSHIP_ROUNDS, 1)
+            _uint(self.flags, CHAMPIONSHIP_FLAG_EXP)
+        elif self.round != 0 or self.flags != 0:
+            raise ValueError("a Tower floor's command carries no round and no flags")
+        return _COMMAND.pack(TOWER_MAGIC, self.ticket, self.table_hash, self.floor, self.mode,
+                             bytes((self.round, self.flags)) + bytes(16))
 
     @classmethod
     def unpack(cls, value):
         if type(value) is not bytes or len(value) != _COMMAND.size:
             raise ValueError("a Tower command has exactly 32 bytes")
         magic, ticket, table_hash, floor, mode, reserved = _COMMAND.unpack(value)
-        if magic != TOWER_MAGIC or any(reserved):
+        if magic != TOWER_MAGIC or any(reserved[2:]):
             raise ValueError("a Tower command needs its magic and zero reserved bytes")
-        result = cls(ticket, table_hash, floor, mode)
+        result = cls(ticket, table_hash, floor, mode, reserved[0], reserved[1])
         result.pack()
         return result
 

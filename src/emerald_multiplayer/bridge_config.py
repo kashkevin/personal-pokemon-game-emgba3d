@@ -95,6 +95,14 @@ def tower_next_page_enabled(manifest: dict) -> bool:
     return type(version) is int and version == 1 and tower_enabled(manifest)
 
 
+def championship_computers_enabled(manifest: dict) -> bool:
+    """Step 18: the native game fights a Championship match against a computer trainer (the Tower's solo command, mode 2;
+    manifest championship_abi_version 1, beside the Tower). Every player of a world runs the same build, so the host's own
+    manifest speaks for every game (server.WorldServer.enable_championship_computers)."""
+    version = manifest.get("championship_abi_version")
+    return type(version) is int and version == 1 and tower_enabled(manifest)
+
+
 def tower_enabled(manifest: dict) -> bool:
     """Battle Tower: Legends: the native game's Tower (manifest tower_abi_version 1), which needs the Players menu ABI 2,
     its named pages (START > PLAYER > TOWER) and the shared world. Every player of a world runs the same build, so the

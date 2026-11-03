@@ -51,6 +51,8 @@ def _encoded(value):
 class Championships:
     """World-owned sidecar; all operations run synchronously on the host loop."""
 
+    SCHEMA = _SCHEMA   # the sidecar's exact tables (championship8.EightChampionships has its own)
+
     def __init__(self, path, *, world_id, build_id, ruleset_id):
         _uuid(world_id, "world_id")
         validate_identity(build_id, "build_id")
@@ -108,11 +110,11 @@ class Championships:
             schema = {row["name"]: row["sql"] for row in connection.execute(
                 "SELECT name, sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_autoindex_%'")}
             if not schema and initialize:
-                for sql in _SCHEMA.values():
+                for sql in self.SCHEMA.values():
                     connection.execute(sql)
                 connection.executemany("INSERT INTO metadata VALUES (?, ?)", self.identity.items())
-                schema = dict(_SCHEMA)
-            if schema != _SCHEMA or dict(connection.execute("SELECT key, value FROM metadata")) != self.identity:
+                schema = dict(self.SCHEMA)
+            if schema != self.SCHEMA or dict(connection.execute("SELECT key, value FROM metadata")) != self.identity:
                 self._invalid()
             yield connection
             commit_started = True
@@ -261,8 +263,24 @@ class Championships:
         if view["state"] != "active":
             return
         for match in view["matches"]:
-            if not match["attempt"]:
-                continue
+            if match["attempt"]:
+                self._reconcile_match(connection, match, desk, results, reservations, admission)
+        if all(match["state"] == "won" for match in view["matches"][:2]):
+            final = view["matches"][2]
+            final["players"] = [match["winner"] for match in view["matches"][:2]]
+            if not final["attempt"]:
+                final["state"] = "ready"
+        if view["matches"][2]["state"] == "won":
+            view.update(state="completed", champion=view["matches"][2]["winner"])
+        elif set(view["cancel_consent"]) == set(view["players"]) and all(
+                match["state"] in {"blocked", "ready", "draw", "won", "canceled"} for match in view["matches"]):
+            view["state"] = "canceled"
+        self._save(connection, view)
+
+    def _reconcile_match(self, connection, match, desk, results, reservations, admission):
+        """One issued native match between two players (``match``: its ``players``, ``attempt``, ``battle_id``, ``state``
+        and ``winner``, the winner a player): its state from the durable evidence alone, its attempt record updated."""
+        if True:
             row = connection.execute("SELECT * FROM attempts WHERE battle_id=?", (match["battle_id"],)).fetchone()
             if row is None:
                 self._invalid()
@@ -344,17 +362,6 @@ class Championships:
                 # this persisted issue intent never reached a native hold.
                 match.update(state="waiting", winner=None)
             self._save_attempt(connection, attempt)
-        if all(match["state"] == "won" for match in view["matches"][:2]):
-            final = view["matches"][2]
-            final["players"] = [match["winner"] for match in view["matches"][:2]]
-            if not final["attempt"]:
-                final["state"] = "ready"
-        if view["matches"][2]["state"] == "won":
-            view.update(state="completed", champion=view["matches"][2]["winner"])
-        elif set(view["cancel_consent"]) == set(view["players"]) and all(
-                match["state"] in {"blocked", "ready", "draw", "won", "canceled"} for match in view["matches"]):
-            view["state"] = "canceled"
-        self._save(connection, view)
 
     def _begin_issue(self, issue):
         """Commit the dispatch fence before the synchronous invitation callback.

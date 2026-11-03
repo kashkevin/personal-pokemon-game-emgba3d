@@ -536,6 +536,28 @@ class ManifestTests(unittest.TestCase):
                 self.generate(elf, native)
 
 
+    def test_the_championship_marker_needs_the_tower(self):
+        """Step 18: gMultiplayerChampionshipAbiVersion (the solo command's mode 2, a computer match) -> manifest
+        championship_abi_version 1, only beside the Tower; the host serves computer places only with it."""
+        from emerald_multiplayer.bridge_config import championship_computers_enabled
+        f = self.fixture
+        marker = "00bd2798 00000004 R gMultiplayerChampionshipAbiVersion\n"
+        generated = self.generate(f.world + self.menu, self.open_page + self.tower + marker)
+        self.assertEqual((generated["championship_abi_version"], generated["tower_abi_version"]), (1, 1))
+        self.assertTrue(championship_computers_enabled(generated))
+        self.assertNotIn("championship_abi_version", self.generate(f.world + self.menu, self.open_page + self.tower))
+        for native in (self.open_page + marker,                                       # no Tower
+                       self.open_page + self.tower + marker + marker,
+                       self.open_page + self.tower + "00bd2798 00000008 R gMultiplayerChampionshipAbiVersion\n"):
+            with self.subTest(native=native), self.assertRaises(ValueError):
+                self.generate(f.world + self.menu, native)
+        for other in (dict(generated, tower_abi_version=0), dict(generated, championship_abi_version=2),
+                      dict(generated, championship_abi_version=True),
+                      {k: v for k, v in generated.items() if k != "championship_abi_version"}):
+            with self.subTest(other=other):
+                self.assertFalse(championship_computers_enabled(other))
+
+
 class CompanionForwardingTests(unittest.IsolatedAsyncioTestCase):
     """A Tower result posted by the game reaches the host as tower_result and is acknowledged once the host answered."""
 

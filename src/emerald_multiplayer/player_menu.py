@@ -545,6 +545,7 @@ class PlayerMenu:
                 self._actions[back] = {"records": ("records_back", ()), "ffa": ("new_battle", ()),
                                        "new_battle": ("battles", ()), "lobby_pick": ("new_battle", ()),
                                        "lobby_2v2": ("lobby", ()), "tower": ("tower_back", ()),
+                                       "championship": ("champ_back", ()),
                                        "confirm": ("ask_no", ())}.get(self._page[0], ("home", ()))   # a question's B is No
             self._screen = MenuScreen(revision, title, status,
                 tuple(MenuRow(i + 1 if op else 0, label) for i, (label, op, _) in enumerate(normalized)), back, admission,
@@ -1526,11 +1527,18 @@ class PlayerMenu:
             elif op.startswith("champ_"):
                 from .championship_menu import ChampionshipMenuError
                 try:
-                    to_battle = await self._championship.choose(op, args)
+                    outcome = await self._championship.choose(op, args)
                 except ChampionshipMenuError as error:
                     raise PlayerMenuError(error.code) from error
-                if to_battle:
+                if isinstance(outcome, tuple):
+                    # A match against a computer trainer (step 18): the window's answer starts it in this game (menu
+                    # flags 4, the Tower's solo command in mode 2), exactly as a Tower floor's.
+                    self.tower_reply = outcome
+                    return self._show("Championship", "Your match starts: good luck!", [])
+                if outcome == "battles":
                     self._page = ("battles", None)
+                elif outcome == "leave":
+                    self._page = ("home", None)
             elif op in ("result_mode", "result_outcome", "result_clear", "results_refresh"):
                 if op == "result_mode":
                     choices = ("all", "singles", "doubles")

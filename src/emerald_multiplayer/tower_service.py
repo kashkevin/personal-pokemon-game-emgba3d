@@ -365,6 +365,11 @@ class TowerService:
         after connecting); that ask is answered with the forfeit (its word reaches the game before any new battle). A
         command not yet started still has its time."""
         player = session.player_id
+        championships = getattr(self.server, "_championships", None)
+        busy = (championships.computer_busy(player)
+                if championships is not None and hasattr(championships, "computer_busy") else None)
+        if busy is not None:
+            raise TowerError("tower_busy", busy)      # a Championship match against a computer trainer is a Tower battle
         ticket = self.book.open_ticket(player)
         if ticket is not None:
             if ticket["mode"] == SOLO and ticket["state"] == "started":
@@ -403,9 +408,24 @@ class TowerService:
 
     # ------------------------------------------------------------- the results
     def result(self, session, request) -> dict:
-        """World action 7 as the companion forwards it: a solo battle started, was refused, or ended (won, lost, drew)."""
+        """World action 7 as the companion forwards it: a solo battle started, was refused, or ended (won, lost, drew).
+        A Championship match against a computer trainer (step 18) reports the same way for its own ticket: that report
+        goes to the Championship (championship8.EightChampionships.computer_result), and a won / lost / drew one is
+        answered with the Tower state word that clears the game's kept result, exactly as for a ticket this Tower never
+        issued (_answer_result: the ledger's progress, nothing else changes)."""
         actor, number, floor, outcome = session.player_id, request["ticket"], request["floor"], request["outcome"]
         self.reconcile()
+        championships = getattr(self.server, "_championships", None)
+        claimed = (championships.computer_result(actor, number, floor, outcome)
+                   if championships is not None and hasattr(championships, "computer_result") else None)
+        if claimed is not None:
+            if outcome in ("won", "lost", "drew"):
+                self._answer_result(actor, None, number)
+            if outcome == "refused" and claimed["state"] == "void":
+                self._notice([actor], "CHAMPIONSHIP", "Your game refused the match")
+            self.pay()
+            self.server._broadcast_world()
+            return {"seq": request["seq"], "ticket": number, "state": claimed["state"]}
         ticket = self.book.ticket_by_number(number)
         mine = ticket is not None and ticket["player_id"] == actor and ticket["mode"] == SOLO
         matching = mine and ticket["floor"] == floor

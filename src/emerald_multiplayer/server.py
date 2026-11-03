@@ -289,6 +289,9 @@ class WorldServer:
         self._rival_battle_environment = False
         # Battle Tower: Legends (tower_service.py), only when the host's installed game has it (enable_tower).
         self._tower_enabled = False
+        # Step 18: computer places in a Championship, only when the host's installed game fights them (the Tower's solo
+        # command, mode 2: manifest championship_abi_version 1; enable_championship_computers).
+        self._championship_computers = False
         self._tower_service = None
         self._last_tower_tick = 0.0
         self._last_frontier_tick = 0.0
@@ -313,10 +316,16 @@ class WorldServer:
                 from .battle_results import BattleResults
                 self._battle_results = BattleResults(archive_path, world_id=store.metadata.world_id,
                     build_id=store.build_id, ruleset_id=store.ruleset_id)
-            if development_battles or championship_path.exists():
+            eight_path = store.path.with_name(store.path.name + ".championships8.sqlite3")
+            if development_battles or championship_path.exists() or eight_path.exists():
                 from .championship import Championships
-                self._championships = Championships(championship_path, world_id=store.metadata.world_id,
+                from .championship8 import EightChampionships
+                # Step 18: the eight-place brackets have their own sidecar (a build without them never opens it); the
+                # four players' sidecar stays as it was, its brackets played to the end and counted (docs/championships-eight.md).
+                legacy = Championships(championship_path, world_id=store.metadata.world_id,
                     build_id=store.build_id, ruleset_id=store.ruleset_id)
+                self._championships = EightChampionships(eight_path, world_id=store.metadata.world_id,
+                    build_id=store.build_id, ruleset_id=store.ruleset_id, legacy=legacy)
             if development_battles or rival_path.exists():
                 from .rival_checkpoints import RivalCheckpoints
                 self._rivals = RivalCheckpoints(rival_path, world_id=store.metadata.world_id,
@@ -424,6 +433,15 @@ class WorldServer:
         if self._server is not None:
             raise ValueError("configure the Battle Tower before starting the host")
         self._tower_enabled = True
+
+    def enable_championship_computers(self):
+        """Application-only: the installed game fights a Championship match against a computer trainer (manifest
+        championship_abi_version 1 beside the Tower; bridge_config.championship_computers_enabled). Every player of a world
+        runs the same build, so the host's own manifest speaks for every game: without it a Championship is the four
+        players' bracket of before (docs/championships.md) and no computer place is ever offered."""
+        if self._server is not None:
+            raise ValueError("configure the Championship before starting the host")
+        self._championship_computers = True
 
     @property
     def tower(self):
@@ -1063,11 +1081,14 @@ class WorldServer:
 
         authenticated = self._team_roster()
         roster = {player: self.sessions[player].display_name for player in authenticated}
+        rule = self._frontier_rule() or "open"
         extension = self._championships.handle(session.player_id, request["championship"],
             roster=roster, desk=desk, results=self._battle_results, invite=invite,
             reservations=self._battle_reservations,
             admission=self.battle_execution.admission if self.battle_execution is not None else None,
-            eligibility=self._frontier_eligibility if self._frontier.enabled else None)
+            eligibility=self._championship_eligibility, rule=rule, strengths=self._party_strength,
+            computers=self._championship_computers_context(),
+            legacy_eligibility=self._frontier_eligibility if self._frontier.enabled else None)
         pending = [] if desk is None else [challenge_view(view) for view in
             desk.pending(session.player_id, session.session_epoch)]
         self._battle_reply(session, request, result=pending, championship=extension)
@@ -1152,11 +1173,54 @@ class WorldServer:
         settings = self._frontier
         return settings.rule_at(self.shared_world.world_seconds()) if settings.enabled else None
 
-    def _frontier_eligibility(self, players):
-        """Refuse a Championship entry whose last saved party breaks today's rule."""
+    def _championship_computers_context(self):
+        """Step 18: what a match against a computer trainer needs (championship8.ComputerContext), or None when this
+        host's game cannot fight one (no championship_abi_version, no Tower, no floor data)."""
+        if not (self._championship_computers and self._tower_enabled):
+            return None
+        from . import tower_data
+        from .championship8 import EXPERIENCE, ComputerContext
+        try:
+            data = tower_data.load()
+        except tower_data.TowerDataError:
+            return None
+        tower = self.tower
+
+        def busy(player):
+            session = self.sessions.get(player)
+            if session is None or session.closed or session.presence is None:
+                return "Your game is not connected"
+            ticket = tower.book.open_ticket(player)
+            if ticket is not None:
+                return "Finish your Tower battle first"
+            duo = tower.book.duo_of(player)
+            if duo is not None and duo["state"] == "battle":
+                return "Finish your Duo battle first"
+            if tower._unsettled_in_game(player):
+                return "Your game is saving a result"
+            if not self._party_usable(player):
+                return "Heal a Pokemon and save first"
+            return None
+
+        def connected_for(player):
+            session = self.sessions.get(player)
+            if session is None or session.closed or session.presence is None:
+                return None
+            return max(0.0, time.monotonic() - getattr(session, "connected", 0.0))
+
+        return ComputerContext(data=data, busy=busy, taken=lambda number: tower.book.ticket_by_number(number) is not None,
+                               connected_for=connected_for, experience=EXPERIENCE)
+
+    def _championship_eligibility(self, players, rule):
+        """Refuse a Championship entry or match whose last saved party breaks the bracket's rule (an eight-place bracket
+        keeps the rule it was proposed under; the four players' bracket checks today's)."""
+        self._frontier_eligibility(players, rule=rule)
+
+    def _frontier_eligibility(self, players, *, rule=None):
+        """Refuse a Championship entry whose last saved party breaks today's rule (or ``rule``)."""
         from .flash import FlashError, inspect_flash
         from .frontier_rules import check_party, party_members
-        rule = self._frontier_rule()
+        rule = self._frontier_rule() if rule is None else rule
         for player in players:
             session = self.sessions.get(player)
             if session is None or session.closed:
