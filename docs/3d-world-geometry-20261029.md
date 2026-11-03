@@ -1049,3 +1049,24 @@ attendants on them, no hole, no new walk-step, flat-blocked unchanged (348 and 2
 `check-diorama` passed (`compile_rules --check`), `test_terrace_topology` 33 tests (two new: the halls read from
 the repository's layouts and the Champion's room left alone; a raised floor given by hand); the Windows 3D build
 compiles (MinGW, not run). Pictures: scratchpad `halls/`, `lobby2/` (game art, not committed).
+
+### The Battle Factory's and Battle Palace's lobbies cut by hand (2026-11-03 20:10-20:40; engines `020bbf30`, `a78c8118`)
+
+The last two of MS-164's rooms with their furniture on the floor. Cut by hand as the lounges and the rest
+(`furnished_room_specs.py` `factory_lobby`, `palace_lobby`). The Factory: its back wall stands its drawn face, 72
+rows from the map's top to its foot, in three pieces; the two doorways the attendants lead the player into (4,4 and
+14,4) are cut out of it under their lintels, the doorway's dark sides painted on the wall beside them; the four desks
+each an L, a long orange-framed top from the wall and a bar across its front, an 8-row front (the monitors flat on
+their tops); the plants cards; the PC and the two bins; the side walls. Its floor is two tiles in turn, so the room
+lays the first and the second's own pixels are marks - naming both as the floor lost the second's pattern under the
+pieces (the room check's 1,758 pixels). The Palace: its back wall 80 rows, its door painted on it as the Pike's
+doorways (the player walks into it); the PC in its arch standing before the wall; four white tables, each an L of
+three panels, their grey apron and gold legs an 8-row front with the floor showing between the legs; the two glass
+signs cards. Both rooms' notice boards stand on legs in the row the player reads them from and are left as drawn.
+
+Evidence (L, the 3D test build, Mesa): every piece and both rooms proved pixel for pixel; the geometry probe at three
+places in each lobby, four cameras, before and after: flat-blocked 112 -> 0 and 79 -> 0, no hole; the building
+tools' tests pass; the Windows 3D build compiles (MinGW, not run). Pictures: scratchpad `fac/` (game art, not
+committed). With these, all 35 rooms of MS-164's list are done: 27 cut by hand, Ever Grande's 5 halls and the
+Pyramid's and Arena's lobbies on their levels (their furniture as the generic rules stand it), the Dome's as it was.
+
