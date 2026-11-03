@@ -946,3 +946,39 @@ holes closed. The owner was sent the before/after pictures of Lilycove, the Game
 check-diorama, test_compile_rules (35) and test_rock_bands (11) passed. Linux, Mesa's software renderer only. The
 counts of phase F (flat-blocked cells and the rest) are those of `cca519e8`, before this; the furniture of MS-164 is
 open again for the twelve rooms.
+
+### Phase C5 again: the furnished rooms cut by hand (2026-11-03 02:10-03:50; engine `4c51a37d`)
+
+The owner's answer of 2026-11-03 ("Go ahead": rework the rooms, commit those that pass the checks, the owner looks at
+them in the next package). Why `131de763` looked wrong: the GBA's projection cannot tell a tall front from a deep top
+(at 45 degrees both are the same rows of the drawing), so the room tool's guess - every piece's front up to 20 rows, a
+piece beside the black outside as tall as the walls - passed the proof and still made the Game Corner's counter a wall
+and its slot machines tall boxes; the game's camera looks down at 42 degrees with perspective (about 25 degrees at a
+room's back), so a wrong height shows at once, and the clerks behind a counter as tall as the walls are hidden.
+
+The rooms are now cut by hand (`tools/diorama_buildings/furnished_room_specs.py`) as the 3DS project cut the Pokemon
+Center and the Mart: each piece its drawn front's height (a counter 10-14 rows, a table 8-10, a stool or an armchair
+6), plants, lanterns, lamp posts and the Pike's pedestals cards, walls their drawn face, side walls pieces of their own;
+their pieces stand in their own room only. Each was looked at from the game's camera in a software preview while it
+was cut (`gen_voxel_buildings`' renderer with the game's framing: pitch 42, a 33 degree view, 9 tiles of extent, a 3:2
+picture filling the window's width), then in the 3D test build with the geometry probe, before and after.
+
+**Sixteen layouts, 24 rooms**: the Mauville and Mossdeep (1F) Game Corners, the Battle Frontier's nine lounges (two
+layouts), its Exchange Service Corner, the Battle Pike's lobby, corridor and room of three paths, Scott's house, the
+reception gate, the Ranking Hall (its walls read by `battle_room_auto`, its kiosks and seats by hand), the Hall of
+Fame, Lilycove's rooftop, the Safari Zone's rest house, the Sootopolis Mystery Events house and Devon's lobby. Fixed
+on the way, each seen in the game's pictures: the roulette tables' felt laid over again behind them (their top run back
+to their collision), a lounge machine's top repeated, a lamp post's card taking the bottom of a pot, the Pike's side
+walls dressed with a television, Devon's alcove side walls standing as stubs, and the diving treasure hunters' house,
+whose table, chairs, plants and cabinets the house kit already stands (a spec of its own clashed with them: left out).
+
+**Not changed**: Mauville's bike shop - cut and proved, but in the game a flat copy of its beds drew on the floor in
+front of them, which the software preview does not show; back to how it was until that is understood (an experiment
+without one bed left that bed standing and moved the copy to the other: the cause is not in the bed's own piece).
+The Battle Frontier's lobbies with stages and levels (the Arena, Dome, Factory, Palace and Pyramid) need more than
+furniture, and Ever Grande's halls are stairs (a level change in the floor, not furniture).
+
+Evidence (L, the 3D test build, Mesa): `gen_voxel_buildings.py --verify` with every spec, 1843 models exact, 134 rooms
+composed with the terrain 0 pixels different; the probe at 24 places in the sixteen rooms against the build before
+(engine `b1a94915`), the final build at four; `check_gba_lines.py` 0 moved lines (tools only: the GBA ROM is not built
+from them). The pictures are game art (scratchpad `furn/`, not committed).
