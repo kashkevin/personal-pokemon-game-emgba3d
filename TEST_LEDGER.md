@@ -1579,3 +1579,15 @@ or on the owner's PCs.
 | `test_terrace_topology.py` (one new test: Route 119's mountain and bridge given by hand, read from the repository) | engine `5b117d2c` | L | **passed**, 36 tests | - | - | - |
 | `make check-diorama` | engine `5b117d2c` | L | **passed** | scratchpad `r119b/check-diorama.log` | - | - |
 | The Windows 3D build (MinGW, `DIORAMA=1`) | engine `5b117d2c` | L (cross-compiled) | **compiles** (not run) | scratchpad `r119b/mingw.log` | - | in the next package run |
+
+## Stairs that stepped instead of climbing: Mossdeep City and the Battle Frontier (2026-11-03; engine `claude/feature-update-engine`; KNOWN_ISSUES MS-187)
+
+**L** = this Linux machine; nothing here ran on Windows or on the owner's PCs.
+
+| Test | Build / head | Where | Last result | Evidence | Changed since | Rerun? |
+| --- | --- | --- | --- | --- | --- | --- |
+| The compiled 3D rules against those before (engine `5b117d2c`'s table), layout by layout | engine `2054cf05` | L | **as expected**: records change in Mossdeep City (10) and the Battle Frontier's east half (4) only (a first version also re-ramped 20 cells of the Frontier's west and east halves' two-row flights, which already met their ground: fixed before the commit); the table's size unchanged | scratchpad `lobby2/cmp_rules.py`, `stairs/rules-before.c` | - | - |
+| The geometry probe at Mossdeep's three flights and the Frontier east's, four cameras, before (engine `5b117d2c`'s 3D test build) and after | engine `2054cf05` | L, 3D test build | **passed**: Mossdeep walk-steps 6 -> 0, spikes 20 -> 18, water-drops 76 -> 72; the Frontier east's walk-steps 10 -> 6; no hole, no pixel of the probe's sky; each flight a flight of steps from one ground to the other (before: a slab with a gap under it) | scratchpad `stairs/before`, `stairs/after2` (game art, not committed) | - | with the package build |
+| `test_terrace_topology.py` (one new test: flights flat between one level, climbing between two, left alone where they meet - the Frontier's and Route 119's kinds) | engine `2054cf05` | L | **passed**, 37 tests | - | - | - |
+| `make check-diorama` | engine `2054cf05` | L | **passed** | scratchpad `stairs/check-diorama.log` | - | - |
+| The Windows 3D build (MinGW, `DIORAMA=1`) | engine `2054cf05` | L (cross-compiled) | **compiles** (not run) | scratchpad `stairs/mingw.log` | - | in the next package run |

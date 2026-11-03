@@ -1177,3 +1177,25 @@ views. In the game: walking south on the path (13) under the bridge at elevation
 walking east across it at elevation 4 - on the deck, over the path; walking south up the west stairs onto the top.
 `test_terrace_topology` 36 (one new), `check-diorama` passed; the Windows 3D build compiles (MinGW, not run). Pictures:
 scratchpad `r119b/` (game art, not committed).
+
+### Stairs that stepped instead of climbing: Mossdeep City and the Battle Frontier (2026-11-03 23:15-23:55; engine `2054cf05`)
+
+The probe's walk-steps (two cells the player walks between, a third of a tile or more apart, with no ramp) at Mossdeep
+City were its three flights of General's terrace stairs - two from the town down to the water at (25-26, 24-25) and
+(32-33, 27-28), one between its two grass terraces at (57-58, 27-28) - and at the Battle Frontier's east half one
+four wide down to the beach at (41-44, 8). Each lay flat as a slab: a cell of the stairs at elevation 0 (the game's
+"any level") that no pass places stays on the top level, and a half of a flight at the town's elevation took the
+town's - so the flight stood a level over the ground at one end (a dark gap under it in the pictures) and the player
+popped up or down a level there. A last pass (`terrace_topology.py` `stair_runs_between`, outdoor layouts) now lays a
+flight whose ends do not meet the ground north and south of it between that ground's levels: flat on it where both
+ends are one level (Mossdeep's two to the water: the town and the water there are one level in 3D), else climbing from
+the lower to the higher a share a row (Mossdeep's between the terraces, the Frontier's). A flight whose ends already
+meet - a ramp either way, as the Battle Frontier's two-row flights and Route 119's west stairs are - is left alone (its
+ramp's rise counted as its record will build it: a first version missed that and re-ramped the Frontier's 20 cells).
+
+Evidence (L, the 3D test build, Mesa): the compiled rules against those before, layout by layout: records change in
+Mossdeep City (10) and the Battle Frontier's east half (4) only. The geometry probe at the four flights, four cameras,
+before and after: Mossdeep walk-steps 6 -> 0, spikes 20 -> 18, water-drops 76 -> 72; the Frontier east's walk-steps 10
+-> 6 (the rest elsewhere); no hole, no pixel of the probe's sky; each flight now a flight of steps from one ground to
+the other. `test_terrace_topology` 37 (one new), `check-diorama` passed; the Windows 3D build compiles (MinGW, not
+run). Pictures: scratchpad `stairs/` (game art, not committed).
