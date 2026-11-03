@@ -67,9 +67,13 @@ saves, the canonical checkpoints (money, the Bag, Battle Points, the PC, the rec
                       <name> now": the host's command, the Tower's solo command in mode 2): the game closes the menu,
                       shows the round's intro, battles the floor's trainer and shows the result; the host settles it
                       from the game's world action 7 (the bracket moves on, the semifinal's places follow) and clears the
-                      game's kept result (the record mirror's pending result goes); the money never moves. Then player
-                      1's semifinal against the computer trainer that went through without a battle (sources:
-                      tower-strong-a and -b).
+                      game's kept result (the record mirror's pending result goes); the money never moves. Then each
+                      player's semifinal against the computer trainer that went through without a battle, and the
+                      final between the two players: the existing challenge flow (player 1 proposes the 1v1 from the
+                      final's page, the host records it and invites; player 2 accepts in Challenges, both Enter
+                      battle), player 2 gives up at their first action (Run: the forfeit between players), the
+                      battle's released result the final's: the bracket completed, player 1 its champion in both
+                      players' history and the Trainer Card counters (sources: tower-strong-a and -b).
   --scenario forfeit  player 2 (who joined: the world stays up) from a save whose record says floor 12 cleared (P =
                       13): floor 13 started, the game closed in the battle (an ordinary close), started again through
                       the launcher: the Tower counts floor 13 as a loss ("Floor 13: counted as a loss") and P = 11
@@ -99,7 +103,8 @@ ROOT = Path(__file__).resolve().parents[2]
 for _path in (ROOT / "src", ROOT / "scripts" / "multiplayer", ROOT / "scripts" / "windows-runtime"):
     if str(_path) not in sys.path:              # the Windows runner starts it without PYTHONPATH
         sys.path.insert(0, str(_path))
-from native_launcher_battle_proof import WINDOWS, NativeProbe, game_picture, launcher_proof  # noqa: E402
+from native_launcher_battle_proof import (WINDOWS, NativeProbe, drive_battle_input, game_picture,  # noqa: E402
+                                          launcher_proof)
 from native_launcher_coop_proof import finish_award, logged_driver, own_party  # noqa: E402
 from native_launcher_multi_proof import close_players, field_state, into_town  # noqa: E402
 from qualify_admission_cleanup import on_worker, require  # noqa: E402
@@ -741,6 +746,114 @@ async def championship_match(probe, worker, record, slot, stage_label):
     return view
 
 
+async def championship_final(current, probes, host, symbols, record, championship_id):
+    """The final between the two players, the existing challenge flow: player 1 proposes the 1v1 from the final's page
+    (the host records the match, then invites), player 2 accepts in PLAYER > Challenges, both Enter battle; player 2
+    gives up at their first action (Run: the forfeit between players, MS-126) and the host gives the battle's released
+    result to the bracket, which is completed with player 1 its champion. (Played on, the scripted players could not
+    end six level-100 Mewtwo against six: run 8's final went on for 22 minutes and stalled.)"""
+    a, b = probes
+    screen = await open_championship(a)
+    mine = next((r.label for r in screen.rows if r.label.startswith("You: ")), None)
+    require(mine is not None and mine.startswith("You: Final"),
+            f"the bracket page does not lead with the final: {[r.label for r in screen.rows]}")
+    await a.choose(mine)
+    _, screen = await a.ready()
+    rows = [r.label for r in screen.rows]
+    record("championship-final-page", slot=0, title=screen.title, status=screen.status, rows=rows)
+    require(screen.title == "Final" and "Propose 1v1 match" in rows,
+            f"the final's page: {screen.title!r} {screen.status!r} {rows}")
+    await a.choose("Propose 1v1 match")
+    view = await championship_status(current[0])
+    final = view["matches"][6]
+    require(final["kind"] == "players" and final["state"] == "invited" and final["battle_id"],
+            f"the final after the proposal: {final}")
+    battle_id = final["battle_id"]
+    SEEN_BATTLES.add(battle_id)
+    record("championship-final-invited", battle_id=battle_id, attempt=final["attempt"])
+    await b.open_players()
+    await b.choose("Pending challenge")
+    _, screen = await b.ready()
+    record("championship-final-pending", slot=1, title=screen.title, status=screen.status,
+           rows=[r.label for r in screen.rows])
+    await b.choose("Accept challenge")
+    # player 1 is on ordinary Challenges since the proposal (the bracket's page answers "battles"): its page shows
+    # Enter battle once the challenge is accepted
+    async with asyncio.timeout(60):
+        while not all(screen.admission_action for _, screen in [await p.ready() for p in probes]):
+            await asyncio.sleep(.05)
+
+    async def descriptor(s):
+        values = s._companion._bridge.menu_session.menu._battles
+        return [json.loads(json.dumps(v)) for v in values if v["battle_id"] == battle_id]
+    challenge = (await on_worker(current[0], descriptor))[0]
+    slots = [challenge["players"].index(account.player_id) for account in host.accounts]
+    await asyncio.gather(*(p.choose("Enter battle", wait=False) for p in probes))
+    record("championship-final-entered", battle_id=battle_id, slots=slots)
+
+    async def view_of(slot):
+        async def read(s):
+            room = s._server.battle_execution.rooms.get(battle_id)
+            if room is None:
+                return dict(state="waiting", pending=None)
+            return dict(state=room.state, pending=None if room.route is None else room.route.validator.pending[slot])
+        return await on_worker(current[0], read)
+    stop = asyncio.Event()
+    forfeit = {}
+    drivers = [asyncio.create_task(drive_battle_input(p, lambda slot=slot: view_of(slot), symbols, stop,
+                                                      forfeit=forfeit if index == 1 else None))
+               for index, (p, slot) in enumerate(zip(probes, slots))]
+
+    async def finished(s):
+        return s.status.code == "battle_finished" and s._interaction is None
+    started = time.monotonic()
+    try:
+        async with asyncio.timeout(1800):
+            while not all([await on_worker(w, finished) for w in current]):
+                for driver in drivers:
+                    if driver.done():
+                        await driver
+                await asyncio.sleep(.2)
+    finally:
+        stop.set()
+        await asyncio.gather(*drivers)
+    record("championship-final-battle-finished", seconds=round(time.monotonic() - started, 1), forfeit=forfeit)
+    require("chosen" in forfeit, f"player 2 never reached Run in the final: {forfeit}")
+
+    async def history(worker):
+        async def read(s):
+            reply = await s._companion.battle_challenge_rpc("pending",
+                                                            championship=dict(version=2, operation="history"))
+            return reply["championship"]["history"]
+        return await on_worker(worker, read)
+    deadline, summaries = time.monotonic() + 120, None
+    while time.monotonic() < deadline:
+        if await championship_status(current[0]) is None:
+            summaries = [next((h for h in await history(w) if h["championship_id"] == championship_id), None)
+                         for w in current]
+            if all(s is not None for s in summaries):
+                break
+        await asyncio.sleep(1)
+    else:
+        raise AssertionError(f"the bracket was not completed after the final: {await championship_status(current[0])}")
+
+    async def counters(s):
+        return {account.player_id: s._server._championships.statistics(account.player_id)
+                for account in host.accounts}
+    statistics = await on_worker(current[0], counters)
+    champion = summaries[0]["champion"]
+    record("championship-completed", history=summaries, statistics=statistics)
+    require(summaries[0] == summaries[1] and summaries[0]["state"] == "completed" and summaries[0]["format"] == 8,
+            f"the finished bracket in the two players' history: {summaries}")
+    require(champion == host.accounts[0].player_id,
+            f"player 1 is the champion (player 2 gave up the final): {summaries[0]}")
+    for account in host.accounts:
+        figures = statistics[account.player_id]
+        require(figures["entries"] >= 1 and figures["completed"] >= 1
+                and figures["wins"] == (1 if account.player_id == champion else 0),
+                f"{account.display_name}'s Trainer Card counters: {figures}")
+
+
 class TowerScenario:
     def __init__(self, args):
         self.args, self.harness, self.before, self.loser, self.saved = args, None, None, None, None
@@ -1129,6 +1242,11 @@ class TowerScenario:
         view = await championship_match(a, current[0], record, 0, "SF1")
         await close_players(a)
         record("championship-after-semifinal", matches=view["matches"], state=view["state"])
+        view = await championship_match(b, current[1], record, 1, "SF2")
+        await close_players(b)
+        require([m["seeds"] for m in view["matches"][6:]] == [[0, 1]] and view["matches"][6]["kind"] == "players",
+                f"the final's places: {view['matches'][6]}")
+        await championship_final(current, probes, host, symbols, record, view["championship_id"])
         return dict(expected=[p.party_now() for p in probes])
 
     async def forfeit(self, current, probes, games, host, symbols, record):

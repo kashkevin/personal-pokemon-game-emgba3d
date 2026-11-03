@@ -87,7 +87,7 @@ class ChampionshipMenu:
             if error.code in {"invalid_field", "invalid_fields", "championship_unsupported", "championship_disabled",
                               "battle_disabled"}:
                 self._supported = False
-                self._notice = "Host has no Championship support"
+                self._notice = "Host has no Championships"
             elif error.code in {"championship_ineligible", "championship_busy", "championship_unavailable"}:
                 self._notice = str(error)[:31]  # "Name: Over level 50", "Finish your Tower battle first"
             else:
@@ -140,7 +140,7 @@ class ChampionshipMenu:
                     and self._current["state"] in {"proposed", "active"}):
                 self._draft = None
                 self._page = ("overview", None)
-                self._notice = "An existing bracket needs review"
+                self._notice = "A current bracket needs review"
 
     @staticmethod
     def _params(current):
@@ -326,7 +326,7 @@ class ChampionshipMenu:
                 command = reply.get("command")
                 if command is None:
                     after = self._current["matches"][args[3]] if self._current is not None else None
-                    self._notice = ("No result came: counted as a loss" if after is not None and after["state"] == "won"
+                    self._notice = ("No result: counted as a loss" if after is not None and after["state"] == "won"
                                     else "Match status refreshed")
                     return None
                 from .menu_mailbox import CHAMPIONSHIP_MODE, TowerCommand
@@ -342,7 +342,7 @@ class ChampionshipMenu:
                                battle_id=match["battle_id"]) is not None:
                 recovered = self._current["matches"][args[3]]
                 self._notice = ("Unstarted match safely canceled" if recovered["state"] == "canceled"
-                                else "Safety evidence incomplete; kept waiting" if recovered["state"] == "waiting"
+                                else "Evidence incomplete; waiting" if recovered["state"] == "waiting"
                                 else "Original match status refreshed")
         else:
             raise ChampionshipMenuError("stale_menu")
@@ -414,7 +414,7 @@ class ChampionshipMenu:
         actions.extend((("Refresh history", "champ_refresh", ()), ("Current bracket", "champ_overview", ())))
         if not self._history:
             status = status or "No completed brackets recorded"
-        return "Recent Championships", status or "Your completed/canceled brackets", actions
+        return "Recent Championships", status or "Your finished brackets", actions
 
     def _render_record(self, target):
         summary = next((record for record in self._history if record["championship_id"] == target), None)
@@ -486,7 +486,7 @@ class ChampionshipMenu:
         status = status or {
             "blocked": "Waiting for earlier matches",
             "ready": ("Battle in your own game" if computer else "Two computer trainers"
-                      if match["kind"] == "auto" else "Both must accept a 1v1 challenge"),
+                      if match["kind"] == "auto" else "Both accept a 1v1 challenge"),
             "invited": "Your game starts it" if computer else "Open Challenges to accept/enter",
             "playing": "Match in progress" if computer else "Original match in progress",
             "waiting": "Waiting for original players",

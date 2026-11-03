@@ -7,7 +7,7 @@ The owner's choice of 2026-11-03 ([owner decisions](owner-decisions.md) #32, "Co
 > higher-ranked one goes through without a battle. Bracket 8 → 4 → final.
 
 The world stays at four players. Engine `a978b0c5` and `2550e1ba` (the game's bridge takes the new command), app
-`3851488`, `eb0680a` (the battle connection takes protocol version 2) and `7ee7dff` (PLAYER reopens on the bracket).
+`3851488`, `eb0680a` (the battle connection takes protocol version 2), `7ee7dff` (PLAYER reopens on the bracket) and this record's (the menu's texts within the status line). Engine `ec53763a`: a battle between players starts with a fresh game's battle text buffers (KNOWN_ISSUES MS-180, found by the final's proof).
 PC only; the GBA ROM is unchanged (`f214735b…3387`).
 The four players' bracket of before is still described in [championships.md](championships.md).
 
@@ -92,13 +92,13 @@ Where each result comes from: **L** this Linux machine. Nothing here ran on Wind
 | L, engine test build, real game processes | `tools/battle_env/championship_check.py`: a quarterfinal won with no experience (exp 156250 → 156250, effort values 0), a semifinal lost, a final won with experience asked (exp gained), a plain Tower floor as the control | 4/4 passed; the texts read from the game's own log |
 | L | GBA ROM rebuilt; `check_gba_lines.py`; Windows 3D build with MinGW | ROM sha256 `f214735b…3387` unchanged; no moved lines; compiles |
 | L, app | `test_championship_eight` (19), the Tower routing test, the manifest marker test, the network tests over the real server (2), the Championship/Tower/menu/companion/server modules | all passed |
-| L, two native games through the whole launcher | `native_launcher_tower_proof.py --scenario championship` (TEST_LEDGER, step 18; the test build's advantage, as the Tower's climb proof, because the fixture players are level 100 and meet floors 95-100): the proposal and the acceptance in the games' own Players menus, the computer trainers' quarterfinals decided at once, then three matches against computer trainers from the players' own pages to the host's settlement (player 1's quarterfinal against floor 95, player 2's against floor 96, player 1's semifinal against floor 99): the game's kept result cleared, money unchanged, the parties healed; both games saved, closed and Continued | **passed** (run 6). Runs 4 and 5 found three gaps, fixed: the battle connection's protocol version, the game's bridge, the menu reopening deep on a match page |
+| L, two native games through the whole launcher | `native_launcher_tower_proof.py --scenario championship` (TEST_LEDGER, step 18; the test build's advantage, as the Tower's climb proof, because the fixture players are level 100 and meet floors 95-100): the proposal and the acceptance in the games' own Players menus, the computer trainers' quarterfinals decided at once, both players' quarterfinals and semifinals against computer trainers from their own pages to the host's settlement (floors 95, 96, 99 and 100: the kept result cleared, money unchanged, the parties healed), then the final between the two players by the existing challenge flow ("Propose 1v1 match", the host's invitation, Accept, both Enter battle) | **passed** (run 9; the final given up by player 2 at their first action - Run, the forfeit between players - so the bracket completed, player 1 its champion in both players' history and the Trainer Card counters). Runs 4 to 8 found and fixed four gaps: the battle connection's protocol version, the game's bridge, the menu reopening deep on a match page, and a battle between players stopping at its intro after the players' earlier battles (MS-180) |
 
 ## Not verified
 
 * Windows, the owner's PCs, a real graphics card, two PCs over the internet.
-* A whole eight-place Championship through to its final in real games: the proof stops after player 1's semifinal
-  (player 2's against Champion Red ready). A final between two players is the existing challenge flow; its bracket
-  bookkeeping is unit-tested with a released result.
+* A final played to a knockout between players in real games: in the proof player 2 gives up the final (Run, the
+  forfeit between players); played on, run 8's final went 22 minutes and the scripted players could not finish six
+  level-100 Mewtwo against six.
 * The no-experience rule in the launcher proof: its players are level 100. `championship_check.py` shows it at a lower
   level.

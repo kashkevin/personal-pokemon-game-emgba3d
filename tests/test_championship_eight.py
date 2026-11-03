@@ -514,6 +514,22 @@ class EightChampionshipMenuTests(Fixture, unittest.TestCase):
         self.assertEqual(self.check_page(menu)[1], "Update the game for this match")
         self.assertIsNone(self.store.computer_busy(first))
 
+    def test_every_menu_text_fits_the_status_line(self):
+        """The game's status line holds 31 characters: a longer status or notice is cut short in the game (the two-game
+        proof's final page read "Both must accept a 1v1 challeng"). Every one-line text of the menu, docstrings aside."""
+        import ast
+        import inspect
+        from emerald_multiplayer import championship_menu
+        tree = ast.parse(inspect.getsource(championship_menu))
+        docstrings = {id(node.body[0].value) for node in ast.walk(tree)
+                      if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
+                      and node.body and isinstance(node.body[0], ast.Expr)
+                      and isinstance(node.body[0].value, ast.Constant)}
+        long = [(node.lineno, node.value) for node in ast.walk(tree)
+                if isinstance(node, ast.Constant) and isinstance(node.value, str) and id(node) not in docstrings
+                and " " in node.value and "\n" not in node.value and len(node.value) > 31]
+        self.assertEqual(long, [])
+
 
 if __name__ == "__main__":
     unittest.main()

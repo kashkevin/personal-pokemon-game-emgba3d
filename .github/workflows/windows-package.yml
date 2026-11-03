@@ -825,7 +825,8 @@ jobs:
           - {name: join-reset, scenario: join, a: tower-join-a, b: tower-join-b, extra: "--party-counts 3 6 --rejoin reset"}
           - {name: mega, scenario: mega, a: tower-mega-a, b: tower-mega-b, extra: "--party-counts 6 6 --floors-json mega-check-inputs/tower_legends.json"}
           - {name: forfeit, scenario: forfeit, a: tower-strong-a, b: tower-forfeit-b, extra: "--party-counts 6 6"}
-          - {name: championship, scenario: championship, a: tower-strong-a, b: tower-strong-b, extra: "--party-counts 6 6"}
+          # the climb's test build and advantage: both players are level 100, so their computer trainers are floors 95-100
+          - {name: championship, scenario: championship, a: tower-strong-a, b: tower-strong-b, extra: "--party-counts 6 6 --test-env PKMN_TEST_TOWER_WIN=1", game: mega-check-inputs/pokeemerald-mp-bfxtest.exe}
           - {name: ui, scenario: ui, a: tower-strong-a, b: tower-strong-b, extra: "--party-counts 6 6 --native-ui", game: inputs/pokeemerald-mp-diorama.exe, mesa: "yes"}
           - {name: climb, scenario: climb, a: tower-fast-a, b: tower-fast-b, extra: "--party-counts 6 6 --test-env PKMN_TEST_TOWER_WIN=1", game: mega-check-inputs/pokeemerald-mp-bfxtest.exe}
     defaults:
