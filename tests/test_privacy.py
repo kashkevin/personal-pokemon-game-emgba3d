@@ -79,20 +79,25 @@ class PrivacyOverTheWireTests(WorldServerTests):
     def entry(self, world, index):
         return next(p for p in world["players"] if p["player_id"] == self.pid(index))
 
+    def placed(self, *indices):
+        """A world view built once these players' places reached the host: one built between two presences (the
+        viewer's own still on its way) is no answer to what the viewer sees, so it is waited past, not judged."""
+        return lambda world: all(self.entry(world, index)["presence"] is not None for index in indices)
+
     async def test_nobody_else_receives_a_hidden_players_place_but_those_on_the_same_map(self):
         await self.hide(0, True, map_number=9)
         await self.hide(1, False, map_number=11)
         await self.hide(2, False, map_number=9)
-        b = await self.world(1, lambda w: self.entry(w, 0)["presence"] is not None)
+        b = await self.world(1, self.placed(0, 1))
         self.assertEqual((self.entry(b, 0)["presence"]["map_group"], self.entry(b, 0)["presence"]["map_number"]), (255, 255))
         text = json.dumps(b)
         self.assertNotIn('"map_number": 9,', text.split(self.pid(0))[1].split("appearance")[0])
         nav = {p["player_id"]: p for p in b["extras"]["nav"]["players"]}
         self.assertEqual(nav[self.pid(0)], {"player_id": self.pid(0), "place": privacy.HIDDEN_PLACE, "weather": None})
         self.assertNotEqual(nav[self.pid(1)]["place"], privacy.HIDDEN_PLACE)
-        c = await self.world(2, lambda w: self.entry(w, 0)["presence"] is not None)
+        c = await self.world(2, self.placed(0, 2))
         self.assertEqual(self.entry(c, 0)["presence"]["map_number"], 9)             # on the same screen anyway
-        a = await self.world(0, lambda w: self.entry(w, 0)["presence"] is not None)
+        a = await self.world(0, self.placed(0))
         self.assertEqual(self.entry(a, 0)["presence"]["map_number"], 9)             # you see yourself
         self.assertFalse(any(p["place"] == privacy.HIDDEN_PLACE for p in a["extras"]["nav"]["players"] if p["player_id"] == self.pid(0)))
 
@@ -107,7 +112,7 @@ class PrivacyOverTheWireTests(WorldServerTests):
     async def test_the_default_sends_everyone_everything(self):
         await self.hide(0, False, map_number=9)
         await self.hide(1, False, map_number=11)
-        b = await self.world(1, lambda w: self.entry(w, 0)["presence"] is not None)
+        b = await self.world(1, self.placed(0, 1))
         self.assertEqual(self.entry(b, 0)["presence"]["map_number"], 9)
         self.assertEqual(self.entry(b, 0)["presence"]["weather"], 5)
         self.assertEqual(len(b["extras"]["nav"]["players"]), 2)
