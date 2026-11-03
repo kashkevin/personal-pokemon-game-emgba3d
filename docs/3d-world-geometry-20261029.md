@@ -554,7 +554,7 @@ rock, the shallows) and keeps the height the rules gave it - drawn as the shallo
 stood on a box of water a level over the shallows round it (seen in the low camera's pictures, fixed before the
 commit). The probe at 10 places against the build before: Mossdeep City flat-blocked 128 -> 24 (fins, spikes and
 water walls as they were), Route 127 31 -> 1 (spikes 21 -> 13), the controls (Petalburg Woods, Routes 119 and 128)
-unchanged. Left flat: Mossdeep's large three-wide tree (4 of them).
+unchanged. Left flat: Mossdeep's large three-wide tree (4 of them; they stand since engine `bfcc2ee1`, see "Mossdeep City's large round trees" below).
 
 **Strength's boulders, Rock Smash's rocks and the trees Cut fells** are map objects the GBA draws as sprites; they
 stood as upright cards like the people. Each picture of one now stands as a solid of voxels made from it, the way
@@ -992,3 +992,11 @@ Not only there. A check of every model's triangles against the part its page kee
 Fixed in the generator (`gen_voxel_buildings.page_crop`): a page keeps what is opaque and every texel the model's triangles read, so a quad past the marks reads the art's own transparent texels. `buildings.bin` grew from 45.39 to 45.86 MB; nothing at run time changed. `test_page_crop.py` in `check-diorama-tools`. The bike shop's spec, as cut before, stands again: its counter, till, shelf, rack and bikes (cards), the owner's room's beds, partition and walls - 25 of MS-164's 35 rooms.
 
 Evidence (L, the 3D test build, Mesa): `--verify --only bike_shop` 21 models exact and the room 0 pixels different; the geometry probe at 12 places, four cameras, before and after: the bike shop's furniture standing with no copy; a yellow stripe under May's bed, bars round Birch's tables, a patch by the Mauville Game Corner's prize counter, and a cream slab and a red line at the corners of Lavaridge's Pokemon Center gone; the Oldale Mart and the Trick House the same to the pixel; the other differences timing (the map name's sign, a sprite, New Mauville's lights). Every other room was not looked at after the fix. Pictures: scratchpad `atlas/` (game art, not committed).
+
+### Mossdeep City's large round trees and its beach trees (2026-11-03 06:40-07:05; engine `bfcc2ee1`)
+
+The large round tree of the Mossdeep tileset (three cells wide, the crown two rows and the top of the third, the trunk under it; four of them, all in Mossdeep City) lay flat among the city's solid trees (MS-172). It now stands as Birth Island's three trees do (`props.c`): each crown cell a heap of leaves lifted on the trunk, the top row's side leaves lower, the third row's top the crown's hem; the trunk standing a row north under the crown; its roots on the ground and the dark ring drawn round them left out for the real shadow; the cells' own ground under it (grass, the shallows, rock). A solid crown of voxels like the two-cell round trees' would need the tree builder to take a tree of nine parts, not four: not done.
+
+Three of the tileset's two-cell round trees stand on the city's beach by the west shallows (metatiles 308-311 and an overlap, 356). The solid round trees knew them on grass, rock, a ledge and the shallows, not on sand: they were paint, and where two overlap a quarter stood on a square of grass on the sand. They are now solid round trees on the beach (`tree_sprites.c`), the overlap's ground the beach's when the tree below it is.
+
+Evidence (L, the 3D test build, Mesa): the geometry probe at Mossdeep City (its 3200 cells, four cameras) and at its beach, before and after: flat-blocked 133 -> 112, water-drop 78 -> 76, fins, spikes, walk-steps and water walls unchanged; in the pictures the large trees a crown on a trunk with its shadow, the beach trees three solid trees on the sand. `check-diorama` passed (tree sprites, props 13947 checks, the compositor goldens, `compile_rules --check`); the two files compile for Windows (MinGW). Pictures: scratchpad `mtree/` (game art, not committed).
