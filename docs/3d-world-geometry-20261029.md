@@ -1121,3 +1121,32 @@ water-drop 5), no hole, no walk-step; the player in the north-west by the seam d
 sliver of rock shows at each of the ramp's south corners (its sides over the trees' ground). `test_terrace_topology`
 35 (one new), `check-diorama` passed; the Windows 3D build compiles (MinGW, not run). Pictures: scratchpad `sw/`
 (game art, not committed).
+
+### The Safari Zone's north and south meet; a person under a cave's bridge (2026-11-03 22:05-22:50; engines `f73f1a6a`, `539a3045`)
+
+**The Safari Zone's north and south.** The path between them (29-30) runs from the north's grass, a level down, onto
+the south's at its own level: a step of a level where the player walks from one map into the other (the probe's 4
+seam cell pairs, the last in the Safari Zone). The south's first row of the path now lies on the north's level, its
+second climbs the level, the trees either side (two rows, each two by two) on the north's level (`compile_rules.py`
+`SEAM_RAMPS` with "floors", `terrace_topology.py` `hand_floors`). A first try, half a level a row with the trees half
+way, left hairline cracks where the ramp's sides met the trees (2 to 5 pixels of the probe's sky in five of its
+pictures): not kept.
+
+**A person under a cave's bridge.** Victory Road 1F's floor (elevation 3) runs under decks its walkways (elevation 4)
+cross on, raised with them by the rules (`cave_levels`). Walking south under one, the player was drawn standing on
+the deck, as if walking over it (found walking under them in the 3D test build while looking at Route 119's bridge).
+The renderer gives a bridge a second surface for what lies under it, made for water: its level a little under the
+ground's and the surfing elevation, and the deck answered to the elevation of the cells round it - the floor's, where
+only the floor touches it. A deck a level or more over the walkable ground beside it now has its lower surface at that
+ground's level and elevation, so a person of that elevation under it stands on the ground under the deck (drawn
+through it as the silhouette of a person behind the scene, as anywhere a wall hides them); the deck answers to the
+elevation of the walkway at its ends, or to none (`buildings.c` `GroundUnderBridges`). A deck less than that over the
+ground (Shoal Cave's at low tide, half a level) keeps its own: a person under it would stand through it.
+
+Evidence (L, the 3D test build, Mesa): the compiled rules against those before, layout by layout: records change in the
+Safari Zone's south only (46 of 1,600). The geometry probe, four cameras, before and after: the north and south at
+five places, seams 4 -> 0, every other count unchanged, no hole, no magenta pixel in the field views; Victory Road 1F,
+Shoal Cave's low-tide inner room and Meteor Falls 1F at seven places, every count unchanged. In the game: the player
+walked south under Victory Road 1F's bridge at (8, 25-26), elevation 3 - before, on the deck; after, under it - and
+east across it at elevation 4, on the deck. `test_terrace_topology` 35, `check-diorama` passed; the Windows 3D build
+compiles (MinGW, not run). Pictures: scratchpad `ns/`, `vrb/` (game art, not committed).

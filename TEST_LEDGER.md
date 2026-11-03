@@ -1552,3 +1552,17 @@ or on the owner's PCs.
 | `test_terrace_topology.py` (one new test: a seam ramp given by hand, the Safari Zone's south-west read from the repository) | engine `632a2c34` | L | **passed**, 35 tests | - | - | - |
 | `make check-diorama` (`compile_rules --check`, the compositor goldens, the rules' validation) | engine `632a2c34` | L | **passed** | scratchpad `sw/check-diorama.log` | - | - |
 | The Windows 3D build (MinGW, `DIORAMA=1`) with the new tables | engine `632a2c34` | L (cross-compiled) | **compiles** (not run) | scratchpad `sw/mingw.log` | - | in the next package run |
+
+## The Safari Zone's north and south meet; a person under a cave's bridge (2026-11-03; engine `claude/feature-update-engine`; KNOWN_ISSUES MS-162, MS-186)
+
+**L** = this Linux machine; nothing here ran on Windows or on the owner's PCs.
+
+| Test | Build / head | Where | Last result | Evidence | Changed since | Rerun? |
+| --- | --- | --- | --- | --- | --- | --- |
+| The compiled 3D rules against those before (engine `632a2c34`'s table), layout by layout | engine `539a3045` | L | **as expected**: records change in the Safari Zone's south only (46 of 1,600); the table's size unchanged (325,079 records) | scratchpad `lobby2/cmp_rules.py`, `ns/rules-before.c` | - | - |
+| The geometry probe at the Safari Zone's north and south (the path's two rows, below them, the north at the seam and on its path), four cameras, before (engine `632a2c34`'s 3D test build) and after | engine `539a3045` | L, 3D test build | **passed**: seams 4 -> 0, fin, spike and flat-blocked unchanged, no hole; no pixel of the probe's sky in the field views (the first try, half a level a row, left 2 to 5 in five pictures: not kept) | scratchpad `ns/before`, `ns/after` (first try), `ns/after2` (game art, not committed) | - | with the package build |
+| The player walking south under Victory Road 1F's bridge at (8, 25-26) at elevation 3, and east across it at elevation 4, pictures every step (`PKMN_TEST_WARP`, `PKMN_TEST_FIELD_KEYS`, `PKMN_TEST_FIELD_SHOTS`, `PKMN_TEST_BIKE_LOG`) | engine `f73f1a6a` | L, 3D test build | **passed**: under the bridge before - on the deck; after - under it, the deck over them (their hidden part drawn as the silhouette); across it at elevation 4 - on the deck | scratchpad `vrb/run-vr-under2`, `vrb/run-vr-under-fix`, `vrb/run-vr-deck-fix` (game art, not committed) | - | with the package build |
+| The geometry probe at Victory Road 1F (four places), Shoal Cave's low-tide inner room (two) and Meteor Falls 1F (one), four cameras, before and after | engine `f73f1a6a` | L, 3D test build | **passed**: every count unchanged (their walk-steps are elsewhere, as before) | scratchpad `ns/before`, `ns/after` (game art, not committed) | - | - |
+| `test_terrace_topology.py` (the seam-ramp test covers both Safari ramps) | engine `539a3045` | L | **passed**, 35 tests | - | - | - |
+| `make check-diorama` | engines `f73f1a6a`, `539a3045` | L | **passed** | scratchpad `ns/check-diorama2.log` | - | - |
+| The Windows 3D build (MinGW, `DIORAMA=1`) | engines `f73f1a6a`, `539a3045` | L (cross-compiled) | **compiles** (not run) | scratchpad `ns/mingw2.log` | - | in the next package run |
