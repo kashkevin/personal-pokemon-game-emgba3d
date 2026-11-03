@@ -7,8 +7,8 @@ The owner's choice of 2026-11-03 ([owner decisions](owner-decisions.md) #32, "Co
 > higher-ranked one goes through without a battle. Bracket 8 → 4 → final.
 
 The world stays at four players. Engine `a978b0c5` and `2550e1ba` (the game's bridge takes the new command), app
-`3851488` and `eb0680a` (the battle connection takes protocol version 2). PC only; the GBA ROM is unchanged
-(`f214735b…3387`).
+`3851488`, `eb0680a` (the battle connection takes protocol version 2) and `7ee7dff` (PLAYER reopens on the bracket).
+PC only; the GBA ROM is unchanged (`f214735b…3387`).
 The four players' bracket of before is still described in [championships.md](championships.md).
 
 ## The bracket
@@ -92,10 +92,13 @@ Where each result comes from: **L** this Linux machine. Nothing here ran on Wind
 | L, engine test build, real game processes | `tools/battle_env/championship_check.py`: a quarterfinal won with no experience (exp 156250 → 156250, effort values 0), a semifinal lost, a final won with experience asked (exp gained), a plain Tower floor as the control | 4/4 passed; the texts read from the game's own log |
 | L | GBA ROM rebuilt; `check_gba_lines.py`; Windows 3D build with MinGW | ROM sha256 `f214735b…3387` unchanged; no moved lines; compiles |
 | L, app | `test_championship_eight` (19), the Tower routing test, the manifest marker test, the network tests over the real server (2), the Championship/Tower/menu/companion/server modules | all passed |
-| L, two native games through the whole launcher | `native_launcher_tower_proof.py --scenario championship` (TEST_LEDGER, step 18): the proposal and the acceptance in the games' own Players menus, the computer trainers' quarterfinals decided at once, player 1's quarterfinal against floor 95 from their own game's page to the host's settlement (the game's kept result cleared, money unchanged, the party healed) | passed so far; the run found and fixed two gaps (the battle connection's protocol version, the game's bridge); its end is in TEST_LEDGER |
+| L, two native games through the whole launcher | `native_launcher_tower_proof.py --scenario championship` (TEST_LEDGER, step 18; the test build's advantage, as the Tower's climb proof, because the fixture players are level 100 and meet floors 95-100): the proposal and the acceptance in the games' own Players menus, the computer trainers' quarterfinals decided at once, then three matches against computer trainers from the players' own pages to the host's settlement (player 1's quarterfinal against floor 95, player 2's against floor 96, player 1's semifinal against floor 99): the game's kept result cleared, money unchanged, the parties healed; both games saved, closed and Continued | **passed** (run 6). Runs 4 and 5 found three gaps, fixed: the battle connection's protocol version, the game's bridge, the menu reopening deep on a match page |
 
 ## Not verified
 
 * Windows, the owner's PCs, a real graphics card, two PCs over the internet.
-* A whole eight-place Championship through to a final between two players in real games (the native final is the
-  existing challenge flow; its bracket bookkeeping is unit-tested with a released result).
+* A whole eight-place Championship through to its final in real games: the proof stops after player 1's semifinal
+  (player 2's against Champion Red ready). A final between two players is the existing challenge flow; its bracket
+  bookkeeping is unit-tested with a released result.
+* The no-experience rule in the launcher proof: its players are level 100. `championship_check.py` shows it at a lower
+  level.
