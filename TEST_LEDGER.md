@@ -1429,3 +1429,15 @@ or on the owner's PCs.
 | `make check-diorama` | engine `e9b56996` | L | **passed** (tree sprites with the Fortree checks, `compile_rules --check`, the rest) | scratchpad `ftree/check-diorama.log` | - | - |
 | `scene_snapshot.c`, `tree_sprites.c` and `gl_tree_sprites.c` for Windows (MinGW, `DIORAMA=1`) | engine `e9b56996` | L (cross-compiled) | **compiles**, no warnings (not run) | scratchpad `ftree/win-objs.log` | - | in the next package run |
 
+
+## Step 9: Jagged Pass's levels (2026-11-03; engine `claude/feature-update-engine`; KNOWN_ISSUES MS-153)
+
+**L** = this Linux machine; nothing here ran on Windows or on the owner's PCs.
+
+| Test | Build / head | Where | Last result | Evidence | Changed since | Rerun? |
+| --- | --- | --- | --- | --- | --- | --- |
+| The geometry probe at Jagged Pass (one place covering its 1380 cells, four cameras), before (engine `e9b56996`'s 3D test build) and after | engine `f5f1486f` | L, 3D test build | **passed, with a trade**: the pass a staircase of levels, its top ten levels over its foot; its 14 bumpy slopes ramps over their rows (before: all at level 0); its jump ledges drops off the terrace they are jumped from; fins 13 -> 31 and spikes 16 -> 29 (uneven rock tops along the map's west edge), flat-blocked 12 -> 12, no steps one walks across, no holes; looked at side by side: terraces with red rock faces where the ledges drop, the tall grass on a lower shelf, the stairs climbing, from the low camera a stepped mountain over the plain round it. Two tries before it, both probed and pictured: the solver alone (the ledges at the pass's foot: trenches between the levels, fins 54, spikes 32) and the ledges lifted without their rings' corner pieces (four pits left) | scratchpad `jagged/now`, `jagged/on1`-`on3`, `jagged/final`, `jagged/jagged-pass-before-after.png` (game art, not committed) | - | with the package build |
+| The generated 3D rules against those before | engine `f5f1486f` | L | **only Jagged Pass's 1380 records and the rules' hash differ**; every other map's records byte for byte the same | scratchpad `jagged/rules-off.c`, `jagged/rules-on3.c` | - | - |
+| `make check-diorama` | engine `f5f1486f` | L | **passed** (the tree sprites, the compositor goldens, `validate_rules`, `compile_rules --check`, the rest) | scratchpad `jagged/check-diorama.log` | - | - |
+| `test_terrace_topology`, `test_rock_bands`, `test_compile_rules` | engine `f5f1486f` | L | **passed**; `test_compile_rules` first 34 of 35: its mountains test bounded rock at five tiles over its own ground, which a pass's rock band (standing from the pass's foot) does not keep - a pass's rock is now bound to two tiles over the pass's highest ground instead (Jagged Pass's never stands over it), and the ramp its solver lays is stairs where the test wanted ground; then it passed | scratchpad `jagged/test_*.log` | - | - |
+| Not run: Windows, a graphics card, the owner's PCs; walking or biking the pass in the 3D build (the probe stands at one place; the collision is the GBA's and unchanged) | - | - | **not run** | - | - | the next package |

@@ -390,10 +390,32 @@ session's work. Route 113's and Route 123's ledges that landed higher are fixed 
   Sootopolis Gym's 12 slides are flat ice in the GBA's own drawing): both ends of each lie on one level in the 3D view's
   terrace levels, so there is no height for a slope to climb; the terrace solver
   (`tools/diorama_rules/terrace_topology.py`) has to split them first. Next: the Safari Zone's (levels across two maps,
-  with MS-162's Safari seams) and Jagged Pass's (its ledges contradict).
+  with MS-162's Safari seams). Jagged Pass's 14 rise since engine `f5f1486f` (below).
 * **Route 118's 6 ledges that land a level higher** than they are jumped from (MS-154): none of them can be jumped
   (rock behind each, by its lake's plateau). Its seams with Mauville City, Route 119 and Route 123 are level since
   MS-162 (above); four other land seams are still a level apart (Mauville City and Route 111, the Battle Frontier's
   halves, the Safari Zone's two).
 * **The 48 ledges in modelled rooms** keep their rooms' models.
 * Not run: a graphics card, Windows, the owner's PCs.
+
+## Jagged Pass's levels (engine `f5f1486f`, 2026-11-03; MS-153)
+
+The level solver for a pass (`terrace_topology.pass_levels`, engine `0c26c23c`, 2026-11-01) gives each region of
+Jagged Pass the least levels its ledges and slopes ask, parts the island whose ledges ask two ways with a ramp, and
+solves the pass to a staircase from the Mt. Chimney end down. It was left off (`compile_rules.PASS_LAYOUTS` empty)
+because its first try stood the paths at their levels and left the rest at the pass's foot. Switched on again, the
+probe's height map said what that rest was: the 96 jump ledges and the corner pieces of their rings, at level 0
+between terraces up to ten levels high - trenches and pits, which the pictures showed as dark slots between the
+paths (fins 13 -> 54, spikes 16 -> 32). The step that stands blocked cells on the ground nearest them
+(`lift_blocked_cells`), skipped for passes so that the rock stayed the rock bands', now runs on Jagged Pass too with
+the higher of the two levels a ledge parts: each ledge a drop off the terrace it is jumped from, its rings' corner
+pieces with it, the rock still the rock bands'.
+
+Evidence (L, the 3D test build, Mesa): the probe at Jagged Pass (its 1380 cells, four cameras), before and after: the
+top ten levels over the foot, the 14 bumpy slopes ramps (2 to 0, 9 to 7, 7 to 6, 6 to 5, 3 to 1 over their rows;
+before, all at 0), fins 13 -> 31 and spikes 16 -> 29 (the rock along the map's west edge with uneven tops), flat-blocked
+12 -> 12, no steps one walks across, no holes; in the pictures terraces with red rock faces where the ledges drop, the
+tall grass on a lower shelf, the stairs climbing, and from the low camera a stepped mountain over the plain round it.
+The pass has no map connections (warps to Route 112, Mt. Chimney and Magma Hideout), so no seam to meet; the
+generated rules differ from those before in Jagged Pass's 1380 records only. Pictures: scratchpad `jagged/` (game
+art, not committed). Not run: a graphics card, Windows, the owner's PCs.
