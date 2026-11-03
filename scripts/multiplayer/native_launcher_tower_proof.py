@@ -60,6 +60,16 @@ saves, the canonical checkpoints (money, the Bag, Battle Points, the PC, the rec
                       information stripped (objcopy --strip-debug keeps the symbols; unstripped it is over the runtime's
                       size limit). Windows: the packaged 3D exe with --runtime-extra Mesa's opengl32.dll and its
                       libraries (a hosted runner's own OpenGL is 1.1), added to this proof's runtime only.
+  --scenario championship  step 18 (docs/championships-eight.md), an eight-place Championship with computer trainers
+                      through both games' Players menus: player 1 proposes it (PLAYER > Players > Challenges >
+                      Championship: the two players and six Battle Tower floor trainers), player 2 accepts; each
+                      player's quarterfinal against a computer trainer is started from their own game's page ("Battle
+                      <name> now": the host's command, the Tower's solo command in mode 2): the game closes the menu,
+                      shows the round's intro, battles the floor's trainer and shows the result; the host settles it
+                      from the game's world action 7 (the bracket moves on, the semifinal's places follow) and clears the
+                      game's kept result (the record mirror's pending result goes); the money never moves. Then player
+                      1's semifinal against the computer trainer that went through without a battle (sources:
+                      tower-strong-a and -b).
   --scenario forfeit  player 2 (who joined: the world stays up) from a save whose record says floor 12 cleared (P =
                       13): floor 13 started, the game closed in the battle (an ordinary close), started again through
                       the launcher: the Tower counts floor 13 as a loss ("Floor 13: counted as a loss") and P = 11
@@ -661,6 +671,76 @@ def opposing_mega(probe, base_species):
 
 
 # ---------------------------------------------------------------------------------------------------------- scenarios
+async def championship_status(worker):
+    """The Championship as this player's launcher reads it from the host (protocol version 2's status)."""
+    async def read(s):
+        reply = await s._companion.battle_challenge_rpc("pending", championship=dict(version=2, operation="status"))
+        return reply["championship"]["current"]
+    return await on_worker(worker, read)
+
+
+async def open_championship(probe):
+    """PLAYER > Players > Challenges > Championship: the bracket page (championship_menu.py)."""
+    await probe.open_players()
+    await probe.choose("Challenges")
+    await probe.choose("Championship")
+    for _ in range(100):
+        _, screen = await probe.ready(timeout=30)
+        if screen.title == "Championship" and screen.rows:
+            return screen
+        await asyncio.sleep(.2)
+    raise AssertionError(f"the Championship page did not come: {screen.title!r} {screen.status!r}")
+
+
+async def championship_match(probe, worker, record, slot, stage_label):
+    """The player's own next match against a computer trainer, from the bracket page to the host's settlement."""
+    seed = slot                                           # the players hold places 1 and 2 (seeds 0 and 1)
+    screen = await open_championship(probe)
+    mine = next((r.label for r in screen.rows if r.label.startswith("You: ")), None)
+    require(mine is not None and mine.startswith(f"You: {stage_label}"),
+            f"slot {slot}: the bracket page does not lead with the player's {stage_label}: {[r.label for r in screen.rows]}")
+    await probe.choose(mine)
+    _, screen = await probe.ready()
+    record("championship-match-page", slot=slot, title=screen.title, status=screen.status,
+           rows=[r.label for r in screen.rows])
+    battle = next((r.label for r in screen.rows if r.label.startswith("Battle ") and r.label.endswith(" now")), None)
+    require(battle is not None and screen.status == "Battle in your own game",
+            f"slot {slot}: no computer match to start: {screen.status!r} {[r.label for r in screen.rows]}")
+    before_view = await championship_status(worker)
+    index = next(m["round"] for m in before_view["matches"]
+                 if seed in m["seeds"] and m["state"] != "won" and m["kind"] == "computer")
+    opponent = next(s for s in before_view["matches"][index]["seeds"] if s != seed)
+    money_before = live_wallet(probe)["money"]
+    party_before = own_party(probe)
+    await probe.choose(battle, wait=False)
+    await probe.snapshot(lambda r: not r["active"], timeout=30)
+    record("championship-command-taken", slot=slot, match=index, opponent=before_view["entrants"][opponent])
+    await play_local_battle(probe, record, slot, f"championship {stage_label}")
+    deadline, view = time.monotonic() + 120, None
+    while time.monotonic() < deadline:
+        view = await championship_status(worker)
+        match = None if view is None else view["matches"][index]
+        mirror = tower_record(probe)
+        if (match is None or match["state"] == "won") and mirror is not None and mirror.pending is None:
+            break
+        await asyncio.sleep(1)
+    else:
+        raise AssertionError(f"slot {slot}: the host never settled the match or cleared the game's result: {view}")
+    money_after = live_wallet(probe)["money"]
+    party_after = own_party(probe)
+    record("championship-match-settled", slot=slot, match=index, state=None if view is None else view["state"],
+           winner=None if view is None else view["matches"][index]["winner"], money=[money_before, money_after],
+           party_hp=[[m["hp"] for m in party_before], [m["hp"] for m in party_after]],
+           experience=[[m["experience"] for m in party_before], [m["experience"] for m in party_after]])
+    require(view is not None and view["matches"][index]["winner"] == seed,
+            f"slot {slot}: the match's winner is not this player: {None if view is None else view['matches'][index]}")
+    require(money_after == money_before, f"slot {slot}: money moved in a Championship match: {money_before} -> {money_after}")
+    require(all(m["hp"] == m["max_hp"] for m in party_after), f"slot {slot}: the party was not healed after the match")
+    require([m["experience"] for m in party_after] == [m["experience"] for m in party_before],
+            f"slot {slot}: experience moved in a Championship match (the host's default: none)")
+    return view
+
+
 class TowerScenario:
     def __init__(self, args):
         self.args, self.harness, self.before, self.loser, self.saved = args, None, None, None, None
@@ -1017,6 +1097,40 @@ class TowerScenario:
         record("tower-ui-pictures", count=len(pictures))
         return dict(expected=[p.party_now() for p in probes])
 
+    async def championship(self, current, probes, games, host, symbols, record):
+        a, b = probes
+        await open_championship(a)
+        await a.choose("Propose a Championship")
+        _, screen = await a.ready()
+        record("championship-new", rows=[r.label for r in screen.rows], status=screen.status)
+        require(screen.title == "New Championship" and "Propose: 2 + 6 computers" in [r.label for r in screen.rows],
+                f"the new bracket page: {screen.title!r} {[r.label for r in screen.rows]}")
+        await a.choose("Propose: 2 + 6 computers")
+        view = await championship_status(current[0])
+        require(view is not None and (view["format"], view["state"]) == (8, "proposed"), f"the proposal: {view}")
+        record("championship-proposed", entrants=view["entrants"], rule=view["rule"])
+        await close_players(a)
+        await open_championship(b)
+        await b.choose("Places and consent")
+        await b.choose("Accept this bracket")
+        view = await championship_status(current[1])
+        require(view is not None and view["state"] == "active", f"the bracket after both accepted: {view}")
+        record("championship-active", matches=view["matches"])
+        # Two computer trainers meet in two quarterfinals: the higher seed went through without a battle.
+        auto = [m for m in view["matches"][:4] if m["kind"] == "auto"]
+        require(len(auto) == 2 and all(m["state"] == "won" and m["winner"] == min(m["seeds"]) for m in auto),
+                f"the computer trainers' quarterfinals: {auto}")
+        await close_players(b)
+        for slot, probe in enumerate(probes):
+            view = await championship_match(probe, current[slot], record, slot, "QF")
+            await close_players(probe)
+        require([m["seeds"] for m in view["matches"][4:6]] == [[0, 3], [1, 2]],
+                f"the semifinals' places: {[m['seeds'] for m in view['matches'][4:6]]}")
+        view = await championship_match(a, current[0], record, 0, "SF1")
+        await close_players(a)
+        record("championship-after-semifinal", matches=view["matches"], state=view["state"])
+        return dict(expected=[p.party_now() for p in probes])
+
     async def forfeit(self, current, probes, games, host, symbols, record):
         harness, probe = self.harness, probes[1]
         view = await tower_view(current[1])
@@ -1168,7 +1282,8 @@ async def run(args):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--scenario", choices=("solo", "duo", "join", "mega", "forfeit", "ui", "climb", "duo-climb", "next"),
+    parser.add_argument("--scenario", choices=("solo", "duo", "join", "mega", "forfeit", "ui", "climb", "duo-climb", "next",
+                                               "championship"),
                         required=True)
     parser.add_argument("--test-env", action="append", default=[],
                         help="NAME=VALUE for the games (the test build's switches: the climb's accelerated set-up)")

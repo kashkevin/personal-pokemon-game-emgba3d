@@ -80,3 +80,15 @@ item hub proposal (198 items) were sent to the owner on 2026-10-31.
 | 32 | **Who fills places 5-8 of the eight-competitor Championships** (step 18; worlds stay at 4 players) | "Computer trainers": Battle Frontier trainers under the same entry rules fill the empty places. A player against one is a normal battle in that player's own game; two players still use the existing challenge flow; when two computer trainers meet, the higher-ranked one goes through without a battle. Bracket 8 -> 4 -> final. |
 | 33 | **A new Windows package with step 15c** (engine `b1a94915`) | "Wait for more changes": 15c goes into a later package together with the next fixes (a package still needs the owner's go-ahead). |
 | 34 | **The rooms' furniture in 3D** (MS-164; the try of 2026-10-30 was reverted after the owner's Game Corner and Lilycove report, MS-173) | "Go ahead": rework the rooms and commit the ones that pass the checks; the owner looks at them in the next package. |
+
+Step 18 as built (engine `a978b0c5`, app `3851488`; `docs/championships-eight.md`) follows #32 and fills in what the
+answer left open with defaults the owner can change. Each is one setting.
+
+| Default | As built | Why |
+| --- | --- | --- |
+| Experience in a match against a computer trainer | None (neither experience nor effort values) | A Championship has no prizes, a link battle between two players gives none, and a level-capped rule stays fair (a level-50 Pokemon would otherwise reach 51 mid-bracket). The host's command carries the choice, so turning it on needs no game change. |
+| Fewest players | 2 | One player alone could otherwise win a Championship (and its Trainer Card counter) against computer trainers only. |
+| Which Tower floors | An even spread from the strongest player's best level down to the weakest's, under the rule, ranked by floor | Each player meets trainers near their own strength. |
+| A started match whose result never came | A loss once the player gives it up (15 s after their game connects) or after 24 hours | The Battle Tower's own rule (quitting forfeits). |
+| The entry rule | The rule in force at the proposal, kept with the bracket; checked at proposal, acceptance and before every match | A rule that rotates mid-bracket changes nothing. |
+

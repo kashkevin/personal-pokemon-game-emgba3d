@@ -203,6 +203,8 @@ jobs:
           if [ -f src/tower_legends.c ]; then
             cp tools/battle_env/tower_check.py tools/tower_legends/tower_legends.json ../mega-check-inputs/
             if [ -f tools/battle_env/train_check.py ]; then cp tools/battle_env/train_check.py ../mega-check-inputs/; fi
+            # Step 18: a Championship match against a computer trainer (the solo command's mode 2), from an engine with it.
+            if [ -f tools/battle_env/championship_check.py ]; then cp tools/battle_env/championship_check.py ../mega-check-inputs/; fi
           fi
           # Breeding and egg hatching through the Day Care man and the field, from an engine that has the check.
           if [ -f tools/battle_env/breed_check.py ]; then cp tools/battle_env/breed_check.py ../mega-check-inputs/; fi
@@ -488,7 +490,17 @@ jobs:
           $caps = $LASTEXITCODE
           python mega-check-inputs\train_check.py --exe $exe --save $save --out (Join-Path $out "items")
           $items = $LASTEXITCODE
-          if ($caps -ne 0 -or $items -ne 0) { throw "the Tower caps or items check failed (caps $caps, items $items)" }
+          # Step 18: a Championship match against a computer trainer (four runs: the round's intro and result, no
+          # experience unless asked, the control floor), from an engine that has the check.
+          $championship = 0
+          if (Test-Path mega-check-inputs\championship_check.py) {
+            python mega-check-inputs\championship_check.py --exe $exe --save $save --data mega-check-inputs\tower_legends.json `
+              --out (Join-Path $out "championship") --speed 4
+            $championship = $LASTEXITCODE
+          }
+          if ($caps -ne 0 -or $items -ne 0 -or $championship -ne 0) {
+            throw "the Tower caps, items or Championship check failed (caps $caps, items $items, championship $championship)"
+          }
       - name: Upload the reports (private to this repository, 7 days; no save)
         if: always()
         uses: actions/upload-artifact@v4
@@ -813,6 +825,7 @@ jobs:
           - {name: join-reset, scenario: join, a: tower-join-a, b: tower-join-b, extra: "--party-counts 3 6 --rejoin reset"}
           - {name: mega, scenario: mega, a: tower-mega-a, b: tower-mega-b, extra: "--party-counts 6 6 --floors-json mega-check-inputs/tower_legends.json"}
           - {name: forfeit, scenario: forfeit, a: tower-strong-a, b: tower-forfeit-b, extra: "--party-counts 6 6"}
+          - {name: championship, scenario: championship, a: tower-strong-a, b: tower-strong-b, extra: "--party-counts 6 6"}
           - {name: ui, scenario: ui, a: tower-strong-a, b: tower-strong-b, extra: "--party-counts 6 6 --native-ui", game: inputs/pokeemerald-mp-diorama.exe, mesa: "yes"}
           - {name: climb, scenario: climb, a: tower-fast-a, b: tower-fast-b, extra: "--party-counts 6 6 --test-env PKMN_TEST_TOWER_WIN=1", game: mega-check-inputs/pokeemerald-mp-bfxtest.exe}
     defaults:
@@ -885,6 +898,9 @@ jobs:
           GALLIUM_DRIVER: llvmpipe
         run: |
           if [ ! -f mega-check-inputs/tower_check.py ]; then echo "::notice::this engine has no Battle Tower"; exit 0; fi
+          if [ "${{ matrix.scenario }}" = championship ] && [ ! -f mega-check-inputs/championship_check.py ]; then
+            echo "::notice::this engine has no Championship computer matches (step 18)"; exit 0
+          fi
           game="${{ matrix.game || 'inputs/pokeemerald-mp.exe' }}"
           name="$(basename "$game" .exe)"
           runtime_extra=()

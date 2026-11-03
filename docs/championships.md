@@ -1,5 +1,9 @@
 # Four-player Championships — source implementation
 
+Since step 18 (2026-11-03) a new Championship has eight places: two to four players and Battle Tower floor trainers
+([championships-eight.md](championships-eight.md)). The four players' bracket below is still played to the end and
+counted, and a host whose game cannot fight a computer match still offers it to four players.
+
 Status: implemented, with focused server/controller recovery tests recorded in
 [Championship recovery](championship-recovery.md). No actual native Championship
 match or packaged four-person tournament qualification is claimed here.
