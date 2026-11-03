@@ -12,6 +12,15 @@ from .rival_catalogue import valid_preparation_word
 from .protocol import MAX_COUNTER, PROTOCOL_VERSION, ProtocolError, _fields, _integer
 from .team_protocol import _uuid
 
+
+def _championship_protocol(extension):
+    """The Championship extension's protocol module by its version: 2 (step 18, the eight-place brackets:
+    championship8_protocol) or 1 (the four players' bracket: championship_protocol, which refuses any other version)."""
+    from . import championship8_protocol, championship_protocol
+    if type(extension) is dict and extension.get("version") == championship8_protocol.VERSION:
+        return championship8_protocol
+    return championship_protocol
+
 BATTLE_OPERATIONS = frozenset({"invite", "invite_multi", "invite_ffa", "invite_ffa3", "accept", "claim", "cancel", "cancel_admission", "admission_handoff", "status", "pending", "history", "waiting", "execute", "resume",
                                "abandon", "fate", "observe"})
 BATTLE_TYPES = frozenset("battle_" + op for op in BATTLE_OPERATIONS)
@@ -56,8 +65,7 @@ def validate_battle_request(message, epoch):
     }[operation]
     championship_match = False
     if operation == "pending" and "championship" in message:
-        from .championship_protocol import validate_championship_request
-        validate_championship_request(message["championship"])
+        _championship_protocol(message["championship"]).validate_championship_request(message["championship"])
         extra = extra | {"championship"}
         championship_match = message["championship"]["operation"] == "match"
     if operation == "pending" and "rival" in message:
@@ -317,10 +325,9 @@ def validate_battle_reply(message, actor, world_id, epoch, request=None):
                 or type(message["admission_handoff_version"]) is not int or message["admission_handoff_version"] != 1):
             raise ProtocolError("invalid_server_message", "invalid admission handoff capability")
         if has_championship:
-            from .championship_protocol import validate_championship_reply
             if op != "pending":
                 raise ProtocolError("invalid_server_message", "invalid Championship response extension")
-            validate_championship_reply(message["championship"], actor)
+            _championship_protocol(message["championship"]).validate_championship_reply(message["championship"], actor)
         if has_card:
             from .player_card import SUPPORTED_VERSIONS, validate_player_card
             if (op != "history" or type(message["player_card_version"]) is not int
@@ -386,8 +393,9 @@ def validate_battle_reply(message, actor, world_id, epoch, request=None):
             if requested != ("championship" in message):
                 raise ProtocolError("invalid_server_message", "Championship extension was omitted or unsolicited")
             if requested:
-                from .championship_protocol import validate_championship_reply
-                validate_championship_reply(message["championship"], actor, request["championship"])
+                # The reply is validated as the request's version (a reply in another version is refused there).
+                _championship_protocol(request["championship"]).validate_championship_reply(
+                    message["championship"], actor, request["championship"])
             requested = "rival" in request
             if requested != ("rival" in message):
                 raise ProtocolError("invalid_server_message", "rival checkpoint extension was omitted or unsolicited")
