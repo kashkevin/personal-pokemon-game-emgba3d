@@ -291,6 +291,10 @@ class PlayerMenu:
             if self._page[0] in ("soft_reset", "soft_reset_confirm") or (self._page[0] == "tower"
                                                                         and self._tower.origin == "home"):
                 self._page, self._notice = ("home", None), ""   # a page the reset key or TOWER opened
+            if self._page[0] == "championship":
+                # Back on the Championship (after a match in this game, say): its bracket first, where the result
+                # shows, and one B to the Players home - never deep in a match page's own way back.
+                self._championship.open()
             return await self._refresh()
 
     async def reshow(self):

@@ -136,6 +136,28 @@ class PlayerMenuNetworkTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(screen.back, 7)
         self.assertEqual((await menu.choose(screen.revision, 7)).title, "Players")
 
+    async def test_championship_reopens_on_its_bracket_and_one_b_goes_home(self):
+        # Step 18: the Championship's pages step back one at a time with B, and the Players menu reopens on the
+        # bracket (after a match in this game the window closed on a match page): one B is the Players home.
+        menu = PlayerMenu(self.companions[0]); await menu.refresh()
+        await self.click(menu, "Challenges")
+        screen = await self.click(menu, "Championship")
+        self.assertEqual(screen.title, "Championship")
+        screen = await self.click(menu, "Propose a Championship")
+        propose = next(row.label for row in screen.rows if row.label.startswith("Propose:"))
+        # Four players and a host without computer matches: the four players' bracket of before (format 4).
+        screen = await self.click(menu, propose)
+        self.assertEqual(screen.status, "Accepted 1/4")
+        screen = await self.click(menu, "Semifinals 0/2")
+        self.assertEqual(screen.title, "Semifinals")
+        screen = await self.click(menu, next(row.label for row in screen.rows if row.label.startswith("SF1")))
+        self.assertEqual(screen.title, "Semifinal 1")
+        self.assertEqual((await menu.choose(screen.revision, 7)).title, "Semifinals")     # B: back a page
+        screen = await self.click(menu, next(row.label for row in menu.screen.rows if row.label.startswith("SF1")))
+        screen = await menu.open()                                                      # the window opened again
+        self.assertEqual(screen.title, "Championship")
+        self.assertEqual((await menu.choose(screen.revision, 7)).title, "Players")
+
     async def test_disconnect_revokes_actions_without_selecting_policy(self):
         menu = PlayerMenu(self.companions[0]); screen = await menu.refresh()
         self.companions[0].connected = False
