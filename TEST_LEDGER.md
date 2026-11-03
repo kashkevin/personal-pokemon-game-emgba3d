@@ -1541,3 +1541,14 @@ or on the owner's PCs.
 | The Windows 3D build (MinGW, `DIORAMA=1`) with the new tables | engine `8359f889` | L (cross-compiled) | **compiles** (not run) | scratchpad `top/mingw.log` | - | in the next package run |
 | A look at the other rooms with the most blocked cells drawn flat (Stern's shipyard, Slateport's harbor, the Fortree Gym, the Lilycove Museum, the Sootopolis Gym B1F, the Fossil Maniac's tunnel, the Aqua Hideout B1F, the Trick House's fifth puzzle), the probe's default camera | engine `8359f889` | L, 3D test build | **looked at**: their walls and structures stand; what lies flat is floor-like (a puzzle's panels, ice, water) or paintings and display cases; nothing done | scratchpad `top/more`, `top/more-sheet.png` (game art, not committed) | - | - |
 
+## The Safari Zone's north-west and south-west meet (2026-11-03; engine `claude/feature-update-engine`; KNOWN_ISSUES MS-162)
+
+**L** = this Linux machine; nothing here ran on Windows or on the owner's PCs.
+
+| Test | Build / head | Where | Last result | Evidence | Changed since | Rerun? |
+| --- | --- | --- | --- | --- | --- | --- |
+| The compiled 3D rules against those before (engine `8359f889`'s table), layout by layout | engine `632a2c34` | L | **as expected**: records change in the Safari Zone's south-west only (54 of 1,600: the pocket's 10 cells a ramp, 44 trees along the seam a level down); the table's size unchanged (325,079 records) | scratchpad `lobby2/cmp_rules.py`, `sw/rules-before.c` | - | - |
+| The geometry probe at six places (the pocket's top and middle, below its ledges, the north-west at the seam and west of it, the south-west's slope), four cameras, before (engine `8359f889`'s 3D test build) and after | engine `632a2c34` | L, 3D test build | **passed**: seams 10 -> 0, fin 4, spike 8, flat-blocked 163, water-drop 5 unchanged, no hole, no walk-step; the player in the north-west by the seam whole (before: a silhouette behind the pocket's ground); the trees by the seam whole; a thin sliver of rock at each of the ramp's south corners. A first try (the trees left to `lift_blocked_cells`) split the trees nearest the ramp: not kept | scratchpad `sw/before2`, `sw/after2` (first try), `sw/after3` (game art, not committed) | - | with the package build |
+| `test_terrace_topology.py` (one new test: a seam ramp given by hand, the Safari Zone's south-west read from the repository) | engine `632a2c34` | L | **passed**, 35 tests | - | - | - |
+| `make check-diorama` (`compile_rules --check`, the compositor goldens, the rules' validation) | engine `632a2c34` | L | **passed** | scratchpad `sw/check-diorama.log` | - | - |
+| The Windows 3D build (MinGW, `DIORAMA=1`) with the new tables | engine `632a2c34` | L (cross-compiled) | **compiles** (not run) | scratchpad `sw/mingw.log` | - | in the next package run |

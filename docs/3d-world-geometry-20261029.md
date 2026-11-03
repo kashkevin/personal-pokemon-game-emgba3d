@@ -1096,3 +1096,28 @@ the player and the people on them, no hole, no walk-step, flat-blocked unchanged
 now stand on their levels, still drawn as they were). `check-diorama` passed for each; `test_compile_rules` 35
 and `test_terrace_topology` 34 (one new) passed; the Windows 3D build compiles (MinGW, not run). Pictures:
 scratchpad `top/` (game art, not committed).
+
+### The Safari Zone's north-west and south-west meet (2026-11-03 21:30-22:20; engine `632a2c34`)
+
+Where the Safari Zone's north-west meets its south-west, a pocket of grass at the top of the south-west (19-23, 0-1),
+walked into only from the north-west and left by the jump ledges along its south side down into the south-west, lay
+on the south-west's level, while the north-west's ground beside it (and its trees) lay two levels lower: the player
+walking from one map into the other stepped two levels, and standing in the north-west just north of the seam was
+half hidden by the pocket's ground in front of them (drawn as the silhouette of a person behind the scene). The
+north-west lays its ground of elevation 3 two levels under its strip of elevation 7, the south-west both on one
+level, so the seam pass could not move either (MS-162). The pocket's two rows now climb south from the north-west's
+level to the south-west's, a level a row, the ledges at their south side jumped level as before; the trees along the
+seam over the north-west's low ground (two rows, each tree two by two) stand half way, a level down, whole
+(`compile_rules.py` `SEAM_RAMPS`, `terrace_topology.py` `hand_slopes` and `hand_banks`). A first try left those trees
+to the generic rule (each blocked cell on the walkable ground nearest it, `lift_blocked_cells`): the ones nearest the
+ramp sank by rows and split in two. The game's ledges say the north-west stands over the south-west; standing it so
+moves every Safari map's levels and is not done (MS-162).
+
+Evidence (L, the 3D test build, Mesa): the compiled rules against those before, layout by layout: records change in
+the Safari Zone's south-west only (54 of 1,600). The geometry probe at six places (the pocket's top and middle, below
+its ledges, the north-west at the seam and west of it, the south-west's slope), four cameras, before and after: seams
+10 -> 0 (the five cell pairs on each side), every other count unchanged (fin 4, spike 8, flat-blocked 163,
+water-drop 5), no hole, no walk-step; the player in the north-west by the seam drawn whole, not a silhouette. A thin
+sliver of rock shows at each of the ramp's south corners (its sides over the trees' ground). `test_terrace_topology`
+35 (one new), `check-diorama` passed; the Windows 3D build compiles (MinGW, not run). Pictures: scratchpad `sw/`
+(game art, not committed).
