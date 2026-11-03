@@ -72,3 +72,11 @@ item hub proposal (198 items) were sent to the owner on 2026-10-31.
 | 29 | **When the TMs are sold** | All tiers from the start. |
 | 30 | **New items' prices** | "dont change existing price ... make items cost appropriate if their good items not cheap": existing prices unchanged; new items priced by how good they are. Master Ball sold for 200,000 coins; Rare Candy 5,000; Bottle Cap 2,500 and Ability Capsule 5,000 (the "cheaper" choice). The revised table goes to the owner before it is applied. |
 | 31 | **The item hub's price table** | "yes approve" (2026-10-31, the revised table: 198 new items and the Town Map, nothing sold today changed): as written, so the vitamins at 300 coins (as the Mochi), the Psychic Seed on sale at 750 (like the other Seeds, though nothing here sets Psychic Terrain), the Floettite left on sale, the Master Ball 200,000 with repeat purchases. |
+
+## Decided 2026-11-03 (the owner's answers on step 18, the next package and the rooms' furniture)
+
+| # | Decision | The owner's answer |
+| --- | --- | --- |
+| 32 | **Who fills places 5-8 of the eight-competitor Championships** (step 18; worlds stay at 4 players) | "Computer trainers": Battle Frontier trainers under the same entry rules fill the empty places. A player against one is a normal battle in that player's own game; two players still use the existing challenge flow; when two computer trainers meet, the higher-ranked one goes through without a battle. Bracket 8 -> 4 -> final. |
+| 33 | **A new Windows package with step 15c** (engine `b1a94915`) | "Wait for more changes": 15c goes into a later package together with the next fixes (a package still needs the owner's go-ahead). |
+| 34 | **The rooms' furniture in 3D** (MS-164; the try of 2026-10-30 was reverted after the owner's Game Corner and Lilycove report, MS-173) | "Go ahead": rework the rooms and commit the ones that pass the checks; the owner looks at them in the next package. |
