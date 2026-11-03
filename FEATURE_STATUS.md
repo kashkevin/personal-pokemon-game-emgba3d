@@ -670,7 +670,7 @@ Recorded guidance the code no longer follows (not binding decisions):
 | Feature | Status | Evidence |
 | --- | --- | --- |
 | Another player surfing is drawn on the Pokemon that used Surf (species, shiny, female), in 2D and 3D | Implemented and tested (two Linux games on one machine, real server and companions; not between two real PCs, not on Windows) | engine `dbaf6923`, `scripts/multiplayer/native_surf_check.py` |
-| Another player under the water (Dive) on their carrier; Fly's take-off and landing for other players | Not done (next session) | - |
+| Another player under the water (Dive) on their carrier; Fly's take-off and landing for other players | Not done: a diver is not shown in other games at all (KNOWN_ISSUES MS-181: the world record has no movement mode for diving; waits for MS-28's capability exchange); Fly's relay not started | - |
 
 ## 3D jump ledges, hills and ramps (2026-10-27, `docs/ledge-overhaul-20261027.md`; after the package)
 
