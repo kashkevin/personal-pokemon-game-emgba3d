@@ -1630,3 +1630,13 @@ or on the owner's PCs.
 | `test_rules` (east and west ramps: both ends of both directions), `make check-diorama` | engines `baf40dd1`, `2f53b7b1` | L | **passed** | scratchpad `front/check-diorama.log` | - | - |
 | `make check-diorama-tools` (`test_compile_rules` 35 and the rest) | engine `2f53b7b1` | L | **passed** but `test_rules_parity` (failing before this, MS-170); the first run failed one stale assertion (Route 119's tops at level 0, raised to a level up by `5b117d2c`, whose run of this suite was skipped): updated with this change | scratchpad `front/check-tools.log`, `front/check-tools3.log` | - | - |
 | The Windows 3D build (MinGW, `DIORAMA=1`) | engines `baf40dd1`, `2f53b7b1` | L (cross-compiled) | **compiles** (not run) | scratchpad `front/mingw.log` | - | in the next package run |
+
+## Mauville City's garden at the seam with Route 111 (2026-11-04; engine `claude/feature-update-engine`; KNOWN_ISSUES MS-162)
+
+**L** = this Linux machine; nothing here ran on Windows or on the owner's PCs.
+
+| Test | Build / head | Where | Last result | Evidence | Changed since | Rerun? |
+| --- | --- | --- | --- | --- | --- | --- |
+| The compiled 3D rules against those before (engine `2054cf05`'s table), layout by layout | engine `a0f23053` | L | **as expected**: besides `2f53b7b1`'s (Sootopolis, the Frontier's west half), records change on Route 111's two layouts only (46 of 5,600 each); the table's size unchanged | scratchpad `lobby2/cmp_rules.py`, `sooto2/rules-before.c` | - | - |
+| The geometry probe at Mauville's road (14, 2) and garden (6, 1), Route 111's road (14, 136) and the garden's north half (6, 138), four cameras, before and after | engine `a0f23053` | L, 3D test build | **passed**: seams 10 -> 0 on both maps, the rest unchanged (Mauville flat-blocked 47, water-drops 2; Route 111 fins 19, spikes 21, flat-blocked 48); the garden whole, a player in its north half seen (before: hidden behind the Gym's roof); a first try that covered one of Route 111's two layouts left the 10 on Route 111's side | scratchpad `mauv/before`, `mauv/after`, `mauv/after2`, `mauv/compare.png` (game art, not committed) | - | with the package build |
+| `test_terrace_topology.py` (new: Mauville's garden given by hand, both layouts), `compile_rules.py --check`, `test_compile_rules.py` | engine `a0f23053` | L | **passed**, 41 and 35 tests | scratchpad `mauv/tests.log` | - | - |

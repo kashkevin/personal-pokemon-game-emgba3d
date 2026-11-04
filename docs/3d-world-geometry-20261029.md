@@ -1274,3 +1274,16 @@ Evidence (L, the 3D test build, Mesa): the compiled rules against `2054cf05`'s, 
 after at both places; `test_terrace_topology` 40 (three new), `test_rules` (both ends of both directions),
 `check-diorama` passed, and `check-diorama-tools` but `test_rules_parity` (failing before this: MS-170) - `test_compile_rules`'s
 assertion that Route 119's tops kept level 0, stale since `5b117d2c` raised them, updated; the Windows 3D build compiles (MinGW, not run).
+
+### Mauville City's garden: the last land seam (2026-11-04 06:50-07:25; engine `a0f23053`)
+
+Mauville City's flower garden behind its Gym runs on north over the seam into Route 111's south-west corner, to its
+fence and rocks (0-11, 137-139); the garden is walled off from the rest of both maps, so no one walks into it. Route
+111's corner steps two levels down to it from its plateau (its cliffs face the seam), so the garden lay cut in two by
+a trench two levels deep at the seam, its fence posts in it; a player standing there was hidden behind the Gym's roof.
+Moving Mauville's half down (tried on 2026-10-29) sank the garden into a pit under Route 117's grass and the sea; now
+Route 111's half - its walkable cells, its fence and rocks - lies on the town's level instead (`SEAM_RAMPS` floors and
+banks), in both of Route 111's layouts (before and after the Mirage Tower falls; they differ only at the tower). The
+probe at four places, four cameras: seams 10 -> 0 on both sides, the rest unchanged, the garden whole in the pictures
+(scratchpad `mauv/compare.png`, game art, not committed). With the Safari Zone's two and the Battle Frontier's, all
+eight land seams now meet where the game walks or draws them (MS-162).
