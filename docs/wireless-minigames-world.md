@@ -77,9 +77,8 @@ The GBA ROM; the games' rules, prizes, records and saves; computer partners (MS-
 
 ## Limits
 
-* Berry Crush and Pokemon Jump have been played between two real games. Dodrio Berry Picking (three players at
-  least) starts, links and ends the same way (the same lobby, the same NetLink); its three-game proof is the next run.
-  Four players and Windows not run.
+* All three games have been played between real games: Berry Crush and Pokemon Jump between two, Dodrio Berry Picking
+  between three (its least). Four players and Windows not run.
 
 * A frozen member game whose launcher connection stays up is not noticed by the leader's game (members send only the
   commands they have; the leader cannot tell silence from a freeze); the games' own waits apply. A frozen leader is
@@ -105,7 +104,12 @@ The GBA ROM; the games' rules, prizes, records and saves; computer partners (MS-
     player's six jumps, then the vine caught them; both games showed the leader's score (360, 6 in a row); the host
     YES and the friend NO to playing again, both links closed by the games, both out of the room; 2,241 link frames,
     none dropped. (Run 1 stopped at the old man's greeting: the proof did not press at its paragraphs.)
-  * Dodrio Berry Picking (`--activity dodrio`, three games: `dodrio-a`, `-b`, `-c`): written, not yet passed.
+  * Dodrio Berry Picking (`--activity dodrio`, three games: `dodrio-a`, `-b`, `-c`, a Dodrio each), run 2 passed: the
+    host leading, both friends joining, "Start with 3 players"; all three picking (UP again and again), ten Berries
+    missed, the results: the same table in all three games (the leader's, sent as a link block: each player 5 blue,
+    1 green, so every friend's picks reached the leader's game); the host YES and the friends NO to playing again,
+    every link closed by its game, all three out of the room; 7,182 link frames, none dropped. (Run 1 played the
+    same game but the proof compared the Berries at the play-again question, where the game has cleared them.)
   Results in TEST_LEDGER.
 
 ## Found on the way (by the launcher proof, all in this new code, fixed before it was committed)
