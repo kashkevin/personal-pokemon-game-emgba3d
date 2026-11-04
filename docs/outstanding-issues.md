@@ -16,7 +16,7 @@ Updated with every fix; the newest first within each section.
 | Issue | What | Status | L | W | PC |
 | --- | --- | --- | --- | --- | --- |
 | MS-51 | Battle Tower milestone Pokemon lost when the game closed before saving and the older save had no room | **Fixed** (engine `36fb4589`, app: this change) | self-test 2,103/2,103 (the real game code: a full party and PC answer 0, the host's replayed claims change nothing, the resend makes it); app tests 173 | run 277: `--selftest-tower` in the Windows build passed | - |
-| Co-op EXP | Gym EXP farming by losing again; the pending award lost on a reset before the award script | **Fixed** (engines `1b2c0089`, `1552e268`; app: this change): EXP with the badge-earning win only; the waiting result in the save; the launcher saves on the host as the co-op battle ends, the script runs after that save, the host save again after it (retried while the launcher is busy) (`docs/owner-decisions.md` 4-5) | self-test 57/57 (also under Wine); check-native, tower, ladder, update32: 0 failed; app save checks 79 passed; **real two-game run c5 passed** (a game closed during its award came back with the same award, nothing lost or doubled; runs c1-c4 found and fixed two launcher faults: KNOWN_ISSUES MS-190) | run 277: `--selftest-coop-exp` in the Windows build passed; a game closed during its award in Windows game processes: run 280's new coop-proof job | - |
+| Co-op EXP | Gym EXP farming by losing again; the pending award lost on a reset before the award script | **Fixed** (engines `1b2c0089`, `1552e268`; app: this change): EXP with the badge-earning win only; the waiting result in the save; the launcher saves on the host as the co-op battle ends, the script runs after that save, the host save again after it (retried while the launcher is busy) (`docs/owner-decisions.md` 4-5) | self-test 57/57 (also under Wine); check-native, tower, ladder, update32: 0 failed; app save checks 79 passed; **real two-game run c5 passed** (a game closed during its award came back with the same award, nothing lost or doubled; runs c1-c4 found and fixed two launcher faults: KNOWN_ISSUES MS-190) | run 277: `--selftest-coop-exp` in the Windows build passed; run 280's new coop-proof job **passed** (a game closed during its award in Windows game processes came back with the same award) | - |
 | MS-145 | Kept shinies and Legendaries forgotten when the game closes | **Fixed** (engine `9f0809f6`, app: this change): the keep list is a save record | self-test 24/24 (12 new; also under Wine); app record tests; **a real game closed and started again with four kept shinies: all four back, drawn shiny** (`shiny_check.py` keep-restart, engine `7f9b56bf`) | run 277: `--selftest-shiny` (its 12 new checks) in the Windows build passed; keep-restart: run 280's feature checks | - |
 | MS-161 | Opening a world slows as its saves pile up | **Improved again** (app: this change): about 2x more (600 saves: 2.67 s to 1.1-1.4 s), every check the same; still grows (about 1.9 ms a save); options (b) and (c) in KNOWN_ISSUES MS-161 are the owner's | the reader's equivalence test (5,603 slots); timings on a 600-save test world; `tools/perf/world_open_bench.py` (600 saves: 1.3-1.6 s) | the new world-open-bench job, run 281: **600 saves checked cold in 0.94-0.95 s** (GitHub's Windows runner) | - |
 | MS-118 | 3D frame hitches when many chunks come into view at once | **Improved** (engine `9f41e9f3`), still open: chunks keep two earlier versions, so walking back over a seam builds nothing (20 crossings: 237 chunks built instead of 2,109, syncs over 16 ms 42 instead of 156); left: several new chunks at once and the atlas redrawn at a crossing (options in KNOWN_ISSUES MS-118) | A/B walks of the same binary; every chunk taken back built anyway and compared (1,892, 0 differed); 421,888 skipped-sync checks (0 stale); mesh check; check-diorama; **the same walk under AddressSanitizer** (engine `7f9b56bf`): no report, 1,882 taken back, 0 differed, 0 stale; the twelve-town loop there: 360 visits, no report | run 277: the 3D graphics job (Mesa) passed with it; the seam walk not on Windows | - |
@@ -41,7 +41,7 @@ Updated with every fix; the newest first within each section.
 | MS-26 | Save checks on the launcher's and host's event loops | measured, no player-visible cost found |
 | Trades | Eggs, mail and unsupported forms are refused in trades | open (adapter work) |
 | G1 | An evolution trade that must choose a move for a Pokemon knowing a post-Gen-6 move is refused | **Fixed** (app: this change): the owner's decision applied, such moves trade unchanged; the move being learned stays a Gen 6 one; unit tests only (L), no real trade with such a Pokemon |
-| MS-141c limits | Wireless minigames: four players not run | **Run** (app: this change): all three with four world players on Linux (L, real games and launchers; the proof's focus timing fixed for Pokemon Jump); Windows run 277 passed two and three players (W); four on Windows: the next run's new jobs |
+| MS-141c limits | Wireless minigames: four players not run | **Run** (app: this change): all three with four world players on Linux (L, real games and launchers; the proof's focus timing fixed for Pokemon Jump); Windows run 277 and run 280 passed two and three players (W); four on Windows: run 280's Dodrio and Jump jobs failed in the proof's phase checks (the games played and agreed), the proof fixed, the next full run |
 | MS-98 | The 3D map sweep's debug scene stops in three rooms (debug warp only) | open (not reachable in play) |
 | MS-170 | A 3D rules test's notion of height (records vs resolved cells) | **Fixed** with MS-189: the test checks the resolved cells, by the resolver's own rules from the records |
 
@@ -63,17 +63,22 @@ NU-8, VR-6, WC-4, MS-7 hold the checklists; V21, V39, U30-5 and NU-10 (section 6
 
 Run 271 (2026-11-04 morning) covered engine `2054cf05` and is the last installer prepared. Run 273 (engine
 `49b12c51`, app `6952acc`): 55 jobs passed, 4 failed (the Tower Duo proofs' expectation, MS-192, fixed). Run 277
-(engine `9f41e9f3`, app `3e42c54`, the gameplay check on): every job passed so far, 61 of 62 (the engine self-tests
-with every fix of the day, the three wireless minigames between two and three players, the Tower's Duo proofs,
-multiplayer, saving, 3D graphics through Mesa), the Tower's 100-floor climb still running when this was written; its
-installer predates G1 and is not the next one. Run 281 (a smoke run of app `7307edd`): the new world-loading job passed
+(engine `9f41e9f3`, app `3e42c54`, the gameplay check on): **all 62 jobs passed** (the engine self-tests with every
+fix of the day, the three wireless minigames between two and three players, the Tower's Duo proofs, multiplayer,
+saving, 3D graphics through Mesa, the Tower's 100-floor climb, 18:58-22:06 UTC); its installer predates G1 and is not
+the next one. Run 281 (a smoke run of app `7307edd`): the new world-loading job passed
 (600 saves checked cold in 0.94-0.95 s).
 
-The installer candidate is run 280 (engine `7f9b56bf`, app `bbaa9a7`, the gameplay check on): everything of run 277
-plus G1, MS-145's keep-restart in a real Windows game, the minigames with four players and the new coop-proof job (a
-game closed during its co-op award). Its first attempt stopped before any build when the runner's package installs
-stalled three times (a mirror, not this code; no check ran), and its failed jobs were run again at 21:25 UTC. The
-installer is prepared only from a run whose every required job passes, and is not distributed (N8).
+Run 280 (engine `7f9b56bf`, app `bbaa9a7`, the gameplay check on) was to be the installer candidate: everything of
+run 277 plus G1, MS-145's keep-restart in a real Windows game, the minigames with four players and the new coop-proof
+job (a game closed during its co-op award). Its first attempt stopped before any build when the runner's package
+installs stalled three times (a mirror, not this code; no check ran), and its failed jobs were run again at 21:25 UTC.
+In that second attempt the coop-proof job **passed** (MS-190 on Windows) and so did the minigames between two and three
+players, but the new four-player Dodrio Berry Picking and Pokemon Jump jobs **failed in the proof's checks, not in the
+games** (each wanted every game's reading to catch a phase of a second or less while the proof's pictures held up the
+readings; every game played, agreed on the results and came back to the field). With the proof fixed (app: this
+change), the next full run is the installer candidate. The installer is prepared only from a run whose every required
+job passes, and is not distributed (N8).
 
 ## 6. Earlier issues in KNOWN_ISSUES (reviewed 2026-11-04)
 

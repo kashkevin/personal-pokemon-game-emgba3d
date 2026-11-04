@@ -283,6 +283,15 @@ class MinigameMatch:
         self.output, self.facts, self.activity = output, facts, activity
         self.pictures = output / "pictures"
         self.count = ACTIVITIES[activity]["least"]           # the players in the game (match sets it)
+        self.reported = {}                                   # each game's last periodic report (stuck_picture)
+
+    def stuck_picture(self, probe, slot, now, name):
+        """The periodic report's picture, only when this game has not moved on since its last report (then it may be
+        stuck, and a picture helps): taking one holds up every player's reading (one event loop; about a second a
+        picture on Windows), which once let three games miss Dodrio Berry Picking's short EndLink (run 280)."""
+        last = self.reported.get(slot)
+        self.reported[slot] = now
+        return self.picture(probe, name) if now == last else None
 
     def picture(self, probe, name):
         self.pictures.mkdir(exist_ok=True)
@@ -348,7 +357,8 @@ class MinigameMatch:
                     # what the game shows and what this proof reads of it, now and then (a step that never moves)
                     last_report = time.monotonic()
                     record("berry-crush-now", slot=slot, callback2=hex(callback), step=state, presses=presses,
-                           picture=self.picture(probe, f"{slot}-w-{len(steps):02d}-{int(last_report) % 100000}"))
+                           picture=self.stuck_picture(probe, slot, (callback, state),
+                                                      f"{slot}-w-{len(steps):02d}-{int(last_report) % 100000}"))
                 if state is None:
                     if entered and callback in game.overworld and not game.linked(probe):
                         break
@@ -415,7 +425,8 @@ class MinigameMatch:
                     swinging = state is not None and state["phase"] == "GameRound"
                     record("pokemon-jump-now", slot=slot, callback2=hex(callback), state=state, jumps=jumps,
                            picture=None if swinging else
-                           self.picture(probe, f"{slot}-w-{len(phases):02d}-{int(last_report) % 100000}"))
+                           self.stuck_picture(probe, slot, (callback, state and state["phase"], state and state["helper"]),
+                                              f"{slot}-w-{len(phases):02d}-{int(last_report) % 100000}"))
                 if state is None:
                     if entered and callback in game.overworld and not game.linked(probe):
                         break
@@ -491,7 +502,9 @@ class MinigameMatch:
                 if time.monotonic() - last_report >= 15:
                     last_report = time.monotonic()
                     record("dodrio-now", slot=slot, callback2=hex(callback), state=state, picks=picks,
-                           picture=self.picture(probe, f"{slot}-w-{len(phases):02d}-{int(last_report) % 100000}"))
+                           picture=self.stuck_picture(probe, slot, (callback, state and state["phase"],
+                                                                    state and state["state"]),
+                                                      f"{slot}-w-{len(phases):02d}-{int(last_report) % 100000}"))
                 if state is None:
                     if entered and callback in game.overworld and not game.linked(probe):
                         break
@@ -623,7 +636,12 @@ class MinigameMatch:
                 require(all("Cmd_ShowResults" in s for s in steps), f"a game showed no results: {steps}")
                 require(all("Cmd_AskPlayAgain" in s for s in steps), f"a game had no play-again question: {steps}")
             elif self.activity == "dodrio":
-                for phase in ("Intro", "PlayGame", "Results", "AskPlayAgain", "EndLink"):
+                # in every game the phases that last the game or wait for its player; the short ones (Intro, the names
+                # for 3 s; EndLink, a few frames on the way out) are recorded when seen: every picture holds up every
+                # game's reading (one event loop, about a second a picture on Windows), and run 280's four games on
+                # Windows missed EndLink so; the results, the play-again question and every game back on the field
+                # with its link closed are checked below
+                for phase in ("PlayGame", "Results", "AskPlayAgain"):
                     require(all(phase in s for s in steps), f"Dodrio Berry Picking's {phase} not in every game: {steps}")
                 ends = [p["at_question"] for p in played]
                 require(all(ends), f"a game was not asked to play again: {ends}")
@@ -634,7 +652,12 @@ class MinigameMatch:
                 eaten = [sum(row[:3]) for row in tables[0]]     # blue, green and gold Berries
                 require(all(n >= 1 for n in eaten), f"a player's picks never reached the leader's game: {eaten}")
             else:
-                for phase in ("GameIntro", "GameRound", "GameOver", "AskPlayAgain", "Exit"):
+                # as Dodrio Berry Picking's: the rounds and the play-again question in every game; GameIntro, GameOver
+                # (the vine's hit, a second or two) and Exit are recorded when seen (run 280 on Windows: one of four
+                # games' GameOver passed while the others' pictures held up its reading); the question comes only
+                # after a GameOver (the leader sets FUNC_GAME_OVER when the vine hits, src/pokemon_jump.c), and every
+                # game's score there is checked below
+                for phase in ("GameRound", "AskPlayAgain"):
                     require(all(phase in s for s in steps), f"Pokemon Jump's {phase} not in every game: {steps}")
                 ends = [p["at_question"] for p in played]
                 require(all(ends), f"a game was not asked to play again: {ends}")
