@@ -38,6 +38,7 @@ class MenuSession:
         self._battle_preparing = False
         self._battle_admission_failed = False
         self._window_closing = False   # a Tower command or Hyper Training screen closed the game's window
+        self._closing_sequence = None  # MS-141c: the request whose window the host closed (a minigame group's start)
         self._arrivals = {}            # request sequence -> when it reached the launcher (loop time)
 
     def _tower_capable(self):
@@ -58,7 +59,8 @@ class MenuSession:
 
     def feed(self, payload):
         request = MenuRequest.unpack(payload, allow_tower=self._tower_capable(), allow_host_save=self._host_save_capable(),
-                                     allow_tower_next=self._tower_next_capable())
+                                     allow_tower_next=self._tower_next_capable(),
+                                     allow_minigame=bool(getattr(self.bridge, "minigame_capable", False)))
         if self._closed or request.sequence <= self.sequence:
             raise ValueError("native menu request was repeated or regressed")
         if (request.kind == 1 and request.action
@@ -137,9 +139,25 @@ class MenuSession:
         return (not self._closed and not self._battle_latched and self.open and request.sequence == self.sequence
                 and self.companion._bridge is self.bridge)
 
+    def close_window(self, status="Players"):
+        """KNOWN_ISSUES MS-141c: a minigame group started (its STARTED is already queued for the game): the window
+        closes now, as a host-requested close, and the attendant's script goes on into the room. Nothing else is sent
+        to that window afterwards (a choice's answer still being made, the 2 s status refresh): the game's menu mailbox
+        holds one screen, and a screen right behind the close replaced it - the window stayed open and the game never
+        started its group (found in the launcher proof)."""
+        request = self._last_request
+        if request is None or not self.open or self._battle_latched:
+            return
+        revision = max(1, self.menu.screen.revision)
+        self._send(request, MenuScreen(revision, "Players", status[:31], (), 0), close=True)
+        self._closing_sequence = request.sequence
+        self._window_closing = True
+
     def _send(self, request, screen, *, close=False, tower=None):
         """``tower``: the PlayerMenu's Tower reply, ("command", TowerCommand) or ("hyper_training", None), sent as the
         game's flags-4 or flags-5 screen (only to a game with the Tower)."""
+        if not close and tower is None and request is not None and request.sequence == self._closing_sequence:
+            return      # the host closed this window (close_window): its close stays the last screen
         if (not self._closed and not self._battle_latched and self.open and request.sequence == self.sequence
                 and self.companion._bridge is self.bridge):
             capable = self._tower_capable()

@@ -524,6 +524,7 @@ class BridgeSession:
     battle_looks_capable: bool = False
     spawn_capable: bool = False
     extras_capable: bool = False
+    minigame_capable: bool = False   # KNOWN_ISSUES MS-141c: the game announced the minigame channel ('u')
     menu_session: Any = None
     reset_session: Any = None
 
@@ -557,6 +558,10 @@ class Companion:
         self._trade_pending: dict[str, tuple[dict, asyncio.Future]] = {}
         self._team_pending: dict[str, tuple[dict, asyncio.Future]] = {}
         self._lobby_pending: dict[str, tuple[dict, asyncio.Future]] = {}
+        # KNOWN_ISSUES MS-141c: the wireless minigames with the world's players (minigame_link.py)
+        self._minigame_pending: dict[str, tuple[dict, asyncio.Future]] = {}
+        from .minigame_link import MinigameLink
+        self.minigames = MinigameLink(self)
         self._enrollment_pending: dict[str, tuple[dict, asyncio.Future]] = {}
         self._challenge_pending: dict[str, tuple[dict, asyncio.Future]] = {}
         self._reset_pending: dict[str, tuple[dict, asyncio.Future]] = {}
@@ -675,6 +680,7 @@ class Companion:
             await asyncio.gather(*tasks, return_exceptions=True)
         if ipc_server is not None:
             await ipc_server.wait_closed()
+        await self.minigames.close()        # KNOWN_ISSUES MS-141c: its sender of link frames
         self._disconnect_remote()
 
     def _publish_snapshot(self) -> None:
@@ -956,6 +962,22 @@ class Companion:
                     except ValueError as error:
                         raise BridgeError("invalid native menu request") from error
                     continue
+                if packet[:1] == b"u":
+                    # KNOWN_ISSUES MS-141c: the native PC game announces its minigame channel (minigame_link.py).
+                    from .minigame_link import capability_packet as minigame_capability
+                    if bridge.minigame_capable or packet != minigame_capability():
+                        raise BridgeError("minigame capability differs from this companion")
+                    bridge.minigame_capable = True
+                    self.minigames.bind(bridge)
+                    continue
+                if packet[:1] == b"m":
+                    if not bridge.minigame_capable:
+                        raise BridgeError("minigame frame precedes its capability")
+                    try:
+                        self.minigames.from_game(packet[1:])
+                    except ValueError as error:
+                        raise BridgeError("invalid minigame frame") from error
+                    continue
                 if packet[:1] == b"w":
                     # The native PC game announces its shared-spawn mailbox
                     # (spawn_mailbox.py); mgba.lua never does.
@@ -1044,6 +1066,7 @@ class Companion:
         finally:
             if bridge is not None:
                 bridge.outbox.close()
+                self.minigames.unbind(bridge)
                 if self._bridge is bridge:
                     self._bridge = None
                     self._last_pose_time = 0.0
@@ -1740,6 +1763,11 @@ class Companion:
                 self._receive_challenge(message)
             elif message.get("type") in {"world_result", "world_error"}:
                 self._receive_world(message)
+            elif message.get("type") in {"minigame_result", "minigame_error"}:
+                self._receive_minigame(message)
+            elif message.get("type") in {"minigame_started", "minigame_closed", "minigame_link"}:
+                from .minigame_protocol import validate_minigame_push
+                self.minigames.on_push(validate_minigame_push(message, self.session_epoch))
             else:
                 raise ProtocolError("invalid_server_message", "unexpected server message type")
 
@@ -1815,6 +1843,42 @@ class Companion:
         if not future.done():
             if validated["type"] == "lobby_error":
                 future.set_exception(LobbyError(validated["code"], validated["message"]))
+            else:
+                future.set_result(validated)
+
+    async def minigame_rpc(self, operation: str, *, timeout: float = 5.0, **fields: Any) -> dict[str, Any]:
+        """KNOWN_ISSUES MS-141c: a wireless minigame lobby request (minigame_protocol.py); any world."""
+        from .minigame_protocol import OPERATIONS, validate_minigame_request
+        if operation not in OPERATIONS:
+            raise ValueError("unsupported minigame operation")
+        if not self.connected or self._remote_writer is None or self.session_epoch is None:
+            raise ConnectionError("no world session")
+        request_id = str(uuid4())
+        request = dict(type="minigame_" + operation, session_epoch=self.session_epoch, request_id=request_id, **fields)
+        validate_minigame_request(request, self.session_epoch)
+        if len(self._minigame_pending) >= 8:
+            raise ValueError("minigame request capacity is exhausted")
+        future = asyncio.get_running_loop().create_future()
+        self._minigame_pending[request_id] = (request, future)
+        try:
+            await self._send_remote(self._remote_writer, request)
+            return await asyncio.wait_for(future, timeout)
+        finally:
+            self._minigame_pending.pop(request_id, None)
+            if not future.done():
+                future.cancel()
+
+    def _receive_minigame(self, message):
+        from .minigame_link import MinigameRemoteError
+        from .minigame_protocol import validate_minigame_reply
+        pending = self._minigame_pending.get(message.get("request_id"))
+        if pending is None:
+            return      # a late reply: the lobby page reads the groups again
+        request, future = pending
+        validated = validate_minigame_reply(message, self.config.player_id, self.session_epoch, request)
+        if not future.done():
+            if validated["type"] == "minigame_error":
+                future.set_exception(MinigameRemoteError(validated["code"], validated["message"]))
             else:
                 future.set_result(validated)
 

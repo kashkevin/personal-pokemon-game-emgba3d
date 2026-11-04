@@ -249,6 +249,8 @@ class PlayerMenu:
         self._record_menu = NativeRecordMenu(companion)
         from .tower_menu import TowerMenu
         self._tower = TowerMenu(companion)      # Battle Tower: Legends (games with tower_abi_version 1)
+        from .minigame_link import MinigameMenu
+        self._minigame = MinigameMenu(companion)   # KNOWN_ISSUES MS-141c: a wireless minigame's lobby (pages 5-7)
         self.tower_reply = None                 # a Tower answer the menu session sends as the game's flags 4/5 screen
 
     def _session(self):
@@ -310,10 +312,17 @@ class PlayerMenu:
         Legends: START > PLAYER > TOWER opens the Tower, whose B goes back to the Players home; MS-61: an in-game SAVE in
         a world opens the host save, which closes the window at once and saves on the host). ``alive``: whether the
         game's window that asked still waits for this answer (the Tower's next floor is never issued after it closed)."""
-        if page not in ("soft_reset", "tower", "host_save", "tower_next"):
+        if page not in ("soft_reset", "tower", "host_save", "tower_next", "minigame_berry_crush",
+                        "minigame_pokemon_jump", "minigame_dodrio"):
             raise PlayerMenuError("unknown_page")
         async with self._lock:
             screen = await self._refresh()      # the binding, the player's open challenges and trades
+            if page.startswith("minigame_") and self._binding is not None:
+                # KNOWN_ISSUES MS-141c: the attendant's lobby of a wireless minigame (minigame_link.MinigameMenu), after
+                # the binding: a menu's first refresh of a session shows the home page, which replaced the lobby
+                self._minigame.open(page.removeprefix("minigame_"))
+                self._page = ("minigame", None)
+                return await self._refresh()
             if self._binding is None:
                 if page == "host_save":
                     return self._show("Save", "Saved on this PC only", [("Not in the world now", "", ())])
@@ -367,6 +376,18 @@ class PlayerMenu:
             self._record_menu.reset()
             self._tower.reset()
         self._binding = binding
+        if self._page[0] == "minigame":
+            # KNOWN_ISSUES MS-141c: the lobby page needs only the host's minigame groups
+            from .minigame_link import MinigameMenuError, MinigameRemoteError
+            try:
+                await self._minigame.refresh()
+            except (MinigameMenuError, MinigameRemoteError):
+                self._minigame.status = None
+            if self._session() != binding:
+                self._actions.clear()
+                self._signature = None
+                raise PlayerMenuError("session_changed")
+            return self._render()
         # Immutable value copies; the companion owns and validates the roster.
         self._players = {p["player_id"]: p["display_name"] for p in self.companion._players}
         # A player whose game has not reported a position yet is joining (still loading).
@@ -549,7 +570,7 @@ class PlayerMenu:
                 self._actions[back] = {"records": ("records_back", ()), "ffa": ("new_battle", ()),
                                        "new_battle": ("battles", ()), "lobby_pick": ("new_battle", ()),
                                        "lobby_2v2": ("lobby", ()), "tower": ("tower_back", ()),
-                                       "championship": ("champ_back", ()),
+                                       "championship": ("champ_back", ()), "minigame": ("mg_back", ()),
                                        "confirm": ("ask_no", ())}.get(self._page[0], ("home", ()))   # a question's B is No
             self._screen = MenuScreen(revision, title, status,
                 tuple(MenuRow(i + 1 if op else 0, label) for i, (label, op, _) in enumerate(normalized)), back, admission,
@@ -647,6 +668,8 @@ class PlayerMenu:
         return self.MARKER_COLOURS[order.index(player)] if player in order and order.index(player) < 4 else None
 
     def _render(self):
+        if self._page[0] == "minigame":
+            return self._minigame.render(self._show)
         actor = self.companion.config.player_id
         page, target = self._page
         actions = []
@@ -1465,6 +1488,19 @@ class PlayerMenu:
             self._signature = None
             self._notice = ""
             loop = asyncio.get_running_loop()
+            if op.startswith("mg_"):
+                # KNOWN_ISSUES MS-141c: the minigame lobby's rows; leaving closes the window (the attendant's script
+                # waits for it), a start closes it when the host's push comes (minigame_link.MinigameLink.on_push)
+                from .minigame_link import MinigameMenuError
+                try:
+                    outcome = await self._minigame.choose(op, tuple(args))
+                except MinigameMenuError as error:
+                    raise PlayerMenuError(error.code) from error
+                if outcome == "close":
+                    self._page = ("home", None)
+                    self.handoff = ("close", {})
+                    return self._show(self._screen.title or "Players", "See you", [])
+                return await self._refresh()
             if op == "ask":
                 # A choice that ends something for others: its question first (QUESTIONS). The asking row's index is
                 # where the game's cursor stays, so the question keeps its Yes off that row.

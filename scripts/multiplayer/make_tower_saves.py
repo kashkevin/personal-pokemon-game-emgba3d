@@ -38,6 +38,10 @@ PKMN_TEST_TOWER_RECORD: the game loads the save, sets them and saves through its
                         its rival line (34,57 / 35,57 / 33,57 / 34,57: the line has three tiles, and each game is its
                         own copy of the world; the test build's PKMN_TEST_WARP): the rival checkpoint proof
                         (native_launcher_rival_proof.py; --players 4 is its 2v2)
+  crush-a / -b          one level-5 Pokemon each (Treecko, Torchic), a POWDER JAR, 5 Cheri and 5 Chesto Berries and
+                        the POKEDEX's flag (the attendants talk of linking only after it), each below the Direct Corner's
+                        attendant of a Pokemon Center 2F (10,3: Oldale Town's, Petalburg City's): the wireless minigame
+                        proof (native_launcher_minigame_proof.py, KNOWN_ISSUES MS-141c)
 
     python scripts/multiplayer/make_tower_saves.py --exe <Makefile_pc BFX_TEST=1 build> \\
         --mega-check <engine>/tools/battle_env/mega_check.py --source-a boy-1.sav --source-b girl-1.sav --out DIR \\
@@ -58,8 +62,9 @@ from make_intro_saves import load
 STRONG = ",".join(["150:100:v605"] * 6)                # SPECIES_MEWTWO, MOVE_DAZZLING_GLEAM first
 WEAK = "129:1"                                         # SPECIES_MAGIKARP
 DUO = ",".join(["716:100:v605i443"] * 6)               # SPECIES_XERNEAS, MOVE_DAZZLING_GLEAM, ITEM_CHOICE_SPECS
+CRUSH_BAG = "719:1,514:5,515:5"                       # ITEM_POWDER_JAR, ITEM_CHERI_BERRY x5, ITEM_CHESTO_BERRY x5
 FIXTURES = (  # (name, source, party, record "highest:progress" or None[, bag "item:count,..."[, warp G:N:W:X:Y[,
-#              fast options]]])
+#              fast options[, flags to set "0x...,..."]]]])
     ("tower-strong-a", "a", STRONG, None),
     ("tower-strong-b", "b", STRONG, None),
     ("tower-fast-a", "a", STRONG, None, "", "", True),
@@ -90,12 +95,15 @@ FIXTURES = (  # (name, source, party, record "highest:progress" or None[, bag "i
     ("rival-b", "b", "255:5", None, "", "0:25:0:35:57"),
     ("rival-c", "c", "258:5", None, "", "0:25:0:33:57"),
     ("rival-d", "d", "261:5", None, "", "0:25:0:34:57"),      # SPECIES_POOCHYENA
+    # MAP_OLDALE_TOWN_POKEMON_CENTER_2F (2.3), MAP_PETALBURG_CITY_POKEMON_CENTER_2F (8.5); FLAG_SYS_POKEDEX_GET
+    ("crush-a", "a", "252:5", None, CRUSH_BAG, "2:3:-1:10:3", False, "0x861"),
+    ("crush-b", "b", "255:5", None, CRUSH_BAG, "8:5:-1:10:3", False, "0x861"),
 )
 
 
-def make_one(mega_check, exe, display, source, out, name, party, record, bag="", warp="", fast=False):
+def make_one(mega_check, exe, display, source, out, name, party, record, bag="", warp="", fast=False, flags=""):
     """The test build loads `source`, gives it `party` (and `record`, and `bag`'s items; at `warp` first; with `fast`
-    the options fast text and battle scene off) and saves; the copy is OUT/name.sav."""
+    the options fast text and battle scene off; `flags` set) and saves; the copy is OUT/name.sav."""
     rundir = out / f"run-{name}"
     env = dict(PKMN_TEST_BATTLE="save:1", PKMN_TEST_PARTY=party, PKMN_TEST_BAG=bag, PKMN_TEST_AUTOPILOT="1",
                PKMN_TEST_BATTLE_DELAY="60", PKMN_TEST_FREEZE_FIELD="1")
@@ -105,6 +113,8 @@ def make_one(mega_check, exe, display, source, out, name, party, record, bag="",
         env["PKMN_TEST_WARP"] = warp
     if fast:
         env["PKMN_TEST_FAST_OPTIONS"] = "1"
+    if flags:
+        env["PKMN_TEST_SET_FLAGS"] = flags
     args = types.SimpleNamespace(exe=str(exe), save=str(source), display=display)
     process, output = mega_check.start(args, str(rundir), env)
     code = mega_check.finish(process, output, 240)
@@ -121,6 +131,9 @@ def make_one(mega_check, exe, display, source, out, name, party, record, bag="",
         problems.append(f"no Tower record {record}")
     if fast and "the options: text speed fast, battle scene off" not in lines:
         problems.append("the options were not set (a test build without PKMN_TEST_FAST_OPTIONS)")
+    for flag in filter(None, flags.split(",")):
+        if f"flag {flag} set" not in lines:
+            problems.append(f"flag {flag} was not set")
     if problems:
         sys.exit(f"{name}: {'; '.join(problems)}; see {rundir}")
     shutil.copy(rundir / "test.sav", out / f"{name}.sav")

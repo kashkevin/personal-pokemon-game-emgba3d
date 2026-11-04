@@ -33,6 +33,9 @@ from .trade_protocol import TRADE_TYPES, validate_trade_common, validate_trade_r
 from .enrollment_protocol import ENROLLMENT_TYPES, validate_enrollment_common, validate_enrollment_request
 from .team_protocol import TEAM_TYPES, validate_team_common, validate_team_request
 from .lobby_protocol import LOBBY_TYPES, validate_lobby_common, validate_lobby_request
+from .minigame_protocol import MINIGAME_TYPES, TITLES as MINIGAME_TITLES, link_player as minigame_link_player
+from .minigame_protocol import validate_minigame_request
+from .minigame_groups import MinigameGroups
 from .battle_protocol import BATTLE_TYPES, challenge_view, validate_battle_common, validate_battle_request
 from .reset_protocol import RESET_TYPES, validate_reset_common, validate_reset_request
 
@@ -118,12 +121,25 @@ class OutboundClosed(Exception):
 class OutboundQueue:
     """Bounded control FIFO plus one replaceable current-world frame."""
 
+    # KNOWN_ISSUES MS-141c: a wireless minigame group's link frames, about 60 a second for each player, have their own
+    # bound (some seconds of frames), so a busy link never exhausts the reliable control capacity.
+    MINIGAME_LIMIT = 512
+
     def __init__(self, reliable_limit: int) -> None:
         self.reliable_limit = reliable_limit
         self.controls: deque[bytes] = deque()
+        self.minigame: deque[bytes] = deque()
         self.world: bytes | None = None
         self.closed = False
         self._ready = asyncio.Event()
+
+    def put_minigame(self, frame: bytes) -> None:
+        if self.closed:
+            raise OutboundClosed
+        if len(self.minigame) >= self.MINIGAME_LIMIT:
+            raise OutboundFull
+        self.minigame.append(frame)
+        self._ready.set()
 
     def put_control(self, frame: bytes) -> None:
         if self.closed:
@@ -144,6 +160,8 @@ class OutboundQueue:
                 raise OutboundClosed
             if self.controls:
                 return self.controls.popleft()
+            if self.minigame:
+                return self.minigame.popleft()
             if self.world is not None:
                 frame, self.world = self.world, None
                 return frame
@@ -153,6 +171,7 @@ class OutboundQueue:
     def close(self) -> None:
         self.closed = True
         self.controls.clear()
+        self.minigame.clear()
         self.world = None
         self._ready.set()
 
@@ -369,6 +388,7 @@ class WorldServer:
             self.trade_effects.lucky_decider = self._decide_lucky_trade
             self.trade_effects.on_commit = self._on_trade_committed
         self.lobby_desk = None
+        self.minigames = MinigameGroups(MAX_PLAYERS)   # KNOWN_ISSUES MS-141c: wireless minigame groups (session-local)
         if self.battle_desk is not None:
             self.battle_desk.on_closed = self._on_battle_closed
             self.battle_desk.on_publish = self._on_battle_publish
@@ -751,6 +771,8 @@ class WorldServer:
                     if getattr(self, "lobby_desk", None) is not None:
                         with suppress(StorageError, ProtocolError):
                             self.lobby_desk.refresh()     # a trainer who left the world leaves their lobby
+                    # a minigame group: left before its start, ended for the others once started (MS-141c)
+                    self._minigame_push(self.minigames.disconnected(session.player_id, self._minigame_epochs()))
                     if not self._closing:
                         self._broadcast_world()
                 if self.store is not None:
@@ -828,6 +850,11 @@ class WorldServer:
                 self._team(session, request)
             except (ProtocolError, StorageError) as error:
                 self._team_reply(session, message, error=error)
+        elif isinstance(kind, str) and kind in MINIGAME_TYPES:
+            # KNOWN_ISSUES MS-141c: the wireless minigames with the world's players (any world: nothing is saved).
+            request = validate_minigame_request(message, session.session_epoch)
+            session.last_seen = now
+            self._minigame(session, request)
         elif isinstance(kind, str) and kind in LOBBY_TYPES and self.store is not None:
             validate_lobby_common(message, session.session_epoch)
             try:
@@ -1003,6 +1030,65 @@ class WorldServer:
         else:
             result = getattr(desk, operation)(*actor, request["invitation_id"], request["generation"])
         self._team_reply(session, request, result=result)
+
+    def _minigame_epochs(self) -> dict[str, int]:
+        return {player: session.session_epoch for player, session in self.sessions.items()}
+
+    def _minigame_push(self, pushes) -> None:
+        for player, message in pushes:
+            target = self.sessions.get(player)
+            if target is None:
+                continue
+            if message["type"] == "minigame_link":
+                try:
+                    target.outbox.put_minigame(encode_message(message))
+                except (OutboundFull, OutboundClosed):
+                    target.close("minigame_backpressure")
+            else:
+                self._control(target, message)
+
+    def _minigame(self, session, request) -> None:
+        """KNOWN_ISSUES MS-141c: a wireless minigame group's lobby request, or a frame of its link
+        (minigame_groups.py)."""
+        kind = request["type"]
+        epochs = self._minigame_epochs()
+        if kind == "minigame_link":
+            self._minigame_push(self.minigames.link(session.player_id, request["group_id"],
+                                                    bytes.fromhex(request["data"]), epochs))
+            return
+        names = {player: target.display_name for player, target in self.sessions.items()}
+        operation = kind.removeprefix("minigame_")
+        actor = session.player_id
+        try:
+            if operation == "status":
+                result, pushes = self.minigames.status(actor, request["activity"], names), []
+            elif operation == "open":
+                result, pushes = self.minigames.open(actor, request["activity"],
+                                                     minigame_link_player(request["link_player"]), names)
+            elif operation == "join":
+                result, pushes = self.minigames.join(actor, request["group_id"],
+                                                     minigame_link_player(request["link_player"]), names)
+            elif operation == "start":
+                result, pushes = self.minigames.start(actor, request["group_id"], epochs, names)
+            else:
+                result, pushes = self.minigames.leave(actor, request["group_id"], epochs, lost=request["lost"])
+        except ProtocolError as error:
+            self._control(session, dict(type="minigame_error", protocol=PROTOCOL_VERSION,
+                                        session_epoch=session.session_epoch, request_id=request["request_id"],
+                                        operation=operation, code=error.code, message=error.message))
+            return
+        self._control(session, dict(type="minigame_result", protocol=PROTOCOL_VERSION,
+                                    session_epoch=session.session_epoch, request_id=request["request_id"],
+                                    operation=operation, result=result))
+        self._minigame_push(pushes)
+        if operation == "open":
+            # the others hear of it in their game's banner (the battle lobby's banner)
+            from .shared_world import _banner
+            others = [player for player in self.sessions if player != actor]
+            place = "a Direct Corner" if request["activity"] == "berry_crush" else "Mossdeep's game house"
+            with suppress(Exception):
+                self.shared_world.post_notice(_banner(f"{session.display_name[:12]}: {MINIGAME_TITLES[request['activity']]}",
+                                                      f"Join at {place}"), to=others)
 
     def _lobby_reply(self, session, request, *, error=None, result=None):
         assert self._world_metadata is not None

@@ -52,6 +52,25 @@ class MenuSessionTests(unittest.IsolatedAsyncioTestCase):
         await self.session._task
         self.assertEqual((await self.result())[0], 1)
 
+    async def test_a_host_close_stays_the_last_screen_of_its_window(self):
+        # KNOWN_ISSUES MS-141c: a minigame group starts while the leader's own "Start" is still being answered: the
+        # window's close must not be followed by that answer's screen (the game's mailbox holds one screen, so the page
+        # replaced the close and the window stayed open), nor by the status refresh's.
+        await self.open()
+        self.feed(2, 1, 1, 2)
+        await self.session.menu.entered.wait()
+        self.session.close_window("Off to the game!")
+        self.session.menu.gate.set()
+        await self.session._task
+        screen = await self.result()
+        self.assertEqual((screen[0], screen[1].status), (2, "Off to the game!"))
+        self.assertFalse(self.bridge.outbox.controls)                    # the answer to the press was not sent
+        self.assertTrue(self.session._window_closing)                    # nor will the status refresh send one
+        self.feed(3, 1, 0, 3)                                            # the game closes its window
+        self.feed(4)                                                     # and a later OPEN is answered as always
+        await self.session._task
+        self.assertEqual((await self.result())[0], 4)
+
     async def test_close_then_reopen_drops_late_response_without_canceling_consent(self):
         await self.open()
         self.feed(2, 1, 1, 2)

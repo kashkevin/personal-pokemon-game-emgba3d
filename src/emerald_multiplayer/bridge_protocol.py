@@ -82,6 +82,7 @@ class BridgeOutbox:
             raise ValueError("bridge reliable capacity must be between one and four")
         self.limit = limit
         self.controls: deque[bytes] = deque()
+        self.minigame: deque[bytes] = deque()   # KNOWN_ISSUES MS-141c: a minigame group's link frames, their own bound
         self.pending: bytes | None = None
         self.pending_world: bytes | None = None
         self.pending_spawns: bytes | None = None
@@ -118,6 +119,18 @@ class BridgeOutbox:
             self.pending_extras = frame
             self.ready.set()
 
+    MINIGAME_LIMIT = 256
+
+    def put_minigame(self, payload: bytes) -> None:
+        """A minigame link frame for the game ('m'): after the controls, before the snapshots."""
+        frame = encode_packet(payload)
+        if self.closed:
+            raise BridgeError("bridge outbox is closed")
+        if len(self.minigame) >= self.MINIGAME_LIMIT:
+            raise BridgeBackpressure("bridge minigame queue is full")
+        self.minigame.append(frame)
+        self.ready.set()
+
     def put_control(self, payload: bytes, *, maximum=MAX_BRIDGE_FRAME_BYTES) -> None:
         frame = encode_packet(payload, maximum=maximum)
         if self.closed:
@@ -134,6 +147,8 @@ class BridgeOutbox:
             if self.controls and (not snapshot_waiting or self._control_burst < 2):
                 self._control_burst += 1
                 return self.controls.popleft()
+            if self.minigame:
+                return self.minigame.popleft()
             # Presence and shared-world snapshots alternate when both wait, so
             # a busy presence stream never starves world records (and v.v.).
             if self.pending is not None and not (self.pending_world is not None and self._presence_last):
@@ -161,6 +176,7 @@ class BridgeOutbox:
     def close(self) -> None:
         self.closed = True
         self.controls.clear()
+        self.minigame.clear()
         self.pending = None
         self.pending_world = None
         self.pending_spawns = self.pending_extras = None
