@@ -38,15 +38,16 @@ PKMN_TEST_TOWER_RECORD: the game loads the save, sets them and saves through its
                         its rival line (34,57 / 35,57 / 33,57 / 34,57: the line has three tiles, and each game is its
                         own copy of the world; the test build's PKMN_TEST_WARP): the rival checkpoint proof
                         (native_launcher_rival_proof.py; --players 4 is its 2v2)
-  crush-a / -b          one level-5 Pokemon each (Treecko, Torchic), a POWDER JAR, 5 Cheri and 5 Chesto Berries and
-                        the POKEDEX's flag (the attendants talk of linking only after it), each below the Direct Corner's
-                        attendant of a Pokemon Center 2F (10,3: Oldale Town's, Petalburg City's): the wireless minigame
-                        proof (native_launcher_minigame_proof.py, KNOWN_ISSUES MS-141c)
-  jump-a / -b           a level-5 Pikachu, a level-5 Marill (Pokemon Jump takes both), each in Mossdeep City's
-                        minigame building across the counter from the old man (6,4): the same proof's Pokemon Jump
+  crush-a / -b / -c / -d  one level-5 Pokemon each (Treecko, Torchic, Mudkip, Poochyena), a POWDER JAR, 5 Cheri and
+                        5 Chesto Berries and the POKEDEX's flag (the attendants talk of linking only after it), each
+                        below the Direct Corner's attendant of a Pokemon Center 2F (10,3: Oldale Town's, Petalburg
+                        City's, Rustboro City's, Slateport City's): the wireless minigame proof
+                        (native_launcher_minigame_proof.py, KNOWN_ISSUES MS-141c; -c and -d its --players 3 and 4)
+  jump-a / -b / -c / -d  a level-5 Pikachu or Marill (Pokemon Jump takes both), each in Mossdeep City's minigame
+                        building across the counter from the old man (6,4): the same proof's Pokemon Jump
                         (--activity pokemon_jump)
-  dodrio-a / -b / -c    a level-5 Dodrio each, where jump-a and -b are: the same proof's Dodrio Berry Picking (three
-                        players, its least; --activity dodrio)
+  dodrio-a / -b / -c / -d  a level-5 Dodrio each, where jump-a and -b are: the same proof's Dodrio Berry Picking (three
+                        players, its least; --activity dodrio; -d its --players 4)
 
     python scripts/multiplayer/make_tower_saves.py --exe <Makefile_pc BFX_TEST=1 build> \\
         --mega-check <engine>/tools/battle_env/mega_check.py --source-a boy-1.sav --source-b girl-1.sav --out DIR \\
@@ -103,12 +104,18 @@ FIXTURES = (  # (name, source, party, record "highest:progress" or None[, bag "i
     # MAP_OLDALE_TOWN_POKEMON_CENTER_2F (2.3), MAP_PETALBURG_CITY_POKEMON_CENTER_2F (8.5); FLAG_SYS_POKEDEX_GET
     ("crush-a", "a", "252:5", None, CRUSH_BAG, "2:3:-1:10:3", False, "0x861"),
     ("crush-b", "b", "255:5", None, CRUSH_BAG, "8:5:-1:10:3", False, "0x861"),
+    # MAP_RUSTBORO_CITY_POKEMON_CENTER_2F (11.6), MAP_SLATEPORT_CITY_POKEMON_CENTER_2F (9.12); SPECIES_MUDKIP, POOCHYENA
+    ("crush-c", "c", "258:5", None, CRUSH_BAG, "11:6:-1:10:3", False, "0x861"),
+    ("crush-d", "d", "261:5", None, CRUSH_BAG, "9:12:-1:10:3", False, "0x861"),
     # MAP_MOSSDEEP_CITY_GAME_CORNER_1F (14.11), across the counter from the old man; SPECIES_PIKACHU, SPECIES_MARILL
     ("jump-a", "a", "25:5", None, "", "14:11:-1:6:4"),
     ("jump-b", "b", "183:5", None, "", "14:11:-1:6:4"),
+    ("jump-c", "c", "25:5", None, "", "14:11:-1:6:4"),
+    ("jump-d", "d", "183:5", None, "", "14:11:-1:6:4"),
     ("dodrio-a", "a", "85:5", None, "", "14:11:-1:6:4"),       # SPECIES_DODRIO
     ("dodrio-b", "b", "85:5", None, "", "14:11:-1:6:4"),
     ("dodrio-c", "c", "85:5", None, "", "14:11:-1:6:4"),
+    ("dodrio-d", "d", "85:5", None, "", "14:11:-1:6:4"),
 )
 
 
@@ -157,8 +164,8 @@ def main():
     parser.add_argument("--mega-check", required=True, help="the engine's tools/battle_env/mega_check.py")
     parser.add_argument("--source-a", type=Path, required=True, help="player A's short-introduction save")
     parser.add_argument("--source-b", type=Path, required=True, help="player B's short-introduction save")
-    parser.add_argument("--source-c", type=Path, help="player C's short-introduction save (abandon-c, rival-c)")
-    parser.add_argument("--source-d", type=Path, help="player D's short-introduction save (abandon-d, knockout-d, rival-d)")
+    parser.add_argument("--source-c", type=Path, help="player C's short-introduction save (abandon-c, rival-c, crush-c, ...)")
+    parser.add_argument("--source-d", type=Path, help="player D's short-introduction save (abandon-d, knockout-d, rival-d, crush-d, ...)")
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--only", default="", help="comma-separated fixture names (default: all)")
     parser.add_argument("--display", default=None, help="Linux: an X display for the game")

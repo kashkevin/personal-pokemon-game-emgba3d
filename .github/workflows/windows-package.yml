@@ -1016,14 +1016,14 @@ jobs:
     # game it packages (scripts/multiplayer/native_launcher_minigame_proof.py, Windows mode: keys as the keyboard's
     # messages to each game's own window, memory read at the facts minigame_facts.py wrote from this game before its
     # strip). The characters come from the game's own short introduction; the test build then gives them their
-    # fixtures (make_tower_saves.py crush-a/-b at two Pokemon Centers' 2F, jump-a/-b and dodrio-a/-b/-c in Mossdeep's
-    # minigame building). Each: the attendant, WORLD PLAYERS, the game's own save, the lobby in the Players menu, the
-    # host's group, the friends joining, the host starting it; the game itself as players play it (Berry Crush: a Berry
-    # each and A mashed; Pokemon Jump: A as the vine comes down; Dodrio Berry Picking, three players: picking), the
-    # results the same in every game, the host YES and the friends NO to playing again, every game back on the field
-    # with no communication error, every link frame through the host; then the saves, a fresh Continue, the parties
-    # unchanged.
-    name: Wireless minigames between players (Windows game processes, ${{ matrix.activity }})
+    # fixtures (make_tower_saves.py crush-a/-b/-c/-d at four Pokemon Centers' 2F, jump-a to -d and dodrio-a to -d in
+    # Mossdeep's minigame building). Each: the attendant, WORLD PLAYERS, the game's own save, the lobby in the Players
+    # menu, the host's group, the friends joining, the host starting it; the game itself as players play it (Berry
+    # Crush: a Berry each and A mashed; Pokemon Jump: A as the vine comes down; Dodrio Berry Picking, three players or
+    # more: picking), the results the same in every game, the host YES and the friends NO to playing again, every game
+    # back on the field with no communication error, every link frame through the host; then the saves, a fresh
+    # Continue, the parties unchanged. Each game with the fewest players it takes, and with four (a world's most).
+    name: Wireless minigames between players (Windows game processes, ${{ matrix.activity }}, ${{ matrix.count }} players)
     needs: [engine, symbol-sizes]
     if: ${{ (inputs.mode || 'smoke') == 'full' && (!inputs.only || contains(format(',{0},', inputs.only), ',minigame-proof,')) }}
     runs-on: windows-2022
@@ -1035,6 +1035,12 @@ jobs:
           - {activity: berry_crush, count: 2, fixtures: "crush-a,crush-b", a: crush-a, b: crush-b}
           - {activity: pokemon_jump, count: 2, fixtures: "jump-a,jump-b", a: jump-a, b: jump-b}
           - {activity: dodrio, count: 3, fixtures: "dodrio-a,dodrio-b,dodrio-c", a: dodrio-a, b: dodrio-b, c: dodrio-c}
+          - {activity: berry_crush, count: 4, fixtures: "crush-a,crush-b,crush-c,crush-d", a: crush-a, b: crush-b,
+             c: crush-c, d: crush-d}
+          - {activity: pokemon_jump, count: 4, fixtures: "jump-a,jump-b,jump-c,jump-d", a: jump-a, b: jump-b, c: jump-c,
+             d: jump-d}
+          - {activity: dodrio, count: 4, fixtures: "dodrio-a,dodrio-b,dodrio-c,dodrio-d", a: dodrio-a, b: dodrio-b,
+             c: dodrio-c, d: dodrio-d}
     defaults:
       run:
         shell: bash
@@ -1072,23 +1078,26 @@ jobs:
           if [ ! -f symbols/minigame-facts.json ]; then echo "::notice::this engine has no minigame facts"; exit 0; fi
           .venv/Scripts/python scripts/multiplayer/make_intro_saves.py --exe mega-check-inputs/pokeemerald-mp-bfxtest.exe \
             --mega-check mega-check-inputs/mega_check.py --out "$RUNNER_TEMP/intro" --count ${{ matrix.count }}
-          third=()
-          if [ "${{ matrix.count }}" = 3 ]; then third=(--source-c "$RUNNER_TEMP/intro/boy-2.sav"); fi
+          more=()
+          if [ "${{ matrix.count }}" -ge 3 ]; then more+=(--source-c "$RUNNER_TEMP/intro/boy-2.sav"); fi
+          if [ "${{ matrix.count }}" -ge 4 ]; then more+=(--source-d "$RUNNER_TEMP/intro/girl-2.sav"); fi
           .venv/Scripts/python scripts/multiplayer/make_tower_saves.py --exe mega-check-inputs/pokeemerald-mp-bfxtest.exe \
             --mega-check mega-check-inputs/mega_check.py --source-a "$RUNNER_TEMP/intro/boy-1.sav" \
-            --source-b "$RUNNER_TEMP/intro/girl-1.sav" "${third[@]}" --out "$RUNNER_TEMP/minigame-saves" \
+            --source-b "$RUNNER_TEMP/intro/girl-1.sav" "${more[@]}" --out "$RUNNER_TEMP/minigame-saves" \
             --only ${{ matrix.fixtures }}
-      - name: The minigame (${{ matrix.activity }})
+      - name: The minigame (${{ matrix.activity }}, ${{ matrix.count }} players)
         run: |
           if [ ! -f symbols/minigame-facts.json ]; then echo "::notice::this engine has no minigame facts"; exit 0; fi
           saves="$RUNNER_TEMP/minigame-saves"
           sources=(--source-a "$saves/${{ matrix.a }}.sav" --source-b "$saves/${{ matrix.b }}.sav")
           if [ -n "${{ matrix.c }}" ]; then sources+=(--source-c "$saves/${{ matrix.c }}.sav"); fi
+          if [ -n "${{ matrix.d }}" ]; then sources+=(--source-d "$saves/${{ matrix.d }}.sav"); fi
           .venv/Scripts/python scripts/multiplayer/native_launcher_minigame_proof.py --activity ${{ matrix.activity }} \
+            --players ${{ matrix.count }} \
             --game inputs/pokeemerald-mp.exe --sdl inputs/SDL2.dll --rom inputs/pokedev.gba \
             --manifest inputs/manifest.json --pe-symbols symbols/pokeemerald-mp.nm.txt \
             --sizes symbols/pokeemerald-mp.sizes.txt --minigame-facts symbols/minigame-facts.json --slow 1.5 \
-            "${sources[@]}" --output "$RUNNER_TEMP/multiplayer-proof/minigame-${{ matrix.activity }}"
+            "${sources[@]}" --output "$RUNNER_TEMP/multiplayer-proof/minigame-${{ matrix.activity }}-${{ matrix.count }}"
       - name: The proof's own diagnosis, in this log (only when it failed; scripts/multiplayer/proof_failure_summary.py)
         if: failure()
         run: python scripts/multiplayer/proof_failure_summary.py "$RUNNER_TEMP/multiplayer-proof"
@@ -1096,7 +1105,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: EmeraldTogether-minigame-proof-${{ matrix.activity }}
+          name: EmeraldTogether-minigame-proof-${{ matrix.activity }}-${{ matrix.count }}
           path: |
             ${{ runner.temp }}/multiplayer-proof/*/evidence.json
             ${{ runner.temp }}/multiplayer-proof/*/*.jsonl

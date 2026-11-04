@@ -156,11 +156,17 @@ class WindowsWorkflowTests(unittest.TestCase):
         self.assertIn("runs-on: windows-2022", minigames)
         self.assertIn("needs: [engine, symbol-sizes]", minigames)
         for activity, fixtures in (("berry_crush", "crush-a,crush-b"), ("pokemon_jump", "jump-a,jump-b"),
-                                   ("dodrio", "dodrio-a,dodrio-b,dodrio-c")):
+                                   ("dodrio", "dodrio-a,dodrio-b,dodrio-c"),
+                                   # and each with four players, a world's most
+                                   ("berry_crush", "crush-a,crush-b,crush-c,crush-d"),
+                                   ("pokemon_jump", "jump-a,jump-b,jump-c,jump-d"),
+                                   ("dodrio", "dodrio-a,dodrio-b,dodrio-c,dodrio-d")):
             self.assertIn(f"activity: {activity},", minigames)
             self.assertIn(f'fixtures: "{fixtures}"', minigames)
         self.assertIn("--only ${{ matrix.fixtures }}", minigames)
         self.assertIn("native_launcher_minigame_proof.py --activity ${{ matrix.activity }}", minigames)
+        self.assertIn("--players ${{ matrix.count }}", minigames)
+        self.assertIn('--source-d "$RUNNER_TEMP/intro/girl-2.sav"', minigames)
         self.assertIn("--game inputs/pokeemerald-mp.exe", minigames)             # the packaged Classic 2D game
         self.assertIn("--minigame-facts symbols/minigame-facts.json", minigames)
         # the facts of the very build, written before its strip (as the Mega proof's)

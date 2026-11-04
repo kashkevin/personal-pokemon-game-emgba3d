@@ -1,4 +1,4 @@
-"""The wireless minigames between two of a world's players through the whole launcher (KNOWN_ISSUES MS-141c).
+"""The wireless minigames between two to four of a world's players through the whole launcher (KNOWN_ISSUES MS-141c).
 
 --activity berry_crush (the default):
     1. Both linked; each game Continues at a Pokemon Center 2F below the Direct Corner's attendant (make_tower_saves.py's
@@ -35,6 +35,11 @@
        "Want to play again?" - the host YES, the friends NO - and all three close the link and walk out of the room.
     5. As Berry Crush's.
 
+--players 3 or 4 (a world's most; --source-c, --source-d and a --display each): the same with more friends, each
+joining in turn ("Join <host> 2/4", "3/4"), the host starting with them all, every friend a member answering NO; Pokemon
+Jump's checks then read every player's jumps (each game shows every other player's), the score the same in all games
+(make_tower_saves.py's crush-c and -d at two more Pokemon Centers' 2F, jump-c, -d and dodrio-d where the others are).
+
 What the games do is read from their memory (the attendant's choice, the save's questions, the Players menu, the
 minigame's current step, from the game's debug information where a structure is read: minigame_facts.py); keys are
 pressed as a player presses them (xdotool on Linux; on Windows, the keyboard's messages to each game's own window, as
@@ -48,6 +53,7 @@ Windows proofs, and --minigame-facts (minigame_facts.py of the game before its s
         --game ../engine/pokeemerald-mp --rom pokeemerald.gba --manifest manifest.json \\
         --source-a crush-a.sav --source-b crush-b.sav --display :94 --display :95 \\
         --output /private/multiplayer-proof/native-launcher-minigame-1 [--activity pokemon_jump | dodrio --source-c ..]
+        [--players 4 --source-c crush-c.sav --source-d crush-d.sav --display :96 --display :97]
 """
 from __future__ import annotations
 
@@ -76,10 +82,11 @@ JUMPS = 6                                               # each player's jumps be
 DODRIO_PHASES = ("Intro", "InitCountdown", "Countdown", "WaitStart", "PlayGame", "InitResults", "Results",
                  "AskPlayAgain", "EndLink", "Exit", "ResetGame", "WaitEndGame")
 DODRIO_RESULTS = 6                                      # each player's Berries blue, green, gold, missed, prize, in a row
+# least: the game's (minigame_protocol.ACTIVITIES); names: a world's players in order (a world has four at most)
 ACTIVITIES = {
-    "berry_crush": dict(title="BERRY CRUSH", names=("Crush Host", "Crush Friend")),
-    "pokemon_jump": dict(title="POKEMON JUMP", names=("Jump Host", "Jump Friend")),
-    "dodrio": dict(title="DODRIO BERRY-PICKING", names=("Pick Host", "Pick Friend", "Pick Third")),
+    "berry_crush": dict(title="BERRY CRUSH", least=2, names=("Crush Host", "Crush Friend", "Crush Third", "Crush Fourth")),
+    "pokemon_jump": dict(title="POKEMON JUMP", least=2, names=("Jump Host", "Jump Friend", "Jump Third", "Jump Fourth")),
+    "dodrio": dict(title="DODRIO BERRY-PICKING", least=3, names=("Pick Host", "Pick Friend", "Pick Third", "Pick Fourth")),
 }
 GAME_SECONDS = 420
 
@@ -192,17 +199,20 @@ class Game:
                     return step, self.heap(probe, game + 12, 1)[0]
         return None
 
-    def jump(self, probe):
+    def jump(self, probe, count):
         """Pokemon Jump's state while its screen runs (its structure is freed, not cleared, at its end), else None:
-        the phase, the phase's helper state, the vine's state, whether this game leads, the score, the swings cleared."""
+        the phase, the phase's helper state, the vine's state, whether this game leads, the score, the swings cleared,
+        and each of the `count` players' Pokemon's state (jumping or not)."""
         if self.callback2(probe) not in self.jump_screen:
             return None
         game = self.word(probe, self.jump_game[0])
         if not game:
             return None
         f = self.jump_fields
-        data = self.heap(probe, game, f["comm.jumpScore"] + 4)          # the structure's head, then two players'
-        mons = [int.from_bytes(self.heap(probe, game + f[f"players[{i}].monState"], 2), "little") for i in (0, 1)]
+        data = self.heap(probe, game, f["comm.jumpScore"] + 4)          # the structure's head
+        stride = f["players[1].monState"] - f["players[0].monState"]   # one player's entry in its players[]
+        mons = [int.from_bytes(self.heap(probe, game + f["players[0].monState"] + i * stride, 2), "little")
+                for i in range(count)]
         phase = data[f["comm.funcId"]]
         return dict(phase=JUMP_PHASES[phase] if phase < len(JUMP_PHASES) else phase,
                     helper=int.from_bytes(data[f["helperState"]:f["helperState"] + 2], "little"),
@@ -272,6 +282,7 @@ class MinigameMatch:
     def __init__(self, output, facts, activity):
         self.output, self.facts, self.activity = output, facts, activity
         self.pictures = output / "pictures"
+        self.count = ACTIVITIES[activity]["least"]           # the players in the game (match sets it)
 
     def picture(self, probe, name):
         self.pictures.mkdir(exist_ok=True)
@@ -382,22 +393,29 @@ class MinigameMatch:
 
     async def play_jump(self, probe, slot, game, record, stop):
         """Pokemon Jump for one player, from its memory: A as the vine comes down (each swing until JUMPS jumps, then
-        none: the vine catches it), the prize's message if there is one, the host YES and the friend NO to playing
-        again, until the game has walked out of the room. Counted on the way: this game's rounds and jumps, and the
+        none: the vine catches it), the prize's message if there is one, the host YES and the friends NO to playing
+        again, until the game has walked out of the room. Counted on the way: this game's rounds and jumps, and each
         other player's jumps as this game shows them (they come over the link)."""
-        phases, rounds, jumps, other_jumps = [], 0, 0, 0
-        entered, focused, swing_pressed, other_was_jumping = False, False, False, False
+        phases, rounds, jumps = [], 0, 0
+        entered, focused, swing_pressed = False, False, False
         last_phase, last_report, at_question = None, time.monotonic(), None
-        other = 1 - slot                                   # the host leads (player 0), the friend is player 1
+        others = [i for i in range(self.count) if i != slot]   # the host leads (player 0), the friends follow
+        other_jumps, was_jumping = dict.fromkeys(others, 0), dict.fromkeys(others, False)
+        # how well this proof follows the vine (it must see VINE_DOWNSWING_LOWER, a few frames, to jump): the states
+        # read in a round and the longest time between two reads there
+        vines_seen, longest_gap, last_read, focus_seconds = set(), 0.0, None, None
         async with asyncio.timeout(GAME_SECONDS):
             while not stop.is_set():
                 callback = game.callback2(probe)
                 require(callback not in game.link_error, f"player {slot}'s game shows the communication error")
-                state = game.jump(probe)
+                state = game.jump(probe, self.count)
                 if time.monotonic() - last_report >= 15:
                     last_report = time.monotonic()
+                    # no picture while the vine swings: taking one holds up every player's reading (one event loop)
+                    swinging = state is not None and state["phase"] == "GameRound"
                     record("pokemon-jump-now", slot=slot, callback2=hex(callback), state=state, jumps=jumps,
-                           picture=self.picture(probe, f"{slot}-w-{len(phases):02d}-{int(last_report) % 100000}"))
+                           picture=None if swinging else
+                           self.picture(probe, f"{slot}-w-{len(phases):02d}-{int(last_report) % 100000}"))
                 if state is None:
                     if entered and callback in game.overworld and not game.linked(probe):
                         break
@@ -407,11 +425,13 @@ class MinigameMatch:
                 if phase not in JUMP_PHASES or state["leader"] not in (0, 1):
                     await asyncio.sleep(.01)               # read as its structure was freed: the screen is ending
                     continue
-                jumping = state["mons"][other] == MONSTATE_JUMP
-                other_jumps += jumping and not other_was_jumping
-                other_was_jumping = jumping
+                for other in others:
+                    jumping = state["mons"][other] == MONSTATE_JUMP
+                    other_jumps[other] += int(jumping and not was_jumping[other])
+                    was_jumping[other] = jumping
                 if phase != last_phase:
                     rounds += phase == "GameRound"
+                    last_read = None                       # a gap is measured within a round
                     if phase not in phases:                # each round is GameRound, then WaitRound: named once
                         phases.append(phase)
                         pictured = phase in ("GameIntro", "GameOver", "Exit")
@@ -419,10 +439,19 @@ class MinigameMatch:
                                score=state["score"], cleared=state["cleared"],
                                picture=self.picture(probe, f"{slot}-3-{len(phases):02d}-{phase}") if pictured else None)
                     last_phase = phase
+                if phase in ("GameIntro", "GameRound") and not focused:
+                    # its display has one window: focused once, as the names show, before the vine moves (focusing
+                    # can take seconds: done in a round it cost the first swing, KNOWN_ISSUES MS-141c four players)
+                    started = time.monotonic()
+                    await asyncio.to_thread(probe._window)
+                    focus_seconds, focused = round(time.monotonic() - started, 3), True
+                    continue
                 if phase == "GameRound":
-                    if not focused:
-                        await asyncio.to_thread(probe._window)    # its display has one window: focused once
-                        focused = True
+                    now = time.monotonic()
+                    if last_read is not None:
+                        longest_gap = max(longest_gap, now - last_read)
+                    last_read = now
+                    vines_seen.add(state["vine"])
                     if state["vine"] == VINE_DOWNSWING_LOWER and not swing_pressed:
                         swing_pressed = True
                         if jumps < JUMPS:
@@ -443,7 +472,9 @@ class MinigameMatch:
                     await asyncio.sleep(.01)
         await asyncio.sleep(2)
         played = dict(rounds=rounds, jumps=jumps, other_jumps=other_jumps, at_question=at_question)
-        record("back-on-the-field", slot=slot, phases=phases, **played, picture=self.picture(probe, f"{slot}-5-back"))
+        record("back-on-the-field", slot=slot, phases=phases, **played, vines_seen=sorted(vines_seen),
+               longest_read_gap=round(longest_gap, 3), focus_seconds=focus_seconds,
+               picture=self.picture(probe, f"{slot}-5-back"))
         return dict(steps=phases, **played)
 
     async def play_dodrio(self, probe, slot, game, record, stop):
@@ -512,6 +543,7 @@ class MinigameMatch:
         names = [account.display_name for account in host.accounts]
         game = Game(self.facts, self.activity)
         host_probe, friends, count = probes[0], probes[1:], len(probes)
+        self.count = count
 
         async def host_view(s):
             groups = s._server.minigames
@@ -555,7 +587,7 @@ class MinigameMatch:
             require(screen.rows and screen.rows[0].label == "Lead a group", f"the host's lobby: {screen.rows}")
             _, screen = await host_probe.choose("Lead a group")
             record("host-leads", status=screen.status, rows=[r.label for r in screen.rows])
-            minimum = 3 if self.activity == "dodrio" else 2   # the game's least (minigame_protocol.ACTIVITIES)
+            minimum = ACTIVITIES[self.activity]["least"]
             require(screen.status == f"Waiting: {minimum} players or more", f"the host's group says {screen.status!r}")
             for slot, friend in enumerate(friends, 1):
                 screen = await self.to_lobby(friend, slot, game, record)
@@ -586,10 +618,10 @@ class MinigameMatch:
             played = await asyncio.gather(*(play(probe, slot, game, record, stop) for slot, probe in enumerate(probes)))
             steps = [p["steps"] for p in played]
             if self.activity == "berry_crush":
-                require("Cmd_PlayGame_Leader" in steps[0] and "Cmd_PlayGame_Member" in steps[1],
-                        f"the crush was not played as leader and member: {steps}")
-                require("Cmd_ShowResults" in steps[0] and "Cmd_ShowResults" in steps[1], "no results")
-                require("Cmd_AskPlayAgain" in steps[0] and "Cmd_AskPlayAgain" in steps[1], "no play-again question")
+                require("Cmd_PlayGame_Leader" in steps[0] and all("Cmd_PlayGame_Member" in s for s in steps[1:]),
+                        f"the crush was not played as leader and members: {steps}")
+                require(all("Cmd_ShowResults" in s for s in steps), f"a game showed no results: {steps}")
+                require(all("Cmd_AskPlayAgain" in s for s in steps), f"a game had no play-again question: {steps}")
             elif self.activity == "dodrio":
                 for phase in ("Intro", "PlayGame", "Results", "AskPlayAgain", "EndLink"):
                     require(all(phase in s for s in steps), f"Dodrio Berry Picking's {phase} not in every game: {steps}")
@@ -603,15 +635,16 @@ class MinigameMatch:
                 require(all(n >= 1 for n in eaten), f"a player's picks never reached the leader's game: {eaten}")
             else:
                 for phase in ("GameIntro", "GameRound", "GameOver", "AskPlayAgain", "Exit"):
-                    require(all(phase in s for s in steps), f"Pokemon Jump's {phase} not in both games: {steps}")
+                    require(all(phase in s for s in steps), f"Pokemon Jump's {phase} not in every game: {steps}")
                 ends = [p["at_question"] for p in played]
                 require(all(ends), f"a game was not asked to play again: {ends}")
-                require([e["leader"] for e in ends] == [1, 0], f"not the host leading and the friend a member: {ends}")
-                require(ends[0]["score"] == ends[1]["score"] and ends[0]["cleared"] == ends[1]["cleared"],
+                require([e["leader"] for e in ends] == [1] + [0] * (count - 1),
+                        f"not the host leading and the friends members: {ends}")
+                require(all((e["score"], e["cleared"]) == (ends[0]["score"], ends[0]["cleared"]) for e in ends),
                         f"the games show different scores: {ends}")
-                require(ends[0]["cleared"] >= 1, f"no swing cleared by both players: {ends}")
-                require(all(p["other_jumps"] >= 1 for p in played),
-                        f"a game never showed the other player's jump: {[p['other_jumps'] for p in played]}")
+                require(ends[0]["cleared"] >= 1, f"no swing cleared by every player: {ends}")
+                require(all(n >= 1 for p in played for n in p["other_jumps"].values()),
+                        f"a game never showed another player's jump: {[p['other_jumps'] for p in played]}")
             await asyncio.sleep(3)                         # the leaves reach the host
         finally:
             stop.set()
@@ -635,7 +668,11 @@ class MinigameMatch:
 
 
 async def run(args):
-    names = ACTIVITIES[args.activity]["names"]
+    activity = ACTIVITIES[args.activity]
+    players = args.players or activity["least"]
+    require(activity["least"] <= players <= len(activity["names"]),
+            f"{args.activity} takes {activity['least']} to {len(activity['names'])} of a world's players, not {players}")
+    names = activity["names"][:players]
     if WINDOWS:
         # the release's Windows game is stripped: its facts were written before (minigame_facts.py); one desktop
         require(args.minigame_facts, "on Windows: --minigame-facts (minigame_facts.py of the game before its strip)")
@@ -647,7 +684,7 @@ async def run(args):
 
     async def match(*values):
         return await minigame.match(*values)
-    sources = (args.source_a, args.source_b, args.source_c)[:len(names)]
+    sources = (args.source_a, args.source_b, args.source_c, args.source_d)[:len(names)]
     require(all(sources) and args.display and len(args.display) >= len(names),
             f"{args.activity} takes {len(names)} players: a --source and a --display each")
     await launcher_proof(args, names=names, sources=sources, party_counts=(1,) * len(names), match=match,
@@ -663,7 +700,10 @@ def main():
     parser.add_argument("--activity", choices=sorted(ACTIVITIES), default="berry_crush")
     parser.add_argument("--source-a", type=Path, required=True, help="make_tower_saves.py's crush-a (jump-a)")
     parser.add_argument("--source-b", type=Path, required=True, help="make_tower_saves.py's crush-b (jump-b)")
-    parser.add_argument("--source-c", type=Path, help="make_tower_saves.py's dodrio-c (--activity dodrio)")
+    parser.add_argument("--source-c", type=Path, help="make_tower_saves.py's dodrio-c (--activity dodrio), crush-c, jump-c")
+    parser.add_argument("--source-d", type=Path, help="make_tower_saves.py's crush-d, jump-d, dodrio-d (--players 4)")
+    parser.add_argument("--players", type=int, choices=(2, 3, 4),
+                        help="a world's players in the game (default the game's least: 2, Dodrio Berry Picking 3)")
     parser.add_argument("--display", action="append", help="an X display per player (Linux)")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--slow", type=float, default=1.0)
