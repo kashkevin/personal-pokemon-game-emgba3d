@@ -80,7 +80,8 @@ JUMPS = 6                                               # each player's jumps be
 # Dodrio Berry Picking's phases (src/dodrio_berry_picking.c, FUNC_*)
 DODRIO_PHASES = ("Intro", "InitCountdown", "Countdown", "WaitStart", "PlayGame", "InitResults", "Results",
                  "AskPlayAgain", "EndLink", "Exit", "ResetGame", "WaitEndGame")
-DODRIO_FIELDS = ("funcId", "state", "isLeader", "numPlayers", "numGraySquares", "berriesEaten")
+DODRIO_FIELDS = ("funcId", "state", "isLeader", "numPlayers", "numGraySquares", "berryResults", "berriesEaten")
+DODRIO_RESULTS = 6                                      # each player's Berries blue, green, gold, missed, prize, in a row
 ACTIVITIES = {
     "berry_crush": dict(title="BERRY CRUSH", names=("Crush Host", "Crush Friend")),
     "pokemon_jump": dict(title="POKEMON JUMP", names=("Jump Host", "Jump Friend")),
@@ -224,10 +225,15 @@ class Game:
         f = self.dodrio_fields
         data = self.raw(probe, game, f["berriesEaten"] + 10)
         phase, players = data[f["funcId"]], data[f["numPlayers"]]
-        eaten = f["berriesEaten"]
+        eaten, table = f["berriesEaten"], f["berryResults"]
+
+        def u16(offset):
+            return int.from_bytes(data[offset:offset + 2], "little")
         return dict(phase=DODRIO_PHASES[phase] if phase < len(DODRIO_PHASES) else phase, state=data[f["state"]],
                     leader=data[f["isLeader"]], players=players, missed=data[f["numGraySquares"]],
-                    eaten=[int.from_bytes(data[eaten + 2 * i:eaten + 2 * i + 2], "little") for i in range(min(players, 5))])
+                    eaten=[u16(eaten + 2 * i) for i in range(min(players, 5))],
+                    results=[[u16(table + 2 * (DODRIO_RESULTS * i + k)) for k in range(DODRIO_RESULTS)]
+                             for i in range(min(players, 5))])
 
     def linked(self, probe):
         return any(self.raw(probe, address, 1)[0] for address in self.link_active)
@@ -439,7 +445,7 @@ class MinigameMatch:
         fall, A through the results' pages, then the host YES and the friends NO to playing again, until the game has
         walked out of the room."""
         phases, picks, entered, focused, last_pick = [], 0, False, False, 0.0
-        last_phase, last_report, last_page, at_question = None, time.monotonic(), 0.0, None
+        last_phase, last_report, last_page, at_question, at_results = None, time.monotonic(), 0.0, None, None
         async with asyncio.timeout(GAME_SECONDS):
             while not stop.is_set():
                 callback = game.callback2(probe)
@@ -475,9 +481,14 @@ class MinigameMatch:
                         await asyncio.to_thread(_tap, probe, KEYS[UP])
                         picks, last_pick = picks + 1, now
                     await asyncio.sleep(.01)
-                elif phase == "Results" and now - last_page >= 1.0:
-                    await probe.press(A)                   # each page waits half a second, then for A
-                    last_page = time.monotonic()
+                elif phase == "Results":
+                    # the table every game shows: the leader's, sent to the others as a link block at the results
+                    at_results = state
+                    if now - last_page >= 1.0:
+                        await probe.press(A)               # each page waits half a second, then for A
+                        last_page = time.monotonic()
+                    else:
+                        await asyncio.sleep(.05)
                 elif phase == "AskPlayAgain" and state["state"] == 3 and at_question is None:
                     await asyncio.sleep(.5)
                     at_question = dict(state, answer="YES" if slot == 0 else "NO")
@@ -487,7 +498,7 @@ class MinigameMatch:
                 else:
                     await asyncio.sleep(.02)
         await asyncio.sleep(2)
-        played = dict(picks=picks, at_question=at_question)
+        played = dict(picks=picks, at_results=at_results, at_question=at_question)
         record("back-on-the-field", slot=slot, phases=phases, **played, picture=self.picture(probe, f"{slot}-5-back"))
         return dict(steps=phases, **played)
 
@@ -579,8 +590,11 @@ class MinigameMatch:
                 ends = [p["at_question"] for p in played]
                 require(all(ends), f"a game was not asked to play again: {ends}")
                 require([e["leader"] for e in ends] == [1] + [0] * (count - 1), f"not the host alone leading: {ends}")
-                require(all(e["eaten"] == ends[0]["eaten"] for e in ends), f"the games show different results: {ends}")
-                require(sum(ends[0]["eaten"][1:]) >= 1, f"no friend's pick reached the leader's game: {ends}")
+                tables = [p["at_results"] and p["at_results"]["results"] for p in played]
+                require(all(tables), f"a game showed no results: {tables}")
+                require(all(t == tables[0] for t in tables), f"the games show different results: {tables}")
+                eaten = [sum(row[:3]) for row in tables[0]]     # blue, green and gold Berries
+                require(all(n >= 1 for n in eaten), f"a player's picks never reached the leader's game: {eaten}")
             else:
                 for phase in ("GameIntro", "GameRound", "GameOver", "AskPlayAgain", "Exit"):
                     require(all(phase in s for s in steps), f"Pokemon Jump's {phase} not in both games: {steps}")
