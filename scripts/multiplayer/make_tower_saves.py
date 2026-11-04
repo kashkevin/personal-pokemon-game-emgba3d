@@ -48,6 +48,9 @@ PKMN_TEST_TOWER_RECORD: the game loads the save, sets them and saves through its
                         (--activity pokemon_jump)
   dodrio-a / -b / -c / -d  a level-5 Dodrio each, where jump-a and -b are: the same proof's Dodrio Berry Picking (three
                         players, its least; --activity dodrio; -d its --players 4)
+  coop-a / -b           a level-5 Treecko and a Zigzagoon, a level-5 Torchic, each at its own spot in Littleroot Town
+                        (4,3 and 7,3): the co-op Gym proof (native_launcher_coop_proof.py raises each lead to Lv. 60
+                        with Crunch itself; --close-during-award 1, KNOWN_ISSUES MS-190)
 
     python scripts/multiplayer/make_tower_saves.py --exe <Makefile_pc BFX_TEST=1 build> \\
         --mega-check <engine>/tools/battle_env/mega_check.py --source-a boy-1.sav --source-b girl-1.sav --out DIR \\
@@ -116,6 +119,10 @@ FIXTURES = (  # (name, source, party, record "highest:progress" or None[, bag "i
     ("dodrio-b", "b", "85:5", None, "", "14:11:-1:6:4"),
     ("dodrio-c", "c", "85:5", None, "", "14:11:-1:6:4"),
     ("dodrio-d", "d", "85:5", None, "", "14:11:-1:6:4"),
+    # MAP_LITTLEROOT_TOWN (0.9), the spots native_launcher_multi_proof.py gives players 0 and 1; SPECIES_TREECKO with
+    # a SPECIES_ZIGZAGOON (two Pokemon: one sent out, one not), SPECIES_TORCHIC
+    ("coop-a", "a", "252:5,263:5", None, "", "0:9:-1:4:3"),
+    ("coop-b", "b", "255:5", None, "", "0:9:-1:7:3"),
 )
 
 

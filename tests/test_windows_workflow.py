@@ -174,6 +174,16 @@ class WindowsWorkflowTests(unittest.TestCase):
         facts = engine.index("minigame_facts.py --game pokeemerald-mp.exe --pe")
         self.assertLess(facts, engine.index("i686-w64-mingw32-strip --strip-all pokeemerald-mp.exe"))
 
+    def test_a_coop_award_survives_a_game_closed_during_it_in_windows_game_processes(self):
+        coop = job("coop-proof")
+        self.assertIn("runs-on: windows-2022", coop)
+        self.assertIn("needs: [engine, symbol-sizes]", coop)
+        self.assertIn("make_tower_saves.py", coop)
+        self.assertIn("--only coop-a,coop-b", coop)
+        self.assertIn("native_launcher_coop_proof.py --close-during-award 1", coop)
+        self.assertIn("--game inputs/pokeemerald-mp.exe", coop)             # the packaged Classic 2D game
+        self.assertIn("--pe-symbols symbols/pokeemerald-mp.nm.txt", coop)
+
     def test_multiplayer_mega_evolution_runs_in_windows_game_processes(self):
         mega = job("mega-proof")
         self.assertIn("runs-on: windows-2022", mega)
@@ -255,7 +265,8 @@ class WindowsWorkflowTests(unittest.TestCase):
 
     def test_a_failed_launcher_proof_prints_its_diagnosis_in_the_log(self):
         # Run 138's ffa-exit: the evidence went to an artifact a session reading the log could not fetch.
-        for name in ("tower-proof", "rival-proof", "mega-proof", "minigame-proof", "abandon-check", "multiplayer-check"):
+        for name in ("tower-proof", "rival-proof", "mega-proof", "minigame-proof", "coop-proof", "abandon-check",
+                     "multiplayer-check"):
             with self.subTest(job=name):
                 steps = job(name)
                 summary = steps.index("proof_failure_summary.py \"$RUNNER_TEMP/multiplayer-proof\"")

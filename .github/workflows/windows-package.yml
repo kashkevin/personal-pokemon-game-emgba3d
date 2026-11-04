@@ -1196,6 +1196,84 @@ jobs:
           retention-days: 7
           if-no-files-found: warn
 
+  coop-proof:
+    # A co-op Gym battle and its experience, with a game closed during its award (KNOWN_ISSUES MS-190: a pending award
+    # cannot be lost to a reset), in real Windows game processes (a GitHub-hosted runner): two players' launchers, the
+    # world server and the Classic 2D game it packages (scripts/multiplayer/native_launcher_coop_proof.py, Windows
+    # mode of native_launcher_battle_proof.py). The characters come from the game's own short introduction, given a
+    # Treecko (and a Zigzagoon) and a Torchic in Littleroot by the test build (make_tower_saves.py coop-a, coop-b); the
+    # proof raises each lead to Lv. 60. A team in the Players menu, Roxanne's co-op challenge, the battle; each game
+    # saves on the host with its result waiting, then the friend's game is closed (WM_CLOSE) with the award in its
+    # memory only, its launcher started again, and the award given again from that save: the same experience, once;
+    # both host saves after the scripts, then a fresh Continue and the store's integrity check.
+    name: Co-op experience across a closed game (Windows game processes)
+    needs: [engine, symbol-sizes]
+    if: ${{ (inputs.mode || 'smoke') == 'full' && (!inputs.only || contains(format(',{0},', inputs.only), ',coop-proof,')) }}
+    runs-on: windows-2022
+    timeout-minutes: 120
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Both builds come from one engine commit
+        run: |
+          [ "${{ needs.engine.outputs.engine_commit }}" = "${{ needs.symbol-sizes.outputs.engine_commit }}" ] || {
+            echo "the Windows game and the Linux symbol sizes are of different engine commits" >&2; exit 1; }
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - name: Private virtual environment with the pinned, hashed wheels
+        run: |
+          python -m venv .venv
+          .venv/Scripts/python -m pip install --require-hashes --only-binary=:all: -r requirements-host-provisioning.txt
+      - uses: actions/download-artifact@v4
+        with:
+          name: native-inputs
+          path: inputs
+      - uses: actions/download-artifact@v4
+        with:
+          name: mega-check-inputs
+          path: mega-check-inputs
+      - uses: actions/download-artifact@v4
+        with:
+          name: classic-pe-symbols
+          path: symbols
+      - uses: actions/download-artifact@v4
+        with:
+          name: classic-linux-sizes
+          path: symbols
+      - name: Two new characters from the game's own short introduction, then their co-op fixtures
+        run: |
+          .venv/Scripts/python scripts/multiplayer/make_intro_saves.py --exe mega-check-inputs/pokeemerald-mp-bfxtest.exe \
+            --mega-check mega-check-inputs/mega_check.py --out "$RUNNER_TEMP/intro" --count 2
+          .venv/Scripts/python scripts/multiplayer/make_tower_saves.py --exe mega-check-inputs/pokeemerald-mp-bfxtest.exe \
+            --mega-check mega-check-inputs/mega_check.py --source-a "$RUNNER_TEMP/intro/boy-1.sav" \
+            --source-b "$RUNNER_TEMP/intro/girl-1.sav" --out "$RUNNER_TEMP/coop-saves" --only coop-a,coop-b
+      - name: The co-op Gym battle, the friend's game closed during its award
+        run: |
+          .venv/Scripts/python scripts/multiplayer/native_launcher_coop_proof.py --close-during-award 1 \
+            --game inputs/pokeemerald-mp.exe --sdl inputs/SDL2.dll --rom inputs/pokedev.gba \
+            --manifest inputs/manifest.json --pe-symbols symbols/pokeemerald-mp.nm.txt \
+            --sizes symbols/pokeemerald-mp.sizes.txt --slow 1.5 \
+            --source-a "$RUNNER_TEMP/coop-saves/coop-a.sav" --source-b "$RUNNER_TEMP/coop-saves/coop-b.sav" \
+            --output "$RUNNER_TEMP/multiplayer-proof/coop-close-during-award"
+      - name: The proof's own diagnosis, in this log (only when it failed; scripts/multiplayer/proof_failure_summary.py)
+        if: failure()
+        run: python scripts/multiplayer/proof_failure_summary.py "$RUNNER_TEMP/multiplayer-proof"
+      - name: Upload the proof's record (private to this repository, 7 days; no save)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: EmeraldTogether-coop-proof
+          path: |
+            ${{ runner.temp }}/multiplayer-proof/*/evidence.json
+            ${{ runner.temp }}/multiplayer-proof/*/*.jsonl
+            ${{ runner.temp }}/multiplayer-proof/*/*.png
+            ${{ runner.temp }}/coop-saves/run-*/test.log
+          retention-days: 7
+          if-no-files-found: warn
+
   gameplay-check:
     # The whole game's gameplay check in real Windows game processes (opt-in: gameplay_qa): every trainer, person, item
     # ball, sign, hidden item, warp and coordinate trigger of the reachable maps visited by the test build's plan runner

@@ -61,7 +61,7 @@ import sys
 import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "windows-runtime"))
-from native_launcher_battle_proof import drive_battle_input, launcher_proof  # noqa: E402
+from native_launcher_battle_proof import WINDOWS, drive_battle_input, launcher_proof  # noqa: E402
 from native_launcher_multi_proof import close_players, field_state, into_town  # noqa: E402
 from native_coop_exp_award_proof import decode  # noqa: E402
 from native_spawn_proof import SAVEBLOCK1_DATA, _save_slots, _sector_checksum  # noqa: E402
@@ -378,7 +378,11 @@ async def watch_status(slot, worker):
 
 
 def game_log_path(game):
-    """The game's own log (stdout and stderr: runtime.log in its launch folder, the process's working directory)."""
+    """The game's own log (stdout and stderr: runtime.log in its launch folder, which the launcher's running game
+    names; else the process's working directory, Linux)."""
+    path = getattr(game, "log_path", None)
+    if path is not None:
+        return Path(path)
     return Path(os.readlink(f"/proc/{game.process.pid}/cwd")) / "runtime.log"
 
 
@@ -504,6 +508,9 @@ async def run(args):
                         print("diagnostic failed", repr(inner), flush=True)
                     raise
             cls.prove = prove
+    if not args.display:
+        require(WINDOWS, "an X display per player")
+        args.display = ["desktop-0", "desktop-1"]           # Windows: one desktop; names for the records
     root = args.output.resolve()
     sources = []
     fixtures = root.parent / (root.name + "-fixtures")
@@ -531,12 +538,15 @@ def main():
     parser.add_argument("--manifest", type=Path, required=True)
     parser.add_argument("--source-a", type=Path, required=True)
     parser.add_argument("--source-b", type=Path, required=True)
-    parser.add_argument("--display", action="append", required=True)
+    parser.add_argument("--display", action="append", help="an X display per player (Linux)")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--slow", type=float, default=1.0)
     parser.add_argument("--wine", type=Path, action="append")
     parser.add_argument("--sdl", type=Path)
     parser.add_argument("--elf", type=Path)
+    parser.add_argument("--pe-symbols", type=Path, help="Windows: i686-w64-mingw32-nm -n of the game before its strip")
+    parser.add_argument("--sizes", type=Path, help="Windows: nm -S of the Linux build of the same engine commit")
+    parser.add_argument("--runtime-extra", type=Path, action="append", help="Windows: another file beside the game")
     parser.add_argument("--gym", type=int, default=GYM, help="MP_COOP_GYM_*: 1 Rustboro (default) .. 8 Sootopolis")
     parser.add_argument("--close-during-award", type=int, default=-1, choices=(-1, 0, 1),
                         help="close this player's game during its award, then start its launcher again (1: the friend)")
