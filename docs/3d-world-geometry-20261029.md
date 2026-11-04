@@ -1222,3 +1222,55 @@ lists (Linux, the 3D test build, Mesa; pictures in the scratchpad's `towns/`, `m
   79, with a hole by the Cave of Origin. Not committed: the work is kept as a patch in the scratchpad
   (`sooto2/sootopolis-terraces-wip.patch`). Next, if taken up: stand only what stands on a street (houses, signs,
   the door frames) on its level, not the painted cliffs; give the one-wide flights their climb; look at the fins.
+
+### Sootopolis's terraces; the Battle Frontier's halves meet; ramps east and west (2026-11-04 05:00-06:40; engines `baf40dd1`, `2f53b7b1`)
+
+**Sootopolis City** (MS-172). The pass parked last night (above) is taken up and finished. Each street - walkable cells
+side by side, not water, not the stairs - lies a level a flight of the town's stairs from the lake's shore (the
+Sootopolis tileset's 68 and 69, the two halves of a flight; levels 0 to 7), each flight climbing from its foot's street
+to its top's a share a row (`terrace_topology.py` `stair_terraces`, `compile_rules.py` `STAIR_TERRACES`). The parked
+try's faults, one at a time:
+
+* *The painted cliffs above the Cave of Origin stood up as blocks.* What stands on a street now stands on the street it
+  faces - the first south of it (the GBA's houses face south) - else the nearest; the rock among them is the rock
+  bands', laid from the lowest street beside them (`rock_bands.py` `foot_lowest`: a band laid from its streets' most
+  common level stood over a lower street beside it with its underside open).
+* *Their sides were brown.* Outdoors a tall side of plain ground shows General's brown rock wall (`scene_snapshot.c`
+  `rockFaceValid`); not in Sootopolis, whose white stone shows its own sides.
+* *The terraces' edges stood on the street below them.* The rails - the terraces' parapets and the flights' side rails
+  (ten of the tileset's metatiles) - stand on the highest street beside them, the terrace whose edge they are.
+* *Two flights still stepped.* They were doorsteps drawn as single stair tiles, joining no two streets: such a tile now
+  lies flat on its street.
+
+The compiled rules change in Sootopolis only (2,701 of its 3,600 records). The probe at its 8 places, four cameras,
+against its flat streets: flat-blocked 421 -> 172, no walk-steps, no brown strips; fins 29 -> 56 and spikes 39 -> 74 -
+the walls between terraces, a level over the lower street, which the probe counts as ridges (looked at in the
+pictures: a terrace's wall, not a fin standing alone); water-drops 36 -> 45; one low (15 degree) view shows 95 pixels of
+sky at the frame's edge where the loaded view ends. Pictures: scratchpad `sooto3/compare2.png` (game art, not committed).
+
+**Looked at and left** (2026-11-03): MS-172's painted crown tops beyond Fortree - about 37 cells of the General tileset's
+crown tops on Routes 110, 111 and 123 and Southern Island - from four cameras each: they lie behind the standing trees'
+solid crowns and are not seen.
+
+**The Battle Frontier's two halves** (MS-162). The west half's south plaza (rows 40-54 along the seam) lay a level under
+the east half's: 15 cell pairs a level apart. The west half's last column now lies on the east half's level and the
+column before it climbs east to it where it is walked (rows 40-41, 45-49, 52-54); the building and the Mart beside it,
+with their flower boxes, stay on the plaza whole (`SEAM_RAMPS` banks, floors and slopes; `hand_slopes` climbs east and
+west now). The climb in the seam column itself left a crack along the seam (each map's mesh is its own); moved a column
+in, the climb still stood as a wall - the renderer drew it the wrong way round (below). The compiled rules change in the
+west half only (26 records); the probe at three places: seams 15 -> 0, the rest unchanged, and no sky in the pictures
+but the low views' skyline pockets, as before. Seven of the eight land seams are now level where walked; Mauville City
+and Route 111 is the last.
+
+**Ramps climbing east or west** (MS-188). The renderer's stair profile stood a ramp climbing east high on its west side
+and one climbing west high on its east side (north and south were right, and the compiler's roles name the high side for
+all four). The game had one such ramp before the Frontier's, the Safari Zone South's cell (17, 7) by its plateau - a
+spike over the ground east of it, a pit by the plateau - which now meets both. With the Frontier's ramp right, the sky
+showed in a triangle over its foot under the sea wall (49 pixels): a cell's side reached down only to its footing, and
+stairs beside it hung no skirt. A cell beside stairs up now hangs its side down to the stairs' top a pixel at a time
+(`terrain_mesh.c` `AppendSkirtByStairs`): 0.
+
+Evidence (L, the 3D test build, Mesa): the compiled rules against `2054cf05`'s, layout by layout; the probe before and
+after at both places; `test_terrace_topology` 40 (three new), `test_rules` (both ends of both directions),
+`check-diorama` passed, and `check-diorama-tools` but `test_rules_parity` (failing before this: MS-170) - `test_compile_rules`'s
+assertion that Route 119's tops kept level 0, stale since `5b117d2c` raised them, updated; the Windows 3D build compiles (MinGW, not run).
