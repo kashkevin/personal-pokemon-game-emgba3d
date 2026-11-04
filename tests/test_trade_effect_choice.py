@@ -35,6 +35,22 @@ class NativeMoveCategoryTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             NativeChoiceView.parse(view_bytes(1, move=0))
 
+    def test_a_known_post_gen6_move_trades_unchanged(self):
+        # G1 (the owner's decision): a Pokemon may know any move the engine has; the trade keeps it as it is.
+        for move in (622, 700, 847):
+            with self.subTest(move=move):
+                view = NativeChoiceView.parse(view_bytes(1, move=move))
+                self.assertEqual(view.moves[0].move, move)
+        with self.assertRaises(ValueError):                  # past the pinned engine's last move
+            NativeChoiceView.parse(view_bytes(1, move=848))
+
+    def test_the_move_being_learned_stays_a_gen6_one(self):
+        header = struct.pack("<IIIIHHBBBB", 1, 1, 2, 0x1234, 700, 0, 1, 0, 0, 0)
+        known = struct.pack("<HBBHBBBBH", 45, 40, 40, 0, 100, 0, 3, 0, 0)
+        learning = struct.pack("<HBBHBBBBH", 700, 10, 10, 90, 100, 0, 1, 0, 0)
+        with self.assertRaises(ValueError):
+            NativeChoiceView.parse(header + known + bytes(36) + learning)
+
     def test_native_category_names_are_not_shifted(self):
         for category, label in ((1, "Physical"), (2, "Special"), (3, "Status")):
             with self.subTest(category=category):

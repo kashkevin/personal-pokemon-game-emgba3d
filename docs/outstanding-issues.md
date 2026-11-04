@@ -40,7 +40,7 @@ Updated with every fix; the newest first within each section.
 | MS-9 | The emulator fallback's Lua bridge has the same all-zero check as the old native one | open (fallback only) |
 | MS-26 | Save checks on the launcher's and host's event loops | measured, no player-visible cost found |
 | Trades | Eggs, mail and unsupported forms are refused in trades | open (adapter work) |
-| G1 | An evolution trade that must choose a move for a Pokemon knowing a post-Gen-6 move is refused | open (owner decision recorded: such moves trade unchanged; the move-choice path still refuses) |
+| G1 | An evolution trade that must choose a move for a Pokemon knowing a post-Gen-6 move is refused | **Fixed** (app: this change): the owner's decision applied, such moves trade unchanged; the move being learned stays a Gen 6 one; unit tests only (L), no real trade with such a Pokemon |
 | MS-141c limits | Wireless minigames: four players not run | open |
 | MS-98 | The 3D map sweep's debug scene stops in three rooms (debug warp only) | open (not reachable in play) |
 | MS-170 | A 3D rules test's notion of height (records vs resolved cells) | **Fixed** with MS-189: the test checks the resolved cells, by the resolver's own rules from the records |

@@ -8,6 +8,7 @@ import struct
 import zlib
 
 from .trade_effect_mailbox import PreparedRecord
+from .trade_friendship import MAX_GEN6_MOVE, MAX_STORED_MOVE
 from .trade_inspection import summarize_record
 
 
@@ -42,15 +43,19 @@ class NativeChoiceView:
         version, received, sent, crc, move, cursor, state, count, mask, zero = struct.unpack_from("<IIIIHHBBBB", raw)
         if (version != 1 or not 1 <= received <= 0xFFFFF or not 1 <= sent <= 0xFFFFF or received == sent
                 or state not in (1, 2) or count > 16 or mask > 15 or zero or cursor > 256
-                or (state == 1 and (count >= 16 or not 1 <= move <= 621))
+                or (state == 1 and (count >= 16 or not 1 <= move <= MAX_GEN6_MOVE))
                 or (state == 2 and (move or mask))):
             raise ValueError("invalid native move presentation header")
         moves = []
         for index in range(5):
             ident, pp, maximum, power, accuracy, kind, category, flags, reserved = struct.unpack_from("<HBBHBBBBH", raw, 24 + index * 12)
             # Pinned DamageCategory enum includes NONE=0; occupied moves use
-            # PHYSICAL=1, SPECIAL=2 and STATUS=3 (pokemon.h).
-            if (ident > 621 or pp > maximum or accuracy > 100 or kind > 31 or category > 3 or flags > 1 or reserved
+            # PHYSICAL=1, SPECIAL=2 and STATUS=3 (pokemon.h). A move the
+            # Pokemon knows may be any the engine has (G1, the owner's decision:
+            # post-Gen-6 moves trade unchanged); the one it is learning (slot 4)
+            # comes from a Gen 6 learnset.
+            limit = MAX_GEN6_MOVE if index == 4 else MAX_STORED_MOVE
+            if (ident > limit or pp > maximum or accuracy > 100 or kind > 31 or category > 3 or flags > 1 or reserved
                     or (not ident and any((pp, maximum, power, accuracy, kind, category, flags)))
                     or (ident and (maximum == 0 or category == 0))
                     or (index == 4 and (ident != move or pp != maximum or flags))):
