@@ -42,6 +42,11 @@ PKMN_TEST_TOWER_RECORD: the game loads the save, sets them and saves through its
                         the POKEDEX's flag (the attendants talk of linking only after it), each below the Direct Corner's
                         attendant of a Pokemon Center 2F (10,3: Oldale Town's, Petalburg City's): the wireless minigame
                         proof (native_launcher_minigame_proof.py, KNOWN_ISSUES MS-141c)
+  jump-a / -b           a level-5 Pikachu, a level-5 Marill (Pokemon Jump takes both), each in Mossdeep City's
+                        minigame building across the counter from the old man (6,4): the same proof's Pokemon Jump
+                        (--activity pokemon_jump)
+  dodrio-a / -b / -c    a level-5 Dodrio each, where jump-a and -b are: the same proof's Dodrio Berry Picking (three
+                        players, its least; --activity dodrio)
 
     python scripts/multiplayer/make_tower_saves.py --exe <Makefile_pc BFX_TEST=1 build> \\
         --mega-check <engine>/tools/battle_env/mega_check.py --source-a boy-1.sav --source-b girl-1.sav --out DIR \\
@@ -98,6 +103,12 @@ FIXTURES = (  # (name, source, party, record "highest:progress" or None[, bag "i
     # MAP_OLDALE_TOWN_POKEMON_CENTER_2F (2.3), MAP_PETALBURG_CITY_POKEMON_CENTER_2F (8.5); FLAG_SYS_POKEDEX_GET
     ("crush-a", "a", "252:5", None, CRUSH_BAG, "2:3:-1:10:3", False, "0x861"),
     ("crush-b", "b", "255:5", None, CRUSH_BAG, "8:5:-1:10:3", False, "0x861"),
+    # MAP_MOSSDEEP_CITY_GAME_CORNER_1F (14.11), across the counter from the old man; SPECIES_PIKACHU, SPECIES_MARILL
+    ("jump-a", "a", "25:5", None, "", "14:11:-1:6:4"),
+    ("jump-b", "b", "183:5", None, "", "14:11:-1:6:4"),
+    ("dodrio-a", "a", "85:5", None, "", "14:11:-1:6:4"),       # SPECIES_DODRIO
+    ("dodrio-b", "b", "85:5", None, "", "14:11:-1:6:4"),
+    ("dodrio-c", "c", "85:5", None, "", "14:11:-1:6:4"),
 )
 
 

@@ -1,5 +1,6 @@
-"""Berry Crush between two of a world's players through the whole launcher (KNOWN_ISSUES MS-141c).
+"""The wireless minigames between two of a world's players through the whole launcher (KNOWN_ISSUES MS-141c).
 
+--activity berry_crush (the default):
     1. Both linked; each game Continues at a Pokemon Center 2F below the Direct Corner's attendant (make_tower_saves.py's
        crush-a and crush-b: a POWDER JAR and Berries, the POKEDEX's flag).
     2. Each talks to the attendant, chooses WORLD PLAYERS ("Play BERRY CRUSH with players in this world, or with
@@ -12,14 +13,37 @@
        nobody was told it was lost, every link frame went through the host.
     5. As every launcher proof: the launcher's saves, a fresh Continue, the canonical saves and parties unchanged.
 
-What the games do is read from their memory (the attendant's choice, the save's questions, the Players menu, Berry
-Crush's current step); keys are pressed as a player presses them (xdotool). Pictures for a person: OUT/pictures.
+--activity pokemon_jump:
+    1. Both linked; each game Continues in Mossdeep City's minigame building, across the counter from the old man
+       (make_tower_saves.py's jump-a and jump-b: a Pikachu, a Marill).
+    2. Each talks to the old man, chooses POKEMON JUMP, enters its Pokemon (the party's first), chooses WORLD PLAYERS
+       ("Play with players in this world, or with computer partners?") and saves; the Players menu opens on POKEMON
+       JUMP's lobby.
+    3. As Berry Crush's: the host leads, the friend joins, the host starts with 2 players; both walk into the room.
+    4. The game, the host's game its parent: the names, the countdown, then both players jump the vine (A as the vine
+       comes down, as a player times it) for a few swings and then stop, so the vine catches them; each game's score
+       (the leader's, sent to the member), "Play again?" - the host YES, the friend NO - "...dropped out", both games
+       close the link and walk out of the room with no communication error.
+    5. As Berry Crush's.
+
+--activity dodrio (three players: --source-c and a third --display):
+    1. Each game Continues where Pokemon Jump's do (make_tower_saves.py's dodrio-a, -b and -c: a Dodrio each).
+    2. Each chooses DODRIO BERRY-PICKING, enters its Dodrio, WORLD PLAYERS, saves; the lobby opens.
+    3. The host leads, both friends join, the host starts with 3 players (the game's minimum).
+    4. The game, the host's game its parent: each player picks (UP, the Dodrio's middle head, again and again) until
+       ten Berries have fallen, the results (A through their pages: the scores sent between the games as link blocks),
+       "Want to play again?" - the host YES, the friends NO - and all three close the link and walk out of the room.
+    5. As Berry Crush's.
+
+What the games do is read from their memory (the attendant's choice, the save's questions, the Players menu, the
+minigame's current step, from the game's debug information where a structure is read); keys are pressed as a player
+presses them (xdotool). Pictures for a person: OUT/pictures.
 
     PYTHONPATH=src:scripts/multiplayer:scripts/windows-runtime \\
       python scripts/multiplayer/native_launcher_minigame_proof.py \\
         --game ../engine/pokeemerald-mp --rom pokeemerald.gba --manifest manifest.json \\
         --source-a crush-a.sav --source-b crush-b.sav --display :94 --display :95 \\
-        --output /private/multiplayer-proof/native-launcher-minigame-1
+        --output /private/multiplayer-proof/native-launcher-minigame-1 [--activity pokemon_jump | dodrio --source-c ..]
 """
 from __future__ import annotations
 
@@ -35,8 +59,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "windows-runtime"))
 from native_launcher_battle_proof import KEYS, function_addresses, game_picture, launcher_proof  # noqa: E402
 from qualify_admission_cleanup import on_worker, require  # noqa: E402
 
-A, B, UP = 1, 2, 64
-PLAYER_NAMES = ("Crush Host", "Crush Friend")
+A, B, UP, DOWN = 1, 2, 64, 128
 MULTICHOICE_TASKS = ("Task_HandleScrollingMultichoiceInput", "Task_HandleMultichoiceInput")
 BERRY_CRUSH_STEPS = (
     "Cmd_BeginNormalPaletteFade", "Cmd_WaitPaletteFade", "Cmd_PrintMessage", "Cmd_ShowGameDisplay",
@@ -45,6 +68,24 @@ BERRY_CRUSH_STEPS = (
     "Cmd_PlayGame_Leader", "Cmd_PlayGame_Member", "Cmd_FinishGame", "Cmd_HandleTimeUp", "Cmd_TabulateResults",
     "Cmd_ShowResults", "Cmd_SaveGame", "Cmd_AskPlayAgain", "Cmd_CommunicatePlayAgainResponses", "Cmd_PlayAgain",
     "Cmd_StopGame", "Cmd_CloseLink", "Cmd_Quit")
+# Pokemon Jump's phases (src/pokemon_jump.c, FUNC_*: the index in its leader's and members' tables)
+JUMP_PHASES = ("GameIntro", "WaitRound", "GameRound", "GameOver", "AskPlayAgain", "ResetGame", "Exit", "GivePrize",
+               "Save")
+JUMP_FIELDS = ("comm.funcId", "helperState", "vineState", "isLeader", "comm.jumpScore", "comm.jumpsInRow",
+               "players[0].monState", "players[1].monState")
+MONSTATE_JUMP = 1
+VINE_DOWNSWING_LOWER, VINE_UPSWING_LOWER = 4, 6
+RENDER_STATE_CLEAR, RENDER_STATE_SCROLL_START = 2, 3    # a text printer waiting for a press (include/text.h)
+JUMPS = 6                                               # each player's jumps before letting the vine catch it
+# Dodrio Berry Picking's phases (src/dodrio_berry_picking.c, FUNC_*)
+DODRIO_PHASES = ("Intro", "InitCountdown", "Countdown", "WaitStart", "PlayGame", "InitResults", "Results",
+                 "AskPlayAgain", "EndLink", "Exit", "ResetGame", "WaitEndGame")
+DODRIO_FIELDS = ("funcId", "state", "isLeader", "numPlayers", "numGraySquares", "berriesEaten")
+ACTIVITIES = {
+    "berry_crush": dict(title="BERRY CRUSH", names=("Crush Host", "Crush Friend")),
+    "pokemon_jump": dict(title="POKEMON JUMP", names=("Jump Host", "Jump Friend")),
+    "dodrio": dict(title="DODRIO BERRY-PICKING", names=("Pick Host", "Pick Friend", "Pick Third")),
+}
 GAME_SECONDS = 420
 
 
@@ -55,24 +96,60 @@ def data_addresses(game, name):
                    if len(row) == 3 and row[1] in "bBdD" and row[2] == name})
 
 
+def struct_offsets(game, struct, fields):
+    """Where a structure's fields lie, from the game's debug information (gdb): the game is read as it was built."""
+    commands = [part for field in fields for part in ("-ex", f"print (int)&((struct {struct} *)0)->{field}")]
+    output = subprocess.run(["gdb", "-batch", "-nx", *commands, str(game)], capture_output=True, text=True,
+                            timeout=600).stdout
+    values = [int(line.split("=")[1]) for line in output.splitlines() if line.startswith("$")]
+    require(len(values) == len(fields), f"no offsets of struct {struct} from gdb (a build with debug information?): "
+            f"{output[-300:]!r}")
+    return dict(zip(fields, values))
+
+
+def static_address(game, file, name):
+    """A static variable's address from the debug information (two files have an `sGame`)."""
+    output = subprocess.run(["gdb", "-batch", "-nx", "-ex", f"print (int)&'{file}'::{name}", str(game)],
+                            capture_output=True, text=True, timeout=600).stdout
+    values = [int(line.split("=")[1]) for line in output.splitlines() if line.startswith("$")]
+    require(len(values) == 1, f"no address of {file}'s {name} from gdb: {output[-300:]!r}")
+    return values[0]
+
+
 class Game:
     """What one game is doing, read from its memory (the Linux game runs where it was linked)."""
 
-    def __init__(self, game, symbols):
-        self.symbols = symbols
+    def __init__(self, game, symbols, activity):
+        self.symbols, self.activity = symbols, activity
         self.multichoice = frozenset().union(*(function_addresses(game, name) for name in MULTICHOICE_TASKS))
         self.save_questions = {**{a: "save?" for a in function_addresses(game, "SaveConfirmInputCallback")},
                                **{a: "overwrite?" for a in function_addresses(game, "SaveOverwriteInputCallback")}}
-        self.steps = {address: name for name in BERRY_CRUSH_STEPS for address in function_addresses(game, name)}
-        self.crush_games = data_addresses(game, "sGame")
         self.save_dialog = data_addresses(game, "sSaveDialogCallback")
         self.link_active = data_addresses(game, "sLocalLinkActive")
-        self.bag = function_addresses(game, "CB2_BagMenuRun") | function_addresses(game, "CB2_Bag")
         self.link_error = function_addresses(game, "CB2_LinkError")
         self.overworld = function_addresses(game, "CB2_Overworld")
-        require(self.multichoice and len(self.save_questions) == 2 and len(self.steps) >= len(BERRY_CRUSH_STEPS)
-                and self.crush_games and self.save_dialog and self.link_active and self.bag and self.link_error
-                and self.overworld, "the native game lacks the symbols this proof reads: build it unstripped")
+        self.first_printer = data_addresses(game, "sFirstTextPrinter")
+        self.printer_fields = struct_offsets(game, "TextPrinter", ("active", "state", "nextPrinter"))
+        found = (self.first_printer and self.multichoice and len(self.save_questions) == 2 and self.save_dialog and self.link_active
+                 and self.link_error and self.overworld)
+        if activity == "berry_crush":
+            self.steps = {address: name for name in BERRY_CRUSH_STEPS for address in function_addresses(game, name)}
+            self.crush_games = data_addresses(game, "sGame")
+            self.bag = function_addresses(game, "CB2_BagMenuRun") | function_addresses(game, "CB2_Bag")
+            found = found and len(self.steps) >= len(BERRY_CRUSH_STEPS) and self.crush_games and self.bag
+        elif activity == "pokemon_jump":
+            self.jump_game = data_addresses(game, "sPokemonJump")
+            self.jump_screen = function_addresses(game, "CB2_PokemonJump")
+            self.party_menu = function_addresses(game, "CB2_UpdatePartyMenu")
+            self.jump_fields = struct_offsets(game, "PokemonJump", JUMP_FIELDS)
+            found = found and len(self.jump_game) == 1 and self.jump_screen and self.party_menu
+        else:
+            self.dodrio_game = static_address(game, "dodrio_berry_picking.c", "sGame")
+            self.dodrio_screen = function_addresses(game, "CB2_DodrioGame")
+            self.party_menu = function_addresses(game, "CB2_UpdatePartyMenu")
+            self.dodrio_fields = struct_offsets(game, "DodrioGame", DODRIO_FIELDS)
+            found = found and self.dodrio_screen and self.party_menu
+        require(found, "the native game lacks the symbols this proof reads: build it unstripped")
 
     @staticmethod
     def raw(probe, address, size):
@@ -91,6 +168,18 @@ class Game:
         return any(tasks[o + 4] and int.from_bytes(tasks[o:o + 4], "little") & ~1 in self.multichoice
                    for o in range(0, 640, 40))
 
+    def text_waiting(self, probe):
+        """Whether a text box waits for a press: the arrow at a paragraph's or a line's end (the message goes on)."""
+        f, printer = self.printer_fields, self.word(probe, self.first_printer[0])
+        for _ in range(64):                                # the game's list of text printers
+            if not printer:
+                return False
+            data = self.raw(probe, printer, f["nextPrinter"] + 4)
+            if data[f["active"]] and data[f["state"]] in (RENDER_STATE_CLEAR, RENDER_STATE_SCROLL_START):
+                return True
+            printer = int.from_bytes(data[f["nextPrinter"]:f["nextPrinter"] + 4], "little")
+        return False
+
     def save_question(self, probe):
         return self.save_questions.get(self.word(probe, self.save_dialog[0]) & ~1)
 
@@ -103,6 +192,42 @@ class Game:
                 if step is not None:
                     return step, self.raw(probe, game + 12, 1)[0]
         return None
+
+    def jump(self, probe):
+        """Pokemon Jump's state while its screen runs (its structure is freed, not cleared, at its end), else None:
+        the phase, the phase's helper state, the vine's state, whether this game leads, the score, the swings cleared."""
+        if self.callback2(probe) not in self.jump_screen:
+            return None
+        game = self.word(probe, self.jump_game[0])
+        if not game:
+            return None
+        f = self.jump_fields
+        data = self.raw(probe, game, f["comm.jumpScore"] + 4)          # the structure's head, then two players'
+        mons = [int.from_bytes(self.raw(probe, game + f[f"players[{i}].monState"], 2), "little") for i in (0, 1)]
+        phase = data[f["comm.funcId"]]
+        return dict(phase=JUMP_PHASES[phase] if phase < len(JUMP_PHASES) else phase,
+                    helper=int.from_bytes(data[f["helperState"]:f["helperState"] + 2], "little"),
+                    vine=int.from_bytes(data[f["vineState"]:f["vineState"] + 4], "little"),
+                    leader=data[f["isLeader"]],
+                    score=int.from_bytes(data[f["comm.jumpScore"]:f["comm.jumpScore"] + 4], "little"),
+                    cleared=int.from_bytes(data[f["comm.jumpsInRow"]:f["comm.jumpsInRow"] + 2], "little"),
+                    mons=mons)
+
+    def dodrio(self, probe):
+        """Dodrio Berry Picking's state while its screen runs, else None: the phase, its state, whether this game
+        leads, the players, the Berries missed (the gray squares) and each player's Berries eaten as this game shows."""
+        if self.callback2(probe) not in self.dodrio_screen:
+            return None
+        game = self.word(probe, self.dodrio_game)
+        if not game:
+            return None
+        f = self.dodrio_fields
+        data = self.raw(probe, game, f["berriesEaten"] + 10)
+        phase, players = data[f["funcId"]], data[f["numPlayers"]]
+        eaten = f["berriesEaten"]
+        return dict(phase=DODRIO_PHASES[phase] if phase < len(DODRIO_PHASES) else phase, state=data[f["state"]],
+                    leader=data[f["isLeader"]], players=players, missed=data[f["numGraySquares"]],
+                    eaten=[int.from_bytes(data[eaten + 2 * i:eaten + 2 * i + 2], "little") for i in range(min(players, 5))])
 
     def linked(self, probe):
         return any(self.raw(probe, address, 1)[0] for address in self.link_active)
@@ -126,9 +251,14 @@ def _mash(probe, key, seconds, period=.11):
         time.sleep(period - .045)
 
 
+def _tap(probe, key):
+    """One quick press to the focused window (a jump: no time lost focusing it again)."""
+    subprocess.run(["xdotool", "keydown", key, "sleep", "0.05", "keyup", key], env=probe.environment, check=True)
+
+
 class MinigameMatch:
-    def __init__(self, output, game_path):
-        self.output, self.game_path = output, game_path
+    def __init__(self, output, game_path, activity):
+        self.output, self.game_path, self.activity = output, game_path, activity
         self.pictures = output / "pictures"
 
     def picture(self, probe, name):
@@ -139,11 +269,33 @@ class MinigameMatch:
             return f"no picture: {error}"
 
     async def to_lobby(self, probe, slot, game, record):
-        """The attendant, WORLD PLAYERS, the game's own save; the Players menu then opens on the lobby."""
+        """The attendant (Mossdeep's old man: the game, then the Pokemon), WORLD PLAYERS, the game's own save; the
+        Players menu then opens on the lobby."""
         await probe.press(UP)                              # turn to the attendant (the counter: no step is taken)
         await probe.press(A)
-        await until(lambda: game.multichoice_shown(probe), 60, "the attendant's choice")
+        # Mossdeep's old man talks in paragraphs before his question: A at each, never at the question itself
+        async with asyncio.timeout(60):
+            while not game.multichoice_shown(probe):
+                if game.text_waiting(probe):
+                    await probe.press(A, release=20)
+                else:
+                    await asyncio.sleep(.05)
         await asyncio.sleep(.4)
+        if self.activity in ("pokemon_jump", "dodrio"):
+            record("old-man-games", slot=slot, picture=self.picture(probe, f"{slot}-0-which-game"))
+            if self.activity == "dodrio":
+                await probe.press(DOWN)                    # DODRIO BERRY-PICKING, the second row
+            await probe.press(A)                           # (POKEMON JUMP the first)
+            # "Which POKEMON will you enter?" (a message that waits for A), then the party menu
+            async with asyncio.timeout(60):
+                while game.callback2(probe) not in game.party_menu:
+                    await probe.press(A, release=30)
+            await asyncio.sleep(1)
+            record("enter-pokemon", slot=slot, picture=self.picture(probe, f"{slot}-0-party"))
+            if game.callback2(probe) in game.party_menu:
+                await probe.press(A)                       # the party's first Pokemon (it can play: the fixture's)
+            await until(lambda: game.multichoice_shown(probe), 60, "the old man's world-or-computers choice")
+            await asyncio.sleep(.4)
         record("attendant-choice", slot=slot, picture=self.picture(probe, f"{slot}-1-world-or-computers"))
         await probe.press(A)                               # WORLD PLAYERS, the first row
         await until(lambda: game.save_question(probe) == "save?", 60, "the save's question")
@@ -155,10 +307,11 @@ class MinigameMatch:
         rows = [r.label for r in screen.rows]
         record("lobby-open", slot=slot, title=screen.title, status=screen.status, rows=rows,
                picture=self.picture(probe, f"{slot}-2-lobby"))
-        require(screen.title == "BERRY CRUSH", f"the lobby's page is {screen.title!r}")
+        title = ACTIVITIES[self.activity]["title"]
+        require(screen.title == title, f"the lobby's page is {screen.title!r}, not {title!r}")
         return screen
 
-    async def play(self, probe, slot, game, record, stop):
+    async def play_crush(self, probe, slot, game, record, stop):
         """Berry Crush for one player, from its memory: a Berry from the Bag, A while crushing, A through the
         results, then the host YES and the friend NO to playing again, until the game is back on the field."""
         steps, presses, mashing, entered = [], 0, 0.0, False
@@ -213,12 +366,135 @@ class MinigameMatch:
         await asyncio.sleep(2)
         record("back-on-the-field", slot=slot, steps=steps, presses=presses, mashing_seconds=round(mashing, 1),
                picture=self.picture(probe, f"{slot}-5-back"))
-        return steps
+        return dict(steps=steps)
+
+    async def play_jump(self, probe, slot, game, record, stop):
+        """Pokemon Jump for one player, from its memory: A as the vine comes down (each swing until JUMPS jumps, then
+        none: the vine catches it), the prize's message if there is one, the host YES and the friend NO to playing
+        again, until the game has walked out of the room. Counted on the way: this game's rounds and jumps, and the
+        other player's jumps as this game shows them (they come over the link)."""
+        phases, rounds, jumps, other_jumps = [], 0, 0, 0
+        entered, focused, swing_pressed, other_was_jumping = False, False, False, False
+        last_phase, last_report, at_question = None, time.monotonic(), None
+        other = 1 - slot                                   # the host leads (player 0), the friend is player 1
+        async with asyncio.timeout(GAME_SECONDS):
+            while not stop.is_set():
+                callback = game.callback2(probe)
+                require(callback not in game.link_error, f"player {slot}'s game shows the communication error")
+                state = game.jump(probe)
+                if time.monotonic() - last_report >= 15:
+                    last_report = time.monotonic()
+                    record("pokemon-jump-now", slot=slot, callback2=hex(callback), state=state, jumps=jumps,
+                           picture=self.picture(probe, f"{slot}-w-{len(phases):02d}-{int(last_report) % 100000}"))
+                if state is None:
+                    if entered and callback in game.overworld and not game.linked(probe):
+                        break
+                    await asyncio.sleep(.05)
+                    continue
+                entered, phase = True, state["phase"]
+                if phase not in JUMP_PHASES or state["leader"] not in (0, 1):
+                    await asyncio.sleep(.01)               # read as its structure was freed: the screen is ending
+                    continue
+                jumping = state["mons"][other] == MONSTATE_JUMP
+                other_jumps += jumping and not other_was_jumping
+                other_was_jumping = jumping
+                if phase != last_phase:
+                    rounds += phase == "GameRound"
+                    if phase not in phases:                # each round is GameRound, then WaitRound: named once
+                        phases.append(phase)
+                        pictured = phase in ("GameIntro", "GameOver", "Exit")
+                        record("pokemon-jump-phase", slot=slot, phase=phase, leader=state["leader"],
+                               score=state["score"], cleared=state["cleared"],
+                               picture=self.picture(probe, f"{slot}-3-{len(phases):02d}-{phase}") if pictured else None)
+                    last_phase = phase
+                if phase == "GameRound":
+                    if not focused:
+                        await asyncio.to_thread(probe._window)    # its display has one window: focused once
+                        focused = True
+                    if state["vine"] == VINE_DOWNSWING_LOWER and not swing_pressed:
+                        swing_pressed = True
+                        if jumps < JUMPS:
+                            await asyncio.to_thread(_tap, probe, KEYS[A])
+                            jumps += 1
+                    elif state["vine"] not in (VINE_DOWNSWING_LOWER, VINE_DOWNSWING_LOWER + 1, VINE_UPSWING_LOWER):
+                        swing_pressed = False
+                    await asyncio.sleep(.004)
+                elif phase == "AskPlayAgain" and state["helper"] == 2 and at_question is None:
+                    await asyncio.sleep(.5)
+                    at_question = dict(state, answer="YES" if slot == 0 else "NO")
+                    record("play-again-question", slot=slot, **at_question,
+                           picture=self.picture(probe, f"{slot}-4-play-again"))
+                    await probe.press(A if slot == 0 else B)
+                elif phase == "GivePrize" and state["helper"] in (2, 5):
+                    await probe.press(A)                   # the prize's message waits for a press (or 3 s)
+                else:
+                    await asyncio.sleep(.01)
+        await asyncio.sleep(2)
+        played = dict(rounds=rounds, jumps=jumps, other_jumps=other_jumps, at_question=at_question)
+        record("back-on-the-field", slot=slot, phases=phases, **played, picture=self.picture(probe, f"{slot}-5-back"))
+        return dict(steps=phases, **played)
+
+    async def play_dodrio(self, probe, slot, game, record, stop):
+        """Dodrio Berry Picking for one player, from its memory: UP (the middle head) again and again while the Berries
+        fall, A through the results' pages, then the host YES and the friends NO to playing again, until the game has
+        walked out of the room."""
+        phases, picks, entered, focused, last_pick = [], 0, False, False, 0.0
+        last_phase, last_report, last_page, at_question = None, time.monotonic(), 0.0, None
+        async with asyncio.timeout(GAME_SECONDS):
+            while not stop.is_set():
+                callback = game.callback2(probe)
+                require(callback not in game.link_error, f"player {slot}'s game shows the communication error")
+                state = game.dodrio(probe)
+                if time.monotonic() - last_report >= 15:
+                    last_report = time.monotonic()
+                    record("dodrio-now", slot=slot, callback2=hex(callback), state=state, picks=picks,
+                           picture=self.picture(probe, f"{slot}-w-{len(phases):02d}-{int(last_report) % 100000}"))
+                if state is None:
+                    if entered and callback in game.overworld and not game.linked(probe):
+                        break
+                    await asyncio.sleep(.05)
+                    continue
+                entered, phase = True, state["phase"]
+                if phase not in DODRIO_PHASES or state["leader"] not in (0, 1) or not 3 <= state["players"] <= 5:
+                    await asyncio.sleep(.01)               # read as its structure was freed: the screen is ending
+                    continue
+                if phase != last_phase:
+                    if phase not in phases:
+                        phases.append(phase)
+                        pictured = phase in ("Intro", "PlayGame", "Results", "EndLink")
+                        record("dodrio-phase", slot=slot, phase=phase, leader=state["leader"], missed=state["missed"],
+                               eaten=state["eaten"],
+                               picture=self.picture(probe, f"{slot}-3-{len(phases):02d}-{phase}") if pictured else None)
+                    last_phase = phase
+                now = time.monotonic()
+                if phase == "PlayGame":
+                    if not focused:
+                        await asyncio.to_thread(probe._window)    # its display has one window: focused once
+                        focused = True
+                    if now - last_pick >= .2:
+                        await asyncio.to_thread(_tap, probe, KEYS[UP])
+                        picks, last_pick = picks + 1, now
+                    await asyncio.sleep(.01)
+                elif phase == "Results" and now - last_page >= 1.0:
+                    await probe.press(A)                   # each page waits half a second, then for A
+                    last_page = time.monotonic()
+                elif phase == "AskPlayAgain" and state["state"] == 3 and at_question is None:
+                    await asyncio.sleep(.5)
+                    at_question = dict(state, answer="YES" if slot == 0 else "NO")
+                    record("play-again-question", slot=slot, **at_question,
+                           picture=self.picture(probe, f"{slot}-4-play-again"))
+                    await probe.press(A if slot == 0 else B)
+                else:
+                    await asyncio.sleep(.02)
+        await asyncio.sleep(2)
+        played = dict(picks=picks, at_question=at_question)
+        record("back-on-the-field", slot=slot, phases=phases, **played, picture=self.picture(probe, f"{slot}-5-back"))
+        return dict(steps=phases, **played)
 
     async def match(self, current, probes, games, host, symbols, record):
         names = [account.display_name for account in host.accounts]
-        game = Game(self.game_path, symbols)
-        host_probe, friend_probe = probes
+        game = Game(self.game_path, symbols, self.activity)
+        host_probe, friends, count = probes[0], probes[1:], len(probes)
 
         async def host_view(s):
             groups = s._server.minigames
@@ -231,7 +507,7 @@ class MinigameMatch:
             return dict(activity=link.activity, group=link.group_id, started=link.started, dropped=link.dropped,
                         notice=link.notice)
 
-        timeline, seen = [], dict(groups={}, started=[None, None], notices=[set(), set()], dropped=[0, 0])
+        timeline, seen = [], dict(groups={}, started=[None] * count, notices=[set() for _ in probes], dropped=[0] * count)
         stop = asyncio.Event()
 
         async def watch():
@@ -262,64 +538,93 @@ class MinigameMatch:
             require(screen.rows and screen.rows[0].label == "Lead a group", f"the host's lobby: {screen.rows}")
             _, screen = await host_probe.choose("Lead a group")
             record("host-leads", status=screen.status, rows=[r.label for r in screen.rows])
-            require(screen.status == "Waiting: 2 players or more", f"the host's group says {screen.status!r}")
-            screen = await self.to_lobby(friend_probe, 1, game, record)
-            join = f"Join {names[0][:12]} 1/4"
-            if join not in [r.label for r in screen.rows]:
-                await asyncio.sleep(2.5)                   # the page reads the host's groups every 2 s
-                _, screen = await friend_probe.ready()
-            _, screen = await friend_probe.choose(join)
-            record("friend-joins", status=screen.status, rows=[r.label for r in screen.rows],
-                   picture=self.picture(friend_probe, "1-2-joined"))
-            require(screen.status == f"Waiting for {names[0][:12]} to start", f"the friend's page: {screen.status!r}")
-            # 3. the host's page offers the start once the friend is in
+            minimum = 3 if self.activity == "dodrio" else 2   # the game's least (minigame_protocol.ACTIVITIES)
+            require(screen.status == f"Waiting: {minimum} players or more", f"the host's group says {screen.status!r}")
+            for slot, friend in enumerate(friends, 1):
+                screen = await self.to_lobby(friend, slot, game, record)
+                join = f"Join {names[0][:12]} {slot}/4"
+                async with asyncio.timeout(15):
+                    while join not in [r.label for r in screen.rows]:
+                        await asyncio.sleep(.5)            # the page reads the host's groups every 2 s
+                        _, screen = await friend.ready()
+                _, screen = await friend.choose(join)
+                record("friend-joins", slot=slot, status=screen.status, rows=[r.label for r in screen.rows],
+                       picture=self.picture(friend, f"{slot}-2-joined"))
+                require(screen.status == f"Waiting for {names[0][:12]} to start", f"friend {slot}'s page: {screen.status!r}")
+            # 3. the host's page offers the start once the friends are in
+            start = f"Start with {count} players"
             async with asyncio.timeout(15):
                 while True:
                     _, screen = await host_probe.ready()
-                    if "Start with 2 players" in [r.label for r in screen.rows]:
+                    if start in [r.label for r in screen.rows]:
                         break
                     await asyncio.sleep(.3)
             record("host-can-start", status=screen.status, rows=[r.label for r in screen.rows],
                    picture=self.picture(host_probe, "0-2-start"))
-            await host_probe.choose("Start with 2 players", wait=False)
-            await until(lambda: not host_probe.read()["active"] and not friend_probe.read()["active"], 30,
-                        "both windows closed")
-            record("started", host_group=seen["started"][0], friend_group=seen["started"][1])
+            await host_probe.choose(start, wait=False)
+            await until(lambda: not any(p.read()["active"] for p in probes), 30, "every window closed")
+            record("started", groups=seen["started"])
             # 4. the game
-            steps = await asyncio.gather(self.play(host_probe, 0, game, record, stop),
-                                         self.play(friend_probe, 1, game, record, stop))
-            require("Cmd_PlayGame_Leader" in steps[0] and "Cmd_PlayGame_Member" in steps[1],
-                    f"the crush was not played as leader and member: {steps}")
-            require("Cmd_ShowResults" in steps[0] and "Cmd_ShowResults" in steps[1], "no results")
-            require("Cmd_AskPlayAgain" in steps[0] and "Cmd_AskPlayAgain" in steps[1], "no play-again question")
+            play = dict(berry_crush=self.play_crush, pokemon_jump=self.play_jump, dodrio=self.play_dodrio)[self.activity]
+            played = await asyncio.gather(*(play(probe, slot, game, record, stop) for slot, probe in enumerate(probes)))
+            steps = [p["steps"] for p in played]
+            if self.activity == "berry_crush":
+                require("Cmd_PlayGame_Leader" in steps[0] and "Cmd_PlayGame_Member" in steps[1],
+                        f"the crush was not played as leader and member: {steps}")
+                require("Cmd_ShowResults" in steps[0] and "Cmd_ShowResults" in steps[1], "no results")
+                require("Cmd_AskPlayAgain" in steps[0] and "Cmd_AskPlayAgain" in steps[1], "no play-again question")
+            elif self.activity == "dodrio":
+                for phase in ("Intro", "PlayGame", "Results", "AskPlayAgain", "EndLink"):
+                    require(all(phase in s for s in steps), f"Dodrio Berry Picking's {phase} not in every game: {steps}")
+                ends = [p["at_question"] for p in played]
+                require(all(ends), f"a game was not asked to play again: {ends}")
+                require([e["leader"] for e in ends] == [1] + [0] * (count - 1), f"not the host alone leading: {ends}")
+                require(all(e["eaten"] == ends[0]["eaten"] for e in ends), f"the games show different results: {ends}")
+                require(sum(ends[0]["eaten"][1:]) >= 1, f"no friend's pick reached the leader's game: {ends}")
+            else:
+                for phase in ("GameIntro", "GameRound", "GameOver", "AskPlayAgain", "Exit"):
+                    require(all(phase in s for s in steps), f"Pokemon Jump's {phase} not in both games: {steps}")
+                ends = [p["at_question"] for p in played]
+                require(all(ends), f"a game was not asked to play again: {ends}")
+                require([e["leader"] for e in ends] == [1, 0], f"not the host leading and the friend a member: {ends}")
+                require(ends[0]["score"] == ends[1]["score"] and ends[0]["cleared"] == ends[1]["cleared"],
+                        f"the games show different scores: {ends}")
+                require(ends[0]["cleared"] >= 1, f"no swing cleared by both players: {ends}")
+                require(all(p["other_jumps"] >= 1 for p in played),
+                        f"a game never showed the other player's jump: {[p['other_jumps'] for p in played]}")
             await asyncio.sleep(3)                         # the leaves reach the host
         finally:
             stop.set()
             await watcher
             (self.output / "minigame-timeline.json").write_text(json.dumps(timeline, indent=1) + "\n")
         view = await on_worker(current[0], host_view)
-        crush = [g for g in seen["groups"].values() if g["activity"] == "berry_crush" and g["started"]]
+        groups = [g for g in seen["groups"].values() if g["activity"] == self.activity and g["started"]]
         ids = [account.player_id for account in host.accounts]
-        require(len(crush) == 1 and crush[0]["players"] == ids, f"the host's groups: {seen['groups']}")
-        require(sorted(index for _, index in filter(None, seen["started"])) == [0, 1],
+        require(len(groups) == 1 and groups[0]["players"] == ids, f"the host's groups: {seen['groups']}")
+        require(sorted(index for _, index in filter(None, seen["started"])) == list(range(count)),
                 f"the games were told {seen['started']}")
-        require(view["relayed"] >= 600, f"only {view['relayed']} link frames went through the host")
+        require(view["relayed"] >= (600 if self.activity == "berry_crush" else 300),
+                f"only {view['relayed']} link frames went through the host")
         require(not any(seen["dropped"]), f"a companion dropped link frames: {seen['dropped']}")
         require(not view["groups"], f"the host still has groups: {view['groups']}")
         require(not any(seen["notices"]), f"a game was told its group was lost: {seen['notices']}")
         require(not any(game.linked(p) for p in probes), "a game's link is still up")
-        record("berry-crush-between-world-players", frames_relayed=view["relayed"], host_group=crush[0],
-               started=seen["started"], seconds=round(time.monotonic() - began, 1))
+        record(f"{self.activity.replace('_', '-')}-between-world-players", frames_relayed=view["relayed"],
+               host_group=groups[0], started=seen["started"], seconds=round(time.monotonic() - began, 1),
+               played=[{k: v for k, v in p.items() if k != "steps"} for p in played])
 
 
 async def run(args):
-    minigame = MinigameMatch(args.output.resolve(), args.game.resolve())
+    minigame = MinigameMatch(args.output.resolve(), args.game.resolve(), args.activity)
 
     async def match(*values):
         return await minigame.match(*values)
-    await launcher_proof(args, names=PLAYER_NAMES, sources=(args.source_a, args.source_b), party_counts=(1, 1),
-                         match=match, version="Native minigame proof", settings="windowScale=2\n",
-                         scope=__doc__.split("\n\n")[0])
+    names = ACTIVITIES[args.activity]["names"]
+    sources = (args.source_a, args.source_b, args.source_c)[:len(names)]
+    require(all(sources) and len(args.display) >= len(names),
+            f"{args.activity} takes {len(names)} players: a --source and a --display each")
+    await launcher_proof(args, names=names, sources=sources, party_counts=(1,) * len(names), match=match,
+                         version="Native minigame proof", settings="windowScale=2\n", scope=__doc__.split("\n\n")[0])
 
 
 def main():
@@ -327,9 +632,11 @@ def main():
     parser.add_argument("--game", type=Path, required=True, help="native Linux executable, unstripped")
     parser.add_argument("--rom", type=Path, required=True)
     parser.add_argument("--manifest", type=Path, required=True)
-    parser.add_argument("--source-a", type=Path, required=True, help="make_tower_saves.py's crush-a")
-    parser.add_argument("--source-b", type=Path, required=True, help="make_tower_saves.py's crush-b")
-    parser.add_argument("--display", action="append", required=True, help="an X display per player (twice)")
+    parser.add_argument("--activity", choices=sorted(ACTIVITIES), default="berry_crush")
+    parser.add_argument("--source-a", type=Path, required=True, help="make_tower_saves.py's crush-a (jump-a)")
+    parser.add_argument("--source-b", type=Path, required=True, help="make_tower_saves.py's crush-b (jump-b)")
+    parser.add_argument("--source-c", type=Path, help="make_tower_saves.py's dodrio-c (--activity dodrio)")
+    parser.add_argument("--display", action="append", required=True, help="an X display per player")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--slow", type=float, default=1.0)
     parser.add_argument("--wine", type=Path, action="append", help="not for this proof (Linux clients)")
