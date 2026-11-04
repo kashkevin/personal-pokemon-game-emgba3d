@@ -370,7 +370,7 @@ slope, the GBA's walking rules: one elevation or an "any level" cell, a ledge on
 | Route 111 (2 runs, muddy) | 16 / 0 | 213 cells, reached only up the slope | nothing: already a ramp to its plateau |
 | Route 115 (28,8-9), muddy | 0 / 0 | 86 cells, only up the slope | the top region raised a level, the slope a ramp, its rock raised round it: **done** (engine `563c0f77`, above) |
 | Granite Cave B1F (9,9-10), muddy | 0 / 0 | 135 cells, only up the slope | the same: **done** (engine `a23e77e0`, above) |
-| Safari Zone Southwest (8,2-3), muddy | 0 / 0 | 8 cells, then the map's north edge (the next Safari area) | a level across two maps: left flat |
+| Safari Zone Southwest (8,2-3), muddy | 0 / 0 | 8 cells, then the map's north edge (the next Safari area) | a level across two maps: **done** (engine `43f2bb79`), the north-west's plateau, the slope's top rows and the trees on them a level up, the slope a ramp, the plateau's stairs climbing two levels over two rows (KNOWN_ISSUES MS-153) |
 | Route 119 (6,54-55), muddy | -1 / -1 | reached another way (1,858 cells) | the level change sits a row north of it (the GBA's elevations 3 and 4 meet there), but that row is the plateau's in the GBA's drawing: **done**, the row on the plateau's level and the slope a ramp (engine `f1391374`, above) |
 | Safari Zone North (22,21-23), bumpy | -1 / -2 | reached another way | a mound ringed by ledges on three sides: its levels need the ledges (below) |
 | Jagged Pass (5 runs, bumpy) | 0 / 0 | 3 reached another way, 2 only up the slope | the whole pass lies on one level (below) |
@@ -389,8 +389,8 @@ session's work. Route 113's and Route 123's ledges that landed higher are fixed 
 * **The 19 flat slopes** (Route 115's 2, Granite Cave B1F's 2 and Route 119's 2 rise since their climbs and top, above;
   Sootopolis Gym's 12 slides are flat ice in the GBA's own drawing): both ends of each lie on one level in the 3D view's
   terrace levels, so there is no height for a slope to climb; the terrace solver
-  (`tools/diorama_rules/terrace_topology.py`) has to split them first. Next: the Safari Zone's (levels across two maps,
-  with MS-162's Safari seams). Jagged Pass's 14 rise since engine `f5f1486f` (below).
+  (`tools/diorama_rules/terrace_topology.py`) has to split them first. The Safari Zone's rises since engine `43f2bb79`
+  (its plateau given by hand over the seam: KNOWN_ISSUES MS-153). Jagged Pass's 14 rise since engine `f5f1486f` (below).
 * **Route 118's 6 ledges that land a level higher** than they are jumped from (MS-154): none of them can be jumped
   (rock behind each, by its lake's plateau). Looked at on 2026-11-03 (the probe at the whole route and close at its
   north-west corner and its garden, four cameras each): by the probe's own heights 8 of its 84 ledges land higher, and
