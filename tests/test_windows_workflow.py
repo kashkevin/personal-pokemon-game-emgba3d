@@ -103,7 +103,8 @@ class WindowsWorkflowTests(unittest.TestCase):
         tests = job("selftests")
         self.assertIn("runs-on: windows-2022", tests)
         self.assertIn('-ArgumentList "--selftest-$test"', tests)
-        for name in ("tower", "breeding", "shiny", "rewards", "coop-exp", "rotom-catalog", "tm-catalogue", "item-hub"):
+        for name in ("tower", "breeding", "shiny", "rewards", "coop-exp", "rotom-catalog", "tm-catalogue", "item-hub",
+                     "megas", "start-menu", "netlink", "minigame-partners", "frontier-saves", "trade-evolution"):
             self.assertIn(f'"{name}"', tests)
         self.assertIn('throw "self-tests failed in the Windows build', tests)
         # their output in files (the Windows game's own console is slow and unreadable: run 129's update32 timed out)
