@@ -20,6 +20,7 @@ Updated with every fix; the newest first within each section.
 | MS-145 | Kept shinies and Legendaries forgotten when the game closes | **Fixed** (engine `9f0809f6`, app: this change): the keep list is a save record | self-test 24/24 (12 new; also under Wine); app record tests; a real game closed with a kept shiny: not yet | not yet | - |
 | MS-161 | Opening a world slows as its saves pile up | **Improved again** (app: this change): about 2x more (600 saves: 2.67 s to 1.1-1.4 s), every check the same; still grows (about 1.9 ms a save); options (b) and (c) in KNOWN_ISSUES MS-161 are the owner's | the reader's equivalence test (5,603 slots); timings on a 600-save test world | not yet | - |
 | MS-118 | 3D frame hitches when many chunks come into view at once | **Improved** (engine `9f41e9f3`), still open: chunks keep two earlier versions, so walking back over a seam builds nothing (20 crossings: 237 chunks built instead of 2,109, syncs over 16 ms 42 instead of 156); left: several new chunks at once and the atlas redrawn at a crossing (options in KNOWN_ISSUES MS-118) | A/B walks of the same binary; every chunk taken back built anyway and compared (1,892, 0 differed); 421,888 skipped-sync checks (0 stale); mesh check; check-diorama | not yet | - |
+| MS-192 | Windows run 273's Tower Duo proofs (duo, mega, join, join-reset) waited 30 minutes after their Duo battles | **Fixed** in the proof (app: this change): since MS-190 the launcher saves as a co-op battle ends and the game again after a Tower floor's result, which the proof did not expect; the game and launcher unchanged | `native_launcher_tower_proof.py` duo and join passed (real games, real launchers) | the next run | - |
 | MS-189 | The 3D rules parity test compares out of step | **Fixed** (engine `49b12c51`): not out of step - both list 325,079 terrain rows (the 332,226 counted the pixel objects' lines too); the test expected the classifier's height and shape where the resolver applies the terrace levels and the tree groups' bodies (also MS-170) | `tools/diorama_rules/test_rules_parity.py`: passed (all 325,079 rows and the pixel objects; every field) | - | - |
 | MS-39 | Mega Rayquaza unreachable (no way to learn Dragon Ascent) | **Fixed** (engine `d6e3072e`): Dragon Ascent at level 1 (the Gen 8 and Gen 9 level), offered by the move relearners | `--selftest-megas` (the learnset, the Sky Pillar Rayquaza's moves, the relearner's list, CanMegaEvolve with and without the move and the Mega Ring; also under Wine); ROM unchanged | not yet | - |
 | MS-38 | Mega Lucario Z's Aura Guard does nothing | **Fixed** (engine `d6e3072e`): half damage from moves that make contact, Mold Breaker ignores it (the effect from search results: KNOWN_ISSUES MS-38) | `--selftest-megas` (the battle's own damage calculation with the same roll: contact halved, the rest unchanged; also under Wine) | not yet | - |
@@ -60,10 +61,12 @@ NU-8, VR-6, WC-4, MS-7 hold the checklists.
 
 ## 5. Windows CI coverage of the newest work
 
-Run 271 (2026-11-04 morning) covered engine `2054cf05`. Run 273 (started 16:47 UTC, engine `49b12c51`, app
-`6952acc`) covers section 1's fixes up to MS-189 (its results are recorded here when it ends). Not in it: MS-118's
-change (engine `9f41e9f3`) and 21 engine self-tests the Windows job did not run until now (the wireless minigames
-with computer partners and over the world among them: `netlink`, `minigame-partners`; also Frontier saves, trade
-evolutions, items); the workflow now runs every self-test but the 5-minute statistical shiny audit. A Windows job for
-the minigames between two real games (`native_launcher_minigame_proof.py` has no Windows mode yet) is being added.
-The installer is prepared only from a run whose every required job passes, and is not distributed (N8).
+Run 271 (2026-11-04 morning) covered engine `2054cf05`. Run 273 (16:47 UTC, engine `49b12c51`, app `6952acc`):
+54 jobs passed (the self-tests, the multiplayer gameplay of two to four players, every interrupted battle, saving
+and the installation check, 3D graphics through Mesa, the Mega, Tower, rival, breeding and gameplay checks), 4
+failed (the Tower Duo proofs, MS-192: the proof's expectation, fixed); its installer is not the next one. The next
+full run takes engine `9f41e9f3` (MS-118) and app with MS-192's fix, all 54 engine self-tests but the 5-minute
+statistical shiny audit (21 more than before: the wireless minigames' `netlink` and `minigame-partners`, Frontier
+saves, trade evolutions, items), and a new job: the three wireless minigames between real games in Windows game
+processes (`minigame-proof`; the proof's Windows mode passed Berry Crush on Linux). The installer is prepared only
+from a run whose every required job passes, and is not distributed (N8).

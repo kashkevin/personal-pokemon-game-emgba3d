@@ -174,6 +174,11 @@ jobs:
           # ... and the Mega Evolution proof the battle structures' offsets of this very build (gdb reads its debug
           # information; MinGW's layout is not the Linux build's).
           python ../app/scripts/multiplayer/mega_facts.py --game pokeemerald-mp.exe --out ../classic-pe-symbols/mega-facts.json
+          # ... and the wireless minigames' proof its functions, variables and structures (an engine without the
+          # minigames between players has none: the minigame-proof job then says so and passes)
+          python ../app/scripts/multiplayer/minigame_facts.py --game pokeemerald-mp.exe --pe \
+            --out ../classic-pe-symbols/minigame-facts.json \
+            || echo "::warning::no minigame facts (an engine without the wireless minigames between players?)"
           i686-w64-mingw32-strip --strip-all pokeemerald-mp.exe
           if [ -z "$QUICK" ]; then
           # The Mega Evolution check's test build (never packaged): the Classic 2D game with the battle test driver.
@@ -1002,6 +1007,102 @@ jobs:
             ${{ runner.temp }}/multiplayer-proof/*/*.jsonl
             ${{ runner.temp }}/multiplayer-proof/*/*.png
             ${{ runner.temp }}/rival-saves/run-*/test.log
+          retention-days: 7
+          if-no-files-found: warn
+
+  minigame-proof:
+    # The wireless minigames between a world's players (KNOWN_ISSUES MS-141c) in real Windows game processes (a
+    # GitHub-hosted runner, one PC on its own loopback): each player's launcher, the world server and the Classic 2D
+    # game it packages (scripts/multiplayer/native_launcher_minigame_proof.py, Windows mode: keys as the keyboard's
+    # messages to each game's own window, memory read at the facts minigame_facts.py wrote from this game before its
+    # strip). The characters come from the game's own short introduction; the test build then gives them their
+    # fixtures (make_tower_saves.py crush-a/-b at two Pokemon Centers' 2F, jump-a/-b and dodrio-a/-b/-c in Mossdeep's
+    # minigame building). Each: the attendant, WORLD PLAYERS, the game's own save, the lobby in the Players menu, the
+    # host's group, the friends joining, the host starting it; the game itself as players play it (Berry Crush: a Berry
+    # each and A mashed; Pokemon Jump: A as the vine comes down; Dodrio Berry Picking, three players: picking), the
+    # results the same in every game, the host YES and the friends NO to playing again, every game back on the field
+    # with no communication error, every link frame through the host; then the saves, a fresh Continue, the parties
+    # unchanged.
+    name: Wireless minigames between players (Windows game processes, ${{ matrix.activity }})
+    needs: [engine, symbol-sizes]
+    if: ${{ (inputs.mode || 'smoke') == 'full' && (!inputs.only || contains(format(',{0},', inputs.only), ',minigame-proof,')) }}
+    runs-on: windows-2022
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {activity: berry_crush, count: 2, fixtures: "crush-a,crush-b", a: crush-a, b: crush-b}
+          - {activity: pokemon_jump, count: 2, fixtures: "jump-a,jump-b", a: jump-a, b: jump-b}
+          - {activity: dodrio, count: 3, fixtures: "dodrio-a,dodrio-b,dodrio-c", a: dodrio-a, b: dodrio-b, c: dodrio-c}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Both builds come from one engine commit
+        run: |
+          [ "${{ needs.engine.outputs.engine_commit }}" = "${{ needs.symbol-sizes.outputs.engine_commit }}" ] || {
+            echo "the Windows game and the Linux symbol sizes are of different engine commits" >&2; exit 1; }
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - name: Private virtual environment with the pinned, hashed wheels
+        run: |
+          python -m venv .venv
+          .venv/Scripts/python -m pip install --require-hashes --only-binary=:all: -r requirements-host-provisioning.txt
+      - uses: actions/download-artifact@v4
+        with:
+          name: native-inputs
+          path: inputs
+      - uses: actions/download-artifact@v4
+        with:
+          name: mega-check-inputs
+          path: mega-check-inputs
+      - uses: actions/download-artifact@v4
+        with:
+          name: classic-pe-symbols
+          path: symbols
+      - uses: actions/download-artifact@v4
+        with:
+          name: classic-linux-sizes
+          path: symbols
+      - name: New characters from the game's own short introduction, then their minigame fixtures
+        run: |
+          if [ ! -f symbols/minigame-facts.json ]; then echo "::notice::this engine has no minigame facts"; exit 0; fi
+          .venv/Scripts/python scripts/multiplayer/make_intro_saves.py --exe mega-check-inputs/pokeemerald-mp-bfxtest.exe \
+            --mega-check mega-check-inputs/mega_check.py --out "$RUNNER_TEMP/intro" --count ${{ matrix.count }}
+          third=()
+          if [ "${{ matrix.count }}" = 3 ]; then third=(--source-c "$RUNNER_TEMP/intro/boy-2.sav"); fi
+          .venv/Scripts/python scripts/multiplayer/make_tower_saves.py --exe mega-check-inputs/pokeemerald-mp-bfxtest.exe \
+            --mega-check mega-check-inputs/mega_check.py --source-a "$RUNNER_TEMP/intro/boy-1.sav" \
+            --source-b "$RUNNER_TEMP/intro/girl-1.sav" "${third[@]}" --out "$RUNNER_TEMP/minigame-saves" \
+            --only ${{ matrix.fixtures }}
+      - name: The minigame (${{ matrix.activity }})
+        run: |
+          if [ ! -f symbols/minigame-facts.json ]; then echo "::notice::this engine has no minigame facts"; exit 0; fi
+          saves="$RUNNER_TEMP/minigame-saves"
+          sources=(--source-a "$saves/${{ matrix.a }}.sav" --source-b "$saves/${{ matrix.b }}.sav")
+          if [ -n "${{ matrix.c }}" ]; then sources+=(--source-c "$saves/${{ matrix.c }}.sav"); fi
+          .venv/Scripts/python scripts/multiplayer/native_launcher_minigame_proof.py --activity ${{ matrix.activity }} \
+            --game inputs/pokeemerald-mp.exe --sdl inputs/SDL2.dll --rom inputs/pokedev.gba \
+            --manifest inputs/manifest.json --pe-symbols symbols/pokeemerald-mp.nm.txt \
+            --sizes symbols/pokeemerald-mp.sizes.txt --minigame-facts symbols/minigame-facts.json --slow 1.5 \
+            "${sources[@]}" --output "$RUNNER_TEMP/multiplayer-proof/minigame-${{ matrix.activity }}"
+      - name: The proof's own diagnosis, in this log (only when it failed; scripts/multiplayer/proof_failure_summary.py)
+        if: failure()
+        run: python scripts/multiplayer/proof_failure_summary.py "$RUNNER_TEMP/multiplayer-proof"
+      - name: Upload the proof's record (private to this repository, 7 days; no save)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: EmeraldTogether-minigame-proof-${{ matrix.activity }}
+          path: |
+            ${{ runner.temp }}/multiplayer-proof/*/evidence.json
+            ${{ runner.temp }}/multiplayer-proof/*/*.jsonl
+            ${{ runner.temp }}/multiplayer-proof/*/*.json
+            ${{ runner.temp }}/multiplayer-proof/*/pictures/*.png
+            ${{ runner.temp }}/minigame-saves/run-*/test.log
           retention-days: 7
           if-no-files-found: warn
 

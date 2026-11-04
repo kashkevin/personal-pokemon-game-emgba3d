@@ -78,7 +78,10 @@ The GBA ROM; the games' rules, prizes, records and saves; computer partners (MS-
 ## Limits
 
 * All three games have been played between real games: Berry Crush and Pokemon Jump between two, Dodrio Berry Picking
-  between three (its least). Four players and Windows not run.
+  between three (its least). Four players not run. Windows: the proof has a Windows mode since 2026-11-04 (keys as the
+  keyboard's messages to each game's window, memory read at `scripts/multiplayer/minigame_facts.py`'s facts of the
+  Windows game, written by the engine job before its strip), and `windows-package.yml`'s `minigame-proof` job runs all
+  three in Windows game processes on a GitHub-hosted runner; see TEST_LEDGER for whether a run has passed it.
 
 * A frozen member game whose launcher connection stays up is not noticed by the leader's game (members send only the
   commands they have; the leader cannot tell silence from a freeze); the games' own waits apply. A frozen leader is

@@ -151,6 +151,23 @@ class WindowsWorkflowTests(unittest.TestCase):
         self.assertIn("--game inputs/pokeemerald-mp.exe", rival)             # the packaged Classic 2D game
         self.assertIn("--pe-symbols symbols/pokeemerald-mp.nm.txt", rival)
 
+    def test_the_wireless_minigames_between_players_run_in_windows_game_processes(self):
+        minigames = job("minigame-proof")
+        self.assertIn("runs-on: windows-2022", minigames)
+        self.assertIn("needs: [engine, symbol-sizes]", minigames)
+        for activity, fixtures in (("berry_crush", "crush-a,crush-b"), ("pokemon_jump", "jump-a,jump-b"),
+                                   ("dodrio", "dodrio-a,dodrio-b,dodrio-c")):
+            self.assertIn(f"activity: {activity},", minigames)
+            self.assertIn(f'fixtures: "{fixtures}"', minigames)
+        self.assertIn("--only ${{ matrix.fixtures }}", minigames)
+        self.assertIn("native_launcher_minigame_proof.py --activity ${{ matrix.activity }}", minigames)
+        self.assertIn("--game inputs/pokeemerald-mp.exe", minigames)             # the packaged Classic 2D game
+        self.assertIn("--minigame-facts symbols/minigame-facts.json", minigames)
+        # the facts of the very build, written before its strip (as the Mega proof's)
+        engine = job("engine")
+        facts = engine.index("minigame_facts.py --game pokeemerald-mp.exe --pe")
+        self.assertLess(facts, engine.index("i686-w64-mingw32-strip --strip-all pokeemerald-mp.exe"))
+
     def test_multiplayer_mega_evolution_runs_in_windows_game_processes(self):
         mega = job("mega-proof")
         self.assertIn("runs-on: windows-2022", mega)
@@ -232,7 +249,7 @@ class WindowsWorkflowTests(unittest.TestCase):
 
     def test_a_failed_launcher_proof_prints_its_diagnosis_in_the_log(self):
         # Run 138's ffa-exit: the evidence went to an artifact a session reading the log could not fetch.
-        for name in ("tower-proof", "rival-proof", "mega-proof", "abandon-check", "multiplayer-check"):
+        for name in ("tower-proof", "rival-proof", "mega-proof", "minigame-proof", "abandon-check", "multiplayer-check"):
             with self.subTest(job=name):
                 steps = job(name)
                 summary = steps.index("proof_failure_summary.py \"$RUNNER_TEMP/multiplayer-proof\"")

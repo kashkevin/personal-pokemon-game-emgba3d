@@ -595,7 +595,7 @@ async def duo_fight(current, probes, host, symbols, record, floor, megas):
     mega_seen = None
 
     async def finished(s):
-        return s.status.code == "battle_finished" and s._interaction is None
+        return battle_done(s)
     started = time.monotonic()
     try:
         async with asyncio.timeout(1800):
@@ -613,6 +613,7 @@ async def duo_fight(current, probes, host, symbols, record, floor, megas):
         await asyncio.gather(*drivers)
     record("tower-duo-battle-finished", seconds=round(time.monotonic() - started, 1))
     await asyncio.gather(*(finish_award(p, n, record) for n, p in enumerate(probes)))
+    await settle_saves(current, record)
     if megas:
         require(mega_seen, "an opposing Pokemon Mega Evolved in the Duo (Norman's Kangaskhan)")
     return battle_id, floor
@@ -657,6 +658,36 @@ async def join_ready(probes, record, floor, replay):
         require(("Change floor" in rows) == (slot == 1), f"slot {slot}: only the Duo's host changes its floor: {rows}")
         await probes[slot].choose("Ready")
         await close_players(probes[slot])
+
+
+async def settle_saves(current, record, quiet=5.0, seconds=120):
+    """The host saves a Duo battle brings (KNOWN_ISSUES MS-190): the launcher's own after the battle, then the game's
+    after its result script (a Tower floor is a ladder result): each player's revision unchanged for `quiet` seconds
+    with no save running, so a later save's revision is known. Returns the revisions."""
+    async def state(s):
+        tasks = (getattr(s, "_battle_save_task", None), getattr(s, "_save_task", None))
+        busy = s.status.code == "saving" or any(t is not None and not t.done() for t in tasks)
+        return s.status.revision, busy
+    deadline, last, since = time.monotonic() + seconds, None, time.monotonic()
+    while time.monotonic() < deadline:
+        now = [await on_worker(w, state) for w in current]
+        revisions = [revision for revision, _ in now]
+        if any(busy for _, busy in now) or revisions != last:
+            last, since = revisions, time.monotonic()
+        elif time.monotonic() - since >= quiet:
+            record("tower-duo-saves-settled", revisions=revisions)
+            return revisions
+        await asyncio.sleep(.5)
+    raise AssertionError(f"the players' host saves did not settle after the Duo battle: {now}")
+
+
+def battle_done(s):
+    """A launcher back from a battle: battle_finished, and after a co-op battle (the Duo's) its own save of the result
+    (KNOWN_ISSUES MS-190: saving, then saved) done, so the next save's revision is that save's next. Windows run 273's
+    Duo, mega and join waited 30 minutes for a battle_finished both launchers had already left for that save."""
+    task = getattr(s, "_battle_save_task", None)
+    return (s.status.code in ("battle_finished", "saving", "saved") and s._interaction is None
+            and (task is None or task.done()))
 
 
 def opposing_mega(probe, base_species):
@@ -805,7 +836,7 @@ async def championship_final(current, probes, host, symbols, record, championshi
                for index, (p, slot) in enumerate(zip(probes, slots))]
 
     async def finished(s):
-        return s.status.code == "battle_finished" and s._interaction is None
+        return battle_done(s)
     started = time.monotonic()
     try:
         async with asyncio.timeout(1800):
@@ -1088,9 +1119,12 @@ class TowerScenario:
                     record("tower-join-save-asked", slot=0, floor=floor, status=screen.status,
                            rows=[r.label for r in screen.rows])
                     # A party change saves on the host by itself (since 2026-10-22), so the floor's experience may
-                    # be in player 1's host save already: the host asks whoever still needs a save.
-                    require(screen.status in ("Save first: START > SAVE", f"{NAMES[1][:10]} must save first"),
-                            f"player 1's Duo page asks for a save first: {screen.status!r}")
+                    # be in player 1's host save already: the host asks whoever still needs a save. Since MS-190 the
+                    # launcher saves as a co-op battle ends and the game again after its result (MS-192), so as a rule
+                    # neither needs one: the page then counts who is ready.
+                    require(screen.status in ("Save first: START > SAVE", f"{NAMES[1][:10]} must save first",
+                                              f"Floor {floor}: 0/2 ready"),
+                            f"player 1's Duo page asks for a save first or counts the ready: {screen.status!r}")
                     if screen.status == "Save first: START > SAVE":
                         await probes[0].choose("Ready")
                         _, screen = await probes[0].ready()

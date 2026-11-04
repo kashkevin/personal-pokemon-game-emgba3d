@@ -36,8 +36,12 @@
     5. As Berry Crush's.
 
 What the games do is read from their memory (the attendant's choice, the save's questions, the Players menu, the
-minigame's current step, from the game's debug information where a structure is read); keys are pressed as a player
-presses them (xdotool). Pictures for a person: OUT/pictures.
+minigame's current step, from the game's debug information where a structure is read: minigame_facts.py); keys are
+pressed as a player presses them (xdotool on Linux; on Windows, the keyboard's messages to each game's own window, as
+the other Windows proofs press them). Pictures for a person: OUT/pictures.
+
+Windows (the CI runner, the release's Windows game, no X displays): --sdl, --pe-symbols and --sizes as the other
+Windows proofs, and --minigame-facts (minigame_facts.py of the game before its strip); no --display.
 
     PYTHONPATH=src:scripts/multiplayer:scripts/windows-runtime \\
       python scripts/multiplayer/native_launcher_minigame_proof.py \\
@@ -56,23 +60,14 @@ import sys
 import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "windows-runtime"))
-from native_launcher_battle_proof import KEYS, function_addresses, game_picture, launcher_proof  # noqa: E402
+from minigame_facts import BERRY_CRUSH_STEPS, MULTICHOICE_TASKS, game_facts  # noqa: E402
+from native_launcher_battle_proof import KEYS, WINDOWS, game_picture, launcher_proof  # noqa: E402
 from qualify_admission_cleanup import on_worker, require  # noqa: E402
 
 A, B, UP, DOWN = 1, 2, 64, 128
-MULTICHOICE_TASKS = ("Task_HandleScrollingMultichoiceInput", "Task_HandleMultichoiceInput")
-BERRY_CRUSH_STEPS = (
-    "Cmd_BeginNormalPaletteFade", "Cmd_WaitPaletteFade", "Cmd_PrintMessage", "Cmd_ShowGameDisplay",
-    "Cmd_HideGameDisplay", "Cmd_SignalReadyToBegin", "Cmd_AskPickBerry", "Cmd_GoToBerryPouch",
-    "Cmd_WaitForOthersToPickBerries", "Cmd_DropBerriesIntoCrusher", "Cmd_DropLid", "Cmd_Countdown",
-    "Cmd_PlayGame_Leader", "Cmd_PlayGame_Member", "Cmd_FinishGame", "Cmd_HandleTimeUp", "Cmd_TabulateResults",
-    "Cmd_ShowResults", "Cmd_SaveGame", "Cmd_AskPlayAgain", "Cmd_CommunicatePlayAgainResponses", "Cmd_PlayAgain",
-    "Cmd_StopGame", "Cmd_CloseLink", "Cmd_Quit")
 # Pokemon Jump's phases (src/pokemon_jump.c, FUNC_*: the index in its leader's and members' tables)
 JUMP_PHASES = ("GameIntro", "WaitRound", "GameRound", "GameOver", "AskPlayAgain", "ResetGame", "Exit", "GivePrize",
                "Save")
-JUMP_FIELDS = ("comm.funcId", "helperState", "vineState", "isLeader", "comm.jumpScore", "comm.jumpsInRow",
-               "players[0].monState", "players[1].monState")
 MONSTATE_JUMP = 1
 VINE_DOWNSWING_LOWER, VINE_UPSWING_LOWER = 4, 6
 RENDER_STATE_CLEAR, RENDER_STATE_SCROLL_START = 2, 3    # a text printer waiting for a press (include/text.h)
@@ -80,7 +75,6 @@ JUMPS = 6                                               # each player's jumps be
 # Dodrio Berry Picking's phases (src/dodrio_berry_picking.c, FUNC_*)
 DODRIO_PHASES = ("Intro", "InitCountdown", "Countdown", "WaitStart", "PlayGame", "InitResults", "Results",
                  "AskPlayAgain", "EndLink", "Exit", "ResetGame", "WaitEndGame")
-DODRIO_FIELDS = ("funcId", "state", "isLeader", "numPlayers", "numGraySquares", "berryResults", "berriesEaten")
 DODRIO_RESULTS = 6                                      # each player's Berries blue, green, gold, missed, prize, in a row
 ACTIVITIES = {
     "berry_crush": dict(title="BERRY CRUSH", names=("Crush Host", "Crush Friend")),
@@ -90,83 +84,84 @@ ACTIVITIES = {
 GAME_SECONDS = 420
 
 
-def data_addresses(game, name):
-    """Every address of a data symbol (static ones repeat: several files have an `sGame`)."""
-    rows = subprocess.run(["nm", str(game)], capture_output=True, text=True, check=True).stdout
-    return sorted({int(row[0], 16) for row in (line.split() for line in rows.splitlines())
-                   if len(row) == 3 and row[1] in "bBdD" and row[2] == name})
-
-
-def struct_offsets(game, struct, fields):
-    """Where a structure's fields lie, from the game's debug information (gdb): the game is read as it was built."""
-    commands = [part for field in fields for part in ("-ex", f"print (int)&((struct {struct} *)0)->{field}")]
-    output = subprocess.run(["gdb", "-batch", "-nx", *commands, str(game)], capture_output=True, text=True,
-                            timeout=600).stdout
-    values = [int(line.split("=")[1]) for line in output.splitlines() if line.startswith("$")]
-    require(len(values) == len(fields), f"no offsets of struct {struct} from gdb (a build with debug information?): "
-            f"{output[-300:]!r}")
-    return dict(zip(fields, values))
-
-
-def static_address(game, file, name):
-    """A static variable's address from the debug information (two files have an `sGame`)."""
-    output = subprocess.run(["gdb", "-batch", "-nx", "-ex", f"print (int)&'{file}'::{name}", str(game)],
-                            capture_output=True, text=True, timeout=600).stdout
-    values = [int(line.split("=")[1]) for line in output.splitlines() if line.startswith("$")]
-    require(len(values) == 1, f"no address of {file}'s {name} from gdb: {output[-300:]!r}")
-    return values[0]
-
-
 class Game:
-    """What one game is doing, read from its memory (the Linux game runs where it was linked)."""
+    """What one game is doing, read from its memory at the build's facts (minigame_facts.py). Three kinds of read: a
+    variable at the build's own address (static: the Windows game is moved where Windows loaded it), memory a pointer
+    of the game's points at (heap: as it is), and a code pointer compared with the build's functions (code: moved
+    back by the same distance on Windows)."""
 
-    def __init__(self, game, symbols, activity):
-        self.symbols, self.activity = symbols, activity
-        self.multichoice = frozenset().union(*(function_addresses(game, name) for name in MULTICHOICE_TASKS))
-        self.save_questions = {**{a: "save?" for a in function_addresses(game, "SaveConfirmInputCallback")},
-                               **{a: "overwrite?" for a in function_addresses(game, "SaveOverwriteInputCallback")}}
-        self.save_dialog = data_addresses(game, "sSaveDialogCallback")
-        self.link_active = data_addresses(game, "sLocalLinkActive")
-        self.link_error = function_addresses(game, "CB2_LinkError")
-        self.overworld = function_addresses(game, "CB2_Overworld")
-        self.first_printer = data_addresses(game, "sFirstTextPrinter")
-        self.printer_fields = struct_offsets(game, "TextPrinter", ("active", "state", "nextPrinter"))
-        found = (self.first_printer and self.multichoice and len(self.save_questions) == 2 and self.save_dialog and self.link_active
-                 and self.link_error and self.overworld)
+    def __init__(self, facts, activity):
+        self.activity = activity
+        functions, data, structs = facts["functions"], facts["data"], facts["structs"]
+
+        def fn(*names):
+            return frozenset(a for name in names for a in functions.get(name, ()))
+        self.multichoice = fn(*MULTICHOICE_TASKS)
+        self.save_questions = {**{a: "save?" for a in fn("SaveConfirmInputCallback")},
+                               **{a: "overwrite?" for a in fn("SaveOverwriteInputCallback")}}
+        self.save_dialog = data["sSaveDialogCallback"]
+        self.link_active = data["sLocalLinkActive"]
+        self.link_error = fn("CB2_LinkError")
+        self.overworld = fn("CB2_Overworld")
+        self.first_printer = data["sFirstTextPrinter"]
+        self.main = data["gMain"]
+        self.printer_fields = structs["TextPrinter"]
+        found = (self.first_printer and self.multichoice and len(self.save_questions) == 2 and self.save_dialog
+                 and self.link_active and self.link_error and self.overworld and len(self.main) == 1)
         if activity == "berry_crush":
-            self.steps = {address: name for name in BERRY_CRUSH_STEPS for address in function_addresses(game, name)}
-            self.crush_games = data_addresses(game, "sGame")
-            self.bag = function_addresses(game, "CB2_BagMenuRun") | function_addresses(game, "CB2_Bag")
+            self.steps = {address: name for name in BERRY_CRUSH_STEPS for address in functions.get(name, ())}
+            self.crush_games = data["sGame"]
+            self.bag = fn("CB2_BagMenuRun", "CB2_Bag")
             found = found and len(self.steps) >= len(BERRY_CRUSH_STEPS) and self.crush_games and self.bag
         elif activity == "pokemon_jump":
-            self.jump_game = data_addresses(game, "sPokemonJump")
-            self.jump_screen = function_addresses(game, "CB2_PokemonJump")
-            self.party_menu = function_addresses(game, "CB2_UpdatePartyMenu")
-            self.jump_fields = struct_offsets(game, "PokemonJump", JUMP_FIELDS)
+            self.jump_game = data["sPokemonJump"]
+            self.jump_screen = fn("CB2_PokemonJump")
+            self.party_menu = fn("CB2_UpdatePartyMenu")
+            self.jump_fields = structs["PokemonJump"]
             found = found and len(self.jump_game) == 1 and self.jump_screen and self.party_menu
         else:
-            self.dodrio_game = static_address(game, "dodrio_berry_picking.c", "sGame")
-            self.dodrio_screen = function_addresses(game, "CB2_DodrioGame")
-            self.party_menu = function_addresses(game, "CB2_UpdatePartyMenu")
-            self.dodrio_fields = struct_offsets(game, "DodrioGame", DODRIO_FIELDS)
+            self.dodrio_game = facts["statics"]["dodrio_berry_picking.c::sGame"]
+            self.dodrio_screen = fn("CB2_DodrioGame")
+            self.party_menu = fn("CB2_UpdatePartyMenu")
+            self.dodrio_fields = structs["DodrioGame"]
             found = found and self.dodrio_screen and self.party_menu
         require(found, "the native game lacks the symbols this proof reads: build it unstripped")
 
     @staticmethod
-    def raw(probe, address, size):
+    def static(probe, address, size):
+        """`size` bytes of a variable at the build's own address."""
+        if WINDOWS:
+            return probe.memory.read(address, size)
+        with open(f"/proc/{probe.pid}/mem", "rb", buffering=0) as memory:
+            memory.seek(address)
+            return memory.read(size)
+
+    @staticmethod
+    def heap(probe, address, size):
+        """`size` bytes where a pointer the game holds points."""
+        if WINDOWS:
+            return probe.memory._raw(address, size)
         with open(f"/proc/{probe.pid}/mem", "rb", buffering=0) as memory:
             memory.seek(address)
             return memory.read(size)
 
     def word(self, probe, address):
-        return int.from_bytes(self.raw(probe, address, 4), "little")
+        return int.from_bytes(self.static(probe, address, 4), "little")
+
+    def heap_word(self, probe, address):
+        return int.from_bytes(self.heap(probe, address, 4), "little")
+
+    @staticmethod
+    def code(probe, value):
+        """A code pointer the game holds, as the build's own address (the facts' numbering)."""
+        return probe.code(value & ~1)
 
     def callback2(self, probe):
-        return self.word(probe, self.symbols["gMain"][0] + 4) & ~1
+        return self.code(probe, self.word(probe, self.main[0] + 4))
 
     def multichoice_shown(self, probe):
         tasks = probe.mem("gTasks", 640)
-        return any(tasks[o + 4] and int.from_bytes(tasks[o:o + 4], "little") & ~1 in self.multichoice
+        return any(tasks[o + 4] and self.code(probe, int.from_bytes(tasks[o:o + 4], "little")) in self.multichoice
                    for o in range(0, 640, 40))
 
     def text_waiting(self, probe):
@@ -175,23 +170,26 @@ class Game:
         for _ in range(64):                                # the game's list of text printers
             if not printer:
                 return False
-            data = self.raw(probe, printer, f["nextPrinter"] + 4)
+            data = self.heap(probe, printer, f["nextPrinter"] + 4)
             if data[f["active"]] and data[f["state"]] in (RENDER_STATE_CLEAR, RENDER_STATE_SCROLL_START):
                 return True
             printer = int.from_bytes(data[f["nextPrinter"]:f["nextPrinter"] + 4], "little")
         return False
 
     def save_question(self, probe):
-        return self.save_questions.get(self.word(probe, self.save_dialog[0]) & ~1)
+        return self.save_questions.get(self.code(probe, self.word(probe, self.save_dialog[0])))
 
     def crush(self, probe):
         """Berry Crush's current step (its command's name, the command's state), or None outside Berry Crush."""
         for address in self.crush_games:
             game = self.word(probe, address)
             if game:
-                step = self.steps.get(self.word(probe, game + 4) & ~1)
+                try:
+                    step = self.steps.get(self.code(probe, self.heap_word(probe, game + 4)))
+                except OSError:
+                    continue                               # another file's sGame, not a pointer
                 if step is not None:
-                    return step, self.raw(probe, game + 12, 1)[0]
+                    return step, self.heap(probe, game + 12, 1)[0]
         return None
 
     def jump(self, probe):
@@ -203,8 +201,8 @@ class Game:
         if not game:
             return None
         f = self.jump_fields
-        data = self.raw(probe, game, f["comm.jumpScore"] + 4)          # the structure's head, then two players'
-        mons = [int.from_bytes(self.raw(probe, game + f[f"players[{i}].monState"], 2), "little") for i in (0, 1)]
+        data = self.heap(probe, game, f["comm.jumpScore"] + 4)          # the structure's head, then two players'
+        mons = [int.from_bytes(self.heap(probe, game + f[f"players[{i}].monState"], 2), "little") for i in (0, 1)]
         phase = data[f["comm.funcId"]]
         return dict(phase=JUMP_PHASES[phase] if phase < len(JUMP_PHASES) else phase,
                     helper=int.from_bytes(data[f["helperState"]:f["helperState"] + 2], "little"),
@@ -223,7 +221,7 @@ class Game:
         if not game:
             return None
         f = self.dodrio_fields
-        data = self.raw(probe, game, f["berriesEaten"] + 10)
+        data = self.heap(probe, game, f["berriesEaten"] + 10)
         phase, players = data[f["funcId"]], data[f["numPlayers"]]
         eaten, table = f["berriesEaten"], f["berryResults"]
 
@@ -236,7 +234,7 @@ class Game:
                              for i in range(min(players, 5))])
 
     def linked(self, probe):
-        return any(self.raw(probe, address, 1)[0] for address in self.link_active)
+        return any(self.static(probe, address, 1)[0] for address in self.link_active)
 
 
 async def until(predicate, timeout, what):
@@ -247,24 +245,32 @@ async def until(predicate, timeout, what):
 
 
 def _mash(probe, key, seconds, period=.11):
-    """A held as briefly as a quick thumb holds it, again and again (one focus for the burst)."""
-    probe._window()
+    """A held as briefly as a quick thumb holds it, again and again (one focus for the burst; on Windows the keyboard's
+    messages to the game's window, found once)."""
+    window = probe._window()
     end = time.monotonic() + seconds
     while time.monotonic() < end:
-        subprocess.run(["xdotool", "keydown", key], env=probe.environment, check=True)
-        time.sleep(.045)
-        subprocess.run(["xdotool", "keyup", key], env=probe.environment, check=True)
+        if WINDOWS:
+            probe._windows.press(window, key, .045)
+        else:
+            subprocess.run(["xdotool", "keydown", key], env=probe.environment, check=True)
+            time.sleep(.045)
+            subprocess.run(["xdotool", "keyup", key], env=probe.environment, check=True)
         time.sleep(period - .045)
 
 
 def _tap(probe, key):
-    """One quick press to the focused window (a jump: no time lost focusing it again)."""
-    subprocess.run(["xdotool", "keydown", key, "sleep", "0.05", "keyup", key], env=probe.environment, check=True)
+    """One quick press to the focused window (a jump: no time lost focusing it again; on Windows to the game's
+    window)."""
+    if WINDOWS:
+        probe._windows.press(probe._window(), key, .05)
+    else:
+        subprocess.run(["xdotool", "keydown", key, "sleep", "0.05", "keyup", key], env=probe.environment, check=True)
 
 
 class MinigameMatch:
-    def __init__(self, output, game_path, activity):
-        self.output, self.game_path, self.activity = output, game_path, activity
+    def __init__(self, output, facts, activity):
+        self.output, self.facts, self.activity = output, facts, activity
         self.pictures = output / "pictures"
 
     def picture(self, probe, name):
@@ -504,7 +510,7 @@ class MinigameMatch:
 
     async def match(self, current, probes, games, host, symbols, record):
         names = [account.display_name for account in host.accounts]
-        game = Game(self.game_path, symbols, self.activity)
+        game = Game(self.facts, self.activity)
         host_probe, friends, count = probes[0], probes[1:], len(probes)
 
         async def host_view(s):
@@ -629,13 +635,20 @@ class MinigameMatch:
 
 
 async def run(args):
-    minigame = MinigameMatch(args.output.resolve(), args.game.resolve(), args.activity)
+    names = ACTIVITIES[args.activity]["names"]
+    if WINDOWS:
+        # the release's Windows game is stripped: its facts were written before (minigame_facts.py); one desktop
+        require(args.minigame_facts, "on Windows: --minigame-facts (minigame_facts.py of the game before its strip)")
+        facts = json.loads(args.minigame_facts.read_text())
+        args.display = args.display or [f"desktop-{n}" for n in range(len(names))]   # names for the records
+    else:
+        facts = game_facts(args.game.resolve())
+    minigame = MinigameMatch(args.output.resolve(), facts, args.activity)
 
     async def match(*values):
         return await minigame.match(*values)
-    names = ACTIVITIES[args.activity]["names"]
     sources = (args.source_a, args.source_b, args.source_c)[:len(names)]
-    require(all(sources) and len(args.display) >= len(names),
+    require(all(sources) and args.display and len(args.display) >= len(names),
             f"{args.activity} takes {len(names)} players: a --source and a --display each")
     await launcher_proof(args, names=names, sources=sources, party_counts=(1,) * len(names), match=match,
                          version="Native minigame proof", settings="windowScale=2\n", scope=__doc__.split("\n\n")[0])
@@ -643,19 +656,24 @@ async def run(args):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--game", type=Path, required=True, help="native Linux executable, unstripped")
+    parser.add_argument("--game", type=Path, required=True,
+                        help="the native game: Linux, unstripped; Windows, the release's (with --minigame-facts)")
     parser.add_argument("--rom", type=Path, required=True)
     parser.add_argument("--manifest", type=Path, required=True)
     parser.add_argument("--activity", choices=sorted(ACTIVITIES), default="berry_crush")
     parser.add_argument("--source-a", type=Path, required=True, help="make_tower_saves.py's crush-a (jump-a)")
     parser.add_argument("--source-b", type=Path, required=True, help="make_tower_saves.py's crush-b (jump-b)")
     parser.add_argument("--source-c", type=Path, help="make_tower_saves.py's dodrio-c (--activity dodrio)")
-    parser.add_argument("--display", action="append", required=True, help="an X display per player")
+    parser.add_argument("--display", action="append", help="an X display per player (Linux)")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--slow", type=float, default=1.0)
     parser.add_argument("--wine", type=Path, action="append", help="not for this proof (Linux clients)")
     parser.add_argument("--sdl", type=Path)
     parser.add_argument("--elf", type=Path)
+    parser.add_argument("--pe-symbols", type=Path, help="Windows: nm -n of the game before its strip")
+    parser.add_argument("--sizes", type=Path, help="Windows: nm -S of the Linux build of the same engine commit")
+    parser.add_argument("--minigame-facts", type=Path, help="Windows: minigame_facts.py of the game before its strip")
+    parser.add_argument("--runtime-extra", type=Path, action="append", help="Windows: another file beside the game")
     asyncio.run(run(parser.parse_args()))
 
 
