@@ -128,6 +128,12 @@ class WindowsWorkflowTests(unittest.TestCase):
         self.assertIn("../diorama-check-inputs/", engine)
         # Mesa is a test tool: the packaged game never carries it
         self.assertNotIn("opengl32", job("package").lower())
+        # KNOWN_ISSUES MS-118: the chunk cache's walk across four map seams with its terrain check, a failed check failing
+        # the job (a chunk kept that differs, a stale skipped sync, or no chunk brought back at all)
+        self.assertIn('PKMN_DIORAMA_TERRAIN_CHECK="1"', graphics)
+        self.assertIn('PKMN_DEBUG_HERE="0,2,20,8"', graphics)
+        self.assertIn('raise SystemExit("a chunk the cache kept differs from the one it would build")', graphics)
+        self.assertIn("the walk did not cross the seams", graphics)
 
     def test_the_whole_games_gameplay_check_runs_in_windows_game_processes(self):
         check = job("gameplay-check")

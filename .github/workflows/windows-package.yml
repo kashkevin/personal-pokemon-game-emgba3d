@@ -1580,6 +1580,45 @@ jobs:
           $shots = @(Get-ChildItem (Join-Path $out "shots") -Filter *.png -ErrorAction SilentlyContinue).Count
           "- Geometry probe through Mesa llvmpipe: $shots pictures of 14 showcase places (geometry/shots)" >> $env:GITHUB_STEP_SUMMARY
           if ($shots -lt 14 * 4) { throw "the geometry probe drew $shots pictures, not the 56 of its 14 places" }
+      - name: The 3D chunk cache across map seams (KNOWN_ISSUES MS-118, its terrain check)
+        shell: python
+        run: |
+          # The walk of MS-118's measurements: from Mauville City west into Route 117, east through Mauville into Route
+          # 118 and back west, running (four seams). Every chunk the cache brings back from an earlier version is built
+          # again and compared, and every sync that skipped chunks has their inputs checked (PKMN_DIORAMA_TERRAIN_CHECK).
+          # What it says: the cache keeps the meshes it would build, in a Windows build; nothing about speed.
+          import os, pathlib, re, subprocess
+          out = pathlib.Path(os.environ["RUNNER_TEMP"], "graphics-3d", "seam-walk")
+          out.mkdir(parents=True, exist_ok=True)
+          (out / "pokeemerald.cfg").write_text("resolution=1280x720\ndisplayMode=windowed\nquality=high\nvsync=0\n"
+                                               "fpsCap=unlimited\nvolume=0\ncryVolume=0\n")
+          keys = ([f"{f}:LEFT+B" for f in range(200, 400, 4)] + [f"{f}:RIGHT+B" for f in range(420, 820, 4)]
+                  + [f"{f}:LEFT+B" for f in range(840, 1040, 4)])
+          env = dict(os.environ, SDL_AUDIODRIVER="dummy", PKMN_DEBUG_SCENE="field", PKMN_DEBUG_HERE="0,2,20,8",
+                     PKMN_DEBUG_KEYS=",".join(keys), PKMN_DEBUG_RUN="1", PKMN_DEBUG_HOUR="12",
+                     PKMN_DEBUG_GLSHOTS_GAME="1", PKMN_DEBUG_GLSHOTS="1080", PKMN_DIORAMA_TERRAIN_CHECK="1")
+          exe = pathlib.Path("diorama-check-inputs", "pokeemerald-mp-diorama-bfxtest.exe").resolve()
+          with open(out / "test.log", "wb") as log:     # the game ends by itself after its picture of game frame 1080
+              code = subprocess.run([str(exe), "--config", "pokeemerald.cfg", "--save", "test.sav"], cwd=out, env=env,
+                                    stdout=log, stderr=subprocess.STDOUT, timeout=1800).returncode
+          text = (out / "test.log").read_text(errors="replace")
+          back = [tuple(map(int, m)) for m in
+                  re.findall(r"terrain check: (\d+) chunks from an earlier version checked, (\d+) differed", text)]
+          skipped = [tuple(map(int, m)) for m in re.findall(r"terrain check: (\d+) chunks checked, (\d+) stale", text)]
+          line = (f"- The chunk cache across four map seams: exit {code}; "
+                  f"{back[-1][0] if back else 0} chunks brought back from an earlier version, "
+                  f"{sum(1 for _, differed in back if differed)} reports of one that differed; "
+                  f"{skipped[-1][0] if skipped else 0} skipped-sync chunks checked, "
+                  f"{sum(1 for _, stale in skipped if stale)} reports of a stale one")
+          print(line)
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
+              summary.write(line + "\n")
+          if code != 0:
+              raise SystemExit(f"the seam walk's game ended with {code}")
+          if not back or back[-1][0] == 0:
+              raise SystemExit("no chunk was brought back from an earlier version: the walk did not cross the seams")
+          if any(differed for _, differed in back) or any(stale for _, stale in skipped):
+              raise SystemExit("a chunk the cache kept differs from the one it would build")
       - name: Upload the report and the pictures (private to this repository, 7 days; no save)
         if: always()
         uses: actions/upload-artifact@v4
