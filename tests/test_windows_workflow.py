@@ -184,6 +184,12 @@ class WindowsWorkflowTests(unittest.TestCase):
         self.assertIn("--game inputs/pokeemerald-mp.exe", coop)             # the packaged Classic 2D game
         self.assertIn("--pe-symbols symbols/pokeemerald-mp.nm.txt", coop)
 
+    def test_world_loading_with_many_saves_is_timed_on_windows(self):
+        bench = job("world-open-bench")
+        self.assertIn("runs-on: windows-2022", bench)
+        self.assertNotIn("needs:", bench)                                 # no game: every mode, smoke runs too
+        self.assertIn("tools/perf/world_open_bench.py --saves 300 --repeat 3 --max-seconds 60", bench)
+
     def test_multiplayer_mega_evolution_runs_in_windows_game_processes(self):
         mega = job("mega-proof")
         self.assertIn("runs-on: windows-2022", mega)

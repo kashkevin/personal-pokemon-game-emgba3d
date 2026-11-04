@@ -1274,6 +1274,42 @@ jobs:
           retention-days: 7
           if-no-files-found: warn
 
+  world-open-bench:
+    # World loading on Windows (KNOWN_ISSUES MS-161): a host's start opens its world and checks every save in it, so it
+    # takes longer as the saves pile up. A test world of two players with 300 distinct saves each, built through the
+    # checkpoint store's own API from synthetic saves (no ROM, no real save: tools/perf/world_open_bench.py), opened cold
+    # and checked three times on a GitHub-hosted Windows runner (not a player's PC). It fails only when a check takes
+    # over 60 s, far beyond MS-161's measurements (about 1.3 s on Linux); the times are in the log and the artifact.
+    # No game and no secret: it runs in every mode.
+    name: World loading with 600 saves (Windows)
+    if: ${{ !cancelled() && (!inputs.only || contains(format(',{0},', inputs.only), ',world-open-bench,')) }}
+    runs-on: windows-2022
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - name: Private virtual environment with the pinned, hashed wheels
+        run: |
+          python -m venv .venv
+          .venv/Scripts/python -m pip install --require-hashes --only-binary=:all: -r requirements-host-provisioning.txt
+      - name: Open and check a world of 600 saves, three times
+        run: |
+          .venv/Scripts/python tools/perf/world_open_bench.py --saves 300 --repeat 3 --max-seconds 60 \
+            --out "$RUNNER_TEMP/world-open-bench.json"
+      - name: Upload the timings (private to this repository, 7 days)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: EmeraldTogether-world-open-bench
+          path: ${{ runner.temp }}/world-open-bench.json
+          retention-days: 7
+          if-no-files-found: warn
+
   gameplay-check:
     # The whole game's gameplay check in real Windows game processes (opt-in: gameplay_qa): every trainer, person, item
     # ball, sign, hidden item, warp and coordinate trigger of the reachable maps visited by the test build's plan runner
