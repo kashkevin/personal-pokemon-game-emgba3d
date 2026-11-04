@@ -130,11 +130,28 @@ jobs:
           # The install itself then stalled for its whole 20 minutes (runs 175, 180 and 183, 2026-10-23), with no output.
           # dpkg's man-db trigger is a known stall on hosted runners (it rebuilds the manual index after every install):
           # skip it; and try three times, at most seven minutes each (apt keeps what it already downloaded).
+          # It stalled again three times with no output (runs 280 and 282, 2026-11-04; 38 to 72 s when it works): the
+          # packages are now fetched first and installed after, each part saying what it does, and a part that runs
+          # out of time first shows apt's and dpkg's processes and logs, so the next stall names its step.
           sudo rm -f /var/lib/man-db/auto-update
+          packages="build-essential libpng-dev gcc-arm-none-eabi binutils-arm-none-eabi libnewlib-arm-none-eabi mingw-w64 gdb"
+          apt_state() {
+            echo "--- apt and dpkg after attempt $1:" >&2
+            ps -eo pid,etimes,stat,args | grep -E '[a]pt|[d]pkg|[u]nattended' >&2 || true
+            sudo tail -n 15 /var/log/apt/term.log >&2 || true
+            sudo ls -la /var/cache/apt/archives/partial >&2 || true
+          }
           for attempt in 1 2 3; do
-            timeout 420 sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends \
-              -o Dpkg::Use-Pty=0 build-essential libpng-dev \
-              gcc-arm-none-eabi binutils-arm-none-eabi libnewlib-arm-none-eabi mingw-w64 gdb && break
+            timeout 600 sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -q --download-only \
+              --no-install-recommends -o DPkg::Lock::Timeout=120 $packages && break
+            apt_state "$attempt (download)"
+            [ "$attempt" = 3 ] && { echo "apt-get install --download-only failed three times" >&2; exit 1; }
+            echo "apt-get install --download-only stalled or failed (attempt $attempt): again" >&2
+          done
+          for attempt in 1 2 3; do
+            timeout 420 sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -q --no-download --no-install-recommends \
+              -o Dpkg::Use-Pty=0 -o DPkg::Lock::Timeout=120 $packages && break
+            apt_state "$attempt (install)"
             [ "$attempt" = 3 ] && { echo "apt-get install failed three times" >&2; exit 1; }
             echo "apt-get install stalled or failed (attempt $attempt): again" >&2
             sudo dpkg --configure -a || true

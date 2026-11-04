@@ -76,9 +76,11 @@ installs stalled three times (a mirror, not this code; no check ran), and its fa
 In that second attempt the coop-proof job **passed** (MS-190 on Windows) and so did the minigames between two and three
 players, but the new four-player Dodrio Berry Picking and Pokemon Jump jobs **failed in the proof's checks, not in the
 games** (each wanted every game's reading to catch a phase of a second or less while the proof's pictures held up the
-readings; every game played, agreed on the results and came back to the field). With the proof fixed (app: this
-change), the next full run is the installer candidate. The installer is prepared only from a run whose every required
-job passes, and is not distributed (N8).
+readings; every game played, agreed on the results and came back to the field). With the proof fixed (app `0e04cc5`),
+run 282 was dispatched as the installer candidate; its engine job's package install stalled three times with no output
+before any build (as in run 280's first attempt; not this code), so the step now fetches and installs in two parts and
+shows apt's state when a part stalls, and the next full run is the installer candidate. The installer is prepared only
+from a run whose every required job passes, and is not distributed (N8).
 
 ## 6. Earlier issues in KNOWN_ISSUES (reviewed 2026-11-04)
 

@@ -268,6 +268,14 @@ class WindowsWorkflowTests(unittest.TestCase):
             self.assertIn("99ci-timeouts", text)
             self.assertIn("timeout 300", text)
             self.assertIsNone(re.search(r"^\s+(sudo )?apt-get update", text, re.M))
+        # Runs 280 and 282 (2026-11-04): the engine build's install stalled three times with no output: the packages
+        # are fetched, then installed, each part with its own tries, and a part out of time shows apt's state first.
+        engine = job("engine")
+        fetch = engine.index("--download-only")
+        self.assertLess(fetch, engine.index("--no-download"))
+        self.assertIn("DPkg::Lock::Timeout=120", engine)
+        self.assertEqual(engine.count('apt_state "$attempt'), 2)
+        self.assertNotIn("apt-get install -y -qq", engine)
 
     def test_a_failed_launcher_proof_prints_its_diagnosis_in_the_log(self):
         # Run 138's ffa-exit: the evidence went to an artifact a session reading the log could not fetch.
