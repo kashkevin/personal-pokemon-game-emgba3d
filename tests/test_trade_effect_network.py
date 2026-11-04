@@ -11,6 +11,7 @@ import test_trade_effect_backend as effect_fixture
 from test_trade_effect_backend import NonEvolvingFixtureReplay, POLICY
 from test_trade_storage import BUILD, RULESET
 from emerald_multiplayer.protocol import PROTOCOL_VERSION
+from emerald_multiplayer.protocol import launcher_version
 
 
 class EffectNetworkTests(unittest.IsolatedAsyncioTestCase):
@@ -28,7 +29,8 @@ class EffectNetworkTests(unittest.IsolatedAsyncioTestCase):
         for player in self.fixture.fixture.players:
             reader, writer = await asyncio.open_connection(*self.server.address)
             writer.write(encode_message(dict(type="hello", protocol=PROTOCOL_VERSION, build_id=BUILD, ruleset_id=RULESET,
-                player_id=player.player_id, display_name=player.display_name, credential=player.credential.hex())))
+                player_id=player.player_id, display_name=player.display_name, credential=player.credential.hex(),
+                launcher=launcher_version())))
             await writer.drain()
             welcome = await read_message(reader)
             self.assertEqual(welcome["type"], "welcome")

@@ -15,8 +15,10 @@ from typing import Any
 # Version 2 adds shared-world presence (followers, mounts), appearance,
 # the world clock, World Events and notices. Version 3 adds host-authoritative
 # shared wild Pokemon (the "spawns" world field, the "spawn_action" request and
-# the presence "weather"). Mixed versions refuse cleanly.
-PROTOCOL_VERSION = 3
+# the presence "weather"). Version 4 adds the launcher's own version to hello
+# ("launcher"): a world admits only players whose launcher is exactly the host's
+# version (KNOWN_ISSUES MS-28). Mixed versions refuse cleanly at the hello.
+PROTOCOL_VERSION = 4
 MAX_FRAME_BYTES = 16_384
 MAX_PLAYERS = 4
 MAX_COUNTER = 2_147_483_647
@@ -32,6 +34,11 @@ MOVEMENT_MODES = frozenset({"walk", "run", "bike", "surf"})
 WORLD_PRESENCE_FIELDS = frozenset({"share_location", "follower_species", "follower_flags", "mount_state", "mount_species", "mount_flags",
                                    "wallet_seq", "weather"})
 _IDENTITY = re.compile(r"[A-Za-z0-9_.:-]{1,128}\Z")
+# The launcher's version as a person sees it: a packaged launcher's release label (launcher_gui.LauncherRelease.version, e.g.
+# "Native 3D CI 265"), or DEVELOPMENT_LAUNCHER when it runs from source.
+_LAUNCHER = re.compile(r"[A-Za-z0-9][A-Za-z0-9 ._-]{0,47}\Z")
+DEVELOPMENT_LAUNCHER = "development"
+_launcher_version = DEVELOPMENT_LAUNCHER
 
 
 class ProtocolError(ValueError):
@@ -69,15 +76,42 @@ def _version(value: Any) -> None:
         raise ProtocolError("unsupported_protocol", "protocol version is incompatible")
 
 
-def validate_hello(message: dict[str, Any], build_id: str, ruleset_id: str, *, require_credential: bool = False) -> dict[str, Any]:
-    _fields(message, {"type", "protocol", "build_id", "ruleset_id", "player_id", "display_name"}, {"credential"})
-    if message["type"] != "hello":
+def validate_launcher(value: Any) -> str:
+    if not isinstance(value, str) or _LAUNCHER.fullmatch(value) is None:
+        raise ProtocolError("invalid_launcher", "launcher must be a bounded version label")
+    return value
+
+
+def launcher_version() -> str:
+    """This process's launcher version: what its hellos say and what a world it hosts requires of every player."""
+    return _launcher_version
+
+
+def set_launcher_version(version: str) -> None:
+    """Called once by the packaged entry (shell_app.main, launcher_gui.main) with its release label, before any session."""
+    global _launcher_version
+    _launcher_version = validate_launcher(version)
+
+
+def validate_hello(message: dict[str, Any], build_id: str, ruleset_id: str, *, require_credential: bool = False,
+                   launcher: str | None = None) -> dict[str, Any]:
+    """A player's first message. ``launcher`` is the version the world requires (default: this process's launcher version).
+
+    The type and protocol are checked before the field set: an older launcher's hello (protocol 3, no "launcher") is answered
+    "unsupported_protocol", which every earlier launcher shows as a different game version (MS-28)."""
+    if not isinstance(message, dict):
+        raise ProtocolError("invalid_message", "message must be a JSON object")
+    if message.get("type") != "hello":
         raise ProtocolError("hello_required", "the first message must be hello")
-    _version(message["protocol"])
+    _version(message.get("protocol"))
+    _fields(message, {"type", "protocol", "build_id", "ruleset_id", "player_id", "display_name", "launcher"}, {"credential"})
     if validate_identity(message["build_id"], "build_id") != build_id:
         raise ProtocolError("build_mismatch", "game build is incompatible")
     if validate_identity(message["ruleset_id"], "ruleset_id") != ruleset_id:
         raise ProtocolError("ruleset_mismatch", "game ruleset is incompatible")
+    required = launcher_version() if launcher is None else validate_launcher(launcher)
+    if validate_launcher(message["launcher"]) != required:
+        raise ProtocolError("launcher_mismatch", "the host and every player need the same EmeraldTogether version")
     player_id = message["player_id"]
     try:
         valid_uuid = isinstance(player_id, str) and str(uuid.UUID(player_id)) == player_id

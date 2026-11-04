@@ -59,8 +59,16 @@ anything is started or saved:
    (`relay_unreachable`, `relay_host_offline`, `relay_busy`, `relay_failed`);
 3. the host certificate must have the SHA-256 in the invite and be valid for the world (`wrong_world`,
    `certificate_invalid`); nothing is sent before this;
-4. a hello **without any credential** asks whether the server talks to this game build (`version_mismatch`), or refuses
-   players from outside the host's network (`rejected_public_exposure_disabled`). No lease, session or character is created.
+4. a hello **without any credential** asks whether the server talks to this game build and launcher version
+   (`version_mismatch`), or refuses players from outside the host's network (`rejected_public_exposure_disabled`). No lease,
+   session or character is created.
+
+The hello (protocol 4, 2026-11-04) carries the launcher's own version ("launcher": a packaged launcher's release label, or
+"development" from source), and a world admits only its host's exact version (KNOWN_ISSUES MS-28): a host refuses another
+version at the hello with "launcher_mismatch" (naming its own version for the troubleshooting line), an older launcher's
+protocol-3 hello with "unsupported_protocol", and an older host refuses the new hello's "launcher" field with
+"invalid_fields". Every one of these is `version_mismatch` ("Different game versions"), a permanent refusal: the player is
+refused when joining instead of being disconnected later by a request type the other version does not know.
 
 `check_routes` tries the direct route first and the relay second. Every code has a title, an explanation and next steps
 split into "Host:" and "You:" (`describe`). The menu shows them on the "Can't join" screen with Try again, Edit the

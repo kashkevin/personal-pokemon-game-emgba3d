@@ -38,11 +38,13 @@ class FakeWorldServer:
     """A TLS listener with a world's real certificate that answers like a world server in one chosen way:
 
     ``immediate`` - send this error code as soon as TLS is up (like the peer filter),
-    ``on_hello`` - read a hello and answer with this error code (like validate_hello / authentication),
+    ``on_hello`` - read a hello and answer with this error code (like validate_hello / authentication), plus the fields in
+    ``reply`` (a host refusing another launcher version names its own: {"launcher": ...}),
     neither - read and say nothing."""
 
-    def __init__(self, world, *, immediate=None, on_hello=None, tls=True):
+    def __init__(self, world, *, immediate=None, on_hello=None, tls=True, reply=None):
         self.world, self.immediate, self.on_hello, self.tls = world, immediate, on_hello, tls
+        self.reply = dict(reply or {})
         self.hellos = []
         self._server = None
         self._writers = []
@@ -72,7 +74,8 @@ class FakeWorldServer:
                 return
             self.hellos.append(hello)
             if self.on_hello is not None:
-                writer.write(encode_message({"type": "error", "protocol": PROTOCOL_VERSION, "code": self.on_hello, "message": "x"}))
+                writer.write(encode_message({"type": "error", "protocol": PROTOCOL_VERSION, "code": self.on_hello, "message": "x",
+                                             **self.reply}))
                 await writer.drain()
                 return
             await reader.read()

@@ -23,6 +23,7 @@ from emerald_multiplayer.storage import CheckpointStore
 from test_companion import BinaryBridge, make_files, make_pose
 from test_flash import make_flash
 from emerald_multiplayer.protocol import PROTOCOL_VERSION
+from emerald_multiplayer.protocol import launcher_version
 
 
 async def wait_until(predicate, timeout=2.0):
@@ -49,7 +50,7 @@ class Client:
         client = cls(reader, writer, owner)
         hello = dict(type="hello", protocol=PROTOCOL_VERSION, build_id=build, ruleset_id=BASELINE_RULESET,
                      player_id=owner.player_id, display_name="Client-supplied name",
-                     credential=owner.credential.hex())
+                     credential=owner.credential.hex(), launcher=launcher_version())
         # None deliberately omits a field to exercise the actual hello gate.
         hello.update(changes)
         await client.send({key: value for key, value in hello.items() if value is not None})
@@ -119,7 +120,7 @@ class CheckpointProtocolTests(unittest.TestCase):
 
     def test_hello_credential_optional_for_transient_required_for_durable(self):
         hello = dict(type="hello", protocol=PROTOCOL_VERSION, build_id="build", ruleset_id="rules",
-                     player_id=str(uuid.uuid4()), display_name="Player")
+                     player_id=str(uuid.uuid4()), display_name="Player", launcher=launcher_version())
         validate_hello(hello, "build", "rules")
         with self.assertRaises(ProtocolError) as caught:
             validate_hello(hello, "build", "rules", require_credential=True)

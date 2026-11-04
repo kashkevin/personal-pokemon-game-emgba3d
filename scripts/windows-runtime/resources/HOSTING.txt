@@ -105,8 +105,10 @@ C. A relay (works behind CGNAT; someone has to run it)
 Their screen names the reason and what each of you can do: for example "Nothing is accepting
 connections there" (you are not hosting, or the port differs), "The host did not answer" (router,
 firewall or CGNAT), "That is not the world from your invite" (the address now leads to another
-PC), "Different game versions" (install the same EmeraldTogether version on both PCs). Nothing is
-created or reset on their side when this happens, and they can try again or edit the address.
+PC), "Different game versions" (the host and every player need exactly the same EmeraldTogether
+version: compare the version at the top of the main menu; when you install a new version, your
+friends install it too). Nothing is created or reset on their side when this happens, and they can
+try again or edit the address.
 
 What has and has not been checked: the connection checks, the relay and the automatic router setup
 are tested automatically on one computer (separate folders playing the host and friends). They have

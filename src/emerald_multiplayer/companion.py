@@ -27,8 +27,9 @@ from .bridge_protocol import BridgeError, BridgeOutbox, read_packet
 from .mailbox import ABI_VERSION, CONNECTED, MAILBOX_SIZE, MailboxError, Peer, Pose, Snapshot
 from .protocol import (
     MAX_COUNTER, MAX_PLAYERS, PROTOCOL_VERSION, ProtocolError, encode_message,
-    read_message, validate_heartbeat, validate_hello, validate_presence,
+    read_message, validate_heartbeat, validate_hello, validate_launcher, validate_presence,
 )
+from .protocol import launcher_version as _process_launcher_version
 from .server import is_local_address
 from .secure_transport import ClientTlsConfig, is_numeric_unicast_address
 from . import connection_diagnostics as _diagnostics
@@ -43,12 +44,17 @@ _ACTION_RETRY_SECONDS = 1.0
 
 class ServerRejected(ProtocolError):
     """The world server answered the hello with an error message. ``server_code`` is its code and ``reason`` the
-    connection_diagnostics code a person is shown (rejected_public_exposure_disabled, version_mismatch, ...)."""
+    connection_diagnostics code a person is shown (rejected_public_exposure_disabled, version_mismatch, ...).
+    ``host_launcher`` is the host's launcher version when it refused another version (launcher_mismatch, MS-28)."""
 
-    def __init__(self, server_code: Any) -> None:
+    def __init__(self, server_code: Any, host_launcher: Any = None) -> None:
         super().__init__("server_rejected", "server rejected this client")
         self.server_code = server_code if type(server_code) is str and 0 < len(server_code) <= 64 else "unknown"
         self.reason = _diagnostics.rejection_code(self.server_code)
+        try:
+            self.host_launcher = validate_launcher(host_launcher) if host_launcher is not None else None
+        except ProtocolError:
+            self.host_launcher = None
 
 
 def _identity_error(code: str, message: str, reason: str) -> ProtocolError:
@@ -229,6 +235,9 @@ class CompanionConfig:
     # A relay route (relay.py): connect to the relay and ask for the expected world's room; TLS and the pin stay end to end.
     relay_host: str | None = None
     relay_port: int | None = None
+    # The launcher version this game's hellos say; a host admits only its own version (MS-28). Default: this process's
+    # (protocol.set_launcher_version, called by the packaged entry with its release label).
+    launcher_version: str = field(default_factory=_process_launcher_version)
     build_id: str = field(init=False)
     ruleset_id: str = field(init=False, default=BASELINE_RULESET)
     save_enabled: bool = field(init=False, default=False)
@@ -359,8 +368,8 @@ class CompanionConfig:
         validate_hello({
             "type": "hello", "protocol": PROTOCOL_VERSION, "build_id": build_id,
             "ruleset_id": self.ruleset_id, "player_id": self.player_id,
-            "display_name": self.display_name,
-        }, build_id, self.ruleset_id)
+            "display_name": self.display_name, "launcher": self.launcher_version,
+        }, build_id, self.ruleset_id, launcher=self.launcher_version)
         if not isinstance(self.token, bytes) or len(self.token) != 32:
             raise ValueError("IPC token must contain exactly 32 random bytes")
         if self.server_credential is not None and (not isinstance(self.server_credential, bytes) or len(self.server_credential) != 32):
@@ -481,8 +490,8 @@ def validate_world(message: dict[str, Any], config: CompanionConfig, session_epo
         validate_hello({
             "type": "hello", "protocol": PROTOCOL_VERSION, "build_id": config.build_id,
             "ruleset_id": config.ruleset_id, "player_id": player["player_id"],
-            "display_name": player["display_name"],
-        }, config.build_id, config.ruleset_id)
+            "display_name": player["display_name"], "launcher": config.launcher_version,
+        }, config.build_id, config.ruleset_id, launcher=config.launcher_version)
         if player["player_id"] in seen:
             raise ProtocolError("invalid_server_message", "duplicate player identity in roster")
         seen.add(player["player_id"])
@@ -1473,6 +1482,11 @@ class Companion:
         """Record why an attempt failed. A permanent refusal during the handshake stops reconnection (``stopped``); anything
         transient, and anything after a completed handshake, keeps the existing reconnect behaviour."""
         code, detail = _diagnostics.classify(error)
+        if isinstance(error, ServerRejected):
+            # The troubleshooting line names the host's own code, and both versions when they differ (MS-28).
+            detail = f"{detail} {error.server_code}"
+            if error.host_launcher is not None:
+                detail = f"{detail} (host: {error.host_launcher}; this launcher: {self.config.launcher_version})"
         self.failure, self.failure_detail = code, detail
         if handshake and code in _diagnostics.PERMANENT:
             self.stopped = code
@@ -1583,6 +1597,7 @@ class Companion:
                 "type": "hello", "protocol": PROTOCOL_VERSION,
                 "build_id": self.config.build_id, "ruleset_id": self.config.ruleset_id,
                 "player_id": self.config.player_id, "display_name": self.config.display_name,
+                "launcher": self.config.launcher_version,
             }
             if self.config.server_credential is not None:
                 hello["credential"] = self.config.server_credential.hex()
@@ -1593,7 +1608,7 @@ class Companion:
                 closed.reason = "rejected"
                 raise closed
             if welcome.get("type") == "error":
-                raise ServerRejected(welcome.get("code"))
+                raise ServerRejected(welcome.get("code"), welcome.get("launcher"))
             try:
                 welcome = validate_welcome(welcome, self.config)
             except ProtocolError as error:

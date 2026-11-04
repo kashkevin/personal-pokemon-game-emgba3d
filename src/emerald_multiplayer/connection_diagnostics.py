@@ -12,9 +12,11 @@ sends a credential or save data:
 3. the host's certificate must have the SHA-256 written in the invite and be valid for the world (``wrong_world``,
    ``certificate_invalid``); nothing is sent before this,
 4. only then, when the game build is known, a hello *without any credential* asks the server whether it would talk to this game
-   version at all. The server checks the protocol and build before it asks for a credential, so "credentials_required" means the
-   versions match (``ok``) and "build_mismatch" means they do not (``version_mismatch``). A world that refuses players from outside
-   the host's network says so first (``rejected_public_exposure_disabled``). No lease, session or character is created.
+   version at all. The server checks the protocol, build and launcher version before it asks for a credential, so
+   "credentials_required" means the versions match (``ok``) and "build_mismatch" or "launcher_mismatch" means they do not
+   (``version_mismatch``; the host and every player need exactly the same EmeraldTogether version, KNOWN_ISSUES MS-28). A world
+   that refuses players from outside the host's network says so first (``rejected_public_exposure_disabled``). No lease, session
+   or character is created.
 
 Codes (``CODES``): ok, dns_failed, refused, timeout, unreachable, blocked, tls_failed, wrong_world, certificate_invalid,
 version_mismatch, invalid_address, rejected_public_exposure_disabled, rejected_player_already_connected,
@@ -69,6 +71,11 @@ _SERVER_CODES = {
     "build_mismatch": VERSION_MISMATCH,
     "ruleset_mismatch": VERSION_MISMATCH,
     "unsupported_protocol": VERSION_MISMATCH,
+    "launcher_mismatch": VERSION_MISMATCH,          # another EmeraldTogether version (MS-28)
+    "invalid_launcher": VERSION_MISMATCH,
+    # A host older than protocol 4 reads this launcher's hello, which carries "launcher", as having unexpected fields: a hello
+    # this launcher built and checked itself is refused for its fields only by a host of another version.
+    "invalid_fields": VERSION_MISMATCH,
 }
 
 # A connection that fails with one of these will fail the same way every time: retrying cannot help, the player must act.
@@ -160,9 +167,10 @@ EXPLANATIONS = {
         ("Check this PC's date and time.",)),
     VERSION_MISMATCH: Explanation(
         "Different game versions",
-        "The host's game and yours are different versions, so they cannot play together.",
-        ("Tell your friends which EmeraldTogether version you have.",),
-        ("Install exactly the same EmeraldTogether version as the host.",)),
+        "The host's EmeraldTogether and yours are different versions. The host and every player need exactly the same "
+        "version to play together.",
+        ("Tell your friends which EmeraldTogether version you have (it is shown at the top of the main menu).",),
+        ("Install exactly the same EmeraldTogether version as the host (compare the version at the top of the main menu).",)),
     INVALID_ADDRESS: Explanation(
         "That address cannot be used",
         "The address or port is not valid. Use an IP address such as 203.0.113.7 or a host name, and a port from 1 to 65535.",
@@ -369,9 +377,9 @@ async def close_quietly(writer):
         pass
 
 
-async def _version_probe(reader, writer, build_id, ruleset_id, budget):
-    """Ask the server, without a credential, whether it would talk to this build. Returns (code, detail)."""
-    from .protocol import PROTOCOL_VERSION, ProtocolError, encode_message, read_message
+async def _version_probe(reader, writer, build_id, ruleset_id, budget, launcher=None):
+    """Ask the server, without a credential, whether it would talk to this build and launcher version. Returns (code, detail)."""
+    from .protocol import PROTOCOL_VERSION, ProtocolError, encode_message, launcher_version, read_message
     try:
         try:
             # A server that refuses this peer outright says so before it reads anything.
@@ -385,7 +393,8 @@ async def _version_probe(reader, writer, build_id, ruleset_id, budget):
             if first.get("type") == "error":
                 return rejection_code(first.get("code")), "server error " + str(first.get("code"))[:64]
         writer.write(encode_message({"type": "hello", "protocol": PROTOCOL_VERSION, "build_id": build_id, "ruleset_id": ruleset_id,
-                                     "player_id": str(uuid4()), "display_name": "check"}))
+                                     "player_id": str(uuid4()), "display_name": "check",
+                                     "launcher": launcher_version() if launcher is None else launcher}))
         async with asyncio.timeout(max(budget, .5)):
             await writer.drain()
             reply = await read_message(reader)

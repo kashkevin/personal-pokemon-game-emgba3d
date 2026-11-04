@@ -81,6 +81,25 @@ class CompanionRejectionTests(Base):
                 self.assertEqual(companion.stopped, code)
                 await companion.close()
 
+    async def test_another_launcher_version_is_permanent_and_names_both_versions(self):
+        """KNOWN_ISSUES MS-28: a new host's launcher_mismatch (naming its version) and an older host's refusal of the hello's
+        "launcher" field (invalid_fields) both stop reconnecting at once as different game versions."""
+        for server_code, reply in (("launcher_mismatch", {"launcher": "Native 3D CI 265"}), ("invalid_fields", {})):
+            with self.subTest(server_code=server_code):
+                fake = await self.fake(on_hello=server_code, reply=reply)
+                companion = self.companion(fake.port)
+                await companion.start()
+                await wait_for(lambda: companion.stopped is not None)
+                self.assertEqual(companion.stopped, "version_mismatch")
+                self.assertEqual(fake.hellos[0]["launcher"], companion.config.launcher_version)
+                self.assertIn(server_code, companion.failure_detail)
+                if reply:
+                    self.assertIn(f"(host: Native 3D CI 265; this launcher: {companion.config.launcher_version})",
+                                  companion.failure_detail)
+                await wait_for(lambda: companion._remote_task.done())
+                self.assertEqual(len(fake.hellos), 1, "a different version is not retried")
+                await companion.close()
+
     async def test_another_world_at_the_address_is_wrong_world_and_gets_no_hello(self):
         fake = await self.fake(self.other, on_hello="credentials_required")
         companion = self.companion(fake.port)
@@ -157,14 +176,22 @@ class SessionRejectionTests(Base):
 
     async def test_version_mismatch_and_wrong_world_reach_the_session(self):
         for world, behaviour, code in ((self.world, {"on_hello": "ruleset_mismatch"}, "version_mismatch"),
+                                       # KNOWN_ISSUES MS-28: another launcher version, from a new host and from an older one
+                                       (self.world, {"on_hello": "launcher_mismatch", "reply": {"launcher": "Native 3D CI 265"}},
+                                        "version_mismatch"),
+                                       (self.world, {"on_hello": "invalid_fields"}, "version_mismatch"),
                                        (self.other, {"on_hello": "credentials_required"}, "wrong_world")):
-            with self.subTest(code=code):
+            with self.subTest(code=code, behaviour=behaviour):
                 fake = await self.fake(world, **behaviour)
                 session = self.friend_session(fake.port, connection_timeout=10)
+                started = asyncio.get_running_loop().time()
                 with self.assertRaises(LauncherSessionError) as caught:
                     async with session.open():
                         self.fail("refused")
                 self.assertEqual(caught.exception.code, code)
+                self.assertLess(asyncio.get_running_loop().time() - started, 5, "a permanent refusal does not wait")
+                if code == "version_mismatch":
+                    self.assertIn("same version", str(caught.exception))
 
     async def test_a_server_that_never_welcomes_is_not_connected_and_times_out(self):
         fake = await self.fake()                          # reads the hello and says nothing

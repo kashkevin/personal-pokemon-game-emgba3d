@@ -11,7 +11,7 @@ from unittest.mock import patch
 from emerald_multiplayer import connection_diagnostics as diagnostics
 from emerald_multiplayer.connection_diagnostics import check_routes, check_server, classify, describe, rejection_code
 from emerald_multiplayer.invitations import InvitationError
-from emerald_multiplayer.protocol import ProtocolError
+from emerald_multiplayer.protocol import PROTOCOL_VERSION, ProtocolError, launcher_version
 from emerald_multiplayer.relay import RelayError
 from emerald_multiplayer.secure_transport import HostIdentityError
 from emerald_multiplayer.server import ServerConfig, WorldServer
@@ -40,6 +40,11 @@ class ExplanationTests(unittest.TestCase):
         self.assertEqual(rejection_code("enrollment_disabled"), "rejected_enrollment_disabled")
         self.assertEqual(rejection_code("build_mismatch"), "version_mismatch")
         self.assertEqual(rejection_code("unsupported_protocol"), "version_mismatch")
+        # KNOWN_ISSUES MS-28: another launcher version (a new host), and an older host refusing the hello's "launcher" field.
+        self.assertEqual(rejection_code("launcher_mismatch"), "version_mismatch")
+        self.assertEqual(rejection_code("invalid_launcher"), "version_mismatch")
+        self.assertEqual(rejection_code("invalid_fields"), "version_mismatch")
+        self.assertIn("same version", describe("version_mismatch").message)
         self.assertEqual(rejection_code("something_new"), "rejected")
         for code in ("version_mismatch", "wrong_world", "rejected_invalid_credentials", "rejected_public_exposure_disabled"):
             self.assertTrue(diagnostics.is_permanent(code))
@@ -124,6 +129,28 @@ class CheckServerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.code, "version_mismatch")
         self.assertNotIn("credential", fake.hellos[0])
         self.assertEqual(fake.hellos[0]["build_id"], self.world.build_id)
+
+    async def test_the_check_detects_another_launcher_version_before_any_credential(self):
+        """KNOWN_ISSUES MS-28: the check's hello says this launcher's version. A host of another version refuses it
+        (launcher_mismatch), and a host older than protocol 4 refuses its "launcher" field (invalid_fields): both are
+        different game versions, found when the invite code is checked, before anything is sent with a credential."""
+        for server_code in ("launcher_mismatch", "invalid_fields"):
+            with self.subTest(server_code=server_code):
+                fake = await self.fake(on_hello=server_code)
+                result = await check_server("127.0.0.1", fake.port, **self.options())
+                self.assertEqual(result.code, "version_mismatch")
+                self.assertEqual(fake.hellos[0]["launcher"], launcher_version())
+                self.assertEqual(fake.hellos[0]["protocol"], PROTOCOL_VERSION)
+                self.assertNotIn("credential", fake.hellos[0])
+        store = self.world.open_store()
+        self.addCleanup(store.close)
+        server = WorldServer(ServerConfig(self.world.build_id, self.world.ruleset_id, launcher_version="Native 3D CI 265"),
+                             store=store)
+        await server.start("127.0.0.1", 0, tls=self.world.server_tls)
+        self.addAsyncCleanup(server.close)
+        result = await check_server("127.0.0.1", server.address[1], **self.options())
+        self.assertEqual((result.code, result.detail), ("version_mismatch", "server error launcher_mismatch"))
+        self.assertEqual(server.sessions, {})
 
     async def test_a_world_closed_to_the_internet_says_so(self):
         fake = await self.fake(immediate="public_exposure_disabled")

@@ -92,7 +92,8 @@ that another trainer in that world owns is refused (nothing changes then). Earli
 imported automatically; their original files stay where they were. Characters are never deleted, only moved aside.
 
 Connections: the menu checks a server before anything starts (the world's pinned identity, then the game version, with no
-credential sent) and names the real reason when it cannot connect. Hosting with Internet access on asks the router to
+credential sent) and names the real reason when it cannot connect. The host and every player need exactly the same
+EmeraldTogether version: a different version is refused when it joins ("Different game versions"), never disconnected later. Hosting with Internet access on asks the router to
 forward the world's port (UPnP / NAT-PMP, can be turned off); many routers refuse, and nothing helps behind CGNAT, where a
 VPN such as Tailscale or a relay is needed. A relay is a small program someone the players trust runs (EmeraldTogether.exe
 --relay-server or relay.py); EmeraldTogether provides no public relay and no rendezvous service. The relay passes only

@@ -60,7 +60,7 @@ _TEXT = {
     "battle_recovery_unavailable": "The host could not check interrupted battles. Use the matching host version before opening this character.",
     "recovery_required": "Your character needs recovery before the game can open. Its private files have been retained.",
     "connection_timeout": "Could not connect to the host in time. The world may not be hosted right now, or a router, firewall or the Internet provider blocks the connection.",
-    "version_mismatch": "The host runs a different EmeraldTogether version. Install the same version on both PCs.",
+    "version_mismatch": "The host runs a different EmeraldTogether version. The host and every player need the same version.",
     "wrong_world": "The server at that address is not the world from your invite. Nothing was sent to it. Ask the host for the current address.",
     "rejected_public_exposure_disabled": "The host's world accepts only players on the host's own network. The host can turn on Internet access in Network settings.",
     "rejected_player_already_connected": "This character is already connected to the world. Close the other game using it, or wait half a minute and try again.",
@@ -2260,6 +2260,8 @@ def main(release=None, application_directory=None, import_release=None):
     worker = None
     private_error = False
     if release is not None:
+        from .protocol import set_launcher_version
+        set_launcher_version(release.version)       # hellos say this release; a hosted world admits only it (MS-28)
         try:
             private = private_directory()
             importer = None

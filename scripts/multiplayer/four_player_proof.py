@@ -28,7 +28,7 @@ from emerald_multiplayer.live_checkpoint import LiveCheckpointCoordinator
 from emerald_multiplayer.mailbox import inspect_mailbox
 from emerald_multiplayer.ownership import OWNERSHIP_PROFILE, inspect_ownership
 from emerald_multiplayer.ownership_storage import OwnershipCheckpointStore
-from emerald_multiplayer.protocol import PROTOCOL_VERSION, encode_message, read_message
+from emerald_multiplayer.protocol import PROTOCOL_VERSION, encode_message, launcher_version, read_message
 from emerald_multiplayer.server import ServerConfig, WorldServer
 
 
@@ -176,7 +176,7 @@ async def run(args):
             writer.write(encode_message(dict(type="hello", protocol=PROTOCOL_VERSION,
                 build_id=manifest["rom_sha256"], ruleset_id=manifest["ruleset_id"],
                 player_id=identity.player_id, display_name=identity.display_name,
-                credential=identity.credential.hex())))
+                credential=identity.credential.hex(), launcher=launcher_version())))
             await writer.drain()
             refusal = await asyncio.wait_for(read_message(reader), 5)
             assert refusal["type"] == "error" and refusal["code"] == "server_full", refusal

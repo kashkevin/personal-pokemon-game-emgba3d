@@ -79,7 +79,8 @@ through a relay, if you use one.
 
 Join Friend. Choose Join Friend, then "Join with an invite code", and paste the code your friend
 sent you (Ctrl+V). EmeraldTogether checks that it reaches your friend's world (the right world,
-the same game version) before anything starts, saves it in your list and brings your character in.
+exactly the same EmeraldTogether version as your friend's: the version is at the top of the main
+menu) before anything starts, saves it in your list and brings your character in.
 Next time choose Join Friend and the saved server, or simply Continue Adventure. If your friend's
 world cannot be reached, EmeraldTogether tells you why in plain words and what each of you can do,
 with "Try again" and "Edit the address"; nothing is created or reset. It never starts a Solo game

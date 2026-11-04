@@ -77,7 +77,7 @@ _MESSAGES = {
     "trade_aborted_recovered": "The interrupted trade was canceled; your verified pre-trade character is loaded.",
     "mirror_active": "Another game or controller owns this character's save.",
     "connection_timeout": "The game could not connect to the host before the time limit.",
-    "version_mismatch": "The host runs a different game version.",
+    "version_mismatch": "The host runs a different EmeraldTogether version: the host and every player need the same version.",
     "wrong_world": "The server at this address is not the world of this invitation; nothing was sent to it.",
     "rejected_public_exposure_disabled": "The host's world accepts only players on the host's own network.",
     "rejected_player_already_connected": "This character is already connected to the world.",

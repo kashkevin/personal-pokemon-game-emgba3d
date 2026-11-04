@@ -42,7 +42,8 @@ class Actor:
         self.lock = asyncio.Lock()
         self.reader, self.writer = await asyncio.open_connection(*address)
         await self.send(dict(type="hello", protocol=PROTOCOL_VERSION, build_id=BUILD, ruleset_id=RULES,
-            player_id=player.player_id, display_name=player.display_name, credential=player.credential.hex()))
+            player_id=player.player_id, display_name=player.display_name, credential=player.credential.hex(),
+            launcher=launcher_version()))
         welcome = await asyncio.wait_for(read_message(self.reader),8)
         if welcome is None or welcome["type"] != "welcome":
             raise AssertionError("authenticated actor was not admitted")
@@ -101,6 +102,7 @@ class Actor:
 
 from emerald_multiplayer.battle_reservations import enable_battle_reservations
 from emerald_multiplayer.protocol import PROTOCOL_VERSION
+from emerald_multiplayer.protocol import launcher_version
 from emerald_multiplayer.trade_protocol import PREPARATION_OPERATIONS, PREPARATION_VERSION
 
 

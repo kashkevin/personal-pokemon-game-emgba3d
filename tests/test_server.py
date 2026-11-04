@@ -11,6 +11,7 @@ from emerald_multiplayer.server import (
     is_local_address,
 )
 from emerald_multiplayer.protocol import PROTOCOL_VERSION
+from emerald_multiplayer.protocol import launcher_version
 
 BUILD = "test-mailbox-rom-build"
 RULESET = "clean-upstream-test"
@@ -28,7 +29,7 @@ class Client:
         await client.send({
             "type": "hello", "protocol": PROTOCOL_VERSION, "build_id": BUILD,
             "ruleset_id": RULESET, "player_id": client.player_id,
-            "display_name": "Player", **hello_changes,
+            "display_name": "Player", "launcher": launcher_version(), **hello_changes,
         })
         result = await client.next()
         if result["type"] == "welcome":
@@ -149,6 +150,38 @@ class ServerTests(unittest.IsolatedAsyncioTestCase):
                 self.assertIsNone(await client.next())
         self.assertFalse(self.server.sessions)
 
+    async def test_launchers_of_other_versions_are_refused_at_the_hello(self):
+        """KNOWN_ISSUES MS-28: a world admits only its host's launcher version. Another version is refused before it is
+        admitted (the error names the host's version); an older launcher's hello (protocol 3, no "launcher") is answered
+        "unsupported_protocol", which every launcher since 2026-10-18 shows as different game versions."""
+        client, error = await self.connect(launcher="Native 3D CI 1")
+        self.assertEqual((error["type"], error["code"], error["launcher"]), ("error", "launcher_mismatch", launcher_version()))
+        self.assertIsNone(await client.next())
+        reader, writer = await asyncio.open_connection(*self.server.address)
+        self.clients.append(Client(reader, writer, "older"))
+        writer.write(encode_message({"type": "hello", "protocol": 3, "build_id": BUILD, "ruleset_id": RULESET,
+                                     "player_id": str(uuid.uuid4()), "display_name": "Older"}))
+        await writer.drain()
+        error = await asyncio.wait_for(read_message(reader), 1.5)
+        self.assertEqual(error["code"], "unsupported_protocol")
+        self.assertNotIn("launcher", error)
+        self.assertIsNone(await asyncio.wait_for(read_message(reader), 1.5))
+        self.assertFalse(self.server.sessions)
+        with self.assertRaises(ValueError):
+            ServerConfig(BUILD, RULESET, launcher_version="")
+        host = WorldServer(ServerConfig(BUILD, RULESET, launcher_version="Native 3D CI 265"))
+        await host.start(port=0)
+        try:
+            same, welcome = await Client.connect(host.address, launcher="Native 3D CI 265")
+            self.clients.append(same)
+            self.assertEqual(welcome["type"], "welcome")
+            source, error = await Client.connect(host.address)        # a launcher run from source
+            self.clients.append(source)
+            self.assertEqual((error["code"], error["launcher"]), ("launcher_mismatch", "Native 3D CI 265"))
+            self.assertEqual(set(host.sessions), {same.player_id})
+        finally:
+            await host.close()
+
     async def test_duplicate_lease_rejected_disconnect_and_rejoin_new_epoch(self):
         first, _ = await self.connect()
         observer, _ = await self.connect()
@@ -204,7 +237,7 @@ class ServerTests(unittest.IsolatedAsyncioTestCase):
         self.clients.append(Client(reader, writer, "partial"))
         frame = encode_message({
             "type": "hello", "protocol": PROTOCOL_VERSION, "build_id": BUILD, "ruleset_id": RULESET,
-            "player_id": str(uuid.uuid4()), "display_name": "Partial",
+            "player_id": str(uuid.uuid4()), "display_name": "Partial", "launcher": launcher_version(),
         })
         for chunk in (frame[:1], frame[1:3], frame[3:20], frame[20:]):
             writer.write(chunk)

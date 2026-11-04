@@ -25,6 +25,7 @@ from emerald_multiplayer.trade_storage import TradeCheckpointStore
 from test_companion import BinaryBridge, make_files, make_pose
 from test_ownership_storage import source_flash, owned_flash
 from emerald_multiplayer.protocol import PROTOCOL_VERSION
+from emerald_multiplayer.protocol import launcher_version
 
 
 async def wait_until(predicate, timeout=8):
@@ -42,7 +43,7 @@ class RawClient:
         self.reader, self.writer = await asyncio.open_connection(*address)
         self.writer.write(encode_message(dict(type="hello", protocol=PROTOCOL_VERSION, build_id=build,
             ruleset_id=BASELINE_RULESET, player_id=player.player_id,
-            display_name=player.display_name, credential=player.credential.hex())))
+            display_name=player.display_name, credential=player.credential.hex(), launcher=launcher_version())))
         await self.writer.drain()
         welcome = await self.next()
         assert welcome["type"] == "welcome"

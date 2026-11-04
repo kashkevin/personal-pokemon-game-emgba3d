@@ -24,8 +24,8 @@ from .shared_world_protocol import WORLD_TYPES, validate_world_request
 from . import privacy
 from .protocol import (
     CHECKPOINT_TYPES, MAX_COUNTER, MAX_FRAME_BYTES, MAX_PLAYERS, PROTOCOL_VERSION, ProtocolError,
-    encode_message, read_message, validate_heartbeat, validate_hello,
-    validate_identity, validate_presence, validate_checkpoint_common, validate_checkpoint_request,
+    encode_message, launcher_version, read_message, validate_heartbeat, validate_hello,
+    validate_identity, validate_launcher, validate_presence, validate_checkpoint_common, validate_checkpoint_request,
 )
 from .storage import StorageError
 from .secure_transport import ServerTlsConfig, is_numeric_unicast_address
@@ -81,10 +81,17 @@ class ServerConfig:
     reliable_limit: int = 8
     checkpoint_upload_timeout: float = 30.0
     allow_enrollment: bool = True   # friends may send their New Game save to enroll themselves (enrollment_protocol.py)
+    # The only launcher version this world admits (MS-28): a launcher of another version sends request types this host does
+    # not know (or cannot read this host's), so it is refused at the hello. Default: this process's own version.
+    launcher_version: str = field(default_factory=launcher_version)
 
     def __post_init__(self) -> None:
         validate_identity(self.build_id, "build_id")
         validate_identity(self.ruleset_id, "ruleset_id")
+        try:
+            validate_launcher(self.launcher_version)
+        except ProtocolError:
+            raise ValueError("launcher_version must be a bounded version label") from None
         for name in (
             "heartbeat_interval", "idle_timeout", "presence_timeout",
             "handshake_timeout", "send_timeout", "drain_timeout", "monitor_interval", "checkpoint_upload_timeout",
@@ -627,9 +634,9 @@ class WorldServer:
         self.friendships.close()
         self.wagers.close()
 
-    async def _reject(self, writer: asyncio.StreamWriter, code: str, message: str) -> None:
+    async def _reject(self, writer: asyncio.StreamWriter, code: str, message: str, **extra: Any) -> None:
         try:
-            writer.write(encode_message({"type": "error", "protocol": PROTOCOL_VERSION, "code": code, "message": message}))
+            writer.write(encode_message({"type": "error", "protocol": PROTOCOL_VERSION, "code": code, "message": message, **extra}))
             await asyncio.wait_for(writer.drain(), timeout=self.config.send_timeout)
         except (ConnectionError, OSError, asyncio.TimeoutError):
             pass
@@ -671,7 +678,8 @@ class WorldServer:
             hello = await asyncio.wait_for(read_message(reader), self.config.handshake_timeout)
             if hello is None:
                 return
-            hello = validate_hello(hello, self.config.build_id, self.config.ruleset_id, require_credential=self.store is not None)
+            hello = validate_hello(hello, self.config.build_id, self.config.ruleset_id, require_credential=self.store is not None,
+                                   launcher=self.config.launcher_version)
             if self.store is not None:
                 credential = bytes.fromhex(hello["credential"])
                 player = self.store.authenticate(hello["player_id"], credential)
@@ -725,7 +733,9 @@ class WorldServer:
         except asyncio.TimeoutError:
             await self._reject(writer, "hello_timeout", "hello was not received in time")
         except (ProtocolError, StorageError) as error:
-            await self._reject(writer, error.code, error.message)
+            # A launcher of another version is told this world's version, for its troubleshooting line (MS-28).
+            extra = {"launcher": self.config.launcher_version} if error.code == "launcher_mismatch" else {}
+            await self._reject(writer, error.code, error.message, **extra)
         except (ConnectionError, OSError):
             pass
         finally:

@@ -20,7 +20,7 @@ from emerald_multiplayer.team_protocol import validate_team_reply
 from emerald_multiplayer.trade_storage import TradeCheckpointStore
 from test_companion import BinaryBridge, make_files, make_pose
 from test_ownership_storage import source_flash, owned_flash
-from emerald_multiplayer.protocol import PROTOCOL_VERSION
+from emerald_multiplayer.protocol import PROTOCOL_VERSION, launcher_version
 from emerald_multiplayer.trade_protocol import PREPARATION_OPERATIONS, PREPARATION_VERSION
 
 
@@ -37,7 +37,7 @@ class RawTeamClient:
         self.reader, self.writer = await asyncio.open_connection(*address)
         await self.send(dict(type='hello', protocol=PROTOCOL_VERSION, build_id=build,
             ruleset_id=BASELINE_RULESET, player_id=player.player_id,
-            display_name=player.display_name, credential=player.credential.hex()))
+            display_name=player.display_name, credential=player.credential.hex(), launcher=launcher_version()))
         welcome = await self.next()
         assert welcome['type'] == 'welcome'
         self.epoch = welcome['session_epoch']

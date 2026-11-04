@@ -521,6 +521,7 @@ Recorded guidance the code no longer follows (not binding decisions):
 | World and saved-server management (create, host, rename, delete to worlds-deleted; edit address, remove) | Implemented but unverified (Create World, invite code, rename, delete and a restart driven through the installed Windows build's menu on a CI runner, run 39193466499, after the 2026-10-19 crash fix; not on a PC) | `tests/test_shell_app.py`, `tests/test_shell_join.py`, `tests/test_world_creation.py`, `docs/world-creation-fix-20261019.md` |
 | Migration of earlier characters and worlds, history, restore, recovery of unfinished attempts | Implemented but unverified | `tests/test_character_library.py`, `tests/test_shell_migration.py` |
 | Connection check with plain-English causes (identity, version, route) | Implemented but unverified (real TLS servers on one machine) | `docs/networking.md` |
+| The same EmeraldTogether version for the host and every player (another version refused when it joins, "Different game versions"; KNOWN_ISSUES MS-28) | Implemented but unverified (unit tests; real processes on one Linux machine, new against new and against the previous code in both directions; not between two PCs, not on Windows) | `docs/networking.md` |
 | Automatic router setup (UPnP IGD, NAT-PMP) | Implemented but unverified (fake routers only) | `tests/test_port_mapping.py` |
 | Tailscale / overlay VPN hosting | Implemented but unverified | `tests/test_host_reachability.py` |
 | Self-run relay (`--relay-server`, `relay.py`) | Implemented but unverified (loopback relay with the real registration) | `tests/test_relay.py`, `tests/test_shell_e2e.py` |
@@ -670,7 +671,7 @@ Recorded guidance the code no longer follows (not binding decisions):
 | Feature | Status | Evidence |
 | --- | --- | --- |
 | Another player surfing is drawn on the Pokemon that used Surf (species, shiny, female), in 2D and 3D | Implemented and tested (two Linux games on one machine, real server and companions; not between two real PCs, not on Windows) | engine `dbaf6923`, `scripts/multiplayer/native_surf_check.py` |
-| Another player under the water (Dive) on their carrier; Fly's take-off and landing for other players | Not done: a diver is not shown in other games at all (KNOWN_ISSUES MS-181: the world record has no movement mode for diving; waits for MS-28's capability exchange); Fly's relay not started | - |
+| Another player under the water (Dive) on their carrier; Fly's take-off and landing for other players | Not done: a diver is not shown in other games at all (KNOWN_ISSUES MS-181: the world record has no movement mode for diving; since MS-28's fix of 2026-11-04 every player of a world has the host's version, so it no longer waits on a capability exchange); Fly's relay not started | - |
 
 ## 3D jump ledges, hills and ramps (2026-10-27, `docs/ledge-overhaul-20261027.md`; after the package)
 

@@ -10,13 +10,14 @@ from emerald_multiplayer.protocol import (
     validate_heartbeat, validate_hello, validate_presence,
 )
 from emerald_multiplayer.protocol import PROTOCOL_VERSION
+from emerald_multiplayer.protocol import DEVELOPMENT_LAUNCHER, launcher_version, set_launcher_version
 
 
 def hello(**changes):
     return {
         "type": "hello", "protocol": PROTOCOL_VERSION, "build_id": "test-build",
         "ruleset_id": "clean-upstream-test", "player_id": str(uuid.uuid4()),
-        "display_name": "Player", **changes,
+        "display_name": "Player", "launcher": launcher_version(), **changes,
     }
 
 
@@ -103,6 +104,44 @@ class ValidationTests(unittest.TestCase):
                 with self.assertRaises(ProtocolError) as caught:
                     validate_hello(hello(**changes), "test-build", "clean-upstream-test")
                 self.assertEqual(caught.exception.code, code)
+
+    def test_hello_requires_the_hosts_exact_launcher_version(self):
+        """KNOWN_ISSUES MS-28: a world admits only its host's launcher version. The type and protocol are checked before the
+        field set, so an older launcher's hello (protocol 3, no "launcher") is answered "unsupported_protocol"."""
+        valid = hello(launcher="Native 3D CI 265")
+        self.assertEqual(validate_hello(valid, "test-build", "clean-upstream-test", launcher="Native 3D CI 265"), valid)
+        old = {key: value for key, value in hello(protocol=3).items() if key != "launcher"}
+        for message, launcher, code in (
+            (hello(launcher="Native 3D CI 262"), "Native 3D CI 265", "launcher_mismatch"),
+            (hello(), "Native 3D CI 265", "launcher_mismatch"),        # a launcher run from source and a package
+            (hello(launcher=" spaced"), None, "invalid_launcher"),
+            (hello(launcher="x" * 49), None, "invalid_launcher"),
+            (hello(launcher=7), None, "invalid_launcher"),
+            (old, None, "unsupported_protocol"),
+            ({key: value for key, value in hello().items() if key != "launcher"}, None, "invalid_fields"),
+            ({**hello(), "type": "presence"}, None, "hello_required"),
+            ([], None, "invalid_message"),
+        ):
+            with self.subTest(message=message, launcher=launcher):
+                with self.assertRaises(ProtocolError) as caught:
+                    validate_hello(message, "test-build", "clean-upstream-test", launcher=launcher)
+                self.assertEqual(caught.exception.code, code)
+
+    def test_the_packaged_entry_sets_this_processs_launcher_version(self):
+        before = launcher_version()
+        try:
+            set_launcher_version("Native 3D CI 265")
+            self.assertEqual(launcher_version(), "Native 3D CI 265")
+            validate_hello(hello(), "test-build", "clean-upstream-test")
+            with self.assertRaises(ProtocolError) as caught:
+                validate_hello(hello(launcher=DEVELOPMENT_LAUNCHER), "test-build", "clean-upstream-test")
+            self.assertEqual(caught.exception.code, "launcher_mismatch")
+            for bad in ("", "bad\nlabel", " leading", "x" * 49, None):
+                with self.subTest(bad=bad), self.assertRaises(ProtocolError):
+                    set_launcher_version(bad)
+            self.assertEqual(launcher_version(), "Native 3D CI 265")
+        finally:
+            set_launcher_version(before)
 
     def test_presence_bounded_fields_and_optional_walk_default(self):
         validated = validate_presence(presence(x=-32768, y=32767, map_group=255, map_number=255, elevation=15, avatar_gender=1), 1)
