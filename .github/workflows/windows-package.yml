@@ -1167,9 +1167,10 @@ jobs:
     # The engine's own self-tests in the Windows build (the PC game's code without a game window: party order, battle
     # names, cries, shake animations, line breaks, wild weather, legends, shiny odds, coins, breeding, rivals, Update 32,
     # the clock, key bindings, multiplayer objects, spawn claims, secret bases, rewards, catch verdicts, the PokeNav
-    # map, the ladder, co-op experience and controllers, the Battle Tower) - the game logic as MinGW compiled it, in a
-    # Windows process. Each exits 0 or 1; its output goes into a file (PKMN_DEBUG_LOG: the Windows game's own console
-    # is unreadable here and slow), whose summary line the job prints, and every FAIL line of a test that failed.
+    # map, the ladder, co-op experience and controllers, the Battle Tower, Mega Rayquaza and Aura Guard) - the game logic
+    # as MinGW compiled it, in a Windows process. Each exits 0 or 1; its output goes into a file (PKMN_DEBUG_LOG: the
+    # Windows game's own console is unreadable here and slow), whose summary line the job prints, and every FAIL line
+    # of a test that failed.
     name: Engine self-tests (the Windows build)
     needs: engine
     if: ${{ (inputs.mode || 'smoke') == 'full' && (!inputs.only || contains(format(',{0},', inputs.only), ',selftests,')) }}
@@ -1189,7 +1190,7 @@ jobs:
                      "shiny", "coins", "breeding", "rival", "update32", "clock", "keybinds", "mp-objects", "spawn-claims",
                      "secret-base", "rewards", "catch-reconcile", "pokenav-map", "ladder", "coop-exp", "coop-controller",
                      "tower", "start-menu", "hm-box", "move-switch", "summary-ivev", "link-replay", "rotom-catalog",
-                     "tm-catalogue", "item-hub")
+                     "tm-catalogue", "item-hub", "megas")
           # only: ...,new-only: the MS-61 check alone (the START menu, its 3D names, the soft reset key)
           if (",${{ inputs.only }}," -like "*,new-only,*") { $tests = @("start-menu") }
           $runs = @($tests | ForEach-Object { @{ test = $_; exe = "inputs\pokeemerald-mp.exe"; name = $_ } })

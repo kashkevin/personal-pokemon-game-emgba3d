@@ -41,6 +41,12 @@ TRADE_SETTLE_RETRY_SECONDS = 5.0
 # A trade chosen while a save is under way (an autosave, the in-game SAVE's host save) waits up to this long for it
 # instead of being refused with its proposal left open for the friend (2026-10-26).
 TRADE_SAVE_WAIT = 60.0
+# The game's own request for a host save (Players page 3: an in-game SAVE in a world, a co-op result's script ended) that
+# finds another transaction holding the game's checkpoint is tried again, every HOST_SAVE_BUSY_RETRY seconds, for up to
+# this long, as a player clicks Save again (KNOWN_ISSUES MS-190: a game started again with a co-op result waiting asks as
+# its launcher's own start-up save is under way, and one refusal left the result's effects unsaved).
+HOST_SAVE_BUSY_SECONDS = 30.0
+HOST_SAVE_BUSY_RETRY = 0.5
 _MESSAGES = {
     "invalid_configuration": "The development launcher configuration is invalid.",
     "installation_changed": "The installed game differs from its application pins.",
@@ -1990,10 +1996,19 @@ class LauncherSession:
             self._companion._battle_save_needed = False
             self._start_battle_save()
 
+    def _save_after_coop_battle(self, descriptor, code):
+        """KNOWN_ISSUES MS-190: a co-op battle's result (a Gym's badge, prize and experience, a ladder's experience) waits
+        in the game for its script, in every save the game makes meanwhile, and the game runs the script once a host save
+        has it (or after 15 s). The battle is fully finished here (the game itself must not open a Players page before),
+        so save now, as Save now does."""
+        if code == "battle_finished" and descriptor.get("mode") == 4:
+            self._start_battle_save()
+
     def _start_battle_save(self):
         """KNOWN_ISSUES MS-60: an Enter refused because this game changed since its last host save (save_needed): save
         it, as Save now does, once the Players menu is closed (the game does not save under a menu), so the next
-        challenge starts from this progress. The autosave never comes sooner than its interval after a save."""
+        challenge starts from this progress. The autosave never comes sooner than its interval after a save. Also after
+        every co-op battle (MS-190: its result waits in the game for this save)."""
         if self._battle_save_task is not None and not self._battle_save_task.done():
             return
 
@@ -2246,6 +2261,8 @@ class LauncherSession:
                 self._trade_retained = None
             self._autosave_due = self._autosave_clock() + AUTOSAVE_INTERVAL
             self._publish(SessionState.RUNNING, code, revision=self._revision)
+            if kind == "battle":
+                self._save_after_coop_battle(descriptor, code)
         except (Exception, asyncio.CancelledError) as error:
             # A dispatched native operation must preserve every recovery
             # journal. Querying the newest server head cannot certify it.
@@ -2306,13 +2323,19 @@ class LauncherSession:
         say = notice if callable(notice) else (lambda text: None)
         if kind == "host_save":
             # MS-61: an in-game SAVE in a world (the game's Players page 3). A save already under way (an autosave or
-            # Save now) finishes first, then this one saves the game as it is now.
+            # Save now) finishes first, then this one saves the game as it is now. A refusal because another
+            # transaction holds the game's checkpoint ("busy: ...": the launcher's own start-up save as a game started
+            # again comes up, KNOWN_ISSUES MS-190) is tried again until HOST_SAVE_BUSY_SECONDS have passed.
             saved = False
-            for attempt in range(2):
+            loop = asyncio.get_running_loop()
+            deadline = loop.time() + HOST_SAVE_BUSY_SECONDS
+            waited = False
+            while True:
                 try:
                     saved = await self.save()
                 except LauncherSessionError as error:
-                    if error.code == "save_busy" and attempt == 0:
+                    if error.code == "save_busy" and not waited:
+                        waited = True
                         for _ in range(300):
                             if self._save_is_idle() and not (self._autosave is not None
                                                              and self._autosave.status.state is AutosaveState.SAVING):
@@ -2320,7 +2343,11 @@ class LauncherSession:
                             await asyncio.sleep(.1)
                         continue
                     self._publish(SessionState.RUNNING, error.code, revision=self._revision)
-                break
+                    break
+                if (saved or self._save_failed or not str(self.last_save_error or "").startswith("busy:")
+                        or loop.time() >= deadline):
+                    break
+                await asyncio.sleep(HOST_SAVE_BUSY_RETRY)
             # The owner's report (2026-10-23): a banner on every success was noise (the in-game SAVE says it saved,
             # and the save before PLAYERS should not show at all); only a failure is said.
             if not saved:

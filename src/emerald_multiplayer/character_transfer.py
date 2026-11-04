@@ -229,7 +229,8 @@ def _verify(owned, owned_records, result, wallet_seq):
     if old_flash[28 * SECTOR_SIZE:] != new_flash[28 * SECTOR_SIZE:]:
         raise TransferError("detach_failed", "the converted save changed the Hall of Fame or special sectors")
     if _egg_queue(owned.flash, owned.metadata.bank) != _egg_queue(new_flash, after.bank):
-        raise TransferError("detach_failed", "the converted save changed the Day Care eggs, the Tower record or the TMs")
+        raise TransferError("detach_failed",
+                            "the converted save changed the Day Care eggs, the Tower record, the TMs or a co-op result")
     # Outside the Pokémon slots and the world vars, SaveBlock1 and the PC storage are byte for byte the same.
     old1, new1 = bytearray(owned.save_block1), bytearray(snapshot.save_block1)
     for buffer in (old1, new1):
@@ -254,7 +255,8 @@ def _verify(owned, owned_records, result, wallet_seq):
 
 
 def _egg_queue(flash, bank):
-    """SaveBlock3 after the ownership profile: the Day Care egg queue, the Battle Tower record and the TM record."""
+    """SaveBlock3 after the ownership profile: the Day Care egg queue, the Battle Tower record, the TM record and a co-op
+    battle's waiting result."""
     sections = _latest_bank(flash, bank)
     full = b"".join(sections[i][1][SECTOR_DATA_SIZE:SECTOR_DATA_SIZE + SAVE_BLOCK_3_CHUNK_SIZE] for i in range(14))
     return full[EGG_QUEUE_OFFSET:SAVE_BLOCK_3_FULL_SIZE]

@@ -12,7 +12,8 @@ sectors 30/31; transport hashes preserve those bytes without claiming otherwise.
 from __future__ import annotations
 
 from collections import OrderedDict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from functools import cached_property
 from datetime import date
 import hashlib
 import struct
@@ -55,7 +56,32 @@ TM_RECORD_SIZE = 36
 TM_RECORD_MAGIC = 0x314D5450  # "PTM1"
 TM_RECORD_FIRST = 51
 TM_RECORD_LAST = 168          # the highest TM the game has; bits past it are refused
-SAVE_BLOCK_3_FULL_SIZE = TM_RECORD_OFFSET + TM_RECORD_SIZE
+# A co-op battle's result waiting for its script (engine struct MPCoopResultRecord, PC game only; docs/owner-decisions.md 4-5):
+# magic "COR1", version 1, the outcome, the defeated Pokemon's count (at most 12), a Tower Duo floor's level cap, the code (a
+# co-op Gym 1-8, or a ladder code with bit 31), then for each defeated Pokemon its species (u16), level, the party slots that
+# faced it and those that could still battle, CRC-32 of the 72 bytes before. All zeros (every older save, and every save with
+# nothing waiting) means no result waits. The game takes the result as its script starts and saves none while a script runs.
+COOP_RESULT_OFFSET = TM_RECORD_OFFSET + TM_RECORD_SIZE
+COOP_RESULT_SIZE = 76
+COOP_RESULT_MAGIC = 0x31524F43  # "COR1"
+COOP_RESULT_KOS = 12
+COOP_GYM_COUNT = 8
+COOP_LADDER_FLAG = 0x80000000
+# KNOWN_ISSUES MS-145: the shiny and Legendary wild Pokemon the player's own game keeps on their maps until caught or
+# knocked out (engine struct MPOweKeepRecord, PC game only), after the co-op result record: magic "KEP1", version 1, the
+# count in use (the first entries), two reserved bytes, eight 16-byte entries (the object's look: OBJ_EVENT_MON with the
+# species and its shiny and female bits; where it was last seen; map group and number; local id; elevation; movement
+# type; level; category; its age in the list; two reserved bytes), CRC-32 of the 136 bytes before. All zeros: none kept.
+OWE_KEEP_OFFSET = COOP_RESULT_OFFSET + COOP_RESULT_SIZE
+OWE_KEEP_SIZE = 140
+OWE_KEEP_MAGIC = 0x3150454B  # "KEP1"
+OWE_KEEP_COUNT = 8
+OWE_KEEP_ENTRY_SIZE = 16
+OBJ_EVENT_MON = 1 << 14
+OBJ_EVENT_MON_SPECIES_MASK = 0xFFFF & ~(7 << 12)
+MAP_GROUPS_COUNT = 75
+NUM_MOVEMENT_TYPES = 0x59
+SAVE_BLOCK_3_FULL_SIZE = OWE_KEEP_OFFSET + OWE_KEEP_SIZE
 STORAGE_SIZE = 34144
 PARTY_SIZE = 6
 POKEMON_SIZE = 100
@@ -79,6 +105,10 @@ _FOOTER = struct.Struct("<HHII")
 _TOWER_RECORD = struct.Struct("<IBBBBIBBHHH40sI")
 # magic, version, count, reserved, owned[24], crc32 (of bytes 0-31): all little-endian
 _TM_RECORD = struct.Struct("<IBBH24sI")
+# magic, version, outcome, count, towerCap, code, species[12], level[12], faced[12], alive[12], crc32 (of bytes 0-71)
+_COOP_RESULT = struct.Struct("<IBBBBI12H12s12s12sI")
+# graphicsId, x, y, map group, map number, local id, elevation, movement type, level, category, age, reserved
+_OWE_KEEP_ENTRY = struct.Struct("<Hhh8BH")
 _UINT32 = 0xFFFFFFFF
 _ERASED_SECTOR = bytes([0xFF]) * SECTOR_SIZE
 # Generated factual bounds from pinned data/maps/map_groups.json.
@@ -172,11 +202,23 @@ class FlashSnapshot:
     save_block3: bytes
     storage: bytes
     metadata: FlashMetadata
-    sha256: str
-    container_sha256: str
-    state_sha256: str
     save_profile: str = LAYOUT_ID
     tower: TowerRecord | None = None   # the Battle Tower record of the selected bank, None when the save has none
+    _state: bytes = field(default=b"", repr=False, compare=False)   # what state_sha256 hashes
+
+    # The three hashes are made when first read (KNOWN_ISSUES MS-161: a world's integrity check reads every save and
+    # never uses them; each was three full hashes of 128 KiB per save). Equal snapshots have equal hashes, as before.
+    @cached_property
+    def sha256(self) -> str:
+        return hashlib.sha256(self.flash).hexdigest()
+
+    @cached_property
+    def container_sha256(self) -> str:
+        return hashlib.sha256(self.container).hexdigest()
+
+    @cached_property
+    def state_sha256(self) -> str:
+        return hashlib.sha256(self._state).hexdigest()
 
 
 @dataclass(frozen=True)
@@ -283,7 +325,9 @@ def _inspect_bank(flash: bytes, bank_index: int, save_profile: str = LAYOUT_ID) 
     full_block3 = b"".join(sector[3968:4084] for sector in sections)[:SAVE_BLOCK_3_FULL_SIZE]  # type: ignore[index]
     _check_egg_queue(full_block3[EGG_QUEUE_OFFSET:EGG_QUEUE_OFFSET + EGG_QUEUE_SIZE])
     tower = parse_tower_record(full_block3[TOWER_RECORD_OFFSET:TM_RECORD_OFFSET])
-    parse_tm_record(full_block3[TM_RECORD_OFFSET:SAVE_BLOCK_3_FULL_SIZE])
+    parse_tm_record(full_block3[TM_RECORD_OFFSET:COOP_RESULT_OFFSET])
+    parse_coop_result(full_block3[COOP_RESULT_OFFSET:OWE_KEEP_OFFSET])
+    parse_owe_keep(full_block3[OWE_KEEP_OFFSET:SAVE_BLOCK_3_FULL_SIZE])
     if save_profile != OWNERSHIP_LAYOUT_ID and any(full_block3[SAVE_BLOCK_3_SIZE:EGG_QUEUE_OFFSET]):
         raise FlashError("SaveBlock3 padding does not match the pinned layout")
     if save_profile == OWNERSHIP_LAYOUT_ID:
@@ -350,6 +394,66 @@ def parse_tm_record(record: bytes) -> frozenset[int]:
     return tms
 
 
+@dataclass(frozen=True)
+class CoopResult:
+    """A co-op battle's result the save has waiting for its script (the game runs it once, after a reload too)."""
+    code: int
+    outcome: int
+    defeated: int
+
+
+def parse_coop_result(record: bytes) -> CoopResult | None:
+    """The co-op result record (docs/owner-decisions.md 4-5): None for all zeros (nothing waits, or a save from before the
+    record), else the sealed record. Like the Tower and TM records it is never repaired, only refused (FlashError)."""
+    if len(record) != COOP_RESULT_SIZE:
+        raise FlashError("the co-op result record has the wrong size")
+    if not any(record):
+        return None
+    magic, version, outcome, count, _cap, code, *rest = _COOP_RESULT.unpack(record)
+    species, levels, faced, alive, crc = rest[:COOP_RESULT_KOS], *rest[COOP_RESULT_KOS:]
+    if magic != COOP_RESULT_MAGIC or version != 1 or crc != zlib.crc32(record[:COOP_RESULT_SIZE - 4]):
+        raise FlashError("the co-op result record is damaged or unsupported")
+    if (not outcome or count > COOP_RESULT_KOS
+            or not (1 <= code <= COOP_GYM_COUNT or code & COOP_LADDER_FLAG)):
+        raise FlashError("the co-op result record's battle or result is out of bounds")
+    for index in range(COOP_RESULT_KOS):
+        used = index < count
+        if used and not (0 < species[index] <= MAX_SPECIES_ID and 1 <= levels[index] <= 100
+                         and faced[index] < 64 and alive[index] < 64):
+            raise FlashError(f"the co-op result's defeated Pokemon {index} is out of bounds")
+        if not used and (species[index] or levels[index] or faced[index] or alive[index]):
+            raise FlashError("an unused co-op result slot is not empty")
+    return CoopResult(code, outcome, count)
+
+
+def parse_owe_keep(record: bytes) -> int:
+    """The kept wild Pokemon record (KNOWN_ISSUES MS-145): how many it keeps, 0 for all zeros. Every value the game uses
+    is within the game's own bounds; like the other records it is never repaired, only refused (FlashError)."""
+    if len(record) != OWE_KEEP_SIZE:
+        raise FlashError("the kept wild Pokemon record has the wrong size")
+    if not any(record):
+        return 0
+    magic, version, count, reserved = struct.unpack_from("<IBBH", record)
+    crc = struct.unpack_from("<I", record, OWE_KEEP_SIZE - 4)[0]
+    if magic != OWE_KEEP_MAGIC or version != 1 or reserved or crc != zlib.crc32(record[:OWE_KEEP_SIZE - 4]):
+        raise FlashError("the kept wild Pokemon record is damaged or unsupported")
+    if not 1 <= count <= OWE_KEEP_COUNT:
+        raise FlashError("the kept wild Pokemon record's count is out of bounds")
+    for index in range(OWE_KEEP_COUNT):
+        entry = record[8 + index * OWE_KEEP_ENTRY_SIZE:8 + (index + 1) * OWE_KEEP_ENTRY_SIZE]
+        if index >= count:
+            if any(entry):
+                raise FlashError("an unused kept wild Pokemon entry is not empty")
+            continue
+        (graphics, _x, _y, group, _number, _local, elevation, movement, _level, _category, age,
+         spare) = _OWE_KEEP_ENTRY.unpack(entry)
+        species = graphics & OBJ_EVENT_MON_SPECIES_MASK
+        if (not graphics & OBJ_EVENT_MON or not 1 <= species <= MAX_SPECIES_ID or group >= MAP_GROUPS_COUNT
+                or elevation >= 16 or movement >= NUM_MOVEMENT_TYPES or age >= OWE_KEEP_COUNT or spare):
+            raise FlashError(f"kept wild Pokemon {index} is out of bounds")
+    return count
+
+
 def _inspect_special_sectors(flash: bytes) -> None:
     for index in range(28, 32):
         sector = flash[index * SECTOR_SIZE:(index + 1) * SECTOR_SIZE]
@@ -367,19 +471,28 @@ def _inspect_special_sectors(flash: bytes) -> None:
             raise FlashError("special record does not have its pinned-format sentinel")
 
 
+_EMPTY_BOX = bytes(BOX_POKEMON_SIZE)
+_KEY_IN_EVERY_WORD = sum(1 << (32 * word) for word in range(12))   # a 32-bit key times this: the key in each of 12 words
+
+
 def _box_species(box: bytes, label: str) -> int:
     if len(box) != BOX_POKEMON_SIZE:
         raise FlashError("invalid boxed Pokémon size")
+    if box == _EMPTY_BOX:
+        # An empty slot (KNOWN_ISSUES MS-161: most of a save's 420 PC slots): what the reading below answers for all
+        # zeros (key 0, checksum 0, no species, no bad-egg flag).
+        return 0
     personality, ot_id = struct.unpack_from("<II", box)
     key = personality ^ ot_id
-    words = tuple(value ^ key for value in struct.unpack_from("<12I", box, 32))
-    checksum = sum((value & 0xFFFF) + (value >> 16) for value in words) & 0xFFFF
+    # The 48 encrypted bytes, each 32-bit word XORed with the key at once; the checksum is the sum of their 24 halves.
+    plain = (int.from_bytes(box[32:80], "little") ^ (key * _KEY_IN_EVERY_WORD)).to_bytes(48, "little")
+    checksum = sum(struct.unpack("<24H", plain)) & 0xFFFF
     if checksum != struct.unpack_from("<H", box, 28)[0]:
         raise FlashError(f"{label} boxed Pokémon checksum mismatch")
     has_species = bool(box[19] & 2)
     if box[19] & 1:
         raise FlashError(f"{label} is marked as a bad egg")
-    growth = words[_GROWTH_SUBSTRUCT_OFFSETS[personality % 24] * 3]
+    growth = struct.unpack_from("<I", plain, _GROWTH_SUBSTRUCT_OFFSETS[personality % 24] * 12)[0]
     species = growth & 0x7FF
     if has_species:
         if not 1 <= species <= MAX_SPECIES_ID or not 1 <= (box[18] & 7) <= 7:
@@ -511,6 +624,5 @@ def inspect_flash(data: bytes, *, expected_trainer_id: int | None = None,
     for payload in (block2, block1, block3, storage, flash[28 * SECTOR_SIZE:]):
         state.extend(struct.pack("<I", len(payload)))
         state.extend(payload)
-    return FlashSnapshot(data, flash, footer, block1, block2, block3, storage, metadata,
-                         hashlib.sha256(flash).hexdigest(), hashlib.sha256(data).hexdigest(),
-                         hashlib.sha256(state).hexdigest(), save_profile, tower)
+    return FlashSnapshot(data, flash, footer, block1, block2, block3, storage, metadata, save_profile, tower,
+                         bytes(state))

@@ -12,7 +12,7 @@ import zlib
 
 from emerald_multiplayer.character_transfer import detach_from_world
 from emerald_multiplayer.flash import (
-    LAYOUT_ID, OWNERSHIP_LAYOUT_ID, SAVE_BLOCK_3_CHUNK_SIZE, SAVE_BLOCK_3_FULL_SIZE, TM_RECORD_MAGIC, TM_RECORD_OFFSET,
+    COOP_RESULT_OFFSET, LAYOUT_ID, OWNERSHIP_LAYOUT_ID, SAVE_BLOCK_3_CHUNK_SIZE, SAVE_BLOCK_3_FULL_SIZE, TM_RECORD_MAGIC, TM_RECORD_OFFSET,
     TM_RECORD_SIZE, TOWER_RECORD_OFFSET, TOWER_RECORD_SIZE, FlashError, inspect_flash, parse_tm_record,
 )
 import test_flash
@@ -37,8 +37,9 @@ def with_tm_record(record: bytes, data: bytes | None = None) -> bytes:
 
 class TmRecordTests(unittest.TestCase):
     def test_the_record_follows_the_tower_record_and_fits_saveblock3(self):
-        self.assertEqual((TOWER_RECORD_OFFSET + TOWER_RECORD_SIZE, TM_RECORD_OFFSET, TM_RECORD_SIZE, SAVE_BLOCK_3_FULL_SIZE),
-                         (1076, 1076, 36, 1112))
+        self.assertEqual((TOWER_RECORD_OFFSET + TOWER_RECORD_SIZE, TM_RECORD_OFFSET, TM_RECORD_SIZE),
+                         (1076, 1076, 36))
+        self.assertEqual(COOP_RESULT_OFFSET, TM_RECORD_OFFSET + TM_RECORD_SIZE)   # a co-op battle's result follows it
         self.assertLessEqual(SAVE_BLOCK_3_FULL_SIZE, 14 * SAVE_BLOCK_3_CHUNK_SIZE)   # 1624: SaveBlock3's room in a bank
         self.assertEqual(len(tm_record()), TM_RECORD_SIZE)
 
@@ -83,9 +84,11 @@ class TmRecordTests(unittest.TestCase):
         # a stray byte where the record lives is refused as a damaged record, not read as one
         with self.assertRaisesRegex(FlashError, "TM record"):
             inspect_flash(test_flash.FlashTests._put_block3(make_flash(), 1076, b"\1"))
-        # what follows the record is still padding
-        with self.assertRaisesRegex(FlashError, "padding"):
+        # what follows the record is the co-op result record (a stray byte there is a damaged one), then padding
+        with self.assertRaisesRegex(FlashError, "co-op result"):
             inspect_flash(test_flash.FlashTests._put_block3(with_tm_record(tm_record()), 1112, b"\1"))
+        with self.assertRaisesRegex(FlashError, "padding"):
+            inspect_flash(test_flash.FlashTests._put_block3(with_tm_record(tm_record()), SAVE_BLOCK_3_FULL_SIZE, b"\1"))
 
     def test_a_character_leaving_its_world_keeps_its_tms(self):
         owned = with_tm_record(tm_record((51, 60, 168)),
@@ -98,7 +101,7 @@ class TmRecordTests(unittest.TestCase):
             sector = detached[(bank * 14 + index) * 4096:(bank * 14 + index + 1) * 4096]
             sections[struct.unpack_from("<H", sector, 4084)[0]] = sector[3968:3968 + SAVE_BLOCK_3_CHUNK_SIZE]
         full3 = b"".join(sections[i] for i in range(14))
-        self.assertEqual(parse_tm_record(full3[TM_RECORD_OFFSET:SAVE_BLOCK_3_FULL_SIZE]), frozenset({51, 60, 168}))
+        self.assertEqual(parse_tm_record(full3[TM_RECORD_OFFSET:COOP_RESULT_OFFSET]), frozenset({51, 60, 168}))
 
 
 if __name__ == "__main__":

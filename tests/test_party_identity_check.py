@@ -197,6 +197,18 @@ class ClientTests(unittest.TestCase):
         session._native_menu_refused_battle(object())        # an ordinary refusal saves nothing
         self.assertEqual(started, [True])
 
+    def test_the_launcher_saves_after_a_co_op_battle(self):
+        # KNOWN_ISSUES MS-190: the game's co-op result waits for this save before its script runs.
+        session = object.__new__(LauncherSession)
+        started = []
+        session._start_battle_save = lambda: started.append(True)
+        session._save_after_coop_battle({"mode": 4, "gym": 1}, "battle_finished")
+        self.assertEqual(started, [True])
+        session._save_after_coop_battle({"mode": 4, "gym": 1}, "battle_cancelled")   # no result waits
+        session._save_after_coop_battle({"mode": 1}, "battle_finished")              # a battle between players
+        session._save_after_coop_battle({}, "battle_finished")
+        self.assertEqual(started, [True])
+
     def test_that_save_waits_for_the_players_menu_to_close(self):
         from unittest.mock import patch
         import emerald_multiplayer.launcher_session as module

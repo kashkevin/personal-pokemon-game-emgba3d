@@ -407,8 +407,10 @@ class DuoCodeTests(unittest.TestCase):
 
 class SaveRecordTests(unittest.TestCase):
     def test_older_saves_have_no_record_and_the_block_grows_by_64(self):
-        # the TM catalogue's record (tests/test_tm_record.py) follows it: 36 bytes more since 2026-10-31
-        self.assertEqual((TOWER_RECORD_OFFSET, TOWER_RECORD_SIZE, SAVE_BLOCK_3_FULL_SIZE), (1012, 64, 1112))
+        # the TM catalogue's record (tests/test_tm_record.py) follows it: 36 bytes more since 2026-10-31; then a co-op
+        # battle's waiting result (tests/test_coop_result_record.py): 76 more since 2026-11-04, and the kept wild Pokemon
+        # (tests/test_owe_keep_record.py): 140 more
+        self.assertEqual((TOWER_RECORD_OFFSET, TOWER_RECORD_SIZE, SAVE_BLOCK_3_FULL_SIZE), (1012, 64, 1328))
         self.assertIsNone(inspect_flash(make_flash()).tower)
         self.assertIsNone(parse_tower_record(bytes(64)))
 
@@ -449,8 +451,12 @@ class SaveRecordTests(unittest.TestCase):
             parse_tower_record(bytes(63))
         with self.assertRaisesRegex(FlashError, "TM record"):                          # byte 1076 is the TM record's
             inspect_flash(test_flash.FlashTests._put_block3(with_record(tower_record()), 1076, b"\1"))
-        with self.assertRaisesRegex(FlashError, "padding"):                            # byte 1112 is past both records
+        with self.assertRaisesRegex(FlashError, "co-op result"):                       # byte 1112 is the co-op result's
             inspect_flash(test_flash.FlashTests._put_block3(with_record(tower_record()), 1112, b"\1"))
+        with self.assertRaisesRegex(FlashError, "kept wild Pokemon"):                  # byte 1188 is the kept list's
+            inspect_flash(test_flash.FlashTests._put_block3(with_record(tower_record()), 1188, b"\1"))
+        with self.assertRaisesRegex(FlashError, "padding"):                            # byte 1328 is past every record
+            inspect_flash(test_flash.FlashTests._put_block3(with_record(tower_record()), 1328, b"\1"))
 
 
 class CapabilityTests(unittest.TestCase):

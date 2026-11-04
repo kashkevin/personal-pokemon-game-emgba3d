@@ -471,6 +471,45 @@ class LauncherSoftResetTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(results, ["busy", "saved"])
         self.assertEqual(self.notices, [])
 
+    async def test_a_host_save_refused_while_the_checkpoint_is_busy_is_tried_again(self):
+        """KNOWN_ISSUES MS-190: a game started again with a co-op result waiting asks for its host save while the
+        launcher's own start-up save holds the game's checkpoint; the refusal is tried again until it saves."""
+        from unittest import mock
+        import emerald_multiplayer.launcher_session as launcher_session
+        await self.game()
+        s = self.session
+        results = []
+        async def save():
+            if len(results) < 2:
+                results.append("busy")
+                s.last_save_error = "busy: checkpoint lock, live save"
+                return False
+            results.append("saved")
+            s.last_save_error = None
+            return True
+        s.save = save
+        with mock.patch.object(launcher_session, "HOST_SAVE_BUSY_RETRY", 0.01):
+            await s._native_menu_handoff("host_save", {}, self.menu)
+        self.assertEqual(results, ["busy", "busy", "saved"])
+        self.assertEqual(self.notices, [])                    # saved: nothing to say
+
+    async def test_a_checkpoint_still_busy_after_the_wait_says_so(self):
+        from unittest import mock
+        import emerald_multiplayer.launcher_session as launcher_session
+        await self.game()
+        s = self.session
+        tries = []
+        async def save():
+            tries.append("busy")
+            s.last_save_error = "busy: checkpoint lock"
+            return False
+        s.save = save
+        with mock.patch.object(launcher_session, "HOST_SAVE_BUSY_SECONDS", 0.2), \
+                mock.patch.object(launcher_session, "HOST_SAVE_BUSY_RETRY", 0.05):
+            await s._native_menu_handoff("host_save", {}, self.menu)
+        self.assertGreater(len(tries), 1)
+        self.assertEqual(self.notices[-1], "Could not save on the host.|See the launcher window.")
+
     async def test_a_failed_host_save_says_so(self):
         await self.game()
         s = self.session

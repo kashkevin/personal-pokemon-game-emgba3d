@@ -20,15 +20,23 @@ parties afterwards, with the launcher harness of native_launcher_battle_proof.py
     into_town);
   - player 1 invites player 2 to a team in the Players menu, player 2 accepts;
   - player 1's companion asks the host for the co-op Gym challenge, the request
-    a Gym Leader's script sends (world action "gym_coop"; Petalburg, Norman:
-    a trainer who cannot yet challenge Norman alone keeps only the prize money,
-    so no Gym story script runs outside the Gym); the host requires a team on
+    a Gym Leader's script sends (world action "gym_coop"; --gym, Rustboro's
+    Roxanne by default: since 2026-11-04 a co-op Gym battle awards its
+    experience only with the win that earns the badge (KNOWN_ISSUES MS-190), so
+    both trainers must still be able to earn it; Norman (--gym 5) with these
+    sources is the helpers' case: no experience); the host requires a team on
     one map, as in a Gym;
   - player 2 accepts in Players > Pending challenge, both choose Enter battle;
     default moves (A) until the battle ends;
-  - each game then runs its own victory script with the experience award: A
+  - each game asks for the host save first (its result waits in the save's
+    co-op record), then runs its own victory script with the experience award: A
     presses answer its messages (and YES to "forget a move?", the summary's
-    first move), evolutions play out;
+    first move), evolutions play out; then it saves on the host again;
+  - with --close-during-award N, player N's game is closed (SIGTERM, as its
+    window's close button) once the award is in its memory and before anything
+    after it is saved, its launcher is started again (Join Game) from the host
+    save made with the result waiting, and that game runs the award again: the
+    same experience, once;
   - checks, from each game's memory: every Pokemon of its own that could battle
     gained experience, its lead (sent out) the most; Pokemon that grew; the
     teammate's party is no longer held (each game changes only its own party);
@@ -46,6 +54,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
 from pathlib import Path
 import struct
 import sys
@@ -60,7 +69,9 @@ from qualify_admission_cleanup import on_worker, require  # noqa: E402
 from emerald_multiplayer.flash import POKEMON_SIZE, SAVED_PARTY_OFFSET  # noqa: E402
 from emerald_multiplayer.ownership import _SUBSTRUCT_OFFSETS  # noqa: E402
 
-GYM = 5  # Petalburg (Norman): see the docstring
+GYM = 1  # Rustboro (Roxanne): see the docstring; --gym
+CLOSE_SLOT = -1  # --close-during-award
+HARNESS = None   # the launcher harness (on_harness), for a game closed and started again
 LEAD_LEVEL = 60
 LEAD_MOVE = 242  # MOVE_CRUNCH: physical Dark, 80 power; nothing among Norman's and Caroline's
                  # Pokemon is immune (Kecleon's Protean can make it a Ghost, immune to Scratch/Pound)
@@ -267,7 +278,8 @@ async def coop_match(current, probes, games, host, symbols, record):
         if s._save_failed and s._interaction is None or s._game is None or s._game.process.returncode is not None:
             raise AssertionError("launcher retained a battle failure or lost its original game: "
                                  + json.dumps(dict(status=s.status.code), default=str))
-        return s.status.code == "battle_finished" and s._interaction is None
+        # battle_finished, then (KNOWN_ISSUES MS-190) the launcher's save of the co-op result: saving, saved
+        return s.status.code in ("battle_finished", "saving", "saved") and s._interaction is None
     try:
         async with asyncio.timeout(1800):
             report_at = 0
@@ -292,8 +304,16 @@ async def coop_match(current, probes, games, host, symbols, record):
     result = await on_worker(current[0], outcome)
     record("coop-battle-finished", seconds=round(time.monotonic() - started, 1), result=result)
 
-    # Each game's own victory script and experience award.
-    screens = await asyncio.gather(*(finish_award(p, n, record) for n, p in enumerate(probes)))
+    # Each game's own victory script and experience award: the host save first (the result waits in the save), then
+    # the script, then the host save again (KNOWN_ISSUES MS-190). With --close-during-award, that player's game closes
+    # with the award in its memory only and its launcher starts again from the host save that has the result waiting.
+    logs = [game_log_path(g) for g in games]
+
+    async def award(slot):
+        if slot == CLOSE_SLOT:
+            await close_during_award(slot, current, probes, games, before, start_revisions, logs, record)
+        return await finish_award(probes[slot], slot, record)
+    screens = await asyncio.gather(*(award(n) for n in range(2)))
     after = [own_party(p) for p in probes]
     record("parties-after", parties=after)
     for slot in range(2):
@@ -307,26 +327,124 @@ async def coop_match(current, probes, games, host, symbols, record):
         require(all(g > 0 for g, ok in zip(gains, able) if ok), f"slot {slot}: a Pokemon that could battle gained nothing")
         require(all(gains[0] >= g for g in gains[1:]), f"slot {slot}: a Pokemon not sent out gained more than the lead")
         require(probes[slot].mem("gPartiesCount", 4)[2] == 0, f"slot {slot}: the teammate's party is still held")
+        if slot == CLOSE_SLOT:
+            remembered = CLOSED_AWARD[slot]
+            require([a["experience"] for a in after[slot]] == remembered,
+                    f"slot {slot}: the award after the restart differs from the one the closed game had in memory")
+            record("award-after-the-restart-equals-the-closed-games", slot=slot, experience=remembered)
     record("both-games-awarded-their-own-parties")
-    # A game whose party's Pokemon changed (an evolution after the award: species is part of what it watches) saves on
-    # the host by itself (the engine's MultiplayerHostSave_PartyWatch, since 2026-10-23: a new Pokemon is never only in
-    # the game), so its closing save comes one revision later; the others' saves stay where they were.
-    evolved = [any(a["species"] != b["species"] for a, b in zip(after[slot], before[slot])) for slot in range(2)]
-
+    # Each game saved on the host twice by itself: with the result waiting (before its script) and after the script.
     deadline = time.monotonic() + 90
     while True:
         now = [await on_worker(w, revision) for w in current]
-        if all(r == b + e for r, b, e in zip(now, start_revisions, evolved)):
+        if all(r == b + 2 for r, b in zip(now, start_revisions)):
             break
-        require(time.monotonic() < deadline and all(r <= b + e for r, b, e in zip(now, start_revisions, evolved)),
-                f"the games' host saves after the award: revisions {now} from {start_revisions}, evolved {evolved}")
+        require(time.monotonic() < deadline and all(r <= b + 2 for r, b in zip(now, start_revisions)),
+                f"the games' host saves around the award: revisions {now} from {start_revisions}")
         await asyncio.sleep(.5)
-    record("saved-by-themselves-after-an-evolution", evolved=evolved, revisions=now)
+    lines = [result_lines(path) for path in logs]
+    record("saved-before-and-after-the-script", revisions=now, game_logs=lines)
+    for slot in range(2):
+        require(any("saved with the result waiting; its script runs" in line for line in lines[slot]),
+                f"slot {slot}: the game's log has no host save made with the result waiting")
+        if slot == CLOSE_SLOT:
+            require(any("the loaded save has a result waiting; its script runs" in line for line in lines[slot]),
+                    f"slot {slot}: the restarted game did not find the waiting result in its save")
     return dict(expected=[p.party_now() for p in probes], revisions=[r + 1 for r in now])
+
+
+CLOSED_AWARD = {}
+WATCHERS = []
+
+
+async def watch_status(slot, worker):
+    """Diagnostics: the restarted launcher's status as it changes (why a host save was or was not made)."""
+    async def peek(s):
+        st = s.status
+        return [getattr(st.state, "value", str(st.state)), st.code, st.revision, st.save_available,
+                getattr(s, "last_save_error", None), s._interaction is not None, s.can_save]
+    last = None
+    while True:
+        try:
+            now = await on_worker(worker, peek)
+        except Exception as error:   # the worker stopped
+            print(json.dumps({"diagnostic": "status-watch-ended", "slot": slot, "error": repr(error)}), flush=True)
+            return
+        if now != last:
+            print(json.dumps({"diagnostic": "launcher-status", "slot": slot, "status": now,
+                              "t": round(time.monotonic(), 1)}), flush=True)
+            last = now
+        await asyncio.sleep(.1)
+
+
+def game_log_path(game):
+    """The game's own log (stdout and stderr: runtime.log in its launch folder, the process's working directory)."""
+    return Path(os.readlink(f"/proc/{game.process.pid}/cwd")) / "runtime.log"
+
+
+def result_lines(paths):
+    """The game log's co-op result lines (multiplayer_coop.c ResultLog), from every launch of that player."""
+    if isinstance(paths, Path):
+        paths = [paths]
+    lines = []
+    for path in paths:
+        try:
+            text = path.read_text(errors="replace")
+        except OSError:
+            continue
+        lines += [line.strip() for line in text.splitlines() if line.startswith("co-op result:")]
+    return lines
+
+
+async def close_during_award(slot, current, probes, games, before, start_revisions, logs, record):
+    """The game closed with the award in its memory only, then its launcher started again (Join Game)."""
+    harness = HARNESS
+    probe = probes[slot]
+
+    async def revision(s):
+        return s.status.revision
+    # 1. The host save made with the result waiting.
+    async with asyncio.timeout(120):
+        while await on_worker(current[slot], revision) < start_revisions[slot] + 1:
+            await asyncio.sleep(.2)
+    # 2. The award in the game's memory (the script has applied it and shows its first message), nothing saved since.
+    async with asyncio.timeout(120):
+        while True:
+            party = own_party(probe)
+            if party[0]["experience"] > before[slot][0]["experience"]:
+                await asyncio.sleep(1)
+                again = own_party(probe)
+                if [m["experience"] for m in again] == [m["experience"] for m in party]:
+                    break
+            await asyncio.sleep(.1)
+    memory = [m["experience"] for m in own_party(probe)]
+    saved = await on_worker(current[slot], revision)
+    require(saved == start_revisions[slot] + 1, f"slot {slot}: saved again before the close ({saved})")
+    CLOSED_AWARD[slot] = memory
+    record("award-in-memory-only", slot=slot, experience=memory, revision=saved, log=result_lines(logs[slot]))
+    game = games[slot]
+    await harness.close_game(game, probe)   # SIGTERM: the window's close button
+    await harness.poll_until(lambda: game.process.returncode is not None, 60)
+    record("game-closed-during-the-award", slot=slot, exit_code=game.process.returncode)
+    await harness.poll_until(lambda: not current[slot].busy, 180)
+    again = await harness.start("rejoin", slot)
+    WATCHERS.append(asyncio.create_task(watch_status(slot, again.worker)))
+    logs[slot] = [logs[slot], game_log_path(again.game)]
+    started = await harness.ready(again)
+    harness.players[slot] = again
+    current[slot], games[slot], probes[slot] = again.worker, again.game, again.probe
+    require(started in (start_revisions[slot] + 1, start_revisions[slot] + 2),
+            f"slot {slot}: the restarted game is not from the host save with the result waiting ({started})")
+    record("restarted-from-the-host-save", slot=slot, revision=started, pid=again.game.process.pid)
 
 
 async def after_boot(phase, slot, probe, companion):
     await into_town(phase, slot, probe, companion)
+
+
+def adopt(harness):
+    global HARNESS
+    HARNESS = harness
 
 
 async def run(args):
@@ -394,8 +512,10 @@ async def run(args):
         target = fixtures / f"coop-{name}.sav"
         boost_lead(source, target)
         sources.append(target)
+    global GYM, CLOSE_SLOT
+    GYM, CLOSE_SLOT = args.gym, args.close_during_award
     await launcher_proof(args, names=NAMES, sources=tuple(sources), party_counts=(2, 1), match=coop_match,
-                         version="Native co-op proof", after_boot=after_boot,
+                         version="Native co-op proof", after_boot=after_boot, on_harness=adopt,
                          settings="windowScale=2\n", scope=__doc__.split("\n\n")[0],
                          # The harness drives the GBA start menu and Players menu by their
                          # memory (written before the native PC UI); the co-op battle and its
@@ -417,6 +537,9 @@ def main():
     parser.add_argument("--wine", type=Path, action="append")
     parser.add_argument("--sdl", type=Path)
     parser.add_argument("--elf", type=Path)
+    parser.add_argument("--gym", type=int, default=GYM, help="MP_COOP_GYM_*: 1 Rustboro (default) .. 8 Sootopolis")
+    parser.add_argument("--close-during-award", type=int, default=-1, choices=(-1, 0, 1),
+                        help="close this player's game during its award, then start its launcher again (1: the friend)")
     asyncio.run(run(parser.parse_args()))
 
 

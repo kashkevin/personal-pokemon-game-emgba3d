@@ -236,12 +236,21 @@ class OwnershipTests(unittest.TestCase):
 
     def test_padding_outside_the_profile_and_the_egg_queue_is_rejected(self):
         # Update 30: bytes 600..1011 of SaveBlock3 are the Day Care egg queue (flash.py), Battle Tower: Legends, bytes
-        # 1012..1075 the Tower record and, the TM catalogue (2026-10-31), bytes 1076..1111 the TM record; what follows them
-        # is still padding.
+        # 1012..1075 the Tower record, the TM catalogue (2026-10-31) bytes 1076..1111 the TM record and (2026-11-04) bytes
+        # 1112..1187 a co-op battle's waiting result and 1188..1327 the kept wild Pokemon; what follows is still padding.
         data = bytearray(make_ownership_flash())
-        offset = _sector_offset(data, 0, 9) + 3968 + 68
-        data[offset] = 1  # 9*116+68 = 1112: the first byte after the TM record.
+        offset = _sector_offset(data, 0, 11) + 3968 + 52
+        data[offset] = 1  # 11*116+52 = 1328: the first byte after the kept wild Pokemon record.
         with self.assertRaisesRegex(FlashError, "padding"):
+            self.parse(bytes(data))
+        data = bytearray(make_ownership_flash())
+        data[_sector_offset(data, 0, 10) + 3968 + 28] = 1  # 10*116+28 = 1188: the kept list's magic is not there.
+        with self.assertRaisesRegex(FlashError, "kept wild Pokemon"):
+            self.parse(bytes(data))
+        # A stray byte where the co-op result record lives is refused as a damaged record, not read as one.
+        data = bytearray(make_ownership_flash())
+        data[_sector_offset(data, 0, 9) + 3968 + 68] = 1  # 9*116+68 = 1112: the record's magic is not there.
+        with self.assertRaisesRegex(FlashError, "co-op result record"):
             self.parse(bytes(data))
         # A stray byte where the TM record lives is refused as a damaged record, not read as one.
         data = bytearray(make_ownership_flash())
