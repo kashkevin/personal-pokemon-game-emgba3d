@@ -88,6 +88,17 @@ def claim_bit(floor: int) -> int:
     return 1 << PRIZE_FLOORS.index(floor)
 
 
+# The claims a host's word carries to the game: the prize floors (bits 0-11). The milestone Pokemon delivered (12-15) are
+# each save's own - the game marks one with the Pokemon it made - so a save from before a delivery is never told it has
+# a Pokemon it lacks (KNOWN_ISSUES MS-51; the game ignores those bits in a claims word too).
+WORD_CLAIMS_MASK = 0x0FFF
+
+
+def word_claims(claims: int) -> int:
+    """The host's claims as a claims word carries them: the prize floors only."""
+    return claims & WORD_CLAIMS_MASK
+
+
 def delivered_bit(milestone: int) -> int:
     return 1 << (12 + milestone)
 

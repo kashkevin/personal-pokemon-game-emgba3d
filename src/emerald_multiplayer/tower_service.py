@@ -784,6 +784,15 @@ class TowerService:
                                  f"{(milestone or {}).get('name') or 'It'} joined you!")
                 elif not entry["applied"]:
                     self._notice([word["player_id"]], "NO ROOM FOR YOUR POKEMON", "Make room: PLAYERS > Tower")
+        for word in self.book.applied_mon_words():
+            # A game back on a save from before a milestone Pokemon (it closed before the player saved) applies the
+            # word again: no room now means that save never kept it, so it is owed again (KNOWN_ISSUES MS-51).
+            entry = wagers.entry(word["player_id"], word["ref"])
+            if entry is None or entry["applied"] is None or entry["applied"] == word["applied"]:
+                continue
+            changed = self.book.replayed_mon_receipt(word["player_id"], word["ref"], entry["applied"])
+            if changed is not None and changed["state"] == "owed":
+                self._notice([word["player_id"]], "NO ROOM FOR YOUR POKEMON", "Make room: PLAYERS > Tower")
 
     def pay(self) -> None:
         """Queue every planned word on its player's wallet stream, in the order decided, once per (player, reference)."""

@@ -389,9 +389,35 @@ class SoloTests(unittest.TestCase):
         self.apply()
         self.assertEqual(self.world.tower.milestone(A, 0)["state"], "delivered")
         claims = self.world.tower.player(A)["claims"]
-        self.assertEqual(self.words()[-1], (6, rewards.tower_claims(claims)))
+        self.assertEqual(self.words()[-1], (6, rewards.tower_claims(tower_rewards.word_claims(claims))))
         self.assertTrue(claims & tower_rewards.delivered_bit(0))
         self.assertEqual(len([w for w in self.words() if w[0] == 7]), 2)
+
+    def test_a_save_from_before_the_milestone_with_no_room_gets_it_sent_again(self):
+        # KNOWN_ISSUES MS-51: the game made the milestone Pokemon (1), then closed before the player saved; the save it
+        # starts from has no room, so the replayed word makes nothing (0): the host owes it again and "Send it now"
+        # sends the same Pokemon once there is room.
+        self.store.saves[A] = tower_save(record=tower_record(highest=24, progress=25, revision=2), badges=8)
+        ticket = self.solo(25)
+        self.report("won", ticket, 25)
+        self.apply()
+        self.assertEqual(self.world.tower.milestone(A, 0)["state"], "delivered")
+        self.refused("milestone_send", "nothing_owed", milestone=0)
+        mon = next(w for w in self.world.tower.words_of(A) if w["kind"] == rewards.KIND_TOWER_MON)
+        seq = self.wagers.entry(A, mon["ref"])["seq"]
+        self.wagers.applied(A, seq, 0)                                                # the older save replays it: no room
+        self.service.reconcile()
+        self.assertEqual(self.world.tower.milestone(A, 0)["state"], "owed")
+        self.assertIn(("NO ROOM FOR YOUR POKEMON", "Make room: PLAYERS > Tower"), self.notices())
+        self.assertEqual(self.call("status")["milestones"][0]["state"], "owed")
+        self.call("milestone_send", milestone=0)
+        self.assertEqual(self.words()[-1], (7, mon["payload"]))
+        self.apply()
+        self.assertEqual(self.world.tower.milestone(A, 0)["state"], "delivered")
+        self.assertTrue(self.world.tower.player(A)["claims"] & tower_rewards.delivered_bit(0))
+        self.assertFalse(any(word[0] == rewards.KIND_TOWER_STATE
+                             and rewards.decode_tower_state(word[1])[0] == "claims"
+                             and rewards.decode_tower_state(word[1])[1] & 0xF000 for word in self.words()))
 
     def test_the_experience_caps_and_the_milestone_level_at_the_claim(self):
         for badges, champion, cap in [(n, False, c) for n, c in enumerate((15, 20, 25, 30, 40, 45, 50, 55, 60))] + \

@@ -286,7 +286,8 @@ class TowerBook:
             if reward.bp:                    # a floor already cleared pays nothing: its battle plans the state word alone
                 words.append(("bp", rewards.KIND_BP, reward.bp))
             if claims != row["claims"]:
-                words.append(("claims", rewards.KIND_TOWER_STATE, rewards.tower_claims(claims)))
+                words.append(("claims", rewards.KIND_TOWER_STATE,
+                              rewards.tower_claims(tower_rewards.word_claims(claims))))
         for position, (name, kind, payload) in enumerate(words):
             self._plan(player, f"{base}:{position}:{name}", ticket["ticket_id"], position, kind, payload)
         if reward is not None and reward.milestone is not None:
@@ -409,11 +410,49 @@ class TowerBook:
                                      "milestone=?", (self._now(), player, milestone))
                     self._db.execute("UPDATE tower_players SET claims=? WHERE player_id=?", (claims, player))
                     self._plan(player, f"{ref}:claims", word["ticket_id"], word["position"] + 1, rewards.KIND_TOWER_STATE,
-                               rewards.tower_claims(claims))
+                               rewards.tower_claims(tower_rewards.word_claims(claims)))
                 else:
                     self._db.execute("UPDATE tower_milestones SET state='owed' WHERE player_id=? AND milestone=? AND "
                                      "state='sent'", (player, milestone))
         return word
+
+    def applied_mon_words(self) -> list[dict]:
+        """Milestone Pokemon words whose receipt is recorded: a game back on an older save applies them again."""
+        rows = self._db.execute(self._WORD + " WHERE kind=? AND applied IS NOT NULL ORDER BY rowid",
+                                (rewards.KIND_TOWER_MON,)).fetchall()
+        return [self._word(row) for row in rows]
+
+    def replayed_mon_receipt(self, player: str, ref: str, applied: int) -> dict | None:
+        """A milestone Pokemon word applied again by a save from before it (the game closed before the player saved; the
+        host replays the words after that save's wallet position). The new receipt is what that save holds now: 0 (no
+        room, nothing made) means it never kept the Pokemon, so a milestone counted delivered is owed again and "Send it
+        now" sends it once there is room; 1 or 2 count an owed one delivered (KNOWN_ISSUES MS-51). Returns the milestone
+        when it changed."""
+        row = self._db.execute(self._WORD + " WHERE player_id=? AND ref=?", (player, ref)).fetchone()
+        if (row is None or row[4] != rewards.KIND_TOWER_MON or row[7] is None or type(applied) is not int
+                or applied not in (0, 1, 2) or applied == row[7]):
+            return None
+        milestone = row[5] >> 22
+        current = self.milestone(player, milestone)
+        if current is None:
+            return None
+        claims = self.player(player)["claims"]
+        changed = False
+        with self._transaction():
+            self._db.execute("UPDATE tower_words SET applied=? WHERE player_id=? AND ref=?", (applied, player, ref))
+            if not applied and current["state"] == "delivered":
+                self._db.execute("UPDATE tower_milestones SET state='owed', delivered=NULL WHERE player_id=? AND "
+                                 "milestone=? AND state='delivered'", (player, milestone))
+                self._db.execute("UPDATE tower_players SET claims=? WHERE player_id=?",
+                                 (claims & ~tower_rewards.delivered_bit(milestone), player))
+                changed = True
+            elif applied and current["state"] == "owed":
+                self._db.execute("UPDATE tower_milestones SET state='delivered', delivered=? WHERE player_id=? AND "
+                                 "milestone=? AND state='owed'", (self._now(), player, milestone))
+                self._db.execute("UPDATE tower_players SET claims=? WHERE player_id=?",
+                                 (claims | tower_rewards.delivered_bit(milestone), player))
+                changed = True
+        return self.milestone(player, milestone) if changed else None
 
     def plan_clear(self, player: str, ref: str, number: int) -> bool:
         """A Tower state word that only settles the save's result for ``number`` (a ticket this host voided, or never

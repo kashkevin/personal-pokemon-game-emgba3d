@@ -226,7 +226,53 @@ class BookTests(unittest.TestCase):
         self.assertEqual(self.book.milestone("pa", 0)["state"], "delivered")
         claims = self.book.player("pa")["claims"]
         self.assertTrue(claims & tower_rewards.delivered_bit(0) and claims & tower_rewards.claim_bit(25))
-        self.assertEqual(self.book.words_of("pa")[-1]["payload"], rewards.tower_claims(claims))
+        # the claims word carries the prize floors only: the game marks the Pokemon delivered itself (MS-51)
+        self.assertEqual(self.book.words_of("pa")[-1]["payload"], rewards.tower_claims(tower_rewards.word_claims(claims)))
+        self.assertFalse(rewards.decode_tower_state(self.book.words_of("pa")[-1]["payload"])[1]
+                         & tower_rewards.delivered_bit(0))
+
+    def test_a_save_from_before_the_delivery_with_no_room_owes_the_milestone_again(self):
+        # KNOWN_ISSUES MS-51: the game made the Pokemon (1), then closed before the player saved; the save it starts from
+        # has a full party and PC, and applies the replayed word with no room (0): owed again, sent again once there is room.
+        self.book.sync("pa", "Alice", record(25, 24, claims=0b11), outstanding=0)
+        ticket = self.book.issue_solo("pa", 25)
+        self.book.settle(ticket["ticket_id"], "won", choose=chooser(species=149, name="Dragonite"))
+        mon = self.book.words_of("pa", ticket["ticket_id"])[-1]
+        self.book.word_queued("pa", mon["ref"])
+        self.book.word_receipt("pa", mon["ref"], 1)
+        self.assertEqual(self.book.milestone("pa", 0)["state"], "delivered")
+        with self.assertRaises(TowerError):
+            self.book.resend_milestone("pa", 0)                                       # "It is already in your game"
+        self.assertEqual([w["ref"] for w in self.book.applied_mon_words()], [mon["ref"]])
+        self.assertIsNone(self.book.replayed_mon_receipt("pa", mon["ref"], 1))        # the same receipt: nothing changes
+        again = self.book.replayed_mon_receipt("pa", mon["ref"], 0)                   # the replay: no room
+        self.assertEqual(again["state"], "owed")
+        self.assertFalse(self.book.player("pa")["claims"] & tower_rewards.delivered_bit(0))
+        self.assertTrue(self.book.player("pa")["claims"] & tower_rewards.claim_bit(25))   # the prize floor stays claimed
+        resent = self.book.resend_milestone("pa", 0)
+        self.assertEqual((resent["state"], resent["attempts"], resent["species"]), ("sent", 2, 149))
+        second = self.book.words_of("pa")[-1]
+        self.assertEqual(second["payload"], rewards.tower_mon(0, 149, 25))           # the very same Pokemon
+        self.book.word_queued("pa", second["ref"])
+        self.book.word_receipt("pa", second["ref"], 1)
+        self.assertEqual(self.book.milestone("pa", 0)["state"], "delivered")
+        self.assertTrue(self.book.player("pa")["claims"] & tower_rewards.delivered_bit(0))
+        # a later replay of the first word that finds it already made (2) changes nothing; malformed receipts are refused
+        self.assertIsNone(self.book.replayed_mon_receipt("pa", mon["ref"], 2))
+        self.assertIsNone(self.book.replayed_mon_receipt("pa", mon["ref"], 7))
+        self.assertIsNone(self.book.replayed_mon_receipt("pa", "tower:none", 0))
+
+    def test_a_replay_that_finds_room_counts_an_owed_milestone_delivered(self):
+        self.book.sync("pa", "Alice", record(25, 24, claims=0b11), outstanding=0)
+        ticket = self.book.issue_solo("pa", 25)
+        self.book.settle(ticket["ticket_id"], "won", choose=chooser(species=149, name="Dragonite"))
+        mon = self.book.words_of("pa", ticket["ticket_id"])[-1]
+        self.book.word_queued("pa", mon["ref"])
+        self.book.word_receipt("pa", mon["ref"], 0)                                   # no room: owed
+        self.assertEqual(self.book.milestone("pa", 0)["state"], "owed")
+        made = self.book.replayed_mon_receipt("pa", mon["ref"], 1)                    # a reload with room made it
+        self.assertEqual(made["state"], "delivered")
+        self.assertTrue(self.book.player("pa")["claims"] & tower_rewards.delivered_bit(0))
 
     def test_a_save_that_already_had_the_milestone_counts_it_delivered(self):
         self.book.sync("pa", "Alice", record(75, 74, claims=0xFF), outstanding=0)
