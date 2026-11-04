@@ -70,9 +70,18 @@ class MailboxTests(unittest.TestCase):
                 inspect_mailbox(changed)
 
     def test_movement_mapping_and_safe_unavailable_modes(self):
-        for mode, expected in ((0, "walk"), (1, "bike"), (2, "bike"), (3, "surf")):
+        for mode, expected in ((0, "walk"), (1, "bike"), (2, "bike"), (3, "surf"), (4, "dive")):
             self.assertEqual(pose(movement_mode=mode).network_fields(True)["movement_mode"], expected)
-        self.assertEqual(pose(movement_mode=4).network_fields(True)["activity"], "unavailable")
+        # KNOWN_ISSUES MS-181: under the water a player is on the field ("dive"), and "dive" in a menu, never "walk"
+        diver = pose(movement_mode=4).network_fields(True)
+        self.assertEqual((diver["movement_mode"], diver["activity"]), ("dive", "overworld"))
+        self.assertTrue(pose(movement_mode=4).underwater)
+        self.assertFalse(pose(movement_mode=3).underwater)
+        in_menu = Pose(1, 2, 3, 4, 0, 50, 1, 0, 0, 4, 0, detail=2).network_fields(True)
+        self.assertEqual((in_menu["movement_mode"], in_menu["activity"]), ("dive", "menu"))
+        for activity, drawn in (("overworld", 1), ("menu", 1), ("battle", 0)):
+            back = Pose.from_presence({**diver, "activity": activity, "map_epoch": 3, "seq": 9})
+            self.assertEqual((back.movement_mode, back.activity), (4, drawn))
         self.assertEqual(pose().network_fields(False)["activity"], "unavailable")
         self.assertEqual(pose(activity=0).network_fields(True)["activity"], "unavailable")
         presence = pose().network_fields(True)

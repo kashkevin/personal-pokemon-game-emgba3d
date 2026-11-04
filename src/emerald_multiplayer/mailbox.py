@@ -1,8 +1,9 @@
 """Pure codecs for the allocated 128-byte ROM mailbox ABI.
 
 These functions handle bytes only; they never choose addresses or write emulator
-memory. Underwater movement (ROM mode 4) has no transport/rendering support yet
-and is advertised as unavailable. This is a presence ABI, not a save format.
+memory. Underwater movement (ROM mode 4, after Dive) travels as the movement
+"dive" (protocol 4, KNOWN_ISSUES MS-181): the other games draw that player with the
+underwater look. This is a presence ABI, not a save format.
 """
 
 from __future__ import annotations
@@ -34,6 +35,9 @@ DETAIL_ACTIVITIES = {1: "battle", 2: "menu", 3: "transition"}
 # Update 32: the other players' games draw a player on the field and one standing there in a menu or a dialogue (the
 # game reports those as "menu" with its current position); a battle or a map change hides the avatar.
 DRAWN_ACTIVITIES = frozenset({"overworld", "menu"})
+# The game's underwater movement (PLAYER_AVATAR_STATE_UNDERWATER): on the field like any other, but autosave and the
+# emergency save's arming keep skipping the sea floor (autosave.py, launcher_session.py), as before MS-181's fix.
+UNDERWATER = 4
 
 
 def _bound(value: int, low: int, high: int, name: str) -> int:
@@ -93,19 +97,25 @@ class Pose:
         return cls(*fields[:-1], presentation_version=presentation_version, detail=fields[-1])
 
     def network_fields(self, available: bool) -> dict:
-        modes = {0: "walk", 1: "bike", 2: "bike", 3: "surf", 4: "walk", 5: "run"}
+        # Under the water a player is "dive", on the field or in a menu alike (before MS-181's fix: "unavailable" on the
+        # field, so nobody drew them, and "walk" in a menu, so everybody drew them standing as on land).
+        modes = {0: "walk", 1: "bike", 2: "bike", 3: "surf", UNDERWATER: "dive", 5: "run"}
         return {
             "map_group": self.map_group, "map_number": self.map_number,
             "x": self.x, "y": self.y, "direction": self.direction,
             "elevation": self.elevation, "avatar_gender": self.avatar_gender,
             "movement_mode": modes[self.movement_mode],
-            "activity": "overworld" if available and self.activity == 1 and self.movement_mode != 4
+            "activity": "overworld" if available and self.activity == 1
                         else DETAIL_ACTIVITIES.get(self.detail, "unavailable") if available else "unavailable",
         }
 
+    @property
+    def underwater(self) -> bool:
+        return self.movement_mode == UNDERWATER
+
     @classmethod
     def from_presence(cls, presence: dict, *, presentation_version=0) -> Pose:
-        modes = {"walk": 0, "run": 5 if presentation_version else 0, "bike": 1, "surf": 3}
+        modes = {"walk": 0, "run": 5 if presentation_version else 0, "bike": 1, "surf": 3, "dive": UNDERWATER}
         return cls(
             presence["map_epoch"], presence["seq"], presence["x"], presence["y"],
             presence["map_group"], presence["map_number"], presence["direction"],

@@ -175,7 +175,8 @@ class AutosaveScheduler:
         if (not isinstance(pose, Pose) or type(seen) not in (float, int) or not math.isfinite(seen)
                 or type(freshness) not in (float, int) or not math.isfinite(freshness) or freshness <= 0
                 or not 0 <= now - seen <= freshness
-                or pose.network_fields(True)["activity"] != "overworld"):
+                or pose.network_fields(True)["activity"] != "overworld"
+                or pose.underwater):          # the sea floor stays skipped, as before MS-181's fix
             return "game_unavailable"
         if self.safe_point is not None:
             try:

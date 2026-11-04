@@ -17,7 +17,8 @@ from typing import Any
 # shared wild Pokemon (the "spawns" world field, the "spawn_action" request and
 # the presence "weather"). Version 4 adds the launcher's own version to hello
 # ("launcher"): a world admits only players whose launcher is exactly the host's
-# version (KNOWN_ISSUES MS-28). Mixed versions refuse cleanly at the hello.
+# version (KNOWN_ISSUES MS-28), and the movement "dive" (a player under the water,
+# MS-181). Mixed versions refuse cleanly at the hello.
 PROTOCOL_VERSION = 4
 MAX_FRAME_BYTES = 16_384
 MAX_PLAYERS = 4
@@ -30,7 +31,7 @@ CHECKPOINT_TYPES = frozenset({
     "ownership_grant",
 })
 ACTIVITIES = frozenset({"overworld", "menu", "battle", "transition", "unavailable"})
-MOVEMENT_MODES = frozenset({"walk", "run", "bike", "surf"})
+MOVEMENT_MODES = frozenset({"walk", "run", "bike", "surf", "dive"})
 WORLD_PRESENCE_FIELDS = frozenset({"share_location", "follower_species", "follower_flags", "mount_state", "mount_species", "mount_flags",
                                    "wallet_seq", "weather"})
 _IDENTITY = re.compile(r"[A-Za-z0-9_.:-]{1,128}\Z")

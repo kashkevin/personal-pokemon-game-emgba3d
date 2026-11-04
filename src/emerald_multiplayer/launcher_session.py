@@ -1819,6 +1819,7 @@ class LauncherSession:
                     and c.connected and c._bridge is not None
                     and getattr(c._bridge, "emergency_save_capable", False)
                     and pose is not None and pose.network_fields(True)["activity"] == "overworld"
+                    and not pose.underwater                     # the sea floor stays skipped, as before MS-181's fix
                     and asyncio.get_running_loop().time() - c._last_pose_time <= c.config.pause_timeout
                     and not c.live_checkpoint_lock.locked()):
                 try:
