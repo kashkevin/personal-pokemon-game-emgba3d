@@ -1199,3 +1199,26 @@ before and after: Mossdeep walk-steps 6 -> 0, spikes 20 -> 18, water-drops 76 ->
 -> 6 (the rest elsewhere); no hole, no pixel of the probe's sky; each flight now a flight of steps from one ground to
 the other. `test_terrace_topology` 37 (one new), `check-diorama` passed; the Windows 3D build compiles (MinGW, not
 run). Pictures: scratchpad `stairs/` (game art, not committed).
+
+### Looked at and left; Sootopolis's terraces tried and parked (2026-11-03 23:20 - 2026-11-04 00:15; engine `2054cf05`)
+
+The probe at five towns (Mossdeep, Pacifidlog, Lavaridge, Lilycove, Sootopolis) and at the four cave mouths MS-172
+lists (Linux, the 3D test build, Mesa; pictures in the scratchpad's `towns/`, `mouth/`):
+
+* **The four cave mouths painted on their rock** (Route 110's way into New Mauville, Shoal Cave's on Route 125, the
+  Fiery Path's two on Route 112, the Cave of Origin's in Sootopolis): each reads as a dark opening in its rock face.
+  Left as they are.
+* **Pacifidlog Town's fins** (37) are its log rafts standing over the sea, **Lavaridge Town's** (21) the rock walls
+  round the town along the map's edges, **Lilycove City's** (24) its thin terrace walls (MS-173): as intended.
+* **Mossdeep City's water standing over the land beside it** (the probe's 24 water-walls) is not looked into further.
+* **Sootopolis City's terraces.** Its streets have one elevation in the GBA's data; its stairs (the Sootopolis
+  tileset's 68 and 69, the two halves of a flight) are the only sign of their levels. A pass that gives the streets
+  a level a flight - each flight's top street a level over its foot's, the lake's shore level 0 - solves without a
+  contradiction: 25 streets (598 of the 856 walkable cells) on levels 0 to 7, the rest (scraps of street no one walks
+  into) on the nearest street's. Tried in the 3D test build: the streets climb as terraces round the lake and the
+  houses (stood on their street's level) sit on them; but the white cliffs the classifier leaves as painted ground
+  (above the Cave of Origin) stood up two levels as blocks with brown sides (outdoors the side of raised ground shows
+  General's rock wall), two flights one cell wide still stepped, and the probe's fins went 29 -> 70 and spikes 39 ->
+  79, with a hole by the Cave of Origin. Not committed: the work is kept as a patch in the scratchpad
+  (`sooto2/sootopolis-terraces-wip.patch`). Next, if taken up: stand only what stands on a street (houses, signs,
+  the door frames) on its level, not the painted cliffs; give the one-wide flights their climb; look at the fins.
