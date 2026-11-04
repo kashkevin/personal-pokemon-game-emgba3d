@@ -77,9 +77,9 @@ The GBA ROM; the games' rules, prizes, records and saves; computer partners (MS-
 
 ## Limits
 
-* Berry Crush is the one played between two real games so far. Pokemon Jump and Dodrio Berry Picking start, link and
-  end the same way (the same lobby, the same NetLink), but have not been played between two games yet; nor three or
-  four players; nor Windows.
+* Berry Crush and Pokemon Jump have been played between two real games. Dodrio Berry Picking (three players at
+  least) starts, links and ends the same way (the same lobby, the same NetLink); its three-game proof is the next run.
+  Four players and Windows not run.
 
 * A frozen member game whose launcher connection stays up is not noticed by the leader's game (members send only the
   commands they have; the leader cannot tell silence from a freeze); the games' own waits apply. A frozen leader is
@@ -95,11 +95,18 @@ The GBA ROM; the games' rules, prizes, records and saves; computer partners (MS-
   `tests/test_minigame_network.py` (a real world server, real companions and bridges that speak as the game does:
   start, 100 frames each way in order, the end, a game gone, a lost link, a lobby left as the start came, a
   disconnect, refusals).
-* Real games: `scripts/multiplayer/native_launcher_minigame_proof.py` (two native games through the whole launcher:
-  the attendants, the lobby, Berry Crush to its results and "play again?", the launcher's saves and a fresh Continue),
-  with the fixture saves `crush-a`, `crush-b` of `make_tower_saves.py`. Run 12 passed on Linux (2026-11-04): the whole
-  game between the two, both back on the field with no communication error, 3,719 link frames through the host, none
-  dropped. Results in TEST_LEDGER.
+* Real games: `scripts/multiplayer/native_launcher_minigame_proof.py` (native games through the whole launcher: the
+  attendants, the lobby, the game to its "play again?", the launcher's saves and a fresh Continue), with the fixture
+  saves of `make_tower_saves.py`. Linux, 2026-11-04:
+  * Berry Crush (`crush-a`, `crush-b`), run 12 passed: the whole game between the two, both back on the field with no
+    communication error, 3,719 link frames through the host, none dropped.
+  * Pokemon Jump (`--activity pokemon_jump`, `jump-a`, `jump-b`: a Pikachu, a Marill at Mossdeep's counter), run 2
+    passed: both players jumped the vine six swings running (A as the vine came down), each game showing the other
+    player's six jumps, then the vine caught them; both games showed the leader's score (360, 6 in a row); the host
+    YES and the friend NO to playing again, both links closed by the games, both out of the room; 2,241 link frames,
+    none dropped. (Run 1 stopped at the old man's greeting: the proof did not press at its paragraphs.)
+  * Dodrio Berry Picking (`--activity dodrio`, three games: `dodrio-a`, `-b`, `-c`): written, not yet passed.
+  Results in TEST_LEDGER.
 
 ## Found on the way (by the launcher proof, all in this new code, fixed before it was committed)
 
