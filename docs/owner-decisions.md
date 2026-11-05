@@ -92,3 +92,27 @@ answer left open with defaults the owner can change. Each is one setting.
 | A started match whose result never came | A loss once the player gives it up (15 s after their game connects) or after 24 hours | The Battle Tower's own rule (quitting forfeits). |
 | The entry rule | The rule in force at the proposal, kept with the bracket; checked at proposal, acceptance and before every match | A rule that rotates mid-bracket changes nothing. |
 
+## Decided 2026-11-05 (the owner's decisions and final directives)
+
+The owner reviewed the outstanding issues and approved the recommendations, with three exceptions left exactly as they
+are. Nothing below was built before this answer; each row says what follows from it. Progress and verification are
+kept in `docs/outstanding-issues.md` section 0.
+
+| # | Decision | The owner's answer | What follows |
+| --- | --- | --- | --- |
+| 35 | Egg hatching speed (MS-42) | Keep the current speed; do not accelerate or rebalance it | **Closed: keep existing behavior** (32 steps an egg cycle on PC, as built in Update 30) |
+| 36 | Day counters on the world clock (G13, #9) | Keep the 12x world clock and the daily and weekly event timing; do not move events to real calendar days | **Closed: keep existing behavior** |
+| 37 | Character customization scope (#12) | Keep the existing roster and options; add no characters, outfits or customization features | **Closed: keep existing behavior** |
+| 38 | A World Event Pokemon after its claimant disconnects (G3, #8) | Reserve the encounter for five minutes after the player disconnects; the original player may reconnect and reclaim it in that time; release it afterwards; no duplicate claims | To build (the host's event claims) |
+| 39 | Eggs and Mail in world trades | Allow both; keep every valid Pokemon and Mail datum; trades atomic, recoverable, never duplicating or losing a Pokemon | To build: KNOWN_ISSUES "Trades: eggs and Mail" option (b) for both |
+| 40 | Tickets for personal static legendaries (#11) | From postgame achievements, challenging quests and Battle Frontier milestones; the casino not the only way | To design and build in that direction (each source listed with the build) |
+| 41 | World loading (MS-161) | Validated caching or an equally safe optimization, checked again when the world's data changes or an integrity check stops holding; save integrity before speed; pick between the documented (b) and (c) | To build: (b), each save's checked reading remembered by its content hash and the reader's version, the ownership replay still run in full ((c) would trust the check's own earlier result) |
+| 42 | 3D rendering (MS-118) | No needless rendering during a fully covered fade; expensive geometry spread across frames; nearby chunks loaded ahead; no visible pop-in, missing collision or hitches; performance verified on Windows | To build |
+| 43 | Xbox B as Cancel (#21) | Enable it; keep the confirmations that guard multiplayer actions | Kept as built (Update 24); the multiplayer confirmations to be checked |
+| 44 | 3D vehicles (#22) | Keep trucks, ferries, cable cars and vehicle scenes in 3D; no needless fallback to 2D; transitions and navigation kept | To build |
+| 45 | Music (#23) | Music at 70% by default, sound effects at 100%; separate master, music and sound-effect controls | To build |
+| 46 | Battle Point shop (#24) | Keep its prices; review the Battle Points earned per hour and propose a change only if needed | A review; no price changed |
+| 47 | Location privacy (#25) | A launcher checkbox, privacy on by default; no precise location shown without the player's explicit permission | To build |
+| 48 | The remaining engineering and visual work | MS-52, MS-154, MS-108, VR-5, MS-9 (if it is actually needed), MS-98, U31-16 (the Node 24 actions), U31-13 (no game dumps in the repository; authorized local build inputs), the 39 upstream GBA test failures classified with the intended Gen 6 behavior kept | To do |
+| 49 | MS-85, MS-149, U31-5 | Their exact descriptions and proposed resolutions first, before any change | A write-up for the owner; nothing changed |
+| 50 | Release checks | Run 323 (MS-198); the 2D AddressSanitizer sweep; multiplayer with several clients, saving, updating, reconnecting and character persistence on Windows; a real GPU and a controller when available; fresh installs and upgrades; the Safari crash diagnostics kept; nothing blocked or untested marked passed; the next complete installer once the release checks pass | To do; nothing distributed while N8 is open |

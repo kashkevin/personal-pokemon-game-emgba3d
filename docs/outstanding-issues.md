@@ -11,6 +11,39 @@ a Windows CI run has covered it since.
 
 Updated with every fix; the newest first within each section.
 
+## 0. The owner's decisions and directives of 2026-11-05 (`docs/owner-decisions.md` #35-50)
+
+Priority as the owner set it: data loss, multiplayer crashes and performance regressions before cosmetic work; nothing
+finished until implemented, regression-tested and verified on Windows; nothing blocked or untested marked passed.
+
+| Item | What | Status | L | W | PC |
+| --- | --- | --- | --- | --- | --- |
+| MS-42, G13, character customization | Egg hatching speed, the 12x world clock's day counters, the character roster | **Closed: keep existing behavior** (the owner's final decision; nothing changed) | - | - | - |
+| MS-198 on Windows | The AI's critical-hit odds read (engine `0d25e9c0`) | run 323 (self-tests, both gameplay checks) running | ASan before/after | run 323 | - |
+| 2D AddressSanitizer sweep | The Classic 2D game's whole gameplay plan under the sanitizer | **Done**: 3,611 passed, none failed by the game; reports only known reads | all eight eighths | - | - |
+| G3 | A World Event Pokemon reserved five minutes after its claimant disconnects, reclaimable by them, then released; no duplicate claim | to build | - | - | - |
+| Trades | Eggs and Pokemon holding Mail traded; every valid Pokemon and Mail datum kept; atomic and recoverable | to build | - | - | - |
+| Tickets | Personal static legendaries' tickets from postgame achievements, challenging quests and Battle Frontier milestones (not the casino alone) | to design and build | - | - | - |
+| MS-161 | World loading: each save's checked reading cached by content hash and reader version, revalidated on change (option (b)) | to build | - | - | - |
+| MS-118 | 3D: no rendering during a fully covered fade; geometry spread across frames; nearby chunks ahead; no pop-in, missing collision or hitches | to build | - | - | real GPU |
+| Xbox B | B as Cancel kept; multiplayer confirmations checked | to check | - | - | controller |
+| 3D vehicles | Trucks, ferries, cable cars and vehicle scenes in 3D without the 2D fallback | to build | - | - | - |
+| Music | Music 70% and sound effects 100% by default; separate master, music and sound-effect controls | to build | - | - | - |
+| BP shop | Prices kept; Battle Points per hour reviewed | to review | - | - | - |
+| Location privacy | A launcher checkbox, on by default; no precise location without explicit permission | to build | - | - | - |
+| MS-52 | Battle Tower record shown late after a settlement | to fix | - | - | - |
+| MS-154 | Route 118's six 3D ledges landing a level higher | to fix | - | - | - |
+| MS-108 | Transition artwork still the GBA's | to do | - | - | - |
+| VR-5 | 226 battle animations without an HD version | to do | - | - | - |
+| MS-9 | The emulator fallback's Lua bridge: whether it is still needed | to assess | - | - | - |
+| MS-98 | The automated 3D map sweep: facilities entered their own way, a coverage report | to do | - | - | - |
+| U31-16 | GitHub Actions on Node 24 | to apply and verify | - | - | - |
+| U31-13 | No game dumps in the repository; authorized local build inputs | to arrange | - | - | - |
+| 39 GBA tests | The upstream test failures under Gen 6 rules, each classified; intended Gen 6 behavior kept | to classify | - | - | - |
+| MS-85, MS-149, U31-5 | Exact descriptions and proposed resolutions for the owner before any change | to write | - | - | - |
+| Release checks | Multiplayer with several clients, saving, updating, reconnecting, character persistence, fresh installs and upgrades on Windows; Safari crash diagnostics kept | to run with the next full run | - | - | two PCs, real GPU, controller |
+| Installer | The next complete installer after the release checks | waits for the items above; not distributed (N8) | - | - | - |
+
 ## 1. Engineering work in progress (owner's approval of 2026-11-04)
 
 | Issue | What | Status | L | W | PC |
@@ -54,16 +87,11 @@ Updated with every fix; the newest first within each section.
 
 ## 3. Decisions only the owner can make (options in `docs/owner-decisions.md`)
 
-N8 licensing of `src/platform/bios.c` (blocks giving the build to anyone; "Leave for now"); the base game dump for CI
-(U31-13); the Node 24 actions patch (U31-16); day counters on the world clock (G13); a ticket source for personal
-static legendaries; the character customization scope; the 39 upstream GBA test failures under Gen 6 rules; egg
-hatching speed (MS-42); and the "built, your call" items: Xbox B as Cancel, 3D vehicles falling back to 2D, music
-loudness, Battle Point shop prices, a launcher checkbox for location privacy. Also, with their options in
-KNOWN_ISSUES: a World Event's claim release after a disconnect (G3, gameplay); whether trades take Eggs and Mail
-("Trades: eggs and Mail", gameplay); how far a world's integrity check
-may trust its own earlier result (MS-161 (b) and (c)); and the 3D view's two visual trade-offs, a screen fade
-redrawing the atlas at each step and a map crossing's new chunks spread over a few frames (MS-118). Three smaller
-questions are in section 7 (MS-85, MS-149, U31-5).
+Decided on 2026-11-05 (section 0; `docs/owner-decisions.md` #35-50): G13, the ticket source, the character
+customization scope, the 39 upstream GBA tests, MS-42, U31-13, U31-16, the "built, your call" items (Xbox B, 3D
+vehicles, music, the BP shop, location privacy), G3, Eggs and Mail in trades, MS-161 and MS-118. Still the owner's:
+N8, the licensing of `src/platform/bios.c` (blocks giving the build to anyone; "Leave for now"); MS-85, MS-149 and
+U31-5 once their write-up is in (#49); and a Battle Point change only if the review proposes one (#46).
 
 ## 4. Verification only the owner's PCs can give
 
