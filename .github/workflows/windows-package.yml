@@ -2738,7 +2738,7 @@ jobs:
             --work "$RUNNER_TEMP/play-check" --label play
       - name: The earlier installer for the update check (full, upgrade_from_run; private to this repository)
         if: env.MODE == 'full' && inputs.upgrade_from_run != ''
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: ${{ env.INSTALLER_ARTIFACT }}
           path: earlier-installer
