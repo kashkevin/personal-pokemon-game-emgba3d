@@ -189,6 +189,29 @@ class WindowsWorkflowTests(unittest.TestCase):
         facts = engine.index("minigame_facts.py --game pokeemerald-mp.exe --pe")
         self.assertLess(facts, engine.index("i686-w64-mingw32-strip --strip-all pokeemerald-mp.exe"))
 
+    def test_world_trades_of_forms_and_a_trade_evolution_run_in_windows_game_processes(self):
+        # KNOWN_ISSUES MS-194 (the reviewed forms) and MS-151 (the receiving game's trade evolution), on Windows
+        trade = job("trade-proof")
+        self.assertIn("runs-on: windows-2022", trade)
+        self.assertIn("needs: [engine, symbol-sizes]", trade)
+        self.assertIn("make_tower_saves.py", trade)
+        self.assertIn("--only ${{ matrix.a }},${{ matrix.b }}", trade)
+        self.assertIn('{name: forms, scenario: trade-forms, expect: "1071,1155", a: trade-forms-a, b: trade-forms-b}', trade)
+        self.assertIn('{name: evolve, scenario: trade-evolve, expect: "1161,1160", a: trade-evolve-a, b: trade-evolve-b}',
+                      trade)
+        self.assertIn("native_launcher_newcomers_proof.py --scenario ${{ matrix.scenario }}", trade)
+        self.assertIn("--expect-species ${{ matrix.expect }}", trade)
+        self.assertIn("--game inputs/pokeemerald-mp.exe", trade)             # the packaged Classic 2D game
+        # the fixtures it asks for exist
+        import importlib.util, sys
+        sys.path.insert(0, str(ROOT / "scripts/multiplayer"))
+        spec = importlib.util.spec_from_file_location("make_tower_saves", ROOT / "scripts/multiplayer/make_tower_saves.py")
+        fixtures = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(fixtures)
+        names = {fixture[0]: fixture[2] for fixture in fixtures.FIXTURES}
+        self.assertEqual([names[n] for n in ("trade-forms-a", "trade-forms-b", "trade-evolve-a", "trade-evolve-b")],
+                         ["1155:30", "1071:50:i403", "1157:30", "1158:30"])
+
     def test_a_coop_award_survives_a_game_closed_during_it_in_windows_game_processes(self):
         coop = job("coop-proof")
         self.assertIn("runs-on: windows-2022", coop)
@@ -300,8 +323,8 @@ class WindowsWorkflowTests(unittest.TestCase):
 
     def test_a_failed_launcher_proof_prints_its_diagnosis_in_the_log(self):
         # Run 138's ffa-exit: the evidence went to an artifact a session reading the log could not fetch.
-        for name in ("tower-proof", "rival-proof", "mega-proof", "minigame-proof", "coop-proof", "abandon-check",
-                     "multiplayer-check"):
+        for name in ("tower-proof", "rival-proof", "mega-proof", "minigame-proof", "coop-proof", "trade-proof",
+                     "abandon-check", "multiplayer-check"):
             with self.subTest(job=name):
                 steps = job(name)
                 summary = steps.index("proof_failure_summary.py \"$RUNNER_TEMP/multiplayer-proof\"")

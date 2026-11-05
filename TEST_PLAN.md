@@ -24,6 +24,7 @@ What a full run executes in real Windows game processes (one hosted runner per j
 | A new character, no Pokemon, a starter claimed and saved, three soft-reset rerolls | feature-check (starters, soft reset) |
 | Two to four players in one world: simultaneous starter claims, 1v1, 1v1v1, 1v1v1v1, 2v2, a battle and a trade at once, resets while others play, visibility, a connection cut and rejoined | multiplayer-check (lobby 3 and 4, mixed, busy) |
 | A battle interrupted: a game killed, a connection cut, a game closed, the host crashed; abandon, rejoin, rematch | abandon-check (pairs-crash, multi-network, ffa-exit, ffa-host-crash) |
+| World trades of Pokemon in their alternate forms (a Female Meowstic for an Origin Giratina) and a trade evolution of a form (a Small for a Large Pumpkaboo, each becoming the Gourgeist of its size) | trade-proof (forms, evolve) |
 | Mega Evolution: every case, holder, form and the stones in the menus; both players' Megas in a 1v1; no Ring | mega-check, mega-proof (two, no-ring) |
 | Breeding and egg hatching, both saves | breed-check |
 | Battle Tower: every floor won and lost; caps and items; solo (prizes, replay, shop, special boss loss), milestone Pokemon, Duo, Mega Duo, forfeit through the launcher | tower-check (4 shards), tower-extras, tower-proof (5) |
