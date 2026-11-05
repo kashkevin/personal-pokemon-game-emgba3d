@@ -1575,10 +1575,11 @@ jobs:
     # visits loaded, drawn and walked in 3D and its trainers fought in 3D battles, in real Windows game processes,
     # through Mesa's software OpenGL as the graphics-3d job draws (a hosted runner has no graphics card). One game at a
     # time per shard (llvmpipe takes the runner's cores); a game process may run three hours (a software renderer).
-    # Only when asked (only: gameplay-3d, a full run) until its first Windows results are looked at.
+    # In a full run with the gameplay check on (gameplay_qa), as gameplay-check, since its first Windows results
+    # (run 308: all eight shards passed, 3,612 targets, none failed).
     name: Gameplay check in 3D (Windows game processes, Mesa software OpenGL, shard ${{ matrix.shard }})
     needs: engine
-    if: ${{ (inputs.mode || 'smoke') == 'full' && contains(format(',{0},', inputs.only), ',gameplay-3d,') }}
+    if: ${{ (inputs.mode || 'smoke') == 'full' && inputs.gameplay_qa == 'yes' && (!inputs.only || contains(format(',{0},', inputs.only), ',gameplay-check-3d,')) }}
     runs-on: windows-2022
     timeout-minutes: 330
     env:
@@ -1648,7 +1649,7 @@ jobs:
   gameplay-report-3d:
     name: The whole game's gameplay report in 3D (Windows)
     needs: [engine, gameplay-check-3d]
-    if: ${{ always() && (inputs.mode || 'smoke') == 'full' && needs.engine.result == 'success' && contains(format(',{0},', inputs.only), ',gameplay-3d,') }}
+    if: ${{ always() && (inputs.mode || 'smoke') == 'full' && inputs.gameplay_qa == 'yes' && needs.engine.result == 'success' && (!inputs.only || contains(format(',{0},', inputs.only), ',gameplay-check-3d,')) }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4

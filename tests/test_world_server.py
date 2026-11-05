@@ -437,6 +437,19 @@ class SharedSpawnNetworkTests(WorldServerTests):
     async def spawns(self, index, predicate):
         return (await self.world(index, lambda w: w["spawns"] is not None and predicate(w["spawns"])))["spawns"]
 
+    async def one_broadcast(self, predicate):
+        """Players 0 and 1's views from one broadcast (one world_seq). The Pokemon wander (the updates a test
+        makes and the host's own, about once a second), so frames from two moments rightly differ: Windows run
+        311 compared player 0's frame from before a test's updates with player 1's from after them."""
+        async with asyncio.timeout(8):
+            while True:
+                frames = [actor.worlds[-1] if actor.worlds else None for actor in self.actors[:2]]
+                if (all(frame is not None and frame["spawns"] is not None and predicate(frame["spawns"]) for frame in frames)
+                        and frames[0]["world_seq"] == frames[1]["world_seq"]):
+                    return frames[0]["spawns"], frames[1]["spawns"]
+                self.server._broadcast_world()
+                await asyncio.sleep(.02)
+
     async def test_two_players_on_route_101_see_the_same_pokemon_and_race_for_one(self):
         x, y = self.spot()
         await self.on_route101(0, x, y)
@@ -445,9 +458,7 @@ class SharedSpawnNetworkTests(WorldServerTests):
         for _ in range(5):
             self.server.shared_world.spawn_director._last_update = float("-inf")
             self.server.shared_world.tick_spawns({pid: s.presence for pid, s in self.server.sessions.items()})
-        first = await self.spawns(0, lambda view: len(view["slots"]) >= 3)
-        second = await self.spawns(1, lambda view: [s["spawn_id"] for s in view["slots"]]
-                                   == [s["spawn_id"] for s in first["slots"]])
+        first, second = await self.one_broadcast(lambda view: len(view["slots"]) >= 3)
         strip = lambda view: [{k: v for k, v in s.items() if k not in ("fresh", "seconds_left")} for s in view["slots"]]
         self.assertEqual(strip(first), strip(second))
         target = first["slots"][0]["spawn_id"]

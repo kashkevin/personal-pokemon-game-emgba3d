@@ -280,16 +280,14 @@ class WindowsWorkflowTests(unittest.TestCase):
         # `only` names check jobs (comma-separated): the builds and those jobs run, nothing else (no installer). Blank (a
         # release run, a push) runs every job as before.
         self.assertIn("      only:\n", WORKFLOW)
-        # (app-tests and the 3D gameplay check run only when asked, until their Windows results are looked at:
-        # test_the_apps_whole_suite_... and test_the_gameplay_plan_runs_in_the_3d_game_on_windows_when_asked)
+        # (app-tests runs only when asked, until its Windows results are clean: test_the_apps_whole_suite_...)
         checks = [name for name in re.findall(r"^  ([a-z0-9-]+):\n", WORKFLOW, re.M)
-                  if name not in ("push", "engine", "symbol-sizes", "install-check", "app-tests",
-                                  "gameplay-check-3d", "gameplay-report-3d")]
+                  if name not in ("push", "engine", "symbol-sizes", "install-check", "app-tests")]
         self.assertIn("abandon-check", checks)
         self.assertIn("package", checks)
         for name in checks:
             with self.subTest(job=name):
-                key = "gameplay-check" if name == "gameplay-report" else name
+                key = {"gameplay-report": "gameplay-check", "gameplay-report-3d": "gameplay-check-3d"}.get(name, name)
                 condition = re.search(r"^    if: (.*)$", job(name), re.M).group(1)
                 self.assertTrue(condition.endswith(
                     f"&& (!inputs.only || contains(format(',{{0}},', inputs.only), ',{key},')) }}}}"), condition)
@@ -405,12 +403,13 @@ class WindowsWorkflowTests(unittest.TestCase):
         self.assertIn("pytest==9.1.1 pytest-timeout", tests)                # as python-tests installs them
         self.assertIn('.venv/Scripts/python -m pytest -rfE --junitxml="$RUNNER_TEMP/pytest-windows.xml"', tests)
 
-    def test_the_gameplay_plan_runs_in_the_3d_game_on_windows_when_asked(self):
+    def test_the_gameplay_plan_runs_in_the_3d_game_on_windows_with_the_gameplay_check(self):
         check = job("gameplay-check-3d")
         self.assertIn("runs-on: windows-2022", check)
         self.assertIn("needs: engine", check)
-        self.assertIn("if: ${{ (inputs.mode || 'smoke') == 'full' && contains(format(',{0},', inputs.only), "
-                      "',gameplay-3d,') }}", check)                          # only when asked, in a full run
+        # As gameplay-check: a full run with gameplay_qa (Windows run 308 passed all eight shards when asked alone).
+        self.assertIn("if: ${{ (inputs.mode || 'smoke') == 'full' && inputs.gameplay_qa == 'yes' && (!inputs.only || "
+                      "contains(format(',{0},', inputs.only), ',gameplay-check-3d,')) }}", check)
         self.assertIn("shard: [0, 1, 2, 3, 4, 5, 6, 7]", check)
         self.assertIn("GALLIUM_DRIVER: llvmpipe", check)
         self.assertIn("MESA_SHA256: 351fc8c8b695878ffb3eaa044b3ead08672a48b1a045e3c3e3975811df0f6695", check)
@@ -422,7 +421,8 @@ class WindowsWorkflowTests(unittest.TestCase):
         self.assertIn("name: gameplay-windows-3d-shard-${{ matrix.shard }}", check)
         report = job("gameplay-report-3d")
         self.assertIn("needs: [engine, gameplay-check-3d]", report)
-        self.assertIn("contains(format(',{0},', inputs.only), ',gameplay-3d,')", report)
+        self.assertIn("inputs.gameplay_qa == 'yes' && needs.engine.result == 'success'", report)
+        self.assertIn("contains(format(',{0},', inputs.only), ',gameplay-check-3d,')", report)
         self.assertIn("pattern: gameplay-windows-3d-shard-*", report)
         self.assertIn("merge_gameplay_shards.py --shards shards --expected 8", report)
 

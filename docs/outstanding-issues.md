@@ -125,6 +125,15 @@ tests (the tests' paths and open files on Windows, not the store); fixed in `975
 the step on Windows (312 tests, the 3 expected skips). Run 310 (engine `e88dbdf6`, app `975d700`, the gameplay
 check on) is the next installer candidate, dispatched at 08:42 UTC.
 
+Run 297 (engine `67e39839`, app `f83c033`, the gameplay check on) **passed every one of its 67 jobs** on the first
+attempt (05:14-09:16 UTC; the 100-floor climb 3 h 07 min): its installer is now the one prepared
+(`docs/package-20261105b.md`), not distributed (N8). Run 308 (only the 3D gameplay plan, engine `e88dbdf6`)
+**passed** all eight shards: 3,612 targets, none failed, Liza's battle among them; the 3D gameplay check now runs in
+every full run with the gameplay check on, as the Classic 2D one does. Run 311 (only `app-tests`, app `975d700`): 13
+failed, 3,046 passed; twelve of kinds `58ffc1f` fixes and one new, a race in a test (`test_world_server` compared two
+players' views of the wild Pokemon from two moments; fixed, both now from one broadcast); its 119 more skips are
+the Lua bridge tests, as intended. Run 313 (`app-tests` on `58ffc1f`) checks the second batch.
+
 ## 6. Earlier issues in KNOWN_ISSUES (reviewed 2026-11-04)
 
 Every issue in KNOWN_ISSUES whose row there still reads open, or whose fix was never shown in this list, checked
