@@ -6,6 +6,7 @@ or network enrollment operation.
 """
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import dataclass
 import hashlib
 import json
@@ -133,11 +134,39 @@ class OwnershipCheckpointStore(CheckpointStore):
 
     def __init__(self, path: str | Path, build_id: str, ruleset_id: str,
                  save_profile: str = OWNERSHIP_PROFILE, *, max_payload_bytes: int = MAX_CHECKPOINT_BYTES,
-                 busy_timeout: float = BUSY_TIMEOUT):
+                 busy_timeout: float = BUSY_TIMEOUT, save_readings: bool = False):
         if save_profile != OWNERSHIP_PROFILE:
             raise StorageError("save_profile_mismatch", "ownership store requires its explicit save profile")
+        if type(save_readings) is not bool:
+            raise StorageError("invalid_field", "save_readings must be a boolean")
+        # KNOWN_ISSUES MS-161: with save_readings, an integrity check answers from each save's reading remembered beside
+        # the database (save_readings.py) for bytes the reader accepted before. Set before the constructor's own check.
+        self._save_readings, self._readings = save_readings, None
         super().__init__(path, build_id, ruleset_id, save_profile, max_payload_bytes=max_payload_bytes,
                          busy_timeout=busy_timeout)
+
+    @contextmanager
+    def _checked_readings(self):
+        """The remembered readings for one integrity check (save_readings.py): ``self._readings`` while it runs, written
+        back only when it got through without an error. Off unless the store was opened with save_readings=True."""
+        readings = None
+        if self._save_readings:
+            from .save_readings import SaveReadings
+            readings = SaveReadings.open(self.path, self._validate_metadata()["world_id"], self.save_profile)
+        self._readings = readings
+        try:
+            yield
+        finally:
+            self._readings = None
+        if readings is not None:
+            readings.keep()
+
+    def _read_owned(self, payload: bytes, trainer_id: int):
+        """``inspect_ownership(inspect_flash(payload, expected_trainer_id=trainer_id))`` of a stored save in an integrity
+        check: the same reading or refusal, remembered for these exact bytes when the check has readings."""
+        if self._readings is None:
+            return inspect_ownership(inspect_flash(payload, expected_trainer_id=trainer_id, save_profile=self.save_profile))
+        return self._readings.ownership(payload, trainer_id, self.save_profile)
 
     def _initialize_extra_schema(self) -> None:
         self._connection.execute("INSERT INTO ownership_allocator VALUES (1, 1)")
@@ -343,6 +372,10 @@ class OwnershipCheckpointStore(CheckpointStore):
                 (player_id, wanted)))
 
     def _integrity_extra(self) -> None:
+        with self._checked_readings():
+            self._ownership_history()
+
+    def _ownership_history(self) -> None:
         def corrupt(message):
             raise StorageError("storage_corrupt", message)
         allocator = self._connection.execute("SELECT * FROM ownership_allocator").fetchall()
@@ -379,7 +412,7 @@ class OwnershipCheckpointStore(CheckpointStore):
             if enrollment is None:
                 corrupt("historical ownership checkpoint lacks enrollment")
             try:
-                owned = inspect_ownership(inspect_flash(cp["payload"], expected_trainer_id=enrollment["trainer_id"], save_profile=self.save_profile))
+                owned = self._read_owned(cp["payload"], enrollment["trainer_id"])
             except FlashError as error:
                 raise StorageError("storage_corrupt", "historical ownership checkpoint is invalid") from error
             metadata = self._connection.execute("SELECT manifest_sha256 FROM ownership_commits WHERE player_id = ? AND revision = ?", (cp["player_id"], cp["revision"])).fetchone()

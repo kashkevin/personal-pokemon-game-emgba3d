@@ -150,6 +150,40 @@ class HostWorldTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, "schema_incompatible")
         self.assertEqual(directory_hashes(host.directory), original)
 
+    def test_opens_read_each_save_once_and_remember_it_beside_the_database(self):
+        """KNOWN_ISSUES MS-161 (b): HostWorld's opens read each save once in its life (save_readings.py); the readings
+        file is the only file an open writes, and only once the world has saves."""
+        from uuid import uuid4
+        from emerald_multiplayer import save_readings
+        from emerald_multiplayer.ownership import OWNERSHIP_PROFILE
+        from test_ownership_storage import owned_flash, source_flash
+        host = self.create()
+        account = host.accounts[0]
+        readings = host.directory / ("world.sqlite3" + save_readings.SUFFIX)
+        with host.open_store() as store:
+            store.begin_server_boot()
+            lease = store.acquire_lease(account.player_id, account.credential)
+            store.enroll_player(account.player_id, source_flash())
+            grant = store.reserve_instances(account.player_id, lease, str(uuid4()), 0, 1, 4)
+            for revision in range(3):
+                store.commit_checkpoint(account.player_id, lease, str(uuid4()), revision,
+                                        owned_flash(grant, counter=3 + revision), host.build_id, host.ruleset_id,
+                                        OWNERSHIP_PROFILE)
+        self.assertFalse(readings.exists())                    # opened before it had saves: nothing to remember
+        before = directory_hashes(host.directory)
+        reads = []
+        real = save_readings.inspect_flash
+        with patch.object(save_readings, "inspect_flash", lambda *args, **kwargs: reads.append(1) or real(*args, **kwargs)):
+            self.assertEqual(HostWorld.open(host.directory, self.rom, self.manifest), host)
+            self.assertEqual(len(reads), 3)                    # each save read once ...
+            self.assertEqual(HostWorld.open(host.directory, self.rom, self.manifest), host)
+            with host.open_store() as store:
+                store.integrity_check()
+            self.assertEqual(len(reads), 3)                    # ... and not again
+        after = directory_hashes(host.directory)
+        self.assertEqual(set(after) - set(before), {readings.name})
+        self.assertEqual({name: value for name, value in after.items() if name != readings.name}, before)
+
     def test_friend_export_never_exposes_host_and_config_has_world_and_tls_pins(self):
         host = self.create()
         for slot in (0, True, -1, 4):

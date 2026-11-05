@@ -206,13 +206,17 @@ class FriendshipHistoryLedger:
         # Reconstruct independently of retained rows, globally ordered. Trade
         # post-images share one group; ownership replay rejects duplicate UIDs.
         previous, seen, last_sequence = {}, set(), None
+        # Inside a store's integrity check its remembered readings answer for saves read before (save_readings.py).
+        readings = getattr(self.store, "_readings", None)
         actual_rows = iter(self.store._connection.execute(
             "SELECT * FROM pokemon_friendship_history ORDER BY sequence,player_id,serial"))
         for saved in self._checkpoints():
             checkpoint, sequence = self.store._checkpoint(saved), saved["sequence"]
             if sequence != last_sequence:
                 seen, last_sequence = set(), sequence
-            for _, _, serial, raw, _ in checkpoint_observations(checkpoint):
+            observed = (readings.observations(checkpoint) if readings is not None
+                        else [(serial, raw) for _, _, serial, raw, _ in checkpoint_observations(checkpoint)])
+            for serial, raw in observed:
                 key = serial, sequence
                 if key in seen:
                     raise StorageError("friendship_history_invalid", "an instance is duplicated within one commit group")

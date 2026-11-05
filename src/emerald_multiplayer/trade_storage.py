@@ -212,13 +212,18 @@ class TradeCheckpointStore(OwnershipCheckpointStore):
             from .trade_friendship_migration import FriendshipHistoryLedger
             FriendshipHistoryLedger(self)._append_group(sequence)
 
-    def _owned(self, player_id: str, payload: bytes, revision: int | None = None):
+    def _owned(self, player_id: str, payload: bytes, revision: int | None = None, *, remembered: bool = False):
+        """The save's ownership reading, checked against this world, the player and its grant. ``remembered`` (the
+        integrity replay only): the reading may come from the check's remembered readings (save_readings.py)."""
         from .character_transfers import source_for
         if revision is None:
             revision = self._connection.execute("SELECT latest_revision FROM players WHERE player_id = ?", (player_id,)).fetchone()[0] + 1
         generation = source_for(self, player_id, revision)
         try:
-            owned = inspect_ownership(inspect_flash(payload, expected_trainer_id=generation.trainer_id, save_profile=self.save_profile))
+            if remembered:
+                owned = self._read_owned(payload, generation.trainer_id)
+            else:
+                owned = inspect_ownership(inspect_flash(payload, expected_trainer_id=generation.trainer_id, save_profile=self.save_profile))
         except FlashError as error:
             raise StorageError("invalid_ownership", "trade checkpoint contains invalid ownership state") from error
         if (owned.world_id, owned.player_id) != (self._validate_metadata()["world_id"], player_id):
@@ -484,6 +489,10 @@ class TradeCheckpointStore(OwnershipCheckpointStore):
             self._connection.execute("UPDATE trade_recovery SET acknowledged = 1 WHERE player_id = ? AND transaction_id = ?", (player_id, transaction_id))
 
     def _integrity_extra(self) -> None:
+        with self._checked_readings():
+            self._trade_history()
+
+    def _trade_history(self) -> None:
         """Replay immutable globally ordered groups, including atomic two-owner moves."""
         def corrupt(message):
             raise StorageError("storage_corrupt", message)
@@ -566,7 +575,7 @@ class TradeCheckpointStore(OwnershipCheckpointStore):
                 cp = checkpoints[key]
                 if cp["expected_revision"] != previous.get(cp["player_id"], (0, set()))[0]:
                     corrupt("global checkpoint ordering is inconsistent")
-                parsed = self._owned(cp["player_id"], cp["payload"], cp["revision"])
+                parsed = self._owned(cp["player_id"], cp["payload"], cp["revision"], remembered=True)
                 manifest = self._connection.execute("SELECT manifest_sha256 FROM ownership_commits WHERE player_id = ? AND revision = ?", key).fetchone()
                 records = [tuple(r) for r in self._connection.execute("SELECT serial, location, personality, ot_id, species, content_sha256 FROM ownership_memberships WHERE player_id = ? AND revision = ? ORDER BY serial", key)]
                 expected = [(r.serial, r.location, r.personality, r.ot_id, r.species, r.content_sha256) for r in sorted(parsed.records, key=lambda r: r.serial)]

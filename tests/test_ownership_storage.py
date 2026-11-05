@@ -258,6 +258,33 @@ class OwnershipStorageTests(unittest.TestCase):
         self.store._connection.execute("UPDATE ownership_events SET reason = 2 WHERE kind = 'retire'")
         self.assert_code("storage_corrupt", self.store.integrity_check)
 
+    def test_remembered_save_readings_read_each_save_once_and_refuse_as_before(self):
+        """KNOWN_ISSUES MS-161 (b): opened with save_readings=True a store reads each save once in its life (its reading
+        kept beside the database, save_readings.py); a save whose bytes changed is read again and refused as without."""
+        from contextlib import closing
+        from emerald_multiplayer import save_readings
+        grant = self.reserve()
+        payload = owned_flash(grant)
+        self.commit(payload)
+        self.commit(owned_flash(grant, (("box:0:0", 1),), counter=3), 1)          # moved to the PC
+        self.store.close()
+        reads = []
+        real = save_readings.inspect_flash
+        with patch.object(save_readings, "inspect_flash", lambda *args, **kwargs: reads.append(1) or real(*args, **kwargs)):
+            for _ in range(3):
+                OwnershipCheckpointStore(self.path, BUILD, RULESET, save_readings=True).close()
+        self.assertEqual(len(reads), 2)
+        self.assertTrue(self.path.with_name(self.path.name + save_readings.SUFFIX).is_file())
+        # The account trainer changed inside the first save (as the test below): new bytes, read again, refused.
+        changed = _rewrite(_rewrite(payload, 0, 0, 10, struct.pack("<I", 77)), 1, 0, 10, struct.pack("<I", 77))
+        with closing(sqlite3.connect(self.path)) as database, database:
+            database.execute("UPDATE checkpoints SET payload = ?, sha256 = ? WHERE player_id = ? AND revision = 1",
+                             (changed, hashlib.sha256(changed).hexdigest(), self.owner.player_id))
+        for remembered in (True, False):
+            self.assert_code("storage_corrupt", OwnershipCheckpointStore, self.path, BUILD, RULESET,
+                             save_readings=remembered)
+        self.assert_code("invalid_field", OwnershipCheckpointStore, self.path, BUILD, RULESET, save_readings=1)
+
     def test_integrity_binds_account_trainer_to_enrolled_source(self):
         grant = self.reserve()
         payload = owned_flash(grant)

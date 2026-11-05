@@ -1,7 +1,9 @@
 """Private schema-3 world/account provisioning, without booting a listener.
 
 Opening existing worlds validates them without changing epochs, credentials,
-enrollment, canonical checkpoints, or certificate identity.
+enrollment, canonical checkpoints, or certificate identity. The one file an open
+may write is world.sqlite3.save-readings, the check's remembered save readings
+(save_readings.py): no world data, and deleting it only makes the next open slower.
 """
 from __future__ import annotations
 
@@ -145,7 +147,7 @@ def _apply_replacement(root, build, rules):
         _regular(root / "world.sqlite3")      # never let a store constructor create a missing database
     except InvitationError:
         raise HostWorldError("world_invalid", "the world's database is missing") from None
-    with TradeCheckpointStore(root / "world.sqlite3", build, rules, OWNERSHIP_PROFILE) as store:
+    with TradeCheckpointStore(root / "world.sqlite3", build, rules, OWNERSHIP_PROFILE, save_readings=True) as store:
         if store.metadata.world_id != value["world_id"]:
             raise HostWorldError("world_invalid", "database belongs to another world")
         store.replace_credential(record["player_id"], bytes.fromhex(record["credential"]))
@@ -213,7 +215,7 @@ class HostWorld:
         root.mkdir(mode=0o700, parents=False, exist_ok=False)
         store = None
         try:
-            store = TradeCheckpointStore(root / "world.sqlite3", build, rules, OWNERSHIP_PROFILE)
+            store = TradeCheckpointStore(root / "world.sqlite3", build, rules, OWNERSHIP_PROFILE, save_readings=True)
             world_id = store.metadata.world_id
             pem, private, pin = _new_certificate(world_id, endpoint, validity_days)
             _write_new(root / "host-certificate.pem", pem)
@@ -299,9 +301,10 @@ class HostWorld:
             ServerTlsConfig(root / "host-certificate.pem", root / "host-key.pem").build_context()
         except Exception:
             raise HostWorldError("world_invalid", "host certificate and private key are incompatible") from None
-        # Refuse a missing DB rather than letting a store constructor create it.
+        # Refuse a missing DB rather than letting a store constructor create it. Its check reads each save once in its
+        # life: the readings are remembered beside it (world.sqlite3.save-readings, save_readings.py; KNOWN_ISSUES MS-161).
         _regular(root / "world.sqlite3")
-        with TradeCheckpointStore(root / "world.sqlite3", build, rules, OWNERSHIP_PROFILE) as store:
+        with TradeCheckpointStore(root / "world.sqlite3", build, rules, OWNERSHIP_PROFILE, save_readings=True) as store:
             if store.metadata.world_id != value["world_id"]:
                 raise HostWorldError("world_invalid", "database belongs to another world")
             if store._connection.execute("SELECT count(*) FROM players").fetchone()[0] != len(accounts):
@@ -363,7 +366,7 @@ class HostWorld:
         wait for another connection's lock (a host's start waits longer: storage.STARTUP_BUSY_TIMEOUT)."""
         _regular(self.database_path)
         store = TradeCheckpointStore(self.database_path, self.build_id, self.ruleset_id, self.save_profile,
-                                     busy_timeout=busy_timeout)
+                                     busy_timeout=busy_timeout, save_readings=True)
         if store.metadata.world_id != self.world_id:
             store.close()
             raise HostWorldError("world_invalid", "database world identity changed")

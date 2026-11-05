@@ -246,15 +246,21 @@ def _inspect_components_now(block3: bytes, block1: bytes, storage: bytes, *,
             raise OwnershipError("a retired instance is still present in owned inventory")
         if metadata.start <= record.serial < metadata.end_exclusive and record.serial >= metadata.next_serial:
             raise OwnershipError("owned inventory uses an unconsumed allocation serial")
-    manifest = json.dumps(
-        {"world_id": metadata.world_id, "player_id": metadata.player_id,
-         "records": [[record.serial, record.location, record.personality, record.ot_id,
-                      record.species, record.content_sha256] for record in records]},
-        sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("ascii")
     return OwnershipSnapshot(metadata.world_id, metadata.player_id, metadata.grant_id,
                              metadata.start, metadata.end_exclusive, metadata.next_serial,
                              metadata.lease_epoch, metadata.incarnation, metadata.retirements,
-                             records, hashlib.sha256(b"EMO-MANIFEST\0" + manifest).hexdigest())
+                             records, manifest_sha256(metadata.world_id, metadata.player_id, records))
+
+
+def manifest_sha256(world_id: str, player_id: str, records) -> str:
+    """The manifest digest of an owned inventory (OwnershipSnapshot.manifest_sha256): its world, player and every record in
+    reading order. The world-open cache (save_readings.py) recomputes it to check a remembered reading against itself."""
+    manifest = json.dumps(
+        {"world_id": world_id, "player_id": player_id,
+         "records": [[record.serial, record.location, record.personality, record.ot_id,
+                      record.species, record.content_sha256] for record in records]},
+        sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("ascii")
+    return hashlib.sha256(b"EMO-MANIFEST\0" + manifest).hexdigest()
 
 
 def inspect_ownership(snapshot: FlashSnapshot) -> OwnershipSnapshot:
