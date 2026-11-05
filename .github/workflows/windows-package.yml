@@ -1708,7 +1708,8 @@ jobs:
                      "tm-catalogue", "item-hub", "megas", "ability-items", "bag-items", "balls", "berry-water",
                      "carriers", "evo-items", "form-items", "frontier-saves", "healing", "held-items", "mail",
                      "minigame-partners", "mints", "netlink", "rare-goods", "ride", "rods", "special-results",
-                     "stat-stages", "trade-evolution", "wild-items")
+                     "stat-stages", "trade-evolution", "wild-items", "tickets",
+                     "audio-volumes")
           # only: ...,new-only: the MS-61 check alone (the START menu, its 3D names, the soft reset key)
           if (",${{ inputs.only }}," -like "*,new-only,*") { $tests = @("start-menu") }
           $runs = @($tests | ForEach-Object { @{ test = $_; exe = "inputs\pokeemerald-mp.exe"; name = $_ } })
