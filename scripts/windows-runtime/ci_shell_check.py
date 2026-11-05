@@ -5,7 +5,9 @@
 For the 3D game and the Classic 2D game of one package it opens the menu window (no ROM, no save), draws the main menu and a form,
 takes a picture of what the renderer drew, plays the keyboard through it (Down, Enter, typing, the pasted-text path, Esc) and checks
 that every choice came back as exactly one event, that the window can be resized for a session and that it ends when asked. The
-mouse rests where the window opens (KNOWN_ISSUES P14): the screen's own row must keep the focus until the mouse moves.
+mouse rests where the window opens (KNOWN_ISSUES P14): the screen's own row must keep the focus until the mouse moves, also when
+the mouse leaves the window and comes back without moving inside it once the menu is shown (as when another window closes over
+a mouse at rest), the crossing that moved the focus to the row under the mouse before the engine's fix.
 
 What a hosted runner can and cannot say: it is a virtual machine without a graphics card, so the menu runs on Windows' software
 renderer. It proves the window, the drawing, the keyboard and the pipe protocol work on real Windows; it says nothing about a real
@@ -74,6 +76,20 @@ def park_cursor():
     return (point.x, point.y) if (point.x, point.y) == (x, y) else None
 
 
+def cross_into_window(point):
+    """KNOWN_ISSUES P14: the mouse leaves the menu window and comes straight back to `point` without moving inside it:
+    to the screen's top row (above the centred window's client area, as the window is shorter than the screen), then back.
+    True when Windows moved it both times."""
+    if sys.platform != "win32" or point is None:
+        return False
+    import ctypes
+    user32 = ctypes.windll.user32
+    if not user32.SetCursorPos(point[0], 0):
+        return False
+    time.sleep(0.3)
+    return bool(user32.SetCursorPos(*point))
+
+
 def check(executable, folder, failures, name):
     folder.mkdir(parents=True, exist_ok=True)
     result = dict(executable=executable.name, cursor=park_cursor())
@@ -103,6 +119,12 @@ def check(executable, folder, failures, name):
         if result["cursor"] is not None and result["focus_under_the_resting_mouse"] != "continue":
             failures.append(f"{name}: the row under the resting mouse took the focus "
                             f"({result['focus_under_the_resting_mouse']}, not continue: KNOWN_ISSUES P14)")
+        if cross_into_window(result["cursor"]):
+            time.sleep(0.4)
+            result["focus_after_the_mouse_crossed_in"] = shell.request("state").split("\t")[3]
+            if result["focus_after_the_mouse_crossed_in"] != "continue":
+                failures.append(f"{name}: the row under the mouse took the focus when the mouse came back into the window "
+                                f"without moving ({result['focus_after_the_mouse_crossed_in']}, not continue: KNOWN_ISSUES P14)")
         for _ in range(2):
             shell.send("inject\tkey\tDown")
         time.sleep(0.3)
