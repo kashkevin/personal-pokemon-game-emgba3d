@@ -1909,6 +1909,79 @@ jobs:
               raise SystemExit("a chunk the cache kept differs from the one it would build")
           if any(differed for _, differed in buildings):
               raise SystemExit("the buildings' vertex buffer or generation differs from the triangles built")
+      - name: The same walk timed, MS-118's changes of 2026-11-05 off and on (Windows, Mesa llvmpipe)
+        shell: python
+        run: |
+          # KNOWN_ISSUES MS-118 (engine 7b839ec1): the seam walk above, four times in this build, alternating its
+          # switches off (PKMN_DIORAMA_STICKY_PAGES=0, PKMN_DIORAMA_NEAREST_BORDER=0, PKMN_DIORAMA_BUILD_BUDGET_US=0,
+          # PKMN_DIORAMA_DRAW_FADED=1: the view as before that engine) and on (as built), every frame's times written out
+          # (PKMN_PERF_FRAME_LOG). The sync is the CPU work the changes concern (chunk builds, the atlas); a frame's time
+          # through Mesa's software renderer is mostly its drawing. A measure on GitHub's runner, not a player's graphics
+          # card; an engine before 7b839ec1 ignores the switches. It fails only when a walk does not finish.
+          import csv, os, pathlib, subprocess
+          root = pathlib.Path(os.environ["RUNNER_TEMP"], "graphics-3d", "seam-timing")
+          keys = ([f"{f}:LEFT+B" for f in range(200, 400, 4)] + [f"{f}:RIGHT+B" for f in range(420, 820, 4)]
+                  + [f"{f}:LEFT+B" for f in range(840, 1040, 4)])
+          off = {"PKMN_DIORAMA_STICKY_PAGES": "0", "PKMN_DIORAMA_NEAREST_BORDER": "0",
+                 "PKMN_DIORAMA_BUILD_BUDGET_US": "0", "PKMN_DIORAMA_DRAW_FADED": "1"}
+          exe = pathlib.Path("diorama-check-inputs", "pokeemerald-mp-diorama-bfxtest.exe").resolve()
+
+          def pct(values, p):
+              values = sorted(values)
+              return values[min(len(values) - 1, int(len(values) * p / 100.0))] if values else 0.0
+
+          results = {"off": [], "on": []}
+          failures = []
+          for index, kind in enumerate(("off", "on", "off", "on")):
+              out = root / f"{index + 1}-{kind}"
+              out.mkdir(parents=True, exist_ok=True)
+              (out / "pokeemerald.cfg").write_text("resolution=1280x720\ndisplayMode=windowed\nquality=high\nvsync=0\n"
+                                                   "fpsCap=unlimited\nvolume=0\ncryVolume=0\n")
+              env = dict(os.environ, SDL_AUDIODRIVER="dummy", PKMN_DEBUG_SCENE="field", PKMN_DEBUG_HERE="0,2,20,8",
+                         PKMN_DEBUG_KEYS=",".join(keys), PKMN_DEBUG_RUN="1", PKMN_DEBUG_HOUR="12",
+                         PKMN_DEBUG_GLSHOTS_GAME="1", PKMN_DEBUG_GLSHOTS="1080", PKMN_PERF_FRAME_LOG="frames.csv",
+                         PKMN_DIORAMA_PROFILE="1", PKMN_DIORAMA_LOG="1")
+              if kind == "off":
+                  env.update(off)
+              with open(out / "test.log", "wb") as log:
+                  code = subprocess.run([str(exe), "--config", "pokeemerald.cfg", "--save", "test.sav"], cwd=out,
+                                        env=env, stdout=log, stderr=subprocess.STDOUT, timeout=1800).returncode
+              frames = out / "frames.csv"
+              every = []
+              if frames.exists():
+                  with open(frames, newline="") as handle:
+                      every = list(csv.DictReader(handle))
+              # one row a drawn frame; a slow renderer draws fewer frames than the game runs
+              rows = [r for r in every if r.get("drew_3d") == "1" and int(r["game_frame"]) >= 200]
+              last = max((int(r["game_frame"]) for r in every), default=0)
+              if code != 0 or last < 1040 or len(rows) < 100:
+                  failures.append(f"walk {index + 1} ({kind}): exit {code}, last game frame {last}, "
+                                  f"{len(rows)} 3D frames drawn from game frame 200")
+                  continue
+              sync = [float(r["sync_ms"]) for r in rows]
+              frame = [float(r["frame_ms"]) for r in rows]
+              results[kind].append({
+                  "frames": len(rows), "sync16": sum(1 for v in sync if v > 16), "sync8": sum(1 for v in sync if v > 8),
+                  "sync_p99": pct(sync, 99), "sync_max": max(sync), "frame_p50": pct(frame, 50),
+                  "frame_p99": pct(frame, 99), "frame_max": max(frame),
+                  "chunks": sum(int(r["rebuilt_chunks"]) for r in rows),
+                  "mesh_ms": sum(float(r["mesh_ms"]) for r in rows),
+                  "atlas_ms": sum(float(r["sync_atlas_ms"]) for r in rows)})
+          lines = ["- MS-118's walk timed (Mesa llvmpipe; the sync is the CPU work of chunk builds and the atlas): "
+                   "two walks each, before (switches off) and as built (on)"]
+          for kind, label in (("off", "before"), ("on", "as built")):
+              for run in results[kind]:
+                  lines.append(f"  - {label}: {run['frames']} 3D frames; syncs over 16 ms {run['sync16']}, over 8 ms "
+                               f"{run['sync8']}, sync p99 {run['sync_p99']:.1f} ms, max {run['sync_max']:.1f} ms; "
+                               f"{run['chunks']} chunks built ({run['mesh_ms']:.0f} ms meshing), atlas "
+                               f"{run['atlas_ms']:.0f} ms; frame p50 {run['frame_p50']:.1f} ms, p99 "
+                               f"{run['frame_p99']:.1f} ms, max {run['frame_max']:.1f} ms")
+          lines.extend(f"  - {failure}" for failure in failures)
+          print("\n".join(lines))
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
+              summary.write("\n".join(lines) + "\n")
+          if failures:
+              raise SystemExit("a timed walk did not finish: " + "; ".join(failures))
       - name: Upload the report and the pictures (private to this repository, 7 days; no save)
         if: always()
         uses: actions/upload-artifact@v4
@@ -1917,6 +1990,7 @@ jobs:
           path: |
             ${{ runner.temp }}/graphics-3d/**/*.json
             ${{ runner.temp }}/graphics-3d/**/test.log
+            ${{ runner.temp }}/graphics-3d/**/frames.csv
             ${{ runner.temp }}/graphics-3d/**/*.png
             ${{ runner.temp }}/graphics-3d/**/*.tsv.gz
             ${{ runner.temp }}/graphics-3d/benchmark.log
