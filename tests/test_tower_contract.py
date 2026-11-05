@@ -542,6 +542,28 @@ class ManifestTests(unittest.TestCase):
                 self.generate(elf, native)
 
 
+    def test_the_new_page_marker_needs_the_players_menu_abi_2(self):
+        """KNOWN_ISSUES MS-55: gMultiplayerMenuNewPageAbiVersion -> manifest menu_new_page_abi_version 1, beside the Players
+        menu ABI 2; the launcher then writes bridge.txt menu_new_page=1 and marks a page's first screen."""
+        from emerald_multiplayer.bridge_config import menu_new_page_enabled
+        f = self.fixture
+        marker = "00bd279c 00000004 R gMultiplayerMenuNewPageAbiVersion\n"
+        generated = self.generate(f.world + self.menu, self.open_page + marker)
+        self.assertEqual(generated["menu_new_page_abi_version"], 1)
+        self.assertTrue(menu_new_page_enabled(generated))
+        self.assertIn("menu_new_page=1", configure_native(generated, TOKEN, 9).splitlines())
+        self.assertNotIn("menu_new_page_abi_version", self.generate(f.world + self.menu, self.open_page))
+        for elf, native in ((f.world, self.open_page + marker),                           # no Players menu ABI 2
+                            (f.world + self.menu, self.open_page + marker + marker),
+                            (f.world + self.menu, self.open_page + "00bd279c 00000008 R gMultiplayerMenuNewPageAbiVersion\n")):
+            with self.subTest(elf=elf, native=native), self.assertRaises(ValueError):
+                self.generate(elf, native)
+        for other in (dict(generated, menu_abi_version=1), dict(generated, menu_new_page_abi_version=2),
+                      dict(generated, menu_new_page_abi_version=True)):
+            with self.subTest(manifest=other):
+                self.assertFalse(menu_new_page_enabled(other))
+                self.assertNotIn("menu_new_page=1", configure_native(other, TOKEN, 9).splitlines())
+
     def test_the_championship_marker_needs_the_tower(self):
         """Step 18: gMultiplayerChampionshipAbiVersion (the solo command's mode 2, a computer match) -> manifest
         championship_abi_version 1, only beside the Tower; the host serves computer places only with it."""

@@ -268,6 +268,7 @@ class CompanionConfig:
     save_import_window_abi_version: int = field(init=False, default=0)  # PC game: a trade's save a 4 KiB sector at a time
     save_party_query_abi_version: int = field(init=False, default=0)  # PC game: QUERY_PARTY (KNOWN_ISSUES MS-60)
     menu_open_page_abi_version: int = field(init=False, default=0)  # PC game: a Players OPEN may name a page (soft reset)
+    menu_new_page_abi_version: int = field(init=False, default=0)  # PC game: a new page starts on its first row (MS-55)
     emergency_save_enabled: bool = field(init=False, default=False)
     emergency_save_abi_version: int = field(init=False, default=0)
     world_enabled: bool = field(init=False, default=False)
@@ -327,6 +328,9 @@ class CompanionConfig:
         object.__setattr__(self, "menu_open_page_abi_version", 1 if menu_open_page_enabled(manifest) else 0)
         from .bridge_config import host_save_page_enabled
         object.__setattr__(self, "host_save_page_abi_version", 1 if host_save_page_enabled(manifest) else 0)
+        # KNOWN_ISSUES MS-55: the PC game starts a new page's screen on its first row (bridge.txt menu_new_page=1).
+        from .bridge_config import menu_new_page_enabled
+        object.__setattr__(self, "menu_new_page_abi_version", 1 if menu_new_page_enabled(manifest) else 0)
         # KNOWN_ISSUES MS-62: the PC game's battle PEEK (the launcher opts in with bridge.txt battle_peek=1): this game's
         # launcher sends its core's state and each new block to the host as they happen (battle_session.py).
         from .bridge_config import battle_peek_enabled

@@ -46,6 +46,11 @@ class MenuSession:
         Training screens and the page styles may be sent; without it none of them ever is."""
         return getattr(getattr(self.companion, "config", None), "tower_abi_version", 0) == 1
 
+    def _new_page_capable(self):
+        """KNOWN_ISSUES MS-55: the game starts a page's first screen on its first row (menu_new_page_abi_version 1,
+        bridge.txt menu_new_page=1); without it no screen is marked so."""
+        return getattr(getattr(self.companion, "config", None), "menu_new_page_abi_version", 0) == 1
+
     def _host_save_capable(self):
         """MS-61: the game asks for the host save after an in-game SAVE (host_save_page_abi_version 1, bridge.txt
         host_save_page=1)."""
@@ -163,12 +168,16 @@ class MenuSession:
             capable = self._tower_capable()
             if not capable and (screen.style or screen.style_arg):
                 screen = replace(screen, style=0, style_arg=0)   # a game without the Tower draws the classic page
+            new_page = self._new_page_capable()
+            if screen.new_page and (not new_page or close or tower is not None):
+                screen = replace(screen, new_page=False)      # an older game keeps its row; a close is no page
             try:
                 self.bridge.outbox.put_control(b"M" + pack_screen(request.sequence, screen, close=close,
                     allow_battle_admission=battle_admission_enabled(self.companion)
                         and getattr(self.bridge, "battle_capable", False),
                     tower_command=tower[1] if tower is not None and tower[0] == "command" else None,
-                    hyper_training=tower is not None and tower[0] == "hyper_training", allow_tower=capable))
+                    hyper_training=tower is not None and tower[0] == "hyper_training", allow_tower=capable,
+                    allow_new_page=new_page))
                 self._admission_display = ((screen.revision, screen.admission_action)
                     if screen.admission_action and not close and tower is None else None)
                 self._window_closing = tower is not None
@@ -280,7 +289,8 @@ class MenuSession:
         self._battle_latched = self._battle_preparing = self._battle_admission_failed = False
         self._admission_display = self._admission_selection = self._admission_identity = None
         try:
-            self.bridge.outbox.put_control(b"M" + pack_screen(request.sequence, replace(screen, admission_action=0),
+            self.bridge.outbox.put_control(b"M" + pack_screen(request.sequence,
+                                                              replace(screen, admission_action=0, new_page=False),
                                                               release=True))
         except BridgeError:
             self.open = False
@@ -393,7 +403,8 @@ class MenuSession:
                 or self._last_request is None or self._last_request.kind != 3):
             raise ConnectionError("native held-trade menu is unavailable")
         self._dialog_queue = asyncio.Queue(maxsize=2)
-        self.bridge.outbox.put_control(b"M" + pack_screen(self.sequence, screen, reopen_trade=True))
+        self.bridge.outbox.put_control(b"M" + pack_screen(self.sequence, replace(screen, new_page=False),
+                                                          reopen_trade=True))
         request = await asyncio.wait_for(self._dialog_queue.get(), 5)
         if request.kind != 1 or not self.open or self.companion._bridge is not self.bridge:
             raise ConnectionError("native trade menu did not acknowledge OPEN")

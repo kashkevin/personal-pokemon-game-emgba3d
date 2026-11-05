@@ -130,7 +130,7 @@ class PageTests(unittest.IsolatedAsyncioTestCase):
 
     def assert_fits(self):
         screen = self.menu.screen
-        pack_screen(1, screen, allow_tower=True)                                       # the canonical 240 bytes
+        pack_screen(1, screen, allow_tower=True, allow_new_page=True)                  # the canonical 240 bytes
         self.assertLessEqual(len(screen.rows), 6)
         self.assertEqual(screen.back, 7)
 
@@ -186,6 +186,32 @@ class PageTests(unittest.IsolatedAsyncioTestCase):
         await self.back()
         self.assertEqual(self.menu.screen.title, "Frontier and League")              # back where it was opened from
         self.assertIn("Battle Tower: Legends", self.labels)
+
+    async def test_a_new_page_is_marked_and_a_refresh_or_a_list_turned_through_is_not(self):
+        # KNOWN_ISSUES MS-55: the first screen of a page the window was not on starts the game's cursor on its first row
+        # (the Tower Shop opened on its second item from "Prizes and shop"'s second row); a page's own refreshes and
+        # the pages of one list keep the row the player is on.
+        await self.open_tower()
+        self.assertTrue(self.menu.screen.new_page)                             # the Tower's home
+        revision = self.menu.screen.revision
+        self.view["save"]["bp"] = 46
+        await self.menu.refresh()
+        self.assertEqual(self.menu.screen.revision, revision + 1)            # the status changed: a new screen,
+        self.assertFalse(self.menu.screen.new_page)                            # of the same page
+        await self.click("Prizes and shop")
+        self.assertTrue(self.menu.screen.new_page)
+        await self.click(next(label for label in self.labels if label.startswith("Tower Shop")))
+        self.assertTrue(self.menu.screen.new_page)                             # MS-55's report
+        await self.back()
+        self.assertTrue(self.menu.screen.new_page)                             # back on the prizes page
+        await self.back()
+        await self.click("Floors and bosses")
+        await self.click("Floor map")
+        self.assertTrue(self.menu.screen.new_page)
+        await self.click("Previous floors")
+        self.assertEqual(self.menu.screen.title, "Floors 5-8")
+        self.assertFalse(self.menu.screen.new_page)                            # another page of the same list
+        self.assert_fits()
 
     async def test_start_player_tower_opens_the_home_and_b_goes_to_the_players_list(self):
         await self.menu.open_page("tower")

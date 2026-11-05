@@ -290,6 +290,13 @@ def generate(rom: Path, elf: Path, nm: str, engine_commit: str, *, trade_effect_
         if not four_byte_marker(open_page) or manifest.get("menu_abi_version") != 2:
             raise ValueError("the menu open page needs one four-byte marker and the Players menu ABI 2")
         manifest.update(menu_open_page_abi_version=1)
+    # KNOWN_ISSUES MS-55: the first screen of a page (flags 0x80) starts the window's cursor on its first row. Native PC
+    # game only, beside the Players menu ABI 2; the launcher opts in with bridge.txt menu_new_page=1.
+    new_page = native_marker("gMultiplayerMenuNewPageAbiVersion", symbols + native_symbols)
+    if new_page:
+        if not four_byte_marker(new_page) or manifest.get("menu_abi_version") != 2:
+            raise ValueError("the menu new page needs one four-byte marker and the Players menu ABI 2")
+        manifest.update(menu_new_page_abi_version=1)
     # Battle Tower: Legends (docs/battle-tower-legends.md 8.1): its screens (START > PLAYER > TOWER, the solo command,
     # Hyper Training), world action 7 and reward words 6-7. Native PC game only, beside the Players menu ABI 2, its named
     # pages and the shared world mailbox; the launcher opts in with bridge.txt tower=1.

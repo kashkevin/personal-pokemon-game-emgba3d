@@ -19,7 +19,7 @@ def configure_native(manifest: dict, token: str, port: int) -> str:
     MS-62 adds battle_peek=1 (battle PEEK, pushed battle observations) and
     battle_receive_many=1 (RECEIVE_MANY: a batch's small blocks in one command), and battle speed battle_deliver=1
     (DELIVER: a core's acknowledgement and its blocks in one command); the Tower's "go on to floor N?" adds
-    tower_next_page=1 (OPEN page 4)."""
+    tower_next_page=1 (OPEN page 4); MS-55 adds menu_new_page=1 (a page's first screen starts on its first row)."""
     from .trade_effect_mailbox import (validate_effect_choice_manifest, validate_effect_prepare_manifest,
                                        validate_effect_save_manifest)
     if (not isinstance(token, str) or not re.fullmatch(r"[0-9a-f]{64}", token)
@@ -34,6 +34,8 @@ def configure_native(manifest: dict, token: str, port: int) -> str:
         lines.append("trade_effect_choice=1")
     if menu_open_page_enabled(manifest):
         lines.append("menu_open_page=1")
+    if menu_new_page_enabled(manifest):
+        lines.append("menu_new_page=1")
     if tower_enabled(manifest):
         lines.append("tower=1")
     if host_save_page_enabled(manifest):
@@ -78,6 +80,13 @@ def menu_open_page_enabled(manifest: dict) -> bool:
     """Update 32: the native game's Players menu OPEN may name a page (1: the soft reset), beside menu ABI 2."""
     page = manifest.get("menu_open_page_abi_version")
     return type(page) is int and page == 1 and manifest.get("menu_abi_version") == 2
+
+
+def menu_new_page_enabled(manifest: dict) -> bool:
+    """KNOWN_ISSUES MS-55: the native PC game starts the first screen of a page (flags 0x80) on its first row (manifest
+    menu_new_page_abi_version 1, beside the Players menu ABI 2); the launcher then marks such screens."""
+    version = manifest.get("menu_new_page_abi_version")
+    return type(version) is int and version == 1 and manifest.get("menu_abi_version") == 2
 
 
 def host_save_page_enabled(manifest: dict) -> bool:

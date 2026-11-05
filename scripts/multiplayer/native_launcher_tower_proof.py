@@ -1197,13 +1197,19 @@ class TowerScenario:
 
     async def ui(self, current, probes, games, host, symbols, record):
         probe, pictures = probes[0], []
+        # KNOWN_ISSUES MS-55: a game with the menu's new page capability opens every page on its first row (before it,
+        # the Tower Shop opened on its second item from "Prizes and shop"'s second row)
+        new_page = "gMultiplayerMenuNewPageAbiVersion" in probe.symbols
 
         async def shot(name):
             await asyncio.sleep(1.5)                     # the screen drawn and settled
-            _, screen = await probe.ready()
+            row, screen = await probe.ready()
             pictures.append(dict(picture=self.picture(0, f"ui-{name}"), title=screen.title, status=screen.status,
-                                 style=[screen.style, screen.style_arg], rows=[r.label for r in screen.rows]))
+                                 style=[screen.style, screen.style_arg], rows=[r.label for r in screen.rows],
+                                 cursor=row["cursor"]))
             record("tower-ui-page", **pictures[-1])
+            if new_page:
+                require(row["cursor"] == 0, f"the {name} page opened on row {row['cursor']}, not its first (MS-55)")
 
         async def back():
             await probe.press(B)

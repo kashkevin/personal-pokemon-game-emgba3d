@@ -30,6 +30,9 @@ _REQUEST = struct.Struct("<IIHB5s")
 # Hyper Training (count 0, rows area zero). Bytes 238-239 are the page's style and its argument (zero otherwise).
 FLAG_TOWER_SOLO = 4
 FLAG_HYPER_TRAINING = 5
+# KNOWN_ISSUES MS-55, only for a game with menu_new_page_abi_version 1: an ordinary screen that is the first of a page
+# (MenuScreen.new_page): the game's window starts its cursor on the first row.
+FLAG_NEW_PAGE = 0x80
 TOWER_MAGIC = 0x31525754  # "TWR1"
 TOWER_COMMAND_OFFSET = 68
 TOWER_FLOORS = 100
@@ -144,21 +147,27 @@ class TowerCommand:
 
 
 def pack_screen(request_sequence, screen, *, close=False, reopen_trade=False, allow_battle_admission=False,
-                release=False, tower_command=None, hyper_training=False, allow_tower=False):
+                release=False, tower_command=None, hyper_training=False, allow_tower=False, allow_new_page=False):
     """`release` (flags 3, PC games with menu_release_abi_version 1): the reply to an Enter battle choice the
     companion refused before any ADMIT; the game's latched window takes it and shows it with its rows usable.
 
     Battle Tower: Legends, only with ``allow_tower`` (the game's tower capability): ``tower_command`` (flags 4) starts a
     solo Tower battle, ``hyper_training`` (flags 5) opens the Hyper Training screens; both answer a choice with no rows.
-    A screen's ``style`` and ``style_arg`` (bytes 238-239) are zero without it."""
+    A screen's ``style`` and ``style_arg`` (bytes 238-239) are zero without it.
+
+    KNOWN_ISSUES MS-55, only with ``allow_new_page`` (the game's menu_new_page capability): an ordinary screen whose
+    ``new_page`` is set goes as flags 0x80, the first screen of a page."""
     _uint(request_sequence, 0xFFFFFFFF, 1)
     tower = tower_command is not None or hyper_training is True
     if (not isinstance(screen, MenuScreen) or type(close) is not bool or type(release) is not bool
             or type(reopen_trade) is not bool or type(allow_battle_admission) is not bool
-            or type(hyper_training) is not bool or type(allow_tower) is not bool
+            or type(hyper_training) is not bool or type(allow_tower) is not bool or type(allow_new_page) is not bool
             or (tower_command is not None and not isinstance(tower_command, TowerCommand))
             or close + reopen_trade + release + (tower_command is not None) + hyper_training > 1):
         raise ValueError("menu response needs a typed screen and close flag")
+    if type(screen.new_page) is not bool or (screen.new_page and (not allow_new_page or close or reopen_trade or release
+                                                                  or tower_command is not None or hyper_training)):
+        raise ValueError("a new page's screen is an ordinary screen for a game with the menu's new page capability")
     _uint(screen.revision, 0xFFFFFFFF, 1)
     if type(screen.back) is not int or screen.back not in (0, 7):
         raise ValueError("menu back action must be absent or seven")
@@ -173,7 +182,7 @@ def pack_screen(request_sequence, screen, *, close=False, reopen_trade=False, al
     if tower and (screen.rows or screen.admission_action or style):
         raise ValueError("a Tower command or Hyper Training screen has no rows and no style")
     flags = (FLAG_TOWER_SOLO if tower_command is not None else FLAG_HYPER_TRAINING if hyper_training
-             else 3 if release else 2 if reopen_trade else int(close))
+             else 3 if release else 2 if reopen_trade else FLAG_NEW_PAGE if screen.new_page else int(close))
     data = struct.pack("<IIBBH", request_sequence, screen.revision, flags, len(screen.rows), screen.back)
     data += _string(screen.title, 24) + _string(screen.status, 32)
     used = set()
@@ -194,7 +203,7 @@ def pack_screen(request_sequence, screen, *, close=False, reopen_trade=False, al
 
 
 def unpack_screen(value, *, allow_trade_reopen=False, allow_battle_admission=False, allow_release=False,
-                  allow_tower=False):
+                  allow_tower=False, allow_new_page=False):
     """(ack, screen, close) of a canonical screen; the close becomes the flags (2 trade reopen, 3 release) for a reader
     that expects those. A reader expecting Battle Tower screens (``allow_tower``) gets (ack, screen, flags, command): flags
     4 with its TowerCommand, 5 (Hyper Training) or any other, command None."""
@@ -202,7 +211,8 @@ def unpack_screen(value, *, allow_trade_reopen=False, allow_battle_admission=Fal
         raise ValueError("menu response must have exactly 240 bytes")
     ack, revision, flags, count, back = struct.unpack_from("<IIBBH", value)
     allowed = ({0, 1} | ({2} if allow_trade_reopen else set()) | ({3} if allow_release else set())
-               | ({FLAG_TOWER_SOLO, FLAG_HYPER_TRAINING} if allow_tower else set()))
+               | ({FLAG_TOWER_SOLO, FLAG_HYPER_TRAINING} if allow_tower else set())
+               | ({FLAG_NEW_PAGE} if allow_new_page else set()))
     rows_end = TOWER_COMMAND_OFFSET + _COMMAND.size if flags == FLAG_TOWER_SOLO else 68 + 28 * count
     if (flags not in allowed or count > 6 or flags in (FLAG_TOWER_SOLO, FLAG_HYPER_TRAINING) and count
             or any(value[rows_end:236]) or (any(value[238:]) and not allow_tower)):
@@ -210,12 +220,14 @@ def unpack_screen(value, *, allow_trade_reopen=False, allow_battle_admission=Fal
     rows = tuple(MenuRow(struct.unpack_from("<H", value, 68 + i * 28)[0],
         _read_string(value[70 + i * 28:96 + i * 28])) for i in range(count))
     screen = MenuScreen(revision, _read_string(value[12:36]), _read_string(value[36:68]), rows, back,
-                        struct.unpack_from("<H", value, 236)[0], value[238], value[239])
+                        struct.unpack_from("<H", value, 236)[0], value[238], value[239], flags == FLAG_NEW_PAGE)
     command = TowerCommand.unpack(value[68:68 + _COMMAND.size]) if flags == FLAG_TOWER_SOLO else None
     if pack_screen(ack, screen, close=flags == 1, reopen_trade=flags == 2, release=flags == 3, tower_command=command,
                    hyper_training=flags == FLAG_HYPER_TRAINING, allow_battle_admission=allow_battle_admission,
-                   allow_tower=allow_tower) != value:
+                   allow_tower=allow_tower, allow_new_page=allow_new_page) != value:
         raise ValueError("menu response is not canonical")
+    if flags == FLAG_NEW_PAGE:
+        flags = 0                        # an ordinary screen (its new_page says the rest)
     if allow_tower:
         return ack, screen, flags, command
     return ack, screen, (flags if allow_trade_reopen or allow_release else bool(flags))

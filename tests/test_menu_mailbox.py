@@ -125,3 +125,30 @@ class MenuReleaseTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             pack_screen(9, MenuScreen(4, "Battle", "x", (MenuRow(1, "Enter battle"),), 0, 1),
                         release=True, allow_battle_admission=True)
+
+
+class MenuNewPageTests(unittest.TestCase):
+    """KNOWN_ISSUES MS-55: the first screen of a page (MenuScreen.new_page) is flags 0x80, only for a game with the menu's
+    new page capability; it is an ordinary screen in every other way and never a close."""
+
+    def screen(self, new_page=True):
+        return MenuScreen(5, "Tower Shop", "Spend BP", (MenuRow(1, "Gold Bottle Cap"), MenuRow(2, "Bottle Cap")), 7,
+                          new_page=new_page)
+
+    def test_a_new_page_is_flag_0x80_for_a_capable_game_only(self):
+        value = pack_screen(9, self.screen(), allow_new_page=True)
+        self.assertEqual(value[8], 0x80)
+        self.assertEqual(value[9:], pack_screen(9, self.screen(False))[9:])   # the rest as the ordinary screen's
+        self.assertEqual(unpack_screen(value, allow_new_page=True), (9, self.screen(), False))   # not a close
+        self.assertEqual(unpack_screen(value, allow_new_page=True, allow_tower=True), (9, self.screen(), 0, None))
+        with self.assertRaises(ValueError):
+            unpack_screen(value)                            # only a reader expecting new pages takes one
+        with self.assertRaises(ValueError):
+            pack_screen(9, self.screen())                   # never to a game without the capability
+
+    def test_a_new_page_is_never_a_close_a_release_a_trade_reopen_or_a_tower_answer(self):
+        for flag in (dict(close=True), dict(release=True), dict(reopen_trade=True), dict(hyper_training=True)):
+            with self.subTest(flag=flag), self.assertRaises(ValueError):
+                pack_screen(9, replace(self.screen(), rows=(), back=7), allow_new_page=True, allow_tower=True, **flag)
+        with self.assertRaises(ValueError):
+            pack_screen(9, replace(self.screen(), new_page=1), allow_new_page=True)    # a bool, nothing else

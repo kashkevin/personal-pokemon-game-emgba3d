@@ -188,6 +188,9 @@ class MenuScreen:
     # with the Tower; the classic window ignores it.
     style: int = 0
     style_arg: int = 0
+    # KNOWN_ISSUES MS-55: the first screen of a page the window was not on (not a refresh of the page, nor another page of
+    # the same list): the game starts its cursor on the first row (flags 0x80, only to a game with menu_new_page).
+    new_page: bool = False
 
 
 def battle_admission_enabled(companion):
@@ -229,6 +232,7 @@ class PlayerMenu:
         self._wager_amount = WAGER_CHOICES[1]
         self._binding = None
         self._signature = None
+        self._shown_page = None    # KNOWN_ISSUES MS-55: the page (_page_identity) of the last screen made
         self._actions = {}
         self._screen = MenuScreen(0, "Players", "Connecting", ())
         self._notice = ""
@@ -550,6 +554,16 @@ class PlayerMenu:
                 raise PlayerMenuError("session_changed")
         return self._render()
 
+    def _page_identity(self):
+        """KNOWN_ISSUES MS-55: which page a screen is of. A page's own refreshes and the pages of one list (a page number
+        in its argument) are the same page; the Battle Tower's and the Championship's own pages are pages too."""
+        page = self._page[0]
+        if page == "tower":
+            return page, self._tower._page[0]
+        if page == "championship":
+            return page, self._championship._page[0]
+        return (page,)
+
     def _show(self, title, status, actions, style=(0, 0)):
         """``style``: a Battle Tower page's (style, argument) for the native PC UI (menu_mailbox.TOWER_STYLES)."""
         if len(actions) > 6:
@@ -572,10 +586,11 @@ class PlayerMenu:
                                        "lobby_2v2": ("lobby", ()), "tower": ("tower_back", ()),
                                        "championship": ("champ_back", ()), "minigame": ("mg_back", ()),
                                        "confirm": ("ask_no", ())}.get(self._page[0], ("home", ()))   # a question's B is No
+            identity = self._page_identity()
             self._screen = MenuScreen(revision, title, status,
                 tuple(MenuRow(i + 1 if op else 0, label) for i, (label, op, _) in enumerate(normalized)), back, admission,
-                *style)
-            self._signature = signature
+                *style, new_page=identity != self._shown_page)
+            self._signature, self._shown_page = signature, identity
         return self._screen
 
     async def _start_lobby(self, lobby_id, generation, fmt, teammate=None):

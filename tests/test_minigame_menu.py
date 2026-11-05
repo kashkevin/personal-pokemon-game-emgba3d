@@ -82,7 +82,7 @@ class LobbyPageTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((screen.title, screen.status), ("BERRY CRUSH", "Lead a group or join one"))
         self.assertEqual(self.labels, ["Lead a group", "Join Bob 1/4"])
         self.assertEqual(screen.back, 7)
-        pack_screen(1, screen)                                         # the game's 240 bytes
+        pack_screen(1, screen, allow_new_page=True)                    # the game's 240 bytes
 
     async def test_leading_then_the_start_row_once_a_member_is_in(self):
         await self.menu.open_page("minigame_berry_crush")

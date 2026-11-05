@@ -52,6 +52,21 @@ class MenuSessionTests(unittest.IsolatedAsyncioTestCase):
         await self.session._task
         self.assertEqual((await self.result())[0], 1)
 
+    async def test_a_new_page_is_marked_only_for_a_game_that_can_read_it(self):
+        # KNOWN_ISSUES MS-55: the first screen of a page goes as flags 0x80 to a game with menu_new_page_abi_version 1,
+        # and as the ordinary screen it is to any other (its window then keeps its row, as before).
+        self.session.menu.screen = MenuScreen(1, "Players", "Ready", (MenuRow(1, "Accept"),), 0, new_page=True)
+        for capable, flags in ((False, 0), (True, 0x80)):
+            with self.subTest(capable=capable):
+                self.companion.config = SimpleNamespace(menu_new_page_abi_version=1 if capable else 0)
+                self.feed(1 if not capable else 2)
+                await self.session._task
+                frame = await asyncio.wait_for(self.bridge.outbox.get(), 1)
+                self.assertEqual(frame[4:5], b"M")
+                self.assertEqual(frame[5 + 8], flags)
+                ack, screen, close = unpack_screen(frame[5:], allow_new_page=True)
+                self.assertEqual((screen.new_page, close), (capable, False))
+
     async def test_a_host_close_stays_the_last_screen_of_its_window(self):
         # KNOWN_ISSUES MS-141c: a minigame group starts while the leader's own "Start" is still being answered: the
         # window's close must not be followed by that answer's screen (the game's mailbox holds one screen, so the page
