@@ -50,4 +50,4 @@ Compilation, memory/performance cost, all new denial/cancellation and counter pa
 
 ## Where the tickets come from
 
-Nothing in this game gives these tickets yet. Their sources (the owner's decision of 2026-11-05: postgame achievements, challenging quests and Battle Frontier milestones, never the casino alone) are designed in [legendary-tickets.md](legendary-tickets.md); delivery needs a PC-only engine change described there.
+The world's host gives these tickets (the owner's decision of 2026-11-05: postgame achievements, challenging quests and Battle Frontier milestones, never the casino alone): [legendary-tickets.md](legendary-tickets.md). The engine's reward word kind 8 puts the ticket in the Bag with its island's ship flag (engine `b270e14a`, the bridge `9c1ad847`); the app's ticket service decides who has earned one (app `3ccb494`). A real game received the Old Sea Map that way and sailed to Faraway Island (Linux, a test character; legendary-tickets.md 6.6). The adapters above stay unverified in play.

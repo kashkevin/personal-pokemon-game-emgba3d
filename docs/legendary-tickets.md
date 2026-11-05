@@ -4,16 +4,19 @@ The owner's decision of 2026-11-05 (`docs/owner-decisions.md` #11 and #40), fina
 legendary encounters obtainable through postgame achievements, challenging quests, and Battle Frontier milestones. Do not
 make casino purchases the sole acquisition method."*
 
-**Status.** Designed. Built and tested here: the host's half that needs no engine change
-(`src/emerald_multiplayer/legendary_tickets.py`: the catalogue, the conditions read from saves and host records, the
-setting, the ledger; `tests/test_legendary_tickets.py`, 30 tests, Linux only). **Not built: delivering a ticket into the
-game**, which needs a small PC-only engine change (section 6.2); until it exists nothing is wired into the world server,
-no ticket is sent and nothing in any world or save changes. No ticket has reached any game, so nothing below is verified
-in play.
+**Status.** Built and proven in real games on Linux (2026-11-05). The engine's reward word kind 8 (engine `b270e14a`,
+and `9c1ad847`: the native bridge lets it through, section 6.2), the host's half (`legendary_tickets.py`) and its
+wiring (section 6.3, app `3ccb494`: the capability from the manifest, the ticket service on the world server, the
+PLAYERS page), with the defaults of section 3 as the shipped setting. Tests: section 6.5. In real games (section 6.6):
+two native games through the real launcher and world server, a test character whose conditions the test harness set,
+got the Old Sea Map once, with its banner, its flags and its host save, through a crash, a reconnect and a host restart;
+the ticket the host gave took the player to Faraway Island. Not verified: Windows game processes, a legitimately
+progressed character meeting a condition in play, the island encounters themselves.
 
 ## 1. What a ticket is today
 
-The four "tickets" are the game's own event key items. Nothing in this game gives them: in Emerald only Mystery Gift
+The four "tickets" are the game's own event key items. No script of this game gives them (the world's host does now:
+section 6): in Emerald only Mystery Gift
 (`data/scripts/gift_aurora_ticket.inc`, `gift_mystic_ticket.inc`, `gift_old_sea_map.inc`) and record mixing for the Eon
 Ticket (`src/record_mixing.c` `ReceiveGiftItem`; the Pokemon Center's distribution variable `VAR_DISTRIBUTE_EON_TICKET` is
 always zero) gave them, and both need a link cable, wireless adapter or e-Reader, which the PC game does not have
@@ -160,7 +163,9 @@ is recorded in three places, each guarding a different failure:
 | The owner changes the setting later | Delivered tickets stay; a ticket already earned is still delivered; the new setting applies from the next evaluation. |
 | A save the host cannot read | Receipts still settle; nothing new is earned until a readable save; a "no room" settled meanwhile is offered again at the next readable save. Tested. |
 
-The in-game banner says, for a ticket just given (receipt 1): `EON TICKET!` / `Show it at LILYCOVE's port.`
+The in-game banner says, for a ticket just given (receipt 1): `EON TICKET!` / `Show it at LILYCOVE's port.` For a
+refusal for want of room (receipt 0; added with the wiring, as the Tower's milestone Pokemon do): `NO ROOM FOR THE EON
+TICKET` / `Make room, then save`. Both go to that player only.
 
 ## 5. The setting: one line per ticket
 
@@ -178,6 +183,12 @@ DEFAULT_SOURCES = {
 A world may replace whole lines with `<world>.tickets.json` beside its database (like `<world>.frontier.json`):
 `{"sources": {"eon": ["hall_of_fame:1", "coop_league:1"]}}`. A file that cannot be used stops the host from starting
 with half a setting (`TicketError`), naming the problem. `CASINO_PRICES = {}`: no ticket is sold.
+
+The launcher reads the file (`legendary_tickets.settings_path`, `load_sources`) before the host opens, only when the
+installed game gives tickets: a file it cannot use stops the host with `ticket_settings_invalid` ("This world's
+Legendary Tickets setting ... cannot be used; correct or remove it."), its cause naming the problem
+(`TicketError invalid_settings: world.sqlite3.tickets.json names unknown tickets: gs_ball`). Nothing else in the app
+names a condition: changing the mapping (D1-D3) is this one setting.
 
 ## 6. Implementation plan
 
@@ -215,7 +226,25 @@ offsets of 6.4. Then: `sha256sum pokedev.gba` equal to `CHECKPOINTS.md`,
 Only if the owner asks (decision D3): a Game Corner ticket would need the coin shop to call the same grant after a
 purchase (a ticket bought must set its ship flag, which a plain shop item does not).
 
-### 6.3 App (after the engine)
+**Built:** engine `b270e14a` (the grant, the marker, `--selftest-tickets` 24/24) and engine `9c1ad847`: the native
+bridge's check of the world record the companion writes (`src/platform/mp_bridge.c` `ValidWorldInbound`) took reward
+kinds 1-5 (6-7 with the Tower) only, so the first real game offered the ticket closed its bridge ("Multiplayer bridge
+disconnected: invalid shared-world update") and lost its link to the world. Found by the real-game proof (section 6.6,
+run 1); `--selftest-tickets` calls the grant directly and never passes through the bridge. It takes kind 8 now (in every
+PC game; the host sends it only to a game whose manifest has the marker); `tools/pc_port/tests/test_mp_bridge.c`:
+kind 8 with and without the Tower, kind 9 refused (4604 checks, 0 failures; against `b270e14a`'s bridge 4 fail). A
+build of `b270e14a` alone carries the marker without that fix: it must not be paired with this app.
+
+### 6.3 App (built: app `3ccb494`, on engine `b270e14a`)
+
+Built as planned below, with the defaults of section 5 as the shipped setting. Beyond the table: the page's read is a
+world request of its own (`tickets_get`: `shared_world_protocol.WORLD_TYPES`, `companion.tickets_rpc`,
+`ticket_service.validate_view`; the host brings the player's ledger up to date before answering); a refusal for want of
+room has its banner (section 4); a pass of one player that fails never stops another's (`TicketService.faults`,
+`last_fault`), and the server keeps every fault from its loop and from a save. A companion whose game lacks the
+capability refuses a world frame that carries kind 8, so even a host that queued one could not reach that game. The
+first pass after a player connects reads their last save on the host (D4): a character that already meets a condition
+gets its ticket then.
 
 | File | Change |
 | --- | --- |
@@ -253,12 +282,54 @@ the ship flags 0x8B3, 0x8E0, 0x8D5, 0x8D6, the received flags 0x13A-0x13C and th
   the receipt rules, the re-offer rules, the defaults) each made the suite fail. With `test_flash.py`,
   `test_tower_contract.py` and `test_reset_production_catalogue.py`: 87 passed, 1 skipped (`test_flash.py`'s check of
   private saves, which are not configured here).
-* To add with 6.3: kind 8 in `test_rewards.py` (refused without `tickets=True`); a contract test like
-  `test_tower_contract.py` (word layout, manifest marker, companion configuration); `test_ticket_service.py` with a
-  real `WorldServer`, a real `Wagers` and scripted game receipts (a grant end to end, a restart, a reconnect, a game
-  without the capability never receives kind 8).
+* Built with 6.3 (Linux, 2026-11-05), **43 new tests, all passed**: `test_ticket_service.py` (21: a real
+  `WorldServer` over loopback with its store, shared world and `Wagers`; scripted games save through the checkpoint
+  protocol, report their wallet sequence and answer each word with the engine's receipt: a grant end to end, the word
+  on its player's world frame only, two players, a host restart before and after the game applied the word, a
+  reconnect after saving, a game closed before saving, receipt 0 owed and offered again only after a newer save,
+  faults, the page, the host's records, the world's file, a host whose game has no tickets, an Update 14 world opened
+  unchanged, the launcher's hosting), `test_ticket_contract.py` (14: word layout, receipts, the banner, the wire and
+  the mailbox, the manifest marker, the companion's configuration, the Windows package's lists, a real companion with
+  and without the capability), `test_ticket_menu.py` (8: the pages, and every setting the owner can choose within the
+  menu's limits); kind 8 in `test_rewards.py` (+2: refused without `tickets=True`). Sixteen deliberate mutations of the
+  wiring (the codec, the companion, the mailbox, the capability, the passes, the word's index, the banner, the host's
+  records, the re-offer revision, fault isolation, the menu, the launcher, the marker) each made them fail. With the
+  related suites: 641 passed, 1 skipped. The app's whole suite: see TEST_PLAN.md 6x.
 
-### 6.6 Real-game proof (outline)
+### 6.6 Real-game proof (steps 2-3 run on Linux)
+
+**Result (Linux, 2026-11-05; app `3ccb494` and the proof's commit; evidence in the session's scratchpad,
+`agent-tickets/proof/`):**
+
+* Run `tickets-1` (the 3D test build of engine `b270e14a`): **failed**, and found the engine's gap of section 6.2: the
+  host queued the friend's word (`0x48000004`, `ticket:old_sea_map:1`), and the friend's game closed its bridge on the
+  world record that carried it ("Multiplayer bridge disconnected: invalid shared-world update"), so its launcher lost
+  the world (`connection_lost`). Fixed in engine `9c1ad847`.
+* Run `tickets-2` (the Classic 2D test build of engine `9c1ad847`, `--selftest-tickets` 24/24 and `--selftest-rewards`
+  18/18 in it; the GBA ROM still `f214735b...3387`): **passed**, every check
+  (`scripts/multiplayer/native_launcher_ticket_proof.py`; sources `make_tower_saves.py tickets-a` and `tickets-b`, whose
+  flags the test build set). The friend's save on the host (its enrollment) met `regi_trio`: one word
+  (`0x48000004`, `ticket:old_sea_map:1`) on the friend's stream and none on the host's player's; in the friend's game
+  one Old Sea Map in the Bag, `FLAG_ENABLE_SHIP_FARAWAY_ISLAND` and `FLAG_RECEIVED_OLD_SEA_MAP` set, wallet sequence 1,
+  receipt 1, the ledger delivered, and the banner "OLD SEA MAP!" / "Show it at LILYCOVE's port." shown by the game
+  (pictured, `banner-battle-and-save-1.png`). The friend's game was then killed (SIGKILL) after the banner and before
+  any save, and started again through the launcher: its host save had no ticket, the host offered the same word, the
+  game applied it: exactly one Old Sea Map, still one word, no second banner. Saved on the host (revision 2): one Old
+  Sea Map, both flags, wallet sequence 1. The friend's PLAYERS > World and my base > Frontier and League > Legendary
+  Tickets said "Given: 1 of 4", "Eon Ticket: 1/2", "Mystic Ticket: not yet", "Aurora Ticket: 0/3", "Old Sea Map:
+  GIVEN"; the Old Sea Map's page "Show it at LILYCOVE's port.", "Island: Faraway Island", "Earned: Sealed Chamber"
+  (pictured). Closed and started again after saving (a disconnect and a reconnect): two host passes later no second
+  word, no banner, one Old Sea Map. The host's player all along: no word, no ledger row, no ticket, no banner. The
+  closing saves, then the fresh Continue (every process started again, the world's host first): the restarted host
+  kept the ledger and sent nothing; the store's integrity check passed; the sources unchanged.
+* The ferry (`agent-tickets/ferry_check.py`, the test build alone): the friend's last host save (revision 3), warped to
+  Lilycove's harbor (test code: the warp only; no flag, item or variable set), a player's presses: the attendant took
+  the Old Sea Map (its first showing: Mr. Briney's "Hold on a second!") and the player stood on Faraway Island's
+  entrance (map 26.56 at 13,38, the script's warp), then sailed back (`ferry-1/ferry-sheet.png`).
+* Not run: the island's encounter (`Attempt: 1` and its reset adapter), a full key pocket and PC in a real game (the
+  ledger's owed path is tested with scripted receipts only), the same character in a second world, Windows.
+
+**The outline (as designed):**
 
 1. Engine: `--selftest-tickets` in the Linux 3D and Classic 2D test builds and under Wine; the GBA ROM's hash.
 2. Two native Linux games through the real launcher and world server, test build: a test character whose conditions
@@ -288,8 +359,15 @@ the ship flags 0x8B3, 0x8E0, 0x8D5, 0x8D6, the received flags 0x13A-0x13C and th
 ## 8. Files
 
 * `src/emerald_multiplayer/legendary_tickets.py`: the catalogue, `GAME_PROGRESSION`, the conditions, `save_facts`,
-  `with_host_records`, `DEFAULT_SOURCES`, `load_sources`, `earned_by`, the ledger (`SCHEMA`, `TicketBook`) and
-  `reconcile`. Imported by nothing yet.
-* `tests/test_legendary_tickets.py`.
+  `with_host_records`, `DEFAULT_SOURCES`, `settings_path`, `load_sources`, `earned_by`, the ledger (`SCHEMA`,
+  `TicketBook`) and `reconcile`.
+* `src/emerald_multiplayer/ticket_service.py` (the host's wiring, section 6.3), and the files the table there names:
+  `rewards.py`, `wagers.py`, `bridge_config.py`, `companion.py`, `world_mailbox.py`, `shared_world_protocol.py`,
+  `shared_world.py`, `server.py`, `launcher_session.py`, `player_menu.py`, `scripts/multiplayer/generate_manifest.py`,
+  `.github/workflows/windows-package.yml` (the marker and `--selftest-tickets` in the Windows build).
+* `tests/test_legendary_tickets.py`, `tests/test_ticket_service.py`, `tests/test_ticket_contract.py`,
+  `tests/test_ticket_menu.py` (and kind 8 in `tests/test_rewards.py`).
+* The real-game proof: `scripts/multiplayer/native_launcher_ticket_proof.py`, its sources
+  `scripts/multiplayer/make_tower_saves.py` `tickets-a` and `tickets-b`.
 * Background: `docs/local-reset-ticket-sources.md` (the five island adapters), `docs/local-reset-production-flow.md`,
   `docs/battle-tower-legends.md` (the wallet stream's prize pattern this follows), `docs/battle-frontier.md`.

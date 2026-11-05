@@ -101,7 +101,7 @@ EXTRA_NEEDED = ("gMain", "CB2_StarterChoose", "CB2_Overworld", "CB2_TrainerCard"
                 "sRemotes", "sGlobalScriptContextStatus", "HandleInputChooseMove", "BattleMainCB2",
                 "gSaveBlock1Ptr", "gSaveBlock2Ptr", "gSaveBlock3Ptr", "PlayerHandleYesNoInput", "sCoopAward", "sCoopExp",
                 "gBattleStruct", "gSaveCounter", "sLockFieldControls", "Task_HandleYesNoInput",
-                "sForfeitAsking")
+                "sForfeitAsking", "gMultiplayerWorldMailbox", "sShownNoticeId")
 WINDOWS = sys.platform == "win32"
 
 

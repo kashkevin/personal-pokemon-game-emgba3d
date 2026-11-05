@@ -717,6 +717,43 @@ simulated in-process with a TCP proxy, never by changing system networking. The
 transport is TCP, so packet loss and reordering appear to the game as delay or a
 dropped connection; those are the cases the proxy produces.
 
+### 6x. The Legendary Tickets (owner decision 40, `docs/legendary-tickets.md`)
+
+```sh
+/home/user/venv/bin/python -m pytest tests/test_legendary_tickets.py tests/test_ticket_service.py \
+    tests/test_ticket_contract.py tests/test_ticket_menu.py tests/test_rewards.py -o addopts="" -q
+# the real games: sources made by the engine's test build, then two games through the real launcher
+python scripts/multiplayer/make_tower_saves.py --exe <test build> --mega-check <engine>/tools/battle_env/mega_check.py \
+    --source-a boy-1.sav --source-b girl-1.sav --out DIR --only tickets-a,tickets-b
+PYTHONPATH=src:scripts/multiplayer:scripts/windows-runtime python scripts/multiplayer/native_launcher_ticket_proof.py \
+    --game <test build> --rom pokedev.gba --manifest manifest.json --source-a DIR/tickets-a.sav \
+    --source-b DIR/tickets-b.sav --display :96 --display :97 --output <private>/multiplayer-proof/native-launcher-tickets-N
+```
+
+* `test_ticket_service.py` (21): a real world server over loopback with its store, shared world and wallet stream;
+  scripted games save, report their wallet sequence and answer each word with the engine's receipt. A grant end to end
+  (the word on the world frame of its player only, receipt 1, the ledger delivered, the banner), two players, a host
+  restart before and after the game applied the word, a reconnect after saving (no second word), a game closed before
+  saving (the same word again, one ticket), receipt 0 (owed, offered again only after a newer save), faults (never the
+  host loop, a save or another player's pass), the page, the host's records (Tower best, co-op streak and League,
+  Championships), the world's file, a host whose game has no tickets (never kind 8), an Update 14 world opened
+  unchanged, the launcher's hosting (with and without the capability, a setting it cannot use).
+* `test_ticket_contract.py` (14): the word layout, the manifest marker (with the shared world; MinGW nm), the
+  companion's configuration, no bridge.txt opt-in, the Windows package's marker and self-test lists; a real companion
+  writes kind 8 into its game's mailbox only with the capability (without it, it refuses the frame).
+* `test_ticket_menu.py` (8): every page within the menu's limits for every condition the owner can choose.
+* 2026-11-05 (Linux): 43 new tests passed; with the related suites 641 passed, 1 skipped; 16 deliberate mutations of
+  the wiring each made them fail. The whole suite (`xvfb-run -a ... pytest tests -o addopts=""`, with
+  `EMERALD_ENGINE_BINARY` a current test build): 3303 passed, 22 skipped, 11827 subtests passed, none failed (an
+  earlier run on a machine at load 35 had two timing tests fail, `test_battle_throughput.py` and `test_companion.py`,
+  which passed three times of three alone, and the new proof's two symbols missing from the harness's list: fixed).
+* The real games (Linux only): run `tickets-1` (the 3D test build of engine `b270e14a`) failed and found the engine's
+  bridge refusing kind 8 (fixed in engine `9c1ad847`, `tools/pc_port/tests/test_mp_bridge.c`); run `tickets-2` (the
+  Classic 2D test build of engine `9c1ad847`) passed every check: the word, the ticket and its flags in the friend's
+  game, the banner shown, a kill before saving (the same word again, one ticket), the host save, the PLAYERS page, a
+  reconnect after saving and a host restart (nothing again), nothing for the other player (`docs/legendary-tickets.md`
+  6.6). Not in the Windows package's jobs yet (only `--selftest-tickets` is).
+
 ## 7. Graphics: renderer tests and benchmark scene (Milestone D)
 
 Renderer unit tests (graphics branch, needs a `DIORAMA=1` build first so the

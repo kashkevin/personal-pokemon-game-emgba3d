@@ -56,6 +56,11 @@ PKMN_TEST_TOWER_RECORD: the game loads the save, sets them and saves through its
                         MS-194)
   trade-evolve-a / -b   a level-30 Small Pumpkaboo, a level-30 Large Pumpkaboo: each game evolves the one it receives
                         into the Gourgeist of its size (--scenario trade-evolve; MS-151's trade evolution of a form)
+  tickets-a / -b        a level-30 Treecko, a level-30 Torchic; -b has the Sealed Chamber's three legends defeated
+                        (FLAG_DEFEATED_REGIROCK, _REGICE, _REGISTEEL: the Old Sea Map's default source, regi_trio) and the
+                        game clear (FLAG_SYS_GAME_CLEAR: Lilycove's ferry sails only after the Hall of Fame), -a nothing a
+                        ticket asks for: the Legendary Tickets' proof (native_launcher_ticket_proof.py; -a hosts). Test
+                        code: the flags are set, not earned in play
 
     python scripts/multiplayer/make_tower_saves.py --exe <Makefile_pc BFX_TEST=1 build> \\
         --mega-check <engine>/tools/battle_env/mega_check.py --source-a boy-1.sav --source-b girl-1.sav --out DIR \\
@@ -134,6 +139,10 @@ FIXTURES = (  # (name, source, party, record "highest:progress" or None[, bag "i
     ("trade-forms-b", "b", "1071:50:i403", None),
     ("trade-evolve-a", "a", "1157:30", None),
     ("trade-evolve-b", "b", "1158:30", None),
+    # The Legendary Tickets (docs/legendary-tickets.md 6.6): FLAG_DEFEATED_REGIROCK, _REGICE, _REGISTEEL and
+    # FLAG_SYS_GAME_CLEAR for the friend; nothing for the host
+    ("tickets-a", "a", "252:30", None),
+    ("tickets-b", "b", "255:30", None, "", "", False, "0x1BB,0x1BC,0x1BD,0x864"),
 )
 
 
