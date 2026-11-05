@@ -457,7 +457,7 @@ summary disagrees with a source, the source wins and this file should be correct
 | --- | --- | --- |
 | World clock | 12x real time; runs only while at least one player is connected; world day 0 starts at 08:00 | [bal] [sw] |
 | Overworld notices | stay available 8 seconds | [bal] |
-| World Events | first event after 10-20 min, then one every 25-45 min; 15 min duration; category weights rare 50, legendary 28, mega 15, mythical 5, mega legendary 2; shiny chance 1/64 (host roll); level = progression level + 3 (rare) or + 8 (legendary), kept within 5-70; a claim is released 120 s after the claimant disconnects | [bal] |
+| World Events | first event after 10-20 min, then one every 25-45 min; 15 min duration; category weights rare 50, legendary 28, mega 15, mythical 5, mega legendary 2; shiny chance 1/64 (host roll); level = progression level + 3 (rare) or + 8 (legendary), kept within 5-70; a claimant who disconnects keeps the Pokémon reserved for 5 minutes (300 s while somebody is online), may reconnect and reclaim it meanwhile, and loses it afterwards; one claim at a time (owner, 2026-11-05; it was 120 s) | [bal] |
 | Friendship | New/Good/Great/Ultra/Best Friends at 0/30/120/300/600 points; points: trade 15, battle together 12, battle against 6, Championship 10, event together 10, Gym together 20, session together 2 (per 30 min together); cap 60 points per pair per real day | [bal] |
 | Lucky | Lucky trade chance 5/8/12/20/30% by friendship level; Lucky IV floor 12 (never lowered, max 31); Lucky Friends chance 10% per eligible Best Friends interaction, 12 h cooldown | [bal] [eng-bal] |
 | Wagers | 100 to 100,000 in-game money | [bal] |

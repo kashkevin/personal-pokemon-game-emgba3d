@@ -197,7 +197,7 @@ No change is recommended here; the owner must pick personal (as built) or shared
 | Post-Gen6 moves trade as-is | Relaxed in `trade_effect_witness.py` and `trade_friendship.py` (MAX_STORED_MOVE 847, 7056dd2). | `trade_effect_choice.py:53` still rejects any current move id > 621 when describing the evolution move-choice screen, so an effectful trade that evolves a Pokémon already knowing a post-Gen6 move and asks for a move choice fails ("invalid native move facts"). Narrow; never run. |
 | Visible spawns personal; running leaves it for others | Personal as decided. | Running returns the Pokémon only to the runner (above); "for others" exists only for World Events. |
 | Day/night 1 world day = 2 h, paused when nobody online | clock_rate 12; clock stops at 0 sessions. | Matches. Note: World Event timers keep counting while the host app runs with nobody online (spawning stops, expiry does not). |
-| World Events first catch wins | Matches. | Note: the claim is released 120 s after the claimant disconnects; a catch whose result report is lost could let a second player catch the same event Pokémon. |
+| World Events first catch wins | Matches. | Note: the claim is released 120 s after the claimant disconnects; a catch whose result report is lost could let a second player catch the same event Pokémon. (Since 2026-11-05: reserved five minutes after a disconnect, reclaimable, one claim at a time; see `docs/legendary-catch-resolution.md`.) |
 | 2v2 full party; host loss saves and disconnects; interrupted battle waits for all; autosave 5 min + manual + toggle | Match the code. | None found. |
 
 ### Recorded guidance the code no longer follows (not binding decisions)

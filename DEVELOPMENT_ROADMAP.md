@@ -547,7 +547,10 @@ sync, followers, clock, time mechanics, mounts, then visuals and performance) [v
   result and stone; a two-player race. [audit]
 - [ ] 9.23 Lost result report: the claim is released 120 s after the claimant
   disconnects, so a lost catch report could let a second player catch the same
-  Pokémon. Resolve and test. [audit]
+  Pokémon. Resolve and test. [audit] Decided by the owner on 2026-11-05 and built
+  (simulated tests only): reserved five minutes after a disconnect, reclaimable by
+  reconnecting, then released; one claim at a time
+  (`docs/legendary-catch-resolution.md`). Left: a real two-PC check.
 - [ ] 9.24 Decision: World Event timers during downtime or empty sessions (today they
   keep counting while the host app runs with nobody online) and mixed-progression
   scaling. [spec] [audit]

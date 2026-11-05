@@ -31,8 +31,8 @@ Each player needs a saved party of **more than 3 Pokémon** for the team-selecti
 
 ## C. NEW: legendary catch consistency (two PCs; start a legendary World Event)
 Real-PC checks that are not done yet. Everything here was only simulated.
-- [ ] Let both players battle the same legendary. Make one player's claim lapse (close that player's game for over a minute during the battle, then reopen it) so both can finish the battle. Both catch it.
-- [ ] Exactly **one** player keeps the Pokémon. The other sees the message "X caught it first" and the second copy leaves their party/box after their game reconnects. No other Pokémon is removed or changed.
+- [ ] Let both players battle the same legendary. Make one player's claim lapse so both can finish the battle: during that player's battle, take its PC off the network for over **five minutes** while the other player stays online (since 2026-11-05 a disconnected player's claim is reserved that long, counting only while somebody is online), then the other player claims it. Both catch it; then bring the first PC back.
+- [ ] Exactly **one** player keeps the Pokémon: the one who held the claim (a catch reported over another player's claim waits, since 2026-11-05). The other sees the message "X caught it first" and the second copy leaves their party/box after their game reconnects. No other Pokémon is removed or changed.
 - [ ] The kept Pokémon keeps its shiny colour, level and held Mega Stone.
 - [ ] Restart the host after the first report and before the second player reports: the same player still wins.
 - [ ] A player with only that one Pokémon in the party is **not** left without a party (the release waits).
