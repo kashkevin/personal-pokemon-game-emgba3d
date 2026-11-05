@@ -293,23 +293,48 @@ class NativeProbe:
             return await self.ready()
 
     async def open_players(self):
+        """START > the player > PLAYERS, each step read back from the game: its START menu's cursor checked before each
+        A, and an A the game did not take pressed again while the same menu still shows (a loaded PC's game, a few
+        frames a second, can let a short press come and go between two of its frames, or take none while a menu still
+        opens: the proofs' runs of 2026-11-05 on a PC at a load of 30)."""
+        def top(r):
+            return 0 < r["count"] <= len(r["actions"]) and PLAYER_OPTIONS in r["actions"][:r["count"]]
+
+        def submenu(r):     # this build's Player submenu: Trainer Card, Players, (Tower,) Style, Back
+            return r["actions"][0] == TRAINER_CARD and PLAYERS in r["actions"][:r["count"]]
         await self.press(8, release=60)
-        row = await self.snapshot(lambda r: 0 < r["count"] <= len(r["actions"]) and PLAYER_OPTIONS in r["actions"][:r["count"]])
-        target = row["actions"][:row["count"]].index(PLAYER_OPTIONS)
-        for _ in range((target - row["start_cursor"]) % row["count"]):
-            await self.press(128)
-        await self.press(1, release=60)
-        # This build's Player submenu: Trainer Card, Players, Style, Back.
-        row = await self.snapshot(lambda r: r["actions"][0] == TRAINER_CARD and PLAYERS in r["actions"][:r["count"]])
-        target = row["actions"][:row["count"]].index(PLAYERS)
-        for _ in range((target - row["start_cursor"]) % row["count"]):
-            await self.press(128)
-        await self.press(1)
-        _, screen = await self.ready()
+        await self.snapshot(top, timeout=30)
+        await self.start_menu_row(top, PLAYER_OPTIONS, submenu)
+        await self.start_menu_row(submenu, PLAYERS, lambda r: r["active"])
+        _, screen = await self.ready(timeout=30)
         if screen.back:
             await self.press(2)
             _, screen = await self.ready()
             require(not screen.back, "Players did not reach its ordinary root")
+
+    async def start_menu_row(self, menu, wanted, opened, tries=3, wait=10):
+        """In the START menu `menu` shows (a test of read()), the cursor to the action `wanted`, then A until `opened`
+        holds; A again only while `menu` still shows with its cursor there."""
+        for _ in range(tries):
+            for _ in range(12):
+                row = self.read()
+                if opened(row) or not menu(row):
+                    break
+                if row["start_cursor"] == row["actions"][:row["count"]].index(wanted):
+                    break
+                await self.press(128)
+            row = self.read()
+            if opened(row):
+                return
+            require(menu(row) and row["start_cursor"] == row["actions"][:row["count"]].index(wanted),
+                    f"the START menu's cursor did not reach action {wanted}: {row['actions'][:row['count']]}")
+            await self.press(1, release=60)
+            try:
+                await self.snapshot(opened, timeout=wait)
+                return
+            except TimeoutError:
+                continue
+        raise AssertionError(f"the START menu's action {wanted} did not open in {tries} presses")
 
     async def battle(self, *, after=-1, timeout=15):
         tasks = self.mem("gTasks", 640)

@@ -1195,7 +1195,7 @@ class NewcomersProof(SoftResetProof, ThreePlayerProof):
         require(here is not None and tuple(here[2:4]) == LITTLEROOT, f"{self.harness.names[n]} is not in Littleroot: {here}")
         row, low, high = PACE["east" if here[4] >= 10 else "west"]
         target, steps, presses, calm, stuck = high, 0, 0, 0, 0
-        started, pictures = time.monotonic(), []
+        started, pictures, pictured = time.monotonic(), [], 0.0
 
         def calm_field():
             pose = pose_of(companion)
@@ -1204,8 +1204,11 @@ class NewcomersProof(SoftResetProof, ThreePlayerProof):
         while True:
             require(time.monotonic() - started < timeout, f"{label}: nothing hatched after {steps} steps")
             if hatched():
-                if not pictures and not calm_field():     # the hatch scene: the Pokemon out of its Egg
-                    pictures.append(game_picture(probe, self.harness.output / f"{label}.png", settle=.3))
+                if len(pictures) < 3 and not calm_field() and time.monotonic() - pictured > 4:
+                    # the hatch scene (the Egg, the Pokemon out of it, its message), a few seconds apart
+                    pictures.append(game_picture(probe, self.harness.output / f"{label}-{len(pictures) + 1}.png",
+                                                 settle=.3))
+                    pictured = time.monotonic()
                 calm = calm + 1 if calm_field() else 0
                 if calm >= 4:
                     break
@@ -1263,6 +1266,25 @@ class NewcomersProof(SoftResetProof, ThreePlayerProof):
         return [line.split("Battle env test: ", 1)[1] for line in text.splitlines()
                 if "Battle env test: " + prefix in line]
 
+    async def reset_question(self, n, current, probes, record):
+        """MS-61's soft reset key as a keyboard player presses it: Ctrl+R, which the game itself turns into A, B, START
+        and SELECT held for one frame (sdl2.c), so a loaded PC's slow frames never see the four keys apart (the four
+        keys pressed one by one did: START alone opened the START menu). The Players menu opens on its question
+        ("Reset the game?", No first)."""
+        probe = probes[n]
+        for attempt in range(3):
+            await self.on_field(current[n], timeout=60)
+            await asyncio.to_thread(probe._chord, ("ctrl", "r"), max(probe.hold, .2))
+            try:
+                _, screen = await shown(probe, timeout=30)
+            except TimeoutError:
+                record("reset-key-not-taken", player=self.harness.names[n], attempt=attempt + 1)
+                await self.back_to_field(current[n], probe, timeout=60)
+                continue
+            require(screen.title == "Reset the game?", f"the reset key opened {screen.title!r}: {screen.status!r}")
+            return screen
+        raise AssertionError(f"{self.harness.names[n]}: the reset key opened nothing in three tries")
+
     async def egg_to_the_pc(self, n, current, probes, games, record):
         """--hatch-in box: the receiver's game started again from its host save (the reset key's "Yes, reset now",
         MS-61) with the test build's PKMN_TEST_EGG_TO_PC, which at its first field frame moves the party's Eggs to the
@@ -1270,7 +1292,7 @@ class NewcomersProof(SoftResetProof, ThreePlayerProof):
         old_pid = games[n].process.pid
         os.environ["PKMN_TEST_EGG_TO_PC"] = "1"     # the next game a launcher starts (adopt's spawn copies os.environ)
         try:
-            await self.open_reset_page(probes[n])
+            await self.reset_question(n, current, probes, record)
             await self.final_choice(probes[n], "Yes, reset now")
             code, revision = await self.restarted(n, current, probes, games, old_pid, record)
         finally:
