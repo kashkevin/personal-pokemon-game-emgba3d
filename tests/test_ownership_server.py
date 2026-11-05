@@ -100,6 +100,14 @@ class OwnershipServerTests(unittest.IsolatedAsyncioTestCase):
             result = await self.upload(a, owned_flash(grant_a))
             self.assertEqual(result["checkpoint"]["revision"], 1)
             await asyncio.sleep(.12)
+            # The first ping goes out on the first monitor tick at least heartbeat_interval after the
+            # connect, so up to heartbeat_interval + monitor_interval (0.15 s) after it, and is
+            # answered on B's next request: a quick upload could end the fixed wait first. Wait for
+            # an answered heartbeat instead (bounded well inside idle_timeout).
+            loop = asyncio.get_running_loop()
+            deadline = loop.time() + 2.0
+            while a.pongs + b.pongs == 0 and loop.time() < deadline:
+                await asyncio.sleep(.01)
         finally:
             stop.set()
             sequences = await task
