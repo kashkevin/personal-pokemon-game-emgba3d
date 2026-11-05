@@ -144,6 +144,9 @@ PACE = {"east": (12, 11, 14), "west": (12, 5, 10)}
 # trade-egg: the file each game of the test build appends its driver's log to (PKMN_TEST_LOG, battle_env_test.c
 # TestLog), in the game's own launch folder beside its runtime.log
 TEST_LOG = "test.log"
+# The soft reset key as a keyboard player presses it (Ctrl+R), and the four keys it stands for (A, B, START, SELECT:
+# NativeProbe.press_reset_key's), in the probes' key names
+CTRL_R, RESET_KEYS = ("ctrl", "r"), ("z", "x", "Return", "backslash")
 # trade-mail's --freeze points: once the first player confirmed, once both did, once the host committed the trade
 TRADE_CUTS = ("trade", "trade-confirmed", "trade-committed")
 GIVE_UPS = ("give-up", "give-up-mid-turn")
@@ -1299,11 +1302,14 @@ class NewcomersProof(SoftResetProof, ThreePlayerProof):
         and SELECT held for one frame (sdl2.c), so a loaded PC's slow frames never see the four keys apart (the four
         keys pressed one by one did: START alone opened the START menu). On Windows the keyboard's messages for Ctrl
         and R are posted to the game's window, Ctrl's first (native_windows_process.chord; SDL keeps Ctrl held for the
-        R that follows). The Players menu opens on its question ("Reset the game?", No first)."""
+        R that follows); should none of the three be taken there, a fourth try posts the four keys themselves at once
+        (no frame comes between messages posted together: the busy proof's resets on the runner), and the record says
+        so. The Players menu opens on its question ("Reset the game?", No first)."""
         probe = probes[n]
-        for attempt in range(3):
+        tries = [CTRL_R] * 3 + ([RESET_KEYS] if WINDOWS else [])
+        for attempt, keys in enumerate(tries):
             await self.on_field(current[n], timeout=60)
-            await asyncio.to_thread(probe._chord, ("ctrl", "r"), max(probe.hold, .2))
+            await asyncio.to_thread(probe._chord, keys, max(probe.hold, .2))
             try:
                 _, screen = await shown(probe, timeout=30)
             except TimeoutError:
@@ -1311,8 +1317,10 @@ class NewcomersProof(SoftResetProof, ThreePlayerProof):
                 await self.back_to_field(current[n], probe, timeout=60)
                 continue
             require(screen.title == "Reset the game?", f"the reset key opened {screen.title!r}: {screen.status!r}")
+            if keys != CTRL_R:
+                record("reset-question-by-the-four-keys", player=self.harness.names[n], attempt=attempt + 1)
             return screen
-        raise AssertionError(f"{self.harness.names[n]}: the reset key opened nothing in three tries")
+        raise AssertionError(f"{self.harness.names[n]}: the reset key opened nothing in {len(tries)} tries")
 
     async def egg_to_the_pc(self, n, current, probes, games, record):
         """--hatch-in box: the receiver's game started again from its host save (the reset key's "Yes, reset now",

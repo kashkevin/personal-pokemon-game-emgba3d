@@ -2,8 +2,9 @@
 --scenario trade-egg; the windows-package job trade-proof's egg-party and egg-box). It ran on Linux only before
 2026-11-05: it read the test build's breed log from the game's runtime.log (on Windows the game's own output may reach no
 file) and refused Windows outright. Every game it starts now appends that log to a file of its own (PKMN_TEST_LOG in its
-launch folder), read on every platform. Stand-ins here for the launcher's spawn and the harness; the games themselves run
-on the runner (the soft reset's Ctrl+R on Windows: tests/test_native_windows_probe.py)."""
+launch folder), read on every platform. The --hatch-in box reset is Ctrl+R (posted on Windows:
+tests/test_native_windows_probe.py), and on Windows a fourth try posts the four reset keys at once should Ctrl+R never be
+taken there. Stand-ins here for the launcher's spawn, the game's screens and the harness; the games run on the runner."""
 from __future__ import annotations
 
 import asyncio
@@ -113,6 +114,59 @@ class EggProofOnWindowsTests(unittest.TestCase):
         self.assertEqual(options["environment"]["PKMN_TEST_BREED_LOG"], "1")
         self.assertEqual(options["party_counts"], (2, 2))
         self.assertEqual(args.hatch_in, "box")
+
+    def reset(self, windows, taken):
+        """reset_question on a stand-in game that opens the question for the keys in `taken`: the keys pressed, the
+        records made, and the screen (or the AssertionError)."""
+        proof = newcomers.NewcomersProof("trade-egg", "1v1v1v1", 120, 900)
+        proof.harness = SimpleNamespace(names=("New Host", "New Friend 1"))
+        pressed, records = [], []
+        probe = SimpleNamespace(hold=.15, _chord=lambda keys, seconds: pressed.append(keys))
+
+        async def nothing(*values, **options):
+            pass
+        proof.on_field = proof.back_to_field = nothing
+        question = SimpleNamespace(title="Reset the game?", status="", rows=[])
+
+        async def shown(probe, timeout=60):
+            if pressed[-1] not in taken:
+                raise TimeoutError
+            return None, question
+        with mock.patch.object(newcomers, "shown", shown), mock.patch.object(newcomers, "WINDOWS", windows):
+            try:
+                result = asyncio.run(proof.reset_question(1, [None, None], [None, probe],
+                                                          lambda name, **fields: records.append(name)))
+            except AssertionError as error:
+                result = error
+        return pressed, records, result
+
+    def test_the_reset_key_is_ctrl_r_and_on_windows_the_four_keys_are_the_last_try(self):
+        ctrl_r, four = ("ctrl", "r"), ("z", "x", "Return", "backslash")
+        for windows in (False, True):
+            with self.subTest(windows=windows):                       # Ctrl+R taken: nothing else pressed or recorded
+                pressed, records, screen = self.reset(windows, taken={ctrl_r})
+                self.assertEqual((pressed, records, screen.title), ([ctrl_r], [], "Reset the game?"))
+        # never taken on Linux: three tries, as before
+        pressed, records, error = self.reset(False, taken=set())
+        self.assertEqual((pressed, records), ([ctrl_r] * 3, ["reset-key-not-taken"] * 3))
+        self.assertIsInstance(error, AssertionError)
+        # Windows: should the posted Ctrl+R never be taken, the four keys posted at once, and the record says so
+        pressed, records, screen = self.reset(True, taken={four})
+        self.assertEqual(pressed, [ctrl_r] * 3 + [four])
+        self.assertEqual(records, ["reset-key-not-taken"] * 3 + ["reset-question-by-the-four-keys"])
+        self.assertEqual(screen.title, "Reset the game?")
+        # the harness's own reset keys (NativeProbe.press_reset_key: the busy proof's resets on the runner)
+        self.assertEqual((newcomers.CTRL_R, newcomers.RESET_KEYS), (ctrl_r, four))
+        self.assertEqual(four, harness_reset_keys())
+
+
+def harness_reset_keys():
+    """The four keys of NativeProbe.press_reset_key (A, B, START, SELECT), read from the harness's own source."""
+    import inspect
+    import re
+    import native_launcher_battle_proof as harness
+    source = inspect.getsource(harness.NativeProbe.press_reset_key)
+    return tuple(re.search(r"self\._chord, \(([^)]*)\)", source).group(1).replace('"', "").split(", "))
 
 
 if __name__ == "__main__":
