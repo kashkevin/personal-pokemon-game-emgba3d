@@ -233,6 +233,12 @@ class WindowsWorkflowTests(unittest.TestCase):
         # Save integrity: the world server's process killed mid-upload or mid-commit, on Windows (TerminateProcess)
         self.assertIn('loadTestsFromNames(["test_server_killed_mid_save"])', bench)
         self.assertIn("result.wasSuccessful() and result.testsRun >= 1", bench)
+        # The save path's own tests on Windows: the store (MS-195), ownership, checkpoints, battle journals, autosave
+        for name in ("test_storage", "test_ownership_storage", "test_checkpoint_server", "test_battle_journal",
+                     "test_live_checkpoint", "test_autosave", "test_launcher_save", "test_shared_world"):
+            self.assertIn(f'"{name}"', bench)
+        self.assertIn('os.environ["PYTHONPATH"] = os.pathsep.join(paths)', bench)   # their child processes import the app
+        self.assertIn("result.testsRun >= 300 and not other", bench)          # only the two checkout-dependent skips
 
     def test_multiplayer_mega_evolution_runs_in_windows_game_processes(self):
         mega = job("mega-proof")
