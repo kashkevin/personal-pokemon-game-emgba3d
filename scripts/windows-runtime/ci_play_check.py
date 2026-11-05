@@ -538,9 +538,11 @@ class PlayCheck:
         player.key("escape")
         return character
 
-    def enter_and_play(self, player, world, slot, *, host_world=None, keep_open=False):
+    def enter_and_play(self, player, world, slot, *, host_world=None, keep_open=False, after=None):
         """After "<character> enters <world>": the registration game (CONTINUE; closes by itself), then the session game
-        (CONTINUE, Save now). ``host_world``: the world's record when it is on another profile (a friend)."""
+        (CONTINUE, Save now). ``host_world``: the world's record when it is on another profile (a friend). ``after``: the
+        character's revision in this world before, when it comes back with progress made elsewhere (its registration saves
+        a later one)."""
         record = host_world or world
         screen = player.expect("bring_character", 180)
         player.choose(screen, "go")
@@ -550,7 +552,7 @@ class PlayCheck:
         player.press_until(game, "a", lambda: not player.desk.alive(game[0]), 300)
         require(not player.desk.alive(game[0]), f"{player.name}: the registration game did not close by itself within five minutes "
                                                  f"(last screen {player.current() and player.current()['notes'][:2]})")
-        first = wait(lambda: revision(record, slot), 30)
+        first = wait(lambda: (revision(record, slot) or 0) > (after or 0) and revision(record, slot), 30)
         if not first:
             after = player.expect(("message", "solo", "host_list", "join_list", "main", "busy", "graphics", "session"), 60)
             raise CheckFailed(f"{player.name}: the registration game ended and the world has no save of the character "
@@ -831,10 +833,11 @@ def installed_files(target):
 
 def upgrade(check, host, friend, setup, target, work, label, world, slot):
     """--upgrade-to: an update as a player makes one. With both menus closed after the steps above, the newer Setup is installed
-    over the same program folder (the players' profiles are left as they are), then both play on: the host's Solo world, the
-    hosted world hosted again, the friend joining it from the saved server. Every character, world and save the older version
-    made must still be there, each world must take the save it holds back (CONTINUE) and save again (Save now), and nothing may
-    record an error. Linux rehearsal: no Setup; the same program starts again."""
+    over the same program folder (the players' profiles are left as they are), then both play on: the hosted world hosted
+    again and the friend joining it from the saved server (both characters played it last: each takes its save there back,
+    CONTINUE, Save now), then the host's Solo world (its character has played elsewhere since: the menu brings it back with
+    its latest progress, a registration, then CONTINUE, Save now). Every character, world and save the older version made
+    must still be there and nothing may record an error. Linux rehearsal: no Setup; the same program starts again."""
     report = dict(setup=setup.name if setup else "the same program (Linux rehearsal)")
     solo = host.world(check.report["solo"]["world"])
     hosted = host.world(world["name"])
@@ -862,10 +865,7 @@ def upgrade(check, host, friend, setup, target, work, label, world, slot):
                 f"{player.name}: Characters after the update {ids}; before it {before['characters'][player.name]}")
     require(sorted(entry["world_id"] for entry in host.worlds()) == before["worlds"], f"{host.name}: the world list changed")
     check.log("after the update: both players' characters and the host's worlds are the ones the older version made")
-    host.choose(host.expect("main"), "solo")
-    host.choose(host.expect("solo"), solo["world_id"])
-    _, report["solo"] = check.play(host, solo, 0, before["revisions"]["solo"])
-    host.expect("main", 60)
+    # The hosted world first: both characters played it last, so each takes its save there back as it is (CONTINUE).
     host.choose(host.expect("main"), "host")
     host.choose(host.expect("host_list"), hosted["world_id"])
     host.choose(host.expect("world"), "host")
@@ -874,10 +874,20 @@ def upgrade(check, host, friend, setup, target, work, label, world, slot):
     check.picture("after-update-join")
     check.close(host, host_game)
     host.expect("host_list", 60)
-    for player in (host, friend):
+    # Then the host's Solo world: the character has played elsewhere since its last visit there, so the menu brings it
+    # back with its latest progress (its earlier save in the Solo world is kept) - a registration game, then the session.
+    host.key("escape")
+    host.choose(host.expect("main"), "solo")
+    host.choose(host.expect("solo"), solo["world_id"])
+    back = host.expect("bring_character", 180)
+    report["solo_brought_back"] = back["notes"][:2]
+    host.log(f"the Solo world after the update: {' '.join(back['notes'][:2])}")
+    _, report["solo"] = check.enter_and_play(host, solo, 0, after=before["revisions"]["solo"])
+    host.expect("main", 60)
+    for player, world_id, name in ((host, solo["world_id"], solo["name"]), (friend, hosted["world_id"], hosted["name"])):
         latest = [c for c in player.characters() if c["character_id"] in before["characters"][player.name]]
-        require(any(c["current"]["world_id"] == hosted["world_id"] for c in latest),
-                f"{player.name}: no character's latest save is the hosted world's after the update")
+        require(any(c["current"]["world_id"] == world_id for c in latest),
+                f"{player.name}: no character's latest save is {name}'s after the update")
     for player in (friend, host):
         check.finish(player)
     for player in (host, friend):
