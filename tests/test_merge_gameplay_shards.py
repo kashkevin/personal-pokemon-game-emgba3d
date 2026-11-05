@@ -13,8 +13,8 @@ SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "qa" / "merge_gamepla
 
 
 def shard(root, name, results, blocked=(), seconds=10):
-    folder = Path(root) / name
-    folder.mkdir()
+    folder = Path(root) / name if name else Path(root)
+    folder.mkdir(exist_ok=True)
     (folder / "gameplay_check.json").write_text(json.dumps(dict(results=list(results), blocked=list(blocked),
                                                                 seconds=seconds, runs={})))
 
@@ -49,6 +49,21 @@ class MergeGameplayShardsTests(unittest.TestCase):
             code, _, out = merge(root, 8)
         self.assertEqual(code, 1)
         self.assertIn("MISSING 7 of 8 shards", out)
+
+    def test_a_lone_shards_report_extracted_into_the_folder_itself_counts(self):
+        # actions/download-artifact v5 and later (the workflows use v8) extract a pattern's only matching artifact
+        # straight into its path, not into a folder named after the artifact
+        with tempfile.TemporaryDirectory() as root:
+            shard(root, None, [dict(key="a", kind="trainer", passed=False, reason="the battle never ended")])
+            code, merged, out = merge(root, 8)
+        self.assertEqual(code, 1)
+        self.assertEqual((merged["shards"], len(merged["results"])), (1, 1))
+        self.assertIn("FAILED a: the battle never ended", out)
+        self.assertIn("MISSING 7 of 8 shards", out)
+        with tempfile.TemporaryDirectory() as root:
+            shard(root, None, [dict(key="a", kind="trainer", passed=True, reason="")])
+            code, merged, _ = merge(root, 1)
+        self.assertEqual((code, merged["shards"]), (0, 1))
 
 
 if __name__ == "__main__":

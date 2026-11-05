@@ -106,17 +106,17 @@ jobs:
       exe_sha256: ${{ steps.build.outputs.exe_sha256 }}
       classic_exe_sha256: ${{ steps.build.outputs.classic_exe_sha256 }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           path: app
       - name: Check out the private engine
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: kashkevin/personal-pokemon-game-emgba3d-engine
           ref: ${{ inputs.engine_ref }}
           token: ${{ secrets.ENGINE_REPO_TOKEN }}
           path: engine
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - name: Toolchain
@@ -349,7 +349,7 @@ jobs:
           print("PC-only markers in the manifest:", present)
           PY
       - name: Hand the build to the Windows job (private, one day)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: native-inputs
           path: native-inputs
@@ -357,7 +357,7 @@ jobs:
           if-no-files-found: error
       - name: Hand the Mega check's test build to its Windows job (private, one day)
         if: ${{ inputs.only != 'package' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: mega-check-inputs
           path: mega-check-inputs
@@ -365,7 +365,7 @@ jobs:
           if-no-files-found: error
       - name: Hand the 3D test build to the graphics job (private, one day)
         if: ${{ inputs.only != 'package' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: diorama-check-inputs
           path: diorama-check-inputs
@@ -373,14 +373,14 @@ jobs:
           if-no-files-found: error
       - name: Hand the gameplay check's plan to its Windows jobs (private, one day)
         if: ${{ inputs.only != 'package' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: gameplay-inputs
           path: gameplay-inputs
           retention-days: 1
           if-no-files-found: warn
       - name: Hand the Classic game's symbol table to the multiplayer job (private, one day)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: classic-pe-symbols
           path: classic-pe-symbols
@@ -390,7 +390,7 @@ jobs:
         # A player's crash.log (MS-71) gives addresses, the module's base and the link time stamp; the installed games are
         # stripped, so these tables (taken before the strip) are what names the functions: an address minus the
         # module base plus 0x400000 (the image base), looked up in the table of the build whose time stamp matches.
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: EmeraldTogether-release-symbols
           path: |
@@ -412,10 +412,10 @@ jobs:
     runs-on: windows-2022
     timeout-minutes: 120
     steps:
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: mega-check-inputs
           path: mega-check-inputs
@@ -433,7 +433,7 @@ jobs:
           if ($normal -ne 0 -or $shiny -ne 0) { throw "the Mega Evolution check failed (exit $normal, shiny $shiny)" }
       - name: Upload the Mega check report (private to this repository, 7 days; no save)
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: EmeraldTogether-mega-check
           path: |
@@ -459,10 +459,10 @@ jobs:
       matrix:
         floors: ["1-25", "26-50", "51-75", "76-100"]
     steps:
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: mega-check-inputs
           path: mega-check-inputs
@@ -480,7 +480,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "the Battle Tower check failed (exit $LASTEXITCODE)" }
       - name: Upload the Tower check report (private to this repository, 7 days; no save)
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: EmeraldTogether-tower-check-${{ strategy.job-index }}
           path: |
@@ -501,10 +501,10 @@ jobs:
     runs-on: windows-2022
     timeout-minutes: 60
     steps:
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: mega-check-inputs
           path: mega-check-inputs
@@ -536,7 +536,7 @@ jobs:
           }
       - name: Upload the reports (private to this repository, 7 days; no save)
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: EmeraldTogether-tower-extras
           path: |
@@ -560,10 +560,10 @@ jobs:
     runs-on: windows-2022
     timeout-minutes: 45
     steps:
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: mega-check-inputs
           path: mega-check-inputs
@@ -579,7 +579,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "the breeding check failed ($LASTEXITCODE)" }
       - name: Upload the report (private to this repository, 7 days; no save)
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: EmeraldTogether-breed-check
           path: |
@@ -600,10 +600,10 @@ jobs:
     runs-on: windows-2022
     timeout-minutes: 45
     steps:
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: mega-check-inputs
           path: mega-check-inputs
@@ -619,7 +619,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "the evolution check failed ($LASTEXITCODE)" }
       - name: Upload the report (private to this repository, 7 days; no save)
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: EmeraldTogether-evolve-check
           path: |
@@ -639,10 +639,10 @@ jobs:
     runs-on: windows-2022
     timeout-minutes: 30
     steps:
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: mega-check-inputs
           path: mega-check-inputs
@@ -658,7 +658,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "the shop check failed ($LASTEXITCODE)" }
       - name: Upload the report (private to this repository, 7 days; no save)
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: EmeraldTogether-shop-check
           path: |
@@ -679,10 +679,10 @@ jobs:
     runs-on: windows-2022
     timeout-minutes: 30
     steps:
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: mega-check-inputs
           path: mega-check-inputs
@@ -698,7 +698,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "the catch check failed ($LASTEXITCODE)" }
       - name: Upload the report (private to this repository, 7 days; no save)
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: EmeraldTogether-catch-check
           path: |
@@ -726,14 +726,14 @@ jobs:
     runs-on: windows-2022
     timeout-minutes: 90
     steps:
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: mega-check-inputs
           path: mega-check-inputs
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: gameplay-inputs
           path: gameplay-inputs
@@ -775,7 +775,7 @@ jobs:
           if ($failed) { throw "failed: $($failed -join ', ')" }
       - name: Upload the reports (private to this repository, 7 days; no save)
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: EmeraldTogether-feature-checks
           path: |
@@ -800,14 +800,14 @@ jobs:
     runs-on: windows-2022
     timeout-minutes: 60
     steps:
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: native-inputs
           path: native-inputs
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: mega-check-inputs
           path: mega-check-inputs
@@ -824,7 +824,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "the rival check failed (exit $LASTEXITCODE)" }
       - name: Upload the check's logs (private to this repository, 7 days; no save)
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: EmeraldTogether-rival-check
           path: ${{ runner.temp }}/rival-check/*.log
@@ -884,27 +884,27 @@ jobs:
         run: |
           [ "${{ needs.engine.outputs.engine_commit }}" = "${{ needs.symbol-sizes.outputs.engine_commit }}" ] || {
             echo "the Windows game and the Linux symbol sizes are of different engine commits" >&2; exit 1; }
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.14"
       - name: Private virtual environment with the pinned, hashed wheels
         run: |
           python -m venv .venv
           .venv/Scripts/python -m pip install --require-hashes --only-binary=:all: -r requirements-host-provisioning.txt
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: native-inputs
           path: inputs
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: mega-check-inputs
           path: mega-check-inputs
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: classic-pe-symbols
           path: symbols
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: classic-linux-sizes
           path: symbols
@@ -964,7 +964,7 @@ jobs:
         run: python scripts/multiplayer/proof_failure_summary.py "$RUNNER_TEMP/multiplayer-proof"
       - name: Upload the proof's record (private to this repository, 7 days; no save)
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: EmeraldTogether-tower-proof-${{ matrix.name }}
           path: |
@@ -997,27 +997,27 @@ jobs:
         run: |
           [ "${{ needs.engine.outputs.engine_commit }}" = "${{ needs.symbol-sizes.outputs.engine_commit }}" ] || {
             echo "the Windows game and the Linux symbol sizes are of different engine commits" >&2; exit 1; }
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.14"
       - name: Private virtual environment with the pinned, hashed wheels
         run: |
           python -m venv .venv
           .venv/Scripts/python -m pip install --require-hashes --only-binary=:all: -r requirements-host-provisioning.txt
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: native-inputs
           path: inputs
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: mega-check-inputs
           path: mega-check-inputs
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: classic-pe-symbols
           path: symbols
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: classic-linux-sizes
           path: symbols
@@ -1041,7 +1041,7 @@ jobs:
         run: python scripts/multiplayer/proof_failure_summary.py "$RUNNER_TEMP/multiplayer-proof"
       - name: Upload the proof's record (private to this repository, 7 days; no save)
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: EmeraldTogether-rival-proof
           path: |
@@ -1091,27 +1091,27 @@ jobs:
         run: |
           [ "${{ needs.engine.outputs.engine_commit }}" = "${{ needs.symbol-sizes.outputs.engine_commit }}" ] || {
             echo "the Windows game and the Linux symbol sizes are of different engine commits" >&2; exit 1; }
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.14"
       - name: Private virtual environment with the pinned, hashed wheels
         run: |
           python -m venv .venv
           .venv/Scripts/python -m pip install --require-hashes --only-binary=:all: -r requirements-host-provisioning.txt
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: native-inputs
           path: inputs
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: mega-check-inputs
           path: mega-check-inputs
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: classic-pe-symbols
           path: symbols
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: classic-linux-sizes
           path: symbols
@@ -1145,7 +1145,7 @@ jobs:
         run: python scripts/multiplayer/proof_failure_summary.py "$RUNNER_TEMP/multiplayer-proof"
       - name: Upload the proof's record (private to this repository, 7 days; no save)
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: EmeraldTogether-minigame-proof-${{ matrix.activity }}-${{ matrix.count }}
           path: |
@@ -1183,27 +1183,27 @@ jobs:
         run: |
           [ "${{ needs.engine.outputs.engine_commit }}" = "${{ needs.symbol-sizes.outputs.engine_commit }}" ] || {
             echo "the Windows game and the Linux symbol sizes are of different engine commits" >&2; exit 1; }
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.14"
       - name: Private virtual environment with the pinned, hashed wheels
         run: |
           python -m venv .venv
           .venv/Scripts/python -m pip install --require-hashes --only-binary=:all: -r requirements-host-provisioning.txt
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: native-inputs
           path: inputs
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: mega-check-inputs
           path: mega-check-inputs
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: classic-pe-symbols
           path: symbols
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: classic-linux-sizes
           path: symbols
@@ -1227,7 +1227,7 @@ jobs:
         run: python scripts/multiplayer/proof_failure_summary.py "$RUNNER_TEMP/multiplayer-proof"
       - name: Upload the proof's record (private to this repository, 7 days; no save)
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: EmeraldTogether-mega-proof-${{ matrix.scenario }}
           path: |
@@ -1261,27 +1261,27 @@ jobs:
         run: |
           [ "${{ needs.engine.outputs.engine_commit }}" = "${{ needs.symbol-sizes.outputs.engine_commit }}" ] || {
             echo "the Windows game and the Linux symbol sizes are of different engine commits" >&2; exit 1; }
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.14"
       - name: Private virtual environment with the pinned, hashed wheels
         run: |
           python -m venv .venv
           .venv/Scripts/python -m pip install --require-hashes --only-binary=:all: -r requirements-host-provisioning.txt
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: native-inputs
           path: inputs
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: mega-check-inputs
           path: mega-check-inputs
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: classic-pe-symbols
           path: symbols
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: classic-linux-sizes
           path: symbols
@@ -1305,7 +1305,7 @@ jobs:
         run: python scripts/multiplayer/proof_failure_summary.py "$RUNNER_TEMP/multiplayer-proof"
       - name: Upload the proof's record (private to this repository, 7 days; no save)
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: EmeraldTogether-coop-proof
           path: |
@@ -1344,27 +1344,27 @@ jobs:
         run: |
           [ "${{ needs.engine.outputs.engine_commit }}" = "${{ needs.symbol-sizes.outputs.engine_commit }}" ] || {
             echo "the Windows game and the Linux symbol sizes are of different engine commits" >&2; exit 1; }
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.14"
       - name: Private virtual environment with the pinned, hashed wheels
         run: |
           python -m venv .venv
           .venv/Scripts/python -m pip install --require-hashes --only-binary=:all: -r requirements-host-provisioning.txt
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: native-inputs
           path: inputs
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: mega-check-inputs
           path: mega-check-inputs
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: classic-pe-symbols
           path: symbols
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: classic-linux-sizes
           path: symbols
@@ -1388,7 +1388,7 @@ jobs:
         run: python scripts/multiplayer/proof_failure_summary.py "$RUNNER_TEMP/multiplayer-proof"
       - name: Upload the proof's record (private to this repository, 7 days; no save)
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: EmeraldTogether-trade-proof-${{ matrix.name }}
           path: |
@@ -1414,8 +1414,8 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.14"
       - name: Private virtual environment with the pinned, hashed wheels
@@ -1490,7 +1490,7 @@ jobs:
           PY
       - name: Upload the timings (private to this repository, 7 days)
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: EmeraldTogether-world-open-bench
           path: ${{ runner.temp }}/world-open-bench.json
@@ -1514,14 +1514,14 @@ jobs:
       matrix:
         shard: [0, 1, 2, 3, 4, 5, 6, 7]
     steps:
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: mega-check-inputs
           path: mega-check-inputs
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: gameplay-inputs
           path: gameplay-inputs
@@ -1541,7 +1541,7 @@ jobs:
           if ($code -ne 0) { throw "shard ${{ matrix.shard }}: a target failed or a game ended early ($code)" }
       - name: Upload this shard's report (private to this repository, 7 days; no save)
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: gameplay-windows-shard-${{ matrix.shard }}
           path: |
@@ -1556,8 +1556,8 @@ jobs:
     if: ${{ always() && (inputs.mode || 'smoke') == 'full' && inputs.gameplay_qa == 'yes' && needs.engine.result == 'success' && (!inputs.only || contains(format(',{0},', inputs.only), ',gameplay-check,')) }}
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
         with:
           pattern: gameplay-windows-shard-*
           path: shards
@@ -1567,7 +1567,7 @@ jobs:
             --engine-commit "${{ needs.engine.outputs.engine_commit }}" --out gameplay_check.json
       - name: Upload the merged report (private to this repository, 7 days)
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: gameplay-check-windows-report
           path: gameplay_check.json
@@ -1593,14 +1593,14 @@ jobs:
       matrix:
         shard: [0, 1, 2, 3, 4, 5, 6, 7]
     steps:
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: diorama-check-inputs
           path: diorama-check-inputs
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: gameplay-inputs
           path: gameplay-inputs
@@ -1643,7 +1643,7 @@ jobs:
           if ($code -ne 0) { throw "shard ${{ matrix.shard }} in 3D: a target failed or a game ended early ($code)" }
       - name: Upload this shard's report (private to this repository, 7 days; no save)
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: gameplay-windows-3d-shard-${{ matrix.shard }}
           path: ${{ runner.temp }}/gameplay-3d/gameplay_check.json
@@ -1656,8 +1656,8 @@ jobs:
     if: ${{ always() && (inputs.mode || 'smoke') == 'full' && inputs.gameplay_qa == 'yes' && needs.engine.result == 'success' && (!inputs.only || contains(format(',{0},', inputs.only), ',gameplay-check-3d,')) }}
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
         with:
           pattern: gameplay-windows-3d-shard-*
           path: shards
@@ -1668,7 +1668,7 @@ jobs:
             --engine-commit "${{ needs.engine.outputs.engine_commit }}" --out gameplay_check.json
       - name: Upload the merged report (private to this repository, 7 days)
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: gameplay-check-windows-3d-report
           path: gameplay_check.json
@@ -1692,7 +1692,7 @@ jobs:
     runs-on: windows-2022
     timeout-minutes: 45
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: native-inputs
           path: inputs
@@ -1738,7 +1738,7 @@ jobs:
           if ($failed.Count) { throw "self-tests failed in the Windows build: $($failed -join ', ')" }
       - name: Upload the self-tests' output (private to this repository, 7 days)
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: EmeraldTogether-selftests
           path: ${{ runner.temp }}/selftests/*.log
@@ -1760,14 +1760,14 @@ jobs:
     env:
       GALLIUM_DRIVER: llvmpipe
     steps:
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: mega-check-inputs
           path: mega-check-inputs
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: diorama-check-inputs
           path: diorama-check-inputs
@@ -1988,7 +1988,7 @@ jobs:
               raise SystemExit("a timed walk did not finish: " + "; ".join(failures))
       - name: Upload the report and the pictures (private to this repository, 7 days; no save)
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: EmeraldTogether-graphics-3d
           path: |
@@ -2038,27 +2038,27 @@ jobs:
         run: |
           [ "${{ needs.engine.outputs.engine_commit }}" = "${{ needs.symbol-sizes.outputs.engine_commit }}" ] || {
             echo "the Windows game and the Linux symbol sizes are of different engine commits" >&2; exit 1; }
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.14"
       - name: Private virtual environment with the pinned, hashed wheels
         run: |
           python -m venv .venv
           .venv/Scripts/python -m pip install --require-hashes --only-binary=:all: -r requirements-host-provisioning.txt
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: native-inputs
           path: inputs
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: mega-check-inputs
           path: mega-check-inputs
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: classic-pe-symbols
           path: symbols
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: classic-linux-sizes
           path: symbols
@@ -2095,7 +2095,7 @@ jobs:
         run: python scripts/multiplayer/proof_failure_summary.py "$RUNNER_TEMP/multiplayer-proof"
       - name: Upload the proof's record (private to this repository, 7 days; no save)
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: EmeraldTogether-abandon-check-${{ matrix.scenario }}${{ matrix.attempt > 1 && format('-{0}', matrix.attempt) || '' }}
           path: |
@@ -2119,10 +2119,10 @@ jobs:
     runs-on: windows-2022
     timeout-minutes: 45
     steps:
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: mega-check-inputs
           path: mega-check-inputs
@@ -2135,7 +2135,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "the starter and soft reset check failed (exit $LASTEXITCODE)" }
       - name: Upload the check's report (private to this repository, 7 days; no save)
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: EmeraldTogether-feature-check
           path: |
@@ -2157,10 +2157,10 @@ jobs:
     runs-on: windows-2022
     timeout-minutes: 20
     steps:
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: mega-check-inputs
           path: mega-check-inputs
@@ -2172,7 +2172,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "the crash report check failed (exit $LASTEXITCODE)" }
       - name: Upload the check's report and crash logs (private to this repository, 7 days; no save)
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: EmeraldTogether-crash-check
           path: |
@@ -2211,11 +2211,11 @@ jobs:
           DEBIAN_FRONTEND=noninteractive timeout 1200 apt-get install -y -qq --no-install-recommends git ca-certificates \
             python3 python3-venv build-essential gcc-multilib libpng-dev pkg-config \
             gcc-arm-none-eabi binutils-arm-none-eabi libnewlib-arm-none-eabi libsdl2-dev:i386
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           path: app
       - name: Check out the private engine
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: kashkevin/personal-pokemon-game-emgba3d-engine
           ref: ${{ inputs.engine_ref }}
@@ -2237,7 +2237,7 @@ jobs:
           nm -S pokeemerald-mp > ../classic-linux-sizes/pokeemerald-mp.sizes.txt
           echo "engine_commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
       - name: Hand the symbol sizes to the multiplayer job (private, one day)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: classic-linux-sizes
           path: classic-linux-sizes
@@ -2259,8 +2259,8 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.14"
       - name: Private virtual environment with the pinned, hashed wheels, and the test runner
@@ -2274,7 +2274,7 @@ jobs:
         run: .venv/Scripts/python -m pytest -rfE --junitxml="$RUNNER_TEMP/pytest-windows.xml"
       - name: Upload the results (private to this repository, 7 days)
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: EmeraldTogether-app-tests-windows
           path: ${{ runner.temp }}/pytest-windows.xml
@@ -2339,27 +2339,27 @@ jobs:
         run: |
           [ "${{ needs.engine.outputs.engine_commit }}" = "${{ needs.symbol-sizes.outputs.engine_commit }}" ] || {
             echo "the Windows game and the Linux symbol sizes are of different engine commits" >&2; exit 1; }
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.14"
       - name: Private virtual environment with the pinned, hashed wheels
         run: |
           python -m venv .venv
           .venv/Scripts/python -m pip install --require-hashes --only-binary=:all: -r requirements-host-provisioning.txt
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: native-inputs
           path: inputs
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: mega-check-inputs
           path: mega-check-inputs
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: classic-pe-symbols
           path: symbols
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: classic-linux-sizes
           path: symbols
@@ -2411,7 +2411,7 @@ jobs:
         run: python scripts/multiplayer/proof_failure_summary.py "$RUNNER_TEMP/multiplayer-proof"
       - name: Upload the proof's record (private to this repository, 7 days; no save)
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: EmeraldTogether-multiplayer-check-${{ matrix.name }}
           path: |
@@ -2434,8 +2434,8 @@ jobs:
     steps:
       - name: Work folder outside the repository (a new one per run)
         run: echo "WORK=$RUNNER_TEMP/emerald-${{ github.run_id }}-${{ github.run_attempt }}" >> "$GITHUB_ENV"
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.14"
       - name: Private virtual environment with the pinned, hashed wheels
@@ -2450,7 +2450,7 @@ jobs:
             --exe "$(.venv/Scripts/python -c 'import sys;print(sys.base_prefix + "/python.exe")')" --output inputs
           echo "HAVE_SPRITES=false" >> "$GITHUB_ENV"
           echo "HAVE_BASE=false" >> "$GITHUB_ENV"
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         if: env.MODE == 'full'
         with:
           name: native-inputs
@@ -2641,14 +2641,14 @@ jobs:
             echo "- Private development preview; clean-PC, gameplay and network acceptance are separate."
           } >> "$GITHUB_STEP_SUMMARY"
       - name: Upload the player's installer (private to this repository, 7 days)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ env.INSTALLER_ARTIFACT }}
           path: ${{ env.WORK }}/launcher/player/
           retention-days: 7
           if-no-files-found: error
       - name: Hand the package hashes to the installation check (one day)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: installer-check-inputs-${{ env.MODE }}
           path: |
@@ -2657,7 +2657,7 @@ jobs:
           retention-days: 1
           if-no-files-found: error
       - name: Upload the developer package (private to this repository, 7 days)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: EmeraldTogether-windows-${{ env.MODE }}
           path: |
@@ -2694,20 +2694,20 @@ jobs:
     env:
       MODE: ${{ inputs.mode || 'smoke' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           sparse-checkout: |
             scripts/windows-runtime
             src
             tests
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.14"
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: ${{ env.INSTALLER_ARTIFACT }}
           path: installer
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: installer-check-inputs-${{ env.MODE }}
           path: check-inputs
@@ -2757,7 +2757,7 @@ jobs:
             --upgrade-to "$(ls installer/EmeraldTogether-Setup-*.exe)" --work "$RUNNER_TEMP/upgrade-check" --label update
       - name: Upload the installation check report (7 days)
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: EmeraldTogether-installer-check-${{ env.MODE }}
           path: |

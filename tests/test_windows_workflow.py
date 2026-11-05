@@ -504,7 +504,7 @@ class WindowsWorkflowTests(unittest.TestCase):
         self.assertIn("rival_check.py --write-facts ../mega-check-inputs/rival-facts.json", engine)
 
     def test_no_upload_carries_game_data(self):
-        uploads = re.findall(r"uses: actions/upload-artifact@v4\n\s+with:\n(.*?)(?=\n      - |\n  [a-z-]+:\n|\Z)",
+        uploads = re.findall(r"uses: actions/upload-artifact@v\d+\n\s+with:\n(.*?)(?=\n      - |\n  [a-z-]+:\n|\Z)",
                              WORKFLOW, re.S)
         self.assertGreaterEqual(len(uploads), 5)
         for upload in uploads:

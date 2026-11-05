@@ -45,17 +45,17 @@ jobs:
       OLD_RUN: ${{ inputs.old_installer_run_id || '39180878911' }}
       NEW_RUN: ${{ inputs.installer_run_id || '' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           sparse-checkout: |
             scripts/windows-runtime
             src
             tests
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.14"
       - name: The installer of the build that crashed
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: EmeraldTogether-Windows-Installer
           path: old-installer
@@ -63,7 +63,7 @@ jobs:
           github-token: ${{ github.token }}
       - name: The installer to check
         if: env.NEW_RUN != ''
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: EmeraldTogether-Windows-Installer
           path: new-installer
@@ -92,7 +92,7 @@ jobs:
             --expect fixed --label fresh
       - name: Upload the reports and menu pictures (7 days)
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: EmeraldTogether-world-check
           path: |
@@ -125,17 +125,17 @@ jobs:
     env:
       NEW_RUN: ${{ inputs.installer_run_id || '' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           sparse-checkout: |
             scripts/windows-runtime
             src
             tests
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.14"
       - name: The installer to check
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: EmeraldTogether-Windows-Installer
           path: new-installer
@@ -149,7 +149,7 @@ jobs:
             --work "$RUNNER_TEMP/play-check" --label play --rejoin 1 --second-character
       - name: Upload the report, screen logs and pictures (7 days)
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: EmeraldTogether-play-check
           path: |

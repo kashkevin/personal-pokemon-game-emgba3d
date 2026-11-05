@@ -38,13 +38,17 @@ def merge(paths):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--shards", required=True, help="a folder holding one folder per shard (gameplay_check.json)")
+    parser.add_argument("--shards", required=True,
+                        help="a folder holding one folder per shard (gameplay_check.json), or a lone shard's own report")
     parser.add_argument("--expected", type=int, required=True, help="how many shards ran")
     parser.add_argument("--engine-commit", default="")
     parser.add_argument("--platform", default="", help="where the shards ran (the report says so)")
     parser.add_argument("--out", required=True)
     args = parser.parse_args()
-    paths = sorted(glob.glob(os.path.join(args.shards, "*", "gameplay_check.json")))
+    # actions/download-artifact v5 and later extract a pattern's only match straight into the path, and several
+    # matches into a folder each: a lone shard's report (the others left none) is the folder's own gameplay_check.json
+    paths = sorted(glob.glob(os.path.join(args.shards, "gameplay_check.json"))
+                   + glob.glob(os.path.join(args.shards, "*", "gameplay_check.json")))
     results, blocked, seconds, problems, summary = merge(paths)
     merged = dict(engine_commit=args.engine_commit, platform=args.platform, shards=len(seconds),
                   longest_shard_seconds=max(seconds, default=0), summary=summary, results=results, blocked=blocked,

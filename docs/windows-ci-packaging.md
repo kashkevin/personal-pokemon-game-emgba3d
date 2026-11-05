@@ -122,6 +122,29 @@ credentials are not available to workflows. Options, narrowest first:
    workflow uses now: secret `ENGINE_REPO_TOKEN`).
 4. An own GitHub App with `actions/create-github-app-token` (one-hour tokens), the most setup.
 
+### Action versions (Node.js 24; KNOWN_ISSUES U31-16, 2026-11-05)
+
+Every workflow uses the official actions at their current majors, whose `action.yml` at the tag declares
+`runs.using: node24`: `actions/checkout@v7`, `actions/setup-python@v7`, `actions/upload-artifact@v7`,
+`actions/download-artifact@v8` (the v4/v5/v4/v4 used before declare node20). `tests/test_workflow_actions.py` fails on
+an action outside these four or on a major that still runs on Node.js 20. What the new majors change here:
+
+* A **self-hosted runner** (`runner = self-hosted`) needs Actions Runner 2.327.1 or later (what each action's
+  release notes state for its move to Node.js 24); GitHub-hosted runners have it.
+* checkout v6 and later keep the token in a file in the runner's temp folder, not in `.git/config` (removed when the
+  job ends). No upload takes that folder whole: each takes a named subfolder or file. No step runs an authenticated
+  `git` command. v7 refuses fork pull requests under `pull_request_target` and `workflow_run`, which these workflows
+  do not use.
+* download-artifact v5 and later extract a pattern's only matching artifact straight into `path`, not into
+  `path/<artifact name>/`: the gameplay reports' merges (the `gameplay-check` workflow's report job and
+  `scripts/qa/merge_gameplay_shards.py`) read both layouts. v8 fails on an artifact whose digest does not match (v4
+  warned) and unzips only what the service serves as a zip (`Content-Type`, or a `.zip` link).
+* upload-artifact v7 zips as before unless `archive: false` (not used); setup-python v7 dropped the `pip-install`
+  input (not used). Every input the workflows pass is an input of the new versions' `action.yml`.
+
+Not verified before a push: a run on GitHub with these versions, including `installed-world-check`'s downloads of an
+installer that an earlier run uploaded with upload-artifact v4.
+
 ### What is verified
 
 * actionlint passes; smoke mode ran green on a Windows runner (above).
