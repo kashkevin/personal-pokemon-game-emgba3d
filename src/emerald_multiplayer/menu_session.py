@@ -40,6 +40,7 @@ class MenuSession:
         self._window_closing = False   # a Tower command or Hyper Training screen closed the game's window
         self._closing_sequence = None  # MS-141c: the request whose window the host closed (a minigame group's start)
         self._arrivals = {}            # request sequence -> when it reached the launcher (loop time)
+        self._wake = asyncio.Event()   # MS-52: the status refresh runs now (a Tower word reached this game's stream)
 
     def _tower_capable(self):
         """The game has Battle Tower: Legends (tower_abi_version 1, bridge.txt tower=1): its page, its command and Hyper
@@ -61,6 +62,21 @@ class MenuSession:
         tower_next_page=1): its OPEN of page 4 is answered with that floor's command."""
         return (self._tower_capable()
                 and getattr(getattr(self.companion, "config", None), "tower_next_page_abi_version", 0) == 1)
+
+    def _tower_record_capable(self):
+        """KNOWN_ISSUES MS-52: the game draws its Tower screens from the host's record sent with each Tower page
+        (tower_record_abi_version 1, bridge.txt tower_record=1); without it no record is ever sent."""
+        return (self._tower_capable()
+                and getattr(getattr(self.companion, "config", None), "tower_record_abi_version", 0) == 1)
+
+    def wake_tower(self):
+        """KNOWN_ISSUES MS-52: the host has just settled something of this player's Tower (a Tower word reached their
+        wallet stream). A window showing a Tower page is refreshed now, not at the next 2 s status refresh, so the host's
+        new rows - and, for a game with the capability, its new record - reach the game at once. Any other page waits
+        for its own refresh."""
+        page = getattr(self.menu, "_page", None)
+        if self.open and not self._closed and isinstance(page, tuple) and page[:1] == ("tower",):
+            self._wake.set()
 
     def feed(self, payload):
         request = MenuRequest.unpack(payload, allow_tower=self._tower_capable(), allow_host_save=self._host_save_capable(),
@@ -171,13 +187,19 @@ class MenuSession:
             new_page = self._new_page_capable()
             if screen.new_page and (not new_page or close or tower is not None):
                 screen = replace(screen, new_page=False)      # an older game keeps its row; a close is no page
+            # KNOWN_ISSUES MS-52: a Tower page's host record follows its 240 bytes in the same packet, for a game that
+            # draws its Tower screens from it; a close, a command or a page without a style carries none.
+            record = getattr(screen, "tower_record", None)
+            if record is not None and (close or tower is not None or not screen.style
+                                       or not self._tower_record_capable()):
+                record = None
             try:
                 self.bridge.outbox.put_control(b"M" + pack_screen(request.sequence, screen, close=close,
                     allow_battle_admission=battle_admission_enabled(self.companion)
                         and getattr(self.bridge, "battle_capable", False),
                     tower_command=tower[1] if tower is not None and tower[0] == "command" else None,
                     hyper_training=tower is not None and tower[0] == "hyper_training", allow_tower=capable,
-                    allow_new_page=new_page))
+                    allow_new_page=new_page) + (record.pack() if record is not None else b""))
                 self._admission_display = ((screen.revision, screen.admission_action)
                     if screen.admission_action and not close and tower is None else None)
                 self._window_closing = tower is not None
@@ -436,7 +458,12 @@ class MenuSession:
 
     async def _poll(self):
         while not self._closed:
-            await asyncio.sleep(2)
+            try:
+                # every 2 s, or at once when the host settled something of this player's Tower (wake_tower, MS-52)
+                await asyncio.wait_for(self._wake.wait(), 2)
+            except asyncio.TimeoutError:
+                pass
+            self._wake.clear()
             # Until another native request acknowledges a choice/close, this
             # exact marked screen may still be displayed or its Enter input
             # may already be latched with its IPC event in transit. A status

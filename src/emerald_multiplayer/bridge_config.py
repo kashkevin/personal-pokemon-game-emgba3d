@@ -19,7 +19,8 @@ def configure_native(manifest: dict, token: str, port: int) -> str:
     MS-62 adds battle_peek=1 (battle PEEK, pushed battle observations) and
     battle_receive_many=1 (RECEIVE_MANY: a batch's small blocks in one command), and battle speed battle_deliver=1
     (DELIVER: a core's acknowledgement and its blocks in one command); the Tower's "go on to floor N?" adds
-    tower_next_page=1 (OPEN page 4); MS-55 adds menu_new_page=1 (a page's first screen starts on its first row)."""
+    tower_next_page=1 (OPEN page 4); MS-55 adds menu_new_page=1 (a page's first screen starts on its first row);
+    MS-52 adds tower_record=1 (a Tower page's screen followed by the host's Tower record, 248 bytes)."""
     from .trade_effect_mailbox import (validate_effect_choice_manifest, validate_effect_prepare_manifest,
                                        validate_effect_save_manifest)
     if (not isinstance(token, str) or not re.fullmatch(r"[0-9a-f]{64}", token)
@@ -48,6 +49,8 @@ def configure_native(manifest: dict, token: str, port: int) -> str:
         lines.append("battle_deliver=1")
     if tower_next_page_enabled(manifest):
         lines.append("tower_next_page=1")
+    if tower_record_enabled(manifest):
+        lines.append("tower_record=1")
     return "\n".join(lines) + "\n"
 
 
@@ -101,6 +104,15 @@ def tower_next_page_enabled(manifest: dict) -> bool:
     Players menu on page 4, which the launcher answers with that floor's command (manifest tower_next_page_abi_version 1,
     beside the Tower)."""
     version = manifest.get("tower_next_page_abi_version")
+    return type(version) is int and version == 1 and tower_enabled(manifest)
+
+
+def tower_record_enabled(manifest: dict) -> bool:
+    """KNOWN_ISSUES MS-52: the native game draws its Tower screens (the 3D UI's home, map, previews and prizes) from the
+    host's record that the launcher sends after a Tower page's screen (menu_mailbox.TowerHostRecord, 8 bytes), not from
+    its save's copy, which the host's TOWER_STATE word changes only on the field (manifest tower_record_abi_version 1,
+    beside the Tower)."""
+    version = manifest.get("tower_record_abi_version")
     return type(version) is int and version == 1 and tower_enabled(manifest)
 
 

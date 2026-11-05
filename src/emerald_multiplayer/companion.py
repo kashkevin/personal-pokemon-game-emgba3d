@@ -281,6 +281,7 @@ class CompanionConfig:
     battle_receive_many_abi_version: int = field(init=False, default=0)  # PC game: RECEIVE_MANY (MS-62)
     battle_deliver_abi_version: int = field(init=False, default=0)  # PC game: DELIVER (MS-62, battle speed)
     tower_next_page_abi_version: int = field(init=False, default=0)  # PC game: the Tower's "go on?" page 4
+    tower_record_abi_version: int = field(init=False, default=0)  # PC game: Tower screens from the host's record (MS-52)
     championship_abi_version: int = field(init=False, default=0)  # PC game: Championship matches against computers
 
     def __post_init__(self) -> None:
@@ -367,6 +368,11 @@ class CompanionConfig:
         from .bridge_config import tower_next_page_enabled
         object.__setattr__(self, "tower_next_page_abi_version",
                            1 if self.tower_abi_version == 1 and tower_next_page_enabled(manifest) else 0)
+        # ... and its Tower screens drawn from the host's record sent with each Tower page (KNOWN_ISSUES MS-52;
+        # bridge.txt tower_record=1).
+        from .bridge_config import tower_record_enabled
+        object.__setattr__(self, "tower_record_abi_version",
+                           1 if self.tower_abi_version == 1 and tower_record_enabled(manifest) else 0)
         # ... and step 18's Championship match against a computer trainer (the solo command's mode 2).
         from .bridge_config import championship_computers_enabled
         object.__setattr__(self, "championship_abi_version",
@@ -2212,6 +2218,22 @@ class Companion:
             else:
                 future.set_result(validated)
 
+    def _note_tower_word(self, previous, wallet) -> None:
+        """KNOWN_ISSUES MS-52: a Battle Tower word new on this game's wallet stream means the host has just settled a
+        Tower battle or a prize for this player. The game applies it only on the field, so a Players window showing a
+        Tower page is refreshed at once (MenuSession.wake_tower): the host's rows, and the host's record for a game that
+        draws its Tower screens from it, reach the game now instead of at the next 2 s status refresh."""
+        if wallet is None or wallet == previous or getattr(self.config, "tower_abi_version", 0) != 1:
+            return
+        from .rewards import TOWER_KINDS, decode
+        word = decode(wallet.get("delta"), tower=True)
+        if word is None or word[0] not in TOWER_KINDS:
+            return
+        session = getattr(self._bridge, "menu_session", None)
+        wake = getattr(session, "wake_tower", None)
+        if callable(wake):
+            wake()
+
     def _apply_world(self, message: dict[str, Any]) -> None:
         players = validate_world(message, self.config, self.session_epoch)
         if message["world_seq"] <= self._last_world_seq:
@@ -2250,7 +2272,8 @@ class Companion:
         self._world_clock = message["clock"]
         self._world_clock_time = time.monotonic()
         self._world_event = message["event"]
-        self._world_wallet = message["wallet"]
+        previous_wallet, self._world_wallet = self._world_wallet, message["wallet"]
+        self._note_tower_word(previous_wallet, message["wallet"])
         self._world_teammate = message["teammate"]
         self._world_spawns = message["spawns"]
         self._world_extras = message.get("extras")

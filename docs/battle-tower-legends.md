@@ -203,6 +203,17 @@ installed game's manifest has `tower_abi_version` 1 (every player of a world run
   Tower result in the save, no Pokemon able to battle, a battle or a save hold in progress.
 * **Flags 5 = open Hyper Training.** Count 0, rows area zero: the game closes the window and opens the Hyper Training screens
   (section 5). Nothing is posted.
+* **The host's record after a Tower page's screen (KNOWN_ISSUES MS-52; the app's half built 2026-11-05, the engine's not
+  yet).** Only for a game with `tower_record_abi_version` 1 (native marker `gMultiplayerTowerRecordAbiVersion`, beside
+  the Tower; the launcher opts in with `bridge.txt` `tower_record=1`): an ordinary screen with a style (1-8) is followed
+  in the same `'M'` packet by 8 bytes, `u32 magic 0x31485754 ("TWH1"); u8 progress P (1..101); u8 highest H (0..100);
+  u16 claims` (8.4 op 1's bits), the host's own numbers for the player (`menu_mailbox.TowerHostRecord`, from the Tower
+  view the page was rendered from; none while the host has no row for the player). A 240-byte screen carries no record
+  (closes, commands, Hyper Training, pages without a style, a host with no row). The native Tower screens then draw P, H,
+  the checkpoint below H and the claims from the record that came with the screen shown, and the save's record
+  otherwise: the save's copy changes only when a TOWER_STATE word is applied on the field, never while the Players
+  menu is open. A changed record is a new screen revision, and a Tower word reaching the companion refreshes an open
+  Tower page at once (`MenuSession.wake_tower`), so a settlement reaches the screens without waiting for the 2 s refresh.
 
 ### 8.3 World action 7 (the game -> the host)
 `struct MultiplayerWorldAction { u32 seq; u8 kind = 7; u8 result; u16 species = floor; u32 eventId = ticket; u32 amount = 0 }`

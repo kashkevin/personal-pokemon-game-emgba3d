@@ -197,6 +197,24 @@ class TowerMenu:
     def _player(self):
         return (self._view or {}).get("player") or {"progress": 1, "highest": 0, "claims": 0, "best": 0}
 
+    def record(self):
+        """KNOWN_ISSUES MS-52: the host's record for the native Tower screens (menu_mailbox.TowerHostRecord), from the view
+        the page was just rendered from; None while there is none for this session, or the host has no row for the
+        player yet (the game's own save is then all there is)."""
+        from .menu_mailbox import TowerHostRecord
+        if (self._view is None or self._supported is False or self._binding is None
+                or self._session() != self._binding):
+            return None
+        player = self._view.get("player") or {}
+        if player.get("known") is not True:
+            return None
+        try:
+            record = TowerHostRecord(player["progress"], player["highest"], player["claims"])
+            record.pack()                     # within the TOWER_STATE word's bounds, or no record at all
+        except (KeyError, ValueError):
+            return None
+        return record
+
     def _go(self, page, arg=None):
         """Open a page; B comes back here (paging within one list replaces it: B leaves the list)."""
         if page != self._page[0]:

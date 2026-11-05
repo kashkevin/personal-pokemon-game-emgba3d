@@ -40,6 +40,13 @@ TOWER_FLOORS = 100
 # 5 Duo status, 6 records, 7 Hyper Training information, 8 prizes
 TOWER_STYLES = range(9)
 _COMMAND = struct.Struct("<IIIBB18s")
+# KNOWN_ISSUES MS-52, only for a game with tower_record_abi_version 1: a Tower page's screen carries the host's own Tower
+# record in 8 bytes after its 240 (TowerHostRecord; the 'M' packet is then 249 bytes, within the bridge's 256), so the
+# native Tower screens draw the host's progress, highest floor and claims instead of the save's copy, which a TOWER_STATE
+# word changes only on the field - never while the Players menu is open. A 240-byte screen carries no record.
+TOWER_RECORD_MAGIC = 0x31485754  # "TWH1"
+TOWER_RECORD_SIZE = 8
+_TOWER_RECORD = struct.Struct("<IBBH")
 CHAMPIONSHIP_MODE = 2          # step 18: a Championship match against a computer trainer (docs/championships-eight.md)
 CHAMPIONSHIP_ROUNDS = 3        # 1 quarterfinal, 2 semifinal, 3 final
 CHAMPIONSHIP_FLAG_EXP = 1      # the match gives experience (the host's choice; off by default)
@@ -144,6 +151,34 @@ class TowerCommand:
         result = cls(ticket, table_hash, floor, mode, reserved[0], reserved[1])
         result.pack()
         return result
+
+
+@dataclass(frozen=True)
+class TowerHostRecord:
+    """The host's Tower record that follows a Tower page's 240-byte screen (8 bytes, KNOWN_ISSUES MS-52): magic "TWH1",
+    the progress floor P (1-101), the highest floor cleared H (0-100) and the claim bits (the TOWER_STATE word's op 1:
+    prizes 0-11, milestone Pokemon 12-15), with the TOWER_STATE word's bounds (rewards.tower_progress, tower_claims). It
+    belongs to the screen it follows: the game keeps it with that screen and drops it with the next one."""
+    progress: int
+    highest: int
+    claims: int
+
+    def pack(self):
+        _uint(self.progress, TOWER_FLOORS + 1, 1)
+        _uint(self.highest, TOWER_FLOORS)
+        _uint(self.claims, 0xFFFF)
+        return _TOWER_RECORD.pack(TOWER_RECORD_MAGIC, self.progress, self.highest, self.claims)
+
+    @classmethod
+    def unpack(cls, value):
+        if type(value) is not bytes or len(value) != TOWER_RECORD_SIZE:
+            raise ValueError("a Tower host record has exactly 8 bytes")
+        magic, progress, highest, claims = _TOWER_RECORD.unpack(value)
+        if magic != TOWER_RECORD_MAGIC:
+            raise ValueError("a Tower host record needs its magic")
+        record = cls(progress, highest, claims)
+        record.pack()
+        return record
 
 
 def pack_screen(request_sequence, screen, *, close=False, reopen_trade=False, allow_battle_admission=False,

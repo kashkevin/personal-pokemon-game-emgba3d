@@ -191,6 +191,9 @@ class MenuScreen:
     # KNOWN_ISSUES MS-55: the first screen of a page the window was not on (not a refresh of the page, nor another page of
     # the same list): the game starts its cursor on the first row (flags 0x80, only to a game with menu_new_page).
     new_page: bool = False
+    # KNOWN_ISSUES MS-52: a Tower page's host record (menu_mailbox.TowerHostRecord: the host's progress, highest floor and
+    # claims), sent with the screen only to a game with tower_record_abi_version 1; None: the game draws its save's copy.
+    tower_record: object = None
 
 
 def battle_admission_enabled(companion):
@@ -564,15 +567,17 @@ class PlayerMenu:
             return page, self._championship._page[0]
         return (page,)
 
-    def _show(self, title, status, actions, style=(0, 0)):
-        """``style``: a Battle Tower page's (style, argument) for the native PC UI (menu_mailbox.TOWER_STYLES)."""
+    def _show(self, title, status, actions, style=(0, 0), record=None):
+        """``style``: a Battle Tower page's (style, argument) for the native PC UI (menu_mailbox.TOWER_STYLES); ``record``:
+        its host record (menu_mailbox.TowerHostRecord, KNOWN_ISSUES MS-52). A changed record is a new screen, so a
+        status refresh sends the host's new numbers even when the page's text stays the same."""
         if len(actions) > 6:
             raise PlayerMenuError("menu_capacity")
         title, status = _text(title, 23), _text(status, 31)
         normalized = tuple((_text(label, 25), op, tuple(args)) for label, op, args in actions)
         admission = next((i + 1 for i, (_, op, _) in enumerate(normalized)
             if op == "battle_enter" and battle_admission_enabled(self.companion)), 0)
-        signature = (self._binding, self._page, title, status, normalized, admission, style)
+        signature = (self._binding, self._page, title, status, normalized, admission, style, record)
         if signature != self._signature:
             revision = self._screen.revision + 1
             if revision > 0xFFFFFFFF:
@@ -589,7 +594,7 @@ class PlayerMenu:
             identity = self._page_identity()
             self._screen = MenuScreen(revision, title, status,
                 tuple(MenuRow(i + 1 if op else 0, label) for i, (label, op, _) in enumerate(normalized)), back, admission,
-                *style, new_page=identity != self._shown_page)
+                *style, new_page=identity != self._shown_page, tower_record=record)
             self._signature, self._shown_page = signature, identity
         return self._screen
 
@@ -1021,7 +1026,7 @@ class PlayerMenu:
                 title, status, actions, style = self._tower.render()
             except TowerMenuError as error:
                 raise PlayerMenuError(error.code) from error
-            return self._show(title, status, actions, style)
+            return self._show(title, status, actions, style, self._tower.record())
         elif page in ("card", "card_battles", "card_championships", "card_shared", "card_progress", "hunts", "hunt", "hunt_filters", "hunt_totals"):
             title, status = "Trainer Card", self._card_notice or "Recorded results snapshot"
             card = self._card

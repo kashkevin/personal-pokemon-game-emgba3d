@@ -343,6 +343,14 @@ def generate(rom: Path, elf: Path, nm: str, engine_commit: str, *, trade_effect_
         if not four_byte_marker(tower_next) or manifest.get("tower_abi_version") != 1:
             raise ValueError("the Tower's next floor page needs one four-byte marker and the Tower")
         manifest.update(tower_next_page_abi_version=1)
+    # KNOWN_ISSUES MS-52: the native Tower screens drawn from the host's record that follows a Tower page's screen
+    # (menu_mailbox.TowerHostRecord) instead of the save's copy. Native PC game only, beside the Tower; the launcher opts
+    # in with bridge.txt tower_record=1.
+    tower_record = native_marker("gMultiplayerTowerRecordAbiVersion", symbols + native_symbols)
+    if tower_record:
+        if not four_byte_marker(tower_record) or manifest.get("tower_abi_version") != 1:
+            raise ValueError("the Tower's host record needs one four-byte marker and the Tower")
+        manifest.update(tower_record_abi_version=1)
     # Step 18: a Championship match against a computer trainer (the Tower's solo command, mode 2: the round's intro and
     # result, no "go on?", no experience unless asked). Native PC game only, beside the Tower; the host serves
     # computer places in a Championship only when its installed game has it (docs/championships-eight.md).
