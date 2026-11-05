@@ -1543,6 +1543,106 @@ jobs:
           retention-days: 7
           if-no-files-found: warn
 
+  gameplay-check-3d:
+    # The same plan as gameplay-check in the 3D game (its test build), the way players start it: every map the plan
+    # visits loaded, drawn and walked in 3D and its trainers fought in 3D battles, in real Windows game processes,
+    # through Mesa's software OpenGL as the graphics-3d job draws (a hosted runner has no graphics card). One game at a
+    # time per shard (llvmpipe takes the runner's cores); a game process may run three hours (a software renderer).
+    # Only when asked (only: gameplay-3d, a full run) until its first Windows results are looked at.
+    name: Gameplay check in 3D (Windows game processes, Mesa software OpenGL, shard ${{ matrix.shard }})
+    needs: engine
+    if: ${{ (inputs.mode || 'smoke') == 'full' && contains(format(',{0},', inputs.only), ',gameplay-3d,') }}
+    runs-on: windows-2022
+    timeout-minutes: 330
+    env:
+      GALLIUM_DRIVER: llvmpipe
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@v4
+        with:
+          name: diorama-check-inputs
+          path: diorama-check-inputs
+      - uses: actions/download-artifact@v4
+        with:
+          name: gameplay-inputs
+          path: gameplay-inputs
+      - name: Mesa's software OpenGL (32-bit) beside the 3D test build (pinned)
+        shell: pwsh
+        env:
+          # the graphics-3d job's (mesa-dist-win as run 129 used it first: llvmpipe, OpenGL 4.6 Core, Mesa 26.2.4)
+          MESA_VERSION: "26.2.4"
+          MESA_SHA256: 351fc8c8b695878ffb3eaa044b3ead08672a48b1a045e3c3e3975811df0f6695
+        run: |
+          $name = "mesa3d-$env:MESA_VERSION-release-msvc.7z"
+          $archive = Join-Path $env:RUNNER_TEMP "mesa.7z"
+          Invoke-WebRequest -Uri "https://github.com/pal1000/mesa-dist-win/releases/download/$env:MESA_VERSION/$name" -OutFile $archive
+          $hash = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLower()
+          if ($hash -ne $env:MESA_SHA256) { throw "$name has sha256 $hash, not the pinned $env:MESA_SHA256" }
+          $mesa = Join-Path $env:RUNNER_TEMP "mesa"
+          & 7z x $archive "-o$mesa" "x86\*.dll" -y | Out-Null
+          foreach ($dll in @("opengl32.dll", "libgallium_wgl.dll", "libglapi.dll")) {
+            $source = Join-Path $mesa "x86\$dll"
+            if (Test-Path $source) { Copy-Item $source diorama-check-inputs\ }
+          }
+          if (-not (Test-Path diorama-check-inputs\opengl32.dll)) { throw "Mesa's 32-bit opengl32.dll is missing" }
+          $probe = & diorama-check-inputs\pokeemerald-mp-diorama-bfxtest.exe --probe-graphics | Select-Object -Last 1
+          Write-Output $probe
+          $result = $probe | ConvertFrom-Json
+          if (-not $result.supported -or $result.renderer -notmatch "llvmpipe") { throw "not Mesa's llvmpipe: $probe" }
+      - name: A character from the short introduction, then this shard's targets in 3D
+        shell: pwsh
+        run: |
+          if (-not (Test-Path gameplay-inputs\plan\plan.json)) {
+            Write-Output "::notice::this engine has no gameplay check (tools/qa/gameplay_check.py)"
+            exit 0
+          }
+          $out = Join-Path $env:RUNNER_TEMP "gameplay-3d"
+          python gameplay-inputs\tools\qa\gameplay_check.py --exe diorama-check-inputs\pokeemerald-mp-diorama-bfxtest.exe `
+            --plan gameplay-inputs\plan\plan.json --make-save (Join-Path $env:RUNNER_TEMP "new.sav") `
+            --shard ${{ matrix.shard }} --shards 8 --jobs 1 --speed 4 --process-timeout 10800 --out $out
+          $code = $LASTEXITCODE
+          Get-ChildItem -Path $out -Recurse -Include test.sav, new.sav | Remove-Item -Force
+          if ($code -ne 0) { throw "shard ${{ matrix.shard }} in 3D: a target failed or a game ended early ($code)" }
+      - name: Upload this shard's report (private to this repository, 7 days; no save)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gameplay-windows-3d-shard-${{ matrix.shard }}
+          path: ${{ runner.temp }}/gameplay-3d/gameplay_check.json
+          retention-days: 7
+          if-no-files-found: warn
+
+  gameplay-report-3d:
+    name: The whole game's gameplay report in 3D (Windows)
+    needs: [engine, gameplay-check-3d]
+    if: ${{ always() && (inputs.mode || 'smoke') == 'full' && needs.engine.result == 'success' && contains(format(',{0},', inputs.only), ',gameplay-3d,') }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: gameplay-windows-3d-shard-*
+          path: shards
+      - name: Merge the shards (every failed target and blocked group in the log)
+        run: |
+          python3 scripts/qa/merge_gameplay_shards.py --shards shards --expected 8 \
+            --platform "windows-2022, the 3D test build, Mesa llvmpipe" \
+            --engine-commit "${{ needs.engine.outputs.engine_commit }}" --out gameplay_check.json
+      - name: Upload the merged report (private to this repository, 7 days)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gameplay-check-windows-3d-report
+          path: gameplay_check.json
+          retention-days: 7
+          if-no-files-found: warn
+
   selftests:
     # The engine's own self-tests in the Windows build (the PC game's code without a game window: party order, battle
     # names, cries, shake animations, line breaks, wild weather, legends, shiny odds, coins, breeding, rivals, Update 32,

@@ -280,9 +280,11 @@ class WindowsWorkflowTests(unittest.TestCase):
         # `only` names check jobs (comma-separated): the builds and those jobs run, nothing else (no installer). Blank (a
         # release run, a push) runs every job as before.
         self.assertIn("      only:\n", WORKFLOW)
-        # (app-tests runs only when asked, until its Windows results are looked at: test_the_apps_whole_suite_...)
+        # (app-tests and the 3D gameplay check run only when asked, until their Windows results are looked at:
+        # test_the_apps_whole_suite_... and test_the_gameplay_plan_runs_in_the_3d_game_on_windows_when_asked)
         checks = [name for name in re.findall(r"^  ([a-z0-9-]+):\n", WORKFLOW, re.M)
-                  if name not in ("push", "engine", "symbol-sizes", "install-check", "app-tests")]
+                  if name not in ("push", "engine", "symbol-sizes", "install-check", "app-tests",
+                                  "gameplay-check-3d", "gameplay-report-3d")]
         self.assertIn("abandon-check", checks)
         self.assertIn("package", checks)
         for name in checks:
@@ -402,6 +404,27 @@ class WindowsWorkflowTests(unittest.TestCase):
         self.assertIn("--require-hashes --only-binary=:all: -r requirements-host-provisioning.txt", tests)
         self.assertIn("pytest==9.1.1 pytest-timeout", tests)                # as python-tests installs them
         self.assertIn('.venv/Scripts/python -m pytest -rfE --junitxml="$RUNNER_TEMP/pytest-windows.xml"', tests)
+
+    def test_the_gameplay_plan_runs_in_the_3d_game_on_windows_when_asked(self):
+        check = job("gameplay-check-3d")
+        self.assertIn("runs-on: windows-2022", check)
+        self.assertIn("needs: engine", check)
+        self.assertIn("if: ${{ (inputs.mode || 'smoke') == 'full' && contains(format(',{0},', inputs.only), "
+                      "',gameplay-3d,') }}", check)                          # only when asked, in a full run
+        self.assertIn("shard: [0, 1, 2, 3, 4, 5, 6, 7]", check)
+        self.assertIn("GALLIUM_DRIVER: llvmpipe", check)
+        self.assertIn("MESA_SHA256: 351fc8c8b695878ffb3eaa044b3ead08672a48b1a045e3c3e3975811df0f6695", check)
+        self.assertIn("if ($hash -ne $env:MESA_SHA256) { throw", check)      # the pinned archive or nothing
+        self.assertIn("--probe-graphics", check)
+        self.assertIn("--exe diorama-check-inputs\\pokeemerald-mp-diorama-bfxtest.exe", check)   # the 3D test build
+        self.assertIn("--shard ${{ matrix.shard }} --shards 8 --jobs 1 --speed 4 --process-timeout 10800", check)
+        self.assertIn("Remove-Item -Force", check)                         # no save in the uploads
+        self.assertIn("name: gameplay-windows-3d-shard-${{ matrix.shard }}", check)
+        report = job("gameplay-report-3d")
+        self.assertIn("needs: [engine, gameplay-check-3d]", report)
+        self.assertIn("contains(format(',{0},', inputs.only), ',gameplay-3d,')", report)
+        self.assertIn("pattern: gameplay-windows-3d-shard-*", report)
+        self.assertIn("merge_gameplay_shards.py --shards shards --expected 8", report)
 
     def test_a_battle_and_trades_between_players_run_in_the_3d_game_on_windows(self):
         mp = job("multiplayer-check")
