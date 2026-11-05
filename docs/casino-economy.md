@@ -104,9 +104,11 @@ A ball that misses loses its minimum bet: Left table: 1 -> 25, Right table: 3 ->
 - **Payout counting.** The Roulette counts a payout at 4 frames a coin and cannot skip it, so earning 15,000 coins takes about
   18 of the 30 minutes watching coins count. The Slot Machine counts at 9 frames a coin (5 with A held) and skips with START.
   Speeding the Roulette up is not a bet cost or a payout and was not done.
-- **The classic 2D Slot Machine's information panel (SELECT)** is a picture and still lists the old payouts (2, 4, 3, 6, 12,
-  90, 300). The 3D game's own panel lists the new ones. The classic 2D Roulette's multiplier picture was redrawn (x36, x48, x72,
-  x96) and checked in the real game.
+- **The classic 2D Slot Machine's information panel (SELECT)** is a picture; since 2026-11-05 the PC game has its own (KNOWN_ISSUES
+  MS-84), drawn from `include/platform/casino_rates.h` by `tools/pc_port/gen_slot_info_box.py`: 6,000, 6,000, 1,800, 1,800, 150, 75,
+  "25,50" (the cherry's middle and edge rows) and "PWR,40" for Pikachu Power ("POWER," and two digits do not fit beside its bolts);
+  before, it listed the GBA's 300, 90, 12, 6, 2 and 4, and 3. The 3D game's own panel lists the new ones. The classic 2D Roulette's
+  multiplier picture was redrawn (x36, x48, x72, x96) and checked in the real game.
 - **Bets of 1 and 2 tiles** pay less than 3 tiles (as in the original): 4,143 and 3,383 net coins in 30 minutes for the
   START player.
 - **A top or bottom row cherry** pays 50 and is not on the 3D payout panel (it was not on the original's either).

@@ -152,9 +152,7 @@ said). Nothing here changes gameplay.
 
 | Issue | What is left | Row of | Verification |
 | --- | --- | --- | --- |
-| MS-84 | The Classic 2D Slot Machine's information panel still lists the old payouts (a picture the GBA ROM shares); the 3D game's payout panel (SELECT) lists the new ones | 2026-10-26 | - |
 | MS-49 | A Battle Tower floor in a game running below about 22 frames a second could still start after the host's two minutes (the game's wait counts its own frames, which keep real time unless the picture is drawn at fewer than 12 frames a second: `sdl2.c` runs up to five game frames per drawn frame) | 2026-10-22 | L self-test (the 45 s limit) |
-| MS-125 | When a battle's core stops itself, the Classic 2D game shows no notice (it has no PC overlay); the 3D game shows one | 2026-10-26 | L |
 | MS-181 | Another player diving is drawn with the original underwater look, not on their own carrier | 2026-11-04 | L |
 | MS-12 | The bridge's limits: another operation's CANCEL, a second CANCEL or any other command still stops the bridge; a recovery control that replaces the command takes the waiting CANCEL with it | 2026-11-03 | L; not run on Windows or in mGBA |
 | M1 | The check that a native game was built with the same ROM build runs for games the launcher starts, not for one started by hand | 2026-10 (Milestone C) | L |
@@ -195,5 +193,15 @@ tried); MS-83's race, seen once and not reproduced after its fix.
 
 **Covered on Windows since their rows were written** (the rows say "not on Windows"): MS-78 (move switching) and
 MS-171 (the Acro Bike's rails) by the feature-checks job (`move_switch_check.py`, `acro_check.py`; passed in run 288);
-MS-151 (a trade evolution between two games) by the new trade-proof job (its first run: run 299). MS-166 (the 99 script
-specials' 8-bit results), MS-182 and MS-185 have no Windows check of their own; the Windows builds carry them.
+MS-151 (a trade evolution between two games) by the new trade-proof job (its first run: run 299); MS-166 (the 99 script
+specials' 8-bit results, the Day Care's money among them) by the engine self-tests job (`--selftest-special-results`
+since run 277, passed in run 288). MS-182 and MS-185 have no Windows check of their own (reads past their data that
+AddressSanitizer found on Linux); the Windows builds carry the fixes.
+
+**Fixed though its row still read open**: MS-125's Classic 2D notice ("This battle stopped. In the launcher: Recover
+battle, or Abandon battle." over the GBA picture when a battle's core stops itself) has been in the game since engine
+`2f45fe5c` (2026-10-27; its drawing checked in the 2D test build, a core stopping itself not reproduced); KNOWN_ISSUES now
+says so. Every other row above was checked against both repositories' histories for a later fix: none.
+
+**Fixed since this audit**: MS-84, the Classic 2D Slot Machine's payout table (SELECT) shows the PC game's payouts
+(engine `4c35be64`, a picture of the PC game's own; L in the real game, the GBA ROM unchanged; not on Windows).
