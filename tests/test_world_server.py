@@ -297,7 +297,8 @@ class WorldFrameTests(WorldServerTests):
         await self.drop(0)
         clock.now += 299.0
         self.assertEqual(await self.claim(2, event_id), "busy")
-        clock.now += 1.0                                       # the five minutes are up: released exactly then
+        clock.now += 1.01                                      # the five minutes are up (just past: the active time is a
+                                                               # float sum, so the exact boundary may round either way)
         self.assertIsNone(world._holder())
         await self.world(1, lambda w: w["event"] is not None and w["event"]["claimant"] is None)
         self.assertEqual(await self.claim(1, event_id), "granted")
@@ -327,7 +328,7 @@ class WorldFrameTests(WorldServerTests):
         self.assertIsNotNone(world._claim["released_at"])
         clock.now += 299.0
         self.assertEqual(await self.claim(1, event_id), "busy")
-        clock.now += 1.0
+        clock.now += 1.01                                      # just past the five minutes (see the test above)
         self.assertEqual(await self.claim(1, event_id), "granted")
         self.assertEqual(world._holder(), b)
         await self.rejoin(0)
