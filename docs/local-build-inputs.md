@@ -13,12 +13,13 @@ build inputs"). This describes what the code does today; nothing here changes ho
 | ROM patches | `game.bps` (made from the owner's dump; it carries most of the built game) | inside a package only |
 | The decomp's binary graphics | `.1bpp`, `.4bpp`, `.8bpp`, `.gbapal`, `.lz` | the private engine repository |
 | Built games and archives | `pokeemerald-mp(.exe)`, `pokeemerald-mp-diorama(.exe)`, `SDL2.dll`, `EmeraldTogether.zip`, `.7z` | CI artifacts (private to the repository) or the owner's PC |
-| Worlds, saves' databases, credentials | `.sqlite3`, `.db`, `host.json`, invitations | the player's private storage |
+| Worlds and their databases | `world.sqlite3`, `.db` (and a world's `host.json` and invitations, which hold its keys) | the player's private storage (`%LOCALAPPDATA%\PokemonPrivate\launcher\`) |
 
 How this is enforced:
 
-* `.gitignore` keeps every kind above out of a `git add` (the section "Proprietary game data never goes into Git"),
-  including a `inputs/` or `native-inputs/` folder copied into a checkout.
+* `.gitignore` keeps every kind of game data above, and the world databases, out of a `git add` (its section
+  "Proprietary game data never goes into Git"), also in an `inputs/` or `native-inputs/` folder copied into a checkout.
+  The launcher keeps a world's `host.json` and invitations in its private storage, outside any checkout.
 * `tests/test_no_game_data_tracked.py` fails when a tracked file is named as any of these, or holds one by its
   bytes whatever its name (a GBA, DS or Game Boy ROM header, the Nintendo logo of such a header, a BPS/UPS/IPS patch,
   an EBSP pack, an archive, an executable, an SQLite database, or the owner's dump by its SHA-256), or is any other
@@ -31,8 +32,9 @@ How this is enforced:
 
 Audit of 2026-11-05 (nothing found): every tracked file (911 at `1807d43`) and every blob of every branch and tag,
 the remote's 13 tags that had not been fetched included (4,406 blobs, 955 commits, 33 annotated tags), checked by
-name and by bytes for the formats above; history was read, not rewritten. The only binary files ever committed are the eight launcher screenshots.
-`scripts/windows-runtime/source-fixtures.json` names ROM and save fixtures of the mGBA source that the source
+name and by bytes for the formats above; history was read, not rewritten. The only binary files ever committed are the
+eight launcher screenshots. `scripts/windows-runtime/source-fixtures.json` names ROM and save fixtures of the mGBA
+source that the source
 sanitizer removes (paths and hashes only), and `docs/graphics-file-inventory.json` counts the engine's graphics files
 (paths, counts and sizes only); neither holds game data.
 
@@ -81,7 +83,8 @@ PowerShell `Get-FileHash C:\EmeraldPrivate\base-emerald.gba` must print the SHA-
 * **CI on a self-hosted runner** (the owner's PC; most private): set the repository variable `PRIVATE_INPUT_DIR` to
   that folder, name the files exactly `base-emerald.gba` and `battle-sprites.ebsp`, and run `windows-package` with
   `mode = full`, `runner = self-hosted`. Only the `package` job runs there; it copies the files into its own `inputs`
-  folder on that PC and deletes `inputs` and its work folder when it ends, whatever the result.
+  folder on that PC and deletes `inputs` and its work folder when it ends, whatever the result. The dump never leaves
+  the PC; what the package built from it carries, and uploads, is in section 5.
 * **CI on GitHub's runners**: the secrets `BASE_ROM_URL` and `SPRITE_PACK_URL`, each an expiring HTTPS link to
   storage the owner controls (a secret holds a link, never the file). The file passes through GitHub's runner.
 * **The sprite pack** in either case also needs the repository variable `SPRITE_PACK_SHA256` (its 64-digit
@@ -94,9 +97,11 @@ wrong one stops the job (exit 1).
 
 ## 5. What CI keeps of private inputs
 
-* The dump and the pack are never uploaded. A package built with the dump carries `game.bps` (the patch to the
-  built game) and, like every package, the game's executables, which hold the game's data: packages are private
-  builds for friends who own the game, never published (`docs/windows-ci-packaging.md`).
+* The dump itself is never uploaded. A package built with it carries `game.bps` (the patch to the built game), one
+  built with the sprite pack carries the pack beside the game (pinned in the runtime bundle), and every package
+  carries the game's executables, which hold the game's data: the installer and the developer package are uploaded as
+  artifacts like any package, private builds for friends who own the game, never published
+  (`docs/windows-ci-packaging.md`).
 * Artifacts are private to the repository: the built game (`native-inputs`: the executables, `pokedev.gba` and its
   manifest) is kept for one day as the hand-off between jobs; the installer and the developer package for 7 days.
   `tests/test_windows_workflow.py` checks that no other upload of `windows-package.yml` names a `.gba`, `.sav` or
