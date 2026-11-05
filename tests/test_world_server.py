@@ -238,6 +238,102 @@ class WorldFrameTests(WorldServerTests):
         self.assertEqual(rewards.decode(frame_b["wallet"]["delta"]), (rewards.KIND_CATCH_KEEP, number))
         self.assertEqual(len(self.server.wagers.pending_for(a)), 1)
 
+    def reserved_event(self):
+        """A World Event out at once, its world's clock a fake one on the same time line (the active time counted so
+        far stays as it is), so that the five minutes of G3 can pass in a test."""
+        from test_shared_world import FakeClock
+        world = self.server.shared_world
+        world.locations = [{"name": "Route 101", "map_group": 0, "map_number": 16, "x": 9, "y": 9,
+                            "min_level": 0, "themes": []}]
+        world._condition_chance = 0.0                           # no weather/time condition: claimable at once
+        clock = FakeClock()
+        clock.now = world._now()
+        world._now = clock
+        event_id = world.spawn_event(progression_level=10, category="legendary")["event_id"]
+        return world, clock, event_id
+
+    async def claim(self, index, event_id):
+        reply = await self.world_rpc(index, "world_action", action="claim", event_id=event_id, result=None, seq=1)
+        return reply["result"]["outcome"]
+
+    async def drop(self, index):
+        """A game's connection closed under it (a crashed game, a pulled cable): the host sees it at once."""
+        await self.actors[index].close()
+        await wait_until(lambda: self.pid(index) not in self.server.sessions)
+
+    async def rejoin(self, index):
+        self.actors[index] = await Actor.connect(self.server.address, self.players[index])
+        await wait_until(lambda: self.pid(index) in self.server.sessions)
+
+    async def test_a_dropped_claimants_world_event_is_reserved_reclaimed_and_released_over_the_wire(self):
+        # G3 (owner, 2026-11-05) through the host's own connection handling, real connections on the loopback: A claims
+        # the World Event Pokemon and A's connection drops. For five minutes of active time it stays A's (B is told it is
+        # busy); A reconnects within them and has it back, with no deadline while connected; A drops again and stays
+        # away past the five minutes: it is released, B claims it, and A, back too late, is told it is busy. One holder
+        # at every step.
+        world, clock, event_id = self.reserved_event()
+        self.server._broadcast_world()
+        await self.world(1, lambda w: w["event"] is not None)
+        a, b = self.pid(0), self.pid(1)
+        self.assertEqual(await self.claim(0, event_id), "granted")
+
+        await self.drop(0)
+        self.assertEqual(world._holder(), a)                   # reserved, its deadline running
+        self.assertIsNotNone(world._claim["released_at"])
+        clock.now += 250.0                                     # (the event itself lasts 15 minutes of active time)
+        self.assertEqual(await self.claim(1, event_id), "busy")
+        self.assertEqual(world._holder(), a)
+        frame = await self.world(1, lambda w: w["event"] is not None)
+        self.assertIsNotNone(frame["event"]["claimant"])       # the others still see it taken
+
+        await self.rejoin(0)                                   # back within the five minutes: reclaimed
+        self.assertEqual(world._holder(), a)
+        self.assertIsNone(world._claim["released_at"])
+        clock.now += 100.0                                     # connected: no deadline runs (250 + 100 > 300)
+        self.assertEqual(await self.claim(1, event_id), "busy")
+        self.assertEqual(await self.claim(0, event_id), "granted")   # the game asks again after its reconnection
+        self.assertEqual(world._holder(), a)
+
+        await self.drop(0)
+        clock.now += 299.0
+        self.assertEqual(await self.claim(2, event_id), "busy")
+        clock.now += 1.0                                       # the five minutes are up: released exactly then
+        self.assertIsNone(world._holder())
+        await self.world(1, lambda w: w["event"] is not None and w["event"]["claimant"] is None)
+        self.assertEqual(await self.claim(1, event_id), "granted")
+        self.assertEqual(world._holder(), b)
+        self.assertEqual(await self.claim(2, event_id), "busy")
+
+        await self.rejoin(0)                                   # too late: B holds it now
+        self.assertEqual(world._holder(), b)
+        self.assertEqual(await self.claim(0, event_id), "busy")
+        await self.world(0, lambda w: w["event"] is not None and w["event"]["claimant"] not in (None, a))
+
+    async def test_a_silent_claimant_is_dropped_by_the_heartbeat_and_its_event_reserved_then_released(self):
+        # G3 when a game stops answering without closing its connection (a frozen game, Wi-Fi gone): the host's heartbeat
+        # ends the session, and the reservation starts from then; nobody else can claim it for five minutes.
+        world, clock, event_id = self.reserved_event()
+        self.server.config = replace(self.server.config, idle_timeout=0.5)
+        self.server._broadcast_world()
+        await self.world(0, lambda w: w["event"] is not None)
+        a, b = self.pid(0), self.pid(1)
+        self.assertEqual(await self.claim(0, event_id), "granted")
+        silent = self.actors[0]
+        silent.task.cancel()                                   # it reads nothing and answers no ping; its socket stays open
+        await asyncio.gather(silent.task, return_exceptions=True)
+        await wait_until(lambda: a not in self.server.sessions)
+        await silent.close()
+        self.assertEqual(world._holder(), a)
+        self.assertIsNotNone(world._claim["released_at"])
+        clock.now += 299.0
+        self.assertEqual(await self.claim(1, event_id), "busy")
+        clock.now += 1.0
+        self.assertEqual(await self.claim(1, event_id), "granted")
+        self.assertEqual(world._holder(), b)
+        await self.rejoin(0)
+        self.assertEqual(world._holder(), b)
+        self.assertEqual(await self.claim(0, event_id), "busy")
+
 
 class WagerNetworkTests(WorldServerTests):
     async def asyncSetUp(self):
