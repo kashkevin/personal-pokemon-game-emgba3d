@@ -89,6 +89,9 @@ the hash before accepting a file and refuses anything else):
    deletes it; the link is masked in logs. The file does pass through GitHub's runner.
 3. **Never** commit them, put them in a release, or attach them to an issue.
 
+What never goes into Git, how a dump is used and installed, and the checks that keep game data out:
+[local-build-inputs.md](local-build-inputs.md).
+
 ### Smoke mode (proved on GitHub, 2026-10-14)
 
 `mode = smoke` (the default, and what a push touching the packaging files runs) needs no engine,

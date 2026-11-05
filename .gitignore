@@ -8,6 +8,45 @@
 *.ss?
 *.state
 
+# Proprietary game data never goes into Git (docs/local-build-inputs.md; tests/test_no_game_data_tracked.py)
+# game dumps and BIOS images
+*.agb
+*.gb
+*.gbc
+*.nds
+*.bin
+*.rom
+*.bios
+# saves
+*.srm
+*.eep
+*.dsv
+# the battle sprite pack; ROM patches (one made from the owner's dump carries most of the game)
+*.ebsp
+*.bps
+*.ips
+*.ups
+*.xdelta
+# the decomp's binary graphics
+*.1bpp
+*.4bpp
+*.8bpp
+*.gbapal
+*.lz
+# built games (their executables hold the game's data) and archives
+*.exe
+*.dll
+pokeemerald-mp
+pokeemerald-mp-diorama
+pokeemerald-mp-bfxtest
+pokeemerald-mp-diorama-bfxtest
+*.zip
+*.7z
+*.rar
+# private build and CI inputs copied into a checkout (the built game, its manifest, the dump, the sprite pack)
+/inputs/
+/native-inputs/
+
 # Local build outputs and private player/world data
 /artifacts/
 /runtime/
