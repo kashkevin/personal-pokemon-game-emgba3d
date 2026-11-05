@@ -13,7 +13,7 @@ import time
 from .companion import TradeError
 from .flash import FLASH_SIZE, POKEMON_SIZE, SAVED_PARTY_OFFSET, inspect_flash
 from .live_trade import LiveTradeCoordinator
-from .ownership import OWNERSHIP_PROFILE, inspect_ownership
+from .ownership import OWNERSHIP_PROFILE, box_is_egg, inspect_ownership
 from .player_menu import MenuRow, MenuScreen
 from .trade_eligibility import TradeEligibilityError, validate_party_offer
 from .trade_forms import species_label, species_level_label
@@ -26,6 +26,11 @@ class PartyChoice:
     level: int
     eligible: bool
     reason: str = ""
+    egg: bool = False   # shown as "Egg", as the game's own party menu does
+
+    def label(self, width):
+        prefix = "" if self.eligible else "[X] "
+        return (prefix + "Egg")[:width] if self.egg else species_level_label(self.species, self.level, width, prefix)
 
 
 # A Yes on "Cancel the trade?" pressed sooner than this after the page appeared is a second press of the one that
@@ -44,11 +49,19 @@ def _now():
         return time.monotonic()
 
 BLOCKED_REASONS = {
-    "egg_unsupported": "Eggs cannot be traded yet.",
-    "mail_unsupported": "Pokemon carrying Mail cannot be traded yet.",
+    "egg_unsupported": "Eggs cannot be traded with this game version.",
+    "mail_unsupported": "Pokemon carrying Mail cannot be traded with this game version. Take the Mail off first.",
+    "mail_invalid": "This Pokemon's Mail is damaged in its save. Take the Mail off first.",
+    "mail_slots_full": "No free Mail slot to receive the Mail. Take Mail off a Pokemon first.",
     "trade_evolution_unsupported": "Trade evolution is not enabled for this build.",
     "species_unsupported": "This species or form is not supported for trading yet.",
 }
+
+
+def eggs_enabled(companion) -> bool:
+    """Owner decision 39: this launcher's game hatches a traded Egg correctly (bridge_config.trade_eggs_enabled); the
+    host's game, the same build, says the same, and the host checks again at the offer. Mail needs no such game."""
+    return getattr(getattr(companion, "config", None), "trade_egg_abi_version", 0) == 1
 
 
 def prepared_choices(coordinator, *, effects=False):
@@ -60,6 +73,7 @@ def prepared_choices(coordinator, *, effects=False):
     snapshot = inspect_flash(payload, save_profile=OWNERSHIP_PROFILE)
     records = sorted((r for r in inspect_ownership(snapshot).records if r.location.startswith("party:")),
                      key=lambda r: int(r.location.split(":")[1]))
+    eggs = eggs_enabled(coordinator.companion)
     result = []
     for record in records:
         slot = int(record.location.split(":")[1])
@@ -70,7 +84,7 @@ def prepared_choices(coordinator, *, effects=False):
                 start = SAVED_PARTY_OFFSET + slot * POKEMON_SIZE
                 _record(snapshot.save_block1[start:start + POKEMON_SIZE])
             else:
-                validate_party_offer(payload, record.serial)
+                validate_party_offer(payload, record.serial, eggs=eggs, mail=True)
             eligible = True
         except TradeEligibilityError as error:
             eligible = False
@@ -78,8 +92,9 @@ def prepared_choices(coordinator, *, effects=False):
         except ValueError:
             eligible = False
             reason = "This Pokemon needs unsupported egg, Mail, form or move handling."
-        result.append(PartyChoice(record.serial, record.species,
-            snapshot.save_block1[SAVED_PARTY_OFFSET + slot * POKEMON_SIZE + 84], eligible, reason))
+        start = SAVED_PARTY_OFFSET + slot * POKEMON_SIZE
+        result.append(PartyChoice(record.serial, record.species, snapshot.save_block1[start + 84], eligible, reason,
+                                  box_is_egg(snapshot.save_block1[start:start + POKEMON_SIZE])))
     return tuple(result)
 
 
@@ -189,11 +204,10 @@ class NativeTradeMenu:
             status = "Pick; [X] blocked; B: back" if own is not None else "Pick; [X] blocked; B: cancel"
             back = ("review", None) if own is not None else ("ask_cancel", None)
             for mon in choices:
-                actions.append((species_level_label(mon.species, mon.level, 25, "" if mon.eligible else "[X] "),
-                                "offer" if mon.eligible else "blocked", mon.serial))
+                actions.append((mon.label(25), "offer" if mon.eligible else "blocked", mon.serial))
         elif self.page == "blocked":
             mon = next(mon for mon in choices if mon.serial == self.blocked_serial)
-            title, status = species_label(mon.species), "Trade unavailable"
+            title, status = "Egg" if mon.egg else species_label(mon.species), "Trade unavailable"
             actions.extend((line, "", None) for line in wrap(mon.reason, 25))
             actions.append(("Back to your party", "party", None))
             back = ("party", None)

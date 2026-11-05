@@ -131,9 +131,13 @@ def transfer_player(store, player_id, source_payload):
         if any(row["player_id"] != player_id for row in used):
             raise StorageError("source_already_enrolled", "that exact character save is already another account's")
         for record in records:
+            # A traded Egg hatched here has its hatcher as original trainer now (trade_storage._hatched_egg); a copy of
+            # it still an Egg carries the trainer it had, which the Pokemon's own history keeps.
             other = store._connection.execute(
-                "SELECT player_id FROM ownership_instances WHERE personality = ? AND ot_id = ? AND status = 'active' AND player_id != ?",
-                (record.personality, record.ot_id, player_id)).fetchone()
+                "SELECT i.player_id FROM ownership_instances i WHERE i.personality = ? AND i.status = 'active' AND i.player_id != ? "
+                "AND (i.ot_id = ? OR EXISTS (SELECT 1 FROM ownership_memberships m WHERE m.serial = i.serial "
+                "AND m.personality = i.personality AND m.ot_id = ?))",
+                (record.personality, player_id, record.ot_id, record.ot_id)).fetchone()
             if other is not None:
                 raise StorageError("pokemon_owned_here", "a Pokémon of this character belongs to another trainer in this world")
         prior = store._connection.execute("SELECT * FROM ownership_transfers WHERE player_id = ? AND base_revision = ?",

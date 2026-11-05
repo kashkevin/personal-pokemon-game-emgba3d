@@ -112,6 +112,17 @@ def championship_computers_enabled(manifest: dict) -> bool:
     return type(version) is int and version == 1 and tower_enabled(manifest)
 
 
+def trade_eggs_enabled(manifest: dict) -> bool:
+    """Owner decision 39 (KNOWN_ISSUES "Trades: eggs and Mail", option (b)): the native game hatches a traded Egg with its
+    own player as the original trainer (its ID, name and gender; the record re-encrypted under the new ID, so a traded
+    Egg never becomes a Bad Egg; its shininess kept) in the party and in the PC (manifest trade_egg_abi_version 1, beside
+    the ownership trade). Every player of a world runs the same build, so the host's own manifest speaks for every game
+    (server.WorldServer.enable_egg_trades); a launcher offers an Egg, or takes one, only with it
+    (companion.CompanionConfig.trade_egg_abi_version)."""
+    version = manifest.get("trade_egg_abi_version")
+    return type(version) is int and version == 1 and manifest.get("trade_abi_version") == 1
+
+
 def tower_enabled(manifest: dict) -> bool:
     """Battle Tower: Legends: the native game's Tower (manifest tower_abi_version 1), which needs the Players menu ABI 2,
     its named pages (START > PLAYER > TOWER) and the shared world. Every player of a world runs the same build, so the

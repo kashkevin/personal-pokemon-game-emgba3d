@@ -11,7 +11,7 @@ import hashlib
 import json
 
 from .flash import FlashError, LAYOUT_ID, inspect_flash
-from .ownership import extract_source_inventory, inspect_ownership
+from .ownership import box_at, box_is_egg, extract_source_inventory, inspect_ownership
 from .ownership_protocol import MAX_SERIAL, OWNERSHIP_PROFILE
 from .ownership_storage import OwnershipCheckpointStore, _OWNERSHIP_SCHEMA, _digest, _inventory, _uuid
 from .protocol import MAX_COUNTER
@@ -123,12 +123,29 @@ def _fingerprint(sides: tuple[TradeSide, TradeSide], build: str, rules: str, pro
 
 
 def _validate_swap(before_a: bytes, serial_a: int, before_b: bytes, serial_b: int,
-                   after_a: bytes, after_b: bytes) -> None:
+                   after_a: bytes, after_b: bytes, *, legacy: bool = False) -> None:
     from .trade_flash import TradeFlashError, validate_party_swap
     try:
-        validate_party_swap(before_a, serial_a, before_b, serial_b, after_a, after_b)
+        validate_party_swap(before_a, serial_a, before_b, serial_b, after_a, after_b, legacy=legacy)
     except (TradeFlashError, FlashError) as error:
         raise StorageError("invalid_trade", "trade post-images are not the authorized exact party exchange") from error
+
+
+def _hatched_egg(previous_payload: bytes, parsed, record, save_profile: str) -> bool:
+    """The one change of a Pokemon's original trainer the store accepts (owner decision 39, KNOWN_ISSUES "Trades: eggs and
+    Mail"): an Egg hatched by its owner's game, which makes its own player the original trainer (egg_hatch.c
+    AddHatchedMonToParty; the PC boxes' hatch, mp_breeding.c HatchBoxEgg). True only when the same serial was an Egg in
+    the owner's previous checkpoint, is no Egg now, keeps its personality, and its new original trainer ID is this save's
+    own trainer. The caller decides whether the Egg came to this owner by trade (or with the character from outside the
+    world); everything else about a record's identity stays fixed."""
+    if record.ot_id != parsed.metadata.trainer_id:
+        return False
+    before = inspect_flash(previous_payload, save_profile=save_profile)
+    old = next((r for r in inspect_ownership(before).records if r.serial == record.serial), None)
+    if old is None or old.personality != record.personality or old.ot_id == record.ot_id:
+        return False
+    return (box_is_egg(box_at(before.save_block1, before.storage, old.location))
+            and not box_is_egg(box_at(parsed.save_block1, parsed.storage, record.location)))
 
 
 class TradeCheckpointStore(OwnershipCheckpointStore):
@@ -157,6 +174,30 @@ class TradeCheckpointStore(OwnershipCheckpointStore):
         self._assert_effect_mutations()
         self._ensure_applied(player["player_id"])
         return super()._prepare_checkpoint(player, revision, payload)
+
+    def _arrival(self, player_id: str, serial: int) -> str | None:
+        """How a Pokemon its owner holds now came to that owner: "trade" (a trade of this world), "outside" (with the
+        character itself: the first checkpoint of its enrolled source or of a character coming back), "born" (caught,
+        hatched or given in this owner's own play), None for no record."""
+        from .character_transfers import source_for
+        row = self._connection.execute(
+            "SELECT kind, revision FROM ownership_events WHERE player_id = ? AND serial = ? AND kind IN ('acquire', 'transfer_in') "
+            "ORDER BY revision DESC LIMIT 1", (player_id, serial)).fetchone()
+        if row is None:
+            return None
+        if row["kind"] == "transfer_in":
+            return "trade"
+        return "outside" if source_for(self, player_id, row["revision"]).base_revision == row["revision"] - 1 else "born"
+
+    def _origin_change_allowed(self, player, revision: int, record, row, parsed) -> bool:
+        """An Egg another trainer made, hatched by this owner's game: it came here by trade (or with the character from
+        outside the world, where it can only have come by trade), and _hatched_egg holds. An Egg born in this owner's
+        own play already has this owner as its trainer: its hatch changes nothing, and nothing else may change."""
+        if self._arrival(player["player_id"], record.serial) not in ("trade", "outside"):
+            return False
+        previous = self._connection.execute("SELECT payload FROM checkpoints WHERE player_id = ? AND revision = ?",
+                                            (player["player_id"], revision - 1)).fetchone()
+        return previous is not None and _hatched_egg(previous["payload"], parsed, record, self.save_profile)
 
     def reserve_instances(self, player_id, lease_epoch, request_id, expected_revision, incarnation, count):
         # Store calls are synchronous and confined to SQLite's owning thread;
@@ -189,7 +230,7 @@ class TradeCheckpointStore(OwnershipCheckpointStore):
             FriendshipObservations(self)._append(checkpoint)
 
     def _write_checkpoint_extras(self, checkpoint: Checkpoint, prepared) -> None:
-        owned, prior, additions, missing, retired = prepared
+        owned, prior, additions, missing, retired, hatched = prepared
         player, revision = checkpoint.player_id, checkpoint.revision
         events = []
         for record in owned.records:
@@ -199,6 +240,10 @@ class TradeCheckpointStore(OwnershipCheckpointStore):
                 kind = "acquire"
             else:
                 self._connection.execute("UPDATE ownership_instances SET last_revision = ? WHERE serial = ?", (revision, record.serial))
+                if record.serial in hatched:
+                    # A traded Egg hatched: its owner's game made its own player the original trainer (_hatched_egg).
+                    self._connection.execute("UPDATE ownership_instances SET ot_id = ? WHERE serial = ?",
+                                             (hatched[record.serial], record.serial))
                 kind = "retain"
             events.append((record.serial, kind, None, None))
         for serial in missing:
@@ -273,10 +318,14 @@ class TradeCheckpointStore(OwnershipCheckpointStore):
                                  save_profile, _preparations=preparations)
 
     def _validate_preparations(self, transaction_id, before, sides, descriptions, *, replay=False):
+        from .trade_eligibility import EGGS_MAIL_CAPABILITY_ID
         from .trade_preparation import TradePreparationError, prepare_pair, validate_preparation
         try:
             for description in descriptions:
                 validate_preparation(description)
+            # The pair is rebuilt with the capability its host prepared it under: a description naming the Egg-and-Mail
+            # exchange rebuilds only if the pair holds an Egg or Mail (else the plain exchange's would have been made).
+            eggs_and_mail = descriptions[0].get("capability") == EGGS_MAIL_CAPABILITY_ID
             leases = tuple(s.lease_epoch for s in sides)
             if replay:
                 # Authentication above uses today's leases. A read-only replay
@@ -288,7 +337,7 @@ class TradeCheckpointStore(OwnershipCheckpointStore):
                 leases = retained
             expected, candidates = prepare_pair(self._validate_metadata()["world_id"], transaction_id,
                 descriptions[0]["generation"], descriptions[0]["fingerprint"], tuple(before),
-                leases, tuple(s.serial for s in sides))
+                leases, tuple(s.serial for s in sides), eggs=eggs_and_mail, mail=eggs_and_mail)
             if descriptions != expected or candidates != tuple(s.payload for s in sides):
                 raise TradePreparationError("paired recipient preparation changed")
         except (ValueError, TypeError, KeyError, FlashError) as error:
@@ -557,6 +606,7 @@ class TradeCheckpointStore(OwnershipCheckpointStore):
         if self._connection.execute("SELECT COUNT(*) FROM checkpoint_order").fetchone()[0] != len(checkpoints):
             corrupt("checkpoint global order is incomplete")
         state, previous, seen = {}, {}, set()
+        arrivals = {}   # serial -> how its current owner got it: "trade", "outside" or "born" (_arrival, replayed)
         trade_ids = set()
         groups = self._connection.execute("SELECT * FROM commit_groups ORDER BY sequence").fetchall()
         for expected_sequence, group in enumerate(groups, 1):
@@ -608,7 +658,9 @@ class TradeCheckpointStore(OwnershipCheckpointStore):
                         tuple(self._checkpoint(checkpoints[(c["player_id"], c["expected_revision"])]) for c in cps),
                         tuple(s.payload for s in sides))
                 if not effect:
-                    _validate_swap(pre[0], sides[0].serial, pre[1], sides[1].serial, sides[0].payload, sides[1].payload)
+                    # A trade committed before trades carried Mail is checked as the record-only exchange it was.
+                    _validate_swap(pre[0], sides[0].serial, pre[1], sides[1].serial, sides[0].payload, sides[1].payload,
+                                   legacy=True)
                 if _fingerprint(sides, self.build_id, self.ruleset_id, self.save_profile) != trade["fingerprint"]:
                     corrupt("trade outcome fingerprint changed")
             elif trade is not None:
@@ -632,17 +684,27 @@ class TradeCheckpointStore(OwnershipCheckpointStore):
                         if (origin[3], origin[4]) != (record.personality, record.ot_id):
                             corrupt("trade changed immutable origin attributes")
                         origin[0], origin[7] = player, revision
+                        arrivals[serial] = "trade"
                         kind = "transfer_in"
                     elif serial not in state:
                         grant = self._serial_grant(serial)
                         if paired or grant is None or grant["player_id"] != player or (grant["grant_id"] == parsed.grant_id and serial >= parsed.next_serial):
                             corrupt("identity lacks an authorized allocation")
                         state[serial] = [player, player, grant["grant_id"], record.personality, record.ot_id, "active", revision, revision, None]
+                        arrivals[serial] = "outside" if generation.base_revision == revision - 1 else "born"
                         kind = "acquire"
                     else:
                         origin = state[serial]
-                        if origin[0] != player or origin[5] != "active" or serial not in old or (origin[3], origin[4]) != (record.personality, record.ot_id):
+                        if origin[0] != player or origin[5] != "active" or serial not in old or origin[3] != record.personality:
                             corrupt("ordinary checkpoint reintroduced or changed an identity")
+                        if origin[4] != record.ot_id:
+                            # The one accepted change: a traded Egg hatched by its owner's game (_origin_change_allowed).
+                            if (paired or arrivals.get(serial) not in ("trade", "outside")
+                                    or not _hatched_egg(checkpoints[(player, cp["expected_revision"])]["payload"],
+                                                        inspect_flash(cp["payload"], save_profile=self.save_profile),
+                                                        record, self.save_profile)):
+                                corrupt("ordinary checkpoint reintroduced or changed an identity")
+                            origin[4] = record.ot_id
                         origin[7] = revision
                         kind = "retain"
                     events.append((serial, kind, None, trade["transaction_id"] if paired else None))

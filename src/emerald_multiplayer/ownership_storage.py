@@ -294,7 +294,7 @@ class OwnershipCheckpointStore(CheckpointStore):
             raise StorageError("enrollment_inventory_mismatch", "first ownership checkpoint changed its enrolled Pokémon inventory")
         if boundary and retired:
             raise StorageError("invalid_retirement", "a transferred character starts with no retirements")
-        additions = {}
+        additions, hatched = {}, {}
         for serial, record in current.items():
             row = self._connection.execute("SELECT * FROM ownership_instances WHERE serial = ?", (serial,)).fetchone()
             if row is not None and boundary:
@@ -307,7 +307,9 @@ class OwnershipCheckpointStore(CheckpointStore):
                 if serial not in prior:
                     raise StorageError("ownership_conflict", "active ownership does not match the previous checkpoint")
                 if (row["personality"], row["ot_id"]) != (record.personality, record.ot_id):
-                    raise StorageError("immutable_identity_changed", "a Pokémon's immutable origin attributes changed")
+                    if not self._origin_change_allowed(player, revision, record, row, parsed):
+                        raise StorageError("immutable_identity_changed", "a Pokémon's immutable origin attributes changed")
+                    hatched[serial] = record.ot_id
             else:
                 # Trusted ROMs may carry already-assigned but uncheckpointed IDs
                 # across a rebind. A historical player grant proves issuance,
@@ -326,7 +328,7 @@ class OwnershipCheckpointStore(CheckpointStore):
         if boundary:
             # Every Pokémon of the earlier generation leaves the world with the character's old save.
             retired = {serial: RETIRE_LEFT_WORLD for serial in missing}
-            return owned, prior, additions, missing, retired
+            return owned, prior, additions, missing, retired, hatched
         if not missing <= set(retired):
             raise StorageError("retirement_required", "missing Pokémon require explicit release or NPC exchange entries")
         for serial, reason in retired.items():
@@ -338,10 +340,17 @@ class OwnershipCheckpointStore(CheckpointStore):
                     raise StorageError("retirement_conflict", "a retired Pokémon's reason cannot change")
             elif serial not in missing:
                 raise StorageError("invalid_retirement", "retirement conflicts with retained ownership")
-        return owned, prior, additions, missing, retired
+        return owned, prior, additions, missing, retired, hatched
+
+    def _origin_change_allowed(self, player, revision: int, record, row, parsed) -> bool:
+        """Whether a retained Pokémon may change its original trainer in this checkpoint. Never in a world without trades;
+        the trade store accepts one change, a traded Egg hatched by its owner's game (trade_storage._hatched_egg)."""
+        return False
 
     def _write_checkpoint_extras(self, checkpoint: Checkpoint, prepared) -> None:
-        owned, prior, additions, missing, retired = prepared
+        owned, prior, additions, missing, retired, hatched = prepared
+        if hatched:
+            raise StorageError("immutable_identity_changed", "a Pokémon's immutable origin attributes changed")
         player_id, revision = checkpoint.player_id, checkpoint.revision
         self._connection.execute("INSERT INTO ownership_commits VALUES (?, ?, ?)", (player_id, revision, owned.manifest_sha256))
         for record in owned.records:

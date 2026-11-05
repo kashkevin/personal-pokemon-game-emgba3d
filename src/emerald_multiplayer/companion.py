@@ -247,6 +247,7 @@ class CompanionConfig:
     trade_effect_prepare_abi_version: int = field(init=False, default=0)
     trade_effect_save_abi_version: int = field(init=False, default=0)
     trade_effect_choice_abi_version: int = field(init=False, default=0)
+    trade_egg_abi_version: int = field(init=False, default=0)  # PC game: hatches a traded Egg correctly (decision 39)
     presence_animation_abi_version: int = field(init=False, default=0)
     presence_detail_abi_version: int = field(init=False, default=0)
     battle_enabled: bool = field(init=False, default=False)
@@ -295,6 +296,10 @@ class CompanionConfig:
         object.__setattr__(self, "trade_effect_prepare_abi_version", manifest.get("trade_effect_prepare_abi_version", 0))
         object.__setattr__(self, "trade_effect_save_abi_version", manifest.get("trade_effect_save_abi_version", 0))
         object.__setattr__(self, "trade_effect_choice_abi_version", manifest.get("trade_effect_choice_abi_version", 0))
+        # Owner decision 39: the game hatches a traded Egg correctly; only then does this launcher offer an Egg, or
+        # acknowledge a preparation that brings one.
+        from .bridge_config import trade_eggs_enabled
+        object.__setattr__(self, "trade_egg_abi_version", 1 if trade_eggs_enabled(manifest) else 0)
         object.__setattr__(self, "presence_animation_abi_version", manifest.get("presence_animation_abi_version", 0))
         # The PC game says why it is off the field (in battle, a menu, changing area) in its pose's last byte.
         detail = manifest.get("presence_detail_abi_version")

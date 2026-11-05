@@ -463,6 +463,18 @@ class WorldServer:
             raise ValueError("configure rival battles before starting the host")
         self._rival_battle_environment = True
 
+    def enable_egg_trades(self):
+        """Application-only: the installed, hash-verified game hatches a traded Egg with its own player as the original
+        trainer, the record re-encrypted under the new trainer ID (manifest trade_egg_abi_version 1,
+        bridge_config.trade_eggs_enabled; owner decision 39). Every player of a world runs the same build, so the host's
+        own manifest speaks for every game: without it an Egg is refused at its offer, as before (a game without the fix
+        would turn a traded Egg into a Bad Egg at its hatch). Mail needs no such game: the desk carries it always."""
+        if self._server is not None:
+            raise ValueError("configure Egg trades before starting the host")
+        if self._trade_recovery_desk is None:
+            raise ValueError("Egg trades require an owned paired-trade world")
+        self._trade_recovery_desk.trade_eggs = True
+
     def enable_tower(self):
         """Application-only: the installed, hash-verified game has Battle Tower: Legends (manifest tower_abi_version 1
         with its prerequisites, bridge_config.tower_enabled). Every player of a world runs the same build (hello

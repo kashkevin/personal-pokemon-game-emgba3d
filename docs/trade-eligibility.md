@@ -1,5 +1,59 @@
 # Native trade eligibility boundary
 
+**Update 2026-11-05 (Eggs and Mail, owner decision 39; KNOWN_ISSUES "Trades: eggs and Mail", option (b) for both):**
+the exact exchange (the trades every packaged world makes) now carries Mail always, and Eggs where the world's game
+hatches a traded Egg correctly. What the sections below say about refusing Eggs and Mail is history; this is the rule.
+
+* **Mail.** A party Pokemon holding Mail names one of its trainer's six party Mail slots (party record byte 85,
+  `MON_DATA_MAIL`; `SaveBlock1.mail` at 0x2BE0, 16 slots of 36 bytes, the first six the party's, verified in the engine's
+  DWARF for the GBA and the PC build). The host does what the link trade does (`trade.c` `TradeMons`): the sender's slot
+  is cleared exactly as `ClearMail` clears it, and the whole 36-byte Mail (words, author's name and ID, the Pokemon it was
+  written for, the item, the padding) is copied into the receiving save's first party slot whose item is `ITEM_NONE`,
+  the outgoing Pokemon's own slot counting as freed (`GiveMailToMon2` / `GiveMailToMonByItemId`); the received record
+  points at it (its byte 85, the only byte of the 100 that differs from the sender's record). Nothing else changes; the
+  PC's mailbox is untouched (`trade_mail.py`, `trade_flash.recipient_post_image`). Refused before anything moves: Mail
+  the game itself never makes (a slot outside the party's six, a slot whose item is not the Pokemon's held Mail item, a
+  slot two party Pokemon name, an Egg naming a slot: `mail_invalid`) and a receiving party with no free party Mail slot
+  once its own offered Pokemon has left (`mail_slots_full`, checked at each confirmation). A Mail item held without a
+  reference is an ordinary held item and travels with its record. The trade's save import already carries the Mail
+  array (the game writes and reloads the whole save), so Mail needs no engine change; every player of a world runs the
+  host's launcher version (MS-28), so each recipient rebuilds the same post-image.
+* **Eggs.** An Egg trades as the record it is: every byte kept (species, egg cycles left, IVs, personality, moves, both
+  Egg flags, its original trainer as it was). Offered only when the host's game declares that it hatches a traded Egg
+  correctly (manifest `trade_egg_abi_version` 1, from the engine's PC-only `gMultiplayerTradeEggAbiVersion`;
+  `bridge_config.trade_eggs_enabled`, `WorldServer.enable_egg_trades`, `CompanionConfig.trade_egg_abi_version`): the
+  pinned engine's party hatch (`egg_hatch.c` `AddHatchedMonToParty`) sets a new trainer ID without re-encrypting the
+  record, which turns another trainer's Egg into a Bad Egg, and its PC-box hatch keeps another trainer's ID. A launcher
+  whose game lacks the capability refuses a preparation bringing it an Egg before acknowledging anything.
+* **The one change of original trainer the host accepts.** When a game hatches an Egg, its own player becomes the original
+  trainer. The store accepts exactly that, and only that, in an ordinary checkpoint: the same serial and personality, an
+  Egg (either flag) in the owner's previous checkpoint and no Egg now, its new trainer ID the save's own, and an Egg that
+  came to this owner by a trade of this world or with the character itself (the first checkpoint of an enrolled source or
+  of a character coming back, which can only hold another trainer's Egg by a trade elsewhere); an Egg born in the owner's
+  own play already has the owner's ID and may change nothing (`TradeCheckpointStore._origin_change_allowed`,
+  `trade_storage._hatched_egg`). Any other change of personality or trainer ID is still `immutable_identity_changed`. The
+  instance's current trainer ID follows (`ownership_instances.ot_id`); its earlier memberships keep the Egg's trainer, the
+  history audit replays the same rule, and a character coming back with a copy of the unhatched Egg is still refused
+  (`character_transfers.transfer_player` also matches a Pokemon's earlier trainer IDs).
+* **Lucky Trades and trade friendship skip Eggs.** The exact exchange applies neither (no Lucky conversion, no friendship
+  write); the handler-friendship ledger already records an Egg's byte as hatch cycles and starts its history at the hatch.
+* **Preparations.** A pair with an Egg, a Pokemon holding Mail or a Mail item uses the capability
+  `owned-party-exchange-eggs-mail-v1`: the same format, each offer also naming the SHA-256 of its Mail (`mail_sha256`,
+  null without one) and each description the whole incoming Mail (`incoming_mail`, base64, null). Every other pair keeps
+  `simple-owned-party-exchange-v1` with exactly the fields, digests and candidates of before. The store rebuilds a
+  retained preparation under its own capability; the history audit also accepts the record-only exchange it committed
+  before trades carried Mail (no such trade could hold Mail through the desk).
+* **Atomic and recoverable, as every exact trade.** Both post-images, with the Mail cleared on one side and installed on
+  the other, are one SQLite transaction; before it neither canonical save changed, after it each player's next
+  checkpoint is refused until its game applied the post-image (`trade_recovery`), so a game's old save (the Mail and the
+  Pokemon still there) can never become canonical again. Each recipient retains its description (with the incoming Mail)
+  and rebuilds the same candidate in live and cold-start recovery; a changed retained description is refused.
+* **Native trade effects (development worlds with the replay worker) still refuse Eggs and Mail**: their record and
+  save-block replay runs in the engine, which refuses both (`MultiplayerTradeEffects_BeginRecord`).
+* Tests: `tests/test_trade_eggs_mail.py` (Mail layout and reading, eligibility, byte-for-byte exchange, preparations,
+  desk, the hatch rule and its audit, the transfer copy check, interrupted live trades carrying Mail both ways, the
+  manifest marker). Not yet shown: a real two-game trade of an Egg and of Mail, and the engine's hatch of a traded Egg.
+
 **Update 2026-11-05 (every form reviewed):** every form of a Kanto-to-Kalos species in the engine pin was reviewed
 (the engine's compiled species table: its National Pokedex number, `cannotBeTraded`, its form changes and evolutions),
 and the 163 that such a Pokemon keeps outside battle in the Gen 6 games, where they trade as they are, are now
@@ -15,8 +69,8 @@ the engine pin's own name and number (`species_national.py`, generated by
 Castform, Cherrim, Zen Darmanitan, Pirouette Meloetta, Blade Aegislash, Active Xerneas, Complete Zygarde), forms from
 later games (regional forms, Zygarde's 10% and Power Construct, Greninja's Battle Bond and Ash, Pikachu's caps,
 White-Striped Basculin, Origin Dialga and Palkia), the games' untradable Black and White Kyurem, Spiky-eared Pichu and
-the starter Pikachu and Eevee, and the event-only Cosplay Pikachu and Eternal Floette. Eggs and Mail stay refused
-(their options: KNOWN_ISSUES "Trades: eggs and Mail").
+the starter Pikachu and Eevee, and the event-only Cosplay Pikachu and Eternal Floette. Eggs and Mail stayed refused
+until the update above (KNOWN_ISSUES "Trades: eggs and Mail").
 
 **Update 2026-10-30 (the Rotom Catalog):** Rotom's five appliance forms (internal IDs 1064-1068) are exchanged like the
 standard species: `trade_forms.py` lists them one by one (`REVIEWED_FORMS`, each with the standard species whose Pokédex

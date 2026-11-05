@@ -131,14 +131,18 @@ class TradeDeskTests(unittest.TestCase):
         self.assertEqual(self.confirm(1, ready)['state'], 'offering')
         self.assertEqual(self.finish_preparation(self.confirm(0, ready))['state'], 'committed')
 
-    def test_unsupported_mail_offer_is_rejected_before_proposal_or_head_changes(self):
+    def test_invalid_mail_offer_is_rejected_before_proposal_or_head_changes(self):
         head = self.heads[0]
         # Party-only byte85 is a native attached-mail index. This remains a
-        # valid ordinary checkpoint, but is outside the trade capability.
+        # valid ordinary checkpoint, but it names a free slot while the Pokemon
+        # holds no Mail item: no Mail the trade could carry (owner decision 39
+        # carries valid Mail only; trade_mail.party_mail).
         payload = _rewrite(head.payload, 0, 1, 0x238 + 85, b'\x00')
         self.heads[0] = self.store.commit_checkpoint(*self.actor(0), str(uuid4()),
             head.revision, payload, self.store.build_id, self.store.ruleset_id,
             OWNERSHIP_PROFILE)
+        self.assert_code('mail_invalid', self.offer, 0)
+        self.desk.trade_mail = False
         self.assert_code('mail_unsupported', self.offer, 0)
         view = self.desk.status(*self.actor(0), self.transaction)
         self.assertEqual(view['offers'], [])

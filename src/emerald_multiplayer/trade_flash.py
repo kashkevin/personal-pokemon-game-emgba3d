@@ -3,17 +3,21 @@
 These functions construct new server transaction candidates. They never write
 a local save or a running game. Consent, leases, ownership and durable commit
 belong to the trade store/coordinator. Native trade effects are not authorized
-by this primitive: only the two offered 100-byte party records may change.
+by this primitive: only the two offered 100-byte party records may change, and,
+for a Pokemon holding Mail (owner decision 39), the Mail it carries: the sender's
+party Mail slot cleared and the whole Mail copied into the receiver's first free
+party Mail slot, the record pointing at it (trade_mail.py, as trade.c TradeMons).
 """
 from __future__ import annotations
 
 import struct
 
 from .flash import (
-    FlashError, FlashSnapshot, POKEMON_SIZE, SAVED_PARTY_OFFSET,
-    SECTOR_SIZE, SECTIONS_PER_BANK, SECTION_LENGTHS, inspect_flash,
+    FlashError, FlashSnapshot, POKEMON_SIZE, SAVE_BLOCK_1_SIZE, SAVED_PARTY_OFFSET,
+    SECTOR_SIZE, SECTIONS_PER_BANK, SECTION_LENGTHS, _checksum, inspect_flash,
 )
 from .ownership import OWNERSHIP_PROFILE, SERIAL_MAX, inspect_ownership
+from .trade_mail import MAIL_NONE, party_mail, recipient_block1
 
 
 class TradeFlashError(FlashError):
@@ -55,14 +59,63 @@ def _replace_record(snapshot: FlashSnapshot, offset: int, mon: bytes) -> bytes:
     return bytes(result)
 
 
+def _replace_block1(snapshot: FlashSnapshot, block1: bytes) -> bytes:
+    """Write a changed SaveBlock1 into the validated latest bank's sections 1-4. A section whose bytes did not change is
+    left exactly as it was (its sector checksum too); a changed one gets the native checksum of its new bytes."""
+    if type(block1) is not bytes or len(block1) != SAVE_BLOCK_1_SIZE:
+        raise TradeFlashError("a trade post-image needs the complete SaveBlock1")
+    pieces, offset = {}, 0
+    for section in range(1, 5):
+        pieces[section] = block1[offset:offset + SECTION_LENGTHS[section]]
+        offset += SECTION_LENGTHS[section]
+    first = snapshot.metadata.bank * SECTIONS_PER_BANK
+    result = bytearray(snapshot.container)
+    found = set()
+    for index in range(first, first + SECTIONS_PER_BANK):
+        start = index * SECTOR_SIZE
+        section = struct.unpack_from("<H", snapshot.flash, start + 4084)[0]
+        if section not in pieces:
+            continue
+        if section in found:
+            raise TradeFlashError("a SaveBlock1 section is duplicated in the selected bank")
+        found.add(section)
+        data = pieces[section]
+        if result[start:start + len(data)] != data:
+            result[start:start + len(data)] = data
+            struct.pack_into("<H", result, start + 4086, _checksum(data))
+    if found != set(pieces):
+        raise TradeFlashError("a SaveBlock1 section is missing from the selected bank")
+    return bytes(result)
+
+
+def recipient_post_image(snapshot: FlashSnapshot, offset: int, incoming: bytes,
+                         incoming_mail: bytes | None = None) -> bytes:
+    """One recipient's complete post-image: its offered party record (at SaveBlock1 offset ``offset``) replaced by the
+    incoming one, the Mail either of them holds moved as trade_mail.recipient_block1 does. With no Mail on either side this
+    is exactly the record exchange of before (_replace_record), byte for byte. The host's paired build and each recipient's
+    independent reconstruction both call it, so both produce the same bytes."""
+    if type(incoming) is not bytes or len(incoming) != POKEMON_SIZE:
+        raise TradeFlashError("an incoming party record is exactly 100 bytes")
+    index, remainder = divmod(offset - SAVED_PARTY_OFFSET, POKEMON_SIZE)
+    if remainder or not 0 <= index < 6:
+        raise TradeFlashError("party record exceeds its pinned save section")
+    if incoming_mail is None and incoming[85] == MAIL_NONE and snapshot.save_block1[offset + 85] == MAIL_NONE:
+        return _replace_record(snapshot, offset, incoming)
+    return _replace_block1(snapshot, recipient_block1(snapshot.save_block1, index, incoming, incoming_mail))
+
+
 def build_party_swap(payload_a: bytes, serial_a: int, payload_b: bytes,
-                     serial_b: int) -> tuple[bytes, bytes]:
+                     serial_b: int, *, carry_mail: bool = True) -> tuple[bytes, bytes]:
     """Return exact reciprocal party post-images without changing input bytes.
 
-    Preserve each player's party count, other Pokémon, money, bag, mail array,
-    story, playtime, location, ownership metadata, previous bank, special sectors
-    and optional RTC footer. An integration layer must separately handle trade
-    eligibility and native side effects (including mail references/evolution).
+    Preserve each player's party count, other Pokémon, money, bag, story,
+    playtime, location, ownership metadata, previous bank, special sectors and
+    optional RTC footer. A Pokemon holding Mail takes it along (the sender's
+    party Mail slot cleared, the receiver's first free one filled; trade_mail.py);
+    inconsistent Mail or a receiving party with no free Mail slot is refused.
+    ``carry_mail=False`` is the record-only exchange of before, kept for the
+    history audit of trades committed by it. An integration layer must
+    separately handle trade eligibility and native side effects (evolution).
     """
     _serial(serial_a)
     _serial(serial_b)
@@ -80,8 +133,14 @@ def build_party_swap(payload_a: bytes, serial_a: int, payload_b: bytes,
             raise TradeFlashError("the source inventories contain a shared instance")
         offset_a, mon_a = _party_record(a, owner_a, serial_a)
         offset_b, mon_b = _party_record(b, owner_b, serial_b)
-        result_a = _replace_record(a, offset_a, mon_b)
-        result_b = _replace_record(b, offset_b, mon_a)
+        if carry_mail:
+            mail_a = party_mail(a.save_block1, (offset_a - SAVED_PARTY_OFFSET) // POKEMON_SIZE)
+            mail_b = party_mail(b.save_block1, (offset_b - SAVED_PARTY_OFFSET) // POKEMON_SIZE)
+            result_a = recipient_post_image(a, offset_a, mon_b, mail_b)
+            result_b = recipient_post_image(b, offset_b, mon_a, mail_a)
+        else:
+            result_a = _replace_record(a, offset_a, mon_b)
+            result_b = _replace_record(b, offset_b, mon_a)
         # This also rejects a recipient's retirement/allocation metadata that
         # conflicts with the incoming serial. Store validation supplies authority.
         inspect_flash(result_a, expected_trainer_id=a.metadata.trainer_id,
@@ -96,10 +155,21 @@ def build_party_swap(payload_a: bytes, serial_a: int, payload_b: bytes,
 
 
 def validate_party_swap(before_a: bytes, serial_a: int, before_b: bytes,
-                        serial_b: int, after_a: bytes, after_b: bytes) -> None:
-    """Reject every post-image mutation beyond the exact offered party swap."""
+                        serial_b: int, after_a: bytes, after_b: bytes, *, legacy: bool = False) -> None:
+    """Reject every post-image mutation beyond the exact offered party swap (with its Mail).
+
+    ``legacy`` (the history audit only) also accepts the record-only exchange the store committed before trades carried
+    Mail; a new commit is always checked against the Mail-carrying exchange alone."""
     if not isinstance(after_a, bytes) or not isinstance(after_b, bytes):
         raise TradeFlashError("trade post-images must be immutable bytes")
-    expected_a, expected_b = build_party_swap(before_a, serial_a, before_b, serial_b)
-    if after_a != expected_a or after_b != expected_b:
-        raise TradeFlashError("trade post-images differ from the authorized reciprocal exchange")
+    try:
+        expected = build_party_swap(before_a, serial_a, before_b, serial_b)
+    except TradeFlashError:
+        if not legacy:
+            raise
+        expected = None
+    if (after_a, after_b) == expected:
+        return
+    if legacy and (after_a, after_b) == build_party_swap(before_a, serial_a, before_b, serial_b, carry_mail=False):
+        return
+    raise TradeFlashError("trade post-images differ from the authorized reciprocal exchange")

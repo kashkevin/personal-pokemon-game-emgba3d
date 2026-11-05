@@ -83,8 +83,14 @@ class TradeDesk:
         self._proposals: dict[str, _Proposal] = {}
         self._ended: dict[str, tuple[float, dict[str, str]]] = {}
         # Host friendship bookkeeping after a committed exact swap (no Lucky
-        # conversion: an exact swap never changes either Pokémon).
+        # conversion: an exact swap never changes either Pokémon, an Egg included).
         self.on_commit = None
+        # Owner decision 39: a Pokemon holding Mail takes it along (the trade's save import carries the Mail array, so
+        # every game takes it); an Egg is offered only when the world's game hatches a traded Egg correctly (manifest
+        # trade_egg_abi_version 1: WorldServer.enable_egg_trades). Every player of a world runs this launcher's version
+        # (MS-28), so each recipient rebuilds such a preparation as this host does.
+        self.trade_mail = True
+        self.trade_eggs = False
 
     def _auth(self, player: str, lease: int) -> Checkpoint | None:
         checkpoint = self.store.read_checkpoint(player, lease)
@@ -264,9 +270,9 @@ class TradeDesk:
         if record is None or not record.location.startswith("party:"):
             raise StorageError("invalid_trade", "offered instance must be in this player's party")
         # Refuse unsupported native effects before changing an offer or its
-        # confirmations. This capability remains a development exact exchange.
+        # confirmations. This capability remains an exact exchange.
         try:
-            validate_party_offer(checkpoint.payload, serial)
+            validate_party_offer(checkpoint.payload, serial, eggs=self.trade_eggs, mail=self.trade_mail)
         except TradeEligibilityError as error:
             raise StorageError(error.code, str(error)) from error
         offered = _Offer(checkpoint, serial, record.species)
@@ -324,8 +330,11 @@ class TradeDesk:
                 raise StorageError("revision_conflict", "a participant's checkpoint changed after offering")
         left, right = (proposal.offers[p] for p in proposal.players)
         try:
+            # With Mail on either side this also refuses a receiving party with no free Mail slot (mail_slots_full),
+            # before any consent is recorded or anything moves.
             validate_trade_pair(left.checkpoint.payload, left.serial,
-                                right.checkpoint.payload, right.serial)
+                                right.checkpoint.payload, right.serial,
+                                eggs=self.trade_eggs, mail=self.trade_mail)
         except TradeEligibilityError as error:
             proposal.confirmed.clear()
             raise StorageError(error.code, str(error)) from error
@@ -335,7 +344,8 @@ class TradeDesk:
         try:
             proposal.preparations, proposal.candidates = prepare_pair(
                 self.store.metadata.world_id, transaction_id, generation, fingerprint,
-                (left.checkpoint, right.checkpoint), proposal.leases, (left.serial, right.serial))
+                (left.checkpoint, right.checkpoint), proposal.leases, (left.serial, right.serial),
+                eggs=self.trade_eggs, mail=self.trade_mail)
         except (TradeFlashError, TradePreparationError) as error:
             proposal.confirmed.clear()
             raise StorageError("invalid_trade", "the offered saves cannot form exact recipient candidates") from error

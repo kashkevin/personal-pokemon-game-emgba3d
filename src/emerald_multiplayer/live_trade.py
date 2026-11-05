@@ -21,9 +21,10 @@ from .checkpoint_client import validate_metadata
 from .flash import FLASH_SIZE, inspect_flash
 from .live_checkpoint import LiveCheckpointCoordinator, LiveSaveError, _atomic, _json_bytes, _sync_directory
 from .live_receipt import record_live_apply, read_live_receipt
-from .ownership import OWNERSHIP_PROFILE, inspect_ownership
+from .ownership import OWNERSHIP_PROFILE, box_is_egg, inspect_ownership
 from .protocol import MAX_COUNTER
 from .save_mailbox import Opcode, SaveControl, State, TradeHold
+from .trade_eligibility import EGGS_MAIL_CAPABILITY_ID
 from .trade_preparation import prepare_recipient as build_recipient_candidate, validate_preparation
 from .windows_files import unlink_file
 
@@ -595,6 +596,12 @@ class LiveTradeCoordinator(LiveCheckpointCoordinator):
         own = next(p for p in description["players"] if p["player_id"] == intent["player_id"])
         if own["lease_epoch"] != session[1]:
             raise LiveTradeError("trade_preparation_mismatch", "preparation belongs to a superseded lease")
+        if (description["capability"] == EGGS_MAIL_CAPABILITY_ID
+                and box_is_egg(base64.b64decode(description["incoming_record"], validate=True))
+                and getattr(self.companion.config, "trade_egg_abi_version", 0) != 1):
+            # Owner decision 39: only a game that hatches a traded Egg correctly may receive one (another game would turn
+            # it into a Bad Egg at its hatch). Refused before this recipient acknowledges anything: nothing moves.
+            raise LiveTradeError("trade_egg_unsupported", "this game cannot receive an Egg by trade")
         record = self._recipient_record(intent, session, description)
         payload = self._bytes(intent["prepare_id"] + ".flash", intent["frozen_sha256"], FLASH_SIZE)
         candidate = build_recipient_candidate(payload, description)

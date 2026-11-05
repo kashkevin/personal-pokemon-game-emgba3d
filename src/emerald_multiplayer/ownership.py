@@ -172,6 +172,34 @@ def _decode_box(box: bytes, location: str) -> tuple[int, int, int, int, str]:
     return serial, personality, ot_id, species, content
 
 
+def box_is_egg(box: bytes) -> bool:
+    """Whether an occupied 80-byte record is an Egg by either native flag: the header's isEgg sanity bit or the encrypted
+    misc substructure's isEgg (bit 30 of its IV word). The engine sets and clears both together (SetBoxMonData
+    MON_DATA_IS_EGG); trade eligibility has always treated either one as an Egg. Reads a decrypted copy of one word."""
+    if len(box) < BOX_POKEMON_SIZE:
+        raise OwnershipError("an Egg flag needs a complete boxed Pokémon")
+    personality, ot_id = struct.unpack_from("<II", box)
+    misc = _SUBSTRUCT_OFFSETS[3][personality % 24] * 12
+    word = struct.unpack_from("<I", box, 32 + misc + 4)[0] ^ personality ^ ot_id
+    return bool(box[19] & 4 or word & (1 << 30))
+
+
+def box_at(save_block1: bytes, storage: bytes, location: str) -> bytes:
+    """The 80-byte boxed record at a location ``inspect_ownership`` named (party:N, box:B:N, daycare:N, fusion:N)."""
+    parts = location.split(":")
+    if parts[0] == "party":
+        data, start = save_block1, SAVED_PARTY_OFFSET + int(parts[1]) * POKEMON_SIZE
+    elif parts[0] == "box":
+        data, start = storage, 4 + (int(parts[1]) * BOX_CAPACITY + int(parts[2])) * BOX_POKEMON_SIZE
+    elif parts[0] == "daycare":
+        data, start = save_block1, DAYCARE_OFFSET + int(parts[1]) * DAYCARE_MON_SIZE
+    elif parts[0] == "fusion":
+        data, start = storage, FUSIONS_OFFSET + int(parts[1]) * POKEMON_SIZE
+    else:
+        raise OwnershipError("unknown owned location")
+    return data[start:start + BOX_POKEMON_SIZE]
+
+
 def _inspect_inventory(block1: bytes, storage: bytes, *, require_ids: bool,
                        allow_unassigned: bool = False) -> tuple[OwnershipRecord, ...]:
     if len(block1) != SAVE_BLOCK_1_SIZE or len(storage) != STORAGE_SIZE:

@@ -681,7 +681,9 @@ class LauncherSession:
                 deliver=battle_deliver_enabled(self._manifest))
             if self._manifest.get("rival_abi_version") == 1:
                 self._server.enable_rival_battle_environment()  # Update 31: rival battles use the checkpoint's environment
-        from .bridge_config import championship_computers_enabled, tower_enabled
+        from .bridge_config import championship_computers_enabled, tower_enabled, trade_eggs_enabled
+        if ordinary_trades and trade_eggs_enabled(self._manifest):
+            self._server.enable_egg_trades()   # owner decision 39: the game hatches a traded Egg correctly
         if tower_enabled(self._manifest):
             self._server.enable_tower()     # Battle Tower: Legends: the installed game has it (its solo battles need no desk)
         if championship_computers_enabled(self._manifest):

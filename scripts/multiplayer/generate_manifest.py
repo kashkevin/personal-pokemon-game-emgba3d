@@ -351,6 +351,15 @@ def generate(rom: Path, elf: Path, nm: str, engine_commit: str, *, trade_effect_
         if not four_byte_marker(championship) or manifest.get("tower_abi_version") != 1:
             raise ValueError("the Championship's computer matches need one four-byte marker and the Tower")
         manifest.update(championship_abi_version=1)
+    # Owner decision 39 (KNOWN_ISSUES "Trades: eggs and Mail"): the game hatches a traded Egg with its own player as the
+    # original trainer, the record re-encrypted under the new ID (party and PC hatches). Native PC game only, beside the
+    # ownership trade; the host then lets Eggs be offered (bridge_config.trade_eggs_enabled). Mail needs no marker: the
+    # trade's save import carries the Mail array.
+    egg = native_marker("gMultiplayerTradeEggAbiVersion", symbols + native_symbols)
+    if egg:
+        if not four_byte_marker(egg) or manifest.get("trade_abi_version") != 1:
+            raise ValueError("Egg trades need one four-byte marker and the ownership trade")
+        manifest.update(trade_egg_abi_version=1)
     if len(objects) == 1:
         obj_address, obj_size = (int(value, 16) for value in objects[0])
         # Read-only test metadata for the pinned engine's 0x24-byte objects.
