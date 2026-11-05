@@ -61,6 +61,13 @@ PKMN_TEST_TOWER_RECORD: the game loads the save, sets them and saves through its
                         game clear (FLAG_SYS_GAME_CLEAR: Lilycove's ferry sails only after the Hall of Fame), -a nothing a
                         ticket asks for: the Legendary Tickets' proof (native_launcher_ticket_proof.py; -a hosts). Test
                         code: the flags are set, not earned in play
+  trade-mail-a / -b     a level-20 Wingull holding Wave Mail; a level-20 Treecko holding Wood Mail and a level-20
+                        Zigzagoon holding nothing (the test build's M<item>: a Mail of nine test words written by the
+                        save's own player, in its party's first free Mail slot): a world trade of two Pokemon holding
+                        Mail, then of the Treecko for the Zigzagoon (--scenario trade-mail, owner decision 39)
+  trade-egg-a / -b      a level-5 Zigzagoon and a shiny Togepi Egg with one egg cycle left and IVs 3/7/11/19/23/29 (the
+                        test build's g<cycles>: an Egg as the Day Care makes one); a level-5 Mudkip and a level-5
+                        Zigzagoon: the Egg traded for the Mudkip and hatched by its receiver (--scenario trade-egg)
 
     python scripts/multiplayer/make_tower_saves.py --exe <Makefile_pc BFX_TEST=1 build> \\
         --mega-check <engine>/tools/battle_env/mega_check.py --source-a boy-1.sav --source-b girl-1.sav --out DIR \\
@@ -72,6 +79,7 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+import re
 import shutil
 import sys
 import types
@@ -143,6 +151,13 @@ FIXTURES = (  # (name, source, party, record "highest:progress" or None[, bag "i
     # FLAG_SYS_GAME_CLEAR for the friend; nothing for the host
     ("tickets-a", "a", "252:30", None),
     ("tickets-b", "b", "255:30", None, "", "", False, "0x1BB,0x1BC,0x1BD,0x864"),
+    # owner decision 39: SPECIES_WINGULL with ITEM_WAVE_MAIL; SPECIES_TREECKO with ITEM_WOOD_MAIL and a SPECIES_ZIGZAGOON
+    ("trade-mail-a", "a", "278:20:M204", None),
+    ("trade-mail-b", "b", "252:20:M203,263:20", None),
+    # a SPECIES_ZIGZAGOON and a shiny SPECIES_TOGEPI Egg (one egg cycle left; IVs in the summary's order HP, Atk, Def,
+    # SpA, SpD, Spe); SPECIES_MUDKIP and SPECIES_ZIGZAGOON
+    ("trade-egg-a", "a", "263:5,175:1:sI3.7.11.19.23.29g1", None),
+    ("trade-egg-b", "b", "258:5,263:5", None),
 )
 
 
@@ -170,8 +185,12 @@ def make_one(mega_check, exe, display, source, out, name, party, record, bag="",
     if not any(line.startswith("the save is written") for line in lines):
         problems.append("the game wrote no save")
     party_size = len(party.split(","))
-    if sum(1 for line in lines if line.startswith("test Pokemon ")) != party_size:
+    # one "test Pokemon <species> Lv<level>, ..." line per Pokemon (an Egg and IVs given add lines of their own)
+    if sum(1 for line in lines if re.match(r"test Pokemon \d+ Lv\d+", line)) != party_size:
         problems.append(f"not {party_size} test Pokemon")
+    eggs = sum(1 for spec in party.split(",") if re.search(r"g\d", (spec.split(":", 2) + ["", ""])[2]))
+    if sum(1 for line in lines if re.match(r"test Pokemon \d+ is an Egg, \d+ cycles left", line)) != eggs:
+        problems.append(f"not {eggs} test Eggs (a test build without g<cycles>?)")
     if record is not None and f"the Tower record: highest {record[0]}, progress {record[1]} (valid 1)" not in lines:
         problems.append(f"no Tower record {record}")
     if fast and "the options: text speed fast, battle scene off" not in lines:

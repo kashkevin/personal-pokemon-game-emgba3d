@@ -39,6 +39,27 @@ workers and native games, driven by ordinary key presses:
             everyone saves; the first player offers its first Pokemon to the second, who offers its own; both confirm
             and the host applies the exact exchange; the field comes back; everyone saves: the host's saves hold the
             species in --expect-species (one per player), each Pokemon under its own serial.
+    trade-mail  (two; owner decision 39; the sources make_tower_saves.py's trade-mail-a and -b: a Wingull holding Wave
+            Mail; a Treecko holding Wood Mail and a Zigzagoon) everyone saves; the Wingull is traded for the Treecko,
+            each Mail along with its Pokemon; then the Treecko for the Zigzagoon (its Mail goes one way). After each
+            trade the host's saves, read with the app's own code (trade_eggs_mail_evidence.py): each received Pokemon
+            points at a party Mail slot holding its sender's 36 bytes exactly, the sender's slot cleared as ClearMail
+            clears it (or taken by the Mail received), no Mail duplicated or lost, every other slot as it was; each game
+            that received a Mail reads it (START > POKEMON > the Pokemon > MAIL > READ: the game's own Mail screen,
+            pictured, the Mail it shows the one its save block holds at the slot the Pokemon names, the host's bytes);
+            the world's integrity check. With --freeze the first trade is cut (KIND:PLAYER:trade:SECONDS once the first
+            player confirmed, :trade-confirmed: once both did, :trade-committed: once the host committed it, before
+            either game has it): the trade ends applied on both sides or on neither, each Mail on exactly one side
+            (an interrupted one resolved as the launcher tells its player), then, unmade, it is made again.
+    trade-egg  (two; the sources trade-egg-a and -b: a Zigzagoon and a shiny Togepi Egg one egg cycle from hatching; a
+            Mudkip and a Zigzagoon; the world's game hatches a traded Egg right: manifest trade_egg_abi_version 1) the
+            Egg is traded for the Mudkip; its receiver walks to and fro until it hatches (--hatch-in party: the game's own
+            hatch, "Huh?", the hatch scene, NO to a nickname; --hatch-in box: first the receiver's game is started again
+            from its host save with the test build's PKMN_TEST_EGG_TO_PC, which moves the party's Eggs to the PC as a
+            deposit does, and saves; the PC's Egg hatches at the same egg cycle's end) and saves: the host takes the one
+            change of original trainer it allows. The host's saves: no Bad Egg, the hatcher's trainer ID, name and
+            gender, species, personality, IVs, moves and shininess kept; the integrity check; with --hatch-in party the
+            hatched Pokemon is traded on to the other player for the Mudkip.
     give-up  (two; KNOWN_ISSUES MS-126: no turn timer, a player may give up whenever they wish) both claim their
             starters and save (or, with --no-save, the games save by themselves); the host challenges the second
             player to Rival Battle - 1v1 and both enter. The game that does not run the battle (core 1; core 0, the
@@ -82,7 +103,7 @@ for _path in (ROOT / "src", ROOT / "scripts" / "multiplayer", ROOT / "scripts" /
         sys.path.insert(0, str(_path))
 from native_launcher_battle_3d_proof import LIGHT_3D_SETTINGS  # noqa: E402
 from native_launcher_battle_proof import (CHOOSE_ACTION_REQUEST, FORFEIT_ROLE, KEYS, WINDOWS,  # noqa: E402
-                                          drive_battle_input, idle_battle_input, launcher_proof)
+                                          drive_battle_input, game_picture, idle_battle_input, launcher_proof)
 from native_launcher_challenge_proof import pick, shown  # noqa: E402
 from native_launcher_ffa_proof import A, B, DOWN, LEFT, RIGHT, UP, close_players, players_tab, pose_of, walk_to  # noqa: E402
 from native_launcher_lobby4_proof import FourPlayerLobbyProof  # noqa: E402
@@ -90,16 +111,34 @@ from native_launcher_newcomer_proof import LAB, LITTLEROOT, NO_POKEMON  # noqa: 
 from native_launcher_soft_reset_proof import SoftResetProof  # noqa: E402
 from native_launcher_three_player_proof import ThreePlayerProof, longest_gap  # noqa: E402
 from proof_network import delay_battle_messages_to, simulate_disk, simulate_internet  # noqa: E402
-from emerald_multiplayer.flash import inspect_flash  # noqa: E402
+from emerald_multiplayer.flash import STORAGE_SIZE, inspect_flash  # noqa: E402
 from emerald_multiplayer.menu_mailbox import unpack_screen  # noqa: E402
-from emerald_multiplayer.ownership import OWNERSHIP_PROFILE, inspect_ownership  # noqa: E402
+from emerald_multiplayer.ownership import OWNERSHIP_PROFILE, box_at, box_is_egg, inspect_ownership  # noqa: E402
 from emerald_multiplayer.trade_eligibility import validate_party_offer  # noqa: E402
+from emerald_multiplayer.trade_mail import MAIL_OFFSET, MAIL_SIZE  # noqa: E402
 from qualify_admission_cleanup import on_worker, require  # noqa: E402
 from qualify_launcher_session import inspect_closed_head  # noqa: E402
+import trade_eggs_mail_evidence as evidence  # noqa: E402
 
 PLAYER_NAMES = ("New Host", "New Friend 1", "New Friend 2", "New Friend 3")
-SCENARIOS = ("lobby", "mixed", "busy", "trade", "battle-trade", "trade-evolve", "trade-forms", "give-up",
-             "give-up-mid-turn")
+SCENARIOS = ("lobby", "mixed", "busy", "trade", "battle-trade", "trade-evolve", "trade-forms", "trade-mail", "trade-egg",
+             "give-up", "give-up-mid-turn")
+# Scenarios whose --source saves already hold Pokemon (no claims): their parties are the sources' own.
+HOLDING = ("trade-evolve", "trade-forms", "trade-mail", "trade-egg")
+# Owner decision 39 (KNOWN_ISSUES "Trades: eggs and Mail"). The party menu (engine src/party_menu.c): a party Pokemon's
+# menu lists struct PartyMenuInternal's actions (two pointers, a u32 of bit fields and windowId[3], then actions[9] and
+# numActions in the PC build); MENU_MAIL opens READ, TAKE, CANCEL. The Mail screen (src/mail.c struct MailRead): the lines
+# it prints (8 x 64 bytes), its author's name (12), its callback and the Mail it reads. CONTEXT_SHUTDOWN (src/script.c):
+# no field script runs.
+MENU_ACTION_POKEMON = 1
+PARTY_ACTIONS, PARTY_ACTION_COUNT = 15, 24
+MENU_MAIL, MENU_TAKE_MAIL, MENU_READ, MENU_CANCEL2 = 7, 8, 9, 10
+MAIL_LINES, MAIL_AUTHOR, MAIL_CALLBACK, MAIL_POINTER = 0, 0x200, 0x210, 0x214
+SCRIPT_SHUTDOWN = 2
+# Where a hatching receiver walks to and fro (row 12 east and west of the lab's street: the newcomers' own ways).
+PACE = {"east": (12, 11, 14), "west": (12, 5, 10)}
+# trade-mail's --freeze points: once the first player confirmed, once both did, once the host committed the trade
+TRADE_CUTS = ("trade", "trade-confirmed", "trade-committed")
 GIVE_UPS = ("give-up", "give-up-mid-turn")
 # give-up-mid-turn: how late the host's battle messages reach the giver's game once its move is with the host, until the
 # notice is there (then at once again, in order). The giver gives up (B, the question, UP, A: about 2 s) between the host
@@ -129,6 +168,16 @@ MENU_ACTION_OPTION, PLAYER_OPTIONS, TRAINER_CARD = 6, 15, 16          # engine s
 BELOW_BIRCH = (6, 5)                     # Birch stands at (6,4) facing down (his aide wanders, so is no target)
 
 
+def read_at(probe, address, size):
+    """`size` bytes at an address the game holds (a pointer's value: where it is in the running process)."""
+    memory = getattr(probe, "memory", None)
+    if memory is not None:                     # Windows: ReadProcessMemory (WindowsProbe), the address as it is
+        return memory._raw(address, size)
+    with open(f"/proc/{probe.pid}/mem", "rb", buffering=0) as memory:
+        memory.seek(address)
+        return memory.read(size)
+
+
 class NewcomersProof(SoftResetProof, ThreePlayerProof):
     """The newcomer proof's claims, the soft reset proof's RESET page and the three-player proof's drawing checks, for
     two to four players."""
@@ -138,10 +187,11 @@ class NewcomersProof(SoftResetProof, ThreePlayerProof):
     lobby_page = FourPlayerLobbyProof.lobby_page
     accept = FourPlayerLobbyProof.accept
 
-    def __init__(self, scenario, fmt, watch, match_seconds, no_save=False, expect_species=()):
+    def __init__(self, scenario, fmt, watch, match_seconds, no_save=False, expect_species=(), hatch_in="party"):
         super().__init__(watch, match_seconds)
         self.scenario, self.format, self.no_save = scenario, fmt, no_save
         self.expect_species = tuple(expect_species)
+        self.hatch_in = hatch_in
 
     # The claims ---------------------------------------------------------------------------------------------------
     async def walk_to_lab(self, slot, current, probes, record):
@@ -472,12 +522,14 @@ class NewcomersProof(SoftResetProof, ThreePlayerProof):
         record(label, sessions=[v["epoch"] for v in states], same_parties=[self.harness.names[n] for n in before])
 
     # Trades and resets --------------------------------------------------------------------------------------------
-    async def trade_between(self, current, probes, record, offerer, answerer, while_open=None, freeze=None):
+    async def trade_between(self, current, probes, record, offerer, answerer, while_open=None, freeze=None,
+                            labels=(None, None), freeze_when="first"):
         """The offerer offers the answerer a trade from PLAYERS; `while_open` runs while the offer waits; the answerer
-        picks its Pokemon from Pending trade; both confirm; the host applies it (each save two revisions on):
-        "applied". `freeze` (--freeze ...:trade) runs once the first player confirmed; a trade it ends, aborted on
-        both sides with nothing left open, is "cancelled"; one that leaves a player's launcher without the host,
-        holding the trade (`self.interrupted`), is "interrupted"."""
+        picks its Pokemon from Pending trade (each the first one, or the rows `labels` names: the offerer's, the
+        answerer's); both confirm; the host applies it (each save two revisions on): "applied". `freeze` (--freeze
+        ...:trade) runs once the first player confirmed (`freeze_when` "both": once both did); a trade it ends,
+        aborted on both sides with nothing left open, is "cancelled"; one that leaves a player's launcher without the
+        host, holding the trade (`self.interrupted`), is "interrupted"."""
         host = self.harness.host
         pair = (offerer, answerer)
         before = {n: (await self.launcher(current[n]))["revision"] for n in pair}
@@ -493,7 +545,7 @@ class NewcomersProof(SoftResetProof, ThreePlayerProof):
         try:
             if WALK[0]:
                 await self.walk_meanwhile(probes[offerer], record)
-            offered = {offerer: await pick(probes[offerer])}
+            offered = {offerer: await pick(probes[offerer], labels[0])}
         finally:
             if WALK[0]:
                 record("trade-exports", player=self.harness.names[offerer], statuses=await self.exports(current[offerer]))
@@ -504,7 +556,7 @@ class NewcomersProof(SoftResetProof, ThreePlayerProof):
         await probes[answerer].choose("Pending trade")
         chosen = time.monotonic()
         await probes[answerer].choose("Choose your Pokemon", wait=False)
-        offered[answerer] = await pick(probes[answerer])
+        offered[answerer] = await pick(probes[answerer], labels[1])
         prepared[answerer] = round(time.monotonic() - chosen, 1)
         record("trade-offers-chosen", offered={self.harness.names[n]: offered[n] for n in pair},
                window_seconds={self.harness.names[n]: prepared[n] for n in pair})
@@ -528,7 +580,8 @@ class NewcomersProof(SoftResetProof, ThreePlayerProof):
                                    seconds=round(time.monotonic() - started, 1))
                             if MASH[0]:
                                 mashers[n] = asyncio.create_task(self.mash(probes[n]))
-                            if freeze is not None and freezing is None:
+                            if (freeze is not None and freezing is None
+                                    and (freeze_when == "first" or len(confirmed) == len(pair))):
                                 freezing = asyncio.create_task(freeze())
                 elapsed = round(time.monotonic() - started)
                 if all(v.get("interaction") is None and v.get("trade") is None and v.get("revision") == before[n] + 2
@@ -778,8 +831,25 @@ class NewcomersProof(SoftResetProof, ThreePlayerProof):
         for n, probe in enumerate(probes):
             status, rows = await players_tab(probe)
             require(status.startswith(f"Connected: {count}/"), f"player {n}'s PLAYERS: {status} {rows}")
-        if self.scenario in ("trade-evolve", "trade-forms"):
-            await self.trade_evolve(current, probes, record, evolves=self.scenario == "trade-evolve")
+        if self.scenario in HOLDING:
+            if self.scenario in ("trade-mail", "trade-egg"):
+                async def capability(s):
+                    return dict(manifest_trade_egg_abi_version=s._manifest.get("trade_egg_abi_version"),
+                                host_trades_eggs=bool(getattr(s._server.trade_desk, "trade_eggs", False)),
+                                host_trades_mail=bool(getattr(s._server.trade_desk, "trade_mail", False)),
+                                launcher_trade_egg_abi_version=s._companion.config.trade_egg_abi_version)
+                found = await on_worker(current[0], capability)
+                record("eggs-and-mail-capability", **found)
+                require(found["host_trades_mail"], f"the host does not trade Mail: {found}")
+                require(self.scenario != "trade-egg" or (found["host_trades_eggs"]
+                                                         and found["manifest_trade_egg_abi_version"] == 1),
+                        f"this world's game does not declare that it hatches a traded Egg right: {found}")
+            if self.scenario == "trade-mail":
+                await self.trade_mail(current, probes, record)
+            elif self.scenario == "trade-egg":
+                await self.trade_egg(current, probes, games, record)
+            else:
+                await self.trade_evolve(current, probes, record, evolves=self.scenario == "trade-evolve")
             parties = await self.heads(current, host)
             revisions = [(await self.launcher(w))["revision"] + 1 for w in current]
             return dict(parties=parties, revisions=revisions)
@@ -890,6 +960,411 @@ class NewcomersProof(SoftResetProof, ThreePlayerProof):
                 f"the evolutions changed the parties' Pokemon: {traded} then {canonical}")
         for n, party in enumerate(after):
             require(party[0][1] in (0, None), f"{self.harness.names[n]}'s evolved Pokemon still holds item {party[0][1]}")
+
+    # Mail and Eggs (owner decision 39) ------------------------------------------------------------------------------
+    async def host_saves(self, current):
+        """Each player's canonical save on the host (its payload), as the store holds it now."""
+        async def read(s):
+            return [inspect_closed_head(s._store, a.player_id).payload for a in self.harness.host.accounts]
+        return await on_worker(current[0], read)
+
+    async def integrity(self, current, record, label):
+        """The world's integrity check (the store's own: every checkpoint, ownership and trade history replayed)."""
+        async def check(s):
+            started = time.monotonic()
+            s._store.integrity_check()
+            return round(time.monotonic() - started, 1)
+        record(label, passed=True, seconds=await on_worker(current[0], check))
+
+    @staticmethod
+    def active_tasks(probe):
+        tasks = probe.mem("gTasks", 640)
+        return {probe.code(int.from_bytes(tasks[o:o + 4], "little")) & ~1 for o in range(0, 640, 40) if tasks[o + 4]}
+
+    @staticmethod
+    def task_cursor(probe, function):
+        """data[0] of the active task running `function` (struct Task: func, isActive, prev, next, priority, data[16]):
+        the party menu's selection window keeps its cursor there each frame (Task_HandleSelectionMenuInput)."""
+        tasks = probe.mem("gTasks", 640)
+        for o in range(0, 640, 40):
+            if tasks[o + 4] and probe.code(int.from_bytes(tasks[o:o + 4], "little")) & ~1 == function:
+                return int.from_bytes(tasks[o + 8:o + 10], "little", signed=True)
+        return None
+
+    @staticmethod
+    def fading(probe):
+        """A palette fade runs (gPaletteFade.active, bit 31 of its fourth word: the menus take no input meanwhile)."""
+        return bool(int.from_bytes(probe.mem("gPaletteFade", 4, 12), "little") >> 31)
+
+    async def settled(self, probe, predicate, timeout, what):
+        """`predicate()` holds with no palette fade running, for a second on end (a press during a fade is lost)."""
+        calm = 0
+        try:
+            async with asyncio.timeout(timeout):
+                while calm < 5:
+                    calm = calm + 1 if predicate() and not self.fading(probe) else 0
+                    await asyncio.sleep(.2)
+        except TimeoutError:
+            raise AssertionError(f"{what}: not there after {timeout} s") from None
+
+    async def press_until(self, probe, key, done, what, tries=3, wait=10):
+        """`key` until `done()`: a press the game did not take (a loaded PC's slow frame) is pressed again."""
+        for _ in range(tries):
+            await probe.press(key)
+            try:
+                async with asyncio.timeout(wait):
+                    while not done():
+                        await asyncio.sleep(.1)
+                return
+            except TimeoutError:
+                continue
+        raise AssertionError(f"{what}: {tries} presses, no answer")
+
+    @staticmethod
+    def party_actions(probe):
+        """The actions of the menu a party Pokemon opened (sPartyMenuInternal), in its order."""
+        base = int.from_bytes(probe.mem("sPartyMenuInternal", 4), "little")
+        if not base:
+            return []
+        raw = read_at(probe, base + PARTY_ACTIONS, PARTY_ACTION_COUNT - PARTY_ACTIONS + 1)
+        return list(raw[:min(raw[-1], PARTY_ACTION_COUNT - PARTY_ACTIONS)])
+
+    @staticmethod
+    def mail_screen(probe):
+        """The game's Mail screen as it stands (sMailRead): its callback, the Mail it reads, its lines and author."""
+        base = int.from_bytes(probe.mem("sMailRead", 4), "little")
+        if not base:
+            return None
+        raw = read_at(probe, base, MAIL_POINTER + 4)
+        pointer = int.from_bytes(raw[MAIL_POINTER:MAIL_POINTER + 4], "little")
+        return dict(callback=probe.code(int.from_bytes(raw[MAIL_CALLBACK:MAIL_CALLBACK + 4], "little")),
+                    pointer=pointer, mail=read_at(probe, pointer, MAIL_SIZE) if pointer else None,
+                    lines=[line for line in (evidence.text(raw[MAIL_LINES + 64 * i:MAIL_LINES + 64 * (i + 1)])
+                                             for i in range(8)) if line.strip()],
+                    author=evidence.text(raw[MAIL_AUTHOR:MAIL_AUTHOR + 12]))
+
+    async def read_mail_in_game(self, n, current, probes, record, index, label):
+        """START > POKEMON > party Pokemon `index` > MAIL > READ, as a player reads a Mail: the game's own Mail screen,
+        pictured once its letter shows; B, and back to the field. Returns what the screen read: the 36 bytes of the
+        Mail it shows, where the game holds them (its save block's Mail slot the Pokemon names), its lines."""
+        probe, worker, name = probes[n], current[n], self.harness.names[n]
+        await self.start_menu_item(worker, probe, MENU_ACTION_POKEMON, "CB2_UpdatePartyMenu")
+        choose, select = probe.symbols["Task_HandleChooseMonInput"][0], probe.symbols["Task_HandleSelectionMenuInput"][0]
+        await self.settled(probe, lambda: choose in self.active_tasks(probe), 60, f"{name}: the party menu")
+
+        def slot():
+            return probe.mem("gPartyMenu", 20)[9]                # gPartyMenu.slotId
+        # The Classic screen's party is a column (DOWN: the next Pokemon; RIGHT from the first: the second); the 3D
+        # build's native screen a grid of two columns (RIGHT, LEFT within a row; DOWN: the row below or CANCEL). Both
+        # take RIGHT from the first Pokemon to the second; otherwise a step toward it, the cursor read after each.
+        for _ in range(12):
+            here = slot()
+            if here == index:
+                break
+            key = (RIGHT if index % 2 == 1 and here == index - 1 else LEFT if index % 2 == 0 and here == index + 1
+                   else DOWN)
+            await self.press_until(probe, key, lambda: slot() != here, f"{name}: the party menu's cursor")
+        require(slot() == index, f"{name}: the party menu's cursor did not reach Pokemon {index}")
+        await self.press_until(probe, A, lambda: select in self.active_tasks(probe), f"{name}: Pokemon {index}'s menu")
+        await self.settled(probe, lambda: self.task_cursor(probe, select) is not None, 30, f"{name}: Pokemon {index}'s menu")
+        actions = self.party_actions(probe)
+        require(MENU_MAIL in actions, f"{name}: Pokemon {index}'s menu offers no MAIL: {actions}")
+        for _ in range(len(actions)):
+            cursor = self.task_cursor(probe, select)
+            if cursor == actions.index(MENU_MAIL):
+                break
+            await self.press_until(probe, DOWN, lambda: self.task_cursor(probe, select) != cursor, f"{name}: to MAIL")
+        require(self.task_cursor(probe, select) == actions.index(MENU_MAIL), f"{name}: the cursor did not reach MAIL")
+        submenu = [MENU_READ, MENU_TAKE_MAIL, MENU_CANCEL2]
+        await self.press_until(probe, A, lambda: self.party_actions(probe) == submenu, f"{name}: MAIL's READ, TAKE, CANCEL")
+        await self.settled(probe, lambda: self.task_cursor(probe, select) == 0, 30, f"{name}: READ under the cursor")
+        reading, ready = probe.symbols["CB2_MailRead"][0], probe.symbols["CB2_ExitOnKeyPress"][0]
+        party_menu = probe.symbols["CB2_UpdatePartyMenu"][0]
+        # READ: the selection window goes (the party menu closes for the Mail); a press it did not take is pressed again
+        await self.press_until(probe, A, lambda: select not in self.active_tasks(probe)
+                               or self.screen(probe) != party_menu, f"{name}: READ")
+        await self.until(lambda: self.screen(probe) == reading and (self.mail_screen(probe) or {}).get("callback") == ready,
+                         90, "the Mail on the screen")
+        await asyncio.sleep(1)                                   # drawn (the 3D build's native UI reads it each frame)
+        shown = self.mail_screen(probe)
+        block1 = int.from_bytes(probe.mem("gSaveBlock1Ptr", 4), "little")
+        slot = probe.mem("gParties", 100, 100 * index)[85]
+        picture = game_picture(probe, self.harness.output / f"{label}.png", settle=.5)
+        # B: the letter closes and the party menu comes back
+        await self.press_until(probe, B, lambda: self.screen(probe) != reading or (self.mail_screen(probe) or {}).get(
+            "callback") != ready, f"{name}: closing the Mail")
+        await self.until(lambda: self.screen(probe) == party_menu, 60, "the party menu after the Mail")
+        await self.settled(probe, lambda: self.screen(probe) == party_menu, 60, f"{name}: the party menu again")
+        await self.back_to_field(worker, probe, timeout=90)
+        await self.on_field(worker)
+        result = dict(player=name, party_index=index, slot=slot, picture=picture, lines=shown["lines"],
+                      author=shown["author"], mail=shown["mail"].hex(),
+                      reads_its_own_slot=shown["pointer"] == block1 + MAIL_OFFSET + slot * MAIL_SIZE)
+        record("read-the-mail-in-game", **result)
+        require(result["reads_its_own_slot"], f"{name}'s Mail screen reads another place than Mail slot {slot}")
+        return result
+
+    async def mail_trade_checked(self, current, record, before, serials, label):
+        """The host's saves after a trade, read against `before` (trade_eggs_mail_evidence.mail_trade); the world's
+        integrity check."""
+        after = await self.host_saves(current)
+        summary, problems = evidence.mail_trade(tuple(before), tuple(after), serials)
+        record(label, problems=problems, **summary)
+        require(not problems, f"{label}: {problems}")
+        await self.integrity(current, record, label + "-integrity")
+        return after
+
+    async def trade_mail(self, current, probes, record):
+        """The trade-mail scenario (the docstring): two trades, the first with Mail both ways, the second one way."""
+        canonical = await self.save_all(current, record, "saved-with-their-pokemon")
+        names = self.harness.names
+        before = await self.host_saves(current)
+        views = [evidence.save_mail(payload) for payload in before]
+        record("mail-before", sides=[{str(serial): row for serial, row in view["party"].items()} for view in views])
+        (wingull,), (treecko, zigzagoon) = canonical[0]["serials"], canonical[1]["serials"]
+        require(views[0]["party"][wingull]["mail"] is not None and views[1]["party"][treecko]["mail"] is not None
+                and views[1]["party"][zigzagoon]["mail"] is None,
+                f"the sources do not hold the Mail this scenario trades: {views[0]['party']} {views[1]['party']}")
+        freeze = next(((kind, slot, when, seconds) for kind, slot, when, seconds, at in FREEZES
+                       if when in TRADE_CUTS and at == 1), None)
+
+        async def committed(s):
+            return s._store._connection.execute("SELECT COUNT(*) FROM trade_transactions").fetchone()[0]
+        while True:
+            hold = None
+            if freeze is not None:
+                base = await on_worker(current[0], committed)
+
+                async def hold(f=freeze, base=base):
+                    if f[2] == "trade-committed":
+                        # the host has committed both post-images (one SQLite transaction); neither game has them yet
+                        async with asyncio.timeout(120):
+                            while await on_worker(current[0], committed) <= base:
+                                await asyncio.sleep(.05)
+                    await self.freeze(f[0], f[1], f[3], record, f"trade, {f[2]}")
+            outcome = await self.trade_between(current, probes, record, 0, 1, freeze=hold,
+                                               freeze_when="first" if freeze and freeze[2] == "trade" else "both")
+            if outcome == "interrupted":
+                for n in self.interrupted:
+                    await self.resolve_interrupted_trade(n, current, probes, record)
+            for n in (0, 1):
+                await self.on_field(current[n])
+            after = await self.host_saves(current)
+            heads = await self.heads(current, self.harness.host)
+            made = [h["serials"] for h in heads] == [[treecko], [wingull, zigzagoon]]
+            unmade = [h["serials"] for h in heads] == [[wingull], [treecko, zigzagoon]]
+            # Atomic: applied on both sides or on neither; each Mail on exactly one side.
+            census = evidence.census(after)
+            record("trade-outcome", outcome=outcome, made=made, canonical=heads, host_committed_trades=await on_worker(
+                       current[0], committed), mails_held=census, freeze=None if freeze is None else list(freeze))
+            require(made or unmade, f"the trade left the parties half made: {heads}")
+            require(census == [1, 1], f"the two Mails are not each held once: {census}")
+            if made:
+                break
+            # Ended unmade: every Mail slot and every party Pokemon's Mail as before the trade, on both sides.
+            for side, payload in enumerate(after):
+                now = evidence.save_mail(payload)
+                require(now == views[side], f"a trade ended unmade changed {names[side]}'s Mail: {now['party']}")
+            record("trade-not-made-mail-unmoved", outcome=outcome)
+            freeze = None
+        after = await self.mail_trade_checked(current, record, before, (wingull, treecko), "mail-traded")
+        received = [await self.read_mail_in_game(n, current, probes, record, 0, label)
+                    for n, label in enumerate(("host-reads-the-treeckos-mail", "friend-reads-the-wingulls-mail"))]
+        for n, seen in enumerate(received):
+            held = evidence.save_mail(after[n])["party"][treecko if n == 0 else wingull]
+            require(seen["mail"] == held["mail"] and seen["slot"] == held["mail_slot"],
+                    f"{names[n]}'s game shows another Mail than its host save holds: {seen} {held}")
+        # The second trade: the Treecko's Mail back to its first trainer's side, nothing the other way.
+        outcome = await self.trade_between(current, probes, record, 0, 1, labels=("Treecko Lv20", "Zigzagoon Lv20"))
+        require(outcome == "applied", f"the second trade was not applied: {outcome}")
+        await self.mail_trade_checked(current, record, after, (treecko, zigzagoon), "mail-traded-one-way")
+        seen = await self.read_mail_in_game(1, current, probes, record, 1, "friend-reads-the-treeckos-mail")
+        final = evidence.save_mail((await self.host_saves(current))[1])["party"][treecko]
+        require(seen["mail"] == final["mail"], f"the friend's game shows another Mail than its host save: {seen}")
+        canonical = await self.save_all(current, record, "saved-after-the-trades")
+        return canonical
+
+    async def until_hatched(self, n, current, probes, record, hatched, label, timeout=900):
+        """The receiver walks to and fro on row 12 of Littleroot (east or west of the lab's street, as it stands) until
+        `hatched()` holds and its field is calm: every step a player's own; anything else on its screen (the "Huh?"
+        of a party Egg's hatch, the hatch scene and its nickname question, a banner) gets B, as a player gets through
+        it (NO to the nickname). Returns the steps taken."""
+        probe, companion = probes[n], await self.companion_of(current[n])
+        field = probe.symbols["CB2_Overworld"][0]
+        here = pose_of(companion)
+        require(here is not None and tuple(here[2:4]) == LITTLEROOT, f"{self.harness.names[n]} is not in Littleroot: {here}")
+        row, low, high = PACE["east" if here[4] >= 10 else "west"]
+        target, steps, presses, calm, stuck = high, 0, 0, 0, 0
+        started, pictures = time.monotonic(), []
+
+        def calm_field():
+            pose = pose_of(companion)
+            return (self.screen(probe) == field and probe.mem("sGlobalScriptContextStatus", 1)[0] == SCRIPT_SHUTDOWN
+                    and pose is not None and pose[0] == 1)
+        while True:
+            require(time.monotonic() - started < timeout, f"{label}: nothing hatched after {steps} steps")
+            if hatched():
+                if not pictures and not calm_field():     # the hatch scene: the Pokemon out of its Egg
+                    pictures.append(game_picture(probe, self.harness.output / f"{label}.png", settle=.3))
+                calm = calm + 1 if calm_field() else 0
+                if calm >= 4:
+                    break
+                if not calm_field():
+                    await probe.press(B, release=30)
+                    presses += 1
+                await asyncio.sleep(.5)
+                continue
+            if not calm_field():
+                await probe.press(B, release=30)
+                presses += 1
+                await asyncio.sleep(.4)
+                continue
+            pose = pose_of(companion)
+            x, y = pose[4], pose[5]
+            if y != row:
+                key = DOWN if y < row else UP
+            else:
+                if x == target or stuck >= 6:       # an end of the walk, or somebody standing in the way
+                    target, stuck = (low if target == high else high), 0
+                key = RIGHT if target > x else LEFT
+            await probe.press(key, frames=8, release=1)
+            deadline, moved = time.monotonic() + 1.5, False
+            while time.monotonic() < deadline:
+                await asyncio.sleep(.05)
+                now = pose_of(companion)
+                if now is not None and now[2:] != pose[2:]:
+                    steps, moved = steps + 1, True
+                    break
+                if not calm_field():
+                    break
+            stuck = 0 if moved else stuck + 1
+        record(label, player=self.harness.names[n], steps=steps, presses_of_b=presses, pictures=pictures,
+               seconds=round(time.monotonic() - started, 1), position=list(pose_of(companion)[2:]))
+        return steps
+
+    def game_party_record(self, probe, index):
+        return probe.mem("gParties", 100, 100 * index)
+
+    def game_box_record(self, probe, personality):
+        """The PC slot (box:B:N) holding the record of this personality in the running game, and its 80 bytes."""
+        storage = read_at(probe, int.from_bytes(probe.mem("gPokemonStoragePtr", 4), "little"), STORAGE_SIZE)
+        for box in range(14):
+            for slot in range(30):
+                location = f"box:{box}:{slot}"
+                record = box_at(b"", storage, location)
+                if record[19] & 2 and int.from_bytes(record[:4], "little") == personality:
+                    return location, record
+        return None, None
+
+    async def log_lines(self, worker, prefix):
+        """The breed log's lines of this player's running game (PKMN_TEST_BREED_LOG: the test build's own record of
+        its party, its PC's Eggs and its banners, in the game's runtime.log)."""
+        text = (await self.log_of(worker)).read_text(errors="replace")
+        return [line.split("Battle env test: ", 1)[1] for line in text.splitlines()
+                if "Battle env test: " + prefix in line]
+
+    async def egg_to_the_pc(self, n, current, probes, games, record):
+        """--hatch-in box: the receiver's game started again from its host save (the reset key's "Yes, reset now",
+        MS-61) with the test build's PKMN_TEST_EGG_TO_PC, which at its first field frame moves the party's Eggs to the
+        PC as a deposit does (CopyMonToPC); then it saves on the host."""
+        old_pid = games[n].process.pid
+        os.environ["PKMN_TEST_EGG_TO_PC"] = "1"     # the next game a launcher starts (adopt's spawn copies os.environ)
+        try:
+            await self.open_reset_page(probes[n])
+            await self.final_choice(probes[n], "Yes, reset now")
+            code, revision = await self.restarted(n, current, probes, games, old_pid, record)
+        finally:
+            os.environ.pop("PKMN_TEST_EGG_TO_PC", None)
+        moved = await self.log_lines(current[n], "breed moved")
+        record("egg-moved-to-the-pc", player=self.harness.names[n], log=moved, code=code, revision=revision,
+               party=probes[n].party_now())
+        require(moved == ["breed moved 1 party Eggs to the PC"], f"the restarted game moved {moved}")
+        return await self.save_all(current, record, "saved-with-the-egg-in-the-pc", slots=(n,))
+
+    async def trade_egg(self, current, probes, games, record):
+        """The trade-egg scenario (the docstring)."""
+        names, host = self.harness.names, self.harness.host
+        canonical = await self.save_all(current, record, "saved-with-their-pokemon")
+        (zigzagoon_a, egg), (mudkip, zigzagoon_b) = canonical[0]["serials"], canonical[1]["serials"]
+        before = await self.host_saves(current)
+        location, laid = evidence.where_is(before[0], egg)
+        record("egg-before-the-trade", serial=egg, location=location, record=laid, trainer=evidence.trainer(before[0]))
+        require(laid["egg"] and laid["species"] == 175 and not laid["bad_egg"], f"the source holds no Togepi Egg: {laid}")
+        outcome = await self.trade_between(current, probes, record, 0, 1, labels=("Egg", "Mudkip Lv5"))
+        require(outcome == "applied", f"the Egg's trade was not applied: {outcome}")
+        traded = await self.host_saves(current)
+        heads = await self.heads(current, host)
+        require([h["serials"] for h in heads] == [[zigzagoon_a, mudkip], [egg, zigzagoon_b]],
+                f"the Egg's trade left {heads}")
+        moved = evidence.where_is(traded[1], egg)
+        record("egg-traded", location=moved[0], record=moved[1], canonical=heads)
+        for key in ("egg", "personality", "ot_id", "species", "ivs", "moves", "friendship", "shiny", "nickname_hex"):
+            require(moved[1][key] == laid[key], f"the traded Egg's {key} changed: {laid[key]} -> {moved[1][key]}")
+        await self.integrity(current, record, "egg-traded-integrity")
+        receiver = 1
+        if self.hatch_in == "box":
+            await self.egg_to_the_pc(receiver, current, probes, games, record)
+            boxed = await self.host_saves(current)
+            where, kept = evidence.where_is(boxed[receiver], egg)
+            record("egg-in-the-pc-on-the-host", location=where, record=kept)
+            require(where.startswith("box:") and kept["egg"], f"the host's save holds the Egg at {where}: {kept}")
+            game_where, _ = self.game_box_record(probes[receiver], laid["personality"])
+            require(game_where == where, f"the game holds the Egg at {game_where}, its host save at {where}")
+            base = boxed
+
+            def hatched():
+                _, mon = self.game_box_record(probes[receiver], laid["personality"])
+                require(mon is None or not mon[19] & 1, "the PC's Egg became a Bad Egg in the game")
+                return mon is not None and not box_is_egg(mon)
+        else:
+            base = traded
+
+            def hatched():
+                mon = self.game_party_record(probes[receiver], 0)
+                require(not mon[19] & 1, "the party's Egg became a Bad Egg in the game")
+                return int.from_bytes(mon[:4], "little") == laid["personality"] and not box_is_egg(mon[:80])
+        await self.until_hatched(receiver, current, probes, record, hatched, f"walked-until-the-egg-hatched-in-the-{self.hatch_in}")
+        if self.hatch_in == "box":
+            async with asyncio.timeout(60):
+                while not await self.log_lines(current[receiver], "breed pc notice: PC EGG HATCHED!"):
+                    await asyncio.sleep(.5)
+            record("pc-hatch-banner", picture=game_picture(probes[receiver], self.harness.output / "pc-egg-hatched.png",
+                                                            settle=.3))
+        record("breed-log", player=names[receiver], party=await self.log_lines(current[receiver], "breed party"),
+               box=await self.log_lines(current[receiver], "breed box"),
+               notices=await self.log_lines(current[receiver], "breed pc notice"))
+        await self.save_all(current, record, "saved-after-the-hatch", slots=(receiver,))
+        hatched_saves = await self.host_saves(current)
+        summary, problems = evidence.hatch(base[receiver], hatched_saves[receiver], egg)
+        record("hatched-on-the-host", problems=problems, **summary)
+        require(not problems, f"the hatch: {problems}")
+
+        async def instance(s):
+            row = s._store._connection.execute("SELECT player_id, ot_id, personality, status FROM ownership_instances "
+                                               "WHERE serial = ?", (egg,)).fetchone()
+            return dict(row)
+        held = await on_worker(current[0], instance)
+        record("hatched-instance", serial=egg, **held, hatcher=summary["hatcher"])
+        require(held["ot_id"] == summary["hatcher"]["trainer_id"] and held["status"] == "active"
+                and held["player_id"] == host.accounts[receiver].player_id,
+                f"the host's record of the hatched Pokemon: {held}")
+        await self.integrity(current, record, "hatched-integrity")
+        if self.hatch_in == "party":
+            # The hatched Pokemon traded on: the receiver offers it, the Egg's first trainer offers the Mudkip back.
+            outcome = await self.trade_between(current, probes, record, receiver, 0, labels=("Togepi Lv1", "Mudkip Lv5"))
+            require(outcome == "applied", f"the hatched Pokemon's trade was not applied: {outcome}")
+            heads = await self.heads(current, host)
+            require([h["serials"] for h in heads] == [[zigzagoon_a, egg], [mudkip, zigzagoon_b]],
+                    f"the hatched Pokemon's trade left {heads}")
+            onward = await self.host_saves(current)
+            where, mon = evidence.where_is(onward[0], egg)
+            record("hatched-pokemon-traded-on", location=where, record=mon, canonical=heads)
+            hatched_record = summary["after"]
+            for key in ("personality", "ot_id", "ot_name_bytes", "ot_gender", "species", "ivs", "moves", "shiny"):
+                require(mon[key] == hatched_record[key], f"the traded-on Pokemon's {key} changed")
+            require(not mon["egg"] and not mon["bad_egg"] and mon["checksum_ok"], f"the traded-on Pokemon: {mon}")
+            await self.integrity(current, record, "traded-on-integrity")
+        return await self.save_all(current, record, "saved-after-the-egg")
 
     async def trade_back_and_forth(self, current, probes, record, symbols=None):
         """The owner's report (2026-10-23, "trading is also broken"): two new characters claim their starters (with
@@ -1146,12 +1621,16 @@ async def run(args):
     ROUNDS[0], SAMPLE[0], TRACE[0] = args.rounds, args.sample_every, args.trace_memory
     for spec in args.freeze:
         parts = spec.split(":")
-        require(len(parts) in (4, 5) and parts[0] in ("worker", "game") and parts[2] in ("trade", "battle"),
-                f"--freeze {spec}: KIND:PLAYER:STEP:SECONDS[:ROUND], KIND worker or game, STEP trade or battle")
+        require(len(parts) in (4, 5) and parts[0] in ("worker", "game") and parts[2] in (*TRADE_CUTS, "battle"),
+                f"--freeze {spec}: KIND:PLAYER:STEP:SECONDS[:ROUND], KIND worker or game, STEP trade, trade-confirmed "
+                "or trade-committed (trade-mail), or battle")
         FREEZES.append((parts[0], int(parts[1]), parts[2], float(parts[3]), int(parts[4]) if len(parts) == 5 else 1))
     require(args.rounds >= 1 and (args.rounds == 1 or args.scenario in ("trade", "battle-trade")),
             "--rounds: the trade and battle-trade scenarios")
-    require(not args.freeze or args.scenario in ("trade", "battle-trade"), "--freeze: the trade and battle-trade scenarios")
+    require(not args.freeze or args.scenario in ("trade", "battle-trade", "trade-mail"),
+            "--freeze: the trade, battle-trade and trade-mail scenarios")
+    require(all(f[2] in ("trade", "battle") for f in FREEZES) or args.scenario == "trade-mail",
+            "--freeze ...:trade-confirmed and trade-committed: the trade-mail scenario")
     require(not (args.freeze or args.sample_every) or not WINDOWS, "--freeze and --sample-every: Linux games only")
     require(not args.trace_memory or args.sample_every, "--trace-memory: with --sample-every")
     if args.game_answer_seconds is not None:
@@ -1160,24 +1639,41 @@ async def run(args):
         battle_session.GAME_ANSWER_SECONDS = args.game_answer_seconds
     count = len(args.source)
     require(2 <= count <= 4, "two to four sources (short-introduction saves)")
-    require(args.scenario == "lobby" or count == 4 or (args.scenario in ("trade", "battle-trade", "trade-evolve",
-                                                                          "trade-forms", *GIVE_UPS)
+    require(args.scenario == "lobby" or count == 4 or (args.scenario in ("trade", "battle-trade", *HOLDING, *GIVE_UPS)
                                                        and count == 2),
             f"--scenario {args.scenario} needs four players (trade: two)")
     expect = tuple(int(x) for x in args.expect_species.split(",")) if args.expect_species else ()
     require(args.scenario not in ("trade-evolve", "trade-forms") or len(expect) == count,
             f"{args.scenario}: --expect-species, one per player")
+    require(args.hatch_in == "party" or args.scenario == "trade-egg", "--hatch-in: the trade-egg scenario")
     if not args.display:
         require(WINDOWS, "an X display per player")
         args.display = [f"desktop-{n}" for n in range(count)]         # Windows: one desktop; names for the records
-    proof = NewcomersProof(args.scenario, args.format, args.watch, args.match_seconds, args.no_save, expect)
-    await launcher_proof(args, names=PLAYER_NAMES[:count], sources=args.source,
-                         party_counts=(1,) * count if args.scenario in ("trade-evolve", "trade-forms") else (0,) * count,
+    environment = dict(SDL_FRAMEBUFFER_ACCELERATION="0")
+    if args.scenario == "trade-egg":
+        # the test build's breed log (its party's and PC's Eggs and their cycles, its banners) in each game's runtime.log
+        require(not WINDOWS, "--scenario trade-egg: Linux games (the breed log, the restarted game's environment)")
+        environment["PKMN_TEST_BREED_LOG"] = "1"
+    if args.scenario in ("trade-mail", "trade-egg"):
+        # the sources' own parties (make_tower_saves.py's trade-mail-a/-b, trade-egg-a/-b)
+        counts = tuple(inspect_flash(Path(p).read_bytes()).metadata.party_count for p in args.source)
+    else:
+        counts = (1,) * count if args.scenario in HOLDING else (0,) * count
+    proof = NewcomersProof(args.scenario, args.format, args.watch, args.match_seconds, args.no_save, expect,
+                           hatch_in=args.hatch_in)
+
+    def adopt(harness):
+        proof.adopt(harness)
+        if args.key_hold is not None:
+            # --key-hold: each key held this long (a loaded PC's game runs few frames a second, and a press shorter
+            # than its frame can come and go between two of them unseen)
+            harness.hold = harness.evidence["key_hold_seconds"] = args.key_hold
+    await launcher_proof(args, names=PLAYER_NAMES[:count], sources=args.source, party_counts=counts,
                          match=proof.match, version="Native newcomers proof",
                          settings=LIGHT_3D_SETTINGS if args.light_3d else "windowScale=2\n",
                          scope=__doc__.split("\n\n")[0] + f" Scenario: {args.scenario}, {count} players.",
-                         environment=dict(SDL_FRAMEBUFFER_ACCELERATION="0"), after_save=proof.after_save,
-                         on_harness=proof.adopt)
+                         environment=environment, after_save=proof.after_save,
+                         on_harness=adopt)
 
 
 def main():
@@ -1186,6 +1682,11 @@ def main():
     parser.add_argument("--expect-species", default="",
                         help="trade-evolve, trade-forms: the species each player's first Pokemon is after the trade, "
                              "e.g. 589,617")
+    parser.add_argument("--key-hold", type=float, default=None, metavar="SECONDS",
+                        help="how long each key is held (the harness's own 0.15 s by default; longer on a loaded PC)")
+    parser.add_argument("--hatch-in", choices=("party", "box"), default="party",
+                        help="trade-egg: where the received Egg hatches (box: first moved to the PC by the test build's "
+                             "PKMN_TEST_EGG_TO_PC in the receiver's game started again from its host save)")
     parser.add_argument("--format", choices=FORMATS, default=None,
                         help="the battle of four (lobby: 1v1v1v1 by default; mixed: 2v2 by default)")
     parser.add_argument("--game", type=Path, required=True,
@@ -1243,9 +1744,10 @@ def main():
                         help="with --sample-every: this process's Python memory by allocating line in each sample "
                              "(tracemalloc; slows the process)")
     parser.add_argument("--freeze", action="append", default=[], metavar="KIND:PLAYER:STEP:SECONDS[:ROUND]",
-                        help="trade, battle-trade (Linux): freeze a player's launcher session (worker) or its game "
-                             "(game: SIGSTOP) for SECONDS, in ROUND's (1 by default) first trade once a player "
-                             "confirmed (trade) or 20 s into its battle (battle)")
+                        help="trade, battle-trade, trade-mail (Linux): freeze a player's launcher session (worker) or "
+                             "its game (game: SIGSTOP) for SECONDS, in ROUND's (1 by default) first trade once a player "
+                             "confirmed (trade; trade-mail also trade-confirmed: once both did, trade-committed: once "
+                             "the host committed it) or 20 s into its battle (battle)")
     args = parser.parse_args()
     if args.format is None:
         args.format = "2v2" if args.scenario == "mixed" else "1v1v1v1"
