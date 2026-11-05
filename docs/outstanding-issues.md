@@ -56,15 +56,18 @@ N8 licensing of `src/platform/bios.c` (blocks giving the build to anyone; "Leave
 static legendaries; the character customization scope; the 39 upstream GBA test failures under Gen 6 rules; egg
 hatching speed (MS-42); and the "built, your call" items: Xbox B as Cancel, 3D vehicles falling back to 2D, music
 loudness, Battle Point shop prices, a launcher checkbox for location privacy. Also, with their options in
-KNOWN_ISSUES: a World Event's claim release after a disconnect (G3, gameplay); how far a world's integrity check
+KNOWN_ISSUES: a World Event's claim release after a disconnect (G3, gameplay); whether trades take Eggs and Mail
+("Trades: eggs and Mail", gameplay); how far a world's integrity check
 may trust its own earlier result (MS-161 (b) and (c)); and the 3D view's two visual trade-offs, a screen fade
-redrawing the atlas at each step and a map crossing's new chunks spread over a few frames (MS-118).
+redrawing the atlas at each step and a map crossing's new chunks spread over a few frames (MS-118). Three smaller
+questions are in section 7 (MS-85, MS-149, U31-5).
 
 ## 4. Verification only the owner's PCs can give
 
 A real graphics card at 60 fps, a controller, two PCs on a home network and over the Internet (router, UPnP/NAT-PMP),
 a fresh install and first play on the owner's PC, and the owner's crash logs if the Safari crash recurs (MS-169).
-NU-8, VR-6, WC-4, MS-7 hold the checklists; V21, V39, U30-5 and NU-10 (section 6) are owner tests too.
+NU-8, VR-6, WC-4, MS-7 hold the checklists; V21, V39, U30-5 and NU-10 (section 6) are owner tests too, and so are
+the fixes section 7 lists as not yet tried between two real PCs.
 
 ## 5. Windows CI coverage of the newest work
 
@@ -137,3 +140,60 @@ against the code, the tests and the Windows jobs on 2026-11-04. Nothing here cha
 Owner tests added to section 4 by this review: V21 (125-200% display scaling, two displays, exclusive fullscreen),
 V39 (the frame-rate targets on a graphics card), U30-5 (the menu with a controller), NU-10 (`--relay-server` from
 the packaged launcher opens its own console).
+
+## 7. What KNOWN_ISSUES still leaves open, issue by issue (audit of 2026-11-05)
+
+Section 6 listed the rows that still read open. On 2026-11-05 every issue's latest row in KNOWN_ISSUES (399 issues)
+was read again for what it still leaves: a part left as it is, a check not run, or a question for the owner. Those not
+already in a section above are here, each as its row last says (the row's date given; not checked again unless
+said). Nothing here changes gameplay.
+
+**Left as they are** (low; the game, collision and saves unaffected unless said):
+
+| Issue | What is left | Row of | Verification |
+| --- | --- | --- | --- |
+| MS-84 | The Classic 2D Slot Machine's information panel still lists the old payouts (a picture the GBA ROM shares); the 3D game's payout panel (SELECT) lists the new ones | 2026-10-26 | - |
+| MS-49 | A Battle Tower floor in a game running below about 22 frames a second could still start after the host's two minutes (the game's wait counts its own frames, which keep real time unless the picture is drawn at fewer than 12 frames a second: `sdl2.c` runs up to five game frames per drawn frame) | 2026-10-22 | L self-test (the 45 s limit) |
+| MS-125 | When a battle's core stops itself, the Classic 2D game shows no notice (it has no PC overlay); the 3D game shows one | 2026-10-26 | L |
+| MS-181 | Another player diving is drawn with the original underwater look, not on their own carrier | 2026-11-04 | L |
+| MS-12 | The bridge's limits: another operation's CANCEL, a second CANCEL or any other command still stops the bridge; a recovery control that replaces the command takes the waiting CANCEL with it | 2026-11-03 | L; not run on Windows or in mGBA |
+| M1 | The check that a native game was built with the same ROM build runs for games the launcher starts, not for one started by hand | 2026-10 (Milestone C) | L |
+| M10, G5 | The emulator (GBA) build keeps the original behaviour (a World Event Pokemon's missing map template; the real-time clock), as its ROM stays byte-identical; on PC the other clock uses (tides, time-based evolutions) follow the world clock by design | 2026-10 | - |
+| G14 | The fix to experience in a battle against two trainers at once (one "already gave experience" mark per opposing trainer) has not been played in a real two-trainer battle in the native game | 2026-10 | the battle test `exp_two_opponents.c` |
+| MS-97, MS-163 | Harmless reads past their data in upstream code and data the GBA ROM shares, recorded for later sanitizer runs (padding them would change the ROM); an AddressSanitizer run must continue past them (`halt_on_error=0`; the build recovers), or the first one stops the game; the trade evolution under AddressSanitizer (2026-11-05) added one of the same kind, the evolution scene's palette animation reading one row past its table, a value it never uses | 2026-10-28, 2026-11-05 | L AddressSanitizer |
+| MS-167 | Blank 3D message boxes: the cause found was fixed; other causes may remain (a screenshot and the place would show which) | 2026-10-29 | L |
+| MS-102 | The 3D view: a pale band at the foot of the sea stacks (the mountain art's side texture) | 2026-10-26 | L software OpenGL; a GPU not tried |
+| MS-76 | The 3D view: two slivers of the sky's colour at inner corners of Route 111's rock band (zoomed out); Route 112's small blue slivers north of the station | 2026-10-26 | L |
+| MS-87 | The 3D view: photo mode looking straight down far south, and 21:9 or wider zoomed out at the far top corners, show the distance haze | 2026-10-26 | L |
+| MS-173 | The 3D view: cliffs between two levels (Mossdeep's one face), mountains and rocks in the sea stand as step 16 made them (the owner's report covered the thin painted cliffs, which lie as drawn again) | 2026-10-31 | L; W run 255's 3D job |
+| MS-186 | The 3D view: Shoal Cave's low-tide bridge stands half a level over the floor under it, and a person there stands on its deck | 2026-11-03 | L |
+| MS-164, MS-172, MS-178 | The 3D view: notice boards on legs drawn as they are (the Frontier lobbies); painted tree crowns beyond Fortree that the game's cameras never see; the Safari Zone north-east's closed pocket, which no one can walk into | 2026-11-01 to 11-04 | L pictures |
+| V6 | The 3D view: an unmodelled building's door does not open (modelled buildings' doors do) | 2026-10 | L |
+| V10 | 3D battles: in maze-like rooms the battle stage still has walls near every spot | 2026-10 | L |
+| V23 | The 3D view with the voxel trees (F8, not the default): the rules' grouped tree hulls in Petalburg Woods still stand as a step | 2026-10 | L |
+| E5 | 3D battles: places still flat when its row was written: the Trainer Hill's roof floor, Shoal Cave's tidal flat (one level on the GBA too), the Battle Pyramid's top (since made a stepped pyramid in the 3D view, engine `6244408e`; its battle stage not checked again) | 2026-10 | L |
+| V46 | 3D battles on maps whose layout a script switches: not tried on Route 130 with Mirage Island, Shoal Cave's inner room at high tide, Sootopolis in the legends' battle (the same code path as those tried) | 2026-10 | L |
+| V26 | The 3D view: particles in the world and weather on vegetation, planned for a later phase | 2026-10 | - |
+| N4 | Linux's renderer is the Windows build's; a visual re-check of it was left pending (a Linux build is not shipped) | 2026-10 | L |
+
+**The owner's calls** (with the ones in section 3):
+
+| Issue | The question | Row of |
+| --- | --- | --- |
+| MS-85 | A casino table's counter shows at most 9,999 (the GBA's digits): a 6,000-coin slot jackpot is cut when the machine already holds more than 3,999 coins, a 2,400 roulette win at the left table above 7,599, the right table's 9,600 above 399; a cap on what a table takes from the wallet would prevent it, a change to coin handling not asked for | 2026-10-26 |
+| MS-149 | Whether a Poke Ball throw at catch odds 0 (the fixed Heavy Ball on a catch rate of 1, a Beast Ball on a low one) should get a minimum chance | 2026-10-27 |
+| U31-5 | The rival checkpoint's personal pass still registers the original May or Brendan in Match Call, as the original scene does (its story flag kept); remove the NPC rival's calls? | 2026-10-16 |
+
+**Only two PCs or the owner's PC can show** (with section 4): MS-63 (the rival checkpoint battle reported on two PCs,
+not reproduced; both launchers' `runtime.log` after the next one), MS-71 (a game closing in a battle, not reproduced;
+the next `crash.log` or `errors.log`), MS-88 and MS-165 (battles between players over a slow connection, and a PC
+that stops a game for seconds), MS-68, MS-69, MS-70, MS-72, MS-95, MS-96 (trade and battle fixes not yet tried
+between two real PCs), MS-81 (the owner's check of spawn odds), MS-65 and MS-89 (the 3D view on a real graphics card,
+with V3, V25, E8: V39's benchmark). Not run anywhere yet: MS-126's give-up notice reaching the battle's master during
+a turn, and a battle ending another way after a give-up; MS-156's other static encounters offline one by one (two
+tried); MS-83's race, seen once and not reproduced after its fix.
+
+**Covered on Windows since their rows were written** (the rows say "not on Windows"): MS-78 (move switching) and
+MS-171 (the Acro Bike's rails) by the feature-checks job (`move_switch_check.py`, `acro_check.py`; passed in run 288);
+MS-151 (a trade evolution between two games) by the new trade-proof job (its first run: run 299). MS-166 (the 99 script
+specials' 8-bit results), MS-182 and MS-185 have no Windows check of their own; the Windows builds carry them.
