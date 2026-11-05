@@ -164,7 +164,9 @@ class NativeTradeMenu:
         actions = []
         actor = self.companion.config.player_id
         title = "Trade Pokemon"
-        back = ("cancel", None)
+        # B (Back, action 7; also an Xbox pad's B since Update 24, owner decision #43): every page below sets its own and
+        # none cancels the trade outright; a page that set none would only ask ("Cancel the trade?").
+        back = ("ask_cancel", None)
         if self.inspection is not None and view.get("fingerprint") != self.inspection[0]:
             self.inspection = None
             if self.page == "details":
