@@ -1602,7 +1602,9 @@ jobs:
           # again and compared, and every sync that skipped chunks has their inputs checked (PKMN_DIORAMA_TERRAIN_CHECK);
           # from engine c8ba843f the same switch reads the buildings' vertex buffer back after each of their rebuilds (a
           # rebuild of the same triangles uploads nothing) and checks the sun's depth map moved on exactly when they
-          # changed. What it says: the cache keeps the meshes it would build, in a Windows build; nothing about speed.
+          # changed; from engine 67e39839 a chunk kept though its cells' gameplay elevation changed (which the
+          # chunk's signature leaves out: the mesher never reads it) is built again and compared. What it says: the
+          # cache keeps the meshes it would build, in a Windows build; nothing about speed.
           import os, pathlib, re, subprocess
           out = pathlib.Path(os.environ["RUNNER_TEMP"], "graphics-3d", "seam-walk")
           out.mkdir(parents=True, exist_ok=True)
@@ -1623,6 +1625,9 @@ jobs:
           skipped = [tuple(map(int, m)) for m in re.findall(r"terrain check: (\d+) chunks checked, (\d+) stale", text)]
           buildings = [tuple(map(int, m)) for m in
                        re.findall(r"buildings check: (\d+) rebuilds checked, (\d+) differed", text)]
+          kept = [tuple(map(int, m)) for m in
+                  re.findall(r"terrain check: (\d+) chunks kept with another gameplay elevation checked, (\d+) differed",
+                             text)]
           if buildings:
               built = (f"; the buildings' buffer read back after {buildings[-1][0]} rebuilds, "
                        f"{buildings[-1][1]} differed")
@@ -1630,11 +1635,15 @@ jobs:
               built = "; the buildings' check: off (no OpenGL readback)"
           else:
               built = "; the buildings' check: not in this engine"
+          # logged only when such a chunk was kept: none in an engine before the check, or a walk that met none
+          elevation = (f"; {kept[-1][0]} chunks kept with another gameplay elevation built again, "
+                       f"{sum(1 for _, differed in kept if differed)} reports of one that differed" if kept
+                       else "; no chunk kept with another gameplay elevation (or an engine before that check)")
           line = (f"- The chunk cache across four map seams: exit {code}; "
                   f"{back[-1][0] if back else 0} chunks brought back from an earlier version, "
                   f"{sum(1 for _, differed in back if differed)} reports of one that differed; "
                   f"{skipped[-1][0] if skipped else 0} skipped-sync chunks checked, "
-                  f"{sum(1 for _, stale in skipped if stale)} reports of a stale one{built}")
+                  f"{sum(1 for _, stale in skipped if stale)} reports of a stale one{elevation}{built}")
           print(line)
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
               summary.write(line + "\n")
@@ -1642,7 +1651,8 @@ jobs:
               raise SystemExit(f"the seam walk's game ended with {code}")
           if not back or back[-1][0] == 0:
               raise SystemExit("no chunk was brought back from an earlier version: the walk did not cross the seams")
-          if any(differed for _, differed in back) or any(stale for _, stale in skipped):
+          if (any(differed for _, differed in back) or any(stale for _, stale in skipped)
+                  or any(differed for _, differed in kept)):
               raise SystemExit("a chunk the cache kept differs from the one it would build")
           if any(differed for _, differed in buildings):
               raise SystemExit("the buildings' vertex buffer or generation differs from the triangles built")

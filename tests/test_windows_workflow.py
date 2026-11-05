@@ -138,6 +138,11 @@ class WindowsWorkflowTests(unittest.TestCase):
         self.assertIn('buildings check: (\\d+) rebuilds checked, (\\d+) differed', graphics)
         self.assertIn('raise SystemExit("the buildings\' vertex buffer or generation differs from the triangles built")',
                       graphics)
+        # a chunk kept though its cells' gameplay elevation changed (its signature leaves that out) is built again:
+        # reported, and one that differs fails the job
+        self.assertIn('terrain check: (\\d+) chunks kept with another gameplay elevation checked, (\\d+) differed',
+                      graphics)
+        self.assertIn("or any(differed for _, differed in kept)", graphics)
 
     def test_the_whole_games_gameplay_check_runs_in_windows_game_processes(self):
         check = job("gameplay-check")
