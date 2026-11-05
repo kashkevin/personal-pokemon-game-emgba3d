@@ -23,6 +23,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 from dataclasses import dataclass
 import json
+import math
 from pathlib import Path
 import random
 import re
@@ -38,6 +39,9 @@ DEFAULT_APPEARANCE = "0000000000000000"
 NOTICE_CHARS = 64  # two banner lines of at most 32 characters, joined by "|"
 LINE_CHARS = 32
 REMINDER_SECONDS = (600, 300, 60)
+# The reservation every saved World Event claim was given before 2026-11-05 (120 s). Those records carry no
+# "grace_window"; a restored one keeps the time its claimant had already been away and gets the rest of today's window.
+LEGACY_EVENT_CLAIM_GRACE_SECONDS = 120
 # The game's own times of day (engine include/constants/rtc.h, OW_TIMES_OF_DAY =
 # GEN_6): while connected the game's clock is this world clock, and its wild
 # Pokemon use the night weights in the evening and at night, so the host's
@@ -379,11 +383,17 @@ class SharedWorld:
         return outcome
 
     def player_connected(self, player_id: str) -> None:
-        if self._claim is not None and self._claim["player_id"] == player_id:
-            # The claimant is back within its grace period: it keeps the event
-            # Pokemon until it reports or walks away (the spawns do the same).
-            self._claim["released_at"] = None
+        # A reservation that ran out is released first, exactly at its deadline: a claimant back a moment too late finds
+        # the event Pokemon free (it may claim it again like anybody else, unless somebody else was quicker).
+        self._claim_lapsed()
+        claim = self._claim
+        if claim is not None and claim["player_id"] == player_id and claim.get("released_at") is not None:
+            # The claimant is back within its five minutes: it reclaims the event Pokemon and keeps it until it reports
+            # or walks away (the spawns do the same). Saved at once: a host crash now gives it the whole five minutes
+            # again (it was connected), not what was left when the timers were last saved.
+            claim["released_at"] = None
             self._claimant_away_since = None
+            self._save_claim()
         if getattr(self, "spawns_enabled", False):
             for board in self.spawn_boards.boards():
                 board.player_reconnected(player_id)
@@ -567,16 +577,35 @@ class SharedWorld:
         self._event = record
         if isinstance(claim, dict) and isinstance(claim.get("player_id"), str):
             # Everyone was disconnected by the restart: the claimant keeps the
-            # Pokemon for a grace period (or what was left of it) so a battle in
-            # progress can still report its result and nothing is caught twice.
-            grace = claim.get("grace_remaining")
-            try:
-                grace = BALANCE.event_claim_grace_seconds if grace is None else max(0.0, float(grace))
-            except (TypeError, ValueError):
-                grace = BALANCE.event_claim_grace_seconds
+            # Pokemon reserved (its five minutes, or what was left of them) so a
+            # battle in progress can still report its result and nothing is
+            # caught twice.
             self._claim = {"player_id": claim["player_id"], "event_id": record["event_id"],
-                           "released_at": self._active_now() + grace}
+                           "released_at": self._active_now() + self._restored_grace(claim)}
             self._last_claimant = claim["player_id"]
+
+    @staticmethod
+    def _restored_grace(claim: dict) -> float:
+        """The reservation a saved claim still has, in active seconds.
+
+        A claimant that was connected when the claim was saved (``grace_remaining`` null) gets the whole window. One that
+        was away keeps the time it had already been away: a record states the window it was counted against
+        (``grace_window``); one written before 2026-11-05 has none and was counted against 120 s, so a claimant 30 s into
+        the old window has 270 s of the five minutes left. Unreadable values give the whole window.
+        """
+        window = float(BALANCE.event_claim_grace_seconds)
+        remaining = claim.get("grace_remaining")
+        if remaining is None:
+            return window
+        try:
+            remaining = float(remaining)
+            counted = float(claim.get("grace_window", LEGACY_EVENT_CLAIM_GRACE_SECONDS))
+        except (TypeError, ValueError):
+            return window
+        if not (math.isfinite(remaining) and math.isfinite(counted)):
+            return window
+        away = max(0.0, counted - max(0.0, remaining))
+        return min(window, max(0.0, window - away))
 
     def _save_event(self, state: str, winner: str | None = None) -> None:
         event = self._event
@@ -584,10 +613,14 @@ class SharedWorld:
         stored = {key: value for key, value in event.items() if key != "expires"}
         stored["remaining"] = max(0.0, event["expires"] - active_now)
         claim = self._claim
-        if state == "active" and claim is not None and claim.get("event_id") == event["event_id"]:
+        if (state == "active" and claim is not None and claim.get("event_id") == event["event_id"]
+                and self._holder() is not None):
+            # A disconnected claimant's reservation is saved as what is left of it and the window it counts against
+            # (an older host reads only "grace_remaining"); one that already ran out is not saved at all.
             released_at = claim.get("released_at")
             stored["claim"] = {"player_id": claim["player_id"],
-                               "grace_remaining": None if released_at is None else max(0.0, released_at - active_now)}
+                               "grace_remaining": None if released_at is None else max(0.0, released_at - active_now),
+                               "grace_window": BALANCE.event_claim_grace_seconds}
         if state == "active" and self._last_claimant is not None:
             stored["last_claimant"] = self._last_claimant
         with self._transaction():
@@ -614,7 +647,7 @@ class SharedWorld:
             "map_number": event["map_number"], "x": event["x"], "y": event["y"],
             "held_item": event["held_item"], "perfect_ivs": event["perfect_ivs"],
             "seconds_left": self._seconds_left(event),
-            "claimant": None if self._claim is None else self._claim["player_id"],
+            "claimant": self._holder(),
         }
 
     def _stays(self, event: dict) -> bool:
@@ -784,9 +817,8 @@ class SharedWorld:
                     if left > mark - 30 and (self._claim is None or self._claim.get("released_at") is not None):
                         self._announce(self._event, left)
                         changed = True
-        if self._claim is not None and self._claim.get("released_at") is not None and now >= self._claim["released_at"]:
-            self._claim = None
-            changed = True
+        if self._claim_lapsed():
+            changed = True   # a disconnected claimant's five minutes ran out: the Pokemon is free for everybody
         if self._event is None and connected > 0 and now >= self._next_event_at:
             if self.spawn_event(progression_level=progression()) is not None:
                 changed = True
@@ -833,15 +865,23 @@ class SharedWorld:
         with self._transaction():
             self._db.execute("UPDATE events SET state='caught', winner=? WHERE event_id=?", (winner, event_id))
 
-    def catch_verdict(self, event_id: int, player_id: str) -> str:
+    def catch_verdict(self, event_id: int, player_id: str) -> str | None:
         """What a game that reported a catch of this event must do with its copy: ``release`` it when another trainer's report
         came first (that trainer is the recorded owner, and this one claimed the event too, so the copy is a duplicate),
-        otherwise ``keep`` it. Decided once and kept: a repeat of the question gets the same answer, across restarts."""
+        otherwise ``keep`` it. Decided once and kept: a repeat of the question gets the same answer, across restarts.
+
+        ``None`` (nothing decided, nothing stored) while the event is still out and nobody's catch has been accepted, for a
+        trainer who claimed it: its report waits because another trainer holds the claim (``event_result``), and its game
+        reports again until the owner is decided; a "keep" stored now would let both copies stay."""
         row = self._db.execute("SELECT verdict FROM event_verdicts WHERE event_id=? AND player_id=?",
                                (event_id, player_id)).fetchone()
         if row is not None:
             return row[0]
         resolution = self._resolution(event_id)
+        event = self._event
+        if (resolution is None and event is not None and event["event_id"] == event_id
+                and player_id in event.get("claimants", ())):
+            return None
         verdict = "keep"
         if resolution is not None and resolution["winner"] != player_id and player_id in resolution["claimants"]:
             verdict = "release"
@@ -860,12 +900,49 @@ class SharedWorld:
                               int(bool(event["shiny"])), int(bool(event["mega"])), event["held_item"],
                               event.get("category"), json.dumps(event.get("claimants", []))))
 
+    # --------------------------------------------------------------- event claims
+    # One claim at a time (owner, 2026-11-05, KNOWN_ISSUES G3): the claim is the only right to battle and catch the event
+    # Pokemon. A claimant who disconnects keeps it reserved for ``BALANCE.event_claim_grace_seconds`` (five minutes of
+    # time while somebody is online: nobody can take it while nobody is on) and reclaims it by reconnecting in time; it is
+    # released at that deadline exactly. Every entry point below releases a reservation that ran out before it looks at
+    # the claim, so the moment of release is the same for a reconnection, a claim, a report and the host's tick.
+
+    def _holder(self) -> str | None:
+        """Who holds the event claim now; nobody once a disconnected claimant's reservation ran out (not saved yet)."""
+        claim = self._claim
+        if claim is None:
+            return None
+        released_at = claim.get("released_at")
+        if released_at is not None and self._active_now() >= released_at:
+            return None
+        return claim["player_id"]
+
+    def _claim_lapsed(self) -> bool:
+        """Release a claim whose reservation ran out, durably at once. True when one was released."""
+        if self._claim is None or self._holder() is not None:
+            return False
+        self._claim, self._claimant_away_since = None, None
+        self._save_claim()
+        return True
+
+    def _save_claim(self) -> None:
+        """Save the event with its claim at once (reclaimed or released), so a host crash right after it cannot hand the
+        claim back. Best effort: it also runs from the connection hooks, which must never fail a join or a leave, and the
+        host's 30 s timer save writes the same state again."""
+        if self._db is None or self._event is None:
+            return
+        try:
+            self._save_event("active")
+        except sqlite3.Error:
+            pass
+
     def claim_event(self, player_id: str, event_id: int) -> str:
         event = self._event
         if event is None or event["event_id"] != event_id or self._dormant(event) or self._resolution(event_id):
             return "gone"
+        self._claim_lapsed()
         if self._claim is not None and self._claim["player_id"] != player_id:
-            return "busy"
+            return "busy"   # held by another trainer, connected or within its five minutes: never two claims at once
         changed = self._claim is None or self._claim.get("released_at") is not None
         self._claim = {"player_id": player_id, "event_id": event_id, "released_at": None}
         self._last_claimant = player_id
@@ -893,10 +970,17 @@ class SharedWorld:
         """A game reports how its battle with the event Pokemon ended.
 
         Catch ownership (expansion Phase 11): the **first valid reported catch wins**, decided here, in the order reports
-        arrive, whoever holds the claim at that moment. A report is valid when its sender claimed this event (so a game that
-        lost its claim to a disconnect, and caught the Pokemon anyway, still counts if it reports first). The winner is
-        recorded durably before anything else changes; a replay of the winner's report is answered the same ("consumed");
-        every other report finds it "gone". Nothing here can give one event two owners.
+        arrive. A report is valid when its sender claimed this event (so a game that lost its claim to a disconnect, and
+        caught the Pokemon anyway, still counts if it reports first). The winner is recorded durably before anything else
+        changes; a replay of the winner's report is answered the same ("consumed"); every other report finds it "gone".
+        Nothing here can give one event two owners.
+
+        No duplicate claims (owner, 2026-11-05): while another trainer holds the claim (battling it, or within the five
+        minutes it is reserved after that trainer disconnected), a catch reported by an earlier claimant whose own claim
+        lapsed is not accepted: it is answered "busy", logged "deferred", and no verdict is decided for it
+        (``catch_verdict``). The game reports its recorded catch again until there is one; that report is decided by the
+        rules above once the claim is free (accepted if nobody's catch came first) or the event is decided ("gone", and the
+        copy is released as a duplicate).
         """
         prior = self._resolution(event_id)
         if prior is not None:
@@ -916,18 +1000,20 @@ class SharedWorld:
                     return "consumed"
                 self._log_report(event_id, player_id, "expired")   # never claimed it: nothing is recorded
             return "gone"
+        self._claim_lapsed()
         holder = self._claim["player_id"] if self._claim is not None else None
         if result == "caught":
             if player_id != holder and player_id not in event.get("claimants", ()):
                 self._log_report(event_id, player_id, "never_claimed")
                 return "not_claimant"
+            if holder is not None and holder != player_id:
+                self._log_report(event_id, player_id, "deferred")   # the holder's claim stands; decided later
+                return "busy"
             self._resolve(event, player_id)
             self._log_report(event_id, player_id, "winner")
             self._save_event("caught", player_id)
             name = _ascii(display_name).upper()[:16] or "A TRAINER"
             self.post_notice(_banner(f"{name} caught the", self._event_label(event) + "!"))
-            if holder is not None and holder != player_id:
-                self.post_notice(_banner(f"{name} caught it first!", "Your battle ends here."), to=[holder])
             self._finish_participation(event_id)
             self._event, self._claim = None, None
             self._next_event_at = self._active_now() + self._rng.uniform(*self._events.interval)
@@ -947,11 +1033,18 @@ class SharedWorld:
         if holder != player_id:
             return "not_claimant"
         self._claim = None
+        self._save_claim()   # at once: a host crash now cannot hand the claim back for five minutes
         return "released"
 
     def player_disconnected(self, player_id: str) -> None:
-        if self._claim is not None and self._claim["player_id"] == player_id:
-            self._claim["released_at"] = self._active_now() + BALANCE.event_claim_grace_seconds
+        self._claim_lapsed()
+        claim = self._claim
+        if claim is not None and claim["player_id"] == player_id and claim.get("released_at") is None:
+            # Reserved for five minutes of active time from now. It is saved with the host's timers (every 30 s, when the
+            # last player leaves, at a clean stop); a crash before that restores it as a connected claimant's, with the
+            # whole five minutes: at most the time since the last save is given back to the claimant, never to anybody.
+            claim["released_at"] = self._active_now() + BALANCE.event_claim_grace_seconds
+            self._claimant_away_since = None
         # The shared wild Pokemon it was battling go back to everyone after their grace period (shared_spawns.py).
         # These lines had ended up after tick_event_claim's return (audit fix 369a858) and never ran: a player who
         # left mid-encounter held the spawn until they came back, everyone else told it was busy.
@@ -968,16 +1061,19 @@ class SharedWorld:
         connected) left the claim held for the rest of the event, and everybody
         else was told it was busy. The claim now ends after the claimant has
         been on another map for ``event_claim_away_seconds`` of active time; a
-        result that comes later is still accepted (``event_result``).
-        Returns True when the shared view changed.
+        catch it reports later is still accepted while nobody else holds the
+        claim (``event_result``). A disconnected claimant's reservation that
+        ran out is released here too. Returns True when the shared view changed.
         """
+        if self._claim_lapsed():
+            return True
         claim, event = self._claim, self._event
         if claim is None or event is None or claim.get("released_at") is not None:
             self._claimant_away_since = None
             return False
         presence = presences.get(claim["player_id"])
         if presence is None:
-            return False  # disconnected: the grace period applies instead
+            return False  # disconnected: its five-minute reservation applies instead
         if (presence.get("map_group"), presence.get("map_number")) == (event["map_group"], event["map_number"]):
             self._claimant_away_since = None
             return False

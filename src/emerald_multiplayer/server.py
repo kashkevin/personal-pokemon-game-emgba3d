@@ -1995,12 +1995,16 @@ class WorldServer:
     def _catch_verdict(self, session, event_id: int) -> None:
         """Tell the game that reported a World Event catch what to do with its copy (Update 17): keep it, or release the
         duplicate when another trainer's report came first. Delivered on the numbered wallet stream, so it applies once per
-        save, is re-sent after a reconnect, and survives a host restart (the verdict itself is stored)."""
+        save, is re-sent after a reconnect, and survives a host restart (the verdict itself is stored). Nothing is sent while
+        the report waits for another trainer's claim (no duplicate claims, 2026-11-05): the game reports again until the
+        owner is decided."""
         wagers = getattr(self, "wagers", None)
         if wagers is None:
             return
         from . import rewards
         verdict = self.shared_world.catch_verdict(event_id, session.player_id)
+        if verdict is None:
+            return
         kind = rewards.KIND_CATCH_RELEASE if verdict == "release" else rewards.KIND_CATCH_KEEP
         queued = wagers.grant_reward(session.player_id, kind, rewards.catch_number(event_id), f"catch:{event_id}")
         if queued is not None and verdict == "release":

@@ -366,7 +366,7 @@ class SharedWorldTests(unittest.TestCase):
         self.world.player_disconnected(a)
         self.clock.now += BALANCE.event_claim_grace_seconds - 5
         self.world.player_connected(a)  # back in time; the battle goes on
-        self.clock.now += 5 * BALANCE.event_claim_grace_seconds  # still within the event's 15 minutes
+        self.clock.now += BALANCE.event_claim_grace_seconds + 60  # past the deadline, within the event's 15 minutes
         self.world.tick_events(2, lambda: 20)
         self.assertEqual(self.world.claim_event(b, event_id), "busy")
         self.assertEqual(self.world.event_result(a, event_id, "caught", "Alice"), "consumed")
@@ -401,9 +401,9 @@ class SharedWorldTests(unittest.TestCase):
         self.assertIsNone(self.world.event_view())
         self.assertEqual(self.world.claim_event(b, event_id), "gone")
 
-    def test_a_late_catch_while_another_player_battles_it_is_accepted_if_it_is_the_first_report(self):
-        # Update 11 (owner default, replaces the old "refused" rule): the first valid reported catch wins, whoever holds
-        # the claim; the other battler finds the Pokemon gone. The full matrix is in test_event_catch.py.
+    def test_a_late_catch_while_another_player_holds_the_claim_waits_and_the_holder_keeps_it(self):
+        # Owner, 2026-11-05 (G3, no duplicate claims; replaces Update 11's "whoever holds the claim"): the first valid
+        # reported catch still wins, but not over a claim another trainer holds. The full matrix is in test_event_catch.py.
         a, b = str(uuid4()), str(uuid4())
         self.world.set_active_players(1)
         event_id = self.world.spawn_event(progression_level=20, category="rare")["event_id"]
@@ -412,9 +412,12 @@ class SharedWorldTests(unittest.TestCase):
         self.clock.now += BALANCE.event_claim_grace_seconds + 1
         self.world.tick_events(1, lambda: 20)
         self.assertEqual(self.world.claim_event(b, event_id), "granted")
-        self.assertEqual(self.world.event_result(a, event_id, "caught", "Alice"), "consumed")
+        self.assertEqual(self.world.event_result(a, event_id, "caught", "Alice"), "busy")    # B's claim stands
+        self.assertEqual(self.world.event_view()["claimant"], b)
+        self.assertEqual(self.world.event_result(b, event_id, "caught", "Bob"), "consumed")
         self.assertIsNone(self.world.event_view())
-        self.assertEqual(self.world.event_result(b, event_id, "caught", "Bob"), "gone")
+        self.assertEqual(self.world.event_result(a, event_id, "caught", "Alice"), "gone")    # A's copy is the duplicate
+        self.assertEqual(self.world.catch_verdict(event_id, a), "release")
 
     def test_the_last_claimant_survives_a_restart(self):
         a = str(uuid4())
@@ -497,6 +500,487 @@ class SharedWorldTests(unittest.TestCase):
             self.assertTrue({"name", "map_group", "map_number", "x", "y", "min_level"} <= set(location), location)
             self.assertTrue(0 <= location["x"] < 256 and 0 <= location["y"] < 256, location)
         self.assertTrue(any(location.get("min_level", 0) == 0 for location in catalogue["locations"]))
+
+
+class EventReservationTests(unittest.TestCase):
+    """G3, decided by the owner on 2026-11-05: a World Event Pokemon is reserved for five minutes after its claimant
+    disconnects; the claimant may reconnect and reclaim it meanwhile; it is released afterwards; never two claims.
+
+    The calls follow the host's order (server.py): a joining session is counted (set_active_players), then
+    player_connected; a leaving one gets player_disconnected, then the count. The five minutes are active time: they count
+    only while somebody is online (nobody can take the Pokemon while nobody is), and they survive a host restart."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.number = 0
+        self.clock = FakeClock()
+        self.a, self.b, self.c = (str(uuid4()) for _ in range(3))
+        self.world = None
+        self.fresh()
+
+    def tearDown(self):
+        self.world.close()
+        self.temp.cleanup()
+
+    def open(self):
+        settings = EventSettings(shiny_chance=0.0, condition_chance=0.0)   # an ordinary event, out at once
+        return SharedWorld(self.path, WORLD, clock=self.clock, rng=random.Random(7), event_catalogue=CATALOGUE,
+                           locations=LOCATIONS, event_settings=settings)
+
+    def fresh(self):
+        """A new world file with nobody online (one per subtest), its clock back at a round number so that a deadline
+        300 s later is exactly 300 s later."""
+        if self.world is not None:
+            self.world.close()
+        self.clock.now = 1000.0
+        self.number += 1
+        self.path = Path(self.temp.name) / f"world{self.number}.sqlite3.shared-world.sqlite3"
+        self.online: set[str] = set()
+        self.world = self.open()
+
+    def connect(self, *players):
+        for player in players:
+            self.online.add(player)
+            self.world.set_active_players(len(self.online))
+            self.world.player_connected(player)
+
+    def disconnect(self, *players):
+        for player in players:
+            self.online.discard(player)
+            self.world.player_disconnected(player)
+            self.world.set_active_players(len(self.online))
+
+    def restart(self):
+        """The host stops cleanly (every session ends first, then the timers are saved) and starts again."""
+        self.disconnect(*sorted(self.online))
+        self.world.close()
+        self.world = self.open()
+
+    def crash(self):
+        """The host process dies: nothing more is saved; a new one opens the same file."""
+        crashed, self.online = self.world, set()
+        self.world = self.open()
+        crashed._db.close()
+        crashed._db = None
+
+    def tick(self):
+        """One pass of the host's loop (server.py _monitor)."""
+        event = self.world.event_view()
+        here = {} if event is None else {"map_group": event["map_group"], "map_number": event["map_number"]}
+        changed = self.world.tick_events(len(self.online), lambda: 20)
+        return self.world.tick_event_claim({player: dict(here) for player in self.online}) or changed
+
+    def wait(self, seconds):
+        self.clock.now += seconds
+        return self.tick()
+
+    def holder(self):
+        view = self.world.event_view()
+        return None if view is None else view["claimant"]
+
+    def a_left_with_it(self, *others):
+        """A and the others are online; A claims the event and its link drops: A's five minutes start now."""
+        self.connect(self.a, *(others or (self.b,)))
+        event_id = self.world.spawn_event(progression_level=20, category="rare")["event_id"]
+        self.assertEqual(self.world.claim_event(self.a, event_id), "granted")
+        self.disconnect(self.a)
+        self.assertEqual(self.holder(), self.a)
+        return event_id
+
+    # ------------------------------------------------------------------ the window
+    def test_the_reservation_is_five_minutes_and_shared_wild_pokemon_keep_ten(self):
+        from emerald_multiplayer.shared_spawns import CLAIM_GRACE_SECONDS
+        self.assertEqual(BALANCE.event_claim_grace_seconds, 5 * 60)
+        self.assertEqual(CLAIM_GRACE_SECONDS, 600)                   # the shared spawns' grace is not this decision's
+
+    def test_reconnecting_at_299_seconds_keeps_the_claim(self):
+        event_id = self.a_left_with_it()
+        self.wait(299)
+        self.assertEqual(self.holder(), self.a)
+        self.assertEqual(self.world.claim_event(self.b, event_id), "busy")
+        self.connect(self.a)                                         # back with a second to spare: A reclaims it
+        self.wait(BALANCE.event_claim_grace_seconds)                 # long past the deadline, within the event's timer
+        self.assertEqual(self.holder(), self.a)
+        self.assertEqual(self.world.claim_event(self.b, event_id), "busy")
+        self.assertEqual(self.world.claim_event(self.a, event_id), "granted")   # an explicit reclaim is the same claim
+        self.assertEqual(self.world.event_result(self.a, event_id, "caught", "Alice"), "consumed")
+        self.assertEqual(self.world.resolutions()[0]["winner"], self.a)
+
+    def test_the_claim_is_released_at_300_seconds_exactly_and_durably(self):
+        import json
+        event_id = self.a_left_with_it()
+        self.clock.now += 299.5                                      # no tick in between: every path sees the deadline
+        self.assertEqual(self.holder(), self.a)
+        self.assertEqual(self.world.claim_event(self.b, event_id), "busy")
+        self.clock.now += 0.5
+        self.assertIsNone(self.holder())
+        self.world.persist_timers()                                  # a reservation that ran out is never saved
+        row = self.world._db.execute("SELECT record FROM events WHERE event_id=?", (event_id,)).fetchone()
+        self.assertNotIn("claim", json.loads(row[0]))
+        self.assertTrue(self.tick())                                 # the host's loop releases it and says so
+        self.crash()
+        self.connect(self.b)
+        self.assertIsNone(self.holder())
+        self.assertEqual(self.world.claim_event(self.b, event_id), "granted")
+        # The release is saved the moment it happens, whichever call notices it first (here A's reconnection, a moment
+        # late, between two of the host's timer saves), so a crash right after it cannot hand the claim back.
+        self.fresh()
+        event_id = self.a_left_with_it()
+        self.wait(299.5)                                             # the host's timers were saved with 0.5 s left
+        self.clock.now += 0.5
+        self.connect(self.a)
+        self.assertIsNone(self.holder())
+        self.crash()
+        self.connect(self.a, self.b)
+        self.assertIsNone(self.holder())
+        self.assertEqual(self.world.claim_event(self.b, event_id), "granted")
+
+    def test_a_reconnection_in_the_same_tick_as_the_release(self):
+        for offset, kept in ((299.9, True), (300, False), (300.1, False)):
+            for tick_first in (True, False):
+                with self.subTest(offset=offset, tick_first=tick_first):
+                    self.fresh()
+                    event_id = self.a_left_with_it()
+                    self.clock.now += offset
+                    if tick_first:
+                        self.tick()
+                    self.connect(self.a)
+                    if not tick_first:
+                        self.tick()
+                    self.assertEqual(self.holder(), self.a if kept else None)
+                    self.assertEqual(self.world.claim_event(self.b, event_id), "busy" if kept else "granted")
+                    self.assertEqual(self.world.claim_event(self.a, event_id), "granted" if kept else "busy")
+                    self.assertEqual(self.holder(), self.a if kept else self.b)
+
+    def test_after_the_release_another_player_claims_it_and_the_late_catch_waits(self):
+        event_id = self.a_left_with_it()
+        self.wait(300)
+        self.assertIsNone(self.holder())
+        self.assertEqual(self.world.claim_event(self.b, event_id), "granted")
+        self.connect(self.a)                                         # A is back after its five minutes: B holds it
+        self.assertEqual(self.holder(), self.b)
+        self.assertEqual(self.world.claim_event(self.a, event_id), "busy")
+        for _ in range(3):                                           # A's game caught it offline, reports it again
+            self.assertEqual(self.world.event_result(self.a, event_id, "caught", "Alice"), "busy")
+            self.assertIsNone(self.world.catch_verdict(event_id, self.a))
+            self.wait(20)
+        self.assertEqual(self.holder(), self.b)
+        self.assertEqual(self.world.resolutions(), [])
+        self.assertEqual(self.world.event_result(self.b, event_id, "caught", "Bob"), "consumed")
+        self.assertEqual(self.world.event_result(self.a, event_id, "caught", "Alice"), "gone")
+        self.assertEqual([(r["winner"], r["claimants"]) for r in self.world.resolutions()], [(self.b, [self.a, self.b])])
+        self.assertEqual((self.world.catch_verdict(event_id, self.a), self.world.catch_verdict(event_id, self.b)),
+                         ("release", "keep"))
+
+    def test_the_new_holders_own_reservation_protects_it_from_the_earlier_claimant(self):
+        event_id = self.a_left_with_it(self.b, self.c)
+        self.wait(300)
+        self.assertEqual(self.world.claim_event(self.b, event_id), "granted")
+        self.disconnect(self.b)                                      # now B's link drops: B's five minutes
+        self.connect(self.a)
+        self.wait(299)
+        self.assertEqual(self.world.event_result(self.a, event_id, "caught", "Alice"), "busy")
+        self.assertEqual(self.world.claim_event(self.c, event_id), "busy")
+        self.wait(1)                                                 # B's reservation ran out: nobody holds it
+        self.assertEqual(self.world.event_result(self.a, event_id, "caught", "Alice"), "consumed")
+        self.assertEqual(self.world.resolutions()[0]["winner"], self.a)
+        self.connect(self.b)
+        self.assertEqual(self.world.event_result(self.b, event_id, "caught", "Bob"), "gone")
+        self.assertEqual(self.world.catch_verdict(event_id, self.b), "release")
+
+    def test_two_claims_arriving_together(self):
+        for first, second in ((self.b, self.c), (self.c, self.b)):
+            with self.subTest(first=first == self.b and "B" or "C"):
+                self.fresh()
+                event_id = self.a_left_with_it(self.b, self.c)
+                self.clock.now += 299
+                self.assertEqual((self.world.claim_event(first, event_id), self.world.claim_event(second, event_id)),
+                                 ("busy", "busy"))
+                self.clock.now += 1                                  # the deadline; the host has not ticked yet
+                self.assertEqual((self.world.claim_event(first, event_id), self.world.claim_event(second, event_id)),
+                                 ("granted", "busy"))
+                self.connect(self.a)
+                self.tick()
+                self.assertEqual(self.holder(), first)
+                self.assertEqual(self.world.claim_event(second, event_id), "busy")
+
+    # ------------------------------------------------------------- pause and restart
+    def test_the_five_minutes_pause_while_nobody_is_online(self):
+        # A is the last player online when its link drops: nobody can take the Pokemon, so nothing counts.
+        self.connect(self.a)
+        event_id = self.world.spawn_event(progression_level=20, category="rare")["event_id"]
+        self.world.claim_event(self.a, event_id)
+        self.disconnect(self.a)
+        self.clock.now += 3 * 3600
+        self.connect(self.b)                                         # B arrives hours later: five minutes are still ahead
+        self.wait(299)
+        self.assertEqual(self.world.claim_event(self.b, event_id), "busy")
+        self.wait(1)
+        self.assertEqual(self.world.claim_event(self.b, event_id), "granted")
+        # B online when A left, then B leaves for a while: only the time somebody was online counts.
+        self.fresh()
+        event_id = self.a_left_with_it()
+        self.wait(100)
+        self.disconnect(self.b)
+        self.clock.now += 1000
+        self.tick()
+        self.connect(self.b)
+        self.wait(199)
+        self.assertEqual(self.holder(), self.a)
+        self.wait(1)
+        self.assertIsNone(self.holder())
+        # The claimant is the first one back after a pause: it reclaims the Pokemon.
+        self.fresh()
+        self.connect(self.a)
+        event_id = self.world.spawn_event(progression_level=20, category="rare")["event_id"]
+        self.world.claim_event(self.a, event_id)
+        self.disconnect(self.a)
+        self.clock.now += 86400
+        self.connect(self.a)
+        self.connect(self.b)
+        self.wait(BALANCE.event_claim_grace_seconds + 10)
+        self.assertEqual(self.holder(), self.a)
+
+    def test_a_host_restart_mid_window_keeps_what_is_left_of_it(self):
+        for back in (self.a, self.b):
+            with self.subTest(back=back == self.a and "A" or "B"):
+                self.fresh()
+                event_id = self.a_left_with_it()
+                self.wait(100)
+                self.restart()
+                self.clock.now += 3600                               # the host is up with nobody online: nothing counts
+                self.connect(self.c)
+                self.wait(199)
+                self.assertEqual(self.holder(), self.a)
+                self.assertEqual(self.world.claim_event(self.c, event_id), "busy")
+                if back == self.a:
+                    self.connect(self.a)                             # A is back within what was left: A keeps it
+                    self.wait(BALANCE.event_claim_grace_seconds)
+                    self.assertEqual(self.holder(), self.a)
+                    self.assertEqual(self.world.event_result(self.a, event_id, "caught", "Alice"), "consumed")
+                else:
+                    self.wait(1)
+                    self.assertEqual(self.world.claim_event(self.c, event_id), "granted")
+
+    def test_a_host_restart_near_the_deadline(self):
+        for back in (self.a, self.b):
+            with self.subTest(back=back == self.a and "A" or "B"):
+                self.fresh()
+                event_id = self.a_left_with_it()
+                self.wait(299.5)
+                self.restart()
+                self.connect(back)
+                self.clock.now += 0.25
+                self.assertEqual(self.holder(), self.a)              # a quarter second left
+                if back == self.a:
+                    self.assertEqual(self.world.claim_event(self.a, event_id), "granted")
+                    self.wait(BALANCE.event_claim_grace_seconds)
+                    self.assertEqual(self.holder(), self.a)
+                else:
+                    self.assertEqual(self.world.claim_event(self.b, event_id), "busy")
+                    self.clock.now += 0.25
+                    self.assertEqual(self.world.claim_event(self.b, event_id), "granted")
+                    self.connect(self.a)
+                    self.assertEqual(self.holder(), self.b)
+
+    def test_a_host_crash_never_hands_the_claim_to_two_players(self):
+        # Right after A's link dropped, before the host's timers were saved again: A's claim comes back as a connected
+        # claimant's, with the whole five minutes (a crash gives the claimant at most the time since that save).
+        event_id = self.a_left_with_it()
+        self.crash()
+        self.connect(self.b)
+        self.wait(299)
+        self.assertEqual(self.world.claim_event(self.b, event_id), "busy")
+        self.wait(1)
+        self.assertEqual(self.world.claim_event(self.b, event_id), "granted")
+        # Right after B took it: B holds it after the restart, and A's late catch still waits.
+        self.crash()
+        self.connect(self.a, self.c)
+        self.assertEqual(self.holder(), self.b)
+        self.assertEqual(self.world.event_result(self.a, event_id, "caught", "Alice"), "busy")
+        # Right after B ran from the battle: nobody holds it after the restart (it was not handed back to B).
+        self.connect(self.b)
+        self.assertEqual(self.world.event_result(self.b, event_id, "ran", "Bob"), "released")
+        self.crash()
+        self.connect(self.c)
+        self.assertIsNone(self.holder())
+        self.assertEqual(self.world.claim_event(self.c, event_id), "granted")
+        # Right after A reclaimed it by reconnecting: A was connected when the host died, so A has the whole window again.
+        self.fresh()
+        event_id = self.a_left_with_it()
+        for _ in range(20):
+            self.wait(10)                                            # the host's timers are saved every 30 s meanwhile
+        self.connect(self.a)
+        self.crash()
+        self.connect(self.b)
+        self.wait(299)
+        self.assertEqual(self.world.claim_event(self.b, event_id), "busy")
+        self.wait(1)
+        self.assertEqual(self.world.claim_event(self.b, event_id), "granted")
+        # Mid-window, with the host's timers saved every 30 s: the restored reservation errs only towards the claimant.
+        self.fresh()
+        event_id = self.a_left_with_it()
+        for _ in range(10):
+            self.wait(10)
+        self.crash()
+        self.connect(self.b)
+        left = self.world._claim["released_at"] - self.world.active_seconds()
+        self.assertGreaterEqual(left, 200)
+        self.assertLessEqual(left, 230)
+
+    def test_a_claim_saved_under_the_old_two_minute_rule_loads_with_the_five_minutes(self):
+        import json
+        import sqlite3
+        cases = (
+            ({"grace_remaining": None}, 300),                        # its claimant was connected: the whole window
+            ({"grace_remaining": 30.0}, 210),                        # 90 s into the old 120 s: 210 s of the five minutes
+            ({"grace_remaining": 0.0}, 180),                         # the old window had just run out: 3 minutes are left
+            ({"grace_remaining": 120.0}, 300),
+            ({"grace_remaining": 250.0, "grace_window": 300}, 250),  # a record written by this rule
+            ({"grace_remaining": "soon"}, 300),                      # unreadable: the whole window
+        )
+        for fields, left in cases:
+            with self.subTest(fields=fields):
+                self.fresh()
+                self.world.close()
+                record = {"event_id": 7, "category": "rare", "species": 359, "name": "ABSOL", "level": 30,
+                          "shiny": False, "mega": False, "held_item": 0, "perfect_ivs": 1, "map_group": 0,
+                          "map_number": 16, "x": 10, "y": 7, "place": "Route 101", "reminded": [], "remaining": 800,
+                          "claimants": [self.a], "last_claimant": self.a, "claim": {"player_id": self.a, **fields}}
+                db = sqlite3.connect(str(self.path))
+                db.execute("INSERT INTO events VALUES (?, ?, 'active', NULL, 0)", (7, json.dumps(record)))
+                db.commit()
+                db.close()
+                self.world = self.open()
+                self.connect(self.b)
+                self.wait(left - 0.5)
+                self.assertEqual(self.holder(), self.a)
+                self.assertEqual(self.world.claim_event(self.b, 7), "busy")
+                self.wait(0.5)
+                self.assertEqual(self.world.claim_event(self.b, 7), "granted")
+                stored = json.loads(self.world._db.execute("SELECT record FROM events WHERE event_id=7").fetchone()[0])
+                self.assertEqual(stored["claim"], {"player_id": self.b, "grace_remaining": None,
+                                                   "grace_window": BALANCE.event_claim_grace_seconds})
+
+    # ------------------------------------------------------------------- the races
+    def test_never_two_holders_whatever_the_order(self):
+        """Random interleavings of joins, leaves, claims, catches, runs, host ticks and clean host restarts, many of them
+        landing exactly on a deadline or in the same instant, checked step by step against the rule: at most one holder; a
+        disconnected holder keeps the claim for exactly five minutes of time somebody is online and keeps it by coming
+        back within them; a catch is accepted only from the holder or, while nobody holds the claim, from an earlier
+        claimant; one owner per event."""
+        from collections import Counter
+        grace = BALANCE.event_claim_grace_seconds
+        players = (self.a, self.b, self.c)
+        seen = Counter()
+        for seed in range(5):
+            rng = random.Random(20261105 + seed)
+            self.fresh()
+            model = {"event": None, "left": 0.0, "holder": None, "away": 0.0, "claimants": set()}
+            owners = {}
+
+            def effective():
+                holder = model["holder"]
+                if holder is not None and holder not in self.online and model["away"] >= grace:
+                    model["holder"] = None                       # its five minutes ran out
+                    seen["lapsed"] += 1
+                return model["holder"]
+
+            def sync():
+                view = self.world.event_view()
+                if view is None:
+                    model.update(event=None, holder=None)
+                elif view["event_id"] != model["event"]:
+                    model.update(event=view["event_id"], left=float(BALANCE.event_duration_seconds), holder=None,
+                                 away=0.0, claimants=set())
+
+            for step in range(600):
+                where = f"seed {seed}, step {step}"
+                roll = rng.random()
+                if roll < 0.40:
+                    # Time passes (only while somebody is online does it count), sometimes exactly to the deadline.
+                    holder = model["holder"]
+                    choices = [0, 0.5, 1, 7, 30, 120, 299, 300, 301]
+                    if holder is not None and holder not in self.online and model["away"] < grace:
+                        to_deadline = grace - model["away"]
+                        choices += [to_deadline, to_deadline, max(0.0, to_deadline - 0.5)]
+                    dt = rng.choice(choices)
+                    self.clock.now += dt
+                    if self.online:
+                        model["left"] -= dt
+                        if holder is not None and holder not in self.online:
+                            model["away"] += dt
+                    if (model["event"] is not None and model["left"] <= 0) or rng.random() < 0.6:
+                        self.tick()                              # an event's own timer ends at the host's tick
+                        if model["event"] is not None and model["left"] <= 0:
+                            model.update(event=None, holder=None)
+                        sync()
+                elif roll < 0.60:
+                    player = rng.choice(players)
+                    effective()
+                    if player in self.online:
+                        self.disconnect(player)
+                        if model["holder"] == player:
+                            model["away"] = 0.0                  # its five minutes start now
+                    else:
+                        self.connect(player)
+                        if model["holder"] == player:
+                            model["away"] = 0.0                  # back in time: it holds the claim again
+                            seen["reclaimed"] += 1
+                elif roll < 0.97 and self.online:
+                    if model["event"] is None:
+                        self.world.spawn_event(progression_level=20, category="rare")
+                        sync()
+                        continue
+                    player = rng.choice(sorted(self.online))
+                    holder = effective()
+                    self.assertEqual(self.holder(), holder, where)
+                    event_id = model["event"]
+                    action = rng.choice(("claim", "claim", "caught", "ran"))
+                    if action == "caught" and player == holder and rng.random() < 0.75:
+                        action = "claim"                         # the holder's battle goes on (a claim again: the same)
+                    earlier = sorted(p for p in self.online if p in model["claimants"] and holder not in (None, p))
+                    if earlier and rng.random() < 0.5:
+                        player, action = rng.choice(earlier), "caught"   # an earlier claimant's catch made offline
+                    if action == "claim":
+                        outcome = self.world.claim_event(player, event_id)
+                        self.assertEqual(outcome, "granted" if holder in (None, player) else "busy", where)
+                        seen["claim " + outcome] += 1
+                        if outcome == "granted":
+                            model["holder"] = player
+                            model["claimants"].add(player)
+                    elif action == "caught":
+                        outcome = self.world.event_result(player, event_id, "caught", "X")
+                        if player != holder and player not in model["claimants"]:
+                            self.assertEqual(outcome, "not_claimant", where)
+                        elif holder not in (None, player):
+                            self.assertEqual(outcome, "busy", where)          # never over another trainer's claim
+                            self.assertIsNone(self.world.catch_verdict(event_id, player), where)
+                            seen["catch waited"] += 1
+                        else:
+                            self.assertEqual(outcome, "consumed", where)
+                            self.assertNotIn(event_id, owners, where)
+                            owners[event_id] = player
+                            seen["caught by the holder" if player == holder else "caught while nobody held it"] += 1
+                            model.update(event=None, holder=None)
+                    else:
+                        outcome = self.world.event_result(player, event_id, "ran", "X")
+                        self.assertEqual(outcome, "released" if holder == player else "not_claimant", where)
+                        if outcome == "released":
+                            model["holder"] = None
+                elif roll >= 0.97:
+                    holder = effective()
+                    if holder is not None and holder in self.online:
+                        model["away"] = 0.0                      # the stop ends its session: its five minutes start
+                    self.restart()
+                    seen["restart"] += 1
+                    sync()
+                self.assertEqual(self.holder(), effective(), where)
+                self.assertEqual({r["event_id"]: r["winner"] for r in self.world.resolutions(100)}, owners, where)
+        # The walk really went through the races it is meant to cover.
+        for case in ("lapsed", "reclaimed", "claim granted", "claim busy", "catch waited", "caught by the holder",
+                     "caught while nobody held it", "restart"):
+            self.assertGreater(seen[case], 0, (case, dict(seen)))
 
 
 class ShinyEventTests(unittest.TestCase):

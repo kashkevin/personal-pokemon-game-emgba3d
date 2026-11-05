@@ -132,6 +132,27 @@ class SharedWorldFromUpdate14(unittest.TestCase):
         self.assertEqual(len(again.resolutions()), 3)                                 # a restart repeats the answer
         self.assertEqual(again.event_result(A, event, "caught", "A"), "consumed")
 
+    def test_a_claim_stored_by_the_old_build_is_reserved_for_five_minutes_and_never_doubled(self):
+        # The fixture's open event was claimed by A while A was connected (Update 14, when a claim lapsed 120 s after a
+        # disconnect). The host restart disconnected everyone: A's claim is reserved for the five minutes of today's rule
+        # (owner, 2026-11-05), and a catch over it waits.
+        world = self.open()
+        self.addCleanup(world.close)
+        event = world.event_view()["event_id"]
+        self.assertEqual(world.event_view()["claimant"], A)
+        world.set_active_players(1)                                  # B is back first
+        self.clock.now += 299
+        self.assertEqual(world.claim_event(B, event), "busy")
+        self.clock.now += 1
+        self.assertEqual(world.claim_event(B, event), "granted")
+        world.set_active_players(2)
+        world.player_connected(A)                                    # A is back too late: B holds it
+        self.assertEqual(world.event_view()["claimant"], B)
+        self.assertEqual(world.event_result(A, event, "caught", "A"), "busy")
+        self.assertEqual(world.event_result(B, event, "caught", "B"), "consumed")
+        self.assertEqual(world.event_result(A, event, "caught", "A"), "gone")
+        self.assertEqual((world.catch_verdict(event, B), world.catch_verdict(event, A)), ("keep", "release"))
+
     def test_the_new_tables_are_added_and_no_old_table_is_altered(self):
         with closing(sqlite3.connect(self.path)) as db, db:
             old = dict(db.execute("SELECT name, sql FROM sqlite_master WHERE type='table'"))

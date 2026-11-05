@@ -33,7 +33,10 @@ class Balance:
     event_level_offset_legendary: int = 8
     event_level_min: int = 5
     event_level_max: int = 70
-    event_claim_grace_seconds: int = 120
+    # A claimant who disconnects keeps the World Event Pokemon reserved this long (seconds while somebody is
+    # online), may reconnect and reclaim it meanwhile, and loses it afterwards (owner, 2026-11-05: five minutes;
+    # it was 120 s).
+    event_claim_grace_seconds: int = 5 * 60
     event_claim_away_seconds: int = 60   # a connected claimant on another map lets it go
     event_condition_chance: float = 0.6  # a legendary event starts dormant (event_conditions.py)
 

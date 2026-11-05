@@ -7,7 +7,8 @@ and decides nothing: the code is what runs, a change to any value is the owner's
 
 Written on 2026-11-03 (KNOWN_ISSUES G2: `balance.py`, `wagers.py` and the engine's header cited this page, which did not
 exist) from the host's `src/emerald_multiplayer/balance.py` (last changed 2026-10-17, app `b6b9a4e`) and the engine's
-`include/constants/multiplayer_balance.h` (last changed 2026-10-25, engine `2912296c`).
+`include/constants/multiplayer_balance.h` (last changed 2026-10-25, engine `2912296c`). Changed since: on 2026-11-05
+`event_claim_grace_seconds` went from 120 to 300 (the owner's five-minute reservation, KNOWN_ISSUES G3).
 
 ## The host (`src/emerald_multiplayer/balance.py`, `BALANCE`)
 
@@ -25,7 +26,7 @@ exist) from the host's `src/emerald_multiplayer/balance.py` (last changed 2026-1
 | `event_level_offset_legendary` | 8 | the same for a legendary, mythical or mega legendary event |
 | `event_level_min` | 5 | lowest World Event level |
 | `event_level_max` | 70 | highest World Event level |
-| `event_claim_grace_seconds` | 120 | a claimant who disconnects (every claimant, after a host restart) keeps the event's Pokemon this long, so a battle in progress can still report |
+| `event_claim_grace_seconds` | 300 | a claimant who disconnects (every claimant, after a host restart) keeps the event's Pokemon reserved this long (seconds while somebody is online), reclaims it by reconnecting in time, and loses it at that moment; never two claims at once (owner, 2026-11-05: five minutes; it was 120). `docs/legendary-catch-resolution.md` |
 | `event_claim_away_seconds` | 60 | a connected claimant on another map lets the claim go after this |
 | `event_condition_chance` | 0.6 | a legendary event's chance to start dormant (`event_conditions.py`) |
 | `friendship_levels` | New Friends, Good Friends, Great Friends, Ultra Friends, Best Friends | a pair's friendship levels |

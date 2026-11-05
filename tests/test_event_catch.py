@@ -80,15 +80,25 @@ class CatchTests(unittest.TestCase):
         self.assertEqual(self.world.resolutions()[0]["winner"], self.a)
         self.assertEqual([v for _, v in self.world.reports(event)], ["winner"] + ["replay"] * 5 + ["late"])
 
-    def test_after_a_long_absence_the_first_report_wins_even_though_another_trainer_holds_the_claim(self):
+    def test_after_a_long_absence_a_catch_waits_while_another_trainer_holds_the_claim(self):
+        # Owner, 2026-11-05 (G3): no duplicate claims. A's claim lapsed after its five minutes and B took it: A's catch,
+        # made offline, is not accepted over B's claim. It is not refused for good either: no verdict is decided, and the
+        # game's next report is ruled on by the usual rules once the owner is known.
         event = self.spawn()
         self.world.claim_event(self.a, event)
         self.lapse(self.a)                                           # A's game stays in battle offline
         self.assertEqual(self.world.claim_event(self.b, event), "granted")
-        self.assertEqual(self.world.event_result(self.a, event, "caught", "Alice"), "consumed")   # A reports first
-        self.assertEqual(self.world.event_result(self.b, event, "caught", "Bob"), "gone")         # B's battle ends
-        self.assertEqual(self.world.resolutions()[0]["winner"], self.a)
+        for _ in range(3):                                           # the game reports its recorded catch again and again
+            self.assertEqual(self.world.event_result(self.a, event, "caught", "Alice"), "busy")
+            self.assertIsNone(self.world.catch_verdict(event, self.a))
+        self.assertEqual(self.world.event_view()["claimant"], self.b)  # B's battle goes on undisturbed
+        self.assertEqual(self.world.resolutions(), [])
+        self.assertEqual(self.world.event_result(self.b, event, "caught", "Bob"), "consumed")     # the holder catches it
+        self.assertEqual(self.world.event_result(self.a, event, "caught", "Alice"), "gone")
+        self.assertEqual(self.world.resolutions()[0]["winner"], self.b)
         self.assertEqual(self.world.resolutions()[0]["claimants"], [self.a, self.b])
+        self.assertEqual((self.world.catch_verdict(event, self.b), self.world.catch_verdict(event, self.a)), ("keep", "release"))
+        self.assertEqual(self.world.reports(event), [(self.a, "deferred")] * 3 + [(self.b, "winner"), (self.a, "late")])
         self.assertIsNone(self.world.event_view())
         seen = []
         for _ in range(4):
@@ -96,8 +106,19 @@ class CatchTests(unittest.TestCase):
             if note:
                 seen.append((note["text"], note["to"]))
             self.clock.now += BALANCE.notice_seconds + 1
-        self.assertTrue(any("caught the" in text and to is None for text, to in seen), seen)       # for everyone
-        self.assertTrue(any("caught it first" in text and to == [self.b] for text, to in seen), seen)  # the other battler
+        self.assertTrue(any("BOB caught the" in text and to is None for text, to in seen), seen)   # for everyone
+
+    def test_a_waiting_catch_is_accepted_once_the_holder_lets_the_pokemon_go(self):
+        event = self.spawn()
+        self.world.claim_event(self.a, event)
+        self.lapse(self.a)
+        self.assertEqual(self.world.claim_event(self.b, event), "granted")
+        self.assertEqual(self.world.event_result(self.a, event, "caught", "Alice"), "busy")
+        self.assertEqual(self.world.event_result(self.b, event, "ran", "Bob"), "released")      # nobody holds it now
+        self.assertEqual(self.world.event_result(self.a, event, "caught", "Alice"), "consumed")  # the first valid report
+        self.assertEqual(self.world.resolutions()[0]["winner"], self.a)
+        self.assertEqual(self.world.catch_verdict(event, self.a), "keep")
+        self.assertEqual(self.world.claim_event(self.b, event), "gone")
 
     def test_if_the_holder_reports_first_the_holder_wins(self):
         event = self.spawn()
@@ -123,7 +144,9 @@ class CatchTests(unittest.TestCase):
         self.assertEqual(self.world.event_result(self.a, event, "ran", "Alice"), "released")
         self.assertEqual(self.world.claim_event(self.b, event), "granted")
         self.assertEqual(self.world.resolutions(), [])
-        # a past claimant who ran can still win by a late catch
+        # a past claimant who ran can still win by a late catch, but not over another trainer's claim (2026-11-05)
+        self.assertEqual(self.world.event_result(self.a, event, "caught", "Alice"), "busy")
+        self.assertEqual(self.world.event_result(self.b, event, "lost", "Bob"), "released")
         self.assertEqual(self.world.event_result(self.a, event, "caught", "Alice"), "consumed")
 
     def test_a_catch_reported_after_the_event_ended_still_decides_the_owner_by_the_first_claimant_report(self):

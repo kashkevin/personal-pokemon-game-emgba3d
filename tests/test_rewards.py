@@ -161,6 +161,27 @@ class CatchVerdictTests(unittest.TestCase):
         self.assertIsNone(self.wagers.next_adjustment(self.a, 1))
         self.assertEqual(self.wagers.entry(self.a, f"catch:{event}")["applied"], 1)
 
+    def test_a_catch_waiting_for_another_trainers_claim_gets_no_verdict_until_the_owner_is_decided(self):
+        # No duplicate claims (owner, 2026-11-05): A's report while B holds the claim is not ruled on (a "keep" queued now
+        # would leave both copies); the game reports again and hears the verdict once the owner is decided.
+        event = self.race()
+        for _ in range(3):
+            self.assertEqual(self.report(self.a, event), "busy")
+        self.assertEqual(self.words(self.a), [])
+        self.assertEqual(self.wagers.pending_for(self.a), [])
+        self.assertEqual(self.report(self.b, event), "consumed")
+        self.assertEqual(self.report(self.a, event), "gone")
+        number = rewards.catch_number(event)
+        self.assertEqual(self.words(self.a), [((rewards.KIND_CATCH_RELEASE, number), f"catch:{event}")])
+        self.assertEqual(self.words(self.b), [((rewards.KIND_CATCH_KEEP, number), f"catch:{event}")])
+
+    def test_a_waiting_catch_is_kept_when_the_holder_lets_the_pokemon_go_first(self):
+        event = self.race()
+        self.assertEqual(self.report(self.a, event), "busy")
+        self.assertEqual(self.world.event_result(self.b, event, "ran", "Bob"), "released")
+        self.assertEqual(self.report(self.a, event), "consumed")
+        self.assertEqual(self.words(self.a), [((rewards.KIND_CATCH_KEEP, rewards.catch_number(event)), f"catch:{event}")])
+
     def test_the_loser_is_told_who_won_and_the_winner_is_not_told_anything_unusual(self):
         event = self.race()
         self.report(self.b, event)
