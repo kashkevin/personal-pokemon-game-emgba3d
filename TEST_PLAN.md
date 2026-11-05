@@ -30,6 +30,10 @@ What a full run executes in real Windows game processes (one hosted runner per j
 | The whole game: every trainer, person, item ball, sign, hidden item, warp and coordinate trigger of the reachable maps | gameplay-check (8 shards; `gameplay_qa=yes`) |
 | The 3D renderer: Mega battles drawn in 3D and the parade of every Mega form (Mesa's software OpenGL, test only) | graphics-3d |
 
+Without a game (Python only, the pinned wheels; every mode): world loading with 600 saves (KNOWN_ISSUES MS-161), a
+friend's invite code replaced (NU-7), and the world server's process killed in the middle of a save, six times
+(`tests/test_server_killed_mid_save.py`: every acknowledged save kept byte for byte) — the world-open-bench job.
+
 What the runners cannot show: a real GPU or vendor driver (3D runs on Mesa's software renderer), two PCs, a router
 or the Internet (every multiplayer job is one PC on its own loopback), audio, controllers, DPI and fullscreen. Those
 stay for the owner's own Windows PCs and are reported as unverified, never as passed.

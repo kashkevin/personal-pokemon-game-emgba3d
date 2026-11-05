@@ -15,6 +15,7 @@ Updated with every fix; the newest first within each section.
 
 | Issue | What | Status | L | W | PC |
 | --- | --- | --- | --- | --- | --- |
+| Save integrity | The world server's process killed in the middle of a save (a crashed launcher, End task in Task Manager) | **Checked, no change needed** (app: this change, a new permanent test `tests/test_server_killed_mid_save.py`): every save the server acknowledged is kept byte for byte, nothing newer than what was sent, the integrity check passes; a process kill, not a power cut | the new test (six kills of a real server process, during an upload and just after a commit was sent) and a 120-kill soak (2,957 saves; 55 commits that landed though the kill cut off their answer): integrity passed after every kill | the test is a new step of the world-loading job (`world-open-bench`); not yet run on Windows | - |
 | MS-51 | Battle Tower milestone Pokemon lost when the game closed before saving and the older save had no room | **Fixed** (engine `36fb4589`, app: this change) | self-test 2,103/2,103 (the real game code: a full party and PC answer 0, the host's replayed claims change nothing, the resend makes it); app tests 173 | run 277: `--selftest-tower` in the Windows build passed | - |
 | Co-op EXP | Gym EXP farming by losing again; the pending award lost on a reset before the award script | **Fixed** (engines `1b2c0089`, `1552e268`; app: this change): EXP with the badge-earning win only; the waiting result in the save; the launcher saves on the host as the co-op battle ends, the script runs after that save, the host save again after it (retried while the launcher is busy) (`docs/owner-decisions.md` 4-5) | self-test 57/57 (also under Wine); check-native, tower, ladder, update32: 0 failed; app save checks 79 passed; **real two-game run c5 passed** (a game closed during its award came back with the same award, nothing lost or doubled; runs c1-c4 found and fixed two launcher faults: KNOWN_ISSUES MS-190) | run 277: `--selftest-coop-exp` in the Windows build passed; run 280's new coop-proof job **passed** (a game closed during its award in Windows game processes came back with the same award) | - |
 | MS-145 | Kept shinies and Legendaries forgotten when the game closes | **Fixed** (engine `9f0809f6`, app: this change): the keep list is a save record | self-test 24/24 (12 new; also under Wine); app record tests; **a real game closed and started again with four kept shinies: all four back, drawn shiny** (`shiny_check.py` keep-restart, engine `7f9b56bf`) | run 277: `--selftest-shiny` (its 12 new checks) in the Windows build passed; keep-restart passed in run 280's feature checks and **failed in run 284's, a fault of the check** (it wanted the first-seen place; the save rightly holds the last): fixed in engine `6b75d6b6` (the save's entries logged, every one put back compared; L 5 of 5); **run 288's feature checks passed with it** (keep-restart on Windows, engine `6b75d6b6`) | - |
@@ -51,7 +52,10 @@ N8 licensing of `src/platform/bios.c` (blocks giving the build to anyone; "Leave
 (U31-13); the Node 24 actions patch (U31-16); day counters on the world clock (G13); a ticket source for personal
 static legendaries; the character customization scope; the 39 upstream GBA test failures under Gen 6 rules; egg
 hatching speed (MS-42); and the "built, your call" items: Xbox B as Cancel, 3D vehicles falling back to 2D, music
-loudness, Battle Point shop prices, a launcher checkbox for location privacy.
+loudness, Battle Point shop prices, a launcher checkbox for location privacy. Also, with their options in
+KNOWN_ISSUES: a World Event's claim release after a disconnect (G3, gameplay); how far a world's integrity check
+may trust its own earlier result (MS-161 (b) and (c)); and the 3D view's two visual trade-offs, a screen fade
+redrawing the atlas at each step and a map crossing's new chunks spread over a few frames (MS-118).
 
 ## 4. Verification only the owner's PCs can give
 

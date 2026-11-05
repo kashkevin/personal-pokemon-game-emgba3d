@@ -1332,6 +1332,19 @@ jobs:
           result = unittest.TextTestRunner(verbosity=2).run(suite)
           sys.exit(0 if result.wasSuccessful() and result.testsRun >= 8 else 1)
           PY
+      - name: The world server's process killed mid-save keeps every save it acknowledged (save integrity)
+        run: |
+          # On Windows: a real world server process ended at once (TerminateProcess, as a crashed launcher or End task
+          # ends it) during an upload or right after a commit was sent, six times; after each, every acknowledged save is
+          # in the store byte for byte, nothing newer than what was sent, and its integrity check passes. A process kill,
+          # not a power cut. The test's own synthetic saves, with only the pinned wheels (no game, no secret).
+          .venv/Scripts/python - <<'PY'
+          import sys, unittest
+          sys.path[:0] = ["src", "tests"]
+          suite = unittest.defaultTestLoader.loadTestsFromNames(["test_server_killed_mid_save"])
+          result = unittest.TextTestRunner(verbosity=2).run(suite)
+          sys.exit(0 if result.wasSuccessful() and result.testsRun >= 1 else 1)
+          PY
       - name: Upload the timings (private to this repository, 7 days)
         if: always()
         uses: actions/upload-artifact@v4

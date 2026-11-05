@@ -207,6 +207,9 @@ class WindowsWorkflowTests(unittest.TestCase):
         # KNOWN_ISSUES NU-7: a friend's code replaced, on Windows, by the host world's and the stored invite's own tests
         self.assertIn('"test_host_world.CredentialReplacementTests", "test_shell_records.InvitationReplacementTests"', bench)
         self.assertIn("result.wasSuccessful() and result.testsRun >= 8", bench)
+        # Save integrity: the world server's process killed mid-upload or mid-commit, on Windows (TerminateProcess)
+        self.assertIn('loadTestsFromNames(["test_server_killed_mid_save"])', bench)
+        self.assertIn("result.wasSuccessful() and result.testsRun >= 1", bench)
 
     def test_multiplayer_mega_evolution_runs_in_windows_game_processes(self):
         mega = job("mega-proof")
