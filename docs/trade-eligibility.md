@@ -52,7 +52,20 @@ hatches a traded Egg correctly. What the sections below say about refusing Eggs 
   save-block replay runs in the engine, which refuses both (`MultiplayerTradeEffects_BeginRecord`).
 * Tests: `tests/test_trade_eggs_mail.py` (Mail layout and reading, eligibility, byte-for-byte exchange, preparations,
   desk, the hatch rule and its audit, the transfer copy check, interrupted live trades carrying Mail both ways, the
-  manifest marker). Not yet shown: a real two-game trade of an Egg and of Mail, and the engine's hatch of a traded Egg.
+  manifest marker).
+* Real games (Linux, the 3D test build of engine `23887292`, two games through real launchers and a real world host;
+  `native_launcher_newcomers_proof.py --scenario trade-mail` and `--scenario trade-egg --hatch-in party|box`, the
+  fixtures `make_tower_saves.py` trade-mail-a/-b and trade-egg-a/-b, the host's saves read with the app's own code by
+  `trade_eggs_mail_evidence.py`): a Wingull holding Wave Mail for a Treecko holding Wood Mail, each Mail whole in its
+  receiver's slot, then the Treecko for a Zigzagoon, its sender's slot left as ClearMail leaves it; each receiving game
+  reading its Mail (MAIL > READ); the first trade cut before the host's commit (nothing committed, both Mails where they
+  were, then made again) and after it (the launcher held the committed trade until Resolve interrupted trade, the
+  reopened game had it; or the stopped game took it once running); a shiny Togepi Egg traded and hatched by its
+  receiver in the party and, moved to the PC, in a box: no Bad Egg, the hatcher its original trainer (ID, name, gender),
+  everything else kept, the host's saves accepted; the hatched Togepi traded on; the Egg's first trainer's old save,
+  the copy of the Egg unhatched, refused as a character coming back. Each with closing saves, a fresh Continue and
+  the world's integrity check. Not shown: Windows, two PCs, the Classic 2D game, a receiving party with no free Mail
+  slot (unit tests only), a hatcher's ID that alone would change the Egg's shininess (the engine's self-test only).
 
 **Update 2026-11-05 (every form reviewed):** every form of a Kanto-to-Kalos species in the engine pin was reviewed
 (the engine's compiled species table: its National Pokedex number, `cannotBeTraded`, its form changes and evolutions),
