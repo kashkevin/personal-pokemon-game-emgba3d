@@ -39,6 +39,19 @@ workers and native games, driven by ordinary key presses:
             everyone saves; the first player offers its first Pokemon to the second, who offers its own; both confirm
             and the host applies the exact exchange; the field comes back; everyone saves: the host's saves hold the
             species in --expect-species (one per player), each Pokemon under its own serial.
+    give-up  (two; KNOWN_ISSUES MS-126: no turn timer, a player may give up whenever they wish) both claim their
+            starters and save (or, with --no-save, the games save by themselves); the host challenges the second
+            player to Rival Battle - 1v1 and both enter. The game that does not run the battle (core 1; core 0, the
+            master, does) chooses a move and, on the waiting screen ("Link standby..."), gives up: B, then Yes. The
+            master's player has walked away at the action menu, so the master's game answers that choice by itself (a
+            pass). One forfeit notice, from the giver's game; the giver loses; everyone is back on the field, linked,
+            with the party of before the battle.
+    give-up-mid-turn  (two) as give-up, but the master's player chooses too, and the giver gives up after the master
+            has begun the turn and before its game has heard of it: once the giver's move is with the host, the host's
+            battle messages to the giver arrive GIVE_UP_DELAY_MS late (proof_network.delay_battle_messages_to, until
+            the notice is there), so the giver's game still shows the waiting screen when the host routes the master's
+            first command of the turn, and gives up then. The notice reaches the master during the turn, which plays
+            it as the turn's next action; the giver still loses.
   then the harness's closing saves and a fresh Continue of everyone.
 
 What it cannot say: one PC plays every player over its own loopback; on the hosted Windows runner the games run in
@@ -68,14 +81,15 @@ for _path in (ROOT / "src", ROOT / "scripts" / "multiplayer", ROOT / "scripts" /
     if str(_path) not in sys.path:              # the Windows runner starts it without PYTHONPATH
         sys.path.insert(0, str(_path))
 from native_launcher_battle_3d_proof import LIGHT_3D_SETTINGS  # noqa: E402
-from native_launcher_battle_proof import KEYS, WINDOWS, launcher_proof  # noqa: E402
+from native_launcher_battle_proof import (CHOOSE_ACTION_REQUEST, FORFEIT_ROLE, KEYS, WINDOWS,  # noqa: E402
+                                          drive_battle_input, idle_battle_input, launcher_proof)
 from native_launcher_challenge_proof import pick, shown  # noqa: E402
 from native_launcher_ffa_proof import A, B, DOWN, LEFT, RIGHT, UP, close_players, players_tab, pose_of, walk_to  # noqa: E402
 from native_launcher_lobby4_proof import FourPlayerLobbyProof  # noqa: E402
 from native_launcher_newcomer_proof import LAB, LITTLEROOT, NO_POKEMON  # noqa: E402
 from native_launcher_soft_reset_proof import SoftResetProof  # noqa: E402
 from native_launcher_three_player_proof import ThreePlayerProof, longest_gap  # noqa: E402
-from proof_network import simulate_disk, simulate_internet  # noqa: E402
+from proof_network import delay_battle_messages_to, simulate_disk, simulate_internet  # noqa: E402
 from emerald_multiplayer.flash import inspect_flash  # noqa: E402
 from emerald_multiplayer.menu_mailbox import unpack_screen  # noqa: E402
 from emerald_multiplayer.ownership import OWNERSHIP_PROFILE, inspect_ownership  # noqa: E402
@@ -84,7 +98,14 @@ from qualify_admission_cleanup import on_worker, require  # noqa: E402
 from qualify_launcher_session import inspect_closed_head  # noqa: E402
 
 PLAYER_NAMES = ("New Host", "New Friend 1", "New Friend 2", "New Friend 3")
-SCENARIOS = ("lobby", "mixed", "busy", "trade", "battle-trade", "trade-evolve", "trade-forms")
+SCENARIOS = ("lobby", "mixed", "busy", "trade", "battle-trade", "trade-evolve", "trade-forms", "give-up",
+             "give-up-mid-turn")
+GIVE_UPS = ("give-up", "give-up-mid-turn")
+# give-up-mid-turn: how late the host's battle messages reach the giver's game once its move is with the host, until the
+# notice is there (then at once again, in order). The giver gives up (B, the question, UP, A: about 2 s) between the host
+# routing the master's first command of the turn and the giver's game receiving it, at least this much later; below the
+# 5 s the giver's launcher waits for each answer of the host (companion.battle_challenge_rpc), so none is given up on.
+GIVE_UP_DELAY_MS = 4500
 FORMATS = ("1v1v1v1", "2v2")
 MODES = {"1v1": 2, "2v2": 3, "1v1v1v1": 5, "1v1v1": 6}
 PEER_NO_POKEMON = "They have no Pokemon yet"
@@ -311,6 +332,111 @@ class NewcomersProof(SoftResetProof, ThreePlayerProof):
             await meanwhile
         await self.back_on_the_field(current, probes, before, record, label + "-everyone-back")
         return results
+
+    async def give_up_battle(self, current, probes, symbols, record, mid_turn=False):
+        """KNOWN_ISSUES MS-126: the accepted 1v1 entered; its core 1 (core 0, the master, runs the battle) chooses a move
+        and gives up from the waiting screen; the master's player has walked away at its action menu, or (`mid_turn`)
+        chooses too, and the giver gives up once the master has begun the turn, before its own game has heard of it.
+        The giver loses either way."""
+        label, slots, blocks = ("give-up-mid-turn" if mid_turn else "give-up"), (0, 1), []
+        slowed, turn = [], []   # mid_turn: (resume, end) of the giver's slowed link; when the master began the turn
+
+        def seen_block(block):
+            blocks.append(dict(block, at=round(time.monotonic() - self.t0, 2)))
+            data = bytes.fromhex(block["data"])
+            if block["kind"] != 8:
+                return
+            if data[0] == FORFEIT_ROLE and slowed:
+                slowed[0][0]()  # the notice is there: the giver's game hears from the host at once again
+            elif mid_turn and not turn and block["source"] == 0 and data[0] == 0 and any(
+                    b["kind"] == 8 and b["source"] == 0 and bytes.fromhex(b["data"])[0] == 1
+                    and bytes.fromhex(b["data"])[8:10] == bytes((32, 10)) for b in blocks):
+                turn.append(time.monotonic())   # the master's first command after its own move: the turn has begun
+
+        async def observe(s):
+            service = s._server.battle_execution
+            require(service.observer is None, "a previous proof observer exists")
+            service.observer = seen_block
+        await on_worker(current[0], observe)
+        before = {n: await probes[n].battle() for n in slots}
+        battles = await self.enter(current, probes, slots, record, label)
+        (battle_id, battle), = battles.items()
+        require(battle["mode"] == MODES["1v1"], f"{label}: started mode {battle['mode']}, not the 1v1")
+        # the host's route takes the battle's commands from core 0 only (battle_controller.py): the master
+        master_n, giver_n = (self.index(battle, battle["players"][core]) for core in (0, 1))
+
+        def view(core):
+            async def read(s):
+                room = s._server.battle_execution.rooms.get(battle_id)
+                if room is None:
+                    return dict(state="waiting", pending=None)
+                return dict(state=room.state, pending=None if room.route is None else room.route.validator.pending[core])
+            return lambda: on_worker(current[0], read)
+        stops = {n: asyncio.Event() for n in slots}
+        self.seen[master_n], self.seen[giver_n] = {}, {}
+        give_up = dict(wait_for=CHOOSE_ACTION_REQUEST)
+        if mid_turn:
+            async def begun():
+                return bool(turn)
+            give_up["when"] = begun     # the giver gives up once the host has routed the master's turn
+
+            async def master_input():
+                # once the giver's move is with the host, its game hears from the host late; then the master's player
+                # chooses (so the turn begins while the giver's game still shows the waiting screen)
+                while not stops[master_n].is_set() and not (give_up.get("asked_move") and (await view(1)())["pending"] is None):
+                    await asyncio.sleep(.05)
+                slowed.append(delay_battle_messages_to(self.harness.host.accounts[giver_n].player_id, GIVE_UP_DELAY_MS))
+                give_up["slowed"] = time.monotonic()
+                await drive_battle_input(probes[master_n], view(0), symbols, stops[master_n], self.seen[master_n])
+            master = asyncio.create_task(master_input())
+        else:
+            master = asyncio.create_task(idle_battle_input(probes[master_n], view(0), stops[master_n]))
+        drivers = {master_n: master, giver_n: asyncio.create_task(drive_battle_input(
+            probes[giver_n], view(1), symbols, stops[giver_n], self.seen[giver_n], give_up=give_up, other_view=view(0)))}
+        try:
+            results = await self.finish(current, probes, battles, slots, stops, drivers, record, label)
+        finally:
+            for _resume, end in slowed:
+                end()
+
+            async def unobserve(s):
+                s._server.battle_execution.observer = None
+            await on_worker(current[0], unobserve)
+
+        def data(b):
+            return bytes.fromhex(b["data"])
+
+        def replies(core):
+            # (command, first byte) of a core's choice replies (role 1: TWORETURNVALUES 32, CHOSENMONRETURNVALUE 33)
+            return [tuple(data(b)[8:10]) for b in blocks if b["kind"] == 8 and b["source"] == core
+                    and data(b)[0] == 1 and data(b)[8] in (32, 33)]
+        notices = [i for i, b in enumerate(blocks) if b["kind"] == 8 and data(b)[0] == FORFEIT_ROLE]
+        require("chosen" in give_up, f"{label}: the second player never chose Yes on the question: "
+                + json.dumps({k: v for k, v in give_up.items() if k != "prepare"}, default=str))
+        require(len(notices) == 1 and blocks[notices[0]]["source"] == 1 and data(blocks[notices[0]])[1] == 1,
+                f"{label}: expected one forfeit notice from the giver's game: {[blocks[i]['source'] for i in notices]}")
+        outcome = results[battle_id]["outcome"]
+        require(outcome == 1, f"{label}: the player who gave up did not lose: outcome {outcome}")
+        # the giver: Fight (action 0) and a move (10); the master: its own pass (13) at the action menu it was left at,
+        # or (mid_turn) its player's Fight and move
+        require(replies(1) == [(32, 0), (32, 10)], f"{label}: the giver's replies differ: {replies(1)}")
+        expected = [(32, 0), (32, 10)] if mid_turn else [(32, 13)]
+        require(replies(0) == expected, f"{label}: the master's replies differ: {replies(0)}, expected {expected}")
+        before_notice = None
+        if mid_turn:
+            # the master's commands after its own move and before the notice reached the host: the turn had begun
+            chosen = max(i for i, b in enumerate(blocks) if b["kind"] == 8 and b["source"] == 0 and data(b)[0] == 1
+                         and tuple(data(b)[8:10]) == (32, 10))
+            before_notice = [data(b)[8] for b in blocks[chosen + 1:notices[0]]
+                             if b["kind"] == 8 and b["source"] == 0 and data(b)[0] == 0]
+            require(before_notice, f"{label}: the notice reached the host before the master began the turn")
+        record(label + "-forfeit", battle_id=battle_id, giver=self.harness.names[giver_n],
+               master=self.harness.names[master_n], winner_team=outcome, giver_replies=replies(1),
+               master_replies=replies(0), notice_at=blocks[notices[0]]["at"],
+               master_commands_before_the_notice=before_notice, delay_ms=GIVE_UP_DELAY_MS if mid_turn else 0,
+               seconds_from_the_turn_to_yes=None if not mid_turn else round(give_up["chosen"] - turn[0], 1),
+               presses_of_b_before_the_question=give_up.get("b_without_question", 0))
+        await self.back_on_the_field(current, probes, before, record, label + "-everyone-back")
 
     async def back_on_the_field(self, current, probes, before, record, label):
         """Everyone on the field and linked to everyone; each battler's party exactly the one of before the battle;
@@ -689,6 +815,16 @@ class NewcomersProof(SoftResetProof, ThreePlayerProof):
                    hold=HOLD[0])
         elif self.scenario in ("trade", "battle-trade"):
             await self.trade_back_and_forth(current, probes, record, symbols if self.scenario == "battle-trade" else None)
+        elif self.scenario in GIVE_UPS:
+            before = [(await self.launcher(w))["revision"] for w in current]
+            await self.claims(range(count), current, probes, record)
+            if self.no_save:
+                canonical = await self.auto_saved(current, record, "auto-saved-with-the-starters", before)
+            else:
+                canonical = await self.save_all(current, record, "saved-with-the-starters")
+            require(all(c["count"] == 1 and len(c["serials"]) == 1 for c in canonical), f"the host's saves: {canonical}")
+            await self.challenge_1v1(self.harness.host, probes, 0, 1)
+            await self.give_up_battle(current, probes, symbols, record, mid_turn=self.scenario == "give-up-mid-turn")
         elif self.scenario == "mixed":
             await self.mixed(current, probes, games, host, symbols, record)
         else:
@@ -1025,7 +1161,7 @@ async def run(args):
     count = len(args.source)
     require(2 <= count <= 4, "two to four sources (short-introduction saves)")
     require(args.scenario == "lobby" or count == 4 or (args.scenario in ("trade", "battle-trade", "trade-evolve",
-                                                                          "trade-forms")
+                                                                          "trade-forms", *GIVE_UPS)
                                                        and count == 2),
             f"--scenario {args.scenario} needs four players (trade: two)")
     expect = tuple(int(x) for x in args.expect_species.split(",")) if args.expect_species else ()

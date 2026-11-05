@@ -2246,6 +2246,13 @@ jobs:
           # both trades between two new characters, drawn through Mesa's software OpenGL (llvmpipe) with the 3D battle
           # proof's light settings; a GitHub-hosted runner has no graphics card.
           - {name: battle-trade-3d, scenario: battle-trade, players: 2, format: 1v1v1v1, extra: "--light-3d", game: inputs/pokeemerald-mp-diorama.exe, mesa: "yes"}
+          # KNOWN_ISSUES MS-126 (no turn timer; a player may give up whenever they wish): in two new characters' 1v1 the
+          # game that does not run the battle gives up from its waiting screen while the other player has walked away
+          # (give-up), or after the battle's master has begun the turn and before the giver's game has heard of it
+          # (give-up-mid-turn: the host's battle messages to the giver arrive 4.5 s late from its move on, until the
+          # notice is there). The giver loses either way.
+          - {name: give-up, scenario: give-up, players: 2, format: 1v1v1v1}
+          - {name: give-up-mid-turn, scenario: give-up-mid-turn, players: 2, format: 1v1v1v1}
     defaults:
       run:
         shell: bash

@@ -63,14 +63,23 @@ class ShellWindowTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
-        number = 90 + os.getpid() % 100
-        self.xvfb = subprocess.Popen(["Xvfb", f":{number}", "-screen", "0", "1280x800x24"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        # Xvfb picks a free display and names it once it takes connections (-displayfd). A fixed number per process
+        # met the previous test's Xvfb still going away, or another program's display: the game then had none, or
+        # another's (seen 2026-11-05: "Can't open display").
+        read, write = os.pipe()
+        self.xvfb = subprocess.Popen(["Xvfb", "-displayfd", str(write), "-screen", "0", "1280x800x24", "-nolisten", "tcp"],
+                                     pass_fds=(write,), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        os.close(write)
+        self.addCleanup(self.xvfb.wait, 10)
         self.addCleanup(self.xvfb.terminate)
-        time.sleep(1.0)
+        with os.fdopen(read) as named:
+            number = named.readline().strip()   # empty if Xvfb ended without a display
+        self.assertTrue(number.isdigit(), "Xvfb did not start")
+        self.display = f":{number}"
         runtime = Path(self.temp.name) / "xdg"
         runtime.mkdir(mode=0o700)
         self.shell = ShellProcess([str(ENGINE), "--shell", "--shell-size", "1280x720"], environment={
-            "DISPLAY": f":{number}", "PKMN_SHELL_TEST": "1", "XDG_RUNTIME_DIR": str(runtime), "SDL_AUDIODRIVER": "dummy",
+            "DISPLAY": self.display, "PKMN_SHELL_TEST": "1", "XDG_RUNTIME_DIR": str(runtime), "SDL_AUDIODRIVER": "dummy",
             "SDL_RENDER_DRIVER": "software"})
         self.addCleanup(self.shell.close)
 
@@ -81,6 +90,12 @@ class ShellWindowTests(unittest.TestCase):
             screen.row(identifier, label, "detail " + identifier, "s" if identifier == "continue" else "")
         screen.set_status("info", "Game files verified.")
         return screen
+
+    def pointer(self, x, y):
+        """Moves the display's mouse pointer (xdotool), as a player's mouse would."""
+        done = subprocess.run(["xdotool", "mousemove", str(x), str(y)], env={**os.environ, "DISPLAY": self.display},
+                              capture_output=True, text=True)
+        self.assertEqual(done.returncode, 0, f"xdotool mousemove {x} {y}: {done.stderr.strip()}")
 
     def show_async(self, screen):
         """Send a screen without waiting for the player's answer (the test plays the player)."""
@@ -178,6 +193,29 @@ class ShellWindowTests(unittest.TestCase):
         time.sleep(0.5)
         image = self.shot("small.png")
         self.assertEqual(image[:2], (560, 420))
+
+    @unittest.skipUnless(shutil.which("xdotool"), "xdotool is not available (skipped, not passed)")
+    def test_a_resting_mouse_never_takes_the_focus_but_a_moving_one_does(self):
+        # KNOWN_ISSUES P14: the pointer crosses into the window without moving when the window opens over a mouse at
+        # rest (or another window closes over it), and SDL follows the crossing with a motion event at the pointer.
+        # That row took the focus from the screen's own row: 20 Down then ended on r23, not r20, and Enter would
+        # have chosen the row under the mouse. Out of the window and back in at once is such a crossing.
+        screen = Screen("list", "Many")
+        for index in range(30):
+            screen.row(f"r{index}", f"Row number {index}", "d", "s" if index == 0 else "")
+        self.show_async(screen)
+        time.sleep(0.4)
+        self.pointer(1279, 799)             # below the 1280x720 window ...
+        self.pointer(640, 400)              # ... and over its fourth row at once: a crossing, no move inside
+        time.sleep(0.3)
+        self.assertEqual(self.shell.request("state").split("\t")[3], "r0")
+        for _ in range(20):
+            self.shell.send("inject\tkey\tDown")
+        time.sleep(0.4)
+        self.assertEqual(self.shell.request("state").split("\t")[3], "r20")
+        self.pointer(640, 440)              # the mouse moves: the row under it takes the focus, as before
+        time.sleep(0.3)
+        self.assertNotEqual(self.shell.request("state").split("\t")[3], "r20")
 
     def test_a_key_row_captures_the_next_key_and_esc_cancels_it(self):
         screen = Screen("controls", "Controls")

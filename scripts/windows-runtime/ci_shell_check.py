@@ -4,7 +4,8 @@
 
 For the 3D game and the Classic 2D game of one package it opens the menu window (no ROM, no save), draws the main menu and a form,
 takes a picture of what the renderer drew, plays the keyboard through it (Down, Enter, typing, the pasted-text path, Esc) and checks
-that every choice came back as exactly one event, that the window can be resized for a session and that it ends when asked.
+that every choice came back as exactly one event, that the window can be resized for a session and that it ends when asked. The
+mouse rests where the window opens (KNOWN_ISSUES P14): the screen's own row must keep the focus until the mouse moves.
 
 What a hosted runner can and cannot say: it is a virtual machine without a graphics card, so the menu runs on Windows' software
 renderer. It proves the window, the drawing, the keyboard and the pipe protocol work on real Windows; it says nothing about a real
@@ -58,9 +59,24 @@ def png_pixel(path, x, y):
     return width, height, tuple(prior[x * 3:x * 3 + 3])
 
 
+def park_cursor():
+    """The mouse at rest in the middle of the screen, where the menu window opens (it opens centred), before it opens:
+    (x, y) where the cursor is afterwards, or None when Windows did not move it (a runner without a desktop session)."""
+    if sys.platform != "win32":
+        return None
+    import ctypes
+    from ctypes import wintypes
+    user32 = ctypes.windll.user32
+    x, y = user32.GetSystemMetrics(0) // 2, user32.GetSystemMetrics(1) // 2
+    point = wintypes.POINT()
+    if not user32.SetCursorPos(x, y) or not user32.GetCursorPos(ctypes.byref(point)):
+        return None
+    return (point.x, point.y) if (point.x, point.y) == (x, y) else None
+
+
 def check(executable, folder, failures, name):
     folder.mkdir(parents=True, exist_ok=True)
-    result = dict(executable=executable.name)
+    result = dict(executable=executable.name, cursor=park_cursor())
     shell = ShellProcess([str(executable), "--shell", "--shell-size", "1280x720"], environment={"PKMN_SHELL_TEST": "1"}, cwd=folder)
     try:
         screen = Screen("main", "Main menu", "EmeraldTogether CI")
@@ -83,6 +99,10 @@ def check(executable, folder, failures, name):
         result.update(width=width, height=height, header_pixel=header)
         if header != (0x0E, 0x5A, 0x3F):
             failures.append(f"{name}: the menu header is {header}, not the theme's green")
+        result["focus_under_the_resting_mouse"] = shell.request("state").split("\t")[3]
+        if result["cursor"] is not None and result["focus_under_the_resting_mouse"] != "continue":
+            failures.append(f"{name}: the row under the resting mouse took the focus "
+                            f"({result['focus_under_the_resting_mouse']}, not continue: KNOWN_ISSUES P14)")
         for _ in range(2):
             shell.send("inject\tkey\tDown")
         time.sleep(0.3)

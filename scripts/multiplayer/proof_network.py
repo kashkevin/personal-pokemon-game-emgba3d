@@ -120,6 +120,38 @@ def simulate_internet(latency_ms, hold=True, host_player=None, everything=False,
             session, request, result=result)
 
 
+def delay_battle_messages_to(player_id, delay_ms):
+    """From now on each battle message the host sends to `player_id`'s game arrives `delay_ms` late, in order: one
+    player's connection slowing at one moment (KNOWN_ISSUES MS-126: the battle's master has begun the turn, and that
+    player, who has not heard of it yet, gives up from the waiting screen). In the host's own process, as
+    simulate_internet. Returns (`resume`, `end`): `resume` lets later messages go at once, though never before one still
+    held (TCP's order); `end`, once the battle is over, takes the patch away."""
+    from emerald_multiplayer.server import WorldServer
+    control = WorldServer._control
+    state = dict(delay=delay_ms / 1000, last={})
+
+    def late_control(self, session, message):
+        if getattr(session, "player_id", None) == player_id and str(message.get("type", "")).startswith("battle_"):
+            loop = asyncio.get_running_loop()
+            previous = state["last"].get(id(session))
+            if state["delay"] or (previous is not None and previous > loop.time()):
+                at = loop.time() + state["delay"]
+                if previous is not None and at <= previous:
+                    at = previous + 1e-6
+                state["last"][id(session)] = at
+                loop.call_at(at, control, self, session, message)
+                return
+        control(self, session, message)
+    WorldServer._control = late_control
+
+    def resume():
+        state["delay"] = 0.0
+
+    def end():
+        WorldServer._control = control
+    return resume, end
+
+
 def from_environment():
     """(latency_ms, remote_only, everything, disk_ms) the environment asks for; all off when unset."""
     return (float(os.environ.get("PROOF_LATENCY_MS") or 0), os.environ.get("PROOF_REMOTE_ONLY") == "1",

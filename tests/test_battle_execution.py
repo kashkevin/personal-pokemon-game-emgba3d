@@ -32,6 +32,12 @@ from test_battle_arbitration import wait_until
 # 1 ms there took the 720-frame delay's polls past the clients' 20 s (run 304); the fixture counts frames per query,
 # not time, so a poll that only yields tests the same thing.
 POLL_PAUSE = 0 if os.name == "nt" else .001
+# How long a client waits for its battle to end: a hang's limit, not a speed check (the fixture counts game frames per
+# query, not time). These battles have no route journal (not resumable), so the host rewrites and flushes the room
+# record for every command and every answer: 1,310 flushed writes in each four-player test with 80 idle queries, about
+# 7 s on Linux. Run 313 on the Windows runner took both such tests past 20 s; on Linux with Windows' timer tick and
+# every flush 5, 10 or 20 ms slower they took 23, 37 and 63 s and passed.
+CLIENT_SECONDS = 120
 
 
 class NativeFixture:
@@ -305,18 +311,26 @@ class BattleExecutionNetworkTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(json.loads(session.path.read_bytes())["state"], "closed")
                 return completion
             response, dispatch = None, 0
-            async with asyncio.timeout(20):
-                while True:
-                    reply = await self.exchange(index, response, dispatch)
-                    self.assertEqual(reply["type"], "battle_result", reply)
-                    view = reply["result"]
-                    if view["state"] == "closed":
-                        return
-                    self.assertNotEqual(view["state"], "recovery_required")
-                    if view["command_b64"] is not None and view["command_id"] != dispatch:
-                        command = decode_control(view["command_b64"])
-                        response, dispatch = await model.rpc(command), view["command_id"]
-                    await asyncio.sleep(POLL_PAUSE)
+            try:
+                async with asyncio.timeout(CLIENT_SECONDS) as limit:
+                    while True:
+                        reply = await self.exchange(index, response, dispatch)
+                        self.assertEqual(reply["type"], "battle_result", reply)
+                        view = reply["result"]
+                        if view["state"] == "closed":
+                            return
+                        self.assertNotEqual(view["state"], "recovery_required")
+                        if view["command_b64"] is not None and view["command_id"] != dispatch:
+                            command = decode_control(view["command_b64"])
+                            response, dispatch = await model.rpc(command), view["command_id"]
+                        await asyncio.sleep(POLL_PAUSE)
+            except TimeoutError as error:
+                if not limit.expired():
+                    raise
+                # how far every core got: a slow battle and a stuck one read differently
+                raise AssertionError(f"client {index}: the battle did not end in {CLIENT_SECONDS} s: " + ", ".join(
+                    f"slot {m.slot} sequence {m.sequence} idle queries {m.idle_queries} released {m.released}"
+                    for m in models.values())) from error
         tasks = [asyncio.create_task(client(i)) for i in range(4 if multi else 2)]
         try:
             await asyncio.gather(*tasks)

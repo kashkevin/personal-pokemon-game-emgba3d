@@ -132,7 +132,15 @@ attempt (05:14-09:16 UTC; the 100-floor climb 3 h 07 min): its installer is now 
 every full run with the gameplay check on, as the Classic 2D one does. Run 311 (only `app-tests`, app `975d700`): 13
 failed, 3,046 passed; twelve of kinds `58ffc1f` fixes and one new, a race in a test (`test_world_server` compared two
 players' views of the wild Pokemon from two moments; fixed, both now from one broadcast); its 119 more skips are
-the Lua bridge tests, as intended. Run 313 (`app-tests` on `58ffc1f`) checks the second batch.
+the Lua bridge tests, as intended. Run 313 (`app-tests` on `58ffc1f`): **2 failed**, 3,057 passed; every kind of
+run 311 passed. The two are `test_battle_execution`'s longest four-player battles, which ran past their clients'
+20 s: without a route journal the host flushes the room record 1,310 times in each, and the Windows runner's disk
+is slower (reproduced on Linux with flushes 5 ms slower; with the limit lifted they end and pass). Their limit is
+now 120 s, a hang's limit (the fixture counts game frames, not time); the next `app-tests` checks it.
+
+Added since: the multiplayer-check job's `give-up` and `give-up-mid-turn` entries (MS-126; both passed on Linux),
+and the package job's in-game menu check with the mouse resting where the window opens (KNOWN_ISSUES P14, fixed
+in engine `6ce2648c`).
 
 ## 6. Earlier issues in KNOWN_ISSUES (reviewed 2026-11-04)
 
@@ -212,8 +220,10 @@ not reproduced; both launchers' `runtime.log` after the next one), MS-71 (a game
 the next `crash.log` or `errors.log`), MS-88 and MS-165 (battles between players over a slow connection, and a PC
 that stops a game for seconds), MS-68, MS-69, MS-70, MS-72, MS-95, MS-96 (trade and battle fixes not yet tried
 between two real PCs), MS-81 (the owner's check of spawn odds), MS-65 and MS-89 (the 3D view on a real graphics card,
-with V3, V25, E8: V39's benchmark). Not run anywhere yet: MS-126's give-up notice reaching the battle's master during
-a turn, and a battle ending another way after a give-up; MS-83's race, seen once and not reproduced after its fix.
+with V3, V25, E8: V39's benchmark). MS-126's give-up notice reaching the battle's master during a turn has run since
+(2026-11-05, L: the newcomers proof's `give-up-mid-turn`; on Windows in the multiplayer-check job from the next full
+run). Not run anywhere yet: a battle ending another way after a give-up; MS-83's race, seen once and not reproduced
+after its fix.
 MS-156's other static encounters have run since (2026-11-05, engine `e88dbdf6`): all 17 that a talk reaches started
 their battle offline in the Classic 2D and 3D test builds (L); the feature-checks job runs them on Windows from the next
 full run; Mew and Deoxys (a walk into the grass, the triangle's puzzle first) not.

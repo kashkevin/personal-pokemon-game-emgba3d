@@ -64,5 +64,42 @@ class RoughLinkTests(unittest.TestCase):
         self.assertEqual(RoughLink(stall_every=30).delay(1.0, "a"), 0.0)   # a stall needs its length too
 
 
+class LateBattleMessagesTests(unittest.TestCase):
+    """proof_network.delay_battle_messages_to (the newcomers proof's give-up-mid-turn, KNOWN_ISSUES MS-126): one
+    player's battle messages from the host late, the rest at once; after `resume` none overtakes one still held."""
+
+    def test_one_players_battle_messages_are_late_in_order_and_never_overtaken(self):
+        import asyncio
+        from types import SimpleNamespace
+        from emerald_multiplayer.server import WorldServer
+        from proof_network import delay_battle_messages_to
+
+        original = WorldServer._control
+        self.addCleanup(setattr, WorldServer, "_control", original)
+        sent = []
+        WorldServer._control = lambda self, session, message: sent.append((session.player_id, message["n"]))
+        giver, other = SimpleNamespace(player_id="giver"), SimpleNamespace(player_id="other")
+
+        async def run():
+            resume, end = delay_battle_messages_to("giver", 200)
+            control = WorldServer._control
+            control(None, giver, dict(type="battle_result", n=1))
+            control(None, giver, dict(type="pong", n=2))            # not a battle message: at once
+            control(None, other, dict(type="battle_result", n=3))   # another player's: at once
+            await asyncio.sleep(0.05)
+            resume()
+            control(None, giver, dict(type="battle_result", n=4))   # after resume, but behind the held one
+            await asyncio.sleep(0.05)
+            held = list(sent)
+            await asyncio.sleep(0.25)
+            control(None, giver, dict(type="battle_result", n=5))   # nothing held any more: at once
+            end()
+            return held, WorldServer._control
+        held, after = asyncio.run(run())
+        self.assertEqual(held, [("giver", 2), ("other", 3)])
+        self.assertEqual(sent, [("giver", 2), ("other", 3), ("giver", 1), ("giver", 4), ("giver", 5)])
+        self.assertIsNot(after, original)   # end() restores the method the patch found (the recorder here)
+
+
 if __name__ == "__main__":
     unittest.main()

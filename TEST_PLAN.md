@@ -20,9 +20,9 @@ What a full run executes in real Windows game processes (one hosted runner per j
 | Area | Job(s) |
 | --- | --- |
 | Install, start, repair, uninstall; Create World, a character, Solo, Host World, Join Friend on the installed build | installation check |
-| The packaged games start; 3D refused cleanly and the 2D fallback (the runner's OpenGL 1.1); in-game menus | package |
+| The packaged games start; 3D refused cleanly and the 2D fallback (the runner's OpenGL 1.1); in-game menus, with the mouse resting where the menu window opens (KNOWN_ISSUES P14) | package |
 | A new character, no Pokemon, a starter claimed and saved, three soft-reset rerolls | feature-check (starters, soft reset) |
-| Two to four players in one world: simultaneous starter claims, 1v1, 1v1v1, 1v1v1v1, 2v2, a battle and a trade at once, resets while others play, visibility, a connection cut and rejoined; a battle and trades in the 3D game (through Mesa's software OpenGL) | multiplayer-check (lobby 3 and 4, mixed, busy; battle-trade-3d) |
+| Two to four players in one world: simultaneous starter claims, 1v1, 1v1v1, 1v1v1v1, 2v2, a battle and a trade at once, resets while others play, visibility, a connection cut and rejoined; a battle and trades in the 3D game (through Mesa's software OpenGL); giving up a 1v1 from the waiting screen with the other player away, and once the battle's master has begun the turn (KNOWN_ISSUES MS-126) | multiplayer-check (lobby 3 and 4, mixed, busy; battle-trade-3d; give-up, give-up-mid-turn) |
 | A battle interrupted: a game killed, a connection cut, a game closed, the host crashed; abandon, rejoin, rematch | abandon-check (pairs-crash, multi-network, ffa-exit, ffa-host-crash) |
 | World trades of Pokemon in their alternate forms (a Female Meowstic for an Origin Giratina) and a trade evolution of a form (a Small for a Large Pumpkaboo, each becoming the Gourgeist of its size) | trade-proof (forms, evolve) |
 | Mega Evolution: every case, holder, form and the stones in the menus; both players' Megas in a 1v1; no Ring | mega-check, mega-proof (two, no-ring) |

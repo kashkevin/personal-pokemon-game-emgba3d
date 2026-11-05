@@ -426,6 +426,18 @@ class WindowsWorkflowTests(unittest.TestCase):
         self.assertIn("pattern: gameplay-windows-3d-shard-*", report)
         self.assertIn("merge_gameplay_shards.py --shards shards --expected 8", report)
 
+    def test_giving_up_a_battle_between_players_runs_on_windows(self):
+        # KNOWN_ISSUES MS-126: the give-up from the waiting screen, with the other player away and once the master has
+        # begun the turn (the newcomers proof's give-up scenarios), in real Windows game processes.
+        mp = job("multiplayer-check")
+        self.assertIn("- {name: give-up, scenario: give-up, players: 2, format: 1v1v1v1}", mp)
+        self.assertIn("- {name: give-up-mid-turn, scenario: give-up-mid-turn, players: 2, format: 1v1v1v1}", mp)
+        proof = (ROOT / "scripts" / "multiplayer" / "native_launcher_newcomers_proof.py").read_text(encoding="utf-8")
+        self.assertIn('GIVE_UPS = ("give-up", "give-up-mid-turn")', proof)
+        self.assertIn("delay_battle_messages_to(", proof)        # the giver's game hears of the turn late
+        self.assertIn('require(before_notice, f"{label}: the notice reached the host before the master began the turn")',
+                      proof)
+
     def test_a_battle_and_trades_between_players_run_in_the_3d_game_on_windows(self):
         mp = job("multiplayer-check")
         self.assertIn('{name: battle-trade-3d, scenario: battle-trade, players: 2, format: 1v1v1v1, extra: "--light-3d", '

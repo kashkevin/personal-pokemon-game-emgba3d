@@ -473,7 +473,8 @@ async def drive_battle_input(probe, view, symbols, stop, seen=None, forfeit=None
     `forfeit` (a dict, if given): this player gives up at their first action choice, choosing Run as a player would
     (MS-126: in a link battle Run is the forfeit); the dict gets the battler and when Run was chosen.
     `give_up` (a dict, if given, with `other_view`): this player makes their first choice as usual, then gives up from
-    the waiting screen while the other player still has to choose (MS-126); the dict gets when."""
+    the waiting screen while the other player still has to choose (MS-126); the dict gets when. `give_up["when"]` (an
+    async predicate, if given) instead decides when, still from the waiting screen (the other player may have chosen)."""
     if seen is not None:
         seen.update(presses=0, pressed=None)
     while not stop.is_set():
@@ -488,7 +489,9 @@ async def drive_battle_input(probe, view, symbols, stop, seen=None, forfeit=None
                 give_up["asked_move"] = True
             if give_up.get("asked_move") and room["pending"] is None:
                 other = await other_view()
-                if other["state"] == "executing" and other["pending"] == give_up.get("wait_for", CHOOSE_ACTION_REQUEST):
+                when = give_up.get("when")
+                if (await when() if when is not None else
+                        other["state"] == "executing" and other["pending"] == give_up.get("wait_for", CHOOSE_ACTION_REQUEST)):
                     # its move is chosen and the other player has not chosen: the waiting screen
                     give_up.setdefault("other_pending", other["pending"])
                     if not await give_up_from_standby(probe, give_up, picture):
