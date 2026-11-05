@@ -18,11 +18,17 @@ save. Money fits +-999,999. A **reward word** is a delta above that with bit 30 
     kind 7  Battle Tower Pokemon  bits 22-23 milestone (0-3: floors 25, 50, 75, 100), bits 11-21 species (1-2047),
                                   bits 4-10 level (1-100), bits 0-3 zero; receipt: 1 made, 2 already delivered
                                   (the save's record has it: nothing made), 0 nothing made
+    kind 8  a Legendary Ticket    (docs/legendary-tickets.md 6.1) payload = the ticket's index (1 Eon Ticket, 2 Mystic
+                                  Ticket, 3 Aurora Ticket, 4 Old Sea Map; bits 8-23 zero): the item into the Bag, else
+                                  the PC, with its island's ship flag, all or nothing; receipt: 1 given, 2 already owned
+                                  (the flags made sure, nothing added), 0 nothing (no room)
 
 The game answers with a receipt of what really moved (0 when nothing could), so the host never believes a reward that did not
 land. These words are understood only by the native PC game (the Frontier itself is PC-only); the GBA ROM ignores them.
 Kinds 6 and 7 exist only in games with the Battle Tower (manifest ``tower_abi_version`` 1): every codec here refuses them
-unless its caller says the game has it (``tower=True``), so they can never be sent to a game without it.
+unless its caller says the game has it (``tower=True``), so they can never be sent to a game without it. Kind 8 likewise
+exists only in games with the Legendary Tickets (manifest ``ticket_abi_version`` 1, ``tickets=True``): an older game would
+answer 0 and the ticket would be offered again at every save.
 """
 from __future__ import annotations
 
@@ -35,7 +41,9 @@ KIND_CATCH_KEEP = 4       # a World Event catch the host confirms (payload = cat
 KIND_CATCH_RELEASE = 5    # ... or another trainer's report came first: the duplicate in this save is released
 KIND_TOWER_STATE = 6      # Battle Tower: Legends: the player's progress, or the prizes claimed (tower_progress, tower_claims)
 KIND_TOWER_MON = 7        # ... a milestone Pokemon to make (tower_mon)
+KIND_TICKET = 8           # a Legendary Ticket (legendary_tickets.TICKETS: the payload is its index)
 TOWER_KINDS = frozenset((KIND_TOWER_STATE, KIND_TOWER_MON))
+TICKET_INDEXES = frozenset((1, 2, 3, 4))   # engine platform/mp_tickets.h MP_TICKET_EON .. MP_TICKET_OLD_SEA_MAP
 TOWER_PROGRESS = 0        # kind 6 ops (bits 22-23)
 TOWER_CLAIMS = 1
 TOWER_FLOORS = 100
@@ -103,9 +111,10 @@ def decode_tower_mon(payload: int) -> tuple[int, int, int]:
     return milestone, species, level
 
 
-def encode(kind: int, payload: int, *, tower: bool = False) -> int:
+def encode(kind: int, payload: int, *, tower: bool = False, tickets: bool = False) -> int:
     """The wallet delta for a reward. Raises RewardError for anything the game would refuse; Battle Tower words (kinds 6
-    and 7) only when the caller says the game has the Tower (``tower``)."""
+    and 7) only when the caller says the game has the Tower (``tower``), a Legendary Ticket (kind 8) only when it says the
+    game has the tickets (``tickets``)."""
     if kind in (KIND_BP, KIND_BP_DEBIT):
         if type(payload) is not int or not 1 <= payload <= MAX_BP:
             raise RewardError("Battle Points are 1 to 9999")
@@ -119,6 +128,11 @@ def encode(kind: int, payload: int, *, tower: bool = False) -> int:
         if tower is not True:
             raise RewardError("Battle Tower words go only to a game with the Tower")
         (decode_tower_state if kind == KIND_TOWER_STATE else decode_tower_mon)(payload)
+    elif kind == KIND_TICKET:
+        if tickets is not True:
+            raise RewardError("Legendary Tickets go only to a game with them")
+        if type(payload) is not int or payload not in TICKET_INDEXES:
+            raise RewardError("a Legendary Ticket is its index 1 to 4, bits 8-23 zero")
     else:
         raise RewardError("unknown reward kind")
     return REWARD_FLAG | (kind << 24) | payload
@@ -139,21 +153,22 @@ def is_reward_word(delta) -> bool:
     return type(delta) is int and delta > 999_999 and (delta & REWARD_MASK) == REWARD_FLAG
 
 
-def decode(delta, *, tower: bool = False) -> tuple[int, int] | None:
-    """(kind, payload) of a valid reward word, else None (a Battle Tower word is valid only with ``tower``)."""
+def decode(delta, *, tower: bool = False, tickets: bool = False) -> tuple[int, int] | None:
+    """(kind, payload) of a valid reward word, else None (a Battle Tower word is valid only with ``tower``, a Legendary
+    Ticket only with ``tickets``)."""
     if not is_reward_word(delta):
         return None
     kind, payload = (delta >> 24) & 0xF, delta & 0xFFFFFF
     try:
-        encode(kind, payload, tower=tower)
+        encode(kind, payload, tower=tower, tickets=tickets)
     except RewardError:
         return None
     return kind, payload
 
 
-def valid_wallet_delta(delta, *, tower: bool = False) -> bool:
+def valid_wallet_delta(delta, *, tower: bool = False, tickets: bool = False) -> bool:
     """A wallet delta the game accepts: money (+-999,999, nonzero) or a valid reward word (Battle Tower words only for a
-    game with the Tower, ``tower``)."""
+    game with the Tower, ``tower``; a Legendary Ticket only for a game with them, ``tickets``)."""
     if type(delta) is not int or isinstance(delta, bool):
         return False
-    return (delta != 0 and -999_999 <= delta <= 999_999) or decode(delta, tower=tower) is not None
+    return (delta != 0 and -999_999 <= delta <= 999_999) or decode(delta, tower=tower, tickets=tickets) is not None

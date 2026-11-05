@@ -368,6 +368,15 @@ def generate(rom: Path, elf: Path, nm: str, engine_commit: str, *, trade_effect_
         if not four_byte_marker(egg) or manifest.get("trade_abi_version") != 1:
             raise ValueError("Egg trades need one four-byte marker and the ownership trade")
         manifest.update(trade_egg_abi_version=1)
+    # Owner decision 40 (docs/legendary-tickets.md 6.1): the game applies reward word kind 8, a Legendary Ticket with its
+    # island's flags (receipt 1 given, 2 already owned, 0 nothing). Native PC game only, on the shared world's wallet
+    # stream; no bridge.txt opt-in: the host sends kind 8 only to a game whose manifest says so
+    # (bridge_config.tickets_enabled), never to an older one, which would answer 0.
+    tickets = native_marker("gMultiplayerTicketAbiVersion", symbols + native_symbols)
+    if tickets:
+        if not four_byte_marker(tickets) or manifest.get("world_abi_version") != 1:
+            raise ValueError("the Legendary Tickets need one four-byte marker and the shared world")
+        manifest.update(ticket_abi_version=1)
     if len(objects) == 1:
         obj_address, obj_size = (int(value, 16) for value in objects[0])
         # Read-only test metadata for the pinned engine's 0x24-byte objects.

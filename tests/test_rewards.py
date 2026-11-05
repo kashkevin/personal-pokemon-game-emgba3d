@@ -39,6 +39,63 @@ class WordTests(unittest.TestCase):
                 rewards.encode(kind, payload)
 
 
+class TicketWordTests(unittest.TestCase):
+    """Kind 8, a Legendary Ticket (docs/legendary-tickets.md 6.1): accepted only with ``tickets=True``, as the Tower's kinds
+    take ``tower=True``; an older game would answer 0 and the ticket would be offered at every save."""
+
+    def test_kind_eight_is_refused_without_the_tickets_capability(self):
+        word = 0x48000001                                                             # the Eon Ticket
+        for call in (lambda: rewards.encode(rewards.KIND_TICKET, 1), lambda: rewards.encode(8, 1, tower=True),
+                     lambda: rewards.encode(8, 1, tickets=1), lambda: rewards.encode(8, 1, tickets="yes")):
+            with self.assertRaises(rewards.RewardError):
+                call()
+        for decoded in (rewards.decode(word), rewards.decode(word, tower=True)):
+            self.assertIsNone(decoded)
+        self.assertFalse(rewards.valid_wallet_delta(word))
+        self.assertFalse(rewards.valid_wallet_delta(word, tower=True))
+        with self.assertRaises(ProtocolError):
+            validate_wallet({"seq": 1, "delta": word})
+        with self.assertRaises(ProtocolError):
+            validate_wallet({"seq": 1, "delta": word}, tower=True)
+        with self.assertRaises(WorldMailboxError):
+            WorldInbound(wallet_seq=1, wallet_delta=word)
+        with self.assertRaises(WorldMailboxError):
+            WorldInbound(wallet_seq=1, wallet_delta=word, tower=True)
+        wagers = Wagers(":memory:", WORLD)
+        self.addCleanup(wagers.close)
+        player = str(uuid4())
+        for options in ({}, {"tower": True}):
+            with self.assertRaises(WagerError):
+                wagers.grant_reward(player, rewards.KIND_TICKET, 1, "ticket:eon:1", **options)
+        self.assertEqual(wagers.pending_for(player), [])
+
+    def test_with_the_capability_each_tickets_index_and_nothing_else(self):
+        for index in (1, 2, 3, 4):
+            word = rewards.encode(rewards.KIND_TICKET, index, tickets=True)
+            self.assertEqual(word, 0x48000000 | index)
+            self.assertEqual(rewards.decode(word, tickets=True), (8, index))
+            self.assertTrue(rewards.valid_wallet_delta(word, tickets=True))
+            self.assertEqual(validate_wallet({"seq": 9, "delta": word}, tickets=True), {"seq": 9, "delta": word})
+            self.assertIn(struct.pack("<Ii", 9, word), WorldInbound(wallet_seq=9, wallet_delta=word, tickets=True).pack())
+        for payload in (0, 5, 255, 0x101, 0x100, 0x10001, 0xFFFFFF, -1, True, 1.0, None, "1"):
+            with self.subTest(payload=payload), self.assertRaises(rewards.RewardError):
+                rewards.encode(rewards.KIND_TICKET, payload, tickets=True)
+        for word in (0x48000000, 0x48000005, 0x48000101, 0x48010001):
+            self.assertIsNone(rewards.decode(word, tickets=True), hex(word))
+        # The tickets capability opens kind 8 alone: the Tower's kinds still need theirs, and money is unchanged.
+        with self.assertRaises(rewards.RewardError):
+            rewards.encode(rewards.KIND_TOWER_STATE, rewards.tower_progress(1, 2), tickets=True)
+        self.assertEqual(rewards.encode(rewards.KIND_BP, 3, tickets=True), rewards.encode(rewards.KIND_BP, 3))
+        self.assertTrue(rewards.valid_wallet_delta(-50, tickets=True))
+        wagers = Wagers(":memory:", WORLD)
+        self.addCleanup(wagers.close)
+        player = str(uuid4())
+        self.assertEqual(wagers.grant_reward(player, rewards.KIND_TICKET, 4, "ticket:old_sea_map:1", tickets=True), 1)
+        self.assertIsNone(wagers.grant_reward(player, rewards.KIND_TICKET, 4, "ticket:old_sea_map:1", tickets=True))
+        self.assertEqual(wagers.next_adjustment(player, 0), {"seq": 1, "delta": 0x48000004})
+        self.assertEqual(wagers.battle_points_moved(player, 0, 1), 0)                 # a ticket is no Battle Point
+
+
 class WireTests(unittest.TestCase):
     def test_the_server_to_game_wallet_field_accepts_money_and_rewards_only(self):
         for delta in (175, -50, rewards.encode(rewards.KIND_BP, 3), rewards.encode(rewards.KIND_ITEM, (68 << 8) | 1)):

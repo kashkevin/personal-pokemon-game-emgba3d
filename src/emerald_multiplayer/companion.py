@@ -276,6 +276,7 @@ class CompanionConfig:
     world_enabled: bool = field(init=False, default=False)
     rival_abi_version: int = field(init=False, default=0)
     tower_abi_version: int = field(init=False, default=0)  # PC game: Battle Tower: Legends (bridge.txt tower=1)
+    ticket_abi_version: int = field(init=False, default=0)  # PC game: the Legendary Tickets (reward word kind 8)
     host_save_page_abi_version: int = field(init=False, default=0)  # PC game: an in-game SAVE saves on the host (MS-61)
     battle_peek_abi_version: int = field(init=False, default=0)  # PC game: battle PEEK, pushed observations (MS-62)
     battle_receive_many_abi_version: int = field(init=False, default=0)  # PC game: RECEIVE_MANY (MS-62)
@@ -377,6 +378,10 @@ class CompanionConfig:
         from .bridge_config import championship_computers_enabled
         object.__setattr__(self, "championship_abi_version",
                            1 if self.tower_abi_version == 1 and championship_computers_enabled(manifest) else 0)
+        # The Legendary Tickets (docs/legendary-tickets.md 6.1): the game applies reward word kind 8; only then does this
+        # companion pass one to it (an older game would answer 0, and the host would offer the ticket at every save).
+        from .bridge_config import tickets_enabled
+        object.__setattr__(self, "ticket_abi_version", 1 if self.world_enabled and tickets_enabled(manifest) else 0)
         if type(self.development_battle_channel) is not bool:
             raise ValueError("development_battle_channel must be a boolean")
         if self.development_battle_channel and (not self.battle_enabled or self.server_credential is None):
@@ -491,7 +496,8 @@ def validate_world(message: dict[str, Any], config: CompanionConfig, session_epo
     validate_clock(message["clock"])
     validate_event(message["event"])
     validate_notice(message["notice"])
-    validate_wallet(message["wallet"], tower=getattr(config, "tower_abi_version", 0) == 1)
+    validate_wallet(message["wallet"], tower=getattr(config, "tower_abi_version", 0) == 1,
+                    tickets=getattr(config, "ticket_abi_version", 0) == 1)
     validate_teammate(message["teammate"])
     _integer(message["world_seq"], 1, MAX_COUNTER, "world_seq")
     players = message["players"]
@@ -816,7 +822,8 @@ class Companion:
                             wallet_seq=wallet["seq"], wallet_delta=wallet["delta"], teammate_token=teammate,
                             outbreak=outbreak,
                             rival=self._world_rival if self.config.rival_abi_version == 1 else None,
-                            tower=getattr(self.config, "tower_abi_version", 0) == 1)
+                            tower=getattr(self.config, "tower_abi_version", 0) == 1,
+                            tickets=getattr(self.config, "ticket_abi_version", 0) == 1)
 
     def _host_notice(self) -> tuple[int, str]:
         notice = self._world_notice
@@ -2556,6 +2563,13 @@ class Companion:
         if type(result) is not dict or type(result.get("known")) is not bool or type(result.get("place")) is not str:
             raise ProtocolError("invalid_server_message", "invalid habitat view")
         return result
+
+    async def tickets_rpc(self) -> dict:
+        """This player's Legendary Tickets as the host sees them (ticket_service.TicketService.view): each ticket, its
+        island, whether it was given, and how to earn it with the player's progress. Refusals (a host whose game has no
+        tickets: tickets_disabled) arrive as ProtocolError."""
+        from .ticket_service import validate_view
+        return validate_view(await self.world_rpc("tickets_get"))
 
     async def frontier_rpc(self, op: str = "status", mode: str | None = None, slot: int | None = None,
                            mask: int | None = None) -> dict:

@@ -242,14 +242,16 @@ class Wagers:
                 return None
             return self._queue(player, amount, ref)
 
-    def grant_reward(self, player: str, kind: int, payload: int, ref: str, *, tower: bool = False) -> int | None:
+    def grant_reward(self, player: str, kind: int, payload: int, ref: str, *, tower: bool = False,
+                     tickets: bool = False) -> int | None:
         """Queue a Battle Frontier reward (rewards.py: Battle Points, an item, or a shop's Battle Points debit) for ``player``
         once per (player, ref): a repeat returns None and queues nothing. Returns the wallet sequence. A Battle Tower word
-        (kinds 6 and 7) is accepted only from a caller that knows the game has the Tower (``tower``: tower_service.py)."""
+        (kinds 6 and 7) is accepted only from a caller that knows the game has the Tower (``tower``: tower_service.py), a
+        Legendary Ticket (kind 8) only from one that knows the game has them (``tickets``: ticket_service.py)."""
         if not isinstance(ref, str) or not ref:
             raise WagerError("invalid_reward", "a reward needs a reference")
         try:
-            word = rewards.encode(kind, payload, tower=tower)
+            word = rewards.encode(kind, payload, tower=tower, tickets=tickets)
         except rewards.RewardError as error:
             raise WagerError("invalid_reward", str(error)) from error
         with self._transaction():

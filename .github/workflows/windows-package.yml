@@ -342,7 +342,8 @@ jobs:
                      "gMultiplayerBattleDeliverAbiVersion": "battle_deliver_abi_version",
                      "gMultiplayerTowerNextPageAbiVersion": "tower_next_page_abi_version",
                      "gMultiplayerMenuNewPageAbiVersion": "menu_new_page_abi_version",
-                     "gMultiplayerTradeEggAbiVersion": "trade_egg_abi_version"}
+                     "gMultiplayerTradeEggAbiVersion": "trade_egg_abi_version",
+                     "gMultiplayerTicketAbiVersion": "ticket_abi_version"}
           present = [field for symbol, field in markers.items() if re.search(rf"\s_?{symbol}$", symbols, re.M)]
           missing = [field for field in present if manifest.get(field) != 1]
           assert not missing, f"the Windows game has these markers but its manifest lacks {missing}"

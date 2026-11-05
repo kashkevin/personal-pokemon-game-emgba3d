@@ -116,6 +116,7 @@ _MESSAGES = {
     "soft_reset_refused": "The game could not reset now; the game says why. Nothing changed.",
     "host_restart_not_ready": "Host restart requires this host's disconnected, retained original battle or prepared trade with no other operation running.",
     "host_restart_failed": "The host service could not restart; retain every original game and retry after restoring the host configuration.",
+    "ticket_settings_invalid": "This world's Legendary Tickets setting (the .tickets.json file beside the world) cannot be used; correct or remove it.",
 }
 
 
@@ -659,6 +660,17 @@ class LauncherSession:
         self._store = host.open_store(busy_timeout=STARTUP_BUSY_TIMEOUT)
         from .reset_attempts import require_reset_ledger
         require_reset_ledger(self._store, self._manifest)
+        # Owner decision 40: the Legendary Tickets, when the installed game gives them (reward word kind 8), with this
+        # world's setting (<world>.tickets.json beside its database, else the owner's defaults), read before the host
+        # opens: a file that cannot be used stops it, naming the problem, rather than hosting with half a setting.
+        from .bridge_config import tickets_enabled
+        ticket_sources = None
+        if tickets_enabled(self._manifest):
+            from .legendary_tickets import TicketError, load_sources, settings_path
+            try:
+                ticket_sources = load_sources(settings_path(self._store.path))
+            except TicketError as error:
+                raise LauncherSessionError("ticket_settings_invalid", cause=_failure_cause(error)) from None
         from .ownership_protocol import OWNERSHIP_PROFILE
         from .trade_storage import TradeCheckpointStore
         ordinary_trades = (self._manifest.get("trade_abi_version") == 1
@@ -688,6 +700,8 @@ class LauncherSession:
             self._server.enable_tower()     # Battle Tower: Legends: the installed game has it (its solo battles need no desk)
         if championship_computers_enabled(self._manifest):
             self._server.enable_championship_computers()   # step 18: computer places in a Championship
+        if ticket_sources is not None:
+            self._server.enable_tickets(ticket_sources)     # the Legendary Tickets: the installed game applies kind 8
         await self._server.start(self._bind_address, host.port, allow_lan=True,
                                  public=self._public, tls=host.server_tls, wildcard=self._bind_address == WILDCARD,
                                  relay=self._network is not None and self._network.relay_enabled)

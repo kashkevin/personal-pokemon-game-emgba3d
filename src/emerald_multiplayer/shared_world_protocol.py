@@ -10,7 +10,7 @@ from .protocol import MAX_COUNTER, ProtocolError
 WORLD_TYPES = frozenset({"world_action", "appearance_get", "appearance_set", "friendship_get",
                          "wager_get", "wager_set", "wager_accept", "wager_decline", "wallet_applied",
                          "gym_coop", "spawn_action", "base_publish", "base_visibility", "base_get", "frontier", "habitat_get",
-                         "tower", "tower_result"})
+                         "tower", "tower_result", "tickets_get"})
 ACTIONS = frozenset({"claim", "result", "release"})
 RESULTS = frozenset({"caught", "defeated", "ran", "lost", "cancelled"})
 _HEX16 = re.compile(r"[0-9a-f]{16}\Z")
@@ -137,16 +137,17 @@ def validate_notice(value: Any) -> dict | None:
     return value
 
 
-def validate_wallet(value: Any, *, tower: bool = False) -> dict | None:
+def validate_wallet(value: Any, *, tower: bool = False, tickets: bool = False) -> dict | None:
     """This player's next wager wallet adjustment (per-player world field). Battle Tower words only for a game with the
-    Tower (``tower``: the companion's tower_abi_version 1)."""
+    Tower (``tower``: the companion's tower_abi_version 1), a Legendary Ticket only for a game with them (``tickets``: its
+    ticket_abi_version 1)."""
     if value is None:
         return None
     if type(value) is not dict or set(value) != {"seq", "delta"}:
         raise ProtocolError("invalid_server_message", "invalid wallet adjustment")
     _int(value["seq"], "wallet sequence", 1, 0xFFFF)
     from .rewards import valid_wallet_delta
-    if type(value["delta"]) is not int or not valid_wallet_delta(value["delta"], tower=tower):
+    if type(value["delta"]) is not int or not valid_wallet_delta(value["delta"], tower=tower, tickets=tickets):
         raise ProtocolError("invalid_server_message", "a wallet adjustment moves money, Battle Points or an item")
     return value
 
@@ -266,7 +267,7 @@ def validate_world_request(message: Any, session_epoch: int) -> dict:
             raise ProtocolError("invalid_fields", "secret base visibility has unexpected fields")
         if message["mode"] not in ("everyone", "team", "nobody"):
             raise ProtocolError("invalid_field", "unsupported secret base visibility")
-    elif kind in ("appearance_get", "friendship_get", "base_get", "habitat_get"):
+    elif kind in ("appearance_get", "friendship_get", "base_get", "habitat_get", "tickets_get"):
         if set(message) != {"type", "session_epoch", "request_id"}:
             raise ProtocolError("invalid_fields", "shared-world read has unexpected fields")
     elif kind in ("wager_get", "wager_decline"):

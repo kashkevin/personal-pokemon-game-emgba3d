@@ -320,6 +320,10 @@ class WorldServer:
         self._championship_computers = False
         self._tower_service = None
         self._last_tower_tick = 0.0
+        # The Legendary Tickets (ticket_service.py), only when the host's installed game applies their reward word kind 8
+        # (enable_tickets; owner decision 40).
+        self._ticket_service = None
+        self._last_ticket_tick = 0.0
         self._last_frontier_tick = 0.0
         from .frontier_rules import FrontierSettings
         self._frontier = (FrontierSettings.load(store.path.with_name(store.path.name + ".frontier.json"))
@@ -492,6 +496,52 @@ class WorldServer:
         if self._server is not None:
             raise ValueError("configure the Championship before starting the host")
         self._championship_computers = True
+
+    def enable_tickets(self, sources=None):
+        """Application-only: the installed, hash-verified game applies reward word kind 8, a Legendary Ticket with its
+        island's flags (manifest ticket_abi_version 1, bridge_config.tickets_enabled; docs/legendary-tickets.md 6.3).
+        Every player of a world runs the same build (hello build_id), so the host's own manifest speaks for every game:
+        without it no ticket is ever earned or queued (an older game would answer 0 at every save). ``sources``: the
+        world's setting as legendary_tickets.load_sources read it from ``<world>.tickets.json`` (the launcher, before the
+        host opens); None: the owner's defaults (legendary_tickets.DEFAULT_SOURCES)."""
+        if self._server is not None:
+            raise ValueError("configure the Legendary Tickets before starting the host")
+        from .legendary_tickets import DEFAULT_SOURCES, validate_sources
+        from .ticket_service import TicketService
+        # Checked again whatever the caller passed: a ticket's line of 1 to 4 known sources, every ticket named.
+        texts = DEFAULT_SOURCES if sources is None else {key: [getattr(source, "text", source) for source in value]
+                                                         for key, value in dict(sources).items()}
+        self._ticket_service = TicketService(self, validate_sources(texts))
+
+    @property
+    def tickets(self):
+        """The Legendary Tickets' host service (ticket_service.py), or None when the host's game has none."""
+        return self._ticket_service
+
+    def _tickets_request(self, session) -> dict:
+        """PLAYERS > World and my base > Frontier and League > Legendary Tickets: the player's tickets, brought up to date
+        first (a word queued or a banner posted goes out at once)."""
+        from .shared_world import SharedWorldError
+        service = self._ticket_service
+        if service is None:
+            raise SharedWorldError("tickets_disabled", "this host's game has no Legendary Tickets")
+        try:
+            if service.reconcile([session.player_id]):
+                self._broadcast_world()
+            return service.view(session.player_id)
+        except Exception as error:  # noqa: BLE001 - a ticket fault answers the request, never closes the player's link
+            raise SharedWorldError("tickets_failed", "Tickets unavailable: try again") from error
+
+    def _reconcile_tickets(self, players=None) -> bool:
+        """The Legendary Tickets' pass (every 5 s, and after a player's save on the host): a fault never stops the host
+        loop or a save; the next pass goes on from the ledger (every step of it commits alone)."""
+        service = self._ticket_service
+        if service is None:
+            return False
+        try:
+            return service.reconcile(players)
+        except Exception:  # noqa: BLE001 - never stops the host loop
+            return False
 
     @property
     def tower(self):
@@ -1851,6 +1901,10 @@ class WorldServer:
         session.upload = None
         self._checkpoint_reply(session, request, checkpoint=self._checkpoint_metadata(checkpoint),
                                upload_id=upload.upload_id)
+        # A new save on the host: the Legendary Tickets read it now (a condition met, an island opened, a refused ticket
+        # offered again), not at the next tick.
+        if self._reconcile_tickets([session.player_id]):
+            self._broadcast_world()
 
     def _broadcast_world(self) -> None:
         self.world_seq += 1
@@ -1978,6 +2032,9 @@ class WorldServer:
                 return
             if kind == "habitat_get":
                 self._world_reply(session, request, result=world.habitat_view(session.presence))
+                return
+            if kind == "tickets_get":
+                self._world_reply(session, request, result=self._tickets_request(session))
                 return
             if kind == "frontier":
                 self._world_reply(session, request, result=self.frontier.request(session, request))
@@ -2386,6 +2443,11 @@ class WorldServer:
                     self.tower.reconcile()
                 except Exception:  # noqa: BLE001 - never stops the host loop
                     pass
+            # The Legendary Tickets: conditions met in the players' last saves, receipts, refusals offered again.
+            if self._ticket_service is not None and time.monotonic() - self._last_ticket_tick >= 5:
+                self._last_ticket_tick = time.monotonic()
+                if self._reconcile_tickets():
+                    changed = True
             # Online-together friendship time (small, daily capped).
             mono = time.monotonic()
             if mono - self._last_friendship_tick >= 60:

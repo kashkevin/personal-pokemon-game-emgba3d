@@ -99,6 +99,13 @@ CANCEL_REASONS = {
 _CHALLENGE_GONE = frozenset({REFUSALS["battle_not_ready"], REFUSALS["battle_missing"]})
 
 
+# The Legendary Tickets' pages (ticket_service.TicketService.view): a ticket's state as its row and its page say it.
+TICKET_PAGES = ("tickets", "ticket", "ticket_source")
+TICKET_ROWS = {"given": "GIVEN", "sending": "on its way", "owed": "no room", "locked": "not yet"}
+TICKET_STATUS = {"given": "Show it at LILYCOVE's port.", "sending": "Earned: on its way to your Bag",
+                 "owed": "No room: make room, then save"}
+
+
 def refusal_text(code):
     return REFUSALS.get(code, "Could not enter: try again")[:31]
 
@@ -245,6 +252,8 @@ class PlayerMenu:
         self._base = None         # the player's base sharing choice (Phase 6)
         self._habitat = None      # the host's wild-Pokemon view of the player's current map (Phase 7)
         self._frontier = None     # the cooperative Battle Frontier's view (Phase 8)
+        self._tickets = None      # the Legendary Tickets' view (ticket_service.py; owner decision 40)
+        self._tickets_notice = ""
         self._card = None
         self._card_binding = None
         self._card_notice = ""
@@ -457,6 +466,20 @@ class PlayerMenu:
                     self._frontier = await frontier_rpc()
                 except Exception:  # noqa: BLE001 - older hosts have no Frontier
                     self._frontier = None
+                if self._session() != binding:
+                    raise PlayerMenuError("session_changed")
+        if self._page[0] in TICKET_PAGES:
+            tickets_rpc = getattr(self.companion, "tickets_rpc", None)
+            self._tickets, self._tickets_notice = None, "The host has no tickets"
+            if callable(tickets_rpc) and getattr(self.companion.config, "world_enabled", False):
+                from .protocol import ProtocolError
+                try:
+                    self._tickets = await tickets_rpc()
+                except ProtocolError as error:
+                    if error.code != "tickets_disabled":
+                        self._tickets_notice = (getattr(error, "message", "") or "Tickets unavailable: try again")[:31]
+                except Exception:  # noqa: BLE001 - shown as unavailable; the next refresh asks again
+                    self._tickets_notice = "Tickets unavailable: try again"
                 if self._session() != binding:
                     raise PlayerMenuError("session_changed")
         if self._page[0] == "habitat":
@@ -1008,7 +1031,7 @@ class PlayerMenu:
                     else:
                         actions.append(("You accepted this wager", "", ()))
             actions.append(("Back to challenge", "battles", ()))
-        elif page in ("world", "world_players", "world_player", "world_outbreak", "world_event", "base", "frontier", "league", "hall", "shop", "team_pick", "extras", "coop", "habitat"):
+        elif page in ("world", "world_players", "world_player", "world_outbreak", "world_event", "base", "frontier", "league", "hall", "shop", "team_pick", "extras", "coop", "habitat", *TICKET_PAGES):
             return self._show(*self._render_world(page, target))
         elif page == "championship":
             return self._show(*self._championship.render())
@@ -1378,6 +1401,59 @@ class PlayerMenu:
         actions.append(("Back", "coop", ()))
         return title, status, actions
 
+    def _render_tickets(self, page, target):
+        """The Legendary Tickets (owner decision 40; the host's view, ticket_service.TicketService.view): each ticket and
+        its island, given or how to earn it, with the player's progress toward each of its sources (the world's setting:
+        any one of a ticket's sources earns it)."""
+        view = self._tickets
+        if view is None:
+            return "Legendary Tickets", self._notice or self._tickets_notice, [("Back", "coop", ())]
+
+        def progress(source):
+            return f"{'?' if source['have'] is None else source['have']}/{source['need']}"
+
+        def short(source):
+            return f"{source['short']}: {progress(source)}"
+
+        tickets = {ticket["key"]: ticket for ticket in view["tickets"]}
+        key, index = (target if type(target) is tuple else (target, None))
+        ticket = tickets.get(key)
+        if page == "tickets" or ticket is None:
+            given = sum(ticket["state"] == "given" for ticket in view["tickets"])
+            status = self._notice or view["problem"] or f"Given: {given} of {len(view['tickets'])}"
+            actions = []
+            for each in view["tickets"]:
+                state = TICKET_ROWS[each["state"]]
+                if (each["state"] == "locked" and len(each["sources"]) == 1
+                        and len(f"{each['name']}: {progress(each['sources'][0])}") <= 25):
+                    state = progress(each["sources"][0])            # one way to earn it: how far the player is
+                actions.append((f"{each['name']}: {state}", "ticket", (each["key"],)))
+            actions.append(("Back", "coop", ()))
+            return "Legendary Tickets", status, actions
+        sources, state = ticket["sources"], ticket["state"]
+        actions = [(f"Island: {ticket['island']}", "", ())]
+        if page == "ticket_source" and index is not None and 0 <= index < len(sources):
+            source = sources[index]
+            actions.extend((line, "", ()) for line in wrap(f"{source['label']}: {progress(source)}", 25)[:4])
+            actions.append(("Back", "ticket", (key,)))
+            return ticket["name"], self._notice or view["problem"] or "One way to earn it", actions
+        if state == "given":
+            earned = next((source for source in sources if source["text"] == ticket["earned_by"]), None)
+            if earned is not None:
+                actions.append((f"Earned: {earned['short']}", "", ()))
+            status = TICKET_STATUS["given"]
+        elif state in TICKET_STATUS:
+            status = TICKET_STATUS[state]
+        else:
+            status = view["problem"] or ("How to earn it" if len(sources) == 1 else "Any one of these earns it")
+        if state != "given":
+            if len(sources) == 1:
+                actions.extend((line, "", ()) for line in wrap(f"{sources[0]['label']}: {progress(sources[0])}", 25)[:4])
+            else:
+                actions.extend((short(source), "ticket_source", ((key, n),)) for n, source in enumerate(sources))
+        actions.append(("Back", "tickets", ()))
+        return ticket["name"], self._notice or status, actions
+
     def _render_world(self, page, target):
         """The PokeNav-style World pages (expansion Phase 7) and the player's own
         secret base sharing (Phase 6). Everything shown is the host's live view."""
@@ -1463,11 +1539,15 @@ class PlayerMenu:
             actions = [("Battle Frontier", "frontier", ()), ("Pokemon League", "league", ())]
             if getattr(self.companion.config, "tower_abi_version", 0) == 1:
                 actions.append(("Battle Tower: Legends", "tower", ()))
+            if getattr(self.companion.config, "ticket_abi_version", 0) == 1:
+                actions.append(("Legendary Tickets", "tickets", ()))      # owner decision 40 (ticket_service.py)
             if nav.get("rule"):
                 actions.append(("Entry rule: " + nav["rule"], "", ()))
             actions.append(("Back to World", "world", ()))
         elif page in ("frontier", "league", "hall", "shop", "team_pick", "extras"):
             title, status, actions = self._render_ladder(page, target)
+        elif page in TICKET_PAGES:
+            title, status, actions = self._render_tickets(page, target)
         else:
             title = "My Secret Base"
             base = self._base
@@ -1668,7 +1748,7 @@ class PlayerMenu:
                     self._notice = "Could not change it"
                 self._page = ("base", None)
             elif op in ("home", "world", "world_players", "world_player", "world_outbreak", "world_event", "base", "frontier",
-                        "league", "hall", "shop", "team_pick", "extras", "coop", "habitat", "team", "battles", "ffa", "new_battle", "lobby", "lobby_2v2", "lobby_pick", "player", "results", "result", "result_filters", "trade", "card", "card_battles", "card_championships", "card_shared", "card_progress", "hunts", "hunt", "hunt_filters", "hunt_totals"):
+                        "league", "hall", "shop", "team_pick", "extras", "coop", "habitat", *TICKET_PAGES, "team", "battles", "ffa", "new_battle", "lobby", "lobby_2v2", "lobby_pick", "player", "results", "result", "result_filters", "trade", "card", "card_battles", "card_championships", "card_shared", "card_progress", "hunts", "hunt", "hunt_filters", "hunt_totals"):
                 if op == "results" and self._page[0] not in {"results", "result", "result_filters"}:
                     self._results_binding = None
                 self._page = (op, args[0] if args else None)

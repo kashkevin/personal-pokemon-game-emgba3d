@@ -144,6 +144,17 @@ def tower_enabled(manifest: dict) -> bool:
             and type(world) is int and world == 1)
 
 
+def tickets_enabled(manifest: dict) -> bool:
+    """The Legendary Tickets (docs/legendary-tickets.md 6.1; owner decision 40): the native game applies reward word kind 8
+    (a ticket with its island's flags, receipt 1 given / 2 already owned / 0 nothing; manifest ticket_abi_version 1, from
+    the marker gMultiplayerTicketAbiVersion) on the shared world's wallet stream (world_abi_version 1). No bridge.txt
+    opt-in: the game applies kind 8 whenever it has the code. Every player of a world runs the same build, so the host's
+    own manifest speaks for every game (server.WorldServer.enable_tickets); a game without it never receives kind 8
+    (companion.CompanionConfig.ticket_abi_version): it would answer 0 and the ticket would be offered at every save."""
+    version, world = manifest.get("ticket_abi_version"), manifest.get("world_abi_version")
+    return type(version) is int and version == 1 and type(world) is int and world == 1
+
+
 def configure(manifest: dict, token: str, port: int, bridge: str) -> str:
     if not re.fullmatch(r"[0-9a-f]{64}", token) or not 1 <= port <= 65535:
         raise ValueError("Invalid bridge token or port")

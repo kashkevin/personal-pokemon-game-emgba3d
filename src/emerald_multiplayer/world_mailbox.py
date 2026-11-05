@@ -276,6 +276,7 @@ class WorldInbound:
     outbreak: tuple | None = None  # (map group, map number) of the running outbreak, for the Town Map marker
     rival: RivalRecord | None = None  # Update 31; None (all zero) unless the engine advertises rival_abi_version 1
     tower: bool = False  # the game has the Battle Tower (tower_abi_version 1): its words may be delivered (never packed)
+    tickets: bool = False  # the game has the Legendary Tickets (ticket_abi_version 1): kind 8 may be delivered (never packed)
 
     def __post_init__(self):
         _bound(self.world_seconds, 0, _UINT32, "world seconds")
@@ -284,9 +285,11 @@ class WorldInbound:
         _bound(self.wallet_seq, 0, 0xFFFF, "wallet sequence")
         if type(self.tower) is not bool:
             raise WorldMailboxError("the Tower capability is a boolean")
+        if type(self.tickets) is not bool:
+            raise WorldMailboxError("the Legendary Tickets capability is a boolean")
         if not is_reward_word(self.wallet_delta):   # money, or a reward (Battle Points, an item, a Tower word), rewards.py
             _bound(self.wallet_delta, -MAX_MONEY, MAX_MONEY, "wallet delta")
-        elif decode(self.wallet_delta, tower=self.tower) is None:
+        elif decode(self.wallet_delta, tower=self.tower, tickets=self.tickets) is None:
             raise WorldMailboxError("wallet delta is not a valid reward")
         if (self.wallet_seq == 0) != (self.wallet_delta == 0):
             raise WorldMailboxError("a wallet adjustment needs both a sequence and a nonzero delta")

@@ -20,7 +20,8 @@ This module is the host's half that needs no engine change:
 
 Delivering a ticket needs the game's reward word kind 8 (docs/legendary-tickets.md section 6: the ticket into the Bag,
 else the PC, and its island's ship flag, atomically, never a second copy; receipt 1 given, 2 already owned, 0 no room).
-Until a game advertises it (manifest ticket_abi_version 1) nothing here is wired into the server and nothing is sent.
+The host's wiring is ticket_service.py, which exists only when the host's game advertises it (manifest
+ticket_abi_version 1: server.WorldServer.enable_tickets, called by the launcher with ``load_sources``'s setting).
 """
 from __future__ import annotations
 
@@ -296,6 +297,12 @@ def validate_sources(mapping) -> dict[str, tuple[Source, ...]]:
             raise TicketError("invalid_settings", f"the {key} ticket names a source twice")
         checked[key] = sources
     return checked
+
+
+def settings_path(world_database) -> Path:
+    """The world's ticket setting: ``<world>.tickets.json`` beside its database (as ``<world>.frontier.json``)."""
+    world_database = Path(world_database)
+    return world_database.with_name(world_database.name + ".tickets.json")
 
 
 def load_sources(path) -> dict[str, tuple[Source, ...]]:
