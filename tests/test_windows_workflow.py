@@ -134,6 +134,10 @@ class WindowsWorkflowTests(unittest.TestCase):
         self.assertIn('PKMN_DEBUG_HERE="0,2,20,8"', graphics)
         self.assertIn('raise SystemExit("a chunk the cache kept differs from the one it would build")', graphics)
         self.assertIn("the walk did not cross the seams", graphics)
+        # the same switch's buildings check (engine c8ba843f): reported, and a buffer that differs fails the job
+        self.assertIn('buildings check: (\\d+) rebuilds checked, (\\d+) differed', graphics)
+        self.assertIn('raise SystemExit("the buildings\' vertex buffer or generation differs from the triangles built")',
+                      graphics)
 
     def test_the_whole_games_gameplay_check_runs_in_windows_game_processes(self):
         check = job("gameplay-check")

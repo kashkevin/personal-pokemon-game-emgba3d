@@ -1586,8 +1586,10 @@ jobs:
         run: |
           # The walk of MS-118's measurements: from Mauville City west into Route 117, east through Mauville into Route
           # 118 and back west, running (four seams). Every chunk the cache brings back from an earlier version is built
-          # again and compared, and every sync that skipped chunks has their inputs checked (PKMN_DIORAMA_TERRAIN_CHECK).
-          # What it says: the cache keeps the meshes it would build, in a Windows build; nothing about speed.
+          # again and compared, and every sync that skipped chunks has their inputs checked (PKMN_DIORAMA_TERRAIN_CHECK);
+          # from engine c8ba843f the same switch reads the buildings' vertex buffer back after each of their rebuilds (a
+          # rebuild of the same triangles uploads nothing) and checks the sun's depth map moved on exactly when they
+          # changed. What it says: the cache keeps the meshes it would build, in a Windows build; nothing about speed.
           import os, pathlib, re, subprocess
           out = pathlib.Path(os.environ["RUNNER_TEMP"], "graphics-3d", "seam-walk")
           out.mkdir(parents=True, exist_ok=True)
@@ -1606,11 +1608,20 @@ jobs:
           back = [tuple(map(int, m)) for m in
                   re.findall(r"terrain check: (\d+) chunks from an earlier version checked, (\d+) differed", text)]
           skipped = [tuple(map(int, m)) for m in re.findall(r"terrain check: (\d+) chunks checked, (\d+) stale", text)]
+          buildings = [tuple(map(int, m)) for m in
+                       re.findall(r"buildings check: (\d+) rebuilds checked, (\d+) differed", text)]
+          if buildings:
+              built = (f"; the buildings' buffer read back after {buildings[-1][0]} rebuilds, "
+                       f"{buildings[-1][1]} differed")
+          elif "buildings check: off" in text:
+              built = "; the buildings' check: off (no OpenGL readback)"
+          else:
+              built = "; the buildings' check: not in this engine"
           line = (f"- The chunk cache across four map seams: exit {code}; "
                   f"{back[-1][0] if back else 0} chunks brought back from an earlier version, "
                   f"{sum(1 for _, differed in back if differed)} reports of one that differed; "
                   f"{skipped[-1][0] if skipped else 0} skipped-sync chunks checked, "
-                  f"{sum(1 for _, stale in skipped if stale)} reports of a stale one")
+                  f"{sum(1 for _, stale in skipped if stale)} reports of a stale one{built}")
           print(line)
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
               summary.write(line + "\n")
@@ -1620,6 +1631,8 @@ jobs:
               raise SystemExit("no chunk was brought back from an earlier version: the walk did not cross the seams")
           if any(differed for _, differed in back) or any(stale for _, stale in skipped):
               raise SystemExit("a chunk the cache kept differs from the one it would build")
+          if any(differed for _, differed in buildings):
+              raise SystemExit("the buildings' vertex buffer or generation differs from the triangles built")
       - name: Upload the report and the pictures (private to this repository, 7 days; no save)
         if: always()
         uses: actions/upload-artifact@v4
