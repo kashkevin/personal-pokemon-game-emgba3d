@@ -2,7 +2,10 @@
 docs/legendary-tickets.md section 6.6, steps 2 and 3).
 
 The launcher harness of native_launcher_battle_proof.py (real launcher workers and windows, production world creation
-and enrollment, the real world server and store, Host Game and Join Game), two native games, Linux. The world's ticket
+and enrollment, the real world server and store, Host Game and Join Game), two native games: on Linux one X display per
+player; on Windows itself (the CI runner's tickets-proof job: --game pokeemerald-mp.exe --sdl SDL2.dll --pe-symbols
+<nm -n of the exe before its strip> --sizes <nm -S of the Linux build>) both games on the runner's one desktop, their
+memory read with ReadProcessMemory (native_windows_process.py), keys posted to each game's own window. The world's ticket
 setting is the owner's defaults (legendary_tickets.DEFAULT_SOURCES). The sources are fixture saves the engine's test
 build made (make_tower_saves.py tickets-a and tickets-b: the game loads a short-introduction save, sets the fixture's
 flags and saves through its own save code; test code, not a legitimately progressed save):
@@ -23,9 +26,10 @@ notices from their start and pictures the banner when a game shows it):
      received flag (FLAG_RECEIVED_OLD_SEA_MAP), its wallet sequence 1; the receipt 1 on the host, the ledger delivered;
      the banner "OLD SEA MAP!" / "Show it at LILYCOVE's port." in the game's world mailbox and shown by the game (its
      shown notice id), pictured;
-  3. the friend's game is killed (SIGKILL) after the banner and before any save, and started again through the launcher
-     (Join Game): it continues from its save on the host, which has no ticket; the host offers the same word again
-     (the save's older wallet sequence); the game applies it: exactly one Old Sea Map; still one word on the stream;
+  3. the friend's game is killed (SIGKILL; Windows has none: TerminateProcess) after the banner and before any save,
+     and started again through the launcher (Join Game): it continues from its save on the host, which has no ticket;
+     the host offers the same word again (the save's older wallet sequence); the game applies it: exactly one Old Sea
+     Map; still one word on the stream;
   4. the friend saves on the host: the save holds one Old Sea Map, the ship and received flags and wallet sequence 1;
      the friend's PLAYERS > World and my base > Frontier and League > Legendary Tickets says "Old Sea Map: GIVEN"
      (pictured);
@@ -36,21 +40,26 @@ then the harness's closing saves and a fresh Continue of both (every process sta
 the restarted host keeps the ledger (delivered) and sends nothing again.
 
 What it cannot say: the conditions were set by test code, not reached in play (no recorded run has reached the Hall of
-Fame); one PC plays both players over its own loopback; not Windows.
+Fame); one PC plays both players over its own loopback; on the hosted Windows runner the games run in Classic 2D on
+Windows' software renderer.
 
     PYTHONPATH=src:scripts/multiplayer:scripts/windows-runtime PROOF_LIGHT_3D=1 \\
       python scripts/multiplayer/native_launcher_ticket_proof.py \\
         --game pokeemerald-mp-diorama-bfxtest --rom pokedev.gba --manifest manifest.json \\
         --source-a tickets-a.sav --source-b tickets-b.sav --display :96 --display :97 \\
         --output /private/multiplayer-proof/native-launcher-tickets-1
+
+On Windows (no --display):
+
+    python scripts/multiplayer/native_launcher_ticket_proof.py --game pokeemerald-mp.exe --sdl SDL2.dll \\
+        --rom pokedev.gba --manifest manifest.json --pe-symbols pokeemerald-mp.nm.txt --sizes pokeemerald-mp.sizes.txt \\
+        --source-a tickets-a.sav --source-b tickets-b.sav --output <...>/multiplayer-proof/tickets
 """
 from __future__ import annotations
 
 import argparse
 import asyncio
-import os
 from pathlib import Path
-import signal
 import struct
 import sys
 import time
@@ -59,6 +68,7 @@ ROOT = Path(__file__).resolve().parents[2]
 for _path in (ROOT / "src", ROOT / "scripts" / "multiplayer", ROOT / "scripts" / "windows-runtime"):
     if str(_path) not in sys.path:
         sys.path.insert(0, str(_path))
+from native_launcher_abandon_proof import kill_hard  # noqa: E402
 from native_launcher_battle_proof import WINDOWS, game_picture, launcher_proof  # noqa: E402
 from qualify_admission_cleanup import on_worker, require  # noqa: E402
 from qualify_launcher_session import inspect_closed_head  # noqa: E402
@@ -80,6 +90,10 @@ NOTICE_ID, NOTICE_TEXT = 112, slice(116, 180)               # in the world mailb
 
 
 def read_at(probe, address, size):
+    """`size` bytes at an address the game holds (a pointer's value: where it is in the running process)."""
+    memory = getattr(probe, "memory", None)
+    if memory is not None:                     # Windows: ReadProcessMemory (WindowsProbe), the address as it is
+        return memory._raw(address, size)
     with open(f"/proc/{probe.pid}/mem", "rb", buffering=0) as memory:
         memory.seek(address)
         return memory.read(size)
@@ -245,7 +259,7 @@ class TicketProof:
         heads = await self.heads(current[0], host)
         require(heads[1].revision == 1 and saved_tickets(heads[1].payload)["bag"] == 0, "the friend saved meanwhile")
         game = games[1]
-        os.kill(game.process.pid, signal.SIGKILL)               # the game this proof's launcher started
+        kill_hard(game.process.pid)     # the game this proof's launcher started: SIGKILL (Windows: TerminateProcess)
         await harness.poll_until(lambda: game.process.returncode is not None, 60)
         await harness.poll_until(lambda: not current[1].busy, 180)
         record("tickets-friend-killed-before-saving", exit_code=game.process.returncode, saved=saved_tickets(heads[1].payload))
@@ -345,7 +359,10 @@ class TicketProof:
 
 
 async def run(args):
-    require(not WINDOWS and args.display and len(args.display) == 2, "Linux, an X display per player")
+    if not args.display:
+        require(WINDOWS, "an X display per player")
+        args.display = ["desktop-0", "desktop-1"]                  # Windows: one desktop; names for the records
+    require(len(args.display) == 2, "an X display per player (two)")
     proof = TicketProof(args)
     await launcher_proof(args, names=NAMES, sources=(args.source_a, args.source_b), party_counts=(1, 1),
                          match=proof.match, version="Native Legendary Tickets proof",
@@ -357,16 +374,19 @@ async def run(args):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--game", type=Path, required=True, help="the native Linux test build, unstripped symbols")
+    parser.add_argument("--game", type=Path, required=True,
+                        help="the native game (Linux: unstripped symbols; on Windows the Windows exe as the build made it)")
     parser.add_argument("--rom", type=Path, required=True)
     parser.add_argument("--manifest", type=Path, required=True, help="with ticket_abi_version 1")
     parser.add_argument("--source-a", type=Path, required=True, help="make_tower_saves.py tickets-a (the host)")
     parser.add_argument("--source-b", type=Path, required=True, help="make_tower_saves.py tickets-b (the friend)")
-    parser.add_argument("--display", action="append", help="an X display per player")
+    parser.add_argument("--display", action="append", help="an X display per player (Linux)")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--slow", type=float, default=1.0)
     parser.add_argument("--wine", type=Path, action="append")
-    parser.add_argument("--sdl", type=Path)
+    parser.add_argument("--sdl", type=Path, help="Windows: SDL2.dll of the game")
+    parser.add_argument("--pe-symbols", type=Path, help="Windows: i686-w64-mingw32-nm -n of the game before its strip")
+    parser.add_argument("--sizes", type=Path, help="Windows: nm -S of the Linux build of the same engine commit")
     parser.add_argument("--elf", type=Path)
     asyncio.run(run(parser.parse_args()))
 

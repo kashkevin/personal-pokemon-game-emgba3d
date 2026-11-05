@@ -1430,6 +1430,98 @@ jobs:
           retention-days: 7
           if-no-files-found: warn
 
+  tickets-proof:
+    # The Legendary Tickets (owner decision 40; docs/legendary-tickets.md 6.6) in real Windows game processes (a
+    # GitHub-hosted runner, one PC on its own loopback): two players' launchers, the world server and the Classic 2D game
+    # it packages (scripts/multiplayer/native_launcher_ticket_proof.py, Windows mode of native_launcher_battle_proof.py).
+    # The characters come from the game's own short introduction, given their fixtures by the test build
+    # (make_tower_saves.py tickets-a/-b: the friend's save has the Sealed Chamber's three legends defeated and the game
+    # cleared - set by test code, not reached in play). The host's ledger earns the friend the Old Sea Map from its save on
+    # the host and queues one word; the friend's game applies it (one Old Sea Map, its ship and received flags) and shows
+    # the banner (pictured); the game is killed before any save (TerminateProcess) and started again: the same word again,
+    # still one ticket; saved on the host, the PLAYERS page says "Old Sea Map: GIVEN" (pictured); a reconnect after the
+    # save and the restarted host send nothing again; the host's own player gets nothing. An engine whose manifest has no
+    # ticket_abi_version 1 has no tickets: the job says so and passes.
+    name: Legendary Tickets in real games (Windows game processes)
+    needs: [engine, symbol-sizes]
+    if: ${{ (inputs.mode || 'smoke') == 'full' && (!inputs.only || contains(format(',{0},', inputs.only), ',tickets-proof,')) }}
+    runs-on: windows-2022
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Both builds come from one engine commit
+        run: |
+          [ "${{ needs.engine.outputs.engine_commit }}" = "${{ needs.symbol-sizes.outputs.engine_commit }}" ] || {
+            echo "the Windows game and the Linux symbol sizes are of different engine commits" >&2; exit 1; }
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+      - name: Private virtual environment with the pinned, hashed wheels
+        run: |
+          python -m venv .venv
+          .venv/Scripts/python -m pip install --require-hashes --only-binary=:all: -r requirements-host-provisioning.txt
+      - uses: actions/download-artifact@v8
+        with:
+          name: native-inputs
+          path: inputs
+      - uses: actions/download-artifact@v8
+        with:
+          name: mega-check-inputs
+          path: mega-check-inputs
+      - uses: actions/download-artifact@v8
+        with:
+          name: classic-pe-symbols
+          path: symbols
+      - uses: actions/download-artifact@v8
+        with:
+          name: classic-linux-sizes
+          path: symbols
+      - name: Does this engine's game have the Legendary Tickets? (its manifest's ticket_abi_version)
+        id: tickets
+        run: |
+          if .venv/Scripts/python -c \
+              "import json, sys; sys.exit(json.load(open('inputs/manifest.json')).get('ticket_abi_version') != 1)"; then
+            echo "present=yes" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::this engine's game has no Legendary Tickets (no ticket_abi_version 1 in its manifest): nothing to prove"
+            echo "present=no" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Two new characters from the game's own short introduction, then their ticket fixtures
+        if: ${{ steps.tickets.outputs.present == 'yes' }}
+        run: |
+          .venv/Scripts/python scripts/multiplayer/make_intro_saves.py --exe mega-check-inputs/pokeemerald-mp-bfxtest.exe \
+            --mega-check mega-check-inputs/mega_check.py --out "$RUNNER_TEMP/intro" --count 2
+          .venv/Scripts/python scripts/multiplayer/make_tower_saves.py --exe mega-check-inputs/pokeemerald-mp-bfxtest.exe \
+            --mega-check mega-check-inputs/mega_check.py --source-a "$RUNNER_TEMP/intro/boy-1.sav" \
+            --source-b "$RUNNER_TEMP/intro/girl-1.sav" --out "$RUNNER_TEMP/tickets-saves" --only tickets-a,tickets-b
+      - name: The Old Sea Map earned on the host, given once, given again once after a kill, saved
+        if: ${{ steps.tickets.outputs.present == 'yes' }}
+        run: |
+          .venv/Scripts/python scripts/multiplayer/native_launcher_ticket_proof.py \
+            --game inputs/pokeemerald-mp.exe --sdl inputs/SDL2.dll --rom inputs/pokedev.gba \
+            --manifest inputs/manifest.json --pe-symbols symbols/pokeemerald-mp.nm.txt \
+            --sizes symbols/pokeemerald-mp.sizes.txt --slow 1.5 \
+            --source-a "$RUNNER_TEMP/tickets-saves/tickets-a.sav" --source-b "$RUNNER_TEMP/tickets-saves/tickets-b.sav" \
+            --output "$RUNNER_TEMP/multiplayer-proof/tickets"
+      - name: The proof's own diagnosis, in this log (only when it failed; scripts/multiplayer/proof_failure_summary.py)
+        if: failure()
+        run: python scripts/multiplayer/proof_failure_summary.py "$RUNNER_TEMP/multiplayer-proof"
+      - name: Upload the proof's record (private to this repository, 7 days; no save)
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: EmeraldTogether-tickets-proof
+          path: |
+            ${{ runner.temp }}/multiplayer-proof/*/evidence.json
+            ${{ runner.temp }}/multiplayer-proof/*/*.jsonl
+            ${{ runner.temp }}/multiplayer-proof/*/*.png
+            ${{ runner.temp }}/tickets-saves/run-*/test.log
+          retention-days: 7
+          if-no-files-found: warn
+
   world-open-bench:
     # World loading on Windows (KNOWN_ISSUES MS-161): a host's start opens its world and checks every save in it, so it
     # takes longer as the saves pile up. A test world of two players with 300 distinct saves each, built through the

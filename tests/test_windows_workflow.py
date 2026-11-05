@@ -255,6 +255,34 @@ class WindowsWorkflowTests(unittest.TestCase):
         self.assertEqual([names[n] for n in ("trade-mail-a", "trade-mail-b", "trade-egg-a", "trade-egg-b")],
                          ["278:20:M204", "252:20:M203,263:20", "263:5,175:1:sI3.7.11.19.23.29g1", "258:5,263:5"])
 
+    def test_the_legendary_tickets_run_in_windows_game_processes(self):
+        # Owner decision 40 (docs/legendary-tickets.md 6.6): the ticket proof, which ran on Linux first (TEST_LEDGER)
+        tickets = job("tickets-proof")
+        self.assertIn("runs-on: windows-2022", tickets)
+        self.assertIn("needs: [engine, symbol-sizes]", tickets)
+        self.assertIn("make_intro_saves.py --exe mega-check-inputs/pokeemerald-mp-bfxtest.exe", tickets)
+        self.assertIn("--only tickets-a,tickets-b", tickets)
+        self.assertIn("scripts/multiplayer/native_launcher_ticket_proof.py", tickets)
+        self.assertIn("--game inputs/pokeemerald-mp.exe", tickets)           # the packaged Classic 2D game
+        self.assertIn("--pe-symbols symbols/pokeemerald-mp.nm.txt", tickets)
+        self.assertIn("--sizes symbols/pokeemerald-mp.sizes.txt", tickets)
+        self.assertIn('--source-a "$RUNNER_TEMP/tickets-saves/tickets-a.sav"', tickets)
+        self.assertIn('--source-b "$RUNNER_TEMP/tickets-saves/tickets-b.sav"', tickets)
+        # an engine without the tickets (no ticket_abi_version in its manifest): the job says so and passes
+        gate = tickets[tickets.index("id: tickets"):tickets.index("- name: Two new characters")]
+        self.assertIn("get('ticket_abi_version') != 1", gate)
+        self.assertIn("::notice::", gate)
+        self.assertEqual(tickets.count("if: ${{ steps.tickets.outputs.present == 'yes' }}"), 2)
+        self.assertIn("name: EmeraldTogether-tickets-proof", tickets)
+        self.assertIn("retention-days: 7", tickets)
+        # the proof takes the Windows harness's arguments and the fixtures exist
+        proof = (ROOT / "scripts" / "multiplayer" / "native_launcher_ticket_proof.py").read_text(encoding="utf-8")
+        for flag in ("--pe-symbols", "--sizes", "--sdl", "--slow"):
+            self.assertIn(f'parser.add_argument("{flag}"', proof)
+        names = {fixture[0]: fixture[2:] for fixture in fixtures().FIXTURES}
+        self.assertEqual(names["tickets-a"], ("252:30", None))
+        self.assertEqual(names["tickets-b"][-1], "0x1BB,0x1BC,0x1BD,0x864")
+
     def test_a_coop_award_survives_a_game_closed_during_it_in_windows_game_processes(self):
         coop = job("coop-proof")
         self.assertIn("runs-on: windows-2022", coop)
@@ -374,7 +402,7 @@ class WindowsWorkflowTests(unittest.TestCase):
     def test_a_failed_launcher_proof_prints_its_diagnosis_in_the_log(self):
         # Run 138's ffa-exit: the evidence went to an artifact a session reading the log could not fetch.
         for name in ("tower-proof", "rival-proof", "mega-proof", "minigame-proof", "coop-proof", "trade-proof",
-                     "abandon-check", "multiplayer-check"):
+                     "tickets-proof", "abandon-check", "multiplayer-check"):
             with self.subTest(job=name):
                 steps = job(name)
                 summary = steps.index("proof_failure_summary.py \"$RUNNER_TEMP/multiplayer-proof\"")
