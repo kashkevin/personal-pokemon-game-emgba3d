@@ -91,9 +91,14 @@ class TradeEligibilityTests(unittest.TestCase):
                 with self.subTest(species=value, held_item=held_item):
                     result = validate_party_offer(offer_flash(species=value, held_item=held_item), 1)
                     self.assertEqual((result.species, result.held_item), (value, held_item))
-        for value in (968, 1157, 1158, 1159):
+        for value in (968,):
             with self.subTest(species=value):
                 self.assert_code("species_unsupported", offer_flash(species=value))
+        # Pumpkaboo's three other sizes (reviewed 2026-11-05, trade_forms.py) are offered too; the receiving game
+        # evolves each into the Gourgeist of its size (the form's own evolution table)
+        for value in (1157, 1158, 1159):
+            with self.subTest(species=value):
+                self.assertEqual(validate_party_offer(offer_flash(species=value, held_item=245), 1).species, value)
 
     def test_nonstandard_namespace_is_an_explicit_temporary_capability_limit(self):
         for species in (722, 871, 1104, 1105, 1487, 1572):
@@ -113,11 +118,21 @@ class TradeEligibilityTests(unittest.TestCase):
                 payload = offer_flash(species=value, held_item=158)
                 result = validate_party_offer(payload, 1)
                 self.assertEqual((result.species, result.held_item), (value, 158))
-        for value in (1063, 1069):
+        for value in (1069, 1070, 1104, 1105, 1141):   # Origin Dialga and Palkia, Kyurem's fusions, Eternal Floette
             with self.subTest(species=value):
                 self.assert_code("species_unsupported", offer_flash(species=value))
         first, second = offer_flash(species=1064), offer_flash(species=1067, serial=2, personality=9)
         self.assertEqual(tuple(mon.species for mon in validate_trade_pair(first, 1, second, 2)), (1064, 1067))
+
+    def test_the_forms_reviewed_on_2026_11_05_are_exchanged_exactly(self):
+        # trade_forms.py: East Sea Gastrodon, Origin Giratina holding its Griseous Orb, Female Meowstic, a Vivillon
+        # pattern, an Unown letter, Unbound Hoopa; the record unchanged, as the standard species
+        for value, held in ((1063, 0), (1071, 403), (1155, 0), (1116, 0), (1050, 0), (1168, 0)):
+            with self.subTest(species=value):
+                result = validate_party_offer(offer_flash(species=value, held_item=held), 1)
+                self.assertEqual((result.species, result.held_item), (value, held))
+        first, second = offer_flash(species=1155), offer_flash(species=1071, serial=2, personality=9, held_item=403)
+        self.assertEqual(tuple(mon.species for mon in validate_trade_pair(first, 1, second, 2)), (1155, 1071))
 
     def test_full_parser_rejects_checksum_uid_and_party_corruption(self):
         payload = offer_flash()

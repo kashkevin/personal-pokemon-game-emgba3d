@@ -5,11 +5,13 @@ file next to it. When on, a rotating rule decides which parties may enter a
 Championship, the way the Battle Frontier limits what a challenger brings:
 
   open            no limit
-  species_clause  no two Pokemon of one species
+  species_clause  no two Pokemon of one species (by National Pokedex number: two forms of one species, such as
+                  two of Rotom's appliance forms, are one species)
   item_clause     no two Pokemon holding the same item
   level_50        no Pokemon above level 50
   level_30        no Pokemon above level 30
-  no_legendaries  no legendary or mythical Pokemon (Kanto to Kalos)
+  no_legendaries  no legendary or mythical Pokemon (Kanto to Kalos), in any of their forms (Giratina's Origin
+                  Forme, Deoxys's, Shaymin's Sky Forme, Arceus's types, the Therian Formes, ...)
 
 Rules only admit or refuse a party from the host's last saved checkpoint, so
 they change no battle mechanic (Gen 6 rules are untouched). Eggs never count.
@@ -29,6 +31,7 @@ from pathlib import Path
 import struct
 
 from .flash import POKEMON_SIZE, SAVED_PARTY_COUNT_OFFSET, SAVED_PARTY_OFFSET, _GROWTH_SUBSTRUCT_OFFSETS
+from .species_national import national_number
 
 LEGENDARY = frozenset(
     {144, 145, 146, 150, 151, 243, 244, 245, 249, 250, 251}
@@ -116,12 +119,19 @@ def check_party(rule: str, members: list[PartyMember]) -> str | None:
         cap = LEVEL_RULES[rule]
         return None if all(m.level <= cap for m in members) else f"Over level {cap}"
     if rule == "species_clause":
-        species = [m.species for m in members]
+        species = [_national(m.species) for m in members]
         return None if len(set(species)) == len(species) else "Same species twice"
     if rule == "item_clause":
         items = [m.item for m in members if m.item]
         return None if len(set(items)) == len(items) else "Same item twice"
-    return None if not any(m.species in LEGENDARY for m in members) else "Legendary not allowed"
+    return None if not any(_national(m.species) in LEGENDARY for m in members) else "Legendary not allowed"
+
+
+def _national(species):
+    """A party member's National Pokedex number: the engine numbers alternate forms past 905 (species_national.py), so
+    a form's own ID would not count as its species (two Rotom forms as two species, Giratina's Origin Forme as no
+    legendary). An ID the table does not know stays itself."""
+    return national_number(species) or species
 
 
 @dataclass(frozen=True)

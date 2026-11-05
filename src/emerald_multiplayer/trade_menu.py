@@ -16,7 +16,7 @@ from .live_trade import LiveTradeCoordinator
 from .ownership import OWNERSHIP_PROFILE, inspect_ownership
 from .player_menu import MenuRow, MenuScreen
 from .trade_eligibility import TradeEligibilityError, validate_party_offer
-from .trade_forms import species_label
+from .trade_forms import species_label, species_level_label
 
 
 @dataclass(frozen=True)
@@ -189,8 +189,7 @@ class NativeTradeMenu:
             status = "Pick; [X] blocked; B: back" if own is not None else "Pick; [X] blocked; B: cancel"
             back = ("review", None) if own is not None else ("ask_cancel", None)
             for mon in choices:
-                label = f"{species_label(mon.species)} Lv{mon.level}"
-                actions.append((label if mon.eligible else "[X] " + label,
+                actions.append((species_level_label(mon.species, mon.level, 25, "" if mon.eligible else "[X] "),
                                 "offer" if mon.eligible else "blocked", mon.serial))
         elif self.page == "blocked":
             mon = next(mon for mon in choices if mon.serial == self.blocked_serial)

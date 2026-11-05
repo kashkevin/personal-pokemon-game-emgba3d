@@ -13,7 +13,7 @@ from textwrap import wrap
 from .flash import _inspect_party
 from .ownership import _SUBSTRUCT_OFFSETS, _decode_box
 from .protocol import ProtocolError, _fields
-from .trade_forms import species_label
+from .trade_forms import species_level_label
 from .trade_labels import ITEM_NAMES, LATIN_CHARS, MOVE_NAMES, NATURE_NAMES
 
 
@@ -58,7 +58,7 @@ class PokemonSummary:
         stat_nature = NATURE_NAMES.get(self.stat_nature, f"#{self.stat_nature}")
         labels = ("HP", "Attack", "Defense", "Speed", "Sp. Atk", "Sp. Def")
         groups = (
-            ("Pokemon", (species_label(self.species) + (f" Lv{self.level}" if self.level is not None else ""), self.nickname,
+            ("Pokemon", (species_level_label(self.species, self.level, 25), self.nickname,
                          "Shiny: Yes" if self.shiny else "Shiny: No", f"Nature: {nature}")),
             ("Held item and origin", ("Held: " + item_label(self.held_item),
                          "OT: " + self.original_trainer, f"Trainer ID: {self.trainer_id & 0xFFFF:05d}",

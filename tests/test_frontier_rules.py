@@ -74,6 +74,23 @@ class RuleTests(unittest.TestCase):
         with self.assertRaises(FrontierRuleError):
             check_party("anything", mons)
 
+    def test_forms_count_as_their_species(self):
+        # The engine numbers forms past 905 (species_national.py): a form is its species for both rules.
+        rotoms = [PartyMember(479, 50, 0), PartyMember(1064, 50, 0)]            # Rotom and Heat Rotom
+        self.assertEqual(check_party("species_clause", rotoms), "Same species twice")
+        self.assertEqual(check_party("species_clause", [PartyMember(1064, 50, 0), PartyMember(1065, 50, 0)]),
+                         "Same species twice")                                  # Heat and Wash Rotom
+        self.assertEqual(check_party("species_clause", [PartyMember(1024, 5, 0), PartyMember(1025, 5, 0)]),
+                         "Same species twice")                                  # Unown B and C
+        self.assertIsNone(check_party("species_clause", [PartyMember(1064, 50, 0), PartyMember(1155, 50, 0)]))
+        for form in (1054, 1071, 1072, 1081, 1100, 1104, 1105, 1106, 1108, 1163, 1164, 1168, 919, 920):
+            with self.subTest(form=form):   # Deoxys, Giratina, Shaymin, Arceus, Therian, Kyurem, Keldeo, Genesect,
+                # Xerneas, Zygarde, Hoopa formes; Mewtwo's Megas (never in a saved party, but a legendary all the same)
+                self.assertEqual(check_party("no_legendaries", [PartyMember(form, 50, 0)]), "Legendary not allowed")
+        for form in (1064, 1114, 1155, 1157, 906):   # Heat Rotom, a Vivillon, Female Meowstic, a Pumpkaboo, Mega Venusaur
+            with self.subTest(form=form):
+                self.assertIsNone(check_party("no_legendaries", [PartyMember(form, 50, 0)]))
+
     def test_the_legendary_list_is_the_kanto_to_kalos_one(self):
         self.assertEqual(len(LEGENDARY), 11 + 10 + 15 + 12 + 6)
         self.assertTrue({150, 151, 249, 250, 251, 384, 385, 386, 483, 484, 487, 493, 494, 649, 716, 718}.issubset(LEGENDARY))
