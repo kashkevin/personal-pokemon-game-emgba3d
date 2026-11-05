@@ -150,8 +150,9 @@ engine (run 319: in both games the row under the mouse, Host Server, took the fo
 `6ce2648c` (run 320): P14's fix shown on the Windows runner.
 
 Run 322 (engine `fb6bcd9f`: P14's fix and the gameplay check's narrowed blocked rule, app `cbc4419`, the gameplay
-check on) is the next installer candidate, dispatched at 12:54 UTC: the first full run with the app's tests and the
-3D gameplay check in it.
+check on), the first full run with the app's tests and the 3D gameplay check in it, **passed every one of its 82
+jobs** (12:54-16:16 UTC): its installer is now the one prepared, `docs/package-20261105d.md`, not distributed
+(N8). MS-198's fix (engine `0d25e9c0`, no player-visible change in these builds) comes with the next full run.
 
 ## 6. Earlier issues in KNOWN_ISSUES (reviewed 2026-11-04)
 
