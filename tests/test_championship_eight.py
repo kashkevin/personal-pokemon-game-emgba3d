@@ -1,6 +1,7 @@
 """Step 18: eight-place Championships with computer trainers (championship8.py, championship8_protocol.py)."""
 from copy import deepcopy
 from pathlib import Path
+from contextlib import closing
 import sqlite3
 import tempfile
 import unittest
@@ -356,7 +357,7 @@ class EightChampionshipTests(Fixture, unittest.TestCase):
         again = self.call(self.players[0], "status", store=reopened)["current"]
         self.assertEqual(again, view)
         self.assertTrue(reopened.computer_ticket(command["ticket"]))
-        with sqlite3.connect(Path(self.directory.name) / "w.championships8.sqlite3") as connection:
+        with closing(sqlite3.connect(Path(self.directory.name) / "w.championships8.sqlite3")) as connection, connection:  # closed too: `with` alone commits but leaves the file open (Windows, run 304)
             connection.execute("UPDATE brackets SET record=replace(record, '\"rule\":\"open\"', '\"rule\":\"level_30\"')")
         with self.assertRaises(StorageError):
             self.open()

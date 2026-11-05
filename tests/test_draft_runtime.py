@@ -253,8 +253,13 @@ class DraftRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(self.calls), 2)
 
     async def test_relative_verified_rom_becomes_absolute_for_isolated_child_directory(self):
-        self.installation = replace(self.installation,
-                                    rom_path=Path(os.path.relpath(self.installation.rom_path)))
+        rom = self.installation.rom_path
+        if os.path.splitdrive(str(rom))[0].lower() != os.path.splitdrive(os.getcwd())[0].lower():
+            # Windows: no relative path leads from one drive to another (run 304: the checkout on D:, the temporary
+            # folder on C:), so the relative path starts in the ROM's own folder; restored before that folder goes.
+            self.addCleanup(os.chdir, os.getcwd())
+            os.chdir(rom.parent)
+        self.installation = replace(self.installation, rom_path=Path(os.path.relpath(rom)))
         self.runtime = DraftRuntime(self.installation, self.root / "private")
         with self.fixture():
             async with self.runtime.open() as game:

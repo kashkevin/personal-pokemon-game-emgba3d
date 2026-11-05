@@ -23,7 +23,7 @@ class ProofRecordTests(unittest.TestCase):
                if p not in ("self", "fields")]
         found = []
         for path in sorted((ROOT / "scripts" / "multiplayer").glob("*.py")):
-            for node in ast.walk(ast.parse(path.read_text())):
+            for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):     # Python's own encoding, not the PC's
                 if isinstance(node, ast.Call) and getattr(node.func, "id", getattr(node.func, "attr", None)) == "record":
                     filled = own[:len(node.args)]           # the parameters the call already gives by position
                     found += [f"{path.name}:{node.lineno} {kw.arg}=" for kw in node.keywords if kw.arg in filled]

@@ -34,6 +34,14 @@ async def wait_until(predicate, timeout=8):
             await asyncio.sleep(0.01)
 
 
+def built(*args, **kwargs):
+    """A WorldServer built only to read what it set up, then closed: its shared world, friendship and wager files stay
+    open otherwise until the garbage collector runs, and Windows will not delete the test's folder (run 304)."""
+    server = WorldServer(*args, **kwargs)
+    asyncio.run(server.close())
+    return server
+
+
 class RawClient:
     """Real TCP actor for deliberately invalid bodies bypassing client validation."""
 
@@ -426,10 +434,10 @@ class TradeGateTests(unittest.TestCase):
             trade = TradeCheckpointStore(Path(directory)/"schema3.sqlite3", "build", BASELINE_RULESET)
             config = ServerConfig("build", BASELINE_RULESET)
             try:
-                self.assertIsNone(WorldServer(config, store=legacy).trade_desk)
-                self.assertIsNone(WorldServer(config, store=trade).trade_desk)
-                self.assertIsNone(WorldServer(config, store=legacy)._trade_recovery_desk)
-                self.assertIsNotNone(WorldServer(config, store=trade)._trade_recovery_desk)
+                self.assertIsNone(built(config, store=legacy).trade_desk)
+                self.assertIsNone(built(config, store=trade).trade_desk)
+                self.assertIsNone(built(config, store=legacy)._trade_recovery_desk)
+                self.assertIsNotNone(built(config, store=trade)._trade_recovery_desk)
                 with self.assertRaisesRegex(ValueError, "schema-3"):
                     WorldServer(config, store=legacy, development_trades=True)
                 with self.assertRaisesRegex(ValueError, "boolean"):

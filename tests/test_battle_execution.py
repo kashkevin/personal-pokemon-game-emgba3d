@@ -6,6 +6,7 @@ do not claim an actual game, ordinary input, Windows, or reconnect acceptance.
 import asyncio
 from dataclasses import replace
 import json
+import os
 import struct
 from types import SimpleNamespace
 import unittest
@@ -26,6 +27,11 @@ from emerald_multiplayer.ownership import OWNERSHIP_PROFILE
 from emerald_multiplayer.protocol import ProtocolError
 import test_battle_arbitration as arbitration_fixture
 from test_battle_arbitration import wait_until
+
+# The pause between a client's polls. Windows' event loop sleeps a whole timer tick (about 15.6 ms) for any wait, so
+# 1 ms there took the 720-frame delay's polls past the clients' 20 s (run 304); the fixture counts frames per query,
+# not time, so a poll that only yields tests the same thing.
+POLL_PAUSE = 0 if os.name == "nt" else .001
 
 
 class NativeFixture:
@@ -310,7 +316,7 @@ class BattleExecutionNetworkTests(unittest.IsolatedAsyncioTestCase):
                     if view["command_b64"] is not None and view["command_id"] != dispatch:
                         command = decode_control(view["command_b64"])
                         response, dispatch = await model.rpc(command), view["command_id"]
-                    await asyncio.sleep(.001)
+                    await asyncio.sleep(POLL_PAUSE)
         tasks = [asyncio.create_task(client(i)) for i in range(4 if multi else 2)]
         try:
             await asyncio.gather(*tasks)

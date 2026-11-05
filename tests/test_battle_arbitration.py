@@ -259,7 +259,11 @@ class BattleArbitrationTests(unittest.IsolatedAsyncioTestCase):
         return view
 
     async def test_development_opt_in_and_explicit_owned_store_are_required(self):
-        self.assertIsNone(WorldServer(self.server.config,store=self.store).battle_desk)
+        # Each server built here is closed: its shared world, friendship and wager files stay open otherwise until the
+        # garbage collector runs, and Windows will not delete the test's folder (run 304).
+        plain = WorldServer(self.server.config,store=self.store)
+        try:self.assertIsNone(plain.battle_desk)
+        finally:await plain.close()
         for value in (1,None,"yes"):
             with self.subTest(value=value),self.assertRaises(ValueError):
                 WorldServer(self.server.config,store=self.store,development_battles=value)
@@ -272,7 +276,9 @@ class BattleArbitrationTests(unittest.IsolatedAsyncioTestCase):
         try:
             with self.assertRaises(StorageError):WorldServer(self.server.config,store=owned,development_battles=True)
             enable_battle_reservations(owned, self.root/"owned-before-battles.sqlite3")
-            self.assertIsNotNone(WorldServer(self.server.config,store=owned,development_battles=True).battle_desk)
+            battles = WorldServer(self.server.config,store=owned,development_battles=True)
+            try:self.assertIsNotNone(battles.battle_desk)
+            finally:await battles.close()
         finally:owned.close()
 
     async def test_first_uncertain_bind_reserves_both_without_native_ack(self):

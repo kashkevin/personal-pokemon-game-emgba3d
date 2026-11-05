@@ -2190,8 +2190,8 @@ jobs:
           .venv/Scripts/python -m pip install --require-hashes --only-binary=:all: -r requirements-host-provisioning.txt
           .venv/Scripts/python -m pip install pytest==9.1.1 pytest-timeout
       - name: The test suite (pytest.ini's settings; every failure listed at the end)
-        env:
-          TMPDIR: ${{ runner.temp }}   # no 8.3 short name, the checkout's drive (as the world-loading job's save-path step)
+        # The user's TEMP as a player's PC has it (an 8.3 short path on C:, the checkout on D:): conftest.py makes the
+        # tests' temporary folders under its long name, as it does on a PC, so this job checks that and not TMPDIR.
         run: .venv/Scripts/python -m pytest -rfE --junitxml="$RUNNER_TEMP/pytest-windows.xml"
       - name: Upload the results (private to this repository, 7 days)
         if: always()

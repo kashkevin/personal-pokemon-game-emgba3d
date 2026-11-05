@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from contextlib import closing
 import sqlite3
 import tempfile
 import unittest
@@ -174,7 +175,7 @@ class TransferTests(Base):
     def test_tampering_with_a_recorded_transfer_is_detected(self):
         transfer_player(self.store, self.player.player_id, self.detached)
         self.store.close()
-        with sqlite3.connect(self.path) as raw:
+        with closing(sqlite3.connect(self.path)) as raw, raw:  # closed too: `with` alone commits but leaves the file open (Windows, run 304)
             raw.execute("UPDATE ownership_transfers SET trainer_id = trainer_id + 1")
         with self.assertRaises(StorageError) as caught:
             self.store = TradeCheckpointStore(self.path, BUILD, RULESET)

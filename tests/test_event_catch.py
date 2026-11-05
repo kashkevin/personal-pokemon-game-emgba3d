@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import random
+from contextlib import closing
 import sqlite3
 import tempfile
 import unittest
@@ -168,7 +169,8 @@ class CatchTests(unittest.TestCase):
         self.world = self.open()                                                              # the host restarts
         self.assertEqual(self.world.catch_verdict(event, self.a), "release")
         self.assertEqual(self.world.catch_verdict(event, self.b), "keep")
-        rows = sqlite3.connect(self.path).execute("SELECT player_id, verdict FROM event_verdicts ORDER BY player_id").fetchall()
+        with closing(sqlite3.connect(self.path)) as db:    # closed: Windows will not delete an open file (run 304)
+            rows = db.execute("SELECT player_id, verdict FROM event_verdicts ORDER BY player_id").fetchall()
         self.assertEqual(sorted(rows), sorted([(self.a, "release"), (self.b, "keep")]))
 
     def test_the_winner_is_always_told_to_keep_even_when_asked_again_late(self):

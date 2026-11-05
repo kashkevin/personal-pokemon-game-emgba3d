@@ -30,6 +30,14 @@ async def wait_until(predicate, timeout=5):
             await asyncio.sleep(0.005)
 
 
+def built(*args, **kwargs):
+    """A WorldServer built only to read what it set up, then closed: its shared world, friendship and wager files stay
+    open otherwise until the garbage collector runs, and Windows will not delete the test's folder (run 304)."""
+    server = WorldServer(*args, **kwargs)
+    asyncio.run(server.close())
+    return server
+
+
 class RawTeamClient:
     @classmethod
     async def connect(cls, address, player, build):
@@ -379,8 +387,8 @@ class TeamGateTests(unittest.TestCase):
             owned = OwnershipCheckpointStore(Path(directory)/'owned.sqlite3', 'build', BASELINE_RULESET)
             config = ServerConfig('build', BASELINE_RULESET)
             try:
-                self.assertIsNone(WorldServer(config, store=owned).team_desk)
-                self.assertIsNotNone(WorldServer(config, store=owned, development_teams=True).team_desk)
+                self.assertIsNone(built(config, store=owned).team_desk)
+                self.assertIsNotNone(built(config, store=owned, development_teams=True).team_desk)
                 for store in (None, legacy):
                     with self.assertRaisesRegex(ValueError, 'ownership world'):
                         WorldServer(config, store=store, development_teams=True)

@@ -121,8 +121,10 @@ class InviteCodeTests(unittest.IsolatedAsyncioTestCase):
             await server.close()
 
     async def test_an_unreachable_server_is_reported_not_trusted(self):
+        # The default time (5 s), as the launcher uses it: Windows answers a connection to a port nothing listens on after
+        # about 2 s (it retries the refused connection), so 1 s ran out first there (run 304) and the reason was "timeout".
         with self.assertRaises(InviteCodeError) as caught:
-            await fetch_certificate("127.0.0.1", self.port, self.invitation.certificate_sha256, self.invitation.world_id, timeout=1)
+            await fetch_certificate("127.0.0.1", self.port, self.invitation.certificate_sha256, self.invitation.world_id)
         self.assertEqual(caught.exception.code, "certificate_unavailable")
         # The error says why: nothing listens there (not a generic "could not be reached").
         self.assertEqual(caught.exception.reason, "refused")

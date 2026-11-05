@@ -391,7 +391,8 @@ class EndToEnd(unittest.TestCase):
         self.assertEqual((request.mode, request.route), ("join", None))     # the game reads the relay route itself
         # Nothing ever listened at the code's own address: everything above went through the relay's room for this world.
         import socket
-        with self.assertRaises(ConnectionRefusedError), socket.create_connection(("127.0.0.1", unreachable), timeout=2):
+        # 5 s: Windows refuses a connection to a port nothing listens on after about 2 s (it retries the refused connection)
+        with self.assertRaises(ConnectionRefusedError), socket.create_connection(("127.0.0.1", unreachable), timeout=5):
             pass
         self.assertIn(entry.world_id, server.relay_server.rooms)
 

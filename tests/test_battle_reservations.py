@@ -1,4 +1,5 @@
 """Real SQLite/Flash/TCP and simulated native receipts; no battle-resume claim."""
+import asyncio
 from copy import deepcopy
 from dataclasses import replace
 from pathlib import Path
@@ -22,6 +23,14 @@ from emerald_multiplayer.storage import StorageError
 from emerald_multiplayer.trade_storage import TradeCheckpointStore
 import test_battle_desk as fixture
 import test_battle_arbitration as network
+
+
+def built(*args, **kwargs):
+    """A WorldServer built only to read what it set up, then closed: its shared world, friendship and wager files stay
+    open otherwise until the garbage collector runs, and Windows will not delete the test's folder (run 304)."""
+    server = WorldServer(*args, **kwargs)
+    asyncio.run(server.close())
+    return server
 
 
 class ReservationMigrationTests(unittest.TestCase):
@@ -65,7 +74,7 @@ class ReservationMigrationTests(unittest.TestCase):
             with reopened.open_store() as store:
                 self.assertEqual(store._schema_version,103+TRANSFERS)   # a new world takes its characters back too
                 self.assertEqual(store.metadata.world_id,host.world_id)
-                WorldServer(ServerConfig(host.build_id,host.ruleset_id),store=store)
+                built(ServerConfig(host.build_id,host.ruleset_id),store=store)
 
     def test_explicit_102_and_103_migrations_keep_verified_legacy_backups_and_identity(self):
         with tempfile.TemporaryDirectory() as directory:
