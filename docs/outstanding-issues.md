@@ -99,6 +99,13 @@ Run 286 (only the 3D graphics job; engine `586a6156`, app `5451278`) **passed**:
 on Windows through Mesa (160 chunks brought back, none differed; 36,866 skipped-sync checks, none stale). Changes since
 run 284's engine (the face sort, MS-55, the atlas's drawing) go to Windows in the next full run.
 
+Run 288 (engine `6b75d6b6`, app `68187b0`, the gameplay check on) **passed every one of its 67 jobs** on the first
+attempt (00:58-05:02 UTC on 2026-11-05): its installer is the one prepared (`docs/package-20261105.md`), not
+distributed (N8). Run 291 (engine `88e58c7d`, with the 3D view's buildings' sync, chunks' signature and atlas clearing)
+and run 293 (only the 3D job, engine `67e39839`: passed) followed. Run 295 (engine `67e39839`, app `8a970e6`) carries the
+kill test as first written, which failed in its own harness on Windows (run 294); run 297 (engine `67e39839`, app
+`f83c033`: the fixed test, MS-193, MS-194, MS-195) is the next candidate, dispatched at 05:14 UTC.
+
 ## 6. Earlier issues in KNOWN_ISSUES (reviewed 2026-11-04)
 
 Every issue in KNOWN_ISSUES whose row there still reads open, or whose fix was never shown in this list, checked
