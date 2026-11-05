@@ -2077,6 +2077,10 @@ jobs:
           # (proof_network.py), so battle-rough delays the battle's messages only.
           - {name: trade-rough, scenario: trade, players: 2, format: 1v1v1v1, extra: "--no-save --latency-ms 120 --latency-all --jitter-ms 80 --stall-every 45 --stall-ms 2500 --disk-ms 20"}
           - {name: battle-rough, scenario: lobby, players: 2, format: 1v1v1v1, extra: "--no-save --latency-ms 120 --jitter-ms 80 --stall-every 45 --stall-ms 2500 --disk-ms 20"}
+          # The 3D game, which players start by default (the entries above play the Classic 2D game): the rival 1v1 and
+          # both trades between two new characters, drawn through Mesa's software OpenGL (llvmpipe) with the 3D battle
+          # proof's light settings; a GitHub-hosted runner has no graphics card.
+          - {name: battle-trade-3d, scenario: battle-trade, players: 2, format: 1v1v1v1, extra: "--light-3d", game: inputs/pokeemerald-mp-diorama.exe, mesa: "yes"}
     defaults:
       run:
         shell: bash
@@ -2115,16 +2119,42 @@ jobs:
         run: |
           .venv/Scripts/python scripts/multiplayer/make_intro_saves.py --exe mega-check-inputs/pokeemerald-mp-bfxtest.exe \
             --mega-check mega-check-inputs/mega_check.py --out "$RUNNER_TEMP/intro" --count ${{ matrix.players }}
+      - name: Mesa's software OpenGL (32-bit) for the 3D game (pinned; the 3D entry)
+        if: ${{ matrix.mesa == 'yes' && (!contains(inputs.only, 'mp:') || contains(format(',{0},', inputs.only), format(',mp:{0},', matrix.name))) }}
+        shell: pwsh
+        env:
+          MESA_VERSION: "26.2.4"
+          MESA_SHA256: 351fc8c8b695878ffb3eaa044b3ead08672a48b1a045e3c3e3975811df0f6695
+        run: |
+          $name = "mesa3d-$env:MESA_VERSION-release-msvc.7z"
+          $archive = Join-Path $env:RUNNER_TEMP "mesa.7z"
+          Invoke-WebRequest -Uri "https://github.com/pal1000/mesa-dist-win/releases/download/$env:MESA_VERSION/$name" -OutFile $archive
+          $hash = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLower()
+          if ($hash -ne $env:MESA_SHA256) { throw "$name has sha256 $hash, not the pinned $env:MESA_SHA256" }
+          $unpacked = Join-Path $env:RUNNER_TEMP "mesa"
+          & 7z x $archive "-o$unpacked" "x86\*.dll" -y | Out-Null
+          New-Item -ItemType Directory -Force mesa | Out-Null
+          foreach ($dll in @("opengl32.dll", "libgallium_wgl.dll", "libglapi.dll")) {
+            $source = Join-Path $unpacked "x86\$dll"
+            if (Test-Path $source) { Copy-Item $source mesa\ }
+          }
+          if (-not (Test-Path mesa\opengl32.dll)) { throw "Mesa's 32-bit opengl32.dll is missing" }
       - name: ${{ matrix.players }} new characters in one world (${{ matrix.name }})
         if: ${{ !contains(inputs.only, 'mp:') || contains(format(',{0},', inputs.only), format(',mp:{0},', matrix.name)) }}
+        env:
+          GALLIUM_DRIVER: llvmpipe
         run: |
           # make_intro_saves.py's names, in its order (no glob over a Windows path in bash)
           names=(boy-1 girl-1 boy-2 girl-2); sources=()
           for n in $(seq 0 $(( ${{ matrix.players }} - 1 ))); do sources+=(--source "$RUNNER_TEMP/intro/${names[$n]}.sav"); done
+          game="${{ matrix.game || 'inputs/pokeemerald-mp.exe' }}"
+          name="$(basename "$game" .exe)"
+          runtime_extra=()
+          for dll in mesa/*.dll; do if [ -f "$dll" ]; then runtime_extra+=(--runtime-extra "$dll"); fi; done
           .venv/Scripts/python scripts/multiplayer/native_launcher_newcomers_proof.py --scenario ${{ matrix.scenario }} \
-            --format ${{ matrix.format }} --game inputs/pokeemerald-mp.exe --sdl inputs/SDL2.dll --rom inputs/pokedev.gba \
-            --manifest inputs/manifest.json --pe-symbols symbols/pokeemerald-mp.nm.txt \
-            --sizes symbols/pokeemerald-mp.sizes.txt --slow 1.5 "${sources[@]}" ${{ matrix.extra }} \
+            --format ${{ matrix.format }} --game "$game" --sdl inputs/SDL2.dll --rom inputs/pokedev.gba \
+            --manifest inputs/manifest.json --pe-symbols "symbols/$name.nm.txt" \
+            --sizes symbols/pokeemerald-mp.sizes.txt --slow 1.5 "${runtime_extra[@]}" "${sources[@]}" ${{ matrix.extra }} \
             --output "$RUNNER_TEMP/multiplayer-proof/${{ matrix.name }}"
       - name: The proof's own diagnosis, in this log (only when it failed; scripts/multiplayer/proof_failure_summary.py)
         if: failure()

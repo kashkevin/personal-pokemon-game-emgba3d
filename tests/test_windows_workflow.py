@@ -382,16 +382,30 @@ class WindowsWorkflowTests(unittest.TestCase):
     def test_every_multiplayer_entrys_flags_are_ones_the_proof_takes(self):
         proof = (ROOT / "scripts" / "multiplayer" / "native_launcher_newcomers_proof.py").read_text()
         taken = set(re.findall(r'parser\.add_argument\("(--[a-z0-9-]+)"', proof))
-        extras = re.findall(r'\{name: ([a-z0-9-]+), scenario: [a-z-]+, players: \d, format: [0-9v]+(?:, extra: "([^"]*)")?\}',
-                            job("multiplayer-check"))
+        extras = re.findall(r'\{name: ([a-z0-9-]+), scenario: [a-z-]+, players: \d, format: [0-9v]+(?:, extra: "([^"]*)")?'
+                            r'(?:, [a-z]+: [^,}]+)*\}', job("multiplayer-check"))
         names = {name for name, _ in extras}
-        self.assertTrue({"trade-lag", "trade-rough", "battle-rough"} <= names, names)
+        self.assertTrue({"trade-lag", "trade-rough", "battle-rough", "battle-trade-3d"} <= names, names)
         for name, extra in extras:
             with self.subTest(entry=name):
                 self.assertEqual(sorted(set(re.findall(r"--[a-z0-9-]+", extra)) - taken), [])
         rough = dict(extras)["trade-rough"]
         self.assertIn("--jitter-ms 80", rough)
         self.assertIn("--stall-every 45 --stall-ms 2500", rough)
+
+    def test_a_battle_and_trades_between_players_run_in_the_3d_game_on_windows(self):
+        mp = job("multiplayer-check")
+        self.assertIn('{name: battle-trade-3d, scenario: battle-trade, players: 2, format: 1v1v1v1, extra: "--light-3d", '
+                      'game: inputs/pokeemerald-mp-diorama.exe, mesa: "yes"}', mp)
+        self.assertIn("Mesa's software OpenGL (32-bit) for the 3D game (pinned; the 3D entry)", mp)
+        self.assertIn("matrix.mesa == 'yes'", mp)
+        self.assertIn("MESA_SHA256: 351fc8c8b695878ffb3eaa044b3ead08672a48b1a045e3c3e3975811df0f6695", mp)
+        self.assertIn("GALLIUM_DRIVER: llvmpipe", mp)
+        self.assertIn("game=\"${{ matrix.game || 'inputs/pokeemerald-mp.exe' }}\"", mp)   # the Classic game otherwise
+        self.assertIn('--pe-symbols "symbols/$name.nm.txt"', mp)
+        self.assertIn('"${runtime_extra[@]}"', mp)
+        engine = job("engine")
+        self.assertIn("pokeemerald-mp-diorama.exe > ../classic-pe-symbols/pokeemerald-mp-diorama.nm.txt", engine)
 
     def test_move_switching_shiny_spawns_and_the_game_corner_run_in_windows_game_processes(self):
         checks = job("feature-checks")

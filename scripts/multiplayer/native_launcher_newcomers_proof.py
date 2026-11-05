@@ -1092,6 +1092,8 @@ def main():
                         help="trade: the offerer walks that long once its Players menu closed for the trade")
     parser.add_argument("--light-3d", action="store_true",
                         help="--game is the 3D build (native UI): the light 3D settings of the 3D battle proof")
+    parser.add_argument("--runtime-extra", type=Path, action="append",
+                        help="Windows: another file beside the game (Mesa's opengl32.dll and its DLLs for the 3D build)")
     parser.add_argument("--rounds", type=int, default=1,
                         help="trade, battle-trade: the battle (battle-trade) and both trades this many times over in one "
                              "session")
