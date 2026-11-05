@@ -22,7 +22,7 @@ The pages are host-driven menu pages (≤ 6 rows) reached from Players > World a
 | Page | Data (all from the host, nothing invented) |
 |---|---|
 | World | host clock + time of day, players online |
-| Players and weather | each player's place (map name from the game's map table) and weather |
+| Players and weather | each player's place (map name from the game's map table) and weather; "Location hidden" and no weather for a player who does not share their location (the default, `docs/pokenav-privacy.md`), and the Share my location switch |
 | Outbreak / Event | the active outbreak or world event, remaining time, place |
 | **This area's wild Pokemon** (new) | the host's own encounter tables for the map the player stands on: level range, the three most common species *now* (time of day and weather weighting, evolution stage by level), favoured types. It is the same table the shared wild Pokémon use (`scripts/multiplayer/check_engine_spawn_weights.py` compares it with the game). An area without a table says "No wild Pokemon data" instead of guessing. |
 | My Secret Base | visibility cycle |

@@ -1851,7 +1851,14 @@ class WorldServer:
         base = {"type": "world", "protocol": PROTOCOL_VERSION, "world_seq": self.world_seq,
                 "players": players, "clock": world.clock_view(), "event": world.event_view(),
                 "notice": world.notice_view()}
+        # Location privacy (privacy.py): a place reaches the other players only with its player's explicit permission.
         hiding = any(privacy.is_hidden(player["presence"]) for player in players)
+        # The World Event's claimant stands at its announced place while battling it: to the others, a claimant who has not given
+        # that permission is somebody (their games only need to know the Pokemon is taken).
+        claimant = (base["event"] or {}).get("claimant")
+        claimant_session = self.sessions.get(claimant) if claimant is not None else None
+        claimant_hidden = claimant is not None and (claimant_session is None or claimant_session.closed
+                                                    or not privacy.shares(claimant_session.presence))
         # Shared wild Pokemon (protocol 3): each game receives the slots of the
         # map it stands on, with its own "mine"/"busy" view of every claim.
         self._last_clock_broadcast = asyncio.get_running_loop().time()
@@ -1869,17 +1876,20 @@ class WorldServer:
         for session in tuple(self.sessions.values()):
             view, view_nav = base, nav
             if hiding:
-                # PokeNav privacy (Update 24): this viewer's copy of the world view, with every other player's place
-                # that asked to be hidden taken out of it (privacy.py).
+                # This viewer's copy of the world view, with the place of every other player who has not given permission
+                # taken out of it (privacy.redact): only a viewer on the same map receives it, as their game draws the avatar.
                 viewer = session.presence
                 view = {**base, "players": [
                     {**player, "presence": privacy.redact(player["presence"], viewer, own=player["player_id"] == session.player_id)}
                     for player in players]}
                 try:
-                    view_nav = {**world.nav_view({p["player_id"]: p["presence"] for p in view["players"]}),
-                                "rule": nav.get("rule")}
+                    # Readouts never show it, the same map's viewer included (privacy.for_readout): "Location hidden".
+                    view_nav = {**world.nav_view({p["player_id"]: privacy.for_readout(
+                        p["presence"], own=p["player_id"] == session.player_id) for p in players}), "rule": nav.get("rule")}
                 except Exception:  # noqa: BLE001 - the PokeNav view never stops the world view
                     view_nav = {"players": [], "outbreak": None, "event": None, "rule": None}
+            if claimant_hidden and session.player_id != claimant:
+                view = {**view, "event": {**base["event"], "claimant": privacy.SOMEBODY}}
             # Each game receives only its own next wallet adjustment (wagers)
             # and its own host-formed teammate (co-op Gym offers).
             wallet = None

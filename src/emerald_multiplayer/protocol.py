@@ -238,12 +238,13 @@ def validate_presence(message: dict[str, Any], session_epoch: int) -> dict[str, 
     # The overworld weather the game shows (shared spawns weigh species by it).
     if "weather" in message:
         result["weather"] = _integer(message["weather"], "weather", 0, 255)
-    # The player's PokeNav privacy choice (Update 24, docs/pokenav-privacy.md): only ever sent when location sharing is off;
-    # absent means sharing (the default, and what every older game does).
+    # The player's location privacy choice (docs/pokenav-privacy.md): true is the player's explicit permission to show their place
+    # to the others; false, or no field (what a game of an earlier build sent while sharing; such a launcher cannot join a host of
+    # this version, MS-28), keeps it private (privacy.is_hidden). Only a JSON boolean is a choice.
     if "share_location" in message:
-        if message["share_location"] is not False:
-            raise ProtocolError("invalid_field", "share_location is only sent as false")
-        result["share_location"] = False
+        if type(message["share_location"]) is not bool:
+            raise ProtocolError("invalid_field", "share_location must be true or false")
+        result["share_location"] = message["share_location"]
     return result
 
 

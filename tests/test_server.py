@@ -55,12 +55,13 @@ class Client:
                     return message
 
     async def move(self, seq=1, map_epoch=0, **changes):
+        # These players share their location (docs/pokenav-privacy.md: a presence without it is kept from the others).
         await self.send({
             "type": "presence", "session_epoch": self.epoch, "seq": seq,
             "map_epoch": map_epoch, "map_group": 0, "map_number": 1,
             "x": 5, "y": 6, "direction": 1, "elevation": 0,
             "avatar_gender": 0, "movement_mode": "walk",
-            "activity": "overworld", **changes,
+            "activity": "overworld", "share_location": True, **changes,
         })
 
     async def close(self):

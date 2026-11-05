@@ -435,6 +435,7 @@ class CheckpointServerTests(unittest.IsolatedAsyncioTestCase):
                                      server_credential=owner.credential, pose_interval=0.005,
                                      snapshot_interval=0.01, pause_timeout=0.2, reconnect_delay=0.025)
             companion = Companion(config)
+            companion.share_location = True   # positions travel between them: both chose to share (docs/pokenav-privacy.md)
             self.companions.append(companion)
             await companion.start()
             await wait_until(lambda: companion.connected and companion._roster_signature is not None)

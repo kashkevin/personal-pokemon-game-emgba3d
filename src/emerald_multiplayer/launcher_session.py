@@ -105,6 +105,7 @@ _MESSAGES = {
     "save_recovery_required": "This character's save needs recovery before another save can start.",
     "settings_unavailable": "This character's launcher settings could not be saved or read.",
     "settings_busy": "A settings change is already finishing.",
+    "privacy_unavailable": "This character's location sharing choice could not be saved; the location is private for now.",
     "battle_recovery_not_ready": "Keep the original game open until its interrupted battle can recover.",
     "battle_recovery_held": "Battle recovery remains incomplete; retain the original game and its recovery records.",
     "admission_cleanup_unsupported": "This installed game does not support neutral battle entry cleanup; retain the original game.",
@@ -267,6 +268,8 @@ class SessionStatus:
     revision: int | None = None
     exit_code: int | None = None
     autosave_enabled: bool = True
+    # The character's location sharing (privacy.py): the same stored choice as the game's PokeNav toggle; off by default.
+    share_location: bool = False
     battle_recovery_available: bool = False
     admission_cleanup_available: bool = False
     battle_abandon_available: bool = False
@@ -452,6 +455,25 @@ class LauncherSession:
     def autosave_enabled(self):
         return self._settings.autosave_enabled
 
+    @property
+    def share_location(self):
+        """Whether this character shows its place to the other players (privacy.py): what the game's PokeNav toggle and the
+        launcher's checkbox both show and change."""
+        companion = self._companion
+        return companion is not None and getattr(companion, "share_location", False) is True
+
+    def set_share_location(self, enabled):
+        """The launcher's "Share my location with other players": the same choice, kept in the same profile file, as the game's
+        PokeNav > World > Players and weather toggle (the companion's set_share_location); the next presence carries it."""
+        if not self._open or self._closing or self._profile_directory is None or self._companion is None:
+            raise LauncherSessionError("session_closed")
+        if type(enabled) is not bool:
+            raise LauncherSessionError("invalid_configuration")
+        try:
+            self._companion.set_share_location(enabled)
+        except OSError:
+            raise LauncherSessionError("privacy_unavailable") from None
+
     def _signature(self):
         c = self._companion
         if c is None or not c.connected:
@@ -463,7 +485,7 @@ class LauncherSession:
     def status(self):
         current = self._signature()
         value = replace(self._status, connected=current is not None, router=self._router, relay=self._relay_status,
-                        autosave_enabled=self.autosave_enabled,
+                        autosave_enabled=self.autosave_enabled, share_location=self.share_location,
                         battle_recovery_available=self.can_recover_battle,
                         admission_cleanup_available=self.can_cancel_battle_entry,
                         battle_abandon_available=self.can_abandon_battle,
@@ -579,6 +601,7 @@ class LauncherSession:
             await self._start_reachability(host)
         self._companion = Companion(config)
         from . import privacy
+        # The character's own choice (privacy.load: private unless the player chose to share) before the first presence.
         self._companion.share_location = privacy.load(self._profile_directory)
         self._companion._privacy_directory = self._profile_directory
         if (self._manifest.get("battle_execution_abi_version") == 1

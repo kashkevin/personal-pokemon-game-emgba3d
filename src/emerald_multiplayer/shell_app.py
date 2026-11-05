@@ -1204,7 +1204,7 @@ class ShellApp:
         self.window(self.session_window)
         state = dict(code="installation", state="validating", autosave=None, is_host=request.mode == "host", save=False,
                      battle=False, cleanup=False, abandon=False, restart=False, trade=False, connected=False, complete=None,
-                     note=note, flash=None, router=None, relay=None, detail=None, failure=None)
+                     note=note, flash=None, router=None, relay=None, detail=None, failure=None, share_location=None)
 
         def absorb():
             changed = False
@@ -1225,6 +1225,8 @@ class ShellApp:
                                  restart=event.host_restart_available, trade=event.trade_recovery_available,
                                  connected=event.connected, is_host=event.is_host, router=getattr(event, "router", None),
                                  relay=getattr(event, "relay", None))
+                    if getattr(event, "share_location", None) is not None:   # also follows the game's PokeNav toggle
+                        state["share_location"] = event.share_location
                     changed = True
 
         def session_screen():
@@ -1239,6 +1241,10 @@ class ShellApp:
                     screen.row("save", "Save now", "saves your progress to the world", "a")
                 if state["autosave"] is not None:
                     screen.row("autosave", "Autosave every 5 minutes", "on - turn off" if state["autosave"] else "off - turn on")
+                if state["share_location"] is not None:
+                    # The same choice as the game's PokeNav > World > Players and weather > Share my location (privacy.py).
+                    screen.row("share_location", "Share my location with other players",
+                               "on - turn off" if state["share_location"] else "off - turn on")
                 if state["battle"]:
                     screen.row("recover_battle", "Recover interrupted battle", "", "w")
                 if state["cleanup"]:
@@ -1284,6 +1290,9 @@ class ShellApp:
                     state["flash"] = "Saving..." if worker.request_save() else "Saving is not available right now."
                 elif event.id == "autosave":
                     worker.request_autosave(not state["autosave"])
+                elif event.id == "share_location" and state["share_location"] is not None:
+                    if not worker.request_share_location(not state["share_location"]):
+                        state["flash"] = "Location sharing can be changed while your game is running."
                 elif event.id == "recover_battle":
                     worker.request_battle_recovery()
                 elif event.id == "cancel_battle":

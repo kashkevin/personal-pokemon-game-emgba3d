@@ -164,6 +164,7 @@ class PresenceSessionTests(unittest.IsolatedAsyncioTestCase):
             server_port=self.server.address[1], ipc_port=0, pause_timeout=0.3, pose_interval=0.005,
             snapshot_interval=0.01, reconnect_delay=0.025, handshake_timeout=0.2, remote_timeout=0.4,
             send_timeout=0.2))
+        companion.share_location = True   # positions travel between these players: they share (docs/pokenav-privacy.md)
         await companion.start()
         self.companions.append(companion)
         if wait:
@@ -384,6 +385,8 @@ class AuthenticatedSessionTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_players_menu_lists_all_four_with_what_they_are_doing(self):
         await self.start()
+        # Trainer 1's page names the place: Trainer 1 chose to share it (private by default, docs/pokenav-privacy.md).
+        self.companions[1].share_location = True
         poses = [make_pose(frame=1, x=2), off_field(5, BATTLE), off_field(5, MENU), off_field(5, TRANSITION)]
         for companion, pose in zip(self.companions, poses):
             bridge = await BinaryBridge.connect(companion)

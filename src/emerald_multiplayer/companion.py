@@ -33,6 +33,7 @@ from .protocol import launcher_version as _process_launcher_version
 from .server import is_local_address
 from .secure_transport import ClientTlsConfig, is_numeric_unicast_address
 from . import connection_diagnostics as _diagnostics
+from . import privacy
 from .battle_manifest import validate_battle_manifest
 from .save_window import validate_window_manifest, WINDOW_FRAME_SIZE
 
@@ -538,8 +539,9 @@ class Companion:
         self.config = config
         self._server_tls_context = config.server_tls.build_context() if config.server_tls is not None else None
         self.connected = False
-        # PokeNav privacy (Update 24, privacy.py): TRUE shares this player's place with the others (the default).
-        self.share_location = True
+        # Location privacy (privacy.py): TRUE shares this player's place with the others, only by the player's own choice (the
+        # launcher sets it from the character's profile); private until then.
+        self.share_location = False
         self._privacy_directory = None
         self.session_epoch: int | None = None
         self.last_error: str | None = None
@@ -1685,11 +1687,14 @@ class Companion:
                 self._remote_writer = None
 
     def set_share_location(self, share: bool) -> None:
-        """The player's choice from PokeNav > World > Players: the next presence says it; the choice is kept in the profile."""
-        from . import privacy
-        self.share_location = bool(share)
+        """The player's choice (PokeNav > World > Players and weather, or the launcher's checkbox): the next presence says it; the
+        choice is kept in the profile. Going private applies at once even if it cannot be kept; sharing only once it is kept."""
+        share = bool(share)
+        if not share:
+            self.share_location = False
         if self._privacy_directory is not None:
-            privacy.save(self._privacy_directory, self.share_location)
+            privacy.save(self._privacy_directory, share)
+        self.share_location = share
 
     async def _send_presence(self, writer: asyncio.StreamWriter) -> None:
         while True:
@@ -1701,8 +1706,8 @@ class Companion:
                     fields.update(self._local_world.network_fields())
                 if self.config.world_enabled and self._local_spawn is not None:
                     fields["weather"] = self._local_spawn.weather
-                if not self.share_location:
-                    fields["share_location"] = False    # the host keeps this player's place from the others
+                # Every presence says the choice; only true lets the host show this player's place to the others.
+                fields["share_location"] = self.share_location is True
                 source_signature = (self._bridge_incarnation, pose.map_epoch, pose.map_group, pose.map_number)
                 pose_signature = (source_signature, pose.frame, tuple(fields.values()))
                 if pose_signature != self._sent_pose_signature:
@@ -2214,10 +2219,15 @@ class Companion:
             key = (player["player_id"], player["session_epoch"])
             previous = self._peer_history.get(key)
             if previous is not None:
+                # A player who keeps their place private reaches this game as nowhere (privacy.redact) unless both stand on one
+                # map, so their copy turns real or hidden when either of them changes map, or they change the setting, without
+                # their own counters moving: not a stale pose (the order of seq and map_epoch is still checked).
+                same_view = privacy.is_redacted(presence) == privacy.is_redacted(previous)
                 changed_map = (presence["map_group"], presence["map_number"]) != (previous["map_group"], previous["map_number"])
-                if presence["seq"] < previous["seq"] or presence["map_epoch"] < previous["map_epoch"] or (changed_map and presence["map_epoch"] <= previous["map_epoch"]):
+                if presence["seq"] < previous["seq"] or presence["map_epoch"] < previous["map_epoch"] or (
+                        same_view and changed_map and presence["map_epoch"] <= previous["map_epoch"]):
                     raise ProtocolError("stale_server_presence", "server presence ordering is invalid")
-                if presence["seq"] == previous["seq"]:
+                if presence["seq"] == previous["seq"] and same_view:
                     # The server may mark an unchanged pose unavailable after
                     # its game timeout. It cannot rewrite coordinates or resume
                     # gameplay under the same client sequence.

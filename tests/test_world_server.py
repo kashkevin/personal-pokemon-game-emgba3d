@@ -156,7 +156,10 @@ class WorldFrameTests(WorldServerTests):
         self.assertEqual(claim["result"]["outcome"], "granted")
         busy = await self.world_rpc(1, "world_action", action="claim", event_id=event["event_id"], result=None, seq=1)
         self.assertEqual(busy["result"]["outcome"], "busy")
-        frame = await self.world(1, lambda w: w["event"] and w["event"]["claimant"] == self.pid(0))
+        # The others see it taken; by whom only if the claimant shares their location (docs/pokenav-privacy.md).
+        from emerald_multiplayer.privacy import SOMEBODY
+        frame = await self.world(1, lambda w: w["event"] and w["event"]["claimant"] == SOMEBODY)
+        await self.world(0, lambda w: w["event"] and w["event"]["claimant"] == self.pid(0))
         caught = await self.world_rpc(0, "world_action", action="result", event_id=event["event_id"],
                                       result="caught", seq=2)
         self.assertEqual(caught["result"]["outcome"], "consumed")

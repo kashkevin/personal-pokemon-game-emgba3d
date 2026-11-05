@@ -464,7 +464,7 @@ class SharedWorld:
         for player_id, presence in sorted(presences.items()):
             if presence is None:
                 continue
-            if privacy.is_redacted(presence):   # the player hides where they are (Update 24)
+            if privacy.is_redacted(presence):   # a place its player has not given permission to show (privacy.py)
                 players.append({"player_id": player_id, "place": privacy.HIDDEN_PLACE, "weather": None})
                 continue
             code = presence.get("weather")

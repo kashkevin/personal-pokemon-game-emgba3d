@@ -82,6 +82,7 @@ async def run(args: argparse.Namespace) -> None:
             shutil.copyfile(args.save, copy)
             companion = Companion(CompanionConfig(args.rom, args.manifest, str(uuid4()), f"Diver {'AB'[i]}",
                                                   secrets.token_bytes(32), server_port=server.address[1], ipc_port=0))
+            companion.share_location = True   # A reads B's place under the water: both chose to share (docs/pokenav-privacy.md)
             await companion.start()
             companions.append(companion)
             bridge = root / f"bridge-{i}.txt"

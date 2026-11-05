@@ -1398,8 +1398,9 @@ class PlayerMenu:
             for player in nav["players"][:4]:
                 actions.append((f"{self._name(player['player_id'])[:9]} - {player['place']}", "world_player",
                                 (player["player_id"],)))
-            # PokeNav privacy (Update 24): the player's own choice, kept in their profile; on by default.
-            sharing = getattr(self.companion, "share_location", True)
+            # Location privacy (privacy.py): the player's own choice, kept in their profile and shared with the launcher's
+            # "Share my location with other players" checkbox; off (private) until the player turns it on.
+            sharing = getattr(self.companion, "share_location", False) is True
             actions.append(("Share my location: " + ("ON" if sharing else "OFF"), "privacy_toggle", ()))
             if not sharing:
                 status = self._notice or "Others see Location hidden"
@@ -1794,7 +1795,7 @@ class PlayerMenu:
                 self._page = ("wager", args[0])
             elif op == "privacy_toggle":
                 try:
-                    self.companion.set_share_location(not getattr(self.companion, "share_location", True))
+                    self.companion.set_share_location(getattr(self.companion, "share_location", False) is not True)
                 except OSError:
                     self._notice = "Could not save the choice"
                 self._page = ("world_players", None)

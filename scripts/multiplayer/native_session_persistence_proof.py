@@ -14,8 +14,8 @@ one native game per player on its own X display, driven by ordinary key presses.
        With four players two of them battle at the same time.
     3. The player runs from the battle (the host fights its battle out: won, or lost and whited out): back on the
        field in the same session; the others draw that player again.
-    4. The last player walks out of Route 101 into Littleroot Town (another map): still listed everywhere, its
-       Players page says where it is.
+    4. The last player chooses to share its location (private by default) and walks out of Route 101 into Littleroot
+       Town (another map): still listed everywhere, its Players page says where it is.
     5. The last player closes the game (an ordinary close): the others' rosters and Players tabs drop it; it starts
        again (Join) and is back in everyone's session.
     6. The host store passes its integrity check; the source saves are unchanged.
@@ -429,6 +429,12 @@ async def scenario(harness, players, session):
         record("back-on-the-field-same-session", label=label, sessions=sessions)
 
     walker = players[-1]
+
+    async def share(launcher_session):
+        # The others are checked to see where the walker went: the walker chooses to share it, as the launcher's
+        # "Share my location with other players" does (private is the default, docs/pokenav-privacy.md).
+        launcher_session.set_share_location(True)
+    await on_worker(walker.worker, share)
     await session.walk_to_littleroot(walker)
     async with asyncio.timeout(20):
         while True:

@@ -9,7 +9,7 @@ The Hoenn map the game already has (PokéNav > HOENN MAP, the fly map, and the w
 | Marker | Drawn as | Where it comes from |
 |---|---|---|
 | **Your own place** | the game's own Brendan/May icon, unchanged | the game, as before |
-| **Other players** | the same Brendan/May icon, per the other player's gender, with its accent colours (hat band, shirt) replaced by a ramp for the player's roster slot: **Blue, Yellow, Purple, Orange** | the poses the game already receives from the host (`gMultiplayerMailbox`): map, x, y, for every connected player on any map |
+| **Other players** | the same Brendan/May icon, per the other player's gender, with its accent colours (hat band, shirt) replaced by a ramp for the player's roster slot: **Blue, Yellow, Purple, Orange** | the poses the game already receives from the host (`gMultiplayerMailbox`): map, x, y, for every connected player who shares their location (and anybody on your own map); see Permissions |
 | **World Event** (visible, awake) | the original red outline from the Battle Frontier fly icon, flashing | the world mailbox's event (already sent to every game) |
 | **Mass outbreak** | the original pink fly-destination dot, flashing | new: the outbreak's map in the world mailbox's reserved bytes (host → companion → game) |
 
@@ -23,7 +23,8 @@ markers are borrowed art (see "Art still missing").
 * **A** zooms in and out as before; the markers follow the zoomed map and scroll with it. Markers off screen are hidden.
 * The markers refresh about every 1.5 s while the map is open: players moving, coming or leaving are redrawn.
 * Players on one square (yours included) are fanned out a few pixels so each shows.
-* Text fallback: PLAYERS > World and my base > Players and weather still lists everyone's place; a player's page now also says
+* Text fallback: PLAYERS > World and my base > Players and weather lists everyone's place ("Location hidden" for a player who does
+  not share it); a player's page now also says
   which colour their map icon is ("Map icon: Blue"; "Map icon: your own"); the Outbreak and Event pages say "Marked on the PokeNav map".
 
 ## Where a player is drawn
@@ -34,9 +35,11 @@ map section**. Maps whose section is "dynamic" or a Secret Base (the base's real
 players there appear only in the text list. Only the Hoenn map is drawn on (Kanto/Sevii maps of the original are not part of this game).
 
 ## Permissions
-Every connected player's place is already visible to everyone (their avatar appears wherever they are, and the text page lists their
-place). There is no hide-my-location setting and none was added; the map shows exactly what the text page shows. A dormant World
-Event (one still waiting for its condition) is not drawn, as it is not shown in the world.
+A player's place is shown only with their permission (`docs/pokenav-privacy.md`; private by default since 2026-11-05): the launcher's
+"Share my location with other players" or the game's PokeNav > World > Players and weather > Share my location. The host sends the
+place of a player who does not share it to nobody else, so the map draws no marker for them. The one exception is a player standing on
+your own map: their avatar is in front of you, and the map draws their marker at that same map (the engine draws both from one pose).
+A dormant World Event (one still waiting for its condition) is not drawn, as it is not shown in the world.
 
 ## What was added
 Engine (PC build only; the GBA ROM is byte-identical, sha256 f214735b…3387): `src/region_map.c` (markers, SELECT jump, refresh),

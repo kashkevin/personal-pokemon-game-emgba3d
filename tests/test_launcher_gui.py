@@ -1,5 +1,6 @@
 import asyncio
 from contextlib import asynccontextmanager
+from dataclasses import replace
 from pathlib import Path
 import queue
 import shutil
@@ -38,10 +39,19 @@ class ControlledSession:
         self.settings_started = threading.Event()
         self.release_settings = threading.Event()
         self.settings_calls = []
+        self.share_location = False
+        self.share_calls = []
 
     def publish(self, state, code):
-        self.status = SessionStatus(state, code, connected=True, autosave_enabled=self.autosave_enabled)
+        self.status = SessionStatus(state, code, connected=True, autosave_enabled=self.autosave_enabled,
+                                    share_location=self.share_location)
         self.on_status(self.status)
+
+    def set_share_location(self, enabled):
+        """As LauncherSession: the choice changes the live status (no new code); the worker's status poll reports it."""
+        self.share_calls.append(enabled)
+        self.share_location = enabled
+        self.status = replace(self.status, share_location=enabled)
 
     @asynccontextmanager
     async def open(self):
@@ -207,6 +217,68 @@ class GuiWorkerTests(unittest.TestCase):
         self.assertEqual(session.settings_calls, [False])
         self.assertTrue(any(e.code == "autosave_off" and e.autosave_enabled is False for e in events))
         self.assertEqual(events[-1].code, "game_closed")
+
+    def test_location_sharing_goes_to_the_session_and_its_status_comes_back_from_either_side(self):
+        self.assertFalse(self.worker.request_share_location(True))                 # no game: nothing to change
+        session = self.launch()
+        session.release_connect.set()
+        self.assertTrue(session.played.wait(2))
+        deadline = time.monotonic() + 2
+        while self.worker._state is not SessionState.RUNNING and time.monotonic() < deadline:
+            time.sleep(.005)
+        seen = []
+
+        def wait_for_event(predicate):
+            deadline = time.monotonic() + 3
+            while time.monotonic() < deadline:
+                try:
+                    event = self.worker.events.get(timeout=.05)
+                except queue.Empty:
+                    continue
+                seen.append(event)
+                if predicate(event):
+                    return event
+            self.fail(f"no such event in {seen}")
+
+        wait_for_event(lambda e: e.state == "running" and e.share_location is False)     # private by default
+        for bad in ("yes", 1, None):
+            self.assertFalse(self.worker.request_share_location(bad))
+        self.assertTrue(self.worker.request_share_location(True))                  # the launcher's checkbox
+        wait_for_event(lambda e: e.share_location is True)
+        self.assertEqual(session.share_calls, [True])
+        # The game's PokeNav toggle changes the same choice in the session; the launcher's status poll shows it.
+        session.share_location = False
+        session.status = replace(session.status, share_location=False)
+        wait_for_event(lambda e: e.share_location is False)
+        session.release_game.set()
+        self.assertEqual(self.finish_events()[-1].code, "game_closed")
+        self.assertFalse(self.worker.request_share_location(True))
+        self.assertEqual(session.share_calls, [True])
+
+    def test_a_location_choice_that_cannot_be_kept_is_reported_and_not_shown_as_shared(self):
+        session = self.launch()
+        session.release_connect.set()
+        self.assertTrue(session.played.wait(2))
+        deadline = time.monotonic() + 2
+        while self.worker._state is not SessionState.RUNNING and time.monotonic() < deadline:
+            time.sleep(.005)
+
+        def refuse(enabled):
+            from emerald_multiplayer.launcher_session import LauncherSessionError
+            session.share_calls.append(enabled)
+            raise LauncherSessionError("privacy_unavailable")
+
+        session.set_share_location = refuse
+        self.assertTrue(self.worker.request_share_location(True))
+        deadline = time.monotonic() + 3
+        while not session.share_calls and time.monotonic() < deadline:
+            time.sleep(.005)
+        session.release_game.set()
+        events = self.finish_events()
+        reported = [e for e in events if e.code == "privacy_unavailable"]
+        self.assertTrue(reported, [e.code for e in events])
+        self.assertIs(reported[0].share_location, False)
+        self.assertIn("private for now", status_text("privacy_unavailable"))
 
     def test_repeated_cancel_waits_for_context_cleanup(self):
         session = self.launch()
@@ -375,7 +447,8 @@ class WidgetTests(unittest.TestCase):
             left, top = self.root.winfo_rootx(), self.root.winfo_rooty()
             width, height = self.root.winfo_width(), self.root.winfo_height()
             for widget in (window.status_label, window.recover_trade_button, window.recover_battle_button,
-                           window.cancel_battle_entry_button, window.restart_host_button, window.cancel):
+                           window.cancel_battle_entry_button, window.restart_host_button, window.cancel,
+                           window.share_location_button):
                 self.assertGreater(widget.winfo_height(), 1, str(widget))
                 self.assertGreaterEqual(widget.winfo_rootx(), left)
                 self.assertGreaterEqual(widget.winfo_rooty(), top)
@@ -590,6 +663,51 @@ class WidgetTests(unittest.TestCase):
         self.assertFalse(window.autosave_value.get())
         self.assertEqual(str(window.save_button.cget("state")), "normal")
         self.assertIn("Save now", window.message.get())
+
+    def test_location_checkbox_is_unchecked_by_default_and_follows_the_one_stored_choice(self):
+        class Worker:
+            busy = True
+            events = queue.SimpleQueue()
+            accept = True
+            requests = []
+            def request_share_location(self, enabled):
+                self.requests.append(enabled)
+                return self.accept
+        worker = Worker()
+        window = LauncherWindow(self.root, worker)
+        box = window.share_location_button
+        self.assertEqual(str(box.cget("text")), "Share my location with other players")
+        self.assertFalse(window.share_location_value.get())                        # private by default
+        self.assertEqual(str(box.cget("state")), "disabled")                       # no game running yet
+        worker.events.put(UiEvent("status", "authentication", "connecting", True, share_location=False))
+        window.poll()
+        self.assertEqual(str(box.cget("state")), "disabled")
+        worker.events.put(UiEvent("status", "running", "running", True, share_location=False))
+        window.poll()
+        self.assertEqual(str(box.cget("state")), "normal")
+        self.assertFalse(window.share_location_value.get())
+        # The player turns sharing on in the game (PokeNav > World > Players and weather): the checkbox follows.
+        worker.events.put(UiEvent("status", "running", "running", True, share_location=True))
+        window.poll()
+        self.assertTrue(window.share_location_value.get())
+        # Unticking asks the session (the same stored choice); the next status confirms it.
+        box.invoke()
+        self.assertEqual(worker.requests, [False])
+        worker.events.put(UiEvent("status", "running", "running", True, share_location=False))
+        window.poll()
+        self.assertFalse(window.share_location_value.get())
+        # A refused request puts the box back to what the session reports.
+        worker.accept = False
+        box.invoke()
+        self.assertEqual(worker.requests, [False, True])
+        self.assertFalse(window.share_location_value.get())
+        # An event without the field (an action's error before any status) leaves it as it is.
+        worker.events.put(UiEvent("status", "save_not_ready", "running", True))
+        window.poll()
+        self.assertFalse(window.share_location_value.get())
+        worker.events.put(UiEvent("complete", "game_closed"))
+        window.poll()
+        self.assertEqual(str(box.cget("state")), "disabled")                       # the game ended
 
     def test_close_during_play_waits_and_finishes_only_after_worker_completion(self):
         class Worker:

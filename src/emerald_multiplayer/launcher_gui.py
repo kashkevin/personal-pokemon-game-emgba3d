@@ -137,6 +137,7 @@ _TEXT = {
     "autosave_deferred": "Autosave is waiting for a safe place outside menus and battles.",
     "settings_unavailable": "Your character's autosave setting could not be saved or read.",
     "settings_busy": "Finishing the previous settings change…",
+    "privacy_unavailable": "Your location sharing choice could not be saved. Your location is private for now; try again to keep the choice.",
     "importing": "Checking your own game dump and installing this release…",
     "imported": "Game installed. Choose Continue Adventure, or open My Worlds.",
     "import_unavailable": "Game import is unavailable: this development package has no release patch.",
@@ -298,6 +299,7 @@ class UiEvent:
     failure: str | None = None            # complete: what failed: an error's class and code (never its message), or an exit code
     router: object | None = None          # host: port_mapping.MappingResult (.code, .ok, .message, .external_address)
     relay: object | None = None           # host: relay.RelayAgentStatus (.code, .ready, .message, .friends)
+    share_location: bool | None = None    # the character's location sharing (privacy.py); None: not known from this event
 
 
 class SessionWorker:
@@ -657,7 +659,8 @@ class SessionWorker:
             championship_available=getattr(status, "championship_available", False),
             player_actions_available=getattr(status, "player_actions_available", False),
             trade_recovery_available=getattr(status, "trade_recovery_available", False),
-            battle_abandon_available=getattr(status, "battle_abandon_available", False)))
+            battle_abandon_available=getattr(status, "battle_abandon_available", False),
+            share_location=getattr(status, "share_location", None)))
 
     async def _save(self):
         try:
@@ -681,6 +684,26 @@ class SessionWorker:
             self._settings_pending = True
             self._loop.call_soon_threadsafe(self._begin_settings, enabled)
             return True
+
+    def request_share_location(self, enabled):
+        """The "Share my location with other players" checkbox: applied on the session's loop, where the game's PokeNav toggle
+        changes the same choice; the next status shows the result either way."""
+        with self._lock:
+            if (type(enabled) is not bool or not self.busy or self._state is not SessionState.RUNNING
+                    or self._loop is None or self._active_session is None):
+                return False
+            self._loop.call_soon_threadsafe(self._apply_share_location, enabled)
+            return True
+
+    def _apply_share_location(self, enabled):
+        session = self._active_session
+        if session is None:
+            return
+        try:
+            session.set_share_location(enabled)
+        except Exception as error:                                     # noqa: BLE001 - reported, never raised into the loop
+            code = getattr(error, "code", "privacy_unavailable")
+            self._report_running_error(code if code in _TEXT else "privacy_unavailable")
 
     def request_battle_recovery(self):
         with self._lock:
@@ -854,7 +877,8 @@ class SessionWorker:
                                    trade_recovery_available=self._trade_recovery_available,
                                    battle_abandon_available=self._battle_abandon_available,
                                    detail=getattr(status, "detail", None), router=getattr(status, "router", None),
-                                   relay=getattr(status, "relay", None)))
+                                   relay=getattr(status, "relay", None),
+                                   share_location=getattr(status, "share_location", None)))
 
     async def _session(self, options):
         session = self.factory(self._launch_installation, self.private_root, on_status=self._publish, **options)
@@ -882,7 +906,9 @@ class SessionWorker:
                                  getattr(status, "player_actions_available", False),
                                  getattr(status, "trade_recovery_available", False),
                                  getattr(status, "battle_abandon_available", False),
-                                 getattr(status, "router", None), getattr(status, "relay", None))
+                                 getattr(status, "router", None), getattr(status, "relay", None),
+                                 # the game's PokeNav toggle changes it too: the launcher's checkbox follows
+                                 getattr(status, "share_location", None))
                     if signature != observed:
                         self._publish(status)
                         observed = signature
@@ -1254,6 +1280,15 @@ class LauncherWindow:
         self.autosave_button = ttk.Checkbutton(actions, text="Autosave every 5 minutes",
             variable=self.autosave_value, command=self.toggle_autosave, state="disabled")
         self.autosave_button.pack(side="left", padx=(12, 0))
+        # Location privacy (privacy.py): this character's choice, the same one as the game's PokeNav > World > Players and
+        # weather > Share my location; unchecked (private) unless the player chose to share.
+        privacy_row = ttk.Frame(footer)
+        privacy_row.pack(fill="x", pady=(6, 0))
+        self.share_location_value = tk.BooleanVar(value=False)
+        self._share_location_observed = False
+        self.share_location_button = ttk.Checkbutton(privacy_row, text="Share my location with other players",
+            variable=self.share_location_value, command=self.toggle_share_location, state="disabled")
+        self.share_location_button.pack(side="left")
         battle_actions = ttk.Frame(footer)
         battle_actions.pack(fill="x", pady=(8, 0))
         self.recover_battle_button = ttk.Button(battle_actions, text="Recover battle", command=self.recover_battle,
@@ -2073,6 +2108,13 @@ class LauncherWindow:
         else:
             self.autosave_button.configure(state="disabled")
 
+    def toggle_share_location(self):
+        """The checkbox shows what the session reports: a refused request puts it back at once, an accepted one is confirmed
+        (or put back) by the next status."""
+        if (self.closing or self.worker is None
+                or not self.worker.request_share_location(self.share_location_value.get())):
+            self.share_location_value.set(self._share_location_observed)
+
     def check_connection(self):
         if self.worker is None or self.worker.busy:
             return
@@ -2104,6 +2146,7 @@ class LauncherWindow:
         self._enable(False)
         self.save_button.configure(state="disabled")
         self.autosave_button.configure(state="disabled")
+        self.share_location_button.configure(state="disabled")
         self.recover_battle_button.configure(state="disabled")
         self.cancel_battle_entry_button.configure(state="disabled")
         self.abandon_battle_button.configure(state="disabled")
@@ -2174,6 +2217,7 @@ class LauncherWindow:
                     self.cancel.configure(state="disabled")
                     self.save_button.configure(state="disabled")
                     self.autosave_button.configure(state="disabled")
+                    self.share_location_button.configure(state="disabled")
                     self.recover_battle_button.configure(state="disabled")
                     self.cancel_battle_entry_button.configure(state="disabled")
                     self.abandon_battle_button.configure(state="disabled")
@@ -2196,6 +2240,10 @@ class LauncherWindow:
                     if event.autosave_enabled is not None:
                         self._autosave_observed = event.autosave_enabled
                         self.autosave_value.set(event.autosave_enabled)
+                    if event.share_location is not None:           # the launcher's own change or the game's PokeNav toggle
+                        self._share_location_observed = event.share_location
+                        self.share_location_value.set(event.share_location)
+                    self.share_location_button.configure(state="normal" if event.state == "running" else "disabled")
                     self.autosave_button.configure(state="normal" if event.state == "running"
                         and event.code not in {"battle_recovering", "admission_canceling", "host_service_restarting",
                                                "trade_recovery_checking"} else "disabled")

@@ -537,6 +537,65 @@ class HostWorldTests(unittest.TestCase):
         self.assertIn("(1 friend through it)", seen["notes"])
         self.assertEqual(ui.windows[-1][:2], app3.menu_window)
 
+    def test_the_session_window_offers_location_sharing_off_by_default_and_follows_the_game(self):
+        # docs/pokenav-privacy.md: the launcher's location choice is the same one as the game's PokeNav toggle.
+        from emerald_multiplayer.launcher_gui import UiEvent
+        from emerald_multiplayer.shell_app import ShellApp
+        from emerald_multiplayer.shell_protocol import ScriptedShell
+        world = World(self)
+        app = make_world(self, world)
+        (entry,) = app.registry.entries()
+
+        class Manual(FakeWorker):
+            shares = []
+
+            def start(self, request):
+                self.requests.append(request)
+                self.events.put(UiEvent("status", "running", "running", True, save_available=True, is_host=True,
+                                        connected=True, share_location=False))
+                return True
+
+            def request_share_location(self, enabled):
+                self.shares.append(enabled)
+                # what the session's status then reports (the launcher's poll)
+                self.events.put(UiEvent("status", "running", "running", True, is_host=True, connected=True,
+                                        share_location=enabled))
+                return True
+
+        worker = Manual()
+        seen = []
+        state = {"hosted": False}
+
+        def responder(screen, waiting=False):
+            if screen.id == "session":
+                row = next((i for i in screen.items if i.id == "share_location"), None)
+                seen.append(None if row is None else (row.label, row.detail))
+                if len(seen) == 1:
+                    return select("share_location")
+                if len(seen) == 2:
+                    # the game's PokeNav toggle turned it off again: the row follows the session's status
+                    worker.events.put(UiEvent("status", "running", "running", True, is_host=True, connected=True,
+                                              share_location=False))
+                    return select("none")
+                worker.events.put(UiEvent("complete", "game_closed"))
+                return None
+            if screen.id == "world":
+                state["hosted"] = True
+                return select("host")
+            if screen.id == "busy" and waiting:
+                return None
+            return {"main": select("host") if not state["hosted"] else select("exit"),
+                    "host_list": select(entry.world_id) if not state["hosted"] else BACK,
+                    "bring_character": select("go")}.get(screen.id) or self.fail(f"unexpected {screen.id}")
+        ui = ScriptedShell(responder)
+        app3 = ShellApp(world.installation, world.private, ui, worker=worker, lan=LAN, graphics_gate=lambda: "3d",
+                        version="t", register=fake_register([]), drafter=fake_drafter([]))
+        app3.run()
+        self.assertEqual(worker.shares, [True])
+        self.assertEqual(seen[0], ("Share my location with other players", "off - turn on"))     # private by default
+        self.assertEqual(seen[1], ("Share my location with other players", "on - turn off"))
+        self.assertEqual(seen[2], ("Share my location with other players", "off - turn on"))
+
     def test_a_relay_set_in_network_settings_goes_into_new_invite_codes_and_router_setup_toggles(self):
         from emerald_multiplayer.network_settings import NetworkSettings
         world = World(self)

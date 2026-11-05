@@ -188,7 +188,9 @@ class CompanionIntegrationTests(unittest.IsolatedAsyncioTestCase):
         await self.server.close()
         self.temp.cleanup()
 
-    async def add_companion(self, index=1, **changes):
+    async def add_companion(self, index=1, *, share_location=True, **changes):
+        """A connected companion. These tests carry positions between players, so by default the player has chosen to share
+        their location (docs/pokenav-privacy.md; private is the companion's own default: share_location=None keeps it)."""
         config = CompanionConfig(
             self.rom, self.manifest, str(uuid.UUID(int=index)), f"Player {index}", secrets.token_bytes(32),
             server_port=self.server.address[1], ipc_port=0,
@@ -199,6 +201,8 @@ class CompanionIntegrationTests(unittest.IsolatedAsyncioTestCase):
             **changes,
         )
         companion = Companion(config)
+        if share_location is not None:
+            companion.share_location = share_location
         await companion.start()
         self.companions.append(companion)
         await wait_until(lambda: companion.connected and bool(companion._players))

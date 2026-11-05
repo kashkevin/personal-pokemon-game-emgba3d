@@ -106,6 +106,9 @@ async def run(args: argparse.Namespace) -> None:
             shutil.copyfile(save, copy)
             companion = Companion(CompanionConfig(args.rom, args.manifest, str(uuid4()), f"Native {'ABCD'[i]}",
                                                   secrets.token_bytes(32), server_port=server.address[1], ipc_port=0))
+            # The others follow a player through a door (--enter): these players chose to share their place
+            # (private is the default, docs/pokenav-privacy.md).
+            companion.share_location = True
             await companion.start()
             companions.append(companion)
             bridge = root / f"bridge-{i}.txt"
@@ -270,6 +273,7 @@ async def run(args: argparse.Namespace) -> None:
                            lambda: len(server.sessions) == len(companions) - 1, 30)
             await asyncio.sleep(2)
             companions[i] = Companion(replace(old, ipc_port=port))
+            companions[i].share_location = True
             await companions[i].start()
             await wait_for(f"client {i}'s running game reconnected its bridge to the new companion by itself",
                            lambda: companions[i]._bridge is not None, 60)
