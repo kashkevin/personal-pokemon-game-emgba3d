@@ -510,8 +510,8 @@ Recorded guidance the code no longer follows (not binding decisions):
   events before routing them to the new clock; `eng:src/rtc.c` routes every RTC consumer
   through the 12x clock (berries grow and daily events reset every 2 real hours while
   online).
-- Balance numbers live only in code; the cited `docs/balance-defaults.md` is missing.
-  They are now written down in `PROJECT_SPEC.md` section 7.
+- Balance numbers are written down in `docs/balance-defaults.md` (since 2026-11-03, KNOWN_ISSUES G2;
+  `tests/test_balance_doc.py` checks its host table against `balance.py`) and in `PROJECT_SPEC.md` section 7.
 
 ## Characters, connections and installation (2026-10-18, `docs/next-update-report.md`)
 
@@ -604,7 +604,7 @@ Recorded guidance the code no longer follows (not binding decisions):
 
 | Feature | Status | Evidence |
 | --- | --- | --- |
-| A Legendary or Mythical met in the wild stays until caught or knocked out: the player's own visible Pokemon (run from, after leaving the map and coming back; not across closing the game, MS-145) | Implemented and tested (Linux 2D test build, real game runs; not on Windows or a PC) | engine `11f8be05` |
+| A Legendary or Mythical met in the wild stays until caught or knocked out: the player's own visible Pokemon (run from, after leaving the map and coming back; across closing the game too since engine `9f0809f6`, the keep list a save record, MS-145) | Implemented and tested (Linux 2D test build, real game runs; the restart: `shiny_check.py` keep-restart on Linux and in Windows run 288's feature checks, a GitHub-hosted runner, not a PC) | engines `11f8be05`, `9f0809f6` |
 | A world's shared Legendary stays until caught or knocked out, through its lifetime, players leaving, an outbreak's end and a host restart | Implemented and tested (unit tests; not in a real connected world) | app (this commit) |
 | A shiny caught in the Safari Zone is gone for good (it came back after the next battle: MS-142) | Implemented and tested (Linux 2D test build, before and after) | engine `11f8be05` |
 | Shiny odds of every way a Pokemon is made, as documented | Tested (`--selftest-shiny-paths`, the game's own code) | engine `11f8be05` |

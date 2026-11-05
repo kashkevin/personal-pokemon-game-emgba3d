@@ -93,8 +93,9 @@ Milestone A is stable when A8-A14 are done (A9 and the owner's-PC part of A14 re
   Blocks 9.13 and the spawn part of F1. [audit] [dir]
 - [x] O2 Save the 2026-10-09 native PC directive verbatim as a `docs/project-*.txt`
   file (and the toolkit directive). [agents] [spec]
-- [ ] O3 `docs/balance-defaults.md` is cited by four source files but does not exist:
-  create it or point those comments at `PROJECT_SPEC.md` section 7. [audit]
+- [x] O3 `docs/balance-defaults.md` is cited by four source files but did not exist:
+  written from the code on 2026-11-03 (KNOWN_ISSUES G2); `tests/test_balance_doc.py` checks it
+  against `balance.py`. [audit]
 - [ ] O4 Update `docs/master-spec.md`, `docs/visible-world-design.md` and
   `PROJECT_STATUS_AND_HANDOFF.md`, which still describe the 2026-10-09 rules as
   pending or design-only. [audit]

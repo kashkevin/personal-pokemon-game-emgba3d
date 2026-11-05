@@ -464,8 +464,9 @@ summary disagrees with a source, the source wins and this file should be correct
 | Shiny odds and Charm | personal roll 1/4096 (Gen 6); the Charm gives 1/2500 (Update 30), the Safari Zone 1 extra roll (1/2048.3, with the Charm 1/1024.4); eggs 1/4096, 1/1365.7 with a shiny parent or the Charm, 1/683 with both; the Charm costs 15,000 Game Corner coins (100,000 in Update 29; every Game Corner coin price cut to 15% on 2026-10-25; the Coin Case holds up to 999,999) and is guaranteed; with Local Soft Reset hunts the Charm gives the same 1/2500 (corrected 2026-10-27: they had kept Update 29's 1/1365.7) | [eng-bal] |
 | Mega Stones | 4,500-15,000 Game Corner coins each by Mega form (Update 29; every Game Corner coin price cut to 15% on 2026-10-25), sold by the Mauville City Poké Mart dealer once the player has the Mega Ring (3,750 coins at the Game Corner prize counter; the Shiny Charm 15,000) | [eng-bal] |
 
-The code cites `docs/balance-defaults.md` as the written copy of these values; that file
-does not exist [audit]. This section is the written record until it does.
+The code cites `docs/balance-defaults.md` as the written copy of these values; it exists since
+2026-11-03 (KNOWN_ISSUES G2), written from the code, and `tests/test_balance_doc.py` fails when its
+host table differs from `balance.py`.
 
 ### Wild spawn ownership - Decision pending - owner to confirm
 
