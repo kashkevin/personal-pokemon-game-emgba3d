@@ -123,7 +123,8 @@ not there); all fixed (app `975d700` and `58ffc1f`; TEST_LEDGER), the next `app-
 smoke runs of the pushes (300, 301, 303, 305, 307) failed in the world-loading job's new step, the save path's own
 tests (the tests' paths and open files on Windows, not the store); fixed in `975d700`, whose smoke run 309 passed
 the step on Windows (312 tests, the 3 expected skips). Run 310 (engine `e88dbdf6`, app `975d700`, the gameplay
-check on) is the next installer candidate, dispatched at 08:42 UTC.
+check on) **passed every job** (08:42-12:32 UTC): its installer is now the one prepared,
+`docs/package-20261105c.md`, not distributed (N8).
 
 Run 297 (engine `67e39839`, app `f83c033`, the gameplay check on) **passed every one of its 67 jobs** on the first
 attempt (05:14-09:16 UTC; the 100-floor climb 3 h 07 min): its installer is now the one prepared
