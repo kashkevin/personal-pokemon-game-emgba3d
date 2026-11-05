@@ -744,6 +744,40 @@ class SettingsTests(unittest.TestCase):
         for expected in ("resolution=1280x720", "displayMode=borderless", "volume=4"):
             self.assertIn(expected, text)
 
+    def test_the_audio_screen_has_the_four_volumes_in_percent_and_writes_each(self):
+        # The owner's decision of 2026-11-05: master, music (70% by default) and sound effects (100%), plus the cries.
+        world = World(self)
+        (world.private / "game-settings.cfg").parent.mkdir(parents=True, exist_ok=True)
+        (world.private / "game-settings.cfg").write_text("key.a=Q\nvolume=9\ncryVolume=5\n")   # an older game's file
+        seen = {}
+
+        def audio(screen):
+            seen.setdefault("rows", [(item.id, item.label, item.detail) for item in screen.items if item.kind == "row"])
+            seen.setdefault("sub", screen.sub)
+            return select("music_volume")
+
+        def volumes(screen):
+            seen["choices"] = [(item.id, item.label) for item in screen.items if item.kind == "row"]
+            seen["title"] = screen.title
+            return select("3")
+
+        driver = Driver(("main", select("settings")), ("settings", select("audio")), ("audio", audio), ("choose", volumes),
+                        ("audio", lambda s: seen.update(after=[i.detail for i in s.items if i.kind == "row"]) or select("cry_volume")),
+                        ("choose", select("0")), ("audio", select("sfx_volume")), ("choose", BACK), ("audio", BACK),
+                        ("settings", BACK), main_exit())
+        app, _ = world.app(driver)
+        app.run()
+        self.assertTrue(driver.done(), driver.steps)
+        self.assertEqual(seen["rows"], [("volume", "Master volume", "90%"), ("music_volume", "Music", "70%"),
+                                        ("sfx_volume", "Sound effects", "100%"), ("cry_volume", "Pokemon cries", "100%")])
+        self.assertIn("F10 > Audio", seen["sub"])
+        self.assertNotIn("In the game, F10 changes them live", seen["sub"])
+        self.assertEqual(seen["title"], "Music")
+        self.assertEqual(seen["choices"], [(str(n), f"{n * 10}%") for n in range(11)])
+        self.assertEqual(seen["after"], ["90%", "30%", "100%", "100%"])
+        lines = (world.private / "game-settings.cfg").read_text().splitlines()
+        self.assertEqual(lines, ["key.a=Q", "volume=9", "musicVolume=3", "sfxVolume=10", "cryVolume=0"])
+
     def test_a_damaged_record_is_reported_and_never_overwritten(self):
         world = World(self)
         shell = world.private / "shell"

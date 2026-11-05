@@ -43,6 +43,10 @@ battle in both renderers; a 2v2 for comparison (unchanged); the Town Map with ma
   at 0.86, still below full scale. The volume setting is still relative to it. **Needs real ears:** whether +6 dB is the right loudness.
 * Not checked (needs ears): musical correctness of each track (instrument mapping), cry volume balance, loop points, the transition
   between songs and fades, the PC cry-volume setting.
+* **2026-11-05, the volume controls** (owner decision #45, `docs/audio-volumes.md`): master, music (70% by default), sound
+  effects and the cries (the cry-volume setting now applies). The audit measures with music, effects and cries at 100%
+  whatever the settings file says, so these numbers stay comparable; every control's gain is at most 1, so the peaks above
+  are still the loudest the game plays. With every control at 100% the library's output is bit for bit the earlier build's.
 
 ## Missing art / assets
 No new gap found. Known and documented elsewhere: the PokeNav event/outbreak glyphs and number badges (`docs/graphical-pokenav-map.md`),

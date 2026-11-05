@@ -445,6 +445,36 @@ class MenuTests(unittest.TestCase):
         self.assertIn("volume=3", lines)
         self.assertIn("cryVolume=0", lines)
 
+    def test_the_audio_page_has_master_music_effects_and_cries_in_percent(self):
+        # The owner's decision of 2026-11-05: music at 70% by default, sound effects at 100%, independent controls.
+        self.worker.installation.bundle.is_native = lambda: True
+        self.worker.installation.bundle.has_classic = lambda: True
+        (self.private / "game-settings.cfg").write_text("key.a=Q\nvolume=10\ncryVolume=5\n")    # an older game's file
+        window = self.window()
+        window.show_view("settings")
+        self.root.update()
+        page = next(w for w in _walk(window.settings_pages["audio"]) if hasattr(w, "audio_save"))
+        self.assertEqual(list(page.audio_scales), ["volume", "music_volume", "sfx_volume", "cry_volume"])
+        self.assertEqual({key: v.get() for key, v in page.audio_scales.items()},
+                         dict(volume=10, music_volume=7, sfx_volume=10, cry_volume=10))
+        self.assertEqual({key: v.get() for key, v in page.audio_percents.items()},
+                         dict(volume="100%", music_volume="70%", sfx_volume="100%", cry_volume="100%"))
+        texts = [w.cget("text") for w in _walk(window.settings_pages["audio"]) if w.winfo_class() == "TLabel"]
+        for label in ("Master volume", "Music", "Sound effects", "Pokemon cries"):
+            self.assertIn(label, texts)
+        page.audio_scales["music_volume"].set(4)
+        self.assertEqual(page.audio_percents["music_volume"].get(), "40%")
+        page.audio_scales["sfx_volume"].set(9)
+        page.audio_save()
+        lines = (self.private / "game-settings.cfg").read_text().splitlines()
+        self.assertEqual(lines, ["key.a=Q", "volume=10", "musicVolume=4", "sfxVolume=9", "cryVolume=10"])
+        shown = [w.getvar(str(w.cget("textvariable"))) for w in _walk(window.settings_pages["audio"])
+                 if w.winfo_class() == "TLabel" and str(w.cget("textvariable"))]
+        saved = [text for text in shown if str(text).startswith("Saved.")]
+        self.assertEqual(len(saved), 1, shown)
+        self.assertIn("in the 3D game, F10 > Audio changes them while you play", saved[0])
+        self.assertNotIn("F10 changes them live", saved[0])
+
     def test_settings_cannot_be_saved_while_a_game_runs(self):
         self.worker.installation.bundle.is_native = lambda: True
         self.worker.installation.bundle.has_classic = lambda: True

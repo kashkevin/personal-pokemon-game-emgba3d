@@ -2015,7 +2015,7 @@ class ShellApp:
             current = updated
 
     def _audio_settings(self):
-        from .game_display_settings import read_audio_settings, write_audio_settings
+        from .game_display_settings import AUDIO_KEYS, AUDIO_LABELS, read_audio_settings, volume_percent, write_audio_settings
         path = self._settings_path()
         try:
             current = read_audio_settings(path)
@@ -2023,21 +2023,26 @@ class ShellApp:
             self.message("Audio", "The game settings file cannot be read here. Nothing was changed.")
             return None
         while True:
-            screen = Screen("audio", "Audio volumes", "Used the next time a game starts. In the game, F10 changes them live.")
-            screen.row("volume", "Game volume (music and effects)", f"{current['volume']} of 10")
-            screen.row("cry_volume", "Pokemon cry volume", f"{current['cry_volume']} of 10")
+            screen = Screen("audio", "Audio volumes", "Used the next time a game starts. In the 3D game, F10 > Audio changes them while you play.")
+            screen.note("Music includes the fanfares and jingles; Master changes everything.")
+            for key, _ in AUDIO_KEYS:
+                screen.row(key, AUDIO_LABELS[key], volume_percent(current[key]))
             screen.button("back", "Back")
             event = self.ui.show(screen)
             if event.kind == "back" or event.id == "back":
                 return None
-            picked = self.choose("Volume", [(str(n), f"{n}", "") for n in range(0, 11)])
+            if event.id not in current:
+                continue
+            picked = self.choose(AUDIO_LABELS[event.id], [(str(n), volume_percent(n), "") for n in range(0, 11)])
             if picked is None:
                 continue
-            current = dict(current, **{event.id: int(picked)})
+            chosen = dict(current, **{event.id: int(picked)})
             try:
-                write_audio_settings(path, volume=current["volume"], cry_volume=current["cry_volume"])
+                write_audio_settings(path, **chosen)
             except (OSError, ValueError):
                 self.message("Audio", "The game settings file could not be written. Nothing changed.")
+                continue
+            current = chosen
 
     def _controls_info(self):
         """Rebind the keyboard keys of the game's buttons (the same game-settings.cfg lines the game and its F10 menu use)."""

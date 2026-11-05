@@ -5,7 +5,8 @@ keys in ``game-settings.cfg``: ``resolution=``, ``displayMode=`` and
 ``quality=``, plus ``fullscreen=``/``windowScale=`` for older game builds. The
 launcher changes them only while no game is running and keeps every other
 line (camera, trees, volume, ...) exactly as the game wrote it. While playing,
-F10 opens the same settings in the game itself.
+the 3D game's F10 menu changes the same settings (its Audio page the four
+volumes at the end of this module); the Classic 2D game has no such menu.
 """
 from __future__ import annotations
 
@@ -125,28 +126,66 @@ def write_display_settings(path, *, resolution, mode, quality):
     return read_display_settings(path)
 
 
-# ---- Audio: the game's own volume= and cryVolume= lines (0 to 10 each; the game's F10 menu changes the same ones)
+# ---- Audio: the game's four volume lines, each 0 to 10 (0-100% in 10% steps), read and written by the game as by this
+# module (engine include/platform/audio_volume.h); the 3D game's F10 > Audio page changes the same ones while playing.
+#   volume=       master: everything the game plays
+#   musicVolume=  music, the fanfares and jingles included (a level-up, a Pokemon Center's heal, a new item)
+#   sfxVolume=    sound effects
+#   cryVolume=    Pokemon cries
+# The owner's decision of 2026-11-05: music at 70% by default, sound effects at 100%; the cries at 100% as well.
+AUDIO_KEYS = (("volume", "volume"), ("music_volume", "musicVolume"), ("sfx_volume", "sfxVolume"),
+              ("cry_volume", "cryVolume"))
+AUDIO_LABELS = {"volume": "Master volume", "music_volume": "Music", "sfx_volume": "Sound effects",
+                "cry_volume": "Pokemon cries"}
 DEFAULT_VOLUME = 10
-DEFAULT_CRY_VOLUME = 5
+DEFAULT_MUSIC_VOLUME = 7
+DEFAULT_SFX_VOLUME = 10
+DEFAULT_CRY_VOLUME = 10
+AUDIO_DEFAULTS = {"volume": DEFAULT_VOLUME, "music_volume": DEFAULT_MUSIC_VOLUME, "sfx_volume": DEFAULT_SFX_VOLUME,
+                  "cry_volume": DEFAULT_CRY_VOLUME}
+# A file written before musicVolume= and sfxVolume= existed (no line of either): music and sound effects take the defaults
+# above, volume= stays the master as it was, and cryVolume=5 reads as 10. Every game before them wrote cryVolume=5 as its
+# default and never applied it, so the cries stay as loud as they always were; any other cryVolume= there is the
+# player's own choice and is kept (now applied). The game reads such a file the same way (AudioVolumes_Finish).
+OLD_UNAPPLIED_CRY_VOLUME = 5
+_AUDIO_FILE_KEYS = {file_key: key for key, file_key in AUDIO_KEYS}
+
+
+def volume_percent(value):
+    """A volume's 0-10 as the game and the launcher show it: "70%"."""
+    return f"{value * 10}%"
 
 
 def read_audio_settings(path):
-    """(music/effects volume, Pokemon cry volume), each 0-10; the game's defaults where the file says nothing."""
-    values = dict(volume=DEFAULT_VOLUME, cry_volume=DEFAULT_CRY_VOLUME)
+    """The four volumes, each 0-10 (keys ``volume``, ``music_volume``, ``sfx_volume``, ``cry_volume``): the file's
+    values, the defaults where it says nothing, an older file as the game reads it (see ``OLD_UNAPPLIED_CRY_VOLUME``)."""
+    values = dict(AUDIO_DEFAULTS)
+    new_keys = False
     for line in _lines(path):
-        key, _, value = line.strip().partition("=")
-        if key in ("volume", "cryVolume") and value.isdigit() and int(value) <= 10:
-            values["volume" if key == "volume" else "cry_volume"] = int(value)
+        file_key, _, value = line.strip().partition("=")
+        key = _AUDIO_FILE_KEYS.get(file_key)
+        if key is None:
+            continue
+        new_keys = new_keys or key in ("music_volume", "sfx_volume")
+        if value.isdigit() and int(value) <= 10:
+            values[key] = int(value)
+    if not new_keys and values["cry_volume"] == OLD_UNAPPLIED_CRY_VOLUME:
+        values["cry_volume"] = DEFAULT_CRY_VOLUME
     return values
 
 
-def write_audio_settings(path, *, volume, cry_volume):
-    """Write the two volumes; every other line of the file stays as the game wrote it. Atomic."""
-    if (type(volume) is not int or type(cry_volume) is not int or not 0 <= volume <= 10 or not 0 <= cry_volume <= 10):
+def write_audio_settings(path, *, volume, cry_volume, music_volume=None, sfx_volume=None):
+    """Write the four volumes (a music or sound effect volume left out keeps what the file says, or its default); every
+    other line of the file stays as the game wrote it. Atomic."""
+    current = read_audio_settings(path)
+    chosen = {"volume": volume, "music_volume": current["music_volume"] if music_volume is None else music_volume,
+              "sfx_volume": current["sfx_volume"] if sfx_volume is None else sfx_volume, "cry_volume": cry_volume}
+    if any(type(value) is not int or not 0 <= value <= 10 for value in chosen.values()):
         raise ValueError("invalid audio settings")
     path = Path(path)
-    kept = [line for line in _lines(path) if not line.strip().startswith(("volume=", "cryVolume="))]
-    data = ("\n".join(kept + [f"volume={volume}", f"cryVolume={cry_volume}"]) + "\n").encode("utf-8")
+    owned = tuple(f"{file_key}=" for _, file_key in AUDIO_KEYS)
+    kept = [line for line in _lines(path) if not line.strip().startswith(owned)]
+    data = ("\n".join(kept + [f"{file_key}={chosen[key]}" for key, file_key in AUDIO_KEYS]) + "\n").encode("utf-8")
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(path.name + ".tmp")
     with temporary.open("wb") as target:

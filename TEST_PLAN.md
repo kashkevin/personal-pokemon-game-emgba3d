@@ -106,6 +106,35 @@ committed): Psychic Edward and Triathlete Alyssa's two-trainer battle on Route 1
 build, new menus on, won by mashing A: "You got P960 for winning!", back on Route 110, no crash.
 
 
+### Volume controls (owner decision #45; engine `5e12fe8b51`, branch `claude/audio-volumes`)
+
+```sh
+make -f Makefile_pc NATIVE_LINUX=1 DIORAMA=1 BFX_TEST=1 check-audio-volumes   # --selftest-audio-volumes
+make -f Makefile_pc NATIVE_LINUX=1 check-native                              # test_display_settings: the F10 Audio page
+python -m pytest tests/test_game_display_settings.py tests/test_shell_app.py  # app: the file, the in-game menu
+xvfb-run -a python -m pytest tests/test_launcher_menu.py                      # app: the launcher's audio page
+```
+
+`--selftest-audio-volumes` (`src/platform/native_selftest_audio.c`): every song number's control (below 350 a sound effect,
+from 350 on music; the 73 music songs on a sound effect player, the fanfares and jingles among them, are music); a player
+keeps the category of the song it really plays; a music song (Route 101, sample and GB channels), a sound effect
+(SE_PC_LOGIN, a GB channel), a fanfare (MUS_LEVEL_UP on sound effect player 2) and a cry (Pikachu) through the game's own
+mixer from a fresh sound engine: at 100% every channel by the unchanged path, the other controls at 0% change no sample,
+at 90/70/50/30/10% every sample that share of the 100% mix (float rounding only), 0% silent, then the master (x master/10,
+x4, the clamp; at 100% bit for bit the old stage); the settings file as the game reads and writes it (the same cases as
+the app's tests); the F10 Audio page through its keys (heard at once, saved, no wrap past 0% or 100%). In the Classic 2D
+build the F10 part is skipped (no menu). **Result 2026-11-05 (Linux, 3D test build): 98 checks, 0 failed;
+`check-native` all pass (`test_display_settings` 375 checks, 307 before). App: `test_game_display_settings.py` 17 passed
+(8 of them the volumes), `test_shell_app.py` 35, `test_launcher_menu.py` 31 (under `xvfb-run`).**
+
+The 100% path, against the build before the change: the audio audit (`PKMN_DEBUG_SCENE=audio PKMN_DEBUG_AUDIO=1,609,30`)
+in both builds with an `LD_PRELOAD` shim hashing every buffer handed to `SDL_QueueAudio` (and reporting an empty queue, so
+no frame is left out), every control at 100%: the same hash for all 18,880 frames (development check, not committed).
+
+By hand: an older `game-settings.cfg` (`volume=10`, `cryVolume=5`) in the 3D game on Xvfb with `xdotool`: F10 shows an Audio
+row before Controls (the 19-row sheet still fits the 640x360 canvas at 1280x720), its page reads 100/70/100/100%, Left on
+Music and twice on cries write `musicVolume=6` and `cryVolume=8` at once.
+
 ### Expansion Phases 2 and 11 (engine `51bfd74d41`, `41f3cc2d27`)
 
 ```sh

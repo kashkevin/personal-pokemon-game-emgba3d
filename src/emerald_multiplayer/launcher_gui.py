@@ -1708,7 +1708,7 @@ class LauncherWindow:
         native = bool(installation is not None and installation.bundle.is_native())
         keys = (("Default keyboard controls (PC game, no emulator)\n"
             "Arrows: move · Z: A/confirm · X: B/back\nEnter: Start/menu · Backslash (\\): Select · A/S: L/R\n"
-            "F10: display & graphics settings (resolution, display mode, quality) and Controls · F11: fullscreen\n"
+            "F10 (3D game): display & graphics settings (resolution, display mode, quality), the Audio and Controls pages · F11: fullscreen\n"
             "F4: 3D or classic view · F7: camera (Adventure or Diorama) · F8: trees · F9: photo mode · F12: picture\n"
             "Mouse wheel or -/=: zoom · comma/period: tilt\n"
             "Ctrl+R: the A+B+Select+Start chord (Local Soft Reset only, see below). Click the game window before using the keyboard.\n"
@@ -1816,11 +1816,12 @@ class LauncherWindow:
         ttk.Label(page, textvariable=feedback, wraplength=570, justify="left").pack(anchor="w")
 
     def _game_audio_page(self, page):
-        """The native game's volume and Pokemon cry volume (game-settings.cfg ``volume=`` and ``cryVolume=``; the game's F10
-        menu changes the same two while playing)."""
+        """The native game's four volumes: master, music, sound effects and Pokemon cries (game-settings.cfg ``volume=``,
+        ``musicVolume=``, ``sfxVolume=`` and ``cryVolume=``, 0-100% in 10% steps; the 3D game's F10 > Audio page changes
+        the same four while playing)."""
         import tkinter as tk
         from tkinter import ttk
-        from .game_display_settings import read_audio_settings, write_audio_settings
+        from .game_display_settings import AUDIO_KEYS, AUDIO_LABELS, read_audio_settings, volume_percent, write_audio_settings
         from .player_runtime import SETTINGS_NAME
         private = getattr(self.worker, "private_root", None)
         path = Path(private) / SETTINGS_NAME if private is not None else None
@@ -1832,31 +1833,40 @@ class LauncherWindow:
         if current is None:
             ttk.Label(page, text="The game settings file cannot be read here.").pack(anchor="w")
             return
+        ttk.Label(page, text=("Master volume changes everything the game plays. Music includes the fanfares and jingles "
+                              "(a level-up, a Pokemon Center's heal, a new item); sound effects are the rest; Pokemon "
+                              "cries have their own volume."), wraplength=570, justify="left").pack(anchor="w", pady=(0, 6))
         feedback = tk.StringVar()
         scales = {}
+        percents = {}
         grid = ttk.Frame(page)
         grid.pack(anchor="w")
-        for row, (label, key) in enumerate((("Game volume (music and effects)", "volume"), ("Pokemon cry volume", "cry_volume"))):
-            ttk.Label(grid, text=label).grid(row=row, column=0, sticky="w", padx=(0, 12), pady=6)
+        for row, (key, _) in enumerate(AUDIO_KEYS):
+            ttk.Label(grid, text=AUDIO_LABELS[key]).grid(row=row, column=0, sticky="w", padx=(0, 12), pady=6)
             variable = tk.IntVar(value=current[key])
+            shown = tk.StringVar(value=volume_percent(current[key]))
+            variable.trace_add("write", lambda *_, v=variable, s=shown: s.set(volume_percent(v.get())))
             ttk.Scale(grid, from_=0, to=10, orient="horizontal", length=240, variable=variable,
                       command=lambda value, v=variable: v.set(round(float(value)))).grid(row=row, column=1, pady=6)
-            ttk.Label(grid, textvariable=variable, width=3).grid(row=row, column=2)
+            ttk.Label(grid, textvariable=shown, width=5).grid(row=row, column=2)
             scales[key] = variable
+            percents[key] = shown
 
         def save():
             if self.worker is None or self.worker.busy:
                 feedback.set("Close the game first: it keeps these settings in the same file while it runs.")
                 return
             try:
-                write_audio_settings(path, volume=int(scales["volume"].get()), cry_volume=int(scales["cry_volume"].get()))
+                write_audio_settings(path, **{key: int(scales[key].get()) for key, _ in AUDIO_KEYS})
             except (OSError, ValueError):
                 feedback.set("The game settings file could not be written; nothing changed.")
                 return
-            feedback.set("Saved. The game uses these volumes the next time it starts (in the game, F10 changes them live).")
+            feedback.set("Saved. The game uses these volumes the next time it starts (in the 3D game, F10 > Audio "
+                         "changes them while you play).")
         ttk.Button(page, text="Save audio settings", command=save).pack(anchor="w", pady=(10, 4))
         ttk.Label(page, textvariable=feedback, wraplength=570, justify="left").pack(anchor="w")
         page.audio_scales = scales    # for tests
+        page.audio_percents = percents
         page.audio_save = save
 
     def _game_controls_page(self, page):
