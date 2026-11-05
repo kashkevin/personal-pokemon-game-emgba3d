@@ -140,7 +140,9 @@ now 120 s, a hang's limit (the fixture counts game frames, not time); the next `
 
 Added since: the multiplayer-check job's `give-up` and `give-up-mid-turn` entries (MS-126; both passed on Linux),
 and the package job's in-game menu check with the mouse resting where the window opens (KNOWN_ISSUES P14, fixed
-in engine `6ce2648c`).
+in engine `6ce2648c`). Run 316 (only `package`, the old engine `e88dbdf6`) shows whether Windows gives a menu window
+opened over a resting mouse the same focus fault; run 317 (engine `6ce2648c`) runs the package check, both give-up
+entries and `app-tests` on `86c8fde` (dispatched 11:01 UTC).
 
 ## 6. Earlier issues in KNOWN_ISSUES (reviewed 2026-11-04)
 
