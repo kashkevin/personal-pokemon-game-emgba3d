@@ -82,7 +82,8 @@ the hash before accepting a file and refuses anything else):
 1. **Self-hosted runner on your own PC.** Settings → Actions → Runners → New self-hosted runner
    (Windows), then set the repository variable `PRIVATE_INPUT_DIR` to a folder such as
    `C:\EmeraldPrivate` that holds the two files with those exact names, and run the workflow with
-   `runner = self-hosted`. The files never leave the PC. The job reads only that folder.
+   `runner = self-hosted`. The files themselves never leave the PC (the package built with them is uploaded like
+   any package: [local-build-inputs.md](local-build-inputs.md) section 5). The job reads only that folder.
 2. **Private HTTPS links as secrets.** Put each file in storage you control, create a link that
    expires, and save it as the secret `BASE_ROM_URL` or `SPRITE_PACK_URL` (secrets hold at most
    48 KB, so a link, never the file). The runner downloads it, checks the hash, uses it and
