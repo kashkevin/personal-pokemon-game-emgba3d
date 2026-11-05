@@ -47,3 +47,7 @@ An independent source-only review found no concrete blocker in the Mew chase/pre
 ## Still unverified
 
 Compilation, memory/performance cost, all new denial/cancellation and counter paths, Mew's dynamic grass presentation across battle reload, Ho-Oh's weather transition, Deoxys retry and normal removal, both legitimate Southern Island branches, host-loss pending admission, native input, checkpoint/fresh Continue and simultaneous multiplayer operation remain **UNVERIFIED**. Future acceptance requires legitimately progressed private saves, native entry/reset/reinteraction/capture or defeat, and source-preservation evidence. No ticket injection, debug warp, puzzle bypass, downloaded commercial ROM or old fixture result can supply that acceptance.
+
+## Where the tickets come from
+
+Nothing in this game gives these tickets yet. Their sources (the owner's decision of 2026-11-05: postgame achievements, challenging quests and Battle Frontier milestones, never the casino alone) are designed in [legendary-tickets.md](legendary-tickets.md); delivery needs a PC-only engine change described there.
