@@ -19,7 +19,7 @@ What a full run executes in real Windows game processes (one hosted runner per j
 
 | Area | Job(s) |
 | --- | --- |
-| Install, start, repair, uninstall; Create World, a character, Solo, Host World, Join Friend on the installed build | installation check |
+| Install, start, repair, uninstall; Create World, a character, Solo, Host World, Join Friend on the installed build; with `upgrade_from_run`, an update: an earlier run's installer installed and played the same way (two characters, Solo, a hosted world, the friend joining), then this run's installer installed over it, and both players play on from the saves the earlier version made (`ci_play_check.py --upgrade-to`) | installation check |
 | The packaged games start; 3D refused cleanly and the 2D fallback (the runner's OpenGL 1.1); in-game menus, with the mouse resting where the menu window opens (KNOWN_ISSUES P14) | package |
 | A new character, no Pokemon, a starter claimed and saved, three soft-reset rerolls | feature-check (starters, soft reset) |
 | Two to four players in one world: simultaneous starter claims, 1v1, 1v1v1, 1v1v1v1, 2v2, a battle and a trade at once, resets while others play, visibility, a connection cut and rejoined; a battle and trades in the 3D game (through Mesa's software OpenGL); giving up a 1v1 from the waiting screen with the other player away, and once the battle's master has begun the turn (KNOWN_ISSUES MS-126) | multiplayer-check (lobby 3 and 4, mixed, busy; battle-trade-3d; give-up, give-up-mid-turn) |

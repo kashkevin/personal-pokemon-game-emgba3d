@@ -4,6 +4,9 @@ real game (Windows runner, CI only); or the same steps with the Linux game on X 
     python ci_play_check.py --setup EmeraldTogether-Setup-X.exe --work <new folder> [--label play]
     python ci_play_check.py --linux --game <pokeemerald-mp> --rom <pokedev.gba> --manifest <game-manifest.json>
                             --display :94 --display :95 --work <new folder> [--label play]
+    (the Linux rehearsal's manifest as the packaging run makes it: generate_manifest.py with --native-symbols, the
+    `nm --print-size --defined-only` of that game; without the game's PC-only markers the host's world refuses the companion
+    during the first registration, 2026-11-05)
 
 What it does, as two players on one PC would (two new profiles: a host and a friend; both menus open at once):
 
@@ -174,11 +177,15 @@ class LinuxDesk:
 
     def __init__(self, application, displays):
         self.application, self.displays = application, displays
-        self.display_of = {}            # each player's launcher process: its display (launch() hands them out in order)
+        self.display_of = {}            # each player's launcher process: its display
+        self.profile_display = {}       # each player's display, handed out in the order they first start; kept on a restart
         self.found = {}                 # any other process of a player's (a menu, a game): (display, start time), kept once found
 
     def launch(self, profile, screen_log):
-        display = self.displays[len(self.display_of)]
+        key = str(Path(profile).resolve())
+        if key not in self.profile_display:
+            self.profile_display[key] = self.displays[len(self.profile_display)]
+        display = self.profile_display[key]
         env = dict(os.environ, DISPLAY=display, SDL_AUDIODRIVER="dummy", **{SCREEN_LOG: str(screen_log)})
         env["PYTHONPATH"] = os.pathsep.join([str(ROOT / "src"), str(ROOT / "tests"), str(HERE)])
         process = subprocess.Popen([sys.executable, str(Path(__file__).resolve()), "--linux-app", str(self.application),
@@ -813,6 +820,71 @@ def run(check, host, friend):
     for player in (host, friend):
         require(player.error_text() == "", f"{player.name}: an error was recorded: {player.error_text()[-2000:]}")
     check.log("no error was recorded in either profile")
+    return world, slot
+
+
+def installed_files(target):
+    """Every installed file's SHA-256 by its path in the program folder (Inno Setup's own uninstaller left out)."""
+    return {str(path.relative_to(target)).replace("\\", "/"): hashlib.sha256(path.read_bytes()).hexdigest()
+            for path in sorted(target.rglob("*")) if path.is_file() and not path.name.lower().startswith("unins")}
+
+
+def upgrade(check, host, friend, setup, target, work, label, world, slot):
+    """--upgrade-to: an update as a player makes one. With both menus closed after the steps above, the newer Setup is installed
+    over the same program folder (the players' profiles are left as they are), then both play on: the host's Solo world, the
+    hosted world hosted again, the friend joining it from the saved server. Every character, world and save the older version
+    made must still be there, each world must take the save it holds back (CONTINUE) and save again (Save now), and nothing may
+    record an error. Linux rehearsal: no Setup; the same program starts again."""
+    report = dict(setup=setup.name if setup else "the same program (Linux rehearsal)")
+    solo = host.world(check.report["solo"]["world"])
+    hosted = host.world(world["name"])
+    require(solo is not None and hosted is not None, f"{host.name}: the worlds the older version made are not in the list")
+    before = dict(characters={p.name: sorted(c["character_id"] for c in p.characters()) for p in (host, friend)},
+                  worlds=sorted(entry["world_id"] for entry in host.worlds()),
+                  revisions=dict(solo=revision(solo, 0), host=revision(hosted, 0), friend=revision(hosted, slot)))
+    require(all(before["revisions"].values()), f"the older version's saves are missing before the update: {before['revisions']}")
+    report["revisions_before"] = before["revisions"]
+    if setup is not None:
+        import ci_world_check as w
+        files = installed_files(target)
+        w.install(setup, target, dict(os.environ, LOCALAPPDATA=str(host.profile)), work, label + "-upgrade")
+        after = installed_files(target)
+        changed = sorted(name for name in set(files) | set(after) if files.get(name) != after.get(name))
+        require(changed, f"installing {setup.name} over the older version changed no file")
+        report.update(files_before=len(files), files_after=len(after), files_changed=len(changed))
+        check.log(f"update: installed {setup.name} over the older version ({len(changed)} of {len(after)} files new or changed)")
+    host.start()
+    friend.start()
+    check.picture("menus-after-update")
+    for player in (host, friend):
+        ids = sorted(c["character_id"] for c in player.characters())
+        require(ids == before["characters"][player.name],
+                f"{player.name}: Characters after the update {ids}; before it {before['characters'][player.name]}")
+    require(sorted(entry["world_id"] for entry in host.worlds()) == before["worlds"], f"{host.name}: the world list changed")
+    check.log("after the update: both players' characters and the host's worlds are the ones the older version made")
+    host.choose(host.expect("main"), "solo")
+    host.choose(host.expect("solo"), solo["world_id"])
+    _, report["solo"] = check.play(host, solo, 0, before["revisions"]["solo"])
+    host.expect("main", 60)
+    host.choose(host.expect("main"), "host")
+    host.choose(host.expect("host_list"), hosted["world_id"])
+    host.choose(host.expect("world"), "host")
+    host_game, report["host"] = check.play(host, hosted, 0, before["revisions"]["host"], keep_open=True)
+    report["join"] = check.rejoin(friend, hosted, slot)
+    check.picture("after-update-join")
+    check.close(host, host_game)
+    host.expect("host_list", 60)
+    for player in (host, friend):
+        latest = [c for c in player.characters() if c["character_id"] in before["characters"][player.name]]
+        require(any(c["current"]["world_id"] == hosted["world_id"] for c in latest),
+                f"{player.name}: no character's latest save is the hosted world's after the update")
+    for player in (friend, host):
+        check.finish(player)
+    for player in (host, friend):
+        require(player.error_text() == "", f"{player.name}: an error was recorded after the update: {player.error_text()[-2000:]}")
+    report["revisions_after"] = dict(solo=revision(solo, 0), host=revision(hosted, 0), friend=revision(hosted, slot))
+    check.log(f"after the update every save played on: {before['revisions']} -> {report['revisions_after']}; no error recorded")
+    return report
 
 
 # ------------------------------------------------------------------ set-up: the installed program (Windows) or the Linux game
@@ -884,6 +956,9 @@ def main():
                              "host hosts again and the friend joins back")
     parser.add_argument("--friend-menu", action="store_true",
                         help="with --host-leaves: the friend has the START menu open when the host leaves")
+    parser.add_argument("--upgrade-to", type=Path, metavar="SETUP",
+                        help="then install this newer Setup over the one --setup installed (an update) and play on from the "
+                             "saves the older version made; with --linux, SETUP is 'same': the same program starts again")
     parser.add_argument("--linux-app", nargs=2, metavar=("INSTALLATION", "PROFILE"), help=argparse.SUPPRESS)
     args = parser.parse_args()
     if args.linux_app:
@@ -918,7 +993,11 @@ def main():
         for player in (host, friend):
             player.private.mkdir(parents=True, exist_ok=True)
             seed_rule(player)
-        run(check, host, friend)
+        world, slot = run(check, host, friend)
+        if args.upgrade_to is not None:
+            require(args.linux or args.upgrade_to.is_file(), f"no Setup file at {args.upgrade_to}")
+            report["upgrade"] = upgrade(check, host, friend, None if args.linux else args.upgrade_to.resolve(), target, work,
+                                        args.label, world, slot)
         report["result"] = "passed"
     except CheckFailed as error:
         report["result"] = "failed: " + str(error)

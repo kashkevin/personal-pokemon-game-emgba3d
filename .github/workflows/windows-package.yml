@@ -54,6 +54,9 @@ on:
         type: choice
         options: ["no", "yes"]
         default: "no"
+      upgrade_from_run:
+        description: "full: the id of an earlier full run whose installer the installation check updates from (it plays a world with it, installs this run's installer over it and plays on from those saves); blank = no update check"
+        default: ""
       only:
         description: "full: only these check jobs after the builds (job ids, comma-separated, e.g. abandon-check,rival-proof; no-climb: tower-proof without its climb; tower:<entry>, mp:<entry>: those entries alone; blank = every job, the installer too)"
         default: ""
@@ -2676,9 +2679,13 @@ jobs:
         run: rm -rf inputs "$WORK"
 
   install-check:
-    name: Installation check (silent install, start, repair, uninstall)
+    name: Installation check (silent install, start, repair, uninstall, update)
     needs: package
     if: ${{ !cancelled() && needs.package.result == 'success' }}
+    # actions: read lets the update check take an earlier run's installer (upgrade_from_run); nothing is written
+    permissions:
+      contents: read
+      actions: read
     # Always a fresh GitHub-hosted runner, never the owner's PC: this installs and uninstalls for the runner's user.
     runs-on: windows-2022
     defaults:
@@ -2729,6 +2736,25 @@ jobs:
         run: |
           python scripts/windows-runtime/ci_play_check.py --setup "$(ls installer/EmeraldTogether-Setup-*.exe)" \
             --work "$RUNNER_TEMP/play-check" --label play
+      - name: The earlier installer for the update check (full, upgrade_from_run; private to this repository)
+        if: env.MODE == 'full' && inputs.upgrade_from_run != ''
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.INSTALLER_ARTIFACT }}
+          path: earlier-installer
+          run-id: ${{ inputs.upgrade_from_run }}
+          github-token: ${{ github.token }}
+      - name: Update an installed earlier version with players' saves to this one, then play on (full, upgrade_from_run)
+        if: env.MODE == 'full' && inputs.upgrade_from_run != ''
+        # scripts/windows-runtime/ci_play_check.py --upgrade-to: the earlier installer installed and played as above (two
+        # characters, Solo, a hosted world, the friend joining), both menus closed, then this run's installer installed over
+        # it as a player updates; the host plays the Solo world on and hosts the world again, the friend joins it from the
+        # saved server, each from the saves the earlier version made (CONTINUE, Save now), no error recorded.
+        run: |
+          earlier="$(ls earlier-installer/EmeraldTogether-Setup-*.exe)"
+          echo "updating from: $(basename "$earlier") sha256 $(sha256sum "$earlier" | cut -d' ' -f1) (run ${{ inputs.upgrade_from_run }})"
+          python scripts/windows-runtime/ci_play_check.py --setup "$earlier" \
+            --upgrade-to "$(ls installer/EmeraldTogether-Setup-*.exe)" --work "$RUNNER_TEMP/upgrade-check" --label update
       - name: Upload the installation check report (7 days)
         if: always()
         uses: actions/upload-artifact@v4
@@ -2745,6 +2771,10 @@ jobs:
             ${{ runner.temp }}/play-check/*-screens.jsonl
             ${{ runner.temp }}/play-check/*-pictures/
             ${{ runner.temp }}/play-check/*.log
+            ${{ runner.temp }}/upgrade-check/*-play-check.json
+            ${{ runner.temp }}/upgrade-check/*-screens.jsonl
+            ${{ runner.temp }}/upgrade-check/*-pictures/
+            ${{ runner.temp }}/upgrade-check/*.log
           retention-days: 7
           if-no-files-found: warn
       - name: Summary
@@ -2761,5 +2791,9 @@ jobs:
             for f in "$RUNNER_TEMP"/play-check/*-play-check.json; do
               [ -f "$f" ] || continue
               python -c "import json,sys;r=json.load(open(sys.argv[1]));print('- Create a character, Solo, Host World, Join Friend:', r['result']);[print('  -', l) for l in r['log']]" "$f"
+            done
+            for f in "$RUNNER_TEMP"/upgrade-check/*-play-check.json; do
+              [ -f "$f" ] || continue
+              python -c "import json,sys;r=json.load(open(sys.argv[1]));print('- Update from', r['setup'], 'and play on:', r['result']);[print('  -', l) for l in r['log']]" "$f"
             done
           } >> "$GITHUB_STEP_SUMMARY"
