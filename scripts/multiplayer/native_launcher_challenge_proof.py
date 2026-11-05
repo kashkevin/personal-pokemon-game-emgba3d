@@ -70,11 +70,24 @@ async def shown(probe, timeout=60):
             await asyncio.sleep(.03)
 
 
-async def pick(probe, label=None):
-    """A choice by its label, or the first one on the screen (the trade's first Pokemon), as a player picks it."""
-    row, screen = await shown(probe)
-    found = [n for n, item in enumerate(screen.rows) if item.action and (label is None or item.label == label)]
-    require(found, f"no choice {label!r}: {[r.label for r in screen.rows]}")
+async def pick(probe, label=None, *, again=None, timeout=60):
+    """A choice by its label, or the first one on the screen (the trade's first Pokemon), as a player picks it. A
+    label is waited for: on a loaded PC the screen a previous choice leaves can still show for a while (the newcomers
+    proof of 2026-11-05 at a load of 30: right after "Choose your Pokemon" the friend's pick read that same screen and
+    chose it again, and no Pokemon was offered); `again`, the label of that previous choice, is pressed again while the
+    screen still shows it under the cursor ten seconds on (a press its slow frames never saw)."""
+    started = pressed = time.monotonic()
+    while True:
+        row, screen = await shown(probe)
+        found = [n for n, item in enumerate(screen.rows) if item.action and (label is None or item.label == label)]
+        labels = [r.label for r in screen.rows]
+        if found or label is None or time.monotonic() - started > timeout:
+            break
+        if again is not None and time.monotonic() - pressed > 10 and again in labels and row["cursor"] == labels.index(again):
+            await probe.press(1)
+            pressed = time.monotonic()
+        await asyncio.sleep(.2)
+    require(found, f"no choice {label!r}: {labels}")
     for _ in range((found[0] - row["cursor"]) % len(screen.rows)):
         await probe.press(128)
     await probe.press(1)

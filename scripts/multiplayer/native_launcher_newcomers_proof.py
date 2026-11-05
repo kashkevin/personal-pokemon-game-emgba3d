@@ -59,7 +59,8 @@ workers and native games, driven by ordinary key presses:
             deposit does, and saves; the PC's Egg hatches at the same egg cycle's end) and saves: the host takes the one
             change of original trainer it allows. The host's saves: no Bad Egg, the hatcher's trainer ID, name and
             gender, species, personality, IVs, moves and shininess kept; the integrity check; with --hatch-in party the
-            hatched Pokemon is traded on to the other player for the Mudkip.
+            hatched Pokemon is traded on to the other player for the Mudkip; with --hatch-in box the Egg's first
+            trainer's old save (the copy of the Egg still unhatched) is refused as a character coming back.
     give-up  (two; KNOWN_ISSUES MS-126: no turn timer, a player may give up whenever they wish) both claim their
             starters and save (or, with --no-save, the games save by themselves); the host challenges the second
             player to Rival Battle - 1v1 and both enter. The game that does not run the battle (core 1; core 0, the
@@ -545,7 +546,7 @@ class NewcomersProof(SoftResetProof, ThreePlayerProof):
         try:
             if WALK[0]:
                 await self.walk_meanwhile(probes[offerer], record)
-            offered = {offerer: await pick(probes[offerer], labels[0])}
+            offered = {offerer: await pick(probes[offerer], labels[0], again="Trading")}
         finally:
             if WALK[0]:
                 record("trade-exports", player=self.harness.names[offerer], statuses=await self.exports(current[offerer]))
@@ -556,7 +557,7 @@ class NewcomersProof(SoftResetProof, ThreePlayerProof):
         await probes[answerer].choose("Pending trade")
         chosen = time.monotonic()
         await probes[answerer].choose("Choose your Pokemon", wait=False)
-        offered[answerer] = await pick(probes[answerer], labels[1])
+        offered[answerer] = await pick(probes[answerer], labels[1], again="Choose your Pokemon")
         prepared[answerer] = round(time.monotonic() - chosen, 1)
         record("trade-offers-chosen", offered={self.harness.names[n]: offered[n] for n in pair},
                window_seconds={self.harness.names[n]: prepared[n] for n in pair})
@@ -1143,7 +1144,8 @@ class NewcomersProof(SoftResetProof, ThreePlayerProof):
                                 await asyncio.sleep(.05)
                     await self.freeze(f[0], f[1], f[3], record, f"trade, {f[2]}")
             outcome = await self.trade_between(current, probes, record, 0, 1, freeze=hold,
-                                               freeze_when="first" if freeze and freeze[2] == "trade" else "both")
+                                               freeze_when="first" if freeze and freeze[2] == "trade" else "both",
+                                               labels=("Wingull Lv20", "Treecko Lv20"))
             if outcome == "interrupted":
                 for n in self.interrupted:
                     await self.resolve_interrupted_trade(n, current, probes, record)
@@ -1371,6 +1373,26 @@ class NewcomersProof(SoftResetProof, ThreePlayerProof):
                 and held["player_id"] == host.accounts[receiver].player_id,
                 f"the host's record of the hatched Pokemon: {held}")
         await self.integrity(current, record, "hatched-integrity")
+        if self.hatch_in == "box":
+            # The Egg's first trainer brings its old character back (its source save, the Egg in it unhatched): the
+            # host's own approval of a character coming back (enrollment_runtime.approve_transfer_source, as My Worlds
+            # calls it) refuses it while the hatched Pokemon is the other player's, its earlier trainer ID in its
+            # history (character_transfers.transfer_player); refused before anything is written.
+            source = self.harness.sources[0]
+
+            async def bring_back(s):
+                from emerald_multiplayer.enrollment_runtime import approve_transfer_source
+                from emerald_multiplayer.storage import StorageError
+                try:
+                    approve_transfer_source(s._store, host.accounts[0].player_id, source)
+                except StorageError as error:
+                    return dict(refused=True, code=error.code, message=str(error))
+                return dict(refused=False)
+            outcome = await on_worker(current[0], bring_back)
+            record("old-save-with-the-unhatched-egg-brought-back", player=names[0], source=str(source), **outcome)
+            require(outcome.get("code") == "pokemon_owned_here",
+                    f"the copy of the unhatched Egg came back with its old character: {outcome}")
+            await self.integrity(current, record, "refused-copy-integrity")
         if self.hatch_in == "party":
             # The hatched Pokemon traded on: the receiver offers it, the Egg's first trainer offers the Mudkip back.
             outcome = await self.trade_between(current, probes, record, receiver, 0, labels=("Togepi Lv1", "Mudkip Lv5"))
