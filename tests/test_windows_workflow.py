@@ -280,8 +280,9 @@ class WindowsWorkflowTests(unittest.TestCase):
         # `only` names check jobs (comma-separated): the builds and those jobs run, nothing else (no installer). Blank (a
         # release run, a push) runs every job as before.
         self.assertIn("      only:\n", WORKFLOW)
+        # (app-tests runs only when asked, until its Windows results are looked at: test_the_apps_whole_suite_...)
         checks = [name for name in re.findall(r"^  ([a-z0-9-]+):\n", WORKFLOW, re.M)
-                  if name not in ("push", "engine", "symbol-sizes", "install-check")]
+                  if name not in ("push", "engine", "symbol-sizes", "install-check", "app-tests")]
         self.assertIn("abandon-check", checks)
         self.assertIn("package", checks)
         for name in checks:
@@ -392,6 +393,15 @@ class WindowsWorkflowTests(unittest.TestCase):
         rough = dict(extras)["trade-rough"]
         self.assertIn("--jitter-ms 80", rough)
         self.assertIn("--stall-every 45 --stall-ms 2500", rough)
+
+    def test_the_apps_whole_suite_runs_on_windows_when_asked(self):
+        tests = job("app-tests")
+        self.assertIn("runs-on: windows-2022", tests)
+        self.assertIn("if: ${{ contains(format(',{0},', inputs.only), ',app-tests,') }}", tests)   # only when asked
+        self.assertNotIn("needs:", tests)                                   # no game: it needs no build
+        self.assertIn("--require-hashes --only-binary=:all: -r requirements-host-provisioning.txt", tests)
+        self.assertIn("pytest==9.1.1 pytest-timeout", tests)                # as python-tests installs them
+        self.assertIn('.venv/Scripts/python -m pytest -rfE --junitxml="$RUNNER_TEMP/pytest-windows.xml"', tests)
 
     def test_a_battle_and_trades_between_players_run_in_the_3d_game_on_windows(self):
         mp = job("multiplayer-check")

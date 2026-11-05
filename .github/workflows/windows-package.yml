@@ -2038,6 +2038,41 @@ jobs:
           retention-days: 1
           if-no-files-found: error
 
+  app-tests:
+    # The app's whole Python test suite on Windows: the same tests python-tests runs on Linux (the launcher, the world
+    # server, the companion, the saves, the protocols; about 3,100), on a GitHub-hosted windows-2022 runner (not a
+    # player's PC) with Windows' own files, locks, processes, sockets and paths, the pinned wheels and the Python the
+    # other Windows jobs use. No game, no ROM and no secret: the tests' own synthetic data. Only when asked
+    # (only: app-tests, in any mode), so a platform difference it finds is looked at before it gates a package; the
+    # world-loading job runs the save path's own tests on every run.
+    name: The app's tests on Windows
+    if: ${{ contains(format(',{0},', inputs.only), ',app-tests,') }}
+    runs-on: windows-2022
+    timeout-minutes: 150
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - name: Private virtual environment with the pinned, hashed wheels, and the test runner
+        run: |
+          python -m venv .venv
+          .venv/Scripts/python -m pip install --require-hashes --only-binary=:all: -r requirements-host-provisioning.txt
+          .venv/Scripts/python -m pip install pytest==9.1.1 pytest-timeout
+      - name: The test suite (pytest.ini's settings; every failure listed at the end)
+        run: .venv/Scripts/python -m pytest -rfE --junitxml="$RUNNER_TEMP/pytest-windows.xml"
+      - name: Upload the results (private to this repository, 7 days)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: EmeraldTogether-app-tests-windows
+          path: ${{ runner.temp }}/pytest-windows.xml
+          retention-days: 7
+          if-no-files-found: warn
+
   multiplayer-check:
     # The final master update (QM-6): multiplayer gameplay in real Windows game processes on a GitHub-hosted runner
     # (not a player's PC). The whole launcher - a real LauncherWindow, SessionWorker and LauncherSession per player and
