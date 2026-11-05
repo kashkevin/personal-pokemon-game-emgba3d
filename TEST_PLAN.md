@@ -38,9 +38,9 @@ friend's invite code replaced (NU-7), the world server's process killed in the m
 (`tests/test_server_killed_mid_save.py`: every acknowledged save kept byte for byte), and the save path's own tests (the
 checkpoint store, ownership, checkpoint server, client and mirror, live checkpoints, save manifests, battle journals,
 emergency saves, autosave, the launcher's saves and worlds: about 310 tests, with Windows' file locks and processes) —
-the world-open-bench job. Only when asked (`only: app-tests`, any mode, until its Windows results are clean): the app's whole
+the world-open-bench job. In every full run, and alone when asked (`only: app-tests`, any mode): the app's whole
 test suite with pytest.ini's settings — the app-tests job (its first run, 304, found Windows-only faults in tests
-and one in the app, KNOWN_ISSUES MS-197; TEST_LEDGER).
+and one in the app, KNOWN_ISSUES MS-197; run 317 the first with none failed; TEST_LEDGER).
 
 What the runners cannot show: a real GPU or vendor driver (3D runs on Mesa's software renderer), two PCs, a router
 or the Internet (every multiplayer job is one PC on its own loopback), audio, controllers, DPI and fullscreen. Those

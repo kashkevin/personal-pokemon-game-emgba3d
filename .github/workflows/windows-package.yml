@@ -2170,11 +2170,11 @@ jobs:
     # The app's whole Python test suite on Windows: the same tests python-tests runs on Linux (the launcher, the world
     # server, the companion, the saves, the protocols; about 3,100), on a GitHub-hosted windows-2022 runner (not a
     # player's PC) with Windows' own files, locks, processes, sockets and paths, the pinned wheels and the Python the
-    # other Windows jobs use. No game, no ROM and no secret: the tests' own synthetic data. Only when asked
-    # (only: app-tests, in any mode), so a platform difference it finds is looked at before it gates a package; the
+    # other Windows jobs use. No game, no ROM and no secret: the tests' own synthetic data. In every full run (a
+    # package is gated by it since run 317's clean result) and alone when asked (only: app-tests, in any mode); the
     # world-loading job runs the save path's own tests on every run.
     name: The app's tests on Windows
-    if: ${{ contains(format(',{0},', inputs.only), ',app-tests,') }}
+    if: ${{ contains(format(',{0},', inputs.only), ',app-tests,') || ((inputs.mode || 'smoke') == 'full' && !inputs.only) }}
     runs-on: windows-2022
     timeout-minutes: 150
     defaults:

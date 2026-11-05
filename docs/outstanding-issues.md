@@ -138,11 +138,14 @@ run 311 passed. The two are `test_battle_execution`'s longest four-player battle
 is slower (reproduced on Linux with flushes 5 ms slower; with the limit lifted they end and pass). Their limit is
 now 120 s, a hang's limit (the fixture counts game frames, not time); the next `app-tests` checks it.
 
-Added since: the multiplayer-check job's `give-up` and `give-up-mid-turn` entries (MS-126; both passed on Linux),
-and the package job's in-game menu check with the mouse resting where the window opens (KNOWN_ISSUES P14, fixed
-in engine `6ce2648c`). Run 316 (only `package`, the old engine `e88dbdf6`) shows whether Windows gives a menu window
-opened over a resting mouse the same focus fault; run 317 (engine `6ce2648c`) runs the package check, both give-up
-entries and `app-tests` on `86c8fde` (dispatched 11:01 UTC).
+Added since: the multiplayer-check job's `give-up` and `give-up-mid-turn` entries (MS-126) and the package job's
+in-game menu check of a mouse at rest where the menu window opens and of one crossing straight back into it
+(KNOWN_ISSUES P14, fixed in engine `6ce2648c`). Run 317 (engine `6ce2648c`, app `86c8fde`) **passed** every job it
+ran: both give-ups in Windows game processes (the mid-turn one with the master's command before the notice) and
+`app-tests`, the app's whole suite on Windows with **none failed** for the first time (3,061 passed, 154 skipped);
+the app tests now run in every full run. The menu check with the crossing (app `f500637`) **failed** on the old
+engine (run 319: in both games the row under the mouse, Host Server, took the focus) and **passed** on engine
+`6ce2648c` (run 320): P14's fix shown on the Windows runner.
 
 ## 6. Earlier issues in KNOWN_ISSUES (reviewed 2026-11-04)
 
@@ -223,8 +226,7 @@ the next `crash.log` or `errors.log`), MS-88 and MS-165 (battles between players
 that stops a game for seconds), MS-68, MS-69, MS-70, MS-72, MS-95, MS-96 (trade and battle fixes not yet tried
 between two real PCs), MS-81 (the owner's check of spawn odds), MS-65 and MS-89 (the 3D view on a real graphics card,
 with V3, V25, E8: V39's benchmark). MS-126's give-up notice reaching the battle's master during a turn has run since
-(2026-11-05, L: the newcomers proof's `give-up-mid-turn`; on Windows in the multiplayer-check job from the next full
-run). Not run anywhere yet: a battle ending another way after a give-up; MS-83's race, seen once and not reproduced
+(2026-11-05: the newcomers proof's `give-up-mid-turn`, L, and on the Windows runner in run 317). Not run anywhere yet: a battle ending another way after a give-up; MS-83's race, seen once and not reproduced
 after its fix.
 MS-156's other static encounters have run since (2026-11-05, engine `e88dbdf6`): all 17 that a talk reaches started
 their battle offline in the Classic 2D and 3D test builds (L); the feature-checks job runs them on Windows from the next

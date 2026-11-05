@@ -280,7 +280,7 @@ class WindowsWorkflowTests(unittest.TestCase):
         # `only` names check jobs (comma-separated): the builds and those jobs run, nothing else (no installer). Blank (a
         # release run, a push) runs every job as before.
         self.assertIn("      only:\n", WORKFLOW)
-        # (app-tests runs only when asked, until its Windows results are clean: test_the_apps_whole_suite_...)
+        # (app-tests: in every full run and alone when asked in any mode: test_the_apps_whole_suite_...)
         checks = [name for name in re.findall(r"^  ([a-z0-9-]+):\n", WORKFLOW, re.M)
                   if name not in ("push", "engine", "symbol-sizes", "install-check", "app-tests")]
         self.assertIn("abandon-check", checks)
@@ -394,10 +394,12 @@ class WindowsWorkflowTests(unittest.TestCase):
         self.assertIn("--jitter-ms 80", rough)
         self.assertIn("--stall-every 45 --stall-ms 2500", rough)
 
-    def test_the_apps_whole_suite_runs_on_windows_when_asked(self):
+    def test_the_apps_whole_suite_runs_on_windows_in_every_full_run_and_when_asked(self):
         tests = job("app-tests")
         self.assertIn("runs-on: windows-2022", tests)
-        self.assertIn("if: ${{ contains(format(',{0},', inputs.only), ',app-tests,') }}", tests)   # only when asked
+        # asked alone in any mode (a smoke run builds no game: the quickest way to it), and every full run's package
+        self.assertIn("if: ${{ contains(format(',{0},', inputs.only), ',app-tests,') "
+                      "|| ((inputs.mode || 'smoke') == 'full' && !inputs.only) }}", tests)
         self.assertNotIn("needs:", tests)                                   # no game: it needs no build
         self.assertIn("--require-hashes --only-binary=:all: -r requirements-host-provisioning.txt", tests)
         self.assertIn("pytest==9.1.1 pytest-timeout", tests)                # as python-tests installs them
