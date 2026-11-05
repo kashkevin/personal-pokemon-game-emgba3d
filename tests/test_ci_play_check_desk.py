@@ -147,5 +147,45 @@ class PlayerGameTests(unittest.TestCase):
         self.assertIn("the launcher's processes: none found", str(failure.exception))
 
 
+class GraphicsChoiceTests(unittest.TestCase):
+    """Player.graphics_choice() after a start: windows-package run 331's update check started the hosted world after the update;
+    the launcher showed "Getting the world ready" (the world prepared for this version, a backup first), then "Checking
+    graphics", then the 3D question. The check took the first busy screen for a start past the graphics check, waited for a
+    game window that the unanswered question held back, and failed ("no game window opened (last screen graphics)")."""
+
+    def player(self, shown):
+        import ci_play_check
+        from types import SimpleNamespace
+        player = ci_play_check.Player.__new__(ci_play_check.Player)
+        player.name, player.mark, player.chosen = "host", 0, []
+        player.check = SimpleNamespace(report={}, log=lambda text: None)
+        calls = {"n": 0}
+
+        def screens():                       # one more screen of the start shown each time the window is read
+            calls["n"] += 1
+            return shown[:min(len(shown), calls["n"])]
+        player.screens = screens
+        player.choose = lambda screen, item: player.chosen.append((screen["id"], item))
+        return player
+
+    @staticmethod
+    def busy(title):
+        return {"id": "busy", "title": title, "status": None, "notes": [], "items": []}
+
+    def test_the_3d_question_after_a_prepared_world_is_answered(self):
+        question = {"id": "graphics", "title": "3D graphics cannot start", "status": None,
+                    "notes": ["Your graphics driver is missing OpenGL features the 3D mode needs."],
+                    "items": [["b", "classic", "Play in Classic 2D this time", ""]]}
+        player = self.player([self.busy("Getting the world ready"), self.busy("Checking graphics"), question])
+        self.assertEqual(player.graphics_choice(seconds=20), "2d")
+        self.assertEqual(player.chosen, [("graphics", "classic")])
+
+    def test_a_start_past_the_graphics_check_needs_no_answer(self):
+        player = self.player([self.busy("Getting the world ready"), self.busy("Checking graphics"),
+                              self.busy("Starting the game")])
+        self.assertIsNone(player.graphics_choice(seconds=20))
+        self.assertEqual(player.chosen, [])
+
+
 if __name__ == "__main__":
     unittest.main()

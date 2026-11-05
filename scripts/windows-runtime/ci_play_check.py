@@ -432,10 +432,14 @@ class Player:
             time.sleep(every)
         return until()
 
+    # The busy screens a start shows before its graphics check: a hosted world is prepared first (after an update: its
+    # migration, a backup made first); a start that has passed the check shows any other.
+    BEFORE_GRAPHICS = ("Getting the world ready", "Checking graphics")
+
     def graphics_choice(self, seconds=45):
         """After a start: the 3D question (this PC cannot run 3D) is answered with Classic 2D; otherwise nothing to do."""
         screen = self.expect(("graphics", "busy", "session"), seconds,
-                             where=lambda s: s["id"] != "busy" or s["title"] != "Checking graphics")
+                             where=lambda s: s["id"] != "busy" or s["title"] not in self.BEFORE_GRAPHICS)
         if screen["id"] == "graphics":
             self.check.report.setdefault("graphics", []).append(screen["notes"][:3])
             self.choose(screen, "classic")
