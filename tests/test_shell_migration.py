@@ -17,7 +17,8 @@ LAN = lan_of("127.0.0.1")
 
 def tree_hashes(root):
     # forward slashes on every system: the checks below name paths as "shell/backups/..." (Windows wrote "shell\\", run 304)
-    return {p.relative_to(root).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(Path(root).rglob("*")) if p.is_file()}
+    return {p.relative_to(root).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
+            for p in sorted(Path(root).rglob("*")) if p.is_file()}
 
 
 class MigrationTests(unittest.TestCase):

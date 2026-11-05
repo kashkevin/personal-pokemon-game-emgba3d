@@ -175,7 +175,8 @@ class TransferTests(Base):
     def test_tampering_with_a_recorded_transfer_is_detected(self):
         transfer_player(self.store, self.player.player_id, self.detached)
         self.store.close()
-        with closing(sqlite3.connect(self.path)) as raw, raw:  # closed too: `with` alone commits but leaves the file open (Windows, run 304)
+        # closed too: `with` alone commits but leaves the file open, and Windows will not delete it (run 304)
+        with closing(sqlite3.connect(self.path)) as raw, raw:
             raw.execute("UPDATE ownership_transfers SET trainer_id = trainer_id + 1")
         with self.assertRaises(StorageError) as caught:
             self.store = TradeCheckpointStore(self.path, BUILD, RULESET)

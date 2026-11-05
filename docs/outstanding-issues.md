@@ -116,11 +116,14 @@ trades of forms and a trade evolution (MS-194, MS-151) in real Windows games; ru
 `4c35be64`) **passed** the first battle and trades between players in the 3D game on Windows (Mesa); run 306 (only
 `gameplay-3d`, engine `9edbceed`) ran the whole game's gameplay plan in the 3D game through Mesa: 7 of 8 shards passed,
 and shard 1's one failure is the plan runner's (Liza; fixed in `e88dbdf6`, to run again with it). Run 304 (only
-`app-tests`) ran the app's whole suite on Windows for the first time: failures in Windows-only kinds, nearly all in
-the tests (paths, files left open, timeouts, encodings, a Lua that is not there), one in the app (MS-197, fixed);
-the rest are worked through in TEST_LEDGER. The smoke runs of the pushes (300, 301, 303, 305, 307) failed in the
-world-loading job's new step, the save path's own tests (the tests' paths and open files on Windows, not the
-store); fixed in this change, whose smoke run is the check.
+`app-tests`) ran the app's whole suite on Windows for the first time: 103 tests failed in seven Windows-only kinds,
+one in the app (MS-197: files left open by a refused store) and the rest in the tests (8.3 temporary paths, files
+left open, a refused connection's 2 s, a path across drives, cp1252, the event loop's 15.6 ms tick, a Lua that is
+not there); all fixed (app `975d700` and `58ffc1f`; TEST_LEDGER), the next `app-tests` runs the check. The
+smoke runs of the pushes (300, 301, 303, 305, 307) failed in the world-loading job's new step, the save path's own
+tests (the tests' paths and open files on Windows, not the store); fixed in `975d700`, whose smoke run 309 passed
+the step on Windows (312 tests, the 3 expected skips). Run 310 (engine `e88dbdf6`, app `975d700`, the gameplay
+check on) is the next installer candidate, dispatched at 08:42 UTC.
 
 ## 6. Earlier issues in KNOWN_ISSUES (reviewed 2026-11-04)
 

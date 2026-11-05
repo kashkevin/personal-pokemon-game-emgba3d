@@ -220,7 +220,8 @@ class SessionRejectionTests(Base):
         statuses = []
         # Windows answers a connection to a port nothing listens on after about 2 s (it retries the refused connection), so
         # 0.3 s ran out before any refusal there (run 304: the reason was "timeout"); the launcher's own time is 8 s.
-        session = self.friend_session(port, connection_timeout=3.0 if os.name == "nt" else .3, on_status=statuses.append)
+        timeout = 3.0 if os.name == "nt" else .3
+        session = self.friend_session(port, connection_timeout=timeout, on_status=statuses.append)
         with self.assertRaises(LauncherSessionError) as caught:
             async with session.open():
                 self.fail("nobody is there")

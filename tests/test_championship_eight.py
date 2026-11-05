@@ -357,7 +357,9 @@ class EightChampionshipTests(Fixture, unittest.TestCase):
         again = self.call(self.players[0], "status", store=reopened)["current"]
         self.assertEqual(again, view)
         self.assertTrue(reopened.computer_ticket(command["ticket"]))
-        with closing(sqlite3.connect(Path(self.directory.name) / "w.championships8.sqlite3")) as connection, connection:  # closed too: `with` alone commits but leaves the file open (Windows, run 304)
+        # closed too: `with` alone commits but leaves the file open, and Windows will not delete it (run 304)
+        path = Path(self.directory.name) / "w.championships8.sqlite3"
+        with closing(sqlite3.connect(path)) as connection, connection:
             connection.execute("UPDATE brackets SET record=replace(record, '\"rule\":\"open\"', '\"rule\":\"level_30\"')")
         with self.assertRaises(StorageError):
             self.open()
