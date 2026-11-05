@@ -21,26 +21,26 @@ finished until implemented, regression-tested and verified on Windows; nothing b
 | MS-42, G13, character customization | Egg hatching speed, the 12x world clock's day counters, the character roster | **Closed: keep existing behavior** (the owner's final decision; nothing changed) | - | - | - |
 | MS-198 on Windows | The AI's critical-hit odds read (engine `0d25e9c0`) | **Done**: run 323 passed (self-tests 55 of 55; gameplay 3,612 passed in 2D and 3,613 in 3D, none failed) | ASan before/after | **run 323** | - |
 | 2D AddressSanitizer sweep | The Classic 2D game's whole gameplay plan under the sanitizer | **Done**: 3,611 passed, none failed by the game; reports only known reads | all eight eighths | - | - |
-| G3 | A World Event Pokemon reserved five minutes after its claimant disconnects, reclaimable by them, then released; no duplicate claim | to build | - | - | - |
+| G3 | A World Event Pokemon reserved five minutes after its claimant disconnects, reclaimable by them, then released; no duplicate claim | **Built** (app `9ee9899`, `6e56b1d`): 300 s, one deadline on every path, one holder at a time, a catch during another's claim waits; three edge cases left as they were, none giving a second copy (KNOWN_ISSUES G3) | 13 new tests and a 3,000-step randomized model; 824 passed over 51 files; with privacy, 328 over the 14 files both touch | next run with `app-tests` | - |
 | Trades | Eggs and Pokemon holding Mail traded; every valid Pokemon and Mail datum kept; atomic and recoverable | to build | - | - | - |
-| Tickets | Personal static legendaries' tickets from postgame achievements, challenging quests and Battle Frontier milestones (not the casino alone) | to design and build | - | - | - |
+| Tickets | Personal static legendaries' tickets from postgame achievements, challenging quests and Battle Frontier milestones (not the casino alone) | **Designed; the host's half built, not connected** (app `5755f65`, `docs/legendary-tickets.md`): 6 of the 25 reset encounters need a ticket; proposed defaults (adjustable, one line each): Eon for a second Hall of Fame entry, Old Sea Map for the three Regis, Aurora for Kyogre, Groudon and Rayquaza, Mystic for all 7 Silver Symbols or Tower Legends floor 75; no casino source. Next: the engine's ticket reward (the item with its ship flag), the app's wiring, a real-game proof. The owner's: D1 (mapping, thresholds), D2 (sources needing other players), D3 (any casino source) | 30 tests (detection, settings, ledger) | - | - |
 | MS-161 | World loading: each save's checked reading cached by content hash and reader version, revalidated on change (option (b)) | to build | - | - | - |
-| MS-118 | 3D: no rendering during a fully covered fade; geometry spread across frames; nearby chunks ahead; no pop-in, missing collision or hitches | to build | - | - | real GPU |
+| MS-118 | 3D: no rendering during a fully covered fade; geometry spread across frames; nearby chunks ahead; no pop-in, missing collision or hitches | **Built** (engine `7b839ec1`): atlas regions that stay put over a crossing, the nearest map's border past the edge (the pop gone), the builds that may wait made by time (3 ms, up to 6 and 8 a frame), a screen faded out whole cleared and not drawn; collision is the game's, unchanged | the same binary off and on: Mauville walk syncs over 16 ms 2 to 0, p99 15.6 to 10.9 ms, chunks 255 to 187; Slateport-Route 110 chunks 171 to 124, over 16 ms 4 to 1; terrain checks 0 differed, 0 stale; AddressSanitizer: no report; check-diorama; MinGW | graphics-3d (with the walk timed off and on) to run | real GPU |
 | Xbox B | B as Cancel kept; multiplayer confirmations checked | to check | - | - | controller |
 | 3D vehicles | Trucks, ferries, cable cars and vehicle scenes in 3D without the 2D fallback | to build | - | - | - |
 | Music | Music 70% and sound effects 100% by default; separate master, music and sound-effect controls | to build | - | - | - |
-| BP shop | Prices kept; Battle Points per hour reviewed | to review | - | - | - |
-| Location privacy | A launcher checkbox, on by default; no precise location without explicit permission | to build | - | - | - |
+| BP shop | Prices kept; Battle Points per hour reviewed | **Done: no change needed** (`docs/owner-writeups-20261105.md` section 4: 751 BP once from the Tower, about 7-43 BP an hour in the co-op Frontier against the game's own 5-30; nothing gated or farmable); prices unchanged | - | - | - |
+| Location privacy | A launcher checkbox, on by default; no precise location without explicit permission | **Built** (app `2a35bbe`): "Share my location with other players" off unless the player turns it on (launcher and in-game menu, one choice per character per world); a private player's place goes only to a viewer on the same map (the avatar), "Location hidden" in the PokeNav text; an earlier stored choice kept; fixed on the way: a viewer's companion reconnecting when a hidden player's copy turned real. Left: the same-map viewer's PokeNav marker and the game's own Players screen (an engine flag) | 151 affected test files (9 old tests expected the old default, updated); the privacy, launcher, shell and companion tests 103 passed | next run with `app-tests` | two PCs |
 | MS-52 | Battle Tower record shown late after a settlement | to fix | - | - | - |
 | MS-154 | Route 118's six 3D ledges landing a level higher | to fix | - | - | - |
 | MS-108 | Transition artwork still the GBA's | to do | - | - | - |
 | VR-5 | 226 battle animations without an HD version | to do | - | - | - |
-| MS-9 | The emulator fallback's Lua bridge: whether it is still needed | to assess | - | - | - |
+| MS-9 | The emulator fallback's Lua bridge: whether it is still needed | **Closed: not needed** (`docs/owner-writeups-20261105.md` section 5): the emulator build is not shipped, offered or tested; nothing changed | - | - | - |
 | MS-98 | The automated 3D map sweep: facilities entered their own way, a coverage report | to do | - | - | - |
 | U31-16 | GitHub Actions on Node 24 | to apply and verify | - | - | - |
 | U31-13 | No game dumps in the repository; authorized local build inputs | to arrange | - | - | - |
-| 39 GBA tests | The upstream test failures under Gen 6 rules, each classified; intended Gen 6 behavior kept | to classify | - | - | - |
-| MS-85, MS-149, U31-5 | Exact descriptions and proposed resolutions for the owner before any change | to write | - | - | - |
+| 39 GBA tests | The upstream test failures under Gen 6 rules, each classified; intended Gen 6 behavior kept | **Classified** (`docs/gba-test-expected-failures.md`, nothing changed): 22 intended Gen 6 behavior, 12 tests that cannot express Gen 6, 5 possible defects: Parting Shot switches its user out when blocked or reflected (3; reachable in play; a behavior change, the owner's), Sticky Web with Mirror Armor (2; no Mirror Armor Pokemon in this game) | the 39 rows match the expected-failures list; the checker on the saved logs: 39 failed, 39 expected, 0 new | - | - |
+| MS-85, MS-149, U31-5 | Exact descriptions and proposed resolutions for the owner before any change | **Written** (`docs/owner-writeups-20261105.md`; nothing changed): MS-85 already fixed (propose close, banking added to `--selftest-coins`); MS-149 decided 2026-10-27 (propose close; the row's chances corrected); U31-5 (propose keep, close as by design). The owner's call | - | - | - |
 | Release checks | Multiplayer with several clients, saving, updating, reconnecting, character persistence, fresh installs and upgrades on Windows; Safari crash diagnostics kept | to run with the next full run | - | - | two PCs, real GPU, controller |
 | Installer | The next complete installer after the release checks | waits for the items above; not distributed (N8) | - | - | - |
 
@@ -67,7 +67,7 @@ finished until implemented, regression-tested and verified on Windows; nothing b
 
 | Issue | What | Status |
 | --- | --- | --- |
-| G3 | A World Event's 120 s claim release after a disconnect could let two players catch the same event Pokemon | open (improved before: active seconds only); a gameplay call, so options only: (a) the shared spawns' 600 s grace for events too (rarer, not gone); (b) hold the claim until its claimant comes back and reports the battle (no duplicate, but one absent player can keep an event from everyone); (c) keep 120 s and accept the rare second copy |
+| G3 | A World Event's 120 s claim release after a disconnect could let two players catch the same event Pokemon | **Built** (the owner's #38; section 0): five minutes reserved, reclaimable, released, one claim at a time |
 | NU-7 | An invite code cannot be revoked for one friend | **Fixed** (option (a), not gameplay; app: this change): Invite codes for friends > Replace a friend's code (while not hosted): the old code refused at once, the account kept; crash-safe (record, database, host.json, the next open finishing a half-done one); the friend's PC takes the new code only after the host accepted it. L: unit, page and real-server tests; **W: run 291's world-loading job** (GitHub's windows-2022 runner, not a player's PC): the host world's and the stored invite's replacement tests, 9 passed (the msvcrt owner lock, files replaced whole) |
 | MS-29 | START > PLAYER > RESET sometimes does not open PLAYERS (the player is told to try again) | **Fixed** (engine `62da105f`, PC only): the START menu ends a turn in place, so the field is at rest; `--selftest-start-menu` 12/12 (the new check fails without the fix); not run in a real game process ; Windows: run 277's `--selftest-start-menu` passed (the 2D and 3D games) |
 | MS-55 | A new Players menu page opens with the previous page's cursor row | **Fixed** (option (a); engine `8c383890`, app: this change; PC only, the ROM unchanged): the launcher marks a page's first screen (flags 0x80) for a game whose manifest has `menu_new_page_abi_version` 1, and the window starts it on its first row; refreshes and one list's pages keep the row; the bridge's tests, the app suite and a real game's Tower pages (L: every page on row 0; before: rows 2, 1 and 2 on three of them); W: run 288 packaged it (the manifest's `menu_new_page_abi_version`) and its jobs that page through the Players menu passed with it; the row each page opens on is checked on Linux only |
@@ -75,7 +75,7 @@ finished until implemented, regression-tested and verified on Windows; nothing b
 | MS-154 | 6 ledges the player cannot jump land a level higher in 3D | partly fixed |
 | MS-108 | Transitions' pictures still the GBA's art | open (art) |
 | VR-5 | 226 of 959 battle animations have no HD version | open (art) |
-| MS-9 | The emulator fallback's Lua bridge has the same all-zero check as the old native one | open (fallback only) |
+| MS-9 | The emulator fallback's Lua bridge has the same all-zero check as the old native one | **Closed: not needed** (section 0) |
 | MS-26 | Save checks on the launcher's and host's event loops | measured, no player-visible cost found |
 | MS-194 | World trades refused every alternate form but Rotom's (a female Meowstic, Burmy's cloaks, Pumpkaboo's sizes, an Origin Giratina, Vivillon's patterns, ...) | **Fixed** (app: this change, not gameplay: a Gen 6 game trades them as they are): every form of a Kanto-to-Kalos species reviewed against the engine pin; the 163 kept outside battle are exchanged exactly and named in the menus; battle-only, later games' and the games' untradable forms stay refused; the menu rows keep a level whole. L: unit tests, the whole suite; two real games: a Female Meowstic for an Origin Giratina, and a Small Pumpkaboo for a Large one (each evolving into the Gourgeist of its size). W: **passed** in the `trade-proof` job (run 299, its first run; the full runs 310 and 322) |
 | MS-193 | The Championships' Species Clause and No Legendaries ignored forms (two Rotom forms as two species; Origin Giratina, Deoxys's formes, the Therian Formes, ... as no legendary) | **Fixed** (app: this change): the rules compare National Pokedex numbers from a table generated from the engine pin (`species_national.py`; all 1,573 IDs agree with the game's compiled table). L: unit tests. W: the tests **passed** in runs 317 and 322's `app-tests` |
@@ -91,7 +91,13 @@ Decided on 2026-11-05 (section 0; `docs/owner-decisions.md` #35-50): G13, the ti
 customization scope, the 39 upstream GBA tests, MS-42, U31-13, U31-16, the "built, your call" items (Xbox B, 3D
 vehicles, music, the BP shop, location privacy), G3, Eggs and Mail in trades, MS-161 and MS-118. Still the owner's:
 N8, the licensing of `src/platform/bios.c` (blocks giving the build to anyone; "Leave for now"); MS-85, MS-149 and
-U31-5 once their write-up is in (#49); and a Battle Point change only if the review proposes one (#46).
+U31-5, whose write-up is in (`docs/owner-writeups-20261105.md`: close MS-85 as fixed with a self-test, close MS-149 as
+decided on 2026-10-27, keep U31-5 by design); the tickets' details (`docs/legendary-tickets.md` D1 the mapping and
+thresholds, D2 sources that need other players, D3 any casino source; built meanwhile with the proposed defaults);
+whether Parting Shot should switch its user out when the move is blocked or reflected (the GBA tests' class C,
+`docs/gba-test-expected-failures.md`; today it does, the tests and Showdown's Gen 6 say not); and an Egg's shininess
+when another trainer hatches it (Eggs in trades: kept as it was, the proposal; the games derive it from the hatcher).
+The Battle Point review proposes no change (#46).
 
 ## 4. Verification only the owner's PCs can give
 
@@ -251,9 +257,9 @@ said). Nothing here changes gameplay.
 
 | Issue | The question | Row of |
 | --- | --- | --- |
-| MS-85 | A casino table's counter shows at most 9,999 (the GBA's digits): a 6,000-coin slot jackpot is cut when the machine already holds more than 3,999 coins, a 2,400 roulette win at the left table above 7,599, the right table's 9,600 above 399; a cap on what a table takes from the wallet would prevent it, a change to coin handling not asked for | 2026-10-26 |
-| MS-149 | Whether a Poke Ball throw at catch odds 0 (the fixed Heavy Ball on a catch rate of 1, a Beast Ball on a low one) should get a minimum chance | 2026-10-27 |
-| U31-5 | The rival checkpoint's personal pass still registers the original May or Brendan in Match Call, as the original scene does (its story flag kept); remove the NPC rival's calls? | 2026-10-16 |
+| MS-85 | Close as fixed? (since engine `cc43a414`, 2026-10-26, no win is cut: the part past 9,999 waits in the table's reserve; the Classic 2D tables' counter still stops at 9,999; write-up of 2026-11-05 section 1 proposes closing it with the banking in `--selftest-coins`) | 2026-10-26 |
+| MS-149 | Close? The owner kept these odds on 2026-10-27 (a throw at odds 0 catches about 1 in 64,500); the write-up of 2026-11-05 section 2 proposes closing it | 2026-10-27 |
+| U31-5 | The rival checkpoint's personal pass still registers the original May or Brendan in Match Call, as the original scene does (its story flag kept): keep (the write-up's proposal: it gates nothing and never rings) or remove? | 2026-10-16 |
 
 **Only two PCs or the owner's PC can show** (with section 4): MS-63 (the rival checkpoint battle reported on two PCs,
 not reproduced; both launchers' `runtime.log` after the next one), MS-71 (a game closing in a battle, not reproduced;

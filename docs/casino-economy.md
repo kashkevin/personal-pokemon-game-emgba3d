@@ -96,11 +96,12 @@ A ball that misses loses its minimum bet: Left table: 1 -> 25, Right table: 3 ->
 
 ## Limits of these numbers
 
-- **9,999 coins at a table.** The Slot Machine's credit and a Roulette table's hold 9,999 coins; a win that would pass it is
-  cut off at 9,999 (the game then says its coin case is full). A 6,000-coin jackpot is cut if the machine already holds more than
-  3,999 coins, a 2,400 win at the left roulette table above 7,599, and the right table's special-rate 9,600 above 399. The earnings
-  above assume the player leaves a table before that and the rest of the wallet waits in reserve, as it does since Update 29. This
-  was seen in the real game: a run that started with 5,000 coins stopped at 9,999 after its first 6,000-coin jackpots.
+- **9,999 coins at a table.** The Slot Machine's credit and a Roulette table's hold 9,999 coins (the GBA's four digits).
+  Until 2026-10-26 a win that would pass it was cut off at 9,999 (a run that started with 5,000 coins stopped there after
+  its first 6,000-coin jackpots). Since engine `cc43a414` (the owner's "no cap", KNOWN_ISSUES MS-85) nothing is cut: what a
+  win brings past 9,999 goes into the table's reserve with the rest of the wallet, and leaving writes it all to the Coin
+  Case (at most 999,999). The 3D game's tables show the whole total; the Classic 2D tables' counter stops at 9,999 while
+  the rest is kept.
 - **Payout counting.** The Roulette counts a payout at 4 frames a coin and cannot skip it, so earning 15,000 coins takes about
   18 of the 30 minutes watching coins count. The Slot Machine counts at 9 frames a coin (5 with A held) and skips with START.
   Speeding the Roulette up is not a bet cost or a payout and was not done.
