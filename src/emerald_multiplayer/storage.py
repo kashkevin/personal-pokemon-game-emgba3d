@@ -457,6 +457,21 @@ class CheckpointStore:
                 (identity.player_id, identity.display_name, hashlib.sha256(identity.credential).digest()))
         return identity
 
+    def replace_credential(self, player_id: str, credential: bytes) -> None:
+        """A friend's new invite code (host_world.HostWorld.replace_credential, KNOWN_ISSUES NU-7): the account's credential
+        hash replaced, so its old credential is refused from now on. Never by a booted store (a hosted world's sessions
+        are not changed under it); the same new credential again changes nothing."""
+        _player_id(player_id)
+        if not isinstance(credential, bytes) or len(credential) != 32:
+            raise StorageError("invalid_field", "credential must be 32 bytes")
+        with self._transaction():
+            if self._boot_epoch is not None:
+                raise StorageError("host_active", "a hosted world's credentials are not replaced")
+            cursor = self._connection.execute("UPDATE players SET credential_hash = ? WHERE player_id = ?",
+                                              (hashlib.sha256(credential).digest(), player_id))
+            if cursor.rowcount != 1:
+                raise StorageError("player_unknown", "no such player in this world")
+
     def _authenticate(self, player_id: str, credential: bytes) -> sqlite3.Row:
         # A malformed/unknown owner and a wrong secret share the same response.
         try:

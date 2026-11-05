@@ -196,6 +196,156 @@ class HostWorldTests(unittest.TestCase):
                          now=cert.not_valid_after_utc + timedelta(seconds=1))
 
 
+class CredentialReplacementTests(unittest.TestCase):
+    """KNOWN_ISSUES NU-7: one friend's invite code replaced; the old code refused at once, everything else kept."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.rom, self.manifest = make_trade_files(self.root)
+        self.host = HostWorld.create(self.root / "host", self.rom, self.manifest,
+                                     player_names=["Host", "Friend A", "Friend B", "Friend C"], endpoint="127.0.0.1", port=8765)
+
+    def replace(self, slot):
+        return HostWorld.replace_credential(self.host.directory, self.rom, self.manifest, slot)
+
+    def assert_credentials(self, world, expected):
+        """Each account signs in with ``expected``'s credential and no other world's account credential."""
+        with world.open_store() as store:
+            for account, credential in zip(world.accounts, expected):
+                self.assertEqual(store.authenticate(account.player_id, credential).display_name, account.display_name)
+            return store
+
+    def test_a_friends_code_is_replaced_the_old_one_refused_and_everything_else_kept(self):
+        old = self.host.accounts[2].credential
+        world = self.replace(2)
+        new = world.accounts[2].credential
+        self.assertNotEqual(new, old)
+        self.assertEqual([(a.role, a.slot, a.player_id, a.display_name) for a in world.accounts],
+                         [(a.role, a.slot, a.player_id, a.display_name) for a in self.host.accounts])
+        self.assertEqual([a.credential for i, a in enumerate(world.accounts) if i != 2],
+                         [a.credential for i, a in enumerate(self.host.accounts) if i != 2])
+        self.assertEqual((world.world_id, world.certificate_sha256), (self.host.world_id, self.host.certificate_sha256))
+        self.assert_credentials(world, [a.credential for a in world.accounts])
+        with world.open_store() as store:
+            with self.assertRaises(StorageError) as caught:
+                store.authenticate(self.host.accounts[2].player_id, old)
+            self.assertEqual(caught.exception.code, "credentials_invalid")
+        self.assertEqual(HostWorld.open(self.host.directory, self.rom, self.manifest), world)
+        self.assertEqual(world.invitation(2).credential, new)
+        self.assertNotIn(new.hex(), repr(world))
+        names = {p.name for p in self.host.directory.iterdir()}
+        self.assertNotIn("credential-replacement.json", names)
+        self.assertNotIn("host.json.new", names)
+        if os.name != "nt":
+            self.assertEqual((self.host.directory / "host.json").stat().st_mode & 0o777, 0o600)
+        # replaced again: another new code, the second one refused too
+        again = self.replace(2)
+        self.assertNotIn(again.accounts[2].credential, (old, new))
+        with again.open_store() as store:
+            for refused in (old, new):
+                with self.assertRaises(StorageError):
+                    store.authenticate(again.accounts[2].player_id, refused)
+
+    def test_the_host_account_and_slots_without_a_friend_are_never_replaced(self):
+        small = HostWorld.create(self.root / "small", self.rom, self.manifest, player_names=["Host", "Friend A"],
+                                 endpoint="127.0.0.1", port=8766)
+        for directory, slot in ((self.host.directory, 0), (self.host.directory, 4), (self.host.directory, "1"),
+                                (self.host.directory, True), (small.directory, 2)):
+            before = directory_hashes(directory)
+            with self.assertRaises(HostWorldError) as caught:
+                HostWorld.replace_credential(directory, self.rom, self.manifest, slot)
+            self.assertEqual(caught.exception.code, "invalid_role")
+            self.assertEqual(directory_hashes(directory), before)
+
+    def test_a_hosted_world_is_refused_and_unchanged(self):
+        before = directory_hashes(self.host.directory)
+        with self.host.open_store() as store:
+            store.begin_server_boot()                 # a hosting server holds the owner lock for its run
+            with self.assertRaises(HostWorldError) as caught:
+                self.replace(1)
+            self.assertEqual(caught.exception.code, "world_hosted")
+        self.assertNotIn("credential-replacement.json", {p.name for p in self.host.directory.iterdir()})
+        reopened = HostWorld.open(self.host.directory, self.rom, self.manifest)
+        self.assertEqual([a.credential for a in reopened.accounts], [a.credential for a in self.host.accounts])
+        self.assertEqual(directory_hashes(self.host.directory)["host.json"], before["host.json"])
+
+    def test_a_replacement_stopped_at_any_step_is_finished_by_the_next_open(self):
+        import emerald_multiplayer.host_world as module
+        record = self.host.directory / "credential-replacement.json"
+        old = self.host.accounts[1].credential
+        stops = (("after its record", "_apply_replacement"), ("after the database", "_replace"),
+                 ("after host.json", "unlink_file"))
+        for label, name in stops:
+            with self.subTest(stop=label):
+                original = getattr(module, name)
+                setattr(module, name, lambda *args, **kwargs: (_ for _ in ()).throw(OSError("stopped")))
+                try:
+                    with self.assertRaises(OSError):
+                        self.replace(1)
+                finally:
+                    setattr(module, name, original)
+                pending = json.loads(record.read_text())
+                new = bytes.fromhex(pending["credential"])
+                self.assertEqual((pending["slot"], pending["player_id"]), (1, self.host.accounts[1].player_id))
+                world = HostWorld.open(self.host.directory, self.rom, self.manifest)
+                self.assertFalse(record.exists())
+                self.assertEqual(world.accounts[1].credential, new)
+                self.assert_credentials(world, [a.credential for a in world.accounts])
+                with world.open_store() as store:
+                    with self.assertRaises(StorageError):
+                        store.authenticate(world.accounts[1].player_id, old)
+                old = new
+
+    def test_a_database_that_refuses_the_new_code_leaves_everything_as_it_was(self):
+        from emerald_multiplayer.storage import CheckpointStore
+        before = directory_hashes(self.host.directory)
+
+        def refuse(self_, player_id, credential):
+            raise StorageError("storage_busy", "database is locked")
+        with patch.object(CheckpointStore, "replace_credential", refuse):
+            with self.assertRaises(HostWorldError) as caught:
+                self.replace(3)
+        self.assertEqual(caught.exception.code, "not_replaced")
+        self.assertNotIn("credential-replacement.json", {p.name for p in self.host.directory.iterdir()})
+        self.assertEqual(directory_hashes(self.host.directory)["host.json"], before["host.json"])
+        self.assertEqual(HostWorld.open(self.host.directory, self.rom, self.manifest), self.host)
+        self.assert_credentials(self.host, [a.credential for a in self.host.accounts])
+
+    def test_a_record_cut_short_while_written_is_removed_and_the_world_opens_as_it_was(self):
+        record = self.host.directory / "credential-replacement.json"
+        for content in (b"{", b'{"format":"emerald-credential-replacement-v1"}', b"\0" * 10):
+            record.write_bytes(content)
+            world = HostWorld.open(self.host.directory, self.rom, self.manifest)
+            self.assertEqual(world, self.host)
+            self.assertFalse(record.exists())
+        # a record for another account than its slot's: never applied
+        value = dict(format="emerald-credential-replacement-v1", world_id=self.host.world_id, slot=1,
+                     player_id=self.host.accounts[2].player_id, credential="ab" * 32)
+        record.write_text(json.dumps(value))
+        self.assertEqual(HostWorld.open(self.host.directory, self.rom, self.manifest), self.host)
+        self.assertFalse(record.exists())
+
+    def test_a_pending_record_in_a_world_held_by_another_process_is_refused_not_applied(self):
+        from emerald_multiplayer.host_world import _owner_lock
+        record = self.host.directory / "credential-replacement.json"
+        value = dict(format="emerald-credential-replacement-v1", world_id=self.host.world_id, slot=1,
+                     player_id=self.host.accounts[1].player_id, credential="cd" * 32)
+        record.write_text(json.dumps(value))
+        lock = _owner_lock(self.host.directory)
+        lock.acquire()
+        try:
+            with self.assertRaises(HostWorldError) as caught:
+                HostWorld.open(self.host.directory, self.rom, self.manifest)
+            self.assertEqual(caught.exception.code, "world_busy")
+            self.assertTrue(record.exists())
+        finally:
+            lock.release()
+        world = HostWorld.open(self.host.directory, self.rom, self.manifest)
+        self.assertEqual(world.accounts[1].credential, bytes.fromhex("cd" * 32))
+
+
 class HostJoinNetworkTests(unittest.IsolatedAsyncioTestCase):
     async def test_four_provisioned_accounts_authenticate_through_exact_invitation_tls(self):
         with tempfile.TemporaryDirectory() as temporary:

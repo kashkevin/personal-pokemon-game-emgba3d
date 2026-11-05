@@ -199,6 +199,9 @@ class WindowsWorkflowTests(unittest.TestCase):
         self.assertIn("runs-on: windows-2022", bench)
         self.assertNotIn("needs:", bench)                                 # no game: every mode, smoke runs too
         self.assertIn("tools/perf/world_open_bench.py --saves 300 --repeat 3 --max-seconds 60", bench)
+        # KNOWN_ISSUES NU-7: a friend's code replaced, on Windows, by the host world's and the stored invite's own tests
+        self.assertIn('"test_host_world.CredentialReplacementTests", "test_shell_records.InvitationReplacementTests"', bench)
+        self.assertIn("result.wasSuccessful() and result.testsRun >= 8", bench)
 
     def test_multiplayer_mega_evolution_runs_in_windows_game_processes(self):
         mega = job("mega-proof")

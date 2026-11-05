@@ -8,7 +8,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 import hashlib
+import os
 from pathlib import Path
+import secrets
 
 from .companion import BASELINE_RULESET, verify_rom_manifest
 from .gen6_profile import GEN6_DEFAULTS_RULESET
@@ -16,13 +18,18 @@ from .invitations import (Invitation, InvitationError, _bytes, _certificate, _en
                           _hash, _json, _name, _read, _regular, _uuid, _write_new)
 from .ownership import OWNERSHIP_PROFILE
 from .secure_transport import ServerTlsConfig
-from .storage import BUSY_TIMEOUT
+from .storage import BUSY_TIMEOUT, StorageError, _ExclusiveFileLock
 from .trade_storage import TradeCheckpointStore
+from .windows_files import replace_file, unlink_file
 
 HOST_FORMAT = "emerald-private-host-v1"
 _FIELDS = frozenset({"format", "world_id", "build_id", "ruleset_id", "save_profile", "endpoint",
                      "port", "certificate_sha256", "accounts"})
 _ACCOUNT_FIELDS = frozenset({"role", "slot", "player_id", "display_name", "credential"})
+# A friend's invite code being replaced (KNOWN_ISSUES NU-7): the new credential, written before anything else changes.
+REPLACEMENT_FILE = "credential-replacement.json"
+REPLACEMENT_FORMAT = "emerald-credential-replacement-v1"
+_REPLACEMENT_FIELDS = frozenset({"format", "world_id", "slot", "player_id", "credential"})
 
 
 class HostWorldError(ValueError):
@@ -85,6 +92,84 @@ def _new_certificate(world_id, endpoint, validity_days):
     pin = hashlib.sha256(cert.public_bytes(serialization.Encoding.DER)).hexdigest()
     _certificate(pem.decode("ascii"), world_id, pin)
     return pem, private, pin
+
+
+def _owner_lock(root):
+    """The lock a hosting server holds for its whole run (storage.CheckpointStore.begin_server_boot)."""
+    return _ExclusiveFileLock(root / "world.sqlite3.owner.lock")
+
+
+def _sync_directory(root):
+    if os.name != "nt":
+        descriptor = os.open(root, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+
+
+def _replace(path, data):
+    """``path``'s content replaced whole: a new file beside it, synced, then moved over it."""
+    staged = path.with_name(path.name + ".new")
+    if staged.exists() or staged.is_symlink():
+        unlink_file(staged)                     # a replacement stopped before its move: never read
+    _write_new(staged, data)
+    replace_file(staged, path)
+    _sync_directory(path.parent)
+
+
+def _apply_replacement(root, build, rules):
+    """Finish the code replacement whose record is in ``root`` (the world's owner lock held). The record holds the new
+    credential and was whole on disk before the database or host.json changed, so finishing is always possible, and the
+    same steps again change nothing. A record that cannot be read was cut short while being written, before anything
+    else changed: it is removed."""
+    path = root / REPLACEMENT_FILE
+    if not path.exists() and not path.is_symlink():
+        return
+    value = _json(_read(root / "host.json", 16_384))
+    accounts = value.get("accounts") if type(value) is dict else None
+    if type(accounts) is not list or not all(type(a) is dict for a in accounts) or type(value.get("world_id")) is not str:
+        raise HostWorldError("world_invalid", "host descriptor is unreadable")
+    try:
+        record = _json(_read(path, 4096))
+        if (type(record) is not dict or set(record) != _REPLACEMENT_FIELDS or record["format"] != REPLACEMENT_FORMAT
+                or record["world_id"] != value["world_id"] or type(record["slot"]) is not int
+                or not 1 <= record["slot"] < len(accounts) or record["player_id"] != accounts[record["slot"]].get("player_id")
+                or not _hash(record["credential"])):
+            raise ValueError()
+    except (InvitationError, ValueError):
+        unlink_file(path)
+        _sync_directory(root)
+        return
+    try:
+        _regular(root / "world.sqlite3")      # never let a store constructor create a missing database
+    except InvitationError:
+        raise HostWorldError("world_invalid", "the world's database is missing") from None
+    with TradeCheckpointStore(root / "world.sqlite3", build, rules, OWNERSHIP_PROFILE) as store:
+        if store.metadata.world_id != value["world_id"]:
+            raise HostWorldError("world_invalid", "database belongs to another world")
+        store.replace_credential(record["player_id"], bytes.fromhex(record["credential"]))
+    if accounts[record["slot"]].get("credential") != record["credential"]:
+        accounts[record["slot"]]["credential"] = record["credential"]
+        _replace(root / "host.json", _bytes(value))
+    unlink_file(path)
+    _sync_directory(root)
+
+
+def _finish_replacement(root, build, rules):
+    """A replacement left half done (the game or the PC stopped during HostWorld.replace_credential), finished before the
+    world is opened. Refused while another process holds the world's owner lock (hosting it, or replacing a code)."""
+    lock = _owner_lock(root)
+    try:
+        lock.acquire()
+    except OSError:
+        raise HostWorldError("world_busy", "this world is being hosted or one of its invite codes is being replaced") from None
+    try:
+        _apply_replacement(root, build, rules)
+    except StorageError as error:
+        raise HostWorldError("world_invalid", "the database refused the replaced invite code: " + error.code) from None
+    finally:
+        lock.release()
 
 
 @dataclass(frozen=True)
@@ -182,6 +267,8 @@ class HostWorld:
         root = Path(directory).absolute()
         if root.is_symlink() or not root.is_dir() or (root / "creation-failed.json").exists():
             raise HostWorldError("world_invalid", "host directory is missing, linked, or has an incomplete creation")
+        if (root / REPLACEMENT_FILE).exists() or (root / REPLACEMENT_FILE).is_symlink():
+            _finish_replacement(root, build, rules)
         value = _json(_read(root / "host.json", 16_384))
         if (set(value) != _FIELDS or value["format"] != HOST_FORMAT or value["build_id"] != build
                 or value["ruleset_id"] != rules or value["save_profile"] != OWNERSHIP_PROFILE):
@@ -225,6 +312,51 @@ class HostWorld:
             store.integrity_check()
         return cls(root.resolve(), value["world_id"], build, rules, OWNERSHIP_PROFILE,
                    value["endpoint"], value["port"], value["certificate_sha256"], tuple(accounts))
+
+    @classmethod
+    def replace_credential(cls, directory, rom_path, manifest_path, slot):
+        """A new invite code for the friend in ``slot`` (1 to 3; KNOWN_ISSUES NU-7): a new credential for that account, so
+        the old code is refused from now on; the account, its character and saves stay as they are. Only while the world
+        is not being hosted (its owner lock free): its sessions are not changed under it. Crash-safe: the new credential
+        is written to a record first; the database and host.json follow; the record goes last, and HostWorld.open
+        finishes one left half done. Returns the world opened again, with the new credential."""
+        world = cls.open(directory, rom_path, manifest_path)
+        if type(slot) is not int or not 1 <= slot < len(world.accounts):
+            raise HostWorldError("invalid_role", "only a friend's invite code can be replaced")
+        lock = _owner_lock(world.directory)
+        try:
+            lock.acquire()
+        except OSError:
+            raise HostWorldError("world_hosted", "stop hosting this world before replacing an invite code") from None
+        try:
+            if (world.directory / REPLACEMENT_FILE).exists() or (world.directory / REPLACEMENT_FILE).is_symlink():
+                raise HostWorldError("world_busy", "another replacement is under way")
+            taken = {account.credential for account in world.accounts}
+            credential = secrets.token_bytes(32)
+            while credential in taken:
+                credential = secrets.token_bytes(32)
+            account = world.accounts[slot]
+            _write_new(world.directory / REPLACEMENT_FILE,
+                       _bytes(dict(format=REPLACEMENT_FORMAT, world_id=world.world_id, slot=slot,
+                                   player_id=account.player_id, credential=credential.hex())))
+            _sync_directory(world.directory)
+            try:
+                _apply_replacement(world.directory, world.build_id, world.ruleset_id)
+            except (StorageError, HostWorldError) as error:
+                # Refused before anything but the record changed (a database that is busy, full or faulty rolls back;
+                # host.json follows the database): the record is withdrawn and the old code stays.
+                unlink_file(world.directory / REPLACEMENT_FILE)
+                _sync_directory(world.directory)
+                raise HostWorldError("not_replaced", "the world's database did not take the new code ("
+                                     + getattr(error, "code", "error") + "); nothing was changed") from None
+            # An OSError past this point (host.json or the record's removal): the database has the new code and the
+            # record stays, so the next open finishes it (KNOWN_ISSUES NU-7).
+        finally:
+            lock.release()
+        replaced = cls.open(directory, rom_path, manifest_path)
+        if replaced.accounts[slot].credential != credential:
+            raise HostWorldError("not_replaced", "the new code did not take; nothing was changed")
+        return replaced
 
     def open_store(self, *, busy_timeout=BUSY_TIMEOUT):
         """Return an unbooted store; the caller owns its lifetime and boot. `busy_timeout`: how long its transactions

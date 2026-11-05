@@ -88,9 +88,10 @@ C. A relay (works behind CGNAT; someone has to run it)
 3. Keeping it safe
 
 * An invite code is a password for one friend's place in your world. Send each code only to that
-  friend, privately (not in a public chat). A single code cannot be replaced yet: if one leaks,
-  anyone holding it can play that friend's place whenever you host, so stop hosting that world
-  (a new world has new codes).
+  friend, privately (not in a public chat). If one leaks or went to the wrong person, replace it:
+  stop hosting, then Host World, your world, "Invite codes for friends", "Replace a friend's code".
+  The old code stops working at once; that friend's character and saves stay as they are. Send them
+  the new code privately; they paste it into Join Friend and play on as before.
 * Internet access is off by default. With it off, only your home network (and a VPN such as
   Tailscale) can reach the world, even if a port is forwarded.
 * Automatic router setup only asks the router for the one port of the world you host, and removes

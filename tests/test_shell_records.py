@@ -191,3 +191,71 @@ class SavedServerTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class InvitationReplacementTests(unittest.TestCase):
+    """KNOWN_ISSUES NU-7: a stored invite is replaced only by a new code for the same account on the same host."""
+
+    @classmethod
+    def setUpClass(cls):
+        from net_fixtures import make_installation, make_world
+        cls.temp = tempfile.TemporaryDirectory()
+        root = Path(cls.temp.name)
+        cls.installation = make_installation(root)
+        cls.world = make_world(root, cls.installation, names=("Host", "Friend", "Pal"))
+        cls.other = make_world(root, cls.installation, name="other", names=("Mallory", "Eve"))
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.temp.cleanup()
+
+    def setUp(self):
+        self.private = Path(tempfile.mkdtemp(dir=self.temp.name))
+
+    def test_only_a_new_credential_for_the_same_account_and_host_replaces_the_stored_invite(self):
+        import secrets
+        from dataclasses import replace
+        from emerald_multiplayer.invitations import Invitation
+        from emerald_multiplayer.saved_servers import (invitation_path, replace_invitation, replaceable_invitation,
+                                                       store_invitation)
+        from emerald_multiplayer.host_world import _new_certificate
+        stored = self.world.invitation(1)
+        path = store_invitation(self.private, stored)
+        new = replace(stored, credential=secrets.token_bytes(32), endpoint="127.0.0.2")
+        self.assertTrue(replaceable_invitation(stored, new))
+        # a host that made its own certificate for this world's ID: another host, whatever the code says
+        pem, _, pin = _new_certificate(stored.world_id, "127.0.0.1", 30)
+        forged = replace(new, certificate_pem=pem.decode("ascii"), certificate_sha256=pin)
+        for other in (stored, forged, self.world.invitation(2), self.other.invitation(1)):
+            self.assertFalse(replaceable_invitation(stored, other))
+        with self.assertRaises(InvitationConflict):
+            store_invitation(self.private, new)                                   # never silently
+        before = path.read_bytes()
+        with self.assertRaises(InvitationConflict):
+            replace_invitation(self.private, forged)
+        self.assertEqual(path.read_bytes(), before)
+        self.assertEqual(replace_invitation(self.private, new), path)
+        self.assertEqual(Invitation.load(path), new)
+        self.assertEqual([p.name for p in path.parent.iterdir()], [path.name])
+        self.assertEqual(path, invitation_path(self.private, new.world_id, new.player_id))
+
+    def test_an_unreadable_or_linked_stored_invite_is_never_replaced(self):
+        import os
+        import secrets
+        from dataclasses import replace
+        from emerald_multiplayer.saved_servers import replace_invitation, store_invitation
+        stored = self.world.invitation(1)
+        path = store_invitation(self.private, stored)
+        new = replace(stored, credential=secrets.token_bytes(32))
+        path.write_bytes(b"{")
+        with self.assertRaises(InvitationConflict):
+            replace_invitation(self.private, new)
+        self.assertEqual(path.read_bytes(), b"{")
+        if os.name != "nt":
+            target = path.with_name("elsewhere.json")
+            target.write_bytes(stored.dumps())
+            path.unlink()
+            path.symlink_to(target)
+            with self.assertRaises(InvitationConflict):
+                replace_invitation(self.private, new)
+            self.assertEqual(target.read_bytes(), stored.dumps())

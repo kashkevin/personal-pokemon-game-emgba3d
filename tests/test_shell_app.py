@@ -419,6 +419,68 @@ class HostWorldTests(unittest.TestCase):
         self.assertIn("copied", notes[1])
         self.assertIn("password", notes[0])
 
+    def test_a_friends_code_is_replaced_from_the_invite_codes_page_and_the_new_one_copied(self):
+        """KNOWN_ISSUES NU-7: the old code stops working; the friend's account, character and saves stay."""
+        from emerald_multiplayer.host_world import HostWorld
+        world = World(self)
+        app = make_world(self, world)
+        (entry,) = app.registry.entries()
+        before = HostWorld.open(entry.folder, world.rom, world.manifest)
+        seen = []
+
+        def chooser(screen):
+            seen.append([item.id for item in screen.items])
+            return select("slot2")
+        driver = Driver(("main", select("host")), ("host_list", select(entry.world_id)), ("world", select("codes")),
+                        ("codes", select("replace")), ("choose", chooser),
+                        ("confirm", lambda s: seen.append(s.title) or select("yes")),
+                        ("codes", lambda s: seen.append(s.status) or BACK), ("world", BACK), ("host_list", BACK), main_exit())
+        app2, ui = world.app(driver)
+        app2.run()
+        self.assertTrue(driver.done(), driver.steps)
+        after = HostWorld.open(entry.folder, world.rom, world.manifest)
+        code = decode_invite(ui.copied[-1])
+        self.assertEqual((code.slot, code.player_id, code.credential), (2, after.accounts[2].player_id, after.accounts[2].credential))
+        self.assertNotEqual(code.credential, before.accounts[2].credential)
+        self.assertEqual([a.credential for i, a in enumerate(after.accounts) if i != 2],
+                         [a.credential for i, a in enumerate(before.accounts) if i != 2])
+        self.assertIn("slot1", seen[0])
+        self.assertNotIn("slot0", seen[0])                           # the host's own account is never offered
+        self.assertEqual(seen[1], f"Replace {after.accounts[2].display_name}'s code?")
+        self.assertEqual(seen[2][0], "ok")
+        self.assertIn("old code no longer works", seen[2][1])
+
+    def test_a_code_is_not_replaced_while_the_world_is_hosted(self):
+        from emerald_multiplayer.host_world import HostWorld
+        world = World(self)
+        app = make_world(self, world)
+        (entry,) = app.registry.entries()
+        before = HostWorld.open(entry.folder, world.rom, world.manifest)
+        seen = []
+        driver = Driver(("main", select("host")), ("host_list", select(entry.world_id)), ("world", select("codes")),
+                        ("codes", select("replace")), ("choose", select("slot1")),
+                        ("codes", lambda s: seen.append(s.status) or BACK), ("world", BACK), ("host_list", BACK), main_exit())
+        app2, ui = world.app(driver)
+        app2.hosting[entry.world_id] = ("127.0.0.1", entry.port)    # this window is hosting it
+        app2.run()
+        self.assertTrue(driver.done(), driver.steps)
+        self.assertEqual(seen[0][0], "error")
+        self.assertIn("Stop hosting", seen[0][1])
+        self.assertEqual(HostWorld.open(entry.folder, world.rom, world.manifest), before)
+        # hosted by another process (its owner lock held): refused the same way, nothing changed
+        with before.open_store() as store:
+            store.begin_server_boot()
+            seen.clear()
+            driver = Driver(("main", select("host")), ("host_list", select(entry.world_id)), ("world", select("codes")),
+                            ("codes", select("replace")), ("choose", select("slot1")), ("confirm", select("yes")),
+                            ("codes", lambda s: seen.append(s.status) or BACK), ("world", BACK), ("host_list", BACK), main_exit())
+            app3, _ = world.app(driver)
+            app3.run()
+            self.assertTrue(driver.done(), driver.steps)
+        self.assertEqual(seen[0][0], "error")
+        self.assertIn("being hosted", seen[0][1])
+        self.assertEqual(HostWorld.open(entry.folder, world.rom, world.manifest).accounts, before.accounts)
+
     def test_the_session_window_saves_toggles_autosave_and_shows_server_information_while_hosting(self):
         from emerald_multiplayer.launcher_gui import UiEvent
         from emerald_multiplayer.shell_app import ShellApp

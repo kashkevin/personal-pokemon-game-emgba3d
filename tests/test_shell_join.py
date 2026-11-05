@@ -347,3 +347,80 @@ class OfflineAndEditTests(JoinFixture):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ReplacedCodeTests(JoinFixture):
+    """KNOWN_ISSUES NU-7: the host replaced a friend's code; the friend pastes the new one into Join Friend. It takes the
+    stored code's place only once the real host accepted it."""
+
+    def joined_friend(self):
+        pc = self.friend()
+        driver = Driver(*self.join_steps(self.code(1), then=[("bring_character", select("go")), ("join_list", BACK), main_exit()]))
+        pc.app(driver, lan=LOOPBACK_LAN)[0].run()
+        self.assertTrue(driver.done(), driver.steps)
+        return pc
+
+    def replace_code(self, slot=1):
+        """The host stops hosting, replaces the code, and hosts again."""
+        self.server.stop()
+        world = HostWorld.replace_credential(self.entry.folder, self.world.rom, self.world.manifest, slot)
+        self.server = ServerThread(self, self.world.installation, world)
+        return world
+
+    def stored(self, pc):
+        return Invitation.load(invitation_path(pc.private, self.entry.world_id, self.account()))
+
+    def test_the_new_code_takes_the_old_ones_place_once_the_host_accepted_it(self):
+        pc = self.joined_friend()
+        old = self.stored(pc).credential
+        world = self.replace_code(1)
+        seen, worker = [], FakeWorker(lambda request: "game_closed")
+        driver = Driver(*self.join_steps(self.code(1, host_world=world), then=[
+            ("confirm", lambda s: seen.append(" ".join(s.notes)) or select("yes")),
+            ("join_list", BACK), main_exit()]))
+        app, _ = pc.app(driver, worker=worker, lan=LOOPBACK_LAN)
+        app.run()
+        self.assertTrue(driver.done(), driver.steps)
+        self.assertIn("already has a code for", seen[0])
+        self.assertEqual(self.stored(pc).credential, world.invitation(1).credential)
+        self.assertNotEqual(self.stored(pc).credential, old)
+        (server,) = app.servers.all()                               # the same saved server, still one
+        self.assertEqual((server["world_id"], server["player_id"]), (self.entry.world_id, self.account()))
+        (request,) = worker.requests                                # and the game started with the new code
+        self.assertEqual(request.selection, invitation_path(pc.private, self.entry.world_id, self.account()))
+        self.assertEqual([p.name for p in invitation_path(pc.private, self.entry.world_id, self.account()).parent.iterdir()
+                          if p.name.endswith(".new")], [])
+
+    def test_a_code_the_host_does_not_accept_never_replaces_the_stored_one(self):
+        import secrets
+        from dataclasses import replace
+        pc = self.joined_friend()
+        kept = self.stored(pc).dumps()
+        made_up = replace(self.host_world.invitation(1), credential=secrets.token_bytes(32))
+        code = encode_invite(made_up, "127.0.0.1", self.port)
+        seen = []
+        driver = Driver(*self.join_steps(code, then=[
+            ("confirm", select("yes")),
+            ("join_new", lambda s: seen.append(s.status) or BACK), ("join_list", BACK), main_exit()]))
+        app, _ = pc.app(driver, lan=LOOPBACK_LAN)
+        app.run()
+        self.assertTrue(driver.done(), driver.steps)
+        self.assertEqual(seen[0][0], "error")
+        self.assertIn("did not accept", seen[0][1])
+        self.assertEqual(self.stored(pc).dumps(), kept)
+
+    def test_the_old_code_after_a_replacement_is_refused_by_the_host(self):
+        pc = self.joined_friend()
+        self.replace_code(1)
+        seen = []
+        # the friend's PC still holds the old code: pasting it again is the same code, so nothing is offered, and the
+        # host no longer accepts it when the game signs in (checked here directly)
+        import asyncio
+        from emerald_multiplayer.connection_diagnostics import check_sign_in
+        old = self.stored(pc)
+        accepted = asyncio.run(check_sign_in("127.0.0.1", self.port, certificate_sha256=old.certificate_sha256,
+                                             world_id=old.world_id, build_id=old.build_id, ruleset_id=old.ruleset_id,
+                                             player_id=old.player_id, display_name=old.display_name,
+                                             credential=old.credential, timeout=5))
+        self.assertIs(accepted, False)
+        self.assertEqual(seen, [])

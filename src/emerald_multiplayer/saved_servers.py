@@ -25,6 +25,7 @@ from .character_links import profile_directory
 from .invitations import Invitation, InvitationError, _write_new
 from .invite_code import valid_address, valid_port
 from .shell_store import JsonStore, is_uuid, text_ok, time_ok
+from .windows_files import replace_file, unlink_file
 
 FORMAT = "emerald-saved-servers-v1"
 FILE_NAME = "servers.json"
@@ -82,6 +83,43 @@ def store_invitation(private_root, invitation):
         if (existing.credential != invitation.credential or existing.certificate_sha256 != invitation.certificate_sha256
                 or existing.slot != invitation.slot or existing.build_id != invitation.build_id):
             raise InvitationConflict("a different invitation is already stored for this account")
+    return path
+
+
+def replaceable_invitation(existing, invitation):
+    """Whether ``invitation`` is a new code for the account ``existing`` is for (KNOWN_ISSUES NU-7: the host replaced
+    it): the same world, account, slot, role, game build and host identity (certificate pin), another credential."""
+    return (existing.world_id == invitation.world_id and existing.player_id == invitation.player_id
+            and existing.slot == invitation.slot and existing.role == invitation.role
+            and existing.build_id == invitation.build_id and existing.certificate_sha256 == invitation.certificate_sha256
+            and existing.credential != invitation.credential)
+
+
+def replace_invitation(private_root, invitation):
+    """The stored invitation for ``invitation``'s account replaced by it, the file replaced whole. Only a new code for
+    the same account and host (replaceable_invitation), and only once the host accepted its credential: the menu checks
+    that first (connection_diagnostics.check_sign_in), so a code someone else made up cannot take a working one's place.
+    Returns the path; anything else raises InvitationConflict and nothing changes."""
+    path = invitation_path(private_root, invitation.world_id, invitation.player_id)
+    if path.is_symlink():
+        raise InvitationConflict("linked invitation location")
+    try:
+        existing = Invitation.load(path)
+    except (OSError, InvitationError):
+        raise InvitationConflict("an unreadable invitation is already stored for this account") from None
+    if not replaceable_invitation(existing, invitation):
+        raise InvitationConflict("that invite is not a new code for this account and host")
+    staged = path.with_name(path.name + ".new")
+    if staged.exists() or staged.is_symlink():
+        unlink_file(staged)                     # a replacement stopped before its move: never read
+    _write_new(staged, invitation.dumps())
+    replace_file(staged, path)
+    if os.name != "nt":
+        descriptor = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
     return path
 
 
@@ -230,4 +268,5 @@ class SavedServers:
         return True
 
 
-__all__ = ["InvitationConflict", "SavedServers", "invitation_path", "relay_of", "store_invitation", "INVITATION_NAME", "os"]
+__all__ = ["InvitationConflict", "SavedServers", "invitation_path", "relay_of", "replace_invitation", "replaceable_invitation",
+           "store_invitation", "INVITATION_NAME", "os"]

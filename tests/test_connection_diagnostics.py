@@ -152,6 +152,43 @@ class CheckServerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((result.code, result.detail), ("version_mismatch", "server error launcher_mismatch"))
         self.assertEqual(server.sessions, {})
 
+    async def sign_in(self, port, account=1, credential=None, world=None, **changes):
+        world = world or self.world
+        account_ = world.accounts[account]
+        values = dict(certificate_sha256=world.certificate_sha256, world_id=world.world_id, build_id=world.build_id,
+                      ruleset_id=world.ruleset_id, player_id=account_.player_id, display_name=account_.display_name,
+                      credential=account_.credential if credential is None else credential, timeout=3)
+        values.update(changes)
+        return await diagnostics.check_sign_in("127.0.0.1", port, **values)
+
+    async def test_a_replaced_code_is_checked_by_signing_in_once_and_leaving(self):
+        """KNOWN_ISSUES NU-7: the friend's PC asks the host whether a new code works before it replaces the stored one."""
+        store = self.world.open_store()
+        self.addCleanup(store.close)
+        server = WorldServer(ServerConfig(self.world.build_id, self.world.ruleset_id), store=store)
+        await server.start("127.0.0.1", 0, tls=self.world.server_tls)
+        self.addAsyncCleanup(server.close)
+        port = server.address[1]
+        self.assertIs(await self.sign_in(port), True)
+        async with asyncio.timeout(3):
+            while server.sessions:                                   # the sign-in ended as a game closed would
+                await asyncio.sleep(.01)
+        self.assertIs(await self.sign_in(port, credential=bytes(32)), False)
+        self.assertIs(await self.sign_in(port, credential=self.world.accounts[2].credential), False)
+        self.assertIsNone(await self.sign_in(port, certificate_sha256="0" * 64))   # another host: nothing sent
+        self.assertIsNone(await self.sign_in(free_port()))                          # nobody there
+        self.assertEqual(server.sessions, {})
+
+    async def test_the_answers_after_the_credential_check_count_as_accepted_and_refusals_before_it_do_not(self):
+        for answer, expected in (("player_already_connected", True), ("server_full", True), ("credentials_invalid", False),
+                                 ("build_mismatch", None), ("launcher_mismatch", None)):
+            fake = await self.fake(on_hello=answer)
+            self.assertIs(await self.sign_in(fake.port), expected, answer)
+            self.assertEqual(fake.hellos[-1]["credential"], self.world.accounts[1].credential.hex())
+        fake = await self.fake(immediate="public_exposure_disabled")
+        self.assertIsNone(await self.sign_in(fake.port))
+        self.assertEqual(fake.hellos, [])                            # refused before anything was sent
+
     async def test_a_world_closed_to_the_internet_says_so(self):
         fake = await self.fake(immediate="public_exposure_disabled")
         result = await check_server("127.0.0.1", fake.port, **self.options())

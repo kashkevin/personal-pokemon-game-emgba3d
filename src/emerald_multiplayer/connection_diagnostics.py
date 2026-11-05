@@ -459,6 +459,68 @@ async def check_server(address, port, *, certificate_sha256, world_id, build_id=
         await close_quietly(writer)
 
 
+async def check_sign_in(address, port, *, certificate_sha256, world_id, build_id, ruleset_id, player_id, display_name,
+                        credential, relay=None, timeout=DEFAULT_TIMEOUT):
+    """Whether the world at ``address:port`` (or its room on ``relay``), the one with this certificate pin, accepts this
+    account's ``credential`` (KNOWN_ISSUES NU-7: a friend's replaced invite code is checked so before it takes the stored
+    one's place; nothing is sent before the pin matched). True: accepted (signed in, or refused only for being connected
+    already or a full world, which the server says after checking the credential); False: refused as invalid; None:
+    nothing that tells (unreachable, another world or version, no answer). The connection is closed at once: an accepted
+    sign-in ends as a game closed would."""
+    from .invite_code import InviteCodeError, resolve_address, valid_address, valid_port
+    from .protocol import PROTOCOL_VERSION, ProtocolError, encode_message, launcher_version, read_message
+    if (not valid_address(address) or not valid_port(port) or type(certificate_sha256) is not str
+            or len(certificate_sha256) != 64 or type(credential) is not bytes or len(credential) != 32
+            or (relay is not None and (type(relay) not in (tuple, list) or len(relay) != 2
+                                       or not valid_address(relay[0]) or not valid_port(relay[1])))):
+        return None
+    if type(timeout) not in (int, float) or not 0 < timeout <= 60:
+        raise ValueError("timeout must be between zero and sixty seconds")
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+    writer = None
+    try:
+        async with asyncio.timeout(timeout):
+            if relay is None:
+                numeric = await loop.run_in_executor(None, lambda: resolve_address(address, port, timeout=timeout))
+                reader, writer = await open_tls(numeric, port, pinning_context(), handshake_timeout=timeout)
+            else:
+                reader, writer = await open_tls(None, port, pinning_context(), relay=tuple(relay), room=world_id,
+                                                handshake_timeout=timeout)
+        der = peer_certificate(writer)
+        if not der or hashlib.sha256(der).hexdigest() != certificate_sha256:
+            return None
+        try:
+            async with asyncio.timeout(.3):
+                first = await read_message(reader)
+        except TimeoutError:
+            first = None
+        else:
+            if first is None or first.get("type") == "error":
+                return None                      # refused outright, before any credential
+        writer.write(encode_message({"type": "hello", "protocol": PROTOCOL_VERSION, "build_id": build_id,
+                                     "ruleset_id": ruleset_id, "player_id": player_id, "display_name": display_name,
+                                     "launcher": launcher_version(), "credential": credential.hex()}))
+        async with asyncio.timeout(max(deadline - loop.time(), .5)):
+            await writer.drain()
+            reply = await read_message(reader)
+    except (InviteCodeError, OSError, TimeoutError, ssl.SSLError, ValueError, ConnectionError, ProtocolError,
+            asyncio.IncompleteReadError):
+        return None
+    finally:
+        await close_quietly(writer)
+    if reply is None:
+        return None
+    if reply.get("type") == "welcome":
+        return True
+    if reply.get("type") == "error":
+        if reply.get("code") in ("player_already_connected", "server_full"):
+            return True
+        if reply.get("code") == "credentials_invalid":
+            return False
+    return None
+
+
 async def check_routes(address, port, *, relay=None, **options):
     """Try the direct route first and, when it cannot be reached and a relay is known, the relay. The result names the route that
     answered (or the direct route's failure when both fail for a network reason)."""

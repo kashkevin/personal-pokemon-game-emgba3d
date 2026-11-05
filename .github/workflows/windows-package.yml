@@ -1319,6 +1319,19 @@ jobs:
         run: |
           .venv/Scripts/python tools/perf/world_open_bench.py --saves 300 --repeat 3 --max-seconds 60 \
             --out "$RUNNER_TEMP/world-open-bench.json"
+      - name: A friend's invite code replaced, and a replacement cut short at each step finished (KNOWN_ISSUES NU-7)
+        run: |
+          # On Windows: the world's owner lock (msvcrt), host.json and the record replaced and removed while a scanner
+          # may hold them (windows_files.py), and the friend's stored code replaced only for the same account and host.
+          # The host world's and the stored invite's own tests, with only the pinned wheels (no game, no secret).
+          .venv/Scripts/python - <<'PY'
+          import sys, unittest
+          sys.path[:0] = ["src", "tests"]
+          suite = unittest.defaultTestLoader.loadTestsFromNames(
+              ["test_host_world.CredentialReplacementTests", "test_shell_records.InvitationReplacementTests"])
+          result = unittest.TextTestRunner(verbosity=2).run(suite)
+          sys.exit(0 if result.wasSuccessful() and result.testsRun >= 8 else 1)
+          PY
       - name: Upload the timings (private to this repository, 7 days)
         if: always()
         uses: actions/upload-artifact@v4

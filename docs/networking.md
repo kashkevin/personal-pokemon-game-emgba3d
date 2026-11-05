@@ -93,7 +93,13 @@ retrying; "already connected" and "full" are retried calmly. The session window 
   restart (a denial of service only); "New relay key" makes a new token.
 * Automatic router setup asks only for the hosted world's port, only while Internet access is on, and removes it at the
   end of the session (if the router honours removal). It can be turned off per world.
-* A leaked invite code cannot be revoked individually yet (KNOWN_ISSUES).
+* A leaked invite code is replaced for that one friend (KNOWN_ISSUES NU-7): Host World > the world > Invite codes for
+  friends > Replace a friend's code, while the world is not being hosted. The old code stops working at once (the
+  world's database and `host.json` take the new credential in a crash-safe order: a pending record first, finished by
+  the next open if the PC stopped half way); the friend's account, character and saves stay. The new code is copied
+  for the host to send; the friend pastes it into Join Friend, and their PC replaces its stored code only after the
+  host (the same certificate pin) accepted the new credential, so a code someone made up cannot take a working one's
+  place.
 
 ## Verification
 

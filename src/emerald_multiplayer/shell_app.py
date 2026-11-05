@@ -37,14 +37,15 @@ from .character_library import CharacterLibrary, LibraryError
 from .character_links import CharacterLinks
 from .character_migration import migrate_characters, recover_draft, recoverable_drafts
 from .character_play import account_save, needs_registration, record_after_session, register_character, sync_from_worlds
-from .connection_diagnostics import check_routes, describe, result as diagnosis
+from .connection_diagnostics import check_routes, check_sign_in, describe, result as diagnosis
 from .graphics_mode import MODE_2D, MODE_3D, MODE_LABELS, GraphicsPreference, choose_launch, explain_failure, probe_graphics
 from .invitations import Invitation, InvitationError
 from .invite_code import InviteCodeError, decode_invite, encode_invite, redeem, resolve_address, valid_address, valid_port
 from .launcher_session import SessionState
 from .launcher_worlds import lan_addresses
 from .network_settings import NetworkSettings, route_path, save_join_route
-from .saved_servers import InvitationConflict, SavedServers, invitation_path, relay_of, store_invitation
+from .saved_servers import (InvitationConflict, SavedServers, invitation_path, relay_of, replace_invitation,
+                            replaceable_invitation, store_invitation)
 from .shell_migration import MigrationResult, migrate
 from .shell_protocol import Done, Screen, ShellClosed
 from .shell_store import JsonStore, StoreUnavailable, is_uuid, text_ok, time_ok
@@ -113,7 +114,7 @@ class ShellApp:
 
     def __init__(self, installation, private_root, ui, *, version="Development preview", worker=None,
                  register=register_character, drafter=create_draft,
-                 resolver=resolve_address, checker=check_routes, lan=lan_addresses, graphics=None,
+                 resolver=resolve_address, checker=check_routes, signer=check_sign_in, lan=lan_addresses, graphics=None,
                  graphics_gate=None, importer=None, clock=time.time, session_window=SESSION_WINDOW, menu_window=MENU_WINDOW):
         self.installation = installation
         self.private_root = Path(private_root)
@@ -124,6 +125,7 @@ class ShellApp:
         self.resolver, self._lan_source = resolver, lan
         self._address_kinds = {}           # address text -> "lan" / "vpn", from the last lan() call (for Server Information)
         self.checker = checker             # connection_diagnostics.check_routes: identity, version, then the route that answered
+        self.signer = signer               # connection_diagnostics.check_sign_in: does the host accept a replaced code (NU-7)
         self.graphics = graphics if graphics is not None else GraphicsPreference(self.private_root)
         self.graphics_gate = graphics_gate or self._graphics_gate
         self.importer = importer
@@ -1437,6 +1439,8 @@ class ShellApp:
                 screen.note(f"They also name your relay ({relay[0]}:{relay[1]}), used when your PC cannot be reached directly.")
             for account in world.accounts[1:]:
                 screen.row(f"slot{account.slot}", account.display_name, "copy invite code", "")
+            if len(world.accounts) > 1:
+                screen.row("replace", "Replace a friend's code", "if a code got out: the old one stops working", "w")
             screen.button("back", "Back")
             if notice:
                 screen.set_status(*notice)
@@ -1444,6 +1448,9 @@ class ShellApp:
             notice = None
             if event.kind == "back" or event.id == "back":
                 return
+            if event.id == "replace":
+                world, notice = self._replace_invite_code(entry, world, address)
+                continue
             if event.id.startswith("slot"):
                 slot = int(event.id[4:])
                 try:
@@ -1453,6 +1460,59 @@ class ShellApp:
                     continue
                 self.ui.copy_text(code)
                 notice = ("ok", f"Invite code for {world.accounts[slot].display_name} copied. Paste it to them privately.")
+
+    def _replace_invite_code(self, entry, world, address):
+        """A new invite code for one friend (KNOWN_ISSUES NU-7): their old code stops working at once; their account,
+        character and saves stay. Returns (the world, a notice); the new code is copied for the host to send."""
+        options = [(f"slot{a.slot}", a.display_name, "make a new code") for a in world.accounts[1:]]
+        chosen = self.choose("Replace a friend's code", options,
+                             notes=("Use this if a friend's code was sent to the wrong person or got out.",
+                                    "The old code stops working at once. Their account, character and saves stay as they are;",
+                                    "they paste the new code into Join Friend and their game keeps playing as before."))
+        if chosen is None:
+            return world, None
+        slot = int(chosen[4:])
+        name = world.accounts[slot].display_name
+        if entry.world_id in self.hosting:
+            return world, ("error", "Stop hosting this world first (close your game), then replace the code.")
+        if not self.confirm(f"Replace {name}'s code?",
+                            f"{name}'s current code will stop working at once, also for anyone who has a copy.\n"
+                            f"You then send {name} the new code privately.", "Replace the code", warn=True):
+            return world, None
+        from .host_world import HostWorld, HostWorldError
+
+        def reopened():
+            """The world as it is now (a replacement the next open finishes, finished), for the page's codes."""
+            try:
+                return HostWorld.open(entry.folder, self.installation.rom_path, self.installation.manifest_path)
+            except Exception:                                          # noqa: BLE001 - the page keeps what it had
+                return world
+        try:
+            world = HostWorld.replace_credential(entry.folder, self.installation.rom_path, self.installation.manifest_path,
+                                                 slot)
+        except HostWorldError as error:
+            if error.code in ("world_hosted", "world_busy"):
+                return world, ("error", "This world is being hosted right now (perhaps by another window). "
+                                        "Stop hosting it first; nothing was changed.")
+            self._record_error(error)
+            if error.code == "not_replaced":
+                return world, ("error", "The world's database could not take the new code right now; nothing was "
+                                        "changed. Try again.")
+            return reopened(), ("error", "The code could not be replaced. " + _sentence(error))
+        except OSError as error:
+            self._record_error(error)
+            return reopened(), ("error", f"{name}'s new code is in the world's database, but a file could not be written "
+                                         "(is the disk full?). It is finished the next time this world opens; "
+                                         "the old code no longer works.")
+        except Exception as error:                                     # noqa: BLE001 - shown, never a crash of the menu
+            self._record_error(error)
+            return reopened(), ("error", "The code could not be replaced. " + _sentence(error))
+        try:
+            code = encode_invite(world.invitation(slot), address, entry.port, relay=self.network.get(entry.world_id).relay)
+        except (InvitationError, InviteCodeError, ValueError) as error:
+            return world, ("error", f"{name}'s old code no longer works, but no new code could be made: {error}")
+        self.ui.copy_text(code)
+        return world, ("ok", f"{name} has a new code, copied. Paste it to them privately; their old code no longer works.")
 
     def network_settings(self, entry):
         notice = None
@@ -1668,8 +1728,11 @@ class ShellApp:
             try:
                 store_invitation(self.private_root, invitation)
             except InvitationConflict:
-                status = ("error", "A different invite is already stored for this account on this PC. Nothing was changed.")
-                continue
+                replaced = self._offer_replacement(invitation, address, port, invitation_source)
+                if replaced is not True:
+                    status = replaced or ("error", "A different invite is already stored for this account on this PC. "
+                                                   "Nothing was changed.")
+                    continue
             name = values["name"] or f"{invitation.display_name}'s server"
             code = invitation_source.get("code")
             server, created = self.servers.add(name, address, port, invitation.world_id, invitation.player_id, invitation.slot,
@@ -1678,6 +1741,48 @@ class ShellApp:
             self.notice = ("ok", "Server saved." if created else "That account already had a saved server; its address was updated.")
             self._join_server(server)
             return
+
+    def _offer_replacement(self, invitation, address, port, source):
+        """A pasted code for an account this PC already has another code for (KNOWN_ISSUES NU-7). When it is the same
+        account on the same host (the same certificate pin) with another credential, the host replaced the code: offer to
+        replace the stored one, but only once the host accepted the new code, so a code someone made up cannot take a
+        working one's place. Returns True when replaced, None when it is not such a code, else a status to show."""
+        try:
+            existing = Invitation.load(invitation_path(self.private_root, invitation.world_id, invitation.player_id))
+        except (OSError, InvitationError):
+            return None
+        if not replaceable_invitation(existing, invitation):
+            return None
+        if not self.confirm("Use this new code?",
+                            f"This PC already has a code for {existing.display_name} in this world.\n"
+                            "If your host made you a new one (the old one then stops working), it takes the old one's place.\n"
+                            "The host is asked first whether it accepts the new code.", "Check and use it"):
+            return ("error", "Nothing was changed.")
+        code = source.get("code")
+        relay = code.relay if code is not None else None
+
+        async def check(job):
+            job.progress("checking")
+            return await self.signer(address, port, relay=relay, certificate_sha256=invitation.certificate_sha256,
+                                     world_id=invitation.world_id, build_id=invitation.build_id,
+                                     ruleset_id=invitation.ruleset_id, player_id=invitation.player_id,
+                                     display_name=invitation.display_name, credential=invitation.credential)
+
+        job = self.run_job(check, "Checking the new code", "Asking the host whether it accepts the new code.")
+        if job is None:
+            return ("error", "Cancelled. Nothing was changed.")
+        if job.error is not None:
+            self._record_error(job.error)
+        if job.error is not None or job.result is None:
+            return ("error", "The host could not be asked about the new code right now (it has to be hosting). "
+                             "Nothing was changed.")
+        if job.result is False:
+            return ("error", "The host did not accept that code. Your stored code was kept.")
+        try:
+            replace_invitation(self.private_root, invitation)
+        except InvitationConflict:
+            return ("error", "The stored code could not be replaced. Nothing was changed.")
+        return True
 
     def _parse_invite(self, text):
         """A dict(address, port, build_id, code | invitation) from pasted text: an invite code, or the path of an invitation file."""
