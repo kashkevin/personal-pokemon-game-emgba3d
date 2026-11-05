@@ -148,6 +148,10 @@ the app tests now run in every full run. The menu check with the crossing (app `
 engine (run 319: in both games the row under the mouse, Host Server, took the focus) and **passed** on engine
 `6ce2648c` (run 320): P14's fix shown on the Windows runner.
 
+Run 322 (engine `fb6bcd9f`: P14's fix and the gameplay check's narrowed blocked rule, app `cbc4419`, the gameplay
+check on) is the next installer candidate, dispatched at 12:54 UTC: the first full run with the app's tests and the
+3D gameplay check in it.
+
 ## 6. Earlier issues in KNOWN_ISSUES (reviewed 2026-11-04)
 
 Every issue in KNOWN_ISSUES whose row there still reads open, or whose fix was never shown in this list, checked
