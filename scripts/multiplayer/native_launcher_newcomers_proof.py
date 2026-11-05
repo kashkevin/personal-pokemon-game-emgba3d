@@ -60,7 +60,10 @@ workers and native games, driven by ordinary key presses:
             change of original trainer it allows. The host's saves: no Bad Egg, the hatcher's trainer ID, name and
             gender, species, personality, IVs, moves and shininess kept; the integrity check; with --hatch-in party the
             hatched Pokemon is traded on to the other player for the Mudkip; with --hatch-in box the Egg's first
-            trainer's old save (the copy of the Egg still unhatched) is refused as a character coming back.
+            trainer's old save (the copy of the Egg still unhatched) is refused as a character coming back. The games
+            are the engine's test build (Makefile_pc BFX_TEST=1; on Windows pokeemerald-mp-bfxtest.exe with its own
+            symbol table): its breed log is read from the file each game appends it to (PKMN_TEST_LOG, TEST_LOG in the
+            game's launch folder: on Windows the game's own output may reach no file).
     give-up  (two; KNOWN_ISSUES MS-126: no turn timer, a player may give up whenever they wish) both claim their
             starters and save (or, with --no-save, the games save by themselves); the host challenges the second
             player to Rival Battle - 1v1 and both enter. The game that does not run the battle (core 1; core 0, the
@@ -138,6 +141,9 @@ MAIL_LINES, MAIL_AUTHOR, MAIL_CALLBACK, MAIL_POINTER = 0, 0x200, 0x210, 0x214
 SCRIPT_SHUTDOWN = 2
 # Where a hatching receiver walks to and fro (row 12 east and west of the lab's street: the newcomers' own ways).
 PACE = {"east": (12, 11, 14), "west": (12, 5, 10)}
+# trade-egg: the file each game of the test build appends its driver's log to (PKMN_TEST_LOG, battle_env_test.c
+# TestLog), in the game's own launch folder beside its runtime.log
+TEST_LOG = "test.log"
 # trade-mail's --freeze points: once the first player confirmed, once both did, once the host committed the trade
 TRADE_CUTS = ("trade", "trade-confirmed", "trade-committed")
 GIVE_UPS = ("give-up", "give-up-mid-turn")
@@ -193,6 +199,24 @@ class NewcomersProof(SoftResetProof, ThreePlayerProof):
         self.scenario, self.format, self.no_save = scenario, fmt, no_save
         self.expect_species = tuple(expect_species)
         self.hatch_in = hatch_in
+
+    def adopt(self, harness):
+        """AbandonProof.adopt; and with trade-egg every game the proof's launchers start (an enrollment's, Host Game's
+        and Join Game's, and a game a reset starts again) appends the test build's log to a file of its own: TEST_LOG
+        in its launch folder (PKMN_TEST_LOG; the spawn's working directory, beside its runtime.log). On Windows the
+        game's own output may reach no file (battle_env_test.c), so the breed log is read from there on every platform.
+        This spawn runs under AbandonProof's (which picks the player's display), so it adds to the environment that one
+        chose. The environment only; nothing else of the spawn changes."""
+        if self.scenario == "trade-egg":
+            real = asyncio.create_subprocess_exec
+
+            async def spawn(program, *arguments, **options):
+                if options.get("cwd") is not None:
+                    options["env"] = dict(options.get("env") or os.environ,
+                                          PKMN_TEST_LOG=str(Path(options["cwd"]) / TEST_LOG))
+                return await real(program, *arguments, **options)
+            asyncio.create_subprocess_exec = spawn
+        super().adopt(harness)
 
     # The claims ---------------------------------------------------------------------------------------------------
     async def walk_to_lab(self, slot, current, probes, record):
@@ -1263,16 +1287,19 @@ class NewcomersProof(SoftResetProof, ThreePlayerProof):
 
     async def log_lines(self, worker, prefix):
         """The breed log's lines of this player's running game (PKMN_TEST_BREED_LOG: the test build's own record of
-        its party, its PC's Eggs and its banners, in the game's runtime.log)."""
-        text = (await self.log_of(worker)).read_text(errors="replace")
+        its party, its PC's Eggs and its banners), from the file the game appends them to (TEST_LOG beside its
+        runtime.log: adopt); none while it has written none."""
+        path = (await self.log_of(worker)).with_name(TEST_LOG)
+        text = path.read_text(encoding="utf-8", errors="replace") if path.exists() else ""
         return [line.split("Battle env test: ", 1)[1] for line in text.splitlines()
                 if "Battle env test: " + prefix in line]
 
     async def reset_question(self, n, current, probes, record):
         """MS-61's soft reset key as a keyboard player presses it: Ctrl+R, which the game itself turns into A, B, START
         and SELECT held for one frame (sdl2.c), so a loaded PC's slow frames never see the four keys apart (the four
-        keys pressed one by one did: START alone opened the START menu). The Players menu opens on its question
-        ("Reset the game?", No first)."""
+        keys pressed one by one did: START alone opened the START menu). On Windows the keyboard's messages for Ctrl
+        and R are posted to the game's window, Ctrl's first (native_windows_process.chord; SDL keeps Ctrl held for the
+        R that follows). The Players menu opens on its question ("Reset the game?", No first)."""
         probe = probes[n]
         for attempt in range(3):
             await self.on_field(current[n], timeout=60)
@@ -1695,8 +1722,8 @@ async def run(args):
         args.display = [f"desktop-{n}" for n in range(count)]         # Windows: one desktop; names for the records
     environment = dict(SDL_FRAMEBUFFER_ACCELERATION="0")
     if args.scenario == "trade-egg":
-        # the test build's breed log (its party's and PC's Eggs and their cycles, its banners) in each game's runtime.log
-        require(not WINDOWS, "--scenario trade-egg: Linux games (the breed log, the restarted game's environment)")
+        # the test build's breed log (its party's and PC's Eggs and their cycles, its banners) in each game's own
+        # TEST_LOG (NewcomersProof.adopt)
         environment["PKMN_TEST_BREED_LOG"] = "1"
     if args.scenario in ("trade-mail", "trade-egg"):
         # the sources' own parties (make_tower_saves.py's trade-mail-a/-b, trade-egg-a/-b)

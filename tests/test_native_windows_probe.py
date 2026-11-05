@@ -65,9 +65,39 @@ class WindowsModeTests(unittest.TestCase):
             native_windows_process.pe_header(pe_bytes(magic=0x20B))       # a 64-bit executable is not the game
 
     def test_keys_are_the_games_defaults(self):
-        self.assertEqual(set(native_windows_process.VK), set(harness.KEYS.values()))
+        # and Ctrl+R, the soft reset key a keyboard player presses (the newcomers proof's Egg in a PC box)
+        self.assertEqual(set(native_windows_process.VK), set(harness.KEYS.values()) | {"ctrl", "r"})
         self.assertTrue({native_windows_process.VK[k] for k in ("Up", "Down", "Left", "Right")}
                         <= native_windows_process.EXTENDED)
+        self.assertEqual((native_windows_process.VK["ctrl"], native_windows_process.VK["r"]), (0x11, 0x52))
+        self.assertFalse({native_windows_process.VK[k] for k in ("ctrl", "r")} & native_windows_process.EXTENDED)
+
+    def test_ctrl_r_is_posted_to_the_games_window_ctrl_first(self):
+        # The Egg proof's reset (reset_question: probe._chord(("ctrl", "r"))) on Windows: the keyboard's messages to
+        # the game's own window, Ctrl down before R down (SDL keeps the left Ctrl held, from its scan code, for the R
+        # that follows: the game's sdl2.c reads Ctrl+R from the R key's modifiers), then both up. Before 2026-11-05 the
+        # Windows keys had no Ctrl and no R (a KeyError on the runner).
+        posted = []
+
+        class User32:
+            @staticmethod
+            def MapVirtualKeyW(vk, kind):
+                return {0x11: 0x1D, 0x52: 0x13}[vk]          # MAPVK_VK_TO_VSC: the left Ctrl's and R's scan codes
+
+            @staticmethod
+            def PostMessageW(hwnd, message, wparam, lparam):
+                posted.append((hwnd, message, wparam, lparam))
+                return True
+
+        with mock.patch.object(native_windows_process, "_user32", lambda: User32), \
+                mock.patch.object(native_windows_process.time, "sleep", lambda seconds: None):
+            native_windows_process.chord(0x5150, ("ctrl", "r"), .2)
+        down, up = native_windows_process.WM_KEYDOWN, native_windows_process.WM_KEYUP
+        signed = native_windows_process._signed
+        released = (1 << 30) | (1 << 31)
+        self.assertEqual(posted, [(0x5150, down, 0x11, signed(1 | 0x1D << 16)), (0x5150, down, 0x52, signed(1 | 0x13 << 16)),
+                                  (0x5150, up, 0x11, signed(1 | 0x1D << 16 | released)),
+                                  (0x5150, up, 0x52, signed(1 | 0x13 << 16 | released))])
 
     def test_symbols_from_the_saved_tables(self):
         sizes = parse_nm_sizes(LINUX_SIZES)

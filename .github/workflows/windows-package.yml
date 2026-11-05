@@ -1318,15 +1318,24 @@ jobs:
           if-no-files-found: warn
 
   trade-proof:
-    # World trades of Pokemon in their alternate forms and with a trade evolution (KNOWN_ISSUES MS-194, MS-151), in real
-    # Windows game processes (a GitHub-hosted runner): two players' launchers, the world server and the Classic 2D game
-    # it packages (scripts/multiplayer/native_launcher_newcomers_proof.py, Windows mode of native_launcher_battle_proof.py).
-    # The characters come from the game's own short introduction, given their Pokemon by the test build
-    # (make_tower_saves.py trade-forms-a/-b, trade-evolve-a/-b): a Female Meowstic for an Origin Giratina holding its
-    # Griseous Orb (the forms exchanged as they are), a Small Pumpkaboo for a Large one (each game evolves the one it
-    # receives into the Gourgeist of its size); then the host's saves under the same serials, closing saves, a fresh
-    # Continue and the store's integrity check.
-    name: World trades of forms and trade evolution (Windows game processes, ${{ matrix.name }})
+    # World trades in real Windows game processes (a GitHub-hosted runner): two players' launchers, the world server and
+    # the Classic 2D game (scripts/multiplayer/native_launcher_newcomers_proof.py, Windows mode of
+    # native_launcher_battle_proof.py). The characters come from the game's own short introduction, given their Pokemon by
+    # the test build (make_tower_saves.py trade-forms-a/-b, trade-evolve-a/-b, trade-mail-a/-b, trade-egg-a/-b).
+    # forms, evolve (KNOWN_ISSUES MS-194, MS-151): a Female Meowstic for an Origin Giratina holding its Griseous Orb (the
+    # forms exchanged as they are), a Small Pumpkaboo for a Large one (each game evolves the one it receives into the
+    # Gourgeist of its size). mail (owner decision 39): a Wingull holding Wave Mail for a Treecko holding Wood Mail, each
+    # Mail along with its Pokemon, then the Treecko for a Zigzagoon (its Mail one way); after each trade the host's saves'
+    # Mail slots byte for byte, and each received Mail read in the game's own Mail screen (pictured). egg-party, egg-box
+    # (owner decision 39): a shiny Togepi Egg one cycle from hatching traded for a Mudkip and hatched by its receiver, in
+    # its party (then traded on) or in a PC box (moved there by the test build's PKMN_TEST_EGG_TO_PC in the receiver's
+    # game started again by the soft reset key, Ctrl+R; the unhatched Egg's old copy then refused); the hatcher's trainer
+    # in the host's save, no Bad Egg, the Egg's personality, IVs, moves and shininess kept. The Egg entries run the
+    # engine's test build through the launcher (its breed log, which the proof reads from PKMN_TEST_LOG, and that hook;
+    # its own symbol table from before the strip); an engine whose manifest has no trade_egg_abi_version 1 does not hatch
+    # a traded Egg right, and its Egg entries say so and pass. The others run the Classic 2D game the launcher packages.
+    # Then the host's saves under the same serials, closing saves, a fresh Continue and the store's integrity check.
+    name: World trades (Windows game processes, ${{ matrix.name }})
     needs: [engine, symbol-sizes]
     if: ${{ (inputs.mode || 'smoke') == 'full' && (!inputs.only || contains(format(',{0},', inputs.only), ',trade-proof,')) }}
     runs-on: windows-2022
@@ -1337,6 +1346,9 @@ jobs:
         include:
           - {name: forms, scenario: trade-forms, expect: "1071,1155", a: trade-forms-a, b: trade-forms-b}
           - {name: evolve, scenario: trade-evolve, expect: "1161,1160", a: trade-evolve-a, b: trade-evolve-b}
+          - {name: mail, scenario: trade-mail, a: trade-mail-a, b: trade-mail-b}
+          - {name: egg-party, scenario: trade-egg, a: trade-egg-a, b: trade-egg-b, extra: "--hatch-in party", game: mega-check-inputs/pokeemerald-mp-bfxtest.exe}
+          - {name: egg-box, scenario: trade-egg, a: trade-egg-a, b: trade-egg-b, extra: "--hatch-in box", game: mega-check-inputs/pokeemerald-mp-bfxtest.exe}
     defaults:
       run:
         shell: bash
@@ -1369,7 +1381,18 @@ jobs:
         with:
           name: classic-linux-sizes
           path: symbols
+      - name: Does this engine's game take the entry's trade? (an Egg - its manifest's trade_egg_abi_version)
+        id: feature
+        run: |
+          if [ "${{ matrix.scenario }}" = trade-egg ] && ! .venv/Scripts/python -c \
+              "import json, sys; sys.exit(json.load(open('inputs/manifest.json')).get('trade_egg_abi_version') != 1)"; then
+            echo "::notice::this engine's game does not hatch a traded Egg right (no trade_egg_abi_version 1 in its manifest): no Egg trade to prove"
+            echo "run=no" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=yes" >> "$GITHUB_OUTPUT"
+          fi
       - name: Two new characters from the game's own short introduction, then their Pokemon to trade
+        if: ${{ steps.feature.outputs.run == 'yes' }}
         run: |
           .venv/Scripts/python scripts/multiplayer/make_intro_saves.py --exe mega-check-inputs/pokeemerald-mp-bfxtest.exe \
             --mega-check mega-check-inputs/mega_check.py --out "$RUNNER_TEMP/intro" --count 2
@@ -1377,11 +1400,18 @@ jobs:
             --mega-check mega-check-inputs/mega_check.py --source-a "$RUNNER_TEMP/intro/boy-1.sav" \
             --source-b "$RUNNER_TEMP/intro/girl-1.sav" --out "$RUNNER_TEMP/trade-saves" --only ${{ matrix.a }},${{ matrix.b }}
       - name: The world trade (${{ matrix.name }})
+        if: ${{ steps.feature.outputs.run == 'yes' }}
         run: |
+          # --expect-species only for the scenarios that take it (trade-forms, trade-evolve: the species after the trade)
+          expect=()
+          if [ -n "${{ matrix.expect }}" ]; then expect=(--expect-species "${{ matrix.expect }}"); fi
+          # the Classic 2D game the launcher packages, or the entry's own (the Egg entries: the test build)
+          game="${{ matrix.game || 'inputs/pokeemerald-mp.exe' }}"
+          name="$(basename "$game" .exe)"
           .venv/Scripts/python scripts/multiplayer/native_launcher_newcomers_proof.py --scenario ${{ matrix.scenario }} \
-            --expect-species ${{ matrix.expect }} --game inputs/pokeemerald-mp.exe --sdl inputs/SDL2.dll \
-            --rom inputs/pokedev.gba --manifest inputs/manifest.json --pe-symbols symbols/pokeemerald-mp.nm.txt \
-            --sizes symbols/pokeemerald-mp.sizes.txt --slow 1.5 \
+            "${expect[@]}" --game "$game" --sdl inputs/SDL2.dll \
+            --rom inputs/pokedev.gba --manifest inputs/manifest.json --pe-symbols "symbols/$name.nm.txt" \
+            --sizes symbols/pokeemerald-mp.sizes.txt --slow 1.5 ${{ matrix.extra }} \
             --source "$RUNNER_TEMP/trade-saves/${{ matrix.a }}.sav" --source "$RUNNER_TEMP/trade-saves/${{ matrix.b }}.sav" \
             --output "$RUNNER_TEMP/multiplayer-proof/${{ matrix.name }}"
       - name: The proof's own diagnosis, in this log (only when it failed; scripts/multiplayer/proof_failure_summary.py)

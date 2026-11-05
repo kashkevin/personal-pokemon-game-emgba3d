@@ -19,6 +19,18 @@ def job(name):
     return match.group(1)
 
 
+def fixtures():
+    """scripts/multiplayer/make_tower_saves.py, whose FIXTURES the jobs ask for by name."""
+    import importlib.util
+    import sys
+    if str(ROOT / "scripts/multiplayer") not in sys.path:
+        sys.path.insert(0, str(ROOT / "scripts/multiplayer"))
+    spec = importlib.util.spec_from_file_location("make_tower_saves", ROOT / "scripts/multiplayer/make_tower_saves.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 class WindowsWorkflowTests(unittest.TestCase):
     def test_bundle_pins_game_facts_and_the_build_makes_the_installer(self):
         package = job("package")
@@ -200,17 +212,48 @@ class WindowsWorkflowTests(unittest.TestCase):
         self.assertIn('{name: evolve, scenario: trade-evolve, expect: "1161,1160", a: trade-evolve-a, b: trade-evolve-b}',
                       trade)
         self.assertIn("native_launcher_newcomers_proof.py --scenario ${{ matrix.scenario }}", trade)
-        self.assertIn("--expect-species ${{ matrix.expect }}", trade)
-        self.assertIn("--game inputs/pokeemerald-mp.exe", trade)             # the packaged Classic 2D game
+        # the species after the trade, for the entries that name them (the Mail and Egg entries name none)
+        self.assertIn('if [ -n "${{ matrix.expect }}" ]; then expect=(--expect-species "${{ matrix.expect }}"); fi', trade)
+        self.assertIn('"${expect[@]}" --game "$game"', trade)
+        self.assertIn("game=\"${{ matrix.game || 'inputs/pokeemerald-mp.exe' }}\"", trade)   # the packaged Classic 2D game
+        self.assertIn('--pe-symbols "symbols/$name.nm.txt"', trade)
         # the fixtures it asks for exist
-        import importlib.util, sys
-        sys.path.insert(0, str(ROOT / "scripts/multiplayer"))
-        spec = importlib.util.spec_from_file_location("make_tower_saves", ROOT / "scripts/multiplayer/make_tower_saves.py")
-        fixtures = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(fixtures)
-        names = {fixture[0]: fixture[2] for fixture in fixtures.FIXTURES}
+        names = {fixture[0]: fixture[2] for fixture in fixtures().FIXTURES}
         self.assertEqual([names[n] for n in ("trade-forms-a", "trade-forms-b", "trade-evolve-a", "trade-evolve-b")],
                          ["1155:30", "1071:50:i403", "1157:30", "1158:30"])
+
+    def test_world_trades_of_mail_and_eggs_run_in_windows_game_processes(self):
+        # Owner decision 39: a Pokemon holding Mail and an Egg traded between two Windows games (the newcomers proof's
+        # trade-mail and trade-egg, which ran on Linux first: TEST_LEDGER 2026-11-05)
+        trade = job("trade-proof")
+        self.assertIn("{name: mail, scenario: trade-mail, a: trade-mail-a, b: trade-mail-b}", trade)
+        for where in ("party", "box"):
+            self.assertIn(f'{{name: egg-{where}, scenario: trade-egg, a: trade-egg-a, b: trade-egg-b, '
+                          f'extra: "--hatch-in {where}", game: mega-check-inputs/pokeemerald-mp-bfxtest.exe}}', trade)
+        self.assertIn("--slow 1.5 ${{ matrix.extra }}", trade)
+        # every entry's flags are ones the proof takes
+        proof = (ROOT / "scripts" / "multiplayer" / "native_launcher_newcomers_proof.py").read_text(encoding="utf-8")
+        taken = set(re.findall(r'parser\.add_argument\("(--[a-z0-9-]+)"', proof))
+        extras = re.findall(r'extra: "([^"]*)"', trade)
+        self.assertEqual(len(extras), 2)
+        self.assertEqual(sorted({flag for extra in extras for flag in re.findall(r"--[a-z0-9-]+", extra)} - taken), [])
+        # the Egg entries run the test build (its breed log through PKMN_TEST_LOG, its PKMN_TEST_EGG_TO_PC) with the
+        # symbol table the engine job wrote before its strip; the proof no longer refuses Windows
+        engine = job("engine")
+        self.assertLess(engine.index("i686-w64-mingw32-nm -n pokeemerald-mp-bfxtest.exe > ../classic-pe-symbols/"),
+                        engine.index("i686-w64-mingw32-strip --strip-all pokeemerald-mp-bfxtest.exe"))
+        self.assertNotIn('require(not WINDOWS, "--scenario trade-egg', proof)
+        self.assertIn('PKMN_TEST_LOG=str(Path(options["cwd"]) / TEST_LOG)', proof)
+        # an engine whose game does not hatch a traded Egg right: its Egg entries say so and pass
+        gate = trade[trade.index("id: feature"):trade.index("- name: Two new characters")]
+        self.assertIn('[ "${{ matrix.scenario }}" = trade-egg ]', gate)
+        self.assertIn("get('trade_egg_abi_version') != 1", gate)
+        self.assertIn("::notice::", gate)
+        self.assertEqual(trade.count("if: ${{ steps.feature.outputs.run == 'yes' }}"), 2)    # the fixtures, the trade
+        # the fixtures it asks for exist
+        names = {fixture[0]: fixture[2] for fixture in fixtures().FIXTURES}
+        self.assertEqual([names[n] for n in ("trade-mail-a", "trade-mail-b", "trade-egg-a", "trade-egg-b")],
+                         ["278:20:M204", "252:20:M203,263:20", "263:5,175:1:sI3.7.11.19.23.29g1", "258:5,263:5"])
 
     def test_a_coop_award_survives_a_game_closed_during_it_in_windows_game_processes(self):
         coop = job("coop-proof")
