@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import hashlib
+import json
 import random
 from pathlib import Path
 import subprocess
@@ -28,13 +29,17 @@ from test_flash import make_flash
 
 
 SOURCE = Path(__file__).resolve().parents[1] / "src"
+# The interpreter itself. A virtual environment's python.exe on Windows is a launcher that runs the interpreter as a
+# process of its own: killing the launcher left the server holding the database while the test opened it (Windows run
+# 294: "disk I/O error"). The server is given this process's import path instead of the environment's.
+INTERPRETER = getattr(sys, "_base_executable", None) or sys.executable
 
 # The world server on the store at argv[1] until its process is killed. A script of its own (python -c), not a
 # multiprocessing child: that one re-runs the parent's main script, which fails when the tests were started from a
-# script on standard input.
+# script on standard input. It names its own process, which must be the one the test kills.
 SERVER = """
-import asyncio, sys
-sys.path.insert(0, sys.argv[3])
+import asyncio, json, os, sys
+sys.path[:0] = json.loads(sys.argv[3])
 from emerald_multiplayer.companion import BASELINE_RULESET
 from emerald_multiplayer.flash import LAYOUT_ID
 from emerald_multiplayer.server import ServerConfig, WorldServer
@@ -44,7 +49,7 @@ async def main(path, build):
     store = CheckpointStore(path, build, BASELINE_RULESET, LAYOUT_ID)
     server = WorldServer(ServerConfig(build, BASELINE_RULESET, heartbeat_interval=0.5, idle_timeout=5.0), store=store)
     await server.start(port=0)
-    print("ready", server.address[1], flush=True)
+    print("ready", server.address[1], os.getpid(), flush=True)
     await asyncio.Event().wait()
 
 asyncio.run(main(sys.argv[1], sys.argv[2]))
@@ -73,7 +78,8 @@ class ServerKilledMidSaveTests(unittest.IsolatedAsyncioTestCase):
     async def start_server(self):
         log = Path(self.temp.name) / f"server-{len(self.processes)}.log"
         with open(log, "wb") as errors:
-            process = subprocess.Popen([sys.executable, "-c", SERVER, str(self.path), self.build, str(SOURCE)],
+            process = subprocess.Popen([INTERPRETER, "-c", SERVER, str(self.path), self.build,
+                                        json.dumps([str(SOURCE), *sys.path])],
                                        stdout=subprocess.PIPE, stderr=errors, text=True)
         self.processes.append(process)
         try:
@@ -81,8 +87,9 @@ class ServerKilledMidSaveTests(unittest.IsolatedAsyncioTestCase):
         except asyncio.TimeoutError:
             line = ""
         words = line.split()
-        self.assertTrue(words and words[0] == "ready",
+        self.assertTrue(len(words) == 3 and words[0] == "ready",
                         f"the server process did not start: {line!r} {log.read_text(errors='replace')[-2000:]}")
+        self.assertEqual(int(words[2]), process.pid, "the process the test would kill is not the server's")
         client, welcome = await Client.connect(("127.0.0.1", int(words[1])), self.owner, self.build)
         self.assertEqual(welcome["type"], "welcome")
         return process, client
