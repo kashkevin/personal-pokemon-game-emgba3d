@@ -55,7 +55,7 @@ MAX_FILE_BYTES = 256 * 1024 * 1024
 # The code a remembered reading depends on: the reader itself, the handler-history observation, and this module's own
 # encoding of a reading. READER_FINGERPRINT is the SHA-256 of their source (reader_fingerprint), this line left out.
 READER_MODULES = ("flash", "ownership", "trade_friendship_observations", "save_readings")
-READER_FINGERPRINT = "14972b8a40290fd2b505c64a317235e7ca49a0c3e745a9d29be7b93503323bb1"
+READER_FINGERPRINT = "05e33b44070e4c323c0d83bbd95f1ba1a73cdd45fa9a1fb14d993742b41f7d29"
 _PIN = re.compile(rb'^READER_FINGERPRINT = "[0-9a-f]{64}"$', re.M)
 _PYTHON = "%d.%d" % sys.version_info[:2]
 _FIELDS = frozenset({"format", "reader", "python", "profile", "world", "records", "observations", "saves"})
