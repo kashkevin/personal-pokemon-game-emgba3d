@@ -13,6 +13,7 @@ import os
 import random
 import shutil
 import sqlite3
+from contextlib import closing
 import subprocess
 import sys
 import tempfile
@@ -54,7 +55,7 @@ def build_database(folder: Path) -> Path:
     path = folder / DB
     if path.exists():
         raise AssertionError(f"unexpected database beside the fixture: {path}")
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         db.executescript(sql.read_text())
     return path
 
@@ -85,7 +86,7 @@ class SharedWorldFromUpdate14(unittest.TestCase):
                            locations=LOCATIONS, event_condition_chance=0.0)
 
     def rows(self, table):
-        with sqlite3.connect(self.path) as db:
+        with closing(sqlite3.connect(self.path)) as db, db:
             return db.execute(f"SELECT * FROM {table}").fetchall()
 
     def test_the_old_database_opens_and_its_catches_are_still_recorded(self):
@@ -118,7 +119,7 @@ class SharedWorldFromUpdate14(unittest.TestCase):
     def test_an_event_that_was_claimed_but_not_caught_can_still_be_caught_once_after_the_upgrade(self):
         world = self.open()
         self.addCleanup(world.close)
-        with sqlite3.connect(self.path) as db:
+        with closing(sqlite3.connect(self.path)) as db, db:
             open_events = [r[0] for r in db.execute("SELECT event_id FROM events WHERE state NOT IN ('caught','closed','expired')")]
         self.assertEqual(len(open_events), 1)
         event = open_events[0]
@@ -132,11 +133,11 @@ class SharedWorldFromUpdate14(unittest.TestCase):
         self.assertEqual(again.event_result(A, event, "caught", "A"), "consumed")
 
     def test_the_new_tables_are_added_and_no_old_table_is_altered(self):
-        with sqlite3.connect(self.path) as db:
+        with closing(sqlite3.connect(self.path)) as db, db:
             old = dict(db.execute("SELECT name, sql FROM sqlite_master WHERE type='table'"))
         world = self.open()
         world.close()
-        with sqlite3.connect(self.path) as db:
+        with closing(sqlite3.connect(self.path)) as db, db:
             new = dict(db.execute("SELECT name, sql FROM sqlite_master WHERE type='table'"))
         for name, sql in old.items():
             self.assertEqual(new[name], sql, f"table {name} was altered by opening it with the current code")
@@ -166,7 +167,7 @@ class Update14FixtureProvenance(unittest.TestCase):
         self.path = build_database(folder)
 
     def test_the_fixture_is_the_update_14_format_with_its_three_events(self):
-        with sqlite3.connect(self.path) as db:
+        with closing(sqlite3.connect(self.path)) as db, db:
             tables = {name for (name,) in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
             self.assertEqual(tables, U14_TABLES)  # none of the later tables (catch verdicts, Frontier prizes) exist yet
             self.assertEqual(dict(db.execute("SELECT key, value FROM metadata")),

@@ -380,9 +380,14 @@ class CheckpointServerTests(unittest.IsolatedAsyncioTestCase):
     async def test_failed_bind_does_not_increment_world_boot_epoch(self):
         before = self.store.metadata
         contender = WorldServer(self.config, store=self.store)
-        with self.assertRaises(OSError):
-            await contender.start(port=self.server.address[1])
-        self.assertEqual(self.store.metadata, before)
+        try:
+            with self.assertRaises(OSError):
+                await contender.start(port=self.server.address[1])
+            self.assertEqual(self.store.metadata, before)
+        finally:
+            # its own side stores are open, and the temporary folder goes in asyncTearDown, before any cleanup (Windows
+            # will not delete a file that is still open)
+            await contender.close()
 
     async def test_checkpoint_reply_backpressure_is_bounded_discards_partial_and_keeps_other_player(self):
         flooded, _ = await self.connect()

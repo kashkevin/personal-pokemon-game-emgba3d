@@ -15,6 +15,7 @@ Updated with every fix; the newest first within each section.
 
 | Issue | What | Status | L | W | PC |
 | --- | --- | --- | --- | --- | --- |
+| MS-197 | A world's shared world, friendship or wager store refused as it opened kept its file open until garbage collection, and the server kept the stores it had opened when a later one was refused: on Windows the world's files stayed locked until the launcher closed | **Fixed** (app: this change): a store refused or failing as it opens closes its connection; the server closes the ones it opened | `tests/test_store_open_failures.py` (4 new; failed before); the whole suite | found by the app's suite on Windows (run 304); the next `app-tests` run | - |
 | MS-196 | A power cut or system crash in the seconds after the native game saved could leave an empty or garbage save file: its data was not flushed to the disk before the rename that replaces the old save | **Fixed** (engine `9edbceed`, PC only, the ROM unchanged): the file's data goes to the disk first (`FlushFileBuffers`, `fsync`), then the rename; best effort on a disk that cannot flush (logged once) | the shiny check's keep-restart (a save, a second game continuing from it) under strace (one flush before each save's rename) and the Windows build under Wine: passed | the next full run's feature checks (keep-restart) | a power cut: not shown anywhere |
 | Save integrity | The world server's process killed in the middle of a save (a crashed launcher, End task in Task Manager) | **Checked, no change needed** (app: this change, a new permanent test `tests/test_server_killed_mid_save.py`): every save the server acknowledged is kept byte for byte, nothing newer than what was sent, the integrity check passes; a process kill, not a power cut | the new test (six kills of a real server process, during an upload and just after a commit was sent) and a 120-kill soak (2,957 saves; 55 commits that landed though the kill cut off their answer): integrity passed after every kill | the test is a step of the world-loading job (`world-open-bench`): its first Windows run (294) **failed in the test** (it killed a virtual environment's launcher, not the server holding the database; the store, opened at once, gave "disk I/O error"); fixed in the test, **passed in run 296** (GitHub's Windows runner) | - |
 | MS-195 | A world that could not be opened at that moment (a lock held elsewhere, an I/O error, a full disk) was reported as damaged | **Fixed** (app: this change): damage only when SQLite says so (`SQLITE_CORRUPT`, `SQLITE_NOTADB`), anything else `storage_error` naming SQLite's error | `tests/test_storage.py` (injected errors, a held lock, damaged files) | the next full run | - |
@@ -110,6 +111,17 @@ and run 293 (only the 3D job, engine `67e39839`: passed) followed. Run 295 (engi
 kill test as first written, which failed in its own harness on Windows (run 294); run 297 (engine `67e39839`, app
 `f83c033`: the fixed test, MS-193, MS-194, MS-195) is the next candidate, dispatched at 05:14 UTC.
 
+Runs 298-307 (2026-11-05 morning; nothing published): run 299 (only `trade-proof`, engine `67e39839`) **passed** world
+trades of forms and a trade evolution (MS-194, MS-151) in real Windows games; run 302 (only `battle-trade-3d`, engine
+`4c35be64`) **passed** the first battle and trades between players in the 3D game on Windows (Mesa); run 306 (only
+`gameplay-3d`, engine `9edbceed`) ran the whole game's gameplay plan in the 3D game through Mesa: 7 of 8 shards passed,
+and shard 1's one failure is the plan runner's (Liza; fixed in `e88dbdf6`, to run again with it). Run 304 (only
+`app-tests`) ran the app's whole suite on Windows for the first time: failures in Windows-only kinds, nearly all in
+the tests (paths, files left open, timeouts, encodings, a Lua that is not there), one in the app (MS-197, fixed);
+the rest are worked through in TEST_LEDGER. The smoke runs of the pushes (300, 301, 303, 305, 307) failed in the
+world-loading job's new step, the save path's own tests (the tests' paths and open files on Windows, not the
+store); fixed in this change, whose smoke run is the check.
+
 ## 6. Earlier issues in KNOWN_ISSUES (reviewed 2026-11-04)
 
 Every issue in KNOWN_ISSUES whose row there still reads open, or whose fix was never shown in this list, checked
@@ -196,7 +208,7 @@ full run; Mew and Deoxys (a walk into the grass, the triangle's puzzle first) no
 
 **Covered on Windows since their rows were written** (the rows say "not on Windows"): MS-78 (move switching) and
 MS-171 (the Acro Bike's rails) by the feature-checks job (`move_switch_check.py`, `acro_check.py`; passed in run 288);
-MS-151 (a trade evolution between two games) by the new trade-proof job (its first run: run 299); MS-166 (the 99 script
+MS-151 (a trade evolution between two games) by the new trade-proof job (its first run, run 299: **passed**); MS-166 (the 99 script
 specials' 8-bit results, the Day Care's money among them) by the engine self-tests job (`--selftest-special-results`
 since run 277, passed in run 288). MS-182 and MS-185 have no Windows check of their own (reads past their data that
 AddressSanitizer found on Linux); the Windows builds carry the fixes.

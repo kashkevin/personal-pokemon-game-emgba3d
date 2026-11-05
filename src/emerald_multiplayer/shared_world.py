@@ -154,63 +154,70 @@ class SharedWorld:
         self._now = clock
         self._rng = rng or random.Random()
         self._db = sqlite3.connect(str(self.path), isolation_level=None)
-        self._db.execute("PRAGMA journal_mode=WAL")
-        self._db.execute("PRAGMA synchronous=FULL")
-        with self._transaction():
-            for statement in _SCHEMA:
-                self._db.execute(statement)
-            row = self._db.execute("SELECT value FROM metadata WHERE key='world_id'").fetchone()
-            if row is None:
-                self._db.execute("INSERT INTO metadata VALUES ('world_id', ?)", (world_id,))
-                self._db.execute("INSERT INTO metadata VALUES ('scope', ?)", (SCOPE,))
-            elif row[0] != world_id:
-                raise SharedWorldError("world_mismatch", "shared-world data belongs to another world")
-            row = self._db.execute("SELECT seconds FROM clock WHERE id=1").fetchone()
-            if row is None:
-                # a new world (or one whose clock was never written): 12:00 noon of world day 0
-                self._db.execute("INSERT INTO clock VALUES (1, ?)", (BALANCE.clock_start_seconds,))
-            elif not valid_clock_seconds(row[0]):
-                # damaged clock data (not whole seconds, negative, past what the game can show): the clock starts again
-                # at a new world's noon, the bad value kept beside it; a valid clock is never touched
-                self._db.execute("INSERT OR REPLACE INTO metadata VALUES ('clock_repaired_from', ?)", (repr(row[0])[:64],))
-                self._db.execute("UPDATE clock SET seconds=? WHERE id=1", (BALANCE.clock_start_seconds,))
-                self.clock_repaired = True
-        seconds = self._db.execute("SELECT seconds FROM clock WHERE id=1").fetchone()[0]
-        self._clock = _Clock(float(seconds), None)
-        self.bases = SecretBaseBook(self._db, self._transaction)
-        self.frontier = FrontierBook(self._db, self._transaction, clock=time.time)
-        self.ffa = FfaBook(self._db, self._transaction, clock=time.time)
-        self.tower = TowerBook(self._db, self._transaction, clock=time.time)
-        from .event_settings import DEFAULT_EVENT_SETTINGS
-        self._events = event_settings if event_settings is not None else DEFAULT_EVENT_SETTINGS
-        self._condition_chance = self._events.condition_chance if event_condition_chance is None else event_condition_chance
-        self._last_persist = self._now()
-        self._active = 0
-        self._notice_id = int(self._kv("notice_id", "0"))
-        self._notice: dict | None = None
-        self._notice_expires = 0.0
-        self._notice_queue: list[dict] = []  # later notices wait their turn on the banner
-        self._participants: set[str] = set()  # players who challenged the current event
-        self.on_event_finished = None         # callback(participants, event_id) for friendship
-        self.catalogue = event_catalogue if event_catalogue is not None else load_event_catalogue()
-        self.locations = locations if locations is not None else self.catalogue.get("locations", [])
-        self._active_time = _ActiveTime()
-        self._event: dict | None = None
-        self._claim: dict | None = None
-        # The player who held the event Pokemon last, and since when the
-        # connected claimant has been away from the event's map (active time).
-        self._last_claimant: str | None = None
-        self._claimant_away_since: float | None = None
-        saved_wait = self._kv("next_event_remaining", "")
         try:
-            wait = max(0.0, float(saved_wait)) if saved_wait else None
-        except ValueError:
-            wait = None
-        if wait is None:
-            wait = self._rng.uniform(*self._events.first_delay)
-        self._next_event_at = self._active_now() + wait
-        self._restore_event()
-        self._init_spawns(spawn_catalogue, spawn_rng, spawn_tuning, outbreak_settings)
+            self._db.execute("PRAGMA journal_mode=WAL")
+            self._db.execute("PRAGMA synchronous=FULL")
+            with self._transaction():
+                for statement in _SCHEMA:
+                    self._db.execute(statement)
+                row = self._db.execute("SELECT value FROM metadata WHERE key='world_id'").fetchone()
+                if row is None:
+                    self._db.execute("INSERT INTO metadata VALUES ('world_id', ?)", (world_id,))
+                    self._db.execute("INSERT INTO metadata VALUES ('scope', ?)", (SCOPE,))
+                elif row[0] != world_id:
+                    raise SharedWorldError("world_mismatch", "shared-world data belongs to another world")
+                row = self._db.execute("SELECT seconds FROM clock WHERE id=1").fetchone()
+                if row is None:
+                    # a new world (or one whose clock was never written): 12:00 noon of world day 0
+                    self._db.execute("INSERT INTO clock VALUES (1, ?)", (BALANCE.clock_start_seconds,))
+                elif not valid_clock_seconds(row[0]):
+                    # damaged clock data (not whole seconds, negative, past what the game can show): the clock starts again
+                    # at a new world's noon, the bad value kept beside it; a valid clock is never touched
+                    self._db.execute("INSERT OR REPLACE INTO metadata VALUES ('clock_repaired_from', ?)", (repr(row[0])[:64],))
+                    self._db.execute("UPDATE clock SET seconds=? WHERE id=1", (BALANCE.clock_start_seconds,))
+                    self.clock_repaired = True
+            seconds = self._db.execute("SELECT seconds FROM clock WHERE id=1").fetchone()[0]
+            self._clock = _Clock(float(seconds), None)
+            self.bases = SecretBaseBook(self._db, self._transaction)
+            self.frontier = FrontierBook(self._db, self._transaction, clock=time.time)
+            self.ffa = FfaBook(self._db, self._transaction, clock=time.time)
+            self.tower = TowerBook(self._db, self._transaction, clock=time.time)
+            from .event_settings import DEFAULT_EVENT_SETTINGS
+            self._events = event_settings if event_settings is not None else DEFAULT_EVENT_SETTINGS
+            self._condition_chance = self._events.condition_chance if event_condition_chance is None else event_condition_chance
+            self._last_persist = self._now()
+            self._active = 0
+            self._notice_id = int(self._kv("notice_id", "0"))
+            self._notice: dict | None = None
+            self._notice_expires = 0.0
+            self._notice_queue: list[dict] = []  # later notices wait their turn on the banner
+            self._participants: set[str] = set()  # players who challenged the current event
+            self.on_event_finished = None         # callback(participants, event_id) for friendship
+            self.catalogue = event_catalogue if event_catalogue is not None else load_event_catalogue()
+            self.locations = locations if locations is not None else self.catalogue.get("locations", [])
+            self._active_time = _ActiveTime()
+            self._event: dict | None = None
+            self._claim: dict | None = None
+            # The player who held the event Pokemon last, and since when the
+            # connected claimant has been away from the event's map (active time).
+            self._last_claimant: str | None = None
+            self._claimant_away_since: float | None = None
+            saved_wait = self._kv("next_event_remaining", "")
+            try:
+                wait = max(0.0, float(saved_wait)) if saved_wait else None
+            except ValueError:
+                wait = None
+            if wait is None:
+                wait = self._rng.uniform(*self._events.first_delay)
+            self._next_event_at = self._active_now() + wait
+            self._restore_event()
+            self._init_spawns(spawn_catalogue, spawn_rng, spawn_tuning, outbreak_settings)
+        except BaseException:
+            # refused (another world's data) or failed: its file is not left open (on Windows an open file cannot be
+            # replaced or deleted while this process lives)
+            self._db.close()
+            self._db = None
+            raise
 
     # ------------------------------------------------------------------ storage
     @contextmanager

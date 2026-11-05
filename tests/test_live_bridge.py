@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import replace
+import functools
 import json
 import os
 from pathlib import Path
@@ -81,6 +82,22 @@ class BridgeOutboxTests(unittest.IsolatedAsyncioTestCase):
             await server.wait_closed()
 
 
+@functools.cache          # asked once a run: every Lua test asks
+def wsl_with_ubuntu():
+    """Windows: Lua through WSL's Ubuntu only where that distribution is installed (a GitHub-hosted runner has WSL and no
+    distribution: `wsl -d Ubuntu` there exits -1, and every Lua test failed in Windows run 304). Other test classes borrow
+    run_lua as a plain function, so this is not a method."""
+    wsl = shutil.which("wsl")
+    if os.name != "nt" or wsl is None:
+        return None
+    try:
+        listed = subprocess.run([wsl, "-l", "-q"], capture_output=True, timeout=20)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    names = listed.stdout.decode("utf-16-le", errors="replace").replace("\x00", "").split()
+    return wsl if listed.returncode == 0 and any(name.startswith("Ubuntu") for name in names) else None
+
+
 class LuaBridgeTests(unittest.TestCase):
     """Execute real Lua against a transport-only fake emulator/socket API."""
 
@@ -93,7 +110,8 @@ class LuaBridgeTests(unittest.TestCase):
 
     def run_lua(self, script):
         executable = shutil.which("lua") or shutil.which("lua5.4")
-        prefix = [executable] if executable else ([shutil.which("wsl"), "-d", "Ubuntu", "--", "lua"] if os.name == "nt" and shutil.which("wsl") else None)
+        wsl = None if executable else wsl_with_ubuntu()
+        prefix = [executable] if executable else ([wsl, "-d", "Ubuntu", "--", "lua"] if wsl else None)
         if prefix is None:
             self.skipTest("Lua 5.3+ is unavailable; pure Python bridge tests still run")
         with tempfile.TemporaryDirectory() as directory:

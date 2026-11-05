@@ -78,17 +78,23 @@ class FriendshipStore:
         self._now = clock
         self._rng = rng or random.Random()
         self._db = sqlite3.connect(str(self.path), isolation_level=None)
-        self._db.execute("PRAGMA journal_mode=WAL")
-        self._db.execute("PRAGMA synchronous=FULL")
-        with self._transaction():
-            for statement in _SCHEMA:
-                self._db.execute(statement)
-            row = self._db.execute("SELECT value FROM metadata WHERE key='world_id'").fetchone()
-            if row is None:
-                self._db.execute("INSERT INTO metadata VALUES ('world_id', ?)", (world_id,))
-                self._db.execute("INSERT INTO metadata VALUES ('scope', ?)", (SCOPE,))
-            elif row[0] != world_id:
-                raise FriendshipError("friendship data belongs to another world")
+        try:
+            self._db.execute("PRAGMA journal_mode=WAL")
+            self._db.execute("PRAGMA synchronous=FULL")
+            with self._transaction():
+                for statement in _SCHEMA:
+                    self._db.execute(statement)
+                row = self._db.execute("SELECT value FROM metadata WHERE key='world_id'").fetchone()
+                if row is None:
+                    self._db.execute("INSERT INTO metadata VALUES ('world_id', ?)", (world_id,))
+                    self._db.execute("INSERT INTO metadata VALUES ('scope', ?)", (SCOPE,))
+                elif row[0] != world_id:
+                    raise FriendshipError("friendship data belongs to another world")
+        except BaseException:
+            # refused (another world's data) or failed: its file is not left open (on Windows an open file
+            # cannot be replaced or deleted while this process lives)
+            self._db.close()
+            raise
 
     @contextmanager
     def _transaction(self):

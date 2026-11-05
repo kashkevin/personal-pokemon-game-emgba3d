@@ -374,9 +374,20 @@ class WorldServer:
             self.shared_world = SharedWorld(world_path, store.metadata.world_id, outbreak_settings=load_outbreak_settings(
                 store.path.with_name(store.path.name + ".outbreaks.json")),
                 event_settings=load_event_settings(store.path.with_name(store.path.name + ".events.json")))
-            self.friendships = FriendshipStore(store.path.with_name(store.path.name + ".friendships.sqlite3"),
-                                               store.metadata.world_id)
-            self.wagers = Wagers(store.path.with_name(store.path.name + ".wagers.sqlite3"), store.metadata.world_id)
+            # A later one refused (another world's file beside this one): the ones already open are closed, so no file of
+            # this world stays open in this process (on Windows it could not be replaced or deleted until it ends).
+            try:
+                self.friendships = FriendshipStore(store.path.with_name(store.path.name + ".friendships.sqlite3"),
+                                                   store.metadata.world_id)
+                try:
+                    self.wagers = Wagers(store.path.with_name(store.path.name + ".wagers.sqlite3"),
+                                         store.metadata.world_id)
+                except BaseException:
+                    self.friendships.close()
+                    raise
+            except BaseException:
+                self.shared_world.close()
+                raise
         else:
             self.shared_world = SharedWorld(":memory:", "00000000-0000-0000-0000-000000000000")
             self.friendships = FriendshipStore(":memory:", "00000000-0000-0000-0000-000000000000")
