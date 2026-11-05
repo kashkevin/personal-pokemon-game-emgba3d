@@ -23,16 +23,17 @@ from emerald_multiplayer.flash import LAYOUT_ID
 from emerald_multiplayer.protocol import CHECKPOINT_CHUNK_BYTES
 from emerald_multiplayer.storage import CheckpointStore
 
+from process_fixture import direct_python
 from test_checkpoint_server import Client, fingerprint
 from test_companion import make_files
 from test_flash import make_flash
 
 
 SOURCE = Path(__file__).resolve().parents[1] / "src"
-# The interpreter itself. A virtual environment's python.exe on Windows is a launcher that runs the interpreter as a
-# process of its own: killing the launcher left the server holding the database while the test opened it (Windows run
-# 294: "disk I/O error"). The server is given this process's import path instead of the environment's.
-INTERPRETER = getattr(sys, "_base_executable", None) or sys.executable
+# The interpreter itself (process_fixture.direct_python): a virtual environment's python.exe on Windows is a launcher
+# that runs the interpreter as a process of its own, and killing the launcher left the server holding the database
+# while the test opened it (Windows run 294: "disk I/O error"). The server is given this process's import path, the
+# environment's packages with it.
 
 # The world server on the store at argv[1] until its process is killed. A script of its own (python -c), not a
 # multiprocessing child: that one re-runs the parent's main script, which fails when the tests were started from a
@@ -78,7 +79,7 @@ class ServerKilledMidSaveTests(unittest.IsolatedAsyncioTestCase):
     async def start_server(self):
         log = Path(self.temp.name) / f"server-{len(self.processes)}.log"
         with open(log, "wb") as errors:
-            process = subprocess.Popen([INTERPRETER, "-c", SERVER, str(self.path), self.build,
+            process = subprocess.Popen([direct_python(), "-c", SERVER, str(self.path), self.build,
                                         json.dumps([str(SOURCE), *sys.path])],
                                        stdout=subprocess.PIPE, stderr=errors, text=True)
         self.processes.append(process)

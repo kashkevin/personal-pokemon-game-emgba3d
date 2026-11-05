@@ -11,6 +11,7 @@ import tempfile
 import threading
 import time
 import unittest
+import unittest.mock
 import uuid
 from process_fixture import direct_python
 
@@ -165,10 +166,14 @@ class StorageTests(unittest.TestCase):
         self.store.close()
         timer = self.hold_lock(1.5)
         try:
-            with self.assertRaises(StorageError):
+            with self.assertRaises(StorageError) as caught:
                 CheckpointStore(self.path, BUILD, RULESET, PROFILE, busy_timeout=0.5)
         finally:
             timer.join()
+        # a lock held elsewhere is not a damaged world: storage_error, the cause named (storage_corrupt is SQLite's
+        # SQLITE_CORRUPT and SQLITE_NOTADB only, as in a transaction)
+        self.assertEqual(caught.exception.code, "storage_error")
+        self.assertRegex(str(caught.exception), r"checkpoint transaction failed \(SQLITE_BUSY after ")
         timer = self.hold_lock(1.5)
         with contextlib.redirect_stderr(io.StringIO()):
             self.store = CheckpointStore(self.path, BUILD, RULESET, PROFILE, busy_timeout=4)
@@ -176,6 +181,47 @@ class StorageTests(unittest.TestCase):
         self.assertEqual(self.store._connection.execute("PRAGMA busy_timeout").fetchone()[0], 4000)
         self.store.set_busy_timeout(BUSY_TIMEOUT)
         self.assertEqual(self.store._connection.execute("PRAGMA busy_timeout").fetchone()[0], BUSY_TIMEOUT * 1000)
+        self.assertEqual(self.store.metadata.world_id, self.boot.world_id)
+
+    def test_an_error_opening_the_database_is_not_called_damage(self):
+        # Windows run 294: a store opened while another process still held the database met "disk I/O error" at its
+        # first statement and was reported as a damaged world. Only SQLite's SQLITE_CORRUPT and SQLITE_NOTADB are
+        # damage (as in a transaction); anything else is storage_error and names its cause.
+        self.store.close()
+        connect = sqlite3.connect
+
+        def refusing(code, name, error_type):
+            class Refusing:
+                def __init__(self, connection):
+                    object.__setattr__(self, "connection", connection)
+
+                def execute(self, sql, *args):
+                    if sql == "PRAGMA synchronous = FULL":
+                        error = error_type("refused by the test")
+                        error.sqlite_errorcode, error.sqlite_errorname = code, name
+                        raise error
+                    return self.connection.execute(sql, *args)
+
+                def __getattr__(self, attribute):
+                    return getattr(self.connection, attribute)
+
+                def __setattr__(self, attribute, value):
+                    setattr(self.connection, attribute, value)
+            return lambda *args, **kwargs: Refusing(connect(*args, **kwargs))
+
+        for code, name, error_type, expected in (
+                (10 | (15 << 8), "SQLITE_IOERR_SHMLOCK", sqlite3.OperationalError, "storage_error"),
+                (5, "SQLITE_BUSY", sqlite3.OperationalError, "storage_error"),
+                (13, "SQLITE_FULL", sqlite3.OperationalError, "storage_error"),
+                (11, "SQLITE_CORRUPT", sqlite3.DatabaseError, "storage_corrupt"),
+                (26, "SQLITE_NOTADB", sqlite3.DatabaseError, "storage_corrupt")):
+            with self.subTest(name=name), unittest.mock.patch.object(sqlite3, "connect", refusing(code, name, error_type)):
+                with self.assertRaises(StorageError) as caught:
+                    CheckpointStore(self.path, BUILD, RULESET, PROFILE)
+                self.assertEqual(caught.exception.code, expected)
+                if expected == "storage_error":
+                    self.assertEqual(str(caught.exception), f"checkpoint database could not be opened now ({name})")
+        self.store = CheckpointStore(self.path, BUILD, RULESET, PROFILE)   # the world itself is whole
         self.assertEqual(self.store.metadata.world_id, self.boot.world_id)
 
     def test_an_integrity_check_does_not_hold_the_write_lock(self):

@@ -254,7 +254,14 @@ class CheckpointStore:
                 self._connection.close()
             self._closed = True
             if isinstance(error, sqlite3.DatabaseError):
-                raise StorageError("storage_corrupt", "checkpoint database could not be opened safely") from error
+                # Damage only when SQLite says so (as _transaction): a lock another process still holds, an I/O error or
+                # a full disk is not a damaged world, and the message names it (the open after a killed server's, Windows
+                # run 294, read "disk I/O error" and was called corrupt).
+                code = getattr(error, "sqlite_errorcode", 0) & 255
+                if code in (sqlite3.SQLITE_CORRUPT, sqlite3.SQLITE_NOTADB):
+                    raise StorageError("storage_corrupt", "checkpoint database could not be opened safely") from error
+                cause = getattr(error, "sqlite_errorname", None) or type(error).__name__
+                raise StorageError("storage_error", f"checkpoint database could not be opened now ({cause})") from error
             raise
 
     def set_busy_timeout(self, seconds: float) -> None:
