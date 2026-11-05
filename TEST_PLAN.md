@@ -29,6 +29,8 @@ What a full run executes in real Windows game processes (one hosted runner per j
 | Breeding and egg hatching, both saves | breed-check |
 | Battle Tower: every floor won and lost; caps and items; solo (prizes, replay, shop, special boss loss), milestone Pokemon, Duo, Mega Duo, forfeit through the launcher | tower-check (4 shards), tower-extras, tower-proof (5) |
 | The whole game: every trainer, person, item ball, sign, hidden item, warp and coordinate trigger of the reachable maps | gameplay-check (8 shards; `gameplay_qa=yes`) |
+| The same plan in the 3D game (its test build through Mesa's software OpenGL): every map it visits loaded, drawn and walked in 3D, its trainers fought in 3D battles | gameplay-check-3d (8 shards; only when asked: `only: gameplay-3d`, a full run) |
+| The reset-guarded static encounters offline (KNOWN_ISSUES MS-156): the Kecleons, Voltorbs, Electrodes, the Regis, Rayquaza and Lugia each start their battle | feature-checks (`gameplay_check.py --static-encounters`) |
 | The 3D renderer: Mega battles drawn in 3D and the parade of every Mega form (Mesa's software OpenGL, test only) | graphics-3d |
 
 Without a game (Python only, the pinned wheels; every mode): world loading with 600 saves (KNOWN_ISSUES MS-161), a

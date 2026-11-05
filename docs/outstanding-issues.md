@@ -189,8 +189,10 @@ the next `crash.log` or `errors.log`), MS-88 and MS-165 (battles between players
 that stops a game for seconds), MS-68, MS-69, MS-70, MS-72, MS-95, MS-96 (trade and battle fixes not yet tried
 between two real PCs), MS-81 (the owner's check of spawn odds), MS-65 and MS-89 (the 3D view on a real graphics card,
 with V3, V25, E8: V39's benchmark). Not run anywhere yet: MS-126's give-up notice reaching the battle's master during
-a turn, and a battle ending another way after a give-up; MS-156's other static encounters offline one by one (two
-tried); MS-83's race, seen once and not reproduced after its fix.
+a turn, and a battle ending another way after a give-up; MS-83's race, seen once and not reproduced after its fix.
+MS-156's other static encounters have run since (2026-11-05, engine `e88dbdf6`): all 17 that a talk reaches started
+their battle offline in the Classic 2D and 3D test builds (L); the feature-checks job runs them on Windows from the next
+full run; Mew and Deoxys (a walk into the grass, the triangle's puzzle first) not.
 
 **Covered on Windows since their rows were written** (the rows say "not on Windows"): MS-78 (move switching) and
 MS-171 (the Acro Bike's rails) by the feature-checks job (`move_switch_check.py`, `acro_check.py`; passed in run 288);

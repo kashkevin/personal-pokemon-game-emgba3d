@@ -470,6 +470,13 @@ class WindowsWorkflowTests(unittest.TestCase):
         self.assertIn('item_hub_check = "mega-check-inputs\\casino\\tools\\battle_env\\item_hub_check.py"', checks)
         for file in ("data/scripts/mp_item_hub_lists.inc", "src/platform/mp_item_hub.h", "tools/battle_env/item_hub_check.py"):
             self.assertIn(file, engine)
+        # The reset-guarded static encounters offline (MS-156): their plan made by the engine job, run from that save.
+        self.assertIn("--plan-only --static-encounters", engine)
+        self.assertIn("--out ../gameplay-inputs/static-plan", engine)
+        self.assertIn("name: gameplay-inputs", checks)
+        self.assertIn("--plan gameplay-inputs\\static-plan\\plan.json", checks)
+        self.assertIn("--static-encounters --save $save", checks)
+        self.assertIn('$failed += "static encounters (exit $LASTEXITCODE)"', checks)
 
     def test_the_rival_checkpoints_run_in_windows_game_processes(self):
         rival = job("rival-check")

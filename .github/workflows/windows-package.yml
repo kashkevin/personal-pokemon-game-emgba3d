@@ -294,6 +294,12 @@ jobs:
             cp tools/qa/gameplay_check.py tools/qa/inventory.py ../gameplay-inputs/tools/qa/
             cp tools/battle_env/mega_check.py ../gameplay-inputs/tools/battle_env/
             python3 tools/qa/gameplay_check.py --exe pokeemerald-mp-bfxtest.exe --plan-only --out ../gameplay-inputs/plan
+            # The reset-guarded static encounters offline (KNOWN_ISSUES MS-156; the feature-checks job): their plan and
+            # the story state they need, from an engine that has the option.
+            if grep -q -- "--static-encounters" tools/qa/gameplay_check.py; then
+              python3 tools/qa/gameplay_check.py --exe pokeemerald-mp-bfxtest.exe --plan-only --static-encounters \
+                --out ../gameplay-inputs/static-plan
+            fi
           fi
           cp "$GITHUB_WORKSPACE/sdl/SDL2-${SDL_VERSION}/i686-w64-mingw32/bin/SDL2.dll" ../mega-check-inputs/
           fi
@@ -707,8 +713,10 @@ jobs:
     # easier rails), Fly from the Town Map (the owner's request of 2026-10-31, flymap_check.py) and the TM catalogue (the
     # owner's TM request of 2026-10-31, tm_catalogue_check.py: bought, SOLD OUT, saved, the TM PRIZES, taught) and the
     # Game Corner's item hub (the owner's request of 2026-10-31, item_hub_check.py), each read from the game's own log,
-    # from a save of the game's own short introduction made on the runner.
-    name: Move switching, shiny wild Pokemon, the Game Corner, the Rotom Catalog, the Acro Bike, Fly, the TM catalogue and the item hub (Windows game processes)
+    # from a save of the game's own short introduction made on the runner; and the reset-guarded static encounters
+    # offline (KNOWN_ISSUES MS-156: the Kecleons, Voltorbs, Electrodes, Regis, Rayquaza and Lugia each start their
+    # battle in a save no world has enrolled; tools/qa/gameplay_check.py --static-encounters, its plan from the engine).
+    name: Move switching, shiny wild Pokemon, the Game Corner, the Rotom Catalog, the Acro Bike, Fly, the TM catalogue, the item hub and the static encounters (Windows game processes)
     needs: engine
     if: ${{ (inputs.mode || 'smoke') == 'full' && (!inputs.only || contains(format(',{0},', inputs.only), ',feature-checks,')) }}
     runs-on: windows-2022
@@ -721,6 +729,10 @@ jobs:
         with:
           name: mega-check-inputs
           path: mega-check-inputs
+      - uses: actions/download-artifact@v4
+        with:
+          name: gameplay-inputs
+          path: gameplay-inputs
       - name: A character from the short introduction, then each check from that save
         shell: pwsh
         run: |
@@ -747,6 +759,14 @@ jobs:
             }
             python $checks[$check] --exe $exe --save $save --out (Join-Path $out $check)
             if ($LASTEXITCODE -ne 0) { $failed += "$check (exit $LASTEXITCODE)" }
+          }
+          # The static encounters: each must start its battle (MS-156); the plan carries the state they need.
+          if (Test-Path gameplay-inputs\static-plan\plan.json) {
+            python gameplay-inputs\tools\qa\gameplay_check.py --exe $exe --plan gameplay-inputs\static-plan\plan.json `
+              --static-encounters --save $save --out (Join-Path $out "static_encounters")
+            if ($LASTEXITCODE -ne 0) { $failed += "static encounters (exit $LASTEXITCODE)" }
+          } else {
+            Write-Output "::notice::this engine has no static encounters' check (gameplay_check.py --static-encounters)"
           }
           if ($failed) { throw "failed: $($failed -join ', ')" }
       - name: Upload the reports (private to this repository, 7 days; no save)
