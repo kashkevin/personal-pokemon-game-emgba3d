@@ -80,6 +80,10 @@ on the host the world's folder.
       League > Legendary Tickets says GIVEN), also after closing the game before saving and joining again.
 - [ ] Close a game in the middle of a battle, a trade and a save, and start it again: nothing lost, nothing doubled; the
       host's world opens as before.
+- [ ] A busy Pokemon Center (MS-208, MS-210): all the players and their following Pokemon in one Pokemon Center, then
+      each heals at the counter: the Poke Balls glow, nobody's game closes, and afterwards the Fly map, a save and a
+      Continue work as before (from the build with engine `f22f8a54`; earlier builds could write past the palettes when
+      every sprite palette was taken).
 
 ## Optional, at your own risk (backups first)
 
