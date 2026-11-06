@@ -89,3 +89,10 @@ on the host the world's folder.
 
 - [ ] Switch a PC off while the game saves: on the next start the save before or after loads (MS-196: the save is
       written to the disk before it replaces the old one); a power cut was not tried anywhere.
+- [ ] From the build of engine `70cf7d18` on (run 364's installer and later), a save that cannot be written (MS-212), in
+      the Solo world and in a window (not full screen): while the game runs, open `%LOCALAPPDATA%\PokemonPrivate\players`
+      in File Explorer, find the `character.sav` changed last, and in its Properties tick Read-only. Save in the game: the
+      window's title says "the save file could not be written: trying again" (the 3D pause menu's save says it failed).
+      Untick Read-only: within half a minute the title is back to normal and the file's time changes. Close the game,
+      Continue: the place of that save loads. Untick Read-only before closing the game in any case. Only the self-test
+      (a folder standing in the file's place) has run on Windows so far, not a real lock or a full disk.
