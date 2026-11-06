@@ -290,7 +290,7 @@ Needs a 3D build (about 1 GB of objects) on a machine with the room for it; not 
 |---|---|---|
 | Port 30 more callbacks and 16 tasks from `battle_anim_new.c` and friends (statement for statement, then a gallery run each; `moves_past_package.py` lists them) | 38 | 3-4 days (most are short; Core Enforcer, Pyro Ball, Glacial Lance, Steel Roller, Mind Blown, Wicked Blow are the long ones) |
 | `createdragondartsprite`, `jumpifmovetypeequal` in the converter and the core (variants by the move's type, which the game's `BranchValue` would have to give: a `bfx_game.c` change) | 4 | 1 day |
-| The core's battler coordinates in a double battle where one side has one Pokemon (all moves, the package's too: "Found on the way") | all | 0.5-1 day (`bfx_game.c` request field and `kGameHelperJs`; galleries) |
+| The core's battler coordinates in a double battle where one side has one Pokemon (all moves, the package's too: "Found on the way") | all | **done 2026-11-06** (engine `e259000b`, KNOWN_ISSUES MS-200: every compared frame matches in that setup; `make check-battlefx-lone`) |
 | HD kits for 25 tags (now the GBA picture with a glow) and per-move presentation for the moves no player can meet | 210 | 2-4 days by eye |
 | HD drawing of the moves proven with the HD layer off, looked at in the game (a gallery with the HD view and captures) | 168 | 1-2 hours of machine time, a look by eye |
 | MS-108 in the engine (above) | - | about 3 days, 1-2 more for the mugshots |
