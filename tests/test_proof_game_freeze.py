@@ -12,6 +12,7 @@ import signal
 import subprocess
 import sys
 import time
+from types import SimpleNamespace
 import unittest
 from unittest import mock
 
@@ -24,10 +25,14 @@ import native_launcher_newcomers_proof as newcomers  # noqa: E402
 
 class GameFreezeTests(unittest.TestCase):
     def test_posix_stops_and_continues_with_signals(self):
-        with mock.patch.object(newcomers, "WINDOWS", False), mock.patch.object(newcomers.os, "kill") as kill:
+        # The POSIX signals stood in: Windows' Python has no signal.SIGSTOP or SIGCONT (windows-package run 352's
+        # app tests), and this checks which call each platform's branch makes, on every platform.
+        signals = SimpleNamespace(SIGSTOP=19, SIGCONT=18)
+        with mock.patch.object(newcomers, "WINDOWS", False), mock.patch.object(newcomers.os, "kill") as kill, \
+                mock.patch.object(newcomers, "signal", signals):
             newcomers.stop_process(4242)
             newcomers.continue_process(4242)
-        self.assertEqual(kill.call_args_list, [mock.call(4242, signal.SIGSTOP), mock.call(4242, signal.SIGCONT)])
+        self.assertEqual(kill.call_args_list, [mock.call(4242, 19), mock.call(4242, 18)])
 
     def test_windows_suspends_and_resumes_the_process(self):
         with mock.patch.object(newcomers, "WINDOWS", True), mock.patch.object(newcomers, "_nt_process") as nt, \
