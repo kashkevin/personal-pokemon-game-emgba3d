@@ -1851,8 +1851,9 @@ jobs:
                      "audio-volumes")
           # Self-tests newer than some engines this workflow may be given (an older game has no such option: it would
           # start the game instead and never end): KNOWN_ISSUES MS-210's palette writers past the buffers (engines from
-          # f22f8a54 on), MS-206's and MS-211's drawing into a window that is not there (from d5142431 on; its row check from fc8626c1)
-          foreach ($newer in @("palette-slots", "missing-window")) {
+          # f22f8a54 on), MS-206's and MS-211's drawing into a window that is not there (from d5142431 on; its row check from
+          # fc8626c1), MS-212's save file write tried again after it failed
+          foreach ($newer in @("palette-slots", "missing-window", "save-retry")) {
             if (Select-String -LiteralPath inputs\pokeemerald-mp.exe -Pattern "selftest-$newer" -SimpleMatch -Quiet) {
               $tests += $newer
             } else { Write-Output "::notice::this engine's game has no --selftest-${newer}: not run" }
