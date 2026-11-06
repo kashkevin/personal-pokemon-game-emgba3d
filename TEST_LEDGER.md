@@ -2021,9 +2021,10 @@ GitHub's Windows runners (`windows-2022`, GitHub-hosted, no graphics card), real
 
 | Test | Build / head | Where | Last result | Evidence | Changed since | Rerun? |
 | --- | --- | --- | --- | --- | --- | --- |
-| `--selftest-tower` with check 9's slow game (a game at 13 frames a second: 600 frames in 45 seconds of the test's clock; the same across the clock's wrap) | engine `5b18ebf1` (the Linux 3D test build) | L | **passed**: 2,120 checks, 0 failed (2,117 on `39c67075`: the three new ones) | scratchpad `atlas/ms49/val/selftest-tower.log` | - | W: run [350](https://github.com/kashkevin/personal-pokemon-game-emgba3d/actions/runs/42180774086) |
+| `--selftest-tower` with check 9's slow game (a game at 13 frames a second: 600 frames in 45 seconds of the test's clock; the same across the clock's wrap) | engine `5b18ebf1` (the Linux 3D test build) | L | **passed**: 2,120 checks, 0 failed (2,117 on `39c67075`: the three new ones) | scratchpad `atlas/ms49/val/selftest-tower.log` | - | - |
 | The same with the real-time limit disabled (a temporary local edit, not committed) | `5b18ebf1`'s tree with the limit at 0xFFFFFFFF | L | the two refusal checks **fail** (2,120 checks, 2 failed): the checks see the fix | `atlas/ms49/selftest-tower-mut.log` | - | - |
 | The change's checks: the ROM; the line check; check-native; MinGW 3D and 2D | engine `5b18ebf1` (the tree before its commit) | L | **passed**: `f214735b...3387`; 1 file, 0 moved; every suite 0 failures; both built, no warning in the changed files | `atlas/ms49/val/summary.txt` | - | - |
+| Every self-test of the Windows build (`--selftest-tower` among them) in run [350](https://github.com/kashkevin/personal-pokemon-game-emgba3d/actions/runs/42180774086) (only the self-tests job) | engine `5b18ebf1`, app `cd4d17c` | W (GitHub's windows-2022 runner) | **passed** (08:38-08:43 UTC): `selftest-tower` 2,120 checks, 0 failed (MS-49's three new among them); every other self-test 0 failed | run 350, job 127777152877 | - | - |
 
 
 ## MS-165's update (a game stopped while its launcher's battle observer looks at it) and run 347's two proof races (2026-11-06)
