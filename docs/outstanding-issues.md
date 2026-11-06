@@ -85,6 +85,7 @@ finished until implemented, regression-tested and verified on Windows; nothing b
 | MS-98 | The 3D map sweep's debug scene stops in three rooms (debug warp only) | **Fixed** (section 0): the rooms entered through their facilities; one was a real crash in play (MS-201, fixed) |
 | MS-170 | A 3D rules test's notion of height (records vs resolved cells) | **Fixed** with MS-189: the test checks the resolved cells, by the resolver's own rules from the records |
 | MS-203 | The 3D game's Battle Dome tourney tree read past its state while the game set the tree up (unset names, found by the AddressSanitizer soak) | **Fixed 2026-11-06** (engine `816390b8`, PC only): names start empty; the storage screen's box states the same; the other native UI state readers read for the pattern, none other found. L: under AddressSanitizer before (two reads) and after (none); W: the next full run's 3D gameplay check visits the board (no sanitizer there) |
+| MS-204 | The UBSan build's first run (never run on the combined game before): a script moving an object not on the map wrote past `gObjectEvents`; the level-100 exp bar read past the experience table | **Fixed 2026-11-06** (engine `961ec505`, PC only, the ROM unchanged): the write skipped, the bar empty as it was without the read. L: UBSan's first eighth before (both) and after (neither); the rest of the plan under UBSan running; W: no UBSan on Windows (nothing a player sees changes) |
 
 ## 3. Decisions only the owner can make (options in `docs/owner-decisions.md`)
 
