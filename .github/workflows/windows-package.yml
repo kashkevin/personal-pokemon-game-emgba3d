@@ -851,7 +851,8 @@ jobs:
     # the save, arrives again exactly once;
     # mega: a Duo replay
     # of floor 40 where Norman's Kangaskhan Mega Evolves; forfeit: player 2's solo floor closed mid-battle (player 1
-    # hosts the world, which stays up), the game started again, the floor counted as a loss on the next ask; ui: the 3D
+    # hosts the world, which stays up), the game started again, the floor counted as a loss on the next ask;
+    # duo-give-up (KNOWN_ISSUES MS-126): a Duo battle given up by player 2 from its waiting screen, a loss for both; ui: the 3D
     # game the launcher packages with its native PC UI, through Mesa's software OpenGL (pinned, as graphics-3d; added to
     # the proof's runtime only, never to the package): player 1 opens every Tower page and each is pictured; climb: both
     # players climb floors 1-100 at once in the engine's test build through the launcher (PKMN_TEST_TOWER_WIN: the lead's
@@ -873,6 +874,9 @@ jobs:
           - {name: join-reset, scenario: join, a: tower-join-a, b: tower-join-b, extra: "--party-counts 3 6 --rejoin reset"}
           - {name: mega, scenario: mega, a: tower-mega-a, b: tower-mega-b, extra: "--party-counts 6 6 --floors-json mega-check-inputs/tower_legends.json"}
           - {name: forfeit, scenario: forfeit, a: tower-strong-a, b: tower-forfeit-b, extra: "--party-counts 6 6"}
+          # KNOWN_ISSUES MS-126 in a Duo battle: both records at floor 12 cleared, floor 13's battle given up by player 2
+          # from its waiting screen: a loss for both (P 11, H 12), nothing paid
+          - {name: duo-give-up, scenario: duo-give-up, a: tower-forfeit-a, b: tower-forfeit-b, extra: "--party-counts 6 6 --give-up 2"}
           # the climb's test build and advantage: both players are level 100, so their computer trainers are floors 95-100
           - {name: championship, scenario: championship, a: tower-strong-a, b: tower-strong-b, extra: "--party-counts 6 6 --test-env PKMN_TEST_TOWER_WIN=1", game: mega-check-inputs/pokeemerald-mp-bfxtest.exe}
           - {name: ui, scenario: ui, a: tower-strong-a, b: tower-strong-b, extra: "--party-counts 6 6 --native-ui", game: inputs/pokeemerald-mp-diorama.exe, mesa: "yes"}
@@ -1248,7 +1252,9 @@ jobs:
     # proof raises each lead to Lv. 60. A team in the Players menu, Roxanne's co-op challenge, the battle; each game
     # saves on the host with its result waiting, then the friend's game is closed (WM_CLOSE) with the award in its
     # memory only, its launcher started again, and the award given again from that save: the same experience, once;
-    # both host saves after the scripts, then a fresh Continue and the store's integrity check.
+    # both host saves after the scripts, then a fresh Continue and the store's integrity check. Then (KNOWN_ISSUES
+    # MS-126) the same battle given up by the friend from its waiting screen while the host has walked away: the team
+    # loses, each game's defeat script (no whiteout) with no experience, no badge, the Leader not beaten, no money moved.
     name: Co-op experience across a closed game (Windows game processes)
     needs: [engine, symbol-sizes]
     if: ${{ (inputs.mode || 'smoke') == 'full' && (!inputs.only || contains(format(',{0},', inputs.only), ',coop-proof,')) }}
@@ -1301,6 +1307,16 @@ jobs:
             --sizes symbols/pokeemerald-mp.sizes.txt --slow 1.5 \
             --source-a "$RUNNER_TEMP/coop-saves/coop-a.sav" --source-b "$RUNNER_TEMP/coop-saves/coop-b.sav" \
             --output "$RUNNER_TEMP/multiplayer-proof/coop-close-during-award"
+      - name: The co-op Gym battle given up by the friend from its waiting screen (KNOWN_ISSUES MS-126)
+        # also after the step above failed: a separate battle in a new world, from the same fixtures
+        if: ${{ !cancelled() }}
+        run: |
+          .venv/Scripts/python scripts/multiplayer/native_launcher_coop_proof.py --give-up 1 \
+            --game inputs/pokeemerald-mp.exe --sdl inputs/SDL2.dll --rom inputs/pokedev.gba \
+            --manifest inputs/manifest.json --pe-symbols symbols/pokeemerald-mp.nm.txt \
+            --sizes symbols/pokeemerald-mp.sizes.txt --slow 1.5 \
+            --source-a "$RUNNER_TEMP/coop-saves/coop-a.sav" --source-b "$RUNNER_TEMP/coop-saves/coop-b.sav" \
+            --output "$RUNNER_TEMP/multiplayer-proof/coop-give-up"
       - name: The proof's own diagnosis, in this log (only when it failed; scripts/multiplayer/proof_failure_summary.py)
         if: failure()
         run: python scripts/multiplayer/proof_failure_summary.py "$RUNNER_TEMP/multiplayer-proof"
@@ -2455,6 +2471,15 @@ jobs:
           # notice is there). The giver loses either way.
           - {name: give-up, scenario: give-up, players: 2, format: 1v1v1v1}
           - {name: give-up-mid-turn, scenario: give-up-mid-turn, players: 2, format: 1v1v1v1}
+          # The give-ups never run before 2026-11-06 (L first): a give-up in a turn that would end the battle anyway
+          # (give-up-knockout: each player's only Pokemon a level-100 Mewtwo whose move knocks the other's out; the
+          # mid-turn give-up), the battle ending another way after the notice (give-up-switch: the other side's last
+          # Pokemon, a Shedinja, knocked out by Spikes as it is sent out; the giver still loses) - both from fixtures
+          # the test build makes (make_tower_saves.py, the entry's a and b) - and a 2v2 of four new characters in which
+          # the master's partner gives up: the giver's side, both its players, loses.
+          - {name: give-up-knockout, scenario: give-up-knockout, players: 2, format: 1v1v1v1, a: giveup-ko-a, b: giveup-ko-b}
+          - {name: give-up-switch, scenario: give-up-switch, players: 2, format: 1v1v1v1, a: giveup-switch-a, b: giveup-switch-b}
+          - {name: give-up-2v2, scenario: give-up-2v2, players: 4, format: 2v2}
     defaults:
       run:
         shell: bash
@@ -2493,6 +2518,12 @@ jobs:
         run: |
           .venv/Scripts/python scripts/multiplayer/make_intro_saves.py --exe mega-check-inputs/pokeemerald-mp-bfxtest.exe \
             --mega-check mega-check-inputs/mega_check.py --out "$RUNNER_TEMP/intro" --count ${{ matrix.players }}
+      - name: The entry's fixtures, given their Pokemon by the test build (the give-ups with chosen parties)
+        if: ${{ matrix.a && (!contains(inputs.only, 'mp:') || contains(format(',{0},', inputs.only), format(',mp:{0},', matrix.name))) }}
+        run: |
+          .venv/Scripts/python scripts/multiplayer/make_tower_saves.py --exe mega-check-inputs/pokeemerald-mp-bfxtest.exe \
+            --mega-check mega-check-inputs/mega_check.py --source-a "$RUNNER_TEMP/intro/boy-1.sav" \
+            --source-b "$RUNNER_TEMP/intro/girl-1.sav" --out "$RUNNER_TEMP/fixture-saves" --only ${{ matrix.a }},${{ matrix.b }}
       - name: Mesa's software OpenGL (32-bit) for the 3D game (pinned; the 3D entry)
         if: ${{ matrix.mesa == 'yes' && (!contains(inputs.only, 'mp:') || contains(format(',{0},', inputs.only), format(',mp:{0},', matrix.name))) }}
         shell: pwsh
@@ -2521,6 +2552,10 @@ jobs:
           # make_intro_saves.py's names, in its order (no glob over a Windows path in bash)
           names=(boy-1 girl-1 boy-2 girl-2); sources=()
           for n in $(seq 0 $(( ${{ matrix.players }} - 1 ))); do sources+=(--source "$RUNNER_TEMP/intro/${names[$n]}.sav"); done
+          # an entry with fixtures (a, b): their saves, made from boy-1 and girl-1 above
+          if [ -n "${{ matrix.a }}" ]; then
+            sources=(--source "$RUNNER_TEMP/fixture-saves/${{ matrix.a }}.sav" --source "$RUNNER_TEMP/fixture-saves/${{ matrix.b }}.sav")
+          fi
           game="${{ matrix.game || 'inputs/pokeemerald-mp.exe' }}"
           name="$(basename "$game" .exe)"
           runtime_extra=()

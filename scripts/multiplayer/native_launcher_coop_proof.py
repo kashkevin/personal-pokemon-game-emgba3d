@@ -37,6 +37,15 @@ parties afterwards, with the launcher harness of native_launcher_battle_proof.py
     after it is saved, its launcher is started again (Join Game) from the host
     save made with the result waiting, and that game runs the award again: the
     same experience, once;
+  - with --give-up N (KNOWN_ISSUES MS-126: a player may give up a battle with
+    other players whenever they wish), player N chooses its first move and gives
+    up from the waiting screen (B, Yes) while its teammate has walked away at the
+    action menu: one forfeit notice, from N's game, for its own battler; the
+    whole team loses (the master plays the notice as N's Run: LOST with the
+    link-battle Run's mark) - both games' own result and the host's co-op result
+    lost; each game runs the co-op defeat script (no whiteout) with no
+    experience, no badge, the Leader not marked beaten, no money gained or lost;
+    both host saves around the script as after a win; the parties unchanged;
   - checks, from each game's memory: every Pokemon of its own that could battle
     gained experience, its lead (sent out) the most; Pokemon that grew; the
     teammate's party is no longer held (each game changes only its own party);
@@ -61,7 +70,8 @@ import sys
 import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "windows-runtime"))
-from native_launcher_battle_proof import WINDOWS, drive_battle_input, launcher_proof  # noqa: E402
+from native_launcher_battle_proof import (CHOOSE_ACTION_REQUEST, FORFEIT_ROLE, WINDOWS, drive_battle_input,  # noqa: E402
+                                          idle_battle_input, launcher_proof)
 from native_launcher_multi_proof import close_players, field_state, into_town  # noqa: E402
 from native_coop_exp_award_proof import decode  # noqa: E402
 from native_spawn_proof import SAVEBLOCK1_DATA, _save_slots, _sector_checksum  # noqa: E402
@@ -71,6 +81,12 @@ from emerald_multiplayer.ownership import _SUBSTRUCT_OFFSETS  # noqa: E402
 
 GYM = 1  # Rustboro (Roxanne): see the docstring; --gym
 CLOSE_SLOT = -1  # --close-during-award
+GIVE_UP = -1     # --give-up: the player who gives up (MS-126)
+# A Gym's badge and its Leader's trainer flag (engine include/constants/flags.h FLAG_BADGE01_GET .. 08, in the co-op
+# Gyms' order MP_COOP_GYM_RUSTBORO 1 .. SOOTOPOLIS 8; TRAINER_FLAGS_START + TRAINER_ROXANNE_1 265 .. TRAINER_JUAN_1 272),
+# read from the running game's save block 1 (SaveBlock1.flags at 0x1270, tower_rules.FLAGS_OFFSET)
+FLAG_BADGE01_GET, TRAINER_FLAGS_START, FIRST_LEADER = 0x867, 0x500, 265
+OUTCOME_LOST = 2   # B_OUTCOME_LOST: the team's own result (gBattleOutcome) and the host's co-op result
 HARNESS = None   # the launcher harness (on_harness), for a game closed and started again
 LEAD_LEVEL = 60
 LEAD_MOVE = 242  # MOVE_CRUNCH: physical Dark, 80 power; nothing among Norman's and Caroline's
@@ -212,6 +228,13 @@ async def coop_match(current, probes, games, host, symbols, record):
     record("parties-before", parties=before)
     for p in before:
         require(p[0]["level"] == LEAD_LEVEL, "fixture parties: the lead at Lv. 60")
+    if GIVE_UP >= 0:
+        from native_launcher_tower_proof import live_wallet
+        START_MONEY.update({slot: live_wallet(p)["money"] for slot, p in enumerate(probes)})
+        flags = [FLAG_BADGE01_GET + GYM - 1, TRAINER_FLAGS_START + FIRST_LEADER + GYM - 1]
+        found = [flags_of(p, *flags) for p in probes]
+        record("before-the-give-up", money=START_MONEY, badge_and_leader_beaten=found)
+        require(not any(any(f) for f in found), f"the fixtures already have the badge or beat the Leader: {found}")
 
     # A team, through the ordinary Players menus.
     await probes[0].open_players()
@@ -264,8 +287,26 @@ async def coop_match(current, probes, games, host, symbols, record):
             return dict(state=room.state, pending=None if room.route is None else room.route.validator.pending[battler])
         return await on_worker(current[0], read)
     stop = asyncio.Event()
-    drivers = [asyncio.create_task(logged_driver(p, b, lambda b=b: view(b), symbols, stop))
-               for p, b in zip(probes, (0, 2))]
+    blocks, given = [], {}
+    if GIVE_UP >= 0:
+        # MS-126: the giver chooses its move, then gives up from the waiting screen; its teammate has walked away at
+        # its action menu. Every routed block is kept (the notice and the replies are checked after the battle).
+        async def observe(s):
+            service = s._server.battle_execution
+            require(service.observer is None, "a previous proof observer exists")
+            service.observer = lambda block: blocks.append(dict(block, at=round(time.monotonic(), 2)))
+        await on_worker(current[0], observe)
+        giver, other = GIVE_UP, 1 - GIVE_UP
+        battlers = (0, 2)
+        given.update(wait_for=CHOOSE_ACTION_REQUEST)
+        drivers = [None, None]
+        drivers[giver] = asyncio.create_task(drive_battle_input(
+            probes[giver], lambda: view(battlers[giver]), symbols, stop, {}, give_up=given,
+            other_view=lambda: view(battlers[other])))
+        drivers[other] = asyncio.create_task(idle_battle_input(probes[other], lambda: view(battlers[other]), stop))
+    else:
+        drivers = [asyncio.create_task(logged_driver(p, b, lambda b=b: view(b), symbols, stop))
+                   for p, b in zip(probes, (0, 2))]
     started = time.monotonic()
     async def room_of(host_session):
         room = host_session._server.battle_execution.rooms.get(battle_id)
@@ -303,6 +344,11 @@ async def coop_match(current, probes, games, host, symbols, record):
         return values[0] if values else None
     result = await on_worker(current[0], outcome)
     record("coop-battle-finished", seconds=round(time.monotonic() - started, 1), result=result)
+    if GIVE_UP >= 0:
+        async def unobserve(s):
+            s._server.battle_execution.observer = None
+        await on_worker(current[0], unobserve)
+        return await coop_given_up(current, probes, games, before, start_revisions, battle_id, blocks, given, record)
 
     # Each game's own victory script and experience award: the host save first (the result waits in the save), then
     # the script, then the host save again (KNOWN_ISSUES MS-190). With --close-during-award, that player's game closes
@@ -353,6 +399,91 @@ async def coop_match(current, probes, games, host, symbols, record):
     return dict(expected=[p.party_now() for p in probes], revisions=[r + 1 for r in now])
 
 
+def flags_of(probe, *flags):
+    """Whether each of `flags` is set in the running game's save block 1 (SaveBlock1.flags)."""
+    from emerald_multiplayer.tower_rules import FLAGS_OFFSET
+    from native_launcher_tower_proof import read_at
+    block1 = int.from_bytes(probe.mem("gSaveBlock1Ptr", 4), "little")
+    return [bool(read_at(probe, block1 + FLAGS_OFFSET + flag // 8, 1)[0] >> (flag % 8) & 1) for flag in flags]
+
+
+async def coop_given_up(current, probes, games, before, start_revisions, battle_id, blocks, given, record):
+    """--give-up (MS-126): what a co-op Gym battle given up by one of the team leaves. The whole team lost: one notice
+    from the giver's game for its own battler, both games' own result and the host's co-op result LOST; each game runs
+    its defeat script (no whiteout) after the host save that carries the result, then saves again; no experience, no
+    badge, the Leader not marked beaten, no money gained or lost; the parties as before."""
+    from native_launcher_tower_proof import live_wallet
+    giver = GIVE_UP
+    battler = (0, 2)[giver]
+    require("chosen" in given, "the giver never chose Yes on the question: " + json.dumps(given, default=str))
+
+    def data(b):
+        return bytes.fromhex(b["data"])
+    notices = [b for b in blocks if b["kind"] == 8 and data(b)[0] == FORFEIT_ROLE]
+    require(len(notices) == 1 and notices[0]["source"] == giver and data(notices[0])[1] == battler,
+            f"expected one forfeit notice from the giver's game for battler {battler}: "
+            f"{[(n['source'], data(n)[1]) for n in notices]}")
+
+    def replies(core):
+        # (command, first byte) of a core's replies for the players' battlers (TWORETURNVALUES 32, CHOSENMONRETURNVALUE
+        # 33); the master's AI trainers' (battlers 1 and 3) are left out
+        return [tuple(data(b)[8:10]) for b in blocks if b["kind"] == 8 and b["source"] == core and data(b)[0] == 1
+                and data(b)[1] in (0, 2) and data(b)[8] in (32, 33)]
+    require(replies(giver) == [(32, 0), (32, 10)], f"the giver's replies differ: {replies(giver)}")
+    require(replies(1 - giver) == [(32, 13)], f"the teammate's game did not pass its turn by itself: "
+            f"{replies(1 - giver)}")
+    own = [p.mem("gBattleOutcome", 1)[0] for p in probes]
+
+    async def host_records(s):
+        server = s._server
+        rows = server.friendships._db.execute("SELECT kind FROM activity WHERE reference=?", (battle_id,)).fetchall()
+        return dict(coop_result=server.shared_world.frontier.coop_result(battle_id),
+                    friendship=[row[0] for row in rows])
+    host = await on_worker(current[0], host_records)
+    record("coop-given-up", giver=giver, battler=battler, own_results=own, host=host, notice_at=notices[0]["at"],
+           seconds_from_enter_to_yes=round(given["chosen"] - min(b["at"] for b in blocks), 1),
+           presses_of_b_before_the_question=given.get("b_without_question", 0))
+    require(own == [OUTCOME_LOST, OUTCOME_LOST], f"a game's own result is not a loss: {own}")
+    require(host["coop_result"] == OUTCOME_LOST, f"the host's co-op result is not a loss: {host}")
+    # each game's defeat script after the host save that carries the result (A presses its message)
+    logs = [game_log_path(g) for g in games]
+    wallets = [live_wallet(p) for p in probes]
+    screens = await asyncio.gather(*(finish_award(probes[n], n, record) for n in range(2)))
+    after = [own_party(p) for p in probes]
+    flags = [FLAG_BADGE01_GET + GYM - 1, TRAINER_FLAGS_START + FIRST_LEADER + GYM - 1]
+    for slot in range(2):
+        gains = [a["experience"] - b["experience"] for a, b in zip(after[slot], before[slot])]
+        badge, beaten = flags_of(probes[slot], *flags)
+        money = live_wallet(probes[slot])["money"]
+        record("coop-given-up-player", slot=slot, gains=gains, badge=badge, leader_beaten=beaten,
+               money=[START_MONEY[slot], wallets[slot]["money"], money], screens=screens[slot],
+               levels=[(b["level"], a["level"]) for a, b in zip(after[slot], before[slot])])
+        require(not any(gains), f"slot {slot}: experience after a lost co-op battle: {gains}")
+        require(not badge and not beaten, f"slot {slot}: the badge ({badge}) or the Leader beaten ({beaten}) after a "
+                "lost co-op battle")
+        require(money == wallets[slot]["money"] == START_MONEY[slot],
+                f"slot {slot}: money changed: {START_MONEY[slot]} -> {wallets[slot]['money']} -> {money}")
+        require(probes[slot].mem("gPartiesCount", 4)[2] == 0, f"slot {slot}: the teammate's party is still held")
+    # each game saved on the host twice by itself, as after a win: with the result waiting, then after its script
+    async def revision(s):
+        return s.status.revision
+    deadline = time.monotonic() + 90
+    while True:
+        now = [await on_worker(w, revision) for w in current]
+        if all(r == b + 2 for r, b in zip(now, start_revisions)):
+            break
+        require(time.monotonic() < deadline and all(r <= b + 2 for r, b in zip(now, start_revisions)),
+                f"the games' host saves around the defeat script: revisions {now} from {start_revisions}")
+        await asyncio.sleep(.5)
+    lines = [result_lines(path) for path in logs]
+    record("saved-before-and-after-the-defeat-script", revisions=now, game_logs=lines)
+    for slot in range(2):
+        require(any("saved with the result waiting; its script runs" in line for line in lines[slot]),
+                f"slot {slot}: the game's log has no host save made with the result waiting")
+    return dict(expected=[p.party_now() for p in probes], revisions=[r + 1 for r in now])
+
+
+START_MONEY = {}   # --give-up: each game's money when the match began
 CLOSED_AWARD = {}
 WATCHERS = []
 
@@ -519,8 +650,9 @@ async def run(args):
         target = fixtures / f"coop-{name}.sav"
         boost_lead(source, target)
         sources.append(target)
-    global GYM, CLOSE_SLOT
-    GYM, CLOSE_SLOT = args.gym, args.close_during_award
+    global GYM, CLOSE_SLOT, GIVE_UP
+    GYM, CLOSE_SLOT, GIVE_UP = args.gym, args.close_during_award, args.give_up
+    require(GIVE_UP < 0 or CLOSE_SLOT < 0, "--give-up and --close-during-award: one at a time")
     await launcher_proof(args, names=NAMES, sources=tuple(sources), party_counts=(2, 1), match=coop_match,
                          version="Native co-op proof", after_boot=after_boot, on_harness=adopt,
                          settings="windowScale=2\n", scope=__doc__.split("\n\n")[0],
@@ -550,6 +682,9 @@ def main():
     parser.add_argument("--gym", type=int, default=GYM, help="MP_COOP_GYM_*: 1 Rustboro (default) .. 8 Sootopolis")
     parser.add_argument("--close-during-award", type=int, default=-1, choices=(-1, 0, 1),
                         help="close this player's game during its award, then start its launcher again (1: the friend)")
+    parser.add_argument("--give-up", type=int, default=-1, choices=(-1, 0, 1),
+                        help="this player chooses its move and gives up from the waiting screen while its teammate has "
+                             "walked away (MS-126; 1: the friend): the team must lose, with nothing gained")
     asyncio.run(run(parser.parse_args()))
 
 

@@ -68,6 +68,14 @@ PKMN_TEST_TOWER_RECORD: the game loads the save, sets them and saves through its
   trade-egg-a / -b      a level-5 Zigzagoon and a shiny Togepi Egg with one egg cycle left and IVs 3/7/11/19/23/29 (the
                         test build's g<cycles>: an Egg as the Day Care makes one); a level-5 Mudkip and a level-5
                         Zigzagoon: the Egg traded for the Mudkip and hatched by its receiver (--scenario trade-egg)
+  giveup-ko-a / -b      a level-100 Mewtwo with Dazzling Gleam first, each player's only Pokemon (whichever moves first
+                        knocks the other out): a give-up in a turn that would end the battle (KNOWN_ISSUES MS-126;
+                        native_launcher_newcomers_proof.py --scenario give-up-knockout; the 1v1's cores follow the
+                        players' ids, so either player may be the one who gives up)
+  giveup-switch-a / -b  a level-50 Golem with Explosion first and a level-20 Shedinja; a level-30 Ninjask with Spikes
+                        first (faster than the Golem) and a level-5 Zigzagoon: in the first turn the Spikes, then the
+                        Explosion knocks out both; the Shedinja (1 HP) falls to the Spikes as it is sent out, after -b's
+                        player has given up (--scenario give-up-switch: the battle ending another way after a forfeit)
 
     python scripts/multiplayer/make_tower_saves.py --exe <Makefile_pc BFX_TEST=1 build> \\
         --mega-check <engine>/tools/battle_env/mega_check.py --source-a boy-1.sav --source-b girl-1.sav --out DIR \\
@@ -158,6 +166,12 @@ FIXTURES = (  # (name, source, party, record "highest:progress" or None[, bag "i
     # SpA, SpD, Spe); SPECIES_MUDKIP and SPECIES_ZIGZAGOON
     ("trade-egg-a", "a", "263:5,175:1:sI3.7.11.19.23.29g1", None),
     ("trade-egg-b", "b", "258:5,263:5", None),
+    # KNOWN_ISSUES MS-126: SPECIES_MEWTWO with MOVE_DAZZLING_GLEAM, each player's only Pokemon
+    ("giveup-ko-a", "a", "150:100:v605", None),
+    ("giveup-ko-b", "b", "150:100:v605", None),
+    # SPECIES_GOLEM with MOVE_EXPLOSION and SPECIES_SHEDINJA; SPECIES_NINJASK with MOVE_SPIKES and SPECIES_ZIGZAGOON
+    ("giveup-switch-a", "a", "76:50:v153,292:20", None),
+    ("giveup-switch-b", "b", "291:30:v191,263:5", None),
 )
 
 

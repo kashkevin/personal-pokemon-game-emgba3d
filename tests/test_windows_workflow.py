@@ -506,10 +506,43 @@ class WindowsWorkflowTests(unittest.TestCase):
         self.assertIn("- {name: give-up, scenario: give-up, players: 2, format: 1v1v1v1}", mp)
         self.assertIn("- {name: give-up-mid-turn, scenario: give-up-mid-turn, players: 2, format: 1v1v1v1}", mp)
         proof = (ROOT / "scripts" / "multiplayer" / "native_launcher_newcomers_proof.py").read_text(encoding="utf-8")
-        self.assertIn('GIVE_UPS = ("give-up", "give-up-mid-turn")', proof)
+        self.assertIn('GIVE_UPS = ("give-up", "give-up-mid-turn", "give-up-knockout", "give-up-switch", "give-up-2v2")',
+                      proof)
         self.assertIn("delay_battle_messages_to(", proof)        # the giver's game hears of the turn late
         self.assertIn('require(before_notice, f"{label}: the notice reached the host before the master began the turn")',
                       proof)
+
+    def test_the_give_ups_never_run_before_run_on_windows(self):
+        # KNOWN_ISSUES MS-126's cases first run on Linux on 2026-11-06: a give-up in a turn that would end the battle,
+        # the battle ending another way after the notice, a 2v2, a co-op Gym battle and a Tower Duo battle given up.
+        mp = job("multiplayer-check")
+        self.assertIn("- {name: give-up-knockout, scenario: give-up-knockout, players: 2, format: 1v1v1v1, "
+                      "a: giveup-ko-a, b: giveup-ko-b}", mp)
+        self.assertIn("- {name: give-up-switch, scenario: give-up-switch, players: 2, format: 1v1v1v1, "
+                      "a: giveup-switch-a, b: giveup-switch-b}", mp)
+        self.assertIn("- {name: give-up-2v2, scenario: give-up-2v2, players: 4, format: 2v2}", mp)
+        # an entry's fixtures are made from the first two characters and are that entry's sources
+        self.assertIn("if: ${{ matrix.a && (!contains(inputs.only, 'mp:')", mp)
+        self.assertIn('--source-b "$RUNNER_TEMP/intro/girl-1.sav" --out "$RUNNER_TEMP/fixture-saves" '
+                      '--only ${{ matrix.a }},${{ matrix.b }}', mp)
+        self.assertIn('sources=(--source "$RUNNER_TEMP/fixture-saves/${{ matrix.a }}.sav" '
+                      '--source "$RUNNER_TEMP/fixture-saves/${{ matrix.b }}.sav")', mp)
+        self.assertLess(mp.index('for n in $(seq 0'), mp.index('if [ -n "${{ matrix.a }}" ]; then'))
+        names = {fixture[0]: fixture[2] for fixture in fixtures().FIXTURES}
+        self.assertEqual([names[n] for n in ("giveup-ko-a", "giveup-ko-b", "giveup-switch-a", "giveup-switch-b")],
+                         ["150:100:v605", "150:100:v605", "76:50:v153,292:20", "291:30:v191,263:5"])
+        coop = job("coop-proof")
+        self.assertIn("native_launcher_coop_proof.py --give-up 1", coop)
+        self.assertIn('--output "$RUNNER_TEMP/multiplayer-proof/coop-give-up"', coop)
+        self.assertIn("if: ${{ !cancelled() }}", coop)          # also after the award's step failed
+        coop_proof = (ROOT / "scripts" / "multiplayer" / "native_launcher_coop_proof.py").read_text(encoding="utf-8")
+        self.assertIn('parser.add_argument("--give-up"', coop_proof)
+        tower = job("tower-proof")
+        self.assertIn('- {name: duo-give-up, scenario: duo-give-up, a: tower-forfeit-a, b: tower-forfeit-b, '
+                      'extra: "--party-counts 6 6 --give-up 2"}', tower)
+        tower_proof = (ROOT / "scripts" / "multiplayer" / "native_launcher_tower_proof.py").read_text(encoding="utf-8")
+        self.assertIn('"championship", "duo-give-up"),', tower_proof)
+        self.assertIn('parser.add_argument("--give-up"', tower_proof)
 
     def test_a_battle_and_trades_between_players_run_in_the_3d_game_on_windows(self):
         mp = job("multiplayer-check")

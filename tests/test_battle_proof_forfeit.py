@@ -137,6 +137,56 @@ class GiveUpWhileWaitingTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(give_up["b_without_question"], 2)
 
 
+    async def test_after_its_next_pokemon_the_giver_gives_up_while_the_other_chooses_theirs(self):
+        # give-up-switch: the first turn (Fight, a move: the other still chooses its action, so no question yet), the
+        # party menu after both knock-outs (its own pick: the RIGHT/A keys of the next party slot), then the waiting
+        # screen while the other player's party menu is open: B, UP, A.
+        probe = StandbyProbe()
+        party = dict(state=5, active=frozenset({0x08001000}), cursor=0, count=2)
+        moved = dict(party, cursor=1)
+        reads = iter([dict(state=5, active=frozenset(), cursor=0, count=2)] * 3 + [party, moved]
+                     + [dict(state=5, active=frozenset(), cursor=0, count=2)] * 5)
+
+        async def battle():
+            return next(reads)
+        probe.battle = battle
+        own = views(*[dict(state="executing", pending=p) for p in (17, 19, None, 21, 21, None)]
+                    + [dict(state="closed", pending=None)])
+        other = views(dict(state="executing", pending=19), dict(state="executing", pending=21),
+                      dict(state="executing", pending=21))
+        give_up = dict(wait_for=21)
+        await asyncio.wait_for(proof.drive_battle_input(probe, own, SYMBOLS, asyncio.Event(), give_up=give_up,
+                                                        other_view=other), 2)
+        # Fight, the move; with the other still choosing its move only A (a message); RIGHT to the second Pokemon and
+        # A on it; then B, UP, A
+        self.assertEqual(probe.keys, [1, 1, 1, 16, 1, 2, 64, 1])
+        self.assertIn("chosen", give_up)
+        self.assertEqual(give_up["other_pending"], 21)
+
+
+class WalkAwayTests(unittest.IsolatedAsyncioTestCase):
+    async def test_plays_until_the_request_then_presses_nothing(self):
+        # give-up-switch's master: A on Fight and on the move (and a message), then the party menu is asked (21):
+        # nothing more is pressed, whatever comes, until the battle is over
+        probe = MenuProbe(battler=0, menu_after=0)
+        rooms = ([dict(state="executing", pending=p) for p in (17, 19, None, 21, 21, 21)]
+                 + [dict(state="closed", pending=None)])
+        seen = {}
+        await asyncio.wait_for(proof.walk_away_at(probe, views(*rooms), SYMBOLS, asyncio.Event(), 21, seen), 2)
+        self.assertEqual(probe.keys, [1, 1, 1])
+        self.assertEqual(seen["at_request"], 21)
+        self.assertIn("walked_away", seen)
+
+    async def test_a_battle_that_ends_first_is_left_alone(self):
+        probe = MenuProbe(battler=0, menu_after=0)
+        seen = {}
+        await asyncio.wait_for(proof.walk_away_at(probe, views(dict(state="executing", pending=17),
+                                                               dict(state="aborted", pending=None)),
+                                                  SYMBOLS, asyncio.Event(), 21, seen), 1)
+        self.assertEqual(probe.keys, [1])
+        self.assertNotIn("walked_away", seen)
+
+
 class ChoosingActionTests(unittest.TestCase):
     def probe(self, funcs):
         native = proof.NativeProbe.__new__(proof.NativeProbe)

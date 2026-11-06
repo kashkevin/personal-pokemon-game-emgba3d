@@ -41,6 +41,15 @@ saves, the canonical checkpoints (money, the Bag, Battle Points, the PC, the rec
                       The fresh Continue starts every process again, the world's host first: the restarted host keeps
                       both records (P 13, H 12, best 12, nothing issued) and pays nothing again - 30 s on, each
                       running game's money, Rare Candy, HP Up, Battle Points and record are its save's.
+  --scenario duo-give-up  (KNOWN_ISSUES MS-126: a player may give up a battle with other players whenever they wish)
+                      as duo, from saves whose Tower records say floor 12 cleared (tower-forfeit-a and -b: P 13, H 12
+                      each): the Duo on floor 13 (both players' progress floor), and in its battle player --give-up
+                      (default 2) chooses its first move and gives up from the waiting screen (B, Yes) while its
+                      teammate has walked away at the action menu. One forfeit notice, from that player's game; the
+                      team loses: both games' own result and the host's co-op result lost, the host settles floor 13
+                      as a loss for both (each back to checkpoint 10's next floor: P 11, H stays 12, one more loss),
+                      nothing paid (money, Rare Candy, Battle Points as before; no milestone), each game's record mirror
+                      says so, the Duo goes on forming on floor 11; the closing saves hold the records P 11, H 12.
   --scenario mega     as duo, from saves whose Tower records say floor 40 cleared (the host imports a save's record on
                       the player's first Tower action): a Duo replay of floor 40, Norman and his partner; the master
                       game's battle shows Norman's Kangaskhan Mega Evolved.
@@ -103,8 +112,8 @@ ROOT = Path(__file__).resolve().parents[2]
 for _path in (ROOT / "src", ROOT / "scripts" / "multiplayer", ROOT / "scripts" / "windows-runtime"):
     if str(_path) not in sys.path:              # the Windows runner starts it without PYTHONPATH
         sys.path.insert(0, str(_path))
-from native_launcher_battle_proof import (WINDOWS, NativeProbe, drive_battle_input, game_picture,  # noqa: E402
-                                          launcher_proof)
+from native_launcher_battle_proof import (CHOOSE_ACTION_REQUEST, FORFEIT_ROLE, WINDOWS, NativeProbe,  # noqa: E402
+                                          drive_battle_input, game_picture, idle_battle_input, launcher_proof)
 from native_launcher_coop_proof import finish_award, logged_driver, own_party  # noqa: E402
 from native_launcher_multi_proof import close_players, field_state, into_town  # noqa: E402
 from qualify_admission_cleanup import on_worker, require  # noqa: E402
@@ -518,12 +527,13 @@ async def duo_ready_again(probes, record):
     return floor
 
 
-async def duo_battle(current, probes, host, symbols, record, *, floor=None, megas=None, again=False):
+async def duo_battle(current, probes, host, symbols, record, *, floor=None, megas=None, again=False, give_up=None):
     """A team, the Duo through the Tower's pages, the native co-op battle, each game's award. Returns the battle id.
-    again: the Duo already played a battle (its next floor: both Ready)."""
+    again: the Duo already played a battle (its next floor: both Ready). give_up: that player (0 or 1) gives up from
+    the waiting screen in the battle (duo_fight)."""
     if again:
         floor = await duo_ready_again(probes, record)
-        return await duo_fight(current, probes, host, symbols, record, floor, megas)
+        return await duo_fight(current, probes, host, symbols, record, floor, megas, give_up)
     await form_team(probes, host, record)
     # player 1: Tower > Duo with ... > Invite: floor F (or the replay page's floor)
     await open_tower(probes[0])
@@ -552,11 +562,17 @@ async def duo_battle(current, probes, host, symbols, record, *, floor=None, mega
     await probes[0].choose(next(r.label for r in (await probes[0].ready())[1].rows if r.label.startswith("Duo: floor")))
     await probes[0].choose("Ready")
     await close_players(probes[0])
-    return await duo_fight(current, probes, host, symbols, record, floor, megas)
+    return await duo_fight(current, probes, host, symbols, record, floor, megas, give_up)
 
 
-async def duo_fight(current, probes, host, symbols, record, floor, megas):
-    """Both Ready: the host issues the native co-op battle (the challenge as the co-op Gym's); both enter and play it."""
+GIVEN_UP = {}       # duo-give-up: what the giver's driver did, and the battle's routed blocks
+
+
+async def duo_fight(current, probes, host, symbols, record, floor, megas, give_up=None):
+    """Both Ready: the host issues the native co-op battle (the challenge as the co-op Gym's); both enter and play it.
+    give_up (MS-126): that player (0 or 1) chooses its first move and gives up from the waiting screen while its
+    teammate has walked away at the action menu (drive_battle_input's give-up; GIVEN_UP keeps what it did and the
+    battle's routed blocks)."""
     async def descriptor(s):
         values = s._companion._bridge.menu_session.menu._battles
         return [json.loads(json.dumps(v)) for v in values]
@@ -590,8 +606,24 @@ async def duo_fight(current, probes, host, symbols, record, floor, megas):
             return dict(state=room.state, pending=None if room.route is None else room.route.validator.pending[battler])
         return await on_worker(current[0], read)
     stop = asyncio.Event()
-    drivers = [asyncio.create_task(logged_driver(p, b, lambda b=b: view(b), symbols, stop))
-               for p, b in zip(probes, (0, 2))]
+    if give_up is None:
+        drivers = [asyncio.create_task(logged_driver(p, b, lambda b=b: view(b), symbols, stop))
+                   for p, b in zip(probes, (0, 2))]
+    else:
+        blocks = GIVEN_UP.setdefault("blocks", [])
+
+        async def observe(s):
+            service = s._server.battle_execution
+            require(service.observer is None, "a previous proof observer exists")
+            service.observer = lambda block: blocks.append(dict(block, at=round(time.monotonic(), 2)))
+        await on_worker(current[0], observe)
+        other, battlers = 1 - give_up, (0, 2)
+        given = GIVEN_UP.setdefault("given", dict(wait_for=CHOOSE_ACTION_REQUEST))
+        drivers = [None, None]
+        drivers[give_up] = asyncio.create_task(drive_battle_input(
+            probes[give_up], lambda: view(battlers[give_up]), symbols, stop, {}, give_up=given,
+            other_view=lambda: view(battlers[other])))
+        drivers[other] = asyncio.create_task(idle_battle_input(probes[other], lambda: view(battlers[other]), stop))
     mega_seen = None
 
     async def finished(s):
@@ -611,7 +643,13 @@ async def duo_fight(current, probes, host, symbols, record, floor, megas):
     finally:
         stop.set()
         await asyncio.gather(*drivers)
+        if give_up is not None:
+            async def unobserve(s):
+                s._server.battle_execution.observer = None
+            await on_worker(current[0], unobserve)
     record("tower-duo-battle-finished", seconds=round(time.monotonic() - started, 1))
+    if give_up is not None:
+        GIVEN_UP["own_results"] = [p.mem("gBattleOutcome", 1)[0] for p in probes]   # before anything else battles
     await asyncio.gather(*(finish_award(p, n, record) for n, p in enumerate(probes)))
     await settle_saves(current, record)
     if megas:
@@ -1043,6 +1081,62 @@ class TowerScenario:
                                highest=highest)
         return dict(expected=[p.party_now() for p in probes])
 
+    async def duo_give_up(self, current, probes, games, host, symbols, record):
+        """MS-126 in a Tower Duo battle (the module's --scenario duo-give-up)."""
+        giver = self.args.give_up - 1
+        views = [await tower_view(w) for w in current]
+        for slot, view in enumerate(views):
+            require((view["player"]["progress"], view["player"]["highest"]) == (13, 12),
+                    f"slot {slot}: the imported record: floor 13 next, 12 cleared, not {view['player']}")
+        wallets, parties = [live_wallet(p) for p in probes], [own_party(p) for p in probes]
+        record("tower-give-up-before", players=[v["player"] for v in views], wallets=wallets)
+        battle_id, floor = await duo_battle(current, probes, host, symbols, record, give_up=giver)
+        require(floor == 13, f"the Duo's floor: {floor}, not 13")
+        given, blocks = GIVEN_UP["given"], GIVEN_UP["blocks"]
+        require("chosen" in given, "the giver never chose Yes on the question: " + json.dumps(given, default=str))
+
+        def data(b):
+            return bytes.fromhex(b["data"])
+        notices = [b for b in blocks if b["kind"] == 8 and data(b)[0] == FORFEIT_ROLE]
+        battler = (0, 2)[giver]
+        require(len(notices) == 1 and notices[0]["source"] == giver and data(notices[0])[1] == battler,
+                f"expected one forfeit notice from the giver's game for battler {battler}: "
+                f"{[(n['source'], data(n)[1]) for n in notices]}")
+
+        def replies(core):
+            # the players' battlers' choice replies (TWORETURNVALUES 32, CHOSENMONRETURNVALUE 33): (command, first byte)
+            return [tuple(data(b)[8:10]) for b in blocks if b["kind"] == 8 and b["source"] == core and data(b)[0] == 1
+                    and data(b)[1] in (0, 2) and data(b)[8] in (32, 33)]
+        require(replies(giver) == [(32, 0), (32, 10)], f"the giver's replies differ: {replies(giver)}")
+        require(replies(1 - giver) == [(32, 13)], f"the teammate's game did not pass by itself: {replies(1 - giver)}")
+        own = GIVEN_UP["own_results"]
+
+        async def coop_result(s):
+            return s._server.shared_world.frontier.coop_result(battle_id)
+        host_result = await on_worker(current[0], coop_result)
+        record("tower-duo-given-up", giver=giver, battler=battler, own_results=own, host_coop_result=host_result,
+               notice_at=notices[0]["at"], presses_of_b_before_the_question=given.get("b_without_question", 0))
+        require(own == [2, 2], f"a game's own result is not a loss (B_OUTCOME_LOST 2): {own}")
+        require(host_result == 2, f"the host's co-op result is not a loss: {host_result}")
+        for slot, (worker, probe) in enumerate(zip(current, probes)):
+            # floor 13 lost: back to the floor after checkpoint 10, the highest cleared kept, one more loss
+            view, mirror = await wait_settled(probe, worker, record, slot, progress=11, highest=12)
+            player, last, before = view["player"], view.get("last") or {}, views[slot]["player"]
+            wallet, party = live_wallet(probe), own_party(probe)
+            record("tower-give-up-settled", slot=slot, player=player, last=last, duo=view.get("duo"), wallet=wallet)
+            require((last.get("floor"), last.get("state"), last.get("mode")) == (13, "lost", "duo"),
+                    f"slot {slot}: the last Tower result: {last}")
+            require(player["losses"] == before["losses"] + 1 and player["wins"] == before["wins"]
+                    and player["best"] == before["best"], f"slot {slot}: the record {before} -> {player}")
+            require(wallet == wallets[slot], f"slot {slot}: something was paid for a floor given up: "
+                    f"{wallets[slot]} -> {wallet}")
+            require([m["experience"] for m in party] == [m["experience"] for m in parties[slot]],
+                    f"slot {slot}: the party's experience changed")
+            duo = view.get("duo") or {}
+            require((duo.get("state"), duo.get("floor")) == ("forming", 11),
+                    f"slot {slot}: the Duo after the loss: {duo}")
+        return dict(expected=[p.party_now() for p in probes])
+
     async def join(self, current, probes, games, host, symbols, record):
         """Co-op progression and no repeated rewards (the module's --scenario join)."""
         harness = self.harness
@@ -1332,13 +1426,22 @@ class TowerScenario:
         return dict(expected=[p.party_now() for p in probes])
 
     async def after_save(self, current, host, record):
-        """The canonical checkpoints after the match's saves: the prizes and the record (solo, climb, duo-climb)."""
-        if self.args.scenario not in ("solo", "climb", "duo-climb", "join"):
+        """The canonical checkpoints after the match's saves: the prizes and the record (solo, climb, duo-climb, join,
+        duo-give-up)."""
+        if self.args.scenario not in ("solo", "climb", "duo-climb", "join", "duo-give-up"):
             return
 
         async def heads(s):
             return [inspect_closed_head(s._store, account.player_id) for account in host.accounts]
         saved = await on_worker(current[0], heads)
+        if self.args.scenario == "duo-give-up":
+            for slot, head in enumerate(saved):
+                after = wallet_of(head.payload)
+                record("tower-give-up-saved", slot=slot, revision=head.revision, saved=after)
+                require(after["tower"] is not None and (after["tower"]["progress"], after["tower"]["highest"],
+                                                        after["tower"]["pending"]) == (11, 12, None),
+                        f"slot {slot}: the saved Tower record: {after['tower']}")
+            return
         if self.args.scenario == "join":
             self.saved = [wallet_of(head.payload) for head in saved]
             for slot, progress in enumerate(((13, 12), (13, 12))):
@@ -1441,8 +1544,10 @@ async def run(args):
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--scenario", choices=("solo", "duo", "join", "mega", "forfeit", "ui", "climb", "duo-climb", "next",
-                                               "championship"),
+                                               "championship", "duo-give-up"),
                         required=True)
+    parser.add_argument("--give-up", type=int, choices=(1, 2), default=2,
+                        help="duo-give-up: the player who gives up in the Duo battle (2: the one who joined)")
     parser.add_argument("--test-env", action="append", default=[],
                         help="NAME=VALUE for the games (the test build's switches: the climb's accelerated set-up)")
     parser.add_argument("--native-ui", action="store_true", help="the 3D game's native PC UI on (the ui scenario)")

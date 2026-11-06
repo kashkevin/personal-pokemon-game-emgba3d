@@ -102,7 +102,7 @@ EXTRA_NEEDED = ("gMain", "CB2_StarterChoose", "CB2_Overworld", "CB2_TrainerCard"
                 "gSaveBlock1Ptr", "gSaveBlock2Ptr", "gSaveBlock3Ptr", "PlayerHandleYesNoInput", "sCoopAward", "sCoopExp",
                 "gBattleStruct", "gSaveCounter", "sLockFieldControls", "Task_HandleYesNoInput",
                 "sForfeitAsking", "gMultiplayerWorldMailbox", "sShownNoticeId", "sPartyMenuInternal", "sMailRead",
-                "CB2_MailRead", "CB2_ExitOnKeyPress", "gPokemonStoragePtr", "gPaletteFade")
+                "CB2_MailRead", "CB2_ExitOnKeyPress", "gPokemonStoragePtr", "gPaletteFade", "gBattleOutcome")
 WINDOWS = sys.platform == "win32"
 
 
@@ -489,6 +489,29 @@ async def idle_battle_input(probe, view, stop, party=False):
                 opened = cursor == 2
                 continue
         await asyncio.sleep(.1)
+
+
+async def walk_away_at(probe, view, symbols, stop, request, seen=None):
+    """MS-126: a player who plays as drive_battle_input does (A on Fight and on the move, text advanced) until the battle
+    asks them `request` (its pending request: CHOOSE_POKEMON_REQUEST, the party menu after a knock-out), and from then on
+    presses nothing at all: they have walked away with that choice open. `seen` (a dict, if given) gets when."""
+    while not stop.is_set():
+        room = await view()
+        if room["state"] in ("closed", "aborted", "recovery_required"):
+            return
+        if room["state"] == "executing" and room["pending"] == request:
+            if seen is not None:
+                seen.update(walked_away=time.monotonic(), at_request=request)
+            await idle_battle_input(probe, view, stop)
+            return
+        state = await probe.battle()
+        action = party_action(room["pending"], state, symbols) if room["state"] == "executing" else "wait"
+        if stop.is_set():
+            return
+        if action in ("confirm", "dismiss"):
+            await probe.press(2 if action == "dismiss" else 1, frames=12, release=30 if action == "dismiss" else 18)
+        else:
+            await asyncio.sleep(.05)
 
 
 async def drive_battle_input(probe, view, symbols, stop, seen=None, forfeit=None, give_up=None, other_view=None,
