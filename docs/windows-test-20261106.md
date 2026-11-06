@@ -29,6 +29,13 @@ on the host the world's folder.
       member and the Champion (the banners' wavy edges smooth, the faces even pixel art, the white fade smooth).
 - [ ] A double battle in which one side has a single Pokemon: the battle effects land on that Pokemon (MS-200).
 - [ ] The S.S. Tidal's porthole scene shows the ship (3D vehicles, #44).
+- [ ] Mr. Briney's boat (F10 > Show frame rate on), Dewford to Route 104 and Route 109 to Dewford: no hitch as the next
+      map's ground comes into view, and the sea's edges keep moving with the rest of the water as they come back into view
+      (MS-82, engines `c81da595` to `5b18ebf1`).
+- [ ] A Battle Frontier transition with the logo or the circles (any Frontier facility's battle): the circles and the
+      logo's outline smooth, without steps (MS-108's vector pieces).
+- [ ] The Battle Pyramid's top (Brandon's battle): both Pokemon stand on the summit, none in front of a tier's brick face
+      (E5).
 
 ## Settings and controls
 
