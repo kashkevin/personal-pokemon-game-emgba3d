@@ -1849,6 +1849,11 @@ jobs:
                      "minigame-partners", "mints", "netlink", "rare-goods", "ride", "rods", "special-results",
                      "stat-stages", "trade-evolution", "wild-items", "tickets",
                      "audio-volumes")
+          # KNOWN_ISSUES MS-210's palette writers past the buffers, in engines from f22f8a54 on (an older game has no
+          # such option: it would start the game instead and never end)
+          if (Select-String -LiteralPath inputs\pokeemerald-mp.exe -Pattern "selftest-palette-slots" -SimpleMatch -Quiet) {
+            $tests += "palette-slots"
+          } else { Write-Output "::notice::this engine's game has no --selftest-palette-slots (KNOWN_ISSUES MS-210): not run" }
           # only: ...,new-only: the MS-61 check alone (the START menu, its 3D names, the soft reset key)
           if (",${{ inputs.only }}," -like "*,new-only,*") { $tests = @("start-menu") }
           $runs = @($tests | ForEach-Object { @{ test = $_; exe = "inputs\pokeemerald-mp.exe"; name = $_ } })
