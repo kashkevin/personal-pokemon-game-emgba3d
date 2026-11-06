@@ -272,8 +272,10 @@ with V3, V25, E8: V39's benchmark). MS-126's give-up notice reaching the battle'
 (2026-11-05: the newcomers proof's `give-up-mid-turn`, L, and on the Windows runner in run 317). A battle ending another way after a give-up, and a give-up in 2v2, a co-op Gym battle and the Tower Duo, ran on 2026-11-06 (L, real Linux game processes: all passed, no fault; KNOWN_ISSUES MS-126's update; and on GitHub's Windows runner, all passed: the co-op one in run [340](https://github.com/kashkevin/personal-pokemon-game-emgba3d/actions/runs/42158186564), the others in run [343](https://github.com/kashkevin/personal-pokemon-game-emgba3d/actions/runs/42160413330)). Not run anywhere yet: MS-83's race, seen once and not reproduced
 after its fix.
 MS-156's other static encounters have run since (2026-11-05, engine `e88dbdf6`): all 17 that a talk reaches started
-their battle offline in the Classic 2D and 3D test builds (L); the feature-checks job runs them on Windows from the next
-full run; Mew and Deoxys (a walk into the grass, the triangle's puzzle first) not.
+their battle offline in the Classic 2D and 3D test builds (L); the feature-checks job runs them on Windows (run 322: all 17
+passed); Mew and Deoxys too since 2026-11-06 (engine `429ac0ac`: the check finds Mew in the grass where its island's scene
+hides it and presses Birth Island's triangle through its eleven places; all 19 started and won their battle in both test
+builds, L; W: the feature-checks job from the next full run).
 
 **Covered on Windows since their rows were written** (the rows say "not on Windows"): MS-78 (move switching) and
 MS-171 (the Acro Bike's rails) by the feature-checks job (`move_switch_check.py`, `acro_check.py`; passed in run 288);
