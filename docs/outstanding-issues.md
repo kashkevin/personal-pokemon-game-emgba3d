@@ -103,7 +103,7 @@ The Battle Point review proposes no change (#46).
 
 A real graphics card at 60 fps, a controller, two PCs on a home network and over the Internet (router, UPnP/NAT-PMP),
 a fresh install and first play on the owner's PC, and the owner's crash logs if the Safari crash recurs (MS-169).
-NU-8, VR-6, WC-4, MS-7 hold the checklists; V21, V39, U30-5 and NU-10 (section 6) are owner tests too, and so are
+`docs/windows-test-20261106.md` is the checklist for the builds of 2026-11-05 and 2026-11-06 (installing and updating, the 3D view on a graphics card, audio, a controller, two to four PCs: privacy, Egg and Mail trades, World Events, give-ups, co-op, the Tower, tickets); NU-8, VR-6, WC-4, MS-7 hold the earlier checklists; V21, V39, U30-5 and NU-10 (section 6) are owner tests too, and so are
 the fixes section 7 lists as not yet tried between two real PCs.
 
 ## 5. Windows CI coverage of the newest work
