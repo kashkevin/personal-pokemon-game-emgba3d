@@ -84,6 +84,7 @@ finished until implemented, regression-tested and verified on Windows; nothing b
 | MS-141c limits | Wireless minigames: four players not run | **Run** (app: this change): all three with four world players on Linux (L, real games and launchers; the proof's focus timing fixed for Pokemon Jump); Windows run 277 and run 280 passed two and three players (W); four on Windows: run 280's Dodrio and Jump jobs failed in the proof's phase checks (the games played and agreed), the proof fixed; **passed** in run 288 and every full run since (run 322: all three with four players) |
 | MS-98 | The 3D map sweep's debug scene stops in three rooms (debug warp only) | **Fixed** (section 0): the rooms entered through their facilities; one was a real crash in play (MS-201, fixed) |
 | MS-170 | A 3D rules test's notion of height (records vs resolved cells) | **Fixed** with MS-189: the test checks the resolved cells, by the resolver's own rules from the records |
+| MS-203 | The 3D game's Battle Dome tourney tree read past its state while the game set the tree up (unset names, found by the AddressSanitizer soak) | **Fixed 2026-11-06** (engine `816390b8`, PC only): names start empty; the storage screen's box states the same; the other native UI state readers read for the pattern, none other found. L: under AddressSanitizer before (two reads) and after (none); W: the next full run's 3D gameplay check visits the board (no sanitizer there) |
 
 ## 3. Decisions only the owner can make (options in `docs/owner-decisions.md`)
 
