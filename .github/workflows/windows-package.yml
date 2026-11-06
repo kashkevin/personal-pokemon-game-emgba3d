@@ -2189,7 +2189,11 @@ jobs:
                            f"over 16 ms {sum(v > 16 for v in terrain)}, max {max(terrain):.1f} ms; {sum(chunks)} chunks "
                            f"built, at most {max(chunks)} a frame; the whole sync over 16 ms {sum(v > 16 for v in sync)}; "
                            f"frame p50 {pct(frame, 50):.1f} ms, p99 {pct(frame, 99):.1f} ms")
-          code, text = sail(root / "check", {"PKMN_DIORAMA_TERRAIN_CHECK": "1"})
+          # the checked sail: the terrain check and the atlas check (PKMN_DIORAMA_ATLAS_CHECK=1: every slot of the cells
+          # in view drawn again from nothing after each atlas sync and compared with the three atlases, in memory and in
+          # their textures read back - a tileset coming into view redraws its region of the atlas alone since the change
+          # of 2026-11-06, KNOWN_ISSUES MS-82)
+          code, text = sail(root / "check", {"PKMN_DIORAMA_TERRAIN_CHECK": "1", "PKMN_DIORAMA_ATLAS_CHECK": "1"})
           skipped = [tuple(map(int, m)) for m in re.findall(r"terrain check: (\d+) chunks checked, (\d+) stale", text)]
           kept = [tuple(map(int, m)) for m in
                   re.findall(r"terrain check: (\d+) chunks kept with another gameplay elevation checked, (\d+) differed",
@@ -2198,10 +2202,20 @@ jobs:
                        f"checked, {sum(1 for _, stale in skipped if stale)} reports of a stale one; "
                        f"{kept[-1][0] if kept else 0} kept with another gameplay elevation built again, "
                        f"{sum(1 for _, differed in kept if differed)} reports of one that differed")
+          atlas = [tuple(map(int, m)) for m in re.findall(r"atlas check: (\d+) checks, (\d+) slots compared, (\d+) differed", text)]
+          slots = re.findall(r"atlas check: slot (\d+) \(region (-?\d+)\) differs", text)
+          regions = len(re.findall(r"atlas regions redrawn", text))
+          lines.append(f"  - the atlas check: {atlas[-1][0] if atlas else 0} checks, {atlas[-1][1] if atlas else 0} slots "
+                       f"compared, {len(slots)} reports of a slot that differs from a redraw; {regions} regions drawn "
+                       f"again alone, {len(re.findall(r'atlas redrawn:', text))} whole redraws")
           if code != 0:
               failures.append(f"the checked sail's game ended with {code}")
           if any(stale for _, stale in skipped) or any(differed for _, differed in kept):
               failures.append("a chunk the sail kept differs from the one it would build, or was left stale")
+          if slots or any(differed for _, _, differed in atlas):
+              failures.append("a slot of the atlas differs from the same slot drawn again from nothing")
+          if "regions drawn again" in text and not atlas:     # an engine with the regions' redraw runs the check
+              failures.append("the atlas check did not run")
           lines.extend(f"  - {failure}" for failure in failures)
           print("\n".join(lines))
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:

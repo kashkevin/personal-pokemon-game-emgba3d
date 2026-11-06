@@ -165,7 +165,11 @@ class WindowsWorkflowTests(unittest.TestCase):
         self.assertIn('PKMN_DEBUG_HERE="0,11,11,9"', graphics)
         self.assertIn('PKMN_DEBUG_RIVAL_SET="f2e4=0,f2e7=0,fbd=1,f132=1"', graphics)
         self.assertIn('{"PKMN_DIORAMA_ANIMATED_WAITS": "0"} if kind == "off"', graphics)
-        self.assertIn('sail(root / "check", {"PKMN_DIORAMA_TERRAIN_CHECK": "1"})', graphics)
+        self.assertIn('sail(root / "check", {"PKMN_DIORAMA_TERRAIN_CHECK": "1", "PKMN_DIORAMA_ATLAS_CHECK": "1"})', graphics)
+        # the atlas check (a tileset coming into view redraws its region alone): a slot that differs from a redraw
+        # fails the job, and so does an engine with the regions' redraw that did not run the check
+        self.assertIn('failures.append("a slot of the atlas differs from the same slot drawn again from nothing")', graphics)
+        self.assertIn('failures.append("the atlas check did not run")', graphics)
         self.assertIn('"0.19" not in seams', graphics)                      # the boat reached Route 104
         self.assertIn('raise SystemExit("Mr. Briney\'s sail: " + "; ".join(failures))', graphics)
 
