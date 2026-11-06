@@ -2015,3 +2015,11 @@ GitHub's Windows runners (`windows-2022`, GitHub-hosted, no graphics card), real
 | The verify agent's battle (a trainer battle, `trainer:232`) at the Pyramid's top's 7 places with `backdropBeyond` on that layout | engine `39c67075` (the 3D test build; the same at the uncommitted tree before) | L, Xvfb, Mesa | **passed** at 6 of 7: (17,8), (17,9) Brandon's spot, (17,11), (17,13), (17,15), (12,13): the stage on the summit (ground 6.0), staging 0.0 and 0.0 (before -0.43 to -0.64 for the player's Pokemon), foot error 0 px; a quarter of the view the battle background (the stage log's "black 25%"); (17,17), the bottom row: the stage near the player as before (-0.642) | scratchpad `atlas/e5/top-*`, `atlas/e5/final-*` (cap.png, cap.json, game.log) | - | W: run 347; a real graphics card |
 | The change's checks: the ROM; the line check; the 3D test build; check-diorama; MinGW 3D | engine `39c67075` (the tree before its commit) | L | **passed**: `f214735b...3387`; 0 files; built, no warning in the changed files; check-diorama exit 0; MinGW 3D built | `atlas/e5/val/summary.txt` | - | - |
 
+## MS-49's left part: a queued Tower floor refused after 45 seconds of real time (2026-11-06)
+
+| Test | Build / head | Where | Last result | Evidence | Changed since | Rerun? |
+| --- | --- | --- | --- | --- | --- | --- |
+| `--selftest-tower` with check 9's slow game (a game at 13 frames a second: 600 frames in 45 seconds of the test's clock; the same across the clock's wrap) | engine `5b18ebf1` (the Linux 3D test build) | L | **passed**: 2,120 checks, 0 failed (2,117 on `39c67075`: the three new ones) | scratchpad `atlas/ms49/val/selftest-tower.log` | - | W: run [350](https://github.com/kashkevin/personal-pokemon-game-emgba3d/actions/runs/42180774086) |
+| The same with the real-time limit disabled (a temporary local edit, not committed) | `5b18ebf1`'s tree with the limit at 0xFFFFFFFF | L | the two refusal checks **fail** (2,120 checks, 2 failed): the checks see the fix | `atlas/ms49/selftest-tower-mut.log` | - | - |
+| The change's checks: the ROM; the line check; check-native; MinGW 3D and 2D | engine `5b18ebf1` (the tree before its commit) | L | **passed**: `f214735b...3387`; 1 file, 0 moved; every suite 0 failures; both built, no warning in the changed files | `atlas/ms49/val/summary.txt` | - | - |
+
