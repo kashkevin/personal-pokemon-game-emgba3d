@@ -1652,7 +1652,7 @@ class NewcomersProof(SoftResetProof, ThreePlayerProof):
     async def freeze(self, kind, slot, seconds, record, where):
         """A player's launcher session frozen (worker: its event loop runs nothing for `seconds`, so its companion
         neither reads nor writes, to the host or to its game, as when the launcher stalls) or its game stopped
-        (game: SIGSTOP, then SIGCONT: the game process stalls)."""
+        (game: the game process stalls, then runs on: stop_process, continue_process)."""
         name = self.harness.names[slot]
         started = time.monotonic()
         record("frozen", kind=kind, player=name, seconds=seconds, where=where, at=round(started - self.t0, 1))
@@ -1663,11 +1663,11 @@ class NewcomersProof(SoftResetProof, ThreePlayerProof):
             await asyncio.sleep(seconds)
         else:
             pid = self.games[slot].process.pid
-            os.kill(pid, signal.SIGSTOP)
+            stop_process(pid)
             try:
                 await asyncio.sleep(seconds)
             finally:
-                os.kill(pid, signal.SIGCONT)
+                continue_process(pid)
         record("thawed", kind=kind, player=name, seconds=round(time.monotonic() - started, 1), where=where)
 
     async def sample_memory(self, games, every):
@@ -1823,6 +1823,45 @@ FREEZE_INTO_BATTLE = 20          # seconds into a battle that --freeze ...:battl
 CALM_OPCODES = frozenset({10, 11, 12})
 
 
+def _nt_process(pid, call):
+    """Windows: the whole process stopped or let run on (ntdll's NtSuspendProcess and NtResumeProcess, as Process
+    Explorer's Suspend and Resume do), as a PC that does not run the game for a moment (KNOWN_ISSUES MS-165)."""
+    import ctypes
+    from ctypes import wintypes
+    PROCESS_SUSPEND_RESUME = 0x0800
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    ntdll = ctypes.WinDLL("ntdll")
+    kernel32.OpenProcess.restype = wintypes.HANDLE
+    kernel32.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
+    kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
+    handle = kernel32.OpenProcess(PROCESS_SUSPEND_RESUME, False, pid)
+    require(bool(handle), f"OpenProcess({pid}) for {call}: Windows error {ctypes.get_last_error()}")
+    try:
+        function = getattr(ntdll, call)
+        function.restype = ctypes.c_long              # NTSTATUS
+        function.argtypes = (wintypes.HANDLE,)
+        status = function(handle)
+        require(status == 0, f"{call}({pid}): NTSTATUS {status & 0xFFFFFFFF:#010x}")
+    finally:
+        kernel32.CloseHandle(handle)
+
+
+def stop_process(pid):
+    """--freeze game: the game's process stops running (SIGSTOP; on Windows NtSuspendProcess)."""
+    if WINDOWS:
+        _nt_process(pid, "NtSuspendProcess")
+    else:
+        os.kill(pid, signal.SIGSTOP)
+
+
+def continue_process(pid):
+    """The game's process runs on (SIGCONT; on Windows NtResumeProcess)."""
+    if WINDOWS:
+        _nt_process(pid, "NtResumeProcess")
+    else:
+        os.kill(pid, signal.SIGCONT)
+
+
 async def run(args):
     LATENCY_MS[0], HOLD[0], DISK_MS[0], REMOTE_ONLY[0] = args.latency_ms, not args.no_hold, args.disk_ms, args.remote_only
     LATENCY_ALL[0], WALK[0], MASH[0] = args.latency_all, args.walk_while_preparing, args.mash_after_confirm
@@ -1841,7 +1880,7 @@ async def run(args):
             "--freeze: the trade, battle-trade and trade-mail scenarios")
     require(all(f[2] in ("trade", "battle") for f in FREEZES) or args.scenario == "trade-mail",
             "--freeze ...:trade-confirmed and trade-committed: the trade-mail scenario")
-    require(not (args.freeze or args.sample_every) or not WINDOWS, "--freeze and --sample-every: Linux games only")
+    require(not args.sample_every or not WINDOWS, "--sample-every: Linux games only (it reads /proc)")
     require(not args.trace_memory or args.sample_every, "--trace-memory: with --sample-every")
     if args.game_answer_seconds is not None:
         # The launchers run in this process: their battle sessions read it at each command (KNOWN_ISSUES MS-165).

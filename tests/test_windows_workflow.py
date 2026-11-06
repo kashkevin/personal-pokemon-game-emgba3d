@@ -156,6 +156,13 @@ class WindowsWorkflowTests(unittest.TestCase):
                       graphics)
         self.assertIn("or any(differed for _, differed in kept)", graphics)
 
+    def test_a_game_stopped_ten_seconds_in_a_battle_runs_in_windows_game_processes(self):
+        # KNOWN_ISSUES MS-165: the host player's game process stopped for 10 s, 20 s into the rival 1v1 (the proof
+        # suspends it with NtSuspendProcess on Windows); the battle goes on to its end, then the trades
+        check = job("multiplayer-check")
+        self.assertIn('{name: game-freeze, scenario: battle-trade, players: 2, format: 1v1v1v1, extra: "--freeze game:0:battle:10"}',
+                      check)
+
     def test_mr_brineys_sail_is_timed_and_checked_in_windows_game_processes(self):
         # KNOWN_ISSUES MS-82: the sail from Dewford to Route 104 (the game's own script, three map seams) timed with the
         # animated tiles' waits off and on, then sailed again with the terrain check: a sail that does not finish, or a

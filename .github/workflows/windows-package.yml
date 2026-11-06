@@ -2576,6 +2576,11 @@ jobs:
           - {name: give-up-knockout, scenario: give-up-knockout, players: 2, format: 1v1v1v1, a: giveup-ko-a, b: giveup-ko-b}
           - {name: give-up-switch, scenario: give-up-switch, players: 2, format: 1v1v1v1, a: giveup-switch-a, b: giveup-switch-b}
           - {name: give-up-2v2, scenario: give-up-2v2, players: 4, format: 2v2}
+          # KNOWN_ISSUES MS-165 (a PC that does not run the game for a moment): 20 s into the two new characters' rival 1v1
+          # the host player's game process is stopped for 10 s (NtSuspendProcess, then NtResumeProcess); its launcher
+          # gives its game 15 s for each answer, so the battle goes on to its end, then the trades after it. Before the fix
+          # (5 s) such a stop held the battle for recovery (L, 2026-10-28); not run on Windows before 2026-11-06.
+          - {name: game-freeze, scenario: battle-trade, players: 2, format: 1v1v1v1, extra: "--freeze game:0:battle:10"}
     defaults:
       run:
         shell: bash
