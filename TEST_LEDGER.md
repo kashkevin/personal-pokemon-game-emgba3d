@@ -140,7 +140,7 @@ battle packet, bridge, host, launcher, native UI or Battle FX code changed.
 | Package launcher check ("Check installed game files") | preview 14 launcher (`025f52dd...`) | W | Pass: "Installed game and runtime match this package's pins" (2026-10-14) | checkpoint `evidence/1` | - | Ran (new package) |
 | Package files on the PC (1036 files, SHA256SUMS) | preview 14 | PC (file check only) | Pass (2026-10-14): transfers match, SHA256SUMS 30/30, EmeraldTogether\ 1036/1036, no extra files | checkpoint `evidence/7-pc-file-check.txt` | - | Ran for this package |
 | 2v2 PvP, four games (`native_launcher_multi_proof.py`) | `1579e7fd8` (older) | L | Pass: native-launcher-multi-10 (2026-10-10) | TEST_PLAN 6 | the combine and the co-op validator (`8f0e5ef44f`) | Still to rerun before a release (152 min); not needed for this preview's changes |
-| UBSan build (`SANITIZE=1`) | - | - | Not run on the combined game | - | - | Run (never executed on this code) |
+| UBSan build (`SANITIZE=1`) | engine `816390b8` (2026-11-06) | L | **Run since**: the 3D test build with UBSan, the gameplay plan's eighths (section "The UBSan build on the combined game; MS-204"; MS-204 found and fixed) | scratchpad `ubsan/` | - | the rest of the plan |
 | Real GPU frame rates, Windows itself, two PCs, controller, audio | - | PC | Never run | `docs/expansion-windows-test.md` | - | Owner |
 
 ## Previous: Native 3D preview 13 (`emeraldtogether-combined-20261014-1`)
@@ -189,7 +189,7 @@ preview 12's evidence for those is reused.
 | Battle FX galleries (621 moves, 651 animations) | Battle FX session's build | L | Pass (2026-10-13, Battle FX checkpoints) | `battlefx-int-wip-20261013-1` report | Battle FX code and data unchanged since (data byte-identical) | Reuse |
 | Native UI menus, by hand | preview 12 `0834bed2f1` | L, W | Pass (2026-10-13) | `emeraldtogether-nativeui-20261013-1` evidence 2-9 | the expansion merge (no UI files changed by it) | Reuse; spot-check menus after UI-adjacent changes |
 | Route 110 Psychic Edward in the game | expansion `ad3995ba64` 3D | L | Pass (2026-10-13) | KNOWN_ISSUES U13 | fix carried unchanged into the combine | Reuse |
-| UBSan build (`SANITIZE=1`) | - | - | Not run on the combined game | - | - | Run (never executed on this code) |
+| UBSan build (`SANITIZE=1`) | engine `816390b8` (2026-11-06) | L | **Run since**: the 3D test build with UBSan, the gameplay plan's eighths (section "The UBSan build on the combined game; MS-204"; MS-204 found and fixed) | scratchpad `ubsan/` | - | the rest of the plan |
 | Real GPU frame rates (`run-benchmark.bat`) | - | PC | Never run | - | - | Owner |
 | Windows itself, two PCs, controller, audio | - | PC | Never run | `docs/expansion-windows-test.md` | - | Owner |
 
