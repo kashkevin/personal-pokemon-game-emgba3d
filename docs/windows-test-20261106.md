@@ -37,7 +37,8 @@ on the host the world's folder.
 - [ ] The Battle Pyramid's top (Brandon's battle): both Pokemon stand on the summit, none in front of a tier's brick face
       (E5).
 - [ ] Team Magma's hideout: its machines (servers, consoles, the long machine, the dome and drill rigs) stand as boxes
-      as drawn, and in a battle there no Pokemon stands on a machine (E9; the small console on 4F still lies flat, E13).
+      as drawn, and in a battle there no Pokemon stands on a machine (E9); from the build after run 355, none stands in
+      the lava either and the small 4F console stands too (E13).
 - [ ] The sea stacks on Routes 105-109 and 124-134: their foot meets the water with no pale band and the small round
       stacks no ring of grey (MS-102).
 - [ ] From the build after run 354: the Battle Dome (Battle Frontier west): its ends curve back with the dome's drum, no
