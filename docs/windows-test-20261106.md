@@ -46,6 +46,9 @@ on the host the world's folder.
 - [ ] From the build after run 355, in either view: on a route at dusk by the game's clock (19:00 to 21:00), stand still
       for five minutes: the picture darkens step by step toward night (MS-205); before, it stayed as it was until the
       next map.
+- [ ] From the build of engine `d93170ef` (the full run after run 356), in the 3D view: accept a challenge where the
+      attendant saves first (a Battle Tent, the Battle Frontier, Trainer Hill): the game asks to save and saves; in the
+      builds before it the 3D game closed there (MS-206).
 
 ## Settings and controls
 

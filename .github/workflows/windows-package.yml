@@ -1911,6 +1911,11 @@ jobs:
         with:
           name: diorama-check-inputs
           path: diorama-check-inputs
+      # the 3D game the installer ships (the attendant's save below: its fault depended on this exe's own layout)
+      - uses: actions/download-artifact@v8
+        with:
+          name: native-inputs
+          path: native-inputs
       - name: Mesa's software OpenGL (32-bit) beside the 3D test build (pinned)
         shell: pwsh
         env:
@@ -1941,6 +1946,48 @@ jobs:
           $result = $probe | ConvertFrom-Json
           if (-not $result.supported) { throw "the 3D game refused Mesa's OpenGL: $($result.reason) $($result.detail)" }
           if ($result.renderer -notmatch "llvmpipe") { throw "not Mesa's llvmpipe: $($result.renderer)" }
+      - name: An attendant's save in the shipped 3D game (KNOWN_ISSUES MS-206)
+        shell: python
+        run: |
+          # The save an attendant asks for before a challenge or a link (Common_EventScript_SaveGame: the Battle
+          # Frontier's and Battle Tents' lobbies, the Cable Club, the minigames, Trainer Hill...), with no START menu
+          # open, in the 3D game the installer ships. Before MS-206's fix its save dialog cleared window 255, past the
+          # game's windows, which in that exe is the import table: a write into SDL2.dll's code, and the game closed
+          # (reproduced under Wine, 2026-11-06; fixed in engine d93170ef). The field debug scene runs the script
+          # (PKMN_DEBUG_DIALOG=save, from engine d93170ef); the game ends by itself after its picture of drawn frame 1500.
+          import os, pathlib, shutil, subprocess
+          out = pathlib.Path(os.environ["RUNNER_TEMP"], "graphics-3d", "attendant-save")
+          out.mkdir(parents=True, exist_ok=True)
+          game = pathlib.Path("native-inputs").resolve()
+          for dll in ("opengl32.dll", "libgallium_wgl.dll", "libglapi.dll"):   # Mesa, as beside the test build
+              source = pathlib.Path("diorama-check-inputs", dll)
+              if source.exists():
+                  shutil.copy(source, game / dll)
+          (out / "pokeemerald.cfg").write_text("resolution=1280x720\ndisplayMode=windowed\nquality=high\nvsync=0\n"
+                                               "fpsCap=unlimited\nvolume=0\ncryVolume=0\n")
+          env = dict(os.environ, SDL_AUDIODRIVER="dummy", PKMN_DEBUG_SCENE="field", PKMN_DEBUG_DIALOG="save",
+                     PKMN_DEBUG_SHOTS="1500", PKMN_DEBUG_STEM=str(out / "shot"), PKMN_DEBUG_LOG=str(out / "debug.log"))
+          with open(out / "test.log", "wb") as log:
+              code = subprocess.run([str(game / "pokeemerald-mp-diorama.exe"), "--config", "pokeemerald.cfg", "--save",
+                                     "test.sav"], cwd=out, env=env, stdout=log, stderr=subprocess.STDOUT,
+                                    timeout=900).returncode
+          debug = (out / "debug.log").read_text(errors="replace") if (out / "debug.log").exists() else ""
+          crash = out / "crash.log"
+          if "START script save" not in debug:
+              line = f"- An attendant's save: this engine's debug scene has no save script (exit {code}); not checked"
+              print(f"::notice::{line[2:]}")
+          else:
+              asked = "Would you like to save the game?" in debug
+              line = (f"- An attendant's save in the shipped 3D game: exit {code}; the save dialog "
+                      f"{'asked' if asked else 'never asked'} \"Would you like to save the game?\""
+                      f"{'; crash.log written' if crash.exists() else ''}")
+          print(line)
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
+              summary.write(line + "\n")
+          if crash.exists():
+              print(crash.read_text(errors="replace"))
+          if "START script save" in debug and (code != 0 or "Would you like to save the game?" not in debug):
+              raise SystemExit(f"the attendant's save failed (exit {code})")
       - name: Mega Evolutions in 3D battles (picture series) and the parade of every Mega form
         shell: pwsh
         run: |
