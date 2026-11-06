@@ -293,7 +293,7 @@ Needs a 3D build (about 1 GB of objects) on a machine with the room for it; not 
 | The core's battler coordinates in a double battle where one side has one Pokemon (all moves, the package's too: "Found on the way") | all | **done 2026-11-06** (engine `e259000b`, KNOWN_ISSUES MS-200: every compared frame matches in that setup; `make check-battlefx-lone`) |
 | HD kits for 25 tags (now the GBA picture with a glow) and per-move presentation for the moves no player can meet | 210 | 2-4 days by eye |
 | HD drawing of the moves proven with the HD layer off, looked at in the game (a gallery with the HD view and captures) | 168 | 1-2 hours of machine time, a look by eye |
-| MS-108 in the engine (above) | - | about 3 days, 1-2 more for the mugshots |
+| MS-108 in the engine (above) | - | **done 2026-11-06** (engine `b032a340`, `6613f7be`, `6caf3e93`: the patterns and the Frontier's art; `0397596d`: the mugshots; KNOWN_ISSUES MS-108's updates of 2026-11-06); optional: the Frontier logo and circles as vector pieces, about 1-1.5 days |
 
 None of the 210 can appear in this game today, so they are worth less than the 16 until the game makes them
 reachable.
