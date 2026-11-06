@@ -43,6 +43,9 @@ on the host the world's folder.
       stacks no ring of grey (MS-102).
 - [ ] From the build after run 354: the Battle Dome (Battle Frontier west): its ends curve back with the dome's drum, no
       thin strips standing a storey tall beside it (V45).
+- [ ] From the build after run 355, in either view: on a route at dusk by the game's clock (19:00 to 21:00), stand still
+      for five minutes: the picture darkens step by step toward night (MS-205); before, it stayed as it was until the
+      next map.
 
 ## Settings and controls
 
