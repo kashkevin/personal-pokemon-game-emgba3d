@@ -96,7 +96,7 @@ decided on 2026-10-27, keep U31-5 by design); the tickets' details (`docs/legend
 thresholds, D2 sources that need other players, D3 any casino source; built meanwhile with the proposed defaults);
 whether Parting Shot should switch its user out when the move is blocked or reflected (the GBA tests' class C,
 `docs/gba-test-expected-failures.md`; today it does, the tests and Showdown's Gen 6 say not); and an Egg's shininess
-when another trainer hatches it (Eggs in trades: kept as it was, the proposal; the games derive it from the hatcher).
+when another trainer hatches it (Eggs in trades: kept as it was, the proposal; the games derive it from the hatcher). And how a give-up in a battle together should count (`docs/owner-decisions.md` #51: today one teammate's give-up is the team's loss in a co-op Gym, the Tower Duo and the ladders, as in the GBA's link battles, while a Duo battle abandoned by a closed game is void).
 The Battle Point review proposes no change (#46).
 
 ## 4. Verification only the owner's PCs can give
@@ -269,7 +269,7 @@ the next `crash.log` or `errors.log`), MS-88 and MS-165 (battles between players
 that stops a game for seconds), MS-68, MS-69, MS-70, MS-72, MS-95, MS-96 (trade and battle fixes not yet tried
 between two real PCs), MS-81 (the owner's check of spawn odds), MS-65 and MS-89 (the 3D view on a real graphics card,
 with V3, V25, E8: V39's benchmark). MS-126's give-up notice reaching the battle's master during a turn has run since
-(2026-11-05: the newcomers proof's `give-up-mid-turn`, L, and on the Windows runner in run 317). Not run anywhere yet: a battle ending another way after a give-up; MS-83's race, seen once and not reproduced
+(2026-11-05: the newcomers proof's `give-up-mid-turn`, L, and on the Windows runner in run 317). A battle ending another way after a give-up, and a give-up in 2v2, a co-op Gym battle and the Tower Duo, ran on 2026-11-06 (L, real Linux game processes: all passed, no fault; KNOWN_ISSUES MS-126's update; their Windows entries in run [340](https://github.com/kashkevin/personal-pokemon-game-emgba3d/actions/runs/42158186564)). Not run anywhere yet: MS-83's race, seen once and not reproduced
 after its fix.
 MS-156's other static encounters have run since (2026-11-05, engine `e88dbdf6`): all 17 that a talk reaches started
 their battle offline in the Classic 2D and 3D test builds (L); the feature-checks job runs them on Windows from the next
