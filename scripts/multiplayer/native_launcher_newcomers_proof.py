@@ -282,11 +282,29 @@ class NewcomersProof(SoftResetProof, ThreePlayerProof):
     async def save_all(self, current, record, label, slots=None):
         for n in range(len(current)) if slots is None else slots:
             revision = (await self.launcher(current[n]))["revision"]
-            require(current[n].request_save(), f"{self.harness.names[n]}: the launcher refused Save now")
+            await self.save_now(n, current[n])
             await self.saved(current[n], revision)
         canonical = await self.heads(current, self.harness.host)
         record(label, canonical=canonical, revisions=[(await self.launcher(w))["revision"] for w in current])
         return canonical
+
+    async def save_now(self, n, worker):
+        """The launcher's Save pressed for player `n`. A launcher refuses it while another operation still holds the
+        game's save ("busy:" - a trade's settlement, or the emergency save armed again just after a trade: run 347's
+        egg-party saved right after its second trade; KNOWN_ISSUES MS-67) and says a later press may retry: pressed
+        again for up to 30 s, as a player would and as the harness's own save does; any other refusal fails with the
+        launcher's reason."""
+        name = self.harness.names[n]
+
+        async def save(s):
+            loop = asyncio.get_running_loop()
+            deadline = loop.time() + 30
+            while not await s.save():
+                error = getattr(s, "last_save_error", None)
+                require(str(error).startswith("busy:") and loop.time() < deadline,
+                        f"{name}: the launcher refused Save: " + json.dumps(dict(code=s.status.code, error=error)))
+                await asyncio.sleep(.5)
+        await on_worker(worker, save)
 
     async def auto_saved(self, current, record, label, before, seconds=90):
         """--no-save (the owner's request of 2026-10-22): nobody presses Save now; a game whose party's Pokemon changed
@@ -827,6 +845,7 @@ class NewcomersProof(SoftResetProof, ThreePlayerProof):
         epochs = {m: (await self.launcher(current[m]))["epoch"] for m in others}
         canonical = (await self.heads(current, self.harness.host))[n]
         old_pid = games[n].process.pid
+        await self.on_field(current[n])      # the key is taken on the free field only (a trade may have just ended)
         screen = await self.open_reset_page(probes[n])
         require([r.label for r in screen.rows][:2] == ["No, keep playing", "Yes, reset now"], f"the question: {screen}")
         running = battle is not None and not battle.done()
@@ -1661,6 +1680,8 @@ class NewcomersProof(SoftResetProof, ThreePlayerProof):
             require(loop is not None, f"{name}'s worker has no event loop to freeze")
             loop.call_soon_threadsafe(time.sleep, seconds)
             await asyncio.sleep(seconds)
+        elif FREEZE_AT_PEEK[0] and where.startswith("battle"):
+            started = await self.freeze_at_peek(slot, seconds, record)
         else:
             pid = self.games[slot].process.pid
             stop_process(pid)
@@ -1669,6 +1690,69 @@ class NewcomersProof(SoftResetProof, ThreePlayerProof):
             finally:
                 continue_process(pid)
         record("thawed", kind=kind, player=name, seconds=round(time.monotonic() - started, 1), where=where)
+
+    async def freeze_at_peek(self, slot, seconds, record, attempts=3):
+        """--freeze-at-peek: the game stopped for `seconds` while its launcher has a PEEK out to it and holds no host
+        command (its battle observer looking at the core), the window of KNOWN_ISSUES MS-165's update of 2026-11-06
+        (Windows run 349): a host command handed over during the stop must wait behind the PEEK. Whether one was handed
+        over depends on the battle's moment, so the stop is made again, up to `attempts` times 2 s apart, until one was
+        (each stop's record says which commands reached the launcher during it). Returns when the last stop began."""
+        name = self.harness.names[slot]
+        pid = self.games[slot].process.pid
+        companion = await self.companion_of(self.current[slot])
+        who = {companion.config.player_id, name}
+        started = time.monotonic()
+        for attempt in range(1, attempts + 1):
+            sequence = await self.peek_out(slot, limit=60.0 if attempt == 1 else 20.0, required=attempt == 1)
+            if sequence is None:
+                record("frozen-at-peek-no-more", player=name, attempt=attempt)   # no PEEK any more: the battle ended
+                break
+            started = time.monotonic()
+            stop_process(pid)
+            try:
+                await asyncio.sleep(seconds)
+            finally:
+                continue_process(pid)
+            handed = self.handed_during(who, started, time.monotonic())
+            record("frozen-at-peek", player=name, attempt=attempt, peek_sequence=sequence,
+                   at=round(started - self.t0, 1), commands_during_the_stop=handed)
+            if handed:
+                break
+            await asyncio.sleep(2.0)
+        return started
+
+    async def peek_out(self, slot, limit=60.0, required=True):
+        """--freeze-at-peek: wait until this player's launcher has a PEEK out to its game and holds no host command (its
+        battle observer looking at the core), for the game to stop in that window: a host command handed over during
+        the stop then waits behind the PEEK (KNOWN_ISSUES MS-165's update of 2026-11-06, Windows run 349). Returns the
+        PEEK's sequence (the one the next host command carries); None after `limit` if not `required`."""
+        from emerald_multiplayer.native_battle import NativeControl, Opcode
+        companion = await self.companion_of(self.current[slot])
+        until = time.monotonic() + limit
+        while time.monotonic() < until:
+            pending = [control for control, _ in dict(companion._battle_pending).values()]   # the launcher's thread
+            if pending and all(isinstance(c, NativeControl) and c.opcode == Opcode.PEEK for c in pending):
+                return pending[0].sequence
+            await asyncio.sleep(.0005)
+        require(not required, f"{self.harness.names[slot]}'s launcher had no PEEK out to its game within {limit:.0f} s")
+        return None
+
+    def handed_during(self, who, start, end):
+        """The host commands handed to these players' launchers from `start` to `end` (time.monotonic, as the route
+        timeline's "handed" events: route_timeline.py), as [seconds into the span, command id]; None without a
+        timeline."""
+        timeline = getattr(self, "timeline", None)
+        if timeline is None:
+            return None
+        handed = []
+        for line in Path(timeline.path).read_text(errors="replace").splitlines():
+            try:
+                event = json.loads(line)
+            except ValueError:
+                continue                                   # a line being written
+            if event.get("ev") == "handed" and event.get("who") in who and start <= event.get("t", 0) <= end:
+                handed.append([round(event["t"] - start, 3), event.get("command")])
+        return handed
 
     async def sample_memory(self, games, every):
         """--sample-every: each game's memory (resident, anonymous: its own), threads and open files, and this
@@ -1818,6 +1902,7 @@ LATENCY_MS, HOLD, DISK_MS, REMOTE_ONLY, LATENCY_ALL, WALK, MASH = [0], [True], [
 ROUGH = [(0.0, 0.0, 0.0)]   # --jitter-ms, --stall-every, --stall-ms (proof_network.RoughLink)
 STRAY = [False]
 ROUNDS, SAMPLE, FREEZES, TRACE = [1], [0.0], [], [False]
+FREEZE_AT_PEEK = [False]          # --freeze-at-peek
 FREEZE_INTO_BATTLE = 20          # seconds into a battle that --freeze ...:battle starts
 # live_trade.CALM_OPCODES (QUERY_OWNERSHIP, GRANT_OWNERSHIP, BEGIN_TRADE_EXPORT), spelled out to run on older apps too.
 CALM_OPCODES = frozenset({10, 11, 12})
@@ -1880,6 +1965,9 @@ async def run(args):
             "--freeze: the trade, battle-trade and trade-mail scenarios")
     require(all(f[2] in ("trade", "battle") for f in FREEZES) or args.scenario == "trade-mail",
             "--freeze ...:trade-confirmed and trade-committed: the trade-mail scenario")
+    FREEZE_AT_PEEK[0] = args.freeze_at_peek
+    require(not args.freeze_at_peek or any(f[0] == "game" and f[2] == "battle" for f in FREEZES),
+            "--freeze-at-peek: with --freeze game:PLAYER:battle:SECONDS")
     require(not args.sample_every or not WINDOWS, "--sample-every: Linux games only (it reads /proc)")
     require(not args.trace_memory or args.sample_every, "--trace-memory: with --sample-every")
     if args.game_answer_seconds is not None:
@@ -1996,10 +2084,15 @@ def main():
                         help="with --sample-every: this process's Python memory by allocating line in each sample "
                              "(tracemalloc; slows the process)")
     parser.add_argument("--freeze", action="append", default=[], metavar="KIND:PLAYER:STEP:SECONDS[:ROUND]",
-                        help="trade, battle-trade, trade-mail (Linux): freeze a player's launcher session (worker) or "
-                             "its game (game: SIGSTOP) for SECONDS, in ROUND's (1 by default) first trade once a player "
-                             "confirmed (trade; trade-mail also trade-confirmed: once both did, trade-committed: once "
-                             "the host committed it) or 20 s into its battle (battle)")
+                        help="trade, battle-trade, trade-mail: freeze a player's launcher session (worker) or its game "
+                             "(game: its process stopped, SIGSTOP; on Windows NtSuspendProcess) for SECONDS, in ROUND's "
+                             "(1 by default) first trade once a player confirmed (trade; trade-mail also trade-confirmed: "
+                             "once both did, trade-committed: once the host committed it) or 20 s into its battle "
+                             "(battle)")
+    parser.add_argument("--freeze-at-peek", action="store_true",
+                        help="with --freeze game:...:battle: stop the game at the first moment after the 20 s that its "
+                             "launcher has a PEEK out to it and holds no host command (KNOWN_ISSUES MS-165's update of "
+                             "2026-11-06: the window Windows run 349 met by chance)")
     args = parser.parse_args()
     if args.format is None:
         args.format = "2v2" if args.scenario in ("mixed", "give-up-2v2") else "1v1v1v1"

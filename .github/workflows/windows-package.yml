@@ -2579,8 +2579,11 @@ jobs:
           # KNOWN_ISSUES MS-165 (a PC that does not run the game for a moment): 20 s into the two new characters' rival 1v1
           # the host player's game process is stopped for 10 s (NtSuspendProcess, then NtResumeProcess); its launcher
           # gives its game 15 s for each answer, so the battle goes on to its end, then the trades after it. Before the fix
-          # (5 s) such a stop held the battle for recovery (L, 2026-10-28); not run on Windows before 2026-11-06.
-          - {name: game-freeze, scenario: battle-trade, players: 2, format: 1v1v1v1, extra: "--freeze game:0:battle:10"}
+          # (5 s) such a stop held the battle for recovery (L, 2026-10-28). --freeze-at-peek stops the game while its
+          # launcher's battle observer has a PEEK out to it (no host command held): Windows run 349 met that window by
+          # chance and the battle was held for recovery, the PEEK having waited only the companion's own 5 s (MS-165's
+          # update of 2026-11-06, fixed in battle_observer.py).
+          - {name: game-freeze, scenario: battle-trade, players: 2, format: 1v1v1v1, extra: "--freeze game:0:battle:10 --freeze-at-peek"}
     defaults:
       run:
         shell: bash

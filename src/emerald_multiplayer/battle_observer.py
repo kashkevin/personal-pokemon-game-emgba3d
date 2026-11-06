@@ -10,6 +10,13 @@ launcher's next command, else at most every RESEND_SECONDS).
 
 The executing session holds `lock` around every command it runs, so a PEEK never interleaves with one, and calls
 `holding` when the host hands it a command and `executed` once that command ran.
+
+A PEEK waits for the game's answer as long as a host command does (battle_session.GAME_ANSWER_SECONDS; KNOWN_ISSUES
+MS-165's update of 2026-11-06, Windows run 349): it carries the sequence the next host command will carry, and the game
+answers one command at a time. A game stopped for a few seconds (a hitch on the player's PC) while its launcher held no
+host command answers its PEEK when it runs again; with the companion's own 5 s, a host command handed over during the
+stop went to the stopped game after the PEEK was given up, the game held two commands when it ran again and its link
+closed, and the battle was held for recovery for both players.
 """
 from __future__ import annotations
 
@@ -70,6 +77,8 @@ class BattleObserver:
                 query.outcome, query.remaining_frames < KEEP_FRAMES)
 
     async def _run(self):
+        from . import battle_session   # its module attribute, read at each PEEK (a test or proof may set it)
+
         c, loop = self.companion, asyncio.get_running_loop()
         while not self.stopped:
             await asyncio.sleep(OBSERVE_SECONDS)
@@ -82,7 +91,7 @@ class BattleObserver:
                 peek = NativeControl(self.incarnation, lease, self.battle_id, sequence + 1, Opcode.PEEK,
                                      source_slot=self.slot, phase=self.phase)
                 try:
-                    response = await c.battle_rpc(peek)
+                    response = await c.battle_rpc(peek, timeout=battle_session.GAME_ANSWER_SECONDS)
                     response.validate_response(peek)
                 except (ValueError, ConnectionError, OSError, asyncio.TimeoutError):
                     continue

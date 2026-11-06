@@ -60,11 +60,25 @@ class SoftResetProof(NewcomerProof):
             await probe.press(DOWN)
         raise AssertionError(f"the START menu cursor did not reach {wanted}: {row['actions'][:row['count']]}")
 
-    async def open_reset_page(self, probe, refused=False):
+    async def open_reset_page(self, probe, refused=False, tries=3, wait=10):
         """MS-61: the soft reset key, as a player presses it: the Players menu opens on its question ("Reset the game?",
-        No first) or, when the reset would cut something open short (refused), on the Soft reset page saying why."""
-        await probe.press_reset_key()
-        _, screen = await shown(probe)
+        No first) or, when the reset would cut something open short (refused), on the Soft reset page saying why.
+        The game takes the key only where START would open the menu (the free field, nothing running) and drops it
+        anywhere else (the engine's multiplayer_soft_reset.h): just after a trade the field may not be back yet
+        (windows-package run 347's busy-4 pressed it 0.1 s after the trade applied, and nothing opened). A press that
+        opened nothing within `wait` seconds is made again, up to `tries` presses, as a player would press again; a
+        window that opened and waits for its launcher is waited for, without another press."""
+        screen = None
+        for _ in range(tries):
+            await probe.press_reset_key()
+            try:
+                _, screen = await shown(probe, timeout=wait)
+                break
+            except TimeoutError:
+                if probe.read()["active"]:
+                    _, screen = await shown(probe)
+                    break
+        require(screen is not None, f"the reset key opened nothing in {tries} presses {wait} s apart")
         title = "Soft reset" if refused else "Reset the game?"
         require(screen.title == title, f"the reset key opened {screen.title!r}: {[r.label for r in screen.rows]}")
         return screen

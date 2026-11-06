@@ -64,6 +64,60 @@ class GameFreezeTests(unittest.TestCase):
         self.assertIn("continue_process(pid)", source)
         self.assertNotIn("signal.SIGSTOP)\n            try:", source)
 
+    def test_freeze_at_peek_stops_the_game_while_its_launcher_has_a_peek_out(self):
+        # KNOWN_ISSUES MS-165's update of 2026-11-06 (Windows run 349): the window where the game stops with its launcher's
+        # battle observer waiting on a PEEK, no host command held
+        source = (ROOT / "scripts" / "multiplayer" / "native_launcher_newcomers_proof.py").read_text()
+        self.assertIn('parser.add_argument("--freeze-at-peek", action="store_true"', source)
+        self.assertIn("sequence = await self.peek_out(slot, limit=60.0 if attempt == 1 else 20.0, required=attempt == 1)",
+                      source)
+        self.assertIn("commands_during_the_stop=handed", source)          # whether the window was met, each stop
+        self.assertIn('"--freeze-at-peek: with --freeze game:PLAYER:battle:SECONDS"', source)
+
+    def test_the_commands_handed_during_a_stop_are_read_from_the_route_timeline(self):
+        import json
+        import tempfile
+        from types import SimpleNamespace
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "route-timeline.jsonl"
+            events = [dict(t=99.0, ev="handed", who="host-id", command=151),
+                      dict(t=100.004, ev="handed", who="host-id", command=152),
+                      dict(t=100.5, ev="execute", who="host-id", command=152),
+                      dict(t=101.0, ev="handed", who="friend-id", command=88),
+                      dict(t=109.9, ev="handed", who="New Host", command=153),
+                      dict(t=110.2, ev="handed", who="host-id", command=154)]
+            path.write_text("".join(json.dumps(e) + "\n" for e in events) + '{"t": 110.3, "ev": "hand')   # a line being written
+            proof = SimpleNamespace(timeline=SimpleNamespace(path=path))
+            handed = newcomers.NewcomersProof.handed_during(proof, {"host-id", "New Host"}, 100.0, 110.0)
+            self.assertEqual(handed, [[0.004, 152], [9.9, 153]])
+            self.assertIsNone(newcomers.NewcomersProof.handed_during(SimpleNamespace(), {"host-id"}, 100.0, 110.0))
+
+    def test_peek_out_waits_for_a_peek_alone(self):
+        import asyncio
+        from types import SimpleNamespace
+        import uuid
+        from emerald_multiplayer.native_battle import NativeControl, Opcode
+        battle = str(uuid.uuid4())
+        peek = NativeControl(100, 1, battle, 7, Opcode.PEEK)
+        deliver = NativeControl(100, 1, battle, 7, Opcode.DELIVER)
+        companion = SimpleNamespace(_battle_pending={7: (deliver, None)})
+        proof = SimpleNamespace(current={0: object()}, harness=SimpleNamespace(names=["New Host"]))
+
+        async def companion_of(worker):
+            return companion
+        proof.companion_of = companion_of
+
+        async def scenario():
+            waiting = asyncio.create_task(newcomers.NewcomersProof.peek_out(proof, 0, limit=5))
+            await asyncio.sleep(.05)
+            self.assertFalse(waiting.done())                # a host command held: not yet
+            companion._battle_pending = {}
+            await asyncio.sleep(.05)
+            self.assertFalse(waiting.done())                # nothing out: not yet
+            companion._battle_pending = {7: (peek, None)}
+            return await asyncio.wait_for(waiting, 2)
+        self.assertEqual(asyncio.run(scenario()), 7)
+
 
 if __name__ == "__main__":
     unittest.main()

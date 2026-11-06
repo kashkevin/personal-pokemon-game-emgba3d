@@ -77,5 +77,39 @@ class ClosingSaveTests(unittest.TestCase):
         self.assertIn("manual save revision differs", str(caught.exception))
 
 
+
+class NewcomersSaveTests(unittest.TestCase):
+    """The newcomers proof's Save between its steps (save_all), pressed again while the launcher is busy: windows-package
+    run 347's egg-party saved right after its second trade and its Save was refused as busy (the emergency save armed
+    again after the trade) and never pressed again; the proof waited 60 s for a save that had not been made."""
+
+    def save_now(self, session):
+        import native_launcher_newcomers_proof as newcomers
+        worker = WorkerLoop(session)
+        self.addCleanup(worker.close)
+        proof = object.__new__(newcomers.NewcomersProof)
+        proof.harness = SimpleNamespace(names=["New Host"])
+        asyncio.run(proof.save_now(0, worker))
+
+    def test_a_busy_launcher_is_asked_again_until_it_saves(self):
+        session = FakeSession(refusals=3)
+        self.save_now(session)
+        self.assertEqual(session.calls, 4)
+        self.assertEqual(session.status.revision, 7)
+
+    def test_any_other_refusal_fails_with_the_launchers_reason(self):
+        session = FakeSession(refusals=5, error="LiveSaveError save_failed: the game refused")
+        with self.assertRaises(AssertionError) as caught:
+            self.save_now(session)
+        self.assertEqual(session.calls, 1)
+        self.assertIn("New Host: the launcher refused Save", str(caught.exception))
+        self.assertIn("save_failed", str(caught.exception))
+
+    def test_save_all_saves_through_it(self):
+        source = (ROOT / "scripts" / "multiplayer" / "native_launcher_newcomers_proof.py").read_text()
+        self.assertIn("await self.save_now(n, current[n])", source)
+        self.assertNotIn("request_save()", source)
+
+
 if __name__ == "__main__":
     unittest.main()

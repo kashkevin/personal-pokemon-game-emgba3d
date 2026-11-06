@@ -160,7 +160,7 @@ class WindowsWorkflowTests(unittest.TestCase):
         # KNOWN_ISSUES MS-165: the host player's game process stopped for 10 s, 20 s into the rival 1v1 (the proof
         # suspends it with NtSuspendProcess on Windows); the battle goes on to its end, then the trades
         check = job("multiplayer-check")
-        self.assertIn('{name: game-freeze, scenario: battle-trade, players: 2, format: 1v1v1v1, extra: "--freeze game:0:battle:10"}',
+        self.assertIn('{name: game-freeze, scenario: battle-trade, players: 2, format: 1v1v1v1, extra: "--freeze game:0:battle:10 --freeze-at-peek"}',
                       check)
 
     def test_mr_brineys_sail_is_timed_and_checked_in_windows_game_processes(self):
