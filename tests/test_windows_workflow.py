@@ -156,6 +156,19 @@ class WindowsWorkflowTests(unittest.TestCase):
                       graphics)
         self.assertIn("or any(differed for _, differed in kept)", graphics)
 
+    def test_mr_brineys_sail_is_timed_and_checked_in_windows_game_processes(self):
+        # KNOWN_ISSUES MS-82: the sail from Dewford to Route 104 (the game's own script, three map seams) timed with the
+        # animated tiles' waits off and on, then sailed again with the terrain check: a sail that does not finish, or a
+        # chunk kept that differs or is left stale, fails the job
+        graphics = job("graphics-3d")
+        self.assertIn("Mr. Briney's sail timed and checked (KNOWN_ISSUES MS-82)", graphics)
+        self.assertIn('PKMN_DEBUG_HERE="0,11,11,9"', graphics)
+        self.assertIn('PKMN_DEBUG_RIVAL_SET="f2e4=0,f2e7=0,fbd=1,f132=1"', graphics)
+        self.assertIn('{"PKMN_DIORAMA_ANIMATED_WAITS": "0"} if kind == "off"', graphics)
+        self.assertIn('sail(root / "check", {"PKMN_DIORAMA_TERRAIN_CHECK": "1"})', graphics)
+        self.assertIn('"0.19" not in seams', graphics)                      # the boat reached Route 104
+        self.assertIn('raise SystemExit("Mr. Briney\'s sail: " + "; ".join(failures))', graphics)
+
     def test_the_whole_games_gameplay_check_runs_in_windows_game_processes(self):
         check = job("gameplay-check")
         self.assertIn("runs-on: windows-2022", check)

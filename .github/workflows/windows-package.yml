@@ -2126,6 +2126,88 @@ jobs:
               summary.write("\n".join(lines) + "\n")
           if failures:
               raise SystemExit("a timed walk did not finish: " + "; ".join(failures))
+      - name: Mr. Briney's sail timed and checked (KNOWN_ISSUES MS-82), the animated tiles' waits off and on
+        shell: python
+        run: |
+          # KNOWN_ISSUES MS-82: Mr. Briney's boat from Dewford to Route 104 (Route 106, 105 and 104: three map seams),
+          # the game's own script (the player talks to Briney on the dock and chooses PETALBURG; the flags set as the
+          # story leaves them). The grid moves two to four times as fast as walking; a step of the sea's animation built
+          # every chunk waiting for its build at once (engines before the change: up to seven a frame) - with
+          # PKMN_DIORAMA_ANIMATED_WAITS=0 as before (off), as built (on). Four timed sails, alternating, every frame's
+          # times written out (PKMN_PERF_FRAME_LOG), then one with the terrain check (PKMN_DIORAMA_TERRAIN_CHECK=1: no
+          # chunk the cache keeps may differ, no skipped sync may leave one stale). A measure on GitHub's runner through
+          # Mesa, not a player's graphics card; an engine before the change ignores the switch. It fails when a sail does
+          # not finish or the terrain check finds a chunk that differs or is stale.
+          import csv, os, pathlib, re, subprocess
+          root = pathlib.Path(os.environ["RUNNER_TEMP"], "graphics-3d", "briney-sail")
+          keys = "100:RIGHT,130:A,300:A,380:UP,400:UP,420:A,500:A,580:A,660:A"
+          exe = pathlib.Path("diorama-check-inputs", "pokeemerald-mp-diorama-bfxtest.exe").resolve()
+
+          def pct(values, p):
+              values = sorted(values)
+              return values[min(len(values) - 1, int(len(values) * p / 100.0))] if values else 0.0
+
+          def sail(out, extra):
+              out.mkdir(parents=True, exist_ok=True)
+              (out / "pokeemerald.cfg").write_text("resolution=1280x720\ndisplayMode=windowed\nquality=high\nvsync=0\n"
+                                                   "fpsCap=unlimited\nvolume=0\ncryVolume=0\n")
+              # Dewford Town's dock (11,9), facing Briney; his boat and he shown, the letter delivered (the menu)
+              env = dict(os.environ, SDL_AUDIODRIVER="dummy", PKMN_DEBUG_SCENE="field", PKMN_DEBUG_HERE="0,11,11,9",
+                         PKMN_DEBUG_RIVAL_SET="f2e4=0,f2e7=0,fbd=1,f132=1", PKMN_DEBUG_RIVAL_WATCH="v408e",
+                         PKMN_DEBUG_KEYS=keys, PKMN_DEBUG_HOUR="12", PKMN_DEBUG_SEED="1", PKMN_DEBUG_GLSHOTS_GAME="1",
+                         PKMN_DEBUG_GLSHOTS="1750", PKMN_PERF_FRAME_LOG="frames.csv", PKMN_DIORAMA_PROFILE="1",
+                         PKMN_DIORAMA_LOG="1")
+              env.update(extra)
+              with open(out / "test.log", "wb") as log:     # the game ends by itself after its picture of frame 1750
+                  code = subprocess.run([str(exe), "--config", "pokeemerald.cfg", "--save", "test.sav"], cwd=out,
+                                        env=env, stdout=log, stderr=subprocess.STDOUT, timeout=1800).returncode
+              return code, (out / "test.log").read_text(errors="replace")
+
+          failures = []
+          lines = ["- MS-82: Mr. Briney's sail from Dewford to Route 104 timed (Mesa llvmpipe; the terrain sync is the CPU "
+                   "work of the chunks' builds): the animated tiles' waits off (as engines before) and on"]
+          for index, kind in enumerate(("off", "on", "off", "on")):
+              out = root / f"{index + 1}-{kind}"
+              code, text = sail(out, {"PKMN_DIORAMA_ANIMATED_WAITS": "0"} if kind == "off" else {})
+              trace = [(int(f), m) for f, m in re.findall(r"rival (\d+): map (\d+\.\d+) ", text)]
+              rows = []
+              if (out / "frames.csv").exists():
+                  with open(out / "frames.csv", newline="") as handle:
+                      rows = [r for r in csv.DictReader(handle) if r.get("drew_3d") == "1"]
+              # the sail: from the boarding (game frame 599) to the dock on Route 104 (1729)
+              sailing = [r for r in rows if 599 <= int(r["game_frame"]) <= 1729]
+              seams = [m for _, m in trace]
+              if code != 0 or len(sailing) < 100 or "0.19" not in seams:
+                  failures.append(f"sail {index + 1} ({kind}): exit {code}, {len(sailing)} 3D frames of the sail, "
+                                  f"maps {sorted(set(seams))}")
+                  continue
+              terrain = [float(r["sync_terrain_ms"]) for r in sailing]
+              sync = [float(r["sync_ms"]) for r in sailing]
+              frame = [float(r["frame_ms"]) for r in sailing]
+              chunks = [int(r["rebuilt_chunks"]) for r in sailing]
+              lines.append(f"  - {kind}: {len(sailing)} 3D frames; terrain sync over 8 ms {sum(v > 8 for v in terrain)}, "
+                           f"over 16 ms {sum(v > 16 for v in terrain)}, max {max(terrain):.1f} ms; {sum(chunks)} chunks "
+                           f"built, at most {max(chunks)} a frame; the whole sync over 16 ms {sum(v > 16 for v in sync)}; "
+                           f"frame p50 {pct(frame, 50):.1f} ms, p99 {pct(frame, 99):.1f} ms")
+          code, text = sail(root / "check", {"PKMN_DIORAMA_TERRAIN_CHECK": "1"})
+          skipped = [tuple(map(int, m)) for m in re.findall(r"terrain check: (\d+) chunks checked, (\d+) stale", text)]
+          kept = [tuple(map(int, m)) for m in
+                  re.findall(r"terrain check: (\d+) chunks kept with another gameplay elevation checked, (\d+) differed",
+                             text)]
+          lines.append(f"  - the terrain check: exit {code}; {skipped[-1][0] if skipped else 0} skipped-sync chunks "
+                       f"checked, {sum(1 for _, stale in skipped if stale)} reports of a stale one; "
+                       f"{kept[-1][0] if kept else 0} kept with another gameplay elevation built again, "
+                       f"{sum(1 for _, differed in kept if differed)} reports of one that differed")
+          if code != 0:
+              failures.append(f"the checked sail's game ended with {code}")
+          if any(stale for _, stale in skipped) or any(differed for _, differed in kept):
+              failures.append("a chunk the sail kept differs from the one it would build, or was left stale")
+          lines.extend(f"  - {failure}" for failure in failures)
+          print("\n".join(lines))
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
+              summary.write("\n".join(lines) + "\n")
+          if failures:
+              raise SystemExit("Mr. Briney's sail: " + "; ".join(failures))
       - name: Upload the report and the pictures (private to this repository, 7 days; no save)
         if: always()
         uses: actions/upload-artifact@v7
