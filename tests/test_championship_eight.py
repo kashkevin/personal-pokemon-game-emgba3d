@@ -9,6 +9,7 @@ from uuid import uuid4
 
 from emerald_multiplayer import tower_data
 from emerald_multiplayer.championship import Championships
+from emerald_multiplayer.steady_clock import SteadyWallClock
 from emerald_multiplayer.championship8 import (CONNECTION_SECONDS, ISSUED_SECONDS, STARTED_SECONDS, ComputerContext,
                                                EightChampionships, computer_places)
 from emerald_multiplayer.championship8_protocol import (VERSION, four_player_view, validate_championship_reply,
@@ -55,9 +56,10 @@ class Fixture:
         self.checked = []
         self.store = self.open()
 
-    def open(self, legacy=None):
+    def open(self, legacy=None, clock=None):
         return EightChampionships(Path(self.directory.name) / "w.championships8.sqlite3", world_id=self.world,
-                                  build_id="build-1", ruleset_id="rules-1", legacy=legacy, clock=lambda: self.clock[0])
+                                  build_id="build-1", ruleset_id="rules-1", legacy=legacy,
+                                  clock=clock or (lambda: self.clock[0]))
 
     def context(self, experience=False):
         return ComputerContext(data=self.data, busy=lambda player: self.busy.get(player),
@@ -258,6 +260,23 @@ class EightChampionshipTests(Fixture, unittest.TestCase):
         self.clock[0] += STARTED_SECONDS
         view = self.call(second, "status")["current"]
         self.assertEqual((view["matches"][2]["state"], view["matches"][2]["winner"]), ("won", 6))
+
+    def test_a_started_match_is_not_a_loss_when_the_pcs_clock_is_set_a_day_forward(self):
+        """KNOWN_ISSUES MS-219: with the host's clock (steady_clock.py) a change made to the PC's clock is not time passed."""
+        steady = [50.0]
+        self.store = self.open(clock=SteadyWallClock(wall=lambda: self.clock[0], steady=lambda: steady[0]))
+        view = self.create(self.players[:2])
+        first = self.players[0]
+        reply = self.match(first, view, 0)
+        self.store.computer_result(first, reply["command"]["ticket"], 20, "started")
+        self.clock[0] += STARTED_SECONDS + 3600                 # the PC's clock set a day and an hour forward ...
+        self.clock[0] += 60                                     # ... a minute into the battle
+        steady[0] += 60
+        view = self.call(first, "status")["current"]
+        self.assertEqual(view["matches"][0]["state"], "playing")
+        self.assertTrue(self.store.computer_result(first, reply["command"]["ticket"], 20, "won")["settled"])
+        view = self.call(first, "status")["current"]
+        self.assertEqual((view["matches"][0]["state"], view["matches"][0]["winner"]), ("won", 0))   # the player (the computer: 7)
 
     def test_busy_game_and_rule_are_checked_before_a_ticket(self):
         view = self.create(self.players[:2], rule="level_50")

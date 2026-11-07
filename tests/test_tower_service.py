@@ -19,6 +19,7 @@ import unittest
 from emerald_multiplayer import coop_code, rewards, tower_data, tower_rewards
 from emerald_multiplayer.flash import LAYOUT_ID
 from emerald_multiplayer.shared_world import SharedWorld, SharedWorldError
+from emerald_multiplayer.steady_clock import SteadyWallClock
 from emerald_multiplayer.tower_service import CONNECTION_SECONDS, ISSUED_SECONDS, STARTED_SECONDS, TowerService
 from emerald_multiplayer.wagers import Wagers
 import test_flash
@@ -263,6 +264,38 @@ class SoloTests(unittest.TestCase):
         self.now += STARTED_SECONDS
         self.service.reconcile()
         self.assertEqual(self.world.tower.ticket_by_number(ticket)["state"], "forfeit")
+
+    def host_clock(self):
+        """The host's clock (steady_clock.py) on this test's PC clock (``self.now``) and a clock that never jumps."""
+        self.steady = 50.0
+        self.world.tower._now = SteadyWallClock(wall=lambda: self.now, steady=lambda: self.steady)
+
+    def test_a_started_battle_is_not_forfeited_when_the_pcs_clock_is_set_a_day_forward(self):
+        """KNOWN_ISSUES MS-219: a change made to the PC's clock is not time passed; a day that passes still is."""
+        self.host_clock()
+        ticket = self.solo(1)
+        self.report("started", ticket, 1)
+        self.now += STARTED_SECONDS + 3600                         # the PC's clock set a day and an hour forward ...
+        self.now, self.steady = self.now + 60, self.steady + 60    # ... a minute into the battle
+        self.service.reconcile()
+        self.assertEqual(self.world.tower.ticket_by_number(ticket)["state"], "started")
+        self.report("won", ticket, 1, seq=2)                       # the battle ends: its result counts
+        self.assertEqual(self.world.tower.ticket_by_number(ticket)["state"], "won")
+        self.apply()                                               # its words applied: the next floor
+        ticket = self.solo(2)
+        self.report("started", ticket, 2)
+        self.now, self.steady = self.now + STARTED_SECONDS, self.steady + STARTED_SECONDS
+        self.service.reconcile()
+        self.assertEqual(self.world.tower.ticket_by_number(ticket)["state"], "forfeit")
+
+    def test_a_command_never_started_is_void_on_time_when_the_pcs_clock_is_set_a_day_back(self):
+        self.host_clock()
+        ticket = self.solo(1)
+        self.now -= 86400                                          # the PC's clock set a day back
+        self.now, self.steady = self.now + ISSUED_SECONDS, self.steady + ISSUED_SECONDS
+        self.service.reconcile()
+        self.assertEqual(self.world.tower.ticket_by_number(ticket)["state"], "void")
+        self.solo(1)                                               # the floor open again, not a day later
 
     def test_a_result_after_its_settlement_is_answered_once_its_word_has_landed(self):
         ticket = self.solo(1)

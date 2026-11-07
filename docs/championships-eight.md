@@ -53,7 +53,9 @@ A match against a computer trainer is a solo Tower floor in every way that matte
 * The game refused it (another Tower result still unsettled, no Pokémon able to battle): ask again.
 * Started, but no result ever came: the menu offers "Give up: count a loss", which counts once the player's game has
   been connected for 15 s (its kept result is posted right after it connects). After 24 hours it is a loss anyway.
-  These are the Battle Tower's own rules.
+  These are the Battle Tower's own rules. The 120 s and the 24 hours are measured on the host's clock, which leaves
+  out any change made to the PC's clock while the host runs (set forward or back by hand, a time sync's
+  correction): such a change is not time passed (KNOWN_ISSUES MS-219).
 * A draw is played again.
 
 ## Defaults the owner can change

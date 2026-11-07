@@ -72,6 +72,7 @@ from .ffa_results import SCHEMA as _FFA_SCHEMA, FfaBook
 from .secret_bases import SCHEMA as _BASE_SCHEMA, SecretBaseBook
 from .tower import SCHEMA as _TOWER_SCHEMA, TowerBook
 from .legendary_tickets import SCHEMA as _TICKET_SCHEMA, TicketBook
+from .steady_clock import STEADY_WALL_CLOCK
 
 _SCHEMA = (
     "CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
@@ -189,7 +190,8 @@ class SharedWorld:
             self.bases = SecretBaseBook(self._db, self._transaction)
             self.frontier = FrontierBook(self._db, self._transaction, clock=time.time)
             self.ffa = FfaBook(self._db, self._transaction, clock=time.time)
-            self.tower = TowerBook(self._db, self._transaction, clock=time.time)
+            # the Tower's void and forfeit times ignore changes made to the PC's clock (KNOWN_ISSUES MS-219)
+            self.tower = TowerBook(self._db, self._transaction, clock=STEADY_WALL_CLOCK)
             self.tickets = TicketBook(self._db, self._transaction, time.time)
             from .event_settings import DEFAULT_EVENT_SETTINGS
             self._events = event_settings if event_settings is not None else DEFAULT_EVENT_SETTINGS

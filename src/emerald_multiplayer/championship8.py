@@ -34,7 +34,6 @@ from dataclasses import dataclass
 import hashlib
 import json
 import secrets
-import time
 from typing import Callable
 from uuid import uuid4
 
@@ -45,6 +44,7 @@ from .championship8_protocol import (FORMATS, HISTORY_LIMIT, MAX_PLAYERS, MIN_PL
                                      validate_championship_view)
 from .championship_protocol import VERSION as FOUR_VERSION
 from .protocol import MAX_COUNTER, ProtocolError, validate_identity
+from .steady_clock import STEADY_WALL_CLOCK   # void and forfeit times ignore changes of the PC's clock (MS-219)
 from .storage import StorageError
 from .team_protocol import _uuid
 
@@ -122,7 +122,7 @@ class EightChampionships(Championships):
 
     SCHEMA = _SCHEMA
 
-    def __init__(self, path, *, world_id, build_id, ruleset_id, legacy=None, clock=time.time):
+    def __init__(self, path, *, world_id, build_id, ruleset_id, legacy=None, clock=STEADY_WALL_CLOCK):
         from pathlib import Path
         _uuid(world_id, "world_id")
         validate_identity(build_id, "build_id")
