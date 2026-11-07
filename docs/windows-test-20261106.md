@@ -124,3 +124,7 @@ on the host the world's folder.
       two PCs or two accounts: the friend starts a Tower floor, the host sets the PC's date a day forward while it
       runs, then back): the friend's battle counts as it ends (a win stays a win). Earlier installers counted it as a
       loss at once. Tried in the tests on Linux only.
+- [ ] From the first installer with app `6af8b76` on, a second click on the EmeraldTogether icon while it is open, or
+      while it is still opening (MS-220): one menu stays; the second click says EmeraldTogether is already open, and
+      after OK nothing else opens. Earlier installers opened a second menu on the same files. Tried on Linux, and on
+      GitHub's Windows runner by the installation check; not on a PC.
