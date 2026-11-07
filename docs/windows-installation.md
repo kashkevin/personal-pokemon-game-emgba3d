@@ -137,7 +137,8 @@ expected to call this from Settings, Game files; `shell_app.py` was not changed 
       runtime.json             pinned by runtime_sha256; pins every file below
       pokeemerald-mp-diorama.exe  pokeemerald-mp.exe  SDL2.dll  [battle-sprites.ebsp]
       game-facts.json
-%LOCALAPPDATA%\PokemonPrivate\launcher\   the player's data (never installed, replaced or removed)
+%LOCALAPPDATA%\PokemonPrivate\launcher\   the player's data (never installed, replaced or removed);
+                                          launcher.lock there is held while the launcher runs (MS-220)
 ```
 
 ## The installer
@@ -160,7 +161,8 @@ iscc /Qp /DAppVersion=<version> /DSetupVersion=<file-name-safe version> /DPackag
   finds the installation (same folder, no folder page), closes running copies through the Restart
   Manager, deletes `{app}\_internal` first (`[InstallDelete]`, so no file of an older version stays
   next to the new game - the launcher refuses unknown programs there) and writes the new files.
-  This is the **Repair**: the welcome page says "Setup will repair or update it" when it finds the
+  This is the **Repair**: the welcome page says "Setup will repair or update it" (and, since
+  2026-11-07, to save in the game first: a game Setup closes keeps only what was saved) when it finds the
   installation.
 * The uninstaller removes only what Setup installed. There is no `[UninstallDelete]`, nothing
   refers to `PokemonPrivate`, and the app never writes into its program folder.
@@ -204,7 +206,10 @@ owner's PC is never installed to), `scripts/windows-runtime/ci_installer_check.p
 4. every installed file matches `package-hashes.json` (only `unins000.*` extra), the uninstall
    entry and the Start menu shortcut exist;
 5. the installed `EmeraldTogether.exe` stays up 20 s (full: exactly one `--shell` child) and made its
-   private folder in the temporary profile;
+   private folder in the temporary profile; then it is started a second time on the same files, as a
+   second click on the icon (KNOWN_ISSUES MS-220): the second shows its message box saying the first
+   is open (the check reads its text and closes it as OK) and ends with code 0, while the first
+   stays up with its one menu (the first holds `launcher.lock` in the private folder while it runs);
 6. repair: a stray DLL planted in the game folder and a deleted `README.txt` - after the silent
    re-run the stray is gone and the files match again;
 7. silent uninstall (waits for the uninstaller's hand-off copy): no program files, shortcut or

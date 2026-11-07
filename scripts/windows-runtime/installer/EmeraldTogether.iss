@@ -108,5 +108,7 @@ begin
       'EmeraldTogether is already installed for your Windows user.' + #13#10#13#10 +
       'Setup will repair or update it: it closes EmeraldTogether if it is running and puts back every ' +
       'program file from this Setup file.' + #13#10#13#10 +
+      'If you are playing, save in the game first: a game Setup closes keeps only what was saved ' +
+      '(as when you close its window).' + #13#10#13#10 +
       'Your saves, characters and worlds are not touched.';
 end;
