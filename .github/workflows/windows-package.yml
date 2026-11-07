@@ -2626,6 +2626,33 @@ jobs:
         # The user's TEMP as a player's PC has it (an 8.3 short path on C:, the checkout on D:): conftest.py makes the
         # tests' temporary folders under its long name, as it does on a PC, so this job checks that and not TMPDIR.
         run: .venv/Scripts/python -m pytest -rfE --junitxml="$RUNNER_TEMP/pytest-windows.xml"
+      - name: A real full disk on NTFS (KNOWN_ISSUES MS-214 and MS-215), a 64 MB virtual disk of its own
+        # tests/test_real_full_disk.py fills a volume of its own to its last byte - with the host's world database on it
+        # while a player saves, then with the player's save journal on it - and frees it again (skipped in the suite
+        # above, which has no such volume). The job attaches a 64 MB virtual disk as R: (diskpart) so that nothing fills
+        # the runner's own disks; the tests refuse a volume over 256 MB. All three must pass: none skipped.
+        if: ${{ always() }}
+        shell: pwsh
+        run: |
+          $vhd = Join-Path $env:RUNNER_TEMP "full-disk.vhd"
+          $script = Join-Path $env:RUNNER_TEMP "full-disk.txt"
+          Set-Content -Encoding ascii -LiteralPath $script -Value @(
+            "create vdisk file=""$vhd"" maximum=64 type=fixed", "select vdisk file=""$vhd""", "attach vdisk",
+            "create partition primary", "format fs=ntfs quick label=FULLDISK", "assign letter=R")
+          diskpart /s $script
+          if ($LASTEXITCODE -ne 0) { throw "diskpart exited $LASTEXITCODE" }
+          Get-Volume -DriveLetter R | Format-List DriveLetter, FileSystem, AllocationUnitSize, Size, SizeRemaining
+          $env:EMERALD_FULL_DISK_DIR = "R:\full"
+          $junit = Join-Path $env:RUNNER_TEMP "pytest-full-disk.xml"
+          .venv\Scripts\python -m pytest tests/test_real_full_disk.py -s -v -rfEs -p no:cacheprovider --junitxml="$junit"
+          $status = $LASTEXITCODE
+          Set-Content -Encoding ascii -LiteralPath $script -Value @("select vdisk file=""$vhd""", "detach vdisk")
+          diskpart /s $script | Out-Null
+          [xml]$report = Get-Content -LiteralPath $junit
+          $suite = $report.testsuites.testsuite
+          Write-Output "full-disk tests: $($suite.tests) run, $($suite.failures) failed, $($suite.errors) errors, $($suite.skipped) skipped"
+          if ($status -ne 0) { exit $status }
+          if ($suite.tests -ne "3" -or $suite.skipped -ne "0") { throw "the full-disk tests did not all run" }
       - name: Upload the results (private to this repository, 7 days)
         if: always()
         uses: actions/upload-artifact@v7

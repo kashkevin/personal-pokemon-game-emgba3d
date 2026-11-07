@@ -23,3 +23,13 @@ jobs:
           .venv/bin/python -m pip install pytest==9.1.1 pytest-timeout
       - name: Test suite
         run: xvfb-run -a .venv/bin/python -m pytest
+      - name: A real full disk (KNOWN_ISSUES MS-214 and MS-215), an 8 MB tmpfs of its own
+        # tests/test_real_full_disk.py fills a volume of its own to its last byte and frees it again (skipped in the
+        # suite above, which has no such volume); the Windows run repeats it on NTFS. All three must pass: none skipped.
+        if: ${{ always() }}
+        run: |
+          sudo mkdir -p /mnt/full-disk
+          sudo mount -t tmpfs -o size=8m,uid=$(id -u),gid=$(id -g) tmpfs /mnt/full-disk
+          EMERALD_FULL_DISK_DIR=/mnt/full-disk/full .venv/bin/python -m pytest tests/test_real_full_disk.py -s -v -rfEs \
+            -p no:cacheprovider | tee full-disk.log
+          grep -q "3 passed" full-disk.log && ! grep -qi "skipped" full-disk.log
