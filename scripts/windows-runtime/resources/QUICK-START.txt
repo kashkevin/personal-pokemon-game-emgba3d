@@ -157,6 +157,8 @@ If something else goes wrong
 * A battle or trade was interrupted: keep the game open and follow the message in the session
   window (Recover battle, Resolve interrupted trade). An unfinished trade is cancelled and a finished
   one is kept; nothing is guessed.
+* EmeraldTogether closed unexpectedly, or was ended in Task Manager, while you played: the game
+  window closes with it. Start EmeraldTogether again; your character has what was last saved.
 * Something went wrong in the menu: it says so in plain words; the details for whoever helps you are
   in %LOCALAPPDATA%\PokemonPrivate\launcher\shell\last-error.txt.
 * Read RELEASE-LIMITS.txt (in the program folder) for what this build is and what is not finished.

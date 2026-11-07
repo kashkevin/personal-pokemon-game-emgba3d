@@ -10,6 +10,7 @@ import threading
 import unittest
 from unittest.mock import patch
 
+from emerald_multiplayer import game_lifetime
 from emerald_multiplayer.checkpoint_mirror import MirrorError, MirrorLease
 from emerald_multiplayer.player_runtime import PlayerRuntime, PlayerRuntimeError, RuntimeBundle, _check_native_paths
 from test_cold_start import ClosedCompanion
@@ -159,6 +160,20 @@ class ProcessTests(unittest.IsolatedAsyncioTestCase):
         with MirrorLease(self.save):
             pass
         self.assertFalse(self.runtime._active)
+
+    async def test_the_game_ends_with_this_launcher(self):
+        """KNOWN_ISSUES MS-221: the game is started so that it ends with the launcher, however the launcher ends (Linux:
+        the spawn's own options; Windows: the started process joins the launcher's job)."""
+        bound = []
+        with patch("emerald_multiplayer.player_runtime.asyncio.create_subprocess_exec", self.spawn), \
+                patch("emerald_multiplayer.player_runtime.game_lifetime.bind",
+                      side_effect=lambda pid: bound.append(pid) or True):
+            async with self.runtime.open() as game:
+                _, options = self.arguments[0]
+                self.assertEqual(bound, [game.process.pid])
+                self.assertLessEqual(set(game_lifetime.spawn_options()), set(options))
+                game.process.terminate()
+                await game.wait()
 
     async def test_context_error_stops_child_before_releasing_lease(self):
         with patch("emerald_multiplayer.player_runtime.asyncio.create_subprocess_exec", self.spawn):

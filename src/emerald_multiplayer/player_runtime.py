@@ -26,6 +26,7 @@ from uuid import uuid4
 from .bridge_config import configure, configure_native
 from .cold_start import ColdStartRecovery
 from .companion import verify_rom_manifest
+from . import game_lifetime
 from .game_facts import is_game_facts
 from .live_checkpoint import _atomic
 
@@ -381,7 +382,9 @@ async def _open_child(companion, bundle, directory, save_path, build, manifest,
         arguments = (str(executable), "--multiplayer-script", str(script),
                      "--multiplayer-save", str(save_path), str(rom_path))
     log_path = launch_directory / "runtime.log"
-    options = dict(cwd=launch_directory, stdin=asyncio.subprocess.DEVNULL)
+    # The game ends with this launcher, however the launcher ends (KNOWN_ISSUES MS-221): the lease and the world's
+    # connection go with it, and a game left behind could neither save into its world nor keep a second one away.
+    options = dict(cwd=launch_directory, stdin=asyncio.subprocess.DEVNULL, **game_lifetime.spawn_options())
     if os.name == "nt":
         options["creationflags"] = subprocess.CREATE_NO_WINDOW
     process = None
@@ -390,6 +393,7 @@ async def _open_child(companion, bundle, directory, save_path, build, manifest,
             *arguments, stdout=log, stderr=log, **options))
         try:
             process, cancelled = await _finish_even_if_cancelled(spawn)
+            game_lifetime.bind(process.pid)
             if cancelled:
                 raise asyncio.CancelledError()
             check_session()

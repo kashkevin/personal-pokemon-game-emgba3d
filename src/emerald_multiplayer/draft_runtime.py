@@ -14,6 +14,7 @@ from pathlib import Path
 import subprocess
 from uuid import uuid4
 
+from . import game_lifetime
 from .checkpoint_mirror import MirrorLease
 from .flash import LAYOUT_ID, MAX_CONTAINER_SIZE, inspect_flash
 from .launcher_session import GameInstallation
@@ -113,7 +114,8 @@ class DraftRuntime:
                     arguments = (str(executable), "--multiplayer-script", str(script),
                                  "--multiplayer-save", str(self.save_path), str(rom_path))
                 log_path = self.directory / "runtime.log"
-                options = dict(cwd=self.directory, stdin=asyncio.subprocess.DEVNULL)
+                # The game ends with this launcher, however the launcher ends (KNOWN_ISSUES MS-221).
+                options = dict(cwd=self.directory, stdin=asyncio.subprocess.DEVNULL, **game_lifetime.spawn_options())
                 if os.name == "nt":
                     options["creationflags"] = subprocess.CREATE_NO_WINDOW
                 with log_path.open("xb") as log:
@@ -121,6 +123,7 @@ class DraftRuntime:
                         *arguments, stdout=log, stderr=log, **options))
                     try:
                         self._process, cancelled = await _finish_even_if_cancelled(spawn)
+                        game_lifetime.bind(self._process.pid)
                         if cancelled:
                             raise asyncio.CancelledError()
                         self._active = True

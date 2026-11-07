@@ -3201,6 +3201,15 @@ jobs:
           $setup = (Get-ChildItem installer\EmeraldTogether-Setup-*.exe | Select-Object -First 1).FullName
           python scripts/windows-runtime/ci_play_check.py --setup $setup --work $work --label unicode --only-utf8-games
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: A game when its launcher is ended outright (full; KNOWN_ISSUES MS-221)
+        if: env.MODE == 'full'
+        # scripts/windows-runtime/ci_play_check.py --launcher-ended: one player; a character, a Solo world played (Save now)
+        # and its game left open; then EmeraldTogether.exe alone is ended (taskkill /F without /T, as Task Manager's End task
+        # in Details or a crash ends it): the game must end with it. Started again, the Solo world plays on from the same
+        # save (Save now: the next revision) and Exit ends it, no error recorded.
+        run: |
+          python scripts/windows-runtime/ci_play_check.py --setup "$(ls installer/EmeraldTogether-Setup-*.exe)" \
+            --work "$RUNNER_TEMP/ended-check" --label ended --launcher-ended
       - name: The earlier installer for the update check (full, upgrade_from_run; private to this repository)
         if: env.MODE == 'full' && inputs.upgrade_from_run != ''
         uses: actions/download-artifact@v8
@@ -3238,6 +3247,9 @@ jobs:
             ${{ runner.temp }}/play-check/*.log
             ${{ runner.temp }}/unicode-check/*/*-play-check.json
             ${{ runner.temp }}/unicode-check/*/*.log
+            ${{ runner.temp }}/ended-check/*-play-check.json
+            ${{ runner.temp }}/ended-check/*-screens.jsonl
+            ${{ runner.temp }}/ended-check/*.log
             ${{ runner.temp }}/upgrade-check/*-play-check.json
             ${{ runner.temp }}/upgrade-check/*-screens.jsonl
             ${{ runner.temp }}/upgrade-check/*-pictures/

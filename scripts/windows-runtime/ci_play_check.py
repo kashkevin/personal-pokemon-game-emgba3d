@@ -29,6 +29,11 @@ What it does, as two players on one PC would (two new profiles: a host and a fri
   6. both menus Exit with code 0; no error was recorded (shell/last-error.txt) and every character's latest save is the one
      its world holds.
 
+With --launcher-ended (KNOWN_ISSUES MS-221) one player only: a character, a Solo world played (Save now) and its game left
+open; then the launcher alone is ended outright (Windows: taskkill /F without /T, as Task Manager's End task in Details;
+Linux: SIGKILL) and its game must end with it; EmeraldTogether started again plays the Solo world on from the same save
+(Save now: the next revision) and Exit ends it, no error recorded.
+
 On a PC whose graphics cannot run 3D (a hosted runner has Windows' OpenGL 1.1 software renderer) every game start first shows
 "3D graphics cannot start"; the check chooses "Play in Classic 2D this time" there, once, as a player would.
 
@@ -172,6 +177,10 @@ class WindowsDesk:
     def kill(self, process):
         subprocess.run(["taskkill", "/PID", str(process.pid), "/T", "/F"], capture_output=True, timeout=60, check=False)
 
+    def end_outright(self, process):
+        """The launcher alone, as Task Manager's End task (Details) or a crash ends it: no code of its own runs."""
+        subprocess.run(["taskkill", "/PID", str(process.pid), "/F"], capture_output=True, timeout=60, check=False)
+
 
 class LinuxDesk:
     """The launcher's own code with the Linux game (a rehearsal of the Windows check); xdotool on each player's X display."""
@@ -303,6 +312,13 @@ class LinuxDesk:
             except ProcessLookupError:
                 pass
         process.kill()
+
+    def end_outright(self, process):
+        """The launcher alone, as a crash ends it: SIGKILL, no code of its own runs."""
+        try:
+            os.kill(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
 
 
 # ------------------------------------------------------------------ one player: their profile, menu and games
@@ -833,6 +849,61 @@ def run(check, host, friend):
     return world, slot
 
 
+def launcher_ended(check, host):
+    """--launcher-ended (KNOWN_ISSUES MS-221), one player: a character, a Solo world entered and played (Save now), its game
+    left open; then the launcher alone is ended outright, as Task Manager's End task on EmeraldTogether.exe (Details) or a
+    crash ends it. The game must end with it: a game left behind can save nothing into its world, and EmeraldTogether
+    started again would open a second game of the same character beside it. EmeraldTogether started again opens its
+    menu, the Solo world plays on from the same save (CONTINUE, Save now: the world's next revision), the character's
+    latest save is the world's, and Exit ends it with code 0, no error recorded."""
+    host.start()
+    character = check.create_character(host)
+    host.choose(host.expect("main"), "solo")
+    host.choose(host.expect("solo"), "new")
+    screen = host.expect(("ask_text", "trade_rule"))
+    if screen["id"] == "trade_rule":
+        host.choose(screen, RULE)
+        screen = host.expect("ask_text")
+    host.key("enter")                          # the name offered ("World 1"): the field's Enter moves to Save
+    host.key("enter")
+    world = wait(lambda: host.world(host.worlds()[-1]["name"]) if host.worlds() else None, 60)
+    require(world and world["kind"] == "adventure", f"{host.name}: no Solo world was created")
+    host.log(f"Solo: created {world['name']} (this PC only: listens on {world['bind_address']})")
+    game, played = check.enter_and_play(host, world, 0, keep_open=True)
+    require(host.desk.alive(game[0]), f"{host.name}: the Solo game closed before its launcher was ended")
+    launcher = host.process.pid
+    began = time.monotonic()
+    host.desk.end_outright(host.process)
+    require(wait(lambda: host.process.poll() is not None, 30, step=0.25),
+            f"{host.name}: the launcher (pid {launcher}) did not end when ended outright")
+    ended = wait(lambda: not host.desk.alive(game[0]), 30, step=0.25)
+    seconds = round(time.monotonic() - began, 1)
+    if not ended:                              # the check leaves no game behind: its window closed as a player would
+        host.desk.close_game(game[0], game[1])
+        wait(lambda: not host.desk.alive(game[0]), 30, step=0.5)
+    require(ended, f"{host.name}: the game (pid {game[0]}) kept running 30 s after its launcher (pid {launcher}) was ended "
+                   "outright (KNOWN_ISSUES MS-221: a game left behind can save nothing into its world, and a launcher "
+                   "started again would open a second game of the character beside it)")
+    host.log(f"the launcher (pid {launcher}) ended outright while its Solo game ran: the game (pid {game[0]}) ended with it "
+             f"within {seconds} s")
+    check.picture("after-launcher-ended")
+    host.start()
+    host.choose(host.expect("main"), "solo")
+    host.choose(host.expect("solo"), world["world_id"])
+    _, again = check.play(host, world, 0, played["saved"])
+    host.expect("main", 60)
+    latest = next((c for c in host.characters() if c["character_id"] == character["character_id"]), None)
+    require(latest is not None, f"{host.name}: the character is missing from Characters")
+    require(latest["current"]["world_id"] == world["world_id"],
+            f"{host.name}: the character's latest save is not from {world['name']} ({latest['current']['world_id']})")
+    host.log(f"started again: {world['name']} played on from the same save (revision {played['saved']} -> {again['saved']}); "
+             "the character's latest save is the world's")
+    check.finish(host)
+    require(host.error_text() == "", f"{host.name}: an error was recorded: {host.error_text()[-2000:]}")
+    check.log("no error was recorded")
+    return dict(world=world["name"], game_ended_within_seconds=seconds, revisions=[played["saved"], again["saved"]])
+
+
 def installed_files(target):
     """Every installed file's SHA-256 by its path in the program folder (Inno Setup's own uninstaller left out)."""
     return {str(path.relative_to(target)).replace("\\", "/"): hashlib.sha256(path.read_bytes()).hexdigest()
@@ -988,6 +1059,9 @@ def main():
     parser.add_argument("--upgrade-to", type=Path, metavar="SETUP",
                         help="then install this newer Setup over the one --setup installed (an update) and play on from the "
                              "saves the older version made; with --linux, SETUP is 'same': the same program starts again")
+    parser.add_argument("--launcher-ended", action="store_true",
+                        help="one player: the launcher ended outright while its Solo game runs; the game must end with it, "
+                             "and EmeraldTogether started again plays on (KNOWN_ISSUES MS-221); --linux takes one --display")
     parser.add_argument("--linux-app", nargs=2, metavar=("INSTALLATION", "PROFILE"), help=argparse.SUPPRESS)
     args = parser.parse_args()
     if args.linux_app:
@@ -1003,8 +1077,9 @@ def main():
     check = host = friend = None
     try:
         if args.linux:
-            require(args.game and args.rom and args.manifest and len(args.display) == 2, "--linux needs --game, --rom, --manifest "
-                                                                                         "and two --display")
+            displays = 1 if args.launcher_ended else 2
+            require(args.game and args.rom and args.manifest and len(args.display) == displays,
+                    f"--linux needs --game, --rom, --manifest and {'one --display' if displays == 1 else 'two --display'}")
             desk = LinuxDesk(linux_application(args, work), args.display)
         else:
             require(os.name == "nt" and args.setup is not None, "this check runs on Windows with --setup (or use --linux)")
@@ -1025,12 +1100,16 @@ def main():
         report["hosted_on"] = "this PC only (--loopback)" if args.loopback else "this PC's local-network address"
         check.log(f"{report['platform']}: {'installed ' + args.setup.name + ' into ' + str(target) if not args.linux else 'Linux game'}")
         host = Player(check, "host", work / "host-profile")
-        friend = Player(check, "friend", work / "friend-profile")
+        friend = None if args.launcher_ended else Player(check, "friend", work / "friend-profile")
         for player in (host, friend):
-            player.private.mkdir(parents=True, exist_ok=True)
-            seed_rule(player)
-        world, slot = run(check, host, friend)
-        if args.upgrade_to is not None:
+            if player is not None:
+                player.private.mkdir(parents=True, exist_ok=True)
+                seed_rule(player)
+        if args.launcher_ended:
+            report["launcher_ended"] = launcher_ended(check, host)
+        else:
+            world, slot = run(check, host, friend)
+        if args.upgrade_to is not None and not args.launcher_ended:
             require(args.linux or args.upgrade_to.is_file(), f"no Setup file at {args.upgrade_to}")
             report["upgrade"] = upgrade(check, host, friend, None if args.linux else args.upgrade_to.resolve(), target, work,
                                         args.label, world, slot)

@@ -9,6 +9,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+from emerald_multiplayer import game_lifetime
 from emerald_multiplayer.checkpoint_mirror import MirrorError, MirrorLease
 from emerald_multiplayer.draft_runtime import DRAFT_SCRIPT, DraftRuntime, DraftRuntimeError
 from emerald_multiplayer.launcher_session import GameInstallation
@@ -91,6 +92,17 @@ class DraftRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse((self.runtime.directory / "pending-export.json").exists())
         with MirrorLease(self.runtime.save_path):
             pass
+
+    async def test_the_new_game_ends_with_this_launcher(self):
+        """KNOWN_ISSUES MS-221: the New Game is started so that it ends with the launcher, however the launcher ends."""
+        bound = []
+        with self.fixture(), patch("emerald_multiplayer.draft_runtime.game_lifetime.bind",
+                                   side_effect=lambda pid: bound.append(pid) or True):
+            async with self.runtime.open() as game:
+                self.assertEqual(await game.wait(), 0)
+                _, options = self.calls[0]
+                self.assertEqual(bound, [self.children[0].pid])
+                self.assertLessEqual(set(game_lifetime.spawn_options()), set(options))
 
     async def test_living_game_cannot_publish_even_a_valid_fixture_save(self):
         self.child_code = "import time; time.sleep(60)"
