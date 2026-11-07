@@ -115,3 +115,12 @@ on the host the world's folder.
       installers start the game there on an empty save without its connection to the launcher. Checked under Wine
       with such a folder, and on GitHub's Windows runner (run 377: both games loaded a save under "José Zoë" and
       two Chinese characters); never with a real account.
+- [ ] From the first installer with app `b77cb84` on, the PC's date set back (MS-218; set it right again afterwards):
+      with the date a day or more earlier, play and save twice, then Characters > your character > Back up now, and
+      save once more. Restore an earlier version lists the newest versions first, the copy made with Back up now
+      among them. Earlier installers deleted each new version as soon as it was written once 40 were kept. Tried
+      in the tests on Linux only.
+- [ ] From the first installer with app `bfc288e` on, the host's date changed during a Battle Tower battle (MS-219;
+      two PCs or two accounts: the friend starts a Tower floor, the host sets the PC's date a day forward while it
+      runs, then back): the friend's battle counts as it ends (a win stays a win). Earlier installers counted it as a
+      loss at once. Tried in the tests on Linux only.
