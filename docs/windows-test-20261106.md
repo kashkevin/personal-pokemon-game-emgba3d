@@ -16,7 +16,7 @@ on the host the world's folder.
 
 - [ ] A fresh install on PC 1: the launcher starts, the graphics check picks the 3D view on the graphics card (or offers
       Classic 2D), a new character plays the short introduction and saves; close; Continue loads the same place and party.
-- [ ] Setup run over the earlier build (any you installed before: run 322's, 334's or later, up to 369's): every
+- [ ] Setup run over the earlier build (any you installed before: run 322's, 334's or later, up to 373's): every
       character, save and world kept; a hosted world asks once to get ready for the new version (a backup first); the
       Solo world brings the character back; play on, save.
 - [ ] Uninstall, then install again: the private folder and everything in it are still there.
