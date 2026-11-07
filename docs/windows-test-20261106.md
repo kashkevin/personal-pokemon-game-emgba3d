@@ -102,4 +102,16 @@ on the host the world's folder.
 - [ ] From run 367's installer on, the host's disk full while a friend saves (MS-214; only if the host has a drive or a
       partition to fill and empty safely): the friend's launcher says the host's PC could not store this save (its
       disk may be full) and that the progress is kept on that PC; nothing is lost. Free the space, reopen the world:
-      the save arrives and play goes on. Tried only on a Linux test disk so far.
+      the save arrives and play goes on. Tried on a Linux test disk and on a 64 MB NTFS virtual disk on GitHub's
+      Windows runner (run 375), not on a PC.
+- [ ] From run 369's installer on, your own disk full while you save to a world (MS-215; only with a drive or a
+      partition you can fill and empty safely, the player's folder on it): Save now says this PC could not store
+      the save (its disk may be full), so it was not sent, and to keep the game open; nothing is lost and saving
+      goes on. Free the space and press Save now (or wait a minute for the autosave): the save is sent. Tried on a
+      Linux test disk and on the NTFS virtual disk of run 375, not on a PC.
+- [ ] From the first installer with engine `7b9f6bfa` on, a Windows account whose user name has an accent or another
+      script (MS-217; for example a new local account named José): install and play there - a new character, a
+      save, Continue - and the game opens the character's save and connects as on any other account. Earlier
+      installers start the game there on an empty save without its connection to the launcher. Checked under Wine
+      with such a folder; the Windows run checks the same on GitHub's runner from engine `7b9f6bfa` on; never with
+      a real account.
