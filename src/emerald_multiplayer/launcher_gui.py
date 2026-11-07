@@ -135,6 +135,10 @@ _TEXT = {
     # KNOWN_ISSUES MS-214: the host refused the commit because its world could not store it (storage_error)
     "save_host_storage": ("The host's PC could not store this save (its disk may be full). Your progress is kept on this PC: "
                           "close the game and reopen the world through Host Game or Join Game once the host has space."),
+    # KNOWN_ISSUES MS-215: this PC could not store the save (its disk full); nothing was sent and saving goes on
+    "save_local_storage": ("This PC could not store the save (its disk may be full), so it was not sent. Keep the game "
+                           "open: your progress since the last save is only in the game until a save works. Free some "
+                           "space on this PC, then press Save now, or wait for the next autosave."),
     "autosave_on": "Autosave is on: every 5 minutes, when you reach a safe place.",
     "autosave_off": "Autosave is off. Use Save now before closing the game.",
     "autosave_deferred": "Autosave is waiting for a safe place outside menus and battles.",

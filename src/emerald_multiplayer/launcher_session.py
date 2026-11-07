@@ -104,6 +104,8 @@ _MESSAGES = {
     "save_busy": "A character save is already running.",
     "save_recovery_required": "This character's save needs recovery before another save can start.",
     "save_host_storage": "The host could not store this character's save; it is kept on this PC until the world is reopened.",
+    "save_local_storage": ("This PC could not store this character's save (its disk may be full); nothing was sent. Free some "
+                           "space on this PC and save again; keep the game open until a save works."),
     "settings_unavailable": "This character's launcher settings could not be saved or read.",
     "settings_busy": "A settings change is already finishing.",
     "privacy_unavailable": "This character's location sharing choice could not be saved; the location is private for now.",
@@ -1795,7 +1797,9 @@ class LauncherSession:
             self._publish(SessionState.RUNNING, "saving", revision=self._revision)
         elif status.state is AutosaveState.DEFERRED:
             self._autosave_dispatched = False
-            self._publish(SessionState.RUNNING, "autosave_deferred", revision=self._revision)
+            # KNOWN_ISSUES MS-215: this PC could not store the save (its disk full); the next try waits a minute.
+            self._publish(SessionState.RUNNING, "save_local_storage" if status.code == "local_storage"
+                          else "autosave_deferred", revision=self._revision)
         elif status.state is AutosaveState.WAITING:
             # AutosaveScheduler has verified the typed exact completed result.
             if status.expected_revision not in {self._revision, self._revision + 1}:
@@ -2406,6 +2410,8 @@ class LauncherSession:
             if not saved:
                 # KNOWN_ISSUES MS-214: a host that could not store it (a full disk) is said; the save is kept here.
                 say("Host PC could not store it.|Kept on this PC: reopen later." if self._save_host_storage
+                    # KNOWN_ISSUES MS-215: this PC's disk full; nothing was sent, saving goes on once there is room.
+                    else "This PC could not store it.|Free some space, save again." if self._status.code == "save_local_storage"
                     else "Could not save on the host.|See the launcher window.")
             return
         reason = self._native_menu_reset_blocker()
@@ -2528,7 +2534,11 @@ class LauncherSession:
         except Exception as error:
             self.last_save_error = (f"{type(error).__name__} {getattr(error, 'code', '') or ''}: {error}")[:300]
             if isinstance(error, LiveSaveError) and error.safe_to_retry is True:
-                self._publish(SessionState.RUNNING, "save_not_ready", revision=self._revision)
+                # KNOWN_ISSUES MS-215: this PC could not store the save (its disk full). Nothing was sent and the game
+                # let the save go: saving goes on, and the player is told to make room rather than to close the game,
+                # which would end the progress kept only in the running game.
+                self._publish(SessionState.RUNNING, "save_local_storage" if error.code == "local_storage"
+                              else "save_not_ready", revision=self._revision)
             else:
                 self._fail_save(host_storage=getattr(error, "code", None) == "storage_error")
             return False

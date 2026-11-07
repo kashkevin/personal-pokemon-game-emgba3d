@@ -22,6 +22,10 @@ from .mailbox import Pose
 from .ownership import OWNERSHIP_PROFILE
 from .protocol import MAX_COUNTER
 
+# KNOWN_ISSUES MS-215: after this PC could not store a save (its disk full), the next try waits this long, not a poll:
+# each try freezes the game while its save is read.
+LOCAL_STORAGE_RETRY = 60.0
+
 
 class AutosaveError(ValueError):
     def __init__(self, code: str, message: str):
@@ -293,13 +297,16 @@ class AutosaveScheduler:
                         except LiveSaveError as error:
                             self._inflight = None
                             self._unchanged_session()
-                            if (error.code not in {"rom_busy", "rom_unsafe"}
+                            if (error.code not in {"rom_busy", "rom_unsafe", "local_storage"}
                                     or not getattr(error, "safe_to_retry", False)
                                     or self._pending_export()):
                                 raise
                             # Definite pre-journal refusal only; no unknown fate
                             # is silently retried or changed to a new revision.
                             self._due = True
+                            if error.code == "local_storage":
+                                # This PC could not store the save (MS-215): nothing was sent; try again later.
+                                self._eligible_at = self._now() + LOCAL_STORAGE_RETRY
                             self._publish(AutosaveState.DEFERRED, error.code)
                 if self._stop_requested:
                     break

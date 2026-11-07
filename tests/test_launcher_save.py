@@ -114,6 +114,32 @@ class LauncherSaveTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("could not store this save", status_text("save_host_storage"))
         self.assertNotEqual(status_text("save_host_storage"), status_text("session_failed"))
 
+    async def test_this_pcs_full_disk_is_said_and_saving_goes_on(self):
+        # KNOWN_ISSUES MS-215: this PC could not store the save's journal (its disk full); nothing was sent and the game
+        # let the save go. Saving does not stop (closing the game would end the progress kept only in it): the status
+        # names this PC's disk, and the next Save now works once there is room.
+        from emerald_multiplayer.launcher_gui import status_text
+        calls = []
+        async def save(coordinator, **fields):
+            calls.append(fields["expected_revision"])
+            if len(calls) == 1:
+                raise LiveSaveError("local_storage", "this PC could not store the save", safe_to_retry=True)
+            return await self.completed(coordinator, **fields)
+        async with self.playing() as (session, play):
+            with patch.object(Companion, "save_incarnation", new_callable=PropertyMock, return_value=100), \
+                    patch.object(LiveCheckpointCoordinator, "checkpoint", save):
+                self.assertFalse(await session.save())
+                self.assertEqual(session.status.code, "save_local_storage")
+                self.assertFalse(session._save_failed)
+                self.assertTrue(session.can_save)
+                self.assertIn("local_storage", session.last_save_error)
+                self.assertTrue(await session.save())
+                self.assertEqual(calls, [1, 1])
+                self.assertEqual(session.status.code, "saved")
+                self.assertEqual(session.status.revision, 2)
+        self.assertIn("could not store the save", status_text("save_local_storage"))
+        self.assertIn("Keep the game", status_text("save_local_storage"))
+
     async def test_other_refused_commits_keep_the_general_recovery_status(self):
         from emerald_multiplayer.checkpoint_client import CheckpointError
         async with self.playing() as (session, play):

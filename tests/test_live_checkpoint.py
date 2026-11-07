@@ -473,6 +473,91 @@ class LiveCheckpointTests(unittest.IsolatedAsyncioTestCase):
         self.companion.control_hook = None
         self.assertEqual((await self.coordinator.recover()).revision, 1)
 
+    def watch_emergency(self):
+        """A host-loss saver stand-in that records the ordinary checkpoint hooks (emergency_save.py's contract)."""
+        calls = []
+        self.companion._emergency_controller = SimpleNamespace(
+            checkpoint_started=lambda session, operation, base: calls.append(("started", operation)),
+            checkpoint_refused=lambda session, operation: calls.append(("refused", operation)),
+            checkpoint_completed=lambda session, operation, metadata: calls.append(("completed", operation)))
+        return calls
+
+    async def test_this_pcs_full_disk_refuses_definitely_releases_the_game_and_leaves_nothing(self):
+        # KNOWN_ISSUES MS-215: the journal cannot be written (ENOSPC). Nothing is sent (the journal precedes the upload),
+        # the game lets the export go, the bytes written before the failure are removed, the host-loss saver forgets the
+        # export, and the refusal is a definite one: the next save starts once there is room.
+        import errno
+        from emerald_multiplayer import live_checkpoint
+        emergency = self.watch_emergency()
+        real = live_checkpoint._atomic
+        for failing in (1, 2):           # the save's 128 KB, then the journal after them
+            writes = []
+            def atomic(path, payload, **kwargs):
+                writes.append(path.name)
+                if len(writes) == failing:
+                    raise OSError(errno.ENOSPC, "No space left on device")
+                return real(path, payload, **kwargs)
+            with self.subTest(failing=failing), patch.object(live_checkpoint, "_atomic", atomic):
+                original, before = self.companion.rom_flash, list(self.companion.server_calls)
+                with self.assertRaises(LiveSaveError) as caught:
+                    await self.coordinator.checkpoint(expected_revision=1)
+                self.assert_code(caught, "local_storage")
+                self.assertTrue(caught.exception.safe_to_retry)
+                self.assertEqual(self.operations()[-1], Opcode.CANCEL)
+                self.assertIsNone(self.companion.mode)
+                self.assertEqual(self.companion.rom_flash, original)
+                self.assertEqual([op for op, _ in self.companion.server_calls[len(before):]], ["info"])
+                self.assertEqual(self.companion.head().revision, 1)
+                self.assertFalse(self.coordinator.pending_path.exists())
+                self.assertEqual(sorted(self.coordinator.directory.iterdir()), [])
+                self.assertEqual(emergency[-2:], [("started", emergency[-2][1]), ("refused", emergency[-2][1])])
+                self.assertIsNone(self.companion._live_save_owner)
+                self.assertFalse(self.companion.live_checkpoint_lock.locked())
+        result = await self.coordinator.checkpoint(expected_revision=1)
+        self.assertEqual(result.metadata["revision"], 2)
+        self.assertEqual(emergency[-1], ("completed", result.operation_id))
+
+    async def test_a_journal_that_stands_after_a_write_error_keeps_the_uncertain_path(self):
+        # The journal was replaced, then its folder's sync failed: it stands, so the save may be resolved later from it
+        # and the refusal is not a definite one.
+        import errno
+        from emerald_multiplayer import live_checkpoint
+        emergency = self.watch_emergency()
+        real = live_checkpoint._atomic
+        def atomic(path, payload, **kwargs):
+            real(path, payload, **kwargs)
+            if path.name == "pending-export.json":
+                raise OSError(errno.EIO, "folder sync failed")
+        with patch.object(live_checkpoint, "_atomic", atomic):
+            with self.assertRaises(OSError) as caught:
+                await self.coordinator.checkpoint(expected_revision=1)
+        self.assertNotIsInstance(caught.exception, LiveSaveError)
+        self.assertTrue(self.coordinator.pending_path.exists())
+        self.assertEqual(self.operations()[-1], Opcode.CANCEL)
+        self.assertNotIn("refused", [kind for kind, _ in emergency])
+        self.assertEqual((await self.coordinator.resolve_pending())["revision"], 2)
+
+    async def test_host_loss_saver_forgets_only_an_export_the_game_let_go(self):
+        # A failure before the journal whose CANCEL the game acknowledged: the game holds nothing to promote, so the
+        # saver forgets the export. A CANCEL with no reply: the game may still hold it, and the saver keeps it.
+        emergency = self.watch_emergency()
+        async def lose_read(control):
+            if control.opcode == Opcode.READ:
+                raise ConnectionError("bridge lost mid-read")
+        self.companion.control_hook = lose_read
+        with self.assertRaises(ConnectionError):
+            await self.coordinator.checkpoint(expected_revision=1)
+        self.assertEqual(self.operations()[-1], Opcode.CANCEL)
+        self.assertEqual([kind for kind, _ in emergency], ["started", "refused"])
+        async def lose_read_and_cancel(control):
+            if control.opcode in (Opcode.READ, Opcode.CANCEL):
+                raise ConnectionError("bridge lost")
+        self.companion.control_hook = lose_read_and_cancel
+        with self.assertRaises(ConnectionError):
+            await self.coordinator.checkpoint(expected_revision=1)
+        self.assertEqual([kind for kind, _ in emergency], ["started", "refused", "started"])
+        self.companion.control_hook = None
+
     async def test_canceled_server_commit_ack_retains_intent_for_exact_resolution(self):
         reached, resume = asyncio.Event(), asyncio.Event()
         async def pause_ack():

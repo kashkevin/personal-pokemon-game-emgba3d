@@ -239,10 +239,13 @@ class LiveCheckpointCoordinator:
             raise LiveSaveError("final_crc", "the game did not acknowledge the exact complete Flash readback")
 
     async def _cancel(self, session, operation_id, revision):
+        """True when the game acknowledged the CANCEL (it holds nothing of this operation any more)."""
         # This cannot undo a published import. The ROM finishes/reloads committed
         # state and merely releases it; an incomplete stage discards its bank.
         with suppress(ConnectionError, asyncio.TimeoutError, LiveSaveError, ValueError):
             await self._command(session, operation_id, revision, Opcode.CANCEL, canceled=True, timeout=20)
+            return True
+        return False
 
     def _intent(self, session, operation_id, base_revision, payload):
         return {
@@ -412,7 +415,20 @@ class LiveCheckpointCoordinator:
                 if counter != frozen.metadata.counter or rotation != (-first_sector_id) % 14:
                     raise LiveSaveError("export_metadata", "Flash does not match the game's frozen-save metadata")
                 intent = self._intent(session, operation_id, base, payload)
-                self._save_pending(intent, payload)
+                try:
+                    self._save_pending(intent, payload)
+                except OSError as error:
+                    # KNOWN_ISSUES MS-215: this PC could not store the save's journal (its disk full, no write
+                    # access). Nothing was sent: the journal precedes the upload. Once the game has let the export go
+                    # and no journal stands, the save is refused as definitely as a busy game is: the running game
+                    # keeps the progress, and another save may start when there is room.
+                    finished = True                # released here, not by the finally below
+                    if not await self._release_unsent(session, operation_id, revision, emergency):
+                        raise
+                    with suppress(OSError):        # the 128 KB written before the journal failed, if any
+                        (self.directory / (operation_id + ".flash")).unlink(missing_ok=True)
+                    raise LiveSaveError("local_storage", "this PC could not store the save (its disk may be full)",
+                                        safe_to_retry=True) from error
                 metadata = await self.client.upload(payload, base, transaction_id=operation_id)
                 self._same_session(session)
                 await self._end(session, operation_id, revision, payload)
@@ -423,7 +439,18 @@ class LiveCheckpointCoordinator:
                 return LiveExportResult(operation_id, metadata, frozen.sha256, frozen.state_sha256, begin.data[8:].hex())
             finally:
                 if not finished:
-                    await self._cancel(session, operation_id, revision)
+                    await self._release_unsent(session, operation_id, revision, emergency)
+
+    async def _release_unsent(self, session, operation_id, revision, emergency) -> bool:
+        """CANCEL this lifecycle's export. True when the game acknowledged it and no journal stands (so nothing of it was
+        sent: the journal precedes the upload). Then the host-loss saver forgets the export: the game no longer holds
+        it and refuses to promote one it has let go (a permanent unsaved hold), so a host loss from now on needs a new
+        emergency export (KNOWN_ISSUES MS-215)."""
+        if not await self._cancel(session, operation_id, revision) or self.pending_path.exists():
+            return False
+        if emergency is not None:
+            emergency.checkpoint_refused(session, operation_id)
+        return True
 
     async def resolve_pending(self) -> dict[str, Any] | None:
         """Retry exactly the stored bytes/base/UUID; never adopt a newer base."""

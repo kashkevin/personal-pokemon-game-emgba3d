@@ -238,6 +238,40 @@ class AutosaveTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(self.coordinator.calls[-2:], [1, 1])
             await scheduler.stop()
 
+    async def test_this_pcs_full_disk_defers_a_minute_then_retries_the_same_base(self):
+        # KNOWN_ISSUES MS-215: the coordinator refused the save because this PC could not store its journal (nothing was
+        # sent, the game let the save go). Saving goes on: the same base is tried again, a minute later, not at every
+        # poll (each try freezes the game while its save is read).
+        from emerald_multiplayer.autosave import LOCAL_STORAGE_RETRY
+        scheduler = self.scheduler(interval=1000)
+        self.coordinator.error = LiveSaveError("local_storage", "this PC could not store the save", safe_to_retry=True)
+        await scheduler.start()
+        scheduler.request()
+        await wait_until(lambda: scheduler.status.code == "local_storage")
+        self.assertIs(scheduler.status.state, AutosaveState.DEFERRED)
+        self.assertEqual(self.coordinator.calls, [1])
+        await asyncio.sleep(.08)                         # several polls: no new try before the minute
+        self.assertEqual(self.coordinator.calls, [1])
+        self.clock.value += LOCAL_STORAGE_RETRY + 1
+        self.fresh()
+        await wait_until(lambda: scheduler.status.completed == 1)
+        self.assertEqual(self.coordinator.calls, [1, 1])
+        self.assertEqual(scheduler.status.expected_revision, 2)
+
+    async def test_local_storage_unmarked_or_with_a_journal_is_terminal(self):
+        for marked, journal in ((False, False), (True, True)):
+            scheduler = self.scheduler()
+            self.coordinator.error = LiveSaveError("local_storage", "this PC could not store the save", safe_to_retry=marked)
+            if journal:
+                self.coordinator.hook = lambda: self.coordinator.pending_path.write_text("private durable intent")
+            await scheduler.start()
+            scheduler.request()
+            await wait_until(lambda: scheduler.status.state is AutosaveState.RECOVERY_REQUIRED)
+            await scheduler.stop()
+            self.coordinator.hook = None
+            if journal:
+                self.coordinator.pending_path.unlink()
+
     async def test_busy_with_durable_journal_and_uncertain_errors_stop_instead_of_retrying(self):
         for error in (LiveSaveError("rom_busy", "late refusal"), asyncio.TimeoutError(),
                       LiveSaveError("rom_canceled", "cancelled operation"), ValueError("fault")):
