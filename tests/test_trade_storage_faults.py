@@ -159,6 +159,41 @@ class TradeStorageFaultTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn(True, outcomes)
         self.assertIn(False, outcomes)
 
+    async def test_a_players_disk_full_at_each_of_the_trades_journal_writes_leaves_every_outcome_whole(self):
+        # The other side of it (KNOWN_ISSUES MS-215's section in TEST_LEDGER): each of the trade's local journal writes
+        # (the journal and its immutable files, both players) refused in turn with ENOSPC, then room again.
+        real = live_trade._atomic
+        written = []
+
+        def counting(path, payload, **kwargs):
+            written.append(path.name)
+            return real(path, payload, **kwargs)
+
+        fixture = self.fixture()
+        with patch.object(live_trade, "_atomic", counting):
+            self.assertIsNone(await self.trade(fixture))
+        self.assertGreater(len(written), 20)
+        outcomes = []
+        for target in range(len(written)):
+            fixture = self.fixture()
+            before = [serials(companion.head().payload) for companion in fixture.companions]
+            seen = []
+
+            def refusing(path, payload, **kwargs):
+                seen.append(path.name)
+                if len(seen) == target + 1:
+                    raise OSError(errno.ENOSPC, "No space left on device")
+                return real(path, payload, **kwargs)
+
+            case = f"journal write {target + 1} of {len(written)}"
+            with patch.object(live_trade, "_atomic", refusing):
+                failure = await self.trade(fixture)
+            self.assertIsInstance(failure, OSError, case)
+            await self.settle(fixture)
+            outcomes.append(self.assert_whole(fixture, before, case))
+        self.assertIn(True, outcomes)
+        self.assertIn(False, outcomes)
+
     async def test_the_apply_receipt_refused_on_either_side_finishes_on_resume(self):
         for side in (0, 1):
             fixture = self.fixture()
