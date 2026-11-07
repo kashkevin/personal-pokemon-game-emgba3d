@@ -14,7 +14,10 @@ Runs, in order, and fails on the first thing that is wrong:
      extra), and the Start menu shortcut exists;
   4. the installed EmeraldTogether.exe starts and stays up for --seconds; with --expect-shell (the
      full package) exactly one child runs the game's in-game menu (`--shell`); the launcher made its
-     private folder in the temporary profile;
+     private folder in the temporary profile; then it is started a second time on the same files, as
+     a second click on the icon (KNOWN_ISSUES MS-220): the second shows its message box saying the
+     first is open (read from the window, then closed as OK) and ends with code 0, the first stays up
+     with its one menu;
   5. silent upgrade/repair over it: a stray library planted in the game folder is removed, a deleted
      file comes back, and the files match again;
   6. silent uninstall: the program files, shortcut and uninstall entry are gone, and the planted
@@ -95,6 +98,56 @@ class Windows:
     def stop_tree(self, pid):
         subprocess.run(["taskkill", "/PID", str(int(pid)), "/T", "/F"], capture_output=True, timeout=60, check=False)
 
+    def message_box(self, pid, timeout):
+        """(title, text) of the message box process pid shows within timeout seconds, closed as OK; None if none shows."""
+        import ctypes
+        from ctypes import wintypes
+        user32 = ctypes.windll.user32
+        visit_type = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+        user32.EnumWindows.argtypes = [visit_type, wintypes.LPARAM]
+        user32.EnumChildWindows.argtypes = [wintypes.HWND, visit_type, wintypes.LPARAM]
+        user32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
+        user32.GetClassNameW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
+        user32.GetWindowTextLengthW.argtypes = [wintypes.HWND]
+        user32.GetWindowTextW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
+        user32.IsWindowVisible.argtypes = [wintypes.HWND]
+        user32.PostMessageW.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
+
+        def class_of(hwnd):
+            buffer = ctypes.create_unicode_buffer(256)
+            user32.GetClassNameW(hwnd, buffer, 256)
+            return buffer.value
+
+        def text_of(hwnd):
+            buffer = ctypes.create_unicode_buffer(user32.GetWindowTextLengthW(hwnd) + 1)
+            user32.GetWindowTextW(hwnd, buffer, len(buffer))
+            return buffer.value
+
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            dialogs = []
+
+            def visit(hwnd, _):
+                owner = wintypes.DWORD()
+                user32.GetWindowThreadProcessId(hwnd, ctypes.byref(owner))
+                if owner.value == int(pid) and user32.IsWindowVisible(hwnd) and class_of(hwnd) == "#32770":
+                    dialogs.append(hwnd)
+                return True
+            user32.EnumWindows(visit_type(visit), 0)
+            if dialogs:
+                texts = []
+
+                def child(hwnd, _):
+                    if class_of(hwnd) == "Static" and text_of(hwnd):
+                        texts.append(text_of(hwnd))
+                    return True
+                user32.EnumChildWindows(dialogs[0], visit_type(child), 0)
+                title = text_of(dialogs[0])
+                user32.PostMessageW(dialogs[0], 0x0010, 0, 0)        # WM_CLOSE: a box with only OK takes it as OK
+                return title, " ".join(texts)
+            time.sleep(0.5)
+        return None
+
     def installed(self):
         import winreg
         try:
@@ -166,6 +219,28 @@ def _check(setup, hashes, work, expect_shell, seconds, system, log, report):
         if expect_shell:
             require(shells == 1, f"expected exactly one in-game menu process (game --shell), found {shells}")
         step("start", seconds=seconds, menu_processes=shells)
+        # A second start on the same files, as a second click on the icon (KNOWN_ISSUES MS-220): it says the first is
+        # open and ends; the first keeps its one menu.
+        second = system.start([str(target / "EmeraldTogether.exe")], env, str(target))
+        try:
+            shown = system.message_box(second.pid, 90)
+            require(shown is not None, "a second EmeraldTogether.exe on the same files showed no message "
+                                       f"(it {'is still running' if second.poll() is None else f'exited with code {second.poll()}'})")
+            title, text = shown
+            require("already open" in text, f"the second start's message was not that the first is open: {title!r}: {text!r}")
+            for _ in range(30):
+                if second.poll() is not None:
+                    break
+                system.sleep(1)
+            require(second.poll() == 0, f"the second start did not end with code 0 after its message ({second.poll()})")
+            require(process.poll() is None, f"the first EmeraldTogether.exe ended when the second started ({process.poll()})")
+            again = system.shell_children(process.pid)
+            if expect_shell:
+                require(again == 1, f"the first launcher's in-game menu processes after the second start: {again}, not 1")
+            step("second start", message=text, exit_code=second.poll(), first_menu_processes=again)
+        finally:
+            if second.poll() is None:
+                system.stop_tree(second.pid)
     finally:
         system.stop_tree(process.pid)
         system.sleep(3)                                   # let the stopped processes release their files

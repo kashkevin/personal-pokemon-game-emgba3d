@@ -19,8 +19,8 @@ def sha(path):
 
 
 class FakeProcess:
-    def __init__(self, code=None):
-        self.pid, self.code = 4242, code
+    def __init__(self, code=None, pid=4242):
+        self.pid, self.code = pid, code
 
     def poll(self):
         return self.code
@@ -37,10 +37,18 @@ class FakeWindows:
         self.exit_code, self.shells, self.stopped = None, 1, []
         self.uninstall_also = None
         self.setup_extra = None
+        self.processes = []
+        # A second launcher on the same files (MS-220): its message box, and its exit code once the box is closed.
+        self.second_message = ("EmeraldTogether", "EmeraldTogether is already open on this PC. Its window may be behind "
+                                                  "other windows or minimized on the taskbar.")
+        self.second_exit = 0
+        self.first_ends_on_second = False
 
     def run(self, command, timeout):
         program = Path(command[0])
         if program.name.startswith("EmeraldTogether-Setup"):
+            if not self.is_installed:
+                self.processes = []                     # a fresh install: a new check, its launchers started anew
             target = Path(next(part[5:] for part in command if part.startswith("/DIR=")))
             shutil.rmtree(target / "_internal", ignore_errors=True)
             shutil.copytree(self.package, target, dirs_exist_ok=True)
@@ -73,7 +81,18 @@ class FakeWindows:
         assert Path(command[0]).name == "EmeraldTogether.exe" and Path(command[0]).is_file()
         (Path(env["LOCALAPPDATA"]) / "PokemonPrivate" / "launcher").mkdir(parents=True, exist_ok=True)
         (Path(env["LOCALAPPDATA"]) / "PokemonPrivate" / "launcher" / "shell-prefs.json").write_text("{}")
-        return FakeProcess(self.exit_code)
+        process = FakeProcess(self.exit_code if not self.processes else None, 4242 + len(self.processes))
+        self.processes.append(process)
+        return process
+
+    def message_box(self, pid, timeout):
+        assert len(self.processes) == 2 and pid == self.processes[1].pid
+        second = self.processes[1]
+        if self.first_ends_on_second:
+            self.processes[0].code = 1
+        if self.second_message is not None:
+            second.code = self.second_exit
+        return self.second_message
 
     def shell_children(self, pid):
         return self.shells
@@ -116,7 +135,10 @@ class InstallerCheckTests(unittest.TestCase):
     def test_install_start_repair_uninstall_keeps_player_data(self):
         report = self.run_check(expect_shell=True)
         self.assertEqual([step["step"] for step in report["steps"]],
-                         ["temporary profile", "install", "start", "repair", "uninstall"])
+                         ["temporary profile", "install", "start", "second start", "repair", "uninstall"])
+        second = report["steps"][3]
+        self.assertIn("already open", second["message"])
+        self.assertEqual((second["exit_code"], second["first_menu_processes"]), (0, 1))
         self.assertEqual(report["result"], "passed")
         self.assertEqual(json.loads((self.work / "installer-check.json").read_text())["result"], "passed")
         data = self.work / "LocalAppData" / "PokemonPrivate"
@@ -154,6 +176,23 @@ class InstallerCheckTests(unittest.TestCase):
         shutil.rmtree(self.work)
         self.system.is_installed = False
         self.assertEqual(self.run_check(expect_shell=False)["result"], "passed")   # smoke: no game to host the menu
+
+    def test_a_second_start_must_say_the_first_is_open_end_and_leave_the_first_running(self):
+        # KNOWN_ISSUES MS-220: a second click on the icon while the first launcher runs
+        self.system.second_message = None                                   # no message box: it opened a second menu
+        self.assert_fails("showed no message", expect_shell=True)
+        self.assertEqual(self.system.stopped, [4243, 4242])                 # the second, still running, stopped too
+        for change, text in ((dict(second_message=("EmeraldTogether", "Something else happened.")), "not that the first is open"),
+                             (dict(second_exit=None), "did not end with code 0"),
+                             (dict(first_ends_on_second=True), "the first EmeraldTogether.exe ended")):
+            with self.subTest(change=change):
+                shutil.rmtree(self.work)
+                self.system.is_installed, self.system.stopped = False, []
+                self.system.second_message = FakeWindows(self.package, self.root).second_message
+                self.system.second_exit, self.system.first_ends_on_second = 0, False
+                for name, value in change.items():
+                    setattr(self.system, name, value)
+                self.assert_fails(text, expect_shell=True)
 
     def test_verify_installed_names_each_difference(self):
         target = self.root / "installed"
