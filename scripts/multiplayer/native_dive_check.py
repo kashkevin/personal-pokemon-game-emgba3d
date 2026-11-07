@@ -15,7 +15,16 @@ to be looked at; the script checks what the network carried:
      and "walk" in a menu, which every other game drew standing as on land);
   3. A's companion receives B's presence as "dive" and gives A's game the underwater movement (the mailbox's mode 4),
      drawn, on the field and in the menu alike;
-  4. A's pictures were all taken.
+  4. B publishes the Pokemon carrying it under the water (the mount state "carrier", 2, with its species: the Lapras
+     of the test party, which knows Surf) and A's companion receives it, so that A's game draws B on it as the
+     silhouette, as each game draws its own diver (KNOWN_ISSUES MS-181's last part; engines before it published no
+     carrier under the water and A drew B with the original's underwater look, the blob drawn in);
+  5. A's pictures were all taken.
+
+With --scenario surface (KNOWN_ISSUES MS-181's last part), both start on the deep water of Route 124's surface (A at
+42,5, B at 43,6, each with a Wailord that knows Dive) and dive (the field's prompt answered with A), so that each has
+the Pokemon that dove carrying them under the water; then B swims (south, west, back) and opens its START menu, and
+A takes a picture every 6 frames from frame 700. Check 4 then requires B's carrier (Wailord) under the water.
 
     PYTHONPATH=src python scripts/multiplayer/native_dive_check.py \\
         --game ../engine/pokeemerald-mp-bfxtest --rom ../engine/pokeemerald.gba --manifest manifest.json \\
@@ -39,6 +48,29 @@ from emerald_multiplayer.server import ServerConfig, WorldServer
 
 UNDERWATER_ROUTE_124 = (0, 50)
 A_AT, B_AT = (38, 16), (42, 16)                 # an open stretch of the sea floor (rows 16-18, x 36-50)
+
+
+def after_first_dive(timeline, key):
+    """The rows from the first in which `key` (B as published, or as A received it) says "dive" under the water of
+    Route 124 on the scenario's stretch of the sea floor."""
+    rows = [r for r in timeline if r[key] and tuple(r[key][2:4]) == UNDERWATER_ROUTE_124 and on_sea_floor(r[key])]
+    first = next((i for i, r in enumerate(rows) if r[key][0] == "dive"), len(rows))
+    return rows[first:]
+
+
+def arrival(timeline, key):
+    """What `key` said under the water before its first "dive" there (the Dive's own arrival)."""
+    rows = [r for r in timeline if r[key] and tuple(r[key][2:4]) == UNDERWATER_ROUTE_124]
+    first = next((i for i, r in enumerate(rows) if r[key][0] == "dive"), len(rows))
+    return sorted({tuple(r[key][:2]) for r in rows[:first]}), (round(rows[first]["t"] - rows[0]["t"], 3)
+                                                                if rows and first < len(rows) else None)
+
+
+def on_sea_floor(fields) -> bool:
+    """A pose (movement, activity, group, number, x, y) on that stretch of the sea floor."""
+    return SCENARIO["floor"][0] <= fields[4] <= SCENARIO["floor"][1] and SCENARIO["floor"][2] <= fields[5] <= SCENARIO["floor"][3]
+
+
 FRAMES = 1500
 LAPRAS = 131
 A_KEYS = ",".join(["600:RIGHT"])                # face east, toward B
@@ -53,8 +85,32 @@ A_SHOTS = ",".join(str(f) for f in range(900, 1360, 6))
 CONFIG = "borderBackground=0\nbackgroundOrder=2\nfullscreen=0\nwindowScale=2\nintegerScale=0\nvsync=0\nborder=1\n" \
          "volume=0\ncryVolume=0\n"
 
+# Diving from the surface (KNOWN_ISSUES MS-181's last part): Route 124's deep water at 42-43,5-6, a 2x2 patch of dive
+# spots with the sea floor free under it; Wailord (321) knowing Dive (291) carries each player down.
+ROUTE_124, WAILORD = (0, 39), 321
+SURFACE_A, SURFACE_B = (42, 5), (43, 6)
+DIVE_KEYS = ["130:A", "200:A", "270:A", "340:A"]          # the prompt: the sea is deep here, use Dive? yes; its text
+SURFACE_A_KEYS = ",".join(DIVE_KEYS + ["600:DOWN"])       # down, face south toward B
+SURFACE_B_KEYS = ",".join(DIVE_KEYS + [
+    "700:DOWN", "712:DOWN",                               # turn south, one tile
+    "800:LEFT", "812:LEFT",                               # turn west, one tile
+    "900:RIGHT", "912:RIGHT",                             # back east
+    "1000:UP", "1012:UP",                                 # back north, where B dove
+    "1100:START", "1250:B",                               # the START menu open for a while, closed
+])
+SCENARIOS = {
+    "warp": dict(at=(A_AT, B_AT), map=UNDERWATER_ROUTE_124, warp_id=-1, party=f"{LAPRAS}:40:v57", keys=(A_KEYS, B_KEYS),
+                 shots=A_SHOTS, first=900, floor=(36, 50, 16, 18), carrier=LAPRAS),
+    "surface": dict(at=(SURFACE_A, SURFACE_B), map=ROUTE_124, warp_id=0, party=f"{WAILORD}:40:v291",
+                    keys=(SURFACE_A_KEYS, SURFACE_B_KEYS), shots=",".join(str(f) for f in range(700, 1360, 6)), first=700,
+                    floor=(38, 48, 2, 10), carrier=WAILORD),
+}
+SCENARIO = SCENARIOS["warp"]
+
 
 async def run(args: argparse.Namespace) -> None:
+    global SCENARIO
+    SCENARIO = SCENARIOS[args.scenario]
     root = args.output.resolve()
     if "/multiplayer-proof/" not in str(root) + "/" or root.exists():
         raise ValueError("choose a new private multiplayer-proof output directory")
@@ -91,16 +147,17 @@ async def run(args: argparse.Namespace) -> None:
             rundir = root / f"client-{i}"
             rundir.mkdir()
             (rundir / "pokeemerald.cfg").write_text(CONFIG)
-            x, y = A_AT if i == 0 else B_AT
+            x, y = SCENARIO["at"][i]
+            group, number = SCENARIO["map"]
             environment = dict(os.environ, DISPLAY=display, SDL_AUDIODRIVER="dummy", PKMN_NOSCENE="1",
                                PKMN_TEST_EXIT="1", PKMN_TEST_BATTLE=f"field:{FRAMES}", PKMN_TEST_AUTOPILOT="1",
-                               PKMN_TEST_BATTLE_DELAY="100", PKMN_TEST_PARTY=f"{LAPRAS}:40:v57",
-                               PKMN_TEST_WARP=f"{UNDERWATER_ROUTE_124[0]}:{UNDERWATER_ROUTE_124[1]}:-1:{x}:{y}",
+                               PKMN_TEST_BATTLE_DELAY="100", PKMN_TEST_PARTY=SCENARIO["party"],
+                               PKMN_TEST_WARP=f"{group}:{number}:{SCENARIO['warp_id']}:{x}:{y}",
                                PKMN_TEST_BADGES="8", PKMN_TEST_OWE_NO_BATTLE="1",
                                PKMN_TEST_LOG=str(rundir / "test.log"),
                                PKMN_TEST_MEGA_SHOT_STEM=str(rundir / "shot"),
-                               PKMN_TEST_FIELD_KEYS=B_KEYS if i == 1 else A_KEYS,
-                               PKMN_TEST_FIELD_SHOTS=A_SHOTS if i == 0 else "")
+                               PKMN_TEST_FIELD_KEYS=SCENARIO["keys"][i],
+                               PKMN_TEST_FIELD_SHOTS=SCENARIO["shots"] if i == 0 else "")
             log = (root / f"client-{i}.log").open("wb")
             processes.append(subprocess.Popen([str(args.game), "--save", str(copy), "--bridge", str(bridge)],
                                               cwd=rundir, env=environment, stdout=log, stderr=subprocess.STDOUT))
@@ -119,10 +176,11 @@ async def run(args: argparse.Namespace) -> None:
                                                    published["x"], published["y"]),
                    None if seen is None else (seen["movement_mode"], seen["activity"], seen["map_group"], seen["map_number"],
                                               seen["x"], seen["y"]),
-                   peer_modes)
+                   peer_modes,
+                   None if seen is None else (seen.get("mount_state"), seen.get("mount_species"), seen.get("mount_flags")))
             if row != last:
                 timeline.append(dict(t=round(time.monotonic() - started, 3), b_publishes=row[0], a_receives=row[1],
-                                     a_game_modes=row[2]))
+                                     a_game_modes=row[2], a_receives_mount=row[3]))
                 last = row
             await asyncio.sleep(.02)
         (root / "timeline.json").write_text(json.dumps(timeline, indent=1) + "\n")
@@ -136,20 +194,26 @@ async def run(args: argparse.Namespace) -> None:
                 raise AssertionError(f"client {i}'s bridge disconnected: "
                                      f"{text[text.index('bridge disconnected'):].splitlines()[0]}")
         record("both games stayed connected to their companions")
-        under = [r for r in timeline if r["b_publishes"] and tuple(r["b_publishes"][2:4]) == UNDERWATER_ROUTE_124]
+        under = after_first_dive(timeline, "b_publishes")
         if not under:
             raise AssertionError("B never published a pose under the water of Route 124")
         # Only the states the other games draw count: arriving through the warp, B's first pose on the new map can still
-        # say "walk" for a frame, as a "transition" nobody draws (mailbox.DRAWN_ACTIVITIES).
+        # say "walk" for a frame, as a "transition" nobody draws (mailbox.DRAWN_ACTIVITIES); the test's warp straight
+        # from a menu on land (not a Dive) can name the new map with the land's place and activity for one sample (the
+        # stretch of sea floor below leaves that out); and a Dive from the surface names the new map for a few samples
+        # while its message box is still a "menu" and the movement still "surf" (about 0.1 s; recorded as
+        # "arrival"): from B's first "dive" there on.
         modes = sorted({tuple(r["b_publishes"][:2]) for r in under})
         drawn = [mode for mode in modes if mode[1] in ("overworld", "menu")]
         if ("dive", "overworld") not in drawn or any(mode != "dive" for mode, _ in drawn):
             raise AssertionError(f"B under the water published {modes}")
         if ("dive", "menu") not in drawn:
             raise AssertionError(f"B's START menu under the water was not published as dive in a menu: {modes}")
-        record("B published dive on the field and in its menu", modes=modes)
+        states, seconds = arrival(timeline, "b_publishes")
+        record("B published dive on the field and in its menu", modes=modes,
+               arrival=dict(before_first_dive=states, seconds=seconds))
         # B walks on land (the save's place) until the warp under the water: only the underwater part is checked
-        below = [r for r in timeline if r["a_receives"] and tuple(r["a_receives"][2:4]) == UNDERWATER_ROUTE_124]
+        below = after_first_dive(timeline, "a_receives")
         received = sorted({tuple(r["a_receives"][:2]) for r in below})
         drawn = [mode for mode in received if mode[1] in ("overworld", "menu")]
         if ("dive", "overworld") not in drawn or ("dive", "menu") not in drawn \
@@ -161,11 +225,21 @@ async def run(args: argparse.Namespace) -> None:
         if (4, 1) not in given or any(mode != 4 for mode, drawn_flag in given if drawn_flag):
             raise AssertionError(f"A's game was given B as {given} (mailbox mode, drawn), not the underwater mode 4")
         record("A's game was given B under the water (mailbox mode 4, drawn)", given=given)
+        # B's carrier under the water (mount state 2, "carrier", with its species), as A's companion received it while B
+        # was there on the field
+        carriers = sorted({tuple(r["a_receives_mount"]) for r in below
+                           if r["a_receives_mount"] and tuple(r["a_receives"][:2]) == ("dive", "overworld")})
+        carried = any(mount[:2] == (2, SCENARIO["carrier"]) for mount in carriers)
+        if args.expect_carrier and not carried:
+            raise AssertionError(f"A received no carrier for B under the water: {carriers}")
+        record("A's companion received B's carrier under the water" if carried
+               else "no carrier received for B under the water (an engine before KNOWN_ISSUES MS-181's last part, or no "
+                    "Pokemon carrying B: the warp scenario's party is made after its arrival)", mounts=carriers)
         pictures = sorted(p.name for p in (root / "client-0").glob("shot-*.png"))
-        if len(pictures) != len(A_SHOTS.split(",")):
-            raise AssertionError(f"{len(pictures)} of {len(A_SHOTS.split(','))} pictures")
+        if len(pictures) != len(SCENARIO["shots"].split(",")):
+            raise AssertionError(f"{len(pictures)} of {len(SCENARIO['shots'].split(','))} pictures")
         record("A's pictures of B", count=len(pictures), folder=str(root / "client-0"),
-               frames="frame = 900 + 6 * (n - 50) for shot-n.png")
+               frames=f"frame = {SCENARIO['first']} + 6 * (n - 50) for shot-n.png")
         evidence["passed"] = True
         record("passed")
     finally:
@@ -191,6 +265,10 @@ def main() -> None:
     parser.add_argument("--display", action="append", required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--slow", type=float, default=1.0, help="stretch the time limit (3D on software OpenGL: 2)")
+    parser.add_argument("--scenario", choices=sorted(SCENARIOS), default="warp",
+                        help="warp: both warped under the water (the party made after); surface: both dive from the surface")
+    parser.add_argument("--no-expect-carrier", dest="expect_carrier", action="store_false",
+                        help="an engine before MS-181's last part: B's carrier under the water is not required")
     asyncio.run(run(parser.parse_args()))
 
 

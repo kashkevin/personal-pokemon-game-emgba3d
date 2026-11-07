@@ -294,7 +294,7 @@ in the Classic 2D and the 3D test builds: B's shiny Lapras published and receive
 connected, and A's 77 pictures show B on it facing south, west and east; `native_ride_check.py` still passes;
 `test_mp_bridge` (a new check that fails on the old bridge), the app's world mailbox and protocol tests.
 
-**Not done yet** (kept for the next session): under the water another player is not shown at all (corrected 2026-11-03: this said they keep the original's underwater look; KNOWN_ISSUES MS-181 - fixed 2026-11-04: they are shown, with the original's underwater look, not yet on their own carrier's silhouette),
+**Not done yet** (kept for the next session): under the water another player is not shown at all (corrected 2026-11-03: this said they keep the original's underwater look; KNOWN_ISSUES MS-181 - fixed 2026-11-04: they are shown, with the original's underwater look; since 2026-11-07, engine `18e66680`: on their own carrier's silhouette, as one's own diver),
 and Fly's take-off and landing are not relayed (the player warps); the NPC fly-aways, Waterfall and most other species
 were not run in the game (only through the self-test); nothing was tried on Windows, a player's PC or two real PCs.
 
