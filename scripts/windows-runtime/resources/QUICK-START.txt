@@ -39,6 +39,9 @@ Open the Start menu and click EmeraldTogether, or use the desktop shortcut. The 
 inside the game's own window: Continue Adventure, Solo, Host World, Join Friend, Characters,
 Settings, Exit. Use the mouse, or the arrow keys and Enter; Esc goes back; Ctrl+V pastes.
 
+EmeraldTogether opens once: clicked again while it is open (or still opening), it says it is
+already open. Use the window that is open; it may be behind other windows or on the taskbar.
+
 The first time you host, Windows may ask whether EmeraldTogether may use the network. Allow it,
 or friends cannot reach your world.
 
@@ -106,7 +109,8 @@ To make a backup, close EmeraldTogether and copy the whole PokemonPrivate folder
 7. Update or repair
 
 Update: run the newer Setup file your friend sends you. It replaces the program files and keeps
-your saves, characters and worlds.
+your saves, characters and worlds. If you are playing, save in the game first: Setup closes
+EmeraldTogether, and a game it closes keeps only what was saved.
 
 Repair: if EmeraldTogether says a game file is missing or changed, or it will not start, run the
 same Setup file again. It puts back every program file. Settings, Game files checks the installed
