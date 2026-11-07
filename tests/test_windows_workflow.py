@@ -384,6 +384,13 @@ class WindowsWorkflowTests(unittest.TestCase):
             with self.subTest(job=name):
                 key = {"gameplay-report": "gameplay-check", "gameplay-report-3d": "gameplay-check-3d"}.get(name, name)
                 condition = re.search(r"^    if: (.*)$", job(name), re.M).group(1)
+                if name == "package":
+                    # the installation check installs the package's installer: naming it builds the package too (run
+                    # 379 named install-check alone and checked nothing)
+                    self.assertTrue(condition.endswith(
+                        "&& (!inputs.only || contains(format(',{0},', inputs.only), ',package,') || "
+                        "contains(format(',{0},', inputs.only), ',install-check,')) }}"), condition)
+                    continue
                 self.assertTrue(condition.endswith(
                     f"&& (!inputs.only || contains(format(',{{0}},', inputs.only), ',{key},')) }}}}"), condition)
         for name in ("engine", "symbol-sizes"):

@@ -2872,7 +2872,9 @@ jobs:
   package:
     name: Build the launcher package (Windows)
     needs: engine
-    if: ${{ !cancelled() && (needs.engine.result == 'success' || needs.engine.result == 'skipped') && (!inputs.only || contains(format(',{0},', inputs.only), ',package,')) }}
+    # only: install-check installs this job's installer, so naming it builds the package too (run 379 named it alone:
+    # nothing was checked)
+    if: ${{ !cancelled() && (needs.engine.result == 'success' || needs.engine.result == 'skipped') && (!inputs.only || contains(format(',{0},', inputs.only), ',package,') || contains(format(',{0},', inputs.only), ',install-check,')) }}
     runs-on: ${{ inputs.runner == 'self-hosted' && fromJSON('["self-hosted","windows"]') || 'windows-2022' }}
     defaults:
       run:
