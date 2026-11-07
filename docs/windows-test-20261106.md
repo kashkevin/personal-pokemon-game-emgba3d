@@ -41,7 +41,8 @@ on the host the world's folder.
       as drawn, and in a battle there no Pokemon stands on a machine (E9); from the build after run 355, none stands in
       the lava either and the small 4F console stands too (E13).
 - [ ] The sea stacks on Routes 105-109 and 124-134: their foot meets the water with no pale band and the small round
-      stacks no ring of grey (MS-102).
+      stacks no ring of grey (MS-102). From the build after run 365: the boulders on the sand (Dewford Town by the Gym,
+      Route 111's desert) stand on the sand with no grey specks at their foot.
 - [ ] From the build after run 354: the Battle Dome (Battle Frontier west): its ends curve back with the dome's drum, no
       thin strips standing a storey tall beside it (V45).
 - [ ] From the build after run 355, in either view: on a route at dusk by the game's clock (19:00 to 21:00), stand still
