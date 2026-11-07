@@ -937,13 +937,19 @@ def linux_app(application, profile):
     from emerald_multiplayer.launcher_gui import SessionWorker
     from emerald_multiplayer.launcher_session import GameInstallation
     from emerald_multiplayer.player_runtime import RuntimeBundle
+    from emerald_multiplayer.launcher_instance import AlreadyOpen, hold_launcher, tell_already_open
     from emerald_multiplayer.shell_app import ShellApp
     from emerald_multiplayer.shell_protocol import ShellProcess
+    private = (Path(profile) / "PokemonPrivate" / "launcher").resolve()
+    private.mkdir(parents=True, exist_ok=True)
+    try:
+        launcher_lock = hold_launcher(private)          # one launcher at a time on a player's files, as shell_app.main (MS-220)
+    except AlreadyOpen:
+        tell_already_open()
+        return 0
     record = json.loads(Path(application).read_text())
     installation = GameInstallation(Path(record["rom"]), Path(record["manifest"]), record["rom_sha256"], record["manifest_sha256"],
                                     RuntimeBundle(Path(record["runtime"]), record["runtime_sha256"]))
-    private = (Path(profile) / "PokemonPrivate" / "launcher").resolve()
-    private.mkdir(parents=True, exist_ok=True)
     executable, _ = installation.bundle.verify()
     shell = ShellProcess([str(executable), "--shell"], cwd=private)
     app = ShellApp(installation, private, shell, version="Linux rehearsal", worker=SessionWorker(installation, private))
@@ -951,6 +957,8 @@ def linux_app(application, profile):
         return app.run()
     finally:
         shell.close()
+        if launcher_lock is not None:
+            launcher_lock.release()
 
 
 def main():

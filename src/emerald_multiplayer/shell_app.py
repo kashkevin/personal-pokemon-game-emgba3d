@@ -2149,6 +2149,26 @@ def main(release=None, application_directory=None, import_release=None):
     if "--relay-server" in sys.argv[1:]:                    # EmeraldTogether.exe --relay-server [--port 7780]: run a relay (relay.py)
         from .relay import frozen_main
         return frozen_main(sys.argv[1:])
+    # One launcher at a time on the player's files (KNOWN_ISSUES MS-220): a second one, from a second click on the icon,
+    # says the first is open and ends before it reads or writes anything of the player's.
+    from .launcher_gui import private_directory
+    from .launcher_instance import AlreadyOpen, hold_launcher, tell_already_open
+    try:
+        launcher_lock = hold_launcher(private_directory())
+    except AlreadyOpen:
+        tell_already_open()
+        return None
+    except Exception:                                                                    # noqa: BLE001 - no private folder:
+        launcher_lock = None                                                             # the menus below say so, as before
+    try:
+        return _main(release, application_directory, import_release)
+    finally:
+        if launcher_lock is not None:
+            launcher_lock.release()
+
+
+def _main(release, application_directory, import_release):
+    import sys
     from .launcher_gui import SessionWorker, private_directory, windows_dpi_awareness, windows_timer_resolution
     windows_timer_resolution()
     if release is not None:
