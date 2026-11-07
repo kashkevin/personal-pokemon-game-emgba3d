@@ -16,7 +16,7 @@ on the host the world's folder.
 
 - [ ] A fresh install on PC 1: the launcher starts, the graphics check picks the 3D view on the graphics card (or offers
       Classic 2D), a new character plays the short introduction and saves; close; Continue loads the same place and party.
-- [ ] Setup run over the earlier build (any you installed before: run 322's, 334's or later, up to 359's): every
+- [ ] Setup run over the earlier build (any you installed before: run 322's, 334's or later, up to 365's): every
       character, save and world kept; a hosted world asks once to get ready for the new version (a backup first); the
       Solo world brings the character back; play on, save.
 - [ ] Uninstall, then install again: the private folder and everything in it are still there.
@@ -99,3 +99,7 @@ on the host the world's folder.
       within half a minute the title is back to normal and the file's time changes. Close the game, Continue: the place
       of that save loads. Untick Read-only before closing the game in any case. Only the self-test (a folder standing in
       the file's place) has run on Windows so far, not a real lock or a full disk.
+- [ ] From run 367's installer on, the host's disk full while a friend saves (MS-214; only if the host has a drive or a
+      partition to fill and empty safely): the friend's launcher says the host's PC could not store this save (its
+      disk may be full) and that the progress is kept on that PC; nothing is lost. Free the space, reopen the world:
+      the save arrives and play goes on. Tried only on a Linux test disk so far.
