@@ -111,7 +111,7 @@ thresholds, D2 sources that need other players, D3 any casino source; built mean
 whether Parting Shot should switch its user out when the move is blocked or reflected (the GBA tests' class C,
 `docs/gba-test-expected-failures.md`; today it does, the tests and Showdown's Gen 6 say not); and an Egg's shininess
 when another trainer hatches it (Eggs in trades: kept as it was, the proposal; the games derive it from the hatcher). And how a give-up in a battle together should count (`docs/owner-decisions.md` #51: today one teammate's give-up is the team's loss in a co-op Gym, the Tower Duo and the ladders, as in the GBA's link battles, while a Duo battle abandoned by a closed game is void).
-The Battle Point review proposes no change (#46).
+The Battle Point review proposes no change (#46). And (2026-11-07) whether to bound the copies of world saves the player's PC keeps (MS-216, `docs/owner-decisions.md` #53: (a) keep all, as now; (b) keep the newest 40 per world account, recommended; (c) pack the older ones; nothing removed until you choose).
 
 ## 4. Verification only the owner's PCs can give
 
