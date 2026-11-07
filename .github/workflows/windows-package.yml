@@ -1947,6 +1947,46 @@ jobs:
           Remove-Item Env:PKMN_DEBUG_LOG
           "- Self-tests on Windows: $($runs.Count - $failed.Count) of $($runs.Count) passed" >> $env:GITHUB_STEP_SUMMARY
           if ($failed.Count) { throw "self-tests failed in the Windows build: $($failed -join ', ')" }
+      - name: A save under a folder named with accents and another script (KNOWN_ISSUES MS-217)
+        # A player's files live under their Windows user name (%LOCALAPPDATA%), so each game must open a save there
+        # whatever the name. Each is started with --save in a folder "Jos<e acute> Zo<e diaeresis> <two Chinese
+        # characters>" (the runner's code page is 1252, as on an English PC) and must log that it loaded the save's
+        # 131,072 bytes, not "No save file". The name is built from code points, so this file's encoding cannot matter.
+        # Games of an engine before the UTF-8 manifest (no "activeCodePage" in the exe) are not checked.
+        if: ${{ always() }}
+        shell: pwsh
+        run: |
+          $name = "Jos" + [char]0x00E9 + " Zo" + [char]0x00EB + " " + [char]0x6D4B + [char]0x8BD5
+          $folder = Join-Path $env:RUNNER_TEMP $name
+          New-Item -ItemType Directory -Force -Path $folder | Out-Null
+          $save = Join-Path $folder "character.sav"
+          [IO.File]::WriteAllBytes($save, [byte[]]::new(131072))
+          $logs = New-Item -ItemType Directory -Force -Path (Join-Path $env:RUNNER_TEMP "selftests")
+          $failed = @()
+          $checked = 0
+          foreach ($exe in @("inputs\pokeemerald-mp.exe", "inputs\pokeemerald-mp-diorama.exe")) {
+            if (-not (Test-Path $exe)) { continue }
+            if (-not (Select-String -LiteralPath $exe -Pattern "activeCodePage" -SimpleMatch -Quiet)) {
+              Write-Output "::notice::$exe has no UTF-8 manifest (an engine before KNOWN_ISSUES MS-217): not checked"
+              continue
+            }
+            $log = Join-Path $logs ("non-ascii-path-" + [IO.Path]::GetFileNameWithoutExtension($exe) + ".log")
+            $env:PKMN_DEBUG_LOG = $log
+            $process = Start-Process -FilePath $exe -ArgumentList @("--save", "`"$save`"") -WorkingDirectory $env:RUNNER_TEMP -PassThru
+            $line = $null
+            for ($i = 0; $i -lt 120 -and -not $line; $i++) {
+              Start-Sleep -Milliseconds 500
+              if (Test-Path $log) { $line = Select-String -LiteralPath $log -Pattern "save data from|No save file" | Select-Object -First 1 }
+              if ($process.HasExited -and -not $line) { break }
+            }
+            if (-not $process.HasExited) { Stop-Process -Id $process.Id -Force }
+            Remove-Item Env:PKMN_DEBUG_LOG
+            $checked++
+            Write-Output "$exe : $(if ($line) { $line.Line } else { 'no save line in its log' })"
+            if (-not $line -or $line.Line -notmatch "^Loaded 131072 bytes of save data from") { $failed += $exe }
+          }
+          "- A save under a non-ASCII folder: $($checked - $failed.Count) of $checked games opened it" >> $env:GITHUB_STEP_SUMMARY
+          if ($failed.Count) { throw "a game did not open a save under a non-ASCII folder: $($failed -join ', ')" }
       - name: Upload the self-tests' output (private to this repository, 7 days)
         if: always()
         uses: actions/upload-artifact@v7
