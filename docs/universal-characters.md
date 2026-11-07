@@ -72,7 +72,10 @@ exists.
 
 * **History**: every world save the character takes keeps the previous one in `history/` (40 kept). Characters,
   "Restore an earlier save" makes one current again (the present one goes to history first; same trainer only).
-* **Back up now**: an explicit copy in history.
+  Each entry's name starts with the UTC time it was written, never at or before the newest entry's: after the PC's
+  clock went back, an entry is named one second after the newest one, so the oldest written are the ones deleted
+  and the list shows the newest first (KNOWN_ISSUES MS-218).
+* **Back up now**: an explicit copy in history (pressed again with no new save in between, the one copy is kept).
 * **Damaged character folder**: a `current.sav` whose SHA no longer matches is reported ("save changed") and left alone.
 * **Delete**: moves the character folder to `characters-deleted/<UTC time>-<id>/`; its world saves stay in the worlds.
 * **Worlds**: deleting a world moves its folder to `worlds-deleted/`; every store migration makes a verified backup first.

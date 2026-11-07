@@ -18,6 +18,7 @@ The world files (``players/<world>/<account>/``) are only read here, never moved
 """
 from __future__ import annotations
 
+import calendar
 from dataclasses import dataclass
 import hashlib
 import os
@@ -36,6 +37,16 @@ INDEX_NAME = "character-library.json"
 HISTORY_LIMIT = 40
 MAX_CHARACTERS = 64
 MAX_SAVE = 131072 + 16
+_STAMP = "%Y%m%dT%H%M%SZ"           # a history entry's name starts with its UTC second (16 characters)
+_LAST_STAMP = 32503679999           # 2999-12-31T23:59:59Z: the last second every platform's gmtime() can name
+
+
+def _stamp_seconds(name):
+    """The UTC second a history entry's name starts with, or None for a name that does not start with one."""
+    try:
+        return calendar.timegm(time.strptime(name[:16], _STAMP))
+    except (ValueError, OverflowError):
+        return None
 
 # Pokémon Emerald's text encoding for trainer names (English letters, digits and the usual punctuation).
 _TEXT = {0x00: " ", 0xAB: "!", 0xAC: "?", 0xAD: ".", 0xAE: "-", 0xB0: "...", 0xB1: '"', 0xB2: '"', 0xB3: "'", 0xB4: "'",
@@ -254,8 +265,7 @@ class CharacterLibrary:
             if old == payload:
                 return
             history.mkdir(mode=0o700, parents=True, exist_ok=True)
-            stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime(self.clock()))
-            name = f"{stamp}-{hashlib.sha256(old).hexdigest()[:12]}.sav"
+            name = f"{self._history_stamp(history)}-{hashlib.sha256(old).hexdigest()[:12]}.sav"
             _atomic(history / name, old)
             kept = sorted(history.glob("*.sav"))
             for path in kept[:-HISTORY_LIMIT]:
@@ -334,11 +344,32 @@ class CharacterLibrary:
         history = character.folder / "history"
         history.mkdir(mode=0o700, parents=True, exist_ok=True)
         payload = self.save_bytes(character)
-        stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime(self.clock()))
-        path = history / f"{stamp}-{character.sha256[:12]}-backup.sav"
-        if not path.exists():
-            _atomic(path, payload)
+        try:
+            newest = max(history.glob("*.sav"), key=lambda path: path.name, default=None)
+        except OSError:
+            newest = None
+        if newest is not None and newest.name.endswith(f"-{character.sha256[:12]}-backup.sav"):
+            return newest                   # the newest copy kept is already this save's (Back up now pressed again)
+        path = history / f"{self._history_stamp(history)}-{character.sha256[:12]}-backup.sav"
+        _atomic(path, payload)
         return path
+
+    def _history_stamp(self, history):
+        """The stamp that starts a new history entry's name: the clock's UTC second, but always after the newest entry's.
+
+        The entries are pruned and listed by name, so their names must sort in the order they were written. When the PC's
+        clock goes back (set back by hand, a flat clock battery), a stamp from the clock alone sorted before the entries
+        already there, and the new entry - or a copy the player had just made with Back up now - was the first one pruned
+        (KNOWN_ISSUES MS-218). An entry written after such a change is named one second after the newest one instead."""
+        now = int(self.clock())
+        try:
+            seconds = [second for second in map(_stamp_seconds, (path.name for path in history.glob("*.sav")))
+                       if second is not None]
+        except OSError:
+            seconds = []
+        if seconds and now <= max(seconds) < _LAST_STAMP:
+            now = max(seconds) + 1
+        return time.strftime(_STAMP, time.gmtime(now))
 
     def restore(self, character, history_path):
         """Make an earlier save the current one (the present one goes to history first). Same trainer only."""

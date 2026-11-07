@@ -1,11 +1,14 @@
 """The character library (character_library.py) and bringing earlier characters into it (character_migration.py)."""
 from __future__ import annotations
 
+import calendar
 import hashlib
 import json
 from pathlib import Path
 import tempfile
+import time
 import unittest
+import unittest.mock
 import uuid
 
 from emerald_multiplayer.character_library import CharacterLibrary, LibraryError, read_save, trainer_name
@@ -95,6 +98,94 @@ class LibraryTests(unittest.TestCase):
         self.assertEqual(CharacterLibrary(self.root, clock=self.clock).active().character_id, second.character_id)
         self.library.rename(first.character_id, "Kev")
         self.assertEqual(self.library.get(first.character_id).name, "Kev")
+
+
+class SetClock:
+    """A PC clock the test sets: a minute passes at every reading, and it can be set back."""
+
+    def __init__(self, now):
+        self.now = now
+
+    def __call__(self):
+        self.now += 60
+        return self.now
+
+
+class HistoryClockTests(unittest.TestCase):
+    """KNOWN_ISSUES MS-218: the earlier versions kept when the PC's clock goes back (set back by hand, a flat clock battery).
+
+    The history is pruned and listed by name, and names start with the clock's UTC time: a clock set back named every new
+    entry before the ones already there, so the newest versions, and a copy the player had just made with Back up now, were
+    the first ones deleted."""
+
+    LIMIT = 5
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        limit = unittest.mock.patch("emerald_multiplayer.character_library.HISTORY_LIMIT", self.LIMIT)
+        limit.start()
+        self.addCleanup(limit.stop)
+        self.clock = SetClock(1_800_000_000.0)                             # 2027-01-15
+        self.library = CharacterLibrary(Path(self.temp.name), clock=self.clock)
+        self.previous = source_flash(personalities=(7,))
+        self.character = self.library.create(self.previous)
+        self.written = []                                                   # each history entry's save, in writing order
+
+    def save(self, counter):
+        payload = make_ownership_flash(counter=counter, records=(("party:0", 1),), personalities=(7,))
+        self.character = self.library.record_world_save(self.character.character_id, WORLD_ID, PLAYER_ID, payload)
+        self.written.append(self.previous)
+        self.previous = payload
+
+    def kept(self):
+        """The history's saves as the restore list shows them (newest first)."""
+        return [path.read_bytes() for path in self.library.history(self.character)]
+
+    def test_versions_written_after_the_clock_went_back_are_kept_newest_first(self):
+        for counter in range(2, 2 + self.LIMIT + 2):                        # the history full, its oldest pruned
+            self.save(counter)
+        self.assertEqual(self.kept(), self.written[::-1][:self.LIMIT])
+        self.clock.now -= 365 * 86400                                       # the clock set back a year
+        for counter in range(100, 103):
+            self.save(counter)
+        self.assertEqual(self.kept(), self.written[::-1][:self.LIMIT])     # the three newest kept, the oldest pruned
+        names = [path.name for path in self.library.history(self.character)]
+        self.assertEqual(names, sorted(names, reverse=True))
+
+    def test_a_copy_made_with_back_up_now_after_the_clock_went_back_survives_the_next_saves(self):
+        for counter in range(2, 2 + self.LIMIT + 2):
+            self.save(counter)
+        self.clock.now -= 30 * 86400                                        # the clock set back a month
+        backup = self.library.backup_now(self.character)
+        backed_up = self.previous
+        for counter in range(100, 100 + self.LIMIT - 1):                    # the copy is not yet among the oldest
+            self.save(counter)
+        self.assertTrue(backup.exists())
+        self.assertEqual(backup.read_bytes(), backed_up)
+        self.save(200)                                                      # now it is the oldest of the five: pruned
+        self.assertFalse(backup.exists())
+
+    def test_back_up_now_pressed_twice_keeps_one_copy(self):
+        self.save(2)
+        first = self.library.backup_now(self.character)
+        second = self.library.backup_now(self.character)
+        self.assertEqual(first, second)
+        self.assertEqual([path.name.endswith("-backup.sav") for path in self.library.history(self.character)], [True, False])
+        self.save(3)                                                        # a new save: Back up now copies that one
+        third = self.library.backup_now(self.character)
+        self.assertNotEqual(third, first)
+        self.assertEqual(third.read_bytes(), self.previous)
+
+    def test_names_follow_the_clock_while_it_goes_forward(self):
+        for counter in range(2, 6):
+            self.save(counter)
+        seconds = [calendar.timegm(time.strptime(path.name[:16], "%Y%m%dT%H%M%SZ"))
+                   for path in self.library.history(self.character)]
+        # each name is a reading of this clock (whole minutes from its start), none moved past the one before it
+        self.assertEqual([second % 60 for second in seconds], [0] * 4)
+        self.assertEqual(seconds, sorted(seconds, reverse=True))
+        self.assertLessEqual(seconds[0], self.clock.now)
 
 
 class MigrationTests(unittest.TestCase):
