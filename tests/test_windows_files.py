@@ -2,6 +2,8 @@
 import os
 from pathlib import Path
 import tempfile
+import threading
+import time
 import unittest
 from unittest.mock import patch
 
@@ -52,6 +54,82 @@ class WindowsFilesTests(unittest.TestCase):
             with self.assertRaises(PermissionError):
                 windows_files.replace_file(source, target)
         self.assertEqual(len(calls), 1)
+
+
+@unittest.skipUnless(os.name == "nt", "a real hold needs Windows' sharing rules (elsewhere these are the plain calls)")
+class RealWindowsHoldTests(unittest.TestCase):
+    """The hold itself, not a stand-in: another handle opened on the file the way a scanner's is (Python's open() does
+    not let anyone delete or replace the file while it is open), let go after a moment, as a scanner does."""
+    HOLD_SECONDS = .3
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+
+    def hold(self, path, seconds):
+        """Open path from another handle and close it after seconds; returns (handle, the time it was let go)."""
+        handle = open(path, "rb")
+        self.addCleanup(handle.close)
+        released = []
+
+        def let_go():
+            time.sleep(seconds)
+            released.append(time.monotonic())
+            handle.close()
+        thread = threading.Thread(target=let_go, daemon=True)
+        thread.start()
+        self.addCleanup(thread.join, 5)
+        return handle, released
+
+    def test_a_replace_waits_out_a_real_hold(self):
+        source, target = self.root / "a.stage", self.root / "a.json"
+        source.write_text("new")
+        target.write_text("old")
+        handle = open(target, "rb")
+        try:
+            with self.assertRaises(PermissionError):         # the hold is real: the plain call is refused
+                os.replace(source, target)
+        finally:
+            handle.close()
+        self.assertEqual((source.read_text(), target.read_text()), ("new", "old"))
+        _, released = self.hold(target, self.HOLD_SECONDS)
+        windows_files.replace_file(source, target)
+        finished = time.monotonic()
+        self.assertEqual(len(released), 1)                   # it went through only once the hold was let go
+        self.assertGreaterEqual(finished, released[0])
+        self.assertEqual((target.read_text(), source.exists()), ("new", False))
+
+    def test_a_removal_waits_out_a_real_hold(self):
+        target = self.root / "b.journal"
+        target.write_text("journal")
+        handle = open(target, "rb")
+        try:
+            with self.assertRaises(PermissionError):
+                os.unlink(target)
+        finally:
+            handle.close()
+        self.assertTrue(target.exists())
+        _, released = self.hold(target, self.HOLD_SECONDS)
+        windows_files.unlink_file(target)
+        finished = time.monotonic()
+        self.assertEqual(len(released), 1)
+        self.assertGreaterEqual(finished, released[0])
+        self.assertFalse(target.exists())
+
+    def test_a_hold_longer_than_the_wait_still_fails_and_leaves_both_files(self):
+        source, target = self.root / "c.stage", self.root / "c.json"
+        source.write_text("new")
+        target.write_text("old")
+        handle = open(target, "rb")
+        self.addCleanup(handle.close)
+        started = time.monotonic()
+        with patch.object(windows_files, "WAIT_SECONDS", .2):
+            with self.assertRaises(PermissionError):
+                windows_files.replace_file(source, target)
+        self.assertGreaterEqual(time.monotonic() - started, .2)
+        handle.close()
+        self.assertEqual((source.read_text(), target.read_text()), ("new", "old"))
 
 
 if __name__ == "__main__":
