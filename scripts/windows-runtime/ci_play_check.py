@@ -72,6 +72,10 @@ class CheckFailed(AssertionError):
     pass
 
 
+class NotRun(Exception):
+    """The check does not apply to this build (reported, not a failure)."""
+
+
 def require(condition, message):
     if not condition:
         raise CheckFailed(message)
@@ -970,6 +974,9 @@ def main():
                              "host hosts again and the friend joins back")
     parser.add_argument("--friend-menu", action="store_true",
                         help="with --host-leaves: the friend has the START menu open when the host leaves")
+    parser.add_argument("--only-utf8-games", action="store_true",
+                        help="for a --work folder whose name is not ASCII (KNOWN_ISSUES MS-217): play only when the "
+                             "installed games carry the UTF-8 manifest; otherwise report 'not run' (an older engine)")
     parser.add_argument("--upgrade-to", type=Path, metavar="SETUP",
                         help="then install this newer Setup over the one --setup installed (an update) and play on from the "
                              "saves the older version made; with --linux, SETUP is 'same': the same program starts again")
@@ -996,6 +1003,13 @@ def main():
             import ci_world_check as w
             env = dict(os.environ, LOCALAPPDATA=str(work / "host-profile"))
             w.install(args.setup.resolve(), target, env, work, args.label)
+            if args.only_utf8_games:
+                # Games of an engine before KNOWN_ISSUES MS-217 cannot open a save under a folder that is not ASCII
+                games = sorted(target.rglob("pokeemerald*.exe"))
+                old = [game.name for game in games if b"activeCodePage" not in game.read_bytes()]
+                if not games or old:
+                    raise NotRun("the installed games have no UTF-8 manifest (an engine before KNOWN_ISSUES "
+                                 "MS-217): " + (", ".join(old) or "no game found"))
             desk = WindowsDesk(target / "EmeraldTogether.exe")
         check = PlayCheck(desk, work, args.label, report, lines, loopback=args.loopback, rejoin_count=args.rejoin,
                           second_character=args.second_character, host_leaves=args.host_leaves,
@@ -1013,6 +1027,10 @@ def main():
             report["upgrade"] = upgrade(check, host, friend, None if args.linux else args.upgrade_to.resolve(), target, work,
                                         args.label, world, slot)
         report["result"] = "passed"
+    except NotRun as reason:
+        report["result"] = "not run: " + str(reason)
+        print("::notice::" + report["result"], flush=True)
+        lines.append(report["result"])
     except CheckFailed as error:
         report["result"] = "failed: " + str(error)
         print("check failed: " + str(error), flush=True)
@@ -1048,7 +1066,7 @@ def main():
         if not args.linux and target.exists():
             import ci_world_check as w
             w.uninstall(target, work, args.label)
-    if report["result"] != "passed":
+    if report["result"] != "passed" and not report["result"].startswith("not run"):
         raise SystemExit(1)
 
 

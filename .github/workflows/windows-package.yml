@@ -3184,6 +3184,21 @@ jobs:
         run: |
           python scripts/windows-runtime/ci_play_check.py --setup "$(ls installer/EmeraldTogether-Setup-*.exe)" \
             --work "$RUNNER_TEMP/play-check" --label play
+      - name: The same from a Windows user folder named with an accent and another script (full; KNOWN_ISSUES MS-217)
+        if: env.MODE == 'full'
+        # The play check again (a character, Solo, Host World, Join Friend, every save) with the program and both players'
+        # profiles under a folder "Jos<e acute> <two Chinese characters>", as on a PC whose Windows user name is so: the
+        # games must open their saves, bridge files and settings there. The name is built from code points; the check's
+        # own output is UTF-8. Installers whose games lack the UTF-8 manifest (engines before MS-217) report "not run".
+        shell: pwsh
+        env:
+          PYTHONIOENCODING: utf-8
+        run: |
+          $name = "Jos" + [char]0x00E9 + " " + [char]0x6D4B + [char]0x8BD5
+          $work = Join-Path (Join-Path $env:RUNNER_TEMP "unicode-check") $name
+          $setup = (Get-ChildItem installer\EmeraldTogether-Setup-*.exe | Select-Object -First 1).FullName
+          python scripts/windows-runtime/ci_play_check.py --setup $setup --work $work --label unicode --only-utf8-games
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: The earlier installer for the update check (full, upgrade_from_run; private to this repository)
         if: env.MODE == 'full' && inputs.upgrade_from_run != ''
         uses: actions/download-artifact@v8
@@ -3219,6 +3234,8 @@ jobs:
             ${{ runner.temp }}/play-check/*-screens.jsonl
             ${{ runner.temp }}/play-check/*-pictures/
             ${{ runner.temp }}/play-check/*.log
+            ${{ runner.temp }}/unicode-check/*/*-play-check.json
+            ${{ runner.temp }}/unicode-check/*/*.log
             ${{ runner.temp }}/upgrade-check/*-play-check.json
             ${{ runner.temp }}/upgrade-check/*-screens.jsonl
             ${{ runner.temp }}/upgrade-check/*-pictures/
