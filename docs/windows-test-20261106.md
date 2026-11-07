@@ -113,5 +113,5 @@ on the host the world's folder.
       script (MS-217; for example a new local account named José): install and play there - a new character, a
       save, Continue - and the game opens the character's save and connects as on any other account. Earlier
       installers start the game there on an empty save without its connection to the launcher. Checked under Wine
-      with such a folder; the Windows run checks the same on GitHub's runner from engine `7b9f6bfa` on; never with
-      a real account.
+      with such a folder, and on GitHub's Windows runner (run 377: both games loaded a save under "José Zoë" and
+      two Chinese characters); never with a real account.
