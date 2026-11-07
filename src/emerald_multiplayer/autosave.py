@@ -225,6 +225,11 @@ class AutosaveScheduler:
             return error.code
         if isinstance(error, LiveSaveError):
             return error.code
+        from .checkpoint_client import CheckpointError
+        if isinstance(error, CheckpointError) and error.code == "storage_error":
+            # The host refused the commit: its world could not store it (a full disk, KNOWN_ISSUES MS-214). The save
+            # being sent stays pending on this PC; the launcher says why.
+            return "storage_error"
         return "checkpoint_uncertain"
 
     async def _checkpoint(self):

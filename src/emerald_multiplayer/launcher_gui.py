@@ -132,6 +132,9 @@ _TEXT = {
     "save_not_ready": "Return to a safe place outside menus and battles, then press Save now again.",
     "save_busy": "A character save is already running.",
     "save_recovery_required": "This save needs recovery. Close the game and reopen through Host Game or Join Game.",
+    # KNOWN_ISSUES MS-214: the host refused the commit because its world could not store it (storage_error)
+    "save_host_storage": ("The host's PC could not store this save (its disk may be full). Your progress is kept on this PC: "
+                          "close the game and reopen the world through Host Game or Join Game once the host has space."),
     "autosave_on": "Autosave is on: every 5 minutes, when you reach a safe place.",
     "autosave_off": "Autosave is off. Use Save now before closing the game.",
     "autosave_deferred": "Autosave is waiting for a safe place outside menus and battles.",
@@ -914,8 +917,8 @@ class SessionWorker:
                         observed = signature
                     await asyncio.wait({play}, timeout=.2)
                 exit_code = await play
-                if session.status.code == "save_recovery_required":
-                    return "save_recovery_required"
+                if session.status.code in ("save_recovery_required", "save_host_storage"):
+                    return session.status.code
                 if exit_code == 0 and session.status.code == "trade_recovery_reopen":
                     return "trade_recovery_reopen"
                 if exit_code == EXIT_GRAPHICS_UNAVAILABLE:

@@ -329,6 +329,23 @@ class LauncherAutosaveTests(unittest.IsolatedAsyncioTestCase):
                 self.assertFalse(session.can_save)
                 self.assertEqual(session.status.code, "save_recovery_required")
 
+    async def test_autosave_refused_for_host_storage_is_said(self):
+        # KNOWN_ISSUES MS-214: an autosave whose commit the host could not store stops saving as any refused commit
+        # does, and the status names the host's storage.
+        from emerald_multiplayer.checkpoint_client import CheckpointError
+        calls = []
+        async def checkpoint(coordinator, **fields):
+            calls.append(fields["expected_revision"])
+            raise CheckpointError("storage_error", "checkpoint transaction failed (SQLITE_FULL)")
+        with patch.object(LiveCheckpointCoordinator, "checkpoint", checkpoint):
+            async with self.playing() as (session, _):
+                self.advance(session, 300)
+                await wait_until(lambda: session._save_failed)
+                self.assertEqual(calls, [1])
+                self.assertEqual(session._revision, 1)
+                self.assertFalse(session.can_save)
+                self.assertEqual(session.status.code, "save_host_storage")
+
     async def test_toggle_and_close_drain_autosave_with_lease_through_repeated_cancel(self):
         entered, finish = asyncio.Event(), asyncio.Event()
         self.release_checkpoint = finish

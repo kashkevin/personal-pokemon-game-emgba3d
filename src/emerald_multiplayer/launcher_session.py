@@ -103,6 +103,7 @@ _MESSAGES = {
     "save_not_ready": "Return to a safe place outside menus and battles, then request Save again.",
     "save_busy": "A character save is already running.",
     "save_recovery_required": "This character's save needs recovery before another save can start.",
+    "save_host_storage": "The host could not store this character's save; it is kept on this PC until the world is reopened.",
     "settings_unavailable": "This character's launcher settings could not be saved or read.",
     "settings_busy": "A settings change is already finishing.",
     "privacy_unavailable": "This character's location sharing choice could not be saved; the location is private for now.",
@@ -363,6 +364,9 @@ class LauncherSession:
         self._game = self._save_task = None
         self._revision = self._save_incarnation = None
         self._save_failed = False
+        # KNOWN_ISSUES MS-214: saving stopped because the host refused the commit, its world unable to store it (a full
+        # disk): the status says so ("save_host_storage") instead of the general "save_recovery_required".
+        self._save_host_storage = False
         # Why the last explicit checkpoint stopped (the error's code and text), for a report and the proofs; None after one
         # that finished.
         self.last_save_error = None
@@ -532,7 +536,7 @@ class LauncherSession:
             # A missing connection is not evidence that an uncertain save
             # completed. Keep this warning through game and session closure.
             return replace(value, code="game_recovery_held" if self._retain_interrupted_core()
-                           else "save_recovery_required")
+                           else self._save_failed_code())
         if self._open and self._binding is not None and current != self._binding:
             # Observation only. No offline-play or post-disconnect action follows.
             code = "connection_lost" if current is None else "session_changed"
@@ -1101,9 +1105,9 @@ class LauncherSession:
             if result == 0 and self._idle_save_disconnect and self._save_is_idle():
                 # IPC can close before process exit is observed. Only confirmed
                 # normal exit clears an idle-only loss; this does not save.
-                self._save_failed = self._idle_save_disconnect = False
+                self._save_failed = self._idle_save_disconnect = self._save_host_storage = False
             self._publish(SessionState.FINISHED, "trade_recovery_reopen" if self._trade_close_review is not None
-                          else "save_recovery_required" if self._save_failed else "game_closed", revision=self._revision,
+                          else self._save_failed_code() if self._save_failed else "game_closed", revision=self._revision,
                           exit_code=result)
             return result
         except asyncio.CancelledError:
@@ -1249,6 +1253,7 @@ class LauncherSession:
         self._soft_reset_task = None
         self._battle_abandoned = None
         self._save_failed = self._idle_save_disconnect = self._autosave_dispatched = False
+        self._save_host_storage = False
         self._battle_recovery_failed = False
         self._battle_retained = self._battle_recovery_intent = self._battle_handoff_successor = None
         self._battle_menu_preparation = None
@@ -1763,19 +1768,28 @@ class LauncherSession:
         except OSError:
             return False
 
-    def _fail_save(self, *, idle_disconnect=False):
+    def _fail_save(self, *, idle_disconnect=False, host_storage=False):
         # An idle disconnect still forbids saving/restarting the scheduler in
         # this live core. It may be ordinary IPC shutdown, but only a later
         # zero process exit can establish that. Never downgrade an earlier
         # dispatched, journaled, malformed or otherwise uncertain operation.
         idle = idle_disconnect and self._save_is_idle()
         self._idle_save_disconnect = idle and (not self._save_failed or self._idle_save_disconnect)
+        if host_storage and not self._save_failed:
+            self._save_host_storage = True
         self._save_failed = True
-        self._publish(SessionState.RUNNING, "save_recovery_required", revision=self._revision)
+        self._publish(SessionState.RUNNING, self._save_failed_code(), revision=self._revision)
+
+    def _save_failed_code(self):
+        """A stopped save's status: "save_host_storage" when the host refused the commit because its world could not
+        store it (``storage_error``: a full disk; the save being sent is kept on this PC and sent again when the world
+        is reopened, KNOWN_ISSUES MS-214), else "save_recovery_required"."""
+        return "save_host_storage" if self._save_host_storage else "save_recovery_required"
 
     def _autosave_status(self, status):
         if status.state is AutosaveState.RECOVERY_REQUIRED:
-            self._fail_save(idle_disconnect=status.code in {"connection_lost", "session_changed"})
+            self._fail_save(idle_disconnect=status.code in {"connection_lost", "session_changed"},
+                            host_storage=status.code == "storage_error")
         elif status.state is AutosaveState.SAVING:
             self._autosave_dispatched = True
             self._publish(SessionState.RUNNING, "saving", revision=self._revision)
@@ -2390,7 +2404,9 @@ class LauncherSession:
             # The owner's report (2026-10-23): a banner on every success was noise (the in-game SAVE says it saved,
             # and the save before PLAYERS should not show at all); only a failure is said.
             if not saved:
-                say("Could not save on the host.|See the launcher window.")
+                # KNOWN_ISSUES MS-214: a host that could not store it (a full disk) is said; the save is kept here.
+                say("Host PC could not store it.|Kept on this PC: reopen later." if self._save_host_storage
+                    else "Could not save on the host.|See the launcher window.")
             return
         reason = self._native_menu_reset_blocker()
         if reason is None:
@@ -2514,7 +2530,7 @@ class LauncherSession:
             if isinstance(error, LiveSaveError) and error.safe_to_retry is True:
                 self._publish(SessionState.RUNNING, "save_not_ready", revision=self._revision)
             else:
-                self._fail_save()
+                self._fail_save(host_storage=getattr(error, "code", None) == "storage_error")
             return False
 
     async def _cleanup(self):

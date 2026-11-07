@@ -91,6 +91,39 @@ class LauncherSaveTests(unittest.IsolatedAsyncioTestCase):
                 await play
                 self.assertEqual(session.status.code, "save_recovery_required")
 
+    async def test_host_storage_refusal_is_said_and_keeps_the_recovery_rules(self):
+        # KNOWN_ISSUES MS-214: the host's world could not store the commit (a full disk): the server's storage_error
+        # reaches the launcher as the upload's CheckpointError. Saving stops as for any refused commit (the save being
+        # sent stays pending on this PC), and the status names the host's storage instead of a general recovery.
+        from emerald_multiplayer.checkpoint_client import CheckpointError
+        from emerald_multiplayer.launcher_gui import status_text
+        async with self.playing() as (session, play):
+            async def full(*args, **kwargs):
+                raise CheckpointError("storage_error", "checkpoint transaction failed (SQLITE_FULL)")
+            with patch.object(Companion, "save_incarnation", new_callable=PropertyMock, return_value=100), \
+                    patch.object(LiveCheckpointCoordinator, "checkpoint", full):
+                self.assertFalse(await session.save())
+                self.assertFalse(session.can_save)
+                self.assertEqual(session.status.code, "save_host_storage")
+                self.assertIn("storage_error", session.last_save_error)
+                with self.assertRaises(LauncherSessionError) as caught: await session.save()
+                self.assertEqual(caught.exception.code, "save_recovery_required")
+                self.children[0].terminate()
+                await play
+                self.assertEqual(session.status.code, "save_host_storage")
+        self.assertIn("could not store this save", status_text("save_host_storage"))
+        self.assertNotEqual(status_text("save_host_storage"), status_text("session_failed"))
+
+    async def test_other_refused_commits_keep_the_general_recovery_status(self):
+        from emerald_multiplayer.checkpoint_client import CheckpointError
+        async with self.playing() as (session, play):
+            async def refused(*args, **kwargs):
+                raise CheckpointError("revision_conflict", "checkpoint head changed")
+            with patch.object(Companion, "save_incarnation", new_callable=PropertyMock, return_value=100), \
+                    patch.object(LiveCheckpointCoordinator, "checkpoint", refused):
+                self.assertFalse(await session.save())
+                self.assertEqual(session.status.code, "save_recovery_required")
+
     async def test_bad_completion_does_not_adopt_server_revision(self):
         async def malformed(coordinator, **fields):
             result = await self.completed(coordinator, **fields)

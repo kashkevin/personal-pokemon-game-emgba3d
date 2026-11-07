@@ -1315,7 +1315,8 @@ class ShellApp:
         finally:
             self.hosting.pop(world_id, None)
             self.window(self.menu_window)
-        if link is not None and outcome in ("game_closed", "save_recovery_required", "trade_recovery_reopen"):
+        if link is not None and outcome in ("game_closed", "save_recovery_required", "save_host_storage",
+                                            "trade_recovery_reopen"):
             try:
                 self.links.touch(world_id, player_id)
                 if hosting:
