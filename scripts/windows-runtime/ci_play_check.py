@@ -886,6 +886,12 @@ def launcher_ended(check, host):
                    "started again would open a second game of the character beside it)")
     host.log(f"the launcher (pid {launcher}) ended outright while its Solo game ran: the game (pid {game[0]}) ended with it "
              f"within {seconds} s")
+    menu = host.shell_pid                      # the menu window ends with its launcher too (its input closes)
+    menu_ended = wait(lambda: not host.desk.alive(menu), 30, step=0.25)
+    if not menu_ended:                         # the check leaves no menu behind (Windows: its window; Linux: the pid)
+        host.desk.close_game(menu, host.menu)
+    require(menu_ended, f"{host.name}: the menu window (pid {menu}) kept running 30 s after its launcher was ended outright")
+    host.log(f"its menu window (pid {menu}) ended too")
     check.picture("after-launcher-ended")
     host.start()
     host.choose(host.expect("main"), "solo")
