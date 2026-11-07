@@ -16,8 +16,9 @@ on the host the world's folder.
 
 - [ ] A fresh install on PC 1: the launcher starts, the graphics check picks the 3D view on the graphics card (or offers
       Classic 2D), a new character plays the short introduction and saves; close; Continue loads the same place and party.
-- [ ] Setup run over the earlier build (run 322's or 334's): every character, save and world kept; a hosted world asks
-      once to get ready for the new version (a backup first); the Solo world brings the character back; play on, save.
+- [ ] Setup run over the earlier build (any you installed before: run 322's, 334's or later, up to 359's): every
+      character, save and world kept; a hosted world asks once to get ready for the new version (a backup first); the
+      Solo world brings the character back; play on, save.
 - [ ] Uninstall, then install again: the private folder and everything in it are still there.
 
 ## The 3D view on a graphics card
@@ -90,9 +91,10 @@ on the host the world's folder.
 - [ ] Switch a PC off while the game saves: on the next start the save before or after loads (MS-196: the save is
       written to the disk before it replaces the old one); a power cut was not tried anywhere.
 - [ ] From the build of engine `70cf7d18` on (run 364's installer and later), a save that cannot be written (MS-212), in
-      the Solo world and in a window (not full screen): while the game runs, open `%LOCALAPPDATA%\PokemonPrivate\players`
-      in File Explorer, find the `character.sav` changed last, and in its Properties tick Read-only. Save in the game: the
-      window's title says "the save file could not be written: trying again" (the 3D pause menu's save says it failed).
-      Untick Read-only: within half a minute the title is back to normal and the file's time changes. Close the game,
-      Continue: the place of that save loads. Untick Read-only before closing the game in any case. Only the self-test
-      (a folder standing in the file's place) has run on Windows so far, not a real lock or a full disk.
+      the Solo world and in a window (not full screen): while the game runs, open
+      `%LOCALAPPDATA%\PokemonPrivate\launcher\players` in File Explorer, find the `character.sav` changed last (in a
+      folder per world and per player), and in its Properties tick Read-only. Save in the game: the window's title says
+      "the save file could not be written: trying again" (the 3D pause menu's save says it failed). Untick Read-only:
+      within half a minute the title is back to normal and the file's time changes. Close the game, Continue: the place
+      of that save loads. Untick Read-only before closing the game in any case. Only the self-test (a folder standing in
+      the file's place) has run on Windows so far, not a real lock or a full disk.
