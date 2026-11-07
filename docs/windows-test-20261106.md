@@ -128,3 +128,9 @@ on the host the world's folder.
       while it is still opening (MS-220): one menu stays; the second click says EmeraldTogether is already open, and
       after OK nothing else opens. Earlier installers opened a second menu on the same files. Tried on Linux, and on
       GitHub's Windows runner by the installation check; not on a PC.
+- [ ] From the first installer with app `310e470` on, EmeraldTogether ended while its game runs (MS-221; Task
+      Manager > Details > EmeraldTogether.exe > End task, not the game): the game window closes too; start
+      EmeraldTogether again and open the same world: the character has what was last saved, and only one game
+      window opens.
+      Earlier installers left the game running on its own, and a second one could open beside it. Tried on Linux;
+      on GitHub's Windows runner by the installation check from the next full run on; not on a PC.
