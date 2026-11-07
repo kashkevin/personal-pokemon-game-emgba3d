@@ -112,7 +112,7 @@ async def run(args: argparse.Namespace) -> None:
     global SCENARIO
     SCENARIO = SCENARIOS[args.scenario]
     root = args.output.resolve()
-    if "/multiplayer-proof/" not in str(root) + "/" or root.exists():
+    if "/multiplayer-proof/" not in root.as_posix() + "/" or root.exists():
         raise ValueError("choose a new private multiplayer-proof output directory")
     if len(args.display) != 2:
         raise ValueError("two X displays, one per client")
