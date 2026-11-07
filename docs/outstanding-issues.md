@@ -126,7 +126,9 @@ the fixes section 7 lists as not yet tried between two real PCs.
 
 ## 5. Windows CI coverage of the newest work
 
-Run 271 (2026-11-04 morning) covered engine `2054cf05` and is the last installer prepared. Run 273 (engine
+**Now (2026-11-07):** see section 0's Release checks and Installer rows - run [369](https://github.com/kashkevin/personal-pokemon-game-emgba3d/actions/runs/42356351245) passed every one of its 91 jobs and its installer is the one prepared (not distributed, N8); run [373](https://github.com/kashkevin/personal-pokemon-game-emgba3d/actions/runs/42372104776) (engine `50d865c5`) is running; engine `7b9f6bfa` (MS-217) follows in the full run after it. What follows is the history of the runs, in order, from 2026-11-04.
+
+Run 271 (2026-11-04 morning) covered engine `2054cf05` and was then the last installer prepared. Run 273 (engine
 `49b12c51`, app `6952acc`): 55 jobs passed, 4 failed (the Tower Duo proofs' expectation, MS-192, fixed). Run 277
 (engine `9f41e9f3`, app `3e42c54`, the gameplay check on): **all 62 jobs passed** (the engine self-tests with every
 fix of the day, the three wireless minigames between two and three players, the Tower's Duo proofs, multiplayer,
