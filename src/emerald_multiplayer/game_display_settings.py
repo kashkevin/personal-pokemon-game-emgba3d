@@ -14,6 +14,8 @@ import os
 from pathlib import Path
 import re
 
+from .windows_files import replace_file
+
 RESOLUTIONS = ("1280x720", "1920x1080", "2560x1440", "3840x2160")
 DEFAULT_RESOLUTION = "1920x1080"
 MODES = ("windowed", "borderless", "fullscreen")
@@ -122,7 +124,7 @@ def write_display_settings(path, *, resolution, mode, quality):
         target.write(data)
         target.flush()
         os.fsync(target.fileno())
-    os.replace(temporary, path)
+    replace_file(temporary, path)
     return read_display_settings(path)
 
 
@@ -192,5 +194,5 @@ def write_audio_settings(path, *, volume, cry_volume, music_volume=None, sfx_vol
         target.write(data)
         target.flush()
         os.fsync(target.fileno())
-    os.replace(temporary, path)
+    replace_file(temporary, path)
     return read_audio_settings(path)

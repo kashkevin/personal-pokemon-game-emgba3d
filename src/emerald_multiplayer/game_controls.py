@@ -17,6 +17,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from .windows_files import replace_file
+
 MAX_FILE_BYTES = 65536
 
 # (id, the line's name, what the screens call it, the default key's SDL name). The order is the
@@ -185,7 +187,7 @@ def write_controls(path, bindings):
         target.write(data)
         target.flush()
         os.fsync(target.fileno())
-    os.replace(temporary, path)
+    replace_file(temporary, path)
 
 
 def assign(bindings, action, key, *, swap=False):

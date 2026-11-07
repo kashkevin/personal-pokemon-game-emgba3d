@@ -28,6 +28,7 @@ from uuid import uuid4
 from .flash import FlashError, LAYOUT_ID, OWNERSHIP_LAYOUT_ID, inspect_flash
 from .live_checkpoint import _atomic, _sync_directory
 from .shell_store import JsonStore, is_uuid, text_ok, time_ok
+from .windows_files import replace_file
 
 FORMAT = "emerald-character-v1"
 INDEX_FORMAT = "emerald-character-library-v1"
@@ -363,7 +364,7 @@ class CharacterLibrary:
         self.deleted_root.mkdir(mode=0o700, parents=True, exist_ok=True)
         stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime(self.clock()))
         target = self.deleted_root / f"{stamp}-{character_id}"
-        os.replace(folder, target)
+        replace_file(folder, target)     # an antivirus's brief hold on a file in it waited out
         record = dict(self._index.record)
         if record["active"] == character_id:
             record["active"] = None

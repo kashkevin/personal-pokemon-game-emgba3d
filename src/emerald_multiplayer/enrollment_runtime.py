@@ -21,6 +21,7 @@ from .cold_start import ColdStartRecovery
 from .companion import verify_rom_manifest
 from .flash import LAYOUT_ID, MAX_CONTAINER_SIZE, inspect_flash
 from .live_checkpoint import LiveCheckpointCoordinator, _atomic, _json_bytes, _sync_directory
+from .windows_files import replace_file
 from .ownership import OWNERSHIP_PROFILE, extract_source_inventory
 from .player_runtime import NativeGame, _finish_even_if_cancelled, _open_child, _preflight_launch, _stop
 from .trade_storage import TradeCheckpointStore
@@ -62,7 +63,7 @@ def set_aside_previous_saves(directory):
         raise EnrollmentRuntimeError("recovery_required", "no place to keep the earlier saves")
     # The save goes last, so an interrupted move still leaves the newest save where the account expects it.
     for entry in sorted(moving, key=lambda path: path.name == "character.sav"):
-        os.replace(entry, folder / entry.name)
+        replace_file(entry, folder / entry.name)
     _sync_directory(folder)
     _sync_directory(directory)
     return folder
@@ -235,7 +236,7 @@ class EnrollmentRuntime:
             raise EnrollmentRuntimeError("recovery_required", "no place to keep the abandoned enrollment attempt")
         for path in (self.save_path, self.source_copy, self.pending_path):
             if path_present(path):
-                os.replace(path, folder / path.name)
+                replace_file(path, folder / path.name)
         _sync_directory(folder)
         _sync_directory(self.directory)
 
