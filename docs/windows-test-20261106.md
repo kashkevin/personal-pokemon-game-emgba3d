@@ -55,6 +55,11 @@ on the host the world's folder.
       rails are a raised walkway from the enclosure on the west to the plateau on the east, the plateau stands a
       level up with cliffs round it, no white stairs at the rails' west end, no lone rock block; walk over the rails
       and up the path north into the next Safari area (MS-222). Earlier builds laid the rails on the ground.
+- [ ] From the build of engine `5be0c872` on, in the 3D view: Fortree City: the six tree houses stand on porches a
+      level over the forest floor, the plank bridges between them at the porches' level, a ladder from each porch
+      down to the floor; walk the south bridge east over the path north of the Gym (the people on the path pass
+      under it), then walk that path under the bridge (the planks over the player's head), and climb a ladder
+      (MS-223). Earlier builds laid the bridges and porches on the ground, the ladders flat.
 
 ## Settings and controls
 
