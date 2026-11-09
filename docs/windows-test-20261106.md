@@ -51,11 +51,11 @@ on the host the world's folder.
 - [ ] From the build of engine `d93170ef` (the full run after run 356), in the 3D view: accept a challenge where the
       attendant saves first (a Battle Tent, the Battle Frontier, Trainer Hill): the game asks to save and saves; in the
       builds before it the 3D game closed there (MS-206).
-- [ ] From the build of engine `72518ddf` on, in the 3D view: Safari Zone South, north of the entrance: the white
+- [ ] From the build of engine `72518ddf` on (run 394's installer, CI-394), in the 3D view: Safari Zone South, north of the entrance: the white
       rails are a raised walkway from the enclosure on the west to the plateau on the east, the plateau stands a
       level up with cliffs round it, no white stairs at the rails' west end, no lone rock block; walk over the rails
       and up the path north into the next Safari area (MS-222). Earlier builds laid the rails on the ground.
-- [ ] From the build of engine `5be0c872` on, in the 3D view: Fortree City: the six tree houses stand on porches a
+- [ ] From the build of engine `5be0c872` on (not yet in a prepared installer: the next full run), in the 3D view: Fortree City: the six tree houses stand on porches a
       level over the forest floor, the plank bridges between them at the porches' level, a ladder from each porch
       down to the floor; walk the south bridge east over the path north of the Gym (the people on the path pass
       under it), then walk that path under the bridge (the planks over the player's head), and climb a ladder
@@ -138,7 +138,7 @@ on the host the world's folder.
       while it is still opening (MS-220): one menu stays; the second click says EmeraldTogether is already open, and
       after OK nothing else opens. Earlier installers opened a second menu on the same files. Tried on Linux, and on
       GitHub's Windows runner by the installation check; not on a PC.
-- [ ] From the first installer with app `310e470` on, EmeraldTogether ended while its game runs (MS-221; Task
+- [ ] From the first installer with app `310e470` on (run 394's, CI-394), EmeraldTogether ended while its game runs (MS-221; Task
       Manager > Details > EmeraldTogether.exe > End task, not the game): the game window closes too; start
       EmeraldTogether again and open the same world: the character has what was last saved, and only one game
       window opens.
