@@ -2128,8 +2128,9 @@ jobs:
         shell: pwsh
         run: |
           # The probe of docs/3d-world-geometry-20261029.md on a Windows runner: each place warped to, drawn from four
-          # cameras (pictures) and its cells dumped (heights as drawn). The places the owner's defects were seen at,
-          # and two caves. What it says: those places are drawn so in a Windows process with Mesa; nothing about a GPU.
+          # cameras (pictures) and its cells dumped (heights as drawn). The places the owner's defects were seen at
+          # (from 2026-11-09 the Safari Zone South's white rails too: KNOWN_ISSUES MS-222), and two caves. What it
+          # says: those places are drawn so in a Windows process with Mesa; nothing about a GPU.
           $probe = "diorama-check-inputs\geo\tools\qa\geometry_check.py"
           if (-not (Test-Path $probe)) { "- Geometry probe: not in this engine" >> $env:GITHUB_STEP_SUMMARY; exit 0 }
           $out = Join-Path $env:RUNNER_TEMP "graphics-3d\geometry"
@@ -2141,14 +2142,51 @@ jobs:
             "PetalburgWoods_26_22 24 11 26 22", "Route112_20_33 0 27 20 33", "JaggedPass_15_22 24 13 15 22",
             "Route113_38_8 0 28 38 8", "Route110_4_28 0 25 4 28", "BattleFrontier_OutsideWest_35_37 26 4 35 37",
             "SootopolisCity_29_32 0 7 29 32", "Route126_40_61 0 41 40 61", "Route119_20_52 0 34 20 52",
-            "GraniteCave_1F_21_7 24 7 21 7", "MeteorFalls_1F_1R_14_21 24 0 14 21"
+            "GraniteCave_1F_21_7 24 7 21 7", "MeteorFalls_1F_1R_14_21 24 0 14 21", "SafariZone_South_20_19 26 3 20 19"
           ) | Set-Content -Path $tour -Encoding ascii
           python $probe run --exe diorama-check-inputs\pokeemerald-mp-diorama-bfxtest.exe --save $save --tour $tour `
-            --out $out --jobs 1 --chunk 14
+            --out $out --jobs 1 --chunk 15
           if ($LASTEXITCODE -ne 0) { throw "the geometry probe failed ($LASTEXITCODE)" }
           $shots = @(Get-ChildItem (Join-Path $out "shots") -Filter *.png -ErrorAction SilentlyContinue).Count
-          "- Geometry probe through Mesa llvmpipe: $shots pictures of 14 showcase places (geometry/shots)" >> $env:GITHUB_STEP_SUMMARY
-          if ($shots -lt 14 * 4) { throw "the geometry probe drew $shots pictures, not the 56 of its 14 places" }
+          "- Geometry probe through Mesa llvmpipe: $shots pictures of 15 showcase places (geometry/shots)" >> $env:GITHUB_STEP_SUMMARY
+          if ($shots -lt 15 * 4) { throw "the geometry probe drew $shots pictures, not the 60 of its 15 places" }
+      - name: The 3D heights at the probe's places, fingerprinted (the Safari Zone South's rails among them, MS-222)
+        shell: python
+        run: |
+          # The cells the probe above dumped at each place (tools/qa/geometry_check.py run: cells/<key>.tsv.gz, the
+          # heights as drawn), each as its number of cells and a SHA-256 of its text, to set beside the same tour's
+          # dumps from a Linux build of the same engine: the same numbers there, the same heights made by this Windows
+          # build. And the Safari Zone South's white rails with the walls round them (KNOWN_ISSUES MS-222: x 15-27,
+          # y 0-8) as a table of their tops in tiles, readable in this log. What it says: the heights this build
+          # makes; nothing about how a GPU draws them. It fails only when the probe ran and dumped no cells.
+          import gzip, hashlib, os, pathlib
+          root = pathlib.Path(os.environ["RUNNER_TEMP"], "graphics-3d", "geometry")
+          dumps = sorted((root / "cells").glob("*.tsv.gz")) if (root / "cells").is_dir() else []
+          lines = []
+          for path in dumps:
+              with gzip.open(path, "rt") as dump:      # text mode: line ends read alike from either system's dump
+                  text = dump.read()
+              rows = text.split("\n")
+              lines.append(f"  - {path.name[:-7]}: {sum(1 for row in rows[2:] if row)} cells, sha256 "
+                           f"{hashlib.sha256(text.encode()).hexdigest()}")
+              if path.name.startswith("SafariZone_South_"):
+                  columns = rows[1].split("\t")
+                  tops = {}
+                  for row in rows[2:]:
+                      cell = dict(zip(columns, row.split("\t")))
+                      # the map's own cells (flags bit 0: geometry_check.py SOURCE_VALID)
+                      if row and (cell["group"], cell["num"]) == ("26", "3") and int(cell["flags"]) & 1:
+                          tops[int(cell["sx"]), int(cell["sy"])] = float(cell["top"])
+                  print(f"{path.name[:-7]}: the tops of x 15-27 (columns) at y 0-8 (rows), in tiles")
+                  for y in range(9):
+                      print(f"  y {y}: " + " ".join(f"{tops[x, y]:5.2f}" if (x, y) in tops else "    ."
+                                                     for x in range(15, 28)))
+          head = f"- The 3D heights at the probe's places (geometry/cells): {len(dumps)} dumps"
+          print("\n".join([head] + lines))
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
+              summary.write("\n".join([head] + lines) + "\n")
+          if root.is_dir() and not dumps:
+              raise SystemExit("the geometry probe ran and dumped no cells")
       - name: The 3D chunk cache across map seams (KNOWN_ISSUES MS-118, its terrain check)
         shell: python
         run: |
