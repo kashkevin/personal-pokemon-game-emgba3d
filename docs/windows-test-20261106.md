@@ -16,7 +16,7 @@ on the host the world's folder.
 
 - [ ] A fresh install on PC 1: the launcher starts, the graphics check picks the 3D view on the graphics card (or offers
       Classic 2D), a new character plays the short introduction and saves; close; Continue loads the same place and party.
-- [ ] Setup run over the earlier build (any you installed before: run 322's, 334's or later, up to 373's): every
+- [ ] Setup run over the earlier build (any you installed before: run 322's, 334's or later, up to 380's): every
       character, save and world kept; a hosted world asks once to get ready for the new version (a backup first); the
       Solo world brings the character back; play on, save.
 - [ ] Uninstall, then install again: the private folder and everything in it are still there.
@@ -119,11 +119,12 @@ on the host the world's folder.
       with the date a day or more earlier, play and save twice, then Characters > your character > Back up now, and
       save once more. Restore an earlier version lists the newest versions first, the copy made with Back up now
       among them. Earlier installers deleted each new version as soon as it was written once 40 were kept. Tried
-      in the tests on Linux only.
+      in the tests only (on Linux, and on GitHub's Windows runner from run 380 on), never on a PC.
 - [ ] From the first installer with app `bfc288e` on, the host's date changed during a Battle Tower battle (MS-219;
       two PCs or two accounts: the friend starts a Tower floor, the host sets the PC's date a day forward while it
       runs, then back): the friend's battle counts as it ends (a win stays a win). Earlier installers counted it as a
-      loss at once. Tried in the tests on Linux only.
+      loss at once. Tried in the tests only (on Linux, and on GitHub's Windows runner from run 382
+      on), never on a PC.
 - [ ] From the first installer with app `6af8b76` on, a second click on the EmeraldTogether icon while it is open, or
       while it is still opening (MS-220): one menu stays; the second click says EmeraldTogether is already open, and
       after OK nothing else opens. Earlier installers opened a second menu on the same files. Tried on Linux, and on
@@ -133,4 +134,4 @@ on the host the world's folder.
       EmeraldTogether again and open the same world: the character has what was last saved, and only one game
       window opens.
       Earlier installers left the game running on its own, and a second one could open beside it. Tried on Linux;
-      on GitHub's Windows runner by the installation check from the next full run on; not on a PC.
+      on GitHub's Windows runner by the installation check (run 391 on); not on a PC.
