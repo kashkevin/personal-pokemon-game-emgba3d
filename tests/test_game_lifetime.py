@@ -67,7 +67,7 @@ def alive(pid: int) -> bool:
         state = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0]
     except (OSError, IndexError):
         return False
-    return state != "Z"
+    return state not in ("Z", "X")          # a zombie, or dead while its parent reaps it
 
 
 def end_outright(pid: int) -> None:
@@ -100,7 +100,10 @@ class GameEndsWithItsLauncherTests(unittest.TestCase):
     @staticmethod
     def _stop_pid(pid):
         if alive(pid):
-            end_outright(pid)
+            try:
+                end_outright(pid)
+            except ProcessLookupError:
+                pass                        # it ended between the look and the kill: what the cleanup wants
 
     @staticmethod
     def wait_until_ended(pid, seconds=15.0):
