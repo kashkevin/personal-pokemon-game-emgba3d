@@ -1265,7 +1265,9 @@ and Route 111 is the last.
 **Ramps climbing east or west** (MS-188). The renderer's stair profile stood a ramp climbing east high on its west side
 and one climbing west high on its east side (north and south were right, and the compiler's roles name the high side for
 all four). The game had one such ramp before the Frontier's, the Safari Zone South's cell (17, 7) by its plateau - a
-spike over the ground east of it, a pit by the plateau - which now meets both. With the Frontier's ramp right, the sky
+spike over the ground east of it, a pit by the plateau - which now meets both (taken out on 2026-11-09: the
+cell is where Safari Zone South's white rails start, and the ramp stood stairs there, KNOWN_ISSUES MS-222).
+With the Frontier's ramp right, the sky
 showed in a triangle over its foot under the sea wall (49 pixels): a cell's side reached down only to its footing, and
 stairs beside it hung no skirt. A cell beside stairs up now hangs its side down to the stairs' top a pixel at a time
 (`terrain_mesh.c` `AppendSkirtByStairs`): 0.

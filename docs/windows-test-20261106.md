@@ -51,6 +51,10 @@ on the host the world's folder.
 - [ ] From the build of engine `d93170ef` (the full run after run 356), in the 3D view: accept a challenge where the
       attendant saves first (a Battle Tent, the Battle Frontier, Trainer Hill): the game asks to save and saves; in the
       builds before it the 3D game closed there (MS-206).
+- [ ] From the build of engine `72518ddf` on, in the 3D view: Safari Zone South, north of the entrance: the white
+      rails are a raised walkway from the enclosure on the west to the plateau on the east, the plateau stands a
+      level up with cliffs round it, no white stairs at the rails' west end, no lone rock block; walk over the rails
+      and up the path north into the next Safari area (MS-222). Earlier builds laid the rails on the ground.
 
 ## Settings and controls
 
