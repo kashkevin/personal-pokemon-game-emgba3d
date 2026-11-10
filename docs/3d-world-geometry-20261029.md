@@ -1328,3 +1328,28 @@ the sky's colour. Victory Road 1F's two trainers under the log bridge are as the
 lower suspects (thin wall slivers at corners, see-through stair boxes in some caves, a few magenta pixels at Aqua
 Hideout 1F and the Exchange Service Corner, the Sootopolis Gym's ice) are not yet checked; the list is in
 TEST_LEDGER's eye review section.
+
+### A person buried in a cave's floor (2026-11-10; engine `bdffd8ff`)
+
+The caves reviewer saw the player's body hidden under the Cave of Origin's entrance corridor, the head above it. The
+corridor's middle (8-10, 6-20) is drawn with metatile 819, the cave tileset's plain rock fill, which the map uses for the
+rock past its walls too: `tools/battle_env/cave_pins.py` pins it as rock (placed impassable nearly everywhere), and the
+rules compiler stood every cell of it up a cell high - also the 44 the game lets the player walk on. A person's feet are
+on a cell's ground (`DioramaRules_ObjectGroundHeight`), so the player, the trainers and a following Pokemon stood inside a
+block of rock there. The same pins stood up corner pieces of the floors of Shoal Cave's four rooms, Victory Road 1F, B1F
+and B2F, the Seafloor Cavern's ninth room (with and without its lava) and the Terra and Marine Caves' ends: 99 walkable
+cells on 12 layouts in all. A pinned rock cell the game leaves walkable is now floor where a walk reaches it - beside a
+walkable cell of a level the game lets the player step from (the same elevation, or 0 or 15 on either side), or where a
+ledge lands the player (`compile_rules._walked_rock_pins`) - and takes the shape it has without the pins; one closed in by
+blocked cells, more of its own and the map's edge stays rock (the 84 cells round the Seafloor Cavern's first room's walls,
+7 at the edge of Route 127's sea floor) (KNOWN_ISSUES MS-228). The mountain art's own walkable tops stood up as rock were
+checked the same way: all are tops no walk reaches (`mountain_art.enclosed_tops`) but Jagged Pass's four, its slope.
+
+Evidence (L, the 3D test build, Mesa): the compiled rules against engine `4379b94a`'s, all 441 layouts: only those 99
+cells' terrain records and the 12 layouts' structures change. The geometry check of the 125 cave and underwater places,
+four cameras: spikes 373 -> 358, fins 824 -> 827 (six rock cells beside the corner of Shoal Cave's two entrance rooms,
+now floor, counted as fins, four of them spikes before: one-cell walls as the 2D game draws them), walk-steps,
+flat-blocked and water-drops unchanged, and no walkable cell a walk reaches drawn raised (69 -> 0). Pictures: the player
+whole on the corridor's floor (scratchpad `ms228/origin-after.png`; game art, not committed). `test_compile_rules` (five
+new unit tests, one repository test), `test_terrace_topology` and `test_rules_parity` (91 tests), `check-diorama` passed;
+the GBA ROM identical. The Windows 3D job's tour gains the entrance (its eighteenth place).

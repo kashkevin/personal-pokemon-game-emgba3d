@@ -60,15 +60,20 @@ on the host the world's folder.
       down to the floor; walk the south bridge east over the path north of the Gym (the people on the path pass
       under it), then walk that path under the bridge (the planks over the player's head), and climb a ladder
       (MS-223). Earlier builds laid the bridges and porches on the ground, the ladders flat.
-- [ ] From the build of engine `57c30448` on (not yet in a prepared installer: the full run 403, running), in the 3D view: Victory Road 1F,
+- [ ] From the build of engine `57c30448` on (not yet in a prepared installer: for the next full run; run 403's did not pass), in the 3D view: Victory Road 1F,
       the stairs north of the entrance up to the raised floor: they climb as steps, no dark ledge at their top,
       and walking up them the player rises with them, not a tile at once at the top; the same at Artisan Cave's
       and Shoal Cave's stairs (MS-224). Earlier builds laid them flat on the lower floor.
-- [ ] From the build of engine `4379b94a` on (not yet in a prepared installer: for the full run after run 403), in the
+- [ ] From the build of engine `4379b94a` on (not yet in a prepared installer: for the next full run), in the
       3D view: Battle Frontier east, from the Battle Tower's plaza walk south down either lane past the flower bed to
       the plaza beyond: the ground rises gently, no step a level high where the lanes meet the plaza, the flower bed
       whole with no notch in its north edge, the bank west of it and its fences as before (MS-225). Earlier builds
       stood the Tower's plaza a level under the lanes.
+- [ ] From the build of engine `bdffd8ff` on (not yet in a prepared installer: for the next full run), in the 3D view:
+      the Cave of Origin from Sootopolis: walk the entrance's corridor from the door to the stairs down - the player, and
+      any following Pokemon, whole on its floor, no pale block round the body; in Shoal Cave's rooms and Victory Road,
+      step onto the corners of the floors beside the rock walls: the player stands on them (MS-228). Earlier builds stood
+      those cells up as rock round the player.
 
 ## Settings and controls
 

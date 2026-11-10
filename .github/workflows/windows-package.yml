@@ -2130,8 +2130,9 @@ jobs:
           # The probe of docs/3d-world-geometry-20261029.md on a Windows runner: each place warped to, drawn from four
           # cameras (pictures) and its cells dumped (heights as drawn). The places the owner's defects were seen at
           # (from 2026-11-09 the Safari Zone South's white rails too: KNOWN_ISSUES MS-222; and Fortree City's raised
-          # walkways over the path crossing under them: MS-223), and three caves (from 2026-11-10 Victory Road 1F's
-          # stairs between its floors: MS-224). What it
+          # walkways over the path crossing under them: MS-223), and four caves (from 2026-11-10 Victory Road 1F's
+          # stairs between its floors: MS-224; and the Cave of Origin's entrance, its corridor's floor no longer rock
+          # over the player: MS-228). What it
           # says: those places are drawn so in a Windows process with Mesa; nothing about a GPU.
           $probe = "diorama-check-inputs\geo\tools\qa\geometry_check.py"
           if (-not (Test-Path $probe)) { "- Geometry probe: not in this engine" >> $env:GITHUB_STEP_SUMMARY; exit 0 }
@@ -2145,10 +2146,10 @@ jobs:
             "Route113_38_8 0 28 38 8", "Route110_4_28 0 25 4 28", "BattleFrontier_OutsideWest_35_37 26 4 35 37",
             "SootopolisCity_29_32 0 7 29 32", "Route126_40_61 0 41 40 61", "Route119_20_52 0 34 20 52",
             "GraniteCave_1F_21_7 24 7 21 7", "MeteorFalls_1F_1R_14_21 24 0 14 21", "SafariZone_South_20_19 26 3 20 19",
-            "FortreeCity_31_14 0 4 31 14", "VictoryRoad_1F_13_29 24 43 13 29"
+            "FortreeCity_31_14 0 4 31 14", "VictoryRoad_1F_13_29 24 43 13 29", "CaveOfOrigin_Entrance_9_13 24 37 9 13"
           ) | Set-Content -Path $tour -Encoding ascii
           python $probe run --exe diorama-check-inputs\pokeemerald-mp-diorama-bfxtest.exe --save $save --tour $tour `
-            --out $out --jobs 1 --chunk 17
+            --out $out --jobs 1 --chunk 18
           if ($LASTEXITCODE -ne 0) { throw "the geometry probe failed ($LASTEXITCODE)" }
           $shots = @(Get-ChildItem (Join-Path $out "shots") -Filter *.png -ErrorAction SilentlyContinue).Count
           "- Geometry probe through Mesa llvmpipe: $shots pictures of 17 showcase places (geometry/shots)" >> $env:GITHUB_STEP_SUMMARY
@@ -2627,7 +2628,8 @@ jobs:
     # A clean Ubuntu 24.04: the runner image's own -dev packages keep the 32-bit SDL2 one from installing.
     container:
       image: ubuntu:24.04
-    timeout-minutes: 60
+    # the toolchain's tries below can take 66 minutes at most before the build's ten
+    timeout-minutes: 100
     outputs:
       engine_commit: ${{ steps.build.outputs.engine_commit }}
     steps:
@@ -2643,9 +2645,35 @@ jobs:
             [ "$attempt" = 3 ] && { echo "apt-get update failed three times" >&2; exit 1; }
             echo "apt-get update stalled or failed (attempt $attempt): again" >&2
           done
-          DEBIAN_FRONTEND=noninteractive timeout 1200 apt-get install -y -qq --no-install-recommends git ca-certificates \
-            python3 python3-venv build-essential gcc-multilib libpng-dev pkg-config \
-            gcc-arm-none-eabi binutils-arm-none-eabi libnewlib-arm-none-eabi libsdl2-dev:i386
+          # The install, one try of 20 minutes, ran out of time with no output in two runs in a row (403 and 404,
+          # 2026-11-10, 03:48-04:08 and 04:51-05:12 UTC; every multiplayer job of run 403 was skipped for want of this
+          # job's symbol list): as the engine build's since runs 280 and 282, the packages are fetched first and
+          # installed after, each part with three tries (apt keeps what it already downloaded), dpkg's man-db
+          # trigger skipped, and a part that runs out of time first shows apt's and dpkg's state.
+          rm -f /var/lib/man-db/auto-update
+          packages="git ca-certificates python3 python3-venv build-essential gcc-multilib libpng-dev pkg-config"
+          packages="$packages gcc-arm-none-eabi binutils-arm-none-eabi libnewlib-arm-none-eabi libsdl2-dev:i386"
+          apt_state() {
+            echo "--- apt and dpkg after attempt $1:" >&2
+            ps -eo pid,etimes,stat,args 2>/dev/null | grep -E '[a]pt|[d]pkg' >&2 || true
+            tail -n 15 /var/log/apt/term.log >&2 || true
+            ls -la /var/cache/apt/archives/partial >&2 || true
+          }
+          for attempt in 1 2 3; do
+            DEBIAN_FRONTEND=noninteractive timeout 600 apt-get install -y -q --download-only \
+              --no-install-recommends -o DPkg::Lock::Timeout=120 $packages && break
+            apt_state "$attempt (download)"
+            [ "$attempt" = 3 ] && { echo "apt-get install --download-only failed three times" >&2; exit 1; }
+            echo "apt-get install --download-only stalled or failed (attempt $attempt): again" >&2
+          done
+          for attempt in 1 2 3; do
+            DEBIAN_FRONTEND=noninteractive timeout 420 apt-get install -y -q --no-download --no-install-recommends \
+              -o Dpkg::Use-Pty=0 -o DPkg::Lock::Timeout=120 $packages && break
+            apt_state "$attempt (install)"
+            [ "$attempt" = 3 ] && { echo "apt-get install failed three times" >&2; exit 1; }
+            echo "apt-get install stalled or failed (attempt $attempt): again" >&2
+            dpkg --configure -a || true
+          done
       - uses: actions/checkout@v7
         with:
           path: app
