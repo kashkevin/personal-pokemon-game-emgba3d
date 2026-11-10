@@ -393,10 +393,21 @@ class WindowsWorkflowTests(unittest.TestCase):
                     continue
                 self.assertTrue(condition.endswith(
                     f"&& (!inputs.only || contains(format(',{{0}},', inputs.only), ',{key},')) }}}}"), condition)
-        for name in ("engine", "symbol-sizes"):
-            # The builds always run: `only` never gates them (only: package merely leaves the check jobs' test builds
-            # and their uploads out of the engine job, for an installer alone).
-            self.assertNotIn("inputs.only", re.search(r"^    if: (.*)$", job(name), re.M).group(1))
+        # The build always runs: `only` never gates it (only: package merely leaves the check jobs' test builds and
+        # their uploads out of the engine job, for an installer alone).
+        self.assertNotIn("inputs.only", re.search(r"^    if: (.*)$", job("engine"), re.M).group(1))
+        # The symbol sizes are for the jobs that read them alone: it runs when `only` is blank or names one of them
+        # (run 404, the 3D job alone, failed for this job's install while its 3D job passed).
+        readers = sorted(name for name in re.findall(r"^  ([a-z0-9-]+):\n", WORKFLOW, re.M)
+                         if "needs: [engine, symbol-sizes]" in job(name))
+        self.assertEqual(len(readers), 9)
+        sizes = job("symbol-sizes")
+        condition = sizes[sizes.index("    if: >-\n"):sizes.index("    runs-on:")]
+        self.assertIn("(inputs.mode || 'smoke') == 'full' && (!inputs.only", condition)
+        for reader in readers:
+            with self.subTest(reader=reader):
+                self.assertIn(f"contains(format(',{{0}},', inputs.only), ',{reader},')", condition)
+        self.assertEqual(condition.count("contains("), len(readers))
         steps = [line.strip() for line in job("engine").splitlines() if "inputs.only" in line]
         self.assertEqual(steps, ["QUICK: ${{ inputs.only == 'package' && '1' || '' }}"]
                          + ["if: ${{ inputs.only != 'package' }}"] * 3)

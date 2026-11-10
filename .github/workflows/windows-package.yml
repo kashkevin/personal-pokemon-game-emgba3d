@@ -2625,7 +2625,19 @@ jobs:
     # parse_pe_symbols). For the multiplayer job's memory reads only; nothing of this build is packaged or uploaded but
     # its symbol list.
     name: Symbol sizes (the Linux Classic 2D game)
-    if: ${{ (inputs.mode || 'smoke') == 'full' }}
+    # Only for the jobs that read its table (each needs it): a run whose `only` names none of them leaves it out (run
+    # 404, the 3D job alone, failed for this job's package install while its 3D job passed).
+    if: >-
+      ${{ (inputs.mode || 'smoke') == 'full' && (!inputs.only
+      || contains(format(',{0},', inputs.only), ',tower-proof,')
+      || contains(format(',{0},', inputs.only), ',rival-proof,')
+      || contains(format(',{0},', inputs.only), ',minigame-proof,')
+      || contains(format(',{0},', inputs.only), ',mega-proof,')
+      || contains(format(',{0},', inputs.only), ',coop-proof,')
+      || contains(format(',{0},', inputs.only), ',trade-proof,')
+      || contains(format(',{0},', inputs.only), ',tickets-proof,')
+      || contains(format(',{0},', inputs.only), ',abandon-check,')
+      || contains(format(',{0},', inputs.only), ',multiplayer-check,'))) }}
     runs-on: ubuntu-24.04
     # A clean Ubuntu 24.04: the runner image's own -dev packages keep the 32-bit SDL2 one from installing.
     container:
