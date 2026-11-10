@@ -2649,6 +2649,15 @@ jobs:
     steps:
       - name: Toolchain (the native game is a 32-bit Linux program with SDL2)
         run: |
+          # The container's own sources (archive.ubuntu.com, security.ubuntu.com) served this install slowly enough to
+          # run out of its 20 minutes in runs 403 and 404 and to take 33 minutes of tries in run 406, while the engine
+          # build's install on the runner itself, from the runner's own mirror, took about a minute: that mirror here.
+          for sources in /etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list; do
+            [ -f "$sources" ] || continue
+            sed -i -e 's|http://archive.ubuntu.com/ubuntu|http://azure.archive.ubuntu.com/ubuntu|g' \
+              -e 's|http://security.ubuntu.com/ubuntu|http://azure.archive.ubuntu.com/ubuntu|g' "$sources"
+          done
+          grep -rh '^URIs:\|^deb ' /etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list 2>/dev/null || true
           dpkg --add-architecture i386
           # apt-get update once hung with no output for an hour on a hosted runner (windows-package runs 153 and 156,
           # 2026-10-22): network timeouts, and three tries of at most five minutes each.

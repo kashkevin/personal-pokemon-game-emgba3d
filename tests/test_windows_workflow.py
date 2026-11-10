@@ -453,6 +453,12 @@ class WindowsWorkflowTests(unittest.TestCase):
                 self.assertNotIn("timeout 1200", steps)
         # three tries of each part fit in the job's time with its build after them
         self.assertIn("timeout-minutes: 100", job("symbol-sizes"))
+        # Run 406 (2026-11-10): that install still took 33 minutes of tries from the container's own sources, the
+        # engine build's a minute from the runner's mirror: the container's sources point at that mirror first.
+        sizes = job("symbol-sizes")
+        mirror = sizes.index("s|http://archive.ubuntu.com/ubuntu|http://azure.archive.ubuntu.com/ubuntu|g")
+        self.assertIn("s|http://security.ubuntu.com/ubuntu|http://azure.archive.ubuntu.com/ubuntu|g", sizes)
+        self.assertLess(mirror, sizes.index("apt-get update"))
 
     def test_a_failed_launcher_proof_prints_its_diagnosis_in_the_log(self):
         # Run 138's ffa-exit: the evidence went to an artifact a session reading the log could not fetch.
