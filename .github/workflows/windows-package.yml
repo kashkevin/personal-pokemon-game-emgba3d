@@ -144,11 +144,22 @@ jobs:
             sudo tail -n 15 /var/log/apt/term.log >&2 || true
             sudo ls -la /var/cache/apt/archives/partial >&2 || true
           }
-          for attempt in 1 2 3; do
+          for attempt in 1 2 3 4; do
             timeout 600 sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -q --download-only \
               --no-install-recommends -o DPkg::Lock::Timeout=120 $packages && break
             apt_state "$attempt (download)"
-            [ "$attempt" = 3 ] && { echo "apt-get install --download-only failed three times" >&2; exit 1; }
+            [ "$attempt" = 4 ] && { echo "apt-get install --download-only failed four times" >&2; exit 1; }
+            if [ "$attempt" = 2 ]; then
+              # Run 420 (2026-11-10): the runner's own mirror gave 66 of these 230 MB in three tries of ten minutes
+              # (a minute's download on other days): the last two tries fetch from Ubuntu's own archive (what apt
+              # already has, it keeps)
+              cat /etc/apt/apt-mirrors.txt >&2 || true
+              for sources in /etc/apt/apt-mirrors.txt /etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list; do
+                [ -f "$sources" ] || continue
+                sudo sed -i 's|http://azure.archive.ubuntu.com/ubuntu|http://archive.ubuntu.com/ubuntu|g' "$sources"
+              done
+              timeout 300 sudo apt-get update -qq || echo "apt-get update from Ubuntu's archive failed: on" >&2
+            fi
             echo "apt-get install --download-only stalled or failed (attempt $attempt): again" >&2
           done
           for attempt in 1 2 3; do
@@ -2690,11 +2701,20 @@ jobs:
             tail -n 15 /var/log/apt/term.log >&2 || true
             ls -la /var/cache/apt/archives/partial >&2 || true
           }
-          for attempt in 1 2 3; do
+          for attempt in 1 2 3 4; do
             DEBIAN_FRONTEND=noninteractive timeout 600 apt-get install -y -q --download-only \
               --no-install-recommends -o DPkg::Lock::Timeout=120 $packages && break
             apt_state "$attempt (download)"
-            [ "$attempt" = 3 ] && { echo "apt-get install --download-only failed three times" >&2; exit 1; }
+            [ "$attempt" = 4 ] && { echo "apt-get install --download-only failed four times" >&2; exit 1; }
+            if [ "$attempt" = 2 ]; then
+              # Run 420 (2026-11-10): the runner's mirror, the quick one here in run 406, gave the engine build 66 of
+              # its 230 MB in three tries of ten minutes: the last two tries fetch from Ubuntu's own archive again
+              for sources in /etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list; do
+                [ -f "$sources" ] || continue
+                sed -i 's|http://azure.archive.ubuntu.com/ubuntu|http://archive.ubuntu.com/ubuntu|g' "$sources"
+              done
+              timeout 300 apt-get update -qq || echo "apt-get update from Ubuntu's archive failed: on" >&2
+            fi
             echo "apt-get install --download-only stalled or failed (attempt $attempt): again" >&2
           done
           for attempt in 1 2 3; do

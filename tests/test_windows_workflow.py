@@ -474,6 +474,15 @@ class WindowsWorkflowTests(unittest.TestCase):
         mirror = sizes.index("s|http://archive.ubuntu.com/ubuntu|http://azure.archive.ubuntu.com/ubuntu|g")
         self.assertIn("s|http://security.ubuntu.com/ubuntu|http://azure.archive.ubuntu.com/ubuntu|g", sizes)
         self.assertLess(mirror, sizes.index("apt-get update"))
+        # Run 420 (2026-11-10): the runner's own mirror gave the engine build 66 of its 230 MB in three tries of ten
+        # minutes: in both jobs the download has four tries, the last two from Ubuntu's own archive
+        for name in ("engine", "symbol-sizes"):
+            with self.subTest(job=name, fallback="archive"):
+                steps = job(name)
+                self.assertIn('[ "$attempt" = 4 ] && { echo "apt-get install --download-only failed four times"', steps)
+                fallback = steps.index("s|http://azure.archive.ubuntu.com/ubuntu|http://archive.ubuntu.com/ubuntu|g")
+                self.assertLess(steps.index("--download-only"), fallback)
+                self.assertLess(fallback, steps.index("--no-download"))
 
     def test_a_failed_launcher_proof_prints_its_diagnosis_in_the_log(self):
         # Run 138's ffa-exit: the evidence went to an artifact a session reading the log could not fetch.
