@@ -74,24 +74,33 @@ on the host the world's folder.
       any following Pokemon, whole on its floor, no pale block round the body; in Shoal Cave's rooms and Victory Road,
       step onto the corners of the floors beside the rock walls: the player stands on them (MS-228). Earlier builds stood
       those cells up as rock round the player.
-- [ ] From the build of engine `1963fd2a` on (not yet in a prepared installer: for the full run after 406), in the 3D
+- [ ] From the build of engine `1963fd2a` on (in the installer CI-416, `docs/package-20261110c.md`), in the 3D
       view: surf to the south end of Route 109 (south of Slateport's beach) and look over the sea to the south: no dark
       line across it where the route's map ends; round Birth Island, Navel Rock's shore and Faraway Island's dock, no
       dark outline or raised band of sea round the map (MS-229). Earlier builds drew a thin dark line along the sea at
       the map's edge.
-- [ ] From the build of engine `4824c439` on (for the full run after 406), in the 3D view: surf past the south end of
+- [ ] From the build of engine `4824c439` on (in the installer CI-416), in the 3D view: surf past the south end of
       Faraway Island's east strip, and look at the boulders in Meteor Falls 1F's pools: each boulder sits in the water
       at the water's level, no half of it raised in a box of water (MS-230). Earlier builds sank half of such a boulder.
-- [ ] From the build of engine `e997f89c` on (for the full run after 406), in the 3D view: in the Shoal Cave at high
+- [ ] From the build of engine `e997f89c` on (in the installer CI-416), in the 3D view: in the Shoal Cave at high
       tide, the Marine Cave's or the Seafloor Cavern's entrance, look along the edge of the shallow water: no thin dark
       line where it meets the deep water (MS-231). Earlier builds drew one.
-- [ ] From the build of engine `a2f4aa6f` on (in the full run after 406), in the 3D view: in the Mauville Gym no thin
+- [ ] From the build of engine `a2f4aa6f` on (in the installer CI-416), in the 3D view: in the Mauville Gym no thin
       wall stands in the black either side of the leader's alcove (no yellow specks there), and in the Battle Tower's
       battle room no thin red spike rises over the back wall's corners (MS-232). Earlier builds drew both.
-- [ ] From the build of engine `8b5856e9` on (in the full run after 406), in the 3D view: in the Cove Lily Motel 1F
+- [ ] From the build of engine `8b5856e9` on (in the installer CI-416), in the 3D view: in the Cove Lily Motel 1F
       with a TV show on the air, the back wall stands whole over the television and beside the stairs; in the Trick
       House's last room the back wall is whole right of the doorway (MS-233). Earlier builds showed the tatami floor
       through both walls.
+- [ ] From the build of engine `cdbb1776` on (not yet in a prepared installer: in the full run 422), in the 3D view:
+      in the Fortree Gym the three lone hedges stand low with their green squares on top (not cubes topped with the
+      floor's lattice); in the Sootopolis Gym 1F the ice rocks on the open ice all stand alike, small, no block
+      standing out beside a ledge (MS-227). Earlier builds stood them as tall blocks.
+- [ ] From the build of engine `5b75fc6b` on (in the full run 422), in the 3D view: in a Battle Factory battle, the
+      hall's side walls are plain beige with a straight red band at their foot (not striped, no sawtooth band), and
+      the white floor tiles beside the scientists along both walls and at the back wall's foot carry no orange
+      dashes; dive at the Seafloor Cavern's way in: the parked submarine lies whole in its hollow, no part of it a
+      rock block (MS-227). Earlier builds drew all three.
 
 ## Settings and controls
 
