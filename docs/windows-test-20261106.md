@@ -55,12 +55,12 @@ on the host the world's folder.
       rails are a raised walkway from the enclosure on the west to the plateau on the east, the plateau stands a
       level up with cliffs round it, no white stairs at the rails' west end, no lone rock block; walk over the rails
       and up the path north into the next Safari area (MS-222). Earlier builds laid the rails on the ground.
-- [ ] From the build of engine `5be0c872` on (not yet in a prepared installer: the next full run), in the 3D view: Fortree City: the six tree houses stand on porches a
+- [ ] From the build of engine `5be0c872` on (run 400's installer, CI-400), in the 3D view: Fortree City: the six tree houses stand on porches a
       level over the forest floor, the plank bridges between them at the porches' level, a ladder from each porch
       down to the floor; walk the south bridge east over the path north of the Gym (the people on the path pass
       under it), then walk that path under the bridge (the planks over the player's head), and climb a ladder
       (MS-223). Earlier builds laid the bridges and porches on the ground, the ladders flat.
-- [ ] From the build of engine `57c30448` on (not yet in a prepared installer), in the 3D view: Victory Road 1F,
+- [ ] From the build of engine `57c30448` on (not yet in a prepared installer: the full run 403, running), in the 3D view: Victory Road 1F,
       the stairs north of the entrance up to the raised floor: they climb as steps, no dark ledge at their top,
       and walking up them the player rises with them, not a tile at once at the top; the same at Artisan Cave's
       and Shoal Cave's stairs (MS-224). Earlier builds laid them flat on the lower floor.
