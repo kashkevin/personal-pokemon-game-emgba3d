@@ -1382,3 +1382,21 @@ south edge (the line gone), Faraway Island's dock and north edge (scratchpad `ms
 The C rule test (`TestIslandBorderSea`, failing on the old code at both parts), `check-diorama`, the line check; the GBA
 ROM identical. The Windows 3D job's tour gains Faraway Island's entrance and Route 109 (20 places); four of its other
 places change, only in their sea past the edge.
+
+### A boulder in the water (2026-11-10; engine `4824c439`)
+
+Checking MS-229 at Faraway Island found a boulder at the south end of its east strip half sunk: the renderer lays a
+model's cell that stands in water (every neighbour not its own water) on the water round it - a level down with the open
+sea, 3/8 of a level in a cave's pool - and the boulder's cells beside the land, not in water by that rule, stayed at the
+water's surface while the rest went down, the raised half's sides a box of water. The same split boulders stood along
+the shores of eight routes (their sea, rivers and ponds), Slateport City, the Battle Frontier and the Safari Zone's south-east, and in the pools of
+Meteor Falls 1F and Victory Road B2F: 42 cells on 16 maps. A piece with a cell in water and more of its neighbours water
+than not now lies in it whole - the cells of it the rules lay at the water's surface (`buildings.c` `JoinModelsInWater`)
+(KNOWN_ISSUES MS-230). Cells at the land's level stay: a first try that took them too sank a rock's sand-drawn cells on
+Route 132's sandbar as pits.
+
+Evidence (L, the 3D test build, Mesa): the geometry check before and after over the 87 outdoor places, the 4 islands and
+the 125 caves, the dumps compared cell by cell: only those 42 cells change; the check's counts the same but 2 spikes,
+sand spits beside a boulder now at the sea's level (their own shape). Pictures at Faraway Island and Meteor Falls 1F
+(scratchpad `ms230`; game art, not committed). The GBA ROM identical. Five of the Windows 3D job's 20 places change,
+only those boulders.

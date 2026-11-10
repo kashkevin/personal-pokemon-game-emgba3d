@@ -79,6 +79,9 @@ on the host the world's folder.
       line across it where the route's map ends; round Birth Island, Navel Rock's shore and Faraway Island's dock, no
       dark outline or raised band of sea round the map (MS-229). Earlier builds drew a thin dark line along the sea at
       the map's edge.
+- [ ] From the build of engine `4824c439` on (for the full run after 406), in the 3D view: surf past the south end of
+      Faraway Island's east strip, and look at the boulders in Meteor Falls 1F's pools: each boulder sits in the water
+      at the water's level, no half of it raised in a box of water (MS-230). Earlier builds sank half of such a boulder.
 
 ## Settings and controls
 
