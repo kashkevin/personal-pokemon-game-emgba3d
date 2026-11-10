@@ -2637,7 +2637,7 @@ jobs:
       || contains(format(',{0},', inputs.only), ',trade-proof,')
       || contains(format(',{0},', inputs.only), ',tickets-proof,')
       || contains(format(',{0},', inputs.only), ',abandon-check,')
-      || contains(format(',{0},', inputs.only), ',multiplayer-check,'))) }}
+      || contains(format(',{0},', inputs.only), ',multiplayer-check,')) }}
     runs-on: ubuntu-24.04
     # A clean Ubuntu 24.04: the runner image's own -dev packages keep the 32-bit SDL2 one from installing.
     container:

@@ -408,6 +408,12 @@ class WindowsWorkflowTests(unittest.TestCase):
             with self.subTest(reader=reader):
                 self.assertIn(f"contains(format(',{{0}},', inputs.only), ',{reader},')", condition)
         self.assertEqual(condition.count("contains("), len(readers))
+        # GitHub refuses the whole workflow over one stray parenthesis (709b5e0's condition: no run could start)
+        depth = 0
+        for char in condition[condition.index("${{"):condition.index("}}")]:
+            depth += {"(": 1, ")": -1}.get(char, 0)
+            self.assertGreaterEqual(depth, 0, condition)
+        self.assertEqual(depth, 0, condition)
         steps = [line.strip() for line in job("engine").splitlines() if "inputs.only" in line]
         self.assertEqual(steps, ["QUICK: ${{ inputs.only == 'package' && '1' || '' }}"]
                          + ["if: ${{ inputs.only != 'package' }}"] * 3)
