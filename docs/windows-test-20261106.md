@@ -85,6 +85,13 @@ on the host the world's folder.
 - [ ] From the build of engine `e997f89c` on (for the full run after 406), in the 3D view: in the Shoal Cave at high
       tide, the Marine Cave's or the Seafloor Cavern's entrance, look along the edge of the shallow water: no thin dark
       line where it meets the deep water (MS-231). Earlier builds drew one.
+- [ ] From the build of engine `a2f4aa6f` on (in the full run after 406), in the 3D view: in the Mauville Gym no thin
+      wall stands in the black either side of the leader's alcove (no yellow specks there), and in the Battle Tower's
+      battle room no thin red spike rises over the back wall's corners (MS-232). Earlier builds drew both.
+- [ ] From the build of engine `8b5856e9` on (in the full run after 406), in the 3D view: in the Cove Lily Motel 1F
+      with a TV show on the air, the back wall stands whole over the television and beside the stairs; in the Trick
+      House's last room the back wall is whole right of the doorway (MS-233). Earlier builds showed the tatami floor
+      through both walls.
 
 ## Settings and controls
 
