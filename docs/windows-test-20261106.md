@@ -92,11 +92,11 @@ on the host the world's folder.
       with a TV show on the air, the back wall stands whole over the television and beside the stairs; in the Trick
       House's last room the back wall is whole right of the doorway (MS-233). Earlier builds showed the tatami floor
       through both walls.
-- [ ] From the build of engine `cdbb1776` on (not yet in a prepared installer: in the full run 422), in the 3D view:
+- [ ] From the build of engine `cdbb1776` on (in the installer CI-422, `docs/package-20261110d.md`), in the 3D view:
       in the Fortree Gym the three lone hedges stand low with their green squares on top (not cubes topped with the
       floor's lattice); in the Sootopolis Gym 1F the ice rocks on the open ice all stand alike, small, no block
       standing out beside a ledge (MS-227). Earlier builds stood them as tall blocks.
-- [ ] From the build of engine `5b75fc6b` on (in the full run 422), in the 3D view: in a Battle Factory battle, the
+- [ ] From the build of engine `5b75fc6b` on (in the installer CI-422), in the 3D view: in a Battle Factory battle, the
       hall's side walls are plain beige with a straight red band at their foot (not striped, no sawtooth band), and
       the white floor tiles beside the scientists along both walls and at the back wall's foot carry no orange
       dashes; dive at the Seafloor Cavern's way in: the parked submarine lies whole in its hollow, no part of it a
