@@ -82,6 +82,9 @@ on the host the world's folder.
 - [ ] From the build of engine `4824c439` on (for the full run after 406), in the 3D view: surf past the south end of
       Faraway Island's east strip, and look at the boulders in Meteor Falls 1F's pools: each boulder sits in the water
       at the water's level, no half of it raised in a box of water (MS-230). Earlier builds sank half of such a boulder.
+- [ ] From the build of engine `e997f89c` on (for the full run after 406), in the 3D view: in the Shoal Cave at high
+      tide, the Marine Cave's or the Seafloor Cavern's entrance, look along the edge of the shallow water: no thin dark
+      line where it meets the deep water (MS-231). Earlier builds drew one.
 
 ## Settings and controls
 

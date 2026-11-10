@@ -1400,3 +1400,18 @@ the 125 caves, the dumps compared cell by cell: only those 42 cells change; the 
 sand spits beside a boulder now at the sea's level (their own shape). Pictures at Faraway Island and Meteor Falls 1F
 (scratchpad `ms230`; game art, not committed). The GBA ROM identical. Five of the Windows 3D job's 20 places change,
 only those boulders.
+
+### A body of water at one surface (2026-11-10; engine `e997f89c`)
+
+The eye review's reviewers saw seams in the shallow water of the Marine Cave's and the Seafloor Cavern's entrances. The
+records give shallow water a sixteenth of a tile less depth than deep water; the open sea is laid at one level, but a
+body of water that is not the open sea kept both, a step whose side showed as a thin dark line along the edge of the
+shallows - in those two caves, the Shoal Cave's two rooms at high tide and the Abandoned Ship's deck (206 such edges in
+the 125 cave places, none outdoors). A body whose cells all have water records of the water's own depth now lies at its
+deepest record's surface, worked out per layout (`buildings.c` `WaterLevelsFor`) and lowered only; a body with a
+terrace solver's record in it is left as it was (KNOWN_ISSUES MS-231).
+
+Evidence (L, the 3D test build, Mesa): the geometry check before and after over the 125 caves, the 91 outdoor places and
+the 10 rooms with water: 546 shallow cells at those 5 places a sixteenth down, no water left meeting water at another
+level, nothing else, the check's counts the same; a picture at the Shoal Cave (the line gone). The GBA ROM identical.
+The Windows 3D job's tour gains the Shoal Cave's entrance room at high tide (21 places).
