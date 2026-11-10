@@ -2153,14 +2153,14 @@ jobs:
             "FortreeCity_31_14 0 4 31 14", "VictoryRoad_1F_13_29 24 43 13 29", "CaveOfOrigin_Entrance_9_13 24 37 9 13",
             "FarawayIsland_Entrance_15_15 26 56 15 15", "Route109_20_59 0 24 20 59",
             "ShoalCave_HighTideEntranceRoom_8_16 24 50 8 16", "MauvilleCity_Gym_3_9 10 0 3 9",
-            "Route110_TrickHouseEnd_6_3 29 1 6 3"
+            "Route110_TrickHouseEnd_6_3 29 1 6 3", "FortreeCity_Gym_9_12 12 1 9 12", "SootopolisCity_Gym_1F_8_9 15 0 8 9"
           ) | Set-Content -Path $tour -Encoding ascii
           python $probe run --exe diorama-check-inputs\pokeemerald-mp-diorama-bfxtest.exe --save $save --tour $tour `
-            --out $out --jobs 1 --chunk 23
+            --out $out --jobs 1 --chunk 25
           if ($LASTEXITCODE -ne 0) { throw "the geometry probe failed ($LASTEXITCODE)" }
           $shots = @(Get-ChildItem (Join-Path $out "shots") -Filter *.png -ErrorAction SilentlyContinue).Count
-          "- Geometry probe through Mesa llvmpipe: $shots pictures of 23 showcase places (geometry/shots)" >> $env:GITHUB_STEP_SUMMARY
-          if ($shots -lt 23 * 4) { throw "the geometry probe drew $shots pictures, not the 92 of its 23 places" }
+          "- Geometry probe through Mesa llvmpipe: $shots pictures of 25 showcase places (geometry/shots)" >> $env:GITHUB_STEP_SUMMARY
+          if ($shots -lt 25 * 4) { throw "the geometry probe drew $shots pictures, not the 100 of its 25 places" }
       - name: The 3D heights at the probe's places, fingerprinted (the Safari Zone South's rails among them, MS-222)
         shell: python
         run: |
