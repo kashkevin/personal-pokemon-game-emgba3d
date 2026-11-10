@@ -1269,7 +1269,7 @@ spike over the ground east of it, a pit by the plateau - which now meets both (t
 cell is where Safari Zone South's white rails start, and the ramp stood stairs there, KNOWN_ISSUES MS-222).
 (A sweep after MS-222, 2026-11-09, for walkable cells the 2D game keeps apart by elevation drawn at one height,
 found the same fault in Fortree City: its tree houses, porches and plank bridges, a level over the forest floor
-in the 2D game, lay on the floor; they stand a level up since engine `5be0c872`, KNOWN_ISSUES MS-223. The check is the geometry tool's level-wall since engine `15543abe`; over the caves, the underwater maps, the rooms and the secret bases it found none of the kind: 64 cells at five rooms, each as the 2D game draws it.)
+in the 2D game, lay on the floor; they stand a level up since engine `5be0c872`, KNOWN_ISSUES MS-223. The check is the geometry tool's level-wall since engine `15543abe`; over the caves, the underwater maps, the rooms and the secret bases it found none of the kind: 64 cells at five rooms, each as the 2D game draws it. The caves' walk-steps, open since this document's item 4 ("walk-steps 72 -> 72, most in caves, where a cave's elevations meet without stairs"), were their stairs lying flat on the lower floor: they climb since engine `57c30448`, KNOWN_ISSUES MS-224, and the caves' walk-steps fell from 49 to 13.)
 With the Frontier's ramp right, the sky
 showed in a triangle over its foot under the sea wall (49 pixels): a cell's side reached down only to its footing, and
 stairs beside it hung no skirt. A cell beside stairs up now hangs its side down to the stairs' top a pixel at a time

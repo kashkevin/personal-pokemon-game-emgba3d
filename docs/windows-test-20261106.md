@@ -60,6 +60,10 @@ on the host the world's folder.
       down to the floor; walk the south bridge east over the path north of the Gym (the people on the path pass
       under it), then walk that path under the bridge (the planks over the player's head), and climb a ladder
       (MS-223). Earlier builds laid the bridges and porches on the ground, the ladders flat.
+- [ ] From the build of engine `57c30448` on (not yet in a prepared installer), in the 3D view: Victory Road 1F,
+      the stairs north of the entrance up to the raised floor: they climb as steps, no dark ledge at their top,
+      and walking up them the player rises with them, not a tile at once at the top; the same at Artisan Cave's
+      and Shoal Cave's stairs (MS-224). Earlier builds laid them flat on the lower floor.
 
 ## Settings and controls
 
