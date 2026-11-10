@@ -74,6 +74,11 @@ on the host the world's folder.
       any following Pokemon, whole on its floor, no pale block round the body; in Shoal Cave's rooms and Victory Road,
       step onto the corners of the floors beside the rock walls: the player stands on them (MS-228). Earlier builds stood
       those cells up as rock round the player.
+- [ ] From the build of engine `1963fd2a` on (not yet in a prepared installer: for the full run after 406), in the 3D
+      view: surf to the south end of Route 109 (south of Slateport's beach) and look over the sea to the south: no dark
+      line across it where the route's map ends; round Birth Island, Navel Rock's shore and Faraway Island's dock, no
+      dark outline or raised band of sea round the map (MS-229). Earlier builds drew a thin dark line along the sea at
+      the map's edge.
 
 ## Settings and controls
 

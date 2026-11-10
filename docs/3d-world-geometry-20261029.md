@@ -1353,3 +1353,32 @@ flat-blocked and water-drops unchanged, and no walkable cell a walk reaches draw
 whole on the corridor's floor (scratchpad `ms228/origin-after.png`; game art, not committed). `test_compile_rules` (five
 new unit tests, one repository test), `test_terrace_topology` and `test_rules_parity` (91 tests), `check-diorama` passed;
 the GBA ROM identical. The Windows 3D job's tour gains the entrance (its eighteenth place).
+
+### The sea at a map's edge (2026-11-10; engine `1963fd2a`)
+
+The 3D eye review's reviewers saw lines in the sea round Navel Rock and Birth Island. Past a map's edge the 3D view
+draws the map's border block, and two faults laid the sea there apart from the map's own sea; the side of the step
+between them showed as a thin dark line along the edge. The islands the game types as indoor (Birth Island, Navel Rock,
+Faraway Island's entrance) and the Abandoned Ship's deck (underground) took no record for their border's sea, so it lay
+as flat ground at the land's level over their own sea: an eighth of a level over it at Birth Island and Navel Rock, half
+a level on the deck, a whole level at Faraway Island, whose sea the water levelling lays a level down. And past every
+outdoor map's edge the sea lay an eighth of a level under the map's own: a border cell took its record's ground (0) and
+top (-1/8) as they stand, where the map's own cells resolve water with its ground at its surface, and the renderer lays
+the sea on its level by its ground. Route 109's south edge showed a line across the whole view; 39 of the 57 places
+with sea past the edge that the sweeps visit had it. The islands' and the deck's border sea now takes the map's sea
+record, as an outdoor map's does (`rules.c` `BorderRecord`), and lies at the level of most of the map's own sea along
+its edge (`buildings.c` `StaticWaterLevel`); a border cell's heights come from its record as the map's own cells' do
+(`rules.c` `ApplyRecordHeights`) (KNOWN_ISSUES MS-229). Of all the records a border can take, only water's ground
+changes: never a top, never rock's. A first try laid each cell past an indoor island's edge at the level of the map's
+cell nearest it, and past Faraway Island's north edge, where the island's land reaches the edge, the sea stayed at the
+water's nominal level beside the rest a level down: new steps out at sea. Past that edge the sea now lies a level under
+the land, as round the rest of the island.
+
+Evidence (L, the 3D test build, Mesa): the geometry check of the 57 places with sea past the edge (53 outdoor, the 4
+islands) before and after, the dumps compared cell by cell: the outdoor maps' steps where their own sea meets the sea
+past the edge 2,291 -> 0, the islands' sea past the edge at their own sea's level (6 steps of 1/16 left on the deck,
+where its shallow water meets it); only cells past the edge change; the check's counts the same. Pictures: Route 109's
+south edge (the line gone), Faraway Island's dock and north edge (scratchpad `ms229/outdoor`; game art, not committed).
+The C rule test (`TestIslandBorderSea`, failing on the old code at both parts), `check-diorama`, the line check; the GBA
+ROM identical. The Windows 3D job's tour gains Faraway Island's entrance and Route 109 (20 places); four of its other
+places change, only in their sea past the edge.
