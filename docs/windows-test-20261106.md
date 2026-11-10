@@ -64,6 +64,11 @@ on the host the world's folder.
       the stairs north of the entrance up to the raised floor: they climb as steps, no dark ledge at their top,
       and walking up them the player rises with them, not a tile at once at the top; the same at Artisan Cave's
       and Shoal Cave's stairs (MS-224). Earlier builds laid them flat on the lower floor.
+- [ ] From the build of engine `4379b94a` on (not yet in a prepared installer: for the full run after run 403), in the
+      3D view: Battle Frontier east, from the Battle Tower's plaza walk south down either lane past the flower bed to
+      the plaza beyond: the ground rises gently, no step a level high where the lanes meet the plaza, the flower bed
+      whole with no notch in its north edge, the bank west of it and its fences as before (MS-225). Earlier builds
+      stood the Tower's plaza a level under the lanes.
 
 ## Settings and controls
 

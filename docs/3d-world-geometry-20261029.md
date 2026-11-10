@@ -1292,3 +1292,39 @@ banks), in both of Route 111's layouts (before and after the Mirage Tower falls;
 probe at four places, four cameras: seams 10 -> 0 on both sides, the rest unchanged, the garden whole in the pictures
 (scratchpad `mauv/compare.png`, game art, not committed). With the Safari Zone's two and the Battle Frontier's, all
 eight land seams now meet where the game walks or draws them (MS-162).
+
+### The Battle Frontier east's plaza step, and the eye review of the maps (2026-11-10; engine `4379b94a`)
+
+The Frontier east's last six walk-steps (the stairs section above: "the rest elsewhere") were not a flight. South of
+the Battle Tower its plaza (elevation 3) meets a light strip - two lanes of elevation 0 at (12-14) and (20-22) round a
+flower bed, fences and water beyond, rows 34-38 - that leads on to the plaza south of it (elevation 3 too); the 2D game
+draws them on one level. The terrace solve put the north plaza a level under the strip and the south plaza, so the
+player rose a level in one step from the plaza onto each lane (the six cells), and the flower bed's north row lay a
+level down, a notch with two dark spikes in its frame. The strip now climbs from the north plaza's level to the south
+one's over its five rows, a fifth of a level a row (`HAND_LEVELS` "late_slopes", a key applied after
+`lift_blocked_cells`). Given with the other hand levels, before the lifting, the fences beside the lanes took the
+slope's level and the bank west of the strip (0-10, 28-35), a cliff a level over the north plaza, broke into flat
+blocks at two levels, tall dark columns beside the Pokemon Center: laid after it, the fences and the bank keep the
+levels they had (KNOWN_ISSUES MS-225).
+
+Evidence (L, the 3D test build, Mesa): the compiled rules against `57c30448`'s, all 441 layouts: only this layout's
+terrain records change (its structures and every other table identical). The geometry check at (13, 33) and (21, 36),
+cameras a, d, s15 and s75: walk-steps 6 -> 0, flat-blocked 277 -> 252 (the flower bed's 25 cells on the slope), fins,
+spikes and water-drops unchanged; the low view's sky at (21, 36) 32 pixels -> 17. `test_terrace_topology` (one new
+test), `test_compile_rules` and `test_rules_parity` passed (86 tests), and `check-diorama`; the GBA ROM identical.
+Pictures: scratchpad `bfe-fix/ba3.png` (game art, not committed). The Windows 3D job's tour sees the strip from its
+Battle Frontier west place, whose cell dump changes (the other 16 places as `57c30448`'s): run
+[404](https://github.com/kashkevin/personal-pokemon-game-emgba3d/actions/runs/42758410436) compares the Windows
+build's.
+
+**The eye review** (the same day): the sweep's pictures - 87 outdoor places, then 442 rooms, caves, underwater maps
+and secret bases in contact sheets - looked at beside the 2D game where in doubt. Outdoors nothing new (Fortree,
+MS-223, was fixed the day before). In rooms, the models stand their back walls, stands and furniture up over cells the
+game keeps as floor, and a person the map puts on such a cell is drawn on the floor under the piece: the Battle Dome
+battle room's audience sunk into its stands, the Fallarbor Battle Tent's attendant inside its back wall (MS-226: the
+options are in KNOWN_ISSUES; none changes play). Three small gaps (MS-227): the Pokemon League lobby's back wall cut
+away behind its PC, Pacifidlog Town's houses' top trim a hairline over the wall, New Mauville's entrance door showing
+the sky's colour. Victory Road 1F's two trainers under the log bridge are as the 2D game draws them. The reviewers'
+lower suspects (thin wall slivers at corners, see-through stair boxes in some caves, a few magenta pixels at Aqua
+Hideout 1F and the Exchange Service Corner, the Sootopolis Gym's ice) are not yet checked; the list is in
+TEST_LEDGER's eye review section.
