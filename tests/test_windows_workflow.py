@@ -156,6 +156,21 @@ class WindowsWorkflowTests(unittest.TestCase):
                       graphics)
         self.assertIn("or any(differed for _, differed in kept)", graphics)
 
+    def test_the_3d_tour_counts_its_own_places(self):
+        # Run 406's summary said 17 places for a tour of 18 (the count not raised with the Cave of Origin's): every
+        # count the geometry step runs with, prints or checks is the number of places its tour lists, each listed once.
+        graphics = job("graphics-3d")
+        tour = re.search(r'"geometry-showcase\.txt"\n\s*@\((.*?)\) \| Set-Content', graphics, re.S)
+        self.assertIsNotNone(tour)
+        places = re.findall(r'"([A-Za-z0-9_]+_\d+_\d+) \d+ \d+ \d+ \d+"', tour.group(1))
+        self.assertGreater(len(places), 10)
+        self.assertEqual(len(places), len(set(places)))
+        count = len(places)
+        self.assertIn(f"--chunk {count}", graphics)
+        self.assertIn(f"$shots pictures of {count} showcase places", graphics)
+        self.assertIn(f"if ($shots -lt {count} * 4)", graphics)
+        self.assertIn(f"not the {count * 4} of its {count} places", graphics)
+
     def test_a_game_stopped_ten_seconds_in_a_battle_runs_in_windows_game_processes(self):
         # KNOWN_ISSUES MS-165: the host player's game process stopped for 10 s, 20 s into the rival 1v1 (the proof
         # suspends it with NtSuspendProcess on Windows); the battle goes on to its end, then the trades
