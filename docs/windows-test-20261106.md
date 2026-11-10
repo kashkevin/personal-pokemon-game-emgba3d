@@ -101,6 +101,11 @@ on the host the world's folder.
       the white floor tiles beside the scientists along both walls and at the back wall's foot carry no orange
       dashes; dive at the Seafloor Cavern's way in: the parked submarine lies whole in its hollow, no part of it a
       rock block (MS-227). Earlier builds drew all three.
+- [ ] From the build of engine `cb0978fd` on (in the installer CI-423, `docs/package-20261110e.md`): in the Battle
+      Tower, a multi battle with a partner the game provides: choose two Pokemon, save in the partner room, close the
+      game and continue; finish or give up the challenge and leave: all six of your Pokemon are back in your party
+      (MS-234). Earlier builds could write over the saved party count in that room (a rare state; the six Pokemon
+      themselves stayed in the save).
 
 ## Settings and controls
 
