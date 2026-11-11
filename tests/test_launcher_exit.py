@@ -32,8 +32,18 @@ class LauncherExitTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(MirrorError):
             with MirrorLease(save):
                 pass
-        source = ("import pathlib,sys,time; p=pathlib.Path(sys.argv[1]); "
-                  "exec('while not p.exists(): time.sleep(.01)'); sys.exit(int(p.read_text()))")
+        # The signal is read until it holds its number: write_text creates the file before it writes the digit, and a
+        # child that read it in between exited 1 (int('')), which a test expecting a zero exit then saw as
+        # save_recovery_required (Windows run 432, a loaded runner).
+        source = ("import pathlib,sys,time\n"
+                  "p = pathlib.Path(sys.argv[1])\n"
+                  "while True:\n"
+                  "    try:\n"
+                  "        code = int(p.read_text())\n"
+                  "    except (OSError, ValueError):\n"
+                  "        time.sleep(.01)\n"
+                  "    else:\n"
+                  "        sys.exit(code)\n")
         child = await self.real_spawn(direct_python(), "-c", source, str(self.exit_signal), **kwargs)
         self.children.append(child)
         return child
