@@ -1443,3 +1443,20 @@ wall's own drawing, or a spare transparent one inside what its page keeps (`spar
 art's edge for the one-cell walls doubled a page). 529 of the 1,873 models gain it; every model and room still
 reproduces its drawing at 45 degrees. Pictures at six rooms, both cameras (scratchpad `ms227trim`; game art, not
 committed).
+
+### The submarine under the sea (2026-11-11; engine `566719d3`)
+
+The stolen submarine parked in the hollow at the Seafloor Cavern's way in under the sea is drawn in the map's own
+cells (`gTileset_Underwater` 0xE0-0xEB). Its top row lies as flat ground since `3b7fb636` (the cave rock tool had
+stood it as rock); its two other rows are deep water (MB_DEEP_WATER, the way up), and the 3D view laid them as
+water, its surface two pixels under the floor, so the surface's edge ran across the hull and its lower part lay
+under the surface, faint (MS-227). A contextual rule in `data/diorama/defaults.json`
+(`underwater-stolen-submarine`) now lays those eight cells - placed once each, in this map only - as flat sea floor
+at the top row's level; the hollow's own deep water round the submarine keeps its surface, as every other
+surfacing spot under the sea does (drawing deep water without a surface everywhere under the sea was the broader
+option, not taken). A tileset pin would have done the same, but `cave_pins.py --write` refuses to write over a
+file holding pins it did not write; and a rule's `groundOffset` is read but no record uses it, so the cells lie at
+the floor's level, not the water's. One layout's records change: the eight cells, and the bounds of the two pieces
+beside them. A swimmer over the submarine's lower row stands at the sea floor's level, two pixels over the water's
+surface beside it. The hull stays as pale as the sea floor round it: the 3D view's underwater light, the same over
+the whole sea floor. Pictures before and after (scratchpad `sub2`; game art, not committed).
