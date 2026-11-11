@@ -106,6 +106,10 @@ on the host the world's folder.
       game and continue; finish or give up the challenge and leave: all six of your Pokemon are back in your party
       (MS-234). Earlier builds could write over the saved party count in that room (a rare state; the six Pokemon
       themselves stayed in the save).
+- [ ] From the build of engine `440a11cc` on, in the 3D view: in the Pokemon League's lobby (Ever Grande City), the
+      back wall's orange band and white trim run whole beside and behind the PC on the right of the nurse's counter;
+      at the doors of the Dewford, Petalburg, Fortree, Lavaridge, Mauville, Mossdeep and Sootopolis gyms no grey line
+      lies under the statues' feet (MS-227). Earlier builds cut a black notch out of the lobby's wall there.
 
 ## Settings and controls
 
