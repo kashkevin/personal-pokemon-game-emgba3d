@@ -122,6 +122,10 @@ on the host the world's folder.
       submarine is drawn as one picture, no edge of the water's surface across its hull and its lower part as clear
       as its top (MS-227); the hollow round it keeps the water's surface. Earlier builds drew its lower part under
       the surface, faint.
+- [ ] From the build of engine `4b9cf4e3` on, in the 3D view: in a Battle Palace challenge, the battle room's back
+      wall is whole - its four pillars and its door drawn on it, no black beside the outer pillars or the door, in
+      the room and in its battles (MS-235). Earlier builds stood the outer pillars out from the wall and the door's
+      posts behind it, a black wedge beside each.
 
 ## Settings and controls
 

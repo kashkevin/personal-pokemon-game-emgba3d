@@ -1460,3 +1460,25 @@ the floor's level, not the water's. One layout's records change: the eight cells
 beside them. A swimmer over the submarine's lower row stands at the sea floor's level, two pixels over the water's
 surface beside it. The hull stays as pale as the sea floor round it: the 3D view's underwater light, the same over
 the whole sea floor. Pictures before and after (scratchpad `sub2`; game art, not committed).
+
+### The Battle Palace battle room's back wall (2026-11-11; engine `4b9cf4e3`)
+
+Checking the geometry check's last two "holes to the sky" (the Palace battle room's 48 pixels, Fortree City's 46 under a
+tree house's canopy) found the room's real fault in black, not sky: a black wedge beside each of its outer pillars and
+beside its door. The room is read off its cells (`battle_room_auto.py`). Its back wall has no wall piece of its own - the
+pools and the arena under it are not floor - so the room's own drawing lays it back; the outer pillars, their pedestals'
+row over the walkway, read as walls a row deeper, standing upright 16 pixels deep before it, and the door's posts as
+walls a row shallower, upright behind it. Between those and the laid-back wall the outside showed. The middle pillars had
+been left out already (for the battle camera); the outer two and the posts now go with them (`AUTO_DROP`), and the whole
+wall lies back, the door's dark doorway between its posts as before (KNOWN_ISSUES MS-235). The 48 pixels the check counts
+are two hairlines where the pools meet the wall, left as they were. A scan of every place's picture for any enclosed sky
+pixel at all found six: this room, Fortree, New Mauville's entrance (as drawn), and three of 1 or 2 pixels.
+
+### Mt. Pyre's summit looked at and left (2026-11-11; engine `566719d3`)
+
+The terrace solver still drops a component in 14 outdoor layouts (1,264 cells; KNOWN_ISSUES MS-178's update of
+2026-11-11 lists them): its courses stand as low walls round level ground, its stairs lie painted on it. At Mt. Pyre's
+summit the path climbs three flights through rows of rock, but the streets round the sides join the terraces without
+stairs - the GBA keeps the whole summit on one elevation - so no one set of levels fits: the stair-terrace pass that
+solves Sootopolis gives the path four levels and the terraces beside it whichever level reaches them first. Left as it
+is; levels by hand would add slopes the GBA does not draw (the options are in KNOWN_ISSUES).
