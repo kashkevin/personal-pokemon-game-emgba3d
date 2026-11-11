@@ -1524,5 +1524,6 @@ with its whole drawing, as a deck's or a lava rim's do (`gl_terrain_renderer.c`,
 bridge keeps its lower layer (the water under it). At camera d over all 529 places the enclosed sky fell from 135
 pixels to 85 (the Palace 48 to 0, Aqua Hideout 1F 2 to 0) and no place gained any; the rule changes the risers of
 26,419 cells on 52 maps, most of them flat, and pictures of 16 of those places show no other change. Left: Fortree
-City's 46 pixels (the tree houses' bases against their porches; the walkways' lower layers are whole, so it is
-another cause, not found) and New Mauville's entrance's 36 (as drawn) (KNOWN_ISSUES MS-239).
+City's 46 pixels (another cause: sky past one tree house's sides under its canopy, where the model does not close
+and the terrain under the model draws nothing; traced, the cause in the terrain not found) and New Mauville's
+entrance's 36 (as drawn) (KNOWN_ISSUES MS-239).
