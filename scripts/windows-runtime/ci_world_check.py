@@ -465,8 +465,10 @@ def run_fixed(menu, files, report, log, lan_hint):
     require(seen, "hosting did not open the game for the character "
                   f"(last-error.txt: {files.error_text()[-1500:] if files.error_text() != errors_before else 'unchanged'})")
     game, folders = seen
+    # The half-second poll can see the launch folder before the game's process (or after it ended): "not seen" says only
+    # that; the game's own log lines below say whether it ran (run 426 printed "already ended" for a game that ran).
     log("hosting: the world was prepared and the game was started for the character to enter it "
-        f"(game process {game[0][0] if game else 'already ended'}; launch folder {folders[0].name if folders else 'none yet'})")
+        f"(game process {game[0][0] if game else 'not seen at the poll'}; launch folder {folders[0].name if folders else 'none yet'})")
     report["hosting"] = dict(game_process=bool(game), launch_folder=bool(folders))
     menu.stop()
     if folders:
