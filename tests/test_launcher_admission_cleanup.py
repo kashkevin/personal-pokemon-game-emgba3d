@@ -2,11 +2,11 @@
 import asyncio
 from types import SimpleNamespace
 import unittest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, PropertyMock, patch
 
 from emerald_multiplayer.battle_admission_cleanup import AdmissionCleanupCompletion
 from emerald_multiplayer.battle_session import RenewedBattleSession
-from emerald_multiplayer.launcher_session import LauncherSessionError
+from emerald_multiplayer.launcher_session import LauncherSession, LauncherSessionError, SessionState
 import test_launcher_battle_recovery as fixture
 
 
@@ -173,6 +173,65 @@ class LauncherAdmissionCleanupTests(unittest.IsolatedAsyncioTestCase):
         publish_admission_intent(self.session._profile_directory / FILENAME, self.intent)
         self.assertFalse(self.session._terminal_successor_preserved())
         self.assertTrue(self.session._retain_interrupted_core())
+
+
+    async def test_no_abandonment_is_offered_while_an_unstarted_entry_is_cancelled(self):
+        """Windows run 433 (the stale-save proof): the challenge ended before it started (the friend's Enter refused)
+        while the host held its admitted entry. From the failed handoff (_fail_save, the entry still held) to the end
+        of the neutral cancel _schedule_entry_cleanup starts, the host's launcher offered "Abandon battle", which
+        closes the game and starts it again from its host save (KNOWN_ISSUES MS-60's harm)."""
+        self.enable()
+        s = self.session
+        s._save_failed = True                       # the failed handoff: save stopped, the entry still held
+        self.assertTrue(s.can_abandon_battle)        # held with no cancel under way: abandonable, as before
+        entered, release = asyncio.Event(), asyncio.Event()
+        async def slow_cancel():
+            entered.set()
+            await release.wait()
+        with (patch.object(LauncherSession, "can_cancel_battle_entry", new_callable=PropertyMock, return_value=True),
+              patch.object(s, "cancel_battle_entry", new=AsyncMock(side_effect=slow_cancel))):
+            s._schedule_entry_cleanup()
+            self.assertFalse(s.can_abandon_battle)  # scheduled, not started yet
+            self.assertFalse(s.status.battle_abandon_available)
+            await asyncio.wait_for(entered.wait(), 5)
+            self.assertFalse(s.can_abandon_battle)  # cancelling
+            self.assertFalse(s.status.battle_abandon_available)
+            release.set()
+            await asyncio.wait_for(s._entry_cleanup_task, 5)
+        # this stand-in cancel ended with the entry still held, as a failed cancel does: abandonment is offered again
+        s._battle_recovery_failed = True
+        self.assertTrue(s.can_abandon_battle)
+
+    async def test_the_cancel_is_admission_canceling_to_its_end_and_offers_no_abandonment(self):
+        """cancel_battle_entry itself: no abandonment while it runs, and the status says what it is doing whatever is
+        published meanwhile (Windows run 433's host launcher read "battle_recovering" during its cancel)."""
+        self.enable()
+        s, i = self.session, self.intent
+        completion = AdmissionCleanupCompletion(i.battle_id, i.generation, i.canonical_revision, i.canonical_sha256,
+            RenewedBattleSession(i.world_id, i.player_id, i.build_id, i.ruleset_id, i.save_profile,
+                i.server_epoch, i.lease_epoch, i.incarnation, i.runtime_id))
+        running, release = asyncio.Event(), asyncio.Event()
+        async def slow_run():
+            running.set()
+            await release.wait()
+            return completion
+        with (patch('emerald_multiplayer.launcher_session.GameInstallation.verify'),
+              patch('emerald_multiplayer.battle_admission_cleanup.AdmissionCleanupSession') as cls,
+              patch.object(s, '_adopt_battle_completion', new=AsyncMock())):
+            cls.return_value.revocation_requested = True
+            cls.return_value.run = AsyncMock(side_effect=slow_run)
+            task = asyncio.create_task(s.cancel_battle_entry())
+            await asyncio.wait_for(running.wait(), 5)
+            self.assertTrue(s._save_failed)
+            self.assertFalse(s.can_abandon_battle)
+            self.assertEqual(s.status.code, "admission_canceling")
+            s._publish(SessionState.RUNNING, "save_recovery_required", revision=s._revision)  # as _fail_save does
+            self.assertEqual(s.status.code, "admission_canceling")
+            self.assertFalse(s.status.battle_abandon_available)
+            release.set()
+            self.assertEqual(await asyncio.wait_for(task, 5), completion)
+        self.assertIsNone(s._admission_cleanup_task)
+        self.assertIsNone(s._battle_recovery_task)
 
 
 if __name__ == "__main__":

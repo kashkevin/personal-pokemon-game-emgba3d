@@ -383,6 +383,8 @@ class LauncherSession:
         self._interaction = None
         self._emergency = self._emergency_task = None
         self._battle_recovery_task = None
+        # cancel_battle_entry while it runs: the entry it cancels is not a battle to abandon (_abandon_targets)
+        self._admission_cleanup_task = None
         self._battle_recovery_failed = False
         self._battle_retained = None
         self._battle_recovery_intent = None
@@ -518,8 +520,11 @@ class LauncherSession:
         if self._soft_reset_pending:
             return replace(value, state=SessionState.RUNNING, code="soft_resetting")
         if self._battle_recovery_task is not None:
+            # an entry's neutral cancel is "admission_canceling" to its end, whatever was published while it ran (Windows
+            # run 433: "battle_recovering" during the host's cancel)
             return replace(value, state=SessionState.RUNNING, code=("admission_canceling"
-                if self._status.code == "admission_canceling" else "battle_recovering"))
+                if self._admission_cleanup_task is not None or self._status.code == "admission_canceling"
+                else "battle_recovering"))
         if self._terminal_successor_preserved():
             return replace(value, code="host_loss_preserved", battle_recovery_available=False)
         if (self._host_restart_notice is not None and self._game is not None
@@ -1171,6 +1176,15 @@ class LauncherSession:
                 or self._abandon_task is not None or self._battle_abandoned is not None
                 or self._profile_directory is None or self._companion is None):
             return []
+        if self._admission_cleanup_active():
+            # An entry that never started is being cancelled neutrally (_schedule_entry_cleanup after a battle that
+            # ended before it started, or the player's "Cancel battle entry"): the game is released where it stands,
+            # its progress kept. Abandoning would close it and start it again from its host save - KNOWN_ISSUES
+            # MS-60's harm - and from the moment the handoff failed (save stopped, the entry still held) until the
+            # cancel ended it was offered (Windows run 433's stale-save job: the host's launcher offered "Abandon
+            # battle" for the challenge its friend's refused Enter had ended). A cancel that fails leaves the battle
+            # held (_battle_recovery_failed), and abandonment is offered then.
+            return []
         held = (self._battle_recovery_failed or self._battle_recovery_task is not None
                 or self._save_failed and self._battle_retained is not None)
         if not held:
@@ -1179,6 +1193,13 @@ class LauncherSession:
         if not targets and self._battle_retained is not None:
             targets = [(self._battle_retained[3], self._battle_retained[4])]
         return targets
+
+    def _admission_cleanup_active(self):
+        """Whether an unstarted battle entry is being cancelled neutrally: cancel_battle_entry running, or the cleanup
+        _schedule_entry_cleanup started and that has not ended (waiting for the failed handoff to let go, or
+        running the cancel)."""
+        scheduled = self._entry_cleanup_task
+        return self._admission_cleanup_task is not None or (scheduled is not None and not scheduled.done())
 
     @property
     def can_abandon_battle(self):
@@ -1519,7 +1540,7 @@ class LauncherSession:
         old_interaction, prepared = self._interaction, self._battle_menu_preparation
         previous_failures = self._save_failed, self._battle_recovery_failed
         cleanup_session = None
-        self._battle_recovery_task = asyncio.current_task()
+        self._battle_recovery_task = self._admission_cleanup_task = asyncio.current_task()
         if old_interaction is None:
             self._save_failed = True
         self._autosave_wake.set()
@@ -1576,6 +1597,8 @@ class LauncherSession:
             raise LauncherSessionError("admission_cleanup_held") from error
         finally:
             self._battle_recovery_task = None
+            if self._admission_cleanup_task is asyncio.current_task():
+                self._admission_cleanup_task = None
             if self._interaction is asyncio.current_task():
                 self._interaction = None
             self._autosave_wake.set()
