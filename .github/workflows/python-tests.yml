@@ -17,25 +17,32 @@ jobs:
           python-version: "3.12"
       - name: Private virtual environment with pinned, hashed dependencies
         run: |
-          # Run 811 (2026-11-11): the runner could not resolve its Ubuntu mirror for four minutes and this install failed
-          # before any test ran: network timeouts, and three tries a minute apart, the last from Ubuntu's own archive
-          # (as the Windows workflow's toolchain does).
-          printf 'Acquire::Retries "3";\nAcquire::http::Timeout "60";\nAcquire::https::Timeout "60";\n' \
-            | sudo tee /etc/apt/apt.conf.d/99ci-timeouts >/dev/null
-          for attempt in 1 2 3; do
-            if [ "$attempt" = 3 ]; then
-              for sources in /etc/apt/apt-mirrors.txt /etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list; do
-                [ -f "$sources" ] || continue
-                sudo sed -i 's|http://azure.archive.ubuntu.com/ubuntu|http://archive.ubuntu.com/ubuntu|g' "$sources"
-              done
-            fi
-            timeout 300 sudo apt-get update -qq || echo "apt-get update failed (attempt $attempt): on" >&2
-            timeout 420 sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -q python3-tk xvfb && break
-            [ "$attempt" = 3 ] && { echo "apt-get install failed three times" >&2; exit 1; }
-            echo "apt-get install failed (attempt $attempt): again in a minute" >&2
-            sleep 60
-          done
+          # The suite runs in setup-python's Python (the .venv below), whose tkinter is its own; the runner's image has
+          # Tk's libraries and Xvfb. Runs 811-816 (2026-11-11) failed here before any test ran: the runners could not
+          # resolve Ubuntu's mirrors for over half an hour, and the install they waited on was python3-tk for the
+          # system's Python, which the suite never runs. So Ubuntu's packages are fetched only when what the suite needs
+          # is missing (network timeouts, three tries a minute apart, the last from Ubuntu's own archive, as the Windows
+          # workflow's toolchain does), and what it needs is checked either way.
           python -m venv .venv
+          if ! .venv/bin/python -c "import tkinter; tkinter.Tcl()" || ! command -v xvfb-run >/dev/null; then
+            printf 'Acquire::Retries "3";\nAcquire::http::Timeout "60";\nAcquire::https::Timeout "60";\n' \
+              | sudo tee /etc/apt/apt.conf.d/99ci-timeouts >/dev/null
+            for attempt in 1 2 3; do
+              if [ "$attempt" = 3 ]; then
+                for sources in /etc/apt/apt-mirrors.txt /etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list; do
+                  [ -f "$sources" ] || continue
+                  sudo sed -i 's|http://azure.archive.ubuntu.com/ubuntu|http://archive.ubuntu.com/ubuntu|g' "$sources"
+                done
+              fi
+              timeout 300 sudo apt-get update -qq || echo "apt-get update failed (attempt $attempt): on" >&2
+              timeout 420 sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -q python3-tk xvfb && break
+              [ "$attempt" = 3 ] && { echo "apt-get install failed three times" >&2; exit 1; }
+              echo "apt-get install failed (attempt $attempt): again in a minute" >&2
+              sleep 60
+            done
+          fi
+          .venv/bin/python -c "import tkinter; print('tkinter', tkinter.Tcl().eval('info patchlevel'))"
+          command -v xvfb-run
           .venv/bin/python -m pip install --require-hashes -r requirements-host-provisioning.txt
           .venv/bin/python -m pip install pytest==9.1.1 pytest-timeout
       - name: Test suite
