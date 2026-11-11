@@ -17,7 +17,24 @@ jobs:
           python-version: "3.12"
       - name: Private virtual environment with pinned, hashed dependencies
         run: |
-          sudo apt-get update && sudo apt-get install -y python3-tk xvfb
+          # Run 811 (2026-11-11): the runner could not resolve its Ubuntu mirror for four minutes and this install failed
+          # before any test ran: network timeouts, and three tries a minute apart, the last from Ubuntu's own archive
+          # (as the Windows workflow's toolchain does).
+          printf 'Acquire::Retries "3";\nAcquire::http::Timeout "60";\nAcquire::https::Timeout "60";\n' \
+            | sudo tee /etc/apt/apt.conf.d/99ci-timeouts >/dev/null
+          for attempt in 1 2 3; do
+            if [ "$attempt" = 3 ]; then
+              for sources in /etc/apt/apt-mirrors.txt /etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list; do
+                [ -f "$sources" ] || continue
+                sudo sed -i 's|http://azure.archive.ubuntu.com/ubuntu|http://archive.ubuntu.com/ubuntu|g' "$sources"
+              done
+            fi
+            timeout 300 sudo apt-get update -qq || echo "apt-get update failed (attempt $attempt): on" >&2
+            timeout 420 sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -q python3-tk xvfb && break
+            [ "$attempt" = 3 ] && { echo "apt-get install failed three times" >&2; exit 1; }
+            echo "apt-get install failed (attempt $attempt): again in a minute" >&2
+            sleep 60
+          done
           python -m venv .venv
           .venv/bin/python -m pip install --require-hashes -r requirements-host-provisioning.txt
           .venv/bin/python -m pip install pytest==9.1.1 pytest-timeout
