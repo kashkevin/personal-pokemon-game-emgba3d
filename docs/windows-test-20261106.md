@@ -110,6 +110,10 @@ on the host the world's folder.
       back wall's orange band and white trim run whole beside and behind the PC on the right of the nurse's counter;
       at the doors of the Dewford, Petalburg, Fortree, Lavaridge, Mauville, Mossdeep and Sootopolis gyms no grey line
       lies under the statues' feet (MS-227). Earlier builds cut a black notch out of the lobby's wall there.
+- [ ] From the build of engine `a79bc263` on, in the 3D view with the settings' Camera set to Diorama: in Pacifidlog's
+      houses, Mr. Briney's house, your own house and Rustboro's flats, black over the back wall's top, as the 2D
+      game draws it, and the stairs still seen through a doorway in the back wall (MS-227). Earlier builds showed
+      a strip of the room's floor over the wall there. In the default camera nothing changes.
 
 ## Settings and controls
 

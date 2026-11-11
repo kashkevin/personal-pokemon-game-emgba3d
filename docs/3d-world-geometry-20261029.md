@@ -1427,3 +1427,19 @@ that left out only those quads showed the wall whole; the generator's bare twin 
 feet at seven other gyms' doors. Five of the 1,873 models lose 2 to 6 flat triangles each; every other model and every
 placement's ground patches draw the same texels. Pictures before and after at 14 places (scratchpad `ms227lobby`; game
 art, not committed). The GBA ROM is not built from the generator.
+
+### The floor behind rooms' back walls (2026-11-11; engine `a79bc263`)
+
+From the diorama camera (52 degrees) a strip of floor showed over the back wall of most rooms - the "trim" the eye
+review saw over Pacifidlog's houses (MS-227). A room's back wall stands as one upright panel of its drawn rows at its
+foot, and the cells it is drawn over are laid with the room's floor; a wall H tall hides the floor H / tan(pitch)
+behind it - all of its two cells at the GBA's 45 degrees and the game's own 42, 25 of its 32 pixels at 52. Each wall
+piece now carries a flat black quad over the floor it hides at 45 degrees where the drawing over its first row is the
+room's outside (`wall_void_spans`, `voxel_building.Void`): from its first row for its height or to its foot, over a
+doorway only under the lintel, a quarter pixel over the floor and half a pixel short of the foot - laid as a floor
+decal is, along the GBA's line of sight, its edge stood in front of the wall, a black line along every back wall from
+the game's own camera (seen in the pictures and fixed before the commit). One black texel colours it: one of the
+wall's own drawing, or a spare transparent one inside what its page keeps (`spare_black_texel`; painting it past the
+art's edge for the one-cell walls doubled a page). 529 of the 1,873 models gain it; every model and room still
+reproduces its drawing at 45 degrees. Pictures at six rooms, both cameras (scratchpad `ms227trim`; game art, not
+committed).
