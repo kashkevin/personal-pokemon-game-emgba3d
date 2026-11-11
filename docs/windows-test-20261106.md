@@ -122,22 +122,22 @@ on the host the world's folder.
       submarine is drawn as one picture, no edge of the water's surface across its hull and its lower part as clear
       as its top (MS-227); the hollow round it keeps the water's surface. Earlier builds drew its lower part under
       the surface, faint.
-- [ ] From the build of engine `4b9cf4e3` on, in the 3D view: in a Battle Palace challenge, the battle room's back
+- [ ] From the build of engine `4b9cf4e3` on (in the installer CI-437, `docs/package-20261111d.md`), in the 3D view: in a Battle Palace challenge, the battle room's back
       wall is whole - its four pillars and its door drawn on it, no black beside the outer pillars or the door, in
       the room and in its battles (MS-235). Earlier builds stood the outer pillars out from the wall and the door's
       posts behind it, a black wedge beside each.
-- [ ] From the build of engine `efac4985` on, in the 3D view: the Battle Tower lobby's four lifts and the S.S. Tidal's
+- [ ] From the build of engine `efac4985` on (in the installer CI-437), in the 3D view: the Battle Tower lobby's four lifts and the S.S. Tidal's
       and the Abandoned Ship's cabin doors stand upright in their walls, no black over them, and open on the wall when
       someone goes through - a black opening widening, the walker gone into it (MS-236). Earlier builds laid those doors
       back under black and opened them flat. The Battle Pike's doors are as before.
-- [ ] From the build of engine `01eb62cc` on, in the 3D view: in a Battle Pike challenge, the curtain in the back wall
+- [ ] From the build of engine `01eb62cc` on (in the installer CI-437), in the 3D view: in a Battle Pike challenge, the curtain in the back wall
       of the rooms with a trainer, a helper or wild Pokemon stands with the wall, no black over it, its opening a row
       deeper where you walk in to leave; while it moves (you leaving, the Pike Queen coming out) it lies back as
       earlier builds drew it (MS-236).
-- [ ] From the build of engine `ef24627e` on, in the 3D view: in the Sootopolis Gym's first room (the eighth gym),
+- [ ] From the build of engine `ef24627e` on (in the installer CI-437), in the 3D view: in the Sootopolis Gym's first room (the eighth gym),
       the back wall behind the leader stands level - its two waterfalls and the side walls no taller than the
       wall between them, no black notch beside the waterfalls or strip beside the side walls (MS-237).
-- [ ] From the build of engine `18c53566` on, in the 3D view: in a Battle Palace challenge, the back of the battle
+- [ ] From the build of engine `18c53566` on (in the installer CI-437), in the 3D view: in a Battle Palace challenge, the back of the battle
       room's two pools meets the wall behind them with no line of sky (or of anything behind) along it (MS-239).
       Earlier builds showed a pixel's line there from some cameras.
 
@@ -164,6 +164,11 @@ on the host the world's folder.
       released to the others.
 - [ ] A battle between the two players: on the waiting screen ("Link standby...") B asks "Give up the battle?"; Yes, and
       the giver loses on both PCs (MS-126); Run on one's own turn is the same forfeit.
+- [ ] A challenge that ends before its battle starts (MS-238, from the build of app `8a64069` on, in the installer
+      CI-437): A challenges B and chooses Enter first; then the challenge ends before its battle starts - B cancels it,
+      lets it run out, or B's Enter is refused (for example "Not saved: close menu to save"). A's launcher shows the
+      challenge cancelled and never offers "Abandon battle"; A's game plays on from where it stood, nothing lost.
+      Earlier builds could offer "Abandon battle" there for a moment.
 - [ ] Together: a co-op Gym battle (EXP only with the win that earns the badge), the Battle Tower Duo, a wireless
       minigame (Berry Crush, Pokemon Jump, Dodrio Berry Picking) with two to four players.
 - [ ] The Battle Tower's own screens show the host's record right after a result is settled (MS-52).
