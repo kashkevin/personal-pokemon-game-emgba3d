@@ -126,6 +126,10 @@ on the host the world's folder.
       wall is whole - its four pillars and its door drawn on it, no black beside the outer pillars or the door, in
       the room and in its battles (MS-235). Earlier builds stood the outer pillars out from the wall and the door's
       posts behind it, a black wedge beside each.
+- [ ] From the build of engine `efac4985` on, in the 3D view: the Battle Tower lobby's four lifts and the S.S. Tidal's
+      and the Abandoned Ship's cabin doors stand upright in their walls, no black over them, and open on the wall when
+      someone goes through - a black opening widening, the walker gone into it (MS-236). Earlier builds laid those doors
+      back under black and opened them flat. The Battle Pike's doors are as before.
 
 ## Settings and controls
 

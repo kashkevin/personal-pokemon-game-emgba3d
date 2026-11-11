@@ -1482,3 +1482,14 @@ summit the path climbs three flights through rows of rock, but the streets round
 stairs - the GBA keeps the whole summit on one elevation - so no one set of levels fits: the stair-terrace pass that
 solves Sootopolis gives the path four levels and the terraces beside it whichever level reaches them first. Left as it
 is; levels by hand would add slopes the GBA does not draw (the options are in KNOWN_ISSUES).
+
+### The rooms' lift and cabin doors (2026-11-11; engine `efac4985`)
+
+A scan for MS-235's kind - an upright wall piece beside back-wall cells no piece claims - found the rooms' animated doors:
+the room reader leaves every cell the game names out of its solid cells, and the door table in `field_door.c` names
+every animated door, so a door's own cell was never a wall's. Its column lay back with the room's drawing between the
+upright wall on either side, black over it (the Battle Tower lobby's lifts, the S.S. Tidal's cabins, the Abandoned
+Ship's). The door's animation draws over the map with its metatile unchanged, and the renderer opens a door on the model
+that stands on its cell, as on an outdoor building, so a door whose wall stands on both sides of it is now that wall's:
+14 doors in 6 rooms stand upright and open on their walls (KNOWN_ISSUES MS-236). The Battle Pike's doors, whose frames
+its scripts set, stay as they were (laid back, opening flat on their drawing, V6).
