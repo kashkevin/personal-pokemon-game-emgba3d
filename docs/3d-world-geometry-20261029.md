@@ -1510,3 +1510,19 @@ pieces stood over the wall with the outside black between. A table of the reader
 room's walls no taller than its back wall's 32 rows, the rest of each run's drawing laid back as its top, so
 every top meets the wall's at one height and depth. Mt. Pyre 5F's stairwell, the other room of the kind, is
 left as it is: its back is drawn one row tall, and levelling it would lower the whole floor's walls.
+
+### A riser that drew nothing at the Battle Palace's pools (2026-11-11; engine `18c53566`)
+
+The geometry check's last hole at the Battle Palace's battle room, a pixel's line of sky along the back of each
+pool, was no gap in the geometry. The bank under the back row stands from the pool's water up to the floor and the
+row's top meets it. But a riser - the side of a cell's column below its top voxel - is laid with the cell's lower
+layer, the ground under it all, so that a ledge's lip on the upper layer does not run down its side; and the outer
+pillars' bases behind the pools are drawn wholly on the upper layer (metatile `0x24f`, four blank tiles below).
+Their lower layer is empty, the terrain's shader drops a texel with no colour, and the bank's strip under the top
+voxel was drawn as nothing. A cell whose lower layer draws nothing, and that borrows no base, now lays its risers
+with its whole drawing, as a deck's or a lava rim's do (`gl_terrain_renderer.c`, `LowerLayerDrawsNothing`); a
+bridge keeps its lower layer (the water under it). At camera d over all 529 places the enclosed sky fell from 135
+pixels to 85 (the Palace 48 to 0, Aqua Hideout 1F 2 to 0) and no place gained any; the rule changes the risers of
+26,419 cells on 52 maps, most of them flat, and pictures of 16 of those places show no other change. Left: Fortree
+City's 46 pixels (the tree houses' bases against their porches; the walkways' lower layers are whole, so it is
+another cause, not found) and New Mauville's entrance's 36 (as drawn) (KNOWN_ISSUES MS-239).

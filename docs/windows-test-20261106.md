@@ -137,6 +137,9 @@ on the host the world's folder.
 - [ ] From the build of engine `ef24627e` on, in the 3D view: in the Sootopolis Gym's first room (the eighth gym),
       the back wall behind the leader stands level - its two waterfalls and the side walls no taller than the
       wall between them, no black notch beside the waterfalls or strip beside the side walls (MS-237).
+- [ ] From the build of engine `18c53566` on, in the 3D view: in a Battle Palace challenge, the back of the battle
+      room's two pools meets the wall behind them with no line of sky (or of anything behind) along it (MS-239).
+      Earlier builds showed a pixel's line there from some cameras.
 
 ## Settings and controls
 
