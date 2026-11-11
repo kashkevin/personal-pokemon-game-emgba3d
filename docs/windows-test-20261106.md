@@ -118,7 +118,7 @@ on the host the world's folder.
       houses, Mr. Briney's house, your own house and Rustboro's flats, black over the back wall's top, as the 2D
       game draws it, and the stairs still seen through a doorway in the back wall (MS-227). Earlier builds showed
       a strip of the room's floor over the wall there. In the default camera nothing changes.
-- [ ] From the build of engine `566719d3` on, in the 3D view: dive at the Seafloor Cavern's way in: the parked
+- [ ] From the build of engine `566719d3` on (in the installer CI-427, `docs/package-20261111c.md`), in the 3D view: dive at the Seafloor Cavern's way in: the parked
       submarine is drawn as one picture, no edge of the water's surface across its hull and its lower part as clear
       as its top (MS-227); the hollow round it keeps the water's surface. Earlier builds drew its lower part under
       the surface, faint.
