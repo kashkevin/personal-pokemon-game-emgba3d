@@ -106,6 +106,10 @@ on the host the world's folder.
       game and continue; finish or give up the challenge and leave: all six of your Pokemon are back in your party
       (MS-234). Earlier builds could write over the saved party count in that room (a rare state; the six Pokemon
       themselves stayed in the save).
+- [ ] From the build of engine `b405af22` on (installer CI-425), in the 3D view: in the Battle Dome's battle room the
+      audience sit on the stands, not only their hair and hats over them; in the Fallarbor Battle Tent's battle room the
+      attendant stands in front of the low back wall, not inside it; in the Aqua Hideout's B2F the grunt behind the
+      desk stands whole, not only the cap over it (MS-226). Nobody's place, walk or talk changes: the 3D view only.
 - [ ] From the build of engine `440a11cc` on, in the 3D view: in the Pokemon League's lobby (Ever Grande City), the
       back wall's orange band and white trim run whole beside and behind the PC on the right of the nurse's counter;
       at the doors of the Dewford, Petalburg, Fortree, Lavaridge, Mauville, Mossdeep and Sootopolis gyms no grey line
