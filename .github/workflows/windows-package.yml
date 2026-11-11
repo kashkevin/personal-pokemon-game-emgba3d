@@ -2151,8 +2151,8 @@ jobs:
           # hedges and the Sootopolis Gym 1F's ice rocks, no shaded floor on their tops: MS-227), and the submarine at the
           # Seafloor Cavern's way in under the sea, whole in its hollow (MS-227), and the Battle Palace's battle room, its
           # pillars and door on its back wall, no piece upright before or behind it (MS-235), and the Battle Tower's lobby,
-          # its lifts standing in their wall (MS-236). What it says: those places are drawn so in a Windows process with
-          # Mesa; nothing about a GPU.
+          # its lifts standing in their wall, and the Battle Pike's room of wild Pokemon, its curtain standing in its back
+          # wall (MS-236). What it says: those places are drawn so in a Windows process with Mesa; nothing about a GPU.
           $probe = "diorama-check-inputs\geo\tools\qa\geometry_check.py"
           if (-not (Test-Path $probe)) { "- Geometry probe: not in this engine" >> $env:GITHUB_STEP_SUMMARY; exit 0 }
           $out = Join-Path $env:RUNNER_TEMP "graphics-3d\geometry"
@@ -2170,14 +2170,14 @@ jobs:
             "ShoalCave_HighTideEntranceRoom_8_16 24 50 8 16", "MauvilleCity_Gym_3_9 10 0 3 9",
             "Route110_TrickHouseEnd_6_3 29 1 6 3", "FortreeCity_Gym_9_12 12 1 9 12", "SootopolisCity_Gym_1F_8_9 15 0 8 9",
             "Underwater_SeafloorCavern_7_5 24 26 7 5", "BattleFrontier_BattlePalaceBattleRoom_7_2 26 24 7 2",
-            "BattleFrontier_BattleTowerLobby_12_6 26 5 12 6"
+            "BattleFrontier_BattleTowerLobby_12_6 26 5 12 6", "BattleFrontier_BattlePikeRoomWildMons_4_6 26 39 4 6"
           ) | Set-Content -Path $tour -Encoding ascii
           python $probe run --exe diorama-check-inputs\pokeemerald-mp-diorama-bfxtest.exe --save $save --tour $tour `
-            --out $out --jobs 1 --chunk 28
+            --out $out --jobs 1 --chunk 29
           if ($LASTEXITCODE -ne 0) { throw "the geometry probe failed ($LASTEXITCODE)" }
           $shots = @(Get-ChildItem (Join-Path $out "shots") -Filter *.png -ErrorAction SilentlyContinue).Count
-          "- Geometry probe through Mesa llvmpipe: $shots pictures of 28 showcase places (geometry/shots)" >> $env:GITHUB_STEP_SUMMARY
-          if ($shots -lt 28 * 4) { throw "the geometry probe drew $shots pictures, not the 112 of its 28 places" }
+          "- Geometry probe through Mesa llvmpipe: $shots pictures of 29 showcase places (geometry/shots)" >> $env:GITHUB_STEP_SUMMARY
+          if ($shots -lt 29 * 4) { throw "the geometry probe drew $shots pictures, not the 116 of its 29 places" }
       - name: The 3D heights at the probe's places, fingerprinted (the Safari Zone South's rails among them, MS-222)
         shell: python
         run: |

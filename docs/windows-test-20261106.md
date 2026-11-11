@@ -130,6 +130,10 @@ on the host the world's folder.
       and the Abandoned Ship's cabin doors stand upright in their walls, no black over them, and open on the wall when
       someone goes through - a black opening widening, the walker gone into it (MS-236). Earlier builds laid those doors
       back under black and opened them flat. The Battle Pike's doors are as before.
+- [ ] From the build of engine `01eb62cc` on, in the 3D view: in a Battle Pike challenge, the curtain in the back wall
+      of the rooms with a trainer, a helper or wild Pokemon stands with the wall, no black over it, its opening a row
+      deeper where you walk in to leave; while it moves (you leaving, the Pike Queen coming out) it lies back as
+      earlier builds drew it (MS-236).
 
 ## Settings and controls
 

@@ -1493,3 +1493,12 @@ Ship's). The door's animation draws over the map with its metatile unchanged, an
 that stands on its cell, as on an outdoor building, so a door whose wall stands on both sides of it is now that wall's:
 14 doors in 6 rooms stand upright and open on their walls (KNOWN_ISSUES MS-236). The Battle Pike's doors, whose frames
 its scripts set, stay as they were (laid back, opening flat on their drawing, V6).
+
+The Battle Pike's four (engine `01eb62cc`) are not doors: they are the curtain in the middle of the back wall of
+its normal room and its room of wild Pokemon, seven cells its scripts set when the Pike Queen comes out of it and
+when the player leaves through it. The reader left them out as cells the game changes, and the wall on either side
+runs to another row than the curtain, so the door rule made no wall of them: the curtain lay back between upright
+curtains, black over it. A table of the reader's (`STAND`) names cells the game changes that stand with the wall all
+the same: the curtain's sides stand to their foot, its opening - the cell the player walks onto to leave - a row
+deeper. While the curtain moves its cells are not the drawing its pieces were made from, and the renderer leaves
+them out as it does any changed cell's, so for those moments it lies back as before.
