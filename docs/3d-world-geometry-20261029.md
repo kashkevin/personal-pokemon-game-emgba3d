@@ -1502,3 +1502,11 @@ curtains, black over it. A table of the reader's (`STAND`) names cells the game 
 the same: the curtain's sides stand to their foot, its opening - the cell the player walks onto to leave - a row
 deeper. While the curtain moves its cells are not the drawing its pieces were made from, and the renderer leaves
 them out as it does any changed cell's, so for those moments it lies back as before.
+
+The Sootopolis Gym's first room (engine `ef24627e`, MS-237) is a room whose back wall's pieces stood at three
+heights: the wall 32 rows on its row, the two waterfalls 48 a row in front, the thick side walls 48 at the
+front of runs fourteen rows long. At the GBA's 45 degrees their tops line up; from the 3D cameras the taller
+pieces stood over the wall with the outside black between. A table of the reader's (`LEVEL_WALL`) stands that
+room's walls no taller than its back wall's 32 rows, the rest of each run's drawing laid back as its top, so
+every top meets the wall's at one height and depth. Mt. Pyre 5F's stairwell, the other room of the kind, is
+left as it is: its back is drawn one row tall, and levelling it would lower the whole floor's walls.

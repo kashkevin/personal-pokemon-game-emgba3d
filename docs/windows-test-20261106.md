@@ -134,6 +134,9 @@ on the host the world's folder.
       of the rooms with a trainer, a helper or wild Pokemon stands with the wall, no black over it, its opening a row
       deeper where you walk in to leave; while it moves (you leaving, the Pike Queen coming out) it lies back as
       earlier builds drew it (MS-236).
+- [ ] From the build of engine `ef24627e` on, in the 3D view: in the Sootopolis Gym's first room (the eighth gym),
+      the back wall behind the leader stands level - its two waterfalls and the side walls no taller than the
+      wall between them, no black notch beside the waterfalls or strip beside the side walls (MS-237).
 
 ## Settings and controls
 
