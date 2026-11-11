@@ -1415,3 +1415,15 @@ Evidence (L, the 3D test build, Mesa): the geometry check before and after over 
 the 10 rooms with water: 546 shallow cells at those 5 places a sixteenth down, no water left meeting water at another
 level, nothing else, the check's counts the same; a picture at the Shoal Cave (the line gone). The GBA ROM identical.
 The Windows 3D job's tour gains the Shoal Cave's entrance room at high tide (21 places).
+
+### The Pokemon League lobby's notch (2026-11-11; engine `440a11cc`)
+
+The eye review's gap in the Pokemon League's lobby (MS-227): black over the back wall's trim beside and above the PC.
+The lobby is a room nobody modelled, laid flat, its back wall a painting on its floor; the PC stands there as the
+Pokemon Center's piece, found by its own pixels, as its bare twin, which leaves out its own room's marks round it but
+kept the floor its drawing hides - the Center's wall top, three flat quads over the lobby's own wall. A scratch build
+that left out only those quads showed the wall whole; the generator's bare twin now leaves out both decals
+(`bare_parts`, KNOWN_ISSUES MS-227). The same decal had laid a line of the Rustboro Gym's grey floor under its statue's
+feet at seven other gyms' doors. Five of the 1,873 models lose 2 to 6 flat triangles each; every other model and every
+placement's ground patches draw the same texels. Pictures before and after at 14 places (scratchpad `ms227lobby`; game
+art, not committed). The GBA ROM is not built from the generator.
