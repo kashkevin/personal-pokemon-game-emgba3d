@@ -143,25 +143,25 @@ on the host the world's folder.
 - [ ] From the build of engine `4e83636a` on (in the installer CI-438), in the 3D view with the settings' Camera set to Diorama: in Fortree
       City, the east tree house's front corners under its canopy show no sky between the canopy, the trunk and the
       planks (MS-240); likewise beside the post near Rustboro's south-west corner and under the Pokemon League's
-      roof at Ever Grande. From engine `622a3f3f` on: standing there, F8 (the tree style) pressed once, and again,
+      roof at Ever Grande. From engine `622a3f3f` on (in the installer CI-444): standing there, F8 (the tree style) pressed once, and again,
       changes the trees each time and leaves no sky at those corners either way.
-- [ ] From engine `dbe0b439` and the launcher of the same build on, in the 3D game: F12 shows "Picture saved in
+- [ ] From engine `dbe0b439` and the launcher of the same build on (in the installer CI-444, `docs/package-20261112b.md`), in the 3D game: F12 shows "Picture saved in
       Pictures/EmeraldTogether: emerald-<date>-<time>.png" and the picture is in your Pictures folder's
       EmeraldTogether folder (MS-241; before, it went into a hidden folder of that game's own). With Pictures moved
       (OneDrive, or another drive), it goes where Pictures is; from engine `2ff61e87` on, a Pictures folder named
       with letters past ASCII ("Imágenes") is left out of the notice: "Picture saved in EmeraldTogether: ...".
-- [ ] From engine `e6c15824` on, in the 3D view with the voxel trees (F8; the default trees are the 3DS ones): on
+- [ ] From engine `e6c15824` on (in the installer CI-444), in the 3D view with the voxel trees (F8; the default trees are the 3DS ones): on
       Route 103, at the pond north of the route's middle, the bank under the row of trees down to the water shows
       rock, as it does with the 3DS trees - no sky (or light blue) through it (MS-242); likewise along the Safari
       Zone's terraces and ponds.
-- [ ] From engine `a9038dab` on, in the 3D view with the default trees: in Petalburg Woods, Rustboro and on Route 116,
+- [ ] From engine `a9038dab` on (in the installer CI-444), in the 3D view with the default trees: in Petalburg Woods, Rustboro and on Route 116,
       a tree whose next row stands half a tree to the side shows its crown's lower half and trunk whole, the trunk
       between the two halves (V23; earlier builds drew each of those cells with the other side's quarter); at the
       Battle Frontier's two halves, the Safari Zone and Petalburg City's pond, the trees at a bank's edge stand whole,
       not as flat-topped hedges, and the water past their crowns' tips lies at the water's level; on Routes 103, 117,
       119, 120 and 123, the water beside a small tree's crown top lies at the water's level (no strip of water a
       level up).
-- [ ] From engine `5e4dd696` on, in the 3D view with the voxel trees (F8): Petalburg Woods' band of trees south-east
+- [ ] From engine `5e4dd696` on (in the installer CI-444), in the 3D view with the voxel trees (F8): Petalburg Woods' band of trees south-east
       of the north gate and across the woods' middle stands as the same 3D trees as the rest, no flat light-green
       crowns painted on the ground (V23); likewise at Rustboro, on Routes 104, 116 and 117 and in the Safari Zone.
 
