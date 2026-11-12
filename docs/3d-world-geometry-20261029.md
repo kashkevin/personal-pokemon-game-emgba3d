@@ -1525,5 +1525,18 @@ bridge keeps its lower layer (the water under it). At camera d over all 529 plac
 pixels to 85 (the Palace 48 to 0, Aqua Hideout 1F 2 to 0) and no place gained any; the rule changes the risers of
 26,419 cells on 52 maps, most of them flat, and pictures of 16 of those places show no other change. Left: Fortree
 City's 46 pixels (another cause: sky past one tree house's sides under its canopy, where the model does not close
-and the terrain under the model draws nothing; traced, the cause in the terrain not found) and New Mauville's
+and the terrain under the model draws nothing; found the same day, below) and New Mauville's
 entrance's 36 (as drawn) (KNOWN_ISSUES MS-239).
+
+### The ground under three models that the atlas never drew (2026-11-11; engine `4e83636a`)
+
+Fortree City's 46 pixels were the ground under its east tree house. A model's placement carries a ground metatile,
+the commonest walkable one in the ring of cells round it, and the model's cells are laid with it, to show where the
+model does not close. Round that house five crown tops over its roof (`0x00F`) outnumber its porch's planks; but
+the 3D view stands General's trees and draws their crown tops as the grass under them, so no cell in view keeps
+`0x00F`, the atlas never draws its slot, and the house's cells sampled an empty slot: drawn as nothing, the sky
+behind them (a first trace had read the cells of the house west of it, whose planks draw). Two more of the 5,043
+placements had such a ground - a model at Rustboro (2, 52) (`0x1CE`) and the Pokemon League at Ever Grande (12,
+0) (`0x00E`), with 10 and 1 pixels of sky at camera d. Where the view stands the trees, a placement's ground of
+the primary tileset is now laid as the view draws that metatile on the map (`buildings.c`): grass. At camera d
+over all 529 places the enclosed sky fell from 85 pixels to 39, no place more (KNOWN_ISSUES MS-240).
