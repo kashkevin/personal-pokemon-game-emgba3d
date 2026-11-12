@@ -154,6 +154,13 @@ on the host the world's folder.
       Route 103, at the pond north of the route's middle, the bank under the row of trees down to the water shows
       rock, as it does with the 3DS trees - no sky (or light blue) through it (MS-242); likewise along the Safari
       Zone's terraces and ponds.
+- [ ] From engine `a9038dab` on, in the 3D view with the default trees: in Petalburg Woods, Rustboro and on Route 116,
+      a tree whose next row stands half a tree to the side shows its crown's lower half and trunk whole, the trunk
+      between the two halves (V23; earlier builds drew each of those cells with the other side's quarter); at the
+      Battle Frontier's two halves, the Safari Zone and Petalburg City's pond, the trees at a bank's edge stand whole,
+      not as flat-topped hedges, and the water past their crowns' tips lies at the water's level; on Routes 103, 117,
+      119, 120 and 123, the water beside a small tree's crown top lies at the water's level (no strip of water a
+      level up).
 
 ## Settings and controls
 
