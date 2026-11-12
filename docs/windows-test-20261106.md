@@ -161,6 +161,9 @@ on the host the world's folder.
       not as flat-topped hedges, and the water past their crowns' tips lies at the water's level; on Routes 103, 117,
       119, 120 and 123, the water beside a small tree's crown top lies at the water's level (no strip of water a
       level up).
+- [ ] From engine `5e4dd696` on, in the 3D view with the voxel trees (F8): Petalburg Woods' band of trees south-east
+      of the north gate and across the woods' middle stands as the same 3D trees as the rest, no flat light-green
+      crowns painted on the ground (V23); likewise at Rustboro, on Routes 104, 116 and 117 and in the Safari Zone.
 
 ## Settings and controls
 
