@@ -68,7 +68,9 @@ def pictures_folder():
 
 def folder():
     """The folder to name with ``--screenshots``: EmeraldTogether in the Pictures folder, or None (the game then keeps
-    its pictures beside itself, as before). Never raises: a launch never waits on where pictures go."""
+    its pictures beside itself, as before). Never raises: no failure to find where pictures go stops a launch. (Finding
+    it asks Windows whether the folder is there, which takes as long as Windows does for a Pictures folder moved to a
+    network share that does not answer.)"""
     try:
         pictures = pictures_folder()
     except Exception:  # noqa: BLE001 - any failure: the game's own default
