@@ -2275,6 +2275,86 @@ jobs:
           summary.close()
           if failed:
               raise SystemExit("sky through a gap in this Windows build's pictures: " + "; ".join(failed))
+      - name: The sky through gaps with the voxel trees (F8) at six places of KNOWN_ISSUES MS-242
+        shell: python
+        run: |
+          # The Diorama's voxel trees (the F8 option; the probe's tour above draws the default, the 3DS trees): with
+          # them the sky showed through the bank under a row of 2-wide trees where it meets a pond or a lower terrace
+          # (KNOWN_ISSUES MS-242; from engine e6c15824 the bank reads the ground under the tree, rock a level tall). The
+          # probe draws six of those places again with PKMN_DIORAMA_TREES=voxel from its four cameras, and the step
+          # above's measure counts the sky each picture encloses. A Linux build of engine e6c15824 counts none there from
+          # the a, d and s75 cameras (before it, from d: the Safari Zone's Southeast 1,215 pixels, Northeast 925,
+          # Northwest 543, Route 116 500, Route 103 239, Sootopolis City 141); the low s15 view's sky between distant
+          # crowns is reported, not failed. The cell dumps must hold the voxel trees' cells (a 2-wide tree's or a round
+          # one's), or the trees were not the voxel ones. What it says: this Windows build draws those banks closed with
+          # the voxel trees, through Mesa; nothing about a GPU.
+          import gzip, importlib.util, os, pathlib, subprocess, sys
+          probe = pathlib.Path("diorama-check-inputs", "geo", "tools", "qa", "geometry_check.py").resolve()
+          exe = pathlib.Path("diorama-check-inputs", "pokeemerald-mp-diorama-bfxtest.exe").resolve()
+          temp = pathlib.Path(os.environ["RUNNER_TEMP"])
+          out = temp / "graphics-3d" / "geometry-voxel-trees"
+          summary = open(os.environ["GITHUB_STEP_SUMMARY"], "a")
+          if not probe.is_file() or not exe.is_file():
+              line = "- The sky with the voxel trees: not counted (no probe or no 3D test build in this engine)"
+              print(line)
+              summary.write(line + "\n")
+              raise SystemExit(0)
+          tour = temp / "geometry-voxel-trees.txt"
+          tour.write_text("# key group num x y (tools/qa/geometry_check.py tour)\n"
+                          "SafariZone_Southeast_19_20 26 13 19 20\nSafariZone_Northeast_20_20 26 12 20 20\n"
+                          "SafariZone_Northwest_20_20 26 0 20 20\nRoute116_40_10 0 31 40 10\n"
+                          "Route103_17_15 0 18 17 15\nSootopolisCity_29_32 0 7 29 32\n", encoding="ascii")
+          run = subprocess.run([sys.executable, str(probe), "run", "--exe", str(exe), "--save",
+                                str(temp / "graphics-3d.sav"), "--tour", str(tour), "--out", str(out), "--jobs", "1",
+                                "--chunk", "6"], env=dict(os.environ, PKMN_DIORAMA_TREES="voxel"))
+          if run.returncode != 0:
+              raise SystemExit(f"the geometry probe with the voxel trees failed ({run.returncode})")
+          shots = sorted((out / "shots").glob("*.png")) if (out / "shots").is_dir() else []
+          if len(shots) < 6 * 4:
+              raise SystemExit(f"the geometry probe drew {len(shots)} pictures with the voxel trees, not the 24 of its 6 places")
+          # the voxel trees' cells in the dumps (archetypes 40 and 41: a round tree, a 2-wide one; the 3DS trees
+          # publish those cells as ground)
+          trees = {}
+          for path in sorted((out / "cells").glob("*.tsv.gz")):
+              with gzip.open(path, "rt") as dump:
+                  rows = [row.split("\t") for row in dump.read().split("\n")[1:] if row]
+              column = rows[0].index("archetype")
+              trees[path.name[:-7]] = sum(1 for row in rows[1:] if row[column] in ("40", "41"))
+          requirements = temp / "picture-measure.txt"
+          requirements.write_text(
+              # the 64-bit and the 32-bit Windows wheels for CPython 3.12 (PyPI's digests), as the step above
+              "numpy==2.5.3 --hash=sha256:0a59a421a32580a009e8a1751345bf829631b990dc1794b80514ab722b435def"
+              " --hash=sha256:bf63afbe037eb5d2fe87fbcc7778e61da53ebaf21d938a4515aa73b62532a5d4\n"
+              "pillow==10.2.0 --hash=sha256:154e939c5f0053a383de4fd3d3da48d9427a7e985f58af8e94d0b3c9fcfcf4f9"
+              " --hash=sha256:257d8788df5ca62c980314053197f4d46eefedf4e6175bc9412f14412ec4ea2f\n")
+          subprocess.run([sys.executable, "-m", "pip", "install", "--quiet", "--require-hashes", "--only-binary=:all:",
+                          "-r", str(requirements)], check=True)
+          spec = importlib.util.spec_from_file_location("geometry_check", probe)
+          geometry = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(geometry)
+          counts, failed = {}, []
+          for shot in shots:
+              key, camera = shot.stem.rsplit("-", 1)
+              # all six outdoors: the steep view counts any sky inside its margin
+              steep = camera.startswith("s") and int(camera[1:] or 0) >= 60
+              holes = geometry.picture_holes(str(shot), steep=steep, dark_open=False)
+              counts.setdefault(key, {})[camera] = holes
+              if holes and camera != "s15":
+                  failed.append(f"{key} ({camera}): {holes}")
+          lines = [f"- The sky through gaps with the voxel trees at {len(counts)} places (pixels; a, d and s75 must be none;"
+                   " the voxel trees' cells in each dump):"]
+          for key in sorted(counts):
+              lines.append(f"  - {key}: " + ", ".join(f"{c} {n}" for c, n in sorted(counts[key].items()))
+                           + f"; tree cells {trees.get(key, 0)}")
+          print("\n".join(lines))
+          summary.write("\n".join(lines) + "\n")
+          summary.close()
+          if not trees or not all(trees.values()):
+              raise SystemExit("a dump without the voxel trees' cells: the trees drawn were not the voxel ones "
+                               + str(trees))
+          if failed:
+              raise SystemExit("sky through a gap with the voxel trees in this Windows build's pictures: "
+                               + "; ".join(failed))
       - name: The 3D chunk cache across map seams (KNOWN_ISSUES MS-118, its terrain check)
         shell: python
         run: |

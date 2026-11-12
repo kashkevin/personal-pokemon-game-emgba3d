@@ -150,6 +150,10 @@ on the host the world's folder.
       EmeraldTogether folder (MS-241; before, it went into a hidden folder of that game's own). With Pictures moved
       (OneDrive, or another drive), it goes where Pictures is; from engine `2ff61e87` on, a Pictures folder named
       with letters past ASCII ("Imágenes") is left out of the notice: "Picture saved in EmeraldTogether: ...".
+- [ ] From engine `e6c15824` on, in the 3D view with the voxel trees (F8; the default trees are the 3DS ones): on
+      Route 103, at the pond north of the route's middle, the bank under the row of trees down to the water shows
+      rock, as it does with the 3DS trees - no sky (or light blue) through it (MS-242); likewise along the Safari
+      Zone's terraces and ponds.
 
 ## Settings and controls
 
