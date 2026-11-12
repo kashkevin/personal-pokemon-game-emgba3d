@@ -148,7 +148,8 @@ on the host the world's folder.
 - [ ] From engine `dbe0b439` and the launcher of the same build on, in the 3D game: F12 shows "Picture saved in
       Pictures/EmeraldTogether: emerald-<date>-<time>.png" and the picture is in your Pictures folder's
       EmeraldTogether folder (MS-241; before, it went into a hidden folder of that game's own). With Pictures moved
-      (OneDrive, or another drive), it goes where Pictures is.
+      (OneDrive, or another drive), it goes where Pictures is; from engine `2ff61e87` on, a Pictures folder named
+      with letters past ASCII ("Imágenes") is left out of the notice: "Picture saved in EmeraldTogether: ...".
 
 ## Settings and controls
 
