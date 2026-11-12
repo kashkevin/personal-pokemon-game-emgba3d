@@ -143,7 +143,8 @@ on the host the world's folder.
 - [ ] From the build of engine `4e83636a` on, in the 3D view with the settings' Camera set to Diorama: in Fortree
       City, the east tree house's front corners under its canopy show no sky between the canopy, the trunk and the
       planks (MS-240); likewise beside the post near Rustboro's south-west corner and under the Pokemon League's
-      roof at Ever Grande.
+      roof at Ever Grande. From engine `622a3f3f` on: standing there, F8 (the tree style) pressed once, and again,
+      changes the trees each time and leaves no sky at those corners either way.
 
 ## Settings and controls
 
