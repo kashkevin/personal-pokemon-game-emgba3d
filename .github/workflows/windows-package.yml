@@ -2287,22 +2287,34 @@ jobs:
           # Chinese characters>" (its parent is there; the name is built from code points), then one without it: the
           # first must land in the named folder, made by the game, and none beside the game; the second in "screenshots"
           # beside the game, as the tools expect. Engines before MS-241 (no "--screenshots" in the exe) are not checked.
-          # What it says: a Windows build puts the picture where it is told under such a name; not that a player found it.
-          import os, pathlib, subprocess
+          # From engine 2ff61e87 the game's log line carries F12's notice ("the notice: ..."): then a third picture, its
+          # folder under a parent named in letters past ASCII ("Im<a acute>genes", as OneDrive names Pictures in Spanish),
+          # and each notice read - "Picture saved in Pictures/EmeraldTogether: ...", "Picture saved in EmeraldTogether:
+          # ..." (that parent left out: the notice's font cannot draw it) and "Picture saved: screenshots/...".
+          # What it says: a Windows build puts the picture where it is told under such a name and says so; not that a
+          # player found it.
+          import os, pathlib, re, subprocess
           exe = pathlib.Path("diorama-check-inputs", "pokeemerald-mp-diorama-bfxtest.exe").resolve()
           summary = open(os.environ["GITHUB_STEP_SUMMARY"], "a")
-          if not exe.is_file() or b"--screenshots" not in exe.read_bytes():
+          data = exe.read_bytes() if exe.is_file() else b""
+          if b"--screenshots" not in data:
               line = "- F12's pictures folder: not checked (no 3D test build, or an engine before KNOWN_ISSUES MS-241)"
               print(line)
               summary.write(line + "\n")
               raise SystemExit(0)
+          notices = b"the notice: " in data
           root = pathlib.Path(os.environ["RUNNER_TEMP"], "graphics-3d", "pictures-folder")
           name = "Jos" + chr(0x00E9) + " Zo" + chr(0x00EB) + " " + chr(0x6D4B) + chr(0x8BD5)
           pictures = root / name / "Pictures"
           pictures.mkdir(parents=True, exist_ok=True)
           named = pictures / "EmeraldTogether"
+          cases = [("named", ["--screenshots", str(named)]), ("default", [])]
+          localized = root / name / ("Im" + chr(0x00E1) + "genes") / "EmeraldTogether"
+          if notices:
+              localized.parent.mkdir(parents=True, exist_ok=True)
+              cases.append(("localized", ["--screenshots", str(localized)]))
           codes = {}
-          for case, extra in (("named", ["--screenshots", str(named)]), ("default", [])):
+          for case, extra in cases:
               folder = root / case
               folder.mkdir(parents=True, exist_ok=True)
               (folder / "pokeemerald.cfg").write_text("resolution=1280x720\ndisplayMode=windowed\nquality=high\nvsync=0\n"
@@ -2319,6 +2331,20 @@ jobs:
           line = (f"- F12's pictures folder: with --screenshots under a non-ASCII name, {len(there)} picture in it and "
                   f"{len(stray)} beside the game (exit {codes['named']}); without it, {len(beside)} in screenshots "
                   f"beside the game (exit {codes['default']})")
+          read, wrong, in_localized = {}, [], []
+          if notices:
+              for case, _ in cases:
+                  found = re.findall(r"the notice: ([^\r\n]*)", (root / case / "test.log").read_bytes().decode("utf-8", "replace"))
+                  read[case] = found[-1].strip() if found else None
+              in_localized = sorted(localized.glob("emerald-*.png")) if localized.is_dir() else []
+              expected = {"named": "Picture saved in Pictures/EmeraldTogether: emerald-",
+                          "localized": "Picture saved in EmeraldTogether: emerald-",
+                          "default": "Picture saved: screenshots/emerald-"}
+              wrong = [case for case, start in expected.items() if not (read.get(case) or "").startswith(start)]
+              line += (f"; under a parent named in letters past ASCII, {len(in_localized)} picture in it (exit "
+                       f"{codes['localized']}); the notices: {read['named']!r}, {read['localized']!r}, {read['default']!r}")
+          else:
+              line += "; the notices: not read (an engine before 2ff61e87 does not log them)"
           print(line)
           summary.write(line + "\n")
           summary.close()
@@ -2328,6 +2354,10 @@ jobs:
               raise SystemExit("the picture did not go to the folder --screenshots named")
           if len(beside) != 1:
               raise SystemExit("without --screenshots the picture did not go to screenshots beside the game")
+          if notices and len(in_localized) != 1:
+              raise SystemExit("the picture did not go to the folder named under a parent in letters past ASCII")
+          if wrong:
+              raise SystemExit(f"F12's notice was not as expected for {wrong}: {read}")
       - name: The same walk timed, MS-118's changes of 2026-11-05 off and on (Windows, Mesa llvmpipe)
         shell: python
         run: |
