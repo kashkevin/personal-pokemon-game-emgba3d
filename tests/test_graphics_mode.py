@@ -325,6 +325,9 @@ class SwitchingKeepsEverythingTests(unittest.IsolatedAsyncioTestCase):
         self.c.ipc_address = ("127.0.0.1", 8870)
         (self.root / "bundle").mkdir()
         self.bundle = write_bundle(self.root / "bundle", self.c.config.build_id)
+        pictures = patch("emerald_multiplayer.screenshots.pictures_folder", return_value=None)   # not this PC's own
+        pictures.start()
+        self.addCleanup(pictures.stop)
         self.save = self.root / "character.sav"
         self.save.write_bytes(b"canonical save bytes " * 100)
         self.launches = self.root / "launcher" / "launches"

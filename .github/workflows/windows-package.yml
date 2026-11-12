@@ -2277,6 +2277,57 @@ jobs:
               raise SystemExit("a chunk the cache kept differs from the one it would build")
           if any(differed for _, differed in buildings):
               raise SystemExit("the buildings' vertex buffer or generation differs from the triangles built")
+      - name: F12's pictures in the folder the launcher names, under a non-ASCII name (KNOWN_ISSUES MS-241)
+        if: ${{ always() }}
+        shell: python
+        run: |
+          # The launcher names where F12 puts its pictures (--screenshots: EmeraldTogether in the player's Pictures
+          # folder), since every game it starts runs in a new folder of its own. One debug-scene picture (it goes through
+          # F12's writer) with --screenshots naming a folder not made yet under "Jos<e acute> Zo<e diaeresis> <two
+          # Chinese characters>" (its parent is there; the name is built from code points), then one without it: the
+          # first must land in the named folder, made by the game, and none beside the game; the second in "screenshots"
+          # beside the game, as the tools expect. Engines before MS-241 (no "--screenshots" in the exe) are not checked.
+          # What it says: a Windows build puts the picture where it is told under such a name; not that a player found it.
+          import os, pathlib, subprocess
+          exe = pathlib.Path("diorama-check-inputs", "pokeemerald-mp-diorama-bfxtest.exe").resolve()
+          summary = open(os.environ["GITHUB_STEP_SUMMARY"], "a")
+          if not exe.is_file() or b"--screenshots" not in exe.read_bytes():
+              line = "- F12's pictures folder: not checked (no 3D test build, or an engine before KNOWN_ISSUES MS-241)"
+              print(line)
+              summary.write(line + "\n")
+              raise SystemExit(0)
+          root = pathlib.Path(os.environ["RUNNER_TEMP"], "graphics-3d", "pictures-folder")
+          name = "Jos" + chr(0x00E9) + " Zo" + chr(0x00EB) + " " + chr(0x6D4B) + chr(0x8BD5)
+          pictures = root / name / "Pictures"
+          pictures.mkdir(parents=True, exist_ok=True)
+          named = pictures / "EmeraldTogether"
+          codes = {}
+          for case, extra in (("named", ["--screenshots", str(named)]), ("default", [])):
+              folder = root / case
+              folder.mkdir(parents=True, exist_ok=True)
+              (folder / "pokeemerald.cfg").write_text("resolution=1280x720\ndisplayMode=windowed\nquality=high\nvsync=0\n"
+                                                      "fpsCap=unlimited\nvolume=0\ncryVolume=0\n")
+              env = dict(os.environ, SDL_AUDIODRIVER="dummy", PKMN_DEBUG_SCENE="field", PKMN_DEBUG_HERE="0,2,20,8",
+                         PKMN_DEBUG_HOUR="12", PKMN_DEBUG_GLSHOTS_GAME="1", PKMN_DEBUG_GLSHOTS="150")
+              with open(folder / "test.log", "wb") as log:     # the game ends by itself after its picture
+                  codes[case] = subprocess.run([str(exe), "--config", "pokeemerald.cfg", "--save", "test.sav", *extra],
+                                               cwd=folder, env=env, stdout=log, stderr=subprocess.STDOUT,
+                                               timeout=900).returncode
+          there = sorted(named.glob("emerald-*.png")) if named.is_dir() else []
+          stray = sorted((root / "named" / "screenshots").glob("*.png")) if (root / "named" / "screenshots").is_dir() else []
+          beside = sorted((root / "default" / "screenshots").glob("emerald-*.png"))
+          line = (f"- F12's pictures folder: with --screenshots under a non-ASCII name, {len(there)} picture in it and "
+                  f"{len(stray)} beside the game (exit {codes['named']}); without it, {len(beside)} in screenshots "
+                  f"beside the game (exit {codes['default']})")
+          print(line)
+          summary.write(line + "\n")
+          summary.close()
+          if any(codes.values()):
+              raise SystemExit(f"a game ended with {codes}")
+          if len(there) != 1 or stray:
+              raise SystemExit("the picture did not go to the folder --screenshots named")
+          if len(beside) != 1:
+              raise SystemExit("without --screenshots the picture did not go to screenshots beside the game")
       - name: The same walk timed, MS-118's changes of 2026-11-05 off and on (Windows, Mesa llvmpipe)
         shell: python
         run: |

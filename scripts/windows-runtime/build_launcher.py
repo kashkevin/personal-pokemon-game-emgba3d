@@ -49,7 +49,7 @@ NATIVE_CONTROLS = ("Default game controls (the PC game, no emulator)\n\n"
     "F10 (3D game): display & graphics settings, audio volumes, controls\n"
     "F11: fullscreen\n"
     "3D game: F4 3D or classic view, F7 camera (Adventure or Diorama), F8 trees,\n"
-    "F9 photo mode (arrows move, Esc back), F12 picture (saved in screenshots),\n"
+    "F9 photo mode (arrows move, Esc back), F12 picture (saved in Pictures\\EmeraldTogether),\n"
     "mouse wheel or - / =: zoom, comma / period: camera tilt\n"
     "Ctrl+R: the A+B+Select+Start chord (Local Soft Reset only)\n"
     "Click the game window before using the keyboard.\n")

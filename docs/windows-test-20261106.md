@@ -145,6 +145,10 @@ on the host the world's folder.
       planks (MS-240); likewise beside the post near Rustboro's south-west corner and under the Pokemon League's
       roof at Ever Grande. From engine `622a3f3f` on: standing there, F8 (the tree style) pressed once, and again,
       changes the trees each time and leaves no sky at those corners either way.
+- [ ] From engine `dbe0b439` and the launcher of the same build on, in the 3D game: F12 shows "Picture saved in
+      Pictures/EmeraldTogether: emerald-<date>-<time>.png" and the picture is in your Pictures folder's
+      EmeraldTogether folder (MS-241; before, it went into a hidden folder of that game's own). With Pictures moved
+      (OneDrive, or another drive), it goes where Pictures is.
 
 ## Settings and controls
 

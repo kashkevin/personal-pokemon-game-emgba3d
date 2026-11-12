@@ -26,7 +26,7 @@ from uuid import uuid4
 from .bridge_config import configure, configure_native
 from .cold_start import ColdStartRecovery
 from .companion import verify_rom_manifest
-from . import game_lifetime
+from . import game_lifetime, screenshots
 from .game_facts import is_game_facts
 from .live_checkpoint import _atomic
 
@@ -373,6 +373,8 @@ async def _open_child(companion, bundle, directory, save_path, build, manifest,
         _atomic(script, configure_native(manifest, token, port).encode())
         arguments = (str(executable), "--save", str(save_path), "--bridge", str(script),
                      "--config", str(settings))
+        # F12's pictures in the player's Pictures folder, not this launch's own folder (KNOWN_ISSUES MS-241).
+        arguments += screenshots.arguments()
         if role is not None:
             # The game's own link status (the pause menu's HOSTING / CONNECTED). An argument, not a bridge-file line:
             # a game older than this ignores unknown arguments but refuses unknown bridge lines.

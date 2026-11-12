@@ -218,6 +218,10 @@ class NativePlayerRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.identity = patch("emerald_multiplayer.player_runtime.verify_rom_manifest",
                               return_value=(self.c.config.build_id, manifest))
         self.identity.start()
+        # No Pictures folder unless a test gives one: this PC's own never reaches the arguments checked here.
+        self.pictures = patch("emerald_multiplayer.screenshots.pictures_folder", return_value=None)
+        self.pictures.start()
+        self.addCleanup(self.pictures.stop)
         self.c.config.token = bytes(range(32))
         self.c.ipc_address = ("127.0.0.1", 8870)
         (self.root / "bundle").mkdir()
@@ -280,6 +284,28 @@ class NativePlayerRuntimeTests(unittest.IsolatedAsyncioTestCase):
             with self.subTest(role=bad), self.assertRaises(PlayerRuntimeError):
                 PlayerRuntime(self.c, self.bundle, self.root / "private", self.save, launch_root=self.launches, role=bad)
 
+    async def test_native_game_puts_its_pictures_in_the_players_pictures_folder(self):
+        # KNOWN_ISSUES MS-241: every game starts in a new folder of its own, where F12's pictures were lost.
+        pictures = self.root / "Pictures"
+        pictures.mkdir()
+        for role in (None, "host"):
+            runtime = PlayerRuntime(self.c, self.bundle, self.root / "private", self.save, launch_root=self.launches,
+                                    role=role)
+            self.arguments.clear()
+            with patch("emerald_multiplayer.screenshots.pictures_folder", return_value=pictures), \
+                    patch("emerald_multiplayer.player_runtime.asyncio.create_subprocess_exec", self.spawn):
+                async with runtime.open() as game:
+                    args, options = self.arguments[0]
+                    self.assertEqual(args[1::2][:4], ("--save", "--bridge", "--config", "--screenshots"))
+                    self.assertEqual(args[8], str(pictures / "EmeraldTogether"))
+                    self.assertNotEqual(Path(args[8]).parent, options["cwd"])
+                    if role is not None:
+                        self.assertEqual(args[-2:], ("--link-role", role))
+                    game.process.terminate()
+                    await game.wait()
+            # Named, not made: the game makes the folder with its first picture.
+            self.assertFalse((pictures / "EmeraldTogether").exists())
+
     async def test_native_game_of_another_rom_build_never_starts(self):
         (self.root / "other").mkdir()
         bundle = write_native_bundle(self.root / "other", "cd" * 32)
@@ -309,6 +335,9 @@ class NativeDraftTests(unittest.IsolatedAsyncioTestCase):
         self.runtime = DraftRuntime(self.installation, self.root / "private")
         self.real_spawn = asyncio.create_subprocess_exec
         self.children, self.calls = [], []
+        pictures = patch("emerald_multiplayer.screenshots.pictures_folder", return_value=None)
+        pictures.start()
+        self.addCleanup(pictures.stop)
 
     async def asyncTearDown(self):
         for process in self.children:
@@ -335,6 +364,17 @@ class NativeDraftTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(args[5:], ("--setup",))   # the game shows "character setup, offline", not "not linked"
         self.assertNotIn("--bridge", args)
         self.assertFalse((self.runtime.directory / "draft.lua").exists())
+
+    async def test_new_character_game_puts_its_pictures_in_the_players_pictures_folder(self):
+        pictures = self.root / "Pictures"
+        pictures.mkdir()
+        with patch("emerald_multiplayer.screenshots.pictures_folder", return_value=pictures), \
+                patch("emerald_multiplayer.draft_runtime.asyncio.create_subprocess_exec", self.spawn):
+            async with self.runtime.open() as game:
+                self.assertEqual(await game.wait(), 0)
+                self.runtime.finish()
+        args, _ = self.calls[0]
+        self.assertEqual(args[5:], ("--setup", "--screenshots", str(pictures / "EmeraldTogether")))
 
     async def test_native_game_of_another_rom_build_refused(self):
         (self.root / "other").mkdir()

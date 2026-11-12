@@ -14,7 +14,7 @@ from pathlib import Path
 import subprocess
 from uuid import uuid4
 
-from . import game_lifetime
+from . import game_lifetime, screenshots
 from .checkpoint_mirror import MirrorLease
 from .flash import LAYOUT_ID, MAX_CONTAINER_SIZE, inspect_flash
 from .launcher_session import GameInstallation
@@ -109,7 +109,7 @@ class DraftRuntime:
                     # --setup: the game says so in its link status (character setup, offline: save and close),
                     # not "not linked" as a game started for single play would (older games ignore it).
                     arguments = (str(executable), "--save", str(self.save_path), "--config", str(self.settings_path),
-                                 "--setup")
+                                 "--setup") + screenshots.arguments()   # F12's pictures (KNOWN_ISSUES MS-241)
                 else:
                     arguments = (str(executable), "--multiplayer-script", str(script),
                                  "--multiplayer-save", str(self.save_path), str(rom_path))
