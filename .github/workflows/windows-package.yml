@@ -2152,7 +2152,9 @@ jobs:
           # Seafloor Cavern's way in under the sea, whole in its hollow (MS-227), and the Battle Palace's battle room, its
           # pillars and door on its back wall, no piece upright before or behind it (MS-235), and the Battle Tower's lobby,
           # its lifts standing in their wall, and the Battle Pike's room of wild Pokemon, its curtain standing in its back
-          # wall (MS-236). What it says: those places are drawn so in a Windows process with Mesa; nothing about a GPU.
+          # wall (MS-236), and the three building models whose ground was a tree's crown top, sky through their gaps
+          # before (Fortree City's east tree house, a model at Rustboro, the Pokemon League at Ever Grande: MS-240).
+          # What it says: those places are drawn so in a Windows process with Mesa; nothing about a GPU.
           $probe = "diorama-check-inputs\geo\tools\qa\geometry_check.py"
           if (-not (Test-Path $probe)) { "- Geometry probe: not in this engine" >> $env:GITHUB_STEP_SUMMARY; exit 0 }
           $out = Join-Path $env:RUNNER_TEMP "graphics-3d\geometry"
@@ -2170,14 +2172,15 @@ jobs:
             "ShoalCave_HighTideEntranceRoom_8_16 24 50 8 16", "MauvilleCity_Gym_3_9 10 0 3 9",
             "Route110_TrickHouseEnd_6_3 29 1 6 3", "FortreeCity_Gym_9_12 12 1 9 12", "SootopolisCity_Gym_1F_8_9 15 0 8 9",
             "Underwater_SeafloorCavern_7_5 24 26 7 5", "BattleFrontier_BattlePalaceBattleRoom_7_2 26 24 7 2",
-            "BattleFrontier_BattleTowerLobby_12_6 26 5 12 6", "BattleFrontier_BattlePikeRoomWildMons_4_6 26 39 4 6"
+            "BattleFrontier_BattleTowerLobby_12_6 26 5 12 6", "BattleFrontier_BattlePikeRoomWildMons_4_6 26 39 4 6",
+            "FortreeCity_20_11 0 4 20 11", "RustboroCity_4_50 0 3 4 50", "EverGrandeCity_18_8 0 8 18 8"
           ) | Set-Content -Path $tour -Encoding ascii
           python $probe run --exe diorama-check-inputs\pokeemerald-mp-diorama-bfxtest.exe --save $save --tour $tour `
-            --out $out --jobs 1 --chunk 29
+            --out $out --jobs 1 --chunk 32
           if ($LASTEXITCODE -ne 0) { throw "the geometry probe failed ($LASTEXITCODE)" }
           $shots = @(Get-ChildItem (Join-Path $out "shots") -Filter *.png -ErrorAction SilentlyContinue).Count
-          "- Geometry probe through Mesa llvmpipe: $shots pictures of 29 showcase places (geometry/shots)" >> $env:GITHUB_STEP_SUMMARY
-          if ($shots -lt 29 * 4) { throw "the geometry probe drew $shots pictures, not the 116 of its 29 places" }
+          "- Geometry probe through Mesa llvmpipe: $shots pictures of 32 showcase places (geometry/shots)" >> $env:GITHUB_STEP_SUMMARY
+          if ($shots -lt 32 * 4) { throw "the geometry probe drew $shots pictures, not the 128 of its 32 places" }
       - name: The 3D heights at the probe's places, fingerprinted (the Safari Zone South's rails among them, MS-222)
         shell: python
         run: |
@@ -2215,6 +2218,63 @@ jobs:
               summary.write("\n".join([head] + lines) + "\n")
           if root.is_dir() and not dumps:
               raise SystemExit("the geometry probe ran and dumped no cells")
+      - name: The sky through gaps at the probe's places, counted in its pictures (KNOWN_ISSUES MS-239, MS-240)
+        shell: python
+        run: |
+          # The probe's pictures above, each counted by the probe's own measure (tools/qa/geometry_check.py
+          # picture_holes, as its check counts them): the pixels of its magenta sky the scene encloses - sky seen through
+          # a gap in the scene, as the Battle Palace battle room's pools showed before MS-239 and the three building
+          # models of MS-240 before it (46, 10 and 1 pixels from the d camera). A Linux build of engine 2ff61e87 counts
+          # none at the 32 places from the a, d and s75 cameras; the low s15 view counts sky between distant crowns and
+          # hills outdoors (1 to 86 pixels at 9 places), which is reported here, not failed. Pillow and NumPy (the
+          # measure's) are installed pinned by hash. What it says: this Windows build's pictures, drawn through Mesa,
+          # show the sky through no gap at those places from those cameras; nothing about a GPU.
+          import importlib.util, os, pathlib, subprocess, sys
+          root = pathlib.Path(os.environ["RUNNER_TEMP"], "graphics-3d", "geometry")
+          probe = pathlib.Path("diorama-check-inputs", "geo", "tools", "qa", "geometry_check.py").resolve()
+          summary = open(os.environ["GITHUB_STEP_SUMMARY"], "a")
+          shots = sorted((root / "shots").glob("*.png")) if (root / "shots").is_dir() else []
+          if not probe.is_file() or not shots:
+              line = "- The sky through gaps: not counted (no probe in this engine, or it drew no pictures)"
+              print(line)
+              summary.write(line + "\n")
+              raise SystemExit(0)
+          requirements = pathlib.Path(os.environ["RUNNER_TEMP"], "picture-measure.txt")
+          requirements.write_text(
+              # the 64-bit and the 32-bit Windows wheels for CPython 3.12 (PyPI's digests)
+              "numpy==2.5.3 --hash=sha256:0a59a421a32580a009e8a1751345bf829631b990dc1794b80514ab722b435def"
+              " --hash=sha256:bf63afbe037eb5d2fe87fbcc7778e61da53ebaf21d938a4515aa73b62532a5d4\n"
+              "pillow==10.2.0 --hash=sha256:154e939c5f0053a383de4fd3d3da48d9427a7e985f58af8e94d0b3c9fcfcf4f9"
+              " --hash=sha256:257d8788df5ca62c980314053197f4d46eefedf4e6175bc9412f14412ec4ea2f\n")
+          subprocess.run([sys.executable, "-m", "pip", "install", "--quiet", "--require-hashes", "--only-binary=:all:",
+                          "-r", str(requirements)], check=True)
+          spec = importlib.util.spec_from_file_location("geometry_check", probe)
+          geometry = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(geometry)
+          # each place's kind as the probe's check reads it from the map inventory (outdoors or not: a room's or a
+          # cave's black void is open, not a gap), here by name, from the Linux run's manifest
+          inside = {"GraniteCave_1F_21_7", "MeteorFalls_1F_1R_14_21", "VictoryRoad_1F_13_29", "CaveOfOrigin_Entrance_9_13",
+                    "FarawayIsland_Entrance_15_15", "ShoalCave_HighTideEntranceRoom_8_16", "MauvilleCity_Gym_3_9",
+                    "Route110_TrickHouseEnd_6_3", "FortreeCity_Gym_9_12", "SootopolisCity_Gym_1F_8_9",
+                    "Underwater_SeafloorCavern_7_5", "BattleFrontier_BattlePalaceBattleRoom_7_2",
+                    "BattleFrontier_BattleTowerLobby_12_6", "BattleFrontier_BattlePikeRoomWildMons_4_6"}
+          counts, failed = {}, []
+          for shot in shots:
+              key, camera = shot.stem.rsplit("-", 1)
+              outdoor = key not in inside
+              steep = camera.startswith("s") and int(camera[1:] or 0) >= 60 and outdoor
+              holes = geometry.picture_holes(str(shot), steep=steep, dark_open=not outdoor)
+              counts.setdefault(key, {})[camera] = holes
+              if holes and camera != "s15":
+                  failed.append(f"{key} ({camera}): {holes}")
+          lines = [f"- The sky through gaps at the probe's {len(counts)} places (pixels; a, d and s75 must be none):"]
+          for key in sorted(counts):
+              lines.append(f"  - {key}: " + ", ".join(f"{c} {n}" for c, n in sorted(counts[key].items())))
+          print("\n".join(lines))
+          summary.write("\n".join(lines) + "\n")
+          summary.close()
+          if failed:
+              raise SystemExit("sky through a gap in this Windows build's pictures: " + "; ".join(failed))
       - name: The 3D chunk cache across map seams (KNOWN_ISSUES MS-118, its terrain check)
         shell: python
         run: |
