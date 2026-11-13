@@ -112,5 +112,41 @@ class ProbePartyTests(unittest.TestCase):
                          dict(count=2, box_crc=f"{zlib.crc32(MON + OTHER):08x}"))
 
 
+class BoxRecordTests(unittest.TestCase):
+    def test_a_box_record_is_found_and_read_again_at_rest(self):
+        """The newcomers' and Egg proofs' PC record: found by its personality in the storage, then read again at its own
+        place until it checks out (an Egg in the PC counts its steps in place)."""
+        sys.path.insert(0, str(ROOT / "scripts" / "windows-runtime"))
+        from native_launcher_newcomers_proof import NewcomersProof
+        from emerald_multiplayer.flash import STORAGE_SIZE
+
+        base = 0x10000
+        at = base + 4 + (3 * 30 + 7) * 80                      # box 3, slot 7
+        memory = bytearray(base + STORAGE_SIZE + 16)
+        steady = OTHER[:19] + bytes([OTHER[19] | 2]) + OTHER[20:]   # has a species (the flag the search reads)
+        memory[at:at + 80] = steady
+        torn = [decrypted(steady, 4)]                            # the second read of the record catches it decrypted
+
+        class Raw:
+            def _raw(self, address, size):
+                if address == at and size == 80 and torn:
+                    return torn.pop()
+                return bytes(memory[address:address + size])
+
+        class Probe:
+            memory = Raw()
+
+            def mem(self, name, size=None, offset=0):
+                assert name == "gPokemonStoragePtr"
+                return base.to_bytes(4, "little")
+
+        personality = struct.unpack_from("<I", steady, 0)[0]
+        location, record = NewcomersProof.game_box_record(None, Probe(), personality)
+        self.assertEqual(location, "box:3:7")
+        self.assertEqual(record, steady)
+        self.assertEqual(torn, [])                               # the torn read was taken, and read again
+        self.assertEqual(NewcomersProof.game_box_record(None, Probe(), personality + 1), (None, None))
+
+
 if __name__ == "__main__":
     unittest.main()

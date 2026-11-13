@@ -1920,12 +1920,42 @@ jobs:
           python3 scripts/qa/merge_gameplay_shards.py --shards shards --expected 8 \
             --platform "windows-2022, the 3D test build, Mesa llvmpipe" \
             --engine-commit "${{ needs.engine.outputs.engine_commit }}" --out gameplay_check.json
+      - name: The native interface's audit over the whole walk, against the Linux build's (KNOWN_ISSUES MS-105)
+        if: always()
+        run: |
+          # The shards' audits (each "the native interface's audit over this shard's walk") set together against the
+          # Linux 3D test build's walk of the same plan (docs/qa/ui-audit-baseline.json, scripts/qa/ui_audit.py): it
+          # fails when a screen of the game's own showed with no native screen over it for 20 frames or more here and
+          # never there - a screen the native interface leaves uncovered in the Windows build alone. The other states
+          # are reported. No shard's audit (an engine before the audit's reference line) or no baseline in this app:
+          # noted, not failed.
+          files=$(find shards -name ui_audit.json | sort)
+          if [ -z "$files" ]; then
+            echo "- The native interface's audit (MS-105): no shard's audit (an engine before its reference line)" \
+              | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          if [ ! -f docs/qa/ui-audit-baseline.json ]; then
+            echo "- The native interface's audit (MS-105): not compared (no Linux baseline in this app)" \
+              | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          code=0
+          python3 scripts/qa/ui_audit.py compare --baseline docs/qa/ui-audit-baseline.json --out ui_audit_report.json \
+            $files > ui_audit.txt || code=$?
+          cat ui_audit.txt
+          { echo "- The native interface's audit over the whole walk (MS-105):"; echo '```'; cat ui_audit.txt; echo '```'; } \
+            >> "$GITHUB_STEP_SUMMARY"
+          exit "$code"
       - name: Upload the merged report (private to this repository, 7 days)
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: gameplay-check-windows-3d-report
-          path: gameplay_check.json
+          path: |
+            gameplay_check.json
+            ui_audit_report.json
+            ui_audit.txt
           retention-days: 7
           if-no-files-found: warn
 
