@@ -2153,7 +2153,9 @@ jobs:
           # pillars and door on its back wall, no piece upright before or behind it (MS-235), and the Battle Tower's lobby,
           # its lifts standing in their wall, and the Battle Pike's room of wild Pokemon, its curtain standing in its back
           # wall (MS-236), and the three building models whose ground was a tree's crown top, sky through their gaps
-          # before (Fortree City's east tree house, a model at Rustboro, the Pokemon League at Ever Grande: MS-240).
+          # before (Fortree City's east tree house, a model at Rustboro, the Pokemon League at Ever Grande: MS-240),
+          # and Shoal Cave's low-tide inner room between its two bridges, their decks on the walkways' level over the
+          # wet sand and the channel under them (MS-186, the owner's decision #55).
           # What it says: those places are drawn so in a Windows process with Mesa; nothing about a GPU.
           $probe = "diorama-check-inputs\geo\tools\qa\geometry_check.py"
           if (-not (Test-Path $probe)) { "- Geometry probe: not in this engine" >> $env:GITHUB_STEP_SUMMARY; exit 0 }
@@ -2173,14 +2175,15 @@ jobs:
             "Route110_TrickHouseEnd_6_3 29 1 6 3", "FortreeCity_Gym_9_12 12 1 9 12", "SootopolisCity_Gym_1F_8_9 15 0 8 9",
             "Underwater_SeafloorCavern_7_5 24 26 7 5", "BattleFrontier_BattlePalaceBattleRoom_7_2 26 24 7 2",
             "BattleFrontier_BattleTowerLobby_12_6 26 5 12 6", "BattleFrontier_BattlePikeRoomWildMons_4_6 26 39 4 6",
-            "FortreeCity_20_11 0 4 20 11", "RustboroCity_4_50 0 3 4 50", "EverGrandeCity_18_8 0 8 18 8"
+            "FortreeCity_20_11 0 4 20 11", "RustboroCity_4_50 0 3 4 50", "EverGrandeCity_18_8 0 8 18 8",
+            "ShoalCave_LowTideInnerRoom_12_19 24 47 12 19"
           ) | Set-Content -Path $tour -Encoding ascii
           python $probe run --exe diorama-check-inputs\pokeemerald-mp-diorama-bfxtest.exe --save $save --tour $tour `
-            --out $out --jobs 1 --chunk 32
+            --out $out --jobs 1 --chunk 33
           if ($LASTEXITCODE -ne 0) { throw "the geometry probe failed ($LASTEXITCODE)" }
           $shots = @(Get-ChildItem (Join-Path $out "shots") -Filter *.png -ErrorAction SilentlyContinue).Count
-          "- Geometry probe through Mesa llvmpipe: $shots pictures of 32 showcase places (geometry/shots)" >> $env:GITHUB_STEP_SUMMARY
-          if ($shots -lt 32 * 4) { throw "the geometry probe drew $shots pictures, not the 128 of its 32 places" }
+          "- Geometry probe through Mesa llvmpipe: $shots pictures of 33 showcase places (geometry/shots)" >> $env:GITHUB_STEP_SUMMARY
+          if ($shots -lt 33 * 4) { throw "the geometry probe drew $shots pictures, not the 132 of its 33 places" }
       - name: The 3D heights at the probe's places, fingerprinted (the Safari Zone South's rails among them, MS-222)
         shell: python
         run: |
@@ -2225,7 +2228,8 @@ jobs:
           # picture_holes, as its check counts them): the pixels of its magenta sky the scene encloses - sky seen through
           # a gap in the scene, as the Battle Palace battle room's pools showed before MS-239 and the three building
           # models of MS-240 before it (46, 10 and 1 pixels from the d camera). A Linux build of engine 2ff61e87 counts
-          # none at the 32 places from the a, d and s75 cameras; the low s15 view counts sky between distant crowns and
+          # none at the 32 places from the a, d and s75 cameras (and one of engine e4cdc926 none at Shoal Cave's
+          # low-tide inner room from all four); the low s15 view counts sky between distant crowns and
           # hills outdoors (1 to 86 pixels at 9 places), which is reported here, not failed. Pillow and NumPy (the
           # measure's) are installed pinned by hash. What it says: this Windows build's pictures, drawn through Mesa,
           # show the sky through no gap at those places from those cameras; nothing about a GPU.
@@ -2257,7 +2261,8 @@ jobs:
                     "FarawayIsland_Entrance_15_15", "ShoalCave_HighTideEntranceRoom_8_16", "MauvilleCity_Gym_3_9",
                     "Route110_TrickHouseEnd_6_3", "FortreeCity_Gym_9_12", "SootopolisCity_Gym_1F_8_9",
                     "Underwater_SeafloorCavern_7_5", "BattleFrontier_BattlePalaceBattleRoom_7_2",
-                    "BattleFrontier_BattleTowerLobby_12_6", "BattleFrontier_BattlePikeRoomWildMons_4_6"}
+                    "BattleFrontier_BattleTowerLobby_12_6", "BattleFrontier_BattlePikeRoomWildMons_4_6",
+                    "ShoalCave_LowTideInnerRoom_12_19"}
           counts, failed = {}, []
           for shot in shots:
               key, camera = shot.stem.rsplit("-", 1)
