@@ -3131,6 +3131,12 @@ GitHub's Windows runners (`windows-2022`, GitHub-hosted, no graphics card), real
 | The 3D job's checks after one fails: each from the frame rate on runs whatever an earlier check found, once Mesa is in place (`if: ${{ !cancelled() && steps.mesa.outcome == 'success' }}`; a failing check still fails the job) | app (this change) | - | **built**: `test_windows_workflow`/`test_workflow_actions` 41 passed (241 subtests) | - | - | W: the next full run |
 | The engine for the next full run: the rules' C checks, the GBA ROM, the PC-only line check, the Windows 3D game | engine `88a283bc` | L | **passed**: `check-diorama`, the ROM byte-identical (`f214735b...3387`), no GBA line moved, `pokeemerald-mp-diorama.exe` built with MinGW (the usual three macro warnings of windows.h) | scratchpad `hullfix/*.log` | - | - |
 
+## Run 458 (2026-11-13): the stale chunks' fix on Windows
+
+| Test | Build / head | Where | Last result | Evidence | Changed since | Rerun? |
+| --- | --- | --- | --- | --- | --- | --- |
+| Run [458](https://github.com/kashkevin/personal-pokemon-game-emgba3d/actions/runs/43510594272)'s 3D job (the Windows 3D test build through Mesa llvmpipe), its every step | engine `21b2e28f`, app `6153196` | W, Mesa (llvmpipe) | **passed, every step**: the chunk cache across four map seams (73 brought back, 0 differed; **32,776 skipped-sync chunks checked, 0 stale**; 80 kept with another gameplay elevation, 0 differed; the buildings' buffer after 98 rebuilds, 0 differed) and Mr. Briney's checked sail (**61,451 checked, 0 stale**; the atlas 769 checks, 0 slots differ; the four timed sails to Route 104, the waits on: 313 chunks built against 305 in run 457, no terrain sync over 8 ms, at most 6.6 ms); MS-118's walk timed (as built 195 chunks, no sync over 16 ms); the 36 places' heights **each equal to the same tour's on Linux** (`21b2e28f`'s Linux 3D test build, the walk's save); no sky through a gap from a, d and s75, with the default trees and the voxel trees; V10, the voxel trees' memory (583 MB at the peak as built, 584 before), MS-108's transitions and MS-105's screens, the presets and window modes, F12's folder, the attendant's save | job log (scratchpad `r458/3d.txt`); Linux tour `ref458/` | - | - |
+
 ## Run 457 (2026-11-13): the 3D job alone - the checks that had never run after a failing one, and a stale chunk
 
 | Test | Build / head | Where | Last result | Evidence | Changed since | Rerun? |
