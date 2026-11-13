@@ -1,8 +1,8 @@
 {
  "screen MainCB2_Intro script -": {
-  "times": 4,
-  "frames": 6028,
-  "logs": 4
+  "times": 5,
+  "frames": 6112,
+  "logs": 5
  },
  "screen CB2_ChangeMapMain": {
   "times": 64,
@@ -19,29 +19,44 @@
   "frames": 1638,
   "logs": 1
  },
+ "screen CB2_ExpansionIntro script -": {
+  "times": 5,
+  "frames": 1270,
+  "logs": 5
+ },
  "window 0: 26x4 at 2,15 window 1: 14x4 at 1,35 window 2: 12x4 at 17,35 window 3: 16x2 at 2,55 window 4: 8x2 at 11,55 window 5: 16x2 at 2,57 window 6: 8x2 at 11,57 window 7: 4x2 at 21,55 window 8: 0x0 at 21,57 window 9: 4x2 at 25,55 window 10: 8x2 at 21,57 window 11: 8x4 at 21,55 screen CB2_HandleStartBattle": {
   "times": 41,
   "frames": 1189,
   "logs": 4
  },
- "screen CB2_ExpansionIntro script -": {
-  "times": 4,
-  "frames": 1016,
-  "logs": 4
+ "screen CB2_InitCopyrightScreenAfterBootup script -": {
+  "times": 5,
+  "frames": 810,
+  "logs": 5
  },
  "window 0: 30x12 at 0,9 screen CB2_Credits": {
   "times": 1,
   "frames": 783,
   "logs": 1
  },
- "screen CB2_InitCopyrightScreenAfterBootup script -": {
-  "times": 4,
-  "frames": 648,
-  "logs": 4
+ "popup 0: 27x4 at 2,15 screen CB2_MainMenu script -": {
+  "times": 2,
+  "frames": 156,
+  "logs": 1
  },
  "window 0: 27x4 at 2,15 window 1: 9x4 at 19,9": {
   "times": 1,
   "frames": 147,
+  "logs": 1
+ },
+ "window 0: 27x4 at 2,15 screen CB2_MainMenu script -": {
+  "times": 2,
+  "frames": 86,
+  "logs": 1
+ },
+ "window 0: 27x4 at 2,15 window 1: 6x4 at 3,5 window 2: 9x10 at 3,2 window 3: 5x4 at 3,2 screen CB2_MainMenu script -": {
+  "times": 1,
+  "frames": 71,
   "logs": 1
  },
  "window 0: 27x4 at 2,15 screen CB2_ChangeMapMain": {
@@ -52,6 +67,11 @@
  "screen CB2_DoHallOfFameScreen": {
   "times": 1,
   "frames": 30,
+  "logs": 1
+ },
+ "popup 0: 27x4 at 2,15 window 1: 6x4 at 3,5 screen CB2_MainMenu script -": {
+  "times": 1,
+  "frames": 24,
   "logs": 1
  },
  "screen CB2_InitPokenavForTutorial": {
