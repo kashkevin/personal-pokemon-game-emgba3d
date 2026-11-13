@@ -2229,7 +2229,8 @@ jobs:
           # and Shoal Cave's low-tide inner room between its two bridges, their decks on the walkways' level over the
           # wet sand and the channel under them (MS-186, the owner's decision #55), and Mt. Pyre 5F before its
           # stairwell, the frame one wall over its doorway and the side walls beside it carried on to it (MS-237, the
-          # owner's decision #56).
+          # owner's decision #56), and Mt. Pyre's exterior, its terraces climbing a level a staircase to the summit
+          # (MS-247: the whole map from its foot's warp).
           # What it says: those places are drawn so in a Windows process with Mesa; nothing about a GPU.
           $probe = "diorama-check-inputs\geo\tools\qa\geometry_check.py"
           if (-not (Test-Path $probe)) { "- Geometry probe: not in this engine" >> $env:GITHUB_STEP_SUMMARY; exit 0 }
@@ -2250,14 +2251,14 @@ jobs:
             "Underwater_SeafloorCavern_7_5 24 26 7 5", "BattleFrontier_BattlePalaceBattleRoom_7_2 26 24 7 2",
             "BattleFrontier_BattleTowerLobby_12_6 26 5 12 6", "BattleFrontier_BattlePikeRoomWildMons_4_6 26 39 4 6",
             "FortreeCity_20_11 0 4 20 11", "RustboroCity_4_50 0 3 4 50", "EverGrandeCity_18_8 0 8 18 8",
-            "ShoalCave_LowTideInnerRoom_12_19 24 47 12 19", "MtPyre_5F_2_3 24 19 2 3"
+            "ShoalCave_LowTideInnerRoom_12_19 24 47 12 19", "MtPyre_5F_2_3 24 19 2 3", "MtPyre_Exterior_19_27 24 21 19 27"
           ) | Set-Content -Path $tour -Encoding ascii
           python $probe run --exe diorama-check-inputs\pokeemerald-mp-diorama-bfxtest.exe --save $save --tour $tour `
-            --out $out --jobs 1 --chunk 34
+            --out $out --jobs 1 --chunk 35
           if ($LASTEXITCODE -ne 0) { throw "the geometry probe failed ($LASTEXITCODE)" }
           $shots = @(Get-ChildItem (Join-Path $out "shots") -Filter *.png -ErrorAction SilentlyContinue).Count
-          "- Geometry probe through Mesa llvmpipe: $shots pictures of 34 showcase places (geometry/shots)" >> $env:GITHUB_STEP_SUMMARY
-          if ($shots -lt 34 * 4) { throw "the geometry probe drew $shots pictures, not the 136 of its 34 places" }
+          "- Geometry probe through Mesa llvmpipe: $shots pictures of 35 showcase places (geometry/shots)" >> $env:GITHUB_STEP_SUMMARY
+          if ($shots -lt 35 * 4) { throw "the geometry probe drew $shots pictures, not the 140 of its 35 places" }
       - name: The 3D heights at the probe's places, fingerprinted (the Safari Zone South's rails among them, MS-222)
         shell: python
         run: |
