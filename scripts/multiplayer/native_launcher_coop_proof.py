@@ -140,8 +140,7 @@ def boost_lead(source: Path, target: Path, level: int = LEAD_LEVEL) -> None:
 
 
 def own_party(probe) -> list[dict]:
-    count = probe.mem("gPartiesCount", 1)[0]
-    raw = probe.mem("gParties", 600)
+    count, raw = probe.party_bytes()      # as the game keeps it at rest (party_read.py)
     return [decode(raw[i * POKEMON_SIZE:(i + 1) * POKEMON_SIZE], i) for i in range(count)]
 
 

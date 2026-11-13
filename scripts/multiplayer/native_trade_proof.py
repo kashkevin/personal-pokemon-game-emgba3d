@@ -45,6 +45,7 @@ import secrets
 import subprocess
 
 from native_presence_proof import _hold, _screenshot
+from party_read import consistent
 from emerald_multiplayer.checkpoint_mirror import MirrorLease
 from emerald_multiplayer.cold_start import ColdStartRecovery
 from emerald_multiplayer.companion import Companion, CompanionConfig
@@ -379,7 +380,8 @@ async def run(args: argparse.Namespace) -> None:
                 raise AssertionError("the players list did not come back")
 
     def party(i):
-        return games[i].read("gParties", PARTY_BYTES)
+        # as the game keeps it at rest: a read from outside can catch a slot decrypted in place (party_read.py)
+        return consistent(lambda: games[i].read("gParties", PARTY_BYTES))
 
     try:
         for i in range(2):

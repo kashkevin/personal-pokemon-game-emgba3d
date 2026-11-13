@@ -126,6 +126,7 @@ for _path in (ROOT / "src", ROOT / "scripts" / "multiplayer", ROOT / "scripts" /
     if str(_path) not in sys.path:              # the Windows runner starts it without PYTHONPATH
         sys.path.insert(0, str(_path))
 from native_launcher_battle_3d_proof import LIGHT_3D_SETTINGS  # noqa: E402
+from party_read import consistent  # noqa: E402
 from native_launcher_battle_proof import (CHOOSE_ACTION_REQUEST, CHOOSE_POKEMON_REQUEST, FORFEIT_ROLE,  # noqa: E402
                                           KEYS, WINDOWS, drive_battle_input, game_picture, idle_battle_input,
                                           launcher_proof, walk_away_at)
@@ -136,7 +137,7 @@ from native_launcher_newcomer_proof import LAB, LITTLEROOT, NO_POKEMON  # noqa: 
 from native_launcher_soft_reset_proof import SoftResetProof  # noqa: E402
 from native_launcher_three_player_proof import ThreePlayerProof, longest_gap  # noqa: E402
 from proof_network import delay_battle_messages_to, simulate_disk, simulate_internet  # noqa: E402
-from emerald_multiplayer.flash import STORAGE_SIZE, inspect_flash  # noqa: E402
+from emerald_multiplayer.flash import BOX_CAPACITY, BOX_POKEMON_SIZE, STORAGE_SIZE, inspect_flash  # noqa: E402
 from emerald_multiplayer.menu_mailbox import unpack_screen  # noqa: E402
 from emerald_multiplayer.ownership import OWNERSHIP_PROFILE, box_at, box_is_egg, inspect_ownership  # noqa: E402
 from emerald_multiplayer.trade_eligibility import validate_party_offer  # noqa: E402
@@ -1425,17 +1426,21 @@ class NewcomersProof(SoftResetProof, ThreePlayerProof):
         return steps
 
     def game_party_record(self, probe, index):
-        return probe.mem("gParties", 100, 100 * index)
+        # as the game keeps it at rest: a read from outside can catch the slot decrypted in place (party_read.py)
+        return consistent(lambda: probe.mem("gParties", 100, 100 * index))
 
     def game_box_record(self, probe, personality):
-        """The PC slot (box:B:N) holding the record of this personality in the running game, and its 80 bytes."""
-        storage = read_at(probe, int.from_bytes(probe.mem("gPokemonStoragePtr", 4), "little"), STORAGE_SIZE)
+        """The PC slot (box:B:N) holding the record of this personality in the running game, and its 80 bytes (read
+        again as the game keeps them at rest: an Egg in the PC counts its steps in place, party_read.py)."""
+        base = int.from_bytes(probe.mem("gPokemonStoragePtr", 4), "little")
+        storage = read_at(probe, base, STORAGE_SIZE)
         for box in range(14):
             for slot in range(30):
                 location = f"box:{box}:{slot}"
                 record = box_at(b"", storage, location)
                 if record[19] & 2 and int.from_bytes(record[:4], "little") == personality:
-                    return location, record
+                    at = base + 4 + (box * BOX_CAPACITY + slot) * BOX_POKEMON_SIZE      # ownership.box_at's place
+                    return location, consistent(lambda: read_at(probe, at, BOX_POKEMON_SIZE), stride=BOX_POKEMON_SIZE)
         return None, None
 
     async def log_lines(self, worker, prefix):

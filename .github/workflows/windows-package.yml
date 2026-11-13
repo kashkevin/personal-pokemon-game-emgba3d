@@ -220,8 +220,11 @@ jobs:
           # The 3D game's test build (never packaged): the 3D battles and Mega forms drawn on a Windows runner through
           # Mesa's software OpenGL (the graphics-3d job; the hosted runner's own OpenGL is 1.1).
           make -f Makefile_pc SDL_DIR="$GITHUB_WORKSPACE/sdl/SDL2-${SDL_VERSION}/i686-w64-mingw32" DIORAMA=1 BFX_TEST=1 -j"$(nproc)"
-          i686-w64-mingw32-strip --strip-all pokeemerald-mp-diorama-bfxtest.exe
           mkdir -p ../diorama-check-inputs
+          # The 3D gameplay check's audit of the native interface (MS-105) names the game's own screens from this table
+          # (taken before the strip; the log gives CB2_Overworld's address, for a program Windows loaded elsewhere).
+          i686-w64-mingw32-nm -n pokeemerald-mp-diorama-bfxtest.exe > ../diorama-check-inputs/pokeemerald-mp-diorama-bfxtest.nm.txt
+          i686-w64-mingw32-strip --strip-all pokeemerald-mp-diorama-bfxtest.exe
           cp pokeemerald-mp-diorama-bfxtest.exe "$GITHUB_WORKSPACE/sdl/SDL2-${SDL_VERSION}/i686-w64-mingw32/bin/SDL2.dll" ../diorama-check-inputs/
           # The world-geometry probe (step 16, tools/qa/geometry_check.py) for the graphics-3d job's pictures, at the
           # engine's paths: it imports mega_check and the map inventory from them, and reads the 3D rules' header
@@ -303,7 +306,9 @@ jobs:
           fi
           # The whole game's gameplay check: its plan from this engine's data (the maps a player can reach), for the
           # Windows shard jobs (they run the test build above; no engine checkout there).
-          mkdir -p ../gameplay-inputs/tools/qa ../gameplay-inputs/tools/battle_env
+          mkdir -p ../gameplay-inputs/tools/qa ../gameplay-inputs/tools/battle_env ../gameplay-inputs/app/scripts/qa
+          # ... and the app's reader of the native interface's audit over the walk (KNOWN_ISSUES MS-105)
+          cp ../app/scripts/qa/ui_audit.py ../gameplay-inputs/app/scripts/qa/
           if [ -f tools/qa/gameplay_check.py ]; then
             cp tools/qa/gameplay_check.py tools/qa/inventory.py ../gameplay-inputs/tools/qa/
             cp tools/battle_env/mega_check.py ../gameplay-inputs/tools/battle_env/
@@ -1841,6 +1846,10 @@ jobs:
           if (-not $result.supported -or $result.renderer -notmatch "llvmpipe") { throw "not Mesa's llvmpipe: $probe" }
       - name: A character from the short introduction, then this shard's targets in 3D
         shell: pwsh
+        env:
+          # the native interface's audit (KNOWN_ISSUES MS-105): what of the game's own interface shows with no native
+          # screen over it, in the game's log (the next step reads it)
+          PKMN_NATIVE_UI_AUDIT: "1"
         run: |
           if (-not (Test-Path gameplay-inputs\plan\plan.json)) {
             Write-Output "::notice::this engine has no gameplay check (tools/qa/gameplay_check.py)"
@@ -1853,12 +1862,45 @@ jobs:
           $code = $LASTEXITCODE
           Get-ChildItem -Path $out -Recurse -Include test.sav, new.sav | Remove-Item -Force
           if ($code -ne 0) { throw "shard ${{ matrix.shard }} in 3D: a target failed or a game ended early ($code)" }
+      - name: The native interface's audit over this shard's walk (KNOWN_ISSUES MS-105)
+        if: always()
+        shell: python
+        run: |
+          # The owner (2026-11-13): MS-105 is recorded fixed for every PC screen a player reaches - verify it in a
+          # Windows build. The walk above ran with PKMN_NATIVE_UI_AUDIT=1: every state of the game's own GBA interface
+          # with no native screen over it (its windows, a transition, its own screen, the script) is in the games'
+          # logs; scripts/qa/ui_audit.py counts those lasting 20 frames or more (fewer are a screen's loading) and
+          # names the game's screens and scripts from the 3D test build's symbol table. The whole game's report job
+          # sets the shards' together against the Linux build's walk. An engine before the audit's reference line
+          # (2026-11-13) logs none: noted, not failed.
+          import os, pathlib, subprocess, sys
+          out = pathlib.Path(os.environ["RUNNER_TEMP"], "gameplay-3d")
+          table = pathlib.Path("diorama-check-inputs", "pokeemerald-mp-diorama-bfxtest.nm.txt")
+          script = pathlib.Path("gameplay-inputs", "app", "scripts", "qa", "ui_audit.py")
+          logs = sorted(str(p) for p in out.glob("**/game.log")) if out.is_dir() else []
+          summary = open(os.environ["GITHUB_STEP_SUMMARY"], "a")
+          if not table.is_file() or not script.is_file() or not logs:
+              line = (f"- The native interface's audit (MS-105): not read (symbol table {table.is_file()}, script "
+                      f"{script.is_file()}, {len(logs)} game logs)")
+              print(line)
+              summary.write(line + "\n")
+              raise SystemExit(0)
+          run = subprocess.run([sys.executable, str(script), "summarize", "--nm", str(table), "--min", "20", "--out",
+                                str(out / "ui_audit.json"), *logs], capture_output=True, text=True)
+          print(run.stdout, run.stderr)
+          summary.write("- The native interface's audit over shard ${{ matrix.shard }}'s walk (MS-105):\n```\n"
+                        + run.stdout + "```\n")
+          summary.close()
+          if run.returncode != 0:
+              raise SystemExit(f"the audit's summary failed ({run.returncode})")
       - name: Upload this shard's report (private to this repository, 7 days; no save)
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: gameplay-windows-3d-shard-${{ matrix.shard }}
-          path: ${{ runner.temp }}/gameplay-3d/gameplay_check.json
+          path: |
+            ${{ runner.temp }}/gameplay-3d/gameplay_check.json
+            ${{ runner.temp }}/gameplay-3d/ui_audit.json
           retention-days: 7
           if-no-files-found: warn
 
@@ -2426,15 +2468,20 @@ jobs:
           # trees (KNOWN_ISSUES MS-244). As built: a tree is drawn whole while it is no farther along the view than twice
           # the player (every tree on the usual cameras' pictures), with coarser models past that; a tree off the
           # picture casts its shadow with the coarsest; and each pass culls the faces turned away from its eye. The
-          # probe draws six wooded places with PKMN_DIORAMA_TREES=voxel from the adventure and the far camera twice -
-          # as before (PKMN_DIORAMA_TREE_LOD=0: every tree whole with every face) and as built - and the game's own log
-          # gives its memory after each map (gl_compositor.c: in use, its peak so far, the address space left). A Linux
-          # build over the probe's first 40 places, from the far camera: 2,325 MB of address space and 1,893 MB
-          # resident as before, 1,808 and 1,376 MB as built; from the adventure camera 1,368 and 930 MB against 1,124
-          # and 691 MB (TEST_LEDGER, MS-244). It fails when a run's probe fails or logs no memory, or when the built
-          # trees' peak is not below the trees' as before; an engine without them is noted, not failed. What it says:
-          # this Windows build's memory with the voxel trees through Mesa's llvmpipe (a 32-bit program); nothing about
-          # a GPU, whose triangles are the card's own work.
+          # probe draws six wooded places from the adventure and the far camera three times - with the default trees
+          # (for scale), with PKMN_DIORAMA_TREES=voxel as before (PKMN_DIORAMA_TREE_LOD=0: every tree whole with every
+          # face) and as built - and the game's own log gives its memory after each map (gl_compositor.c: in use, its
+          # peak so far, the address space left). A Linux build (Mesa 25.2) over these six places, the peak in use with
+          # llvmpipe's own threads: 274 MB with the default trees; as before 761 and 1,080 MB in two runs, as built 682
+          # and 692 MB (with one thread, LP_NUM_THREADS=1: 1,176 and 734 MB); run 450 here (Mesa 26.2): 583 MB as before
+          # and as built alike, each map's within 6% of the other's. Then the built trees once more over Route 119 and
+          # Petalburg City in turn, five times each, in one game process: the memory after a map rises to the heaviest
+          # scene's so far and stays there (the Linux build, after Route 119 each time: 479, 581, 583, 581, 581 MB). It
+          # fails when a run's probe fails or logs no memory, when the built trees' peak is over the trees' as before by
+          # more than a tenth (a regression), or when Route 119's fifth visit leaves more than a tenth over its second
+          # (memory kept on every visit: a leak); an engine without them is noted, not failed. What it says: this
+          # Windows build's memory with each tree style through Mesa's llvmpipe (a 32-bit program); nothing about a GPU,
+          # whose triangles are the card's own work.
           import os, pathlib, re, subprocess, sys
           probe = pathlib.Path("diorama-check-inputs", "geo", "tools", "qa", "geometry_check.py").resolve()
           exe = pathlib.Path("diorama-check-inputs", "pokeemerald-mp-diorama-bfxtest.exe").resolve()
@@ -2452,18 +2499,26 @@ jobs:
                           "PetalburgCity_15_15 0 0 15 15\nFortreeCity_20_11 0 4 20 11\nRoute104_20_51 0 19 20 51\n"
                           "Route119_20_52 0 34 20 52\nRoute120_20_52 0 35 20 52\nPetalburgWoods_26_22 24 11 26 22\n",
                           encoding="ascii")
+          revisits = temp / "voxel-tree-memory-revisits.txt"
+          revisits.write_text("# key group num x y (tools/qa/geometry_check.py tour)\n"
+                              + "".join(f"Route119_v{n} 0 34 20 52\nPetalburgCity_v{n} 0 0 15 15\n"
+                                        for n in range(1, 6)),
+                              encoding="ascii")
           memory = re.compile(r"memory after map (\d+\.\d+): game process (\d+) MB in use \(peak (\d+) MB, private "
                               r"(\d+) MB\); \d+-bit program, address space (\d+) MB of which (\d+) MB free")
           peaks, lines, failed = {}, [], []
-          for name, lod in (("as before", "0"), ("as built", None)):
+          def measure(name, places, count, trees, lod):
               out = temp / "graphics-3d" / ("voxel-tree-memory-" + name.replace(" ", "-"))
-              env = dict(os.environ, PKMN_DIORAMA_TREES="voxel")
+              env = dict(os.environ)
               env.pop("PKMN_DIORAMA_TREE_LOD", None)
+              env.pop("PKMN_DIORAMA_TREES", None)
+              if trees is not None:
+                  env["PKMN_DIORAMA_TREES"] = trees
               if lod is not None:
                   env["PKMN_DIORAMA_TREE_LOD"] = lod
               run = subprocess.run([sys.executable, str(probe), "run", "--exe", str(exe), "--save",
-                                    str(temp / "graphics-3d.sav"), "--tour", str(tour), "--out", str(out),
-                                    "--jobs", "1", "--chunk", "6", "--cameras", "a,d"], env=env)
+                                    str(temp / "graphics-3d.sav"), "--tour", str(places), "--out", str(out),
+                                    "--jobs", "1", "--chunk", str(count), "--cameras", "a,d"], env=env)
               samples = []
               for log in sorted(out.glob("runs/*/game.log")):
                   for m in memory.finditer(log.read_text(errors="replace")):
@@ -2476,15 +2531,31 @@ jobs:
                   lines.append(f"- {name}: {len(samples)} maps; the most resident {peaks[name]} MB, private at most "
                                f"{max(s[3] for s in samples)} MB, address space in use at most {max(s[4] for s in samples)}"
                                " MB (after a map)")
-                  lines += [f"  - map {s[0]}: {s[1]} MB in use, peak {s[2]} MB, private {s[3]} MB, address space"
-                            f" {s[4]} MB" for s in samples]
-          if len(peaks) == 2:
+                  lines.extend(f"  - map {s[0]}: {s[1]} MB in use, peak {s[2]} MB, private {s[3]} MB, address space"
+                               f" {s[4]} MB" for s in samples)
+              return samples
+          for name, trees, lod in (("default trees", None, None), ("as before", "voxel", "0"),
+                                   ("as built", "voxel", None)):
+              measure(name, tour, 6, trees, lod)
+          if len(peaks) == 3:
               lines.insert(0, f"- The voxel trees' memory at six wooded places (MS-244): the peak as built "
                               f"{peaks['as built']} MB against {peaks['as before']} MB as before "
-                              f"({100.0 * peaks['as built'] / max(peaks['as before'], 1):.0f}%)")
-              if peaks["as built"] >= peaks["as before"]:
-                  failed.append(f"the peak as built, {peaks['as built']} MB, not below the {peaks['as before']} MB "
-                                "as before")
+                              f"({100.0 * peaks['as built'] / max(peaks['as before'], 1):.0f}%); the default trees "
+                              f"{peaks['default trees']} MB")
+              if peaks["as built"] > peaks["as before"] * 1.10:
+                  failed.append(f"the peak as built, {peaks['as built']} MB, over the {peaks['as before']} MB as "
+                                "before by more than a tenth")
+          # the revisits: after the starting map, Route 119 and Petalburg City in turn (Petalburg's fifth not logged:
+          # the game ends there)
+          again = [s[1] for s in measure("revisits as built", revisits, 10, "voxel", None) if s[0] == "0.34"]
+          if len(again) >= 5:
+              lines.append(f"- Route 119 five times with the built trees, in use after each visit: "
+                           + ", ".join(f"{n} MB" for n in again))
+              if again[4] > again[1] * 1.10:
+                  failed.append(f"Route 119's fifth visit left {again[4]} MB in use, over its second's {again[1]} MB"
+                                " by more than a tenth")
+          elif not any(f.startswith("revisits") for f in failed):
+              failed.append(f"the revisits logged Route 119 {len(again)} times, not five")
           print("\n".join(lines))
           summary.write("\n".join(lines) + "\n")
           summary.close()

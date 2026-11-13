@@ -81,6 +81,7 @@ from qualify_launcher_session import inspect_closed_head, output_event  # noqa: 
 from qualify_live_runtime import field_ready, lease_is_owned, party, sha  # noqa: E402
 from qualify_menu_battle import party_action  # noqa: E402
 from native_trade_proof import PE_IMAGE_BASE, parse_nm_sizes, parse_pe_symbols, pe_symbols  # noqa: E402
+from party_read import consistent  # noqa: E402
 from emerald_multiplayer.checkpoint_mirror import MirrorLease  # noqa: E402
 from emerald_multiplayer.launcher_gui import LaunchRequest, LauncherWindow, SessionWorker  # noqa: E402
 from emerald_multiplayer.launcher_session import GameInstallation  # noqa: E402
@@ -338,18 +339,35 @@ class NativeProbe:
 
     async def battle(self, *, after=-1, timeout=15):
         tasks = self.mem("gTasks", 640)
-        raw_party = self.mem("gParties", 600)
+        raw_party = consistent(lambda: self.mem("gParties", 600))
         return dict(frame=time.monotonic(), state=int.from_bytes(self.mem("gMultiplayerBattleMailbox", 4, 12), "little"),
                     count=self.mem("gPartiesCount", 1)[0],
                     active=frozenset(self.code(int.from_bytes(tasks[o:o + 4], "little")) & ~1
                                      for o in range(0, 640, 40) if tasks[o + 4]),
                     cursor=self.mem("gPartyMenu", 20)[9], party_sha256=hashlib.sha256(raw_party).hexdigest())
 
+    def party_bytes(self):
+        """The party's size and its six slots, read as the game keeps them at rest: the game decrypts a slot in place
+        while it reads it, so a read from outside can catch one decrypted (party_read.py; run 450's egg-box trade)."""
+        for _ in range(50):
+            count = self.mem("gPartiesCount", 1)[0]
+            raw = consistent(lambda: self.mem("gParties", 600))
+            if self.mem("gPartiesCount", 1)[0] == count:
+                break
+        return count, raw
+
     def party_now(self):
-        count = self.mem("gPartiesCount", 1)[0]
-        raw = self.mem("gParties", 600)
+        count, raw = self.party_bytes()
         boxes = b"".join(raw[i * 100:i * 100 + 80] for i in range(count))
         return dict(count=count, box_crc=f"{zlib.crc32(boxes):08x}")
+
+    def party_detail(self):
+        """Each of the six slots as the game holds it: personality, trainer ID and the slot's own CRC (for a failure's
+        record: which Pokemon a party differs by)."""
+        _, raw = self.party_bytes()
+        return [dict(slot=i, personality=int.from_bytes(raw[i * 100:i * 100 + 4], "little"),
+                     ot_id=int.from_bytes(raw[i * 100 + 4:i * 100 + 8], "little"),
+                     crc=f"{zlib.crc32(raw[i * 100:i * 100 + 80]):08x}") for i in range(6)]
 
     def in_choose_action(self):
         """The player's battle controller waits on its action menu (Fight, Bag, Pokemon, Run)."""
@@ -1226,8 +1244,17 @@ async def launcher_proof(args, *, names, sources, party_counts, match, version, 
                 require(actual == saved, "fresh Continue changed canonical checkpoints")
                 require(all(g.startup.mirror.sha256 == actual[n][1] for n, g in enumerate(games)), "fresh native mirror differs")
             parties = [p.party_now() for p in probes]
-            require(parties == [dict(count=e["count"], box_crc=e["box_crc"]) for e in expected],
-                    "a running game's party differs from its canonical character")
+            wanted = [dict(count=e["count"], box_crc=e["box_crc"]) for e in expected]
+            if parties != wanted:
+                # Which game, and how: each slot as the game holds it, then the parties again two seconds on (a party
+                # still being written, or one that stays different) - a failure here must say what differed (run
+                # 450's egg-box trade failed here once with nothing more to read).
+                record("running-party-differs", phase=phase, parties=parties, expected=wanted,
+                       games=[n for n, (a, b) in enumerate(zip(parties, wanted)) if a != b],
+                       detail=[p.party_detail() for p in probes])
+                await asyncio.sleep(2)
+                record("running-party-two-seconds-on", phase=phase, parties=[p.party_now() for p in probes])
+            require(parties == wanted, "a running game's party differs from its canonical character")
             record("ready_for_normal_close", phase=phase, parties=parties)
             codes = await harness.close(list(reversed(players)))  # friends, then host
             record("normal-close", phase=phase, exit_codes=codes)
