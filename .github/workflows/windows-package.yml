@@ -2418,6 +2418,324 @@ jobs:
           if failed:
               raise SystemExit("sky through a gap with the voxel trees in this Windows build's pictures: "
                                + "; ".join(failed))
+      - name: The voxel trees' memory, as before and as built (KNOWN_ISSUES MS-244)
+        shell: python
+        run: |
+          # The owner's decision #58 (2026-11-13): with the voxel trees (F8) a scene of some 900 trees of 2,424 faces,
+          # drawn and again for the sun's shadows, took a software renderer a gigabyte more memory than the default
+          # trees (KNOWN_ISSUES MS-244). As built: a tree is drawn whole while it is no farther along the view than twice
+          # the player (every tree on the usual cameras' pictures), with coarser models past that; a tree off the
+          # picture casts its shadow with the coarsest; and each pass culls the faces turned away from its eye. The
+          # probe draws six wooded places with PKMN_DIORAMA_TREES=voxel from the adventure and the far camera twice -
+          # as before (PKMN_DIORAMA_TREE_LOD=0: every tree whole with every face) and as built - and the game's own log
+          # gives its memory after each map (gl_compositor.c: in use, its peak so far, the address space left). A Linux
+          # build over the probe's first 40 places, from the far camera: 2,325 MB of address space and 1,893 MB
+          # resident as before, 1,808 and 1,376 MB as built; from the adventure camera 1,368 and 930 MB against 1,124
+          # and 691 MB (TEST_LEDGER, MS-244). It fails when a run's probe fails or logs no memory, or when the built
+          # trees' peak is not below the trees' as before; an engine without them is noted, not failed. What it says:
+          # this Windows build's memory with the voxel trees through Mesa's llvmpipe (a 32-bit program); nothing about
+          # a GPU, whose triangles are the card's own work.
+          import os, pathlib, re, subprocess, sys
+          probe = pathlib.Path("diorama-check-inputs", "geo", "tools", "qa", "geometry_check.py").resolve()
+          exe = pathlib.Path("diorama-check-inputs", "pokeemerald-mp-diorama-bfxtest.exe").resolve()
+          temp = pathlib.Path(os.environ["RUNNER_TEMP"])
+          summary = open(os.environ["GITHUB_STEP_SUMMARY"], "a")
+          binary = exe.read_bytes() if exe.is_file() else b""
+          if not probe.is_file() or b"the coarser models" not in binary or b"memory after map" not in binary:
+              line = ("- The voxel trees' memory: not measured (no probe, or an engine without the coarser models or"
+                      " the memory line)")
+              print(line)
+              summary.write(line + "\n")
+              raise SystemExit(0)
+          tour = temp / "voxel-tree-memory.txt"
+          tour.write_text("# key group num x y (tools/qa/geometry_check.py tour)\n"
+                          "PetalburgCity_15_15 0 0 15 15\nFortreeCity_20_11 0 4 20 11\nRoute104_20_51 0 19 20 51\n"
+                          "Route119_20_52 0 34 20 52\nRoute120_20_52 0 35 20 52\nPetalburgWoods_26_22 24 11 26 22\n",
+                          encoding="ascii")
+          memory = re.compile(r"memory after map (\d+\.\d+): game process (\d+) MB in use \(peak (\d+) MB, private "
+                              r"(\d+) MB\); \d+-bit program, address space (\d+) MB of which (\d+) MB free")
+          peaks, lines, failed = {}, [], []
+          for name, lod in (("as before", "0"), ("as built", None)):
+              out = temp / "graphics-3d" / ("voxel-tree-memory-" + name.replace(" ", "-"))
+              env = dict(os.environ, PKMN_DIORAMA_TREES="voxel")
+              env.pop("PKMN_DIORAMA_TREE_LOD", None)
+              if lod is not None:
+                  env["PKMN_DIORAMA_TREE_LOD"] = lod
+              run = subprocess.run([sys.executable, str(probe), "run", "--exe", str(exe), "--save",
+                                    str(temp / "graphics-3d.sav"), "--tour", str(tour), "--out", str(out),
+                                    "--jobs", "1", "--chunk", "6", "--cameras", "a,d"], env=env)
+              samples = []
+              for log in sorted(out.glob("runs/*/game.log")):
+                  for m in memory.finditer(log.read_text(errors="replace")):
+                      in_use, peak, private, total, free = (int(value) for value in m.groups()[1:])
+                      samples.append((m.group(1), in_use, peak, private, total - free))
+              if run.returncode != 0 or not samples:
+                  failed.append(f"{name}: the probe's exit {run.returncode}, {len(samples)} memory lines")
+              if samples:
+                  peaks[name] = max(s[2] for s in samples)
+                  lines.append(f"- {name}: {len(samples)} maps; the most resident {peaks[name]} MB, private at most "
+                               f"{max(s[3] for s in samples)} MB, address space in use at most {max(s[4] for s in samples)}"
+                               " MB (after a map)")
+                  lines += [f"  - map {s[0]}: {s[1]} MB in use, peak {s[2]} MB, private {s[3]} MB, address space"
+                            f" {s[4]} MB" for s in samples]
+          if len(peaks) == 2:
+              lines.insert(0, f"- The voxel trees' memory at six wooded places (MS-244): the peak as built "
+                              f"{peaks['as built']} MB against {peaks['as before']} MB as before "
+                              f"({100.0 * peaks['as built'] / max(peaks['as before'], 1):.0f}%)")
+              if peaks["as built"] >= peaks["as before"]:
+                  failed.append(f"the peak as built, {peaks['as built']} MB, not below the {peaks['as before']} MB "
+                                "as before")
+          print("\n".join(lines))
+          summary.write("\n".join(lines) + "\n")
+          summary.close()
+          if failed:
+              raise SystemExit("the voxel trees' memory: " + "; ".join(failed))
+      - name: The battle transitions' own art (KNOWN_ISSUES MS-108) and screens the debug scene opens (MS-105), in the Windows build
+        shell: python
+        run: |
+          # The owner (2026-11-13): MS-105 is recorded fixed for every PC screen a player reaches and MS-108's transition
+          # art - the patterns, the mugshots, the Frontier's vector pieces - built; verify them in a Windows build before
+          # any redraw. The 3D test build's debug field scene (PKMN_DEBUG_SCENE=field) plays each transition whose art
+          # MS-108 redrew on the calm field (PKMN_DEBUG_TRANSITION; the Elite Four's mugshot as Sidney's and, with
+          # PKMN_DEBUG_MUGSHOT=335, the Champion's) and opens six screens of MS-105's list (the PokeNav, the Fly map, the
+          # wall clock, a PokeNav call, an Egg hatching, a field move's cut-in), with the native interface's log
+          # (PKMN_NATIVE_UI_LOG: which of its screens is up) and its audit (PKMN_NATIVE_UI_AUDIT: what of the game's own
+          # GBA interface shows with no native screen over it). Each must hand over to its native screen and the audit
+          # find nothing of the game's own interface for 20 frames or more after (a screen's loading frames are fewer);
+          # the transitions' art shader must report itself drawing smooth at the window's resolution, the Frontier's
+          # pieces as true circles; Team Aqua's pattern must differ from the GBA's art (PKMN_TRANSITION_ART=0) in its
+          # picture. Pictures of every case go into the artifact (graphics-3d/ms108). A Linux build does the same
+          # (TEST_LEDGER, MS-105/MS-108 on Windows). What it says: this Windows build draws them through Mesa; nothing
+          # about a GPU. An engine without the debug scene's transitions is noted, not failed.
+          import os, pathlib, re, shutil, subprocess, sys
+          temp = pathlib.Path(os.environ["RUNNER_TEMP"])
+          root = temp / "graphics-3d" / "ms108"
+          exe = pathlib.Path("diorama-check-inputs", "pokeemerald-mp-diorama-bfxtest.exe").resolve()
+          summary = open(os.environ["GITHUB_STEP_SUMMARY"], "a")
+          binary = exe.read_bytes() if exe.is_file() else b""
+          if b"debug transition: B_TRANSITION" not in binary or b"Native UI audit:" not in binary:
+              line = "- MS-108's transitions and MS-105's screens: not checked (an engine without the debug transitions)"
+              print(line)
+              summary.write(line + "\n")
+              raise SystemExit(0)
+          transitions = [("mugshot-sidney", "12", {}, "200,240,280"), ("mugshot-champion", "12",
+                          {"PKMN_DEBUG_MUGSHOT": "335"}, "200,240,280"),
+                         ("aqua", "13", {}, "160,210,260"), ("magma", "14", {}, "160,210,260"),
+                         ("regice", "15", {}, "160,210,260"), ("registeel", "16", {}, "160,210,260"),
+                         ("regirock", "17", {}, "160,210,260"), ("kyogre", "18", {}, "160,210,260"),
+                         ("groudon", "19", {}, "160,210,260"), ("rayquaza", "20", {}, "160,210,260"),
+                         ("frontier-logo-wiggle", "25", {}, "160,210,260"), ("frontier-logo-wave", "26", {}, "160,210,260"),
+                         ("frontier-circles-meet", "30", {}, "160,210,260"),
+                         ("frontier-circles-cross", "31", {}, "160,210,260")]
+          screens = [("pokenav", "PKMN_DEBUG_POKENAV", "pokenav"), ("fly-map", "PKMN_DEBUG_FLYMAP", "region_map"),
+                     ("wall-clock", "PKMN_DEBUG_CLOCK", "wall_clock"), ("pokenav-call", "PKMN_DEBUG_MATCHCALL", "match_call"),
+                     ("egg-hatch", "PKMN_DEBUG_HATCH", "egg_hatch"), ("field-move", "PKMN_DEBUG_FIELDMOVE", "field_move")]
+
+          def play(name, extra, shots):
+              out = root / name
+              out.mkdir(parents=True, exist_ok=True)
+              (out / "pokeemerald.cfg").write_text("resolution=1280x720\ndisplayMode=windowed\nquality=high\nvsync=0\n"
+                                                   "fpsCap=unlimited\nvolume=0\ncryVolume=0\n")
+              env = dict(os.environ, SDL_AUDIODRIVER="dummy", PKMN_DEBUG_SCENE="field", PKMN_DEBUG_HERE="0,2,20,8",
+                         PKMN_DEBUG_HOUR="12", PKMN_DEBUG_SEED="1", PKMN_NATIVE_UI_LOG="1", PKMN_NATIVE_UI_AUDIT="1",
+                         PKMN_DEBUG_GLSHOTS_GAME="1", PKMN_DEBUG_GLSHOTS=shots, **extra)
+              try:
+                  with open(out / "test.log", "wb") as log:     # the game ends by itself after its last picture
+                      code = subprocess.run([str(exe), "--config", "pokeemerald.cfg", "--save", "test.sav"], cwd=out,
+                                            env=env, stdout=log, stderr=subprocess.STDOUT, timeout=600).returncode
+              except subprocess.TimeoutExpired:
+                  code = "timeout (600 s)"
+              text = (out / "test.log").read_text(errors="replace")
+              pictures = sorted((out / "screenshots").glob("*.png")) if (out / "screenshots").is_dir() else []
+              return code, text, pictures
+
+          def handed_over(text, opened, screen):
+              """The native screen taken after the debug scene's line, and the audit's longest stretch after it of the
+              game's own interface with no native screen (frames)."""
+              at = text.find(opened)
+              after = text[at:] if at >= 0 else ""
+              took = re.search(r"Native UI: screen \S+ -> " + re.escape(screen) + r"\b", after) is not None
+              longest, start = 0, None
+              for frame, rest in re.findall(r"Native UI audit: frame (\d+), (.*)", after):
+                  if rest.startswith("none"):
+                      if start is not None:
+                          longest = max(longest, int(frame) - start)
+                      start = None
+                  elif start is None:
+                      start = int(frame)
+              return at >= 0, took, longest, start is not None
+
+          lines, failed = [], []
+          circles = set()
+          for name, ident, extra, shots in transitions:
+              code, text, pictures = play(name, dict(extra, PKMN_DEBUG_TRANSITION=f"{ident}:120"), shots)
+              ran, took, longest, open_at_end = handed_over(text, f"debug transition: B_TRANSITION {ident} ", "transition")
+              smooth = "transitions' art drawn smooth at the window's resolution" in text
+              circles.update(re.findall(r"Native UI: (.+?) drawn as true circles", text))
+              ok = code == 0 and ran and took and longest < 20 and not open_at_end and smooth and len(pictures) == 3
+              lines.append(f"  - {name} (B_TRANSITION {ident}): exit {code}; {'played' if ran else 'not played'}; "
+                           f"{'the native transition screen' if took else 'no native screen'}; the game's own interface "
+                           f"uncovered at most {longest} frames; art {'smooth' if smooth else 'not smooth'}; "
+                           f"{len(pictures)} pictures")
+              if not ok:
+                  failed.append(name)
+          for name, switch, screen in screens:
+              code, text, pictures = play(name, {switch: "120"}, "240")
+              opened = {"PKMN_DEBUG_POKENAV": "debug PokeNav: opened", "PKMN_DEBUG_FLYMAP": "debug Fly map: opened",
+                        "PKMN_DEBUG_CLOCK": "debug clock:", "PKMN_DEBUG_MATCHCALL": "debug PokeNav call",
+                        "PKMN_DEBUG_HATCH": "debug hatch:", "PKMN_DEBUG_FIELDMOVE": "debug field move:"}[switch]
+              ran, took, longest, open_at_end = handed_over(text, opened, screen)
+              ok = code == 0 and ran and took and longest < 20 and len(pictures) == 1
+              lines.append(f"  - {name}: exit {code}; {'opened' if ran else 'not opened'}; "
+                           f"{'the native ' + screen + ' screen' if took else 'no native ' + screen + ' screen'}; the "
+                           f"game's own interface uncovered at most {longest} frames{' (still at the end)' if open_at_end else ''}; "
+                           f"{len(pictures)} picture")
+              if not ok:
+                  failed.append(name)
+          wanted = {"the Frontier logo", "the Frontier's top circle", "the Frontier's left circle",
+                    "the Frontier's right circle", "the Frontier logo's centre"}
+          if not wanted <= circles:
+              failed.append("the Frontier's vector pieces: " + ", ".join(sorted(wanted - circles)) + " not reported")
+          # Team Aqua's pattern with its art and as the GBA draws it (the light and the air off, one seed: the same field)
+          compare = {}
+          for art in ("smooth", "gba"):
+              extra = {"PKMN_DEBUG_TRANSITION": "13:120", "PKMN_DIORAMA_LIGHT": "0", "PKMN_DIORAMA_AIR": "0"}
+              if art == "gba":
+                  extra["PKMN_TRANSITION_ART"] = "0"
+              code, text, pictures = play(f"aqua-{art}", extra, "210")
+              compare[art] = pictures[0] if code == 0 and pictures else None
+          requirements = temp / "ms108-measure.txt"
+          requirements.write_text(
+              # the 64-bit and the 32-bit Windows wheels for CPython 3.12 (PyPI's digests), as the steps above
+              "numpy==2.5.3 --hash=sha256:0a59a421a32580a009e8a1751345bf829631b990dc1794b80514ab722b435def"
+              " --hash=sha256:bf63afbe037eb5d2fe87fbcc7778e61da53ebaf21d938a4515aa73b62532a5d4\n"
+              "pillow==10.2.0 --hash=sha256:154e939c5f0053a383de4fd3d3da48d9427a7e985f58af8e94d0b3c9fcfcf4f9"
+              " --hash=sha256:257d8788df5ca62c980314053197f4d46eefedf4e6175bc9412f14412ec4ea2f\n")
+          subprocess.run([sys.executable, "-m", "pip", "install", "--quiet", "--require-hashes", "--only-binary=:all:",
+                          "-r", str(requirements)], check=True)
+          import numpy
+          from PIL import Image
+          if compare["smooth"] and compare["gba"]:
+              a = numpy.asarray(Image.open(compare["smooth"]).convert("RGB"), dtype=numpy.int16)
+              b = numpy.asarray(Image.open(compare["gba"]).convert("RGB"), dtype=numpy.int16)
+              share = float((numpy.abs(a - b).max(axis=2) > 24).mean()) if a.shape == b.shape else 0.0
+              lines.append(f"  - Team Aqua's pattern against the GBA's art: {100.0 * share:.1f}% of the picture differs")
+              if share < 0.02:
+                  failed.append("Team Aqua's pattern as drawn is not the smooth art (under 2% from the GBA's)")
+          else:
+              failed.append("Team Aqua's pattern with and without its art: no pictures")
+          lines.insert(0, f"- MS-108's transitions and MS-105's screens in this Windows build ({len(transitions)} "
+                          f"transitions, {len(screens)} screens; the Frontier's pieces as true circles: "
+                          f"{', '.join(sorted(circles)) or 'none'}):")
+          print("\n".join(lines))
+          summary.write("\n".join(lines) + "\n")
+          summary.close()
+          if failed:
+              raise SystemExit("MS-108/MS-105 in this Windows build: " + "; ".join(failed))
+      - name: The quality presets and the window's sizes and modes, measured (the owner's request of 2026-11-13)
+        shell: python
+        run: |
+          # The owner (2026-11-13): no defect is proven for the graphics card's speed, the display's scaling and
+          # fullscreen, or the Low and Medium presets - measure frame times, test the window's scaling and compare
+          # pictures first, then fix what they show. The 3D test build's debug field scene (Mauville City's square at
+          # noon, one seed) walks west and east for eight seconds in each case: the presets Low, Medium, High and Ultra at
+          # 1280x720 in a window; High at 1920x1080 in a window; High borderless and fullscreen at 1920x1080; High at a
+          # render scale of 50. Each case: the window the game made (its log's "Display:" line), the picture F12 takes
+          # at the walk's end (graphics-3d/settings/<case>/screenshots in the artifact, to be set side by side; the sun's
+          # dapples drift with the clock, so two runs of one setting differ too) and the 3D frames' times through Mesa
+          # (PKMN_PERF_FRAME_LOG). It fails only on what would be a defect anywhere: a game that does
+          # not end by itself, no picture, a picture of one colour, or a picture not the size of the window the log
+          # names. What it says: what each setting draws and costs through Mesa's software renderer on GitHub's
+          # runner (a 1024x768 desktop, its display scaling 100%); nothing about a graphics card's speed or another
+          # display's scaling - the game asks Windows for per-monitor DPI awareness (sdl2.c, "permonitorv2"), which
+          # this runner cannot vary. The owner's own card: the --benchmark suite (docs/performance/
+          # high-refresh-and-benchmarks.md).
+          import csv, os, pathlib, re, subprocess, sys
+          temp = pathlib.Path(os.environ["RUNNER_TEMP"])
+          root = temp / "graphics-3d" / "settings"
+          exe = pathlib.Path("diorama-check-inputs", "pokeemerald-mp-diorama-bfxtest.exe").resolve()
+          summary = open(os.environ["GITHUB_STEP_SUMMARY"], "a")
+          keys = ",".join([f"{f}:LEFT" for f in range(150, 390, 4)] + [f"{f}:RIGHT" for f in range(400, 640, 4)])
+          cases = [("low", "1280x720", "windowed", "low", "100"), ("medium", "1280x720", "windowed", "medium", "100"),
+                   ("high", "1280x720", "windowed", "high", "100"), ("ultra", "1280x720", "windowed", "ultra", "100"),
+                   ("high-1080", "1920x1080", "windowed", "high", "100"),
+                   ("high-borderless", "1920x1080", "borderless", "high", "100"),
+                   ("high-fullscreen", "1920x1080", "fullscreen", "high", "100"),
+                   ("high-scale-50", "1280x720", "windowed", "high", "50")]
+          requirements = temp / "settings-measure.txt"
+          requirements.write_text(
+              # the 64-bit and the 32-bit Windows wheels for CPython 3.12 (PyPI's digests), as the steps above
+              "numpy==2.5.3 --hash=sha256:0a59a421a32580a009e8a1751345bf829631b990dc1794b80514ab722b435def"
+              " --hash=sha256:bf63afbe037eb5d2fe87fbcc7778e61da53ebaf21d938a4515aa73b62532a5d4\n"
+              "pillow==10.2.0 --hash=sha256:154e939c5f0053a383de4fd3d3da48d9427a7e985f58af8e94d0b3c9fcfcf4f9"
+              " --hash=sha256:257d8788df5ca62c980314053197f4d46eefedf4e6175bc9412f14412ec4ea2f\n")
+          subprocess.run([sys.executable, "-m", "pip", "install", "--quiet", "--require-hashes", "--only-binary=:all:",
+                          "-r", str(requirements)], check=True)
+          import numpy
+          from PIL import Image
+
+          def pct(values, p):
+              values = sorted(values)
+              return values[min(len(values) - 1, int(len(values) * p / 100.0))] if values else 0.0
+
+          results, failed = {}, []
+          for name, size, mode, quality, scale in cases:
+              out = root / name
+              out.mkdir(parents=True, exist_ok=True)
+              width, height = size.split("x")
+              (out / "pokeemerald.cfg").write_text(f"resolution={size}\ndisplayMode={mode}\nquality={quality}\n"
+                                                   f"renderScale={scale}\nvsync=0\nfpsCap=unlimited\nvolume=0\n"
+                                                   "cryVolume=0\n")
+              env = dict(os.environ, SDL_AUDIODRIVER="dummy", PKMN_DEBUG_SCENE="field", PKMN_DEBUG_HERE="0,2,20,8",
+                         PKMN_DEBUG_HOUR="12", PKMN_DEBUG_SEED="1", PKMN_DEBUG_KEYS=keys, PKMN_DEBUG_GLSHOTS_GAME="1",
+                         PKMN_DEBUG_GLSHOTS="660", PKMN_PERF_FRAME_LOG="frames.csv")
+              try:
+                  with open(out / "test.log", "wb") as log:     # the game ends by itself after its picture
+                      code = subprocess.run([str(exe), "--config", "pokeemerald.cfg", "--save", "test.sav"], cwd=out,
+                                            env=env, stdout=log, stderr=subprocess.STDOUT, timeout=900).returncode
+              except subprocess.TimeoutExpired:
+                  code = "timeout (900 s)"
+              text = (out / "test.log").read_text(errors="replace")
+              shown = re.findall(r"Display: (windowed|fullscreen) (\d+)x(\d+)", text)
+              fallback = "borderless instead" in text
+              pictures = sorted((out / "screenshots").glob("*.png")) if (out / "screenshots").is_dir() else []
+              rows = []
+              if (out / "frames.csv").exists():
+                  with open(out / "frames.csv", newline="") as handle:
+                      rows = [r for r in csv.DictReader(handle) if r.get("drew_3d") == "1" and int(r["game_frame"]) >= 150]
+              frame = [float(r["frame_ms"]) for r in rows]
+              picture = numpy.asarray(Image.open(pictures[-1]).convert("RGB")) if pictures else None
+              result = {"code": code, "shown": shown[-1] if shown else None, "fallback": fallback,
+                        "picture": picture, "frames": len(frame), "p50": pct(frame, 50), "p99": pct(frame, 99)}
+              results[name] = result
+              problems = []
+              if code != 0:
+                  problems.append(f"exit {code}")
+              if picture is None:
+                  problems.append("no picture")
+              elif float(picture.std()) < 4.0:
+                  problems.append("a picture of one colour")
+              elif mode == "windowed" and result["shown"] and (picture.shape[1], picture.shape[0]) != \
+                      (int(result["shown"][1]), int(result["shown"][2])):
+                  problems.append(f"a {picture.shape[1]}x{picture.shape[0]} picture of a window the log names "
+                                  f"{result['shown'][1]}x{result['shown'][2]}")
+              if problems:
+                  failed.append(f"{name}: " + ", ".join(problems))
+          lines = ["- The quality presets and the window's sizes and modes (Mesa llvmpipe; the walk's 3D frames):"]
+          for name, size, mode, quality, scale in cases:
+              r = results[name]
+              shown = f"{r['shown'][0]} {r['shown'][1]}x{r['shown'][2]}" if r["shown"] else (
+                  "borderless (no such mode)" if r["fallback"] else "borderless")
+              picture = r["picture"]
+              size_text = f"{picture.shape[1]}x{picture.shape[0]}" if picture is not None else "none"
+              lines.append(f"  - {name} ({quality}, {size} asked, render scale {scale}%): exit {r['code']}; {shown}; "
+                           f"picture {size_text}; {r['frames']} 3D frames, p50 {r['p50']:.1f} ms, p99 {r['p99']:.1f} ms")
+          lines.extend(f"  - {failure}" for failure in failed)
+          print("\n".join(lines))
+          summary.write("\n".join(lines) + "\n")
+          summary.close()
+          if failed:
+              raise SystemExit("a setting's picture or window is wrong: " + "; ".join(failed))
       - name: The 3D chunk cache across map seams (KNOWN_ISSUES MS-118, its terrain check)
         shell: python
         run: |
