@@ -2282,6 +2282,62 @@ jobs:
           summary.close()
           if failed:
               raise SystemExit("sky through a gap in this Windows build's pictures: " + "; ".join(failed))
+      - name: A cramped room's battle in the room's own arena, a clear one in the room as it is (KNOWN_ISSUES V10)
+        shell: python
+        run: |
+          # The owner's decision #57 (2026-11-13): where no stage near the player is clear - a wall pressed behind a
+          # battler, something over a battler's picture, the black past the room over a quarter of the GBA's picture -
+          # the battle stands in an arena of the room's own: its floor, its north wall round the battle, its commonest
+          # object along the sides (gl_battle.c WantsArena, battle_arena.c; from the engine of 2026-11-13). Two battles
+          # in the 3D test build through Mesa: at the Fortree Gym's (4, 15), among its pillars, the arena; at the
+          # Rustboro Gym's way in (5, 14), a clear stage, the room as it is. Each: the stage log's lines and the battle
+          # camera's picture (graphics-3d/arena). A Linux build decides the same at both (TEST_LEDGER, V10). What it says:
+          # the decision and the arena's drawing run in a Windows process through Mesa; nothing about a GPU. It fails
+          # when a battle is not reached or stands otherwise; an engine without the arena is noted, not failed.
+          import os, pathlib, shutil, subprocess
+          root = pathlib.Path(os.environ["RUNNER_TEMP"], "graphics-3d", "arena")
+          save = pathlib.Path(os.environ["RUNNER_TEMP"], "graphics-3d.sav")
+          exe = pathlib.Path("diorama-check-inputs", "pokeemerald-mp-diorama-bfxtest.exe").resolve()
+          summary = open(os.environ["GITHUB_STEP_SUMMARY"], "a")
+          if not save.exists():
+              raise SystemExit("no graphics-3d.sav (the Mega step makes it)")
+          cases = [("fortree-gym", "12:1:-1:4:15", True), ("rustboro-gym", "11:3:-1:5:14", False)]
+          lines, failed, knows = [], [], False  # knows: an arena was built
+          for name, warp, wanted in cases:
+              out = root / name
+              out.mkdir(parents=True, exist_ok=True)
+              shutil.copy(save, out / "test.sav")
+              (out / "pokeemerald.cfg").write_text("fullscreen=0\nwindowScale=2\nvsync=0\nvolume=0\ncryVolume=0\n")
+              env = dict(os.environ, SDL_AUDIODRIVER="dummy", PKMN_TEST_BATTLE="wild:41:20", PKMN_TEST_WARP=warp,
+                         PKMN_TEST_PARTY="280:50", PKMN_TEST_AUTOPILOT="1", PKMN_TEST_EXIT="1",
+                         PKMN_TEST_BATTLE_DELAY="90", PKMN_TEST_CAPTURE=str(out / "battle"),
+                         PKMN_TEST_CAPTURE_DELAY="60", PKMN_TEST_TIMEOUT="0", PKMN_NOSCENE="1", PKMN_DIORAMA_AIR="0",
+                         PKMN_DIORAMA_LOG="1")
+              try:
+                  with open(out / "game.log", "wb") as log:
+                      code = subprocess.run([str(exe), "--save", "test.sav"], cwd=out, env=env, stdout=log,
+                                            stderr=subprocess.STDOUT, timeout=600).returncode
+              except subprocess.TimeoutExpired:
+                  code = "timeout (600 s)"
+              text = (out / "game.log").read_text(errors="replace")
+              stage = [l.split("INFO: ", 1)[-1] for l in text.splitlines()
+                       if "Diorama battle stage:" in l and ("seen:" in l or "own arena" in l)]
+              arena = any("own arena" in l for l in stage)
+              knows = knows or arena
+              shot = (out / "battle.png").exists()
+              lines.append(f"- {name}: exit {code}; {'the room' + chr(39) + 's own arena' if arena else 'the room as it is'}"
+                           f"; {'a picture' if shot else 'no picture'}")
+              lines += [f"  - {l[:300]}" for l in stage]
+              if not stage or not shot or arena != wanted:
+                  failed.append(name)
+          if not knows and b"the room's own arena" not in exe.read_bytes():
+              lines.append("- (this engine builds no arena: noted, not failed)")
+              failed = [n for n in failed if n != "fortree-gym"]
+          print("\n".join(lines))
+          summary.write("- A cramped room's battle and a clear one (V10):\n" + "\n".join(lines) + "\n")
+          summary.close()
+          if failed:
+              raise SystemExit("a battle not reached or standing otherwise than expected: " + ", ".join(failed))
       - name: The sky through gaps with the voxel trees (F8) at six places of KNOWN_ISSUES MS-242
         shell: python
         run: |
