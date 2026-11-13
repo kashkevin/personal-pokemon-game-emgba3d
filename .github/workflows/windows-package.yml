@@ -2111,6 +2111,7 @@ jobs:
           name: native-inputs
           path: native-inputs
       - name: Mesa's software OpenGL (32-bit) beside the 3D test build (pinned)
+        id: mesa
         shell: pwsh
         env:
           # mesa-dist-win's release as run 129 used it first (the probe: llvmpipe, OpenGL 4.6 Core, Mesa 26.2.4)
@@ -2190,7 +2191,11 @@ jobs:
           python mega-check-inputs\mega_check.py --exe diorama-check-inputs\pokeemerald-mp-diorama-bfxtest.exe `
             --make-save $save --out $out --only wild --only trainer --series --parade --jobs 1
           if ($LASTEXITCODE -ne 0) { throw "the 3D Mega check failed ($LASTEXITCODE)" }
+      # Each check from here on runs whatever an earlier check found, once Mesa is in place; a check that fails still
+      # fails the job (runs 450 and 454 skipped six checks - MS-108/MS-105's, the settings', MS-118's, the walk timed,
+      # Mr. Briney's sail and the memory - after one other check's failure, so they had never run on Windows).
       - name: The 3D view's frame rate through Mesa (informational; a software renderer, not a player's graphics card)
+        if: ${{ !cancelled() && steps.mesa.outcome == 'success' }}
         shell: pwsh
         run: |
           # The game's own --benchmark (include/platform/benchmark.h) from the save above (outdoors in Littleroot): it
@@ -2208,6 +2213,7 @@ jobs:
           $row = Get-Content $log | Where-Object { $_ -match "^1280x720\s+\d" } | Select-Object -First 1
           "- 3D frame rate through Mesa llvmpipe (informational): ``$row``" >> $env:GITHUB_STEP_SUMMARY
       - name: The world's geometry in 3D (step 16's probe; the showcase places' pictures through Mesa)
+        if: ${{ !cancelled() && steps.mesa.outcome == 'success' }}
         shell: pwsh
         run: |
           # The probe of docs/3d-world-geometry-20261029.md on a Windows runner: each place warped to, drawn from four
@@ -2262,6 +2268,7 @@ jobs:
           "- Geometry probe through Mesa llvmpipe: $shots pictures of 36 showcase places (geometry/shots)" >> $env:GITHUB_STEP_SUMMARY
           if ($shots -lt 36 * 4) { throw "the geometry probe drew $shots pictures, not the 144 of its 36 places" }
       - name: The 3D heights at the probe's places, fingerprinted (the Safari Zone South's rails among them, MS-222)
+        if: ${{ !cancelled() && steps.mesa.outcome == 'success' }}
         shell: python
         run: |
           # The cells the probe above dumped at each place (tools/qa/geometry_check.py run: cells/<key>.tsv.gz, the
@@ -2299,6 +2306,7 @@ jobs:
           if root.is_dir() and not dumps:
               raise SystemExit("the geometry probe ran and dumped no cells")
       - name: The sky through gaps at the probe's places, counted in its pictures (KNOWN_ISSUES MS-239, MS-240)
+        if: ${{ !cancelled() && steps.mesa.outcome == 'success' }}
         shell: python
         run: |
           # The probe's pictures above, each counted by the probe's own measure (tools/qa/geometry_check.py
@@ -2359,6 +2367,7 @@ jobs:
           if failed:
               raise SystemExit("sky through a gap in this Windows build's pictures: " + "; ".join(failed))
       - name: A cramped room's battle in the room's own arena, a clear one in the room as it is (KNOWN_ISSUES V10)
+        if: ${{ !cancelled() && steps.mesa.outcome == 'success' }}
         shell: python
         run: |
           # The owner's decision #57 (2026-11-13): where no stage near the player is clear - a wall pressed behind a
@@ -2415,6 +2424,7 @@ jobs:
           if failed:
               raise SystemExit("a battle not reached or standing otherwise than expected: " + ", ".join(failed))
       - name: The sky through gaps with the voxel trees (F8) at six places of KNOWN_ISSUES MS-242
+        if: ${{ !cancelled() && steps.mesa.outcome == 'success' }}
         shell: python
         run: |
           # The Diorama's voxel trees (the F8 option; the probe's tour above draws the default, the 3DS trees): with
@@ -2495,6 +2505,7 @@ jobs:
               raise SystemExit("sky through a gap with the voxel trees in this Windows build's pictures: "
                                + "; ".join(failed))
       - name: The voxel trees' memory, as before and as built (KNOWN_ISSUES MS-244)
+        if: ${{ !cancelled() && steps.mesa.outcome == 'success' }}
         shell: python
         run: |
           # The owner's decision #58 (2026-11-13): with the voxel trees (F8) a scene of some 900 trees of 2,424 faces,
@@ -2596,6 +2607,7 @@ jobs:
           if failed:
               raise SystemExit("the voxel trees' memory: " + "; ".join(failed))
       - name: The battle transitions' own art (KNOWN_ISSUES MS-108) and screens the debug scene opens (MS-105), in the Windows build
+        if: ${{ !cancelled() && steps.mesa.outcome == 'success' }}
         shell: python
         run: |
           # The owner (2026-11-13): MS-105 is recorded fixed for every PC screen a player reaches and MS-108's transition
@@ -2738,6 +2750,7 @@ jobs:
           if failed:
               raise SystemExit("MS-108/MS-105 in this Windows build: " + "; ".join(failed))
       - name: The quality presets and the window's sizes and modes, measured (the owner's request of 2026-11-13)
+        if: ${{ !cancelled() && steps.mesa.outcome == 'success' }}
         shell: python
         run: |
           # The owner (2026-11-13): no defect is proven for the graphics card's speed, the display's scaling and
@@ -2842,6 +2855,7 @@ jobs:
           if failed:
               raise SystemExit("a setting's picture or window is wrong: " + "; ".join(failed))
       - name: The 3D chunk cache across map seams (KNOWN_ISSUES MS-118, its terrain check)
+        if: ${{ !cancelled() && steps.mesa.outcome == 'success' }}
         shell: python
         run: |
           # The walk of MS-118's measurements: from Mauville City west into Route 117, east through Mauville into Route
@@ -2985,6 +2999,7 @@ jobs:
           if wrong:
               raise SystemExit(f"F12's notice was not as expected for {wrong}: {read}")
       - name: The same walk timed, MS-118's changes of 2026-11-05 off and on (Windows, Mesa llvmpipe)
+        if: ${{ !cancelled() && steps.mesa.outcome == 'success' }}
         shell: python
         run: |
           # KNOWN_ISSUES MS-118 (engine 7b839ec1): the seam walk above, four times in this build, alternating its
@@ -3058,6 +3073,7 @@ jobs:
           if failures:
               raise SystemExit("a timed walk did not finish: " + "; ".join(failures))
       - name: Mr. Briney's sail timed and checked (KNOWN_ISSUES MS-82), the animated tiles' waits off and on
+        if: ${{ !cancelled() && steps.mesa.outcome == 'success' }}
         shell: python
         run: |
           # KNOWN_ISSUES MS-82: Mr. Briney's boat from Dewford to Route 104 (Route 106, 105 and 104: three map seams),
