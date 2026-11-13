@@ -3131,6 +3131,15 @@ GitHub's Windows runners (`windows-2022`, GitHub-hosted, no graphics card), real
 | The 3D job's checks after one fails: each from the frame rate on runs whatever an earlier check found, once Mesa is in place (`if: ${{ !cancelled() && steps.mesa.outcome == 'success' }}`; a failing check still fails the job) | app (this change) | - | **built**: `test_windows_workflow`/`test_workflow_actions` 41 passed (241 subtests) | - | - | W: the next full run |
 | The engine for the next full run: the rules' C checks, the GBA ROM, the PC-only line check, the Windows 3D game | engine `88a283bc` | L | **passed**: `check-diorama`, the ROM byte-identical (`f214735b...3387`), no GBA line moved, `pokeemerald-mp-diorama.exe` built with MinGW (the usual three macro warnings of windows.h) | scratchpad `hullfix/*.log` | - | - |
 
+## MS-249 (2026-11-13): Navel Rock's sand a level over its pier
+
+| Test | Build / head | Where | Last result | Evidence | Changed since | Rerun? |
+| --- | --- | --- | --- | --- | --- | --- |
+| Navel Rock's outside, the probe at the top of the pier's stairs (10, 13): its cells and pictures from cameras a, d, s15 and s75, as before and as built | engines `21b2e28f` and `5c977944` (the 3D test build) | L, Xvfb, Mesa | **as intended**: the courtyard before the cave and a path by the rock's west side lay a level under the pier (the walk-steps (9-11, 12) off the stairs); now the sand inside the rim (5-15, 3-12) a level over the pier, the stairs climbing to it from the pier, the rim's faces over the sand, the five course pieces faces whose tops lie on the sand's level. The probe's counts: walk-step 3 to 0, flat-blocked 48 to 50, no sky through a gap from any camera. The dark square on the rock's west side is in both pictures (not this change) | scratchpad `ms249/before`, `ms249/try2` | - | W: the next full run (the 3D job's tour) |
+| Tried and left out: the climb levels alone (`CLIMB_LEVELS`: no levels - the terrace solver had placed the courtyard), the five pieces as scenery with the climb levels (the courtyard alone a level up, a dais over the sand round the rock) | the change's trials | L, Xvfb, Mesa | **left out** (pictured) | scratchpad `ms249/try1` | - | - |
+| The rest of the game: the rules compiler's whole output (441 layouts) with and without the change | engine `5c977944` | L | **the same but Navel Rock's outside** (every other layout's records, the tilesets, maps, pools, patterns equal) | - | - | - |
+| The engine: the rules' tests (`check-diorama-tools`: the compiler's repository tests with a new one for Navel Rock's levels; the terrace topology's pin of the hand-levelled layouts updated), `check-diorama`, the Windows 3D game | engine `5c977944` | L | **passed** (`pokeemerald-mp-diorama.exe` built with MinGW, the usual three macro warnings of windows.h); the rules are PC only, the ROM untouched | scratchpad `ms249/check-tools2.log`, `check-diorama.log`, `mingw3d.log` | - | - |
+
 ## Run 458 (2026-11-13): the stale chunks' fix on Windows
 
 | Test | Build / head | Where | Last result | Evidence | Changed since | Rerun? |
