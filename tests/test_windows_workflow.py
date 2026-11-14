@@ -368,7 +368,9 @@ class WindowsWorkflowTests(unittest.TestCase):
         self.assertIn("runs-on: windows-2022", abandon)
         self.assertIn("needs: [engine, symbol-sizes]", abandon)
         self.assertIn("'[\"pairs-crash\", \"multi-network\", \"ffa-exit\", \"ffa-host-crash\", \"ffa-knockout\", "
-                      "\"multi-knockout\", \"stale-save\"]'", abandon)
+                      "\"multi-knockout\", \"stale-save\", \"coop-exit\"]'", abandon)
+        # the owner's decision #61: a battle together a closed game left (its interruption early in the battle)
+        self.assertIn('if [ "${{ matrix.scenario }}" = coop-exit ]; then extra="--interrupt-after 20"; fi', abandon)
         self.assertIn("make_intro_saves.py --exe mega-check-inputs/pokeemerald-mp-bfxtest.exe", abandon)
         self.assertIn("--count 4", abandon)
         self.assertIn("--only abandon-a,abandon-b,abandon-c,abandon-d,knockout-a,knockout-b,knockout-c,knockout-d", abandon)
@@ -437,7 +439,7 @@ class WindowsWorkflowTests(unittest.TestCase):
     def test_the_interrupted_battle_check_repeats_a_scenario_on_request(self):
         abandon = job("abandon-check")
         self.assertIn("options: [all, pairs-crash, multi-network, ffa-exit, ffa-host-crash, ffa-knockout, multi-knockout, "
-                      "stale-save]", WORKFLOW)
+                      "stale-save, coop-exit]", WORKFLOW)
         self.assertIn("format('[\"{0}\"]', inputs.abandon_scenario)", abandon)
         self.assertIn("inputs.attempts == '4' && '[1, 2, 3, 4]'", abandon)
         self.assertIn("|| '[1]') }}", abandon)                                 # the default: once

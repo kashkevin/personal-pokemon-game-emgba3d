@@ -27,7 +27,7 @@ from emerald_multiplayer.battle_execution_protocol import decode_control, encode
 from emerald_multiplayer.battle_journal import BattleIntent, FORMAT
 from emerald_multiplayer.battle_protocol import validate_battle_reply, validate_battle_request
 from emerald_multiplayer.battle_reservations import BattleReservations
-from emerald_multiplayer.launcher_session import GameInstallation, LauncherSession, LauncherSessionError
+from emerald_multiplayer.launcher_session import GameInstallation, LauncherSession, LauncherSessionError, SessionState
 from emerald_multiplayer.live_checkpoint import _json_bytes
 from emerald_multiplayer.native_battle import NativeBinding, NativeControl, Opcode
 from emerald_multiplayer.ownership import OWNERSHIP_PROFILE
@@ -652,6 +652,28 @@ class LauncherAbandonTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(self.pending.exists())
         self.assertIsNone(self.session._battle_abandoned)
         self.assertTrue(self.session.can_abandon_battle)
+        # the host's answer stays the status while the battle is held (before: "battle_recovery_held" at once)
+        self.assertEqual(self.session.status.code, "battle_still_running")
+
+    async def test_a_reconnect_wait_is_shown_until_the_next_action(self):
+        # The owner's decision #61: a teammate's game may still reconnect; the player sees why Abandon was refused
+        # and can still recover or abandon later.
+        from emerald_multiplayer.companion import BattleChallengeError
+        process = await self.held_game()
+        self.answers["abandon"] = BattleChallengeError("battle_reconnect_wait", "wait")
+        with self.assertRaises(LauncherSessionError) as refused:
+            await self.session.abandon_battle()
+        self.assertEqual(refused.exception.code, "battle_reconnect_wait")
+        self.assertIsNone(process.returncode)
+        self.assertTrue(self.pending.exists())
+        status = self.session.status
+        self.assertEqual((status.code, status.battle_abandon_available), ("battle_reconnect_wait", True))
+        self.session._publish(SessionState.RUNNING, "battle_recovery_held")     # the next action's own status
+        self.assertEqual(self.session.status.code, "battle_recovery_held")
+        # an abandonment later goes ahead
+        self.answers["abandon"] = lambda fields: dict(result=self.view)
+        self.assertEqual(await self.session.abandon_battle(), [self.view])
+        self.assertIsNotNone(process.returncode)
 
     async def test_a_disconnected_held_game_reconnects_to_abandon(self):
         await self.held_game()

@@ -415,6 +415,15 @@ class GuiWorkerTests(unittest.TestCase):
         self.worker._publish(SessionStatus(SessionState.RUNNING, "host_loss_preserved"))
         self.assertFalse(self.worker.holds_game)
 
+    def test_a_refused_abandonment_still_holds_the_game(self):
+        # The host's answer to Abandon stays the status while the battle is held (launcher_session.ABANDON_REFUSALS):
+        # the window keeps the game as for "battle_recovery_held".
+        for code in ("battle_recovery_held", "battle_reconnect_wait", "battle_still_running", "battle_result_final",
+                     "battle_abandon_unsupported", "battle_abandon_failed"):
+            with self.subTest(code=code):
+                self.worker._publish(SessionStatus(SessionState.RUNNING, code))
+                self.assertTrue(self.worker.holds_game)
+
     def test_connection_probe_returns_fixed_invitation_error(self):
         self.assertTrue(self.worker.start_probe(Path("missing-private-invitation.json")))
         self.assertEqual(self.finish_events()[-1].code, "invalid_invitation")

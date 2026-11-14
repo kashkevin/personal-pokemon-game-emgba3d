@@ -61,9 +61,9 @@ on:
         description: "full: only these check jobs after the builds (job ids, comma-separated, e.g. abandon-check,rival-proof; no-climb: tower-proof without its climb; tower:<entry>, mp:<entry>: those entries alone; blank = every job, the installer too)"
         default: ""
       abandon_scenario:
-        description: "full: the interrupted-battle check's scenario (all = the seven)"
+        description: "full: the interrupted-battle check's scenario (all = the eight)"
         type: choice
-        options: [all, pairs-crash, multi-network, ffa-exit, ffa-host-crash, ffa-knockout, multi-knockout, stale-save]
+        options: [all, pairs-crash, multi-network, ffa-exit, ffa-host-crash, ffa-knockout, multi-knockout, stale-save, coop-exit]
         default: all
       attempts:
         description: "full: how many times the interrupted-battle check runs each scenario, side by side (a failure that comes and goes)"
@@ -3216,6 +3216,9 @@ jobs:
     # free-for-all or a 2v2 that goes on to its result (knockout-a..d: the host's level-2 Torchic against level-30
     # Earthquake and Tackle users; in the 2v2 the host's partner is chosen so that the host is battler 0); the host's
     # route journal must show the host's game sending action menus with battler 0 out.
+    # coop-exit (the owner's decision #61): a battle together (a co-op Gym battle) whose teammate closes the game: the
+    # host's Abandon refused within the reconnection time, the leaver's launcher abandoning it as it opens the world
+    # and naming the leaver (the team's loss), the host's launcher following.
     # stale-save (KNOWN_ISSUES MS-60; scripts/multiplayer/native_launcher_stale_save_proof.py, two players): a battle
     # that cannot start, entered by a game with progress its host has not saved (the game's own START > SAVE). Its Enter
     # is refused before anything is held (the other trainer's menu says why, or its recorded Enter is cancelled
@@ -3229,7 +3232,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        scenario: ${{ fromJSON((inputs.abandon_scenario || 'all') == 'all' && '["pairs-crash", "multi-network", "ffa-exit", "ffa-host-crash", "ffa-knockout", "multi-knockout", "stale-save"]' || format('["{0}"]', inputs.abandon_scenario)) }}
+        scenario: ${{ fromJSON((inputs.abandon_scenario || 'all') == 'all' && '["pairs-crash", "multi-network", "ffa-exit", "ffa-host-crash", "ffa-knockout", "multi-knockout", "stale-save", "coop-exit"]' || format('["{0}"]', inputs.abandon_scenario)) }}
         attempt: ${{ fromJSON(inputs.attempts == '4' && '[1, 2, 3, 4]' || inputs.attempts == '3' && '[1, 2, 3]' || inputs.attempts == '2' && '[1, 2]' || '[1]') }}
     defaults:
       run:
@@ -3284,7 +3287,9 @@ jobs:
             exit
           fi
           fixture=${{ endsWith(matrix.scenario, '-knockout') && 'knockout' || 'abandon' }}
-          .venv/Scripts/python scripts/multiplayer/native_launcher_abandon_proof.py --scenario ${{ matrix.scenario }} \
+          extra=""
+          if [ "${{ matrix.scenario }}" = coop-exit ]; then extra="--interrupt-after 20"; fi
+          .venv/Scripts/python scripts/multiplayer/native_launcher_abandon_proof.py --scenario ${{ matrix.scenario }} $extra \
             --game inputs/pokeemerald-mp.exe --sdl inputs/SDL2.dll --rom inputs/pokedev.gba \
             --manifest inputs/manifest.json --pe-symbols symbols/pokeemerald-mp.nm.txt \
             --sizes symbols/pokeemerald-mp.sizes.txt --slow 1.5 \

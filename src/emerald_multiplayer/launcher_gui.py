@@ -17,7 +17,7 @@ import threading
 
 from .tk_threads import start_thread
 from .graphics_mode import EXIT_GRAPHICS_UNAVAILABLE, GraphicsPreference, MODE_3D, probe_graphics
-from .launcher_session import GameInstallation, LauncherSession, SessionState
+from .launcher_session import ABANDON_REFUSALS, GameInstallation, LauncherSession, SessionState
 from .network_diagnostics import ConnectionDetails
 from .player_runtime import RuntimeBundle
 from .secure_transport import is_overlay_address
@@ -95,8 +95,9 @@ _TEXT = {
     "battle_abandoned": "The interrupted battle was abandoned with no result. Your game continues from your last save.",
     "battle_abandoned_lost": "The interrupted battle together counts as a loss for your team: a game left it. Your game "
                              "continues from your last save.",
-    "battle_reconnect_wait": "Your teammate's game may still reconnect. A battle together can be abandoned 3 minutes after "
-                             "your teammate left; it then counts as a loss for your team.",
+    "battle_reconnect_wait": "Your teammate's game may still reconnect: choose Recover battle to go on when it does. A "
+                             "battle together can be abandoned 3 minutes after your teammate left; it then counts as a "
+                             "loss for your team.",
     "battle_abandon_unavailable": "There is no interrupted battle to abandon right now.",
     "battle_abandon_unsupported": "The host's version cannot abandon an interrupted battle. Update the host, or use Recover battle.",
     "battle_abandon_failed": "The battle could not be abandoned now. Check the connection to the host and try again.",
@@ -210,7 +211,7 @@ _RETAINS_GAME = frozenset({"host_loss_preserving", "host_loss_unsaved_held",
     "battle_recovering", "battle_recovery_held", "battle_recovery_not_ready", "battle_abandoning",
     "host_service_restarting", "host_service_restarted", "host_restart_failed", "host_restart_not_ready",
     "admission_canceling", "admission_cleanup_held", "admission_cleanup_unsupported",
-    "trade_recovery_checking", "trade_recovery_held"})
+    "trade_recovery_checking", "trade_recovery_held"}) | ABANDON_REFUSALS   # shown only while a battle is held
 
 
 @dataclass(frozen=True)

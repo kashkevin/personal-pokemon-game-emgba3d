@@ -37,6 +37,15 @@ ordinary key presses. Scenarios (--scenario):
                      Both knockout scenarios read the host's route journal: the master's action menus must have carried
                      battler 0's B_ACTION_NOTHING_FAINTED (the host out while the battle went on).
 
+    coop-exit        A battle together (the owner's decision #61, 2026-11-14: closing the game is no free retry). The
+                     host and Friend 1 form a team and enter a co-op Gym battle (Rustboro); Friend 1 closes its game
+                     during it. The host's Abandon is refused at once (battle_reconnect_wait: a teammate away less
+                     than three minutes may still come back) and the battle stays unresolved; Friend 1 starts the
+                     launcher again, which abandons it as it opens the world, naming Friend 1 as the player who left
+                     (the abandonment record's `left`: a battle together a game left is the team's loss - in the Tower
+                     Duo and the ladders a loss, in a co-op Gym the same as before); the host's launcher follows by
+                     itself. Friends 2 and 3 take no part.
+
 Every scenario then checks: everyone back on the field, linked to the other three ("Connected: 4/4"), every party the
 one from before the battle, no pending battle intent anywhere, the abandoned battle has no result (no archive entry, no
 free-for-all book entry) and its durable reservation is closed as abandoned; the harness's own end follows (all save,
@@ -83,7 +92,7 @@ def kill_hard(pid):
 
 
 PLAYER_NAMES = ("AB Host", "AB Friend 1", "AB Friend 2", "AB Friend 3")
-SCENARIOS = ("pairs-crash", "multi-network", "ffa-host-crash", "ffa-exit", "ffa-knockout", "multi-knockout")
+SCENARIOS = ("pairs-crash", "multi-network", "ffa-host-crash", "ffa-exit", "ffa-knockout", "multi-knockout", "coop-exit")
 
 
 def knockout_teams(player_ids):
@@ -754,6 +763,86 @@ class AbandonProof:
             stops, drivers = self.drive(current, probes, symbols, again, range(4))
             await self.finish(current, probes, again, range(4), stops, drivers, record, "rematch-free-for-all" + suffix)
             await self.world_is_whole(current, probes, before, record, "everyone-back-after-the-rematch" + suffix)
+
+    async def coop_exit(self, current, probes, games, host, symbols, record, before):
+        """The owner's decision #61: a battle together that a closed game left is not a free retry (the module text)."""
+        harness = self.harness
+        await self.form_teams(host, current, probes, record, teams=((0, 1),))
+
+        async def ask(s):
+            return await s._companion.world_rpc("gym_coop", gym=1)       # what Roxanne's script asks the host
+        request = await on_worker(current[0], ask)
+        record("coop-gym-challenge-issued", battle_id=request["battle_id"])
+        await probes[1].open_players()
+        await probes[1].choose("Pending challenge")
+        await probes[1].choose("Accept challenge")
+        await probes[0].open_players()
+        await probes[0].choose("Pending challenge")
+        battles = await self.enter(current, probes, (0, 1), record, "coop-gym")
+        battle_id = next(iter(battles))
+        require(battles[battle_id]["mode"] == 4, f"not a battle together: {battles[battle_id]}")
+        stops, drivers = self.drive(current, probes, symbols, battles, (0, 1))
+        await asyncio.sleep(self.interrupt_after)
+        for n in (0, 1):
+            stops[n].set()
+        await asyncio.gather(*drivers.values())
+        fate = await on_worker(current[0], self.host_fate(battle_id))
+        require(fate["result"] is None and fate["reservation"] == "unresolved",
+                f"the battle together ended before Friend 1 closed its game: {fate}")
+        await self.interrupt("exit", 1, current, games, record)
+        await harness.poll_until(lambda: not current[1].busy, 180)
+        record("launcher-after-the-exit", slot=1, status=getattr(current[1], "_status_code", None))
+        # The host asks to abandon at once: refused while its teammate may still reconnect; nothing changes.
+        async with asyncio.timeout(180):
+            while not (await self.state_of(current[0])).get("abandon_offered"):
+                await asyncio.sleep(.5)
+        require(current[0].request_battle_abandon(), "the host's launcher did not ask the host to abandon")
+        codes = []
+
+        async def presence(s):
+            friend = host.accounts[1].player_id
+            return dict(lease=s._server._connected_lease(friend), away=round(s._server._absent_seconds(friend), 1))
+        try:
+            async with asyncio.timeout(60):
+                while True:
+                    code = (await self.state_of(current[0])).get("code")
+                    if not codes or codes[-1] != code:
+                        codes.append(code)
+                    if code == "battle_reconnect_wait":
+                        break
+                    await asyncio.sleep(.25)
+        except TimeoutError:
+            raise AssertionError(f"the host's Abandon was not refused for the reconnection time: its launcher's codes "
+                                 f"{codes}; the battle {await on_worker(current[0], self.host_fate(battle_id))}; "
+                                 f"Friend 1 on the host {await on_worker(current[0], presence)}") from None
+        record("host-codes-after-asking", codes=codes, friend=await on_worker(current[0], presence))
+        fate = await on_worker(current[0], self.host_fate(battle_id))
+        require(fate["reservation"] == "unresolved" and not fate["abandonment_record"],
+                f"the battle was abandoned within the reconnection time: {fate}")
+        record("abandon-refused-while-the-teammate-may-reconnect", slot=0, host_battle=fate,
+               game_pid=(await self.state_of(current[0])).get("game_pid"))
+        # Friend 1 starts the launcher again: it abandons the battle as it opens the world, naming itself as the
+        # player who left; the host's launcher follows by itself.
+        again = await self.rejoin(1, current, probes, games, record)
+        await self.abandon_from(0, current, probes, games, record, explicit=False)
+        fate = await self.abandoned(current, battle_id, record)
+
+        async def left_of(s):
+            path = s._server.battle_execution.directory / (battle_id + ".abandoned.json")
+            return json.loads(path.read_text()).get("left")
+        left = await on_worker(current[0], left_of)
+        friend = host.accounts[1].player_id
+        require(left == [friend], f"the abandonment did not name Friend 1 as the player who left: {left}")
+
+        async def view(s):
+            from emerald_multiplayer.battle_abandonment import resolve_battle
+            return await resolve_battle(s._companion, battle_id, battles[battle_id]["generation"], abandon=False)
+        answers = [await on_worker(current[n], view) for n in (0, 1)]
+        require(all(a["state"] == "abandoned" and a["left"] == [friend] for a in answers),
+                f"the players' answers do not say who left: {answers}")
+        record("battle-together-left-by-a-closed-game", battle_id=battle_id, left=["AB Friend 1"],
+               answers=[a["state"] for a in answers], friend_code=(await self.state_of(again.worker)).get("code"))
+        await self.world_is_whole(current, probes, before, record, "everyone-back-after-the-coop-exit")
 
     async def ffa_knockout(self, current, probes, games, host, symbols, record, before):
         await self.challenge_ffa(probes)

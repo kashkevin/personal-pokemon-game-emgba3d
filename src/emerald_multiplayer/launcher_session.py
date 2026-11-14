@@ -71,8 +71,9 @@ _MESSAGES = {
     # The owner's decision #61 (battle_abandonment.py): a battle together that a game left counts as the team's loss.
     "battle_abandoned_lost": "The interrupted battle together counts as a loss for your team: a game left it. "
                              "Your game continues from your last save.",
-    "battle_reconnect_wait": "Your teammate's game may still reconnect. A battle together can be abandoned 3 minutes "
-                             "after your teammate left; it then counts as a loss for your team.",
+    "battle_reconnect_wait": "Your teammate's game may still reconnect: choose Recover battle to go on when it does. A "
+                             "battle together can be abandoned 3 minutes after your teammate left; it then counts as a "
+                             "loss for your team.",
     "battle_abandon_unavailable": "There is no interrupted battle to abandon right now.",
     "battle_abandon_unsupported": "The host's version cannot abandon an interrupted battle.",
     "battle_abandon_failed": "The interrupted battle could not be abandoned now. Check the connection to the host and try again.",
@@ -126,6 +127,10 @@ _MESSAGES = {
     "host_restart_failed": "The host service could not restart; retain every original game and retry after restoring the host configuration.",
     "ticket_settings_invalid": "This world's Legendary Tickets setting (the .tickets.json file beside the world) cannot be used; correct or remove it.",
 }
+
+# The host's refusals of Abandon (abandon_battle) that the status keeps while the battle stays held.
+ABANDON_REFUSALS = frozenset(("battle_reconnect_wait", "battle_still_running", "battle_result_final",
+                              "battle_abandon_unsupported", "battle_abandon_failed"))
 
 
 class LauncherSessionError(ValueError):
@@ -545,8 +550,12 @@ class LauncherSession:
                 notice = "host_restart_failed"
             return replace(value, state=SessionState.RUNNING, code=notice)
         if self._battle_recovery_failed and self._game is not None and self._game.process.returncode is None:
-            return replace(value, state=SessionState.RUNNING, code=("admission_cleanup_held"
-                if self._status.code == "admission_cleanup_held" else "battle_recovery_held"))
+            # The host's answer to Abandon (abandon_battle) stays the status while the battle is held, not "recovery
+            # held": the player sees why it was refused - a teammate's game that may still reconnect (the owner's
+            # decision #61), a battle still running - until the next action. Before, the next status said "held" at once.
+            kept = self._status.code
+            return replace(value, state=SessionState.RUNNING, code=(kept
+                if kept == "admission_cleanup_held" or kept in ABANDON_REFUSALS else "battle_recovery_held"))
         emergency = self._emergency
         if emergency is not None and emergency.lost.is_set():
             return replace(value, code="host_loss_" + emergency.result.state)
