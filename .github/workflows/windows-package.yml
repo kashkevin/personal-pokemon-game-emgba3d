@@ -2541,8 +2541,13 @@ jobs:
           # Petalburg City in turn, five times each, in one game process: the memory after a map rises to the heaviest
           # scene's so far and stays there (the Linux build, after Route 119 each time: 479, 581, 583, 581, 581 MB). It
           # fails when a run's probe fails or logs no memory, when the built trees' peak is over the trees' as before by
-          # more than a tenth (a regression), or when Route 119's fifth visit leaves more than a tenth over its second
-          # (memory kept on every visit: a leak); an engine without them is noted, not failed. What it says: this
+          # more than a tenth (a regression), or when Route 119's fifth visit raises the process's peak over its
+          # second's by more than a twentieth (memory kept on every visit, a leak, lifts everything after it and so the
+          # peak, which only rises); an engine without them is noted, not failed. The memory in use after a map is the
+          # working set Windows trims as it likes: in runs 464, 466 and 468 it swung by a tenth and more between
+          # visits with no trend (369-421 MB, the fifth visit at times under the second; private alike, 441-505 MB)
+          # while the peak stood within 1% from the second visit on (437-441 MB) - judged on that swing, run 468
+          # failed with no leak; it is reported, the peak judged. What it says: this
           # Windows build's memory with each tree style through Mesa's llvmpipe (a 32-bit program); nothing about a GPU,
           # whose triangles are the card's own work.
           import os, pathlib, re, subprocess, sys
@@ -2610,13 +2615,16 @@ jobs:
                                 "before by more than a tenth")
           # the revisits: after the starting map, Route 119 and Petalburg City in turn (Petalburg's fifth not logged:
           # the game ends there)
-          again = [s[1] for s in measure("revisits as built", revisits, 10, "voxel", None) if s[0] == "0.34"]
+          visits = [s for s in measure("revisits as built", revisits, 10, "voxel", None) if s[0] == "0.34"]
+          again = [s[1] for s in visits]
+          climb = [s[2] for s in visits]
           if len(again) >= 5:
               lines.append(f"- Route 119 five times with the built trees, in use after each visit: "
-                           + ", ".join(f"{n} MB" for n in again))
-              if again[4] > again[1] * 1.10:
-                  failed.append(f"Route 119's fifth visit left {again[4]} MB in use, over its second's {again[1]} MB"
-                                " by more than a tenth")
+                           + ", ".join(f"{n} MB" for n in again) + "; the process's peak by then: "
+                           + ", ".join(f"{n} MB" for n in climb))
+              if climb[4] > climb[1] * 1.05:
+                  failed.append(f"Route 119's fifth visit raised the process's peak to {climb[4]} MB, over the "
+                                f"{climb[1]} MB of its second by more than a twentieth (memory kept on every visit)")
           elif not any(f.startswith("revisits") for f in failed):
               failed.append(f"the revisits logged Route 119 {len(again)} times, not five")
           print("\n".join(lines))
