@@ -151,6 +151,8 @@ finished until implemented, regression-tested and verified on Windows; nothing b
 
 ## 3. Decisions only the owner can make (options in `docs/owner-decisions.md`)
 
+**Decided on 2026-11-14** (`docs/owner-decisions.md` #59-#69): the straight rock walls kept and the tall grass's outlines softened (MS-248), the voxel trees' ground fixed (MS-245), a give-up in a battle together the team's loss with a confirmation and no free retry by closing the game (#51), the tickets' solo sources kept with co-op ones beside them and none sold (D1-D3), Parting Shot to the Gen 6 rule, a traded Egg's shininess kept, the casino's A + B + C (MS-85), MS-149 closed with a Heavy Ball description, U31-5 kept, the hint banner's plain wording (M27), and the objects' visual cleanup - their work in section 1. **Still the owner's: N8** (left out of this work; the build stays private). The text below is the list as it stood before.
+
 Decided on 2026-11-05 (section 0; `docs/owner-decisions.md` #35-50): G13, the ticket source, the character
 customization scope, the 39 upstream GBA tests, MS-42, U31-13, U31-16, the "built, your call" items (Xbox B, 3D
 vehicles, music, the BP shop, location privacy), G3, Eggs and Mail in trades, MS-161 and MS-118. Still the owner's:
