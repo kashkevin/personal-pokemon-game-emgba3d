@@ -115,6 +115,7 @@ the Battle Pike's rooms, the Pyramid's floors (their darkness is the game's), Tr
 | Class | Status |
 | --- | --- |
 | 1 | **In progress**: 17 layouts cut by hand, 24 places (engine `048f9503`: the Department Store 1F-5F, its rooftop's railing, the Museum 1F/2F, the harbors, the Cycling Road gates, the cable car stations, the Battle Tents' lobby, the Contest Lobby, the Day Care and its fence, the Safari Zone entrance); the rest as listed in the class |
-| 2-6 | Open |
+| 3 | **In progress**: the potted plants' outline fragments fixed (engine `84b9f2cb`: the house kit's plant its whole silhouette; Sootopolis's Mystery Events house's doorway behind its plants filled down its columns); open: the lounges' plant cards, the smeared sides, the cracks, the Elite Four's platforms |
+| 2, 4-6 | Open |
 
 Nothing here is verified on Windows or a graphics card; every picture is Linux, Mesa's software renderer.
