@@ -306,7 +306,8 @@ class TicketProof:
         return dict(expected=[probe.party_now() for probe in probes], revisions=[2, 3])
 
     async def players_page(self, probe, record):
-        """PLAYERS > World and my base > Frontier and League > Legendary Tickets, and the Old Sea Map's page."""
+        """PLAYERS > World and my base > Frontier and League > Legendary Tickets, the Eon Ticket's page (two ways to earn it)
+        and the Old Sea Map's page."""
         from native_launcher_ffa_proof import close_players
         await probe.open_players()
         await probe.choose("World and my base")
@@ -322,7 +323,21 @@ class TicketProof:
         await asyncio.to_thread(game_picture, probe, self.harness.output / name)
         record("tickets-players-page", title=screen.title, status=screen.status, rows=rows, picture=name)
         require((screen.title, screen.status) == ("Legendary Tickets", "Given: 1 of 4"), f"the page: {screen}")
-        require("Old Sea Map: GIVEN" in rows and "Eon Ticket: 1/2" in rows, f"the page's rows: {rows}")
+        # the owner's decision #62 (2026-11-14): the Eon Ticket has two ways (the Hall of Fame twice alone, or the
+        # co-op League once), so its row says "not yet" and its own page shows each way's progress; a ticket with one
+        # way (the Aurora Ticket) shows that way's progress in its row
+        require(rows == ["Eon Ticket: not yet", "Mystic Ticket: not yet", "Aurora Ticket: 0/3", "Old Sea Map: GIVEN",
+                         "Back"], f"the page's rows: {rows}")
+        _, screen = await probe.choose("Eon Ticket: not yet")
+        rows = [row.label for row in screen.rows]
+        name = "players-eon-ticket.png"
+        await asyncio.to_thread(game_picture, probe, self.harness.output / name)
+        record("tickets-players-eon-ticket-page", title=screen.title, status=screen.status, rows=rows, picture=name)
+        require((screen.title, screen.status) == ("Eon Ticket", "Any one of these earns it") and
+                rows == ["Island: Southern Island", "Hall of Fame: 1/2", "Co-op League: 0/1", "Back"],
+                f"the Eon Ticket's page: {screen.title!r} {screen.status!r} {rows}")
+        _, screen = await probe.choose("Back")
+        require(screen.title == "Legendary Tickets", f"Back from the Eon Ticket's page: {screen.title!r}")
         _, screen = await probe.choose("Old Sea Map: GIVEN")
         rows = [row.label for row in screen.rows]
         name = "players-old-sea-map.png"
