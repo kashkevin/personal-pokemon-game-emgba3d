@@ -3132,6 +3132,13 @@ GitHub's Windows runners (`windows-2022`, GitHub-hosted, no graphics card), real
 | The 3D job's checks after one fails: each from the frame rate on runs whatever an earlier check found, once Mesa is in place (`if: ${{ !cancelled() && steps.mesa.outcome == 'success' }}`; a failing check still fails the job) | app (this change) | - | **built**: `test_windows_workflow`/`test_workflow_actions` 41 passed (241 subtests) | - | - | W: the next full run |
 | The engine for the next full run: the rules' C checks, the GBA ROM, the PC-only line check, the Windows 3D game | engine `88a283bc` | L | **passed**: `check-diorama`, the ROM byte-identical (`f214735b...3387`), no GBA line moved, `pokeemerald-mp-diorama.exe` built with MinGW (the usual three macro warnings of windows.h) | scratchpad `hullfix/*.log` | - | - |
 
+## Release run 462: the corners of raised tops, the terraces levelled by their stairs, Navel Rock and the new game's introduction on Windows (2026-11-14)
+
+| Test | Build / head | Where | Last result | Evidence | Changed since | Rerun? |
+| --- | --- | --- | --- | --- | --- | --- |
+| The full run [462](https://github.com/kashkevin/personal-pokemon-game-emgba3d/actions/runs/43545682209) (92 jobs: the builds, the app's tests, world loading with 600 saves, the engine's self-tests, the whole game's gameplay check in 2D and in 3D, multiplayer of 2-4 players, the Battle Tower in the launcher, world trades, minigames, interrupted battles, saves, the installation check with the update from CI-448's installer, the 3D job) | engine `3bb0e971`, app `beb1d6a` | W | **all 92 passed** on the first attempt (02:19-06:03 UTC; the Battle Tower climb 3 h 07 min, 02:56-06:03); both builds from that engine, the ROM `f214735b...3387`; the gameplay check's 2D report 3,611 targets passed (its others blocked by the story state); its 3D report's audit 9 screens uncovered against the baseline's 10, no state outside it; the 3D job as recorded under MS-249 | the run's logs (the 3D job's, the package job's and the reports' read through the GitHub API; the artifacts are not downloadable here) | - | - |
+| The installer `EmeraldTogether-Setup-Native-3D-CI-462.exe` (58,895,614 bytes, SHA-256 `087efef8...f2b7`; its 3D game `1ccfe46b...d52d`, its Classic 2D game `d3a13cea...b268`, the ROM `f214735b...3387`) | the same | W | **built** by the run's package job; **prepared, not distributed** (N8); `docs/package-20261114.md` | scratchpad `r462/package.txt` | - | - |
+
 ## Every place in 3D under the sanitizers at `3bb0e971` (2026-11-14): MS-248's corners, the stale chunks' check, today's terraces
 
 | Test | Build / head | Where | Last result | Evidence | Changed since | Rerun? |
